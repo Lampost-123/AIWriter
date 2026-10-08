@@ -146,6 +146,37 @@ export function scenesToRead(db: DB): ID[] {
   return (db.prepare(`${LIVE_IDS} AND ${BEHIND} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
 }
 
+/**
+ * Re-reading (World Memory Overhaul B8): one live scene, or every live scene of a story, that has words, in reading
+ * order, with their size (characters and words) for the cost estimate.
+ */
+export function scenesToReread(db: DB, target: { sceneId: ID } | { storyId: ID }): { id: ID; chars: number; words: number }[] {
+  const rows = (
+    'sceneId' in target
+      ? db.prepare(`SELECT s.id, length(s.text) AS chars, s.word_count ${LIVE} AND s.id = ? AND s.word_count > 0`).all(target.sceneId)
+      : db.prepare(`SELECT s.id, length(s.text) AS chars, s.word_count ${LIVE} AND c.story_id = ? AND s.word_count > 0 ${READING_ORDER}`).all(target.storyId)
+  ) as Row[]
+  return rows.map((r) => ({ id: r.id as string, chars: (r.chars as number) ?? 0, words: (r.word_count as number) ?? 0 }))
+}
+
+/**
+ * What the memory model has cost per token lately (B8), from its own runs' records with this model: the last 50 runs
+ * that reported both tokens and cost. Null when there are none.
+ */
+export function memoryCostPerToken(db: DB, modelId: string): number | null {
+  const r = db
+    .prepare(
+      `SELECT SUM(cost) AS cost, SUM(prompt_tokens + completion_tokens) AS tokens FROM (
+         SELECT cost, prompt_tokens, completion_tokens FROM memory_runs
+         WHERE model_id = ? AND cost IS NOT NULL AND prompt_tokens IS NOT NULL AND completion_tokens IS NOT NULL
+         ORDER BY created_at DESC LIMIT 50)`
+    )
+    .get(modelId) as Row | undefined
+  const cost = r?.cost as number | null
+  const tokens = r?.tokens as number | null
+  return cost != null && tokens ? cost / tokens : null
+}
+
 /** True when a live scene's latest text hasn't been read (or its last read failed). */
 export function needsReading(db: DB, sceneId: ID): boolean {
   return !!db.prepare(`${LIVE_IDS} AND s.id = ? AND ${BEHIND}`).get(sceneId)

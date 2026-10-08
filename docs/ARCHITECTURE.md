@@ -172,6 +172,16 @@ again, with Undo).
   becomes text-born; withdrawn, it is cleared (never an entry's summary); only `guessFields` count, so Adam's fields and
   the world builder's drafts are never touched; each has Undo and a suppression. To make room, some examples were cut,
   so the prompt is 5,948 characters (about 1,700 tokens; 5,806 before round 2) and still fits a 3,000-token model.
+- *B8, re-read buttons.* "Re-read this scene" (the binder's scene menu, the palette) and "Re-read the whole story" (the
+  story menu, the palette) open `features/memory/RereadDialog.tsx`, which first asks `estimateReread`
+  (`ipc/keeper.ts` `rereadEstimate`: the reading requests as `importing/estimate.ts` `guessReread` reckons them, priced at
+  what the memory model has lately cost per token in its own `memory_runs` records, `db/keeper.ts`
+  `memoryCostPerToken`, else at its prices; "Free with your local model" for a local server; "The cost isn't known"
+  otherwise), then `startReread` (in `ASKS_FIRST`, so the spending limit asks first). `Keeper.reread` queues the scenes
+  through the usual queue; `runScene` with `whole` reads every paragraph (`planRead` diffs against nothing), facts already
+  read told to the model as such. `MemoryStatus.rereading` carries progress; the top bar shows "Re-reading 3 of 12…"
+  with Stop (`stopReread`: the waiting scenes are dropped, the one being read stops with nothing applied). While there is
+  no model (the limit) the scenes stay asked for and go on when it comes back. Nothing is kept across a restart.
 
 ### How memory over time works
 

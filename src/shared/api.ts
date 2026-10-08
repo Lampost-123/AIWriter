@@ -19,6 +19,8 @@ import type {
   MemoryCheckUndo,
   SourceLink,
   MemoryStatus,
+  RereadEstimate,
+  RereadTarget,
   PinScope,
   StartAt,
   Summary,
@@ -233,6 +235,15 @@ export interface AppApi
    * asked of the model when nothing in the scene is unsure.
    */
   checkMemoryAgain(sceneId: ID): Promise<void>
+  /** "Re-read" (World Memory Overhaul B8): roughly what reading a scene, or a whole story, again in full would cost. */
+  estimateReread(target: RereadTarget): Promise<RereadEstimate>
+  /**
+   * Reads a scene, or every scene of a story, again in full with the memory model, through the memory keeper's queue
+   * (one at a time; progress in MemoryStatus.rereading). Refused while this month's spending limit holds AI calls.
+   */
+  startReread(target: RereadTarget): Promise<void>
+  /** Stops a re-read: the scenes still waiting are dropped and the one being read stops, with nothing applied. */
+  stopReread(): Promise<void>
   /** The memory check list (World Memory Overhaul B3): everything the memory isn't sure about, grouped by kind. */
   listMemoryChecks(): Promise<MemoryCheckItem[]>
   /**

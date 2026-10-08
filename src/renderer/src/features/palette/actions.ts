@@ -37,6 +37,7 @@ import { checkChapter, checkScene, checkStory, openConsistency } from '@/feature
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFiles'
 import { offerMemory, startImport } from '@/features/importing/importStore'
+import { rereadScene, rereadStory } from '@/features/memory/reread'
 import { enterFocus, leaveFocus } from '@/features/look/focusMode'
 import { openSampleWorld } from '@/features/setup/setupStore'
 import { goToStartScreen } from '@/features/start/home'
@@ -334,6 +335,18 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'build-memory':
         if (a.storyId) offerMemory(a.storyId)
         return
+      case 'reread-scene': {
+        if (!a.sceneId) return
+        const title = useOutlineStore.getState().outline?.scenes.find((s) => s.id === a.sceneId)?.title ?? ''
+        rereadScene(a.sceneId, title)
+        return
+      }
+      case 'reread-story': {
+        if (!a.storyId) return
+        const outline = useOutlineStore.getState().outline
+        rereadStory(a.storyId, outline?.story.id === a.storyId ? outline.story.title : '')
+        return
+      }
       case 'focus-mode':
         enterFocus()
         return

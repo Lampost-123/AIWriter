@@ -27,6 +27,7 @@ import {
   MessageCircleQuestion,
   PenLine,
   Plus,
+  RefreshCw,
   SearchCheck,
   Target as TargetIcon,
   Trash2
@@ -40,6 +41,7 @@ import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { requestChapterCardFocus } from '@/features/chapterCard/chapterCardEvents'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
 import { checkChapter, checkScene, useIssueCounts } from '@/features/consistency/checkStore'
+import { rereadScene } from '@/features/memory/reread'
 import * as actions from './actions'
 import { useCollapsed } from './collapsed'
 import {
@@ -658,6 +660,9 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             </RowMenuItem>
             <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void checkScene(menu.id, outline.story.id)}>
               Check this scene
+            </RowMenuItem>
+            <RowMenuItem icon={<RefreshCw size={14} />} onSelect={() => rereadScene(menu.id, sceneById.get(menu.id)?.title ?? '')}>
+              Re-read this scene
             </RowMenuItem>
             <RowMenuSeparator />
             <RowMenuItem icon={<Trash2 size={14} />} hint="Del" danger onSelect={() => remove({ kind: 'scene', id: menu.id })}>

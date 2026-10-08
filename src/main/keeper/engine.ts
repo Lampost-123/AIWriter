@@ -86,6 +86,9 @@ export class Keeper {
   private noModel: string | null = null
   private waiters: { ids: Set<ID>; resolve: () => void }[] = []
   private lastStatus = ''
+  /** Scenes Adam asked to have read again in full (B8), until each has been read; and how many he asked for at once. */
+  private readonly rereads = new Set<ID>()
+  private rereadTotal = 0
 
   constructor(private readonly deps: KeeperDeps) {
     this.db = deps.db
@@ -190,7 +193,7 @@ export class Keeper {
     if (id) {
       this.clearTimer(id)
       this.enqueue(id)
-    } else for (const s of kdb.scenesToRead(this.db)) this.enqueue(s)
+    } else for (const s of [...kdb.scenesToRead(this.db), ...this.rereads]) this.enqueue(s)
     this.emitStatus()
   }
 
@@ -203,6 +206,38 @@ export class Keeper {
     if (this.closed) return
     kdb.markNeedsReading(this.db, id)
     this.updateNow(id)
+  }
+
+  /**
+   * "Re-read this scene" / "Re-read the whole story" (World Memory Overhaul B8): these scenes are read again in full,
+   * every paragraph, though their text hasn't changed, in the order given, through the usual queue (one at a time; the
+   * spending limit holds them as it holds any read). Facts already read are told to the model so they aren't added
+   * twice; what it says anew is applied under the usual rules.
+   */
+  reread(ids: ID[]): void {
+    if (this.closed || !ids.length) return
+    if (!this.rereads.size) this.rereadTotal = 0
+    for (const id of ids) {
+      if (this.rereads.has(id)) continue
+      this.rereads.add(id)
+      this.rereadTotal++
+      this.clearTimer(id)
+      this.enqueue(id)
+    }
+    this.emitStatus()
+  }
+
+  /** Stop re-reading (B8): the scenes still waiting are dropped and the one being read now stops (nothing applied). */
+  stopReread(): void {
+    if (this.closed || !this.rereads.size) return
+    const ids = [...this.rereads]
+    this.rereads.clear()
+    this.rereadTotal = 0
+    const drop = new Set(ids)
+    // A scene also waiting for its own new words stays queued for those.
+    this.queue = this.queue.filter((x) => !drop.has(x) || kdb.needsReading(this.db, x))
+    if (this.current && drop.has(this.current.sceneId) && !kdb.needsReading(this.db, this.current.sceneId)) this.current.controller.abort()
+    this.emitStatus()
   }
 
   /** Adam asked for a new summary instead of his own. */
@@ -337,6 +372,7 @@ export class Keeper {
     this.urgent = []
     this.summaryAsks = []
     this.summaryDue = []
+    this.rereads.clear()
     const cur = this.current
     if (cur) {
       cur.controller.abort()
@@ -373,8 +409,10 @@ export class Keeper {
       behind,
       failed,
       reading: this.reading,
-      error: behind > 0 && this.noModel ? this.noModel : (failure?.error ?? null),
-      lastUpdate: kdb.lastUpdate(this.db)
+      error: (behind > 0 || this.rereads.size > 0) && this.noModel ? this.noModel : (failure?.error ?? null),
+      lastUpdate: kdb.lastUpdate(this.db),
+      // A re-read Adam asked for (B8): how many scenes are still to be read, of how many.
+      ...(this.rereads.size ? { rereading: { left: this.rereads.size, total: Math.max(this.rereadTotal, this.rereads.size) } } : {})
     }
   }
 
@@ -476,12 +514,15 @@ export class Keeper {
     const records = new Set<ID>()
     this.current = { sceneId: id, controller, records }
     const scene = kdb.keeperScene(this.db, id)
+    // Read in full when Adam asked for it to be read again (B8).
+    const whole = this.rereads.has(id)
     let outcome: RunOutcome
     try {
       outcome = await runScene(
         {
           db: this.db,
           model,
+          whole,
           signal: controller.signal,
           closed: () => this.closed,
           onReading: () => {
@@ -514,6 +555,9 @@ export class Keeper {
         asNow = now
       }
     }
+    // A re-read is done once the scene has been read (or tried, or is gone); one waiting for a model stays asked for.
+    if (whole && outcome.status !== 'no-model') this.rereads.delete(id)
+    if (!this.rereads.size) this.rereadTotal = 0
     try {
       await this.after(id, outcome, model, controller, records, asNow)
     } catch (e) {

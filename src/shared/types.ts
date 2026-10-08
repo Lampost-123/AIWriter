@@ -1379,6 +1379,26 @@ export interface MemoryStatus {
   error: string | null
   /** The last run that changed something, for the quiet "Memory updated" note. */
   lastUpdate: { at: string; runId: ID; changes: number } | null
+  /** A re-read Adam asked for (World Memory Overhaul B8): scenes still to be read, of how many. Missing when none. */
+  rereading?: { left: number; total: number }
+}
+
+/** What to read again in full (World Memory Overhaul B8): one scene, or every scene of a story. */
+export type RereadTarget = { sceneId: ID } | { storyId: ID }
+
+/** Roughly what a re-read costs, asked before it starts (B8). */
+export interface RereadEstimate {
+  /** Scenes with words that would be read, and their words. */
+  scenes: number
+  words: number
+  /** USD, roughly; null when not known (see `free`). */
+  cost: number | null
+  /** The memory model runs on this computer (a local server): nothing to pay. */
+  free: boolean
+  /** The memory model, as Settings › Models names it; null when there is none. */
+  model: string | null
+  /** Plain words when there is no model to read with (the fix is in Settings › Models). */
+  problem: string | null
 }
 
 /** Where a scene's memory stands: up to date, waiting to be read, or "Memory not updated". */

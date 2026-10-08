@@ -1,13 +1,18 @@
 // Marking scenes done and the memory keeper (milestone 2). The work is done in src/main/keeper/*;
 // this file connects it to the open world and the window.
+import type Database from 'better-sqlite3'
 import type { Handlers } from './index'
-import type { ID, MemoryLogItem } from '@shared/types'
+import type { ID, MemoryLogItem, RereadEstimate, RereadTarget } from '@shared/types'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
 import * as world from '../world'
 import { emit } from '../events'
 import { labeler } from '../memory/line'
-import { currentKeeper, markSceneDone, memoryStatus } from '../keeper'
+import { currentKeeper, markSceneDone, memoryModel, memoryStatus } from '../keeper'
+import { guessReread, rereadCost } from '../importing/estimate'
+import { getSettings } from '../settings'
+import { isLocalUrl } from '../ai/errors'
+import { UserError } from '../util'
 import { sceneMarkedDone } from '../history'
 import { loadShapeSafe } from '../keeper/places'
 import { answerItem, undoItem, type Outcome } from '../keeper/undo'
@@ -27,6 +32,9 @@ type KeeperMethods =
   | 'answerMemoryQuestion'
   | 'updateMemoryNow'
   | 'checkMemoryAgain'
+  | 'estimateReread'
+  | 'startReread'
+  | 'stopReread'
   | 'listMemoryChecks'
   | 'keepMemoryChecks'
   | 'removeMemoryCheck'
@@ -101,6 +109,22 @@ export const keeperHandlers: Handlers<KeeperMethods> = {
     currentKeeper()?.checkAgain(sceneId)
   },
 
+  // Re-read a scene or a whole story (World Memory Overhaul B8).
+  estimateReread: (target) => rereadEstimate(world.db(), target),
+  startReread: (target) => {
+    const db = world.db()
+    const m = memoryModel()
+    if ('error' in m) throw new UserError(m.error, 'no-memory-model')
+    const ids = kdb.scenesToReread(db, target).map((s) => s.id)
+    if (!ids.length) throw new UserError('There are no words to read there yet.')
+    currentKeeper()?.reread(ids)
+    emit('memory:status', memoryStatus())
+  },
+  stopReread: () => {
+    currentKeeper()?.stopReread()
+    emit('memory:status', memoryStatus())
+  },
+
   // The memory check list (World Memory Overhaul B3).
   listMemoryChecks: () => listMemoryChecks(world.db()),
   keepMemoryChecks: (facts) => {
@@ -117,6 +141,25 @@ export const keeperHandlers: Handlers<KeeperMethods> = {
     write(() => undoMemoryCheck(world.db(), undo))
     checksChanged()
   }
+}
+
+/**
+ * Roughly what a re-read costs (B8): the memory keeper's reading requests for those scenes (importing/estimate.ts), at
+ * what the memory model has lately cost per token in its own runs' records, else at its prices. Free when it runs on
+ * this computer; unknown (null) when neither is known.
+ */
+export function rereadEstimate(db: Database.Database, target: RereadTarget): RereadEstimate {
+  if ('sceneId' in target) repo.getScene(db, target.sceneId)
+  else repo.getStory(db, target.storyId)
+  const scenes = kdb.scenesToReread(db, target)
+  const words = scenes.reduce((n, s) => n + s.words, 0)
+  const m = memoryModel()
+  if ('error' in m) return { scenes: scenes.length, words, cost: null, free: false, model: null, problem: m.error }
+  const model = m.choice.label || m.choice.modelId
+  const free = m.target.kind === 'custom' && isLocalUrl(m.target.baseUrl)
+  if (free) return { scenes: scenes.length, words, cost: 0, free, model, problem: null }
+  const guess = guessReread(scenes, m.choice, getSettings().thinking?.memory ?? 'off')
+  return { scenes: scenes.length, words, cost: rereadCost(guess, m.choice, kdb.memoryCostPerToken(db, m.choice.modelId)), free, model, problem: null }
 }
 
 /** A Keep, Remove or Undo on the memory check list changed facts: the pages showing them read them again. */

@@ -137,11 +137,14 @@ function supportedElsewhere(db: DB, f: SceneFact, lost: Set<ID>): boolean {
   return links.some((l) => l.state === 'ok' && !lost.has(l.id))
 }
 
-/** What a run of this scene has to do, before asking the memory model. */
-export function planRead(db: DB, scene: KeeperScene): ReadPlan {
+/**
+ * What a run of this scene has to do, before asking the memory model. `whole` (B8, "Re-read"): every paragraph is read
+ * again, as if none had been read before; facts whose words are still there are told to the model as already read.
+ */
+export function planRead(db: DB, scene: KeeperScene, o: { whole?: boolean } = {}): ReadPlan {
   const version = scene.textVersion
   const paras = sceneParagraphs(scene.doc, scene.text)
-  const diff = diffParagraphs(scene.read, paras)
+  const diff = diffParagraphs(o.whole ? [] : scene.read, paras)
   const toRead = diff.changed.filter((p) => !(p.pid && diff.before.has(p.pid) && onlyTypos(diff.before.get(p.pid)!, p.text)))
 
   const facts = sceneFacts(db, scene.sceneId)
