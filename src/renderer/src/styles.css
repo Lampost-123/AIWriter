@@ -220,6 +220,10 @@
   --dur-view: 0ms;
   --motion-glide: ease-out;
   --motion-spring: ease-out;
+  /* Something closing (a menu, a dialog, a toast): nothing animates out in Classic. */
+  --dur-exit: 0ms;
+  /* A side panel sliding open or shut. */
+  --motion-drawer: ease-out;
   /* The light falling on the window's frame behind the page. */
   --glow: none;
 }
@@ -230,13 +234,22 @@
   --heading-font: 'Literata Variable', Georgia, 'Times New Roman', serif;
   --serif-font: 'Literata Variable', Georgia, 'Times New Roman', serif;
   --r-card: 14px;
-  --dur-press: 100ms;
-  --dur-quick: 160ms;
+  /*
+    The New look's speeds, by how often a thing happens (docs/ARCHITECTURE.md, "Motion"): instant for typing and
+    anything opened from the keyboard; a press 90ms; a hover or a menu 150ms; the selection, tabs, dialogs and
+    panels 220ms; a change of screen 280ms; rare moments (a scene done) 500-900ms, set where they play.
+  */
+  --dur-press: 90ms;
+  --dur-quick: 150ms;
   --dur-base: 220ms;
-  --dur-view: 260ms;
+  --dur-view: 280ms;
   --motion-glide: cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* A spring with a small overshoot (the selection pill, toasts, the Done tick). */
+  /* A spring with a small overshoot (toasts, the Done tick, menus opening). */
   --motion-spring: linear(0, 0.157 4.8%, 0.523 10.9%, 0.896 17.9%, 1.05 23.4%, 1.085 27.6%, 1.074 32.4%, 1.015 42.5%, 0.994 52.5%, 1.001 72%, 1);
+  /* Closing is quicker than opening. */
+  --dur-exit: 140ms;
+  /* Panels slide like a drawer: quick to start, long soft landing. */
+  --motion-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /*
@@ -378,6 +391,20 @@
   transform-origin: var(--radix-popper-transform-origin);
   animation: pop-in var(--dur-base) var(--motion-spring);
 }
+/*
+  The New look: the generic enter animations (animate-fade-in, animate-pop-in, animate-slide-up, also behind a variant
+  such as data-[state=open]:) take the look's own timing. Anything that sets its own New-look animation ([animation:…])
+  keeps it, and so does every other plain rule: these selectors are all inside :where(), so they weigh nothing (the
+  menus' rule above, and the closing rules below, win over them). Classic keeps 160/180ms ease-out.
+*/
+:where([data-look='new']) :where([class*='animate-fade-in'], [class*='animate-pop-in']):where(:not([class*='[animation'])) {
+  animation-duration: var(--dur-quick);
+  animation-timing-function: var(--motion-glide);
+}
+:where([data-look='new']) :where([class*='animate-slide-up']):where(:not([class*='[animation'])) {
+  animation-duration: var(--dur-base);
+  animation-timing-function: var(--motion-glide);
+}
 
 /* look-new:… applies a class in the New look only; look-classic:… in Classic only. */
 @custom-variant look-new (&:where([data-look='new'], [data-look='new'] *));
@@ -408,6 +435,7 @@
   --shadow-sheet: var(--elev-page);
   --ease-glide: var(--motion-glide);
   --ease-spring: var(--motion-spring);
+  --ease-drawer: var(--motion-drawer);
   --radius-card: var(--r-card);
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -773,6 +801,7 @@ body {
     --dur-quick: 0ms;
     --dur-base: 0ms;
     --dur-view: 0ms;
+    --dur-exit: 0ms;
   }
   *,
   *::before,

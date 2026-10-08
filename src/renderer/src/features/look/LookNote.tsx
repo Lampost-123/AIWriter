@@ -20,7 +20,7 @@ export function LookNote(): React.JSX.Element | null {
   return (
     <section
       aria-label="The new look"
-      className="fixed bottom-5 left-5 z-40 w-[340px] rounded-card bg-raise p-4 shadow-e3 ring-1 ring-line animate-[look-note-in_var(--dur-base)_var(--ease-spring)_both]"
+      className="fixed bottom-5 left-5 z-40 w-[340px] rounded-card bg-raise p-4 shadow-e3 ring-1 ring-line animate-[look-note-in_var(--dur-base)_var(--motion-spring)_both]"
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">

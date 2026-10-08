@@ -60,7 +60,14 @@ src/renderer/src/
 - **Look.** Colours come only from the theme tokens in `styles.css` (bg-surface,
   text-muted, border-line, bg-accent, text-ai ...). Amber (`ai`) marks AI suggestions,
   red (`danger`) only must-fix problems, green (`success`) done. Interface text is Inter;
-  prose is Literata (`font-serif`). Motion is 150–200 ms and never on text.
+  prose is Literata (`font-serif`).
+- **Motion** goes by how often a thing happens, at the New look's speeds (`--dur-*` in `styles.css`): instant (0)
+  for typing, switching scenes, arrow keys and anything done from the keyboard; press 90 ms; quick 150 ms (hovers,
+  menus opening); base 220 ms (the selection, tabs, dialogs, panels); view 280 ms (a change of screen); moment
+  500–900 ms only for rare moments (a scene done, the start screen). Exits are quicker than entries (140 ms) and
+  leave the way they came; nothing eases in. Text never moves: new AI words may fade in, never slide. Less motion
+  (Windows' Animation effects off) makes every change instant, View Transitions too. Classic keeps the 150–200 ms it
+  always had. See "The two looks", Motion.
 - **No jank.** No layout shift while loading (reserve space, render nothing rather than a
   flash), no modals or "are you sure?" for routine actions (make them undoable and show a
   toast), saving is automatic and silent, every AI action streams and can be stopped.
@@ -1319,7 +1326,7 @@ the palette (`import-manuscript`, `build-memory`).
   darkened a little so their text passes AA on every background they sit on.
 - **Reduced motion**: one rule in `styles.css` ends every transition and animation at once (and only once, so nothing
   loops or flickers) and turns off smooth scrolling. Code-driven motion asks `features/look/motion.ts`
-  (`reducedMotion()`, `scrollBehavior()`). Panels and popovers use 150–200 ms.
+  (`reducedMotion()`, `scrollBehavior()`). The speeds are in Rules, Motion.
 - **Focus mode** (`features/look/focusMode.ts`, pure decisions in `focusLogic.ts`, `FocusLayer.tsx`): F11 (also the
   top bar's button and the palette) on the writing page sets `<html data-focus>` and asks main to fill the screen
   (`setFullScreen`; it only undoes a full screen it made, and `look:fullScreen` ends focus mode if the window leaves
@@ -1636,9 +1643,13 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   Classic's values (exactly what each place used before): `--raise`, elevation (`--elev-1..3`, `--elev-page`; Tailwind
   `shadow-e1..3`, `shadow-sheet`), the kind inks (`--k-char`, `--k-place` ..., with `-soft` tints; `KIND_INK` in
   `features/world/kindIcons.ts`), `--heading-font` (`font-heading`), `--r-card` (`rounded-card`) and motion
-  (`--dur-press`, `--dur-quick`, `--dur-base`, `--dur-view`; `ease-glide`, `ease-spring`). The New look sets its own
-  per theme under `[data-look='new']`. Where a shape differs, a class says so with the `look-new:` variant (or
-  `look-classic:`). Less motion sets every duration to 0.
+  (`--dur-press`, `--dur-quick`, `--dur-base`, `--dur-view`, `--dur-exit`; `ease-glide`, `ease-spring`,
+  `ease-drawer`). The New look sets its own per theme under `[data-look='new']`. Where a shape differs, a class says so
+  with the `look-new:` variant (or `look-classic:`). Less motion sets every duration to 0.
+- **Motion in the New look** (the speeds are in Rules, Motion; Classic keeps exactly the motion it had, with no exits).
+  `features/look/motion.ts` keeps track of whether Adam is on the keyboard or the pointer (`keyboardDriven()`, and
+  `<html data-input>`): what he does from the keyboard happens at once. The generic enters (`animate-fade-in`,
+  `animate-pop-in`, `animate-slide-up`) take the look's timing from one zero-weight rule in `styles.css`.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.

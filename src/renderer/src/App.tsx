@@ -56,6 +56,7 @@ import { RecipePlan } from '@/features/recipes/RecipePlan'
 import { RecipeWatch } from '@/features/recipes/parts'
 import { installSpelling } from '@/features/spelling/install'
 import { installGoals } from '@/features/goals/goalStore'
+import { installInputModality } from '@/features/look/motion'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -85,11 +86,14 @@ export function App(): React.JSX.Element | null {
     // Writing by hand: spell check in step with the world and story, and the words written each day.
     const offSpelling = installSpelling()
     const offGoals = installGoals()
+    // The New look: whether Adam is on the keyboard or the pointer (what he does from the keyboard happens at once).
+    const offModality = installInputModality()
     return () => {
       offFlush()
       offMemory()
       offSpelling()
       offGoals()
+      offModality()
     }
   }, [init])
 
