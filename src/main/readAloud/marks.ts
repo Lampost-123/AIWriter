@@ -3,10 +3,12 @@
 // directly; AI Write keeps them as a cache and makes its AI calls through the task runner (src/main/ai/tasks.ts),
 // as 'speech' records with the Read aloud model.
 //
-// The AI's marks on a scene's paragraphs (who says each quote, and with Mark who says what how each line is said),
-// kept per scene in the app's user data folder, never in the world: one file per scene, each paragraph's marks
-// under its id with a hash of its words. A paragraph whose words change has its marks dropped, and is marked again
-// when it is next read aloud.
+// The AI's marks on a scene's paragraphs (what each line is, whose it is and how it is said), kept per scene in the
+// app's user data folder, never in the world: one file per scene, each paragraph's marks under its id with a hash of
+// its words. A paragraph whose words change keeps the marks of the lines it still has, word for word, unless the
+// speech tag beside a quote now names someone else ("he said" became "she said"); the rest is marked again when it is
+// next read aloud. The marks come from the director (director.ts), one call over a stretch of the scene; the older
+// marker prompts (LABEL_PROMPT, MARK_PROMPT) are kept for comparing them (`director: false`).
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { ID } from '@shared/types'
@@ -25,6 +27,9 @@ import {
   numbered,
   parseLabels,
   parseNumbered,
+  quoteKey,
+  quotesIn,
+  spansIn,
   UNKNOWN,
   unmarkedIn,
   withLabels,
@@ -32,10 +37,23 @@ import {
   type Para
 } from './speakers'
 import type { ParagraphMarks } from './types'
+import {
+  contextBlock,
+  DIRECT_PROMPT,
+  EMPTY_STATE,
+  linesByParagraph,
+  marksOfScript,
+  numberWindow,
+  parseDirection,
+  withDirection,
+  type ScriptState
+} from './director'
 
 /** A paragraph's marks as kept: with the hash of the words they were made for. */
 export interface KeptParagraph extends ParagraphMarks {
   hash: string
+  /** Each marked quote's speech tag, as `tagOf` reads it: when it changes, the quote is marked again. */
+  tags?: Record<string, string>
 }
 
 interface MarksFile {
@@ -64,6 +82,69 @@ function fromV1(paragraphs: Record<string, KeptParagraph>): Record<string, KeptP
 /** The hash a paragraph's marks are kept with: when its words change, so does this, and the marks are dropped. */
 export const textHash = (text: string): string => createHash('sha256').update(text).digest('hex').slice(0, 20)
 
+/** Who-words: the pronouns and capitalised words a speech tag names its speaker by. */
+const WHO_WORD = /^(?:he|she|they|i|we|you|it|him|her|them|me|us)$/i
+
+/**
+ * Who a quote's speech tag names, as words to compare: the pronouns and capitalised words in the rest of its sentence
+ * after it and in the narration just before it, back to the quote before ("“Go,” he said" is "he"; "Mara laughed.
+ * “Fine.”" is "mara"). Each quote by its key.
+ */
+export function tagsOf(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  const spans = spansIn(text)
+  spans.forEach((x, i) => {
+    if (!x.quote) return
+    const next = spans.slice(i + 1).find((y) => y.quote)
+    const after = text.slice(x.end, Math.min(next?.at ?? Infinity, x.end + 60)).split(/[.!?…]/)[0] ?? ''
+    const last = spans.slice(0, i).reverse().find((y) => y.quote)
+    const lead = text.slice(Math.max(last?.end ?? 0, x.at - 80), x.at)
+    const words = `${lead} ${after}`.match(/[\p{L}’'-]+/gu) ?? []
+    out[x.key] = words.filter((w) => WHO_WORD.test(w) || /^\p{Lu}/u.test(w)).map((w) => w.toLowerCase()).join(' ')
+  })
+  return out
+}
+
+/**
+ * The marks a paragraph whose words changed still keeps: those of the quotes and sentences it still has, word for
+ * word (each is kept under its own words), except a quote whose speech tag now names someone else (`tags`: the tags
+ * as they were; a quote with none known is marked again). Null when none are left.
+ */
+export function keptFor(k: ParagraphMarks & { tags?: Record<string, string> }, text: string): ParagraphMarks | null {
+  const now = tagsOf(text)
+  const keys = new Set(spansIn(text).map((x) => x.key))
+  // A quote's tag that changed (or was never known): its speaker, note and kind go, so it is marked again.
+  for (const key of Object.keys(now)) if (k.tags?.[key] === undefined || k.tags[key] !== now[key]) keys.delete(key)
+  const only = <T>(r: Record<string, T> | undefined): Record<string, T> | undefined => {
+    const kept = Object.fromEntries(Object.entries(r ?? {}).filter(([key]) => keys.has(key)))
+    return Object.keys(kept).length ? kept : undefined
+  }
+  const out: ParagraphMarks = {}
+  const speakers = only(k.speakers)
+  const delivery = only(k.delivery)
+  const kinds = only(k.kinds)
+  const voiced = only(k.voiced)
+  if (speakers) out.speakers = speakers
+  if (delivery) out.delivery = delivery
+  if (kinds) out.kinds = kinds
+  if (voiced) out.voiced = voiced
+  return Object.keys(out).length ? out : null
+}
+
+/** The marks kept for a paragraph, as reading reads them (without their hash). */
+const marksOf = (k: ParagraphMarks): ParagraphMarks => ({
+  ...(k.speakers ? { speakers: k.speakers } : {}),
+  ...(k.delivery ? { delivery: k.delivery } : {}),
+  ...(k.kinds ? { kinds: k.kinds } : {}),
+  ...(k.voiced ? { voiced: k.voiced } : {})
+})
+
+/** A paragraph's marks without the fields that are empty. */
+function nonEmpty(b: ParagraphMarks): ParagraphMarks {
+  const some = <T>(r: Record<string, T> | undefined): Record<string, T> | undefined => (r && Object.keys(r).length ? r : undefined)
+  return { speakers: some(b.speakers), delivery: some(b.delivery), kinds: some(b.kinds), voiced: some(b.voiced) }
+}
+
 /** An id that is safe as a file name (world and scene ids are made by the app; anything else is refused). */
 const SAFE_ID = /^[A-Za-z0-9_-]{1,80}$/
 
@@ -90,8 +171,13 @@ export class MarkStore {
     const out = new Map<string, ParagraphMarks>()
     for (const p of paragraphs) {
       const k = kept[p.pid]
-      if (!k || k.hash !== textHash(p.text)) continue
-      out.set(p.pid, { ...(k.speakers ? { speakers: k.speakers } : {}), ...(k.delivery ? { delivery: k.delivery } : {}) })
+      if (!k) continue
+      if (k.hash !== textHash(p.text)) {
+        const still = keptFor(k, p.text)
+        if (still) out.set(p.pid, still)
+        continue
+      }
+      out.set(p.pid, marksOf(k))
     }
     return out
   }
@@ -106,12 +192,18 @@ export class MarkStore {
     if (!file) return
     const now = new Map(scene.map((p) => [p.pid, textHash(p.text)]))
     const stays = ([pid, k]: [string, KeptParagraph]): boolean => (now.has(pid) ? now.get(pid) === k.hash : !all || all.has(pid))
-    const kept = Object.fromEntries(Object.entries(this.load(worldId, sceneId)).filter(stays))
+    const loaded = Object.entries(this.load(worldId, sceneId))
+    const kept = Object.fromEntries(loaded.filter(stays))
+    // A paragraph whose words changed keeps the marks of the lines it still has, under its new words.
+    const texts = new Map(scene.map((p) => [p.pid, p.text]))
+    for (const [pid, k] of loaded) {
+      if (pid in kept || !texts.has(pid)) continue
+      const still = keptFor(k, texts.get(pid)!)
+      if (still) kept[pid] = { hash: textHash(texts.get(pid)!), ...still, tags: tagsOf(texts.get(pid)!) }
+    }
     for (const b of blocks) {
       if (now.get(b.id) !== textHash(b.text)) continue
-      const speakers = b.speakers && Object.keys(b.speakers).length ? b.speakers : undefined
-      const delivery = b.delivery && Object.keys(b.delivery).length ? b.delivery : undefined
-      kept[b.id] = { hash: textHash(b.text), ...(speakers ? { speakers } : {}), ...(delivery ? { delivery } : {}) }
+      kept[b.id] = { hash: textHash(b.text), ...marksOf(nonEmpty(b)), tags: tagsOf(b.text) }
     }
     const out: MarksFile = { v: 2, paragraphs: kept }
     writeFileAtomic(file, JSON.stringify(out))
@@ -151,6 +243,9 @@ export interface MarkAhead {
   pid: string
   at: number
 }
+
+/** Characters of a scene the lab's director takes in one window (MCreader's: a large model takes a chapter at once). */
+export const DIRECTOR_WINDOW = 12000
 
 /** Paragraphs that failed to be marked are left alone this long, so a reading doesn't ask again and again. */
 const RETRY_MS = 120_000
@@ -211,8 +306,14 @@ export class Marker {
   constructor(
     private readonly store: MarkStore,
     private readonly ask: (sceneId: ID) => { call: Ask; stop: () => void } | { error: string },
-    private readonly done: (sceneId: ID, pids: string[], error: string | null) => void
+    private readonly done: (sceneId: ID, pids: string[], error: string | null) => void,
+    /** False: the older marker prompts (LABEL_PROMPT, MARK_PROMPT) instead of the director, for comparing them. */
+    private readonly opts: { director?: boolean } = {}
   ) {}
+
+  private get directing(): boolean {
+    return this.opts.director !== false
+  }
 
   private key = (worldId: ID, sceneId: ID): string => `${worldId}:${sceneId}`
 
@@ -280,8 +381,9 @@ export class Marker {
     return !!this.busy.get(key)?.has(b.id) && this.busyHash.get(key)?.get(b.id) === textHash(b.text)
   }
 
-  /** Asks the AI to note each part (Mark who says what). */
+  /** Asks the AI to note each part (Mark who says what); with the lab's director, to direct it. */
   private askParts(key: string, s: MarkingScene, parts: MarkPart[], quiet: boolean): void {
+    if (this.directing) return this.directParts(key, s, parts, quiet)
     for (const [i, part] of parts.entries()) {
       const call = this.begin(key, s, part.blockIds, quiet)
       if ('error' in call) {
@@ -322,6 +424,14 @@ export class Marker {
     const taken = (b: Para): boolean => (o.quiet ? this.busyFor(key, b) : !!busy?.has(b.id))
     const wanted = (b: Para, quote: string): boolean =>
       !!unplaced.get(b.id)?.has(quote) && !taken(b) && !this.gaveUp(key, b) && b.speakers?.[quote] === undefined
+    // The director takes the paragraphs with lines nobody can place whole, in big windows.
+    if (this.directing) {
+      const ids = s.blocks.filter((b) => quotesIn(b.text).some((q) => wanted(b, quoteKey(q)))).map((b) => b.id)
+      if (!ids.length) return this.busyIn(s.worldId, s.sceneId)
+      const skip = new Set(s.blocks.filter((b) => taken(b) || this.gaveUp(key, b)).map((b) => b.id))
+      this.directParts(key, s, markParts(s.blocks, ids, skip, DIRECTOR_WINDOW, DIRECTOR_WINDOW), !!o.quiet)
+      return this.busyIn(s.worldId, s.sceneId)
+    }
     const { parts, quotes } = numbered(s.blocks, wanted)
     if (!quotes.length) return this.busyIn(s.worldId, s.sceneId)
     const pids = [...new Set(quotes.map((q) => q.blockId))]
@@ -359,6 +469,73 @@ export class Marker {
         this.finish(key, s, call, pids, blocks, null)
       })
     return this.busyIn(s.worldId, s.sceneId)
+  }
+
+  /**
+   * The lab's director (director.ts): each part, in order, as one window from its first paragraph that needs marks to
+   * its last, every line numbered, told what the window before it ended on. A reply that can't be read, or leaves out
+   * too many quotes, is asked for once more. What it gives is laid under what is kept (the writer's tags first).
+   */
+  private directParts(key: string, s: MarkingScene, parts: MarkPart[], quiet: boolean): void {
+    const calls: { part: MarkPart; call: Call }[] = []
+    for (const [i, part] of parts.entries()) {
+      const call = this.begin(key, s, part.blockIds, quiet)
+      if ('error' in call) {
+        if (quiet) {
+          console.warn('[read aloud] the director could not be asked:', call.error)
+          break
+        }
+        const pids = parts.slice(i).flatMap((p) => p.blockIds)
+        this.gaveUpOn(key, s, pids)
+        this.done(s.sceneId, pids, call.error)
+        break
+      }
+      calls.push({ part, call })
+    }
+    const index = new Map(s.blocks.map((b, i) => [b.id, i]))
+    const system = DIRECT_PROMPT(s.cast, s.pov)
+    void (async () => {
+      let state: ScriptState = s.pov ? { ...EMPTY_STATE, pov: s.pov } : EMPTY_STATE
+      for (const { part, call } of calls) {
+        try {
+          const at = part.blockIds.map((id) => index.get(id)).filter((n): n is number => n !== undefined)
+          const window = s.blocks.slice(Math.min(...at), Math.max(...at) + 1).filter((b) => b.text.trim())
+          const { text, lines } = numberWindow(window)
+          const user = contextBlock(state, part.before) + text
+          const reply = Math.min(16000, 800 + lines.length * 60)
+          let got = await call.call({ system, user, reply, temperature: 0.3 })
+          let direction = got.text == null ? null : parseDirection(got.text)
+          const quotes = lines.filter((l) => l.quote)
+          const lacking = (): number[] => quotes.filter((l) => !direction?.lines.has(l.n)).map((l) => l.n)
+          if (got.text != null && (!direction || lacking().length > Math.max(1, quotes.length * 0.1) || direction.bad > 0)) {
+            const problem = !direction
+              ? 'Your reply was not one JSON object.'
+              : `Your reply had no entry for line${lacking().length === 1 ? '' : 's'} ${lacking().join(', ')}${direction.bad ? `, and ${direction.bad} entries could not be read` : ''}.`
+            got = await call.call({
+              system,
+              user: `${user}\n\n---\n\n${problem} Reply again with the whole JSON object, every quoted line included.`,
+              reply,
+              temperature: 0.3
+            })
+            const again = got.text == null ? null : parseDirection(got.text)
+            if (again && (!direction || again.lines.size >= direction.lines.size)) direction = again
+          }
+          if (!direction) {
+            this.finish(key, s, call, part.blockIds, null, got.error)
+            continue
+          }
+          if (direction.state) state = direction.state
+          const byPara = linesByParagraph(lines, direction)
+          const blocks = window
+            .filter((b) => part.blockIds.includes(b.id))
+            .map((b) => withDirection(b, marksOfScript(b.text, byPara.get(b.id), s.pov)))
+          this.finish(key, s, call, part.blockIds, blocks, null)
+        } catch (e) {
+          console.warn('[read aloud] directing failed', e)
+          this.finish(key, s, call, part.blockIds, null, null)
+        }
+      }
+    })()
   }
 
   /**

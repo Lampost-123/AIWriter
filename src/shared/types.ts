@@ -548,6 +548,11 @@ export interface SpeechSettings {
   style: string
   /** "Keep the narrator's voice steady": narration read plainly, only dialogue acted. */
   steadyNarrator: boolean
+  /**
+   * "Read thoughts, messages and letters in the character's voice": a thought, a text message, a chat line or a letter
+   * a character owns is read in their voice (a thought softly), not the narrator's. On by default.
+   */
+  voicedLines: boolean
   /** "Mark who says what": the AI also notes each line's tone and pace, a little ahead of the reading. */
   markSpeakers: boolean
   /**

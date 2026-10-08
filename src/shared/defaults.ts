@@ -123,6 +123,7 @@ export const defaultSpeechSettings = (): SpeechSettings => ({
   checkWords: false,
   style: 'A seasoned audiobook narrator: warm, unhurried, with natural pauses. Give dialogue life without overacting.',
   steadyNarrator: true,
+  voicedLines: true,
   markSpeakers: false,
   showSpeakers: false,
   sounds: false,

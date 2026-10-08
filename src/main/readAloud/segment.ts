@@ -27,6 +27,7 @@ interface Piece {
   role?: 'narrator' | 'other'
   quote?: { at: number; len: number }
   mood?: string
+  own?: string
 }
 
 /** One clip's stretch of a paragraph. */
@@ -40,6 +41,18 @@ export interface Utterance {
   role: 'narrator' | 'other'
   /** The whole quote it is part of (a quote of several sentences can be read in several clips). */
   quote?: { at: number; len: number }
+  /**
+   * A sentence of narration a character owns (the lab's director: a thought, a message, a letter), read as their
+   * line: the key of the sentence its marks are kept under. Its `quote` is the stretch read in their voice.
+   */
+  own?: string
+}
+
+/** A stretch of narration a character owns, read in their voice: where it is, and the key of its sentence's marks. */
+export interface VoicedRange {
+  at: number
+  end: number
+  key: string
 }
 
 /** A note on a sentence of narration: where the sentence is, and how it is read. */
@@ -85,18 +98,31 @@ function cutLong(piece: Piece): Piece[] {
  * Narration and quotes, in order. Each quote is whole, however many sentences it has. A quote with no closing mark
  * runs to the end of its paragraph, the way a speech that carries on into the next paragraph is written.
  */
-function roleSpans(text: string): Piece[] {
+function roleSpans(text: string, voiced: readonly VoicedRange[] = []): Piece[] {
   const out: Piece[] = []
   const re = new RegExp(QUOTE.source, 'g')
   let last = 0
   let m: RegExpExecArray | null
+  // Narration between quotes, with the stretches a character owns cut out as their own lines.
+  const narration = (from: number, to: number): void => {
+    let at = from
+    for (const v of voiced) {
+      if (v.end <= at || v.at >= to) continue
+      const a = Math.max(v.at, at)
+      const b = Math.min(v.end, to)
+      if (a > at) out.push({ text: text.slice(at, a), at, role: 'narrator' })
+      out.push({ text: text.slice(a, b), at: a, role: 'other', quote: { at: a, len: b - a }, own: v.key })
+      at = b
+    }
+    if (to > at) out.push({ text: text.slice(at, to), at, role: 'narrator' })
+  }
   while ((m = re.exec(text))) {
-    if (m.index > last) out.push({ text: text.slice(last, m.index), at: last, role: 'narrator' })
+    if (m.index > last) narration(last, m.index)
     out.push({ text: m[0], at: m.index, role: 'other', quote: { at: m.index, len: m[0].length } })
     last = m.index + m[0].length
     if (!m[0].length) re.lastIndex++
   }
-  if (last < text.length) out.push({ text: text.slice(last), at: last, role: 'narrator' })
+  if (last < text.length) narration(last, text.length)
   return out
 }
 
@@ -166,11 +192,18 @@ export function sameMood(a: LineDelivery, b: LineDelivery): boolean {
  * A paragraph split into the clips that will be spoken, from `start` (characters into it) to its end. `notes`: the
  * marks on its sentences of narration, so a clip keeps to one mood (or one turn between two).
  */
-export function segmentParagraph(pid: string, text: string, start = 0, notes: NarrationNote[] = []): Utterance[] {
+export function segmentParagraph(
+  pid: string,
+  text: string,
+  start = 0,
+  notes: NarrationNote[] = [],
+  voiced: readonly VoicedRange[] = []
+): Utterance[] {
   const raw: Piece[] = []
-  for (const span of roleSpans(text)) {
+  for (const span of roleSpans(text, [...voiced].sort((a, b) => a.at - b.at))) {
     for (const p of roughPieces(span.text)) {
-      for (const q of cutLong({ text: p.text, at: span.at + p.at })) raw.push({ ...q, role: span.role, quote: span.quote })
+      for (const q of cutLong({ text: p.text, at: span.at + p.at }))
+        raw.push({ ...q, role: span.role, quote: span.quote, ...(span.own ? { own: span.own } : {}) })
     }
   }
   const told = notes.filter((x) => x.how?.tone || x.how?.pace)
@@ -194,7 +227,15 @@ export function segmentParagraph(pid: string, text: string, start = 0, notes: Na
     const body = q.text.trim()
     if (!body) continue
     const from = q.at + (q.text.length - q.text.trimStart().length)
-    out.push({ pid, para: text, from, to: from + body.length, role: q.role ?? 'narrator', ...(q.quote ? { quote: q.quote } : {}) })
+    out.push({
+      pid,
+      para: text,
+      from,
+      to: from + body.length,
+      role: q.role ?? 'narrator',
+      ...(q.quote ? { quote: q.quote } : {}),
+      ...(q.own ? { own: q.own } : {})
+    })
   }
   return out
 }
