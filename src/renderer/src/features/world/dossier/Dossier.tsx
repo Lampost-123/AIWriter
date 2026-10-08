@@ -32,8 +32,9 @@ import { openAsk } from '@/features/ask/open'
 import { useOutline } from '@/features/binder/outlineStore'
 import { requestReveal } from '@/features/editor/reveal'
 import { EntryVoice } from '@/features/readAloud/EntryVoice'
-import { openSpeechSettings } from '@/features/readAloud/control'
+import { castVoiceText, voiceless } from '@/features/readAloud/castText'
 import { useVoices } from '@/features/readAloud/useVoices'
+import { useVoiceReveal } from '@/features/readAloud/voiceReveal'
 import { Portrait } from '@/features/views/Portrait'
 import { PortraitDrop } from '@/features/views/PortraitDrop'
 import { useEntryAsOf } from '@/features/views/useAsOf'
@@ -197,49 +198,44 @@ function Nothing({ children, onAdd }: { children: ReactNode; onAdd?: () => void 
 
 /** Opens a scene, at the words that name the entry when there are some. */
 /**
- * A character's read-aloud voice in the facts row (Adam couldn't find where to set it): the voice's name, "Described"
- * for one made from words, or "Not set". It goes to the voice's section below (or to Settings while read aloud is off,
- * where the section can't show yet). Read again when the keyboard leaves that section, so a change there shows here.
+ * A character's read-aloud voice in the facts row (Adam couldn't find where to set it): the voice their lines are read in
+ * (its name, "Auto: …" when the app gave it, "Made from their description"), or "Not set". It brings the voice's
+ * section into view (just under who they are) the way their name on the page or the Cast list does (voiceReveal.ts).
+ * Read again when the keyboard leaves that section, so a change there shows here.
  */
-function ReadAloudFact({ entry, sectionId, rev }: { entry: Entry; sectionId: string; rev: number }): React.JSX.Element {
+function ReadAloudFact({ entry, rev }: { entry: Entry; rev: number }): React.JSX.Element {
   const on = useApp((s) => !!s.settings?.speech.readAloud)
-  const [voice, setVoice] = useState<{ design: string; voice: string } | null>(null)
+  const [text, setText] = useState<string | null>(null)
   const { voices } = useVoices(on)
   useEffect(() => {
     let live = true
-    api
-      .getEntryReadAloud(entry.id)
-      .then((v) => live && setVoice(v.voice))
-      .catch(() => live && setVoice(null))
+    const read = (): void =>
+      void api
+        .readAloudCast()
+        .then((rows) => {
+          const row = rows.find((r) => r.id === entry.id)
+          if (live) setText(row && !voiceless(row) ? castVoiceText(row, voices) : '')
+        })
+        .catch(() => live && setText(''))
+    read()
+    // Left the voice's section: once more after its autosave (half a second of quiet) has written what was typed.
+    const again = rev ? setTimeout(read, 900) : undefined
     return () => {
       live = false
+      clearTimeout(again)
     }
-  }, [entry.id, rev])
-  const name = voice?.voice ? (voices?.find((v) => v.id === voice.voice)?.name ?? voice.voice) : voice?.design.trim() ? 'Described' : ''
-  const go = (): void => {
-    const box = document.getElementById(sectionId)
-    if (!on || !box || !box.childElementCount) {
-      openSpeechSettings()
-      return
-    }
-    const still = matchMedia('(prefers-reduced-motion: reduce)').matches
-    box.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' })
-    box.querySelector<HTMLElement>('textarea, input, button, [tabindex="0"]')?.focus({ preventScroll: true })
-  }
+  }, [entry.id, rev, voices])
+  const go = (): void => useVoiceReveal.setState((s) => ({ id: entry.id, n: s.n + 1 }))
   return (
     <div className="dz-fact">
       <span className="dz-caps">Read-aloud voice</span>
       <button
         type="button"
-        className={cn('dz-fact-v dz-fact-link', !name && 'is-empty')}
-        title={
-          on
-            ? `${name ? `${entry.name}'s read-aloud voice: ${name}.` : `${entry.name} has no read-aloud voice yet.`} Set it below.`
-            : 'Read aloud is off. Turn it on in Settings › Read aloud and dictation to give characters their own voices.'
-        }
+        className={cn('dz-fact-v dz-fact-link', !text && 'is-empty')}
+        title={`${text ? `${entry.name}'s read-aloud voice: ${text}.` : `${entry.name} has no read-aloud voice of their own yet.`} Set it below.${on ? '' : ' (Read aloud is off.)'}`}
         onClick={go}
       >
-        {name || 'Not set'}
+        {text === null ? ' ' : text || 'Not set'}
       </button>
     </div>
   )
@@ -832,7 +828,7 @@ export function Dossier({
             )}
           </div>
         ) : null}
-        {kind === 'character' && !asOf ? <ReadAloudFact entry={draft} sectionId={voiceBoxId} rev={voiceRev} /> : null}
+        {kind === 'character' && !asOf ? <ReadAloudFact entry={draft} rev={voiceRev} /> : null}
         <div className="dz-fact is-first">
           <FirstAppears name={draft.name} kind={kind} points={firsts} className="dz-first" />
         </div>
@@ -903,6 +899,7 @@ export function Dossier({
                     </Field>
                   }
                 />
+                <EntryVoice entry={draft} at="bottom" />
               </div>
               <div className="dz-col">
                 {at ? (
