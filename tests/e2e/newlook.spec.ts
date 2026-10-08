@@ -68,6 +68,10 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
   await area(win, 'Check').click()
   await expect(list(win)).toHaveAttribute('data-area-list', 'check')
   await expect(list(win).getByRole('button', { name: 'Consistency' })).toHaveAttribute('aria-current', 'page')
+  // With nothing found, one message and one way to check (the page's own button).
+  await expect(main(win).getByRole('heading', { name: 'No issues found' })).toBeVisible()
+  await expect(main(win).getByText('No open issues')).toHaveCount(0)
+  await expect(main(win).getByRole('button', { name: 'Check this story', exact: true })).toHaveCount(1)
 
   // A screen opened from the palette lights its own area: the style guide is in Write.
   await win.keyboard.press('Control+K')
