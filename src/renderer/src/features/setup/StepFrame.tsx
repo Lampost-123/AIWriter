@@ -34,7 +34,7 @@ export function StepFrame({
         // Kept in sight at the window's foot while a long step scrolls (a provider added, the style cards), so Continue
         // is never below the edge. It sticks above the page's bottom padding: a shadow of the frame's colour covers
         // that strip, so nothing scrolls past underneath it.
-        <div className="sticky bottom-0 z-10 mt-7 flex items-center gap-2 border-t border-line bg-bg pb-4 pt-4 shadow-[0_4rem_0_0_var(--bg)]">
+        <div data-step-foot className="sticky bottom-0 z-10 mt-7 flex items-center gap-2 border-t border-line bg-bg pb-4 pt-4 shadow-[0_4rem_0_0_var(--bg)] look-new:mt-9 look-new:pb-5">
           {back ? (
             <Button variant="ghost" icon={<ArrowLeft size={15} />} onClick={back}>
               Back
