@@ -16,6 +16,7 @@ const dockMenu = async (win: Page) => {
   await dock(win).getByRole('button', { name: 'More ways to write' }).click()
   return win.getByRole('menu')
 }
+const topToggle = (win: Page) => win.locator('[data-desk-topbar]').getByRole('button', { name: /^Scene details/ })
 const arrangement = (win: Page) => win.evaluate<string | null>('document.documentElement.dataset.arrangement ?? null')
 
 async function sampleWorld(
@@ -305,7 +306,7 @@ test('the spine in a narrower window: slim, its chevron opens the story over the
   await expect(story(win)).toBeVisible()
 })
 
-test('the drawer’s ways in: Scene details by the scene’s head, its line, the tools’ Details, the palette for each tab; each tab at one click', async ({ launch }) => {
+test('the drawer’s ways in: Scene details in the top bar and by the scene’s head, its line, the palette for each tab; each tab at one click', async ({ launch }) => {
   const { win } = await sampleWorld(launch)
   const head = win.locator('[data-page-title]')
   const tab = (name: RegExp) => drawer(win).getByRole('tab', { name })
@@ -326,6 +327,22 @@ test('the drawer’s ways in: Scene details by the scene’s head, its line, the
   await expect(tab(/Scene card|Card/)).toHaveAttribute('aria-selected', 'true', AT_ONCE)
   await press(win, drawer(win).getByRole('button', { name: 'Close the scene panel' }))
   await expect(drawer(win)).toBeHidden()
+  // The top bar's Scene details, beside the search, says what it is and shows and hides it at one click, lit while open.
+  const toggle = topToggle(win)
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('title', /card, context, cast, issues and drafts/)
+  await press(win, toggle)
+  await expect(drawer(win)).toBeVisible(AT_ONCE)
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true', AT_ONCE)
+  await press(win, toggle)
+  await expect(drawer(win)).toBeHidden()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false', AT_ONCE)
+  // The AI dock at the foot of the page doesn't carry it (phase 3); the top bar's is only on the writing page.
+  await expect(dock(win).getByRole('button', { name: /Scene details|Scene panel|Details/ })).toHaveCount(0)
+  await room(win, 'Plan').click()
+  await expect(toggle).toHaveCount(0)
+  await room(win, 'Write').click()
+  await expect(toggle).toBeVisible()
   // The palette opens it on any tab.
   for (const [query, name] of [
     ['scene issues', /^Issues/],
@@ -339,6 +356,46 @@ test('the drawer’s ways in: Scene details by the scene’s head, its line, the
     await win.keyboard.press('Enter')
     await expect(drawer(win)).toBeVisible()
     await expect(tab(name)).toHaveAttribute('aria-selected', 'true')
+  }
+})
+
+test('the drawer: full height beside the page in a large window, the sheet between it and the spine; a tab’s page scrolls to its last field', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  await press(win, topToggle(win))
+  await expect(drawer(win)).toBeVisible(AT_ONCE)
+  // Its pages scroll inside it, with the last field wholly in view at the end (none of it under the drawer's edge).
+  const page = drawer(win).locator('[role="tabpanel"][data-state="active"]')
+  await expect(page).toHaveAttribute('data-more-below', '')
+  await page.evaluate((el) => (el.scrollTop = el.scrollHeight))
+  await expect(page).not.toHaveAttribute('data-more-below', '')
+  const fits = await page.evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    const bottoms = [...el.querySelectorAll('*')].map((n) => n.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.bottom)
+    return { last: Math.max(...bottoms), edge: box.bottom }
+  })
+  expect(fits.last).toBeLessThanOrEqual(fits.edge - 8)
+  // In a large window: docked beside the page, as tall as the spine, and the sheet clear of both. (A window the screen
+  // can't hold, as on CI's 1440×900 screen, is checked at the size it gets: the sheet still clear of the spine.)
+  for (const [w, h] of [
+    [1920, 1080],
+    [2560, 1440]
+  ] as const) {
+    await app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, h] as [number, number])
+    await win.waitForTimeout(700)
+    const got = await win.evaluate<number>('innerWidth')
+    const spineBox = (await story(win).boundingBox())!
+    const sheet = (await win.locator('.desk-sheet').boundingBox())!
+    expect(sheet.x, `sheet clear of the spine at ${got}`).toBeGreaterThanOrEqual(spineBox.x + spineBox.width + 8)
+    if (got < w - 1) continue
+    await expect(drawer(win)).toHaveAttribute('data-docked')
+    const side = (await drawer(win).boundingBox())!
+    expect(sheet.x + sheet.width, `sheet clear of the drawer at ${w}`).toBeLessThanOrEqual(side.x - 8)
+    expect(Math.abs(side.y - spineBox.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(side.height - spineBox.height)).toBeLessThanOrEqual(1)
+    expect(side.width).toBeGreaterThanOrEqual(420)
+    // The five tabs on one line.
+    const tabs = await drawer(win).getByRole('tab').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))
+    expect(new Set(tabs).size).toBe(1)
   }
 })
 

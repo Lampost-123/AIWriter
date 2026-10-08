@@ -33,24 +33,12 @@ export function setFlyout(open: boolean): void {
 
 export const toggleFlyout = (): void => setFlyout(!useDeskStore.getState().flyoutOpen)
 
-let moving: ReturnType<typeof setTimeout> | undefined
-
 /** Opens the spine out to the whole story beside the page, or collapses it to its rings; kept for next time. */
 export function setSpineFull(full: boolean): void {
   const a = useApp.getState()
   if (!a.settings) return
   const deskStory = full ? 'full' : 'slim'
-  const instant = keyboardDriven()
-  useDeskStore.setState({ flyoutOpen: false, spineInstant: instant })
-  // The sheet glides across with the spine (desk.css, :root[data-spine-moving]). The mark goes up before anything
-  // changes, so the sheet's move is a transition however soon the page is measured.
-  const root = document.documentElement
-  clearTimeout(moving)
-  if (instant) delete root.dataset.spineMoving
-  else {
-    root.dataset.spineMoving = full ? 'out' : 'in'
-    moving = setTimeout(() => delete root.dataset.spineMoving, 320)
-  }
+  useDeskStore.setState({ flyoutOpen: false, spineInstant: keyboardDriven() })
   // At once on screen (the saved settings follow a moment later).
   useApp.setState({ settings: { ...a.settings, layout: { ...a.settings.layout, deskStory } } })
   void a.updateSettings({ layout: { deskStory } })

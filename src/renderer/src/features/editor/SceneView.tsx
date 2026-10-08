@@ -23,7 +23,7 @@ import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
 import { PageTitle } from './PageTitle'
 import { useDesk, useNewLook } from '@/features/look/look'
-import { sheetSides, useDeskFrame } from '@/layout/desk/deskFit'
+import { sheetSides, useDeskFrame, useSheetGlide } from '@/layout/desk/deskFit'
 import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
 import { Dock } from '@/features/desk/dock/Dock'
 import { DeskSceneKeys } from '@/features/desk/keys/DeskSceneKeys'
@@ -273,14 +273,15 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     }
   }
 
-  // The desk: the sheet sits in the middle of its room (beside the full spine, or the window clear of the slim one), and
-  // narrows when the window is too small for it. The paddings are the room either side of it; they glide as the spine
-  // opens out or collapses (desk.css), so the sheet moves across without its words re-wrapping. With room for the margin
-  // notes' column, the sheet keeps clear of it too.
+  // The desk: the sheet sits in the middle of its room (between the spine and the docked drawer), and narrows when the
+  // window is too small for it. The paddings are the room either side of it; they glide as the spine opens out or
+  // collapses and as the drawer docks or goes (useSheetGlide), so the sheet moves across without its words re-wrapping.
+  // With room for the margin notes' column, the sheet keeps clear of it too.
   const sides = sheetSides(frame)
-  const deskSides = desk ? { paddingLeft: sides.left, paddingRight: sides.right } : undefined
+  const glide = useSheetGlide(frame)
+  const deskSides = desk ? { paddingLeft: sides.left, paddingRight: sides.right, transition: glide } : undefined
   // What lies over the sheet (its fade, its tools) also keeps the scrollbar's room, as the page does (desk.css).
-  const overSheet = desk ? { paddingLeft: sides.left, paddingRight: sides.right + 10 } : undefined
+  const overSheet = desk ? { paddingLeft: sides.left, paddingRight: sides.right + 10, transition: glide } : undefined
 
   return (
     // The New look: the page is a sheet of paper lying on the window's frame (scene-sheet, styles.css). On the desk it is
@@ -332,7 +333,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <TypewriterLayer editor={editor} scrollerRef={scrollerRef} />
         {/* The desk: notes in the margin beside the sheet (or tabs on its edge in a smaller window), scrolling with it. */}
         {desk && shown && !error ? (
-          <MarginLayer editor={editor} sceneId={shown.id} scrollerRef={scrollerRef} sheetRef={columnRef} mode={frame.margin} place={`${sides.left}:${frame.sheetW}`} />
+          <MarginLayer editor={editor} sceneId={shown.id} scrollerRef={scrollerRef} sheetRef={columnRef} mode={frame.margin} place={`${sides.left}:${frame.sheetW}`} gliding={!!glide} />
         ) : null}
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">

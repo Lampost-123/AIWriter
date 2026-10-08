@@ -74,4 +74,14 @@ describe('where the desk’s pieces go for a window size', () => {
     const full = sheetSides(deskFit(1920, COLUMN, true))
     expect(full.left).toBe(STORY_RIGHT + (1920 - STORY_RIGHT - 776) / 2)
   })
+
+  it('with the scene drawer docked beside the page, the notes step away and the sheet keeps clear of the drawer', () => {
+    const f = deskFit(1920, COLUMN, true, true)
+    expect(f.drawerDocked).toBe(true)
+    expect(f.margin).toBe('tabs')
+    expect(f.rightMin).toBe(f.roomRight + GUTTER)
+    const s = sheetSides(f)
+    expect(s.left + 776 + s.right).toBe(1920)
+    expect(s.right).toBeGreaterThanOrEqual(f.roomRight + GUTTER)
+  })
 })

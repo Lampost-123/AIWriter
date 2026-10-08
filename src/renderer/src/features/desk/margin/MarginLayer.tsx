@@ -65,7 +65,8 @@ export function MarginLayer({
   scrollerRef,
   sheetRef,
   mode,
-  place
+  place,
+  gliding
 }: {
   editor: Editor
   sceneId: ID
@@ -74,6 +75,8 @@ export function MarginLayer({
   mode: 'column' | 'tabs'
   /** Where the sheet lies (its left side and width): when it moves without changing size, the notes follow. */
   place: string
+  /** The sheet is gliding across (the spine or the drawer changing): the notes wait out of sight, then settle. */
+  gliding?: boolean
 }): React.JSX.Element {
   const drawerOpen = useApp((s) => !!s.settings?.layout.inspectorOpen || s.askOpen)
   const dismissed = useMarginStore((s) => dismissedIn(s, sceneId))
@@ -199,7 +202,7 @@ export function MarginLayer({
       if (changesBlocks(transaction)) schedule()
     }
     editor.on('transaction', onTr)
-    // The sheet glides across as the spine opens out or collapses (its sides are a transition): measured once it lands.
+    // The sheet glides across as the spine or the drawer changes (its sides are a transition): measured once it lands.
     const scroller = scrollerRef.current
     scroller?.addEventListener('transitionend', schedule)
     let live = true
@@ -213,7 +216,7 @@ export function MarginLayer({
   }, [editor, sheetRef, scrollerRef, schedule, slipKey, sceneId])
   useLayoutEffect(() => {
     measure()
-  }, [measure, slipKey, sceneId, mode, place, fontSize, lineHeight, pageWidth])
+  }, [measure, slipKey, sceneId, mode, place, gliding, fontSize, lineHeight, pageWidth])
 
   // A note pushed along by the one above it glides there; a note that moved with its words moves at once.
   const placed = useRef(new Map<string, NoteGeo>())
@@ -246,6 +249,7 @@ export function MarginLayer({
       data-desk-margin={mode}
       data-focus-chrome
       data-away={drawerOpen || undefined}
+      data-gliding={gliding || undefined}
       className="desk-margin pointer-events-none absolute left-0 top-0 h-0 w-0"
     >
       {slips.map((slip, i) => {

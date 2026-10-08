@@ -401,6 +401,46 @@
 [data-arrangement='desk'] .desk-cmd:focus-visible {
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
+/* Scene details in the top bar: the drawer shown and hidden; lit in the accent while it is open. */
+[data-arrangement='desk'] .desk-drawer-toggle {
+  color: var(--muted);
+  background: color-mix(in oklab, var(--page) 62%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-drawer-toggle:hover {
+  background: color-mix(in oklab, var(--page) 88%, transparent);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-drawer-toggle:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .desk-drawer-toggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+[data-arrangement='desk'] .desk-drawer-toggle.is-on {
+  color: var(--fg);
+  background: var(--accent-soft);
+  box-shadow:
+    var(--sh-1),
+    inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent);
+}
+[data-arrangement='desk'] .desk-drawer-toggle.is-on svg {
+  color: var(--accent);
+}
+[data-arrangement='desk'] .desk-drawer-count {
+  color: var(--muted);
+  background: var(--surface-3);
+}
+[data-arrangement='desk'] .desk-drawer-count.is-must {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
 [data-arrangement='desk'] .desk-kbd {
   height: 20px;
   min-width: 20px;
@@ -576,13 +616,6 @@
 [data-arrangement='desk'] .desk-spine[data-instant] :is(.spine-capsule, .spine-slim, .spine-full) {
   transition: none !important;
 }
-/* While the spine changes shape, the sheet glides across with it (the same speeds and curve). */
-:root[data-spine-moving='out'] :is(.desk-scroller, .desk-over-sheet) {
-  transition: padding var(--dur-view) var(--motion-drawer);
-}
-:root[data-spine-moving='in'] :is(.desk-scroller, .desk-over-sheet) {
-  transition: padding var(--dur-exit) var(--motion-drawer);
-}
 [data-arrangement='desk'] .desk-spine :is(button):focus-visible {
   outline: 2px solid var(--lamp-2);
   outline-offset: 2px;
@@ -755,8 +788,8 @@
   }
 }
 
-/* The full spine: the whole story in the spine's light ink, on its leather (the binder's own tokens, retuned). */
-[data-arrangement='desk'] .spine-full {
+/* The full spine, and the drawer's head: the spine's light ink on its leather (the app's own tokens, retuned). */
+[data-arrangement='desk'] :is(.spine-full, .desk-leather) {
   --fg: var(--spine-fg);
   --muted: var(--spine-muted);
   --faint: var(--spine-faint);
@@ -1412,11 +1445,14 @@
   }
 }
 
-/* ---------- The scene drawer, over the page's right edge ---------- */
+/* ---------- The scene drawer, down the right edge: the spine's pair ---------- */
+/* The spine's shape and edge: its head on the leather, its pages on paper. Beside the page it lies on the desk as the
+   spine does; over the page's edge, it is lifted. */
 [data-arrangement='desk'] .desk-drawer {
-  background: var(--raise);
+  border-radius: 22px;
+  background: var(--page);
   box-shadow:
-    var(--sh-pop),
+    var(--sh-2),
     0 0 0 1px var(--desk-line);
   transition:
     opacity var(--dur-base) var(--motion-drawer),
@@ -1435,6 +1471,36 @@
 }
 [data-arrangement='desk'] .desk-drawer[data-instant] {
   transition: none !important;
+}
+[data-arrangement='desk'] .desk-drawer:not([data-docked]) {
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px var(--desk-line);
+}
+/* The five tabs share the drawer's width. */
+[data-arrangement='desk'] .desk-drawer [role='tablist'] > [role='tab'] {
+  flex: 1 1 auto;
+  justify-content: center;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-drawer-head {
+  background: linear-gradient(180deg, var(--spine-top) 0%, var(--spine) 100%);
+  box-shadow: inset 0 1px 0 rgb(255 240 215 / 0.11);
+}
+/* Each tab's page scrolls inside the drawer: room after its last field, and a soft fade at an edge while there is more
+   that way (SceneDrawer marks data-more-above and data-more-below). */
+[data-arrangement='desk'] .desk-drawer [role='tabpanel'] {
+  padding-bottom: 28px;
+  scroll-padding-bottom: 28px;
+}
+[data-arrangement='desk'] .desk-drawer [role='tabpanel'][data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
+}
+[data-arrangement='desk'] .desk-drawer [role='tabpanel'][data-more-above] {
+  mask-image: linear-gradient(to bottom, transparent, #000 20px);
+}
+[data-arrangement='desk'] .desk-drawer [role='tabpanel'][data-more-above][data-more-below] {
+  mask-image: linear-gradient(to bottom, transparent, #000 20px, #000 calc(100% - 36px), transparent);
 }
 
 /* ---------- Every other page: its room's frame, the page on a sheet ---------- */
@@ -1878,8 +1944,8 @@
     opacity var(--dur-exit) var(--desk-ease),
     visibility 0s linear var(--dur-exit);
 }
-/* While the sheet glides across (the spine opening out or collapsing), the notes wait out of sight, then settle beside it. */
-:root[data-spine-moving][data-arrangement='desk'] .desk-margin {
+/* While the sheet glides across (the spine or the drawer changing), the notes wait out of sight, then settle beside it. */
+[data-arrangement='desk'] .desk-margin[data-gliding] {
   opacity: 0;
   transition: none;
 }
