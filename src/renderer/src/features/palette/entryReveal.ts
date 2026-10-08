@@ -48,7 +48,7 @@ function pageOf(): HTMLElement | null {
 /** A section of the page by its title: the button that opens and closes it, and what is in it while it is open. */
 function sectionOf(page: HTMLElement, title: string): { button: HTMLButtonElement; body: HTMLElement | null } | null {
   for (const button of page.querySelectorAll<HTMLButtonElement>('button[aria-expanded][aria-controls]')) {
-    if (textOf(button.querySelector('span')) !== title) continue
+    if (textOf(button.querySelector('[data-section-title]') ?? button.querySelector('span')) !== title) continue
     const id = button.getAttribute('aria-expanded') === 'true' ? button.getAttribute('aria-controls') : null
     return { button, body: id ? document.getElementById(id) : null }
   }

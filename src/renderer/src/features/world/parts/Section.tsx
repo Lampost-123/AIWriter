@@ -58,7 +58,9 @@ export function Section({
             <Icon size={13} />
           </span>
         ) : null}
-        <span className="flex-1 text-[13.5px] font-semibold text-fg">{title}</span>
+        <span data-section-title className="flex-1 text-[13.5px] font-semibold text-fg">
+          {title}
+        </span>
         {meta ? <span className="text-[12px] tabular-nums text-faint">{meta}</span> : null}
       </button>
       {open ? (
