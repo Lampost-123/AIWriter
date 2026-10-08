@@ -191,10 +191,10 @@ const CLASSIC: Record<PaintedTheme, { bg: string; surface: string; page: string;
   dark: { bg: '#161514', surface: '#1d1c1a', page: '#1f1e1c', line: '#34312d', strong: '#46423d', accent: '#263548' },
   sepia: { bg: '#ece3cf', surface: '#f4ecd8', page: '#f8f1e0', line: '#dccfb2', strong: '#c9b996', accent: '#ecd9c4' }
 }
-/** The desk's colours per theme: the lit frame, the dark spine, the paper and the ink (layout/desk/desk.css). */
+/** The desk's colours per theme: the lit frame, the dark spine, the paper and the ink (layout/desk/desk.css: blue in Light and Dark, warm in Sepia). */
 const DESK: Record<PaintedTheme, { frame: string; glow: string; spine: string; page: string; ink: string; line: string; pill: string }> = {
-  light: { frame: '#e3d8c6', glow: 'rgb(255 214 150 / 0.7)', spine: '#2a2119', page: '#fffdf8', ink: '#231c14', line: '#d6cab6', pill: '#fffdf8' },
-  dark: { frame: '#0f0d0b', glow: 'rgb(78 104 150 / 0.45)', spine: '#2e2720', page: '#1e1a16', ink: '#f1e8da', line: '#3a332c', pill: '#2a241e' },
+  light: { frame: '#d8dee7', glow: 'rgb(255 255 255 / 0.7)', spine: '#212b44', page: '#fafbfc', ink: '#1b2130', line: '#c2cad6', pill: '#ffffff' },
+  dark: { frame: '#0d1220', glow: 'rgb(78 104 150 / 0.45)', spine: '#24304f', page: '#182033', ink: '#e8ecf4', line: '#3a4663', pill: '#1f2940' },
   sepia: { frame: '#dccdae', glow: 'rgb(255 214 150 / 0.55)', spine: '#3b2c1e', page: '#faf4e5', ink: '#3b2f22', line: '#cdbd9b', pill: '#faf4e5' }
 }
 
