@@ -65,7 +65,10 @@ src/renderer/src/
   for typing, switching scenes, arrow keys and anything done from the keyboard; press 90 ms; quick 150 ms (hovers,
   menus opening); base 220 ms (the selection, tabs, dialogs, panels); view 280 ms (a change of screen); moment
   500–900 ms only for rare moments (a scene done, the start screen). Exits are quicker than entries (140 ms) and
-  leave the way they came; nothing eases in. Text never moves: new AI words may fade in, never slide. Less motion
+  leave the way they came; nothing eases in. Text never moves: new AI words may fade in (opacity only, 160 ms) and
+  settle from amber into ink, never slide, and the page follows a draft being written by easing over time, never by
+  jumps. A screen's pieces arrive once a session (the desk's rooms), never again on coming back. Loops are only for
+  the AI at work (its dock's shimmer) and stop with less motion. Less motion
   (Windows' Animation effects off) makes every change instant, View Transitions too. Classic keeps the 150–200 ms it
   always had, except presses, which go in and come back as in the New look. See "The two looks", Motion.
 - **No jank.** No layout shift while loading (reserve space, render nothing rather than a
@@ -1714,9 +1717,53 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   its foot (the AI dock replaces it in phase 3), and the scene panel as a drawer over the page's edge
   (`layout/desk/SceneDrawer.tsx`; open = `layout.inspectorOpen`): full height down the right edge, beside the page
   while spine, sheet and drawer all fit (`deskFit`: the sheet centred between them, gliding as either comes or goes,
-  `useSheetGlide`), else over the page's edge; shown and hidden from the top bar's Scene details
+  `useSheetGlide`), making room for it in a smaller window (see The desk); shown and hidden from the top bar's Scene details
   (`layout/desk/DrawerToggle.tsx`), also from the page head's Scene details and a palette entry per tab. Its colours and materials are `layout/desk/desk.css` (contrast-tested), its app tests
-  `tests/e2e/desk.spec.ts`.
+  `tests/e2e/desk.spec.ts`. How the desk's writing room works is below, in "The desk".
+
+## The desk (UI overhaul, phases 2 and 3)
+
+The New look's desk layout (`arrangement: 'desk'`). It is still reached only in try-out builds and app tests
+(`DESK_READY` false, the default arrangement the panels) until Adam says it becomes the default.
+
+- **Where things go** is one pure function, `deskFit` (`layout/desk/deskFit.ts`, unit-tested), from the window's width,
+  the page's measured column (Adam's page width) and whether the spine is full and the drawer open. The sheet is
+  centred in the room between the spine and the drawer. The open drawer never lies over the page's words while room
+  can be made for it: first the sheet narrows (to `SHEET_MIN`, 640 px), then the full spine shows slim for now
+  (`spineYields`; Adam's `layout.deskStory` is untouched and the full spine comes back when the drawer closes), and only
+  in a window too small for both (about 1100 px) does the drawer lie over the page, which dims under it (Esc anywhere or
+  a click on the dimmed page closes it). The sheet's sides glide as the spine or drawer changes (`useSheetGlide`; at
+  once from the keyboard, while resizing, or with less motion), and a narrowed sheet takes its new width at once so
+  its words re-wrap once, not on every frame. The margin column needs the sheet within `MARGIN_SHIFT` (32 px) of the
+  middle; without room it folds into tabs on the sheet's edge.
+- **The AI dock** (`features/desk/dock/`) at the sheet's foot: the steer box (one-shot direction), Add below
+  (Generate's `'add'`), Continue (the tracked-change Continue aimed at the scene's end, `continueAtEnd`;
+  Ctrl+Shift+Enter, or Enter in the steer box) and the ⋯ menu. Its face follows `activityOf` (`dock/activity.ts`):
+  idle, busy (words so far, the model, Stop) or review (Accept with Tab, Reject with Esc). On the desk these are the
+  only Stop, Accept and Reject: the row under an AI change (`edits/SuggestionLayer.tsx`) keeps What the AI saw and
+  Other versions. The next-beat chip sits over it (`NextBeatChip`, `src/shared/beats.ts`).
+- **The margin** (`features/desk/margin/`) lives inside the page's own scroll area, so its notes scroll with the words
+  and nothing syncs scrolling. `pickSlips` (pure, unit-tested) decides the notes: the scene card (pinned beside the
+  title); entities named in the text (`mentions.ts` finds each one's first mention per paragraph, cached per
+  ProseMirror node, a moment after typing stops), scored by point of view, the card, a fact from this chapter and lore
+  rules, two to a paragraph and six in all; the scene's open issues found in the text by quote and occurrence
+  (Rewrite = Fix the text, Keep = ignore; live-check underlines never become notes); and one memory note for 15 s after
+  the memory reads the scene (`memoryRun.ts`, on `memory:changed`). `MarginLayer` measures each note's paragraph
+  (`data-pid` anchors, `anchors.ts`) only when something could have moved it (sizes, paragraphs coming and going,
+  fonts, at most four times a second while a draft streams) and `layoutNotes` pushes overlapping notes down in reading
+  order (220 ms glide). An entity's slip grows into its card (`EntityCard`: Open their page, Show beside the page).
+  Each note's × puts it away for the session (`marginStore`). The notes step away while the drawer is docked.
+- **The lamp** (streaming): new AI words fade in and a lamp line runs beside the paragraph being written
+  (`features/editor/arrival.ts`, decorations only, so the document and its undo are untouched); Continue's words fade
+  in its widget (`features/edits/arrivalSpans.ts`); the page follows the draft by time-based easing. Guarded by
+  `tests/e2e/desk-perf.spec.ts` (a 10,000-word scene).
+- **Arrival** (`layout/desk/arrival.ts`): the first time a room shows in a session its pieces arrive (sheet, spine,
+  notes one after another, the dock on the spring); later visits, the keyboard and less motion show them at once.
+- **The first scene's guide** is a slip at the top of the sheet on the desk (`FirstSceneGuide slip`), never over the
+  words; the panels keep the bar above the page.
+- **Tests**: `desk.spec.ts` (frame, spine, drawer and its make-room rules, dock, chip, margin notes),
+  `desk-perf.spec.ts`, and `desk.visual.spec.ts` (screenshots of the write room, flyout and drawer per theme; baselines
+  per platform, taken where they exist).
 
 ## The editor chat (Ask the world, October 2026)
 

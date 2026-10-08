@@ -1,7 +1,8 @@
 // The first scene's guide (milestone 6): a slim bar above the page of the scene the first-run setup opened, never
 // over the words. One step at a time: fill in the scene card, Generate (Ctrl+G), make the draft your own, Mark
 // done (Ctrl+Enter). It follows what Adam does rather than asking him to click Next, and goes away for good once
-// the scene is marked done or the guide is closed (Settings.firstRun is cleared).
+// the scene is marked done or the guide is closed (Settings.firstRun is cleared). On the desk it is a slip of paper
+// tucked at the top of the sheet, above the scene's head (`slip`), and points at the AI dock rather than Generate.
 
 import { Check, X } from '@/components/ui/icons'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -15,11 +16,11 @@ import { useOutlineStore } from '@/features/binder/outlineStore'
 import { cardFilled, GUIDE_STEPS, guideStep, type GuideStep } from './setupLogic'
 
 /** Shown above the page of the first scene only. */
-export function FirstSceneGuide({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+export function FirstSceneGuide({ sceneId, slip }: { sceneId: ID; slip?: boolean }): React.JSX.Element | null {
   const firstRun = useApp((s) => s.settings?.firstRun ?? null)
   const worldId = useApp((s) => s.world?.id ?? null)
   if (!firstRun || firstRun.step !== 'guide' || firstRun.sceneId !== sceneId || firstRun.worldId !== worldId) return null
-  return <Guide key={sceneId} sceneId={sceneId} />
+  return <Guide key={sceneId} sceneId={sceneId} slip={slip} />
 }
 
 /** The guide is over: it never shows again. */
@@ -32,7 +33,7 @@ async function endGuide(): Promise<void> {
   }
 }
 
-function Guide({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+function Guide({ sceneId, slip }: { sceneId: ID; slip?: boolean }): React.JSX.Element | null {
   const words = useApp((s) => s.sceneWords)
   const drafting = useApp((s) => s.activeGeneration?.sceneId === sceneId)
   const briefingRev = useApp((s) => s.briefingRev)
@@ -76,6 +77,37 @@ function Guide({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
 
   if (step === 'finished') return null
   const n = GUIDE_STEPS.indexOf(step)
+
+  if (slip) {
+    // The desk: a slip of paper at the top of the sheet, its steps as small rings.
+    return (
+      <div role="region" aria-label="Your first scene" data-desk-guide className="desk-paper desk-guide k-guide">
+        <span className="s-head">
+          <span className="desk-caps s-kind">Your first scene</span>
+          <ol className="desk-guide-steps" aria-label={`Step ${n + 1} of ${GUIDE_STEPS.length}`}>
+            {GUIDE_STEPS.map((s, i) => (
+              <li key={s} aria-current={i === n ? 'step' : undefined} className={cn(i < n && 'is-done', i === n && 'is-on')}>
+                {i < n ? <Check size={10} aria-label="done" /> : i + 1}
+              </li>
+            ))}
+          </ol>
+        </span>
+        <p className="desk-guide-text" aria-live="polite">
+          <StepText step={step} drafting={drafting} desk />
+        </p>
+        {step === 'card' ? (
+          <span className="s-acts">
+            <button type="button" className="desk-sec-sm press" onClick={openCard}>
+              Open the scene card
+            </button>
+          </span>
+        ) : null}
+        <button type="button" className="desk-slip-x" aria-label="Close the guide" title="Close the guide" onClick={() => void endGuide()}>
+          <X size={12} />
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div role="region" aria-label="Your first scene" className="shrink-0 border-b border-line/70 bg-surface px-4 py-2 animate-fade-in">
@@ -125,17 +157,22 @@ function Keys({ id }: { id: 'generate' | 'markDone' | 'stop' }): React.JSX.Eleme
 
 const Strong = ({ children }: { children: ReactNode }): React.JSX.Element => <strong className="font-medium text-fg">{children}</strong>
 
-function StepText({ step, drafting }: { step: GuideStep; drafting: boolean }): React.JSX.Element {
+function StepText({ step, drafting, desk }: { step: GuideStep; drafting: boolean; desk?: boolean }): React.JSX.Element {
   if (step === 'card')
     return (
       <>
-        <Strong>Fill in the scene card</Strong> on the right: who’s in it, where it happens and what should happen.
+        <Strong>Fill in the scene card</Strong> {desk ? 'in Scene details' : 'on the right'}: who’s in it, where it happens and what should
+        happen.
       </>
     )
   if (step === 'generate')
     return drafting ? (
       <>
         <Strong>The AI is writing the scene.</Strong> Read along as it goes; <Keys id="stop" /> stops it.
+      </>
+    ) : desk ? (
+      <>
+        <Strong>Press Draft the scene</Strong> at the foot of the page <Keys id="generate" /> and the AI drafts it from its card and your world.
       </>
     ) : (
       <>

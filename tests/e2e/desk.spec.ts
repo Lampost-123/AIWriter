@@ -966,3 +966,40 @@ test('check and memory notes: an issue’s note beside its words with Rewrite an
     await fake.close()
   }
 })
+
+test('arrival: a room’s pieces arrive the first time it shows, never again; the first scene’s guide is a slip at the top of the sheet', async ({ launch }) => {
+  const { win } = await sampleWorld(launch)
+  // The World room, first time: its sheet rises in. Again later: it is simply there.
+  await room(win, 'World').click()
+  await expect(win.locator('[data-desk-room="world"]')).toHaveAttribute('data-arrive', 'true')
+  await room(win, 'Plan').click()
+  await expect(win.locator('[data-desk-room="plan"]')).toBeVisible()
+  await room(win, 'World').click()
+  await expect(win.locator('[data-desk-room="world"]')).toBeVisible()
+  await expect(win.locator('[data-desk-room="world"]')).not.toHaveAttribute('data-arrive', 'true')
+  // Back to writing: the spine doesn't slide in again.
+  await room(win, 'Write').click()
+  await expect(spine(win)).toBeVisible()
+  await expect(spine(win)).not.toHaveAttribute('data-arrive', 'true')
+
+  // The first scene's guide, on the desk: a slip at the top of the sheet, above the scene's head, never over the words.
+  const [first] = await invoke(win, 'listStories')
+  const { chapters } = await invoke(win, 'getOutline', first.id)
+  const empty = await invoke(win, 'createScene', chapters[1].id, { title: 'The Fog Bell' })
+  const worldId = (await invoke(win, 'getWorld'))!.id
+  await invoke(win, 'updateSettings', { firstRun: { worldId, step: 'guide', sceneId: empty.id } })
+  await win.reload()
+  await story(win).getByRole('treeitem', { name: /The Fog Bell/ }).click()
+  await expect(win.locator('[data-page-title] h1')).toHaveText('The Fog Bell')
+  const guide = win.getByRole('region', { name: 'Your first scene' })
+  await expect(guide).toBeVisible()
+  await expect(win.locator('.desk-sheet [data-desk-guide]')).toHaveCount(1)
+  await expect(guide).toContainText('Fill in the scene card')
+  await expect(guide.getByRole('button', { name: 'Open the scene card' })).toBeVisible()
+  const [g, head, prose] = [(await guide.boundingBox())!, (await win.locator('[data-page-title]').boundingBox())!, (await win.locator('.scene-prose').boundingBox())!]
+  expect(g.y + g.height).toBeLessThanOrEqual(head.y + 1)
+  expect(g.y + g.height).toBeLessThanOrEqual(prose.y)
+  await guide.getByRole('button', { name: 'Close the guide' }).click()
+  await expect(guide).toHaveCount(0)
+  await expect.poll(async () => (await invoke(win, 'getSettings')).firstRun ?? null).toBeNull()
+})

@@ -12,6 +12,7 @@ import { KIND_INK } from '@/features/world/kindIcons'
 import { AREAS, areaOf, type Area } from '@/layout/areas'
 import { chapterLinks, checkLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from '@/layout/areaLinks'
 import { useLinkContext } from '@/layout/AreaList'
+import { useArrival } from './arrival'
 
 /** A link in the room's row. */
 function SubLink({ link }: { link: AreaLink }): React.JSX.Element {
@@ -133,8 +134,10 @@ export function RoomFrame({ view, children }: { view: View; children: ReactNode 
   const c = useLinkContext()
   const where = useWhere(room)
   const name = room ? (AREAS.find((a) => a.id === room)?.label ?? '') : 'Settings'
+  // The first time a room shows this session, its sheet rises into place (layout/desk/arrival.ts).
+  const arriving = useArrival(`room:${room ?? 'settings'}`)
   return (
-    <div data-desk-room={room ?? 'settings'} className="desk-room absolute inset-0 flex flex-col">
+    <div data-desk-room={room ?? 'settings'} data-arrive={arriving || undefined} className="desk-room absolute inset-0 flex flex-col">
       {/* Settings, in no room, has its own heading and list on the sheet. */}
       {room ? (
         <div className="desk-room-head flex shrink-0 flex-wrap items-end justify-between gap-x-6 gap-y-2 pb-3 pt-2">

@@ -19,6 +19,7 @@ import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 import { MARGIN } from '@/layout/desk/deskFit'
+import { useArrival } from '@/layout/desk/arrival'
 import { KIND_LABELS } from '@shared/fields'
 import { useSceneNames } from '@/features/editor/names/sceneNames'
 import { nameIndex } from '@/features/editor/names/underlines'
@@ -132,6 +133,8 @@ export function MarginLayer({
   const lineHeight = useApp((s) => s.settings?.editor.lineHeight)
   const pageWidth = useApp((s) => s.settings?.editor.pageWidth)
   const writing = useApp((s) => s.view.kind === 'write')
+  // The first time the Write room shows this session, the notes come in one after another (layout/desk/arrival.ts).
+  const arriving = useArrival('write:notes')
   const { data: names } = useSceneNames(sceneId, writing)
   const { issues: allIssues } = useSceneIssues(sceneId)
   const memoryRun = useMemoryRun(sceneId)
@@ -356,6 +359,7 @@ export function MarginLayer({
       data-focus-chrome
       data-away={drawerOpen || undefined}
       data-gliding={gliding || undefined}
+      data-arrive={arriving || undefined}
       className="desk-margin pointer-events-none absolute left-0 top-0 h-0 w-0"
     >
       {slips.map((slip, i) => {
@@ -406,7 +410,8 @@ export function MarginLayer({
               top: g?.top ?? 0,
               width: geo?.width ?? MARGIN.width,
               visibility: g ? undefined : 'hidden',
-              ['--slip-tilt' as string]: `${tilt}deg`
+              ['--slip-tilt' as string]: `${tilt}deg`,
+              ['--i' as string]: i
             }}
           >
             {g && geo ? <Tether x1={g.wordX - geo.left} y1={g.wordY - g.top} x2={0} y2={slip.kind === 'card' ? g.wordY - g.top : TETHER_Y} /> : null}

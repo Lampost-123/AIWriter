@@ -580,6 +580,9 @@
   /* Slim: only its left 48px show (a clip, so nothing hidden can be clicked). It collapses in 140ms. */
   clip-path: inset(0 calc(100% - 48px) 0 0 round 24px);
   transition: clip-path var(--dur-exit) var(--motion-drawer);
+}
+/* The first time the Write room shows this session (layout/desk/arrival.ts), the spine slides in. */
+[data-arrangement='desk'] .desk-spine[data-arrive] .spine-capsule {
   animation: desk-spine-in 260ms var(--desk-ease) 60ms backwards;
 }
 /* Full: the capsule opens out to its whole width in 280ms. */
@@ -1524,6 +1527,10 @@
 [data-arrangement='desk'] .desk-room-head {
   padding-inline: max(40px, calc((100% - 1280px) / 2));
 }
+/* The first time a room shows this session (layout/desk/arrival.ts), its sheet rises into place under its heading. */
+[data-arrangement='desk'] .desk-room[data-arrive] .desk-room-sheet {
+  animation: desk-sheet-in 320ms var(--desk-ease) backwards;
+}
 [data-arrangement='desk'] .desk-room-title {
   margin-top: 2px;
   font: 600 30px/36px var(--heading-font);
@@ -1973,7 +1980,11 @@
   font-size: 13px;
   line-height: 1.4;
   font-variant-numeric: normal;
-  animation: desk-note-in 260ms var(--desk-ease) 200ms backwards;
+  animation: desk-note-in 260ms var(--desk-ease) backwards;
+}
+/* Arriving in the Write room for the first time this session, the notes come in one after another from 200ms. */
+[data-arrangement='desk'] .desk-margin[data-arrive] .desk-note {
+  animation-delay: calc(200ms + var(--i, 0) * 60ms);
 }
 @keyframes desk-note-in {
   from {
@@ -2392,6 +2403,64 @@
 [data-arrangement='desk'] .desk-entity[data-card='open'] > .desk-paper {
   opacity: 0;
   transition: opacity 120ms ease-out;
+}
+
+/* The first scene's guide on the desk: a slip tucked at the top of the sheet, above the scene's head (never over the
+   words), in the accent's ink, tilted a touch like the margin's notes. */
+[data-arrangement='desk'] .k-guide {
+  --kind: var(--accent);
+}
+[data-arrangement='desk'] .desk-guide {
+  max-width: 520px;
+  margin: -36px 0 32px;
+  rotate: -0.3deg;
+  font-family: var(--font-sans);
+  font-variant-numeric: normal;
+  animation: desk-note-in 260ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .desk-guide .s-head {
+  height: 20px;
+}
+[data-arrangement='desk'] .desk-guide-steps {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+[data-arrangement='desk'] .desk-guide-steps > li {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.25px var(--line-strong);
+  font: 600 10.5px/1 var(--font-sans);
+  color: var(--faint);
+  transition:
+    background-color var(--dur-base) ease-out,
+    color var(--dur-base) ease-out;
+}
+[data-arrangement='desk'] .desk-guide-steps > li.is-on {
+  background: var(--accent);
+  box-shadow: none;
+  color: var(--accent-fg, #fff);
+}
+[data-arrangement='desk'] .desk-guide-steps > li.is-done {
+  background: color-mix(in oklab, var(--success) 16%, var(--slip));
+  box-shadow: none;
+  color: var(--success);
+}
+[data-arrangement='desk'] .desk-guide-text {
+  margin: 8px 0 0;
+  padding-right: 8px;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-guide .desk-slip-x {
+  opacity: 1;
+}
+[data-arrangement='desk'] .desk-guide .s-head {
+  padding-right: 26px;
 }
 
 /* The entity's card, grown out of its slip: from the slip's top corner in 240ms, back in 180ms. */

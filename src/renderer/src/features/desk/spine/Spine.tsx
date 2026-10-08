@@ -24,6 +24,7 @@ import { STATUS_LABELS } from '@/features/binder/StatusDot'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { newSceneAfterOpen } from '@/features/palette/actions'
 import { useDeskFrame } from '@/layout/desk/deskFit'
+import { useArrival } from '@/layout/desk/arrival'
 import { setSpineFull, toggleFlyout, useDeskStore } from '../deskStore'
 import { Flyout } from './Flyout'
 import { spineLayout, type SpineChapter } from './spineLayout'
@@ -293,6 +294,8 @@ export function Spine(): React.JSX.Element {
   // While the open drawer needs the full spine's room, the spine shows slim and can't open out (Adam's choice is kept).
   const room = frame.fullRoom && !frame.spineYields
   const instant = useDeskStore((s) => s.spineInstant)
+  // The first time the Write room shows this session, the spine slides in (layout/desk/arrival.ts).
+  const arriving = useArrival('write:spine')
 
   return (
     <>
@@ -301,6 +304,7 @@ export function Spine(): React.JSX.Element {
         data-desk-spine
         data-shape={full ? 'full' : 'slim'}
         data-instant={instant || undefined}
+        data-arrive={arriving || undefined}
         className="desk-spine pointer-events-none absolute bottom-6 left-5 top-5 z-20 w-[320px]"
       >
         <div aria-hidden className="spine-capsule absolute inset-0" />

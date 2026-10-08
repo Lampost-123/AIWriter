@@ -302,8 +302,9 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <div className="h-12 shrink-0 border-b border-line/70" />
       )}
       <ReadAloudBar editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
-      {/* Milestone 6: the first scene's guide, above the page (never over the words). */}
-      {shown && !error ? <FirstSceneGuide sceneId={shown.id} /> : null}
+      {/* Milestone 6: the first scene's guide, above the page (never over the words). On the desk it is a slip at the
+          top of the sheet instead. */}
+      {shown && !error && !desk ? <FirstSceneGuide sceneId={shown.id} /> : null}
       <div
         ref={scrollerRef}
         onScroll={() => {
@@ -326,6 +327,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           }
         >
           {desk ? <Ribbon /> : null}
+          {desk && shown && !error ? <FirstSceneGuide sceneId={shown.id} slip /> : null}
           {desk && shown && !error ? (
             <DeskPageHead sceneId={shown.id} fallbackTitle={shown.title} />
           ) : isNew && shown && !error ? (
