@@ -212,7 +212,8 @@ export function proposedValid(t: TurnResult): boolean {
 export function asExpected(t: TurnResult): boolean {
   const e = t.expect
   if (e.do === 'propose') return proposedValid(t) || (!!e.orAsk && asked(t))
-  if (e.do === 'no-propose') return t.proposals.length === 0 && !drafted(t)
+  // A tool the turn should have called (Phase 3: find_mentions) counts only where the report has the calls.
+  if (e.do === 'no-propose') return t.proposals.length === 0 && !drafted(t) && (!e.tool || !t.toolCalls || calls(t, e.tool).length > 0)
   if (e.do === 'ask') return asked(t)
   return true
 }

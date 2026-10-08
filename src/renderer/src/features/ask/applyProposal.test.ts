@@ -12,6 +12,8 @@ import { sceneExtensions } from '@/features/editor/extensions'
 const main = vi.hoisted(() => ({
   /** The saved scenes' documents (JSON) and text. */
   scenes: new Map<string, { doc: unknown; text: string }>(),
+  /** The scenes' cards (beats, TEXTTOOLS). */
+  cards: new Map<string, { goal: string; beats: string[] }>(),
   saves: [] as string[],
   statuses: [] as string[],
   created: [] as unknown[],
@@ -31,7 +33,11 @@ vi.mock('@/lib/api', () => ({
   ApiError: class ApiError extends Error {},
   onEvent: () => () => undefined,
   api: {
-    getScene: async (id: string) => ({ id, ...main.scenes.get(id)! }),
+    getScene: async (id: string) => ({ id, ...main.scenes.get(id)!, card: main.cards.get(id) }),
+    updateSceneCard: async (id: string, card: { goal: string; beats: string[] }) => {
+      main.cards.set(id, card)
+      return card
+    },
     saveSceneText: async (id: string, doc: unknown, text: string) => {
       main.scenes.set(id, { doc, text })
       main.saves.push(id)
@@ -128,6 +134,7 @@ const edit = (id: string, find: string, replace: string): Proposal =>
 
 beforeEach(() => {
   main.scenes.clear()
+  main.cards.clear()
   main.saves.length = 0
   main.statuses.length = 0
   main.created.length = 0
@@ -269,5 +276,81 @@ describe('a new entry', () => {
     useAsk.setState({ turns: [{ generationId: 'g1', chatId: 'world:c1' } as never] })
     await applyChanges('g1', [lighthouse])
     expect(main.created).toEqual([expect.objectContaining({ originStoryId: null })])
+  })
+})
+
+describe('an insert, a cut, beats (TEXTTOOLS)', () => {
+  const base = { sceneId: 'sc1', sceneLabel: 'Ch 1, Sc 1', status: 'pending', why: '' }
+  const insert = (id: string, text: string): Proposal =>
+    ({ ...base, id, kind: 'insert', where: 'after', at: { paragraph: 1, pid: 'p0', offset: 0 }, near: 'The tide came in.', text }) as unknown as Proposal
+  const cut = (id: string): Proposal =>
+    ({ ...base, id, kind: 'cut', from: { paragraph: 2, pid: 'p1', offset: 0 }, to: { paragraph: 2, pid: 'p1', offset: 21 }, paragraphs: ['The gulls went quiet.'] }) as unknown as Proposal
+  const scene = (): PMNode => page('The tide came in.', 'The gulls went quiet.', 'Mara waited.')
+
+  it('inserts in the page as one step; Undo takes out only the new paragraphs, the scene open', async () => {
+    const p = openPage('sc1', scene())
+    const { undos } = await applyAndKeep('g1', [insert('a', 'She *paused*.')], {})
+    expect(textsOf(p.doc())).toEqual(['The tide came in.', 'She paused.', 'The gulls went quiet.', 'Mara waited.'])
+    p.type(1, 'Slowly, ')
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(textsOf(p.doc())).toEqual(['Slowly, The tide came in.', 'The gulls went quiet.', 'Mara waited.'])
+    expect(main.statuses).toEqual(['a:applied', 'a:pending'])
+  })
+
+  it('undoes an insert in the saved scene with it closed, and leaves new paragraphs Adam changed since', async () => {
+    const p = openPage('sc1', scene())
+    const { undos } = await applyAndKeep('g1', [insert('a', 'She paused.')], {})
+    p.close()
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(storedTexts('sc1')).toEqual(['The tide came in.', 'The gulls went quiet.', 'Mara waited.'])
+
+    main.statuses.length = 0
+    const q = openPage('sc1', scene())
+    const second = await applyAndKeep('g1', [insert('b', 'She paused.')], {})
+    q.type(q.doc().child(0).nodeSize + 1, 'Then ')
+    q.close()
+    const [r] = await undoChanges(second.undos)
+    expect(r.ok).toBe(false)
+    expect(storedTexts('sc1')).toEqual(['The tide came in.', 'Then She paused.', 'The gulls went quiet.', 'Mara waited.'])
+    expect(main.statuses).toEqual(['b:applied'])
+  })
+
+  it('cuts whole paragraphs; Undo puts them back in the saved scene, beside what Adam typed since', async () => {
+    const p = openPage('sc1', scene())
+    const { undos } = await applyAndKeep('g1', [cut('c')], {})
+    expect(textsOf(p.doc())).toEqual(['The tide came in.', 'Mara waited.'])
+    p.type(1, 'Slowly, ')
+    p.close()
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(storedTexts('sc1')).toEqual(['Slowly, The tide came in.', 'The gulls went quiet.', 'Mara waited.'])
+    expect(main.statuses).toEqual(['c:applied', 'c:pending'])
+  })
+
+  it('doesn’t cut paragraphs that were changed since it was proposed', async () => {
+    const p = openPage('sc1', page('The tide came in.', 'The gulls went very quiet.', 'Mara waited.'))
+    const { failed } = await applyAndKeep('g1', [cut('c')], {})
+    expect(failed[0]).toMatch(/aren’t in the scene as they were/)
+    expect(textsOf(p.doc())).toHaveLength(3)
+  })
+
+  it('changes the beats only while the card has the ones the chat saw; Undo puts the old ones back', async () => {
+    main.cards.set('sc1', { goal: 'Reach the stair', beats: ['A', '', 'B'] })
+    const beats = { ...base, id: 'b', kind: 'beats', op: 'insert', index: 3, before: ['A', 'B'], beats: ['A', 'B', 'C'] } as unknown as Proposal
+    const { undos } = await applyAndKeep('g1', [beats], {})
+    expect(main.cards.get('sc1')).toEqual({ goal: 'Reach the stair', beats: ['A', 'B', 'C'] })
+    // The goal changed meanwhile stays; the beats go back as they were.
+    main.cards.set('sc1', { goal: 'Climb', beats: ['A', 'B', 'C'] })
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(main.cards.get('sc1')).toEqual({ goal: 'Climb', beats: ['A', '', 'B'] })
+    // Beats changed since: neither applied nor undone.
+    main.cards.set('sc1', { goal: 'Climb', beats: ['A', 'X'] })
+    const again = await applyAndKeep('g1', [{ ...beats, id: 'b2' } as Proposal], {})
+    expect(again.failed[0]).toMatch(/beats were changed since/)
+    main.cards.set('sc1', { goal: 'Climb', beats: ['A', 'B'] })
+    const third = await applyAndKeep('g1', [{ ...beats, id: 'b3' } as Proposal], {})
+    main.cards.set('sc1', { goal: 'Climb', beats: ['A', 'B', 'C', 'D'] })
+    const [r] = await undoChanges(third.undos)
+    expect(r).toEqual({ ok: false, why: expect.stringMatching(/changed since, so Undo left them/) })
+    expect(main.cards.get('sc1')?.beats).toEqual(['A', 'B', 'C', 'D'])
   })
 })

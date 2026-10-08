@@ -207,6 +207,80 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
   }
 })
 
+// The chat overhaul's Phase 3 text tools (TEXTTOOLS; on by default, named here so the test keeps them).
+test('text tools: an insert goes in after its paragraph and Undo takes it out; a cut comes back with Undo, the scene closed; find_mentions shows its count', async ({
+  launch
+}) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 5 })
+  try {
+    const { win } = await launch({ env: { AIWRITE_EXP_CHAT_TEXTTOOLS: 'on' } })
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    await prose(win).click()
+    for (const [i, line] of ['The tide came in over the flats.', 'The gulls went quiet.', 'Mara waited by the wall.'].entries()) {
+      if (i) await win.keyboard.press('Enter')
+      await win.keyboard.type(line)
+    }
+    const sceneId = await firstScene(win)
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('waited by the wall')
+    const paragraphs = prose(win).locator('p')
+    await expect(paragraphs).toHaveCount(3)
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+
+    // An insert: the paragraph it goes after, faint, then the new words; nothing changes until Apply.
+    await ask(win, 'Add a line where she hesitates')
+    const insert = changes(win).last().locator('[data-proposal]').first()
+    await expect(insert).toContainText('Insert · Ch 1, Sc 1')
+    await expect(insert.locator('[data-insert-near]')).toContainText('The tide came in over the flats.')
+    await expect(insert.locator('[data-insert-text]')).toHaveText('She hesitated at the door.')
+    await expect(paragraphs).toHaveCount(3)
+    await insert.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(paragraphs).toHaveCount(4)
+    await expect(paragraphs.nth(1)).toHaveText('She hesitated at the door.')
+    await expect(paragraphs.nth(1).locator('em')).toHaveText('hesitated')
+    await expect(insert).toHaveAttribute('data-status', 'applied')
+    // Adam types in the paragraph before it; Undo takes out only the new one.
+    await paragraphs.nth(0).click()
+    await win.keyboard.press('Home')
+    await win.keyboard.type('Then ')
+    await insert.getByRole('button', { name: /^Undo this change/ }).click()
+    await expect(paragraphs).toHaveCount(3)
+    await expect(paragraphs.nth(0)).toHaveText('Then The tide came in over the flats.')
+    await expect(insert).toHaveAttribute('data-status', 'pending')
+
+    // A cut: the paragraph struck through; Apply takes it out.
+    await ask(win, 'Cut the paragraph about the gulls')
+    const cut = changes(win).last().locator('[data-proposal]').first()
+    await expect(cut).toContainText('Cut · Ch 1, Sc 1')
+    await expect(cut.locator('[data-cut-paragraph]')).toHaveText('The gulls went quiet.')
+    await cut.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(paragraphs).toHaveCount(2)
+    await expect(prose(win)).not.toContainText('gulls')
+    // Undo with another scene open: the saved scene gets the paragraph back, in its place.
+    const chapter = binder(win).locator('[data-row="chapter"]').first()
+    await chapter.hover()
+    await chapter.getByRole('button', { name: 'Add a scene to this chapter' }).click()
+    await win.getByRole('textbox', { name: 'Scene title' }).press('Enter')
+    await expect(paragraphs).toHaveCount(1)
+    await cut.getByRole('button', { name: /^Undo this change/ }).click()
+    await expect(cut).toHaveAttribute('data-status', 'pending')
+    await expect
+      .poll(async () => (await invoke(win, 'getScene', sceneId)).text)
+      .toBe('Then The tide came in over the flats.\n\nThe gulls went quiet.\n\nMara waited by the wall.')
+
+    // find_mentions: its row says what it found.
+    await binder(win).locator('[data-row]', { hasText: 'Scene 1' }).first().click()
+    await expect(paragraphs).toHaveCount(3)
+    await ask(win, 'Where do I mention the gulls?')
+    const row = panel(win).getByRole('list', { name: 'Tool calls' }).last().locator('[data-tool="find_mentions"]')
+    await expect(row).toHaveAttribute('data-status', 'done')
+    await expect(row).toContainText('Found “gulls” 1 time in 1 scene')
+  } finally {
+    await fake.close()
+  }
+})
+
 // The chat overhaul's Phase 1 tools, behind their lab switches (ASKUSER, DRAFT; on by default, named here so these
 // tests keep them whatever the defaults): what the window makes of them.
 const PHASE1 = { env: { AIWRITE_EXP_CHAT_ASKUSER: 'on', AIWRITE_EXP_CHAT_DRAFT: 'on' } }

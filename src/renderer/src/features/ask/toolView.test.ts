@@ -33,6 +33,14 @@ describe('a tool call’s words', () => {
     expect(toolPhrase(call({ kind: 'draft', tool: 'propose_draft' }))).toBe('Proposed a draft')
   })
 
+  it('says what find_mentions found (TEXTTOOLS)', () => {
+    const find = (over: Partial<ToolActivity>): ToolActivity => call({ kind: 'mentions', tool: 'find_mentions', summary: '“oil lamp”', ...over })
+    expect(toolPhrase(find({ outcome: '7 times in 3 scenes' }))).toBe('Found “oil lamp” 7 times in 3 scenes')
+    expect(toolPhrase(find({ outcome: 'not found' }))).toBe('Looked for “oil lamp”')
+    expect(toolPhrase(find({ status: 'running' }))).toBe('Finding “oil lamp”')
+    expect(toolPhrase(find({ status: 'failed' }))).toBe('Tried to find “oil lamp”')
+  })
+
   it('says what a call is doing while it runs, and what one that went wrong tried', () => {
     expect(runningPhrase(call({ status: 'running', summary: '' }))).toBe('Reading the scene')
     expect(toolPhrase(call({ kind: 'propose', tool: 'propose_changes', status: 'running' }))).toBe('Proposing changes')
