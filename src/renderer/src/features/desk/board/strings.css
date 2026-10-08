@@ -1,0 +1,258 @@
+/*
+  The story board's strings explain themselves (UI overhaul, "the AI planning pages"; Adam: "can you explain the logic
+  of these connections?"): the legend over the board with a line on what the strings are, each string's tags (its
+  thread's name where it starts, "resolved here" by its knot, "still open" by its arrow), the line under the pointer,
+  pins drawn as push-pins (not a string's knot or end) that say where the scene stands, and the first-time hint.
+  Imported by StoryBoard.tsx; only on the desk.
+*/
+
+/* The legend over the board, with a line on what the strings are. */
+[data-arrangement='desk'] .board-wrap > .board-legend {
+  order: -1;
+  padding: 0 0 10px;
+}
+[data-arrangement='desk'] .board-lg-explain {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .board-lg-explain .board-lg-label {
+  flex: none;
+}
+[data-arrangement='desk'] .board-pinkey-k {
+  color: var(--faint);
+}
+
+/* A string under the pointer: a wide, invisible band picks it out and opens its thread. */
+[data-arrangement='desk'] .board-str .s-hit {
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+[data-arrangement='desk'] .board-wrap.is-dragging .board-str .s-hit {
+  pointer-events: none;
+}
+[data-arrangement='desk'] .board-str .s-arrow {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+[data-arrangement='desk'] .board-str.is-lit .s-main {
+  stroke-width: 2.6;
+}
+
+/* The tags. */
+[data-arrangement='desk'] .board-tag {
+  position: absolute;
+  z-index: 5;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 11.5px;
+  line-height: 1;
+  color: var(--fg);
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--ink) 45%, transparent),
+    0 2px 6px -2px rgb(var(--shade-rgb) / 0.3);
+  transition:
+    opacity 180ms ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--motion-glide);
+}
+[data-arrangement='desk'] .board-tag.to-left {
+  translate: -100% 0;
+}
+[data-arrangement='desk'] .board-tag.to-below {
+  translate: -50% 0;
+}
+[data-arrangement='desk'] .board-tag:hover,
+[data-arrangement='desk'] .board-tag.is-lit {
+  box-shadow:
+    inset 0 0 0 1.5px var(--ink),
+    0 4px 10px -3px rgb(var(--shade-rgb) / 0.36);
+}
+[data-arrangement='desk'] .board-tag:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .board-tag.is-dim {
+  opacity: 0.3;
+}
+[data-arrangement='desk'] .board-wrap.is-dragging .board-tag {
+  opacity: 0.18;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .board-tag-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--ink);
+}
+[data-arrangement='desk'] .board-tag-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: italic 500 12px/1 var(--heading-font);
+}
+[data-arrangement='desk'] .board-tag em {
+  flex: none;
+  font: 600 10px/1 var(--font-sans, Inter, system-ui, sans-serif);
+  font-style: normal;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--ink) 80%, var(--fg));
+}
+[data-arrangement='desk'] .board-tag.is-resolved,
+[data-arrangement='desk'] .board-tag.is-open {
+  color: var(--ink);
+}
+[data-arrangement='desk'] .board-tag.is-open {
+  background: color-mix(in oklab, var(--ink) 12%, var(--card));
+}
+[data-arrangement='desk'] .desk-board[data-arrive] .board-tag {
+  animation: board-fade 260ms ease-out 1100ms backwards;
+}
+
+/* The line under the pointer. */
+[data-arrangement='desk'] .board-tip {
+  position: absolute;
+  z-index: 30;
+  max-width: 360px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  translate: 14px 14px;
+  pointer-events: none;
+  font-size: 12.5px;
+  line-height: 17px;
+  white-space: nowrap;
+  color: var(--fg);
+  background: var(--raise);
+  box-shadow: var(--sh-pop);
+  animation: board-fade 120ms ease-out backwards;
+}
+
+/* Pins are push-pins: a round head with a glint and its point's shadow. */
+[data-arrangement='desk'] .board-pin {
+  width: 12px;
+  height: 12px;
+  margin: -1px 0 0 -1px;
+}
+[data-arrangement='desk'] .board-pin.is-inline {
+  width: 10px;
+  height: 10px;
+  margin: 0;
+}
+[data-arrangement='desk'] .board-pin.has-title {
+  pointer-events: auto;
+  cursor: help;
+}
+[data-arrangement='desk'] .board-pin:not(.is-inline)::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 9px;
+  width: 1.6px;
+  height: 7px;
+  border-radius: 1px;
+  background: rgb(var(--shade-deep-rgb) / 0.38);
+  rotate: -38deg;
+  transform-origin: top;
+}
+[data-arrangement='desk'] .board-pin-head::after {
+  content: '';
+  position: absolute;
+  left: 2.5px;
+  top: 2px;
+  width: 3.5px;
+  height: 2.5px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.7);
+}
+[data-arrangement='desk'] .board-pin.is-planned .board-pin-head::after {
+  display: none;
+}
+
+/* The first time: how to read the strings. */
+[data-arrangement='desk'] .board-hint {
+  position: absolute;
+  z-index: 12;
+  left: 16px;
+  bottom: 16px;
+  width: min(540px, calc(100% - 32px));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 40px 14px 16px;
+  border-radius: 14px;
+  background: var(--raise);
+  box-shadow: var(--sh-pop);
+  animation: board-col-in 360ms var(--motion-glide) 900ms backwards;
+}
+[data-arrangement='desk'] .board-hint-art {
+  flex: none;
+}
+[data-arrangement='desk'] .board-hint-art .h-str {
+  fill: none;
+  stroke: var(--thread-1);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+[data-arrangement='desk'] .board-hint-art .h-knot {
+  fill: var(--card);
+  stroke: var(--thread-1);
+  stroke-width: 1.6;
+}
+[data-arrangement='desk'] .board-hint-art .h-pin {
+  fill: var(--success);
+}
+[data-arrangement='desk'] .board-hint-t {
+  font: 600 14.5px/20px var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .board-hint-s {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .board-hint-s b {
+  font-weight: 600;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .board-hint-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .board-hint-x:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+/* The drawer's waiting cards (features/planning). */
+[data-arrangement='desk'] .board-dr-waiting {
+  grid-template-columns: 1fr;
+  margin-top: 0;
+}
+[data-arrangement='desk'] .board-dr-waiting .plan-waiting-card {
+  height: 150px;
+}

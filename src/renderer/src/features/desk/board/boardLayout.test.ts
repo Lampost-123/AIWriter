@@ -54,13 +54,26 @@ describe('the strings', () => {
     expect(letter.d.endsWith(`${p3.x} ${p3.y}`)).toBe(true)
     expect(letter.knot).toEqual({ x: p3.x - 14, y: p3.y })
     expect(letter.end).toBeNull()
-    // Down a column it loops out to the right of the cards, then runs on past the last to its open end.
+    // Down a column it loops out to the right of the cards, then runs on past the last, from the last chapter into the
+    // next chapter's column (not planned yet), where its arrow ends.
     expect(midwinter.sceneIds).toEqual(['s3', 's4', 's5'])
     expect(midwinter.knot).toBeNull()
-    expect(midwinter.end!.x).toBeGreaterThan(l.cards.get('s5')!.x + CARD_W)
-    expect(midwinter.end!.x).toBeLessThan(l.next.x)
+    expect(midwinter.intoNext).toBe(true)
+    expect(midwinter.end!.x).toBeGreaterThan(l.next.x)
+    expect(midwinter.end!.x).toBeLessThan(l.next.x + CARD_W / 2)
+    // Its name goes where it starts.
+    expect(midwinter.start).toEqual(l.pins.get('s3'))
+    expect(letter.start).toEqual(p2)
     // Inks by the threads' order.
     expect([letter.ink, midwinter.ink]).toEqual([1, 2])
+  })
+
+  it('runs a thread still open in an earlier chapter on into the gap after that chapter, not across the cards beyond', () => {
+    const l = boardLayout(columns, [{ id: 'early', sceneIds: ['s1'], paidOffSceneId: null, open: true }])
+    const [early] = l.strings
+    expect(early.intoNext).toBe(false)
+    expect(early.end!.x).toBeGreaterThan(l.cards.get('s1')!.x + CARD_W)
+    expect(early.end!.x).toBeLessThan(l.columns[1].x)
   })
 })
 

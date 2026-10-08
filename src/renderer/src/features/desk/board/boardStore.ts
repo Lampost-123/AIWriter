@@ -11,8 +11,24 @@ interface BoardState {
   ideasFor: ID | null
   ideasInstant: boolean
   flyFrom: { sceneId: ID; rect: DOMRect } | null
+  /** A plot thread to pick out when the board opens ("Open on the story board", from the plot threads board). */
+  focusThread: ID | null
+  /** What Adam has in mind for the next ideas the drawer asks for ("Plan its pay-off", from the plot threads board). */
+  ideasWish: string | null
+  /** Open the drawer for what comes next as soon as the board has the story ("Plan its pay-off"). */
+  ideasNext: boolean
 }
 
-export const useBoardStore = create<BoardState>(() => ({ view: 'cards', fresh: null, marksRev: 0, ideasFor: null, ideasInstant: false, flyFrom: null }))
+export const useBoardStore = create<BoardState>(() => ({
+  view: 'cards',
+  fresh: null,
+  marksRev: 0,
+  ideasFor: null,
+  ideasInstant: false,
+  flyFrom: null,
+  focusThread: null,
+  ideasWish: null,
+  ideasNext: false
+}))
 
 export const bumpMarks = (): void => useBoardStore.setState((s) => ({ marksRev: s.marksRev + 1 }))
