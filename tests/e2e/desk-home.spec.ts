@@ -59,6 +59,8 @@ test('the story home: the lamp mark and the story’s name open it; the book, th
   await expect(lower.getByRole('button', { name: /^Cast: Wren Halloway, .*4 characters · 3 places/ })).toBeVisible()
   // This week (typed and AI words kept), and the target.
   await expect(lower).toContainText(/246\s*words this week/)
+  // It counts every story's words, and says so.
+  await expect(lower).toContainText('Your writing this week, across all your stories')
   await expect(lower).toContainText('Target 150')
   await expect(lower.getByRole('img', { name: /today 246\. Daily target 150\./ })).toBeVisible()
   // The footer: the memory and the checks.
