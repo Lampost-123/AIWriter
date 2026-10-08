@@ -1,0 +1,140 @@
+/*
+  The scene drawer's Drafts tab on the desk (UI overhaul; GenerationsPanel.tsx, DraftsSection.tsx): the scene's drafts
+  as a stack of pages, the one in the page on top (two sheets peeking out beneath it while others are kept), the others
+  as index cards with their opening lines in the serif; the AI's drafts each with the lamp's amber edge; with none yet,
+  the stack of pages drawn.
+*/
+[data-arrangement='desk'] .drafts-tab {
+  gap: 20px;
+  padding: 12px 14px;
+}
+[data-arrangement='desk'] .drafts-head {
+  letter-spacing: 0.08em;
+}
+[data-arrangement='desk'] .drafts-stack {
+  gap: 8px;
+}
+[data-arrangement='desk'] .draft-card {
+  position: relative;
+  padding: 10px 12px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--sh-card);
+  animation: ck-rise 300ms var(--desk-ease) backwards;
+  transition:
+    box-shadow var(--dur-base) var(--desk-ease),
+    translate var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .draft-card:not([data-current]):hover,
+[data-arrangement='desk'] .draft-card:not([data-current]):focus-within {
+  background: var(--card);
+  box-shadow: var(--sh-card-up);
+  translate: 0 -1px;
+}
+/* The draft in the page: on top of the stack, the kept ones showing beneath it. */
+[data-arrangement='desk'] .draft-card[data-current] {
+  margin-bottom: 6px;
+  background: var(--card);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    var(--sh-card);
+}
+[data-arrangement='desk'] .drafts-stack:has(> .draft-card + .draft-card) .draft-card[data-current]::before,
+[data-arrangement='desk'] .drafts-stack:has(> .draft-card + .draft-card) .draft-card[data-current]::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 8px;
+  right: 8px;
+  bottom: -5px;
+  height: 12px;
+  border-radius: 0 0 10px 10px;
+  background: color-mix(in oklab, var(--surface-2) 70%, var(--card));
+  box-shadow: var(--sh-1);
+}
+[data-arrangement='desk'] .drafts-stack:has(> .draft-card + .draft-card) .draft-card[data-current]::after {
+  left: 16px;
+  right: 16px;
+  bottom: -9px;
+  background: color-mix(in oklab, var(--surface-3) 70%, var(--card));
+}
+[data-arrangement='desk'] .draft-card > div:first-child > span:first-child {
+  font-family: var(--heading-font);
+  font-size: 14px;
+  font-weight: 600;
+}
+[data-arrangement='desk'] .draft-excerpt {
+  margin-top: 4px;
+  padding-left: 10px;
+  border-left: 2px solid var(--desk-line);
+  font-style: italic;
+  font-size: 13px;
+}
+
+/* The AI's drafts: the lamp's edge. */
+[data-arrangement='desk'] .ai-drafts {
+  gap: 6px;
+}
+[data-arrangement='desk'] .ai-draft {
+  position: relative;
+  padding: 9px 12px 9px 15px;
+  border-radius: 11px;
+  background: var(--card);
+  box-shadow: var(--sh-card);
+  transition:
+    box-shadow var(--dur-base) var(--desk-ease),
+    translate var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .ai-draft::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--lamp-2);
+}
+[data-arrangement='desk'] .ai-draft[data-streaming]::before {
+  box-shadow: 0 0 8px var(--lamp-glow);
+}
+[data-arrangement='desk'] .ai-draft:hover,
+[data-arrangement='desk'] .ai-draft:focus-visible {
+  background: var(--card);
+  box-shadow: var(--sh-card-up);
+  translate: 0 -1px;
+}
+
+/* None yet. */
+[data-arrangement='desk'] .drafts-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 26px 18px;
+  text-align: center;
+}
+[data-arrangement='desk'] .drafts-empty-art {
+  width: 220px;
+  height: auto;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 8px 16px rgb(var(--shade-rgb) / 0.14));
+  animation: ck-art-in 520ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .drafts-empty-title {
+  font: 600 19px/25px var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .drafts-empty-text {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .drafts-empty-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}

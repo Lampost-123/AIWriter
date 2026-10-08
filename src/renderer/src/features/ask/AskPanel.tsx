@@ -35,8 +35,16 @@ import {
   type ShownTurn
 } from './askStore'
 import { answerLines, answerParagraphs, citedTargets, nameIndex, plainAnswer, type AnswerPart, type LinkTarget } from './citations'
-import { examples, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, savedMessage, speaksOfChanges } from './askWords'
+import { examples, followUps, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, savedMessage, speaksOfChanges } from './askWords'
 import { Proposals } from './Proposals'
+import { fadeText, shownLength, useArrivals, type Arrival } from './arrive'
+import { LanternArt } from '@/components/art/RoomArt'
+import { useDesk } from '@/features/look/look'
+import { reducedMotion } from '@/features/look/motion'
+import { EntryMark } from '@/features/consistency/desk/marks'
+import { useEntryMotifs } from '@/features/world/art/artStore'
+import '@/features/consistency/check.css'
+import './ask.css'
 
 /** The last request for the box to take the keyboard that was carried out. */
 let focusHandled = 0
@@ -165,9 +173,13 @@ function useToastsBeside(ref: RefObject<HTMLElement | null>, shown: boolean): vo
 const menuItem = 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] outline-none data-[highlighted]:bg-surface-2'
 
 function Header({ storyTitle, onClose }: { storyTitle: string | null; onClose: () => void }): React.JSX.Element {
+  // The desk: the drawer's head on the spine's leather, two lanterns in conversation (brighter while an answer comes).
+  const desk = useDesk()
+  const answering = useAsk((s) => !!s.running)
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line pl-4 pr-2">
-      <MessagesSquare size={15} className="mr-1 shrink-0 text-muted" aria-hidden />
+    <div className={cn('ask-head flex h-12 shrink-0 items-center gap-1 border-b border-line pl-4 pr-2', desk && 'desk-drawer-head desk-leather')}>
+      {desk ? <LanternArt small state={answering ? 'busy' : 'idle'} className="ask-head-art" /> : null}
+      <MessagesSquare size={15} className="ask-head-icon mr-1 shrink-0 text-muted" aria-hidden />
       <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold text-fg">Ask the world</h2>
       <ChatsMenu storyTitle={storyTitle} />
       <IconButton label="New chat" size="sm" onClick={newChat}>
@@ -341,7 +353,7 @@ function Conversation({ place, cast, onPick }: { place: AskPlace; cast: string[]
         {loading ? null : shown.length === 0 ? (
           <Starters questions={cast && characters ? examples([...cast, ...characters]) : null} onPick={onPick} />
         ) : (
-          <ol aria-label="Conversation" className="flex flex-col gap-5">
+          <ol aria-label="Conversation" className="ask-turns flex flex-col gap-5">
             {shown.map((t) => (
               <TurnView
                 key={t.taskId ?? t.generationId}
@@ -350,6 +362,7 @@ function Conversation({ place, cast, onPick }: { place: AskPlace; cast: string[]
                 place={place}
                 running={running?.taskId === t.taskId && !!t.taskId ? running : null}
                 canRetry={t === lastAsked && !running}
+                onPick={t === lastAsked && !running ? onPick : undefined}
               />
             ))}
           </ol>
@@ -364,7 +377,28 @@ function Conversation({ place, cast, onPick }: { place: AskPlace; cast: string[]
  * Nothing until the characters are known (a moment), so the examples never change names in front of Adam.
  */
 function Starters({ questions, onPick }: { questions: string[] | null; onPick: (question: string) => void }): React.JSX.Element | null {
+  const desk = useDesk()
   if (!questions) return null
+  if (desk) {
+    return (
+      <div className="ask-welcome">
+        <LanternArt className="ask-welcome-art" />
+        <h3 className="ask-welcome-title">Ask your world</h3>
+        <p className="ask-welcome-text">
+          Ask anything about your world: what someone would do, names that fit, what you’ve already said. Answers come from the memory and
+          name what they used. Nothing changes unless you save it.
+        </p>
+        <p className="desk-caps ask-welcome-caps">Try asking</p>
+        <div className="ask-chips">
+          {questions.map((q, i) => (
+            <button key={q} type="button" onClick={() => onPick(q)} className="ask-chip" style={{ '--i': i } as React.CSSProperties}>
+              {q}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="animate-fade-in px-1 pt-1">
       <p className="text-[13px] leading-relaxed text-muted">
@@ -400,7 +434,8 @@ function TurnView({
   index,
   place,
   running,
-  canRetry
+  canRetry,
+  onPick
 }: {
   turn: ShownTurn
   index: Map<string, LinkTarget>
@@ -409,11 +444,25 @@ function TurnView({
   running: { stopping: boolean; retrying: string | null } | null
   /** The last question asked: Try again shows when it failed. */
   canRetry: boolean
+  /** The last answer, finished: its follow-up questions (on the desk) fill the box. */
+  onPick?: (question: string) => void
 }): React.JSX.Element {
   const answerRef = useRef<HTMLDivElement>(null)
+  const desk = useDesk()
   const streaming = turn.status === 'streaming'
   const hasAnswer = !!turn.answer.trim()
   const paragraphs = useMemo(() => answerParagraphs(turn.answer, index), [turn.answer, index])
+  // The desk: the words fade in as they arrive (the lamp's way), each paragraph knowing where its words start.
+  const starts = useMemo(() => {
+    let at = 0
+    return paragraphs.map((p) => {
+      const start = at
+      at += shownLength(p)
+      return start
+    })
+  }, [paragraphs])
+  const total = paragraphs.reduce((n, p) => n + shownLength(p), 0)
+  const arrivals = useArrivals(total, desk && streaming && !reducedMotion())
   const recorded = !turn.problem && !turn.generationId.startsWith('pending:')
   // What went wrong shows while this is the last question asked (with Try again); after that, quietly.
   const notice = !!turn.problem || (turn.status === 'error' && canRetry)
@@ -424,7 +473,7 @@ function TurnView({
   return (
     <li className="flex flex-col">
       <div className="flex justify-end">
-        <p className="max-w-[88%] select-text whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-3 py-2 text-[13px] leading-relaxed text-fg">
+        <p className="ask-q max-w-[88%] select-text whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-3 py-2 text-[13px] leading-relaxed text-fg">
           {turn.question}
         </p>
       </div>
@@ -433,13 +482,15 @@ function TurnView({
         <div
           ref={answerRef}
           data-answer
-          className="mt-2.5 select-text rounded-lg border border-line bg-page px-3 py-2.5 font-serif text-[14.5px] leading-[1.65] text-fg"
+          data-streaming={streaming || undefined}
+          className="ask-a mt-2.5 select-text rounded-lg border border-line bg-page px-3 py-2.5 font-serif text-[14.5px] leading-[1.65] text-fg"
         >
           {paragraphs.map((p, i) => (
-            <AnswerParagraph key={i} parts={p} className={i > 0 ? 'mt-2.5' : undefined} />
+            <AnswerParagraph key={i} parts={p} start={starts[i]} arrivals={arrivals} className={i > 0 ? 'mt-2.5' : undefined} />
           ))}
         </div>
       ) : null}
+      {desk && hasAnswer ? <Sources answer={turn.answer} index={index} /> : null}
 
       {/* The editor chat: what it looked at on the way (quietly), and the changes it proposes. */}
       {turn.steps?.length && !streaming ? (
@@ -509,7 +560,53 @@ function TurnView({
           ))}
         </div>
       ) : null}
+      {desk && onPick && !streaming && turn.status === 'complete' && hasAnswer ? <FollowUps answer={turn.answer} index={index} onPick={onPick} /> : null}
     </li>
+  )
+}
+
+/** The pages an answer drew on (on the desk), as small cards with their drawings; a click shows the page. */
+function Sources({ answer, index }: { answer: string; index: Map<string, LinkTarget> }): React.JSX.Element | null {
+  const cited = useMemo(() => citedTargets(answer, index), [answer, index])
+  const motifs = useEntryMotifs()
+  if (!cited.length) return null
+  return (
+    <div className="ask-sources" aria-label="From your world" role="group">
+      <span className="desk-caps">From your world</span>
+      <div className="ask-source-cards">
+        {cited.map((t, i) => (
+          <EntryMark
+            key={t.id}
+            kind={t.kind}
+            motif={motifs.get(t.id) ?? null}
+            name={t.name}
+            detail={kindWord(t.kind)}
+            title={`Show ${t.name}`}
+            className="ask-source"
+            style={{ '--i': i } as React.CSSProperties}
+            onClick={() => openEntry(t.id, t.kind)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** What to ask next (on the desk): a few questions about what the answer named, as chips that fill the box. */
+function FollowUps({ answer, index, onPick }: { answer: string; index: Map<string, LinkTarget>; onPick: (q: string) => void }): React.JSX.Element | null {
+  const questions = useMemo(() => followUps(citedTargets(answer, index)), [answer, index])
+  if (!questions.length) return null
+  return (
+    <div className="ask-follow" role="group" aria-label="Ask next">
+      <span className="desk-caps">Ask next</span>
+      <div className="ask-chips">
+        {questions.map((q, i) => (
+          <button key={q} type="button" className="ask-chip" style={{ '--i': i } as React.CSSProperties} onClick={() => onPick(q)}>
+            {q}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -556,21 +653,39 @@ function AskProblem({ message, code, onRetry }: { message: string; code?: string
  * A paragraph of an answer, a line at a time. A list item's words hang beside its mark ("-", "2."), so a
  * list still reads as one when its items wrap in a narrow panel.
  */
-function AnswerParagraph({ parts, className }: { parts: AnswerPart[]; className?: string }): React.JSX.Element {
+function AnswerParagraph({
+  parts,
+  className,
+  start = 0,
+  arrivals = []
+}: {
+  parts: AnswerPart[]
+  className?: string
+  /** Where its words start in the answer, and the stretches still arriving (the desk's fade). */
+  start?: number
+  arrivals?: Arrival[]
+}): React.JSX.Element {
   const lines = answerLines(parts)
+  // Each line's start in the answer's shown words (a list's mark isn't counted: it was taken from the line's words).
+  let at = start
+  const lineStart = lines.map((l) => {
+    const s = at
+    at += shownLength(l.parts)
+    return s
+  })
   // The numbers of a numbered list share one width, so the items' words line up.
   const digits = Math.max(1, ...lines.map((l) => l.mark?.match(/\d+/)?.[0].length ?? 0))
   return (
     <div className={cn('whitespace-pre-wrap break-words', className)}>
       {lines.map((line, i) => {
-        if (!line.mark) return <div key={i}>{answerWords(line.parts)}</div>
+        if (!line.mark) return <div key={i}>{answerWords(line.parts, lineStart[i], arrivals)}</div>
         const hang = /\d/.test(line.mark) ? `${0.6 * digits + 0.75}em` : '1em'
         return (
           <div key={i} style={{ paddingLeft: `calc(${hang} + ${1.2 * line.depth}em)`, textIndent: `-${hang}` }}>
             <span className="inline-block" style={{ width: hang, textIndent: 0 }}>
               {line.mark}
             </span>
-            {answerWords(line.parts)}
+            {answerWords(line.parts, lineStart[i], arrivals)}
           </div>
         )
       })}
@@ -579,14 +694,17 @@ function AnswerParagraph({ parts, className }: { parts: AnswerPart[]; className?
 }
 
 /** A line's words: cited names as links, and italics in italics. */
-function answerWords(parts: AnswerPart[]): React.ReactNode[] {
+function answerWords(parts: AnswerPart[], start = 0, arrivals: Arrival[] = []): React.ReactNode[] {
+  let at = start
   return parts.map((part, i) => {
+    const text = fadeText(part.text, at, arrivals)
+    at += part.text.length
     const words = part.target ? (
       <Cite key={i} target={part.target}>
-        {part.text}
+        {text}
       </Cite>
     ) : (
-      part.text
+      <span key={i}>{text}</span>
     )
     return part.em ? <em key={i}>{words}</em> : words
   })
@@ -809,7 +927,7 @@ function AskBox({
 
   return (
     <form
-      className="shrink-0 border-t border-line px-3 pb-3 pt-2.5"
+      className="ask-form shrink-0 border-t border-line px-3 pb-3 pt-2.5"
       onSubmit={(e) => {
         e.preventDefault()
         send()
@@ -853,7 +971,7 @@ function AskBox({
               Stop
             </Button>
           ) : (
-            <Button type="submit" size="sm" variant="primary" icon={<Send size={13} />} disabled={!draft.trim() || loading}>
+            <Button type="submit" size="sm" variant="primary" className="ask-send" icon={<Send size={13} />} disabled={!draft.trim() || loading}>
               Ask
             </Button>
           )}

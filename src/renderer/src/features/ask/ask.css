@@ -1,0 +1,243 @@
+/*
+  Ask the world on the desk (UI overhaul; AskPanel.tsx): the drawer's head on the spine's leather with two lanterns in
+  conversation, a welcome with the lanterns' plate and questions to try, each question a slip and each answer a card in
+  the serif. While an answer is written it is in the lamp's language (as the AI's words in the page are): a thin amber
+  line down its edge, the words a warm ink, each new stretch fading in (160ms, opacity only: nothing moves) and an amber
+  caret where they arrive; when it ends it settles into ink over a second. Under it, the pages it drew on as small cards
+  with their drawings, and what to ask next as chips. Ask is the AI's own button: amber.
+*/
+
+[data-arrangement='desk'] .ask-head.desk-leather {
+  height: 52px;
+  border-bottom: 0;
+  padding-left: 10px;
+}
+[data-arrangement='desk'] .ask-head.desk-leather h2 {
+  font: 600 16px/1 var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ask-head.desk-leather .ask-head-icon {
+  display: none;
+}
+[data-arrangement='desk'] .ask-head-art {
+  width: 64px;
+  height: 34px;
+  flex: none;
+  margin-right: 4px;
+}
+/* On the leather, the lanterns' ink is the spine's light ink. */
+[data-arrangement='desk'] .desk-leather .ra {
+  --ra-ink: color-mix(in oklab, var(--spine-fg, #f1f4fa) 70%, transparent);
+  --ra-ink-2: color-mix(in oklab, var(--spine-fg, #f1f4fa) 40%, transparent);
+  --ra-paper: color-mix(in oklab, var(--spine-fg, #f1f4fa) 16%, transparent);
+}
+
+/* The welcome. */
+[data-arrangement='desk'] .ask-welcome {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 4px 8px;
+}
+[data-arrangement='desk'] .ask-welcome-art {
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  aspect-ratio: 240 / 150;
+  align-self: center;
+  margin-bottom: 18px;
+  filter: drop-shadow(0 10px 18px rgb(var(--shade-rgb) / 0.16));
+  animation: ck-art-in 520ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .ask-welcome-title {
+  font: 600 22px/28px var(--heading-font);
+  font-variation-settings: 'opsz' 48;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ask-welcome-text {
+  margin-top: 6px;
+  font-size: 13.5px;
+  line-height: 21px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+[data-arrangement='desk'] .ask-welcome-caps {
+  margin: 18px 0 8px;
+}
+[data-arrangement='desk'] .ask-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+[data-arrangement='desk'] .ask-chip {
+  max-width: 100%;
+  padding: 7px 13px 8px;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow:
+    inset 0 0 0 1px var(--desk-line),
+    var(--sh-1);
+  text-align: left;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--fg);
+  animation: ck-rise 320ms var(--desk-ease) backwards;
+  animation-delay: calc(120ms + var(--i, 0) * 50ms);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .ask-chip:hover {
+  background: color-mix(in oklab, var(--accent-soft) 60%, var(--card));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent),
+    var(--sh-1);
+}
+[data-arrangement='desk'] .ask-chip:active {
+  scale: 0.98;
+}
+[data-arrangement='desk'] .ask-chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* A question: a slip of the accent. */
+[data-arrangement='desk'] .ask-turns > li {
+  animation: ck-rise 300ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .ask-q {
+  padding: 9px 14px 10px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--accent-soft);
+  box-shadow: var(--sh-1);
+  font-size: 13.5px;
+  line-height: 20px;
+}
+
+/* An answer: a card in the serif. */
+[data-arrangement='desk'] .ask-a {
+  position: relative;
+  margin-top: 12px;
+  padding: 14px 18px 15px;
+  border: 0;
+  border-radius: 4px 14px 14px 14px;
+  background: var(--card);
+  box-shadow: var(--sh-card);
+  font-size: 15.5px;
+  line-height: 1.65;
+  font-variant-numeric: oldstyle-nums;
+  color: var(--fg);
+  transition: color 1000ms ease-out;
+}
+[data-arrangement='desk'] .ask-a::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--lamp-2);
+  box-shadow: 0 0 10px var(--lamp-glow);
+  opacity: 0;
+  transition: opacity 600ms ease-out;
+}
+/* Being written: the lamp's line, a warm ink, and the caret where the words arrive. */
+[data-arrangement='desk'] .ask-a[data-streaming] {
+  color: color-mix(in oklab, var(--fg) 80%, var(--lamp));
+  transition: color 0ms;
+}
+[data-arrangement='desk'] .ask-a[data-streaming]::before {
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+[data-arrangement='desk'] .ask-a[data-streaming] > div:last-child > div:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.16em;
+  border-radius: 1px;
+  background: var(--lamp-2);
+  box-shadow: 0 0 8px var(--lamp-glow);
+  animation: ask-caret 1.1s ease-in-out infinite;
+}
+@keyframes ask-caret {
+  50% {
+    opacity: 0.25;
+  }
+}
+[data-arrangement='desk'] .ask-arrive {
+  animation: ask-arrive 160ms ease-out backwards;
+}
+@keyframes ask-arrive {
+  from {
+    opacity: 0;
+  }
+}
+
+/* What it drew on, and what to ask next. */
+[data-arrangement='desk'] .ask-sources,
+[data-arrangement='desk'] .ask-follow {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+  padding-left: 2px;
+}
+[data-arrangement='desk'] .ask-source-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+[data-arrangement='desk'] .ask-source {
+  height: 32px;
+  padding-right: 12px;
+  animation: ck-rise 300ms var(--desk-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+[data-arrangement='desk'] .ask-source .em-tile {
+  width: 26px;
+  height: 26px;
+}
+[data-arrangement='desk'] .ask-follow {
+  margin-top: 16px;
+}
+
+/* The box: a sheet of paper at the foot, and the AI's own amber Ask. */
+[data-arrangement='desk'] .ask-form {
+  border-top: 0;
+  padding-top: 6px;
+}
+[data-arrangement='desk'] .ask-form > div {
+  border-radius: 14px;
+  border-color: transparent;
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px var(--desk-line),
+    var(--sh-2);
+}
+[data-arrangement='desk'] .ask-form > div:focus-within {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--lamp-2) 55%, transparent),
+    0 8px 22px -10px var(--lamp-glow);
+}
+[data-arrangement='desk'] .ask-send {
+  background: linear-gradient(180deg, var(--lamp-2), var(--lamp));
+  color: #fff;
+  text-shadow: 0 1px 0 rgb(110 55 0 / 0.3);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 4px 12px -5px var(--lamp-glow);
+}
+[data-arrangement='desk'] .ask-send:hover {
+  background: linear-gradient(180deg, var(--lamp-2), var(--lamp));
+  filter: brightness(1.05);
+}
+[data-arrangement='desk'][data-theme='dark'] .ask-send {
+  color: #241606;
+  text-shadow: none;
+}

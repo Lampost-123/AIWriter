@@ -113,9 +113,9 @@ export function DraftsSection({
   }
 
   return (
-    <section aria-label="This scene's drafts">
+    <section aria-label="This scene's drafts" className="drafts-sec">
       <div className="flex h-8 items-center justify-between pl-1.5">
-        <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">This scene's drafts</h3>
+        <h3 className="drafts-head text-[11.5px] font-semibold uppercase tracking-wide text-faint">This scene's drafts</h3>
         {canStart ? <NewDraftButton sceneId={sceneId} onChange={onChange} /> : null}
       </div>
       {!drafts.available ? (
@@ -128,7 +128,7 @@ export function DraftsSection({
         </Notice>
       ) : (
         <>
-          <ul className="flex flex-col gap-1">
+          <ul className="drafts-stack flex flex-col gap-1">
             {list.map((d) => (
               <DraftRow
                 key={d.id}
@@ -228,8 +228,9 @@ function DraftRow({
 
   return (
     <li
+      data-current={draft.current || undefined}
       className={cn(
-        'rounded-lg border px-2.5 py-2 transition-colors duration-150',
+        'draft-card rounded-lg border px-2.5 py-2 transition-colors duration-150',
         draft.current ? 'border-accent/25 bg-accent-soft/60' : 'border-transparent hover:bg-surface-2 focus-within:bg-surface-2'
       )}
     >
@@ -264,7 +265,7 @@ function DraftRow({
         <span className="ml-auto shrink-0 whitespace-nowrap text-[12px] tabular-nums text-muted">{wordsLabel(words)}</span>
       </div>
       {!draft.current && draft.excerpt ? (
-        <p className="mt-0.5 line-clamp-2 font-serif text-[12.5px] leading-[1.55] text-muted">{draft.excerpt}</p>
+        <p className="draft-excerpt mt-0.5 line-clamp-2 font-serif text-[12.5px] leading-[1.55] text-muted">{draft.excerpt}</p>
       ) : null}
       <div className="mt-1 flex h-7 items-center gap-1">
         <DraftWhen draft={draft} now={now} />

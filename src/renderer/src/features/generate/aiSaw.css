@@ -1,0 +1,111 @@
+/*
+  What the AI saw, on the desk (UI overhaul; WhatTheAISaw.tsx): the lamp over an open briefing beside the title, then
+  two columns on a wide sheet: down the left, what kind of call it was (model, provider, tokens, cost), how full the
+  briefing was and the direction given, staying in view; on the right, the briefing part by part and what came back.
+  In a narrow sheet they stack, as everywhere else.
+*/
+[data-arrangement='desk'] .aisaw {
+  container-type: inline-size;
+}
+[data-arrangement='desk'] .aisaw-page {
+  max-width: 1180px;
+  padding: 26px 44px 72px;
+}
+[data-arrangement='desk'] .aisaw-head {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+[data-arrangement='desk'] .aisaw-art {
+  width: 180px;
+  height: auto;
+  flex: none;
+  filter: drop-shadow(0 10px 18px rgb(var(--shade-rgb) / 0.16));
+  animation: ck-art-in 520ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .aisaw-head-words {
+  min-width: 0;
+}
+[data-arrangement='desk'] .aisaw-title {
+  margin-top: 2px;
+  font: 600 30px/36px var(--heading-font);
+  font-variation-settings: 'opsz' 60;
+  letter-spacing: -0.015em;
+}
+[data-arrangement='desk'] .aisaw-intro {
+  max-width: 640px;
+  font-size: 13.5px;
+  line-height: 20px;
+}
+[data-arrangement='desk'] .aisaw-cols {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  align-items: start;
+  gap: 0 32px;
+  margin-top: 10px;
+}
+[data-arrangement='desk'] .aisaw-side {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+}
+[data-arrangement='desk'] .aisaw-main {
+  display: block;
+  min-width: 0;
+}
+[data-arrangement='desk'] .aisaw-main > section:first-child {
+  margin-top: 16px;
+}
+[data-arrangement='desk'] :is(.aisaw-meta, .aisaw-budget, .aisaw-block, .aisaw-back .rounded-xl) {
+  border: 0;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--sh-card);
+}
+[data-arrangement='desk'] .aisaw-meta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+[data-arrangement='desk'] .aisaw-budget [role='meter'] > div {
+  background: linear-gradient(90deg, var(--lamp), var(--lamp-2));
+}
+[data-arrangement='desk'] .aisaw-direction blockquote {
+  padding: 10px 14px;
+  border-left: 2px solid var(--lamp-2);
+  border-radius: 2px 10px 10px 2px;
+  background: color-mix(in oklab, var(--ai-soft) 50%, var(--card));
+  font: italic 400 15px/1.55 var(--serif-font);
+}
+[data-arrangement='desk'] .aisaw-block {
+  transition: box-shadow var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .aisaw-block:hover {
+  box-shadow: var(--sh-card-up);
+}
+[data-arrangement='desk'] .aisaw-block[data-dropped] {
+  background: color-mix(in oklab, var(--surface-2) 60%, var(--card));
+  box-shadow: inset 0 0 0 1px var(--desk-line);
+}
+[data-arrangement='desk'] .aisaw-block > button:hover {
+  background: color-mix(in oklab, var(--surface-2) 50%, transparent);
+}
+[data-arrangement='desk'] .aisaw-back .rounded-xl > div {
+  font-size: 16px;
+}
+@container (max-width: 980px) {
+  [data-arrangement='desk'] .aisaw-cols {
+    display: block;
+  }
+  [data-arrangement='desk'] .aisaw-side {
+    position: static;
+  }
+  [data-arrangement='desk'] .aisaw-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  [data-arrangement='desk'] .aisaw-page {
+    padding-inline: 28px;
+  }
+  [data-arrangement='desk'] .aisaw-art {
+    width: 130px;
+  }
+}
