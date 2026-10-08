@@ -91,7 +91,8 @@ function namedEntry(e: EntryState, absent: string | null, hereIds: Set<ID>): Nam
     image: e.image ?? null,
     absent,
     state: stateLines(e, hereIds),
-    voice: voiceNotes(e)
+    voice: voiceNotes(e),
+    ...(e.hardRule ? { hardRule: true } : {})
   }
 }
 

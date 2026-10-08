@@ -34,7 +34,8 @@ import {
   type CodexFilters,
   type CodexSort
 } from './codexLogic'
-import { openFromCodex, useCodex, type CodexAnchor } from './codexStore'
+import { firstInView, itemOf, putBack } from './codexPlace'
+import { openFromCodex, useCodex } from './codexStore'
 
 /** The codex's cards, reloaded whenever entries, the memory or the stories change. The last answer stays while the next loads. */
 function useCodexCards(): { cards: CodexCard[] | null; error: string | null; retry: () => void } {
@@ -57,40 +58,11 @@ function useCodexCards(): { cards: CodexCard[] | null; error: string | null; ret
 const quickStart = (): void =>
   useApp.getState().navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })
 
-// Cards are measured by the list item around each: its box is there even while the card inside
-// hasn't been drawn, so measuring it never makes the browser draw a card out of view.
-const itemOf = (el: HTMLElement, id: string): HTMLElement | null => el.querySelector<HTMLElement>(`[data-codex-item="${CSS.escape(id)}"]`)
-
-/** The first card at least partly in view under the toolbar, and how far below the top of the view it starts. */
-function firstInView(el: HTMLElement): CodexAnchor | null {
-  const top = el.getBoundingClientRect().top
-  const under = el.querySelector('[data-codex-toolbar]')?.getBoundingClientRect().bottom ?? top
-  for (const item of el.querySelectorAll<HTMLElement>('[data-codex-item]')) {
-    const r = item.getBoundingClientRect()
-    if (r.bottom > under) return { id: item.dataset.codexItem!, top: r.top - top, opened: false }
-  }
-  return null
-}
-
-/** Cards on each side of the one put back that are drawn straight away: more than a tall window holds. */
-const NEAR = 60
-
-/**
- * Scrolls the codex so a card is `top` below the top of its view again. The cards around it are drawn
- * first, as they will be once they are in view: a card not drawn yet counts at a guessed height, which
- * would put the view out by the difference (most of all at the end of the list).
- */
-function putBack(el: HTMLElement, item: HTMLElement, top: number): void {
-  const items = [...el.querySelectorAll<HTMLElement>('[data-codex-item]')]
-  const i = items.indexOf(item)
-  for (const near of items.slice(Math.max(0, i - NEAR), i + NEAR + 1)) near.style.contentVisibility = 'visible'
-  el.scrollTop = item.getBoundingClientRect().top - el.getBoundingClientRect().top - top
-}
-
 export function CodexView(): React.JSX.Element {
   const { cards, error, retry } = useCodexCards()
   const filters = useCodex((s) => s.filters)
-  const sort = useCodex((s) => s.sort)
+  // (The desk's World room can also order by first appearance; the codex keeps its three, by name for that one.)
+  const sort = useCodex((s) => (s.sort === 'first' ? 'name' : s.sort))
   const setFilters = useCodex((s) => s.setFilters)
   const setSort = useCodex((s) => s.setSort)
   const stories = useApp((s) => s.stories)
@@ -399,7 +371,7 @@ function Toolbar({
                 aria-pressed={on}
                 onClick={() => setFilters({ kind: k as typeof filters.kind })}
                 className={cn(
-                  'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-[background-color,color,transform] duration-(--dur-quick) active:scale-[0.96]',
+                  'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-[background-color,color,transform,scale] duration-(--dur-quick) ease-glide active:duration-(--dur-press) active:scale-[0.96]',
                   Icon && 'pl-2.5',
                   on ? 'bg-fg text-bg' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
                 )}
@@ -524,7 +496,7 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
         'flex h-full min-h-[104px] w-full items-start gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-[border-color,background-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
         // The New look: a card of paper with its kind's ink along the top; it lifts on hover and presses in.
         'look-new:relative look-new:overflow-hidden look-new:rounded-card look-new:border-transparent look-new:bg-page look-new:p-3.5 look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]',
-        'look-new:transition-[transform,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:hover:-translate-y-0.5 look-new:hover:bg-page look-new:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line)] look-new:active:translate-y-0 look-new:active:scale-[0.985] look-new:active:duration-(--dur-press)'
+        'look-new:transition-[transform,translate,scale,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:hover:-translate-y-0.5 look-new:hover:bg-page look-new:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line)] look-new:active:translate-y-0 look-new:active:scale-[0.985] look-new:active:duration-(--dur-press)'
       )}
     >
       {isNew ? <span aria-hidden className={cn('absolute inset-x-0 top-0 h-[3px] opacity-70', ink.edge)} /> : null}

@@ -4,6 +4,8 @@ import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'
 import { useToasts } from '@/components/ui/Toast'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
+import { pageTransition, type Flip } from '@/features/look/viewTransition'
+import { areaOf } from '@/layout/areas'
 import { api } from './api'
 
 export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'editor' | 'backups' | 'trash' | 'usage' | 'about'
@@ -129,7 +131,11 @@ interface AppState {
   refreshStories(): Promise<void>
   selectStory(id: ID | null): void
   selectScene(id: ID | null, storyId?: ID): void
-  navigate(view: View): void
+  /**
+   * Shows another page (a crossfade in the New look). `flip`: the desk's World room, a card flipping into its dossier or
+   * back (features/look/viewTransition.ts).
+   */
+  navigate(view: View, opts?: { flip?: Flip }): void
   setSaveState(s: SaveState): void
   /** The open scene's word count, and which scene it was counted in. */
   setSceneWords(n: number, of?: ID | null): void
@@ -224,6 +230,32 @@ let askedAtLaunch = false
 
 /** The patch that closes the start screen, unless something on it is opening a world it stays up for. */
 const leaveHomePatch = (): Partial<AppState> => (homeHolds > 0 ? {} : { home: false })
+
+/**
+ * The page a view shows: another entry of the same kind, another chapter's plan or another Settings page is still the
+ * same page (it changes in place, at once).
+ */
+const pageKey = (v: View): string =>
+  deskWorld(v)
+    ? 'desk:world'
+    : v.kind === 'entries' || v.kind === 'builder'
+      ? `${v.kind}:${v.entryKind}`
+      : v.kind === 'outline'
+        ? `outline:${v.chapterId ? 'chapter' : 'helper'}`
+        : v.kind
+
+/**
+ * The desk's World room (UI overhaul phase 4): Everything, each kind's page and an entry's dossier over them are one page,
+ * the gallery, so moving between them never crossfades the page (a card flips into its dossier instead).
+ */
+function deskWorld(v: View): boolean {
+  if (v.kind !== 'codex' && v.kind !== 'entries') return false
+  const root = typeof document === 'undefined' ? null : document.documentElement
+  return !!root && root.dataset.arrangement === 'desk' && root.dataset.look === 'new'
+}
+
+/** Counts calls to navigate, so a page change still waiting for its crossfade gives way to a later one. */
+let navTurn = 0
 
 /**
  * Runs something from the start screen that opens a world, story or page underneath it (to delete a story in
@@ -335,8 +367,36 @@ export const useApp = create<AppState>((set, get) => ({
     void api.updateSettings({ lastSceneId: id, ...(storyId ? { lastStoryId: storyId } : {}), ...placeIn(get().world, get().storyId, id) })
   },
 
-  navigate(view) {
-    set({ view, ...leaveHomePatch() })
+  navigate(view, opts) {
+    const before = get().view
+    const turn = ++navTurn
+    // The desk's World room: a card flips into its dossier, or the dossier back into its card.
+    if (opts?.flip && !get().home) {
+      pageTransition(
+        () => {
+          if (turn !== navTurn || get().view !== before) return false
+          set({ view, ...leaveHomePatch() })
+        },
+        { flip: opts.flip }
+      )
+      return
+    }
+    // The New look: a new page crossfades in (features/look/viewTransition.ts). The writing page coming back, the same
+    // page, the start screen, and anything done from the keyboard never animate.
+    if (view.kind === 'write' || pageKey(view) === pageKey(before) || get().home) {
+      set({ view, ...leaveHomePatch() })
+      return
+    }
+    const from = areaOf(before)
+    const to = areaOf(view)
+    pageTransition(
+      () => {
+        // The crossfade starts on the next frame: if another page was opened meanwhile (a scene, another page), that wins.
+        if (turn !== navTurn || get().view !== before) return false
+        set({ view, ...leaveHomePatch() })
+      },
+      { areaChanges: from !== to && from !== null && to !== null }
+    )
   },
 
   setSaveState: (saveState) => set({ saveState }),

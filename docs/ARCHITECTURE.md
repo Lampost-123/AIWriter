@@ -60,7 +60,17 @@ src/renderer/src/
 - **Look.** Colours come only from the theme tokens in `styles.css` (bg-surface,
   text-muted, border-line, bg-accent, text-ai ...). Amber (`ai`) marks AI suggestions,
   red (`danger`) only must-fix problems, green (`success`) done. Interface text is Inter;
-  prose is Literata (`font-serif`). Motion is 150–200 ms and never on text.
+  prose is Literata (`font-serif`).
+- **Motion** goes by how often a thing happens, at the New look's speeds (`--dur-*` in `styles.css`): instant (0)
+  for typing, switching scenes, arrow keys and anything done from the keyboard; press 90 ms; quick 150 ms (hovers,
+  menus opening); base 220 ms (the selection, tabs, dialogs, panels); view 280 ms (a change of screen); moment
+  500–900 ms only for rare moments (a scene done, the start screen). Exits are quicker than entries (140 ms) and
+  leave the way they came; nothing eases in. Text never moves: new AI words may fade in (opacity only, 160 ms) and
+  settle from amber into ink, never slide, and the page follows a draft being written by easing over time, never by
+  jumps. A screen's pieces arrive once a session (the desk's rooms), never again on coming back. Loops are only for
+  the AI at work (its dock's shimmer) and stop with less motion. Less motion
+  (Windows' Animation effects off) makes every change instant, View Transitions too. Classic keeps the 150–200 ms it
+  always had, except presses, which go in and come back as in the New look. See "The two looks", Motion.
 - **No jank.** No layout shift while loading (reserve space, render nothing rather than a
   flash), no modals or "are you sure?" for routine actions (make them undoable and show a
   toast), saving is automatic and silent, every AI action streams and can be stopped.
@@ -1319,7 +1329,7 @@ the palette (`import-manuscript`, `build-memory`).
   darkened a little so their text passes AA on every background they sit on.
 - **Reduced motion**: one rule in `styles.css` ends every transition and animation at once (and only once, so nothing
   loops or flickers) and turns off smooth scrolling. Code-driven motion asks `features/look/motion.ts`
-  (`reducedMotion()`, `scrollBehavior()`). Panels and popovers use 150–200 ms.
+  (`reducedMotion()`, `scrollBehavior()`). The speeds are in Rules, Motion.
 - **Focus mode** (`features/look/focusMode.ts`, pure decisions in `focusLogic.ts`, `FocusLayer.tsx`): F11 (also the
   top bar's button and the palette) on the writing page sets `<html data-focus>` and asks main to fill the screen
   (`setFullScreen`; it only undoes a full screen it made, and `look:fullScreen` ends focus mode if the window leaves
@@ -1636,9 +1646,54 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   Classic's values (exactly what each place used before): `--raise`, elevation (`--elev-1..3`, `--elev-page`; Tailwind
   `shadow-e1..3`, `shadow-sheet`), the kind inks (`--k-char`, `--k-place` ..., with `-soft` tints; `KIND_INK` in
   `features/world/kindIcons.ts`), `--heading-font` (`font-heading`), `--r-card` (`rounded-card`) and motion
-  (`--dur-press`, `--dur-quick`, `--dur-base`, `--dur-view`; `ease-glide`, `ease-spring`). The New look sets its own
-  per theme under `[data-look='new']`. Where a shape differs, a class says so with the `look-new:` variant (or
-  `look-classic:`). Less motion sets every duration to 0.
+  (`--dur-press`, `--dur-quick`, `--dur-base`, `--dur-view`, `--dur-exit`; `ease-glide`, `ease-spring`,
+  `ease-drawer`). The New look sets its own per theme under `[data-look='new']`. Where a shape differs, a class says so
+  with the `look-new:` variant (or `look-classic:`). Less motion sets every duration to 0.
+- **Motion in the New look** (the speeds are in Rules, Motion; Classic keeps the motion it had, with no exits, but its
+  presses are the New look's, below).
+  `features/look/motion.ts` keeps track of whether Adam is on the keyboard or the pointer (`keyboardDriven()`): what
+  he does from the keyboard happens at once. The generic enters (`animate-fade-in`,
+  `animate-pop-in`, `animate-slide-up`) take the look's timing from one zero-weight rule in `styles.css`.
+  - *Changing page*: `navigate()` (`lib/store.ts`) runs a page change from the pointer inside a View Transition
+    (`features/look/viewTransition.ts`: the DOM API with `flushSync`, not React's `<ViewTransition>`, which never runs
+    for zustand state). It fades through: the old page goes in 100 ms, then the new one fades up 4 px (280 ms in
+    all), so the two pages' words never overlap. Only `<main data-page>` (and the side list, `[data-area-list]`, when the rail's area changes)
+    takes part, named only while `<html data-vt>` is up; the document itself is left out, so the rest of the window
+    stays live, and toasts (`[data-toaster]`) stay above it. The change itself lands on the next frame (the old page is
+    pictured first): a later change of page or scene in between wins. Never for `write`, the same page (`pageKey`),
+    the start screen, the keyboard, less motion or Classic.
+  - *Keyboard surfaces* (the palette, story find, the shortcuts list, the find bar) appear and go at once.
+  - *Exits*: Radix still removes a closing menu, popover or dialog at once (so focus goes back, shortcuts work and
+    nothing stale can be pressed, as in Classic); `features/look/exitGhosts.ts` then puts that element back, inert and
+    hidden from screen readers (`[data-exit-ghost]`), for `styles.css` to play out in 140 ms (menus shrink back toward
+    where they opened, dialogs and their dim fade), and removes it. Not when a key closed it, with less motion or
+    during a page change. Every "is a layer open?" check uses `lib/layers.ts`, which never counts one on its way out.
+  - *Panels* slide in 220 ms on the drawer curve (`ease-drawer`). Before a slide, `ResizablePane` sends
+    `aiwrite:panes-move` (how much narrower or wider the page gets) and `SceneView` holds the page's column at the
+    narrower of its two widths for the slide, so a long scene re-wraps once instead of on every frame (measured on an
+    8,000-word scene: layout work during six slides went from about 255 ms to about 105 ms, and the layouts of 1 ms or
+    more from about 115 to 15). Classic keeps its 200 ms `ease-out` and never holds the column.
+  - *The selection pill* (`GlidePill`) glides its position and size together (220 ms, `ease-glide`, no overshoot),
+    placed by layout offsets so a row in motion can't mislead it; it jumps when the keyboard moved the selection or
+    the new row is more than 240 px away.
+  - *Toasts*: one that goes stays a moment where it was, lifeless, and drops back the way it came (`toast-out`,
+    140 ms); the others glide into their new places (FLIP with WAAPI, 220 ms, carrying on from where an unfinished
+    glide has got to), and the stack lifts over a bar with a transform. All in `Toaster` (`components/ui/Toast.tsx`):
+    the store and its queue rules are untouched. Classic and less motion: as before.
+  - *Presses* go in at `--dur-press` (90 ms, `active:duration-(--dur-press)`) and come back at the element's own
+    speed (150 ms; Mark done 220 ms), on `ease-glide`; buttons 0.97, icon buttons 0.95. Tailwind 4's `scale-*` and
+    `translate-*` are the CSS `scale` and `translate` properties, not `transform`: a transition list must name them
+    (`transition-[transform,scale]`), or the press or hover lift snaps. Classic's presses (the read-aloud Play
+    button, the Style cards in Settings) do the same: in at `--dur-press` (90 ms in both looks) on `ease-press` (the
+    glide curve in both looks), back at 150 ms.
+  - *The lamp* (AI words arriving): a draft's new words fade in (160 ms, opacity only), its paragraphs are in a warm
+    ink while it writes with a thin amber line in the margin beside the one being written, and once it ends they settle
+    into the page's ink (1 s). Decorations only (`features/editor/arrival.ts`): each chunk marks just the tail that is
+    new, so italics made from asterisks never fade again, and marks are dropped once played (no replays). Continue's
+    words fade in too, carrying on across its widget being drawn again (`features/edits/arrivalSpans.ts`), and
+    settle once accepted. The page follows the words with a time-based glide (`1 − e^(−dt/90 ms)` a frame, the
+    same at 60 and 120 Hz; `features/editor/scrollGlide.ts`) for Add below and Continue alike; Adam scrolling,
+    clicking or using the keys stops it. Less motion: no fade or settle, and the page keeps up in one step.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
@@ -1650,10 +1705,73 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   (`layout/Trail.tsx`) and the sample world as a chip. **Which area a screen belongs to is one table**,
   `AREA_OF` in `layout/areas.ts` (TypeScript asks for every view), so a screen opened from anywhere lights its
   area. The selection glides (`components/ui/GlidePill.tsx`: one pill behind a list, moved by transform), and a
-  new page fades in with a small rise (`.view-in`, styles.css).
+  new page crossfades in with a View Transition (`features/look/viewTransition.ts`; instant from the keyboard and
+  when coming back to the writing page).
 - **Classic can't drift**: `tests/e2e/classic.spec.ts` compares the main screens in Classic, Light and Dark, on the
   sample world, with screenshots taken before the New look began (one set per platform).
 - Contrast: `tests/unit/contrast.test.ts` checks the New look's colours and kind inks in every theme and accent.
+- **The New look's two layouts** (UI overhaul, phase 2; spec notes/ui-overhaul-v2/desk-build-spec.md): Settings ›
+  Appearance › Layout chooses the **desk** or the **panels** (the rail and side list above), kept as `arrangement` and
+  painted as `<html data-arrangement>` (`features/look/look.ts`: `useDesk()`, the `desk:` variant; Classic ignores it).
+  Until the desk is ready for everyone (`DESK_READY` in `src/shared/defaults.ts`, step D3.7) the choice only shows in
+  try-out builds (`AIWRITE_DESK_READY=1`) and app tests pick a layout with `AIWRITE_ARRANGEMENT` (helpers: the panels).
+  The desk places other pieces around the same `<main>` and `SceneView` (App.tsx's Workspace keeps the slots in the same
+  order, so switching never remounts the editor): its top bar (`layout/desk/DeskTopBar.tsx`: rooms = the areas, the
+  command bar, the status island), the story's spine (`features/desk/spine/`): full by default, the real binder on the
+  spine's leather beside the page with the sheet centred in the room left (windows 1280px and wider,
+  `layout/desk/deskFit.ts`), or slim with its rings and their flyout holding the binder, kept as `layout.deskStory`
+  ('full' | 'slim', apart from the panels' `binderOpen`); every other page in its room's frame
+  (`layout/desk/RoomFrame.tsx`, links from `layout/areaLinks.ts`), the page as a sheet with today's toolbar floating at
+  its foot (the AI dock replaces it in phase 3), and the scene panel as a drawer over the page's edge
+  (`layout/desk/SceneDrawer.tsx`; open = `layout.inspectorOpen`): full height down the right edge, beside the page
+  while spine, sheet and drawer all fit (`deskFit`: the sheet centred between them, gliding as either comes or goes,
+  `useSheetGlide`), making room for it in a smaller window (see The desk); shown and hidden from the top bar's Scene details
+  (`layout/desk/DrawerToggle.tsx`), also from the page head's Scene details and a palette entry per tab. Its colours and materials are `layout/desk/desk.css` (contrast-tested), its app tests
+  `tests/e2e/desk.spec.ts`. How the desk's writing room works is below, in "The desk".
+
+## The desk (UI overhaul, phases 2 and 3)
+
+The New look's desk layout (`arrangement: 'desk'`). It is still reached only in try-out builds and app tests
+(`DESK_READY` false, the default arrangement the panels) until Adam says it becomes the default.
+
+- **Where things go** is one pure function, `deskFit` (`layout/desk/deskFit.ts`, unit-tested), from the window's width,
+  the page's measured column (Adam's page width) and whether the spine is full and the drawer open. The sheet is
+  centred in the room between the spine and the drawer. The open drawer never lies over the page's words while room
+  can be made for it: first the sheet narrows (to `SHEET_MIN`, 640 px), then the full spine shows slim for now
+  (`spineYields`; Adam's `layout.deskStory` is untouched and the full spine comes back when the drawer closes), and only
+  in a window too small for both (about 1100 px) does the drawer lie over the page, which dims under it (Esc anywhere or
+  a click on the dimmed page closes it). The sheet's sides glide as the spine or drawer changes (`useSheetGlide`; at
+  once from the keyboard, while resizing, or with less motion), and a narrowed sheet takes its new width at once so
+  its words re-wrap once, not on every frame. The margin column needs the sheet within `MARGIN_SHIFT` (32 px) of the
+  middle; without room it folds into tabs on the sheet's edge.
+- **The AI dock** (`features/desk/dock/`) at the sheet's foot: the steer box (one-shot direction), Add below
+  (Generate's `'add'`), Continue (the tracked-change Continue aimed at the scene's end, `continueAtEnd`;
+  Ctrl+Shift+Enter, or Enter in the steer box) and the ⋯ menu. Its face follows `activityOf` (`dock/activity.ts`):
+  idle, busy (words so far, the model, Stop) or review (Accept with Tab, Reject with Esc). On the desk these are the
+  only Stop, Accept and Reject: the row under an AI change (`edits/SuggestionLayer.tsx`) keeps What the AI saw and
+  Other versions. The next-beat chip sits over it (`NextBeatChip`, `src/shared/beats.ts`).
+- **The margin** (`features/desk/margin/`) lives inside the page's own scroll area, so its notes scroll with the words
+  and nothing syncs scrolling. `pickSlips` (pure, unit-tested) decides the notes: the scene card (pinned beside the
+  title); entities named in the text (`mentions.ts` finds each one's first mention per paragraph, cached per
+  ProseMirror node, a moment after typing stops), scored by point of view, the card, a fact from this chapter and lore
+  rules, two to a paragraph and six in all; the scene's open issues found in the text by quote and occurrence
+  (Rewrite = Fix the text, Keep = ignore; live-check underlines never become notes); and one memory note for 15 s after
+  the memory reads the scene (`memoryRun.ts`, on `memory:changed`). `MarginLayer` measures each note's paragraph
+  (`data-pid` anchors, `anchors.ts`) only when something could have moved it (sizes, paragraphs coming and going,
+  fonts, at most four times a second while a draft streams) and `layoutNotes` pushes overlapping notes down in reading
+  order (220 ms glide). An entity's slip grows into its card (`EntityCard`: Open their page, Show beside the page).
+  Each note's × puts it away for the session (`marginStore`). The notes step away while the drawer is docked.
+- **The lamp** (streaming): new AI words fade in and a lamp line runs beside the paragraph being written
+  (`features/editor/arrival.ts`, decorations only, so the document and its undo are untouched); Continue's words fade
+  in its widget (`features/edits/arrivalSpans.ts`); the page follows the draft by time-based easing. Guarded by
+  `tests/e2e/desk-perf.spec.ts` (a 10,000-word scene).
+- **Arrival** (`layout/desk/arrival.ts`): the first time a room shows in a session its pieces arrive (sheet, spine,
+  notes one after another, the dock on the spring); later visits, the keyboard and less motion show them at once.
+- **The first scene's guide** is a slip at the top of the sheet on the desk (`FirstSceneGuide slip`), never over the
+  words; the panels keep the bar above the page.
+- **Tests**: `desk.spec.ts` (frame, spine, drawer and its make-room rules, dock, chip, margin notes),
+  `desk-perf.spec.ts`, and `desk.visual.spec.ts` (screenshots of the write room, flyout and drawer per theme; baselines
+  per platform, taken where they exist).
 
 ## The editor chat (Ask the world, October 2026)
 

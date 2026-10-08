@@ -15,7 +15,7 @@ import { DoneButton } from './DoneButton'
 import { MemoryNote } from './MemoryNote'
 import { SceneTools } from './SceneTools'
 
-function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
+export function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   const isNew = useNewLook()
   return (
     <M.Root modal={false}>

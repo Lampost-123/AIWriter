@@ -14,6 +14,7 @@ import { toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { escapeTaken } from '@/lib/escape'
+import { OPEN_DIALOG, OPEN_POPPER } from '@/lib/layers'
 import { isShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { useBeats } from '@/features/beats/session'
@@ -162,7 +163,8 @@ function drafting(): boolean {
   )
 }
 
-const LAYERS = '[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"], [data-hover-card]'
+/** A layer open over the page (not one playing its way out), or a name's card. */
+const LAYERS = `${OPEN_POPPER}, ${OPEN_DIALOG}, [data-hover-card]`
 
 const inPage = (t: EventTarget | null): boolean => t instanceof Element && !!t.closest('.ProseMirror')
 

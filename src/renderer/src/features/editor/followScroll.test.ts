@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FollowScroll, glideStep } from './followScroll'
+import { FollowScroll } from './followScroll'
 
 /** A page that scrolls: 2000 px of text in a 500 px window, at its bottom. */
 function page(): { scrollTop: number; scrollHeight: number; clientHeight: number } {
@@ -33,19 +33,7 @@ describe('following a draft down the page', () => {
     }
   })
 
-  it('moves as it always did on a 60 Hz screen: 18% of the gap a frame, a pixel at least', () => {
-    expect(glideStep(100, 1000 / 60)).toBeCloseTo(18, 5)
-    expect(glideStep(3, 1000 / 60)).toBe(1)
-    // Half the time, half the frames' worth: two such steps close the same share as one 60 Hz frame.
-    const first = glideStep(100, 1000 / 120)
-    expect(first + glideStep(100 - first, 1000 / 120)).toBeCloseTo(18, 5)
-  })
-
-  it('never goes past the bottom, and a long pause counts as a short one', () => {
-    expect(glideStep(2, 1000)).toBe(2)
-    expect(glideStep(0, 16)).toBe(0)
-    expect(glideStep(1000, 5000)).toBeCloseTo(glideStep(1000, 100), 5)
-  })
+  // The glide's own step (the same pace at any frame rate, never past the bottom) is tested in scrollGlide.test.ts.
 
   it('reaches the bottom and stops once the draft has ended', () => {
     const at = run(60, 3000)

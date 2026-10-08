@@ -142,6 +142,20 @@ const WORD_REST = /^(?:[\p{L}\p{N}]|['’-](?=[\p{L}\p{N}]))+/u
  * in plain words when there's nothing before it to carry on from. From inside a word, it carries on after
  * the whole word.
  */
+/**
+ * Where the scene's words end: the end of the last paragraph (or quoted passage's paragraph) that has words in it, past
+ * any empty paragraphs and scene breaks after it. Null when the scene has no words at all. (The desk's Continue carries on from here.)
+ */
+export function endOfWords(doc: PMNode): number | null {
+  let end: number | null = null
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true
+    if (node.textContent.trim()) end = pos + 1 + node.content.size
+    return false
+  })
+  return end
+}
+
 export function continuePlace(doc: PMNode, pos: number): ContinuePlace | { problem: string } {
   const $pos = doc.resolve(pos)
   if (!$pos.parent.isTextblock) return { problem: 'Put the cursor in the text where the AI should carry on.' }

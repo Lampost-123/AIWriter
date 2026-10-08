@@ -5,18 +5,17 @@ import { Headphones } from '@/components/ui/icons'
 import { useEffect } from 'react'
 import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'
+import { layerOpen } from '@/lib/layers'
 import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { ToolButton } from '@/features/editor/ToolButton'
 import { toggleListen, useReading } from './control'
 
-/** A menu, list or dialog is open over the page: its own keys come first. */
-const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
-
-export function ListenButton({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+/**
+ * Ctrl+L listens from the cursor (or pauses, or carries on), while read aloud is turned on. Used by the Listen button in
+ * the scene's toolbar and, with no button, by the desk's page (features/desk/keys/DeskSceneKeys.tsx).
+ */
+export function useListenKeys(): void {
   const on = useApp((s) => !!s.settings?.speech.readAloud)
-  const reading = useReading((s) => s.reading && s.sceneId === sceneId)
-  const paused = useReading((s) => s.paused)
-
   useEffect(() => {
     if (!on) return
     const onKey = (e: KeyboardEvent): void => {
@@ -27,6 +26,14 @@ export function ListenButton({ sceneId }: { sceneId: ID }): React.JSX.Element | 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [on])
+}
+
+export function ListenButton({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+  const on = useApp((s) => !!s.settings?.speech.readAloud)
+  const reading = useReading((s) => s.reading && s.sceneId === sceneId)
+  const paused = useReading((s) => s.paused)
+
+  useListenKeys()
 
   if (!on) return null
   const title = reading ? (paused ? 'Carry on reading aloud' : 'Pause reading aloud') : 'Listen from the cursor'

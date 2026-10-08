@@ -6,10 +6,12 @@ import * as D from '@radix-ui/react-dialog'
 import { X } from '@/components/ui/icons'
 import { Fragment, useEffect } from 'react'
 import { IconButton, Kbd } from '@/components/ui'
+import { OPEN_DIALOG, OPEN_MENU, OPEN_POPPER } from '@/lib/layers'
 import { watchMoreBelow } from '@/lib/moreBelow'
 import { isShortcut, isTyping, SHORTCUT_GROUPS, SHORTCUTS, shortcutKeys, shortcutText, type Shortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { HoldToTalkLine } from '@/features/dictation/HoldToTalkLine'
+import { useDesk } from '@/features/look/look'
 import { giveFocusBack, openShortcuts, PALETTE_LAYER, usePalette } from './paletteStore'
 
 function Keys({ s }: { s: Shortcut }): React.JSX.Element {
@@ -32,7 +34,7 @@ function useOpenShortcut(): void {
     const onKey = (e: KeyboardEvent): void => {
       if (e.defaultPrevented || e.repeat || !isShortcut(e, 'shortcuts') || isTyping(e.target)) return
       if (useApp.getState().restoring || usePalette.getState().shortcuts) return
-      if (document.querySelector('[role="dialog"][data-state="open"], [role="menu"], [data-radix-popper-content-wrapper]')) return
+      if (document.querySelector(`${OPEN_DIALOG}, ${OPEN_MENU}, ${OPEN_POPPER}`)) return
       e.preventDefault()
       openShortcuts()
     }
@@ -43,12 +45,15 @@ function useOpenShortcut(): void {
 
 export function ShortcutsList(): React.JSX.Element {
   const open = usePalette((s) => s.shortcuts)
+  // The desk's own shortcuts (Continue) are listed only on the desk.
+  const desk = useDesk()
   useOpenShortcut()
 
   return (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ shortcuts: o })}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
+        {/* The New look: it appears at once (opened from the keyboard, ?). */}
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in look-new:data-[state=open]:animate-none" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
           onOpenAutoFocus={(e) => {
@@ -64,7 +69,7 @@ export function ShortcutsList(): React.JSX.Element {
           }}
           // Pressing a shortcut to try it while reading the list does nothing underneath (Ctrl+G doesn't start a draft).
           onKeyDown={(e) => e.stopPropagation()}
-          className="fixed left-1/2 top-[12vh] z-50 flex max-h-[76vh] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
+          className="fixed left-1/2 top-[12vh] z-50 flex max-h-[76vh] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:data-[state=open]:animate-none"
         >
           {/* It scrolls inside its frame, so its bottom edge can fade while more of the list is below. */}
           <div data-shortcuts ref={watchMoreBelow} tabIndex={-1} className="fade-more-below scrollbar-shown min-h-0 overflow-y-auto p-5 focus:outline-none">
@@ -85,7 +90,7 @@ export function ShortcutsList(): React.JSX.Element {
               <section key={group} aria-label={group} className="mt-4">
                 <h3 className="mb-1 text-[11.5px] font-semibold uppercase tracking-wide text-faint">{group}</h3>
                 <ul>
-                  {SHORTCUTS.filter((s) => s.group === group).map((s) => (
+                  {SHORTCUTS.filter((s) => s.group === group && (!s.desk || desk)).map((s) => (
                     <li key={s.id} className="flex min-h-8 items-center gap-4 border-b border-line py-1 last:border-b-0">
                       <span className="flex-1 text-[13.5px] text-fg">
                         {s.name}

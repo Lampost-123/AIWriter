@@ -6,6 +6,7 @@
 import type { Editor } from '@tiptap/core'
 import type { ID } from '@shared/types'
 import { editorBridge } from '@/lib/editorBridge'
+import { OPEN_DIALOG, OPEN_MENU, OPEN_POPPER } from '@/lib/layers'
 import { useApp } from '@/lib/store'
 import { insertIntoEditable, insertIntoField, isTextBox } from './insertText'
 import { insertIntoScene } from './insertScene'
@@ -18,8 +19,7 @@ export type Target =
   | { kind: 'editable'; el: HTMLElement }
 
 /** Something open over the page (a dialog, a menu, a list to pick from): the page isn't where the words would go. */
-const COVERED =
-  '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"], [role="menu"], [data-radix-popper-content-wrapper]'
+const COVERED = `${OPEN_DIALOG}, [role="alertdialog"][data-state="open"], ${OPEN_MENU}, ${OPEN_POPPER}`
 
 /** The editor showing a scene, if any. */
 function sceneEditor(): { editor: Editor; sceneId: ID } | null {

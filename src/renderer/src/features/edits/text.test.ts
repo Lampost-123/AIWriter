@@ -5,7 +5,7 @@ import { EditorState, TextSelection } from '@tiptap/pm/state'
 import { sceneExtensions } from '@/features/editor/extensions'
 import { docFromText } from '@/features/editor/streamDoc'
 import { keepsLineBreaks } from '@shared/contracts/edits'
-import { BREAK, cleanReply, continuePlace, joinSpaces, newParagraphs, parseAlternatives, sameWords, selectedWords, textOf, wordsIn } from './text'
+import { BREAK, cleanReply, continuePlace, endOfWords, joinSpaces, newParagraphs, parseAlternatives, sameWords, selectedWords, textOf, wordsIn } from './text'
 
 const schema = getSchema(sceneExtensions())
 const { paragraph: p, horizontalRule: hr, hardBreak } = schema.nodes
@@ -254,6 +254,13 @@ describe('the AI’s reply', () => {
     expect(keepsLineBreaks({ tool: 'condense', selection: 'One.\n\nTwo.', before: letter, after: '' })).toBe(false)
     expect(keepsLineBreaks({ tool: 'continue', selection: '', before: 'Dear Tobin,\nI am', after: ' well.\n\nShe sealed it.' })).toBe(true)
     expect(keepsLineBreaks({ tool: 'continue', selection: '', before: `${letter}\n\n`, after: 'Rain.' })).toBe(false)
+  })
+
+  it('finds where the scene’s words end for the desk’s Continue: past empty paragraphs and scene breaks', () => {
+    const doc = docOf(p.create(null, t('One.')), p.create(null, t('Two words.')), hr.create(), p.create())
+    expect(endOfWords(doc)).toBe(1 + 4 + 2 + 10)
+    expect(continuePlace(doc, endOfWords(doc)!)).toEqual({ at: endOfWords(doc), mode: 'paragraph' })
+    expect(endOfWords(docOf(p.create(), hr.create(), p.create()))).toBeNull()
   })
 })
 

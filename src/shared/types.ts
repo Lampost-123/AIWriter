@@ -431,7 +431,17 @@ export interface Settings {
   editor: EditorSettings
   /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */
   goals: WritingGoals
-  layout: { binderWidth: number; inspectorWidth: number; binderOpen: boolean; inspectorOpen: boolean }
+  layout: {
+    binderWidth: number
+    inspectorWidth: number
+    binderOpen: boolean
+    inspectorOpen: boolean
+    /**
+     * The desk's story spine: 'full' (every chapter and scene beside the page, the default while unset) or 'slim' (the
+     * narrow spine of rings it collapses to). Kept apart from binderOpen, which the panels' binder uses.
+     */
+    deskStory?: 'full' | 'slim'
+  }
   lastWorldId: ID | null
   lastStoryId: ID | null
   lastSceneId: ID | null
@@ -464,6 +474,13 @@ export interface Settings {
   look: 'new' | 'classic'
   /** The New look: the one-time note offering Classic is still to show (true only after updating from before it). */
   lookNote?: boolean
+  /**
+   * The New look's layout (Settings › Appearance › Layout): the desk or the panels (see contracts/look.ts). Classic
+   * ignores it. Missing in settings from before the desk.
+   */
+  arrangement?: 'desk' | 'panels'
+  /** The one-time note about the desk (offering the panels) is still to show (true only after updating to it). */
+  arrangementNote?: boolean
   /**
    * Check and repair (Settings › Models, "Check new words straight away"; on by default): after a draft, a beat or
    * Continue, the new words are checked claim by claim, small slips fixed in amber and the rest asked (src/main/repair/).

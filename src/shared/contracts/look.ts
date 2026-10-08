@@ -35,6 +35,26 @@ export const lookOf = (value: unknown): Look => (value === 'classic' ? 'classic'
  */
 export const lookNoteDue = (stored: Record<string, unknown> | null): boolean => stored !== null && !('look' in stored)
 
+/**
+ * The New look's two layouts (Settings › Appearance › Layout): the desk (the page centred on a lit desk, the story's
+ * spine on the left, rooms in the top bar) and the panels (the area rail, the side list and the scene panel). Kept in
+ * Settings as `arrangement` (the name `layout` holds the panes' sizes), painted as <html data-arrangement>. Classic
+ * ignores it. See docs/ARCHITECTURE.md, "The two looks".
+ */
+export const ARRANGEMENTS = ['desk', 'panels'] as const
+export type Arrangement = (typeof ARRANGEMENTS)[number]
+
+/** The layout as kept in Settings: the panels only when it says so, the desk for anything else. */
+export const arrangementOf = (value: unknown): Arrangement => (value === 'panels' ? 'panels' : 'desk')
+
+/**
+ * Whether the one-time note about the desk is due when settings are read: only for someone who already used the New
+ * look (their settings.json has a look, and it is the New look) and has never had a layout. Someone from before the New
+ * look gets the New look's own note instead; a fresh install has nothing to compare it with.
+ */
+export const arrangementNoteDue = (stored: Record<string, unknown> | null): boolean =>
+  stored !== null && !('arrangement' in stored) && 'look' in stored && lookOf(stored.look) === 'new'
+
 /** Calls the interface can make. */
 export interface LookApi {
   /**

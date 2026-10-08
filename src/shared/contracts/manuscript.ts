@@ -52,6 +52,8 @@ export interface NamedEntry {
   state: StateLine[]
   /** For a character with voice notes. */
   voice: VoiceNotes | null
+  /** Lore flagged as a rule never to break (the desk's margin gives it a note). */
+  hardRule?: boolean
 }
 
 export interface SceneNames {

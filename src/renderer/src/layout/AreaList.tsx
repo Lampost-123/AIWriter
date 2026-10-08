@@ -3,52 +3,32 @@
 // outline, each chapter's plan, ideas and the interview on a scene's card, the plot threads and story recipes.
 // World: everything in the world by kind, the relationship map, the timeline and building from a summary. Check:
 // consistency, what the memory changed and the scene's issues. Classic keeps today's binder instead (Binder.tsx).
+// The links themselves are layout/areaLinks.ts (the desk's room frame shows the same ones).
 import type { ReactNode } from 'react'
-import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
+import { ENTRY_KINDS } from '@shared/fields'
 import { GlidePill } from '@/components/ui/GlidePill'
-import {
-  CalendarRange,
-  CircleAlert,
-  CookingPot,
-  History,
-  LayoutGrid,
-  Lightbulb,
-  ListTree,
-  MessageCircleQuestion,
-  Network,
-  NotebookText,
-  Palette,
-  SearchCheck,
-  Settings2,
-  Spool,
-  WandSparkles,
-  type IconType
-} from '@/components/ui/icons'
+import type { IconType } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
-import { useApp, type View } from '@/lib/store'
+import { useApp } from '@/lib/store'
 import { Binder } from '@/features/binder/Binder'
 import { useOutline } from '@/features/binder/outlineStore'
 import { useEntryCounts } from '@/features/binder/WorldSection'
-import { CODEX_KINDS } from '@/features/codex/codexLogic'
-import { openConsistency } from '@/features/consistency/checkStore'
-import { openOutlineHelper } from '@/features/outline/open'
-import { openRecipes } from '@/features/recipes/recipeStore'
-import { openStorySettings } from '@/features/stories/storyActions'
-import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
-import { openWorldBuilder } from '@/features/worldBuilder/open'
+import { KIND_INK } from '@/features/world/kindIcons'
 import { AREAS, areaOf, type Area } from './areas'
+import { chapterLinks, checkLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from './areaLinks'
 
 /** The area last shown, kept while Settings (in no area) is open. */
 let lastArea: Area = 'write'
 
-/** Opens the open scene's card in the scene panel beside the page (its ideas for what happens next and Interview me). */
-function openSceneCard(): void {
-  const app = useApp.getState()
-  app.setInspectorTab('card')
-  app.peekEntry(null)
-  if (app.askOpen) app.setAskOpen(false)
-  if (app.settings && !app.settings.layout.inspectorOpen) void app.updateSettings({ layout: { inspectorOpen: true } })
-  app.navigate({ kind: 'write' })
+/** Where Adam is, for the links (layout/areaLinks.ts). */
+export function useLinkContext(): LinkContext {
+  const view = useApp((s) => s.view)
+  const storyId = useApp((s) => s.storyId)
+  const sceneId = useApp((s) => s.sceneId)
+  const issuesShowing = useApp((s) => s.view.kind === 'write' && s.inspectorTab === 'issues' && !!s.settings?.layout.inspectorOpen)
+  const counts = useEntryCounts()
+  const { outline } = useOutline()
+  return { view, storyId, sceneId, counts, chapters: outline?.chapters ?? [], issuesShowing }
 }
 
 /** One row in a side list: an icon (or a kind's tinted tile), the words, and a count when there is one. */
@@ -101,6 +81,20 @@ function SideLink({
   )
 }
 
+/** A side row for one of the area's links. */
+const Row = ({ link }: { link: AreaLink }): React.JSX.Element => (
+  <SideLink
+    icon={link.icon}
+    kind={link.kind}
+    label={link.label}
+    hint={link.hint}
+    count={link.count}
+    active={link.active}
+    disabled={link.disabled}
+    onClick={link.run}
+  />
+)
+
 /** A list of links with the gliding pill behind the one showing. */
 function Links({ children, className, label }: { children: ReactNode; className?: string; label: string }): React.JSX.Element {
   return (
@@ -115,77 +109,40 @@ const Label = ({ children }: { children: ReactNode }): React.JSX.Element => (
   <h3 className="px-3.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">{children}</h3>
 )
 
-const is = (view: View, kind: View['kind']): boolean => view.kind === kind
-
-function WriteList({ view }: { view: View }): React.JSX.Element {
-  const storyId = useApp((s) => s.storyId)
+function WriteList(): React.JSX.Element {
+  const c = useLinkContext()
   return (
     <>
       <div className="min-h-0 flex-1">
         <Binder world={false} />
       </div>
       <Links label="Story" className="shrink-0 border-t border-line pb-2 pt-2">
-        <SideLink icon={Palette} label="Style guide" active={is(view, 'style')} onClick={() => useApp.getState().navigate({ kind: 'style' })} />
-        <SideLink
-          icon={Settings2}
-          label="Story settings"
-          disabled={!storyId}
-          active={is(view, 'story')}
-          onClick={() => storyId && openStorySettings(storyId)}
-        />
+        {writeLinks(c)
+          .filter((l) => l.id !== 'page')
+          .map((l) => (
+            <Row key={l.id} link={l} />
+          ))}
       </Links>
     </>
   )
 }
 
-function PlanList({ view }: { view: View }): React.JSX.Element {
-  const storyId = useApp((s) => s.storyId)
-  const sceneId = useApp((s) => s.sceneId)
-  const { outline } = useOutline()
-  const chapters = outline?.chapters ?? []
-  const planning = view.kind === 'outline' ? view : null
+function PlanList(): React.JSX.Element {
+  const c = useLinkContext()
+  const chapters = chapterLinks(c)
   return (
     <div className="min-h-0 flex-1 overflow-y-auto pb-3">
       <Links label="Plan">
-        <SideLink
-          icon={ListTree}
-          label="Outline helper"
-          hint="Acts, chapters and scene cards suggested from your premise"
-          disabled={!storyId}
-          active={!!planning && !planning.chapterId}
-          onClick={() => storyId && openOutlineHelper(storyId)}
-        />
-        <SideLink
-          icon={Lightbulb}
-          label="Next scene ideas"
-          hint="On an empty scene’s card: three directions for what happens next"
-          disabled={!sceneId}
-          active={false}
-          onClick={openSceneCard}
-        />
-        <SideLink
-          icon={MessageCircleQuestion}
-          label="Interview me"
-          hint="On the scene’s card: a few questions, and the card filled in from your answers"
-          disabled={!sceneId}
-          active={false}
-          onClick={openSceneCard}
-        />
-        <SideLink icon={Spool} label="Plot threads board" active={is(view, 'threads')} onClick={() => useApp.getState().navigate({ kind: 'threads' })} />
-        <SideLink icon={CookingPot} label="Story recipes" active={is(view, 'recipes') || is(view, 'recipePlan')} onClick={openRecipes} />
+        {planLinks(c).map((l) => (
+          <Row key={l.id} link={l} />
+        ))}
       </Links>
-      {storyId && chapters.length ? (
+      {chapters.length ? (
         <>
           <Label>Plan a chapter</Label>
           <Links label="Chapters">
-            {chapters.map((c, i) => (
-              <SideLink
-                key={c.id}
-                icon={NotebookText}
-                label={c.title.trim() || `Chapter ${i + 1}`}
-                active={planning?.chapterId === c.id}
-                onClick={() => useApp.getState().navigate({ kind: 'outline', storyId, chapterId: c.id })}
-              />
+            {chapters.map((l) => (
+              <Row key={l.id} link={l} />
             ))}
           </Links>
         </>
@@ -194,79 +151,33 @@ function PlanList({ view }: { view: View }): React.JSX.Element {
   )
 }
 
-function WorldList({ view }: { view: View }): React.JSX.Element {
-  const counts = useEntryCounts()
-  const navigate = useApp((s) => s.navigate)
+function WorldList(): React.JSX.Element {
+  const c = useLinkContext()
   return (
     <div className="min-h-0 flex-1 overflow-y-auto pb-3">
       <Links label="World">
-        <SideLink
-          icon={LayoutGrid}
-          label="Everything"
-          hint="The codex: every character, place and more, as cards"
-          // What the codex shows: plot threads live on their own board, so they aren't counted here (Plot threads below has them).
-          count={counts ? CODEX_KINDS.reduce((n, k) => n + (counts[k] ?? 0), 0) : null}
-          active={is(view, 'codex')}
-          onClick={() => navigate({ kind: 'codex' })}
-        />
-        {ENTRY_KINDS.map((kind) => (
-          <SideLink
-            key={kind}
-            kind={kind}
-            icon={KIND_ICONS[kind]}
-            label={KIND_LABELS[kind].many}
-            count={counts ? (counts[kind] ?? 0) : null}
-            active={(view.kind === 'entries' || view.kind === 'builder') && view.entryKind === kind}
-            onClick={() => navigate({ kind: 'entries', entryKind: kind, entryId: null })}
-          />
+        {worldLinks(c).map((l) => (
+          <Row key={l.id} link={l} />
         ))}
       </Links>
       <Label>See it whole</Label>
       <Links label="World views">
-        <SideLink icon={Network} label="Relationship map" active={is(view, 'map')} onClick={() => navigate({ kind: 'map' })} />
-        <SideLink icon={CalendarRange} label="Timeline" active={is(view, 'timeline')} onClick={() => navigate({ kind: 'timeline' })} />
-        <SideLink icon={WandSparkles} label="Build from a summary" active={is(view, 'worldBuilder')} onClick={() => openWorldBuilder()} />
+        {worldViewLinks(c).map((l) => (
+          <Row key={l.id} link={l} />
+        ))}
       </Links>
     </div>
   )
 }
 
-function CheckList({ view }: { view: View }): React.JSX.Element {
-  const storyId = useApp((s) => s.storyId)
-  const sceneId = useApp((s) => s.sceneId)
-  const issuesShowing = useApp((s) => s.view.kind === 'write' && s.inspectorTab === 'issues' && !!s.settings?.layout.inspectorOpen)
+function CheckList(): React.JSX.Element {
+  const c = useLinkContext()
   return (
     <div className="min-h-0 flex-1 overflow-y-auto pb-3">
       <Links label="Check">
-        <SideLink
-          icon={SearchCheck}
-          label="Consistency"
-          hint="The story’s issues by chapter and scene, and checking a chapter or the whole story"
-          disabled={!storyId}
-          active={is(view, 'consistency')}
-          onClick={() => storyId && openConsistency(storyId)}
-        />
-        <SideLink
-          icon={History}
-          label="What changed"
-          hint="What the memory keeper changed, with Undo"
-          active={is(view, 'memory')}
-          onClick={() => useApp.getState().navigate({ kind: 'memory', sceneId: null })}
-        />
-        <SideLink
-          icon={CircleAlert}
-          label="This scene’s issues"
-          disabled={!sceneId}
-          active={issuesShowing}
-          onClick={() => {
-            const app = useApp.getState()
-            app.setInspectorTab('issues')
-            app.peekEntry(null)
-            if (app.askOpen) app.setAskOpen(false)
-            if (app.settings && !app.settings.layout.inspectorOpen) void app.updateSettings({ layout: { inspectorOpen: true } })
-            app.navigate({ kind: 'write' })
-          }}
-        />
+        {checkLinks(c).map((l) => (
+          <Row key={l.id} link={l} />
+        ))}
       </Links>
     </div>
   )
@@ -288,15 +199,7 @@ export function AreaList(): React.JSX.Element {
         {meta.label}
         {sub ? <small className="mt-0.5 block truncate font-sans text-[12px] font-normal tracking-normal text-faint">{sub}</small> : null}
       </h2>
-      {area === 'write' ? (
-        <WriteList view={view} />
-      ) : area === 'plan' ? (
-        <PlanList view={view} />
-      ) : area === 'world' ? (
-        <WorldList view={view} />
-      ) : (
-        <CheckList view={view} />
-      )}
+      {area === 'write' ? <WriteList /> : area === 'plan' ? <PlanList /> : area === 'world' ? <WorldList /> : <CheckList />}
     </div>
   )
 }

@@ -8,13 +8,41 @@ import { DrawnTick } from '@/components/ui/DrawnTick'
 import { useNewLook } from '@/features/look/look'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { layerOpen } from '@/lib/layers'
 import { useApp } from '@/lib/store'
 import { useDelayed } from '@/features/generate/parts'
 import { markSceneDone, reopenScene } from './markDone'
 import { onMarkDoneRequest, requestMarkDone } from './doneShortcut'
 
-/** Something else (a menu, a dialog, a popover) is open and keeps its own keys. */
-const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
+/**
+ * Ctrl+Enter marks the scene done, from the page (the editor passes it on as a request) or anywhere else in the writing
+ * view; a scene already done says so. Used by Mark done in the scene's toolbar (Classic and the panels) and, with no
+ * button, by the desk's page (features/desk/keys/DeskSceneKeys.tsx). `run` keeps one mark at a time.
+ */
+export function useMarkDoneKeys(sceneId: ID, done: boolean, run: (fn: () => Promise<unknown>) => Promise<void> = (fn) => fn().then(() => undefined)): void {
+  const doneRef = useRef(done)
+  doneRef.current = done
+  const runRef = useRef(run)
+  runRef.current = run
+  useEffect(() => {
+    const off = onMarkDoneRequest(() => {
+      if (doneRef.current) toast('This scene is already marked done.')
+      else void runRef.current(() => markSceneDone(sceneId))
+    })
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key !== 'Enter') return
+      // A box that gives Ctrl+Enter its own meaning (the draft direction: Generate) has handled it already.
+      if (e.defaultPrevented || e.repeat || layerOpen() || useApp.getState().view.kind !== 'write') return
+      e.preventDefault()
+      requestMarkDone()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      off()
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [sceneId])
+}
 
 export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   const done = status === 'done'
@@ -31,8 +59,6 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
   const [pending, setPending] = useState(false)
   // It takes a moment at most; the spinner only shows if it takes longer than that.
   const slow = useDelayed(pending, 250)
-  const doneRef = useRef(done)
-  doneRef.current = done
   const pendingRef = useRef(false)
 
   const run = useRef(async (fn: () => Promise<unknown>): Promise<void> => {
@@ -48,24 +74,7 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
   }).current
 
   // Ctrl+Enter, from the page (the editor passes it on) or anywhere else in the writing view.
-  useEffect(() => {
-    const off = onMarkDoneRequest(() => {
-      if (doneRef.current) toast('This scene is already marked done.')
-      else void run(() => markSceneDone(sceneId))
-    })
-    const onKey = (e: KeyboardEvent): void => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key !== 'Enter') return
-      // A box that gives Ctrl+Enter its own meaning (the draft direction: Generate) has handled it already.
-      if (e.defaultPrevented || e.repeat || layerOpen() || useApp.getState().view.kind !== 'write') return
-      e.preventDefault()
-      requestMarkDone()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      off()
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [sceneId, run])
+  useMarkDoneKeys(sceneId, done, run)
 
   const shortcut = `${modKey()}+Enter`
   return (
@@ -84,8 +93,8 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
         // The New look: its words show whenever there is room for them beside the tools, on one line. Both labels
         // fit the least width, so it stays put; a wider fallback font makes it grow rather than wrap.
         'look-new:@min-[540px]:w-auto look-new:@min-[540px]:min-w-[112px] look-new:@min-[540px]:px-3',
-        // The New look: a raised pill that presses in.
-        'look-new:h-[30px] look-new:rounded-full look-new:transition-[background-color,border-color,color,transform] look-new:duration-(--dur-base) look-new:active:scale-[0.96]',
+        // The New look: a raised pill that presses in quickly (90ms) and comes back up softly (220ms, with its colour).
+        'look-new:h-[30px] look-new:rounded-full look-new:transition-[background-color,border-color,color,transform,scale] look-new:duration-(--dur-base) look-new:ease-glide look-new:active:duration-(--dur-press) look-new:active:scale-[0.96]',
         done
           ? 'border-success/35 bg-success-soft text-success hover:border-success/70 look-new:border-transparent look-new:bg-raise look-new:text-fg look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:hover:bg-raise'
           : 'border-line bg-surface text-fg hover:border-line-strong hover:bg-surface-2 look-new:border-transparent look-new:bg-raise look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:hover:bg-raise'

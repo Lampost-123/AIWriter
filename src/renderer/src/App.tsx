@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Toaster } from '@/components/ui'
 import { api } from '@/lib/api'
 import { installFlushOnClose } from '@/lib/flush'
-import { useApp } from '@/lib/store'
+import { useApp, type View } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { useTheme } from '@/lib/theme'
 import { ResizablePane, useFloatingPane } from '@/layout/ResizablePane'
@@ -42,7 +42,7 @@ import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
-import { useLookSetting, useNewLook } from '@/features/look/look'
+import { useArrangementSetting, useDesk, useLookSetting, useNewLook } from '@/features/look/look'
 import { AreaRail } from '@/layout/AreaRail'
 import { AreaList } from '@/layout/AreaList'
 import { LookNote } from '@/features/look/LookNote'
@@ -58,6 +58,16 @@ import { RecipePlan } from '@/features/recipes/RecipePlan'
 import { RecipeWatch } from '@/features/recipes/parts'
 import { installSpelling } from '@/features/spelling/install'
 import { installGoals } from '@/features/goals/goalStore'
+import { installInputModality } from '@/features/look/motion'
+import { installExitGhosts } from '@/features/look/exitGhosts'
+// The New look's desk layout (Settings › Appearance › Layout).
+import { DeskTopBar } from '@/layout/desk/DeskTopBar'
+import { RoomFrame } from '@/layout/desk/RoomFrame'
+import { SceneDrawer } from '@/layout/desk/SceneDrawer'
+import { Spine } from '@/features/desk/spine/Spine'
+import { WorldRoom } from '@/features/desk/world/WorldRoom'
+import { spineShowsIn } from '@/layout/desk/rooms'
+import '@/layout/desk/desk.css'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -75,6 +85,7 @@ export function App(): React.JSX.Element | null {
   useTheme(settings?.theme)
   useAccent(settings ? settings.accent : undefined)
   useLookSetting(settings?.look)
+  useArrangementSetting(settings?.arrangement, !!settings)
   useEffect(() => {
     // Where the first run stands is known first (it may open the world a setup was making), so the start
     // screen never flashes before the setup (and never shows once the setup is done).
@@ -87,11 +98,17 @@ export function App(): React.JSX.Element | null {
     // Writing by hand: spell check in step with the world and story, and the words written each day.
     const offSpelling = installSpelling()
     const offGoals = installGoals()
+    // The New look: whether Adam is on the keyboard or the pointer (what he does from the keyboard happens at once),
+    // and menus, popovers and dialogs leaving the way they came.
+    const offModality = installInputModality()
+    const offGhosts = installExitGhosts()
     return () => {
       offFlush()
       offMemory()
       offSpelling()
       offGoals()
+      offModality()
+      offGhosts()
     }
   }, [init])
 
@@ -192,6 +209,48 @@ function useWindowWidth(): { width: number; resizing: boolean } {
   return state
 }
 
+/**
+ * The desk's World room: Everything (the codex), each kind's page and an entry's dossier over them are one gallery
+ * (features/desk/world), so going between them never reloads it.
+ */
+const deskGallery = (view: View): boolean => view.kind === 'codex' || view.kind === 'entries'
+
+/** Which page a view is, on the desk: its kind, with the World room's gallery one page whichever tab shows. */
+const deskPageKey = (view: View): string => (deskGallery(view) ? 'world-gallery' : view.kind)
+
+/** Every page but the writing page, by the view showing (the same in both layouts and Classic, but the desk's World room). */
+function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JSX.Element {
+  if (desk && deskGallery(view)) return <WorldRoom />
+  return (
+    <>
+      {view.kind === 'entries' && <EntriesView kind={view.entryKind} entryId={view.entryId} from={view.from} />}
+      {view.kind === 'style' && <StyleView />}
+      {view.kind === 'settings' && <SettingsView tab={view.tab} />}
+      {view.kind === 'generation' && <WhatTheAISaw generationId={view.generationId} />}
+      {view.kind === 'memory' && <WhatChanged sceneId={view.sceneId} />}
+      {view.kind === 'codex' && <CodexView />}
+      {view.kind === 'builder' && <BuilderView kind={view.entryKind} entryId={view.entryId} start={view.start} />}
+      {view.kind === 'timeline' && <TimelineView />}
+      {view.kind === 'map' && <RelationshipMap />}
+      {view.kind === 'threads' && <ThreadsBoard />}
+      {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
+      {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
+      {view.kind === 'variants' && <VariantsView key={view.sceneId} sceneId={view.sceneId} />}
+      {view.kind === 'outline' &&
+        (view.chapterId ? (
+          <ChapterPlanner key={view.chapterId} storyId={view.storyId} chapterId={view.chapterId} />
+        ) : (
+          <OutlineHelper key={view.storyId} storyId={view.storyId} />
+        ))}
+      {view.kind === 'worldBuilder' && <WorldBuilderView />}
+      {view.kind === 'consistency' && <ConsistencyView key={view.storyId} storyId={view.storyId} />}
+      {view.kind === 'import' && <ImportView />}
+      {view.kind === 'recipes' && <RecipesView page={view.page} recipeId={view.recipeId} />}
+      {view.kind === 'recipePlan' && <RecipePlan key={view.storyId} storyId={view.storyId} recipeId={view.recipeId} />}
+    </>
+  )
+}
+
 const BINDER = { min: 220, max: 440, floor: 200 }
 /** The New look's area rail, always beside the side list (layout/AreaRail.tsx). */
 const RAIL = 64
@@ -213,14 +272,11 @@ function Workspace(): React.JSX.Element {
   const focusPanel = focus && (askOpen || peeking)
   // The New look: the area rail, then the area's list where Classic has the binder (and no sample bar: a chip in the top bar).
   const isNew = useNewLook()
+  // The New look's desk layout (Settings › Appearance › Layout): the same page in the middle, other pieces around it.
+  const desk = useDesk()
   const overPage = focus && (!focusMoving || focusPanel)
   const { layout } = settings
   const writing = view.kind === 'write'
-  // The New look: each time the writing page comes back, it fades in again (see .view-in in styles.css).
-  const returns = useRef(0)
-  const wasWriting = useRef(writing)
-  if (writing && !wasWriting.current) returns.current++
-  wasWriting.current = writing
   // Ask the world (milestone 4) shows in this panel too, even with no scene open; so does a chapter's card.
   const chapterCardId = useApp((s) => s.chapterCardId)
   const scenePanel = writing && (!!sceneId || askOpen || !!chapterCardId)
@@ -228,7 +284,7 @@ function Workspace(): React.JSX.Element {
   // Adam's chosen widths are kept and come back when the window is wider.
   const shown = useWindowWidth()
   // The panels share what the rail leaves.
-  const win = isNew ? { ...shown, width: shown.width - RAIL } : shown
+  const win = isNew && !desk ? { ...shown, width: shown.width - RAIL } : shown
   // The scene panel comes and goes with the writing page (it isn't there on other pages). When it
   // does, the binder takes its new width at once too, rather than easing while the page swaps.
   const hadScenePanel = useRef(scenePanel)
@@ -241,7 +297,8 @@ function Workspace(): React.JSX.Element {
   // the saved layout is untouched, so the binder is back beside the page in a wider window.
   const pageMin = pageMinFor(settings.editor.fontSize, settings.editor.pageWidth)
   const right = { open: !focus && scenePanel && layout.inspectorOpen, width: layout.inspectorWidth, floor: SCENE_PANEL.floor }
-  const floats = binderFloats(win.width, BINDER.floor, right, pageMin)
+  // (The desk has no binder beside the page: its flyout decides for itself.)
+  const floats = !desk && binderFloats(win.width, BINDER.floor, right, pageMin)
   const floating = useFloatingPane(floats)
   // The New look: Settings has a list of its own beside the rail, so the area's list steps aside there.
   const listAside = isNew && view.kind === 'settings'
@@ -251,77 +308,82 @@ function Workspace(): React.JSX.Element {
   // saved is the one that shows where Adam lets go, so nothing jumps on release.
   const binderMin = left.open ? Math.min(BINDER.min, fit.left) : BINDER.min
   const sceneMin = right.open ? Math.min(SCENE_PANEL.min, fit.right) : SCENE_PANEL.min
+  // The desk's drawer: open as the scene panel is (layout.inspectorOpen), on the writing page; in focus mode only for
+  // Ask the world or a name shown beside the page.
+  // Ask the world opens it at once (its box takes the keyboard straight away, before the setting is saved).
+  const drawerOpen = scenePanel && (focus ? focusPanel : layout.inspectorOpen || askOpen)
 
   return (
     <>
-      <TopBar />
+      {/* The desk has its own top bar (rooms in the middle, the status island); the panels and Classic share TopBar. */}
+      {desk ? <DeskTopBar /> : <TopBar />}
       {isNew ? null : (
         <div data-focus-chrome>
           <SampleWorldBar />
         </div>
       )}
       <div className="relative flex min-h-0 flex-1">
-        {isNew ? (
+        {isNew && !desk ? (
           <div className="contents" inert={focus}>
             <AreaRail />
           </div>
         ) : null}
-        <div data-focus-chrome className="contents" inert={focus}>
-          <ResizablePane
-            side="left"
-            label="Binder"
-            width={left.open ? fit.left : layout.binderWidth}
-            open={focus || listAside ? false : floats ? floating.open : layout.binderOpen}
-            // On the writing page it opens below the scene's toolbar, so Done, the tools and Generate stay in reach.
-            floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON, top: writing && sceneId ? sceneHeaderHeight(isNew) : undefined } : null}
-            min={binderMin}
-            max={dragMax(win.width, fit.right, binderMin, BINDER.max, pageMin)}
-            instant={!focusMoving && (win.resizing || pageSwap)}
-            onResize={(w) => void update({ layout: { binderWidth: chosenWidthFor(w, win.width, 'left', left, right, BINDER.max, pageMin) } })}
-          >
-            {isNew ? <AreaList /> : <Binder />}
-          </ResizablePane>
-        </div>
-        <main className="relative min-w-0 flex-1 bg-bg">
+        {desk ? (
+          // The desk: the story's spine down the left of the writing page (its flyout over the page holds the binder), and
+          // of the World room's pages, so the story is a click away from its world.
+          spineShowsIn(view) ? (
+            // (Under an entry's dossier in the World room, out of the keyboard's way.)
+            <div className="contents" inert={view.kind === 'entries' && !!view.entryId}>
+              <Spine />
+            </div>
+          ) : null
+        ) : (
+          <div data-focus-chrome className="contents" inert={focus}>
+            <ResizablePane
+              side="left"
+              label="Binder"
+              width={left.open ? fit.left : layout.binderWidth}
+              open={focus || listAside ? false : floats ? floating.open : layout.binderOpen}
+              // On the writing page it opens below the scene's toolbar, so Done, the tools and Generate stay in reach.
+              floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON, top: writing && sceneId ? sceneHeaderHeight(isNew) : undefined } : null}
+              min={binderMin}
+              max={dragMax(win.width, fit.right, binderMin, BINDER.max, pageMin)}
+              instant={!focusMoving && (win.resizing || pageSwap)}
+              onResize={(w) => void update({ layout: { binderWidth: chosenWidthFor(w, win.width, 'left', left, right, BINDER.max, pageMin) } })}
+            >
+              {isNew ? <AreaList /> : <Binder />}
+            </ResizablePane>
+          </div>
+        )}
+        {/* data-page: in the New look, a new page crossfades in here (features/look/viewTransition.ts); coming back
+            to the writing page is instant. The same element in both layouts, so switching between the desk and the
+            panels never remounts the scene's editor (a draft being written carries on). */}
+        <main data-page className="relative min-w-0 flex-1 bg-bg desk:bg-transparent">
           {/* The writing view stays in place under the other pages, so a draft keeps writing into the scene
               while Adam looks at something else, and the page and caret are where he left them. Hidden with
               visibility (not display), which keeps its scroll position. */}
-          <div
-            className={cn('h-full', !writing && 'invisible pointer-events-none', writing && returns.current > 0 && (returns.current % 2 ? 'view-in' : 'view-in-again'))}
-            inert={!writing}
-          >
+          <div className={cn('h-full', !writing && 'invisible pointer-events-none')} inert={!writing}>
             <SceneView />
           </div>
           {!writing ? (
-            <div key={view.kind} className="view-in absolute inset-0 bg-bg">
-              {view.kind === 'entries' && <EntriesView kind={view.entryKind} entryId={view.entryId} from={view.from} />}
-              {view.kind === 'style' && <StyleView />}
-              {view.kind === 'settings' && <SettingsView tab={view.tab} />}
-              {view.kind === 'generation' && <WhatTheAISaw generationId={view.generationId} />}
-              {view.kind === 'memory' && <WhatChanged sceneId={view.sceneId} />}
-              {view.kind === 'codex' && <CodexView />}
-              {view.kind === 'builder' && <BuilderView kind={view.entryKind} entryId={view.entryId} start={view.start} />}
-              {view.kind === 'timeline' && <TimelineView />}
-              {view.kind === 'map' && <RelationshipMap />}
-              {view.kind === 'threads' && <ThreadsBoard />}
-              {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
-              {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
-              {view.kind === 'variants' && <VariantsView key={view.sceneId} sceneId={view.sceneId} />}
-              {view.kind === 'outline' &&
-                (view.chapterId ? (
-                  <ChapterPlanner key={view.chapterId} storyId={view.storyId} chapterId={view.chapterId} />
-                ) : (
-                  <OutlineHelper key={view.storyId} storyId={view.storyId} />
-                ))}
-              {view.kind === 'worldBuilder' && <WorldBuilderView />}
-              {view.kind === 'consistency' && <ConsistencyView key={view.storyId} storyId={view.storyId} />}
-              {view.kind === 'import' && <ImportView />}
-              {view.kind === 'recipes' && <RecipesView page={view.page} recipeId={view.recipeId} />}
-              {view.kind === 'recipePlan' && <RecipePlan key={view.storyId} storyId={view.storyId} recipeId={view.recipeId} />}
-            </div>
+            desk ? (
+              // The desk: every other page in its room's frame (its heading, the room's links, the page on a sheet).
+              <RoomFrame key={deskPageKey(view)} view={view}>
+                <Pages view={view} desk />
+              </RoomFrame>
+            ) : (
+              <div key={view.kind} className="absolute inset-0 bg-bg">
+                <Pages view={view} />
+              </div>
+            )
           ) : null}
         </main>
-        {scenePanel ? (
+        {desk ? (
+          // The desk: the scene panel is a drawer over the page's right edge (the page never re-wraps for it).
+          scenePanel ? (
+            <SceneDrawer open={drawerOpen} sceneId={sceneId} />
+          ) : null
+        ) : scenePanel ? (
           // In focus mode the panel lies over the page's right edge (once it has slid shut beside the page), so the
           // page doesn't move when it opens.
           <div className={overPage ? cn('absolute inset-y-0 right-0 z-30 flex', focusPanel && 'shadow-pop') : 'contents'} inert={focus && !focusPanel}>

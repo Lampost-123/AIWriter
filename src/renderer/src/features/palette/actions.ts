@@ -9,7 +9,8 @@ import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
 import { pressShortcut } from '@/lib/shortcuts'
-import { useApp, type SettingsTab } from '@/lib/store'
+import { useApp, type InspectorTab, type SettingsTab } from '@/lib/store'
+import { openSceneTab } from '@/layout/areaLinks'
 import * as binder from '@/features/binder/actions'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { useOutlineStore } from '@/features/binder/outlineStore'
@@ -25,6 +26,9 @@ import { startBeatByBeat } from '@/features/beats/start'
 import { setShowBeats } from '@/features/beats/BeatSettings'
 import { continueFromCursor } from '@/features/edits/continue'
 import { openAsk } from '@/features/ask/open'
+import { setSpineFull, toggleFlyout } from '@/features/desk/deskStore'
+import { FULL_FROM } from '@/layout/desk/deskFit'
+import { deskOn } from '@/features/look/look'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
 import { stopReading, toggleListen } from '@/features/readAloud/control'
@@ -69,6 +73,9 @@ async function newScene(): Promise<void> {
   const id = await binder.addScene(chapterId, open?.id ?? null)
   if (id) requestEditorFocus(id)
 }
+
+/** A new scene after the open one (the desk's spine and flyout use it too). */
+export const newSceneAfterOpen = (): Promise<void> => newScene().catch(failed)
 
 /** A new chapter after the open scene's (else at the end), with a first scene to write in. */
 async function newChapter(): Promise<void> {
@@ -196,12 +203,27 @@ export async function runAction(id: ActionId): Promise<void> {
         await a.updateSettings({ theme: fixed.slice('theme-'.length) as 'light' | 'dark' | 'sepia' | 'system' })
         return
       case 'toggle-binder':
+        // The desk: the spine opens out to the whole story beside the page, or collapses to its rings; in a window too
+        // narrow for the full spine, the story's flyout shows or hides over the page.
+        if (deskOn()) {
+          if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+          if (window.innerWidth >= FULL_FROM) setSpineFull(layout?.deskStory === 'slim')
+          else toggleFlyout()
+          return
+        }
         // In a small window the binder floats over the page: this shows or hides it and leaves the saved layout alone.
         if (useFloatingBinder.getState().floating) toggleFloatingBinder()
         else if (layout) await a.updateSettings({ layout: { binderOpen: !layout.binderOpen } })
         return
       case 'toggle-panel':
         if (layout) await a.updateSettings({ layout: { inspectorOpen: !layout.inspectorOpen } })
+        return
+      case 'tab-card':
+      case 'tab-context':
+      case 'tab-cast':
+      case 'tab-issues':
+      case 'tab-drafts':
+        openSceneTab(fixed.slice('tab-'.length) as InspectorTab)
         return
       case 'backup-now':
         await flushAll()
@@ -250,6 +272,11 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'continue':
         backToWriting()
         continueFromCursor()
+        return
+      case 'continue-end':
+        // The desk's AI dock hears it, so the steer box's words go with it.
+        backToWriting()
+        pressShortcut('continue')
         return
       case 'ask-world':
         openAsk()

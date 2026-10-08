@@ -1,0 +1,2643 @@
+/*
+  The New look's desk layout (<html data-arrangement='desk'>, Settings › Appearance › Layout; docs/ARCHITECTURE.md,
+  "The two looks"). Imported once by App.tsx. Nothing here reaches the panels or Classic: every rule sits under
+  [data-arrangement='desk'][data-look='new'].
+
+  The desk's colours are Direction B ("Lit desk") in Light, Direction C ("Night harbour") in Dark and a warm paper in
+  Sepia: a lit frame (bg, with a pool of lamp light over the page and darker corners), panes a step up (surface), the
+  page and the slips of paper lightest. Text keeps at least 4.5:1 on all of them, kind inks too, and the text on the
+  spine on the spine (tests/unit/contrast.test.ts reads these blocks). Their own tokens: --spine*, --ribbon, the ruled
+  lines and the red margin rule of index cards, --slip and --card, their shadows, the threads' string inks and the curves
+  the world room's cards flip on (phase 4).
+
+  Motion follows the New look's speeds (styles.css, --dur-*): the flyout slides in 220ms and out 140ms, the drawer the
+  same on the drawer's curve, the room pill glides; from the keyboard (data-instant) and with less motion, at once.
+*/
+
+/* ---------- Light: Direction B, "Lit desk" ---------- */
+[data-arrangement='desk'][data-look='new'][data-theme='light'] {
+  --bg: #e3d8c6;
+  --surface: #efe7da;
+  --surface-2: #e7ddcd;
+  --surface-3: #ded2be;
+  --page: #fffdf8;
+  --raise: #fffefa;
+  --line: #e0d6c6;
+  --line-strong: #cbbda6;
+  --fg: #231c14;
+  --muted: #56493b;
+  --faint: #665a4d;
+  --ai: #8a5212;
+  --ai-soft: #f7e6cc;
+  --ai-fg: #ffffff;
+  --danger: #a3372f;
+  --danger-soft: #f6dfda;
+  --success: #2b6b41;
+  --success-soft: #dcefe2;
+  --k-char: #5e3e98;
+  --k-char-soft: #eee6f8;
+  --k-place: #1c5f57;
+  --k-place-soft: #dcefeb;
+  --k-group: #2d5290;
+  --k-group-soft: #e1e9f6;
+  --k-item: #7a5218;
+  --k-item-soft: #f4e8d3;
+  --k-lore: #3a3b88;
+  --k-lore-soft: #e4e4f5;
+  --k-event: #8e3450;
+  --k-event-soft: #f6e0e7;
+  --k-thread: #43662a;
+  --k-thread-soft: #e5efdb;
+  --k-gloss: #4a5560;
+  --k-gloss-soft: #e6e9ec;
+  --primary: #2a2119;
+  --primary-hover: #3a2f25;
+  --primary-fg: #fff8ec;
+  --slip: #fffefa;
+  --card: #fffefa;
+  --spine: #2a2119;
+  --spine-top: #352b21;
+  --spine-bottom: #231b14;
+  --spine-ink: #c9bfb0;
+  --spine-fg: #f6eee2;
+  --spine-muted: #d3c8b8;
+  --spine-faint: #afa392;
+  --ribbon: #9e3b32;
+  --rule-blue: rgb(47 93 124 / 0.13);
+  --rule-red: rgb(176 65 58 / 0.28);
+  --lamp: #b86f1e;
+  --lamp-2: #de9640;
+  --lamp-glow: rgb(236 163 70 / 0.45);
+  --thread-1: #557f33;
+  --thread-2: #8e5f2a;
+  --thread-3: #2f6f8a;
+  --thread-4: #9a4a63;
+  --thread-5: #5b5aa6;
+  --thread-6: #6b6d2a;
+  --desk-line: rgb(70 45 20 / 0.13);
+  --desk-line-2: rgb(70 45 20 / 0.07);
+  --sh-1: 0 1px 0 rgb(70 45 20 / 0.05), 0 1px 3px rgb(70 45 20 / 0.08);
+  --sh-2: 0 1px 0 rgb(70 45 20 / 0.05), 0 8px 18px -8px rgb(70 45 20 / 0.22);
+  --sh-card: var(--sh-2), 0 0 0 1px rgb(70 45 20 / 0.06);
+  --sh-card-up: var(--sh-2), 0 3px 10px -4px rgb(70 45 20 / 0.18), 0 0 0 1px rgb(70 45 20 / 0.08);
+  --sh-paper: 0 1px 0 rgb(70 45 20 / 0.05), 0 12px 32px -14px rgb(70 45 20 / 0.26), 0 44px 90px -44px rgb(70 45 20 / 0.34);
+  --sh-pop: 0 2px 4px rgb(40 25 10 / 0.08), 0 22px 48px -14px rgb(40 25 10 / 0.34);
+  --elev-1: var(--sh-1);
+  --elev-2: var(--sh-2);
+  --elev-3: var(--sh-pop);
+  --elev-page: var(--sh-paper);
+  --shadow: var(--sh-2);
+  --shadow-lg: var(--sh-pop);
+  --overlay: rgb(40 28 14 / 0.28);
+  /* The lamp: a pool of warm light over the page, the corners in shadow. */
+  --glow: radial-gradient(900px 640px at 51% 18%, rgb(255 214 150 / 0.55), transparent 65%),
+    radial-gradient(1600px 1000px at 50% 40%, transparent 55%, rgb(90 60 30 / 0.16) 100%);
+}
+/* The theme's own accent (an accent Adam picked keeps its colours: styles.css). */
+[data-arrangement='desk'][data-look='new'][data-theme='light']:not([data-accent]) {
+  --accent: #2f5d7c;
+  --accent-hover: #264e69;
+  --accent-soft: #dce7ee;
+  --accent-fg: #ffffff;
+}
+/* Teal, a touch deeper on the desk's darker frame. */
+[data-arrangement='desk'][data-look='new'][data-theme='light'][data-accent='teal'] {
+  --accent: #1a6370;
+}
+
+/* ---------- Dark: Direction C, "Night harbour" ---------- */
+[data-arrangement='desk'][data-look='new'][data-theme='dark'] {
+  --bg: #0f0d0b;
+  --surface: #191612;
+  --surface-2: #221e19;
+  --surface-3: #2b2620;
+  --page: #1e1a16;
+  --raise: #26211c;
+  --line: #2e2822;
+  --line-strong: #463e35;
+  --fg: #f1e8da;
+  --muted: #c2b6a5;
+  --faint: #a19583;
+  --ai: #f5be70;
+  --ai-soft: #3a2c18;
+  --ai-fg: #2a1606;
+  --danger: #e5776e;
+  --danger-soft: #3b1f1c;
+  --success: #6cc08b;
+  --success-soft: #1a2f22;
+  --k-char: #b596f0;
+  --k-char-soft: #2e2540;
+  --k-place: #4fc1b1;
+  --k-place-soft: #17302d;
+  --k-group: #79a0e8;
+  --k-group-soft: #1d283c;
+  --k-item: #d9a55a;
+  --k-item-soft: #33281a;
+  --k-lore: #9a9bec;
+  --k-lore-soft: #262746;
+  --k-event: #e27c9e;
+  --k-event-soft: #3a1f2a;
+  --k-thread: #93c46a;
+  --k-thread-soft: #212e19;
+  --k-gloss: #a9b4bf;
+  --k-gloss-soft: #262a2f;
+  --primary: #f1e8da;
+  --primary-hover: #ffffff;
+  --primary-fg: #1e1a16;
+  --slip: #26211c;
+  --card: #26211c;
+  --spine: #2b241d;
+  --spine-top: #342b23;
+  --spine-bottom: #221c16;
+  --spine-ink: #cfc4b4;
+  --spine-fg: #f3ebdf;
+  --spine-muted: #d3c8b8;
+  --spine-faint: #afa392;
+  --ribbon: #b04a3f;
+  --rule-blue: rgb(143 180 216 / 0.12);
+  --rule-red: rgb(229 119 110 / 0.3);
+  --lamp: #e8a250;
+  --lamp-2: #f5be70;
+  --lamp-glow: rgb(232 162 80 / 0.55);
+  --thread-1: #93c46a;
+  --thread-2: #d9a55a;
+  --thread-3: #6fbccb;
+  --thread-4: #e27c9e;
+  --thread-5: #a3a8f0;
+  --thread-6: #c9c46a;
+  --desk-line: rgb(255 235 200 / 0.12);
+  --desk-line-2: rgb(255 235 200 / 0.07);
+  --sh-1: 0 1px 0 rgb(0 0 0 / 0.22), 0 2px 6px rgb(0 0 0 / 0.22);
+  --sh-2: inset 0 1px 0 rgb(255 240 220 / 0.05), 0 8px 18px -8px rgb(0 0 0 / 0.7);
+  --sh-card: var(--sh-2), 0 0 0 1px rgb(255 235 200 / 0.08);
+  --sh-card-up: var(--sh-2), 0 6px 14px -4px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 235 200 / 0.12);
+  --sh-paper: inset 0 1px 0 rgb(255 232 196 / 0.1), 0 0 0 1px rgb(255 235 200 / 0.05), 0 24px 60px -24px rgb(0 0 0 / 0.75), 0 60px 120px -50px rgb(0 0 0 / 0.6);
+  --sh-pop: 0 2px 6px rgb(0 0 0 / 0.3), 0 28px 60px -16px rgb(0 0 0 / 0.7);
+  --elev-1: var(--sh-1);
+  --elev-2: var(--sh-2);
+  --elev-3: var(--sh-pop);
+  --elev-page: var(--sh-paper);
+  --shadow: var(--sh-2);
+  --shadow-lg: var(--sh-pop);
+  --overlay: rgb(0 0 0 / 0.55);
+  /* The harbour at night: cool light from above the page, the sea's teal and slate in the corners, and the lamp. */
+  --glow: radial-gradient(1000px 640px at 46% -18%, rgb(78 104 150 / 0.34), transparent 62%),
+    radial-gradient(760px 560px at -6% 98%, rgb(34 92 102 / 0.24), transparent 60%),
+    radial-gradient(820px 620px at 108% 106%, rgb(58 66 118 / 0.24), transparent 60%),
+    radial-gradient(700px 420px at 51% 22%, rgb(232 162 80 / 0.06), transparent 70%);
+}
+[data-arrangement='desk'][data-look='new'][data-theme='dark']:not([data-accent]) {
+  --accent: #8fb4d8;
+  --accent-hover: #a8c5e2;
+  --accent-soft: #24303d;
+  --accent-fg: #0e1620;
+}
+
+/* ---------- Sepia: warm paper on an older desk ---------- */
+[data-arrangement='desk'][data-look='new'][data-theme='sepia'] {
+  --bg: #dccdae;
+  --surface: #e9dec6;
+  --surface-2: #e2d5b9;
+  --surface-3: #d8c8a6;
+  --page: #faf4e5;
+  --raise: #fdf8ec;
+  --line: #d6c6a6;
+  --line-strong: #c2ad86;
+  --fg: #3b2f22;
+  --muted: #55483a;
+  --faint: #5e5142;
+  --ai: #774a0a;
+  --ai-soft: #f3e1bd;
+  --ai-fg: #fff8ec;
+  --danger: #922318;
+  --danger-soft: #f3d9cf;
+  --success: #365f31;
+  --success-soft: #dfe7cc;
+  --k-char: #5f388f;
+  --k-char-soft: #eadff0;
+  --k-place: #155852;
+  --k-place-soft: #d8e8df;
+  --k-group: #274e87;
+  --k-group-soft: #dce3ec;
+  --k-item: #694920;
+  --k-item-soft: #efe0c8;
+  --k-lore: #3e418a;
+  --k-lore-soft: #e1def0;
+  --k-event: #8a3252;
+  --k-event-soft: #f3dcdd;
+  --k-thread: #3a5b1f;
+  --k-thread-soft: #e0e7cc;
+  --k-gloss: #464e59;
+  --k-gloss-soft: #e3e0d8;
+  --primary: #3b2c1e;
+  --primary-hover: #4a3828;
+  --primary-fg: #fff8ec;
+  --slip: #fdf8ec;
+  --card: #fdf8ec;
+  --spine: #3b2c1e;
+  --spine-top: #463527;
+  --spine-bottom: #322518;
+  --spine-ink: #d8ccb8;
+  --spine-fg: #faf2e4;
+  --spine-muted: #e0d4c0;
+  --spine-faint: #bfb19c;
+  --ribbon: #8f352c;
+  --rule-blue: rgb(60 80 110 / 0.13);
+  --rule-red: rgb(160 60 50 / 0.28);
+  --lamp: #a8651a;
+  --lamp-2: #d08a38;
+  --lamp-glow: rgb(220 150 60 / 0.42);
+  --thread-1: #4f7530;
+  --thread-2: #85582a;
+  --thread-3: #2c6680;
+  --thread-4: #8f4560;
+  --thread-5: #55549a;
+  --thread-6: #646629;
+  --desk-line: rgb(90 60 20 / 0.14);
+  --desk-line-2: rgb(90 60 20 / 0.08);
+  --sh-1: 0 1px 0 rgb(90 60 20 / 0.06), 0 1px 3px rgb(90 60 20 / 0.1);
+  --sh-2: 0 1px 0 rgb(90 60 20 / 0.06), 0 8px 18px -8px rgb(90 60 20 / 0.26);
+  --sh-card: var(--sh-2), 0 0 0 1px rgb(90 60 20 / 0.08);
+  --sh-card-up: var(--sh-2), 0 3px 10px -4px rgb(90 60 20 / 0.2), 0 0 0 1px rgb(90 60 20 / 0.1);
+  --sh-paper: 0 1px 0 rgb(90 60 20 / 0.06), 0 12px 32px -14px rgb(90 60 20 / 0.3), 0 44px 90px -44px rgb(90 60 20 / 0.36);
+  --sh-pop: 0 2px 4px rgb(60 40 10 / 0.1), 0 22px 48px -14px rgb(60 40 10 / 0.36);
+  --elev-1: var(--sh-1);
+  --elev-2: var(--sh-2);
+  --elev-3: var(--sh-pop);
+  --elev-page: var(--sh-paper);
+  --shadow: var(--sh-2);
+  --shadow-lg: var(--sh-pop);
+  --overlay: rgb(60 40 20 / 0.3);
+  --glow: radial-gradient(900px 640px at 51% 18%, rgb(255 214 150 / 0.42), transparent 65%),
+    radial-gradient(1600px 1000px at 50% 40%, transparent 55%, rgb(90 60 30 / 0.2) 100%);
+}
+[data-arrangement='desk'][data-look='new'][data-theme='sepia']:not([data-accent]) {
+  --accent: #7d4426;
+  --accent-hover: #6a3a20;
+  --accent-soft: #ecd9c4;
+  --accent-fg: #fff8ec;
+}
+
+/* ---------- Shared: shape and motion, the same in every theme ---------- */
+[data-arrangement='desk'][data-look='new'] {
+  --desk-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring-pop: linear(0, 0.06, 0.24 9%, 0.53 18%, 0.82 29%, 1 40%, 1.05 50%, 1.04 60%, 1.01 75%, 1);
+  /* The world room's cards flip on these (phase 4): away quickly, then a long landing. */
+  --flip-a: cubic-bezier(0.55, 0, 0.85, 0.35);
+  --flip-d: cubic-bezier(0.15, 0.65, 0.35, 1);
+  --r-card: 14px;
+}
+
+/* Small capitals: a label over something, in the interface's sans. */
+[data-arrangement='desk'] .desk-caps {
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ---------- The top bar ---------- */
+[data-arrangement='desk'] .desk-topbar {
+  transition: opacity 180ms var(--desk-ease);
+}
+/* Focus mode: the bar steps back (it stays, dimmed, with focus mode's own button to leave by). */
+:root[data-focus][data-arrangement='desk'] .desk-topbar {
+  opacity: 0.35;
+}
+:root[data-focus][data-arrangement='desk'] .desk-topbar:is(:hover, :focus-within) {
+  opacity: 1;
+}
+[data-arrangement='desk'] .desk-mark {
+  color: var(--lamp);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--raise) 92%, white), color-mix(in oklab, var(--lamp-2) 22%, var(--raise)));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--lamp) 22%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.5),
+    var(--sh-1);
+  transition:
+    filter var(--dur-quick) ease-out,
+    scale var(--dur-quick) var(--motion-glide);
+}
+[data-arrangement='desk'] .desk-mark:hover {
+  filter: brightness(1.03) saturate(1.05);
+}
+[data-arrangement='desk'] .desk-mark:active {
+  scale: 0.95;
+  transition-duration: var(--dur-press);
+}
+[data-arrangement='desk'] .desk-bar-link {
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-bar-link:hover,
+[data-arrangement='desk'] .desk-bar-link[data-state='open'] {
+  background: color-mix(in oklab, var(--page) 55%, transparent);
+}
+[data-arrangement='desk'] .desk-bar-link:hover span {
+  color: var(--fg);
+}
+
+/* The rooms: a sunken track, the room showing raised on paper. */
+[data-arrangement='desk'] .desk-rooms {
+  background: color-mix(in oklab, var(--surface-3) 70%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--desk-line),
+    inset 0 1px 2px rgb(70 45 20 / 0.06);
+}
+[data-arrangement='desk'] .desk-rooms > [aria-hidden].desk-room-pill {
+  border-radius: 9px;
+  background: var(--page);
+  box-shadow:
+    var(--sh-1),
+    0 0 0 1px var(--desk-line-2);
+  /* The desk's first showing: the pill slides in from the left, once. */
+  animation: desk-pill-in 260ms var(--desk-ease) backwards;
+}
+@keyframes desk-pill-in {
+  from {
+    opacity: 0;
+    translate: -12px 0;
+  }
+}
+[data-arrangement='desk'] .desk-room {
+  font-weight: 500;
+  color: var(--muted);
+  transition:
+    color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-room:not(.is-on):hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--page) 40%, transparent);
+}
+[data-arrangement='desk'] .desk-room:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .desk-room.is-on {
+  color: var(--fg);
+  font-weight: 600;
+}
+[data-arrangement='desk'] .desk-room.is-on svg {
+  color: var(--accent);
+}
+
+/* The command bar: a field on the frame that opens the palette. */
+[data-arrangement='desk'] .desk-cmd {
+  color: var(--muted);
+  background: color-mix(in oklab, var(--page) 62%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-cmd:hover {
+  background: color-mix(in oklab, var(--page) 88%, transparent);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-cmd:active {
+  scale: 0.98;
+}
+[data-arrangement='desk'] .desk-cmd:focus-visible {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* Scene details in the top bar: the drawer shown and hidden; lit in the accent while it is open. */
+[data-arrangement='desk'] .desk-drawer-toggle {
+  color: var(--muted);
+  background: color-mix(in oklab, var(--page) 62%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-drawer-toggle:hover {
+  background: color-mix(in oklab, var(--page) 88%, transparent);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-drawer-toggle:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .desk-drawer-toggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+[data-arrangement='desk'] .desk-drawer-toggle.is-on {
+  color: var(--fg);
+  background: var(--accent-soft);
+  box-shadow:
+    var(--sh-1),
+    inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent);
+}
+[data-arrangement='desk'] .desk-drawer-toggle.is-on svg {
+  color: var(--accent);
+}
+[data-arrangement='desk'] .desk-drawer-count {
+  color: var(--muted);
+  background: var(--surface-3);
+}
+[data-arrangement='desk'] .desk-drawer-count.is-must {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+[data-arrangement='desk'] .desk-kbd {
+  height: 20px;
+  min-width: 20px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--page);
+  box-shadow:
+    0 0 0 1px var(--desk-line),
+    0 1px 0 var(--desk-line);
+  font: 500 10.5px/20px var(--font-sans);
+  color: var(--muted);
+  text-align: center;
+}
+
+/* The status island: one paper pill whose visible width is a clip-path (it changes smoothly, nothing moves). */
+[data-arrangement='desk'] .desk-island {
+  filter: drop-shadow(0 0 0.6px rgb(70 45 20 / 0.38)) drop-shadow(0 1px 2px rgb(70 45 20 / 0.12));
+}
+[data-arrangement='desk'][data-theme='dark'] .desk-island {
+  filter: drop-shadow(0 0 0.6px rgb(255 235 200 / 0.25)) drop-shadow(0 1px 2px rgb(0 0 0 / 0.4));
+}
+[data-arrangement='desk'] .desk-island:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .desk-island .isl-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--page);
+  transition: clip-path 320ms var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-island .isl-label {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  white-space: nowrap;
+  font: 500 13px/1 var(--font-sans);
+  color: var(--muted);
+  opacity: 0;
+  filter: blur(3px);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    filter var(--dur-exit) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-island .isl-label[data-on] {
+  opacity: 1;
+  filter: none;
+  transition:
+    opacity var(--dur-base) var(--desk-ease) 90ms,
+    filter var(--dur-base) var(--desk-ease) 90ms;
+}
+[data-arrangement='desk'] .desk-island .isl-label b {
+  font-weight: 600;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-island .isl-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--faint);
+  margin: 0 1px;
+}
+[data-arrangement='desk'] .desk-island .isl-tick path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+[data-arrangement='desk'] .desk-island .isl-label[data-on] .isl-tick path {
+  animation: tick-draw 320ms var(--desk-ease) 160ms backwards;
+}
+[data-arrangement='desk'] .desk-island .isl-ring {
+  margin-left: 4px;
+  rotate: -90deg;
+}
+[data-arrangement='desk'] .desk-island .gr-track {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 2.5;
+}
+[data-arrangement='desk'] .desk-island .gr-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 500ms var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-island .gr-fill.is-met {
+  stroke: var(--success);
+}
+[data-arrangement='desk'] .desk-island .isl-pct {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* The AI at work: the lamp's dot, breathing slowly (an ambient loop is allowed while the AI writes). */
+[data-arrangement='desk'] .desk-island .isl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--lamp-2);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--lamp-2) 22%, transparent);
+  animation: desk-breathe 3s ease-in-out infinite;
+}
+@keyframes desk-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    scale: 0.8;
+  }
+  50% {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+/* ---------- The story's spine: slim (rings) or full (the whole story), one leather capsule ---------- */
+/* The capsule's shadow is the whole spine's, so it follows the capsule's edge as it opens out and collapses. */
+[data-arrangement='desk'] .desk-spine {
+  filter: drop-shadow(0 1px 1px rgb(30 18 8 / 0.16)) drop-shadow(0 8px 12px rgb(30 18 8 / 0.2));
+}
+[data-arrangement='desk'][data-theme='dark'] .desk-spine {
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.5)) drop-shadow(0 10px 14px rgb(0 0 0 / 0.55));
+}
+[data-arrangement='desk'] .spine-capsule {
+  background: linear-gradient(180deg, var(--spine-top) 0%, var(--spine) 38%, var(--spine-bottom) 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 240 215 / 0.11),
+    inset 1px 0 0 rgb(255 240 215 / 0.05),
+    inset -1px 0 0 rgb(0 0 0 / 0.22);
+  /* Slim: only its left 48px show (a clip, so nothing hidden can be clicked). It collapses in 140ms. */
+  clip-path: inset(0 calc(100% - 48px) 0 0 round 24px);
+  transition: clip-path var(--dur-exit) var(--motion-drawer);
+}
+/* The first time the Write room shows this session (layout/desk/arrival.ts), the spine slides in. */
+[data-arrangement='desk'] .desk-spine[data-arrive] .spine-capsule {
+  animation: desk-spine-in 260ms var(--desk-ease) 60ms backwards;
+}
+/* Full: the capsule opens out to its whole width in 280ms. */
+[data-arrangement='desk'] .desk-spine[data-shape='full'] .spine-capsule {
+  clip-path: inset(0 0 0 0 round 22px);
+  transition-duration: var(--dur-view);
+}
+@keyframes desk-spine-in {
+  from {
+    opacity: 0;
+    translate: -12px 0;
+  }
+}
+/* The two shapes' contents cross-fade, each at its own width (no words squeezed); hidden, they can't be clicked. */
+[data-arrangement='desk'] :is(.spine-slim, .spine-full) {
+  transition:
+    opacity var(--dur-quick) ease-out,
+    visibility 0s;
+}
+[data-arrangement='desk'] :is(.spine-slim, .spine-full)[data-shown] {
+  pointer-events: auto;
+}
+[data-arrangement='desk'] :is(.spine-slim, .spine-full):not([data-shown]) {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-exit) ease-out,
+    visibility 0s linear var(--dur-exit);
+}
+/* Opening out: the whole story fades up once the edge is most of the way across. */
+[data-arrangement='desk'] .spine-full[data-shown] {
+  transition: opacity calc(var(--dur-view) - var(--dur-exit)) ease-out var(--dur-exit);
+}
+[data-arrangement='desk'] .desk-spine[data-instant] :is(.spine-capsule, .spine-slim, .spine-full) {
+  transition: none !important;
+}
+[data-arrangement='desk'] .desk-spine :is(button):focus-visible {
+  outline: 2px solid var(--lamp-2);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .spine-hit {
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .spine-hit:hover {
+  background-color: rgb(255 240 215 / 0.045);
+}
+[data-arrangement='desk'] .spine-scroll {
+  scrollbar-width: none;
+}
+[data-arrangement='desk'] .spine-scroll::-webkit-scrollbar {
+  display: none;
+}
+[data-arrangement='desk'] .spine-num {
+  font: 600 13px/16px var(--serif-font);
+  color: var(--spine-ink);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .spine-num-long {
+  font-size: 10.5px;
+  letter-spacing: -0.02em;
+}
+[data-arrangement='desk'] .spine-line {
+  background: rgb(255 248 236 / 0.2);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .spine-ring {
+  z-index: 2;
+}
+[data-arrangement='desk'] .spine-ring .spine-glyph {
+  position: relative;
+  z-index: 1;
+  transition: scale 200ms var(--desk-ease);
+}
+[data-arrangement='desk'] .spine-ring:hover .spine-glyph {
+  scale: 1.14;
+}
+[data-arrangement='desk'] .spine-ring.is-current .spine-glyph {
+  scale: 0.64;
+}
+[data-arrangement='desk'] .spine-ring.is-current:hover .spine-glyph {
+  scale: 0.7;
+}
+/* The open scene: lit by the lamp. */
+[data-arrangement='desk'] .spine-halo {
+  position: absolute;
+  left: 14px;
+  top: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--lamp-2) 16%, transparent);
+  box-shadow:
+    inset 0 0 0 1.75px var(--lamp-2),
+    0 0 12px 1px var(--lamp-glow);
+  opacity: 0;
+  scale: 0.6;
+  transition:
+    opacity var(--dur-exit) ease-out,
+    scale var(--dur-exit) ease-out;
+}
+[data-arrangement='desk'] .spine-ring.is-current .spine-halo {
+  opacity: 1;
+  scale: 1;
+  transition:
+    opacity 200ms var(--desk-ease),
+    scale 200ms var(--desk-ease);
+}
+/* The rings: planned hollow, drafted half, revised three quarters (in a light accent), done full with a tick. */
+[data-arrangement='desk'] .spine-glyph .r-bg {
+  fill: var(--spine);
+}
+[data-arrangement='desk'] .spine-glyph .r-track {
+  fill: none;
+  stroke: rgb(255 248 236 / 0.62);
+  stroke-width: 1.5;
+}
+[data-arrangement='desk'] .spine-glyph :is(.r-half, .r-three) {
+  fill: rgb(255 248 236 / 0.62);
+}
+[data-arrangement='desk'] .spine-glyph .r-three {
+  fill: #a9c8e6;
+}
+[data-arrangement='desk'] .spine-glyph .r-fill {
+  fill: rgb(255 248 236 / 0.88);
+}
+[data-arrangement='desk'] .spine-glyph .r-tick {
+  fill: none;
+  stroke: var(--spine);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+[data-arrangement='desk'] .spine-glyph:not([data-status='done']) :is(.r-fill, .r-tick),
+[data-arrangement='desk'] .spine-glyph[data-status='done'] :is(.r-track, .r-half, .r-three),
+[data-arrangement='desk'] .spine-glyph[data-status='planned'] :is(.r-half, .r-three),
+[data-arrangement='desk'] .spine-glyph[data-status='drafted'] .r-three,
+[data-arrangement='desk'] .spine-glyph[data-status='revised'] .r-half {
+  display: none;
+}
+[data-arrangement='desk'] .spine-glyph[data-status='planned'] .r-track {
+  stroke: rgb(255 248 236 / 0.5);
+}
+[data-arrangement='desk'] .spine-glyph[data-status='revised'] .r-track {
+  stroke: #a9c8e6;
+}
+[data-arrangement='desk'] .spine-orn {
+  color: rgb(255 248 236 / 0.45);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .spine-title > span {
+  writing-mode: vertical-rl;
+  /* Set as a line of ordinary text turned on its side, so apostrophes and other punctuation sit where they do in a
+     line (upright in a vertical line they read as a dot or a gap: "The Keeper’s Light"). */
+  text-orientation: sideways;
+  font: 600 10.5px/1 var(--serif-font);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgb(255 248 236 / 0.56);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .spine-add {
+  color: rgb(255 248 236 / 0.8);
+  box-shadow: inset 0 0 0 1px rgb(255 248 236 / 0.16);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .spine-add:hover {
+  background: rgb(255 248 236 / 0.08);
+  color: #fff8ec;
+}
+[data-arrangement='desk'] .spine-add:active {
+  scale: 0.94;
+}
+/* The chevron that opens the slim spine out, and the one that collapses the full one. */
+[data-arrangement='desk'] :is(.spine-open, .spine-collapse) {
+  color: rgb(255 248 236 / 0.78);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] :is(.spine-open, .spine-collapse):hover {
+  background: rgb(255 248 236 / 0.09);
+  color: #fff8ec;
+}
+[data-arrangement='desk'] :is(.spine-open, .spine-collapse):active {
+  scale: 0.94;
+}
+/* A ring's name, beside the spine while the pointer rests on it. */
+[data-arrangement='desk'] .spine-tip {
+  padding: 7px 11px 8px;
+  border-radius: 10px;
+  background: var(--page);
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px var(--desk-line);
+  translate: 0 -50%;
+  animation: spine-tip-in var(--dur-quick) var(--desk-ease) both;
+}
+@keyframes spine-tip-in {
+  from {
+    opacity: 0;
+    translate: -4px -50%;
+  }
+}
+
+/* The full spine, and the drawer's head: the spine's light ink on its leather (the app's own tokens, retuned). */
+[data-arrangement='desk'] :is(.spine-full, .desk-leather) {
+  --fg: var(--spine-fg);
+  --muted: var(--spine-muted);
+  --faint: var(--spine-faint);
+  --surface: rgb(255 248 236 / 0.05);
+  --surface-2: rgb(255 248 236 / 0.075);
+  --surface-3: rgb(255 248 236 / 0.11);
+  --raise: rgb(255 248 236 / 0.1);
+  --page: var(--spine-bottom);
+  --line: rgb(255 248 236 / 0.12);
+  --line-strong: rgb(255 248 236 / 0.2);
+  /* Revised scenes, and the focus ring, in the slim spine's light blue. */
+  --accent: #a9c8e6;
+  --accent-hover: #bcd5ec;
+  --accent-soft: rgb(169 200 230 / 0.16);
+  --accent-fg: #1d2833;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .spine-story-title {
+  font: 600 18px/24px var(--heading-font);
+  font-variation-settings: 'opsz' 36;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .spine-rule {
+  background: linear-gradient(90deg, rgb(255 248 236 / 0.16), rgb(255 248 236 / 0.04));
+}
+[data-arrangement='desk'] .spine-binder [role='tree'] {
+  counter-reset: desk-ch;
+}
+[data-arrangement='desk'] .spine-binder ::-webkit-scrollbar-thumb {
+  background-color: rgb(255 248 236 / 0.16);
+}
+/* Each chapter in the serif, with its numeral in the lamp's colour, as the slim spine numbers it. */
+[data-arrangement='desk'] .spine-binder [data-row='chapter'] {
+  counter-increment: desk-ch;
+}
+[data-arrangement='desk'] .spine-binder [data-row='chapter'] > span.truncate {
+  font: 600 14px/20px var(--heading-font);
+  letter-spacing: -0.005em;
+}
+[data-arrangement='desk'] .spine-binder [data-row='chapter'] > span.truncate::before {
+  content: counter(desk-ch, upper-roman);
+  display: inline-block;
+  min-width: 25px;
+  font: 600 12px/20px var(--serif-font);
+  letter-spacing: 0.04em;
+  color: var(--lamp-2);
+}
+/* The open scene: a ribbon hangs at its row's edge, as one hangs over the page's sheet. */
+[data-arrangement='desk'] .spine-binder [data-row='scene'][aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  width: 8px;
+  height: 22px;
+  background: var(--ribbon);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+}
+[data-arrangement='desk'] .spine-new {
+  color: #fff8ec;
+  background: rgb(255 248 236 / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(255 248 236 / 0.14);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .spine-new:hover {
+  background: rgb(255 248 236 / 0.13);
+}
+[data-arrangement='desk'] .spine-new:active {
+  scale: 0.98;
+}
+[data-arrangement='desk'] .spine-new:disabled {
+  opacity: 0.5;
+}
+
+/* ---------- The flyout: the whole story beside the spine ---------- */
+[data-arrangement='desk'] .desk-flyout {
+  background: var(--page);
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px var(--desk-line-2);
+  transition:
+    opacity var(--dur-base) var(--desk-ease),
+    translate var(--dur-base) var(--desk-ease),
+    visibility 0s;
+}
+[data-arrangement='desk'] .desk-flyout[data-state='open'] {
+  animation: desk-fly-in var(--dur-base) var(--desk-ease) both;
+}
+[data-arrangement='desk'] .desk-flyout[data-state='closed'] {
+  opacity: 0;
+  translate: -8px 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    translate var(--dur-exit) var(--desk-ease),
+    visibility 0s linear var(--dur-exit);
+}
+[data-arrangement='desk'] .desk-flyout[data-instant] {
+  animation: none !important;
+  transition: none !important;
+}
+@keyframes desk-fly-in {
+  from {
+    opacity: 0;
+    translate: -12px 0;
+  }
+}
+/* The binder inside: on paper, its chapters in small capitals, its scenes as rings. */
+[data-arrangement='desk'] .desk-binder [role='tree'] {
+  padding-bottom: 4px;
+}
+[data-arrangement='desk'] .desk-binder [data-status] {
+  width: 14px;
+  height: 14px;
+}
+[data-arrangement='desk'] .desk-binder [data-status='done'] {
+  background: var(--success)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5.1 8.2l1.9 1.9 3.9-4' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 14px 14px no-repeat;
+  box-shadow: none;
+}
+
+/* ---------- The page: one sheet of paper in the middle of the desk ---------- */
+[data-arrangement='desk'][data-look='new'] .scene-sheet {
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+[data-arrangement='desk'] .desk-scroller {
+  padding-top: 12px;
+  /* The scrollbar's room is always kept, so the sheet, its fade and its tools line up whether it scrolls or not. */
+  scrollbar-gutter: stable;
+}
+[data-arrangement='desk'] .desk-sheet {
+  position: relative;
+  min-height: calc(100% - 12px);
+  padding-top: 72px !important;
+  border-radius: 16px 16px 0 0;
+  background-color: var(--page);
+  /* A faint grain in the paper. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .24 0 0 0 0 .12 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)' opacity='.04'/%3E%3C/svg%3E");
+  box-shadow: var(--sh-paper);
+  animation: desk-sheet-in 320ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'][data-theme='dark'] .desk-sheet {
+  background-image: none;
+}
+@keyframes desk-sheet-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+/* The ribbon bookmark, hanging over the sheet's top edge near its right corner. */
+[data-arrangement='desk'] .desk-ribbon {
+  right: 37px;
+  filter: drop-shadow(0 2px 1.5px rgb(70 20 10 / 0.28));
+}
+[data-arrangement='desk'] .desk-ribbon-cloth {
+  background-image:
+    linear-gradient(180deg, rgb(40 10 5 / 0.26), rgb(40 10 5 / 0) 7px),
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--ribbon) 84%, black) 0%,
+      color-mix(in oklab, var(--ribbon) 88%, white) 44%,
+      var(--ribbon) 62%,
+      color-mix(in oklab, var(--ribbon) 82%, black) 100%
+    );
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 84%, 0 100%);
+  animation: desk-ribbon-in 460ms var(--desk-ease) 280ms backwards;
+}
+@keyframes desk-ribbon-in {
+  from {
+    clip-path: polygon(0 0, 100% 0, 100% 0, 50% 0, 0 0);
+  }
+}
+/* The page's head: where the scene sits, its title in the display cut, and a quiet line. */
+[data-arrangement='desk'] .desk-page-head {
+  margin-bottom: 28px;
+}
+[data-arrangement='desk'] .desk-scene-title {
+  font: 600 44px/52px var(--heading-font);
+  letter-spacing: -0.012em;
+  font-variation-settings: 'opsz' 60;
+  color: var(--fg);
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-scene-title:hover {
+  background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+}
+/* The quiet line under the title opens the scene's card; Scene details at its end opens the drawer. */
+[data-arrangement='desk'] .desk-meta-line {
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-meta-line:hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+}
+[data-arrangement='desk'] :is(.desk-details, .desk-details-count) {
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] :is(.desk-details, .desk-details-count):hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+[data-arrangement='desk'] :is(.desk-details, .desk-details-count):active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .desk-details.is-open {
+  color: var(--fg);
+  background: var(--surface-2);
+}
+[data-arrangement='desk'] .desk-details-count.is-must {
+  color: var(--danger);
+  background: var(--danger-soft);
+  box-shadow: none;
+}
+/* The prose: old-style figures, names in their kind's ink. (No drop cap: the first paragraph starts as every other.) */
+[data-arrangement='desk'] .desk-sheet .scene-prose {
+  font-variant-numeric: oldstyle-nums;
+}
+[data-arrangement='desk'] .desk-sheet .scene-prose .aw-name {
+  border-radius: 3px;
+  text-decoration-color: color-mix(in oklab, var(--k-ink, var(--faint)) 70%, transparent);
+  text-underline-offset: 5px;
+  text-decoration-skip-ink: none;
+  transition:
+    text-decoration-color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-sheet .scene-prose .aw-name:hover {
+  text-decoration-color: var(--k-ink, var(--muted));
+  background-color: color-mix(in oklab, var(--k-ink-soft, var(--surface-2)) 70%, transparent);
+}
+[data-arrangement='desk'] .scene-prose .aw-name[data-kind='character'] {
+  --k-ink: var(--k-char);
+  --k-ink-soft: var(--k-char-soft);
+}
+[data-arrangement='desk'] .scene-prose .aw-name[data-kind='place'] {
+  --k-ink: var(--k-place);
+  --k-ink-soft: var(--k-place-soft);
+}
+[data-arrangement='desk'] .scene-prose .aw-name[data-kind='group'] {
+  --k-ink: var(--k-group);
+  --k-ink-soft: var(--k-group-soft);
+}
+[data-arrangement='desk'] .scene-prose .aw-name[data-kind='item'] {
+  --k-ink: var(--k-item);
+  --k-ink-soft: var(--k-item-soft);
+}
+[data-arrangement='desk'] .scene-prose .aw-name[data-kind='lore'] {
+  --k-ink: var(--k-lore);
+  --k-ink-soft: var(--k-lore-soft);
+}
+[data-arrangement='desk'] .scene-prose .aw-name[data-kind='event'] {
+  --k-ink: var(--k-event);
+  --k-ink-soft: var(--k-event-soft);
+}
+[data-arrangement='desk'] .scene-prose .aw-name[data-kind='glossary'] {
+  --k-ink: var(--k-gloss);
+  --k-ink-soft: var(--k-gloss-soft);
+}
+/* With Ctrl held a name can be clicked to show it beside the page: as in the panels, in its kind's ink. */
+[data-arrangement='desk'] .scene-prose.aw-mod .aw-name:hover {
+  text-decoration-style: solid;
+  text-decoration-color: var(--k-ink, var(--accent));
+}
+/* The scene break: three small diamonds (a fleuron) instead of asterisks. */
+[data-arrangement='desk'] .desk-sheet .scene-prose hr::before {
+  content: '';
+  display: inline-block;
+  width: 44px;
+  height: 10px;
+  vertical-align: middle;
+  background-color: var(--faint);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 10'%3E%3Cpath d='M6 2.6L8.4 5 6 7.4 3.6 5zM22 2.6L24.4 5 22 7.4 19.6 5zM38 2.6L40.4 5 38 7.4 35.6 5z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 10'%3E%3Cpath d='M6 2.6L8.4 5 6 7.4 3.6 5zM22 2.6L24.4 5 22 7.4 19.6 5zM38 2.6L40.4 5 38 7.4 35.6 5z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+[data-arrangement='desk'] .desk-sheet .scene-prose hr.ProseMirror-selectednode::before {
+  background-color: var(--accent);
+}
+/* The page fades out under its tools, so the words never run into them (over the foot of the sheet, not scrolling). */
+[data-arrangement='desk'] .desk-page-fade {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--page) 0%, transparent) 0%, color-mix(in oklab, var(--page) 82%, transparent) 46%, var(--page) 74%);
+}
+:root[data-focus][data-arrangement='desk'] .desk-page-fade {
+  opacity: 0;
+}
+/* Focus mode on the desk: the frame stays lit (the sheet is already the whole of what shows). */
+:root[data-focus][data-arrangement='desk'] body,
+:root[data-focus][data-arrangement='desk'] main {
+  background-color: var(--bg);
+}
+:root[data-focus][data-arrangement='desk'][data-look='new'] main {
+  background-color: transparent;
+}
+
+/* ---------- The AI dock, floating at the foot of the sheet (phase 3) ---------- */
+[data-arrangement='desk'] .desk-dock {
+  background: var(--raise);
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px color-mix(in oklab, var(--lamp) 26%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.6);
+  transition:
+    opacity var(--dur-quick) var(--desk-ease),
+    translate var(--dur-quick) var(--desk-ease),
+    visibility 0s;
+  animation: desk-dock-in 420ms var(--spring-pop) 300ms backwards;
+}
+[data-arrangement='desk'][data-theme='dark'] .desk-dock {
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px color-mix(in oklab, var(--lamp) 30%, transparent),
+    inset 0 1px 0 rgb(255 240 220 / 0.06);
+}
+/* A soft amber glow on the desk below it: the lamp the AI writes by. */
+[data-arrangement='desk'] .desk-dock::after {
+  content: '';
+  position: absolute;
+  left: 70px;
+  right: 70px;
+  bottom: -16px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--lamp-glow) 75%, transparent), transparent);
+  filter: blur(6px);
+  z-index: -1;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-dock.is-away {
+  opacity: 0;
+  translate: 0 10px;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    translate var(--dur-exit) var(--desk-ease),
+    visibility 0s linear var(--dur-exit);
+}
+/* Its three faces (idle, busy, review) lie on top of each other and crossfade; from the keyboard they swap at once. */
+[data-arrangement='desk'] .desk-dock-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 18px;
+  opacity: 0;
+  filter: blur(3px);
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    filter var(--dur-exit) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-dock[data-desk-dock='idle'] [data-layer='idle'],
+[data-arrangement='desk'] .desk-dock[data-desk-dock='busy'] [data-layer='busy'],
+[data-arrangement='desk'] .desk-dock[data-desk-dock='review'] [data-layer='review'],
+[data-arrangement='desk'] .desk-dock[data-desk-dock='beats'] [data-layer='idle'] {
+  opacity: 1;
+  filter: none;
+  transition:
+    opacity var(--dur-quick) var(--desk-ease) 40ms,
+    filter var(--dur-quick) var(--desk-ease) 40ms;
+}
+[data-arrangement='desk'] .desk-dock[data-instant] .desk-dock-layer {
+  transition: none;
+}
+[data-arrangement='desk'] .desk-dock-layer[inert] {
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-dock-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--lamp-2);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--lamp-2) 22%, transparent);
+}
+[data-arrangement='desk'] .desk-dock-dot.is-live {
+  animation: desk-dot-breathe 1.6s ease-in-out infinite;
+}
+@keyframes desk-dot-breathe {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--lamp-2) 12%, transparent);
+  }
+}
+[data-arrangement='desk'] .desk-steer {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 14px;
+  line-height: 40px;
+  color: var(--fg);
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-steer::placeholder {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .desk-steer:hover,
+[data-arrangement='desk'] .desk-steer:focus {
+  background: var(--surface-2);
+}
+[data-arrangement='desk'] .desk-steer:focus-visible {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* Add below, Reject: paper buttons. */
+[data-arrangement='desk'] .desk-dock-btn {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  background: var(--raise);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--sh-1);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--fg);
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-dock-btn:hover {
+  background: var(--surface-2);
+}
+/* Continue, Accept: the AI's amber. */
+[data-arrangement='desk'] .desk-dock-ai {
+  position: relative;
+  height: 40px;
+  padding: 0 10px 0 14px;
+  border-radius: 12px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ai) 86%, white), var(--ai));
+  color: var(--ai-fg);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.24),
+    0 6px 18px -6px var(--lamp-glow),
+    0 1px 0 rgb(120 60 0 / 0.18);
+  transition:
+    filter var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] [data-layer='review'] .desk-dock-ai {
+  padding-right: 14px;
+}
+[data-arrangement='desk'] .desk-dock-ai:hover {
+  filter: brightness(1.07);
+}
+[data-arrangement='desk'] :is(.desk-dock-btn, .desk-dock-ai, .desk-dock-stop, .desk-dock-more):active {
+  scale: 0.97;
+  transition-duration: var(--dur-press);
+}
+[data-arrangement='desk'] :is(.desk-dock-btn, .desk-dock-ai, .desk-dock-stop, .desk-dock-more):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] :is(.desk-dock-btn, .desk-dock-ai, .desk-dock-stop):disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-kcap {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: color-mix(in srgb, var(--ai-fg) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai-fg) 28%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 20px;
+}
+[data-arrangement='desk'] .desk-dock-key {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.72;
+}
+[data-arrangement='desk'] .desk-dock-more {
+  color: var(--muted);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-dock-more:hover,
+[data-arrangement='desk'] .desk-dock-more[data-state='open'] {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+@container dock (max-width: 520px) {
+  [data-arrangement='desk'] .desk-kcap {
+    display: none;
+  }
+}
+/* Busy and review: what the AI is doing, in words; the writer model; Stop. */
+[data-arrangement='desk'] .desk-dock-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding-left: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-dock-line.is-link {
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-left: -4px;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-dock-line.is-link:hover {
+  background: var(--surface-2);
+}
+[data-arrangement='desk'] .desk-dock-below {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--ai);
+  font-weight: 600;
+}
+[data-arrangement='desk'] [data-layer='review'] .desk-dock-line {
+  flex: 1 1 auto;
+}
+[data-arrangement='desk'] .desk-dock-model {
+  margin-left: auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .desk-dock-stop {
+  height: 40px;
+  padding: 0 14px 0 12px;
+  border-radius: 12px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--fg);
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-dock-stop:hover {
+  background: var(--surface-3);
+}
+/* The AI's progress along the dock's foot: how far a draft of known length has got, or a slow shimmer while it writes. */
+[data-arrangement='desk'] :is(.desk-dock-track, .desk-dock-prog) {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-base) ease-out;
+}
+[data-arrangement='desk'] .desk-dock-track {
+  background: color-mix(in oklab, var(--lamp-2) 22%, transparent);
+}
+[data-arrangement='desk'] .desk-dock-prog {
+  background: var(--lamp-2);
+  box-shadow: 0 0 6px var(--lamp-glow);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition:
+    opacity var(--dur-base) ease-out,
+    transform 180ms linear;
+}
+[data-arrangement='desk'] .desk-dock-prog.is-shimmer {
+  transform: none;
+  background: linear-gradient(90deg, transparent, var(--lamp-2) 45%, var(--lamp-2) 55%, transparent) 0 0 / 40% 100% no-repeat;
+  box-shadow: none;
+  animation: desk-dock-shimmer 2.4s ease-in-out infinite;
+}
+@keyframes desk-dock-shimmer {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+[data-arrangement='desk'] .desk-dock[data-desk-dock='busy'] :is(.desk-dock-track, .desk-dock-prog) {
+  opacity: 1;
+}
+/* The dock's menu: a paper card, its AI rows' icons in amber. */
+[data-arrangement='desk'] .desk-menu {
+  background: var(--raise);
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px var(--desk-line);
+}
+@keyframes desk-dock-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+
+/* ---------- The scene drawer, down the right edge: the spine's pair ---------- */
+/* The spine's shape and edge: its head on the leather, its pages on paper. Beside the page it lies on the desk as the
+   spine does; over the page's edge, it is lifted. */
+[data-arrangement='desk'] .desk-drawer {
+  border-radius: 22px;
+  background: var(--page);
+  box-shadow:
+    var(--sh-2),
+    0 0 0 1px var(--desk-line);
+  transition:
+    opacity var(--dur-base) var(--motion-drawer),
+    translate var(--dur-base) var(--motion-drawer),
+    visibility 0s;
+}
+[data-arrangement='desk'] .desk-drawer[data-state='closed'] {
+  opacity: 0;
+  translate: 12px 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    translate var(--dur-exit) var(--desk-ease),
+    visibility 0s linear var(--dur-exit);
+}
+[data-arrangement='desk'] .desk-drawer[data-instant] {
+  transition: none !important;
+}
+[data-arrangement='desk'] .desk-drawer:not([data-docked]) {
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px var(--desk-line);
+}
+/* Over the page (a window too small to dock it): the page dims under it, so its words never show through or beside the
+   drawer's edge half-covered. The dimming comes and goes with the drawer. */
+[data-arrangement='desk'] .desk-drawer-scrim {
+  background: rgb(36 24 14 / 0.42);
+  backdrop-filter: blur(3px);
+  opacity: 1;
+  transition:
+    opacity var(--dur-base) var(--motion-drawer),
+    visibility 0s;
+}
+[data-arrangement='desk'][data-theme='dark'] .desk-drawer-scrim {
+  background: rgb(0 0 0 / 0.58);
+}
+[data-arrangement='desk'] .desk-drawer-scrim[data-state='closed'] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    visibility 0s linear var(--dur-exit);
+}
+[data-arrangement='desk'] .desk-drawer-scrim[data-instant] {
+  transition: none !important;
+}
+/* The five tabs share the drawer's width. */
+[data-arrangement='desk'] .desk-drawer [role='tablist'] > [role='tab'] {
+  flex: 1 1 auto;
+  justify-content: center;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-drawer-head {
+  background: linear-gradient(180deg, var(--spine-top) 0%, var(--spine) 100%);
+  box-shadow: inset 0 1px 0 rgb(255 240 215 / 0.11);
+}
+/* Each tab's page scrolls inside the drawer: room after its last field, and a soft fade at an edge while there is more
+   that way (SceneDrawer marks data-more-above and data-more-below). */
+[data-arrangement='desk'] .desk-drawer [role='tabpanel'] {
+  padding-bottom: 28px;
+  scroll-padding-bottom: 28px;
+}
+[data-arrangement='desk'] .desk-drawer [role='tabpanel'][data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
+}
+[data-arrangement='desk'] .desk-drawer [role='tabpanel'][data-more-above] {
+  mask-image: linear-gradient(to bottom, transparent, #000 20px);
+}
+[data-arrangement='desk'] .desk-drawer [role='tabpanel'][data-more-above][data-more-below] {
+  mask-image: linear-gradient(to bottom, transparent, #000 20px, #000 calc(100% - 36px), transparent);
+}
+
+/* ---------- Every other page: its room's frame, the page on a sheet ---------- */
+[data-arrangement='desk'] .desk-room-head {
+  padding-inline: max(40px, calc((100% - 1280px) / 2));
+}
+/* The first time a room shows this session (layout/desk/arrival.ts), its sheet rises into place under its heading. */
+[data-arrangement='desk'] .desk-room[data-arrive] .desk-room-sheet {
+  animation: desk-sheet-in 320ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .desk-room-title {
+  margin-top: 2px;
+  font: 600 30px/36px var(--heading-font);
+  font-variation-settings: 'opsz' 60;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-sublinks {
+  background: color-mix(in oklab, var(--surface-3) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'] .desk-sublinks > [aria-hidden].desk-sub-pill {
+  border-radius: 9px;
+  background: var(--page);
+  box-shadow:
+    var(--sh-1),
+    0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'] .desk-sublink {
+  font-weight: 500;
+  color: var(--muted);
+  transition:
+    color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-sublink:not(.is-on):hover,
+[data-arrangement='desk'] .desk-sublink[data-state='open'] {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--page) 45%, transparent);
+}
+[data-arrangement='desk'] .desk-sublink:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .desk-sublink:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-sublink.is-on {
+  color: var(--fg);
+  font-weight: 600;
+}
+[data-arrangement='desk'] .desk-sublink.is-on svg {
+  color: var(--accent);
+}
+[data-arrangement='desk'] .desk-room-sheet {
+  /* On the sheet, the pages' own deepest background (a sticky filter bar, a sunken box) is the paper. */
+  --bg: var(--page);
+  width: min(1280px, calc(100% - 80px));
+  margin-inline: auto;
+  border-radius: 16px 16px 0 0;
+  background: var(--page);
+  box-shadow: var(--sh-paper);
+}
+/* The pages keep their own backgrounds in the panels; on the desk they lie on the paper. */
+[data-arrangement='desk'] .desk-room-sheet > :is(div, section, main):first-child {
+  background-color: transparent;
+}
+
+/* ---------- The next-beat chip over the dock (phase 3) ---------- */
+[data-arrangement='desk'] .desk-chip {
+  height: 28px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--raise) 94%, transparent);
+  box-shadow:
+    0 0 0 1px var(--desk-line),
+    var(--sh-1);
+  font-size: 12.5px;
+  line-height: 1;
+  color: var(--muted);
+  white-space: nowrap;
+  animation: desk-chip-in var(--dur-base) var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .desk-chip.is-prompt {
+  padding-right: 4px;
+}
+[data-arrangement='desk'] .desk-chip.is-out {
+  animation: desk-chip-out var(--dur-exit) var(--desk-ease) forwards;
+}
+@keyframes desk-chip-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+@keyframes desk-chip-out {
+  to {
+    opacity: 0;
+    translate: 0 3px;
+  }
+}
+[data-arrangement='desk'] .desk-chip-label {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ai);
+}
+[data-arrangement='desk'] .desk-chip-text {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg);
+  transition: color 300ms ease-out 380ms;
+}
+[data-arrangement='desk'] .desk-chip-text.is-quiet {
+  color: var(--muted);
+}
+/* A beat just written is struck through, left to right, once its ring has filled. */
+[data-arrangement='desk'] .desk-chip-text::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: 52%;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 340ms var(--desk-ease) 420ms;
+}
+[data-arrangement='desk'] .desk-chip:is(.is-tick, .is-out) .desk-chip-text {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .desk-chip:is(.is-tick, .is-out) .desk-chip-text::after {
+  transform: scaleX(1);
+}
+[data-arrangement='desk'] .desk-chip-ring {
+  flex: none;
+}
+[data-arrangement='desk'] .desk-chip-ring .cr-track {
+  fill: none;
+  stroke: var(--lamp-2);
+  stroke-width: 1.6;
+}
+[data-arrangement='desk'] .desk-chip-ring .cr-arc {
+  fill: none;
+  stroke: var(--success);
+  stroke-width: 1.8;
+  stroke-dasharray: 39.27;
+  stroke-dashoffset: 39.27;
+  transition: stroke-dashoffset 420ms var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-chip-ring .cr-fill {
+  fill: var(--success);
+  opacity: 0;
+  transition: opacity 200ms ease-out 320ms;
+}
+[data-arrangement='desk'] .desk-chip-ring .cr-tick {
+  fill: none;
+  stroke: var(--page);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 9;
+  stroke-dashoffset: 9;
+  transition: stroke-dashoffset 260ms var(--desk-ease) 420ms;
+}
+[data-arrangement='desk'] .desk-chip-ring.is-ticked .cr-arc,
+[data-arrangement='desk'] .desk-chip-ring.is-ticked .cr-tick {
+  stroke-dashoffset: 0;
+}
+[data-arrangement='desk'] .desk-chip-ring.is-ticked .cr-fill {
+  opacity: 1;
+}
+[data-arrangement='desk'] .desk-chip-ring.is-done :is(.cr-arc, .cr-fill, .cr-tick) {
+  transition: none;
+}
+[data-arrangement='desk'] .desk-chip-btn {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-fg);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-chip-btn:hover {
+  background: var(--primary-hover);
+}
+[data-arrangement='desk'] .desk-chip-btn:active {
+  scale: 0.96;
+  transition-duration: var(--dur-press);
+}
+[data-arrangement='desk'] .desk-chip-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+:root[data-focus][data-arrangement='desk'] .desk-chip {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- The scene card as a ruled index card (phase 3) ---------- */
+[data-arrangement='desk'] .desk-icard {
+  position: relative;
+  width: 100%;
+  min-height: 98px;
+  padding-bottom: 6px;
+  border-radius: 6px;
+  background-color: var(--card);
+  background-image:
+    linear-gradient(180deg, transparent 35px, color-mix(in oklab, var(--accent) 22%, transparent) 35px, color-mix(in oklab, var(--accent) 22%, transparent) 36px, transparent 36px),
+    repeating-linear-gradient(180deg, transparent 0, transparent 25px, var(--rule-blue) 25px, var(--rule-blue) 26px);
+  background-size:
+    100% 100%,
+    100% calc(100% - 42px);
+  background-position:
+    0 0,
+    0 36px;
+  background-repeat: no-repeat;
+  box-shadow: var(--sh-card);
+  font-family: var(--font-sans, inherit);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  text-align: left;
+}
+/* The red margin rule. */
+[data-arrangement='desk'] .desk-icard::before {
+  content: '';
+  position: absolute;
+  left: 40px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule-red);
+}
+[data-arrangement='desk'] .desk-icard .ic-head {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  padding-right: 8px;
+}
+[data-arrangement='desk'] .desk-icard .ic-head .desk-caps {
+  padding-left: 10px;
+}
+[data-arrangement='desk'] .desk-icard .ic-m {
+  display: flex;
+  width: 40px;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+[data-arrangement='desk'] .desk-icard .ic-edit {
+  margin-left: auto;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--accent);
+  outline: none;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-icard .ic-edit:hover {
+  background: var(--accent-soft);
+}
+[data-arrangement='desk'] .desk-icard .ic-edit:focus-visible {
+  outline: 2px solid var(--focus);
+}
+[data-arrangement='desk'] .desk-icard .ic-row {
+  display: flex;
+  height: 26px;
+  align-items: center;
+  padding-right: 12px;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-icard .ic-t {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+  font-size: 12.5px;
+  line-height: 26px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .desk-icard .ic-row.is-ok .ic-t {
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-icard .ic-place {
+  display: block;
+  font-family: var(--heading-font);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+[data-arrangement='desk'] .desk-icard .ic-lab {
+  padding-left: 10px;
+}
+[data-arrangement='desk'] .desk-icard .ic-tile {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--k-place-soft);
+  color: var(--k-place);
+}
+[data-arrangement='desk'] .desk-icard .ic-mono {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--k-char-soft);
+  color: var(--k-char);
+  font: 600 11px/1 var(--heading-font);
+}
+[data-arrangement='desk'] .desk-icard .ic-next {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ai);
+}
+[data-arrangement='desk'] .desk-icard .ic-ring-track {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.5;
+  transition: stroke 200ms ease-out;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring-fill {
+  fill: var(--success);
+  opacity: 0;
+  transition: opacity 220ms ease-out;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring-tick {
+  fill: none;
+  stroke: var(--page);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 9;
+  stroke-dashoffset: 9;
+  transition: stroke-dashoffset 300ms var(--desk-ease) 140ms;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring.is-ok .ic-ring-track {
+  stroke: var(--success);
+}
+[data-arrangement='desk'] .desk-icard .ic-ring.is-ok .ic-ring-fill {
+  opacity: 1;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring.is-ok .ic-ring-tick {
+  stroke-dashoffset: 0;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring.is-next .ic-ring-track {
+  stroke: var(--lamp-2);
+  stroke-width: 1.7;
+}
+/* An empty card: plan the scene. */
+[data-arrangement='desk'] .desk-icard .ic-plan {
+  padding: 4px 14px 10px 50px;
+}
+[data-arrangement='desk'] .desk-icard .ic-plan-title {
+  font-family: var(--heading-font);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 26px;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-icard .ic-plan-text {
+  font-size: 12.5px;
+  line-height: 26px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-icard .ic-plan-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+[data-arrangement='desk'] .desk-icard .ic-act {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px 0 8px;
+  border-radius: 8px;
+  background: var(--raise);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--sh-1);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  outline: none;
+}
+[data-arrangement='desk'] .desk-icard .ic-act.is-ai {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ai) 86%, white), var(--ai));
+  color: var(--ai-fg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.24);
+}
+[data-arrangement='desk'] .desk-icard .ic-act:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ---------- The margin: notes like slips of paper at the page's right edge (phase 3) ---------- */
+[data-arrangement='desk'] .desk-margin {
+  z-index: 3;
+  transition:
+    opacity var(--dur-base) var(--desk-ease),
+    visibility 0s linear 0s;
+}
+/* The scene drawer covers the margin: the notes step away while it is open. */
+[data-arrangement='desk'] .desk-margin[data-away] {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    visibility 0s linear var(--dur-exit);
+}
+/* While the sheet glides across (the spine or the drawer changing), the notes wait out of sight, then settle beside it. */
+[data-arrangement='desk'] .desk-margin[data-gliding] {
+  opacity: 0;
+  transition: none;
+}
+[data-arrangement='desk'] .desk-margin[data-away] * {
+  pointer-events: none !important;
+}
+[data-arrangement='desk'] .desk-note {
+  font-size: 13px;
+  line-height: 1.4;
+  font-variant-numeric: normal;
+  animation: desk-note-in 260ms var(--desk-ease) backwards;
+}
+/* Arriving in the Write room for the first time this session, the notes come in one after another from 200ms. */
+[data-arrangement='desk'] .desk-margin[data-arrive] .desk-note {
+  animation-delay: calc(200ms + var(--i, 0) * 60ms);
+}
+@keyframes desk-note-in {
+  from {
+    opacity: 0;
+    translate: 6px 0;
+  }
+}
+[data-arrangement='desk'] .desk-slip {
+  position: relative;
+  rotate: var(--slip-tilt, 0deg);
+  transition:
+    rotate var(--dur-base) var(--desk-ease),
+    translate var(--dur-base) var(--desk-ease),
+    box-shadow var(--dur-base) var(--desk-ease),
+    scale var(--dur-base) var(--desk-ease);
+}
+/* Hovered, a slip straightens and lifts a pixel, and its tether brightens. */
+[data-arrangement='desk'] .desk-note:hover .desk-slip,
+[data-arrangement='desk'] .desk-note:focus-within .desk-slip {
+  rotate: 0deg;
+  translate: 0 -1px;
+}
+[data-arrangement='desk'] .desk-note:hover .desk-icard {
+  box-shadow: var(--sh-card-up);
+}
+[data-arrangement='desk'] .desk-tether {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+  color: var(--faint);
+  opacity: 0.4;
+  transition: opacity var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-tether path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+[data-arrangement='desk'] .desk-tether circle {
+  fill: currentColor;
+}
+[data-arrangement='desk'] .desk-note:hover .desk-tether {
+  opacity: 0.85;
+}
+[data-arrangement='desk'] .desk-note[data-kind='character'] .desk-tether {
+  color: var(--k-char);
+}
+[data-arrangement='desk'] .desk-note[data-kind='lore'] .desk-tether {
+  color: var(--k-lore);
+}
+[data-arrangement='desk'] .desk-note[data-kind='issue'] .desk-tether {
+  color: var(--danger);
+}
+[data-arrangement='desk'] .desk-note[data-kind='memory'] .desk-tether {
+  color: var(--lamp-2);
+}
+/* A smaller window: each note is a small tab on the sheet's edge, in its kind's ink, opening the note as a pop-up. */
+[data-arrangement='desk'] .desk-slip-tab {
+  width: 6px;
+  height: 24px;
+  border-radius: 3px;
+  background: var(--faint);
+  box-shadow: 0 0 0 2px var(--page);
+  outline: none;
+  transition:
+    width var(--dur-quick) var(--desk-ease),
+    background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-slip-tab:hover,
+[data-arrangement='desk'] .desk-slip-tab[data-state='open'] {
+  width: 9px;
+  background: var(--muted);
+}
+[data-arrangement='desk'] .desk-slip-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .desk-slip-tab[data-kind='character'] {
+  background: var(--k-char);
+}
+[data-arrangement='desk'] .desk-slip-tab[data-kind='lore'] {
+  background: var(--k-lore);
+}
+[data-arrangement='desk'] .desk-slip-tab[data-kind='issue'] {
+  background: var(--danger);
+}
+[data-arrangement='desk'] .desk-slip-tab[data-kind='memory'] {
+  background: var(--lamp-2);
+}
+[data-arrangement='desk'] .desk-slip-pop {
+  border-radius: 8px;
+  box-shadow: var(--sh-pop);
+}
+
+/* ---------- The margin's paper slips: entities, checks, the memory (D3.4, D3.5) ---------- */
+/* Each kind's ink, for its slip's edge, its small capitals, its tether and its tab. */
+[data-arrangement='desk'] .k-character {
+  --kind: var(--k-char);
+  --kind-soft: var(--k-char-soft);
+}
+[data-arrangement='desk'] .k-place {
+  --kind: var(--k-place);
+  --kind-soft: var(--k-place-soft);
+}
+[data-arrangement='desk'] .k-item {
+  --kind: var(--k-item);
+  --kind-soft: var(--k-item-soft);
+}
+[data-arrangement='desk'] .k-group {
+  --kind: var(--k-group);
+  --kind-soft: var(--k-group-soft);
+}
+[data-arrangement='desk'] .k-lore {
+  --kind: var(--k-lore);
+  --kind-soft: var(--k-lore-soft);
+}
+[data-arrangement='desk'] .k-event {
+  --kind: var(--k-event);
+  --kind-soft: var(--k-event-soft);
+}
+[data-arrangement='desk'] .k-issue {
+  --kind: var(--danger);
+  --kind-soft: var(--danger-soft);
+}
+[data-arrangement='desk'] .k-memory {
+  --kind: var(--lamp-2);
+  --kind-soft: color-mix(in oklab, var(--lamp-2) 16%, var(--slip));
+}
+[data-arrangement='desk'] .desk-note[data-kind='place'] .desk-tether,
+[data-arrangement='desk'] .desk-slip-tab[data-kind='place'] {
+  color: var(--k-place);
+  background-color: var(--k-place);
+}
+[data-arrangement='desk'] .desk-note[data-kind='item'] .desk-tether,
+[data-arrangement='desk'] .desk-slip-tab[data-kind='item'] {
+  color: var(--k-item);
+  background-color: var(--k-item);
+}
+[data-arrangement='desk'] .desk-note[data-kind='group'] .desk-tether,
+[data-arrangement='desk'] .desk-slip-tab[data-kind='group'] {
+  color: var(--k-group);
+  background-color: var(--k-group);
+}
+[data-arrangement='desk'] .desk-note[data-kind='event'] .desk-tether,
+[data-arrangement='desk'] .desk-slip-tab[data-kind='event'] {
+  color: var(--k-event);
+  background-color: var(--k-event);
+}
+/* The tether is a line: its background stays clear (only the tab is filled). */
+[data-arrangement='desk'] .desk-note .desk-tether {
+  background-color: transparent;
+}
+/* The slip: paper, a 3px edge in the kind's ink, its head in small capitals. */
+[data-arrangement='desk'] .desk-paper {
+  position: relative;
+  padding: 12px 14px 13px 17px;
+  border-radius: 10px;
+  background: var(--slip);
+  box-shadow: var(--sh-card);
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+  outline: none;
+  transition:
+    box-shadow var(--dur-base) var(--desk-ease),
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-paper::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 10px 0 0 10px;
+  background: var(--kind, var(--faint));
+}
+[data-arrangement='desk'] .desk-note:hover .desk-paper {
+  box-shadow: var(--sh-card-up);
+}
+[data-arrangement='desk'] button.desk-paper:active {
+  scale: 0.985;
+}
+[data-arrangement='desk'] .desk-paper:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .desk-paper .s-head {
+  display: flex;
+  height: 16px;
+  align-items: center;
+  gap: 8px;
+  padding-right: 18px;
+}
+[data-arrangement='desk'] .desk-paper .s-kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--kind, var(--muted));
+}
+[data-arrangement='desk'] .desk-paper .s-tag {
+  margin-left: auto;
+  display: inline-flex;
+  height: 20px;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: 6px;
+  padding: 0 7px;
+  background: color-mix(in oklab, var(--slip) 80%, var(--surface-2, var(--line)));
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 500 11px/1 var(--font-sans);
+  color: var(--muted);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-paper .s-name {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font: 600 16px/22px var(--font-serif);
+  letter-spacing: -0.005em;
+  color: var(--fg);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-paper .s-open {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--faint);
+  opacity: 0;
+  translate: -2px 0;
+  transition:
+    opacity var(--dur-quick) ease-out,
+    translate var(--dur-quick) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-paper:hover .s-open,
+[data-arrangement='desk'] .desk-paper:focus-visible .s-open {
+  opacity: 1;
+  translate: 0 0;
+}
+[data-arrangement='desk'] .desk-paper .s-sub {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-paper .s-fact {
+  display: block;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-paper .s-text {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-paper .s-quote {
+  font: italic 400 14px/19px var(--font-serif);
+}
+[data-arrangement='desk'] .desk-paper .s-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+[data-arrangement='desk'] .desk-paper .s-more {
+  margin-left: auto;
+  border-radius: 6px;
+  padding: 0 4px;
+  font: 500 12px/24px var(--font-sans);
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-paper .s-more:hover {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* The check's buttons: Rewrite in the AI's amber, Keep plain. */
+[data-arrangement='desk'] .desk-ai-sm,
+[data-arrangement='desk'] .desk-sec-sm {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  border-radius: 8px;
+  font: 600 12.5px/1 var(--font-sans);
+  white-space: nowrap;
+  transition:
+    filter var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-ai-sm {
+  padding: 0 10px 0 8px;
+  background: linear-gradient(180deg, var(--lamp-2), var(--lamp));
+  color: #fff;
+  text-shadow: 0 1px 0 rgb(110 55 0 / 0.3);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 4px 12px -5px var(--lamp-glow);
+}
+[data-arrangement='desk'][data-theme='dark'] .desk-ai-sm {
+  color: #241606;
+  text-shadow: none;
+}
+[data-arrangement='desk'] .desk-ai-sm:hover {
+  filter: brightness(1.05);
+}
+[data-arrangement='desk'] .desk-sec-sm {
+  padding: 0 11px;
+  background: var(--page);
+  box-shadow:
+    0 0 0 1px var(--line-strong, var(--line)),
+    var(--sh-1);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-sec-sm:hover {
+  background: color-mix(in oklab, var(--page) 90%, var(--fg));
+}
+[data-arrangement='desk'] :is(.desk-ai-sm, .desk-sec-sm):active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] :is(.desk-ai-sm, .desk-sec-sm):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+/* The memory's slip: a drawn tick and its facts, each with an amber dot. */
+[data-arrangement='desk'] .desk-paper .mem-tick {
+  flex: 0 0 auto;
+  color: var(--success);
+}
+[data-arrangement='desk'] .desk-paper .mem-tick path {
+  stroke-dasharray: 22;
+  stroke-dashoffset: 22;
+  animation: desk-draw 360ms var(--desk-ease) 260ms forwards;
+}
+@keyframes desk-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+[data-arrangement='desk'] .desk-paper .s-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+[data-arrangement='desk'] .desk-paper .s-factrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-paper .s-fdot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--lamp-2);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--lamp-2) 22%, transparent);
+}
+[data-arrangement='desk'] .desk-note[data-kind='memory'] {
+  animation: desk-mem-in 320ms var(--desk-ease) backwards;
+}
+@keyframes desk-mem-in {
+  from {
+    opacity: 0;
+    translate: 8px 0;
+  }
+}
+/* Put away: the × shows on hover (and to the keyboard). */
+[data-arrangement='desk'] .desk-slip-x {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  z-index: 1;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--faint);
+  opacity: 0;
+  transition:
+    opacity var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-note:hover .desk-slip-x,
+[data-arrangement='desk'] .desk-slip-pop .desk-slip-x,
+[data-arrangement='desk'] .desk-slip-x:focus-visible {
+  opacity: 1;
+}
+[data-arrangement='desk'] .desk-slip-x:hover {
+  background: color-mix(in oklab, var(--slip) 85%, var(--fg));
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-slip-x:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+/* A slip whose card is open fades back while the card is out; its note comes up over the others. */
+[data-arrangement='desk'] .desk-note:has(.desk-entity[data-card]) {
+  z-index: 6;
+}
+[data-arrangement='desk'] .desk-entity[data-card='open'] > .desk-paper {
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+/* The first scene's guide on the desk: a slip tucked at the top of the sheet, above the scene's head (never over the
+   words), in the accent's ink, tilted a touch like the margin's notes. */
+[data-arrangement='desk'] .k-guide {
+  --kind: var(--accent);
+}
+[data-arrangement='desk'] .desk-guide {
+  max-width: 520px;
+  margin: -36px 0 32px;
+  rotate: -0.3deg;
+  font-family: var(--font-sans);
+  font-variant-numeric: normal;
+  animation: desk-note-in 260ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .desk-guide .s-head {
+  height: 20px;
+}
+[data-arrangement='desk'] .desk-guide-steps {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+[data-arrangement='desk'] .desk-guide-steps > li {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.25px var(--line-strong);
+  font: 600 10.5px/1 var(--font-sans);
+  color: var(--faint);
+  transition:
+    background-color var(--dur-base) ease-out,
+    color var(--dur-base) ease-out;
+}
+[data-arrangement='desk'] .desk-guide-steps > li.is-on {
+  background: var(--accent);
+  box-shadow: none;
+  color: var(--accent-fg, #fff);
+}
+[data-arrangement='desk'] .desk-guide-steps > li.is-done {
+  background: color-mix(in oklab, var(--success) 16%, var(--slip));
+  box-shadow: none;
+  color: var(--success);
+}
+[data-arrangement='desk'] .desk-guide-text {
+  margin: 8px 0 0;
+  padding-right: 8px;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-guide .desk-slip-x {
+  opacity: 1;
+}
+[data-arrangement='desk'] .desk-guide .s-head {
+  padding-right: 26px;
+}
+
+/* The entity's card, grown out of its slip: from the slip's top corner in 240ms, back in 180ms. */
+[data-arrangement='desk'] .desk-ecard {
+  position: absolute;
+  left: -40px;
+  top: -12px;
+  z-index: 20;
+  width: 340px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--page);
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px var(--line);
+  font-size: 13px;
+  line-height: 1.4;
+  transform-origin: 56px 24px;
+  animation: desk-ecard-in 240ms var(--desk-ease) both;
+}
+[data-arrangement='desk'] .desk-ecard[data-state='closed'] {
+  pointer-events: none;
+  animation: desk-ecard-out 180ms var(--desk-ease) forwards;
+}
+[data-arrangement='desk'] .desk-ecard[data-instant] {
+  animation-duration: 0ms !important;
+}
+[data-arrangement='desk'] .desk-ecard.is-inline {
+  position: relative;
+  left: 0;
+  top: 0;
+  width: 100%;
+  margin-top: 8px;
+}
+@keyframes desk-ecard-in {
+  from {
+    opacity: 0;
+    scale: 0.88;
+  }
+}
+@keyframes desk-ecard-out {
+  to {
+    opacity: 0;
+    scale: 0.9;
+  }
+}
+[data-arrangement='desk'] .desk-ecard .ec-band {
+  position: relative;
+  height: 68px;
+  background:
+    radial-gradient(140px 90px at 16% 0%, rgb(255 255 255 / 0.22), transparent 70%),
+    repeating-linear-gradient(115deg, rgb(255 255 255 / 0.05) 0, rgb(255 255 255 / 0.05) 1px, transparent 1px, transparent 9px),
+    linear-gradient(135deg, color-mix(in oklab, var(--kind) 70%, white), var(--kind) 52%, color-mix(in oklab, var(--kind) 75%, black));
+}
+[data-arrangement='desk'][data-theme='dark'] .desk-ecard .ec-band {
+  background:
+    radial-gradient(140px 90px at 16% 0%, rgb(255 255 255 / 0.12), transparent 70%),
+    repeating-linear-gradient(115deg, rgb(255 255 255 / 0.04) 0, rgb(255 255 255 / 0.04) 1px, transparent 1px, transparent 9px),
+    linear-gradient(135deg, color-mix(in oklab, var(--kind) 55%, black), color-mix(in oklab, var(--kind) 35%, black) 60%, color-mix(in oklab, var(--kind) 22%, black));
+}
+[data-arrangement='desk'] .desk-ecard .ec-kind {
+  position: absolute;
+  left: 94px;
+  top: 14px;
+  right: 48px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.92);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-ecard .ec-close {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.14);
+  color: #fff;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-ecard .ec-close:hover {
+  background: rgb(255 255 255 / 0.26);
+}
+[data-arrangement='desk'] .desk-ecard .ec-close:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+[data-arrangement='desk'] .desk-ecard .ec-portrait {
+  position: absolute !important;
+  left: 18px;
+  top: 34px;
+  box-shadow:
+    0 0 0 3px var(--page),
+    var(--sh-2) !important;
+}
+[data-arrangement='desk'] .desk-ecard .ec-body {
+  padding: 8px 18px 14px;
+}
+[data-arrangement='desk'] .desk-ecard .ec-name {
+  min-height: 28px;
+  margin: 0 0 0 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 600 20px/26px var(--font-serif);
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-ecard .ec-desc {
+  margin: 12px 0 0;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-ecard .ec-sec {
+  margin-top: 12px;
+}
+[data-arrangement='desk'] .desk-ecard .ec-sec .desk-caps {
+  display: block;
+}
+[data-arrangement='desk'] .desk-ecard .ec-txt {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-ecard .ec-where,
+[data-arrangement='desk'] .desk-ecard .ec-quiet {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .desk-ecard .ec-voice {
+  margin: 10px 0 0;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid color-mix(in oklab, var(--kind) 45%, transparent);
+  font: italic 400 15px/23px var(--font-serif);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-ecard .ec-rule {
+  height: 1px;
+  margin-top: 14px;
+  background: var(--line);
+}
+[data-arrangement='desk'] .desk-ecard .ec-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 10px;
+  margin-left: -10px;
+}
+[data-arrangement='desk'] .desk-ecard .ec-link {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 0 10px;
+  font: 600 13px/1 var(--font-sans);
+  color: var(--accent);
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-ecard .ec-link:hover {
+  background: var(--accent-soft);
+}
+[data-arrangement='desk'] .desk-ecard .ec-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* Beat by beat's bar in the dock's place: no band of page colour across the desk behind it (the sheet's fade is there). */
+[data-arrangement='desk'] .desk-beatbar > div > div {
+  left: 0;
+  right: 0;
+  background: none;
+}

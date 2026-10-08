@@ -24,6 +24,7 @@ import {
   History,
   Keyboard,
   LayoutGrid,
+  MessagesSquare,
   Monitor,
   Moon,
   Network,
@@ -50,12 +51,15 @@ import { Kbd, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { flushAll } from '@/lib/flush'
+import { OPEN_DIALOG, OPEN_MENU } from '@/lib/layers'
 import { isShortcut, shortcutKeys } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { useDelayed } from '@/features/generate/parts'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
-import { useNewLook } from '@/features/look/look'
+import { useDesk, useNewLook } from '@/features/look/look'
+import { openAsk } from '@/features/ask/open'
+import { setDraft } from '@/features/ask/askStore'
 import { openResult, runAction } from './actions'
 import {
   entryAction,
@@ -137,6 +141,11 @@ const ACTION_ICONS: Partial<Record<ActionId, IconType>> = {
   'theme-system': Monitor,
   'toggle-binder': PanelLeft,
   'toggle-panel': PanelRight,
+  'tab-card': PanelRight,
+  'tab-context': PanelRight,
+  'tab-cast': PanelRight,
+  'tab-issues': PanelRight,
+  'tab-drafts': PanelRight,
   'backup-now': HardDriveDownload,
   'new-world': Globe2,
   'switch-world': Globe2,
@@ -232,6 +241,17 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
     )
   }
 
+  if (row.type === 'ask') {
+    return (
+      <div {...props} className={cn(base, 'h-9 items-center')}>
+        <MessagesSquare size={15} className={cn('shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
+          Ask the world: <span className="font-medium">“{row.query}”</span>
+        </span>
+      </div>
+    )
+  }
+
   if (row.type === 'more') {
     const all = `${row.total.toLocaleString('en-GB')} in all`
     return (
@@ -312,9 +332,10 @@ function useActionContext(): ActionContext {
   const focus = useFocusMode((s) => s.on)
   const soundEffects = useApp((s) => !!s.settings?.speech.readAloud && !!s.settings?.speech.soundEffects)
   const showBeats = useApp((s) => !!s.settings?.editor?.showBeats)
+  const desk = useDesk()
   return useMemo(
-    () => ({ view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats }),
-    [view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats]
+    () => ({ view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats, desk }),
+    [view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats, desk]
   )
 }
 
@@ -331,7 +352,7 @@ function useOpenShortcut(input: React.RefObject<HTMLInputElement | null>): void 
         return
       }
       // Not over another dialog or an open menu (Esc closes that first), nor while a backup is being restored.
-      const covered = document.querySelector(`[role="dialog"][data-state="open"]:not([${PALETTE_LAYER}]), [role="menu"]`)
+      const covered = document.querySelector(`${OPEN_DIALOG}:not([${PALETTE_LAYER}]), ${OPEN_MENU}`)
       if (useApp.getState().restoring || covered) return
       openPalette()
     }
@@ -345,6 +366,8 @@ export function CommandPalette(): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id ?? null)
   const storyId = useApp((s) => s.storyId)
   const ctx = useActionContext()
+  // The desk's command bar: what is typed can be asked of the world as well.
+  const desk = useDesk()
 
   const [text, setText] = useState('')
   // The groups Adam asked to see more of, for what is in the box now.
@@ -434,8 +457,8 @@ export function CommandPalette(): React.JSX.Element {
   const actions = useMemo(() => matchActions(shown.query, ctx), [shown.query, ctx])
   const suggested = useMemo(() => suggestedActions(ctx), [ctx])
   const rows = useMemo(
-    () => paletteRows({ query: shown.query, actions, results: shown.results, recent: recent ?? [], suggested, expanded: shown.expanded }),
-    [shown, actions, recent, suggested]
+    () => paletteRows({ query: shown.query, actions, results: shown.results, recent: recent ?? [], suggested, expanded: shown.expanded, ask: desk }),
+    [shown, actions, recent, suggested, desk]
   )
   const options = useMemo(() => rows.filter(isOption), [rows])
   const optionIndex = useMemo(() => new Map(options.map((o, i) => [o.key, i])), [options])
@@ -480,7 +503,16 @@ export function CommandPalette(): React.JSX.Element {
     pending.current =
       o.type === 'action'
         ? { run: () => runAction(o.action.id), away: goesAway(o.action, ctx) }
-        : { run: () => openResult(o.hit.open), away: true }
+        : o.type === 'ask'
+          ? {
+              // Ask the world opens beside the page with the question in its box, ready to send.
+              run: async () => {
+                setDraft(o.query)
+                openAsk()
+              },
+              away: true
+            }
+          : { run: () => openResult(o.hit.open), away: true }
     usePalette.setState({ open: false })
     // Runs even if the closing focus step never comes (it always should).
     setTimeout(runPending, 100)
@@ -544,8 +576,9 @@ export function CommandPalette(): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ open: o })}>
       <D.Portal>
-        {/* The New look: the palette is a raised pane with a hint of blur behind it (only it: small, so it costs little). */}
-        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
+        {/* The New look: the palette is a raised pane with a hint of blur behind it (only it: small, so it costs little).
+            It appears and goes at once, dim and all: it is opened from the keyboard all day. */}
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in look-new:data-[state=open]:animate-none" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
           aria-describedby={undefined}
@@ -562,7 +595,7 @@ export function CommandPalette(): React.JSX.Element {
           }}
           // Keys pressed here stay here: the app's shortcuts underneath (Ctrl+G, Ctrl+Enter...) wait until it closes.
           onKeyDown={(e) => e.stopPropagation()}
-          className="fixed left-1/2 top-[12vh] z-50 flex w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise/90 look-new:backdrop-blur-md look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:[animation:pop-in_var(--dur-base)_var(--motion-spring)]"
+          className="fixed left-1/2 top-[12vh] z-50 flex w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise/90 look-new:backdrop-blur-md look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:animate-none"
         >
           <D.Title className="sr-only">Search</D.Title>
           <div className="flex h-12 shrink-0 items-center gap-3 border-b border-line px-4">

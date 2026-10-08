@@ -403,4 +403,6 @@ export interface Bridge {
   initialAccent?: string | null
   /** The New look: the look the window opened in ('new' or 'classic'); applied as the theme is. */
   initialLook?: 'new' | 'classic'
+  /** The New look's desk layout can be chosen in Settings › Appearance (a try-out build, or once it is ready for everyone). */
+  deskReady?: boolean
 }

@@ -162,3 +162,89 @@ describe('the New look: accent colour contrast', () => {
     }
   }
 })
+
+// The New look's desk layout (layout/desk/desk.css, <html data-arrangement='desk'>): its own frame, panes, paper, slips
+// and spine in each theme. The same rules hold, with the kind inks on paper and on the slips, and the spine's words on
+// the spine. An accent Adam picked keeps its own colours there, so it is checked on the desk's backgrounds too.
+const deskCss = readFileSync(join(__dirname, '../../src/renderer/src/layout/desk/desk.css'), 'utf8')
+
+function deskBlock(selector: string): Record<string, string> {
+  const start = deskCss.indexOf(`${selector} {`)
+  if (start < 0) throw new Error(`no ${selector} block in desk.css`)
+  const block = deskCss.slice(start, deskCss.indexOf('}', start))
+  const out: Record<string, string> = {}
+  for (const m of block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})\s*;/gi)) out[m[1]] = m[2]
+  return out
+}
+
+const desk = `[data-arrangement='desk'][data-look='new']`
+const deskTokens = (theme: string): Record<string, string> => ({
+  ...newLookTokens(theme),
+  ...deskBlock(`${desk}[data-theme='${theme}']`),
+  ...deskBlock(`${desk}[data-theme='${theme}']:not([data-accent])`)
+})
+
+const DESK_BGS = ['bg', 'surface', 'surface-2', 'page', 'raise', 'slip']
+
+describe('the desk: text contrast', () => {
+  for (const theme of THEMES) {
+    const t = deskTokens(theme)
+    const pairs: Record<string, string[]> = {
+      fg: [...DESK_BGS, 'ai-soft'],
+      muted: [...DESK_BGS, 'ai-soft'],
+      faint: ['bg', 'surface', 'page', 'raise', 'slip'],
+      ai: [...DESK_BGS, 'ai-soft'],
+      'ai-fg': ['ai'],
+      danger: ['bg', 'surface', 'page', 'raise', 'danger-soft'],
+      success: ['bg', 'surface', 'page', 'raise', 'success-soft'],
+      accent: [...DESK_BGS, 'accent-soft'],
+      'accent-fg': ['accent', 'accent-hover'],
+      // The warm-ink buttons, and the words on the story's spine (its numerals, all down its gradient).
+      'primary-fg': ['primary', 'primary-hover'],
+      'spine-ink': ['spine', 'spine-top', 'spine-bottom'],
+      // The full spine's words (the whole story on the leather): its titles, word counts and quieter lines.
+      'spine-fg': ['spine', 'spine-top', 'spine-bottom'],
+      'spine-muted': ['spine', 'spine-top', 'spine-bottom'],
+      'spine-faint': ['spine', 'spine-top', 'spine-bottom']
+    }
+    for (const [text, bgs] of Object.entries(pairs)) {
+      for (const bg of bgs) {
+        it(`${theme}: --${text} on --${bg} is at least 4.5:1`, () => {
+          expect(t[text], `--${text} in ${theme}`).toMatch(/^#/)
+          expect(t[bg], `--${bg} in ${theme}`).toMatch(/^#/)
+          expect(contrast(t[text], t[bg])).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+    }
+    it(`${theme}: --faint stays lighter than --muted`, () => {
+      expect(contrast(t.faint, t.bg)).toBeLessThan(contrast(t.muted, t.bg))
+    })
+    it(`${theme}: the frame is deepest, the panes a step up, the paper lightest`, () => {
+      const order = [luminance(t.bg), luminance(t.surface), luminance(t.page)]
+      expect(order).toEqual([...order].sort((a, b) => a - b))
+    })
+    for (const kind of KINDS) {
+      for (const bg of [`k-${kind}-soft`, 'page', 'slip', 'surface', 'bg', 'raise']) {
+        it(`${theme}: --k-${kind} on --${bg} is at least 4.5:1`, () => {
+          expect(contrast(t[`k-${kind}`], t[bg])).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+    }
+    for (const accent of ACCENT_IDS) {
+      const a = { ...t, ...blockTokens(`[data-theme='${theme}'][data-accent='${accent}']`) }
+      try {
+        Object.assign(a, deskBlock(`${desk}[data-theme='${theme}'][data-accent='${accent}']`))
+      } catch {
+        // No desk tuning for this accent: its own colours hold.
+      }
+      for (const bg of ['bg', 'surface', 'page', 'raise', 'accent-soft']) {
+        it(`${theme} with ${accent}: --accent on --${bg} is at least 4.5:1`, () => {
+          expect(contrast(a.accent, a[bg])).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+      it(`${theme} with ${accent}: --accent-fg on --accent is at least 4.5:1`, () => {
+        expect(contrast(a['accent-fg'], a.accent)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+})

@@ -43,7 +43,11 @@ function useSteady(on: boolean, after = 600, atLeast = 1500): boolean {
 const slotButton =
   'flex h-7 max-w-full items-center gap-2 rounded-md px-2 text-[12px] outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 animate-fade-in'
 
-export function KeeperStatus(): React.JSX.Element {
+/**
+ * `quiet`: the desk's top bar, whose status island says "Memory · N changes" itself; this then shows only the reading
+ * and the trouble, at its own width (nothing cut short).
+ */
+export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.Element {
   const status = useApp((s) => s.memoryStatus)
   const worldId = useApp((s) => s.world?.id ?? null)
   const navigate = useApp((s) => s.navigate)
@@ -57,7 +61,8 @@ export function KeeperStatus(): React.JSX.Element {
   if (opened.current.worldId !== worldId) opened.current = { worldId, at: Date.now() - 2000 }
   const [seen, setSeen] = useState<string | null>(null)
   const [held, setHeld] = useState(false)
-  const update = freshUpdate(status, seen, opened.current.at)
+  const fresh = freshUpdate(status, seen, opened.current.at)
+  const update = quiet ? null : fresh
   useEffect(() => {
     if (!update || held) return
     const t = setTimeout(() => setSeen(update.runId), UPDATED_FOR)
@@ -93,7 +98,7 @@ export function KeeperStatus(): React.JSX.Element {
   return (
     // The New look: wide enough for the longest note ("Memory isn't updating") whole from a 1280-wide window; in a
     // smaller one a note may be cut short (the whole of it on hover).
-    <div className="flex w-[176px] shrink-0 justify-end look-new:w-[128px] look-new:min-[1280px]:w-[168px]" role="status" aria-live="polite">
+    <div className={cn('flex shrink-0 justify-end', quiet ? 'w-auto' : 'w-[176px] look-new:w-[128px] look-new:min-[1280px]:w-[168px]')} role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger

@@ -1,0 +1,882 @@
+/*
+  An entry's dossier over the desk's World room (UI overhaul phase 4, D4.2; features/world/dossier/Dossier.tsx and
+  features/desk/world/DossierLayer.tsx). Over the room, dimmed and softly blurred; the dossier centred on it: a band in the
+  kind's colour (turned the entry's own way, --dz-hue), the portrait over its edge, the one-liner, the facts, then the
+  sections in one or two columns, and the foot. Each section's Edit shows on hover and to the keyboard.
+  Everything sits under [data-arrangement='desk'], so nothing here reaches the panels or Classic.
+*/
+[data-arrangement='desk'] .dz-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+}
+[data-arrangement='desk'] .dz-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(35 24 14 / 0.3);
+  backdrop-filter: blur(4px);
+}
+[data-arrangement='desk'][data-theme='dark'] .dz-scrim {
+  background: rgb(0 0 0 / 0.45);
+}
+[data-arrangement='desk'] .dz-sheet {
+  position: absolute;
+  inset: 0;
+  width: min(880px, calc(100% - 48px));
+  height: min(740px, calc(100% - 40px));
+  margin: auto;
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--page);
+  color: var(--fg);
+  box-shadow:
+    0 0 0 1px rgb(70 45 20 / 0.08),
+    0 2px 6px rgb(40 25 10 / 0.1),
+    0 40px 90px -30px rgb(40 25 10 / 0.52);
+}
+[data-arrangement='desk'][data-theme='dark'] .dz-sheet {
+  box-shadow:
+    0 0 0 1px rgb(255 240 220 / 0.07),
+    0 40px 90px -30px rgb(0 0 0 / 0.8);
+}
+[data-arrangement='desk'] .dz-missing {
+  height: fit-content;
+  padding: 32px 40px;
+}
+[data-arrangement='desk'] .dz-missing-h {
+  margin: 0;
+  font: 600 24px/30px var(--font-serif);
+}
+[data-arrangement='desk'] .dz-missing-p {
+  margin: 8px 0 18px;
+  color: var(--muted);
+}
+
+[data-arrangement='desk'] .dz {
+  position: relative;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+}
+/* The band: the kind's colour (turned the entry's own way), its icon large and faint. */
+[data-arrangement='desk'] .dz-band {
+  position: relative;
+  height: 168px;
+  flex: none;
+  overflow: hidden;
+  background:
+    radial-gradient(70% 120% at 12% 0%, rgb(255 255 255 / 0.18), transparent 60%),
+    linear-gradient(125deg, hsl(var(--dz-hue) 38% 46%), hsl(var(--dz-hue) 44% 25%));
+  color: #fff8ec;
+}
+[data-arrangement='desk'][data-theme='dark'] .dz-band {
+  background:
+    radial-gradient(70% 120% at 12% 0%, rgb(255 255 255 / 0.1), transparent 60%),
+    linear-gradient(125deg, hsl(var(--dz-hue) 30% 34%), hsl(var(--dz-hue) 36% 18%));
+}
+[data-arrangement='desk'] .dz-band-art {
+  position: absolute;
+  right: 36px;
+  top: -6px;
+  opacity: 0.13;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .dz-back {
+  position: absolute;
+  left: 24px;
+  top: 20px;
+  display: inline-flex;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 0 14px 0 10px;
+  background: rgb(255 253 248 / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3);
+  font: 600 13px/1 var(--font-sans);
+  color: #fff8ec;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .dz-back svg {
+  transition: translate var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .dz-back:hover {
+  background: rgb(255 253 248 / 0.24);
+}
+[data-arrangement='desk'] .dz-back:hover svg {
+  translate: -2px 0;
+}
+[data-arrangement='desk'] .dz-back:active,
+[data-arrangement='desk'] .dz-ib:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .dz-tools {
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  display: flex;
+  gap: 6px;
+}
+[data-arrangement='desk'] .dz-ib {
+  display: inline-flex;
+  height: 32px;
+  min-width: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: rgb(255 253 248 / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.24);
+  color: #fff8ec;
+  font: 600 12.5px/1 var(--font-sans);
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .dz-ib-label {
+  padding: 0 12px 0 10px;
+}
+[data-arrangement='desk'] .dz-ib:hover,
+[data-arrangement='desk'] .dz-ib[data-state='open'] {
+  background: rgb(255 253 248 / 0.24);
+}
+[data-arrangement='desk'] .dz-ib.is-on {
+  background: #fff8ec;
+  color: hsl(var(--dz-hue) 40% 26%);
+}
+[data-arrangement='desk'] .dz-back:focus-visible,
+[data-arrangement='desk'] .dz-ib:focus-visible {
+  outline: 2px solid #fff8ec;
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .dz-titles {
+  position: absolute;
+  left: 148px;
+  right: 40px;
+  bottom: 12px;
+}
+[data-arrangement='desk'] .dz-kicker {
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(255 248 236 / 0.86);
+}
+[data-arrangement='desk'] .dz-name-h {
+  margin: 2px 0 0;
+  outline: none;
+}
+[data-arrangement='desk'] .dz-name {
+  display: block;
+  margin: 2px 0 0;
+  font: 600 38px/46px var(--font-serif);
+  font-variation-settings: 'opsz' 72;
+  letter-spacing: -0.015em;
+  color: #fffdf8;
+  outline: none;
+}
+[data-arrangement='desk'] .dz-name-input {
+  width: calc(100% + 16px);
+  max-height: 92px;
+  margin: 0 -8px;
+  padding: 0 7px;
+  overflow: hidden;
+  resize: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  transition:
+    border-color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .dz-name-input:hover {
+  border-color: rgb(255 255 255 / 0.28);
+}
+[data-arrangement='desk'] .dz-name-input:focus {
+  border-color: rgb(255 255 255 / 0.6);
+  background: rgb(0 0 0 / 0.1);
+}
+[data-arrangement='desk'] .dz-name-input::placeholder {
+  color: rgb(255 248 236 / 0.55);
+}
+[data-arrangement='desk'] .dz-portrait {
+  position: absolute;
+  left: 40px;
+  top: 124px;
+  z-index: 2;
+}
+[data-arrangement='desk'] .dz-portrait > * {
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 4px var(--page),
+    0 12px 26px -8px rgb(40 25 10 / 0.4);
+}
+[data-arrangement='desk'] .dz[data-kind='character'] .dz-portrait > * {
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 4px var(--page),
+    0 12px 26px -8px rgb(40 20 70 / 0.48);
+}
+[data-arrangement='desk'] .dz-mono {
+  display: grid;
+  width: 88px;
+  height: 88px;
+  place-items: center;
+  background: var(--page);
+  color: hsl(var(--dz-hue) 40% 36%);
+  font: 600 40px/1 var(--font-serif);
+}
+[data-arrangement='desk'][data-theme='dark'] .dz-mono {
+  color: hsl(var(--dz-hue) 50% 76%);
+}
+[data-arrangement='desk'] .dz-sumrow {
+  display: flex;
+  min-height: 52px;
+  flex: none;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 40px 0 148px;
+}
+[data-arrangement='desk'] .dz-sum {
+  flex: 1;
+  margin: 0;
+  font: 400 16px/24px var(--font-serif);
+  color: var(--muted);
+}
+[data-arrangement='desk'] textarea.dz-sum-input {
+  min-height: 0;
+  margin: -1px -8px 0;
+  padding: 0 7px;
+  resize: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  font: 400 16px/24px var(--font-serif);
+  color: var(--muted);
+}
+[data-arrangement='desk'] textarea.dz-sum-input:hover {
+  border-color: var(--line);
+}
+[data-arrangement='desk'] textarea.dz-sum-input:focus {
+  border-color: var(--accent);
+  color: var(--fg);
+  box-shadow: none;
+}
+[data-arrangement='desk'] .dz-save {
+  margin-top: 4px;
+}
+/* The facts along the top. */
+[data-arrangement='desk'] .dz-facts {
+  position: relative;
+  display: flex;
+  min-height: 58px;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: stretch;
+  margin: 8px 40px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+[data-arrangement='desk'] .dz-fact {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 110px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding: 6px 18px;
+  border-left: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
+}
+[data-arrangement='desk'] .dz-fact:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+[data-arrangement='desk'] .dz-fact.is-first {
+  flex: 2 1 200px;
+}
+[data-arrangement='desk'] .dz-fact-v {
+  max-width: 100%;
+  overflow: hidden;
+  font: 500 16px/22px var(--font-serif);
+  font-variant-numeric: oldstyle-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .dz-fact-v.is-empty {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .dz-fact-link {
+  border-radius: 4px;
+  text-align: left;
+  text-decoration: underline dotted color-mix(in oklab, var(--fg) 35%, transparent);
+  text-underline-offset: 4px;
+}
+[data-arrangement='desk'] .dz-fact-link:hover {
+  color: var(--accent);
+}
+[data-arrangement='desk'] .dz-fact-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .dz-first {
+  max-width: 100%;
+}
+[data-arrangement='desk'] .dz-facts-btn {
+  position: absolute;
+  right: 0;
+  top: -30px;
+}
+[data-arrangement='desk'] .dz-facts-edit {
+  display: grid;
+  flex: 3 1 400px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 16px;
+  padding: 10px 0;
+}
+/* The body: two columns on a wide dossier, one on a narrow one. */
+[data-arrangement='desk'] .dz-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 40px 28px;
+  container-type: inline-size;
+  scrollbar-width: thin;
+}
+[data-arrangement='desk'] .dz-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 40px;
+  margin-top: 4px;
+}
+@container (min-width: 700px) {
+  [data-arrangement='desk'] .dz-cols {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+}
+[data-arrangement='desk'] .dz-col {
+  min-width: 0;
+}
+[data-arrangement='desk'] .dz-sec {
+  position: relative;
+  margin-bottom: 22px;
+}
+[data-arrangement='desk'] .dz-sec-h {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+[data-arrangement='desk'] .dz-caps {
+  margin: 0;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .dz-sec-note {
+  min-width: 0;
+  overflow: hidden;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Edit: on hover, or to the keyboard, or while editing. */
+[data-arrangement='desk'] .dz-edit {
+  display: inline-flex;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  border-radius: 7px;
+  padding: 0 8px 0 7px;
+  font: 600 12px/1 var(--font-sans);
+  color: var(--accent);
+  opacity: 0;
+  translate: 3px 0;
+  transition:
+    opacity var(--dur-quick) ease-out,
+    translate var(--dur-quick) var(--desk-ease),
+    background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .dz-edit:hover {
+  background: var(--accent-soft);
+}
+[data-arrangement='desk'] .dz-sec:hover .dz-edit,
+[data-arrangement='desk'] .dz-sec:focus-within .dz-edit,
+[data-arrangement='desk'] .dz-facts:hover .dz-edit,
+[data-arrangement='desk'] .dz-facts:focus-within .dz-edit,
+[data-arrangement='desk'] .dz-edit:focus-visible,
+[data-arrangement='desk'] .dz-edit.is-on {
+  opacity: 1;
+  translate: 0 0;
+}
+[data-arrangement='desk'] .dz-edit:focus-visible {
+  outline: 2px solid var(--focus);
+}
+[data-arrangement='desk'] .dz-sec[data-editing] {
+  margin-inline: -14px;
+  border-radius: 12px;
+  padding: 10px 14px 14px;
+  background: color-mix(in oklab, var(--surface) 45%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+[data-arrangement='desk'] .dz-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+[data-arrangement='desk'] .dz-p {
+  margin: 0 0 8px;
+  font: 400 14.5px/22px var(--font-serif);
+  color: var(--fg);
+  white-space: pre-line;
+}
+[data-arrangement='desk'] .dz-nothing {
+  margin: 0;
+  font: italic 400 13.5px/20px var(--font-serif);
+  color: var(--faint);
+}
+[data-arrangement='desk'] .dz-add {
+  font: 600 12.5px/1 var(--font-sans);
+  color: var(--accent);
+}
+[data-arrangement='desk'] .dz-add:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+[data-arrangement='desk'] .dz-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+[data-arrangement='desk'] .dz-chip {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 500 11.5px/1 var(--font-sans);
+  color: var(--muted);
+}
+[data-arrangement='desk'] .dz-chip.is-tag {
+  font-weight: 600;
+}
+[data-arrangement='desk'] .dz-chip.is-link:hover {
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+[data-arrangement='desk'] .dz-dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+[data-arrangement='desk'] .dz-dl dt {
+  font: 600 10.5px/14px var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .dz-dl dd {
+  margin: 1px 0 0;
+  font: 400 14px/21px var(--font-serif);
+  color: var(--fg);
+  white-space: pre-line;
+}
+[data-arrangement='desk'] .dz-voice {
+  margin: 0;
+  font: 400 14px/21px var(--font-sans);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .dz-quotes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  padding-left: 14px;
+  border-left: 2px solid color-mix(in oklab, hsl(var(--dz-hue) 45% 50%) 45%, transparent);
+}
+[data-arrangement='desk'] .dz-q {
+  margin: 0;
+  font: italic 400 15px/24px var(--font-serif);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .dz-state {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-arrangement='desk'] .dz-state li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font: 400 13.5px/19px var(--font-sans);
+}
+[data-arrangement='desk'] .dz-state-w {
+  flex: none;
+  font: 500 11.5px/16px var(--font-sans);
+  color: var(--faint);
+}
+/* "Appears in" as chapter bands with a dot per scene. */
+[data-arrangement='desk'] .dz-bands {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+[data-arrangement='desk'] .dz-band-row {
+  display: grid;
+  height: 28px;
+  grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+[data-arrangement='desk'] .dz-band-l {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  font: 400 13.5px/18px var(--font-serif);
+}
+[data-arrangement='desk'] .dz-rn {
+  width: 18px;
+  flex: none;
+  font: 600 12px/18px var(--font-serif);
+  color: var(--faint);
+}
+[data-arrangement='desk'] .dz-track {
+  position: relative;
+  display: flex;
+  height: 14px;
+  align-items: center;
+  gap: 18px;
+  padding-left: 2px;
+}
+[data-arrangement='desk'] .dz-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 1px;
+  background: var(--line);
+}
+[data-arrangement='desk'] .dz-dot {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--page);
+  box-shadow:
+    0 0 0 2px var(--page),
+    inset 0 0 0 1.5px var(--line-strong);
+}
+[data-arrangement='desk'] .dz-dot.is-planned {
+  box-shadow:
+    0 0 0 2px var(--page),
+    inset 0 0 0 1.5px var(--line);
+}
+[data-arrangement='desk'] .dz-dot.is-on {
+  background: hsl(var(--dz-hue) 40% 46%);
+  box-shadow: 0 0 0 2px var(--page);
+  transition: scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .dz-dot.is-on:hover {
+  scale: 1.2;
+}
+[data-arrangement='desk'] .dz-dot.is-now {
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px color-mix(in oklab, hsl(var(--dz-hue) 45% 50%) 35%, transparent);
+}
+[data-arrangement='desk'] .dz-dot:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+/* The memory's folded sections. */
+[data-arrangement='desk'] .dz-fold {
+  margin-bottom: 8px;
+  border-top: 1px solid var(--line);
+}
+[data-arrangement='desk'] .dz-fold-h {
+  display: flex;
+  width: 100%;
+  height: 38px;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+[data-arrangement='desk'] .dz-fold-chev {
+  margin-left: auto;
+  font: 400 18px/1 var(--font-sans);
+  color: var(--faint);
+  transition: rotate var(--dur-quick) var(--desk-ease);
+}
+[data-arrangement='desk'] .dz-fold-chev.is-open {
+  rotate: 90deg;
+}
+[data-arrangement='desk'] .dz-fold-b {
+  padding-bottom: 12px;
+}
+[data-arrangement='desk'] .dz-reach {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 64px;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .dz-reach > * {
+  position: static;
+  margin: 0;
+}
+[data-arrangement='desk'] .dz-asof {
+  padding-top: 4px;
+}
+/* The foot: kept up to date, Show in the story, and Ask (the AI's amber). */
+[data-arrangement='desk'] .dz-foot {
+  display: flex;
+  height: 56px;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 0 40px;
+  border-top: 1px solid color-mix(in oklab, var(--line) 70%, transparent);
+  background: color-mix(in oklab, var(--surface) 40%, var(--page));
+}
+[data-arrangement='desk'] .dz-foot-t {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  overflow: hidden;
+  font: 400 12.5px/18px var(--font-sans);
+  color: var(--muted);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .dz-foot-t svg {
+  flex: none;
+  color: var(--success);
+}
+[data-arrangement='desk'] .dz-btn {
+  display: inline-flex;
+  height: 34px;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  border-radius: 10px;
+  padding: 0 13px;
+  background: var(--page);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--sh-1);
+  font: 600 13px/1 var(--font-sans);
+  color: var(--fg);
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .dz-btn:hover:not(:disabled) {
+  background: var(--surface);
+}
+[data-arrangement='desk'] .dz-btn:active:not(:disabled) {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .dz-btn:disabled {
+  opacity: 0.5;
+}
+[data-arrangement='desk'] .dz-btn.is-ai {
+  max-width: 260px;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ai) 40%, transparent);
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .dz-btn.is-ai:hover {
+  background: var(--ai-soft);
+}
+[data-arrangement='desk'] .dz-lamp {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--lamp-2);
+  box-shadow:
+    0 0 0 3px rgb(236 163 70 / 0.2),
+    0 0 10px 1px var(--lamp-glow);
+}
+[data-arrangement='desk'] .dz-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+@container (max-width: 560px) {
+  [data-arrangement='desk'] .dz-cols {
+    gap: 0;
+  }
+}
+[data-arrangement='desk'] .dz-rels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+  padding: 0;
+  list-style: none;
+}
+[data-arrangement='desk'] .dz-rel {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 12px;
+  border-radius: 10px;
+  padding: 4px 8px;
+  text-align: left;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .dz-rel:hover {
+  background: var(--surface);
+}
+[data-arrangement='desk'] .dz-rel:focus-visible {
+  outline: 2px solid var(--focus);
+}
+[data-arrangement='desk'] .dz-rel-t {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+[data-arrangement='desk'] .dz-rel-n {
+  font: 600 15px/20px var(--font-serif);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .dz-rel-s {
+  font: 400 12.5px/17px var(--font-sans);
+  color: var(--muted);
+}
+
+/*
+  The flip (D4.3; features/look/viewTransition.ts flipTransition). Two names, not one shared pair, so the card's picture
+  is never stretched to the dossier's shape: the card (vt-card) turns away on its axis while growing towards the dossier
+  (260ms, --flip-a), then the dossier (vt-dossier) turns in from the other side (260ms after it, --flip-d); the room dims
+  as the page crossfades under them. Back: the dossier turns away (210ms), then the card turns in (210ms). With less
+  motion, only a 150ms crossfade of the page (flip-fade).
+*/
+:root[data-vt~='flip'] [data-dossier],
+:root[data-vt~='flip-back'] [data-dossier] {
+  view-transition-name: vt-dossier;
+}
+::view-transition-group(vt-card),
+::view-transition-group(vt-dossier) {
+  animation: none;
+}
+::view-transition-old(vt-card),
+::view-transition-new(vt-card),
+::view-transition-old(vt-dossier),
+::view-transition-new(vt-dossier) {
+  backface-visibility: hidden;
+}
+:root[data-vt~='flip']::view-transition-old(page) {
+  animation: dz-vt-out 300ms linear both;
+}
+:root[data-vt~='flip']::view-transition-new(page) {
+  animation: dz-vt-in 300ms linear both;
+}
+:root[data-vt~='flip-back']::view-transition-old(page) {
+  animation: dz-vt-out 260ms linear both;
+}
+:root[data-vt~='flip-back']::view-transition-new(page) {
+  animation: dz-vt-in 260ms linear both;
+}
+:root[data-vt~='flip']::view-transition-old(vt-card) {
+  animation: dz-card-out 260ms var(--flip-a) both;
+}
+:root[data-vt~='flip']::view-transition-new(vt-dossier) {
+  animation: dz-dossier-in 260ms var(--flip-d) 260ms both;
+}
+:root[data-vt~='flip-back']::view-transition-old(vt-dossier) {
+  animation: dz-dossier-out 210ms var(--flip-a) both;
+}
+:root[data-vt~='flip-back']::view-transition-new(vt-card) {
+  animation: dz-card-back 210ms var(--flip-d) 210ms both;
+}
+@keyframes dz-card-out {
+  from {
+    transform: perspective(1200px);
+  }
+  to {
+    transform: perspective(1200px) translate(var(--flip-dx, 0px), var(--flip-dy, 0px)) rotateY(90deg) scale(var(--flip-s, 1.4));
+  }
+}
+@keyframes dz-card-back {
+  from {
+    transform: perspective(1200px) translate(var(--flip-dx, 0px), var(--flip-dy, 0px)) rotateY(90deg) scale(var(--flip-s, 1.4));
+  }
+  to {
+    transform: perspective(1200px);
+  }
+}
+@keyframes dz-dossier-in {
+  0% {
+    opacity: 0;
+    transform: perspective(1200px) rotateY(-90deg) scale(var(--flip-sx, 0.36), var(--flip-sy, 0.6));
+  }
+  6% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1200px);
+  }
+}
+@keyframes dz-dossier-out {
+  0% {
+    opacity: 1;
+    transform: perspective(1200px);
+  }
+  94% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(1200px) rotateY(-90deg) scale(var(--flip-sx, 0.36), var(--flip-sy, 0.6));
+  }
+}
+@keyframes dz-vt-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dz-vt-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Less motion: the page crossfades in 150ms, nothing turns (the rule stilling every View Transition gives way here). */
+:root[data-vt~='flip-fade']::view-transition-old(page) {
+  animation: dz-vt-out 150ms ease-out both !important;
+}
+:root[data-vt~='flip-fade']::view-transition-new(page) {
+  animation: dz-vt-in 150ms ease-out both !important;
+}

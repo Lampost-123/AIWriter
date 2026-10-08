@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { SHORTCUTS, isShortcut, isTyping, shortcutKeys, shortcutText, withShortcut, type KeyPress } from './shortcuts'
+import { SHORTCUTS, isShortcut, isTyping, shortcut, shortcutKeys, shortcutText, withShortcut, type KeyPress } from './shortcuts'
 
 const press = (key: string, mods: Partial<KeyPress> = {}): KeyPress => ({
   key,
@@ -33,6 +33,15 @@ describe('the shortcuts list', () => {
     expect(keys('focusMode')).toBe('F11')
     expect(keys('leaveFocusMode')).toBe('Esc')
     expect(withShortcut('Focus mode', 'focusMode', true)).toBe('Focus mode (F11)')
+  })
+
+  it('gives the desk’s Continue its own keys, apart from Mark done', () => {
+    expect(shortcutText('continue', false)).toBe('Ctrl+Shift+Enter')
+    expect(shortcut('continue').desk).toBe(true)
+    expect(isShortcut(press('Enter', { ctrlKey: true, shiftKey: true }), 'continue', false)).toBe(true)
+    expect(isShortcut(press('Enter', { ctrlKey: true }), 'continue', false)).toBe(false)
+    expect(isShortcut(press('Enter', { ctrlKey: true, shiftKey: true }), 'markDone', false)).toBe(false)
+    expect(SHORTCUTS.filter((s) => s.keys.join('+') === 'Mod+Shift+Enter')).toHaveLength(1)
   })
 
   it('has each shortcut once, in plain words, in a group', () => {

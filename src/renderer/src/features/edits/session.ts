@@ -16,6 +16,7 @@ import { shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { sceneText } from '@/features/editor/streamDoc'
+import { settleWords } from '@/features/editor/arrival'
 import { revealEntryPart } from '@/features/palette/entryReveal'
 import {
   acceptSuggestion,
@@ -537,6 +538,8 @@ export async function accept(id?: ID): Promise<void> {
   // it) to where it ends, mapped through the change.
   const at = now.mode === 'before' ? v2.state.doc.resolve(now.from).before() : now.from
   const words = { from: tr.mapping.map(at, -1), to: tr.mapping.map(now.mode === 'before' ? at : now.to, 1) }
+  // The New look: Continue's words settle into the page, as a finished draft's do (features/editor/arrival.ts).
+  if (now.tool === 'continue') settleWords(tr, words.from, words.to)
   v2.dispatch(tr)
   // Typing straight after is a step of its own.
   v2.dispatch(closeHistory(v2.state.tr))

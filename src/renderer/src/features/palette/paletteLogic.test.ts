@@ -43,6 +43,8 @@ function rowText(r: Row): string {
       return `+ ${r.label}`
     case 'note':
       return `~ ${r.text}`
+    case 'ask':
+      return `? ${r.query}`
   }
 }
 
@@ -117,6 +119,10 @@ describe('the actions', () => {
     // A scene marked done can be reopened instead.
     expect(ids(writing)).not.toContain('reopen-scene')
     expect(ids({ ...writing, sceneDone: true })).toContain('reopen-scene')
+    // The desk's Continue (from the end of the scene, Ctrl+Shift+Enter) only on the desk, and not while drafting.
+    expect(ids(writing)).not.toContain('continue-end')
+    expect(ids({ ...writing, desk: true })).toContain('continue-end')
+    expect(ids({ ...writing, desk: true, drafting: true })).not.toContain('continue-end')
     // Deleting only the scene on screen; marking done goes back to it from another page.
     expect(ids(writing)).toContain('delete-scene')
     expect(ids({ ...writing, view: 'codex' })).not.toContain('delete-scene')
@@ -304,6 +310,20 @@ describe('the list', () => {
     expect(show(rows)).toContain('~ Showing 1 of 60. Add a word to narrow it down.')
     expect(show(rows)).not.toContain('+ Show more actions')
     expect(rows.filter((r) => r.type === 'action')).toHaveLength(matchActions('new', writing).length)
+  })
+
+  it('on the desk, offers to ask the world what was typed, after the actions and before the search results', () => {
+    const rows = paletteRows({ query: ' who is Mara? ', actions: matchActions('new', writing), results, recent: [], suggested: [], expanded: new Set(), ask: true })
+    const text = show(rows)
+    expect(text.slice(text.indexOf('+ Show more actions') + 1, text.indexOf('# Characters'))).toEqual(['# Ask the world', '? who is Mara?'])
+    expect(rows.find((r) => r.type === 'ask')).toMatchObject({ type: 'ask', key: 'ask', query: 'who is Mara?' })
+    // Even when no action matches; never with nothing typed; and not in the panels.
+    expect(show(paletteRows({ query: 'zzz', actions: [], results: null, recent: [], suggested: [], expanded: new Set(), ask: true }))).toEqual([
+      '# Ask the world',
+      '? zzz'
+    ])
+    expect(show(paletteRows({ query: '', actions: [], results: null, recent: [], suggested: [], expanded: new Set(), ask: true }))).toEqual([])
+    expect(show(paletteRows({ query: 'zzz', actions: [], results: null, recent: [], suggested: [], expanded: new Set() }))).toEqual([])
   })
 })
 

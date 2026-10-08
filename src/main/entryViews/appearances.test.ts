@@ -226,7 +226,7 @@ describe('reading scenes ahead', () => {
 })
 
 describe('codex cards', () => {
-  it('know how important each entry is, where it last appears and the stories it belongs to', () => {
+  it('know how important each entry is, where it first and last appears and the stories it belongs to', () => {
     const { db, s, b1, b2 } = world()
     const mara = repo.createEntry(db, 'character', { name: 'Mara', fields: { role: 'protagonist' }, tags: ['family'] }).id
     const tobin = repo.createEntry(db, 'character', { name: 'Tobin' }).id
@@ -242,9 +242,13 @@ describe('codex cards', () => {
     expect(cards.get(tobin)).toMatchObject({ scenes: 3, importance: 2 + 1 + 1 })
     expect(cards.get(tobin)!.last?.label).toBe('Book 2, Ch 1, Sc 1')
     expect(cards.get(tobin)!.last!.order).toBeGreaterThan(cards.get(mara)!.last!.order)
+    // Where each first appears: the earliest scene it is in, by story order.
+    expect(cards.get(mara)!.first?.label).toBe('Book 1, Ch 1, Sc 1')
+    expect(cards.get(tobin)!.first?.label).toBe('Book 1, Ch 1, Sc 2')
+    expect(cards.get(tobin)!.first!.order).toBeLessThan(cards.get(tobin)!.last!.order)
     // The beginning of the world counts as the world's first story.
     expect(cards.get(mara)!.storyIds).toEqual([b1])
     expect(new Set(cards.get(tobin)!.storyIds)).toEqual(new Set([b1, b2]))
-    expect(cards.get(kell)).toMatchObject({ scenes: 0, importance: 0, last: null, storyIds: [b2] })
+    expect(cards.get(kell)).toMatchObject({ scenes: 0, importance: 0, last: null, first: null, storyIds: [b2] })
   })
 })

@@ -22,7 +22,9 @@ const variants: Record<Variant, string> = {
 
 const newLook: Record<Variant, string> = {
   primary:
-    'look-new:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_88%,white),var(--accent))] look-new:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--elev-2)] look-new:hover:brightness-[1.06]',
+    'look-new:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_88%,white),var(--accent))] look-new:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--elev-2)] look-new:hover:brightness-[1.06]' +
+    // The desk: warm ink, not the accent (the accent is for the selection, links and focus).
+    ' desk:bg-none desk:bg-primary desk:text-primary-fg desk:hover:bg-primary-hover desk:hover:brightness-100',
   secondary: 'look-new:bg-raise look-new:shadow-e1 look-new:hover:bg-raise look-new:hover:border-line-strong',
   ghost: '',
   danger: 'look-new:bg-raise look-new:shadow-e1',
@@ -46,8 +48,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       className={cn(
         'inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium transition-[background-color,border-color,color,filter] duration-150',
         'disabled:pointer-events-none disabled:opacity-50',
-        // The New look: buttons press in, a little rounder, the filled ones raised.
-        'look-new:rounded-[9px] look-new:transition-[background-color,border-color,color,filter,transform,box-shadow] look-new:duration-(--dur-quick) look-new:active:scale-[0.97]',
+        // The New look: buttons press in (quickly, 90ms; they come back up a touch slower, 150ms), a little rounder,
+        // the filled ones raised.
+        'look-new:rounded-[9px] look-new:transition-[background-color,border-color,color,filter,transform,scale,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:active:duration-(--dur-press) look-new:active:scale-[0.97]',
         variants[variant],
         newLook[variant],
         sizes[size],
@@ -80,7 +83,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
         'disabled:pointer-events-none disabled:opacity-40',
-        'look-new:rounded-[9px] look-new:transition-[background-color,color,transform] look-new:duration-(--dur-quick) look-new:active:scale-[0.92]',
+        // The New look: a small press (0.95), in quickly, back a touch slower.
+        'look-new:rounded-[9px] look-new:transition-[background-color,color,transform,scale] look-new:duration-(--dur-quick) look-new:ease-glide look-new:active:duration-(--dur-press) look-new:active:scale-[0.95]',
         active && 'bg-surface-2 text-fg look-new:bg-raise look-new:text-accent look-new:shadow-e1',
         size === 'sm' ? 'h-6 w-6' : 'h-8 w-8',
         className

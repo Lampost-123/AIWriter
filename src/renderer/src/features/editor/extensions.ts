@@ -2,6 +2,8 @@ import type { AnyExtension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { streamPlugin } from './streamDoc'
+import { StreamCaret } from './streamCaret'
+import { Arrival } from './arrival'
 import { Extension } from '@tiptap/core'
 import { requestMarkDone } from './doneShortcut'
 import { ParagraphIds } from './paragraphIds'
@@ -18,8 +20,11 @@ import { WordTally } from '@/features/goals/wordTally'
 import { SoundMarks } from '@/features/sounds/soundMarks'
 import { RepairMarks } from '@/features/repair/marks'
 import { BeatMarks } from '@/features/beats/beatMarks'
+import { deskOn } from '@/features/look/look'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
+/** On the desk there is no Generate button: the AI dock below the page offers Draft the scene. */
+export const DESK_PLACEHOLDER = 'Start writing, or use Draft the scene below.'
 
 /**
  * Keeps track of a streaming draft (see streamDoc.ts). Ahead of the undo keys and the history's own
@@ -56,7 +61,9 @@ const MarkDoneShortcut = Extension.create({
  * milestone 5 the live checks' underlines (features/liveChecks/liveDecorations.ts). Writing by hand adds spell check
  * and synonyms (features/spelling/editorSpelling.ts) and the daily word count (features/goals/wordTally.ts); sound effects mark
  * the words each sound plays on while the Sounds view shows (features/sounds/soundMarks.ts); check and repair shows the
- * slips it mended as new AI words landed, in amber (features/repair/marks.ts).
+ * slips it mended as new AI words landed, in amber (features/repair/marks.ts). The New look shows an amber caret where a
+ * streaming draft's words arrive (streamCaret.ts), and the words fading in, the lamp line beside the paragraph being
+ * written and the draft settling into ink once it ends (arrival.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -73,8 +80,12 @@ export function sceneExtensions(): AnyExtension[] {
       underline: false,
       dropcursor: { color: 'var(--accent)', width: 2 }
     }),
-    Placeholder.configure({ placeholder: EDITOR_PLACEHOLDER }),
+    Placeholder.configure({ placeholder: () => (deskOn() ? DESK_PLACEHOLDER : EDITOR_PLACEHOLDER) }),
     StreamTracking,
+    // The New look: an amber caret where a streaming draft's words arrive.
+    StreamCaret,
+    // The New look: a draft's words fade in, the lamp line, and the settle into ink.
+    Arrival,
     MarkDoneShortcut,
     ParagraphIds,
     NameUnderlines,
