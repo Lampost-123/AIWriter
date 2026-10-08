@@ -15,6 +15,7 @@ import {
   sidesOf,
   sinceOf,
   spreadView,
+  stretchFor,
   temperature,
   tieKind,
   tieWords,
@@ -237,5 +238,26 @@ describe('time', () => {
   it('history types line up', () => {
     const h: MapTieHistory = { aId: 'a', bId: 'b', events: [ev(1, 'x')] }
     expect(h.events[0].where).toBe('Ch 1, Sc 1')
+  })
+})
+
+describe('stretching a small cast to the canvas', () => {
+  const pad = { left: 0, right: 0, top: 0, bottom: 0 }
+  it('spreads a tall cast sideways on a wide canvas, by no more than the most allowed', () => {
+    const tall = [
+      { x: 0, y: 0 },
+      { x: 100, y: 400 },
+      { x: 50, y: 200 }
+    ]
+    expect(stretchFor(tall, 2000, 1000, pad)).toEqual({ ax: 1.7, ay: 1 })
+    // A wide cast in a tall window spreads downwards instead.
+    const wide = tall.map((p) => ({ x: p.y, y: p.x }))
+    expect(stretchFor(wide, 300, 1000, pad)).toEqual({ ax: 1, ay: 1.7 })
+  })
+  it('leaves a big cast, one character or a straight line alone', () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ x: i, y: i * 3 }))
+    expect(stretchFor(many, 2000, 1000, pad)).toEqual({ ax: 1, ay: 1 })
+    expect(stretchFor([{ x: 1, y: 1 }], 2000, 1000, pad)).toEqual({ ax: 1, ay: 1 })
+    expect(stretchFor([{ x: 0, y: 0 }, { x: 0, y: 300 }], 2000, 1000, pad)).toEqual({ ax: 1, ay: 1 })
   })
 })

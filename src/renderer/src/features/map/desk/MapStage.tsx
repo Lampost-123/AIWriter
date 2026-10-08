@@ -27,6 +27,7 @@ import {
   roomFor,
   sidesOf,
   spreadView,
+  stretchFor,
   temperature,
   tieKind,
   TIE_KINDS,
@@ -72,7 +73,7 @@ const LINE_HIT = 9
 const LINE_CELL = 24
 const VIEW = 280
 /** Room kept clear round the map: the strip and the note above, the legend below, a little at the sides. */
-const PAD = { left: 70, right: 70, top: 176, bottom: 124 }
+const PAD = { left: 130, right: 130, top: 196, bottom: 140 }
 const RANK_ORDER: Record<Rank, number> = { lead: 0, major: 1, support: 2, minor: 3 }
 
 type Sel = { kind: 'node'; id: ID } | { kind: 'tie'; key: string } | null
@@ -141,15 +142,30 @@ export function MapStage({
     tieCache.current = cache
     return { base, ties }
   }, [map])
+  // A small cast's places stretched to the canvas's shape (deskMapLogic.stretchFor); everything on the stage is drawn
+  // from the stretched places, and a dragged character's place is kept unstretched.
+  const stretch = useMemo(
+    () => stretchFor(map.everyone.length ? map.everyone : base, width, height, PAD, Math.max(map.everyone.length, base.length)),
+    [map.everyone, base, width, height]
+  )
+  const stretchRef = useRef(stretch)
+  stretchRef.current = stretch
+  const shown = useRef(new Map<ID, { from: DNode; node: DNode }>())
   const { nodes, byId } = useMemo(() => {
-    const nodes = moved.size
-      ? base.map((n) => {
-          const p = moved.get(n.id)
-          return p ? { ...n, x: p.x, y: p.y } : n
-        })
-      : base
+    const keep = new Map<ID, { from: DNode; node: DNode }>()
+    const nodes = base.map((n) => {
+      const p = moved.get(n.id) ?? n
+      const x = p.x * stretch.ax
+      const y = p.y * stretch.ay
+      const old = shown.current.get(n.id)
+      const node = old && old.from === n && old.node.x === x && old.node.y === y ? old.node : { ...n, x, y }
+      keep.set(n.id, { from: n, node })
+      return node
+    })
+    shown.current = keep
     return { nodes, byId: new Map(nodes.map((n) => [n.id, n])) }
-  }, [base, moved])
+  }, [base, moved, stretch])
+  const stretched = useCallback((p: Pt): Pt => ({ x: p.x * stretch.ax, y: p.y * stretch.ay }), [stretch])
 
   const history = useMemo(() => new Map((detail?.history ?? []).map((h) => [pairKeyOf(h.aId, h.bId), h] as [string, MapTieHistory])), [detail])
   const here = useMemo(() => new Set((detail?.here ?? []).map((h) => pairKeyOf(h.aId, h.bId))), [detail])
@@ -159,23 +175,27 @@ export function MapStage({
   // Fitted to everyone the strip can show (or the group's members anywhere along it), so nobody turns up outside it.
   const fitTo = useMemo((): Pt[] => {
     const all = group ? new Set(group.allMemberIds) : null
-    const list = (all ? map.everyone.filter((p) => all.has(p.id)) : map.everyone).map((p) => moved.get(p.id) ?? p)
+    const list = (all ? map.everyone.filter((p) => all.has(p.id)) : map.everyone).map((p) => stretched(moved.get(p.id) ?? p))
     return list.length ? list : nodes
-  }, [map.everyone, group, nodes, moved])
+  }, [map.everyone, group, nodes, moved, stretched])
   const fitRef = useRef(fitTo)
   fitRef.current = fitTo
+  const everyone = useMemo(() => (map.everyone.length ? map.everyone.map((p) => ({ id: p.id, ...stretched(moved.get(p.id) ?? p) })) : nodes), [map.everyone, nodes, moved, stretched])
+  const everyoneRef = useRef(everyone)
+  everyoneRef.current = everyone
+  const grouped = useRef(false)
+  grouped.current = !!group
   const centre = useMemo(() => {
-    const ps = map.everyone.length ? map.everyone : nodes
-    if (!ps.length) return { x: 0, y: 0 }
+    if (!everyone.length) return { x: 0, y: 0 }
     let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
-    for (const p of ps) {
+    for (const p of everyone) {
       x0 = Math.min(x0, p.x)
       x1 = Math.max(x1, p.x)
       y0 = Math.min(y0, p.y)
       y1 = Math.max(y1, p.y)
     }
     return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 }
-  }, [map.everyone, nodes])
+  }, [everyone])
 
   // ----- The view -----
   const [view, setView] = useState<View>({ tx: 0, ty: 0, k: 1 })
@@ -217,7 +237,9 @@ export function MapStage({
   const lastSize = useRef({ width: 0, height: 0 })
   const fitNow = useCallback((animate: boolean) => {
     const { width: w, height: h } = sizeRef.current
-    const v = spreadView(fitRef.current, w, h, PAD)
+    // A group is fitted no closer than everyone is, so the rest of the map stays round it.
+    const all = spreadView(everyoneRef.current, w, h, PAD)
+    const v = grouped.current ? spreadView(fitRef.current, w, h, PAD, Math.max(all.k, 0.0001)) : all
     fitK.current = v.k
     move(() => v, animate)
   }, [move])
@@ -274,8 +296,17 @@ export function MapStage({
   // A card opening over the right of the map: the map slides left just enough to keep the chosen character, or the
   // tie's two ends, and their ties clear of it.
   const selKey = sel ? (sel.kind === 'node' ? `n:${sel.id}` : `t:${sel.key}`) : ''
+  // Where the map was before a card slid it aside, and where it slid to: when the card closes, it slides back (unless
+  // Adam has moved the map since).
+  const cardSlide = useRef<{ from: View; to: View } | null>(null)
   useEffect(() => {
-    if (!sel) return
+    if (!sel) {
+      const slid = cardSlide.current
+      cardSlide.current = null
+      const v = viewRef.current
+      if (slid && Math.abs(v.tx - slid.to.tx) < 1 && Math.abs(v.ty - slid.to.ty) < 1 && v.k === slid.to.k) move(() => slid.from, true)
+      return
+    }
     const ids = new Set<ID>()
     if (sel.kind === 'node') {
       ids.add(sel.id)
@@ -298,7 +329,14 @@ export function MapStage({
     if (maxX <= edge) return
     // As far as it needs, but never pushing the leftmost of them off the map.
     const dx = Math.max(edge - maxX, Math.min(0, 24 - minX))
-    if (dx < 0) move((cur) => ({ ...cur, tx: cur.tx + dx }), true)
+    if (dx < 0) {
+      const back = cardSlide.current?.from ?? v
+      move((cur) => {
+        const to = { ...cur, tx: cur.tx + dx }
+        cardSlide.current = { from: back, to }
+        return to
+      }, true)
+    }
     // Only when the card opens for something new.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selKey])
@@ -516,7 +554,8 @@ export function MapStage({
     }
     if (p.node) {
       const node = p.node
-      const at = { x: node.x + dx / viewRef.current.k, y: node.y + dy / viewRef.current.k }
+      const { ax, ay } = stretchRef.current
+      const at = { x: (node.x + dx / viewRef.current.k) / ax, y: (node.y + dy / viewRef.current.k) / ay }
       cancelAnimationFrame(raf.current)
       raf.current = requestAnimationFrame(() => setMoved((m) => new Map(m).set(node.id, at)))
     } else move((v) => ({ ...v, tx: p.tx + dx, ty: p.ty + dy }), false)
@@ -872,7 +911,7 @@ export function MapStage({
 
       {hasMap && map.everyone.length > 30 && width ? (
         <MiniMap
-          places={map.everyone.map((p) => ({ id: p.id, ...(moved.get(p.id) ?? p) }))}
+          places={everyone}
           lead={nodes.filter((n) => n.rank === 'lead').map((n) => n.id)}
           view={view}
           width={width}

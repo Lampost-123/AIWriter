@@ -234,6 +234,35 @@ export function spreadView(points: Pt[], width: number, height: number, pad: Pad
   return { k, tx: cx - ((minX + maxX) / 2) * k, ty: cy - ((minY + maxY) / 2) * k }
 }
 
+/** The most a small cast's places are stretched along one side of the canvas, compared with the other. */
+export const STRETCH_MAX = 1.7
+/** Casts up to this size are stretched to the canvas's shape; bigger ones are left as laid out. */
+export const STRETCH_CAST = 40
+
+/**
+ * How much to stretch a small cast's places across and down so they fill a canvas of another shape (a tall cast on a
+ * wide monitor spreads sideways too), by no more than STRETCH_MAX either way. Places only: the medallions keep their
+ * size. A big cast, one character, or a cast in a line along one side is left as it is.
+ */
+export function stretchFor(points: Pt[], width: number, height: number, pad: Pad, count = points.length): { ax: number; ay: number } {
+  const none = { ax: 1, ay: 1 }
+  if (count > STRETCH_CAST || points.length < 2 || width <= 0 || height <= 0) return none
+  let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
+  for (const p of points) {
+    minX = Math.min(minX, p.x)
+    maxX = Math.max(maxX, p.x)
+    minY = Math.min(minY, p.y)
+    maxY = Math.max(maxY, p.y)
+  }
+  const w = maxX - minX
+  const h = maxY - minY
+  if (w < 1 || h < 1) return none
+  const room = (width - pad.left - pad.right) / Math.max(1, height - pad.top - pad.bottom)
+  const shape = w / h
+  if (shape < room) return { ax: Math.min(STRETCH_MAX, room / shape), ay: 1 }
+  return { ax: 1, ay: Math.min(STRETCH_MAX, shape / room) }
+}
+
 /** Zooms by `factor` about the window point (cx, cy). */
 export function zoomAbout(view: View, factor: number, cx: number, cy: number): View {
   const k = Math.min(DESK_MAX_ZOOM, Math.max(DESK_MIN_ZOOM, view.k * factor))
