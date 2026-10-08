@@ -18,7 +18,7 @@ import {
   WandSparkles,
   X
 } from '@/components/ui/icons'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { EntryKind, ID } from '@shared/types'
@@ -400,7 +400,17 @@ export function WorldGallery({
       <header className="g-head">
         <div className="min-w-0">
           <h1 className="g-title-world">{name}</h1>
-          {sub ? <p className="g-sub">{sub}</p> : null}
+          {sub ? (
+            // Each part keeps its number with its word when the line wraps.
+            <p className="g-sub">
+              {sub.split(' · ').map((part, i) => (
+                <Fragment key={i}>
+                  {i ? ' · ' : ''}
+                  <span className="whitespace-nowrap">{part}</span>
+                </Fragment>
+              ))}
+            </p>
+          ) : null}
         </div>
         <div className="g-tools">
           <div className="g-find">
