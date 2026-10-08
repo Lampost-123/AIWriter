@@ -34,7 +34,8 @@ import {
   type CodexFilters,
   type CodexSort
 } from './codexLogic'
-import { openFromCodex, useCodex, type CodexAnchor } from './codexStore'
+import { firstInView, itemOf, putBack } from './codexPlace'
+import { openFromCodex, useCodex } from './codexStore'
 
 /** The codex's cards, reloaded whenever entries, the memory or the stories change. The last answer stays while the next loads. */
 function useCodexCards(): { cards: CodexCard[] | null; error: string | null; retry: () => void } {
@@ -56,36 +57,6 @@ function useCodexCards(): { cards: CodexCard[] | null; error: string | null; ret
 
 const quickStart = (): void =>
   useApp.getState().navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })
-
-// Cards are measured by the list item around each: its box is there even while the card inside
-// hasn't been drawn, so measuring it never makes the browser draw a card out of view.
-const itemOf = (el: HTMLElement, id: string): HTMLElement | null => el.querySelector<HTMLElement>(`[data-codex-item="${CSS.escape(id)}"]`)
-
-/** The first card at least partly in view under the toolbar, and how far below the top of the view it starts. */
-function firstInView(el: HTMLElement): CodexAnchor | null {
-  const top = el.getBoundingClientRect().top
-  const under = el.querySelector('[data-codex-toolbar]')?.getBoundingClientRect().bottom ?? top
-  for (const item of el.querySelectorAll<HTMLElement>('[data-codex-item]')) {
-    const r = item.getBoundingClientRect()
-    if (r.bottom > under) return { id: item.dataset.codexItem!, top: r.top - top, opened: false }
-  }
-  return null
-}
-
-/** Cards on each side of the one put back that are drawn straight away: more than a tall window holds. */
-const NEAR = 60
-
-/**
- * Scrolls the codex so a card is `top` below the top of its view again. The cards around it are drawn
- * first, as they will be once they are in view: a card not drawn yet counts at a guessed height, which
- * would put the view out by the difference (most of all at the end of the list).
- */
-function putBack(el: HTMLElement, item: HTMLElement, top: number): void {
-  const items = [...el.querySelectorAll<HTMLElement>('[data-codex-item]')]
-  const i = items.indexOf(item)
-  for (const near of items.slice(Math.max(0, i - NEAR), i + NEAR + 1)) near.style.contentVisibility = 'visible'
-  el.scrollTop = item.getBoundingClientRect().top - el.getBoundingClientRect().top - top
-}
 
 export function CodexView(): React.JSX.Element {
   const { cards, error, retry } = useCodexCards()

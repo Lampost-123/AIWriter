@@ -13,6 +13,8 @@ import { AREAS, areaOf, type Area } from '@/layout/areas'
 import { chapterLinks, checkLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from '@/layout/areaLinks'
 import { useLinkContext } from '@/layout/AreaList'
 import { useArrival } from './arrival'
+import { GUTTER, useDeskFrame, useSheetGlide } from './deskFit'
+import { spineShowsIn } from './rooms'
 
 /** A link in the room's row. */
 function SubLink({ link }: { link: AreaLink }): React.JSX.Element {
@@ -132,17 +134,31 @@ function useWhere(room: Area | null): string {
 export function RoomFrame({ view, children }: { view: View; children: ReactNode }): React.JSX.Element {
   const room = areaOf(view)
   const c = useLinkContext()
+  // (The World room's gallery has the world's name as its own heading, so the small capitals don't say it twice.)
+  const gallery = view.kind === 'codex' || view.kind === 'entries'
   const where = useWhere(room)
   const name = room ? (AREAS.find((a) => a.id === room)?.label ?? '') : 'Settings'
   // The first time a room shows this session, its sheet rises into place (layout/desk/arrival.ts).
   const arriving = useArrival(`room:${room ?? 'settings'}`)
+  // Beside the story's spine (the World room's pages): the room's heading and sheet keep clear of it, centred in the room
+  // it leaves, and glide across with it as it opens out or collapses.
+  const spine = spineShowsIn(view)
+  const frame = useDeskFrame()
+  const glide = useSheetGlide(frame)
+  const clear = spine ? frame.leftMin - GUTTER : 0
   return (
-    <div data-desk-room={room ?? 'settings'} data-arrive={arriving || undefined} className="desk-room absolute inset-0 flex flex-col">
+    <div
+      data-desk-room={room ?? 'settings'}
+      data-arrive={arriving || undefined}
+      data-spine={spine ? (frame.full ? 'full' : 'slim') : undefined}
+      className="desk-room absolute inset-0 flex flex-col"
+      style={spine ? ({ '--room-left': `${clear}px`, transition: glide } as React.CSSProperties) : undefined}
+    >
       {/* Settings, in no room, has its own heading and list on the sheet. */}
       {room ? (
         <div className="desk-room-head flex shrink-0 flex-wrap items-end justify-between gap-x-6 gap-y-2 pb-3 pt-2">
           <div className="min-w-0">
-            {where ? <p className="desk-caps truncate">{where}</p> : null}
+            {where && !gallery ? <p className="desk-caps truncate">{where}</p> : null}
             <p className="desk-room-title">{name}</p>
           </div>
           <RoomLinks room={room} c={c} />

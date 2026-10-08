@@ -63,6 +63,8 @@ import { DeskTopBar } from '@/layout/desk/DeskTopBar'
 import { RoomFrame } from '@/layout/desk/RoomFrame'
 import { SceneDrawer } from '@/layout/desk/SceneDrawer'
 import { Spine } from '@/features/desk/spine/Spine'
+import { WorldRoom } from '@/features/desk/world/WorldRoom'
+import { spineShowsIn } from '@/layout/desk/rooms'
 import '@/layout/desk/desk.css'
 
 export function App(): React.JSX.Element | null {
@@ -205,8 +207,18 @@ function useWindowWidth(): { width: number; resizing: boolean } {
   return state
 }
 
-/** Every page but the writing page, by the view showing (the same in both layouts and Classic). */
-function Pages({ view }: { view: View }): React.JSX.Element {
+/**
+ * The desk's World room: Everything (the codex) and each kind's page are one gallery (features/desk/world), so going
+ * between them never reloads it.
+ */
+const deskGallery = (view: View): boolean => view.kind === 'codex' || (view.kind === 'entries' && !view.entryId)
+
+/** Which page a view is, on the desk: its kind, with the World room's gallery one page whichever tab shows. */
+const deskPageKey = (view: View): string => (deskGallery(view) ? 'world-gallery' : view.kind)
+
+/** Every page but the writing page, by the view showing (the same in both layouts and Classic, but the desk's World room). */
+function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JSX.Element {
+  if (desk && deskGallery(view)) return <WorldRoom />
   return (
     <>
       {view.kind === 'entries' && <EntriesView kind={view.entryKind} entryId={view.entryId} from={view.from} />}
@@ -314,8 +326,9 @@ function Workspace(): React.JSX.Element {
           </div>
         ) : null}
         {desk ? (
-          // The desk: the story's spine down the left of the writing page (its flyout over the page holds the binder).
-          writing ? (
+          // The desk: the story's spine down the left of the writing page (its flyout over the page holds the binder), and
+          // of the World room's pages, so the story is a click away from its world.
+          spineShowsIn(view) ? (
             <Spine />
           ) : null
         ) : (
@@ -348,8 +361,8 @@ function Workspace(): React.JSX.Element {
           {!writing ? (
             desk ? (
               // The desk: every other page in its room's frame (its heading, the room's links, the page on a sheet).
-              <RoomFrame key={view.kind} view={view}>
-                <Pages view={view} />
+              <RoomFrame key={deskPageKey(view)} view={view}>
+                <Pages view={view} desk />
               </RoomFrame>
             ) : (
               <div key={view.kind} className="absolute inset-0 bg-bg">

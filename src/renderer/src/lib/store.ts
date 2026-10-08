@@ -208,7 +208,23 @@ const leaveHomePatch = (): Partial<AppState> => (homeHolds > 0 ? {} : { home: fa
  * same page (it changes in place, at once).
  */
 const pageKey = (v: View): string =>
-  v.kind === 'entries' || v.kind === 'builder' ? `${v.kind}:${v.entryKind}` : v.kind === 'outline' ? `outline:${v.chapterId ? 'chapter' : 'helper'}` : v.kind
+  deskWorld(v)
+    ? 'desk:world'
+    : v.kind === 'entries' || v.kind === 'builder'
+      ? `${v.kind}:${v.entryKind}`
+      : v.kind === 'outline'
+        ? `outline:${v.chapterId ? 'chapter' : 'helper'}`
+        : v.kind
+
+/**
+ * The desk's World room (UI overhaul phase 4): Everything, each kind's page and an entry's dossier over them are one page,
+ * the gallery, so moving between them never crossfades the page (a card flips into its dossier instead).
+ */
+function deskWorld(v: View): boolean {
+  if (v.kind !== 'codex' && v.kind !== 'entries') return false
+  const root = typeof document === 'undefined' ? null : document.documentElement
+  return !!root && root.dataset.arrangement === 'desk' && root.dataset.look === 'new'
+}
 
 /** Counts calls to navigate, so a page change still waiting for its crossfade gives way to a later one. */
 let navTurn = 0

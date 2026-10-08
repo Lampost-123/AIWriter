@@ -9,6 +9,12 @@ import { filterEntries, normalizeName } from '@/features/world/entryLogic'
 /** Every kind the codex shows, in the binder's order. Plot threads have their own board, so they aren't here. */
 export const CODEX_KINDS: EntryKind[] = ENTRY_KINDS.filter((k) => k !== 'thread')
 
+/**
+ * The desk's World room shows everything, plot threads too (as index cards, after the rest): the codex's kinds, then
+ * threads.
+ */
+export const GALLERY_KINDS: EntryKind[] = [...CODEX_KINDS, 'thread']
+
 export type CodexSort = 'name' | 'importance' | 'last'
 
 export const SORTS: { value: CodexSort; label: string }[] = [
@@ -37,13 +43,16 @@ export const filtersOn = (f: CodexFilters): number =>
 
 const fold = (s: string): string => normalizeName(s)
 
-/** The cards the filters keep, in the order given (search matches by name first, as in the entry lists). */
-export function filterCards(cards: CodexCard[], f: CodexFilters): CodexCard[] {
+/**
+ * The cards the filters keep, in the order given (search matches by name first, as in the entry lists). `kinds`: the
+ * kinds shown at all (the codex's by default; the desk's World room adds plot threads).
+ */
+export function filterCards(cards: CodexCard[], f: CodexFilters, kinds: EntryKind[] = CODEX_KINDS): CodexCard[] {
   const tag = f.tag ? fold(f.tag) : null
   const role = f.role ? fold(f.role) : null
   const kept = cards.filter(
     (c) =>
-      CODEX_KINDS.includes(c.kind) &&
+      kinds.includes(c.kind) &&
       (!f.kind || c.kind === f.kind) &&
       (!tag || c.tags.some((t) => fold(t) === tag)) &&
       (!role || fold(c.role) === role) &&
@@ -70,9 +79,9 @@ export function sortCards(cards: CodexCard[], sort: CodexSort): CodexCard[] {
  * The cards the filters keep, in the chosen order. A search sorted by name puts the names that
  * match first, then other names, then one-liners (A to Z within each), as the entry lists do.
  */
-export function shownCards(cards: CodexCard[], f: CodexFilters, sort: CodexSort): CodexCard[] {
-  if (sort === 'name' && f.query.trim()) return filterCards(sortCards(cards, 'name'), f)
-  return sortCards(filterCards(cards, f), sort)
+export function shownCards(cards: CodexCard[], f: CodexFilters, sort: CodexSort, kinds: EntryKind[] = CODEX_KINDS): CodexCard[] {
+  if (sort === 'name' && f.query.trim()) return filterCards(sortCards(cards, 'name'), f, kinds)
+  return sortCards(filterCards(cards, f, kinds), sort)
 }
 
 /** What "Nothing matches" says, by what is set: the search words, filters, or both. */
@@ -91,14 +100,27 @@ export interface CodexGroup {
 }
 
 /** The cards grouped by kind, in the codex's order of kinds, keeping their order within each. Kinds with no cards are left out. */
-export function groupCards(cards: CodexCard[]): CodexGroup[] {
+export function groupCards(cards: CodexCard[], kinds: EntryKind[] = CODEX_KINDS): CodexGroup[] {
   const by = new Map<EntryKind, CodexCard[]>()
   for (const c of cards) {
     const list = by.get(c.kind)
     if (list) list.push(c)
     else by.set(c.kind, [c])
   }
-  return CODEX_KINDS.filter((k) => by.has(k)).map((kind) => ({ kind, label: KIND_LABELS[kind].many, cards: by.get(kind)! }))
+  return kinds.filter((k) => by.has(k)).map((kind) => ({ kind, label: KIND_LABELS[kind].many, cards: by.get(kind)! }))
+}
+
+/**
+ * The desk's World room draws one character larger than the rest, the story's lead: the most important character (point
+ * of view counts most, then being in scenes), a protagonist first among equals, then by name. None when there is only
+ * one character to show, or when none has been in a scene or been named the protagonist (nobody stands out yet).
+ */
+export function featuredCard(cards: CodexCard[]): CodexCard['id'] | null {
+  const people = cards.filter((c) => c.kind === 'character')
+  if (people.length < 2) return null
+  const lead = (c: CodexCard): number => (fold(c.role) === 'protagonist' ? 1 : 0)
+  const best = [...people].sort((a, b) => b.importance - a.importance || lead(b) - lead(a) || byName(a, b))[0]
+  return best.importance > 0 || lead(best) ? best.id : null
 }
 
 export interface Choice {

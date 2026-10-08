@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import {
+  GALLERY_KINDS,
   NO_FILTERS,
   appearsLine,
+  featuredCard,
   filterCards,
   filtersOn,
   groupCards,
@@ -134,5 +136,26 @@ describe('the codex', () => {
     expect(tidyFilters(f, have)).toEqual({ ...f, role: null, storyId: null })
     const ok = { ...NO_FILTERS, tag: 'FAMILY' }
     expect(tidyFilters(ok, { tags: tagChoices(all), roles: [], storyIds: [] })).toBe(ok)
+  })
+
+  it('the desk’s World room keeps plot threads, after everything else', () => {
+    expect(filterCards(all, NO_FILTERS, GALLERY_KINDS)).toContain(thread)
+    expect(groupCards(shownCards(all, NO_FILTERS, 'name', GALLERY_KINDS), GALLERY_KINDS).map((g) => g.kind)).toEqual(['character', 'place', 'lore', 'thread'])
+    expect(filterCards(all, { ...NO_FILTERS, kind: 'thread' }, GALLERY_KINDS)).toEqual([thread])
+  })
+
+  it('features the most important character, a protagonist first among equals', () => {
+    expect(featuredCard(all)).toBe(mara.id)
+    // Equal importance: the protagonist; then by name.
+    const a = card({ name: 'Ada', importance: 4 })
+    const b = card({ name: 'Bryn', importance: 4, role: 'Protagonist' })
+    expect(featuredCard([a, b])).toBe(b.id)
+    expect(featuredCard([b, card({ name: 'Cass', importance: 4, role: 'protagonist' })])).toBe(b.id)
+    // Nobody stands out yet (no scenes, no protagonist), or only one character: none.
+    expect(featuredCard([card({ name: 'Dee' }), card({ name: 'Eli' })])).toBeNull()
+    expect(featuredCard([mara])).toBeNull()
+    expect(featuredCard([eel, rule, mara])).toBeNull()
+    // A protagonist not yet in a scene still leads.
+    expect(featuredCard([card({ name: 'Fen' }), card({ name: 'Gil', role: 'protagonist' })])).not.toBeNull()
   })
 })
