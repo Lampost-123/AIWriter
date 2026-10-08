@@ -1853,6 +1853,13 @@ Owned by the Beat by beat part (`contracts/beats.ts`, `ipc/beats.ts`, `src/main/
   a new session on the scene takes the place of the last one's once it writes. The interface reads them once a scene
   and saves a moment after each change and before the window closes (`features/beats/marksStore.ts`). `flow.ts`
   notes each beat's paragraphs as they stream and a version as each beat ends.
+  - **One session's markers per scene** (Adam's decision, 2026-10-08): starting a new Beat by beat session on a scene
+    replaces the saved markers as soon as its first beat writes (`flow.ts` `sessionMarks`); the old beats' words stay
+    on the page as Adam's own, with no markers or menu. Opening the bar without writing keeps the old markers.
+  - **They go with the scene.** While a scene is in Recently deleted its markers stay, so restoring it brings them
+    back; `purgeTrash` (db/trash.ts) clears the row of every scene gone for good (any `beat_marks:` key whose scene
+    is no longer in `scenes`). Being in `meta`, they travel in world.db with Export world / Import world and Make a
+    copy, and scene ids don't change there (transfer/worldFile.test.ts checks both).
 - **Worked out from the page** (`features/beats/marks.ts`, pure): the beats with words on the page; the version
   showing is the one whose fingerprint the beat's words have (so undo puts an earlier version, and its record, back),
   else the newest; check and repair's fixes update the fingerprint (`withMended`). A beat whose version went in
@@ -1878,6 +1885,10 @@ Owned by the Beat by beat part (`contracts/beats.ts`, `ipc/beats.ts`, `src/main/
   the session's paragraphs and owners); then check and repair checks them. The beats after it get their note, a
   message offers to redo them, and "all in order" writes each as its own tracked change after the last is accepted
   or rejected.
+  - **Adam's words inside a beat** (Adam's decision, 2026-10-08). The change runs from the beat's first paragraph to
+    its last, so a paragraph he typed or pasted between them goes too. It isn't left out (the beat would lose its
+    shape); the change says so from the start, under its buttons: "This also replaces N paragraph(s) you wrote
+    yourself. Reject keeps them." (`othersInBeat`, `alsoReplaces` in sessionLogic.ts), kept with any note at the end.
 - **Remove this beat** keeps the scene in History ("Before beat N was taken out"), then takes the beat's paragraphs
   out as one undo step (Ctrl+Z puts them back, marker and all).
 

@@ -37,8 +37,10 @@ import { changeMarks, installMarks, loadMarks, marksOf } from './marksStore'
 import { patchSession, useBeats } from './session'
 import {
   afterText,
+  alsoReplaces,
   beatRange,
   endsWithBeat,
+  othersInBeat,
   pidsBetween,
   recordOf,
   removeParagraphs,
@@ -65,6 +67,8 @@ interface Redo {
   /** Stopped or gone before its words began. */
   cancelled: boolean
   ended: boolean
+  /** The change also replaces paragraphs Adam wrote himself, between the beat's own: says so ('' with none). */
+  warning: string
 }
 
 let redo: Redo | null = null
@@ -114,6 +118,8 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
   const soFarEnds = soFar ? howSoFarEnds(doc, beats, index) : undefined
   const after = afterText(doc, beat.pids)
   const steer = note.trim()
+  // Paragraphs Adam typed or pasted between the beat's own go with it: the change says so from the start, so he can Reject.
+  const warning = alsoReplaces(othersInBeat(doc, beat.pids))
 
   const r: Redo = {
     sceneId,
@@ -124,12 +130,14 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
     early: [],
     earlyDone: null,
     cancelled: false,
-    ended: false
+    ended: false,
+    warning
   }
   const changeId = showReplacement({
     from: range.from,
     to: range.to,
     text: '',
+    note: warning || null,
     status: 'starting',
     working: `Writing beat ${index} again`,
     label: `Beat ${index}, written again`,
@@ -226,7 +234,7 @@ function done(r: Redo, p: AppEvents['generation:done']): void {
     else toast('Stopped. Nothing in the text was changed.')
     return
   }
-  const notes: string[] = []
+  const notes: string[] = r.warning ? [r.warning] : []
   if (p.status === 'stopped') notes.push('Stopped before the end: these are the words that came.')
   if (p.status === 'error') notes.push(`The AI stopped part-way. ${p.error ?? ''}`.trim())
   if (p.cutOff) notes.push('The AI ran out of room before the end, so the new words may stop short.')

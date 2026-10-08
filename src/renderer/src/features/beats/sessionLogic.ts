@@ -164,6 +164,21 @@ export function beatRange(doc: PMNode, pids: string[]): { from: number; to: numb
   return { from: on[0].pos + 1, to: last.pos + last.node.nodeSize - 1 }
 }
 
+/**
+ * How many paragraphs with words lie between a beat's first and last paragraphs that aren't the beat's own (typed
+ * or pasted there by Adam): a tracked change in the beat's place (beatRange) replaces them too.
+ */
+export function othersInBeat(doc: PMNode, pids: string[]): number {
+  const range = beatRange(doc, pids)
+  if (!range) return 0
+  const mine = new Set(pids)
+  return filledParagraphs(doc).filter((p) => !mine.has(p.pid) && p.pos >= range.from - 1 && p.pos < range.to).length
+}
+
+/** The warning on a tracked change that also replaces paragraphs Adam wrote himself, so he can Reject it; '' with none. */
+export const alsoReplaces = (n: number): string =>
+  n > 0 ? `This also replaces ${n} paragraph${n === 1 ? '' : 's'} you wrote yourself. Reject keeps ${n === 1 ? 'it' : 'them'}.` : ''
+
 /** The ids of the paragraphs with words between two places on the page (the new words of an accepted change). */
 export const pidsBetween = (doc: PMNode, from: number, to: number): string[] =>
   filledParagraphs(doc).flatMap((p) => (p.pos + p.node.nodeSize > from && p.pos < to ? [p.pid] : []))

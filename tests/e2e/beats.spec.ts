@@ -760,6 +760,60 @@ test('Beat markers show while writing beat by beat; an earlier beat is written a
   }
 })
 
+test('Redoing a beat with paragraphs Adam wrote between its own says the change replaces them too, and Reject keeps them', async ({ launch }) => {
+  const fake = await fakeProvider({ words: 60, varyBeats: true })
+  const MINE = 'A line typed by hand in the middle of the beat.'
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    const { sceneId } = await firstScene(win)
+    await setBeats(win, sceneId, BEATS)
+    await useWriter(win, fake)
+    await writeThreeBeats(win)
+    expect(await beatParas(win, 2).count()).toBeGreaterThan(1)
+
+    // A paragraph of Adam's own after beat 2's first: it isn't the beat's (no marker), but it lies inside it.
+    // (Clicked on its last line, then End: the caret is at the end of its words, so Enter splits nothing.)
+    const first = beatParas(win, 2).first()
+    const words = (await first.textContent())!.trim()
+    const box = (await first.boundingBox())!
+    await first.click({ position: { x: box.width - 4, y: box.height - 6 } })
+    await win.keyboard.press('End')
+    await win.keyboard.press('Enter')
+    await win.keyboard.type(MINE)
+    await expect(first).toHaveText(words)
+    const mine = prose(win).locator('p', { hasText: MINE })
+    await expect(mine).toHaveCount(1)
+    await expect(mine).toHaveText(MINE)
+    await expect(mine).not.toHaveAttribute('data-beat', /.*/)
+    const before = await paragraphs(win)
+
+    // Redo this beat: the tracked change says it replaces that paragraph too, from the start and once written.
+    await openBeatMenu(win, 2)
+    await beatMenu(win, 2).getByRole('menuitem', { name: 'Redo this beat' }).click()
+    await expect(changeButton(win, /^Accept/)).toBeVisible()
+    await expect(change(win)).toContainText('This also replaces 1 paragraph you wrote yourself. Reject keeps it.')
+    await expect(prose(win).locator('.aw-sugg-new')).toContainText(REDONE)
+    await shot(win, '7-replaces-your-words')
+
+    // Reject: Adam's paragraph is still there, and nothing else changed.
+    await changeButton(win, /^Reject/).click()
+    await expect(change(win)).toHaveCount(0)
+    await expect(mine).toHaveCount(1)
+    expect(await paragraphs(win)).toBe(before)
+
+    // A beat with nothing of Adam's inside it says nothing of the kind.
+    await openBeatMenu(win, 1)
+    await beatMenu(win, 1).getByRole('menuitem', { name: 'Redo this beat' }).click()
+    await expect(changeButton(win, /^Accept/)).toBeVisible()
+    await expect(change(win)).not.toContainText('you wrote yourself')
+    await changeButton(win, /^Reject/).click()
+    await expect(change(win)).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
 test('Remove this beat keeps the scene in History and Ctrl+Z puts it back; after Finish the markers go unless Show beats is on, and they come back after a restart', async ({
   launch
 }) => {

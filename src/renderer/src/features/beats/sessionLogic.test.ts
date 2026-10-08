@@ -17,7 +17,9 @@ import {
 import { newSplitState, splitChunk } from '@/features/editor/streamText'
 import {
   afterText,
+  alsoReplaces,
   beatRange,
+  othersInBeat,
   pidsBetween,
   beatsOnPage,
   endsPage,
@@ -198,6 +200,19 @@ describe('where a beat is, for a tracked change in its place', () => {
     expect(s.doc.textBetween(range.from, range.to, '|')).toBe('Two.|Two more.')
     expect(pidsBetween(s.doc, range.from, range.to)).toEqual(beats[2])
     expect(beatRange(s.doc, ['gone'])).toBeNull()
+  })
+
+  it("counts the paragraphs Adam wrote between a beat's own, which the change would replace too, and says so", () => {
+    const s = stateFrom('One.\n\nTwo.\n\nTyped by hand.\n\nPasted in too.\n\nTwo more.\n\nThree.\n\nAfter it.')
+    const ids = filledParagraphs(s.doc).map((p) => p.pid)
+    // Beat 2 is "Two." and "Two more."; the two between them are Adam's own. "After it." comes after the beat, so it stays.
+    expect(othersInBeat(s.doc, [ids[1], ids[4]])).toBe(2)
+    expect(othersInBeat(s.doc, [ids[0]])).toBe(0)
+    expect(othersInBeat(s.doc, [ids[5]])).toBe(0)
+    expect(othersInBeat(s.doc, ['gone'])).toBe(0)
+    expect(alsoReplaces(0)).toBe('')
+    expect(alsoReplaces(1)).toBe('This also replaces 1 paragraph you wrote yourself. Reject keeps it.')
+    expect(alsoReplaces(2)).toBe('This also replaces 2 paragraphs you wrote yourself. Reject keeps them.')
   })
 })
 
