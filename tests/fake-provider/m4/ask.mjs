@@ -87,7 +87,11 @@ export function askReply(system, messages, model) {
         : ['1. Cut it back to the one strong image.', '2. End on the line of dialogue instead.', '3. Keep it, but move it earlier.'].join('\n')
     )
   else if (format && /\b(did i already|how old|who is)\b/i.test(question))
-    return [`${lead}Not in memory yet.`, '::facts unknown', ...(cited.length ? cited : ['Nothing']).map((c) => `- ${c}: named in the memory, no more said (its entry).`), '::'].join('\n')
+    paragraphs.splice(
+      0,
+      paragraphs.length,
+      [`${lead}Not in memory yet.`, '::facts unknown', ...(cited.length ? cited : ['Nothing']).map((c) => `- ${c}: named in the memory, no more said (its entry).`), '::'].join('\n')
+    )
   if (model === 'fake/slow') {
     const more = []
     for (let i = 1; i <= 20; i++) more.push(`Idea ${i}: something quiet happens by the water, and it changes what they want.`)
