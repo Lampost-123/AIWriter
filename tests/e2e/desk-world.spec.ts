@@ -557,6 +557,8 @@ test('the cards and the dossier show each entry’s drawing, none twice side by 
   await expect(d.locator('.dz-portrait [data-motif="boat"]')).toHaveCount(1)
   const picker = d.locator('[data-motif-picker]')
   await expect(picker).toContainText('Drawing: small boat')
+  // (The memory's counts say what they count: "3 scenes", never the markup's [object Object].)
+  await expect(d).not.toContainText('[object Object]')
   await win.waitForTimeout(600)
   const nameBox = (await d.locator('.dz-name-h').boundingBox())!
   const pick = (await picker.boundingBox())!
