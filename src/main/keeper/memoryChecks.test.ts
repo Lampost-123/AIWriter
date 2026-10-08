@@ -205,6 +205,37 @@ describe('the memory check list', () => {
     expect(forChange(w.db, w.change.id)).toBeDefined()
   })
 
+  it('Undo of a Keep puts the fact back as it was: unsure, on the list, and left out by the writer', async () => {
+    const w = await unconfirmedKnife()
+    const undo = keepMemoryCheck(w.db, { kind: 'change', changeId: w.change.id })
+    expect(writerEntry(w.db, w.s2, 'Mara')!.fields.marks).toContain('knife')
+    undoMemoryCheck(w.db, undo)
+    expect(mem.getChange(w.db, w.change.id).origin).not.toBe('adam')
+    expect(hist.linksForFact(w.db, 'change', w.change.id).map((l) => l.state)).toEqual(['changed'])
+    expect(forChange(w.db, w.change.id)).toBeDefined()
+    expect(writerEntry(w.db, w.s2, 'Mara')!.fields.marks ?? '').not.toContain('knife')
+  })
+
+  it('a fact removed by a read and brought back with Undo is Adam’s to keep: not on the list, and the writer has it', async () => {
+    const w = testWorld(1)
+    const [s1, s2] = w.scenes
+    saveParas(w.db, s1, [
+      ['p1', MARA_RIVER],
+      ['p3', 'Mara said the tide would turn by dusk.']
+    ])
+    await readScene(w.db, fake, s1)
+    const mara = entryNamed(w.db, 'Mara')!
+    const [c] = mem.changesForEntry(w.db, mara.id)
+    saveParas(w.db, s1, [['p3', 'Mara said the tide would turn by dusk.']])
+    await readScene(w.db, fake, s1)
+    expect(mem.changesForEntry(w.db, mara.id)).toEqual([])
+    const line = kdb.listLog(w.db, { limit: 100 }).find((l) => l.action === 'removed' && l.factId === c.id)!
+    undoItem(w.db, line.id)
+    expect(mem.changesForEntry(w.db, mara.id).map((x) => x.id)).toEqual([c.id])
+    expect(forChange(w.db, c.id)).toBeUndefined()
+    expect(writerEntry(w.db, s2, 'Mara')!.fields.marks ?? '').toContain('knife')
+  })
+
   it('Remove clears a guess, and Undo puts the guess back', async () => {
     const w = testWorld(1)
     const [s1] = w.scenes
