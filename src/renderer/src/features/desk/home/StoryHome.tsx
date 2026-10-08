@@ -36,6 +36,7 @@ import {
   bookKicker,
   castOf,
   homeScale,
+  homeTwoColumns,
   chapterAria,
   chapterShelf,
   checkLine,
@@ -122,7 +123,8 @@ export function StoryHome(): React.JSX.Element {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  const scale = homeScale(room.w, room.h)
+  const twoColumns = homeTwoColumns(room.w)
+  const scale = homeScale(room.w, room.h, twoColumns)
 
   const continueWriting = (): void => {
     if (sceneId) useApp.getState().selectScene(sceneId)
@@ -140,6 +142,7 @@ export function StoryHome(): React.JSX.Element {
     >
       <div
         className="home-col"
+        data-columns={twoColumns ? 'two' : undefined}
         aria-label={`Story home: ${title}`}
         role="region"
         style={room.h ? { zoom: scale, minHeight: Math.floor(room.h / scale) } : undefined}
@@ -226,6 +229,8 @@ export function StoryHome(): React.JSX.Element {
           </div>
         </section>
 
+        {/* The right-hand column on an ultrawide screen (just part of the one column otherwise). */}
+        <div className="home-right">
         <Shelf shelf={shelf} storyId={storyId} />
 
         <section className="home-lower" aria-label="Threads, cast and this week">
@@ -294,6 +299,7 @@ export function StoryHome(): React.JSX.Element {
         </section>
 
         <Footer memory={memoryLine(memoryStatus)} check={checkLine(issues)} storyId={storyId} />
+        </div>
       </div>
     </div>
   )

@@ -248,3 +248,25 @@ test('on a big screen the home grows to use the window: larger, centred beside t
   expect(foot.y + foot.height).toBeGreaterThan(view.y + view.height * 0.7)
   expect(await home(win).evaluate((e) => e.scrollHeight - e.clientHeight)).toBeLessThanOrEqual(1)
 })
+
+test('on an ultrawide screen the home is two columns side by side: the book on the left, the shelf, threads, cast and week on the right', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  await app.evaluate(({ BrowserWindow }) => {
+    const b = BrowserWindow.getAllWindows()[0]
+    b.webContents.setZoomFactor(0.5)
+    b.setContentSize(1720, 720)
+  })
+  await expect.poll(async () => Math.abs(((await win.evaluate('innerWidth')) as number) - 3440)).toBeLessThanOrEqual(3)
+  await win.getByRole('button', { name: 'Story home' }).click()
+  const col = home(win).getByRole('region', { name: /^Story home:/ })
+  await expect(col).toHaveAttribute('data-columns', 'two')
+  const book = (await home(win).locator('.home-hero').boundingBox())!
+  const shelf = (await home(win).locator('.home-shelf').boundingBox())!
+  const lower = (await home(win).locator('.home-lower').boundingBox())!
+  expect(shelf.x, 'the shelf right of the book').toBeGreaterThan(book.x + book.width)
+  expect(lower.x).toBeGreaterThan(book.x + book.width)
+  expect(await home(win).evaluate((e) => e.scrollHeight - e.clientHeight)).toBeLessThanOrEqual(1)
+  // At 2560 it is one column again.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 720))
+  await expect(col).not.toHaveAttribute('data-columns', 'two')
+})

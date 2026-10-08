@@ -275,8 +275,21 @@ export const HOME_MAX_SCALE = 1.32
  * using the window rather than a small block in the middle of it), never more than HOME_MAX_SCALE. Whichever runs out
  * first, the width or the height, sets it, so it never needs scrolling where it didn't before.
  */
-export function homeScale(w: number, h: number): number {
+export function homeScale(w: number, h: number, twoColumns = homeTwoColumns(w)): number {
   if (!(w > 0) || !(h > 0)) return 1
-  const s = Math.min(w / HOME_BASE.w, h / HOME_BASE.h, HOME_MAX_SCALE)
+  const base = twoColumns ? HOME_WIDE_BASE : HOME_BASE
+  const s = Math.min(w / base.w, h / base.h, HOME_MAX_SCALE)
   return s <= 1 ? 1 : Math.round(s * 100) / 100
 }
+
+/** The room beside the spine from which the home lays out in two columns (an ultrawide screen, about 2,800 px and up). */
+export const HOME_TWO_COLUMNS_FROM = 2400
+/** The two-column home at its natural size: the book beside the shelf, the threads, the cast and the week. */
+export const HOME_WIDE_BASE = { w: 2340, h: 720 }
+
+/**
+ * Whether the home lays out in two columns in a room `w` wide (Adam, Phase 6: an ultrawide left wide bands either side
+ * of the one column): the book, its title, Continue writing and the last lines on the left; the shelf, the threads, the
+ * cast and the week on the right. 1920 to 2560 keep the one column.
+ */
+export const homeTwoColumns = (w: number): boolean => w >= HOME_TWO_COLUMNS_FROM

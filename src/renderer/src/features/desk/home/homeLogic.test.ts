@@ -10,6 +10,7 @@ import {
   checkLine,
   coverHue,
   homeScale,
+  homeTwoColumns,
   hueOfId,
   lastLines,
   memoryLine,
@@ -227,7 +228,12 @@ describe('homeScale: the home grows with a big screen', () => {
   })
   it('grows on Adam’s 2560×1440, and as far as the height allows on a wide screen, never past its most', () => {
     expect(homeScale(2200, 1388)).toBeCloseTo(1.31, 2)
-    expect(homeScale(3100, 1388)).toBe(1.31)
+    // An ultrawide (3440 beside the spine): two columns, as wide as the room allows.
+    expect(homeTwoColumns(3100)).toBe(true)
+    expect(homeTwoColumns(2200)).toBe(false)
+    expect(homeScale(3100, 1388)).toBe(1.32)
+    expect(homeScale(2500, 1388)).toBe(1.07)
+    expect(homeScale(3100, 1388, false)).toBe(1.31)
     expect(homeScale(4000, 2100)).toBe(1.32)
     // A tall narrow room: the width decides.
     expect(homeScale(1700, 2000)).toBe(1.06)

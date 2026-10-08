@@ -26,6 +26,27 @@
   gap: 26px;
 }
 
+/* In one column the right-hand column's box isn't there: its pieces are the column's own. */
+[data-arrangement='desk'] .home-right {
+  display: contents;
+}
+/* An ultrawide screen (StoryHome, homeTwoColumns): the book, its title, Continue writing and the last lines on the left;
+   the shelf, the threads, the cast and the week on the right, the two side by side in the middle of the window. */
+[data-arrangement='desk'] .home-col[data-columns='two'] {
+  --home-w: 2240px;
+  display: grid;
+  grid-template-columns: minmax(0, 1020px) minmax(0, 1140px);
+  column-gap: 80px;
+  align-content: center;
+  align-items: center;
+}
+[data-arrangement='desk'] .home-col[data-columns='two'] > .home-right {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 26px;
+}
+
 /* ---------- the book ---------- */
 [data-arrangement='desk'] .home-hero {
   position: relative;
