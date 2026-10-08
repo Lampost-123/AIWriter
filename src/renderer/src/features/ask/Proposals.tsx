@@ -12,10 +12,12 @@ import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
 import {
   AlertTriangle,
+  BetweenHorizontalStart,
   CheckCircle2,
   CircleSlash,
   Feather,
   FilePlus2 as FilePlus,
+  ListOrdered,
   Pencil,
   Pilcrow,
   Scissors,
@@ -29,7 +31,8 @@ import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { applyChanges, declineChange, showScene } from './applyProposal'
-import { findEditAt, findPassageAt } from './askEdits'
+import { parseEmphasis } from '@/features/editor/streamText'
+import { blockAt, findEditAt, findPassageAt } from './askEdits'
 import { compactDiff, diffSize, folds, wordDiff, type DiffPart } from './wordDiff'
 
 const CARD_LABELS: Record<string, string> = { goal: 'Goal', conflict: 'Conflict', outcome: 'Outcome', mood: 'Mood', when: 'When', notes: 'Notes' }
@@ -55,7 +58,158 @@ function headOf(p: Proposal): string {
       return p.target === 'scene' ? 'New scene title' : 'New chapter title'
     case 'draft':
       return `Draft · ${p.sceneLabel}`
+    case 'insert':
+      return `Insert · ${p.sceneLabel}`
+    case 'cut':
+      return `Cut · ${p.sceneLabel}`
+    case 'beats':
+      return `Beats · ${p.sceneLabel}`
   }
+}
+
+// ---------- TEXTTOOLS (chat Phase 3): an insert, a cut, a change to the beats ----------
+
+/** Words as the page shows them: *italics* and **bold** as marks. */
+function Emphasis({ text }: { text: string }): React.JSX.Element {
+  return (
+    <>
+      {parseEmphasis(text).map((piece, i) =>
+        piece.italic || piece.bold ? (
+          <span key={i} className={cn(piece.italic && 'italic', piece.bold && 'font-semibold')}>
+            {piece.text}
+          </span>
+        ) : (
+          <span key={i}>{piece.text}</span>
+        )
+      )}
+    </>
+  )
+}
+
+const paragraphsOf = (text: string): string[] => text.split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean)
+const wordCount = (texts: string[]): number => texts.join(' ').split(/\s+/).filter(Boolean).length
+
+/** "Show all" / "Show less" under a long change. */
+function MoreToggle({ id, whole, onToggle, more }: { id: string; whole: boolean; onToggle: () => void; more: string }): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-expanded={whole}
+      aria-controls={id}
+      onClick={onToggle}
+      className="rounded-sm font-medium text-muted underline-offset-2 hover:text-fg hover:underline focus-visible:outline-2 focus-visible:outline-focus"
+    >
+      {whole ? 'Show less' : more}
+    </button>
+  )
+}
+
+/** An insert: the paragraph it goes next to, faint and cut short, and the new paragraphs in the success ink. */
+function InsertBody({ p }: { p: Extract<Proposal, { kind: 'insert' }> }): React.JSX.Element {
+  const added = paragraphsOf(p.text)
+  const near = (
+    <p data-insert-near className="line-clamp-2 text-faint" title={`Paragraph ${p.at.paragraph}, as it stays`}>
+      <span className="mr-1 font-sans text-[11px] tabular-nums">¶{p.at.paragraph}</span>
+      <Emphasis text={p.near} />
+    </p>
+  )
+  const fresh = (
+    <div data-insert-text className="flex flex-col gap-1.5 border-l-2 border-success/50 pl-2">
+      {added.map((t, i) => (
+        <ins key={i} className="block rounded-sm bg-success-soft px-0.5 text-success no-underline">
+          <Emphasis text={t} />
+        </ins>
+      ))}
+    </div>
+  )
+  return (
+    <div>
+      <div className="flex flex-col gap-1.5 whitespace-pre-wrap break-words font-serif text-[13.5px] leading-[1.6] text-fg">
+        {p.where === 'before' ? (
+          <>
+            {fresh}
+            {near}
+          </>
+        ) : (
+          <>
+            {near}
+            {fresh}
+          </>
+        )}
+      </div>
+      <div className="mt-1 text-[11.5px] tabular-nums text-faint">
+        +{wordCount(added)} {wordCount(added) === 1 ? 'word' : 'words'} · {p.where} paragraph {p.at.paragraph}
+      </div>
+    </div>
+  )
+}
+
+/** A cut: the paragraphs struck through, folded to the first two (each to a few lines) when long. */
+function CutBody({ p }: { p: Extract<Proposal, { kind: 'cut' }> }): React.JSX.Element {
+  const [whole, setWhole] = useState(false)
+  const id = useId()
+  const long = p.paragraphs.length > 2 || p.paragraphs.some((t) => t.length > 320)
+  const shown = whole || !long ? p.paragraphs : p.paragraphs.slice(0, 2)
+  const n = p.paragraphs.length
+  return (
+    <div>
+      <div id={id} className={cn('flex flex-col gap-1.5 whitespace-pre-wrap break-words font-serif text-[13.5px] leading-[1.6]', whole && 'max-h-72 overflow-auto')}>
+        {shown.map((t, i) => (
+          <del key={i} data-cut-paragraph className={cn('block rounded-sm bg-danger-soft px-0.5 text-danger decoration-danger/60', !whole && long && 'line-clamp-4')}>
+            <Emphasis text={t} />
+          </del>
+        ))}
+      </div>
+      <div className="mt-1 flex items-center gap-2 text-[11.5px] text-faint">
+        <span className="tabular-nums">
+          −{wordCount(p.paragraphs)} {wordCount(p.paragraphs) === 1 ? 'word' : 'words'} ·{' '}
+          {n === 1 ? `paragraph ${p.from.paragraph}` : `paragraphs ${p.from.paragraph}–${p.to.paragraph}`}
+        </span>
+        {long ? <MoreToggle id={id} whole={whole} onToggle={() => setWhole((w) => !w)} more={n > 2 ? `Show all ${n}` : 'Show all'} /> : null}
+      </div>
+    </div>
+  )
+}
+
+/** The beats as they would be: a new one or a reworded one in the success ink, one taken out struck through. */
+function BeatsBody({ p }: { p: Extract<Proposal, { kind: 'beats' }> }): React.JSX.Element {
+  type Row = { text: string; how: 'same' | 'new' | 'gone' }
+  const rows: Row[] =
+    p.op === 'replace'
+      ? [
+          ...p.beats.map((b): Row => ({ text: b, how: p.before.includes(b) ? 'same' : 'new' })),
+          ...p.before.filter((b) => !p.beats.includes(b)).map((b): Row => ({ text: b, how: 'gone' }))
+        ]
+      : p.op === 'remove'
+        ? p.before.map((b, i): Row => ({ text: b, how: i + 1 === p.index ? 'gone' : 'same' }))
+        : p.op === 'edit'
+          ? p.before.flatMap((b, i): Row[] => (i + 1 === p.index ? [{ text: b, how: 'gone' }, { text: p.beats[i], how: 'new' }] : [{ text: b, how: 'same' }]))
+          : p.beats.map((b, i): Row => ({ text: b, how: i + 1 === p.index ? 'new' : 'same' }))
+  let n = 0
+  return (
+    <div className="text-[12.5px] leading-relaxed">
+      <ol className="flex flex-col gap-0.5" data-beats>
+        {rows.map((r, i) => (
+          <li key={i} data-beat={r.how} className="flex gap-1.5">
+            <span className="w-4 shrink-0 text-right tabular-nums text-faint">{r.how === 'gone' ? '' : `${++n}.`}</span>
+            {r.how === 'gone' ? (
+              <del className="min-w-0 rounded-sm bg-danger-soft px-0.5 text-danger decoration-danger/60">{r.text}</del>
+            ) : r.how === 'new' ? (
+              <ins className="min-w-0 rounded-sm bg-success-soft px-0.5 text-success no-underline">{r.text}</ins>
+            ) : (
+              <span className="min-w-0 text-fg">{r.text}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {p.marks ? (
+        <div className="mt-1.5 flex items-start gap-1 text-[12px] text-muted" data-beat-marks>
+          <AlertTriangle size={12} aria-hidden className="mt-0.5 shrink-0 text-danger" />
+          <span>This scene has beat markers on the page, numbered by these beats: after this change, a marker may sit beside a different beat.</span>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 /** A proposed draft's way of writing, in the writer's own words for it (propose_draft, lab switch DRAFT). */
@@ -213,11 +367,28 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
           <Line label="Length" value={p.length ? `about ${p.length.toLocaleString()} words` : 'the scene’s own'} />
         </div>
       )
+    case 'insert':
+      return <InsertBody p={p} />
+    case 'cut':
+      return <CutBody p={p} />
+    case 'beats':
+      return <BeatsBody p={p} />
   }
 }
 
-/** Opens the scene and selects the words a proposed edit (or rewrite) would change, so Adam sees them in place. */
-function showInPage(p: Extract<Proposal, { kind: 'text' | 'passage' }>): void {
+/** Where a whole-paragraph change stands in the page (TEXTTOOLS): the paragraph an insert goes next to, a cut's paragraphs. */
+function blocksRange(doc: Parameters<typeof blockAt>[0], p: Extract<Proposal, { kind: 'insert' | 'cut' }>): { from: number; to: number } | null {
+  const [a, b] = p.kind === 'insert' ? [blockAt(doc, p.at, p.near), blockAt(doc, p.at, p.near)] : [blockAt(doc, p.from, p.paragraphs[0]), blockAt(doc, p.to, p.paragraphs.at(-1) ?? '')]
+  if (a === null || b === null || b < a) return null
+  let pos = 0
+  for (let i = 0; i < a; i++) pos += doc.child(i).nodeSize
+  let end = pos
+  for (let i = a; i <= b; i++) end += doc.child(i).nodeSize
+  return { from: pos + 1, to: end - 1 }
+}
+
+/** Opens the scene and selects the words a proposed edit (or rewrite, insert or cut) would change, so Adam sees them in place. */
+function showInPage(p: InPage): void {
   const app = useApp.getState()
   app.selectScene(p.sceneId)
   const until = Date.now() + 4000
@@ -226,7 +397,12 @@ function showInPage(p: Extract<Proposal, { kind: 'text' | 'passage' }>): void {
     if (b?.sceneId === p.sceneId && b.editor && !b.editor.isDestroyed) {
       const doc = b.editor.state.doc
       // Where the chat says the words stand, when it says (the same words may be elsewhere too); else where they are.
-      const r = p.kind === 'text' ? findEditAt(doc, p.find, p.at) : (findPassageAt(doc, p.start, p.end, p.at) ?? findEditAt(doc, p.start, p.at?.start))
+      const r =
+        p.kind === 'insert' || p.kind === 'cut'
+          ? blocksRange(doc, p)
+          : p.kind === 'text'
+            ? findEditAt(doc, p.find, p.at)
+            : (findPassageAt(doc, p.start, p.end, p.at) ?? findEditAt(doc, p.start, p.at?.start))
       if (r) b.editor.chain().focus().setTextSelection(r).scrollIntoView().run()
       return
     }
@@ -264,18 +440,24 @@ const KIND_ICON: Record<Exclude<Proposal['kind'], 'entry' | 'newEntry'>, IconTyp
   newScene: FilePlus,
   newChapter: FilePlus,
   rename: TextCursorInput,
-  draft: Feather
+  draft: Feather,
+  insert: BetweenHorizontalStart,
+  cut: Scissors,
+  beats: ListOrdered
 }
 
 /** A change's icon and its tile's ink: an entry's kind in its own ink; a cut, scissors; the rest by what they change. */
 function markOf(p: Proposal): { Icon: IconType; tile: string } {
   if (p.kind === 'entry' || p.kind === 'newEntry') return { Icon: KIND_ICONS[p.entryKind], tile: KIND_INK[p.entryKind].tile }
-  if (p.kind === 'text' && !p.replace) return { Icon: Scissors, tile: 'bg-danger-soft text-danger' }
+  if ((p.kind === 'text' && !p.replace) || p.kind === 'cut') return { Icon: Scissors, tile: 'bg-danger-soft text-danger' }
+  if (p.kind === 'insert') return { Icon: BetweenHorizontalStart, tile: 'bg-success-soft text-success' }
   if (p.kind === 'draft') return { Icon: Feather, tile: 'bg-ai-soft text-ai' }
   return { Icon: KIND_ICON[p.kind], tile: 'bg-surface-2 text-muted' }
 }
 
-const isWords = (p: Proposal): p is Extract<Proposal, { kind: 'text' | 'passage' }> => p.kind === 'text' || p.kind === 'passage'
+/** A change to a scene's words, which Show in page shows. */
+type InPage = Extract<Proposal, { kind: 'text' | 'passage' | 'insert' | 'cut' }>
+const isWords = (p: Proposal): p is InPage => p.kind === 'text' || p.kind === 'passage' || p.kind === 'insert' || p.kind === 'cut'
 
 function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal; locked: boolean }): React.JSX.Element {
   const key = localKey(generationId, p.id)
