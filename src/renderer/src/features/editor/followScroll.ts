@@ -1,21 +1,19 @@
+import { reducedMotion } from '@/features/look/motion'
+import { frameGap, glideStep } from './scrollGlide'
+
 /**
  * Keeps the page scrolled to the bottom while a draft streams in, but only if
  * Adam was already at the bottom. Eases toward the target each frame, so the
- * text glides rather than jumps. Scrolling up (wheel, keys or scrollbar) stops it.
+ * text glides rather than jumps, at the same pace whatever the screen's rate
+ * (scrollGlide.ts). Scrolling up (wheel, keys or scrollbar) stops it.
  */
-const reducedMotion = (): boolean => {
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  } catch {
-    return false
-  }
-}
-
 export class FollowScroll {
   private raf = 0
   private following = false
   private settling = false
   private lastTop = 0
+  /** When the last frame of the glide ran (null before its first). */
+  private lastFrame: number | null = null
 
   /** Within this many pixels of the bottom counts as "at the bottom". */
   static readonly SLACK = 96
@@ -60,20 +58,23 @@ export class FollowScroll {
     this.settling = false
     if (this.raf) cancelAnimationFrame(this.raf)
     this.raf = 0
+    this.lastFrame = null
   }
 
-  private tick = (): void => {
+  private tick = (now: number): void => {
     this.raf = 0
     const el = this.el()
     if (!el || !this.following) return
     const target = el.scrollHeight - el.clientHeight
     const gap = target - el.scrollTop
     if (gap <= 0.5) {
+      this.lastFrame = null
       if (this.settling) this.stop()
       return
     }
-    // Glide, unless the system asks for less motion: then keep up in one step.
-    el.scrollTop += reducedMotion() ? gap : Math.max(1, gap * 0.18)
+    // Glide (the same share of the gap for the time passed), unless the system asks for less motion: then keep up in one step.
+    el.scrollTop += reducedMotion() ? gap : glideStep(gap, frameGap(this.lastFrame, now))
+    this.lastFrame = now
     this.lastTop = el.scrollTop
     this.raf = requestAnimationFrame(this.tick)
   }

@@ -6,13 +6,14 @@
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import { Check, Layers, ListRestart, Square, X } from '@/components/ui/icons'
-import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { deskOn, useDesk } from '@/features/look/look'
 import { parseEmphasis } from '@/features/editor/streamText'
+import { ScrollGlide } from '@/features/editor/scrollGlide'
 import { TOOL_NAMES, TOOL_WORKING } from './names'
 import { picking, suggestionsOf, type Suggestion, type SuggestionsState } from './suggestions'
 import { accept, attachEditor, openRecord, pick, reject, sceneShown, setLayerHooks, stop, unpick } from './session'
@@ -67,6 +68,8 @@ export function SuggestionLayer({
   const was = useRef<Suggestion['status'] | null>(null)
   /** The message saying the change is ready out of sight, while it shows. */
   const readyToast = useRef<number | null>(null)
+  /** The page gliding along with the words while they arrive (time-based, as Add below's follow: scrollGlide.ts). */
+  const [glide] = useState(() => new ScrollGlide(() => scrollerRef.current))
 
   useEffect(() => attachEditor(editor), [editor])
   useEffect(() => sceneShown(), [sceneId])
@@ -104,21 +107,28 @@ export function SuggestionLayer({
     // New paragraphs ahead of a paragraph show above the place the change is at.
     const own = scroller.querySelector<HTMLElement>('.aw-sugg-new.on-its-own')
     if (own) start = Math.min(start, own.getBoundingClientRect().top - box.top + scroller.scrollTop - START_MARGIN)
-    let want = scroller.scrollTop
+    // While the words arrive the page glides along with them (on its way, from where it is going); otherwise it goes
+    // there at once, as when the change is first brought into view.
+    const streaming = s.status === 'writing' || s.status === 'stopping'
+    const from = glide.gliding ? glide.target : scroller.scrollTop
+    let want = from
     // Below the window's bottom edge, or above its top (the window was made smaller, say): just in view at the bottom.
     if (bottom > want + view || top < want) want = bottom - view
     if (start < want && bottom - start <= view) want = start
     want = Math.max(0, Math.round(want))
-    if (want !== scroller.scrollTop) scroller.scrollTop = want
+    if (streaming || glide.gliding) {
+      if (want !== from) glide.to(want)
+    } else if (want !== scroller.scrollTop) scroller.scrollTop = want
     // Once it's ready and in view, the page is Adam's again.
     if (s.status === 'ready' || s.status === 'accepting') follow.current = false
-  }, [editor, scrollerRef])
+  }, [editor, scrollerRef, glide])
 
   /** Shows the change: the writing page, scrolled to its buttons, with the caret in the page. */
   const reveal = useCallback(() => {
     if (useApp.getState().view.kind !== 'write') useApp.getState().navigate({ kind: 'write' })
     follow.current = true
     moved.current = false
+    glide.stop()
     requestAnimationFrame(() => {
       const panel = panelRef.current
       const scroller = scrollerRef.current
@@ -129,7 +139,7 @@ export function SuggestionLayer({
       }
       editor.view.focus()
     })
-  }, [editor, scrollerRef])
+  }, [editor, scrollerRef, glide])
 
   // A new change: follow it into view. Adam moving about the page or typing stops that.
   const id = s?.id ?? null
@@ -172,6 +182,7 @@ export function SuggestionLayer({
     const off = (): void => {
       follow.current = false
       moved.current = true
+      glide.stop()
     }
     const press = (e: MouseEvent): void => {
       if (!(e.target as Element | null)?.closest?.('[data-ai-change]')) off()
@@ -191,7 +202,9 @@ export function SuggestionLayer({
       scroller.removeEventListener('mousedown', press)
       scroller.removeEventListener('keydown', keys)
     }
-  }, [scrollerRef])
+  }, [scrollerRef, glide])
+  // Gone (another scene, or the writing view closing): the glide stops with it.
+  useEffect(() => () => glide.stop(), [glide])
 
   // Placed as the page changes (the words arrive, Adam types above), as it resizes, and as the buttons change.
   useLayoutEffect(() => {
@@ -202,6 +215,7 @@ export function SuggestionLayer({
       if (transaction.docChanged) {
         follow.current = false
         moved.current = true
+        glide.stop()
       }
       place()
     }
@@ -213,7 +227,7 @@ export function SuggestionLayer({
       editor.off('transaction', onTransaction)
       ro.disconnect()
     }
-  }, [id, editor, place, scrollerRef])
+  }, [id, editor, place, scrollerRef, glide])
   useLayoutEffect(() => {
     if (id && writing) place()
   })

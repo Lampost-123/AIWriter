@@ -1686,6 +1686,14 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
     (`transition-[transform,scale]`), or the press or hover lift snaps. Classic's presses (the read-aloud Play
     button, the Style cards in Settings) do the same: in at `--dur-press` (90 ms in both looks) on `ease-press` (the
     glide curve in both looks), back at 150 ms.
+  - *The lamp* (AI words arriving): a draft's new words fade in (160 ms, opacity only), its paragraphs are in a warm
+    ink while it writes with a thin amber line in the margin beside the one being written, and once it ends they settle
+    into the page's ink (1 s). Decorations only (`features/editor/arrival.ts`): each chunk marks just the tail that is
+    new, so italics made from asterisks never fade again, and marks are dropped once played (no replays). Continue's
+    words fade in too, carrying on across its widget being drawn again (`features/edits/arrivalSpans.ts`), and
+    settle once accepted. The page follows the words with a time-based glide (`1 − e^(−dt/90 ms)` a frame, the
+    same at 60 and 120 Hz; `features/editor/scrollGlide.ts`) for Add below and Continue alike; Adam scrolling,
+    clicking or using the keys stops it. Less motion: no fade or settle, and the page keeps up in one step.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.

@@ -563,6 +563,9 @@ export class SceneController {
     if (!this.session || this.session.id !== sceneId || (this.requested !== sceneId && !opts.keepWriting)) return false
     if (this.stream) this.finishStream()
     if (this.expecting === sceneId) this.expecting = null
+    // Whether Adam is at the end of the page is asked before the scene break the draft starts below goes in: that
+    // break alone can be taller than "near the bottom", and the page then never followed the draft.
+    this.follow.check()
     this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId, start))
     this.stream = stream
     this.updateDraftBelow()
