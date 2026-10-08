@@ -348,3 +348,33 @@ test('the New look: a side panel slides on the drawer curve while the page holds
     expect(held[0]).toMatch(/^\d+px$/)
   }
 })
+
+test('the New look: the selection pill glides its size too, with no overshoot, and jumps when the keyboard moves it', async ({ launch }) => {
+  const win = await sampleWorld(launch)
+  const tabs = win.getByRole('complementary', { name: 'Scene panel' }).getByRole('tablist')
+  await expect(tabs).toBeVisible()
+  const pill = tabs.locator('> div[aria-hidden]')
+  await expect(pill).toHaveCSS('transition-property', 'transform, width, height, opacity')
+  await expect(pill).toHaveCSS('transition-timing-function', 'cubic-bezier(0.2, 0.8, 0.2, 1)')
+  // Notes each time the pill jumps (its transition switched off for a moment, then back on).
+  await win.evaluate(`(() => {
+    const p = document.querySelector('aside[aria-label="Scene panel"] [role="tablist"] > div[aria-hidden]')
+    window.jumps = 0
+    new MutationObserver((records) => {
+      if (records.some((r) => (r.oldValue ?? '').includes('transition: none'))) window.jumps++
+    }).observe(p, { attributes: true, attributeFilter: ['style'], attributeOldValue: true })
+  })()`)
+  const tab = (i: number) => tabs.getByRole('tab').nth(i)
+  // A click: it glides, and ends exactly the size of the tab it went to.
+  await tab(1).click()
+  await expect(tab(1)).toHaveAttribute('aria-selected', 'true')
+  await expect
+    .poll(async () => Math.round(((await pill.boundingBox())?.width ?? 0) - ((await tab(1).boundingBox())?.width ?? 0)))
+    .toBe(0)
+  expect(await win.evaluate<number>('window.jumps')).toBe(0)
+  // The arrow keys: it jumps.
+  await tab(1).focus()
+  await win.keyboard.press('ArrowRight')
+  await expect(tab(2)).toHaveAttribute('aria-selected', 'true')
+  await expect.poll(() => win.evaluate<number>('window.jumps')).toBe(1)
+})
