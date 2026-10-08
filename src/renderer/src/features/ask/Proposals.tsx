@@ -350,9 +350,8 @@ function ChangesBar({ generationId, proposals, locked }: { generationId: ID; pro
         : 'All set aside'
   return (
     <div data-changes-bar className="sticky top-0 z-[1] -mx-1 flex min-h-9 flex-wrap items-center gap-x-1 gap-y-1 bg-surface/95 px-2 py-1 backdrop-blur-sm">
-      <span className="mr-auto text-[12.5px] font-medium text-fg">
+      <span className="mr-auto text-[12.5px] font-medium text-fg" title={pending.length ? 'Nothing changes until you apply' : undefined}>
         {words}
-        {pending.length ? <span className="font-normal text-faint"> · nothing changes until you apply</span> : null}
       </span>
       {waiting.length > 1 ? (
         <Button size="sm" variant="secondary" disabled={locked || busy} onClick={() => void apply(generationId, waiting)}>

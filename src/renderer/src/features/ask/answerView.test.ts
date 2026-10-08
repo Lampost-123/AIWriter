@@ -35,7 +35,7 @@ describe('the steps row', () => {
     expect(stepsSummary(['Reading Ch 1, Sc 1', 'Looking up Mara', 'Searching for “x”'], 4200)).toBe('Looked at 3 things · 4s')
     expect(stepsSummary(['Reading Ch 1, Sc 1', 'Proposing an edit to Ch 1, Sc 1'], null)).toBe('Looked at 1 thing')
     expect(stepsSummary(['Proposing a new chapter'], 2000)).toBe('Proposed changes · 2s')
-    expect(stepsSummary([], 3000)).toBe('Answered · 3s')
+    expect(stepsSummary([], 3000)).toBe('From the memory · 3s')
     // An old answer that looked nothing up has no row.
     expect(stepsSummary([], null)).toBeNull()
   })

@@ -142,7 +142,8 @@ export function AskPanel({ sceneId, onClose }: { sceneId: ID | null; onClose: ()
     if (!sceneData) return []
     const ids = [sceneData.cast.povId, ...sceneData.cast.presentIds].filter((x): x is ID => !!x)
     const people = [...new Set(ids)].map((id) => entries.get(id)).filter((e): e is NamedEntry => !!e && e.kind === 'character' && !!e.name.trim())
-    return people.map((e) => e.name.trim())
+    // As the writer would ask: "Wren", not "Wren Halloway" (a short other name when there is one).
+    return people.map((e) => e.aliases.find((a) => a.trim() && !/\s/.test(a.trim()))?.trim() ?? e.name.trim().split(/\s+/)[0])
   }, [sceneData, entries])
   const density = useAskPrefs((s) => s.density)
 
@@ -701,7 +702,7 @@ function AskProblem({ message, code, onRetry }: { message: string; code?: string
 // ---------- The box ----------
 
 const chip =
-  'inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-[12px] leading-none transition-[background-color,border-color,color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus'
+  'inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[11.5px] leading-none whitespace-nowrap transition-[background-color,border-color,color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus'
 
 /**
  * The row over the box, always the same height so the box never jumps: quick actions while the box is empty (each
@@ -711,7 +712,15 @@ const chip =
 function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) => void }): React.JSX.Element {
   const quote = quoteIn(draft, useAsk((s) => s.quote))
   return (
-    <div className="flex h-8 min-w-0 items-center gap-1 overflow-hidden px-2 pt-1.5" data-context-row>
+    // A narrow panel scrolls the chips sideways (no scroll bar) rather than cutting one off.
+    <div
+      className={cn(
+        'flex h-8 min-w-0 items-center gap-1 overflow-x-auto px-2 pt-1.5 [scrollbar-width:none]',
+        // The quick actions fade at the right edge, so one that runs past it reads as more to scroll to.
+        !quote && !draft.trim() && '[mask-image:linear-gradient(to_right,black_88%,transparent)]'
+      )}
+      data-context-row
+    >
       {quote ? (
         <span className={cn(chip, 'min-w-0 max-w-full border-accent/40 bg-accent-soft pr-0.5 text-fg')} data-quote-chip title={quote.text}>
           <TextQuote size={12} aria-hidden className="shrink-0 text-accent" />
@@ -733,7 +742,7 @@ function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) =
             type="button"
             onClick={() => onFill(q.fill)}
             title={`Start a question: “${q.fill.trim()}…”`}
-            className={cn(chip, 'border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
+            className={cn(chip, 'shrink-0 border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
           >
             {q.label}
           </button>

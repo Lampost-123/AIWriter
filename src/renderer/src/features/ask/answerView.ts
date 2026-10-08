@@ -56,7 +56,7 @@ export function durationWords(ms: number): string {
 export function stepsSummary(steps: string[], ms: number | null): string | null {
   const looked = steps.filter((s) => !['propose', 'ask', 'error'].includes(stepKind(s))).length
   const proposed = steps.some((s) => stepKind(s) === 'propose')
-  const head = looked ? `Looked at ${looked} ${looked === 1 ? 'thing' : 'things'}` : proposed ? 'Proposed changes' : steps.length ? 'Worked it out' : 'Answered'
+  const head = looked ? `Looked at ${looked} ${looked === 1 ? 'thing' : 'things'}` : proposed ? 'Proposed changes' : steps.length ? 'Worked it out' : 'From the memory'
   if (!steps.length && ms === null) return null
   return ms === null ? head : `${head} · ${durationWords(ms)}`
 }

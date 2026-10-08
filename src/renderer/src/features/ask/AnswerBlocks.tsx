@@ -93,12 +93,14 @@ function OptionCard({
     void fn().finally(() => setBusy(false))
   }
   const status = state.aside ? 'aside' : state.usedAsBeat ? 'used' : state.kept ? 'kept' : 'idle'
+  const overlay = density === 'compact'
   return (
     <li
       data-option-card={number}
       data-state={status}
       className={cn(
-        'group/opt rounded-lg border px-3 pb-1.5 pt-2.5 transition-[opacity,border-color,background-color] duration-150',
+        'group/opt relative rounded-lg border px-3 pt-2.5 transition-[opacity,border-color,background-color] duration-150',
+        overlay && !state.aside && !state.usedAsBeat ? 'pb-2' : 'pb-1',
         live && 'animate-fade-in',
         state.kept && !state.aside ? 'border-accent/50 bg-accent-soft/50' : 'border-line bg-surface look-new:bg-raise look-new:shadow-e1',
         state.aside && 'opacity-55'
@@ -107,7 +109,6 @@ function OptionCard({
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <span className={cn('block break-words text-[13.5px] font-semibold leading-snug text-fg', state.aside && 'line-through decoration-faint')}>
-            {state.kept ? <Star size={12} fill="currentColor" aria-hidden className="mr-1 inline-block -translate-y-px text-accent" /> : null}
             <InlineWords text={item.title} index={index} />
           </span>
           {item.why ? (
@@ -130,8 +131,21 @@ function OptionCard({
           <Star size={13} fill={state.kept ? 'currentColor' : 'none'} />
         </button>
       </div>
-      {/* The buttons' row is always there (room kept), so nothing moves when they show. */}
-      <div className="-ml-1.5 mt-1 flex h-6 min-w-0 items-center gap-0.5 overflow-hidden">
+      {/*
+        The buttons' row is always there (room kept), so nothing moves when they show. In Compact there is no room
+        kept: they show over the one-line why, on a fade of the card's own colour.
+      */}
+      <div
+        className={cn(
+          'flex min-w-0 items-center gap-0.5 overflow-hidden',
+          overlay && !state.aside && !state.usedAsBeat
+            ? cn(
+                'pointer-events-none absolute inset-x-px bottom-px h-7 rounded-b-lg px-1.5 opacity-0 transition-opacity duration-[140ms] group-hover/opt:pointer-events-auto group-hover/opt:opacity-100 group-focus-within/opt:pointer-events-auto group-focus-within/opt:opacity-100',
+                state.kept ? 'bg-accent-soft' : 'bg-surface look-new:bg-raise'
+              )
+            : '-ml-1.5 mt-0.5 h-6'
+        )}
+      >
         {state.aside ? (
           <>
             <span className="px-1.5 text-[12px] text-faint">Set aside</span>
@@ -144,7 +158,13 @@ function OptionCard({
             <Check size={12} strokeWidth={2.5} aria-hidden /> Added as beat {state.usedAsBeat}
           </span>
         ) : (
-          <div className={cn('flex min-w-0 items-center gap-0.5 transition-opacity duration-[140ms]', 'opacity-0 group-hover/opt:opacity-100 group-focus-within/opt:opacity-100', !turn.canAct && 'invisible')}>
+          <div
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-0.5',
+              !overlay && 'opacity-0 transition-opacity duration-[140ms] group-hover/opt:opacity-100 group-focus-within/opt:opacity-100',
+              !turn.canAct && 'invisible'
+            )}
+          >
             <button
               type="button"
               className={actionButton}
@@ -197,13 +217,9 @@ function FactRow({ item, index, silent, live }: { item: string; index: Map<strin
   return (
     <li
       data-fact
-      className={cn(
-        'flex gap-2 rounded-md border px-2.5 py-2',
-        live && 'animate-fade-in',
-        silent ? 'border-dashed border-line-strong bg-transparent' : 'border-line bg-surface look-new:bg-raise'
-      )}
+      className={cn('flex gap-2 border-l-2 py-1 pl-2.5 pr-1', live && 'animate-fade-in', silent ? 'border-dashed border-line-strong' : 'border-line-strong')}
     >
-      {silent ? <CircleDashed size={13} aria-hidden className="mt-[3px] shrink-0 text-faint" /> : <span aria-hidden className="mt-[7px] size-1.5 shrink-0 rounded-full bg-line-strong" />}
+      {silent ? <CircleDashed size={13} aria-hidden className="mt-[3px] shrink-0 text-faint" /> : null}
       <div className="min-w-0 flex-1">
         <div className={cn('break-words text-[13px] leading-[1.5]', silent ? 'text-muted' : 'text-fg')}>
           <InlineWords text={text} index={index} />
