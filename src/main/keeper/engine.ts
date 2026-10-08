@@ -20,6 +20,7 @@ import * as repo from '../db/repo'
 import type { MemoryModel } from './model'
 import { runScene, failScene, type RunOutcome } from './run'
 import { askSummaryRefresh, nextRollUp, rollUpKey, sceneSummaryDue, writeRollUp, writeSceneSummary, type SummaryOptions } from './summaries'
+import { DUE_SUMMARY_SCENES } from './sceneChange'
 import { summaryRefreshed } from './undo'
 import { loadShapeSafe, placeWords, scenesBefore } from './places'
 import { tidyOnce } from './tidy'
@@ -59,8 +60,6 @@ export const QUIET_MS = 30_000
 const RECHECK_MS = 60_000
 /** How long the AI waits for the scene's own unread words to be read before it writes (World Memory Overhaul A6). */
 export const FRESH_READ_MS = 8_000
-/** How many of the most recent earlier scenes a draft looks at for a summary that is due (A3). */
-const DUE_SUMMARY_SCENES = 10
 
 export const idleStatus = (): MemoryStatus => ({ behind: 0, failed: 0, reading: null, error: null, lastUpdate: null })
 

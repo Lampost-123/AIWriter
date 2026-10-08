@@ -18,6 +18,11 @@ type DB = Database.Database
 export const MIN_SUMMARY_WORDS = 40
 /** About this many words changed makes a summary due again. */
 export const DUE_WORDS = 40
+/**
+ * How many of the most recent earlier scenes a draft looks at for a summary that is due (engine.ts queueDueSummaries),
+ * and so may tell the writer is being updated (memory/scene.ts): one further back is given plainly, as it is.
+ */
+export const DUE_SUMMARY_SCENES = 10
 /** A changed paragraph that names someone already named in it makes a summary due once this many of its words changed. */
 export const NAMED_DUE_WORDS = 8
 

@@ -25,7 +25,7 @@ import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, sto
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
 import * as mem from '../db/memory'
 import { factHealth, linksForFacts } from '../db/history'
-import { summaryDue } from '../keeper/sceneChange'
+import { DUE_SUMMARY_SCENES, summaryDue } from '../keeper/sceneChange'
 import { fieldValue, guessFields } from '../keeper/facts'
 import { lastWords } from '../keeper/text'
 import * as repo from '../db/repo'
@@ -155,7 +155,7 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
     relationships: state.relationships,
     facts: state.facts,
     threads: state.threads,
-    storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries) : sf,
+    storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
     bringAbout: changes.byScene.get(sceneId) ?? []
   }
 }
@@ -164,19 +164,25 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
 const EXCERPT_SCENES = 2
 const EXCERPT_WORDS = 60
 
+/** The most recent scenes on the line before this one whose due summaries a draft refreshes (engine.ts). */
+const recentScenes = (line: Line): Set<ID> =>
+  new Set(line.steps.flatMap((x) => (x.type === 'scene' ? [x.sceneId] : [])).slice(-DUE_SUMMARY_SCENES))
+
 /**
  * For the writer (World Memory Overhaul A3): an earlier scene whose words changed since its summary was written, enough
  * for a new one to be due (keeper/sceneChange.ts), keeps its old summary, marked as being brought up to date (the memory
  * keeper refreshes it before long: engine.ts queueDueSummaries). The most recent two of them, but never the scene just
- * before (the briefing has its words), also say in a few words how the scene now ends.
+ * before (the briefing has its words), also say in a few words how the scene now ends. Only the most recent scenes a
+ * draft refreshes (DUE_SUMMARY_SCENES) are marked: an older one keeps its old summary, given plainly, since nothing would
+ * ever bring it up to date and the note would stay for good.
  */
-function markUpdating(db: DB, s: StorySoFar, previousId: ID | null, entries: Entry[]): StorySoFar {
+function markUpdating(db: DB, s: StorySoFar, previousId: ID | null, entries: Entry[], recent: Set<ID>): StorySoFar {
   if (!s.scenes.length) return s
   const names = entries
     .flatMap((e) => [e.name, ...e.aliases])
     .map((n) => n.trim())
     .filter((n) => n.length >= 2)
-  const scenes = s.scenes.map((x) => (summaryDue(db, x.sceneId, false, names) ? { ...x, updating: true } : x))
+  const scenes = s.scenes.map((x) => (recent.has(x.sceneId) && summaryDue(db, x.sceneId, false, names) ? { ...x, updating: true } : x))
   let excerpts = 0
   for (let i = scenes.length - 1; i >= 0 && excerpts < EXCERPT_SCENES; i--) {
     const x = scenes[i]

@@ -304,3 +304,28 @@ describe('an edited fact whose paragraph was then joined to another', () => {
     expect(changesOf(w.db, 'Mara')).toEqual([])
   })
 })
+
+
+describe('an earlier scene summary', () => {
+  it('outside the last ten scenes is given plainly, never marked as being updated', async () => {
+    const w = testWorld(12)
+    const [s1] = w.scenes
+    const last = w.scenes[w.scenes.length - 1]
+    saveParas(w.db, s1, [
+      ['p1', HARBOUR],
+      ['p2', MARKET]
+    ])
+    expect(await writeSceneSummary(summaryOptions(w.db), s1, null, 'Ch 1, Sc 1')).toBe(true)
+    saveParas(w.db, s1, [
+      ['p1', HARBOUR],
+      ['p2', CHAPEL_EDITED]
+    ])
+    expect(sceneSummaryDue(w.db, s1, false)).toBe(true)
+    // Eleven scenes before the last one: s1 is outside the ten a draft refreshes.
+    const one = writerMemory(w.db, last).storySoFar.scenes.find((x) => x.sceneId === s1)!
+    expect(one.updating).toBeFalsy()
+    expect(one.excerpt).toBeFalsy()
+    // Within the ten, it is marked.
+    expect(writerMemory(w.db, w.scenes[3]).storySoFar.scenes.find((x) => x.sceneId === s1)!.updating).toBe(true)
+  })
+})
