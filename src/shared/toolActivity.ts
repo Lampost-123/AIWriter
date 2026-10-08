@@ -11,7 +11,7 @@ import type { AgentStep } from './types'
 export type ToolStatus = 'running' | 'done' | 'failed' | 'not-proposed' | 'stopped'
 
 /** What a call does, for its icon and its words. */
-export type ToolKind = 'read' | 'outline' | 'search' | 'entry' | 'style' | 'issues' | 'propose' | 'draft' | 'ask' | 'other'
+export type ToolKind = 'read' | 'outline' | 'search' | 'entry' | 'style' | 'issues' | 'chapter' | 'threads' | 'propose' | 'draft' | 'ask' | 'other'
 
 /** One tool call of the editor chat, as it is kept with the turn's record and sent live as `ask:tool`. */
 export interface ToolActivity extends AgentStep {
@@ -38,6 +38,9 @@ const KINDS: Record<string, ToolKind> = {
   entry_at: 'entry',
   style_guide: 'style',
   scene_issues: 'issues',
+  list_issues: 'issues',
+  chapter_card: 'chapter',
+  list_threads: 'threads',
   propose_draft: 'draft',
   ask_user: 'ask'
 }
@@ -67,6 +70,9 @@ const CHANGE_WORDS: Record<string, [string, string]> = {
   new_scene: ['new scene', 'new scenes'],
   new_chapter: ['new chapter', 'new chapters'],
   rename: ['new title', 'new titles'],
+  issue_fix: ['issue fix', 'issue fixes'],
+  chapter_card: ['chapter card change', 'chapter card changes'],
+  thread: ['plot thread link', 'plot thread links'],
   ask: ['question', 'questions']
 }
 
@@ -95,9 +101,14 @@ export function argSummary(tool: string, args: Record<string, unknown>): string 
   const str = (k: string): string => (typeof args[k] === 'string' ? clipWords(args[k] as string, 80) : '')
   switch (toolKind(tool)) {
     case 'read':
-    case 'issues':
     case 'draft':
       return str('scene') || 'the open scene'
+    case 'issues':
+      return str('scope').toLowerCase() === 'story' ? 'the story' : str('scene') || 'the open scene'
+    case 'chapter':
+      return str('chapter') || 'the open chapter'
+    case 'threads':
+      return str('status') ? `${str('status').toLowerCase()} plot threads` : 'plot threads'
     case 'search':
       return str('query') ? `“${str('query')}”` : ''
     case 'entry':

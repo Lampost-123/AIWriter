@@ -10,9 +10,10 @@ export type AskIntent = 'edit' | 'brainstorm' | 'answer' | 'unsure'
  * The chat overhaul's lab switches. All are on by default (the Phase 1 A/B on DeepSeek Flash showed all-on winning
  * clearly); `AIWRITE_EXP_CHAT_<NAME>=off` in the environment turns one off, for the eval's A/B or as a fallback to the
  * old behaviour. Once each has proven itself in use, its switch and the old path go. FORMAT (Phase 2): answers in the
- * block format (shared/answerBlocks.ts); off, the plain-text answer rules.
+ * block format (shared/answerBlocks.ts); off, the plain-text answer rules. STORYTOOLS (Phase 3): the story tools
+ * (list_issues, chapter_card, list_threads, and the issue_fix, chapter_card and thread changes); off, none of them.
  */
-export const CHAT_SWITCHES = ['CONTRACT', 'ROUTE', 'TOOLCHOICE', 'ANCHOR', 'HISTORY', 'TEMP', 'ASKUSER', 'DRAFT', 'FORMAT'] as const
+export const CHAT_SWITCHES = ['CONTRACT', 'ROUTE', 'TOOLCHOICE', 'ANCHOR', 'HISTORY', 'TEMP', 'ASKUSER', 'DRAFT', 'FORMAT', 'STORYTOOLS'] as const
 export type ChatSwitch = (typeof CHAT_SWITCHES)[number]
 
 /** A switch's environment variable. */

@@ -14,7 +14,7 @@
 // it stands at the open scene, or at the story's end when no scene is open), chosen by the same rules
 // as a draft's briefing: an own version of events (a what-if) never reaches another story's chat, and
 // a chat never carries on in another story. Answers name the entries they used as [[Entry name]].
-import type { EntryKind, ID, Origin, SceneCard } from '../types'
+import type { ChapterCard, EntryKind, ID, Origin, SceneCard } from '../types'
 import type { ToolActivity } from '../toolActivity'
 
 export interface AskApi {
@@ -95,8 +95,21 @@ export type DraftMode = 'generate' | 'add_below' | 'continue' | 'redo_beat'
 /** What Adam made of a proposed change. */
 export type ProposalStatus = 'pending' | 'applied' | 'declined'
 
-/** The parts of a scene card the editor chat may propose. */
-export type CardProposal = Partial<Pick<SceneCard, 'goal' | 'conflict' | 'outcome' | 'mood' | 'when' | 'notes' | 'beats'>>
+/**
+ * The parts of a scene card the editor chat may propose. The point of view, the characters present and the location
+ * (chat Phase 3, lab switch STORYTOOLS) come as the entries' ids, matched from the names the chat gave.
+ */
+export type CardProposal = Partial<Pick<SceneCard, 'goal' | 'conflict' | 'outcome' | 'mood' | 'when' | 'notes' | 'beats' | 'povId' | 'presentIds' | 'locationId'>>
+
+/** One part of a card a change sets, as the change card shows it: what it says now and what it would say. */
+export interface PartChange {
+  label: string
+  from: string
+  to: string
+}
+
+/** Which list of a scene card a plot thread link goes on: the threads it sets up, or those it pays off. */
+export type ThreadLinkList = 'setsUp' | 'paysOff'
 
 /** The parts of an entry the editor chat may propose (new values; `fields` by the kind's field keys). */
 export interface EntryProposal {
@@ -144,7 +157,63 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
        */
       at?: { start: ParaAnchor; end: ParaAnchor }
     }
-  | { kind: 'card'; sceneId: ID; sceneLabel: string; patch: CardProposal }
+  | {
+      kind: 'card'
+      sceneId: ID
+      sceneLabel: string
+      patch: CardProposal
+      /** The names the point of view, characters present and location stand for (STORYTOOLS), as the card shows them. */
+      names?: PartChange[]
+    }
+  | {
+      /**
+       * A consistency issue put right (chat Phase 3, STORYTOOLS), as the Issues tab's own buttons do it, and marked
+       * fixed. 'text': the check's suggested rewrite (`fix`) goes in for the quoted words (null: Apply runs Fix the text,
+       * which has the writer model rewrite the sentence as a change to accept or reject in the page). 'memory': the
+       * entry's field takes the text's value, as Update the memory sets it.
+       */
+      kind: 'issueFix'
+      issueId: ID
+      how: 'text' | 'memory'
+      /** The scene it is in (null for a story-wide one) and its label ('' when none). */
+      sceneId: ID | null
+      sceneLabel: string
+      message: string
+      severity: 'must-fix' | 'warning' | 'minor'
+      quote: string
+      fix: string | null
+      occurrence?: number
+      /** With how 'memory': the entry's field, as it says now and as it would. */
+      memory?: { entryId: ID; name: string; field: string; fieldLabel: string; from: string; to: string }
+    }
+  | {
+      /**
+       * A chapter card's parts (chat Phase 3, STORYTOOLS): written into the scene cards that follow the chapter, as
+       * the chapter card panel does; Undo puts the card and those scenes back. `scenes`: how many scene cards it would
+       * change when proposed.
+       */
+      kind: 'chapterCard'
+      chapterId: ID
+      chapterLabel: string
+      patch: Partial<ChapterCard>
+      lines: PartChange[]
+      scenes: number
+    }
+  | {
+      /**
+       * A plot thread linked to a scene on its card (chat Phase 3, STORYTOOLS): 'open' puts it on the scene's "Sets up",
+       * 'resolve' on its "Pays off", 'link' on `list`. Adam's own link (unmarked). `threadId` null: a new plot thread
+       * named `name` is made first (its promise `note`). Undo takes the link off (and the new thread to Recently deleted).
+       */
+      kind: 'thread'
+      threadId: ID | null
+      name: string
+      action: 'open' | 'resolve' | 'link'
+      list: ThreadLinkList
+      sceneId: ID
+      sceneLabel: string
+      note: string
+    }
   | { kind: 'entry'; entryId: ID; entryKind: EntryKind; name: string; patch: EntryProposal }
   | { kind: 'newEntry'; entryKind: EntryKind; name: string; summary: string; description: string }
   | {
