@@ -61,10 +61,10 @@ export function draftModeLabel(p: Extract<Proposal, { kind: 'draft' }>): string 
 }
 
 const Line = ({ label, value }: { label: string; value: string }): React.JSX.Element => (
-  <p className="break-words text-[12.5px] leading-relaxed">
+  <div className="break-words text-[12.5px] leading-relaxed">
     <span className="font-medium text-muted">{label}: </span>
     <span className="text-fg">{value || '(empty)'}</span>
-  </p>
+  </div>
 )
 
 /** A change's kept, cut and added words; a gap is "…" for words that stay as they are. */
@@ -185,9 +185,9 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
       return <Line label="Title" value={p.title} />
     case 'rename':
       return (
-        <p className="break-words text-[12.5px] leading-relaxed text-fg">
+        <div className="break-words text-[12.5px] leading-relaxed text-fg">
           <del className="text-muted">{p.from || 'Untitled'}</del> → <span className="font-medium">{p.to}</span>
-        </p>
+        </div>
       )
     case 'draft':
       return (

@@ -48,11 +48,16 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     expect(sent.tools?.map((t) => t.function.name)).not.toContain('propose_edit')
     expect(JSON.stringify(sent.messages)).toContain('The gulls went quiet.')
 
-    // Apply: into the page, the card marked applied; Undo takes it back.
+    // Shown as a word-level change, under the bar that says it is ready.
+    await expect(changes(win).locator('[data-changes-bar]')).toContainText('1 change ready')
+    await expect(card.locator('del')).toHaveText('The tide came in over the flats.')
+    await expect(card.locator('ins')).toHaveText('THE TIDE CAME IN OVER THE FLATS.')
+
+    // Apply: into the page, the card marked applied; its own Undo takes it back.
     await card.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(prose(win)).toHaveText('THE TIDE CAME IN OVER THE FLATS. The gulls went quiet.')
     await expect(card).toHaveAttribute('data-status', 'applied')
-    await win.getByRole('button', { name: 'Undo' }).click()
+    await card.getByRole('button', { name: /^Undo this change/ }).click()
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
     await expect(card).toHaveAttribute('data-status', 'pending')
 
@@ -106,7 +111,9 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
     await ask(win, 'Push this beat harder')
     const card = changes(win).locator('[data-proposal]').first()
     await expect(card).toContainText('Rewrite · Ch 1, Sc 1')
-    await expect(card).toContainText('The gulls screamed once, then nothing.')
+    // Only what changes is marked: the words cut, then the words added.
+    await expect(card.locator('ins').last()).toHaveText('screamed once, then nothing.')
+    await expect(card.locator('del').last()).toHaveText('went quiet.')
     await expect(paragraphs).toHaveCount(2)
     await expect(prose(win)).toContainText('The gulls went quiet.')
 
@@ -115,7 +122,8 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
     await expect(paragraphs.nth(0).locator('em')).toHaveText('roared')
     await expect(paragraphs.nth(1)).toHaveText('The gulls screamed once, then nothing.')
     await expect(card).toHaveAttribute('data-status', 'applied')
-    await win.getByRole('button', { name: 'Undo' }).click()
+    // The toast's Undo (the card has its own, "Undo this change").
+    await win.getByRole('button', { name: 'Undo', exact: true }).click()
     await expect(paragraphs.nth(0)).toHaveText('The tide came in over the flats.')
     await expect(paragraphs.nth(1)).toHaveText('The gulls went quiet.')
     await expect(card).toHaveAttribute('data-status', 'pending')
@@ -130,7 +138,7 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
     await win.getByRole('textbox', { name: 'Scene title' }).press('Enter')
     await expect(paragraphs).toHaveCount(1)
     await expect(prose(win)).not.toContainText('gulls')
-    await win.getByRole('button', { name: 'Undo' }).last().click()
+    await win.getByRole('button', { name: 'Undo', exact: true }).last().click()
     await expect(card).toHaveAttribute('data-status', 'pending')
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toBe('The tide came in over the flats.\n\nThe gulls went quiet.')
     await binder(win).locator('[data-row]', { hasText: 'Scene 1' }).first().click()
