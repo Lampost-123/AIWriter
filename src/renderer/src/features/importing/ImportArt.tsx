@@ -117,7 +117,7 @@ export function InkProgress({ run }: { run: CatchUpProgress }): React.JSX.Elemen
           const now = run.status === 'reading' && i === Math.floor(filled) && f < 1
           return (
             <span key={i} className={cn('im-ink-page', f >= 1 && 'is-full', now && 'is-now')}>
-              <i style={{ transform: `scaleY(${f})` }} />
+              <i style={{ height: `${f * 100}%` }} />
             </span>
           )
         })}
@@ -136,8 +136,8 @@ export function Imported({ title, result }: { title: string; result: ImportResul
   ]
   return (
     <div className="@container mt-5">
-      <div className="grid gap-3 @[620px]:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,1fr))]">
-        <div className="im-card im-story flex items-center gap-4 p-4" style={{ animationDelay: '0ms' }}>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="im-card im-story col-span-3 flex items-center gap-4 p-4" style={{ animationDelay: '0ms' }}>
           <span aria-hidden className="im-book">
             <i />
             <b>{title}</b>

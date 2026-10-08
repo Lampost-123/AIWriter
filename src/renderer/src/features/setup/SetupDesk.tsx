@@ -33,11 +33,11 @@ const STEP_HINTS: Record<SetupStep, string> = {
 
 /** What the picture's line says at each step, and when the setup is done. */
 const CAPTIONS: Record<SetupStep | 'done', string> = {
-  world: 'Dusk over the harbour. Every world begins somewhere quiet.',
-  connect: 'A light comes on in the keeper’s house.',
-  model: 'The keeper starts up the hundred and twelve steps.',
-  style: 'Nearly at the top. The lamp room warms.',
-  builder: 'The lamp is lit.',
+  world: 'Dusk over the harbour. The lamp is still dark.',
+  connect: 'The keeper lights the lamp.',
+  model: 'The beam begins to turn.',
+  style: 'Lights in the cottage, and up the tower.',
+  builder: 'The stars are out. Nearly there.',
   done: 'The light is on. Your world is ready.'
 }
 
