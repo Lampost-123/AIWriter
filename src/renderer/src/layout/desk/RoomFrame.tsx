@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
 import { KIND_INK } from '@/features/world/kindIcons'
 import { AREAS, areaOf, type Area } from '@/layout/areas'
-import { chapterLinks, checkLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from '@/layout/areaLinks'
+import { boardLink, chapterLinks, checkLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from '@/layout/areaLinks'
 import { useLinkContext } from '@/layout/AreaList'
 import { useArrival } from './arrival'
 
@@ -89,6 +89,7 @@ function RoomLinks({ room, c }: { room: Area; c: LinkContext }): React.JSX.Eleme
         const chapters = chapterLinks(c)
         return (
           <>
+            <SubLink link={boardLink(c)} />
             <SubLink link={outline} />
             <SubMenu label="Plan a chapter" icon={chapters[0]?.icon ?? outline.icon} links={chapters} />
             <SubLink link={threads} />

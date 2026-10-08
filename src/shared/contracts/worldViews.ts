@@ -22,6 +22,15 @@ export interface WorldViewsApi {
   getRelationshipMap(storyId: ID, at: AsOf | null, sceneId?: ID | null): Promise<RelationshipMap>
   /** The plot threads board as seen in a story, at its end: open, resolved and planned threads, with where each was set up and paid off. */
   getThreadsBoard(storyId: ID): Promise<ThreadsBoard>
+  /**
+   * The desk's story board (UI overhaul, D5.2): each live scene's card in the story, by scene id, in one call. Titles,
+   * status and words come from the outline; names and portraits from the timeline's entries.
+   */
+  listSceneCards(storyId: ID): Promise<Record<ID, BoardSceneCard>>
+  /** The story board's own marks, kept in the world (its `meta`): which scenes were planned from an AI idea. */
+  getBoardMarks(): Promise<BoardMarks>
+  /** Marks a scene as planned from an AI idea (or not); marks for scenes that are gone are dropped as it saves. */
+  markAiIdea(sceneId: ID, on: boolean): Promise<BoardMarks>
 }
 
 export interface WorldViewsEvents {}
@@ -192,4 +201,27 @@ export interface ThreadsBoard {
   storyId: ID
   /** Ordered by where they were set up. */
   threads: BoardThread[]
+}
+
+// ---------- The desk's story board ----------
+
+/** What the story board shows of a scene's card. */
+export interface BoardSceneCard {
+  /** What happens: the card's goal. */
+  goal: string
+  beats: string[]
+  /** Adam's own words from the When box; '' when empty. */
+  when: string
+  povId: ID | null
+  locationId: ID | null
+  presentIds: ID[]
+  setsUpIds: ID[]
+  paysOffIds: ID[]
+  /** Nothing yet on what happens (no beats, goal, conflict, outcome or notes): ideas can fill it. */
+  empty: boolean
+}
+
+export interface BoardMarks {
+  /** Scenes planned from an AI idea ("Use this" in the board's ideas drawer); the tag shows until the scene has words. */
+  aiIdeas: ID[]
 }

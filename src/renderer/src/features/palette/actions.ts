@@ -366,6 +366,9 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'story-home':
         openStoryHome()
         return
+      case 'story-board':
+        if (a.storyId) useApp.getState().navigate({ kind: 'board', storyId: a.storyId })
+        return
       case 'go-recipes':
         openRecipes()
         return

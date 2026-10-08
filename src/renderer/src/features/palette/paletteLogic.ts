@@ -101,6 +101,7 @@ export type FixedActionId =
   // The start screen
   | 'start-screen'
   | 'story-home'
+  | 'story-board'
   | 'go-recipes'
   | 'make-recipe'
   // Writing by hand
@@ -407,6 +408,7 @@ export const ACTIONS: ActionDef[] = [
   // The start screen: every world and story, where Adam left off, and starting something new.
   { id: 'start-screen', label: 'Go to the start screen', also: 'Home', keywords: 'home welcome all worlds stories library list continue left off recently deleted', away: true },
   // The desk's story home: the book, its chapters on a shelf, where Adam left off.
+  { id: 'story-board', label: 'Story board', keywords: 'plan cards index scenes chapters threads strings pins drag move outline', away: true, when: (c) => hasStory(c) && !!c.desk },
   { id: 'story-home', label: 'Story home', keywords: 'book cover shelf chapters week threads cast overview left off', away: true, when: (c) => hasStory(c) && !!c.desk },
   // Story recipes
   { id: 'go-recipes', label: 'Story recipes', keywords: 'recipe library structure style shape beats template', away: true },

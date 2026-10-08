@@ -64,6 +64,7 @@ import { RoomFrame } from '@/layout/desk/RoomFrame'
 import { SceneDrawer } from '@/layout/desk/SceneDrawer'
 import { Spine } from '@/features/desk/spine/Spine'
 import { StoryHome } from '@/features/desk/home/StoryHome'
+import { StoryBoard } from '@/features/desk/board/StoryBoard'
 import '@/layout/desk/desk.css'
 
 export function App(): React.JSX.Element | null {
@@ -234,6 +235,8 @@ function Pages({ view }: { view: View }): React.JSX.Element {
       {view.kind === 'import' && <ImportView />}
       {view.kind === 'recipes' && <RecipesView page={view.page} recipeId={view.recipeId} />}
       {view.kind === 'recipePlan' && <RecipePlan key={view.storyId} storyId={view.storyId} recipeId={view.recipeId} />}
+      {/* The desk's story board (the Plan room's front page; only ever opened on the desk). */}
+      {view.kind === 'board' && <StoryBoard key={view.storyId} storyId={view.storyId} chapterId={view.chapterId} ideasFor={view.ideasFor} />}
     </>
   )
 }
@@ -263,8 +266,8 @@ function Workspace(): React.JSX.Element {
   const desk = useDesk()
   const overPage = focus && (!focusMoving || focusPanel)
   const { layout } = settings
-  // The desk's story home is the desk's own (the lamp mark opens it); in the panels and Classic it is the writing page.
-  const writing = view.kind === 'write' || (!desk && view.kind === 'storyHome')
+  // The desk's story home and story board are the desk's own; in the panels and Classic they are the writing page.
+  const writing = view.kind === 'write' || (!desk && (view.kind === 'storyHome' || view.kind === 'board'))
   // Ask the world (milestone 4) shows in this panel too, even with no scene open.
   const scenePanel = writing && (!!sceneId || askOpen)
   // In a small window the open panels give up some width, so the page keeps room to write in.

@@ -19,6 +19,7 @@ import {
   SearchCheck,
   Settings2,
   Spool,
+  StickyNote,
   WandSparkles,
   type IconType
 } from '@/components/ui/icons'
@@ -127,6 +128,20 @@ export function planLinks(c: LinkContext): AreaLink[] {
     { id: 'threads', label: 'Plot threads board', icon: Spool, active: is(c.view, 'threads'), run: () => go({ kind: 'threads' }) },
     { id: 'recipes', label: 'Story recipes', icon: CookingPot, active: is(c.view, 'recipes') || is(c.view, 'recipePlan'), run: openRecipes }
   ]
+}
+
+/** The desk's story board (the Plan room's front page; the panels' side list doesn't offer it). */
+export function boardLink(c: LinkContext): AreaLink {
+  const storyId = c.storyId
+  return {
+    id: 'board',
+    label: 'Story board',
+    hint: 'Every scene as an index card, a column for each chapter, with the plot threads as strings',
+    icon: StickyNote,
+    disabled: !storyId,
+    active: is(c.view, 'board'),
+    run: () => storyId && go({ kind: 'board', storyId })
+  }
 }
 
 /** Plan a chapter: one link for each of the open story's chapters (its plan from its interview). */
