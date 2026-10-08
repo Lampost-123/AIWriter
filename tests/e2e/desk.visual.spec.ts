@@ -25,7 +25,9 @@ const shot = async (win: Page, name: string): Promise<void> => {
   // The pointer out of the way (a hovered slip straightens; a hovered button lights).
   await win.mouse.move(2, 900)
   await settle(win)
-  await expect(win).toHaveScreenshot(`${name}.png`, { maxDiffPixels: 200, animations: 'disabled', caret: 'hide', stylePath: NO_SCROLL_BARS })
+  // A tight colour threshold (Playwright's default, 0.2, let the whole desk turn from brown to blue unnoticed): a change
+  // of palette fails, while a few pixels of text drawn differently still pass.
+  await expect(win).toHaveScreenshot(`${name}.png`, { maxDiffPixels: 200, threshold: 0.04, animations: 'disabled', caret: 'hide', stylePath: NO_SCROLL_BARS })
 }
 
 async function size(app: ElectronApplication, win: Page, w: number, h: number): Promise<void> {

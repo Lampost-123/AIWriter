@@ -308,7 +308,8 @@
     var(--sh-1),
     0 0 0 1px var(--desk-line-2);
   color: var(--muted);
-  transition: scale 320ms var(--motion-spring);
+  /* Grows on hover without overshooting (the press and hover speeds: Phase 6). */
+  transition: scale var(--dur-base) var(--motion-glide);
 }
 [data-arrangement='desk'] .board-ghost:hover .board-gh-plus {
   scale: 1.08;
@@ -526,7 +527,7 @@
   overflow: visible;
 }
 [data-arrangement='desk'] .board-str {
-  transition: opacity 180ms ease-out;
+  transition: opacity var(--dur-quick) ease-out;
 }
 /* While a card is dragged the cards are on the move: the strings step back until it lands. */
 [data-arrangement='desk'] .board-wrap.is-dragging .board-str {
@@ -552,7 +553,7 @@
   stroke: currentColor;
   stroke-width: 9;
   opacity: 0;
-  transition: opacity 180ms ease-out;
+  transition: opacity var(--dur-quick) ease-out;
 }
 [data-arrangement='desk'] .board-str.is-lit .s-halo {
   opacity: 0.18;
@@ -989,7 +990,7 @@
     var(--sh-pop),
     0 0 0 1px var(--desk-line-2);
   outline: none;
-  animation: board-drawer-in 240ms var(--motion-drawer) both;
+  animation: board-drawer-in var(--dur-base) var(--motion-drawer) both;
 }
 [data-arrangement='desk'] .board-drawer.is-instant {
   animation: none;
@@ -1098,7 +1099,7 @@
   }
 }
 [data-arrangement='desk'] .board-idea.is-leaving {
-  animation: board-idea-out 160ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: board-idea-out var(--dur-exit) cubic-bezier(0.4, 0, 1, 1) forwards;
   pointer-events: none;
 }
 @keyframes board-idea-out {

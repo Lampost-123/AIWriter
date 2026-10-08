@@ -94,7 +94,9 @@ test('the desk keeps up with a 10,000-word scene while Add below writes 600 word
 
     const ended = await win.evaluate<number>('window.__ended')
     expect(ended).toBeGreaterThan(start)
-    const frames = await win.evaluate<{ start: number; duration: number }[]>('window.__frames')
+    // Only frames from Add below on: the observer also hands over frames that were already over before it started (the
+    // page scrolling to the end of the long scene, just before), which aren't the draft's.
+    const frames = (await win.evaluate<{ start: number; duration: number }[]>('window.__frames')).filter((f) => f.start + f.duration >= start)
     // The frames while the words arrive: after the warm-up, and over before the draft ends. The frame that ends it (the
     // draft put back as one undo step, saved and counted) was already about 50 to 70 ms here before the lamp, so it is
     // held to a looser limit of its own.
