@@ -145,27 +145,23 @@ function GoalShare(): React.JSX.Element | null {
   const share = Math.min(999, Math.round((Math.max(0, dayOf(days, today).typed) / daily) * 100))
   return (
     <span className="-ml-1 text-faint">
-      · <Steady text={`${share}%`} room="100%" />
+      · <Steady text={`${share}%`} room="min-w-[calc(3ch+0.85em)]" />
     </span>
   )
 }
 
-/** The room four digits take ("8,888" in Adam's own way of writing numbers): a scene's count rarely needs more. */
-const COUNT_ROOM = (8888).toLocaleString()
+/**
+ * The room four digits and a thousands mark take ("8,888"): a scene's count rarely needs more. The New look only:
+ * Classic's bar is laid out to the pixel for the smallest window and stays as it was.
+ */
+const COUNT_ROOM = 'look-new:min-w-[calc(4ch+0.35em)]'
 
 /**
  * A number that keeps the room of a longer one, right-aligned in it, so nothing beside it moves as it counts up (the
- * figures are all one width: tabular-nums). The room is an unseen copy, left out for screen readers.
+ * figures are all one width: tabular-nums, each a `ch`).
  */
 function Steady({ text, room }: { text: string; room: string }): React.JSX.Element {
-  return (
-    <span className="inline-grid justify-items-end tabular-nums">
-      <span aria-hidden className="invisible col-start-1 row-start-1">
-        {room}
-      </span>
-      <span className="col-start-1 row-start-1">{text}</span>
-    </span>
-  )
+  return <span className={cn('inline-block text-right tabular-nums', room)}>{text}</span>
 }
 
 const openers = new Set<() => void>()
