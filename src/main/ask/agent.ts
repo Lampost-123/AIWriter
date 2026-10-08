@@ -315,8 +315,14 @@ const rangeParam = {
 const READ_SCENE_ANCHORED: ToolSpec = {
   name: 'read_scene',
   description:
-    "Read the full text of a scene in this story (the open scene when none is named), with its scene card. Each paragraph starts with its number, [n]: give it as `paragraph` (or in `replace_paragraphs`) when proposing a change; never copy it into the words. Italics are shown as *asterisks*, the way rewrites write them; copy words with or without them. A scene after the open one is marked later: the characters don't know its events yet.",
-  parameters: { type: 'object', properties: { scene: optionalScene } }
+    "Read the full text of a scene in this story (the open scene when none is named), with its scene card. Each paragraph starts with its number, [n]: give it as `paragraph` (or in `replace_paragraphs`) when proposing a change; never copy it into the words. Italics are shown as *asterisks*, the way rewrites write them; copy words with or without them. A scene after the open one is marked later: the characters don't know its events yet. A long scene comes back cut short, saying where the rest starts: read on with `from_paragraph`.",
+  parameters: {
+    type: 'object',
+    properties: {
+      scene: optionalScene,
+      from_paragraph: { type: 'number', description: 'Read from this paragraph on (its [n]), for the rest of a scene that came back cut short.' }
+    }
+  }
 }
 
 const EDIT_ANCHORED: ToolSpec = {
@@ -790,6 +796,31 @@ export function sceneWords(db: DB, sceneId: ID): (SceneWords & { title: string }
 
 /** The words of a plain range with their italics marked (balanced, whatever the range cuts). */
 export const markedSlice = (w: SceneWords, from: number, to: number): string => markItalics(w.plain.slice(from, to), w.italic.slice(from, to)).marked
+
+/**
+ * read_scene's numbered words (ANCHOR), from paragraph `fromParagraph` on (left out: the first), whole paragraphs up to
+ * SCENE_CHARS. When the rest doesn't fit, it ends saying where the rest starts and how to read on: without that, the
+ * A03 run re-read a long scene ten times looking for its end.
+ */
+export function numberedBody(s: SceneWords, fromParagraph: unknown): { text: string; from: number } {
+  const count = numbered(s.paras).length
+  const asked = intArg(fromParagraph)
+  if (fromParagraph != null && fromParagraph !== '' && (asked == null || asked < 1 || asked > count)) {
+    throw new Mistake(`There is no paragraph ${JSON.stringify(fromParagraph)}: the scene's paragraphs are [1] to [${count}].`)
+  }
+  const at = asked ? s.paras.findIndex((p) => p.n === asked) : 0
+  const lines = s.paras.slice(Math.max(at, 0)).map((p) => ({ n: p.n, line: `${p.n ? `[${p.n}] ` : ''}${markedSlice(s, p.from, p.to)}` }))
+  let used = 0
+  let k = 0
+  while (k < lines.length && used + lines[k].line.length <= SCENE_CHARS) used += lines[k++].line.length + 2
+  if (k === lines.length) return { text: lines.map((l) => l.line).join('\n\n'), from: asked ?? 1 }
+  // A first paragraph longer than the room on its own is cut inside it.
+  if (k === 0) return { text: clip(lines[0].line, SCENE_CHARS), from: asked ?? 1 }
+  const next = lines.slice(k).find((l) => l.n)?.n
+  const left = lines.slice(k).reduce((sum, l) => sum + l.line.length + 2, 0)
+  const more = next ? ` The rest starts at paragraph [${next}]: call read_scene with from_paragraph ${next} to read on.` : ''
+  return { text: `${lines.slice(0, k).map((l) => l.line).join('\n\n')}\n\n[… cut short here: ${left} more characters.${more}]`, from: asked ?? 1 }
+}
 
 /** The paragraph an anchor names: by its id when it has one (gone: null), else by its number. */
 const paraOfAnchor = (s: SceneWords, at: ParaAnchor): Para | null =>
@@ -2144,9 +2175,10 @@ export class EditorAgent {
         this.mark = { summary: label, outcome: wordCount ? counted(wordCount, 'word') : 'no words yet' }
         if (this.switches.anchor && s.marked.trim()) {
           // Each paragraph numbered, as propose_edit's `paragraph` and propose_rewrite's `replace_paragraphs` name them.
-          const body = s.paras.map((p) => `${p.n ? `[${p.n}] ` : ''}${markedSlice(s, p.from, p.to)}`).join('\n\n')
           const key = `[n] numbers each paragraph${s.marked !== s.plain ? '; *asterisks* mark italics' : ''}`
-          return [`Reading ${label}`, `${heading}\n\nScene card:\n${cardText || '(empty)'}\n\nText (${key}):\n${clip(body, SCENE_CHARS)}`]
+          const body = numberedBody(s, a.from_paragraph)
+          if (body.from > 1) this.mark = { ...this.mark, summary: `${label} from [${body.from}]` }
+          return [`Reading ${label}`, `${heading}\n\nScene card:\n${cardText || '(empty)'}\n\nText (${key}):\n${body.text}`]
         }
         const words = s.marked.trim() ? s.marked : '(The scene has no words yet.)'
         return [

@@ -78,8 +78,8 @@ export interface TaskRequest {
     /**
      * Answers a request's calls; `step` is the request they came in (from 1). `info.cutOff`: the request stopped at the
      * reply limit, so a call whose arguments don't parse was cut off rather than written wrong (the runaway guard).
-     * A step may say how its call went (`status`, as ToolActivity does): when every call of two steps in a row failed
-     * with the same results, the next request is the last, without tools.
+     * A step may say how its call went (`status`, as ToolActivity does): when two steps in a row made the same calls
+     * with the same results (repeatKey), the next request is the last, without tools.
      */
     run(calls: ToolCall[], step: number, info?: { cutOff: boolean }): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
     /**
@@ -247,16 +247,15 @@ export function messagesTokens(messages: ChatMessage[]): number {
 }
 
 /**
- * A step's calls as one key when every one of them failed (its step says `status` 'failed' or 'not-proposed', as
- * ToolActivity does): each call's tool and what came back. Null when any call worked, or a step doesn't say.
+ * A step's calls as one key (each call's tool and what came back), for the runaway guard: the same key two steps in a
+ * row means the model learnt nothing new, whether its calls failed the same way (a rewrite cut off at the reply limit,
+ * the cold A03 run) or a look-up gave what it gave the step before (a long scene re-read, the warm A03 run). A proposal
+ * never repeats (each result names its change's number). Null when the steps don't say how each call went (`status`,
+ * as ToolActivity does), so a run that keeps no records is never stopped.
  */
-export function failedKey(calls: ToolCall[], answered: { results: ChatMessage[]; steps: AgentStep[] }): string | null {
+export function repeatKey(calls: ToolCall[], answered: { results: ChatMessage[]; steps: AgentStep[] }): string | null {
   if (!calls.length || answered.steps.length !== calls.length) return null
-  const failed = (s: AgentStep): boolean => {
-    const status = (s as AgentStep & { status?: unknown }).status
-    return status === 'failed' || status === 'not-proposed'
-  }
-  if (!answered.steps.every(failed)) return null
+  if (answered.steps.some((s) => typeof (s as AgentStep & { status?: unknown }).status !== 'string')) return null
   return calls.map((c, i) => `${c.name}\u0001${answered.results[i]?.content ?? ''}`).join('\u0002')
 }
 
@@ -413,8 +412,8 @@ async function stream(
     }
     let corrected = correction(req.messages, firstTools, outcome.promptTokens) ?? 0
     let nudged = 0
-    /** The latest step's failed calls as one key (failedKey), to tell the same failure twice in a row. */
-    let failedBefore: string | null = null
+    /** The latest step's calls and results as one key (repeatKey), to tell the same step twice in a row. */
+    let keyBefore: string | null = null
     /** The monthly spending limit was reached partway (its amount): the answer stops there and says so. */
     let heldBy: number | null = null
     for (let step = 1; outcome.status === 'complete' && step < agent.maxSteps; step++) {
@@ -440,7 +439,7 @@ async function stream(
       let repeated = false
       if (nudge) {
         nudged++
-        failedBefore = null
+        keyBefore = null
         next = [...messages, { role: 'assistant', content: outcome.text }]
         r.text = r.text.slice(0, stepFrom)
         progress()
@@ -460,11 +459,11 @@ async function stream(
         }
         steps.push(...answered.steps)
         results = answered.results
-        // The runaway guard: the same calls failing the same way twice in a row (a rewrite cut off at the reply limit,
-        // sent again and again) end the tools; the next request is the last, with the last words.
-        const failed = failedKey(calls, answered)
-        repeated = failed != null && failed === failedBefore
-        failedBefore = failed
+        // The runaway guard: the same calls coming back the same twice in a row (a rewrite cut off at the reply limit,
+        // sent again and again; a long scene re-read) end the tools; the next request is the last, with the last words.
+        const key = repeatKey(calls, answered)
+        repeated = key != null && key === keyBefore
+        keyBefore = key
         // The tools ended the answer (a question for the writer, ASKUSER): its words close the reply, nothing more is asked.
         const closing = agent.ended?.() ?? null
         if (closing) {

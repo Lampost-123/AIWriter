@@ -12,15 +12,15 @@ afterEach(() => chatSwitches(null))
 
 const PARAS = ['The ferry left at dusk with no lamp lit.', 'Odile counted the lamp oil twice.', 'Mara waited.']
 
-function setup(): { agent: EditorAgent; told: { phase: 'start' | 'end'; call: ToolActivity }[] } {
+function setup(paras = PARAS): { agent: EditorAgent; told: { phase: 'start' | 'end'; call: ToolActivity }[] } {
   chatSwitches(null)
   const db = memoryWorld()
   const story = repo.listStories(db)[0]
   const outline = repo.getOutline(db, story.id)
   const sceneId = outline.scenes[0].id
   repo.updateScene(db, sceneId, { title: 'The Ford' })
-  const doc = { type: 'doc', content: PARAS.map((t, i) => ({ type: 'paragraph', attrs: { pid: `p${i + 1}` }, content: [{ type: 'text', text: t }] })) }
-  repo.saveSceneText(db, sceneId, doc, PARAS.join('\n\n'))
+  const doc = { type: 'doc', content: paras.map((t, i) => ({ type: 'paragraph', attrs: { pid: `p${i + 1}` }, content: [{ type: 'text', text: t }] })) }
+  repo.saveSceneText(db, sceneId, doc, paras.join('\n\n'))
   repo.createEntry(db, 'character', { name: 'Odile Varre', summary: 'Keeps the lamp oil.' })
   const told: { phase: 'start' | 'end'; call: ToolActivity }[] = []
   const agent = new EditorAgent(
@@ -133,6 +133,25 @@ describe('the runaway guard: changes too long for one reply', () => {
     // Without DRAFT, propose_draft isn't named.
     expect(cutOffResult(false, false)).not.toMatch(/propose_draft/)
     expect(cutOffResult(false, false)).toMatch(/^Not run\. /)
+  })
+
+  it('cuts a long scene at a whole paragraph, says where the rest starts, and reads on from_paragraph', () => {
+    // 60 paragraphs of about 600 characters: more than read_scene sends back at once (24,000).
+    const long = Array.from({ length: 60 }, (_, i) => `Paragraph ${i + 1} of the vigil. ${'The lamp burned low over the gallery. '.repeat(15)}`.trim())
+    const { agent } = setup(long)
+    const first = agent.run({ id: 'r1', name: 'read_scene', arguments: '{}' })
+    const m = /\[… cut short here: \d+ more characters\. The rest starts at paragraph \[(\d+)\]: call read_scene with from_paragraph \1 to read on\.\]$/.exec(first.result)
+    expect(m).not.toBeNull()
+    const next = Number(m?.[1])
+    expect(first.result).toContain(`[${next - 1}] Paragraph ${next - 1} of the vigil.`)
+    expect(first.result).not.toContain(`[${next}] Paragraph`)
+    const rest = agent.run({ id: 'r2', name: 'read_scene', arguments: JSON.stringify({ from_paragraph: next }) })
+    expect(rest.result).toContain(`[${next}] Paragraph ${next} of the vigil.`)
+    expect(rest.result).toContain('[60] Paragraph 60 of the vigil.')
+    expect(rest.result).not.toMatch(/cut short/)
+    expect(rest.step).toMatchObject({ status: 'done', summary: `Ch 1, Sc 1 “The Ford” from [${next}]` })
+    expect(agent.run({ id: 'r3', name: 'read_scene', arguments: '{"from_paragraph": 99}' }).step).toMatchObject({ status: 'failed' })
+    expect(agent.tools.find((t) => t.name === 'read_scene')?.description).toMatch(/read on with `from_paragraph`/)
   })
 
   it(`turns down a rewrite or insert over ${MAX_ITEM_WORDS} words, steering to smaller changes or propose_draft`, () => {

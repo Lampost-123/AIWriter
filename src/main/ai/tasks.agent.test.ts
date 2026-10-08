@@ -9,7 +9,7 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { saveProposals } from '../db/ask'
 import { setSpendHooks } from '../usage/gate'
-import { failedKey, fitToRoom, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
+import { fitToRoom, repeatKey, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
 import { forgetParams } from './client'
 import { STEP_PREAMBLE_WORDS, stepPreamble } from '../ask/history'
 
@@ -508,9 +508,10 @@ describe('the runaway guard (chat Phase 3)', () => {
     (say: (c: ToolCall) => string, status = 'not-proposed', seen?: { cutOff: boolean }[]): NonNullable<TaskRequest['agent']>['run'] =>
     async (calls, _step, info) => {
       seen?.push({ cutOff: !!info?.cutOff })
+      const said = calls.map(say)
       return {
-        results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: say(c) })),
-        steps: calls.map((c) => ({ label: 'x', tool: c.name, arguments: c.arguments, result: say(c), status }))
+        results: calls.map((c, i) => ({ role: 'tool' as const, toolCallId: c.id, content: said[i] })),
+        steps: calls.map((c, i) => ({ label: 'x', tool: c.name, arguments: c.arguments, result: said[i], status }))
       }
     }
   const cutArgs = '{"changes": [{"kind": "rewrite", "replace": "The water moved under the gallery'
@@ -541,7 +542,20 @@ describe('the runaway guard (chat Phase 3)', () => {
     expect(done.text).toBe('That rewrite was too long to send; I can do it in parts.')
   })
 
-  it('carries on when the failure changes, a call works, or the step doesn’t say how its calls went', async () => {
+  it('ends the tools too when a look-up gives what it gave the step before (a long scene re-read, the warm A03 run)', async () => {
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'a1', 'read_scene', '{}'), finish('tool_calls')],
+      [call(0, 'a2', 'read_scene', '{"paragraph": 76}'), finish('tool_calls')],
+      [text('The scene’s end is past what I can read here.'), finish('stop')]
+    ])
+    const done = await runTask(request(fetchImpl, { run: failing(() => 'the same 24,000 characters', 'done') }))
+    expect(sent).toHaveLength(3)
+    expect(sent[2].tools).toBeUndefined()
+    expect(lastMessage(sent[2])).toEqual({ role: 'user', content: LAST })
+    expect(done.status).toBe('complete')
+  })
+
+  it('carries on when what comes back changes, or the step doesn’t say how its calls went', async () => {
     // Two different failures: not the same twice, so the tools stay.
     let k = 0
     const varied = scripted([
@@ -553,14 +567,25 @@ describe('the runaway guard (chat Phase 3)', () => {
     await runTask(request(varied.fetchImpl, { run: failing(() => `Not proposed: mistake ${++k}`) }))
     expect(varied.sent).toHaveLength(4)
     expect(varied.sent[3].tools).toHaveLength(1)
-    // The same result each time from calls that worked: not a failure.
+    // Calls that worked, each bringing something new: the tools stay.
     const worked = scripted([
       [call(0, 'a1', 'read_scene'), finish('tool_calls')],
       [call(0, 'a2', 'read_scene'), finish('tool_calls')],
       [text('Done.'), finish('stop')]
     ])
-    await runTask(request(worked.fetchImpl, { run: failing(() => 'the scene', 'done') }))
+    await runTask(request(worked.fetchImpl, { run: failing((c) => `the scene for ${c.id}`, 'done') }))
     expect(worked.sent[2].tools).toHaveLength(1)
+    // The same failure with a different one between: not twice in a row.
+    let m = 0
+    const between = scripted([
+      [call(0, 'a1', 'propose_changes'), finish('tool_calls')],
+      [call(0, 'a2', 'propose_changes'), finish('tool_calls')],
+      [call(0, 'a3', 'propose_changes'), finish('tool_calls')],
+      [text('Done.'), finish('stop')]
+    ])
+    await runTask(request(between.fetchImpl, { run: failing(() => (++m === 2 ? 'Not proposed: other' : 'Not proposed: same')) }))
+    expect(between.sent).toHaveLength(4)
+    expect(between.sent[3].tools).toHaveLength(1)
     // Steps that don't say (the default run in these tests): never taken for failures.
     const plain = scripted([
       [call(0, 'a1', 'read_scene'), finish('tool_calls')],
@@ -571,16 +596,17 @@ describe('the runaway guard (chat Phase 3)', () => {
     expect(plain.sent[2].tools).toHaveLength(1)
   })
 
-  it('failedKey: a key only when every call of the step failed', () => {
+  it('repeatKey: each call’s tool and result, only when every step says how it went', () => {
     const calls: ToolCall[] = [
       { id: 'a', name: 'propose_changes', arguments: '{}' },
       { id: 'b', name: 'read_scene', arguments: '{}' }
     ]
     const results: ChatMessage[] = calls.map((c) => ({ role: 'tool', toolCallId: c.id, content: `no ${c.id}` }))
-    const step = (status: string) => ({ label: 'x', tool: 't', arguments: '{}', result: '', status })
-    expect(failedKey(calls, { results, steps: [step('failed'), step('not-proposed')] })).toBe('propose_changes\u0001no a\u0002read_scene\u0001no b')
-    expect(failedKey(calls, { results, steps: [step('failed'), step('done')] })).toBeNull()
-    expect(failedKey(calls, { results, steps: [] })).toBeNull()
-    expect(failedKey([], { results: [], steps: [] })).toBeNull()
+    const step = (status?: string) => ({ label: 'x', tool: 't', arguments: '{}', result: '', ...(status ? { status } : {}) })
+    expect(repeatKey(calls, { results, steps: [step('failed'), step('not-proposed')] })).toBe('propose_changes\u0001no a\u0002read_scene\u0001no b')
+    expect(repeatKey(calls, { results, steps: [step('failed'), step('done')] })).toBe('propose_changes\u0001no a\u0002read_scene\u0001no b')
+    expect(repeatKey(calls, { results, steps: [step('failed'), step()] })).toBeNull()
+    expect(repeatKey(calls, { results, steps: [] })).toBeNull()
+    expect(repeatKey([], { results: [], steps: [] })).toBeNull()
   })
 })
