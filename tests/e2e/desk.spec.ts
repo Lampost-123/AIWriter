@@ -533,18 +533,20 @@ test('the page: its head, typing at the scene’s very start, and every shortcut
 
 test('the scene drawer: Ideas for this scene opens it on the card; a name Ctrl+clicked shows there; Ask the world opens there; Esc closes it', async ({ launch }) => {
   const { win } = await sampleWorld(launch)
-  // Shut to start with (the desk's first run), over the page's edge when open: the page never moves for it.
+  // Shut to start with (the desk's first run); open, the page makes room for it (its words never under it).
   await expect(drawer(win)).toBeHidden()
-  // (Once the sheet has settled from its first rise.)
-  await win.waitForTimeout(600)
-  const before = await win.locator('.desk-sheet').boundingBox()
 
   await win.keyboard.press('Control+K')
   await win.keyboard.type('ideas for this scene')
   await win.keyboard.press('Enter')
   await expect(drawer(win)).toBeVisible()
   await expect(drawer(win).getByRole('tab', { name: /Scene card|Card/ })).toHaveAttribute('aria-selected', 'true')
-  expect(await win.locator('.desk-sheet').boundingBox()).toEqual(before)
+  await expect
+    .poll(async () => {
+      const [sheet, side] = [(await win.locator('.desk-sheet').boundingBox())!, (await drawer(win).boundingBox())!]
+      return Math.round(side.x - (sheet.x + sheet.width))
+    })
+    .toBeGreaterThanOrEqual(0)
 
   // Ctrl+click on a name: the entry shows in the drawer.
   await win.locator('.scene-prose .aw-name', { hasText: 'Edric Halloway' }).first().click({ modifiers: ['Control'] })
@@ -826,4 +828,81 @@ test('the margin: the scene card pinned beside the title, tethered to it, kept t
   await tab.click()
   await expect(win.getByRole('dialog').getByText('Scene card')).toBeVisible()
   await expect(win.getByRole('dialog')).toContainText('The Gullhaven Light')
+})
+
+test('entity notes: Edric’s beside his paragraph, the lore rule with In memory; they follow their words through typing and resizing, push apart, and grow into a card', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  await size(app, win, 1920, 1080)
+  await expect(win.locator('[data-desk-margin="column"]')).toBeAttached()
+  const paras = win.locator('.desk-sheet .scene-prose > p')
+  const note = (name: string) => win.locator('[data-slip^="entity:"]', { hasText: name })
+  const edric = note('Edric Halloway')
+  const lore = note('The light is never dark')
+  const place = win.locator('[data-slip^="entity:"][data-kind="place"]', { hasText: 'Gullhaven' })
+  /** A note's top against its paragraph's top (within 4px). */
+  const beside = async (n: Locator, i: number): Promise<void> => {
+    await expect
+      .poll(async () => {
+        const [a, b] = [await n.boundingBox(), await paras.nth(i).boundingBox()]
+        return a && b ? Math.round(Math.abs(a.y - b.y)) : 'missing'
+      })
+      .toBeLessThanOrEqual(4)
+  }
+
+  await expect(edric).toBeVisible()
+  await expect(edric).toContainText('Character')
+  await expect(edric).toContainText('Keeper of the Gullhaven Light for forty years')
+  await expect(edric.locator('.desk-tether path')).toHaveCount(1)
+  await beside(edric, 1)
+  await expect(lore).toBeVisible()
+  await expect(lore).toContainText('Lore')
+  await expect(lore).toContainText('In memory')
+  // Plot threads never get a note.
+  await expect(note('What is in the sealed letter?')).toHaveCount(0)
+
+  // Two notes about the same paragraph push apart (the place, then the lore rule below it), never overlapping.
+  await expect
+    .poll(async () => {
+      const [p, l] = [(await place.boundingBox())!, (await lore.boundingBox())!]
+      return Math.round(l.y - (p.y + p.height))
+    })
+    .toBeGreaterThanOrEqual(6)
+
+  // A new line typed above Edric's paragraph: his note follows it down.
+  const before = (await edric.boundingBox())!.y
+  await paras.nth(1).click({ position: { x: 4, y: 8 } })
+  await win.keyboard.press('Home')
+  await win.keyboard.type('A gull went over, crying.')
+  await win.keyboard.press('Enter')
+  await expect(paras.nth(1)).toHaveText('A gull went over, crying.')
+  await expect.poll(async () => (await edric.boundingBox())!.y).toBeGreaterThan(before + 20)
+  await beside(edric, 2)
+  // Bigger text (the page re-wraps) and a narrower window: still beside it.
+  await invoke(win, 'updateSettings', { editor: { fontSize: 21 } })
+  await beside(edric, 2)
+  await size(app, win, 1800, 1000)
+  await beside(edric, 2)
+  await win.keyboard.press('Control+Z')
+  await beside(edric, 1)
+
+  // Put away (its ×), the place's note goes and the lore note glides up to its paragraph.
+  await place.hover()
+  await place.getByRole('button', { name: /note away/ }).click()
+  await expect(place).toHaveCount(0)
+  await expect.poll(() => lore.evaluate((el) => el.getAnimations().length)).toBeGreaterThan(0)
+  await beside(lore, 4)
+
+  // Edric's slip grows into his card: how he speaks, where things stand, and the ways on.
+  await edric.getByRole('button', { name: /Edric Halloway: open the card/ }).click()
+  const card = win.getByRole('dialog', { name: 'Edric Halloway' })
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('How they speak')
+  await expect(card).toContainText('Where things stand')
+  await expect(card.getByRole('button', { name: 'Open their page' })).toBeVisible()
+  await win.keyboard.press('Escape')
+  await expect(card).toHaveCount(0)
+  await edric.getByRole('button', { name: /Edric Halloway: open the card/ }).click()
+  await card.getByRole('button', { name: 'Show beside the page' }).click()
+  await expect(drawer(win)).toBeVisible()
+  await expect(drawer(win)).toContainText('Edric Halloway')
 })

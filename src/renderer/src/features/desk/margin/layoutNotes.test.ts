@@ -39,6 +39,14 @@ describe('placing the margin notes down the page', () => {
     expect(tops(m)).toEqual({ pin: 300, top: 100, squeezed: 408 })
   })
 
+  it('puts notes that want the same line in reading order, whatever their ids', () => {
+    const m = layoutNotes([
+      { id: 'z', want: 100, height: 50, order: 10 },
+      { id: 'a', want: 100, height: 50, order: 40 }
+    ])
+    expect(tops(m)).toEqual({ z: 100, a: 158 })
+  })
+
   it('places nothing when there is nothing', () => {
     expect(layoutNotes([]).size).toBe(0)
   })

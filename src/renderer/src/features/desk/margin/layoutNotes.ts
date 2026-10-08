@@ -10,6 +10,8 @@ export interface NoteToPlace {
   height: number
   /** It stays at `want` whatever else is there. */
   pinned?: boolean
+  /** Its place in reading order, for notes that want the same line (the one about the earlier word goes first). */
+  order?: number
 }
 
 /** Each note's top, keyed by id. */
@@ -17,7 +19,7 @@ export function layoutNotes(items: readonly NoteToPlace[], gap = 8): Map<string,
   const out = new Map<string, number>()
   // Pinned notes first where they want to be; the rest in order down the page, each below what is above it.
   const pinned = items.filter((n) => n.pinned).sort((a, b) => a.want - b.want)
-  const free = items.filter((n) => !n.pinned).sort((a, b) => a.want - b.want || a.id.localeCompare(b.id))
+  const free = items.filter((n) => !n.pinned).sort((a, b) => a.want - b.want || (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id))
   const taken: { top: number; bottom: number }[] = pinned.map((n) => ({ top: n.want, bottom: n.want + n.height }))
   for (const n of pinned) out.set(n.id, n.want)
   let floor = -Infinity

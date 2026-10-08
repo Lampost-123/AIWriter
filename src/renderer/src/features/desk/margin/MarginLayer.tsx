@@ -7,8 +7,9 @@
 // (layoutNotes.ts) and glide there (220ms); notes that move with their words move at once. The words never move.
 // Below about 1180px (deskFit.ts) the notes fold into small tabs on the sheet's edge that open each note as a pop-up.
 // With the scene drawer open (it covers the margin) the notes step away; in focus mode they fade with the rest.
-// Phase 3a has the foundation and its first note, the scene card pinned beside the title; entity, check and memory
-// notes come next (D3.4, D3.5).
+// The notes are the scene card (pinned beside the title) and the entities named in the text (pickSlips.ts decides
+// which); where each entity is first named is found again a moment after typing stops (mentions.ts), so its note follows
+// its word.
 import type { Editor } from '@tiptap/core'
 import * as P from '@radix-ui/react-popover'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
@@ -18,9 +19,15 @@ import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 import { MARGIN } from '@/layout/desk/deskFit'
+import { KIND_LABELS } from '@shared/fields'
+import { useSceneNames } from '@/features/editor/names/sceneNames'
+import { nameIndex } from '@/features/editor/names/underlines'
 import { changesBlocks, posOfAnchor, type PlacedSlip } from './anchors'
 import { layoutNotes } from './layoutNotes'
 import { dismissedIn, useMarginStore } from './marginStore'
+import { firstMentions } from './mentions'
+import { pickSlips, type Placed } from './pickSlips'
+import { EntitySlip } from './slips/EntitySlip'
 import { SceneCardSlip } from './slips/SceneCardSlip'
 import { Tether } from './Tethers'
 
@@ -32,6 +39,10 @@ const TETHER_Y = 18
 const BUSY_MS = 250
 /** A small tilt for each note, straightened on hover (desk.css). */
 const TILTS = [-0.4, 0.3, -0.25, 0.2]
+/** How long after typing stops the notes look again for where their names are (as the page's underlines do). */
+const MENTIONS_DELAY = 400
+/** A note's tab on the sheet's edge (a smaller window), with the gap kept between two. */
+const TAB_HEIGHT = 28
 
 interface NoteGeo {
   /** Where it sits (px down the scroll area). */
@@ -41,6 +52,8 @@ interface NoteGeo {
   /** The word it is about: where its tether starts. */
   wordX: number
   wordY: number
+  /** Its height when placed (0 before it was first drawn). */
+  h: number
 }
 
 interface Geo {
@@ -52,12 +65,21 @@ interface Geo {
 }
 
 /** What a note shows, by its kind. */
-function SlipBody({ slip, sceneId }: { slip: PlacedSlip; sceneId: ID }): React.JSX.Element | null {
+function SlipBody({ slip, sceneId, inline }: { slip: PlacedSlip; sceneId: ID; inline?: boolean }): React.JSX.Element | null {
   if (slip.kind === 'card') return <SceneCardSlip sceneId={sceneId} />
+  if (slip.entity) return <EntitySlip id={slip.id} data={slip.entity} sceneId={sceneId} inline={inline} />
   return null
 }
 
-const LABELS: Partial<Record<PlacedSlip['kind'], string>> = { card: 'Scene card' }
+/** What a note's tab is called (a smaller window). */
+function labelOf(slip: PlacedSlip): string {
+  if (slip.kind === 'card') return 'Scene card'
+  if (slip.entity) return `${KIND_LABELS[slip.entity.entry.kind]?.one ?? 'Entry'}: ${slip.entity.entry.name}`
+  return 'Note'
+}
+
+/** Where each entry is first named, as a key that changes only when one of them moves. */
+const mentionsKey = (m: Map<ID, Placed>): string => [...m].map(([id, p]) => `${id}@${p.anchor.pid}:${p.anchor.offset}`).join(' ')
 
 export function MarginLayer({
   editor,
@@ -83,13 +105,51 @@ export function MarginLayer({
   const fontSize = useApp((s) => s.settings?.editor.fontSize)
   const lineHeight = useApp((s) => s.settings?.editor.lineHeight)
   const pageWidth = useApp((s) => s.settings?.editor.pageWidth)
+  const writing = useApp((s) => s.view.kind === 'write')
+  const { data: names } = useSceneNames(sceneId, writing)
 
-  // The notes to show. Phase 3a: the scene card, pinned beside the title.
+  // Where each entry is first named: when the scene or its names change, and a moment after typing stops.
+  const [mentions, setMentions] = useState<Map<ID, Placed>>(() => new Map())
+  const mentionsRef = useRef('')
+  const indexKey = nameIndex().key
+  useEffect(() => {
+    const read = (): void => {
+      if (editor.isDestroyed) return
+      const next = firstMentions(editor.state.doc, nameIndex())
+      const key = mentionsKey(next)
+      if (key === mentionsRef.current) return
+      mentionsRef.current = key
+      setMentions(next)
+    }
+    // After this frame, so a scene being swapped in is read, not the last one.
+    let timer = setTimeout(read, 0)
+    const onUpdate = (): void => {
+      clearTimeout(timer)
+      timer = setTimeout(read, MENTIONS_DELAY)
+    }
+    editor.on('update', onUpdate)
+    return () => {
+      clearTimeout(timer)
+      editor.off('update', onUpdate)
+    }
+  }, [editor, sceneId, names, indexKey])
+
+  // The notes to show (pickSlips.ts): the scene card, then the entities named in the text.
   const slips = useMemo<PlacedSlip[]>(
-    () => [{ id: 'card', kind: 'card' as const, anchor: 'top' as const, pinned: true }].filter((s) => !dismissed.includes(s.id)),
-    [dismissed]
+    () =>
+      pickSlips({
+        names: names && names.sceneId === sceneId ? names : null,
+        firstMentions: mentions,
+        issues: [],
+        openIssues: 0,
+        memory: null,
+        dismissed
+      }),
+    [names, sceneId, mentions, dismissed]
   )
-  const slipKey = slips.map((s) => s.id).join(' ')
+  const slipKey = slips.map((s) => (s.anchor === 'top' ? s.id : `${s.id}@${s.anchor.pid}:${s.anchor.offset}`)).join(' ')
+  const modeRef = useRef(mode)
+  modeRef.current = mode
 
   const [geo, setGeo] = useState<Geo | null>(null)
   const geoRef = useRef<Geo | null>(null)
@@ -114,8 +174,10 @@ export function MarginLayer({
     const width = Math.max(200, Math.min(MARGIN.width, scroller.clientWidth - left - 8))
     const view = editor.view
     const textRight = x(view.dom.getBoundingClientRect().right)
-    const wants: { id: string; want: number; height: number; pinned?: boolean; wordX: number; wordY: number }[] = []
+    const wants: { id: string; want: number; height: number; pinned?: boolean; order: number; wordX: number; wordY: number }[] = []
     for (const slip of slipsRef.current) {
+      // Where its word is in the page: notes wanting the same line go in reading order.
+      let order = -1
       let want: number
       let wordX: number
       let wordY: number
@@ -123,12 +185,14 @@ export function MarginLayer({
         const title = sheet.querySelector<HTMLElement>('.desk-scene-title') ?? sheet.querySelector<HTMLElement>('[data-page-title]')
         if (!title) continue
         const t = title.getBoundingClientRect()
-        want = y(t.top) - CARD_ABOVE_TITLE
+        // Its tab (a smaller window) is level with the title itself.
+        want = y(t.top) - (modeRef.current === 'tabs' ? 0 : CARD_ABOVE_TITLE)
         wordX = x(t.right) + 14
         wordY = y(t.top + t.height / 2)
       } else {
         const pos = posOfAnchor(view.state.doc, slip.anchor)
         if (pos === null) continue
+        order = pos
         let block: Element | null = null
         try {
           const dom = view.domAtPos(pos).node
@@ -146,12 +210,12 @@ export function MarginLayer({
         }
         wordX = textRight + 6
       }
-      const height = noteEls.current.get(slip.id)?.offsetHeight ?? 0
-      wants.push({ id: slip.id, want: Math.round(want), height, pinned: slip.pinned, wordX: Math.round(wordX), wordY: Math.round(wordY) })
+      const height = modeRef.current === 'tabs' ? TAB_HEIGHT : (noteEls.current.get(slip.id)?.offsetHeight ?? 0)
+      wants.push({ id: slip.id, want: Math.round(want), height, pinned: slip.pinned, order, wordX: Math.round(wordX), wordY: Math.round(wordY) })
     }
     const tops = layoutNotes(wants)
     const notes: Record<string, NoteGeo> = {}
-    for (const w of wants) notes[w.id] = { top: tops.get(w.id) ?? w.want, want: w.want, wordX: w.wordX, wordY: w.wordY }
+    for (const w of wants) notes[w.id] = { top: tops.get(w.id) ?? w.want, want: w.want, wordX: w.wordX, wordY: w.wordY, h: w.height }
     const next: Geo = { left: Math.round(left), sheetRight: Math.round(sheetRight), width: Math.round(width), notes }
     const was = geoRef.current
     if (was && JSON.stringify(was) === JSON.stringify(next)) return
@@ -227,7 +291,8 @@ export function MarginLayer({
       const was = placed.current.get(id)
       placed.current.set(id, g)
       const el = noteEls.current.get(id)
-      if (!was || !el || still) continue
+      // Not before it was first drawn (its height unknown, it was placed as if it took no room).
+      if (!was || !was.h || !el || still) continue
       const pushed = g.top - g.want !== was.top - was.want
       const delta = was.top - g.top
       if (pushed && Math.abs(delta) > 1) {
@@ -263,12 +328,12 @@ export function MarginLayer({
                   type="button"
                   data-slip-tab={slip.id}
                   data-kind={slip.kind}
-                  aria-label={LABELS[slip.kind] ?? 'Note'}
-                  title={LABELS[slip.kind] ?? 'Note'}
+                  aria-label={labelOf(slip)}
+                  title={labelOf(slip)}
                   className="desk-slip-tab pointer-events-auto absolute"
                   style={{
                     left: (geo?.sheetRight ?? 0) - 3,
-                    top: (g?.want ?? 0) + (slip.anchor === 'top' ? CARD_ABOVE_TITLE : 0),
+                    top: g?.top ?? 0,
                     visibility: g ? undefined : 'hidden'
                   }}
                 />
@@ -282,7 +347,7 @@ export function MarginLayer({
                   collisionPadding={12}
                   className="desk-slip-pop z-40 w-[300px] data-[state=open]:animate-pop-in"
                 >
-                  <SlipBody slip={slip} sceneId={sceneId} />
+                  <SlipBody slip={slip} sceneId={sceneId} inline />
                 </P.Content>
               </P.Portal>
             </P.Root>

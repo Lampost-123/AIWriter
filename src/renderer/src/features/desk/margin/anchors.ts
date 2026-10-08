@@ -5,6 +5,8 @@
 // are unit-tested; MarginLayer does the measuring.
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
+import type { Issue } from '@shared/contracts/checks'
+import type { NamedEntry, StateLine } from '@shared/contracts/manuscript'
 
 /** A word in a paragraph: the paragraph's id, and how far into its text the word starts. */
 export interface Anchor {
@@ -15,6 +17,31 @@ export interface Anchor {
 /** The kinds of note: their ink (the kind's colour) and their place in the order. */
 export type SlipKind = 'card' | 'character' | 'place' | 'item' | 'group' | 'lore' | 'event' | 'issue' | 'memory'
 
+/** An entity's note: who or what it is, and the line of what has happened to it that matters here. */
+export interface EntitySlipData {
+  entry: NamedEntry
+  /** Why it is here: the scene's point of view, on the card (present, or where it happens), or only named. */
+  role: 'pov' | 'present' | 'location' | 'named'
+  /** The small tag in its head: "Since Ch 1" (when its fact line happened), "In memory" for lore; null for none. */
+  tag: string | null
+  /** The latest thing that happened to it before this scene, or null. */
+  fact: StateLine | null
+  score: number
+}
+
+/** A check's note: the issue, and (on the last one shown) how many more there are in the Issues tab. */
+export interface CheckSlipData {
+  issue: Issue
+  more: number
+}
+
+/** The memory's note after a run on this scene: how many facts it updated, and the first few in plain words. */
+export interface MemorySlipData {
+  runId: string
+  count: number
+  lines: string[]
+}
+
 /** A note to show in the margin. */
 export interface PlacedSlip {
   id: string
@@ -22,6 +49,9 @@ export interface PlacedSlip {
   anchor: Anchor | 'top'
   /** Stays where it wants to be (the scene card). */
   pinned?: boolean
+  entity?: EntitySlipData
+  check?: CheckSlipData
+  memory?: MemorySlipData
 }
 
 /** The paragraph (or other text block) with this id, and where it starts. */
