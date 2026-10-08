@@ -11,6 +11,7 @@ import type { ID } from '@shared/types'
 import { defaultWritingPrefs } from '@shared/defaults'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { entryNamed, readScene, saveParas, testWorld } from '../../../tests/unit/keeperRead'
+import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
@@ -133,5 +134,42 @@ describe('Undo gives a removed or updated fact back to the writer for good', () 
     expect(changesOf(w.db, 'Mara').map((x) => x.id)).toEqual([c.id])
     expect(mem.getChange(w.db, c.id).payload).toMatchObject({ note: 'lost her knife in the river' })
     expect(writerEntry(w.db, s2, 'Mara')!.fields.marks ?? '').toContain('river')
+  })
+})
+
+describe('the world builder’s drafts', () => {
+  it('are never removed when the words that said the same go', async () => {
+    const w = testWorld(1)
+    const [s1, s2] = w.scenes
+    const kell = repo.createEntry(w.db, 'character', { name: 'Kell' })
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'grey' } }, { origin: 'ai' })
+    saveParas(w.db, s1, [
+      ['p1', "Kell's eyes were grey."],
+      ['p3', 'Kell said the tide would turn by dusk.']
+    ])
+    await readScene(w.db, fake, s1)
+    // The words agree with the draft, but it doesn't come to rest on them.
+    expect(hist.linksForEntry(w.db, kell.id).filter((l) => hist.isFieldLink(l, 'eyes'))).toEqual([])
+    saveParas(w.db, s1, [['p3', 'Kell said the tide would turn by dusk.']])
+    await readScene(w.db, fake, s1)
+    expect(entryNamed(w.db, 'Kell')!.fields.eyes).toBe('grey')
+    expect(writerEntry(w.db, s2, 'Kell')!.fields.eyes).toBe('grey')
+  })
+
+  it('are kept even when an older version left them resting on words that then go', async () => {
+    const w = testWorld(1)
+    const [s1] = w.scenes
+    const kell = repo.createEntry(w.db, 'character', { name: 'Kell' })
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'grey' } }, { origin: 'ai' })
+    saveParas(w.db, s1, [
+      ['p1', "Kell's eyes were grey."],
+      ['p3', 'Kell said the tide would turn by dusk.']
+    ])
+    await readScene(w.db, fake, s1)
+    const v = kdb.keeperScene(w.db, s1)!.textVersion
+    hist.addLink(w.db, { factKind: 'field', factId: kell.id, field: 'eyes', sceneId: s1, sceneVersion: v, paragraphId: 'p1', start: 0, end: 22, quote: "Kell's eyes were grey." })
+    saveParas(w.db, s1, [['p3', 'Kell said the tide would turn by dusk.']])
+    await readScene(w.db, fake, s1)
+    expect(entryNamed(w.db, 'Kell')!.fields.eyes).toBe('grey')
   })
 })

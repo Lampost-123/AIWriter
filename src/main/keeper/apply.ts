@@ -690,9 +690,15 @@ function textBorn(run: Run, f: SceneFact): boolean {
 /**
  * Adam's say on a fact that lost its words (Adam, 2026-10-08): kept, with a question-marked line, when he made it
  * himself, or when he edited it while this run was reading. A text fact he merely edited before goes with its words.
+ * A field of his own entry is his when he typed it as he made the entry (it has no origin of its own) or the world
+ * builder drafted it (that counts as his, 2026-10-08), even if an older version left it resting on the scene's words.
  */
 const keptForAdam = (run: Run, planned: SceneFact, f: SceneFact): boolean =>
-  f.origin === 'adam' && (planned.origin !== 'adam' || !textBorn(run, f))
+  (f.kind === 'field' &&
+    f.entry.origin === 'adam' &&
+    (builderField(f.entry, f.field) || f.entry.fieldOrigins?.[f.field] === undefined) &&
+    fieldValue(f.entry, f.field).trim() !== '') ||
+  (f.origin === 'adam' && (planned.origin !== 'adam' || !textBorn(run, f)))
 
 /** Every link of a fact, in any scene, as it is now. */
 function allLinks(run: Run, f: SceneFact): SourceLink[] {
@@ -1185,8 +1191,10 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
   const fp = fingerprint({ type: 'field', entryId: e.id, field })
   const before = fieldValue(e, field)
   if (plain(before) === plain(value)) {
-    // The same detail again: these words support it too.
+    // The same detail again: these words support it too (never Adam's own value or the world builder's draft, which
+    // don't rest on words and must never go with them).
     if (
+      !adamField(e, field) &&
       fieldOrigin(e, field) !== 'adam' &&
       !hist
         .linksForEntry(db, e.id)
