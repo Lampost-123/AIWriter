@@ -7,7 +7,7 @@ import type { AskIntent } from '@shared/askIntent'
 import type { Proposal } from '@shared/contracts/ask'
 import { chatExp } from '../ask/exp'
 import { compactBlocks, pastAnswer, stepPreamble } from '../ask/history'
-import { editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../ask/route'
+import { asksForNewProse, editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../ask/route'
 
 /**
  * An earlier answer as the model is shown it again: with the changes it proposed through its tools, so it sees itself
@@ -17,7 +17,7 @@ import { editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../as
  */
 function withProposals(full: string, proposals: Proposal[]): string {
   const answer = chatExp('FORMAT') ? compactBlocks(full) : full
-  if (chatExp('HISTORY')) return pastAnswer(answer, proposals)
+  if (chatExp('HISTORY')) return pastAnswer(answer, proposals, chatExp('ACTFIRST'))
   if (!proposals.length) return answer
   const what = proposals.map((p) => `change ${p.id} (${p.kind === 'text' ? 'an edit' : p.kind === 'passage' ? 'a rewrite' : p.kind}, ${p.status})`).join(', ')
   return `${answer}\n\n[Proposed with the tools: ${what}]`
@@ -124,9 +124,19 @@ export const askHandlers: Handlers<keyof AskApi> = {
     let generationId = ''
     // A question quoting words selected in the page ("Ask about this", "Edit this") already has the words to change.
     const quoted = typeof input.selection?.text === 'string' && !!input.selection.text.trim()
+    // ACTFIRST (the Phase 2 fix): an edit reads before it asks, and "write the next bit" is made to draft.
+    const actFirst = chatExp('ACTFIRST')
+    const newProse = actFirst && intent === 'edit' && asksForNewProse(question)
     const agent = new EditorAgent(
       db,
-      { storyId, sceneId: input.sceneId ?? null, prefs: getWritingPrefs(), ...(intent ? { intent } : {}), ...(quoted ? { wordsInQuestion: true } : {}) },
+      {
+        storyId,
+        sceneId: input.sceneId ?? null,
+        prefs: getWritingPrefs(),
+        ...(intent ? { intent } : {}),
+        ...(quoted ? { wordsInQuestion: true } : {}),
+        ...(newProse ? { newProse: true } : {})
+      },
       (label) => emit('ask:step', { taskId: input.taskId, generationId, label }),
       (proposals) => {
         if (generationId && db.open) saveProposals(db, generationId, proposals)
@@ -169,7 +179,18 @@ export const askHandlers: Handlers<keyof AskApi> = {
         // Never once the chat has asked the writer a question with options (ask_user ends the answer).
         maxNudges: route ? MAX_EDIT_NUDGES : 1,
         nudge: (answer, attempt) =>
-          editorNudge({ answer, attempt, question, proposed: agent.proposals.length, intent, route, contract, asked: !!agent.choice }),
+          editorNudge({
+            answer,
+            attempt,
+            question,
+            proposed: agent.proposals.length,
+            intent,
+            route,
+            contract,
+            asked: !!agent.choice,
+            // With a scene open, an edit's question before reading is sent back to read first (ACTFIRST).
+            ...(actFirst && input.sceneId ? { read: agent.knowsWords() } : {})
+          }),
         // The proposals and the question it ended with (agent.extraParams), and the routed intent.
         extraParams: () => ({ ...agent.extraParams(), ...(intent ? { intent } : {}) })
       }
