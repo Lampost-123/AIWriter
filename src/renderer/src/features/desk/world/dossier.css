@@ -13,7 +13,7 @@
 [data-arrangement='desk'] .dz-scrim {
   position: absolute;
   inset: 0;
-  background: rgb(35 24 14 / 0.3);
+  background: rgb(var(--shade-deep-rgb) / 0.3);
   backdrop-filter: blur(4px);
 }
 [data-arrangement='desk'][data-theme='dark'] .dz-scrim {
@@ -30,13 +30,13 @@
   background: var(--page);
   color: var(--fg);
   box-shadow:
-    0 0 0 1px rgb(70 45 20 / 0.08),
-    0 2px 6px rgb(40 25 10 / 0.1),
-    0 40px 90px -30px rgb(40 25 10 / 0.52);
+    0 0 0 1px rgb(var(--shade-rgb) / 0.08),
+    0 2px 6px rgb(var(--shade-deep-rgb) / 0.1),
+    0 40px 90px -30px rgb(var(--shade-deep-rgb) / 0.52);
 }
 [data-arrangement='desk'][data-theme='dark'] .dz-sheet {
   box-shadow:
-    0 0 0 1px rgb(255 240 220 / 0.07),
+    0 0 0 1px rgb(var(--hair-rgb) / 0.07),
     0 40px 90px -30px rgb(0 0 0 / 0.8);
 }
 [data-arrangement='desk'] .dz-missing {
@@ -213,7 +213,7 @@
   border-radius: 14px;
   box-shadow:
     0 0 0 4px var(--page),
-    0 12px 26px -8px rgb(40 25 10 / 0.4);
+    0 12px 26px -8px rgb(var(--shade-deep-rgb) / 0.4);
 }
 [data-arrangement='desk'] .dz[data-kind='character'] .dz-portrait > * {
   border-radius: 50%;

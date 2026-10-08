@@ -51,7 +51,7 @@
   background: color-mix(in oklab, var(--surface-3) 70%, transparent);
   box-shadow:
     inset 0 0 0 1px var(--desk-line-2),
-    inset 0 1px 2px rgb(70 45 20 / 0.05);
+    inset 0 1px 2px rgb(var(--shade-rgb) / 0.05);
   margin-right: 4px;
 }
 [data-arrangement='desk'] .board-seg-pill {
@@ -185,7 +185,7 @@
   border-radius: 14px;
   /* A faint cork-coloured ground under the cards, so they read as pinned to a board. */
   background:
-    radial-gradient(1200px 500px at 30% 0%, rgb(255 236 200 / 0.18), transparent 70%),
+    radial-gradient(1200px 500px at 30% 0%, rgb(var(--hi-rgb) / 0.18), transparent 70%),
     color-mix(in oklab, var(--bg) 82%, var(--surface-3));
   box-shadow: inset 0 0 0 1px var(--desk-line-2);
 }
@@ -540,7 +540,7 @@
   stroke-linecap: round;
 }
 [data-arrangement='desk'] .board-str .s-sh {
-  stroke: rgb(40 25 10 / 0.2);
+  stroke: rgb(var(--shade-deep-rgb) / 0.2);
   stroke-width: 2.6;
   transform: translate(0.6px, 1.8px);
 }
@@ -608,8 +608,8 @@
   inset: 0;
   border-radius: 999px;
   box-shadow:
-    1px 2.2px 2.4px rgb(40 25 10 / 0.34),
-    0 0 0 0.5px rgb(40 25 10 / 0.22);
+    1px 2.2px 2.4px rgb(var(--shade-deep-rgb) / 0.34),
+    0 0 0 0.5px rgb(var(--shade-deep-rgb) / 0.22);
 }
 [data-arrangement='desk'] .board-pin.is-done .board-pin-head {
   background: radial-gradient(circle at 34% 30%, #bfe8cb 0 10%, #4e9d69 42%, #2a673e 100%);
@@ -621,7 +621,7 @@
   background: var(--card);
   box-shadow:
     inset 0 0 0 1.6px #85776a,
-    1px 2.2px 2.4px rgb(40 25 10 / 0.3);
+    1px 2.2px 2.4px rgb(var(--shade-deep-rgb) / 0.3);
 }
 [data-arrangement='desk'] .board-pin.is-ai .board-pin-head {
   background: radial-gradient(circle at 34% 30%, #ffe6bc 0 10%, #e59d48 44%, #b06516 100%);
@@ -1086,9 +1086,9 @@
   border-radius: 4px;
   background-color: var(--card);
   box-shadow:
-    0 0 0 1px rgb(70 45 20 / 0.08),
-    0 1px 1px rgb(70 45 20 / 0.06),
-    0 6px 14px -8px rgb(70 45 20 / 0.26);
+    0 0 0 1px rgb(var(--shade-rgb) / 0.08),
+    0 1px 1px rgb(var(--shade-rgb) / 0.06),
+    0 6px 14px -8px rgb(var(--shade-rgb) / 0.26);
   animation: board-idea-in 260ms var(--motion-glide) var(--d, 0ms) backwards;
 }
 @keyframes board-idea-in {

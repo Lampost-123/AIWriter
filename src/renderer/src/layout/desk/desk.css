@@ -3,9 +3,11 @@
   "The two looks"). Imported once by App.tsx. Nothing here reaches the panels or Classic: every rule sits under
   [data-arrangement='desk'][data-look='new'].
 
-  The desk's colours are Direction B ("Lit desk") in Light, Direction C ("Night harbour") in Dark and a warm paper in
-  Sepia: a lit frame (bg, with a pool of lamp light over the page and darker corners), panes a step up (surface), the
-  page and the slips of paper lightest. Text keeps at least 4.5:1 on all of them, kind inks too, and the text on the
+  The desk's colours are blue in Light and Dark (Adam, Phase 6: "more blueish" than the brown leather): Light is a cool
+  slate frame with navy leather on the spine and the drawer's head and a faintly blue-grey white paper; Dark is "Night
+  harbour", deep blue ink with a lifted blue-slate sheet and navy leather. Sepia keeps its warm paper and brown leather.
+  In each: a lit frame (bg, with a pool of light over the page and darker corners), panes a step up (surface), the
+  page and the slips of paper lightest. Amber stays the AI's alone, so it shows against the blue. Text keeps at least 4.5:1 on all of them, kind inks too, and the text on the
   spine on the spine (tests/unit/contrast.test.ts reads these blocks). Their own tokens: --spine*, --ribbon, the ruled
   lines and the red margin rule of index cards, --slip and --card, their shadows, the threads' string inks and the curves
   the world room's cards flip on (phase 4).
@@ -14,19 +16,19 @@
   same on the drawer's curve, the room pill glides; from the keyboard (data-instant) and with less motion, at once.
 */
 
-/* ---------- Light: Direction B, "Lit desk" ---------- */
+/* ---------- Light: cool slate and navy leather ---------- */
 [data-arrangement='desk'][data-look='new'][data-theme='light'] {
-  --bg: #e3d8c6;
-  --surface: #efe7da;
-  --surface-2: #e7ddcd;
-  --surface-3: #ded2be;
-  --page: #fffdf8;
-  --raise: #fffefa;
-  --line: #e0d6c6;
-  --line-strong: #cbbda6;
-  --fg: #231c14;
-  --muted: #56493b;
-  --faint: #665a4d;
+  --bg: #d8dee7;
+  --surface: #e6eaf0;
+  --surface-2: #dde2ea;
+  --surface-3: #d2d9e3;
+  --page: #fafbfc;
+  --raise: #ffffff;
+  --line: #d6dce5;
+  --line-strong: #b5bfcd;
+  --fg: #1b2130;
+  --muted: #485162;
+  --faint: #576071;
   --ai: #8a5212;
   --ai-soft: #f7e6cc;
   --ai-fg: #ffffff;
@@ -50,19 +52,19 @@
   --k-thread-soft: #e5efdb;
   --k-gloss: #4a5560;
   --k-gloss-soft: #e6e9ec;
-  --primary: #2a2119;
-  --primary-hover: #3a2f25;
-  --primary-fg: #fff8ec;
-  --slip: #fffefa;
-  --card: #fffefa;
-  --spine: #2a2119;
-  --spine-top: #352b21;
-  --spine-bottom: #231b14;
-  --spine-ink: #c9bfb0;
-  --spine-fg: #f6eee2;
-  --spine-muted: #d3c8b8;
-  --spine-faint: #afa392;
-  --ribbon: #9e3b32;
+  --primary: #1f2a42;
+  --primary-hover: #2c3854;
+  --primary-fg: #f4f7fc;
+  --slip: #ffffff;
+  --card: #ffffff;
+  --spine: #212b44;
+  --spine-top: #2a3654;
+  --spine-bottom: #1a2238;
+  --spine-ink: #c4ccdf;
+  --spine-fg: #f1f4fa;
+  --spine-muted: #cfd6e6;
+  --spine-faint: #a9b3ca;
+  --ribbon: #9e3a42;
   --rule-blue: rgb(47 93 124 / 0.13);
   --rule-red: rgb(176 65 58 / 0.28);
   --lamp: #b86f1e;
@@ -74,30 +76,43 @@
   --thread-4: #9a4a63;
   --thread-5: #5b5aa6;
   --thread-6: #6b6d2a;
-  --desk-line: rgb(70 45 20 / 0.13);
-  --desk-line-2: rgb(70 45 20 / 0.07);
-  --sh-1: 0 1px 0 rgb(70 45 20 / 0.05), 0 1px 3px rgb(70 45 20 / 0.08);
-  --sh-2: 0 1px 0 rgb(70 45 20 / 0.05), 0 8px 18px -8px rgb(70 45 20 / 0.22);
-  --sh-card: var(--sh-2), 0 0 0 1px rgb(70 45 20 / 0.06);
-  --sh-card-up: var(--sh-2), 0 3px 10px -4px rgb(70 45 20 / 0.18), 0 0 0 1px rgb(70 45 20 / 0.08);
-  --sh-paper: 0 1px 0 rgb(70 45 20 / 0.05), 0 12px 32px -14px rgb(70 45 20 / 0.26), 0 44px 90px -44px rgb(70 45 20 / 0.34);
-  --sh-pop: 0 2px 4px rgb(40 25 10 / 0.08), 0 22px 48px -14px rgb(40 25 10 / 0.34);
+  --desk-line: rgb(25 40 70 / 0.13);
+  --desk-line-2: rgb(25 40 70 / 0.07);
+  --sh-1: 0 1px 0 rgb(25 40 70 / 0.05), 0 1px 3px rgb(25 40 70 / 0.08);
+  --sh-2: 0 1px 0 rgb(25 40 70 / 0.05), 0 8px 18px -8px rgb(25 40 70 / 0.22);
+  --sh-card: var(--sh-2), 0 0 0 1px rgb(25 40 70 / 0.06);
+  --sh-card-up: var(--sh-2), 0 3px 10px -4px rgb(25 40 70 / 0.18), 0 0 0 1px rgb(25 40 70 / 0.08);
+  --sh-paper: 0 1px 0 rgb(25 40 70 / 0.05), 0 12px 32px -14px rgb(25 40 70 / 0.24), 0 44px 90px -44px rgb(25 40 70 / 0.32);
+  --sh-pop: 0 2px 4px rgb(12 22 45 / 0.08), 0 22px 48px -14px rgb(12 22 45 / 0.32);
   --elev-1: var(--sh-1);
   --elev-2: var(--sh-2);
   --elev-3: var(--sh-pop);
   --elev-page: var(--sh-paper);
   --shadow: var(--sh-2);
   --shadow-lg: var(--sh-pop);
-  --overlay: rgb(40 28 14 / 0.28);
-  /* The lamp: a pool of warm light over the page, the corners in shadow. */
-  --glow: radial-gradient(900px 640px at 51% 18%, rgb(255 214 150 / 0.55), transparent 65%),
-    radial-gradient(1600px 1000px at 50% 40%, transparent 55%, rgb(90 60 30 / 0.16) 100%);
+  --overlay: rgb(14 24 44 / 0.28);
+  /* A pool of light over the page, the corners in a cool shadow. */
+  --glow: radial-gradient(900px 640px at 51% 18%, rgb(255 255 255 / 0.62), transparent 65%),
+    radial-gradient(1600px 1000px at 50% 40%, transparent 55%, rgb(30 48 85 / 0.16) 100%);
+  --hi-rgb: 236 242 252;
+  --shade-rgb: 25 40 70;
+  --shade-deep-rgb: 12 22 45;
+  --hair-rgb: 25 40 70;
+  --parch: #efebe1;
+  --parch-edge-rgb: 110 100 80;
+  --parch-line-rgb: 90 85 75;
+  --roll-a: #b9b3a5;
+  --roll-b: #efebe2;
+  --roll-c: #e2dccf;
+  --roll-d: #aea795;
+  --plank-a: #b7c2d2;
+  --plank-b: #8a98ae;
 }
 /* The theme's own accent (an accent Adam picked keeps its colours: styles.css). */
 [data-arrangement='desk'][data-look='new'][data-theme='light']:not([data-accent]) {
   --accent: #2f5d7c;
   --accent-hover: #264e69;
-  --accent-soft: #dce7ee;
+  --accent-soft: #d6e3f0;
   --accent-fg: #ffffff;
 }
 /* Teal, a touch deeper on the desk's darker frame. */
@@ -107,55 +122,55 @@
 
 /* ---------- Dark: Direction C, "Night harbour" ---------- */
 [data-arrangement='desk'][data-look='new'][data-theme='dark'] {
-  --bg: #0f0d0b;
-  --surface: #191612;
-  --surface-2: #221e19;
-  --surface-3: #2b2620;
-  --page: #1e1a16;
-  --raise: #26211c;
-  --line: #2e2822;
-  --line-strong: #463e35;
-  --fg: #f1e8da;
-  --muted: #c2b6a5;
-  --faint: #a19583;
+  --bg: #0d1220;
+  --surface: #131a2a;
+  --surface-2: #1a2235;
+  --surface-3: #212a3f;
+  --page: #182033;
+  --raise: #1f2940;
+  --line: #263049;
+  --line-strong: #3a4663;
+  --fg: #e8ecf4;
+  --muted: #b3bccd;
+  --faint: #949eb3;
   --ai: #f5be70;
-  --ai-soft: #3a2c18;
+  --ai-soft: #3a2d1a;
   --ai-fg: #2a1606;
-  --danger: #e5776e;
-  --danger-soft: #3b1f1c;
+  --danger: #ec7f7a;
+  --danger-soft: #3a1e27;
   --success: #6cc08b;
-  --success-soft: #1a2f22;
+  --success-soft: #142d26;
   --k-char: #b596f0;
-  --k-char-soft: #2e2540;
+  --k-char-soft: #2c2645;
   --k-place: #4fc1b1;
-  --k-place-soft: #17302d;
+  --k-place-soft: #13302f;
   --k-group: #79a0e8;
-  --k-group-soft: #1d283c;
+  --k-group-soft: #1c2942;
   --k-item: #d9a55a;
-  --k-item-soft: #33281a;
+  --k-item-soft: #322a1d;
   --k-lore: #9a9bec;
-  --k-lore-soft: #262746;
+  --k-lore-soft: #252848;
   --k-event: #e27c9e;
-  --k-event-soft: #3a1f2a;
+  --k-event-soft: #3a2032;
   --k-thread: #93c46a;
-  --k-thread-soft: #212e19;
+  --k-thread-soft: #1d2d22;
   --k-gloss: #a9b4bf;
-  --k-gloss-soft: #262a2f;
-  --primary: #f1e8da;
+  --k-gloss-soft: #242a36;
+  --primary: #e8ecf4;
   --primary-hover: #ffffff;
-  --primary-fg: #1e1a16;
-  --slip: #26211c;
-  --card: #26211c;
-  --spine: #2b241d;
-  --spine-top: #342b23;
-  --spine-bottom: #221c16;
-  --spine-ink: #cfc4b4;
-  --spine-fg: #f3ebdf;
-  --spine-muted: #d3c8b8;
-  --spine-faint: #afa392;
-  --ribbon: #b04a3f;
+  --primary-fg: #182033;
+  --slip: #1f2940;
+  --card: #1f2940;
+  --spine: #1c263f;
+  --spine-top: #24304f;
+  --spine-bottom: #151d33;
+  --spine-ink: #c2cbe2;
+  --spine-fg: #eef2fa;
+  --spine-muted: #ccd4e6;
+  --spine-faint: #a6b0c9;
+  --ribbon: #a8414e;
   --rule-blue: rgb(143 180 216 / 0.12);
-  --rule-red: rgb(229 119 110 / 0.3);
+  --rule-red: rgb(236 127 122 / 0.3);
   --lamp: #e8a250;
   --lamp-2: #f5be70;
   --lamp-glow: rgb(232 162 80 / 0.55);
@@ -165,31 +180,44 @@
   --thread-4: #e27c9e;
   --thread-5: #a3a8f0;
   --thread-6: #c9c46a;
-  --desk-line: rgb(255 235 200 / 0.12);
-  --desk-line-2: rgb(255 235 200 / 0.07);
-  --sh-1: 0 1px 0 rgb(0 0 0 / 0.22), 0 2px 6px rgb(0 0 0 / 0.22);
-  --sh-2: inset 0 1px 0 rgb(255 240 220 / 0.05), 0 8px 18px -8px rgb(0 0 0 / 0.7);
-  --sh-card: var(--sh-2), 0 0 0 1px rgb(255 235 200 / 0.08);
-  --sh-card-up: var(--sh-2), 0 6px 14px -4px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 235 200 / 0.12);
-  --sh-paper: inset 0 1px 0 rgb(255 232 196 / 0.1), 0 0 0 1px rgb(255 235 200 / 0.05), 0 24px 60px -24px rgb(0 0 0 / 0.75), 0 60px 120px -50px rgb(0 0 0 / 0.6);
-  --sh-pop: 0 2px 6px rgb(0 0 0 / 0.3), 0 28px 60px -16px rgb(0 0 0 / 0.7);
+  --desk-line: rgb(190 210 245 / 0.12);
+  --desk-line-2: rgb(190 210 245 / 0.07);
+  --sh-1: 0 1px 0 rgb(2 6 18 / 0.24), 0 2px 6px rgb(2 6 18 / 0.24);
+  --sh-2: inset 0 1px 0 rgb(220 232 255 / 0.05), 0 8px 18px -8px rgb(2 6 18 / 0.72);
+  --sh-card: var(--sh-2), 0 0 0 1px rgb(190 210 245 / 0.08);
+  --sh-card-up: var(--sh-2), 0 6px 14px -4px rgb(2 6 18 / 0.52), 0 0 0 1px rgb(190 210 245 / 0.13);
+  --sh-paper: inset 0 1px 0 rgb(210 225 255 / 0.08), 0 0 0 1px rgb(190 210 245 / 0.06), 0 24px 60px -24px rgb(2 6 18 / 0.78), 0 60px 120px -50px rgb(2 6 18 / 0.62);
+  --sh-pop: 0 2px 6px rgb(2 6 18 / 0.32), 0 28px 60px -16px rgb(2 6 18 / 0.72);
   --elev-1: var(--sh-1);
   --elev-2: var(--sh-2);
   --elev-3: var(--sh-pop);
   --elev-page: var(--sh-paper);
   --shadow: var(--sh-2);
   --shadow-lg: var(--sh-pop);
-  --overlay: rgb(0 0 0 / 0.55);
+  --overlay: rgb(3 6 16 / 0.58);
   /* The harbour at night: cool light from above the page, the sea's teal and slate in the corners, and the lamp. */
   --glow: radial-gradient(1000px 640px at 46% -18%, rgb(78 104 150 / 0.34), transparent 62%),
     radial-gradient(760px 560px at -6% 98%, rgb(34 92 102 / 0.24), transparent 60%),
     radial-gradient(820px 620px at 108% 106%, rgb(58 66 118 / 0.24), transparent 60%),
     radial-gradient(700px 420px at 51% 22%, rgb(232 162 80 / 0.06), transparent 70%);
+  --hi-rgb: 226 234 250;
+  --shade-rgb: 2 6 18;
+  --shade-deep-rgb: 2 6 18;
+  --hair-rgb: 190 210 245;
+  --parch: #2b3346;
+  --parch-edge-rgb: 0 0 0;
+  --parch-line-rgb: 190 210 245;
+  --roll-a: #3a4256;
+  --roll-b: #5d6780;
+  --roll-c: #525b73;
+  --roll-d: #363e52;
+  --plank-a: #3b4660;
+  --plank-b: #273047;
 }
 [data-arrangement='desk'][data-look='new'][data-theme='dark']:not([data-accent]) {
   --accent: #8fb4d8;
   --accent-hover: #a8c5e2;
-  --accent-soft: #24303d;
+  --accent-soft: #22314a;
   --accent-fg: #0e1620;
 }
 
@@ -270,12 +298,45 @@
   --overlay: rgb(60 40 20 / 0.3);
   --glow: radial-gradient(900px 640px at 51% 18%, rgb(255 214 150 / 0.42), transparent 65%),
     radial-gradient(1600px 1000px at 50% 40%, transparent 55%, rgb(90 60 30 / 0.2) 100%);
+  --hi-rgb: 255 248 236;
+  --shade-rgb: 70 45 20;
+  --shade-deep-rgb: 40 25 10;
+  --hair-rgb: 255 235 200;
+  --parch: #f6ead0;
+  --parch-edge-rgb: 170 128 70;
+  --parch-line-rgb: 120 90 50;
+  --roll-a: #c9b28a;
+  --roll-b: #f6ebd3;
+  --roll-c: #eadbbc;
+  --roll-d: #bfa67c;
+  --plank-a: #d3be9c;
+  --plank-b: #a58b69;
 }
 [data-arrangement='desk'][data-look='new'][data-theme='sepia']:not([data-accent]) {
   --accent: #7d4426;
   --accent-hover: #6a3a20;
   --accent-soft: #ecd9c4;
   --accent-fg: #fff8ec;
+}
+
+/* The channels the desk's highlights and shadows are drawn from, so each theme tints them its own way: --hi-rgb the
+   light on leather and dark buttons, --shade-rgb and --shade-deep-rgb the shadows, --hair-rgb the dark theme's
+   hairlines; the parchment, scroll and shelf colours of the world room and the story home. Sepia's (the warm ones) are
+   the fallback. */
+[data-arrangement='desk'] {
+  --hi-rgb: 255 248 236;
+  --shade-rgb: 70 45 20;
+  --shade-deep-rgb: 40 25 10;
+  --hair-rgb: 255 235 200;
+  --parch: #f6ead0;
+  --parch-edge-rgb: 170 128 70;
+  --parch-line-rgb: 120 90 50;
+  --roll-a: #c9b28a;
+  --roll-b: #f6ebd3;
+  --roll-c: #eadbbc;
+  --roll-d: #bfa67c;
+  --plank-a: #d3be9c;
+  --plank-b: #a58b69;
 }
 
 /* ---------- Shared: shape and motion, the same in every theme ---------- */
@@ -342,7 +403,7 @@
   background: color-mix(in oklab, var(--surface-3) 70%, transparent);
   box-shadow:
     inset 0 0 0 1px var(--desk-line),
-    inset 0 1px 2px rgb(70 45 20 / 0.06);
+    inset 0 1px 2px rgb(var(--shade-rgb) / 0.06);
 }
 [data-arrangement='desk'] .desk-rooms > [aria-hidden].desk-room-pill {
   border-radius: 9px;
@@ -459,10 +520,10 @@
 
 /* The status island: one paper pill whose visible width is a clip-path (it changes smoothly, nothing moves). */
 [data-arrangement='desk'] .desk-island {
-  filter: drop-shadow(0 0 0.6px rgb(70 45 20 / 0.38)) drop-shadow(0 1px 2px rgb(70 45 20 / 0.12));
+  filter: drop-shadow(0 0 0.6px rgb(var(--shade-rgb) / 0.38)) drop-shadow(0 1px 2px rgb(var(--shade-rgb) / 0.12));
 }
 [data-arrangement='desk'][data-theme='dark'] .desk-island {
-  filter: drop-shadow(0 0 0.6px rgb(255 235 200 / 0.25)) drop-shadow(0 1px 2px rgb(0 0 0 / 0.4));
+  filter: drop-shadow(0 0 0.6px rgb(var(--hair-rgb) / 0.25)) drop-shadow(0 1px 2px rgb(0 0 0 / 0.4));
 }
 [data-arrangement='desk'] .desk-island:focus-visible {
   outline: 2px solid var(--focus);
@@ -568,7 +629,7 @@
 /* ---------- The story's spine: slim (rings) or full (the whole story), one leather capsule ---------- */
 /* The capsule's shadow is the whole spine's, so it follows the capsule's edge as it opens out and collapses. */
 [data-arrangement='desk'] .desk-spine {
-  filter: drop-shadow(0 1px 1px rgb(30 18 8 / 0.16)) drop-shadow(0 8px 12px rgb(30 18 8 / 0.2));
+  filter: drop-shadow(0 1px 1px rgb(var(--shade-deep-rgb) / 0.16)) drop-shadow(0 8px 12px rgb(var(--shade-deep-rgb) / 0.2));
 }
 [data-arrangement='desk'][data-theme='dark'] .desk-spine {
   filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.5)) drop-shadow(0 10px 14px rgb(0 0 0 / 0.55));
@@ -576,8 +637,8 @@
 [data-arrangement='desk'] .spine-capsule {
   background: linear-gradient(180deg, var(--spine-top) 0%, var(--spine) 38%, var(--spine-bottom) 100%);
   box-shadow:
-    inset 0 1px 0 rgb(255 240 215 / 0.11),
-    inset 1px 0 0 rgb(255 240 215 / 0.05),
+    inset 0 1px 0 rgb(var(--hi-rgb) / 0.11),
+    inset 1px 0 0 rgb(var(--hi-rgb) / 0.05),
     inset -1px 0 0 rgb(0 0 0 / 0.22);
   /* Slim: only its left 48px show (a clip, so nothing hidden can be clicked). It collapses in 140ms. */
   clip-path: inset(0 calc(100% - 48px) 0 0 round 24px);
@@ -629,7 +690,7 @@
   transition: background-color var(--dur-quick) ease-out;
 }
 [data-arrangement='desk'] .spine-hit:hover {
-  background-color: rgb(255 240 215 / 0.045);
+  background-color: rgb(var(--hi-rgb) / 0.045);
 }
 [data-arrangement='desk'] .spine-scroll {
   scrollbar-width: none;
@@ -647,7 +708,7 @@
   letter-spacing: -0.02em;
 }
 [data-arrangement='desk'] .spine-line {
-  background: rgb(255 248 236 / 0.2);
+  background: rgb(var(--hi-rgb) / 0.2);
   pointer-events: none;
 }
 [data-arrangement='desk'] .spine-ring {
@@ -698,17 +759,17 @@
 }
 [data-arrangement='desk'] .spine-glyph .r-track {
   fill: none;
-  stroke: rgb(255 248 236 / 0.62);
+  stroke: rgb(var(--hi-rgb) / 0.62);
   stroke-width: 1.5;
 }
 [data-arrangement='desk'] .spine-glyph :is(.r-half, .r-three) {
-  fill: rgb(255 248 236 / 0.62);
+  fill: rgb(var(--hi-rgb) / 0.62);
 }
 [data-arrangement='desk'] .spine-glyph .r-three {
   fill: #a9c8e6;
 }
 [data-arrangement='desk'] .spine-glyph .r-fill {
-  fill: rgb(255 248 236 / 0.88);
+  fill: rgb(var(--hi-rgb) / 0.88);
 }
 [data-arrangement='desk'] .spine-glyph .r-tick {
   fill: none;
@@ -725,13 +786,13 @@
   display: none;
 }
 [data-arrangement='desk'] .spine-glyph[data-status='planned'] .r-track {
-  stroke: rgb(255 248 236 / 0.5);
+  stroke: rgb(var(--hi-rgb) / 0.5);
 }
 [data-arrangement='desk'] .spine-glyph[data-status='revised'] .r-track {
   stroke: #a9c8e6;
 }
 [data-arrangement='desk'] .spine-orn {
-  color: rgb(255 248 236 / 0.45);
+  color: rgb(var(--hi-rgb) / 0.45);
   pointer-events: none;
 }
 [data-arrangement='desk'] .spine-title > span {
@@ -742,35 +803,35 @@
   font: 600 10.5px/1 var(--serif-font);
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: rgb(255 248 236 / 0.56);
+  color: rgb(var(--hi-rgb) / 0.56);
   white-space: nowrap;
 }
 [data-arrangement='desk'] .spine-add {
-  color: rgb(255 248 236 / 0.8);
-  box-shadow: inset 0 0 0 1px rgb(255 248 236 / 0.16);
+  color: rgb(var(--hi-rgb) / 0.8);
+  box-shadow: inset 0 0 0 1px rgb(var(--hi-rgb) / 0.16);
   transition:
     background-color var(--dur-quick) ease-out,
     color var(--dur-quick) ease-out,
     scale var(--dur-press) var(--desk-ease);
 }
 [data-arrangement='desk'] .spine-add:hover {
-  background: rgb(255 248 236 / 0.08);
-  color: #fff8ec;
+  background: rgb(var(--hi-rgb) / 0.08);
+  color: rgb(var(--hi-rgb));
 }
 [data-arrangement='desk'] .spine-add:active {
   scale: 0.94;
 }
 /* The chevron that opens the slim spine out, and the one that collapses the full one. */
 [data-arrangement='desk'] :is(.spine-open, .spine-collapse) {
-  color: rgb(255 248 236 / 0.78);
+  color: rgb(var(--hi-rgb) / 0.78);
   transition:
     background-color var(--dur-quick) ease-out,
     color var(--dur-quick) ease-out,
     scale var(--dur-press) var(--desk-ease);
 }
 [data-arrangement='desk'] :is(.spine-open, .spine-collapse):hover {
-  background: rgb(255 248 236 / 0.09);
-  color: #fff8ec;
+  background: rgb(var(--hi-rgb) / 0.09);
+  color: rgb(var(--hi-rgb));
 }
 [data-arrangement='desk'] :is(.spine-open, .spine-collapse):active {
   scale: 0.94;
@@ -798,13 +859,13 @@
   --fg: var(--spine-fg);
   --muted: var(--spine-muted);
   --faint: var(--spine-faint);
-  --surface: rgb(255 248 236 / 0.05);
-  --surface-2: rgb(255 248 236 / 0.075);
-  --surface-3: rgb(255 248 236 / 0.11);
-  --raise: rgb(255 248 236 / 0.1);
+  --surface: rgb(var(--hi-rgb) / 0.05);
+  --surface-2: rgb(var(--hi-rgb) / 0.075);
+  --surface-3: rgb(var(--hi-rgb) / 0.11);
+  --raise: rgb(var(--hi-rgb) / 0.1);
   --page: var(--spine-bottom);
-  --line: rgb(255 248 236 / 0.12);
-  --line-strong: rgb(255 248 236 / 0.2);
+  --line: rgb(var(--hi-rgb) / 0.12);
+  --line-strong: rgb(var(--hi-rgb) / 0.2);
   /* Revised scenes, and the focus ring, in the slim spine's light blue. */
   --accent: #a9c8e6;
   --accent-hover: #bcd5ec;
@@ -819,13 +880,13 @@
   color: var(--fg);
 }
 [data-arrangement='desk'] .spine-rule {
-  background: linear-gradient(90deg, rgb(255 248 236 / 0.16), rgb(255 248 236 / 0.04));
+  background: linear-gradient(90deg, rgb(var(--hi-rgb) / 0.16), rgb(var(--hi-rgb) / 0.04));
 }
 [data-arrangement='desk'] .spine-binder [role='tree'] {
   counter-reset: desk-ch;
 }
 [data-arrangement='desk'] .spine-binder ::-webkit-scrollbar-thumb {
-  background-color: rgb(255 248 236 / 0.16);
+  background-color: rgb(var(--hi-rgb) / 0.16);
 }
 /* Each chapter in the serif, with its numeral in the lamp's colour, as the slim spine numbers it. */
 [data-arrangement='desk'] .spine-binder [data-row='chapter'] {
@@ -855,15 +916,15 @@
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
 }
 [data-arrangement='desk'] .spine-new {
-  color: #fff8ec;
-  background: rgb(255 248 236 / 0.08);
-  box-shadow: inset 0 0 0 1px rgb(255 248 236 / 0.14);
+  color: rgb(var(--hi-rgb));
+  background: rgb(var(--hi-rgb) / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(var(--hi-rgb) / 0.14);
   transition:
     background-color var(--dur-quick) ease-out,
     scale var(--dur-press) var(--desk-ease);
 }
 [data-arrangement='desk'] .spine-new:hover {
-  background: rgb(255 248 236 / 0.13);
+  background: rgb(var(--hi-rgb) / 0.13);
 }
 [data-arrangement='desk'] .spine-new:active {
   scale: 0.98;
@@ -1125,7 +1186,7 @@
   box-shadow:
     var(--sh-pop),
     0 0 0 1px color-mix(in oklab, var(--lamp) 30%, transparent),
-    inset 0 1px 0 rgb(255 240 220 / 0.06);
+    inset 0 1px 0 rgb(var(--hi-rgb) / 0.06);
 }
 /* A soft amber glow on the desk below it: the lamp the AI writes by. */
 [data-arrangement='desk'] .desk-dock::after {
@@ -1478,7 +1539,7 @@
 /* Over the page (a window too small to dock it): the page dims under it, so its words never show through or beside the
    drawer's edge half-covered. The dimming comes and goes with the drawer. */
 [data-arrangement='desk'] .desk-drawer-scrim {
-  background: rgb(36 24 14 / 0.42);
+  background: rgb(var(--shade-deep-rgb) / 0.42);
   backdrop-filter: blur(3px);
   opacity: 1;
   transition:
@@ -1507,7 +1568,7 @@
 }
 [data-arrangement='desk'] .desk-drawer-head {
   background: linear-gradient(180deg, var(--spine-top) 0%, var(--spine) 100%);
-  box-shadow: inset 0 1px 0 rgb(255 240 215 / 0.11);
+  box-shadow: inset 0 1px 0 rgb(var(--hi-rgb) / 0.11);
 }
 /* Each tab's page scrolls inside the drawer: room after its last field, and a soft fade at an edge while there is more
    that way (SceneDrawer marks data-more-above and data-more-below). */
