@@ -377,7 +377,9 @@ export function changeWords(here: MapChangeNote[], name: (id: ID) => string, max
   const kinds = new Set(here.map((h) => h.what))
   const lead = kinds.size > 1 ? 'Changed' : here[0].what === 'new' ? 'New' : here[0].what === 'ended' ? 'Ended' : 'Changed'
   const lines = here.slice(0, max).map((h) => {
-    const who = `${name(h.aId)} and ${name(h.bId)}`
+    // In the order of their names, whichever way round the pair was noted.
+    const [x, y] = [name(h.aId), name(h.bId)].sort((p, q) => p.localeCompare(q))
+    const who = `${x} and ${y}`
     if (h.what === 'new') return h.type ? `${who}: ${h.type}` : `${who} are tied`
     if (h.what === 'ended') return `${who}: no longer ${h.before || 'tied'}`
     return h.before && h.before !== h.type ? `${who}: ${h.before} → ${h.type}` : `${who}: ${h.type || 'tied'}, feelings changed`

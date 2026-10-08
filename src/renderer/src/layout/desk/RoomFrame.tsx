@@ -166,6 +166,7 @@ export function RoomFrame({ view, children }: { view: View; children: ReactNode 
   return (
     <div
       data-desk-room={room ?? 'settings'}
+      data-page={view.kind}
       data-arrive={arriving || undefined}
       data-spine={spine ? (frame.full ? 'full' : 'slim') : undefined}
       className="desk-room absolute inset-0 flex flex-col"

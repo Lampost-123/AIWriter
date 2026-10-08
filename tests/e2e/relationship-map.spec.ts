@@ -249,3 +249,108 @@ test('the panels keep their own map', async ({ launch }) => {
   await expect(win.locator('[data-desk-map]')).toHaveCount(0)
   await expect(win.getByRole('slider', { name: 'As of' })).toBeVisible()
 })
+
+/** Invented: 150 characters over three chapters of four scenes, about 400 ties, some changing at scenes. */
+async function bigWorld(win: Page): Promise<void> {
+  await invoke(win, 'createWorld', 'The Salt Road')
+  await win.reload()
+  await expect(win.getByRole('navigation', { name: 'Rooms' })).toBeVisible()
+  const [story] = await invoke(win, 'listStories')
+  const outline = await invoke(win, 'getOutline', story.id)
+  const scenes = [outline.scenes[0].id]
+  let ch = outline.chapters[0]
+  for (let i = 1; i < 12; i++) {
+    if (i % 4 === 0) ch = await invoke(win, 'createChapter', story.id, { title: `Chapter ${i / 4 + 1}` })
+    scenes.push((await invoke(win, 'createScene', ch.id, { title: `Scene ${i + 1}` })).id)
+  }
+  const first = ['Ada', 'Bram', 'Cass', 'Dov', 'Esme', 'Fen', 'Gil', 'Hana', 'Ivo', 'Jun', 'Kes', 'Lio', 'Mira', 'Nico', 'Odile']
+  const last = ['Marrow', 'Quill', 'Thorne', 'Vane', 'Ashby', 'Pell', 'Rusk', 'Sorrel', 'Tamsin', 'Wick']
+  const ids: string[] = []
+  for (let i = 0; i < 150; i++)
+    ids.push((await invoke(win, 'createEntry', 'character', { name: `${first[i % 15]} ${last[Math.floor(i / 15)]}`, fields: { role: i === 0 ? 'protagonist' : 'minor' } })).id)
+  const kinds = ['sister', 'old friend', 'rival', 'mentor', 'married', 'works for', 'sworn enemy', 'cousin', 'loyal to', 'owes money', 'in love', 'apprentice']
+  let n = 0
+  const tie = (a: number, b: number, k: number, at: number | null) => {
+    n++
+    return invoke(win, 'createChange', {
+      kind: 'relationship',
+      payload: { otherId: ids[b], type: kinds[k % kinds.length], feels: k % 2 ? 'fond' : 'wary', otherFeels: k % 3 ? 'trusting' : 'resentful' },
+      entryId: ids[a],
+      ...(at === null ? { anchor: 'baseline' as const } : { anchor: 'scene' as const, sceneId: scenes[at] })
+    })
+  }
+  for (let i = 0; i < 150; i++) {
+    await tie(i, (i + 1) % 150, i, null)
+    await tie(i, (i + 11) % 150, i + 3, i % 3 === 0 ? i % 12 : null)
+    if (i % 3 === 0) await tie(i, (i + 37) % 150, i + 5, (i * 7) % 12)
+    if (i % 5 === 0) await tie(i, (i + 60) % 150, i + 7, null)
+  }
+  for (let i = 1; i < 30; i++) await tie(0, i * 5, i + 2, i % 2 ? null : i % 12)
+  expect(n).toBeGreaterThanOrEqual(400)
+  await win.reload()
+  await expect(win.getByRole('navigation', { name: 'Rooms' })).toBeVisible()
+}
+
+test('150 characters and 400 ties stay smooth: no frame over 50 ms while dragging, scrubbing or pointing', async ({ launch }) => {
+  test.setTimeout(240_000)
+  const { app, win } = await launch({ env: DESK })
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1920, 1080))
+  await bigWorld(win)
+  await win.getByRole('navigation', { name: 'Rooms' }).getByRole('button', { name: /^World/ }).click()
+  await win.locator('[data-desk-room] [data-desk-sublinks]').getByRole('button', { name: 'Relationship map' }).click()
+  await expect(canvas(win).locator('[data-map-node]').first()).toBeVisible()
+  await expect(win.locator('[data-map-minimap]')).toBeVisible()
+  await win.waitForTimeout(1200)
+  const nodes = canvas(win).locator('[data-map-node]')
+  const drag = async (i: number, steps: number) => {
+    const b = (await nodes.nth(i).boundingBox())!
+    const [x, y] = [b.x + b.width / 2, b.y + b.height / 2]
+    await win.mouse.move(x, y)
+    await win.mouse.down()
+    for (let s = 1; s <= steps; s++) await win.mouse.move(x + s * 4, y + s * 2)
+    await win.mouse.up()
+  }
+  const scrub = async (presses: number) => {
+    await strip(win).focus()
+    for (let s = 0; s < presses; s++) {
+      const before = await strip(win).getAttribute('aria-valuenow')
+      await win.keyboard.press(s < presses / 2 ? 'ArrowRight' : 'ArrowLeft')
+      await expect(strip(win)).not.toHaveAttribute('aria-valuenow', before ?? '')
+      await win.waitForTimeout(160)
+    }
+  }
+  // Warm up: one of each.
+  await drag(5, 10)
+  await scrub(2)
+  await win.mouse.move(800, 600, { steps: 4 })
+  await win.mouse.move(2, 2)
+  await win.waitForTimeout(500)
+
+  await win.evaluate(`(() => {
+    window.__frames = []
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) window.__frames.push([window.__phase || '', Math.round(e.duration), 'js' + Math.round(e.scripts.reduce((t, x) => t + x.duration, 0)), 'style' + Math.round(e.startTime + e.duration - e.styleAndLayoutStart), 'render' + Math.round(e.styleAndLayoutStart - e.renderStart)])
+    }).observe({ type: 'long-animation-frame', buffered: false })
+  })()`)
+  await win.evaluate('window.__phase = "drag"')
+  await drag(12, 40)
+  await win.evaluate('window.__phase = "scrub"')
+  await scrub(12)
+  await win.evaluate('window.__phase = "hover"')
+  // Pointing at characters in the open middle of the map (clear of the strip, the legend and the mini-map).
+  const c = (await canvas(win).boundingBox())!
+  const middle = (await nodes.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 })))).filter(
+    (p) => p.x > c.x + 300 && p.x < c.x + c.width - 300 && p.y > c.y + 220 && p.y < c.y + c.height - 160
+  )
+  expect(middle.length).toBeGreaterThan(8)
+  for (const p of middle.filter((_, i) => i % Math.floor(middle.length / 5) === 0).slice(0, 5)) {
+    await win.mouse.move(p.x, p.y, { steps: 4 })
+    await win.waitForTimeout(150)
+  }
+  await win.waitForTimeout(400)
+  const all = await win.evaluate<[string, number, string, string, string][]>('window.__frames')
+  const frames = all.map((f) => f[1])
+  console.log(`relationship-map perf: ${frames.length} long frames, worst ${Math.round(Math.max(0, ...frames))} ms: ${all.map((f) => f.join(' ')).join(', ')}`)
+  expect(frames.filter((d) => d > 50)).toEqual([])
+})

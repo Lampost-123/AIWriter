@@ -14,6 +14,7 @@ import { reducedMotion } from '@/features/look/motion'
 import type { View } from '../mapLogic'
 import {
   arcOf,
+  onCurve,
   changeWords,
   degrees,
   hullPath,
@@ -66,6 +67,9 @@ export interface DTie {
 }
 
 const EXIT = 140
+/** How near a tie's line the pointer must be to point at it, in pixels, and the grid it is found in. */
+const LINE_HIT = 9
+const LINE_CELL = 24
 const VIEW = 280
 /** Room kept clear round the map: the strip and the note above, the legend below, a little at the sides. */
 const PAD = { left: 70, right: 70, top: 176, bottom: 124 }
@@ -94,30 +98,58 @@ export function MapStage({
 
   // ----- What is on the map -----
   const [moved, setMoved] = useState<Map<ID, Pt>>(() => new Map())
-  const placeOf = useCallback((id: ID, x: number, y: number): Pt => moved.get(id) ?? { x, y }, [moved])
-  const { nodes, ties, byId } = useMemo(() => {
+  // The characters and ties, kept as the same objects while they are unchanged (as the strip moves, or a character is
+  // dragged), so only what changed draws again: a big cast stays smooth.
+  const nodeCache = useRef(new Map<ID, DNode>())
+  const tieCache = useRef(new Map<string, { sig: string; tie: DTie }>())
+  const { base, ties } = useMemo(() => {
     const deg = degrees(map.links.map((l) => ({ a: { id: l.aId }, b: { id: l.bId } })))
     const maxDeg = Math.max(0, ...deg.values())
-    const nodes: DNode[] = map.nodes.map((n) => {
-      const p = placeOf(n.id, n.x, n.y)
-      return { id: n.id, name: n.name, image: n.image, role: n.role ?? '', summary: n.summary ?? '', x: p.x, y: p.y, rank: rankOf(n.role, deg.get(n.id) ?? 0, maxDeg) }
+    const base: DNode[] = map.nodes.map((n) => {
+      const rank = rankOf(n.role, deg.get(n.id) ?? 0, maxDeg)
+      const old = nodeCache.current.get(n.id)
+      const role = n.role ?? ''
+      const summary = n.summary ?? ''
+      if (old && old.name === n.name && old.image === n.image && old.role === role && old.summary === summary && old.rank === rank && old.x === n.x && old.y === n.y)
+        return old
+      return { id: n.id, name: n.name, image: n.image, role, summary, x: n.x, y: n.y, rank }
     })
-    const byId = new Map(nodes.map((n) => [n.id, n]))
+    nodeCache.current = new Map(base.map((n) => [n.id, n]))
+    const here = new Set(base.map((n) => n.id))
     const pairs = new Map<string, MapLink[]>()
     for (const l of map.links) {
-      if (!byId.has(l.aId) || !byId.has(l.bId)) continue
+      if (!here.has(l.aId) || !here.has(l.bId)) continue
       const key = pairKeyOf(l.aId, l.bId)
       const list = pairs.get(key)
       if (list) list.push(l)
       else pairs.set(key, [l])
     }
+    const cache = new Map<string, { sig: string; tie: DTie }>()
     const ties: DTie[] = [...pairs].map(([key, links]) => {
+      const sig = JSON.stringify(links.map((l) => [l.aId, l.type, l.aFeels, l.bFeels, l.where]))
+      const old = tieCache.current.get(key)
+      if (old && old.sig === sig) {
+        cache.set(key, old)
+        return old.tie
+      }
       const [a, b] = key.split('|')
       const sides = sidesOf(links, a, b)
-      return { key, a, b, links, kind: tieKind(links.map((l) => l.type)), words: tieWords(links), sides, temp: temperature(sides) }
+      const tie: DTie = { key, a, b, links, kind: tieKind(links.map((l) => l.type)), words: tieWords(links), sides, temp: temperature(sides) }
+      cache.set(key, { sig, tie })
+      return tie
     })
-    return { nodes, ties, byId }
-  }, [map, placeOf])
+    tieCache.current = cache
+    return { base, ties }
+  }, [map])
+  const { nodes, byId } = useMemo(() => {
+    const nodes = moved.size
+      ? base.map((n) => {
+          const p = moved.get(n.id)
+          return p ? { ...n, x: p.x, y: p.y } : n
+        })
+      : base
+    return { nodes, byId: new Map(nodes.map((n) => [n.id, n])) }
+  }, [base, moved])
 
   const history = useMemo(() => new Map((detail?.history ?? []).map((h) => [pairKeyOf(h.aId, h.bId), h] as [string, MapTieHistory])), [detail])
   const here = useMemo(() => new Set((detail?.here ?? []).map((h) => pairKeyOf(h.aId, h.bId))), [detail])
@@ -323,6 +355,44 @@ export function MapStage({
     }
     return out
   }, [ties, byId, k, centre])
+  // Pointing at a tie's line is found here, from points along each curve in a grid, not by the browser: hit-testing
+  // hundreds of curved strokes on every move of the mouse (and after every change) is what made a big cast slow.
+  const lineGrid = useMemo(() => {
+    const grid = new Map<string, { key: string; x: number; y: number }[]>()
+    for (const t of ties) {
+      const a = byId.get(t.a)!
+      const b = byId.get(t.b)!
+      const pa = { x: a.x * k, y: a.y * k }
+      const pb = { x: b.x * k, y: b.y * k }
+      const { c } = arcs.get(t.key)!
+      const len = Math.hypot(pb.x - pa.x, pb.y - pa.y)
+      const n = Math.max(6, Math.min(80, Math.round(len / 10)))
+      for (let i = 1; i < n; i++) {
+        const p = onCurve(pa, c, pb, i / n)
+        const cell = `${Math.floor(p.x / LINE_CELL)},${Math.floor(p.y / LINE_CELL)}`
+        const list = grid.get(cell)
+        if (list) list.push({ key: t.key, ...p })
+        else grid.set(cell, [{ key: t.key, ...p }])
+      }
+    }
+    return grid
+  }, [ties, byId, arcs, k])
+  const tieAt = useCallback(
+    (x: number, y: number): string | null => {
+      let best: string | null = null
+      let bestD = LINE_HIT * LINE_HIT
+      const gx = Math.floor(x / LINE_CELL)
+      const gy = Math.floor(y / LINE_CELL)
+      for (let i = gx - 1; i <= gx + 1; i++)
+        for (let j = gy - 1; j <= gy + 1; j++)
+          for (const p of lineGrid.get(`${i},${j}`) ?? []) {
+            const d = (p.x - x) ** 2 + (p.y - y) ** 2
+            if (d < bestD) [best, bestD] = [p.key, d]
+          }
+      return best
+    },
+    [lineGrid]
+  )
 
   // Which names and pills have room: the leads' names first, then the best-connected ties' words.
   const dragging = useRef(false)
@@ -407,13 +477,31 @@ export function MapStage({
     if (e.button !== 0) return
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-map-node]')
     const node = target ? (byId.get(target.dataset.mapNode!) ?? null) : null
-    if (!node && (e.target as HTMLElement).closest('button, [data-map-tie-line]')) return
+    if (!node && (e.target as HTMLElement).closest('button')) return
     suppressClick.current = false
     press.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, node, moved: false }
   }
+  const onLine = useRef(false)
+  const lineAt = (e: React.PointerEvent | React.MouseEvent): string | null => {
+    if ((e.target as HTMLElement).closest('button')) return null
+    const r = box.current!.getBoundingClientRect()
+    const v = viewRef.current
+    return tieAt(e.clientX - r.left - v.tx, e.clientY - r.top - v.ty)
+  }
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
     const p = press.current
-    if (!p) return
+    if (!p) {
+      if (e.buttons) return
+      const key = lineAt(e)
+      if (key) {
+        onLine.current = true
+        if (key !== hotTie) setHotTie(key)
+      } else if (onLine.current) {
+        onLine.current = false
+        setHotTie(null)
+      }
+      return
+    }
     const dx = e.clientX - p.x
     const dy = e.clientY - p.y
     if (!p.moved) {
@@ -452,8 +540,10 @@ export function MapStage({
         })
       )
     } else if (!p.moved && !p.node) {
-      // A click on the paper puts the card away.
-      if (sel) close()
+      // A click on a tie's line opens its card; on the paper, it puts the card away.
+      const key = tieAt(p.x - box.current!.getBoundingClientRect().left - viewRef.current.tx, p.y - box.current!.getBoundingClientRect().top - viewRef.current.ty)
+      if (key) select({ kind: 'tie', key })
+      else if (sel) close()
     }
   }
 
@@ -576,11 +666,18 @@ export function MapStage({
         tabIndex={hasMap ? 0 : -1}
         className="dm-canvas"
         data-panning={panning || undefined}
+        data-on-line={hotTie && onLine.current ? '' : undefined}
         onKeyDown={hasMap ? onKeyDown : undefined}
         onPointerDown={hasMap ? onPointerDown : undefined}
         onPointerMove={onPointerMove}
         onPointerUp={endPress}
         onPointerCancel={endPress}
+        onPointerLeave={() => {
+          if (onLine.current) {
+            onLine.current = false
+            setHotTie(null)
+          }
+        }}
         onClickCapture={(e) => {
           if (!suppressClick.current) return
           suppressClick.current = false
@@ -590,7 +687,9 @@ export function MapStage({
       >
         {hasMap ? (
           <div className="dm-layer" data-gliding={gliding || undefined} style={{ transform: `translate3d(${view.tx}px, ${view.ty}px, 0)` }}>
-            <svg className="dm-lines" width={1} height={1} aria-hidden>
+            {/* Every tie, on a layer of its own: pointing dims it as a whole (no repaint), and the lit ties are drawn again on
+                top. */}
+            <svg className="dm-lines dm-lines-base" width={1} height={1} aria-hidden>
               {regionPts.length ? (
                 <>
                   <path className="dm-region" d={hullPath(regionPts)} strokeWidth={Math.max(110, MEDAL.lead * ms * 1.6)} />
@@ -601,13 +700,11 @@ export function MapStage({
                   key={t.key}
                   tie={t}
                   d={arcs.get(t.key)!.d}
-                  lit={!!litNodes?.ties.has(t.key)}
+                  lit={false}
                   out={!!members && (!members.has(t.a) || !members.has(t.b))}
-                  isKind={hotKind === t.kind}
+                  isKind={false}
                   fresh={isNew(`t:${t.key}`)}
                   here={here.has(t.key)}
-                  onHot={setHotTie}
-                  onClick={onTieClick}
                 />
               ))}
               {allLeavingTies.map((t) => {
@@ -620,6 +717,15 @@ export function MapStage({
                 return <TieLine key={`gone:${t.key}`} tie={t} d={d} lit={false} out={false} isKind={false} fresh={false} here={false} leaving />
               })}
             </svg>
+            {litNodes || hotKind ? (
+              <svg className="dm-lines dm-lines-top" width={1} height={1} aria-hidden>
+                {ties
+                  .filter((t) => (litNodes ? litNodes.ties.has(t.key) : t.kind === hotKind))
+                  .map((t) => (
+                    <TieLine key={t.key} tie={t} d={arcs.get(t.key)!.d} lit out={false} isKind fresh={false} here={false} top />
+                  ))}
+              </svg>
+            ) : null}
             {regionTop && group ? (
               <span className="dm-region-name" style={{ left: regionTop.x, top: regionTop.y - Math.max(55, MEDAL.lead * ms * 0.8) - 8 }}>
                 {group.name}
@@ -847,8 +953,7 @@ const TieLine = memo(function TieLine({
   fresh,
   here,
   leaving = false,
-  onHot,
-  onClick
+  top = false
 }: {
   tie: DTie
   d: string
@@ -858,28 +963,19 @@ const TieLine = memo(function TieLine({
   fresh: boolean
   here: boolean
   leaving?: boolean
-  onHot?: (key: string | null) => void
-  onClick?: (key: string) => void
+  /** Drawn again over the dimmed map, lit. */
+  top?: boolean
 }): React.JSX.Element {
   return (
     <g
       className={['dm-tie', lit && 'is-lit', out && 'is-out', isKind && 'is-kind', fresh && 'is-new', here && 'is-here', leaving && 'is-leaving'].filter(Boolean).join(' ')}
       data-kind={t.kind}
+      data-top={top || undefined}
     >
-      <path className="dm-tie-glow" d={d} />
+      {lit || here ? <path className="dm-tie-glow" d={d} /> : null}
       {/* Drawn in along its length on arriving (a solid line; a dashed one fades in). */}
       <path className="dm-tie-line" d={d} pathLength={fresh && SOLID.has(t.kind) ? 1 : undefined} />
       {t.kind === 'family' ? <path className="dm-tie-gap" d={d} /> : null}
-      {leaving ? null : (
-        <path
-          className="dm-tie-hit"
-          d={d}
-          data-map-tie-line={t.key}
-          onPointerEnter={() => onHot?.(t.key)}
-          onPointerLeave={() => onHot?.(null)}
-          onClick={() => onClick?.(t.key)}
-        />
-      )}
     </g>
   )
 })

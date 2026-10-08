@@ -20,11 +20,11 @@
   --dm-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* ---------- The wider sheet ---------- */
-[data-arrangement='desk'] .desk-room:has([data-desk-map]) .desk-room-sheet {
+/* ---------- The wider sheet (RoomFrame marks the page; a :has() here made every change on a big map recheck the room) ---------- */
+[data-arrangement='desk'] .desk-room[data-page='map'] .desk-room-sheet {
   width: min(2400px, calc(100% - 64px));
 }
-[data-arrangement='desk'] .desk-room:has([data-desk-map]) .desk-room-head {
+[data-arrangement='desk'] .desk-room[data-page='map'] .desk-room-head {
   padding-inline: max(32px, calc((100% - 2400px) / 2));
 }
 
@@ -126,6 +126,11 @@
   left: 0;
   top: 0;
   overflow: visible;
+  /* Lines are pointed at through MapStage's own grid (tieAt), never hit-tested by the browser. */
+  pointer-events: none;
+}
+[data-arrangement='desk'] .dm-canvas[data-on-line] {
+  cursor: pointer;
 }
 
 /* ---------- Kinds of tie ---------- */
@@ -195,6 +200,8 @@
   stroke-dasharray: 1.5 6;
 }
 [data-arrangement='desk'] .dm-tie-hit {
+  /* Never painted, but still pointed at (pointer-events: stroke ignores visibility). */
+  visibility: hidden;
   stroke: transparent;
   stroke-width: 16;
   pointer-events: stroke;
@@ -216,13 +223,21 @@
 [data-arrangement='desk'] .dm-tie.is-lit:not([data-kind='family']) .dm-tie-line {
   stroke-width: 3.2;
 }
-/* Pointing at one character or tie: the rest step back. */
-[data-arrangement='desk'] .dm-stage[data-quiet] .dm-tie:not(.is-lit),
+/* Pointing at one character or tie: the rest step back, the whole layer at once (it has a layer of its own, so this
+   is the compositor's work: a big cast stays smooth), and the lit ties are drawn again over it. */
+[data-arrangement='desk'] .dm-lines-base {
+  will-change: opacity;
+  transition: opacity var(--dm-base) var(--dm-ease);
+}
+[data-arrangement='desk'] .dm-stage:is([data-quiet], [data-hot-kind]) .dm-lines-base {
+  opacity: 0.18;
+}
+[data-arrangement='desk'] .dm-lines-top {
+  pointer-events: none;
+  animation: dm-fade-in var(--dm-quick) var(--dm-ease);
+}
 [data-arrangement='desk'] .dm-tie.is-out {
   opacity: 0.16;
-}
-[data-arrangement='desk'] .dm-stage[data-hot-kind] .dm-tie:not(.is-kind) {
-  opacity: 0.14;
 }
 /* Arriving (on opening, or as the slider moves): the line draws itself along; a dashed one fades in. */
 [data-arrangement='desk'] .dm-tie.is-new .dm-tie-line {
@@ -652,6 +667,10 @@
 }
 [data-arrangement='desk'] .dm-label.is-hidden {
   opacity: 0;
+}
+/* A crowd: dimming and lighting are instant (hundreds of fading elements would each need a layer of their own). */
+[data-arrangement='desk'] .dm-stage[data-crowd] :is(.dm-node, .dm-pill, .dm-label, .dm-tie) {
+  transition: none;
 }
 /* A crowd: while some are lit, the others' names and words step out of the way. */
 [data-arrangement='desk'] .dm-stage[data-quiet][data-crowd] .dm-node:not(.is-lit) .dm-label,

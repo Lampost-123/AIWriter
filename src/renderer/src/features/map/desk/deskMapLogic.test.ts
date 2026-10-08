@@ -208,6 +208,8 @@ describe('time', () => {
       lines: ['Iska and Wren: uneasy allies'],
       more: 0
     })
+    // Named in the order of their names, whichever way round the pair was noted.
+    expect(changeWords([{ aId: 'w', bId: 'i', what: 'new', type: 'ally', before: '' }], name).lines).toEqual(['Iska and Wren: ally'])
     const many = changeWords(
       [
         { aId: 'm', bId: 't', what: 'changed', type: 'rival', before: 'friend' },
