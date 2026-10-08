@@ -67,6 +67,11 @@ export interface TrapsConfig {
   saveWorld: boolean
   /** Start from a saved world (a world-before-*.db from an earlier run of the same checkout and story): no memory build. */
   fromWorld: string | null
+  /**
+   * Chains only: the memory reads the story from this scene on (its key, e.g. s28), not the whole story: a cheaper
+   * world for a test that only needs the chain scene (the edit chain K2E). Null: the whole story.
+   */
+  storyFrom: string | null
   /** 4: chains in one scene (the default, story version 3 only); 3: probes v3, one passage each. */
   probesVersion: 3 | 4
   /** The hard token budget: no call is sent once it would be passed. */
@@ -110,6 +115,7 @@ export function configFromEnv(env = process.env): TrapsConfig {
     searchModel: env.TRAPS_SEARCH_MODEL?.trim() || join(harnessRoot, DEFAULT_SEARCH_MODEL),
     saveWorld: env.TRAPS_SAVE_WORLD !== '0',
     fromWorld: env.TRAPS_FROM_WORLD?.trim() ? resolve(env.TRAPS_FROM_WORLD.trim()) : null,
+    storyFrom: env.TRAPS_STORY_FROM?.trim() || null,
     probesVersion: env.TRAPS_PROBES_VERSION === '3' || env.TRAPS_STORY === 'v2' ? 3 : 4,
     maxIn: num(env.TRAPS_MAX_TOKENS_IN, DEFAULT_BUDGET.in),
     maxOut: num(env.TRAPS_MAX_TOKENS_OUT, DEFAULT_BUDGET.out),

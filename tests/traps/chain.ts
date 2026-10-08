@@ -87,8 +87,27 @@ export interface ChainStep {
   plants?: string[]
 }
 
+/**
+ * Adam edits the page between steps (the edit chain, K2E): after step `after` has landed and the memory has read it,
+ * one planted fact's words are changed wherever they stand in the chain's paragraphs (`replace`), and another fact's
+ * sentences are taken out (`remove`); the scene is saved and the memory reads it again before the next step. The
+ * plants in `ends` are checked no further; those in `starts` (the edited truth) are checked from the next step, and a
+ * stale slip is the writer using the old version.
+ */
+export interface ChainEdit {
+  after: number
+  replace: [RegExp, string][]
+  /** A sentence (in the chain's own paragraphs, never the opening) matching this is taken out. */
+  remove: RegExp
+  ends: string[]
+  starts: string[]
+}
+
 export interface ChainSpec {
   id: string
+  /** Run only when asked for by id (--probes), never by default. */
+  optIn?: boolean
+  edit?: ChainEdit
   scene: { key: string; chapter: number; title: string; card: Card3 }
   /** The scene's first lines, as Adam would type them. */
   opening: string[]
@@ -318,6 +337,120 @@ export const CHAINS: ChainSpec[] = [
   }
 ]
 
+// ---------- The edit chain (K2E) ----------
+
+/** A cut on the right hand or palm: LEFT_HAND_CUT with the sides swapped (after the edit the cut is on the left). */
+export const RIGHT_HAND_CUT = new RegExp(LEFT_HAND_CUT.source.replace(/left/g, '\u0000').replace(/right/g, 'left').replace(/\u0000/g, 'right'), LEFT_HAND_CUT.flags)
+/**
+ * Words that take a locked door for granted, in the narration: unlocking it, the key in a pocket or the lock, a locked
+ * door. Locking it afresh is not a stale slip ("She locked the door"); "the door was unlocked" is the truth.
+ */
+export const STALE_LOCK =
+  /\bunlock(?:s|ing)?\b|\bunlocked (?:it|the door)\b|\bunbarred\b|\bunbolted\b|\bkey\b[^.!?\n]{0,60}\b(?:pocket|lock)\b|\bpocket\b[^.!?\n]{0,60}\bkey\b|\blocked door\b|\bdoor (?:was|is|stayed|remained) (?:still )?locked\b|\bstill locked\b|\b(?:drew|slid|lifted|took) (?:back )?the (?:bolt|bar)\b/i
+/** The door locked afresh in the narration (ends "not locked"). "Unlocked" doesn't match. */
+const LOCKED_AFRESH = /\b(?:locked|bolted|barred) (?:it|the door)\b|\block(?:s|ed)? the door\b|\bshot the bolt\b/i
+/** Every sentence about the lock or the key, taken out by the edit. */
+const LOCK_SENTENCE = new RegExp(`${DOOR_LOCKED.source}|\\b(?:lock\\w*|unlock\\w*|key|keys|keyhole|bolt\\w*|barred)\\b`, 'i')
+
+const HAND_TOUCHES = /\b(?:hand|palm)\b[^.!?\n]{0,40}\b(?:cut|blood|bleed\w*|bandag\w*|sting\w*|throb\w*)\b|\b(?:cut|blood|bleed\w*|bandag\w*)\b[^.!?\n]{0,40}\b(?:hand|palm)\b/i
+
+export const EDIT_PLANTS: ChainPlant[] = [
+  {
+    id: 'cut-now-left',
+    name: 'Cut edited to the LEFT hand',
+    fact: "A shard cut the palm of Wren's LEFT hand; her right hand is unhurt.",
+    find: [],
+    happens: '',
+    drift: { what: 'The cut is put on her right hand (the words before the edit).', broken: RIGHT_HAND_CUT, outsideQuotes: true, touches: HAND_TOUCHES }
+  },
+  {
+    id: 'lock-deleted',
+    name: 'Door locking deleted',
+    fact: 'The parlour door is not locked: nobody locked it, and there is no key in Wren’s pocket.',
+    find: [],
+    happens: '',
+    change: LOCKED_AFRESH,
+    drift: {
+      what: 'The door is taken as locked (unlocked, the key in her pocket, a locked door) without being locked afresh first.',
+      broken: STALE_LOCK,
+      not: /\b(?:not locked|wasn['’]t locked|hadn['’]t (?:been )?locked|never (?:been )?locked|didn['’]t lock|did not lock|no key)\b|\block(?:s|ed)? (?:it|the door)\b/i,
+      unlessBefore: LOCKED_AFRESH,
+      outsideQuotes: true,
+      touches: /\b(?:door|key|lock\w*|bolt|knock\w*)\b/i
+    }
+  }
+]
+
+/** The edit chain's sides: the cut's side changed to the left, the locking taken out. */
+export const K2E_EDIT: ChainEdit = {
+  after: 5,
+  replace: [[/\bright(?=(?:\s+[\w-]+)?\s+(?:hand|palm|fist|wrist|fingers|thumb)\b)/g, 'left'], [/\bRight(?=(?:\s+[\w-]+)?\s+(?:hand|palm|fist|wrist|fingers|thumb)\b)/g, 'Left']],
+  remove: LOCK_SENTENCE,
+  ends: ['hand-cut', 'door-locked'],
+  starts: ['cut-now-left', 'lock-deleted']
+}
+
+/**
+ * Makes the edit in the page: the replacements in every chain paragraph (the opening stays as Adam typed it), then
+ * each sentence matching `remove` taken out (a paragraph left empty goes).
+ */
+export function applyEdit(edit: ChainEdit, page: string[], opening: number): { page: string[]; changed: { before: string; after: string }[]; removed: string[] } {
+  const changed: { before: string; after: string }[] = []
+  const removed: string[] = []
+  const out: string[] = []
+  for (const [i, para] of page.entries()) {
+    if (i < opening) {
+      out.push(para)
+      continue
+    }
+    let p = para
+    for (const [re, to] of edit.replace) p = p.replace(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`), to)
+    const keep: string[] = []
+    const rm = new RegExp(edit.remove.source, edit.remove.flags.replace('g', ''))
+    let cut = 0
+    for (const s of sentences(p)) {
+      if (rm.test(s.text)) {
+        removed.push(s.text.trim())
+        cut++
+      } else keep.push(s.text.trim())
+    }
+    const next = cut ? keep.filter(Boolean).join(' ') : p
+    if (next !== para) changed.push({ before: para, after: next })
+    if (next.trim()) out.push(next)
+  }
+  return { page: out, changed, removed }
+}
+
+/**
+ * K2E, the edit chain (9 steps, to keep a paid run small): K1's first plants (boots and coat, Ash out and the door
+ * locked, the cut hand, now at step 4), then after step 5 Adam edits the page: the cut moves to the LEFT hand and every
+ * sentence about the lock or the key goes. Steps 6 to 9 are bait for both (a knock at the door; her cut hand). Facts
+ * from chapters back aren't checked:
+ * it is meant to run with --story-from, on a world that read only the last scenes.
+ */
+export const K2E: ChainSpec = {
+  id: 'K2E',
+  optIn: true,
+  edit: K2E_EDIT,
+  scene: CHAINS[0].scene,
+  opening: CHAINS[0].opening,
+  addWords: 350,
+  steps: [
+    { kind: 'addBelow', direction: 'Wren pulls off her wet boots and sets them by the hearth to dry, and hangs her oilskin coat on the peg behind the door.', plants: ['boots-off', 'coat-off'] },
+    { kind: 'continue' },
+    { kind: 'addBelow', direction: 'Ash goes out to the stable to see to the horses for the night. Wren locks the door behind him and puts the key in her pocket.', plants: ['ash-out', 'door-locked'] },
+    { kind: 'addBelow', direction: 'Wren reaches for the cup on the hearth; it breaks, and a shard cuts the palm of her right hand.', plants: ['hand-cut'] },
+    { kind: 'continue' },
+    { kind: 'addBelow', direction: 'Someone knocks at the door.' },
+    { kind: 'continue' },
+    { kind: 'addBelow', direction: 'Wren looks at her cut hand in the firelight and binds it with a strip of linen.' },
+    { kind: 'continue' }
+  ],
+  plants: [...CHAIN_PLANTS.filter((p) => ['boots-off', 'coat-off', 'ash-out', 'door-locked', 'hand-cut'].includes(p.id)), ...EDIT_PLANTS],
+  far: []
+}
+CHAINS.push(K2E)
+
 /** How many times one step is drafted at most when its planted events don't land. */
 export const STEP_TRIES = 3
 
@@ -546,6 +679,10 @@ export function rescoreChain(chain: ChainResult, spec: ChainSpec): { result: Cha
       const text = st.repair?.text ?? st.text
       const resolved = endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly, st.planted)
       for (const id of resolved) ended.add(id)
+      if (m.edit && m.edit.after === st.step) {
+        for (const id of m.edit.ends) ended.add(id)
+        for (const id of m.edit.starts) landedAt.set(id, st.step)
+      }
       if (firstSlip == null && results.some((r) => r.verdict === 'broken')) firstSlip = st.step
       return { ...st, results, resolved, ...(st.repair && after ? { repair: { ...st.repair, results: after } } : {}) }
     })
@@ -661,6 +798,22 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
     // Adam pauses: the memory reads the scene, what follows a read finishes, and step 5's index catches up.
     await app.pause(sceneId)
     await app.recallReady()
+    const edit = spec.edit && spec.edit.after === n ? spec.edit : null
+    if (edit) {
+      // Adam edits what is already on the page, saves, and pauses again: the memory reads the edited scene.
+      const e = applyEdit(edit, page, spec.opening.length)
+      page = e.page
+      const ends = [...edit.ends]
+      // A sentence taken out may have held another plant (Ash out and the lock in one sentence): no longer checked.
+      for (const p of spec.plants) if (landedAt.has(p.id) && !ended.has(p.id) && !ends.includes(p.id) && p.find.length && !placeOf(page.slice(spec.opening.length), p)) ends.push(p.id)
+      for (const id of ends) ended.add(id)
+      for (const id of edit.starts) landedAt.set(id, n)
+      sample.edit = { after: n, changed: e.changed, removed: e.removed, ends, starts: edit.starts }
+      app.save(spec.scene.key, sceneId, page)
+      await app.pause(sceneId)
+      await app.recallReady()
+      cfg.log(`  ${spec.id} chain ${index + 1}: edit after step ${n}: ${e.changed.length} paragraphs changed, ${e.removed.length} sentences taken out; ended ${ends.join(', ')}`)
+    }
     sample.steps.push({
       ...base,
       status: 'complete',
@@ -686,7 +839,7 @@ export async function runChains(cfg: TrapsConfig): Promise<{ report: RunReport; 
   if (cfg.out && existsSync(join(cfg.out, 'report.json'))) throw new Error(`${cfg.out} already has a report; give another --out folder.`)
   if (cfg.story !== 'v3') throw new Error('Chains (probes v4) run on story version 3; use --probes-version 3 for the hand-written story.')
   const data = storyFor(cfg)
-  const chains = CHAINS.filter((c) => !cfg.probes || cfg.probes.includes(c.id))
+  const chains = CHAINS.filter((c) => (cfg.probes ? cfg.probes.includes(c.id) : !c.optIn))
   if (!chains.length) throw new Error(`No chain called ${cfg.probes?.join(', ')}. The chains are ${CHAINS.map((c) => c.id).join(', ')}.`)
   const startedAt = new Date().toISOString()
   const tested = checkout(cfg.root)
@@ -701,7 +854,11 @@ export async function runChains(cfg: TrapsConfig): Promise<{ report: RunReport; 
     const s = from.saved
     if (s.story !== story) throw new Error(`The saved world ${from.file} was made with another story; it can't be used for this one.`)
     if (s.srcTree !== srcTree || !srcTree || s.dirty || tested.dirty) throw new Error(`The saved world ${from.file} was made with other app code than this checkout's: build it again for this checkout.`)
+    if ((s.storyFrom ?? null) !== cfg.storyFrom) throw new Error(`The saved world ${from.file} read the story from ${s.storyFrom ?? 'the start'}, not ${cfg.storyFrom ?? 'the start'}.`)
   }
+  const storyFrom = cfg.storyFrom ? data.scenes.findIndex((s) => s.key === cfg.storyFrom) : 0
+  if (storyFrom < 0) throw new Error(`The story has no scene ${cfg.storyFrom}.`)
+  if (cfg.storyFrom) cfg.log(`the memory reads the story from ${cfg.storyFrom} on (${data.scenes.length - storyFrom} of ${data.scenes.length} scenes)`)
   cfg.log(`story: ${data.source}, probes v${CHAIN_PROBES_VERSION} (chains)`)
   // A fake run's stand-in writer carries out the chain's directions, so the plants land and the checks run.
   if (cfg.fake) for (const c of chains) for (const st of c.steps) if (st.direction) standInDirections.push(st.direction)
@@ -712,7 +869,7 @@ export async function runChains(cfg: TrapsConfig): Promise<{ report: RunReport; 
   try {
     if (from && JSON.stringify(from.saved.models) !== JSON.stringify(app.models)) throw new Error(`The saved world ${from.file} was built with other models.`)
     // The whole story, as Adam wrote it, read by the memory scene by scene (from where a saved world stops).
-    const startAt = from ? from.saved.sceneIndex : 0
+    const startAt = from ? from.saved.sceneIndex : storyFrom
     for (const [si, scene] of data.scenes.entries()) {
       if (si < startAt) continue
       if (si === 23 && cfg.saveWorld && !from) {
@@ -739,7 +896,7 @@ export async function runChains(cfg: TrapsConfig): Promise<{ report: RunReport; 
     if (!(from && from.saved.scene === 'chain')) {
       if (existsSync(chainWorld)) chainWorld = join(outDir, `world-before-chain-${Date.now()}.db`)
       await app.snapshot(chainWorld)
-      const meta: SavedWorld = { scene: 'chain', sceneIndex: data.scenes.length, story, commit: tested.commit, srcTree, dirty: tested.dirty, models: app.models, savedAt: new Date().toISOString() }
+      const meta: SavedWorld = { scene: 'chain', sceneIndex: data.scenes.length, story, commit: tested.commit, srcTree, dirty: tested.dirty, models: app.models, savedAt: new Date().toISOString(), ...(cfg.storyFrom ? { storyFrom: cfg.storyFrom } : {}) }
       writeFileSync(chainWorld.replace(/\.db$/, '.json'), JSON.stringify(meta, null, 2))
       savedWorld = chainWorld
       cfg.log(`world saved after the whole story: ${chainWorld}`)

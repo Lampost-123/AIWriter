@@ -51,6 +51,8 @@ export interface SavedWorld {
   dirty: boolean
   models: { writer: string; memory: string; judge: string }
   savedAt: string
+  /** The scene the memory started reading at (--story-from), when not the first. */
+  storyFrom?: string
 }
 
 /**
