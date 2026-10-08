@@ -9,7 +9,7 @@ import { newId, now } from '../util'
 import { getEntry, getSceneMeta } from './repo'
 import { getChange } from './memory'
 import { linksForEntry, linksForFact, recordVersion } from './history'
-import { fingerprint } from '../keeper/facts'
+import { fingerprint, logLineWords } from '../keeper/facts'
 import { plain } from '../keeper/text'
 import { issuesTouched, sameThing } from './checks'
 import type { IssueKind } from '@shared/contracts/checks'
@@ -355,7 +355,8 @@ const toLog = (r: Row): LogRow => {
   runId: r.run_id as string,
   sceneId: (r.scene_id as string | null) ?? null,
   entryName: (r.entry_name as string) ?? '',
-  text: (r.text as string) ?? '',
+  // A line saved in older words shows as it is said now.
+  text: logLineWords((r.text as string) ?? '', (r.entry_name as string) ?? ''),
   before: (r.before as string) ?? '',
   after: (r.after as string) ?? '',
   action: r.action as LogRow['action'],

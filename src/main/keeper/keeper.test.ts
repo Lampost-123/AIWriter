@@ -17,7 +17,7 @@ import { runScene, type RunOutcome } from './run'
 import { answerItem, undoItem } from './undo'
 import { nextRollUp, sceneSummaryDue, writeRollUp, writeSceneSummary } from './summaries'
 import { Keeper } from './engine'
-import { sameOneWords } from './facts'
+import { logLineWords, sameOneWords } from './facts'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -547,6 +547,16 @@ describe('the "Is this the same one?" line', () => {
     expect(sameOneWords('item', 'the seal', 'not in the story yet at this point')).toBe(
       'Same item as the seal in your world. It hasn’t appeared in the story yet at this point.'
     )
+  })
+
+  it('shows a line saved in the old words (0.6.38 and earlier) in the new ones, and leaves other lines alone', () => {
+    expect(logLineWords('Linked to the character already in the world (not in the story yet at this point)', 'the girl')).toBe(
+      'Same person as the girl in your world. They haven’t appeared in the story yet at this point.'
+    )
+    expect(logLineWords('Linked to the plot thread already in the world (not in this story so far)', 'The survey')).toBe(
+      'Same plot thread as The survey in your world. It hasn’t been in this story so far.'
+    )
+    expect(logLineWords('Lost her left hand', 'Mara')).toBe('Lost her left hand')
   })
 })
 

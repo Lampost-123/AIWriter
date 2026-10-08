@@ -182,6 +182,16 @@ export function sameOneWords(kind: Entry['kind'], name: string, label: string): 
   return `Same ${noun} as ${name.trim() || `the ${noun}`} in your world.${where ? ` ${where}` : ''}`
 }
 
+/**
+ * A What changed line as it shows: one saved in the old words, "Linked to the character already in the world (not in
+ * the story yet at this point)" (0.6.38 and earlier), says it as sameOneWords does now. Other lines are as saved.
+ */
+export function logLineWords(text: string, entryName: string): string {
+  const old = text.match(/^Linked to the (.+?) already in the world \((.+)\)$/)
+  const kind = old ? (Object.keys(KIND_LABELS) as Entry['kind'][]).find((k) => kindWord(k) === old[1]) : undefined
+  return old && kind ? sameOneWords(kind, entryName, old[2]) : text
+}
+
 // ---------- Fingerprints ----------
 
 /**
