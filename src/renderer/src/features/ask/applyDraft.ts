@@ -1,7 +1,7 @@
 // The editor chat's proposed draft (propose_draft, lab switch DRAFT), when Adam clicks Apply: it starts the writer's
 // OWN job for the scene with the chat's direction, never a generation of its own, so everything after is as usual:
-//   generate / add_below  Generate's draft (draftRun.startDraft): into an empty scene, or in place of its words
-//                         (generate) or below them (add_below); Ctrl+Z and History as for any draft
+//   generate / add_below  Generate's draft (draftRun.startDraft): into an empty scene, or below its words (both
+//                         modes: a scene's words are never written over); Ctrl+Z and History as for any draft
 //   continue              Continue (features/edits): a tracked change at the end of the paragraph named, or of the
 //                         scene, to Accept or Reject
 //   redo_beat             Beat by beat's Write it again (features/beats/redo.ts) for the card's beat, with the
@@ -56,16 +56,17 @@ export async function startProposedDraft(p: DraftProposal, storyId?: ID | null):
       case 'add_below': {
         // One draft at a time: one being written into another scene says where it is.
         if (busyElsewhere(p.sceneId)) return { ok: false, why: '' }
+        // A scene that already has words is never written over: generate goes below them, as add_below does.
         const filled = bridge.hasText()
         started = await startDraft(p.sceneId, bridge, {
-          replace: p.mode === 'generate' && filled,
+          replace: false,
           takeKeyboard: true,
           // The scene's own draft options, with the chat's direction (and length) for this draft only.
           options: () => ({
             ...(useApp.getState().draftOptions[p.sceneId] ?? BLANK_DRAFT_OPTIONS),
             direction: p.direction,
             ...(p.length ? { targetWords: p.length } : {}),
-            ...(p.mode === 'add_below' && filled ? { addBelow: true } : {})
+            ...(filled ? { addBelow: true } : {})
           })
         })
         break

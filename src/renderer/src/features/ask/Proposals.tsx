@@ -44,7 +44,7 @@ function headOf(p: Proposal): string {
 export function draftModeLabel(p: Extract<Proposal, { kind: 'draft' }>): string {
   switch (p.mode) {
     case 'generate':
-      return 'Generate'
+      return 'Generate (below any words already there)'
     case 'add_below':
       return 'Add below'
     case 'continue':
