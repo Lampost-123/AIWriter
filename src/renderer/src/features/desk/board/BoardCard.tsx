@@ -7,7 +7,7 @@ import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { BoardSceneCard } from '@shared/contracts/worldViews'
 import type { ID, SceneMeta } from '@shared/types'
-import { MoreHorizontal, Sparkles } from '@/components/ui/icons'
+import { PenLine, Sparkles } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { Portrait } from '@/features/views/Portrait'
@@ -139,7 +139,7 @@ export function BoardCard({
           openSceneTab('card')
         }}
       >
-        <MoreHorizontal size={15} />
+        <PenLine size={14} aria-hidden />
       </button>
     </div>
   )

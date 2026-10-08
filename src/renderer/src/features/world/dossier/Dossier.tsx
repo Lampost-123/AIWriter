@@ -624,7 +624,7 @@ export function Dossier({
             </button>
           ) : null}
           <M.Root modal={false}>
-            <M.Trigger className="dz-ib" aria-label={`More for ${name}`}>
+            <M.Trigger className="dz-ib" aria-label={`More for ${name}`} title={`More for ${name}: delete`}>
               <MoreHorizontal size={16} aria-hidden />
             </M.Trigger>
             <M.Portal>

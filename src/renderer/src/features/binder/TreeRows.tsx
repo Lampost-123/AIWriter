@@ -162,7 +162,7 @@ export function SceneRowContent({
       ) : null}
       <RowEnd words={formatWords(scene.wordCount)} forceButtons={forceButtons}>
         {h ? (
-          <HoverButton label="More actions" onClick={(e) => h.openMenu('scene', scene.id, menuPoint(e))}>
+          <HoverButton label="More actions for this scene: rename, add a scene after, check it, delete" onClick={(e) => h.openMenu('scene', scene.id, menuPoint(e))}>
             <MoreHorizontal size={15} />
           </HoverButton>
         ) : null}
@@ -301,7 +301,7 @@ function ChapterRowContent({
             <HoverButton label="Add a scene to this chapter" onClick={() => h.addScene(chapter.id)}>
               <Plus size={15} />
             </HoverButton>
-            <HoverButton label="More actions" onClick={(e) => h.openMenu('chapter', chapter.id, menuPoint(e))}>
+            <HoverButton label="More actions for this chapter: its card, rename, add, move, interview, check, delete" onClick={(e) => h.openMenu('chapter', chapter.id, menuPoint(e))}>
               <MoreHorizontal size={15} />
             </HoverButton>
           </>
@@ -492,7 +492,7 @@ export const ActBlock = memo(function ActBlock({
           <HoverButton label="Add a chapter to this act" onClick={() => h.addChapter(act.id)}>
             <Plus size={15} />
           </HoverButton>
-          <HoverButton label="More actions" onClick={(e) => h.openMenu('act', act.id, menuPoint(e))}>
+          <HoverButton label="More actions for this act: rename, its purpose, add, delete" onClick={(e) => h.openMenu('act', act.id, menuPoint(e))}>
             <MoreHorizontal size={15} />
           </HoverButton>
         </RowEnd>

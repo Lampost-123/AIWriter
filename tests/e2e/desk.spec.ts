@@ -696,6 +696,25 @@ test('the dock: Ctrl+G opens Generate’s panels over it; the menu has the toolb
   await expect(dock(win).getByRole('button', { name: /^Continue/ })).toHaveCount(0)
 })
 
+test('the dock’s More says what it is: its word in a large window, what it holds on hover, and the dock fits from 1366 to 1920', async ({ launch }) => {
+  // Adam: a bare "⋯" beside Add below didn't say what it was for.
+  const { app, win } = await sampleWorld(launch)
+  const more = dock(win).getByRole('button', { name: /^More ways to write/ })
+  await expect(more).toHaveAttribute('title', /^More: Rewrite the scene, Fresh take, Draft three, Beat by beat .*Mark done/)
+  for (const [w, h] of [[1920, 1080], [1450, 900], [1366, 768]] as const) {
+    await size(app, win, w, h)
+    const bar = (await dock(win).boundingBox())!
+    const box = (await more.boundingBox())!
+    expect(box.x + box.width, `More inside the dock at ${w}`).toBeLessThanOrEqual(bar.x + bar.width)
+    expect(await dock(win).evaluate((d) => d.scrollWidth - d.clientWidth), `nothing spills from the dock at ${w}`).toBe(0)
+    for (const name of [/^Add below/, /^Continue/]) await expect(dock(win).getByRole('button', { name })).toBeInViewport()
+    if (w === 1920) await expect(more).toHaveText('More')
+  }
+  const menu = await dockMenu(win)
+  await expect(menu.getByText('More ways to write', { exact: true })).toBeVisible()
+  await expect(menu.getByText('This scene’s tools', { exact: true })).toBeVisible()
+})
+
 test('the shortcuts the panels’ toolbar carries each work once on the desk: Ctrl+Enter, Ctrl+G, Esc', async ({ launch }) => {
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
   const fake = await startFakeProvider({ delayMs: 10, slowDelayMs: 60 })
