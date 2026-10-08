@@ -10,8 +10,11 @@ import type { AgentStep } from './types'
 /** How a call went: still running, done, failed, a change not proposed, or never run (the answer stopped first). */
 export type ToolStatus = 'running' | 'done' | 'failed' | 'not-proposed' | 'stopped'
 
-/** What a call does, for its icon and its words. */
-export type ToolKind = 'read' | 'outline' | 'search' | 'entry' | 'style' | 'issues' | 'chapter' | 'threads' | 'propose' | 'draft' | 'ask' | 'other'
+/**
+ * What a call does, for its icon and its words ('mentions': find_mentions, lab switch TEXTTOOLS; 'chapter' and
+ * 'threads': chapter_card and list_threads, lab switch STORYTOOLS).
+ */
+export type ToolKind = 'read' | 'outline' | 'search' | 'mentions' | 'entry' | 'style' | 'issues' | 'chapter' | 'threads' | 'propose' | 'draft' | 'ask' | 'other'
 
 /** One tool call of the editor chat, as it is kept with the turn's record and sent live as `ask:tool`. */
 export interface ToolActivity extends AgentStep {
@@ -34,6 +37,7 @@ const KINDS: Record<string, ToolKind> = {
   read_scene: 'read',
   outline: 'outline',
   search: 'search',
+  find_mentions: 'mentions',
   get_entry: 'entry',
   entry_at: 'entry',
   style_guide: 'style',
@@ -70,6 +74,9 @@ const CHANGE_WORDS: Record<string, [string, string]> = {
   new_scene: ['new scene', 'new scenes'],
   new_chapter: ['new chapter', 'new chapters'],
   rename: ['new title', 'new titles'],
+  insert: ['insert', 'inserts'],
+  cut: ['cut', 'cuts'],
+  beats: ['beat change', 'beat changes'],
   issue_fix: ['issue fix', 'issue fixes'],
   chapter_card: ['chapter card change', 'chapter card changes'],
   thread: ['plot thread link', 'plot thread links'],
@@ -111,6 +118,8 @@ export function argSummary(tool: string, args: Record<string, unknown>): string 
       return str('status') ? `${str('status').toLowerCase()} plot threads` : 'plot threads'
     case 'search':
       return str('query') ? `“${str('query')}”` : ''
+    case 'mentions':
+      return str('words') ? `“${str('words')}”` : ''
     case 'entry':
       return str('name')
     case 'ask':

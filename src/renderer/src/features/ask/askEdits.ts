@@ -176,10 +176,88 @@ export function planPassage(doc: PMNode, start: string, end: string, replace: st
   return { from: $a.before(1), to: $b.after(1), content: Fragment.from(nodes), first, count: last - first + 1 }
 }
 
+// ---------- Inserts and cuts (lab switch TEXTTOOLS): whole paragraphs, found by their anchors ----------
+
+export const INSERT_GONE =
+  'The paragraph this insert goes next to isn’t in the scene any more: another change or your own editing changed it. Ask again for a fresh one.'
+export const CUT_CHANGED =
+  'The paragraphs this cut takes out aren’t in the scene as they were: another change or your own editing changed them, so nothing was cut. Ask again for a fresh one.'
+export const CUT_PLAIN = 'This cut runs across a scene break (or something that isn’t a paragraph), so it wasn’t applied.'
+export const CUT_ALL = 'This cut would take out every paragraph of the scene, so it wasn’t applied.'
+
+/** Words compared as the page has them: emphasis markers and every space or line break left out. */
+const bare = (s: string): string => plainOf(s).replace(/\s+/g, '')
+
+/**
+ * The scene's top-level paragraph an anchor names: by its id while that is in the scene; else (no id, or the id gone)
+ * by its number when it still reads `words`, else the one paragraph that reads `words`. Null when none does.
+ */
+export function blockAt(doc: PMNode, a: ParaAnchor, words: string): number | null {
+  let byPid: number | null = null
+  let byNumber: number | null = null
+  const reading: number[] = []
+  let n = 0
+  const want = bare(words)
+  doc.forEach((c, _o, i) => {
+    if (a.pid && byPid === null && pidOf(c) === a.pid) byPid = i
+    if (!c.isTextblock || !c.textContent.trim()) return
+    if (++n === a.paragraph) byNumber = i
+    if (bare(c.textContent) === want) reading.push(i)
+  })
+  if (byPid !== null) return byPid
+  if (byNumber !== null && bare(doc.child(byNumber).textContent) === want) return byNumber
+  return reading.length === 1 ? reading[0] : null
+}
+
+/** New paragraphs after (or before) the one the anchor names, each a blank line apart in `text`, *italics* kept. */
+export function planInsert(doc: PMNode, p: { where: 'after' | 'before'; at: ParaAnchor; near: string; text: string }): Plan {
+  const i = blockAt(doc, p.at, p.near)
+  if (i === null) return { why: INSERT_GONE }
+  const block = doc.child(i)
+  if (!block.isTextblock) return { why: NOT_PLAIN }
+  const schema = doc.type.schema
+  const texts = p.text
+    .split(/\n\s*\n/)
+    .map((t) => t.replace(/\s*\n\s*/g, ' ').trim())
+    .filter(Boolean)
+  if (!texts.length) return { why: 'This insert has no words to put in.' }
+  // Paragraphs like the one beside them, each with a fresh id (paragraphIds.ts).
+  const nodes = texts.map((t) => block.type.create({ ...block.attrs, pid: null }, inlineNodes(schema, t)))
+  const at = p.where === 'after' ? i + 1 : i
+  const pos = childPos(doc, at)
+  return { from: pos, to: pos, content: Fragment.from(nodes), first: at, count: 0 }
+}
+
+/** Whole paragraphs out, from the one `from` names to the one `to` names, only while they read as they did. */
+export function planCut(doc: PMNode, p: { from: ParaAnchor; to: ParaAnchor; paragraphs: string[] }): Plan {
+  if (!p.paragraphs.length) return { why: CUT_CHANGED }
+  const a = blockAt(doc, p.from, p.paragraphs[0])
+  const b = blockAt(doc, p.to, p.paragraphs[p.paragraphs.length - 1])
+  if (a === null || b === null || b < a) return { why: CUT_CHANGED }
+  const type = doc.child(a).type
+  const words: string[] = []
+  for (let i = a; i <= b; i++) {
+    const c = doc.child(i)
+    if (c.type !== type) return { why: CUT_PLAIN }
+    if (c.textContent.trim()) words.push(bare(c.textContent))
+  }
+  // Every paragraph in between still reads as it did: nothing Adam wrote since is cut.
+  if (words.length !== p.paragraphs.length || words.some((w, k) => w !== bare(p.paragraphs[k]))) return { why: CUT_CHANGED }
+  if (a === 0 && b === doc.childCount - 1) return { why: CUT_ALL }
+  return { from: childPos(doc, a), to: childPos(doc, b + 1), content: Fragment.empty, first: a, count: b - a + 1 }
+}
+
 /** What an applied change did to the scene: its top-level paragraphs as they were, and as they became. */
 export interface BlockChange {
   before: PMNode[]
   after: PMNode[]
+  /**
+   * The paragraphs either side of what the change left, as it left them (a cut leaves nothing, TEXTTOOLS): Undo puts
+   * the cut paragraphs back after `prev` (found by its id, so Adam's typing in it since doesn't matter), else before
+   * `next`. Null at the scene's start or end.
+   */
+  prev?: PMNode | null
+  next?: PMNode | null
 }
 
 const children = (doc: PMNode, from: number, count: number): PMNode[] => {
@@ -191,7 +269,14 @@ const children = (doc: PMNode, from: number, count: number): PMNode[] => {
 /** The change made by a planned edit, from the document before it and the document after (ids given, say). */
 export function changeOf(before: PMNode, after: PMNode, plan: PlannedEdit): BlockChange {
   const grown = after.childCount - before.childCount
-  return { before: children(before, plan.first, plan.count), after: children(after, plan.first, plan.count + grown) }
+  const made = children(after, plan.first, plan.count + grown)
+  const end = plan.first + made.length
+  return {
+    before: children(before, plan.first, plan.count),
+    after: made,
+    prev: plan.first > 0 ? after.child(plan.first - 1) : null,
+    next: end < after.childCount ? after.child(end) : null
+  }
 }
 
 const pidOf = (n: PMNode): string | null => (n.attrs.pid as string | null | undefined) ?? null
@@ -225,15 +310,52 @@ export function locateBlocks(doc: PMNode, blocks: PMNode[]): number | null {
 /** How to put a change back: [from, to) becomes `content`; or why not ('already': it is back already). */
 export type RevertPlan = { from: number; to: number; content: Fragment } | { why: 'already' | 'changed' }
 
+/** A paragraph's place in the document: by its id while that is there (whatever its words now), else by its words. */
+function indexOf(doc: PMNode, block: PMNode): number | null {
+  const pid = pidOf(block)
+  if (pid) {
+    let at: number | null = null
+    doc.forEach((c, _o, i) => {
+      if (at === null && pidOf(c) === pid) at = i
+    })
+    return at
+  }
+  return locateBlocks(doc, [block])
+}
+
+/** The position before the document's child `i` (its end, for i = childCount). */
+const childPos = (doc: PMNode, i: number): number => {
+  let pos = 0
+  for (let k = 0; k < i; k++) pos += doc.child(k).nodeSize
+  return pos
+}
+
 export function planRevert(doc: PMNode, change: BlockChange): RevertPlan {
+  const schema = doc.type.schema
+  // A cut (TEXTTOOLS): its paragraphs go back between the ones either side, unless they are back already.
+  if (!change.after.length) {
+    if (!change.before.length || locateBlocks(doc, change.before) !== null) return { why: 'already' }
+    const prev = change.prev ? indexOf(doc, change.prev) : null
+    const next = prev === null && change.next ? indexOf(doc, change.next) : null
+    const i = prev !== null ? prev + 1 : next !== null ? next : !change.prev && !change.next ? 0 : null
+    if (i === null) return { why: 'changed' }
+    const pos = childPos(doc, i)
+    return { from: pos, to: pos, content: Fragment.from(change.before.map((n) => schema.nodeFromJSON(n.toJSON()))) }
+  }
   const at = locateBlocks(doc, change.after)
-  if (at === null) return { why: locateBlocks(doc, change.before) !== null ? 'already' : 'changed' }
+  if (at === null) {
+    // New paragraphs only (an insert, TEXTTOOLS): gone altogether is undone already; still there, changed since.
+    if (!change.before.length) {
+      const pid = pidOf(change.after[0])
+      return { why: pid && indexOf(doc, change.after[0]) === null ? 'already' : 'changed' }
+    }
+    return { why: locateBlocks(doc, change.before) !== null ? 'already' : 'changed' }
+  }
   let from = 0
   for (let i = 0; i < at; i++) from += doc.child(i).nodeSize
   let to = from
   for (let i = at; i < at + change.after.length; i++) to += doc.child(i).nodeSize
   // The paragraphs may come from another editor's schema (the page's, for the saved scene): rebuilt in this one.
-  const schema = doc.type.schema
   const content = Fragment.from(change.before.map((n) => schema.nodeFromJSON(n.toJSON())))
   return { from, to, content }
 }

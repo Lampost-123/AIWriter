@@ -242,6 +242,49 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       atParagraph?: ParaAnchor
       length?: number
     }
+  | {
+      /**
+       * New paragraphs at a point in a scene, with no words to find (lab switch TEXTTOOLS): `text` (paragraphs a blank
+       * line apart, *asterisks* for italics) goes in after (or before) the paragraph `at` names. `near` is that
+       * paragraph's words as the chat read them (italics marked), to show and to find it by when it has no id.
+       */
+      kind: 'insert'
+      sceneId: ID
+      sceneLabel: string
+      where: 'after' | 'before'
+      at: ParaAnchor
+      near: string
+      text: string
+    }
+  | {
+      /**
+       * Whole paragraphs cut from a scene (lab switch TEXTTOOLS): from the paragraph `from` names to the one `to` names
+       * (never across a scene break). `paragraphs` are their words as the chat read them (italics marked): Apply cuts
+       * them only while they still read so.
+       */
+      kind: 'cut'
+      sceneId: ID
+      sceneLabel: string
+      from: ParaAnchor
+      to: ParaAnchor
+      paragraphs: string[]
+    }
+  | {
+      /**
+       * A scene card's beats changed (lab switch TEXTTOOLS): `before` the beats as the card had them (blank ones left
+       * out), `beats` the whole new list. `op` and `index` (from 1) say what changed, to show it: a whole new list, or
+       * one beat put in, reworded or taken out. `marks`: the scene had beat markers on the page (Beat by beat), which
+       * are numbered by the card's beats.
+       */
+      kind: 'beats'
+      sceneId: ID
+      sceneLabel: string
+      op: 'replace' | 'insert' | 'edit' | 'remove'
+      index?: number
+      before: string[]
+      beats: string[]
+      marks?: boolean
+    }
 )
 
 export interface AskInput {

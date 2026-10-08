@@ -1,6 +1,6 @@
 // The chat eval's story-tools set (chat Phase 3, lab switch STORYTOOLS): consistency issues, chapter cards and plot
-// threads, asked as Adam would ask them in story A with "Morning Tally" open. Run with `--scenarios p3` (also in
-// `all`). Each is marked `seed: 'story'`: the harness then adds what they need to the eval world (seedStory below):
+// threads, asked as Adam would ask them in story A with "Morning Tally" open. Run with `--scenarios p3story` (`p3`
+// runs it with the text-tools set; also in `all`). Each is marked `seed: 'story'`: the harness then adds what they need to the eval world (seedStory below):
 // two plot threads opened earlier on the line, one planned on a later scene's card, and an open continuity issue in
 // the open scene. Every word is invented.
 
@@ -9,10 +9,10 @@ import type { Scenario } from './scenarios'
 
 const propose = (kinds: ('issueFix' | 'chapterCard' | 'thread')[]): { do: 'propose'; kinds: ('issueFix' | 'chapterCard' | 'thread')[] } => ({ do: 'propose', kinds })
 
-export const P3: Scenario[] = [
+export const P3STORY: Scenario[] = [
   {
     id: 'ST1',
-    group: 'story',
+    group: 'p3-story',
     seed: 'story',
     rule: 'An open consistency issue is fixed through issue_fix (it is marked fixed), not as a plain edit.',
     scene: 'tally',
@@ -20,15 +20,15 @@ export const P3: Scenario[] = [
   },
   {
     id: 'ST2',
-    group: 'story',
+    group: 'p3-story',
     seed: 'story',
     rule: 'A question about the story’s open issues is answered from list_issues, nothing proposed.',
     scene: 'tally',
-    turns: [{ ask: 'Are there any open consistency issues anywhere in this story?', expect: { do: 'no-propose' } }]
+    turns: [{ ask: 'Are there any open consistency issues anywhere in this story?', expect: { do: 'no-propose', tool: 'list_issues' } }]
   },
   {
     id: 'ST3',
-    group: 'story',
+    group: 'p3-story',
     seed: 'story',
     rule: 'A chapter card’s point of view is set by name through chapter_card.',
     scene: 'tally',
@@ -36,15 +36,15 @@ export const P3: Scenario[] = [
   },
   {
     id: 'ST4',
-    group: 'story',
+    group: 'p3-story',
     seed: 'story',
     rule: 'Which plot threads are open is answered from list_threads as of the open scene (the later one labelled), nothing proposed.',
     scene: 'tally',
-    turns: [{ ask: 'Which threads are still open?', expect: { do: 'no-propose' } }]
+    turns: [{ ask: 'Which threads are still open?', expect: { do: 'no-propose', tool: 'list_threads' } }]
   },
   {
     id: 'ST5',
-    group: 'story',
+    group: 'p3-story',
     seed: 'story',
     rule: 'A plot thread is paid off in the open scene through a thread change (resolve).',
     scene: 'tally',
@@ -52,7 +52,7 @@ export const P3: Scenario[] = [
   },
   {
     id: 'ST6',
-    group: 'story',
+    group: 'p3-story',
     seed: 'story',
     rule: 'A new plot thread is started in the open scene (a thread change with a name no thread has, and its promise).',
     scene: 'tally',

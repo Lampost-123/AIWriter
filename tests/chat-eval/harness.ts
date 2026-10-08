@@ -627,8 +627,33 @@ export function forcedChoice(choice: unknown): string | null {
 
 const NUDGE_START = '[AI Write, not the writer] Your answer gives'
 
+/**
+ * An insert or a cut (Phase 3, TEXTTOOLS): it applies when the paragraphs it names are in the scene (by their ids), and
+ * is on target when the paragraph the scenario means is the one an insert goes next to, or among those a cut takes.
+ */
+function checkBlocks(app: EvalApp, p: Extract<Proposal, { kind: 'insert' | 'cut' }>, touches: string | undefined): ProposalCheck {
+  const scene = (app.db.prepare('SELECT doc_json FROM scenes WHERE id = ?').get(p.sceneId) as { doc_json: string | null } | undefined)?.doc_json
+  const blocks = ((JSON.parse(scene ?? '{}') as { content?: { attrs?: { pid?: string } }[] }).content ?? []).map((b) => b.attrs?.pid ?? null)
+  const [a, b] = p.kind === 'insert' ? [p.at, p.at] : [p.from, p.to]
+  const first = a.pid ? blocks.indexOf(a.pid) : -1
+  const last = b.pid ? blocks.indexOf(b.pid) : -1
+  const applies = first >= 0 && last >= first
+  let onTarget: boolean | null = null
+  if (touches) {
+    const doc = app.page.schema.nodeFromJSON(JSON.parse(scene ?? '{"type":"doc","content":[]}'))
+    const t = app.page.findTextRange(doc, touches)
+    onTarget = !!t && applies && doc.resolve(t.from).index(0) >= first && doc.resolve(t.from).index(0) <= last
+  }
+  const summary =
+    p.kind === 'insert'
+      ? `insert ${p.where} [${p.at.paragraph}] → “${p.text.slice(0, 160)}”`
+      : `cut [${p.from.paragraph}]–[${p.to.paragraph}] “${p.paragraphs.join(' / ').slice(0, 160)}”`
+  return { id: p.id, kind: p.kind, applies, onTarget, summary }
+}
+
 function checkProposal(app: EvalApp, p: Proposal, touches: string | undefined): ProposalCheck {
   const base = { id: p.id, kind: p.kind }
+  if (p.kind === 'insert' || p.kind === 'cut') return checkBlocks(app, p, touches)
   if (p.kind !== 'text' && p.kind !== 'passage') return { ...base, applies: null, onTarget: null, summary: JSON.stringify(p).slice(0, 300) }
   const scene = (app.db.prepare('SELECT doc_json FROM scenes WHERE id = ?').get(p.sceneId) as { doc_json: string | null } | undefined)?.doc_json
   const doc = app.page.schema.nodeFromJSON(JSON.parse(scene ?? '{"type":"doc","content":[]}'))

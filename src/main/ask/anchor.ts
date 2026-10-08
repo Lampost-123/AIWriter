@@ -79,6 +79,21 @@ export function anchorAt(paras: Para[], at: number): ParaAnchor | undefined {
   return p && p.n > 0 ? { paragraph: p.n, pid: p.pid, offset: at - p.from } : undefined
 }
 
+/**
+ * The paragraph a model names (lab switch TEXTTOOLS: an insert's or a cut's paragraphs): its [n] from read_scene, as a
+ * number or digits ("3", "[3]"), or its stable id (find_mentions shows both). Null when there is no such paragraph.
+ */
+export function paraRef(paras: Para[], v: unknown): Para | null {
+  const all = numbered(paras)
+  if (typeof v === 'number' && Number.isFinite(v)) return all.find((p) => p.n === Math.round(v)) ?? null
+  if (typeof v !== 'string' || !v.trim()) return null
+  const t = v.trim()
+  const n = /^\[?\s*(\d+)\s*\]?$/.exec(t)
+  if (n) return all.find((p) => p.n === Number(n[1])) ?? null
+  const id = t.replace(/^(?:id|pid)\s*[:=]?\s*/i, '')
+  return all.find((p) => p.pid === id) ?? null
+}
+
 // ---------- Evening the words out ----------
 
 const QUOTE_FOLD: Record<string, string> = {
