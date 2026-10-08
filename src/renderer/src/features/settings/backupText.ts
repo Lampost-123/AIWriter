@@ -59,3 +59,32 @@ export function timeAgo(iso: string, now: Date = new Date()): string {
   const days = Math.round(h / 24)
   return `${days} day${days === 1 ? '' : 's'} ago`
 }
+
+/** The day a backup (or a delete) belongs to, for the New look's list: "Today", "Yesterday", or "Thursday 24 September". */
+export function dayLabel(iso: string, now: Date = new Date(), locale?: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  if (sameDay(d, now)) return 'Today'
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (sameDay(d, yesterday)) return 'Yesterday'
+  return new Intl.DateTimeFormat(locale, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' })
+  }).format(d)
+}
+
+/** The time of day alone: "22:15" (in Adam's locale). */
+export function clockTime(iso: string, locale?: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(d)
+}
+
+/** Whole days left before something deleted is removed for good (kept `keep` days), at least 0. */
+export function daysLeft(deletedAt: string, now: Date = new Date(), keep = 30): number {
+  const d = new Date(deletedAt).getTime()
+  if (Number.isNaN(d)) return keep
+  return Math.max(0, Math.ceil(keep - (now.getTime() - d) / 86_400_000))
+}

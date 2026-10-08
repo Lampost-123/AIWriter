@@ -9,6 +9,8 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { formatBackupDate, formatSize, inSentence, reasonLabel, timeAgo } from './backupText'
+import { useNewLook } from '@/features/look/look'
+import { NewBackupRow, dayStarts } from './BackupCards'
 
 const REASON_ICONS: Record<BackupInfo['reason'], ReactNode> = {
   launch: <DoorOpen size={15} />,
@@ -152,6 +154,7 @@ function BackupList({ worldId, worldName, onSettled }: { worldId: string; worldN
   const [restoringId, setRestoringId] = useState<string | null>(null)
   const [freshId, setFreshId] = useState<string | null>(null)
   const knownIds = useRef<Set<string> | null>(null)
+  const isNew = useNewLook()
   const settled = useRef(onSettled)
   settled.current = onSettled
 
@@ -263,6 +266,37 @@ function BackupList({ worldId, worldName, onSettled }: { worldId: string; worldN
             AI Write makes one when you open a world and every 30 minutes while you write.
           </EmptyState>
         </Card>
+      ) : isNew ? (
+        // The New look: the backups as cards down a timeline, by day (BackupCards.tsx).
+        <div className="@container animate-fade-in">
+          <p className="mb-4 text-[12.5px] text-muted">
+            The newest is from <span className="font-medium text-fg">{timeAgo(backups[0].createdAt)}</span>
+            <span className="px-1.5 text-faint">·</span>
+            {backups.length} kept
+            <span className="px-1.5 text-faint">·</span>
+            <span className="tabular-nums">{formatSize(backups.reduce((n, b) => n + b.sizeBytes, 0))}</span> in all
+          </p>
+          <ul aria-label="Backups" className="bk-list flex flex-col gap-2">
+            {(() => {
+              const days = dayStarts(backups)
+              return backups.map((b, i) => (
+                <NewBackupRow
+                  key={b.id}
+                  backup={b}
+                  day={days[i]}
+                  newest={i === 0}
+                  fresh={b.id === freshId}
+                  confirming={confirmId === b.id}
+                  restoring={restoringId === b.id}
+                  locked={!!restoringId}
+                  onAsk={() => setConfirmId(b.id)}
+                  onCancel={() => setConfirmId(null)}
+                  onRestore={() => void doRestore(b)}
+                />
+              ))
+            })()}
+          </ul>
+        </div>
       ) : (
         <Card className="overflow-hidden animate-fade-in">
           <ul aria-label="Backups">
