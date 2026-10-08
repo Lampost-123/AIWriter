@@ -770,7 +770,7 @@
   will-change: opacity;
 }
 [data-arrangement='desk'] .spine-ring.is-current .spine-halo::after {
-  animation: spine-mark-breathe 3.2s ease-in-out infinite;
+  animation: spine-mark-breathe 3.2s ease-in-out 3;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-arrangement='desk'] .spine-ring.is-current .spine-halo::after {
@@ -930,7 +930,9 @@
   color: var(--lamp-2);
 }
 /* The open scene ("you are here"), in the spine's list and its flyout: a slim bar of lamp light down the left of the
-   lifted row (the list's gliding pill, GlidePill), centred on the row, with a soft glow that breathes slowly. Opening
+   lifted row (the list's gliding pill, GlidePill), centred on the row, with a soft glow that breathes slowly, three
+   breaths as a scene opens and then resting softly lit (breathing for ever kept the window redrawing, about a tenth of a
+   core while idle: the speed pass). Opening
    another scene, it glides there on the drawer's curve (the view speed) and glints as it lands; from the keyboard, and
    with less motion, it is there at once and still. While the AI writes into the open scene the bar is the AI's amber.
    (Phase 6: Adam found the ribbon that hung here off centre; the big ribbon over the page's sheet stays.) */
@@ -954,9 +956,18 @@
   box-shadow: 0 0 10px 2px rgb(var(--spine-mark-rgb) / 0.7);
   opacity: 0.35;
   will-change: opacity;
-  animation: spine-mark-breathe 3.2s ease-in-out infinite;
+  animation: spine-mark-breathe 3.2s ease-in-out 3;
+}
+/* Landing on another scene: the breaths start again (another name, so they restart). */
+[data-arrangement='desk'] .desk-binder .glide-pill[data-landed]::after {
+  animation: spine-mark-breathe-again 3.2s ease-in-out 3;
 }
 @keyframes spine-mark-breathe {
+  50% {
+    opacity: 0.95;
+  }
+}
+@keyframes spine-mark-breathe-again {
   50% {
     opacity: 0.95;
   }
@@ -985,7 +996,7 @@
 }
 [data-arrangement='desk'] .desk-binder:has([aria-selected='true'] .bg-ai) .glide-pill::after {
   box-shadow: 0 0 10px 2px var(--lamp-glow);
-  animation-duration: 1.4s;
+  animation: spine-mark-breathe 1.4s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-arrangement='desk'] .desk-binder .glide-pill::after,
