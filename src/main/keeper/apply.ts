@@ -29,6 +29,7 @@ import { fieldKeys } from './prompts'
 import type { Ids } from './request'
 import { findMention, relocate, spotIn, type ReadPlan, type Spot } from './track'
 import { existedEarlier } from './places'
+import { scenesBefore } from '../memory/line'
 import { contradicts } from './agree'
 import { isSaidKind } from '../retrieval/said'
 import { thingNotCharacter } from './kinds'
@@ -1519,8 +1520,11 @@ function endTarget(run: Run, entry: Entry, fact: string, chunk: ChunkReply): Cha
     run.ctx.memory?.facts.find((f) => f.knownBy.includes(entry.id) && sameFact(f.fact, fact))?.factId
   const own = mem.changesForEntry(run.db, entry.id).filter((c) => c.entryId === entry.id && c.sceneId !== run.scene.sceneId)
   if (knownId && run.ctx.memory?.facts.some((f) => f.factId === knownId && f.knownBy.includes(entry.id))) {
-    const learned = own.filter((c) => c.kind === 'knowledge' && c.payload.factId === knownId && !c.payload.forgets)
-    const last = learned.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))[0]
+    // The learning that is true here: the latest before this scene on its line (one from a start of story counts first).
+    const line = run.ctx.shape ? scenesBefore(run.ctx.shape, run.scene.sceneId) : []
+    const pos = (c: Change): number => (c.sceneId ? line.indexOf(c.sceneId) : -1)
+    const learned = own.filter((c) => c.kind === 'knowledge' && c.payload.factId === knownId && !c.payload.forgets && (!c.sceneId || pos(c) >= 0))
+    const last = learned.sort((a, b) => pos(b) - pos(a) || (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))[0]
     if (last) return last
   }
   let best: { id: ID; score: number } | null = null

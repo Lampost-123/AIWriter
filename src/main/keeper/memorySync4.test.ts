@@ -9,6 +9,7 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as kdb from '../db/keeper'
 import { undoItem } from './undo'
+import { sceneMemory } from '../memory/scene'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -74,5 +75,33 @@ describe('what the world builder or a story flow made', () => {
     saveParas(w.db, s2, [['p2', FOUND]])
     await readScene(w.db, fake, s2)
     expect(mem.getChange(w.db, c.id).until).toBeUndefined()
+  })
+})
+
+describe('ending something someone knows', () => {
+  it('ends the learning true at that scene, not a later one', async () => {
+    const w = testWorld(3)
+    const [s1, s2, s3] = w.scenes
+    const tobin = repo.createEntry(w.db, 'character', { name: 'Tobin' })
+    const knows = (sceneId: string) => mem.insertChange(w.db, {
+      kind: 'knowledge',
+      payload: { factId: 'f1', fact: 'the bridge is out' },
+      entryId: tobin.id,
+      anchor: 'scene',
+      sceneId,
+      origin: 'text'
+    })
+    const early = knows(s1)
+    await new Promise((r) => setTimeout(r, 5))
+    const later = knows(s3)
+    const Q = 'Tobin no longer believed the bridge was out.'
+    saveParas(w.db, s2, [['p2', Q]])
+    await readScene(w.db, fake, s2, { add: [{ type: 'end', entry: 'Tobin', fact: 'the bridge is out', quote: Q }] })
+    expect(mem.getChange(w.db, early.id).until?.sceneId).toBe(s2)
+    expect(mem.getChange(w.db, later.id).until).toBeUndefined()
+    const knownAt = (sceneId: string) => sceneMemory(w.db, sceneId).facts.find((f) => f.factId === 'f1')?.knownBy.includes(tobin.id) ?? false
+    // Once that scene is over he doesn't know it; after s3, where he learns it again, he does.
+    expect(knownAt(s3)).toBe(false)
+    expect(knownAt(w.scenes[3])).toBe(true)
   })
 })
