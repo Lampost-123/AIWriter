@@ -20,8 +20,8 @@ export type SlipKind = 'card' | 'character' | 'place' | 'item' | 'group' | 'lore
 /** An entity's note: who or what it is, and the line of what has happened to it that matters here. */
 export interface EntitySlipData {
   entry: NamedEntry
-  /** Why it is here: the scene's point of view, on the card (present, or where it happens), or only named. */
-  role: 'pov' | 'present' | 'location' | 'named'
+  /** Why it is here: on the card (present, or where it happens), or only named. (The point of view gets no note.) */
+  role: 'present' | 'location' | 'named'
   /** The small tag in its head: "Since Ch 1" (when its fact line happened), "In memory" for lore; null for none. */
   tag: string | null
   /** The latest thing that happened to it before this scene, or null. */

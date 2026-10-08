@@ -863,7 +863,8 @@ test('entity notes: Edric’s beside his paragraph, the lore rule with In memory
   await expect(lore).toBeVisible()
   await expect(lore).toContainText('Lore')
   await expect(lore).toContainText('In memory')
-  // Plot threads never get a note.
+  // The point-of-view character never gets a note (the scene card names her); plot threads never do either.
+  await expect(note('Wren Halloway')).toHaveCount(0)
   await expect(note('What is in the sealed letter?')).toHaveCount(0)
 
   // Two notes about the same paragraph push apart (the place, then the lore rule below it), never overlapping.
