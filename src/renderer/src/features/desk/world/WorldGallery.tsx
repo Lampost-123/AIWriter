@@ -217,7 +217,7 @@ export function WorldGallery({
 
   // The underline under the chosen tab: one bar the row's width, clipped to the tab (a clip-path transition, no layout).
   const row = useRef<HTMLDivElement>(null)
-  const [line, setLine] = useState<{ clip: string; kind: string; ready: boolean } | null>(null)
+  const [line, setLine] = useState<{ clip: string; width: number; kind: string; ready: boolean } | null>(null)
   const chosen = filters.kind
   useLayoutEffect(() => {
     const el = row.current
@@ -225,8 +225,16 @@ export function WorldGallery({
     const measure = (): void => {
       const tab = el.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
       if (!tab) return setLine(null)
-      const clip = tabClip(el.scrollWidth, { left: tab.offsetLeft, width: tab.offsetWidth })
-      setLine((prev) => ({ clip, kind: chosen ?? 'all', ready: !!prev }))
+      // The row's width is its tabs' (not its scroll width, which the bar itself would otherwise keep wide).
+      const tabs = el.querySelectorAll<HTMLElement>('[role="tab"]')
+      const last = tabs[tabs.length - 1]
+      const width = last ? last.offsetLeft + last.offsetWidth : el.clientWidth
+      setLine((prev) => ({
+        clip: tabClip(width, { left: tab.offsetLeft, width: tab.offsetWidth }),
+        width,
+        kind: chosen ?? 'all',
+        ready: !!prev
+      }))
     }
     measure()
     const ro = new ResizeObserver(measure)
@@ -483,16 +491,16 @@ export function WorldGallery({
                 className="g-uline"
                 data-kind={line.kind}
                 data-ready={line.ready || undefined}
-                style={{ clipPath: line.clip }}
+                style={{ clipPath: line.clip, width: line.width }}
               />
             ) : null}
           </div>
           <div className="g-order">
             {tags.length || roles.length || storyChoices.length > 1 ? (
               <M.Root modal={false}>
-                <M.Trigger className={cn('g-quiet', extra && 'is-on')}>
+                <M.Trigger className={cn('g-quiet', extra && 'is-on')} aria-label={extra ? `Filters, ${extra} on` : 'Filters'}>
                   <SlidersHorizontal size={15} aria-hidden />
-                  <span>{extra ? `Filters · ${extra}` : 'Filters'}</span>
+                  <span className="g-filter-k">{extra ? `Filters · ${extra}` : 'Filters'}</span>
                   <ChevronDown size={12} aria-hidden className="text-faint" />
                 </M.Trigger>
                 <M.Portal>
@@ -558,7 +566,8 @@ export function WorldGallery({
               <M.Trigger className="g-quiet" aria-label={`Order: ${GALLERY_SORTS.find((s) => s.value === sort)?.label ?? ''}`}>
                 <ListOrdered size={15} aria-hidden />
                 <span>
-                  Order: <b>{(GALLERY_SORTS.find((s) => s.value === sort)?.label ?? '').toLowerCase()}</b>
+                  <span className="g-order-k">Order: </span>
+                  <b>{(GALLERY_SORTS.find((s) => s.value === sort)?.label ?? '').toLowerCase()}</b>
                 </span>
                 <ChevronDown size={12} aria-hidden className="text-faint" />
               </M.Trigger>

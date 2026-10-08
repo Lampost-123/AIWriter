@@ -145,6 +145,8 @@
 /* The kind tabs, the order and the filters. */
 [data-arrangement='desk'] .g-tabbar {
   display: flex;
+  /* Short of room, the order and filters go to a line of their own rather than hide a tab. */
+  flex-wrap: wrap-reverse;
   align-items: flex-end;
   justify-content: space-between;
   gap: 4px 16px;
@@ -154,7 +156,8 @@
 [data-arrangement='desk'] .g-tabs {
   position: relative;
   display: flex;
-  min-width: 0;
+  flex: none;
+  max-width: 100%;
   gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -239,6 +242,7 @@
   left: 0;
   bottom: 0;
   width: 100%;
+  max-width: none;
   height: 2px;
   border-radius: 2px;
   background: var(--fg);
@@ -276,6 +280,7 @@
 [data-arrangement='desk'] .g-order {
   display: flex;
   flex: none;
+  margin-left: auto;
   align-items: center;
   gap: 4px;
   padding-bottom: 5px;
@@ -1134,5 +1139,50 @@
   }
   [data-arrangement='desk'] .g-find {
     width: 208px;
+  }
+}
+/* The tabs keep their room: the order says just which ("first appearance"), the tabs sit a little closer. */
+/* (Beside the full spine in a window that isn't full screen: the tabs without their icons, Filters as its icon alone.) */
+@container (max-width: 1060px) {
+  [data-arrangement='desk'] .g-order-k,
+  [data-arrangement='desk'] .g-tab > svg,
+  [data-arrangement='desk'] .g-filter-k {
+    display: none;
+  }
+  [data-arrangement='desk'] .g-tab {
+    padding: 0 10px;
+  }
+}
+/* Narrower still (beside the full spine in a 1280 window). */
+@container (max-width: 920px) {
+  /* The cast still in one row of four. */
+  [data-arrangement='desk'] .g-cards {
+    gap: 18px;
+  }
+  [data-arrangement='desk'] .g-portrait {
+    width: 160px;
+    height: 244px;
+  }
+  [data-arrangement='desk'] .g-portrait .g-art {
+    height: 138px;
+  }
+  [data-arrangement='desk'] .g-mono {
+    top: 116px;
+  }
+  [data-arrangement='desk'] .g-portrait .g-body {
+    top: 168px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured {
+    width: 192px;
+    height: 282px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured .g-art {
+    height: 164px;
+  }
+  [data-arrangement='desk'] .is-featured .g-mono {
+    top: 134px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured .g-body {
+    top: 202px;
   }
 }

@@ -130,6 +130,10 @@ test('the World room beside the story’s spine: the sheet clear of it and centr
   const { app, win } = await sampleWorld(launch)
   await room(win, 'World').click()
   await expect(gallery(win)).toBeVisible()
+  await gallery(win)
+    .getByRole('button', { name: /^Order: / })
+    .click()
+  await win.getByRole('menuitemradio', { name: 'First appearance' }).click()
   const spine = win.locator('[data-desk-spine]')
   const sheet = win.locator('.desk-room-sheet')
   for (const [w, h] of [
@@ -153,10 +157,16 @@ test('the World room beside the story’s spine: the sheet clear of it and centr
     const left = p.x - (s.x + s.width)
     const right = w - (p.x + p.width)
     expect(Math.abs(left - right), `${w}: centred`).toBeLessThanOrEqual(Math.max(24, w * 0.02))
-    // Its tools and tabs don't run into each other.
+    // Its tools and tabs don't run into each other, and every tab shows whole (with the longest order chosen too).
     const tabs = (await gallery(win).getByRole('tablist').boundingBox())!
     const order = (await gallery(win).locator('.g-order').boundingBox())!
     expect(tabs.x + tabs.width).toBeLessThanOrEqual(order.x + 1)
+    expect(
+      await gallery(win)
+        .getByRole('tablist')
+        .evaluate((e) => e.scrollWidth - e.clientWidth),
+      `${w}: tabs whole`
+    ).toBeLessThanOrEqual(1)
   }
   // A window too narrow for the full spine: the slim one, and the sheet beside it.
   await size(app, win, 1100, 800)
