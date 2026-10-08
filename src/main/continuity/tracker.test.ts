@@ -319,6 +319,25 @@ describe('where things stand', () => {
     // Something else of the kind named far back (more than a long page before) doesn't count.
     const far = `The cellar door was painted green. ${'She waited for the rain to ease. '.repeat(50)}The garden door hung open. She put her hip to the door and pushed it shut.`
     expect(unnamed('the garden door', 'put her hip to the door and pushed it shut', far)).toBe('the garden door')
+    // Round G: "own", a possessive or a name across a comma or a full stop is not which one it is.
+    const own = 'Tamsin came in by the cellar door and went up to her own door at the top of the stair. She pushed the door open.'
+    expect(unnamed('the cellar door', 'She pushed the door open', own)).toBe('the cellar door')
+    const whose = "Tamsin came in by the cellar door. Rook's door stood shut along the landing. She pushed the door open."
+    expect(unnamed('the cellar door', 'She pushed the door open', whose)).toBe('the cellar door')
+    const comma = 'She put the lamp on the table, her boot still in one hand. The left boot was soaked. She pulled the boot on.'
+    expect(unnamed('the left boot', 'She pulled the boot on', comma)).toBe('the left boot')
+    // A name's "'s" before a which still names which: the inn's back door and the cellar door are two.
+    const inns = "Tamsin came down past the inn's back door to the cellar door. She pushed the door open."
+    expect(unnamed('the cellar door', 'She pushed the door open', inns)).toBe('the door (the cellar door or the back door?)')
+    // Named in the quote's own sentence: borne out, though another is named before.
+    const same = 'The garden door hung open. At the cellar door she stopped, and she pushed the door open.'
+    expect(unnamed('the cellar door', 'she pushed the door open', same)).toBe('the cellar door')
+    // Not in its sentence, and two named before: still unnamed.
+    const before = 'The garden door hung open. At the cellar door she stopped. She pushed the door open.'
+    expect(unnamed('the cellar door', 'She pushed the door open', before)).toBe('the door (the cellar door or the garden door?)')
+    // About a page back is as far as it looks.
+    const page = `The cellar door was painted green. ${'She waited for the rain to ease. '.repeat(20)}The garden door hung open. She put her hip to the door and pushed it shut.`
+    expect(unnamed('the garden door', 'put her hip to the door and pushed it shut', page)).toBe('the garden door')
     // The tracker is told so too.
     const [system] = stateMessages(null, 'Words.', ['Tamsin'])
     expect(system.content).toContain('it is not the nearest one named: it is the one the words show the person came through or stands at')

@@ -404,21 +404,49 @@ export function layGone(field: 'holding' | 'wearing', before: string, now: strin
 // whose name says which one it is ("the yard door"), when its own words don't say so ("the door") and the words just
 // before name two or more of its kind, is kept as "the door (the yard door or the passage door?)".
 
-/** Words before a thing's main word that only say how it looks, not which one it is ("the heavy door"). */
-const LOOKS_ONLY = new Set(
-  'a an the this that these those his her their its my your our one other same open shut closed locked unlocked barred bolted heavy old great big small little low narrow wide thick stout battered half ajar near far nearest first second last only'.split(
+/** Words that start a name: whose it is, or which ("the", "her"). Past one, the words before don't go with the thing. */
+const STARTS = new Set('a an the this that these those his her their its my your our'.split(' '))
+/**
+ * Words before a thing's main word that only say how it looks or whose it is, not which one it is ("the heavy door",
+ * "her own door", "a door of his own").
+ */
+const LOOKS_ONLY = new Set([
+  ...STARTS,
+  ...'own mine yours hers ours theirs whose one other same open shut closed locked unlocked barred bolted heavy old great big small little low narrow wide thick stout battered half ajar near far nearest first second last only'.split(
     ' '
   )
-)
-/** How far before a thing's words other names of its kind count, in characters of the words as compared. */
-const NAMED_NEAR = 1200
+])
+/** How far before a thing's words other names of its kind count, in characters of the words as compared (about a page). */
+const NAMED_NEAR = 600
 
 /** The words of a name that say which one it is: "yard" for "the yard door", '' for "the door" or "the heavy door". */
 const whichOf = (words: string[]): string => words.filter((w) => !LOOKS_ONLY.has(w)).join(' ')
 
 /**
- * A thing's name as its words bear it out (see above): as given, unless it says which one it is, its quote doesn't, and
- * the words up to the quote's end (the last NAMED_NEAR characters before it) name two or more of its kind by which.
+ * Text as compared for which one a name is: as plain, but where a sentence ends there is a " . ", and a comma, colon,
+ * dash, bracket or quotation mark is a " , ", so no name runs across them ("the table, her boot" names no "table boot").
+ * A name's "'s" is a "his": "Wren's door" says whose door, not which ("the inn's back door" is the back door).
+ */
+const marked = (s: string): string =>
+  ` ${s
+    .toLowerCase()
+    .replace(/[\p{L}\p{N}]+[’']s(?![\p{L}\p{N}])/gu, ' his ')
+    .replace(/[‘’'`´]/g, '')
+    .replace(/[.!?…]+/g, ' . ')
+    .replace(/[,;:()[\]–—“”"]+/g, ' , ')
+    .replace(/[^\p{L}\p{N}.,]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()} `
+/** A quote's words, marked the same way but with no marks: what to look for in marked text. */
+const markedWords = (s: string): string[] =>
+  marked(s)
+    .split(' ')
+    .filter((w) => w && w !== '.' && w !== ',')
+
+/**
+ * A thing's name as its words bear it out (see above): as given, unless it says which one it is, its quote doesn't and
+ * nor does the sentence the quote is in, and the words up to the quote's end (the last NAMED_NEAR characters before it)
+ * name two or more of its kind by which.
  */
 export function unnamed(name: string, quote: string, words: string): string {
   const key = itemKey(name).split(' ')
@@ -427,26 +455,39 @@ export function unnamed(name: string, quote: string, words: string): string {
   if (head.length < 3 || !which) return name
   const q = plain(quote)
   if (which.split(' ').every((w) => q.includes(` ${w} `))) return name
-  // Where the quote's words end in the words read.
-  const body = plain(words)
+  // Where the quote's words are in the words read (any marks between its words aside).
+  const body = marked(words)
   const parts = quote
     .split(/…|\.{3}/)
-    .map(plain)
-    .filter((p) => p.trim())
+    .map(markedWords)
+    .filter((p) => p.length)
   let first = -1
   let end = 0
   for (const p of parts) {
-    const i = body.indexOf(p, end)
-    if (i < 0) return name
-    if (first < 0) first = i
-    end = i + p.length
+    const find = new RegExp(` ${p.join('(?: [.,])* ')} `, 'gu')
+    find.lastIndex = end
+    const m = find.exec(body)
+    if (!m) return name
+    if (first < 0) first = m.index
+    end = m.index + m[0].length - 1
   }
-  const near = body.slice(Math.max(0, first - NAMED_NEAR), end)
-  // Each of its kind named there, by which ("the yard door", "a passage door"), the latest last.
+  // The sentence (or sentences) the quote is in: when it names this one by which, the name is borne out.
+  const from = body.lastIndexOf(' . ', first)
+  const to = body.indexOf(' . ', end)
+  const sentence = body.slice(from < 0 ? 0 : from, to < 0 ? body.length : to + 1).replace(/ ,(?= )/g, '')
+  if (sentence.includes(` ${which} ${head} `) || sentence.includes(` ${which} ${head}s `)) return name
+  const near = body.slice(Math.max(0, first - NAMED_NEAR), end + 1)
+  // Each of its kind named there, by which ("the yard door", "a passage door"), the latest last: only the words after
+  // the last that starts a name ("the table her boot" names no "table boot"), never across a mark.
   const named: string[] = []
   const kind = new RegExp(`(?<= )(?:the|a|an|this|that|his|her|their|its) ((?:[\\p{L}\\p{N}]+ ){1,2})${head}s?(?= )`, 'gu')
   for (const m of near.matchAll(kind)) {
-    const w = whichOf(m[1].trim().split(' '))
+    const ws = m[1].trim().split(' ')
+    let start = 0
+    ws.forEach((x, i) => {
+      if (STARTS.has(x)) start = i + 1
+    })
+    const w = whichOf(ws.slice(start))
     if (!w) continue
     const i = named.indexOf(w)
     if (i >= 0) named.splice(i, 1)
