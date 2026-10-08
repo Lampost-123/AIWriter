@@ -65,8 +65,11 @@ export function NextBeatChip({ sceneId, fallbackStatus }: { sceneId: ID; fallbac
     // Keyed on what it says, not on the object.
   }, [key, sceneId])
 
-  // Another scene: no tick carried over from the last one.
-  useEffect(() => setShown({ stand: shownRef.current.stand, phase: 'in' }), [sceneId])
+  // Another scene: no tick carried over from the last one, and what it says is this scene's (not the last one's, which
+  // the effect above may have just been told to keep).
+  const standRef = useRef(stand)
+  standRef.current = stand
+  useEffect(() => setShown({ stand: standRef.current, phase: 'in' }), [sceneId])
 
   const s = shown.stand
   if (beatsOn || s.kind === 'none') return null
