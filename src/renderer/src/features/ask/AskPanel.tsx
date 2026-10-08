@@ -4,7 +4,7 @@
 // (App.tsx). Answers are from the open story's point of view, as of the open scene; the chat changes
 // nothing in the manuscript or the memory unless Adam saves a note. Owned by the Ask the world part.
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookmarkPlus, Check, ChevronDown, History, MessagesSquare, Send, Square, SquarePen, X } from '@/components/ui/icons'
+import { BookmarkPlus, Check, ChevronDown, History, MessagesSquare, PenLine, Send, Square, SquarePen, X } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { SavedNote } from '@shared/contracts/ask'
 import type { EntryKind, ID } from '@shared/types'
@@ -26,8 +26,11 @@ import {
   neverSent,
   newChat,
   openChat,
+  quoteIn,
   refreshChats,
+  sendBox,
   setDraft,
+  setQuote,
   showStory,
   stopAnswer,
   useAsk,
@@ -36,6 +39,8 @@ import {
 } from './askStore'
 import { answerLines, answerParagraphs, citedTargets, nameIndex, plainAnswer, type AnswerPart, type LinkTarget } from './citations'
 import { EXAMPLES, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, savedMessage, speaksOfChanges } from './askWords'
+import { withoutChoice } from './askChoice'
+import { Choice } from './Choice'
 import { Proposals } from './Proposals'
 
 /** The last request for the box to take the keyboard that was carried out. */
@@ -318,7 +323,7 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
           <Starters onPick={onPick} />
         ) : (
           <ol aria-label="Conversation" className="flex flex-col gap-5">
-            {shown.map((t) => (
+            {shown.map((t, i) => (
               <TurnView
                 key={t.taskId ?? t.generationId}
                 turn={t}
@@ -326,6 +331,9 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
                 place={place}
                 running={running?.taskId === t.taskId && !!t.taskId ? running : null}
                 canRetry={t === lastAsked && !running}
+                // A question with options is answered by the question after it; it can be picked from while it is the last.
+                answeredBy={shown[i + 1]?.question}
+                canPick={t === lastAsked && !running && !loading && t.status !== 'streaming'}
               />
             ))}
           </ol>
@@ -372,7 +380,9 @@ function TurnView({
   index,
   place,
   running,
-  canRetry
+  canRetry,
+  answeredBy,
+  canPick
 }: {
   turn: ShownTurn
   index: Map<string, LinkTarget>
@@ -381,17 +391,23 @@ function TurnView({
   running: { stopping: boolean; retrying: string | null } | null
   /** The last question asked: Try again shows when it failed. */
   canRetry: boolean
+  /** The question asked after this one, if any (it answers a question with options). */
+  answeredBy: string | undefined
+  /** A question with options under this answer can be picked from now. */
+  canPick: boolean
 }): React.JSX.Element {
   const answerRef = useRef<HTMLDivElement>(null)
   const streaming = turn.status === 'streaming'
-  const hasAnswer = !!turn.answer.trim()
-  const paragraphs = useMemo(() => answerParagraphs(turn.answer, index), [turn.answer, index])
+  // With the chat's question shown as buttons, its numbered options (also at the end of the text) don't show twice.
+  const answer = useMemo(() => withoutChoice(turn.answer, turn.choice), [turn.answer, turn.choice])
+  const hasAnswer = !!answer.trim()
+  const paragraphs = useMemo(() => answerParagraphs(answer, index), [answer, index])
   const recorded = !turn.problem && !turn.generationId.startsWith('pending:')
   // What went wrong shows while this is the last question asked (with Try again); after that, quietly.
   const notice = !!turn.problem || (turn.status === 'error' && canRetry)
   const unanswered = recorded && turn.status === 'error' && !hasAnswer && !notice
   const note = answerNote(turn)
-  const retry = (): void => void ask(turn.question, place)
+  const retry = (): void => void ask(turn.question, place, turn.sentWith)
 
   return (
     <li className="flex flex-col">
@@ -419,8 +435,11 @@ function TurnView({
           {turn.steps.length === 1 ? turn.steps[0] : `${turn.steps.length} steps: ${turn.steps.join(' · ')}`}
         </p>
       ) : null}
+      {turn.choice ? (
+        <Choice generationId={turn.generationId} choice={turn.choice} place={place} answeredBy={answeredBy} canPick={canPick} />
+      ) : null}
       {turn.proposals?.length ? <Proposals generationId={turn.generationId} proposals={turn.proposals} streaming={streaming} /> : null}
-      {!streaming && turn.status === 'complete' && !turn.proposals?.length && speaksOfChanges(turn.answer) ? (
+      {!streaming && turn.status === 'complete' && !turn.proposals?.length && !turn.choice && speaksOfChanges(answer) ? (
         <p className="mt-1.5 px-1 text-[12.5px] leading-relaxed text-muted" data-no-changes>
           {NO_CHANGES_CAME}
         </p>
@@ -442,7 +461,7 @@ function TurnView({
           />
         </div>
       ) : hasAnswer ? (
-        <SaveControl turn={turn} answerRef={answerRef} index={index} place={place} />
+        <SaveControl turn={answer === turn.answer ? turn : { ...turn, answer }} answerRef={answerRef} index={index} place={place} />
       ) : null}
 
       {notice ? (
@@ -772,14 +791,12 @@ function AskBox({
   const draft = useAsk((s) => s.draft)
   const running = useAsk((s) => !!s.running)
   const loading = useAsk((s) => s.loading)
+  // Edit this: the question asks for a change to the words it quotes (sent with mode 'edit'), while it still quotes them.
+  const quote = quoteIn(draft, useAsk((s) => s.quote))
+  const editing = quote?.mode === 'edit'
   useFitHeight(boxRef, draft, 2, 8)
 
-  const send = (): void => {
-    const q = draft.trim()
-    if (!q || running || loading) return
-    setDraft('')
-    void ask(q, place)
-  }
+  const send = (): void => void sendBox(place)
 
   return (
     <form
@@ -813,9 +830,27 @@ function AskBox({
               if (el) insertIntoBox(el, spoken, setDraft)
             }}
           />
-          <span className="min-w-0 flex-1 truncate px-1 text-[11.5px] text-faint" title={asOfTitle}>
-            {asOf}
-          </span>
+          {editing && quote ? (
+            // In the place of "as of", so nothing in the box moves.
+            <span className="flex min-w-0 flex-1 animate-fade-in items-center gap-1 px-1 text-[11.5px] text-accent" data-edit-mode>
+              <PenLine size={12} className="shrink-0" aria-hidden />
+              <span className="min-w-0 truncate" title="Say what to change in the quoted words. The chat proposes the change for you to apply.">
+                Edit: say what to change
+              </span>
+              <button
+                type="button"
+                onClick={() => setQuote({ ...quote, mode: null })}
+                title="Ask about the quoted words instead of asking for a change"
+                className="shrink-0 rounded-sm px-1 text-faint underline-offset-2 hover:text-fg hover:underline"
+              >
+                Just ask
+              </button>
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1 truncate px-1 text-[11.5px] text-faint" title={asOfTitle}>
+              {asOf}
+            </span>
+          )}
           {running ? (
             <Button
               type="button"
@@ -828,7 +863,7 @@ function AskBox({
             </Button>
           ) : (
             <Button type="submit" size="sm" variant="primary" icon={<Send size={13} />} disabled={!draft.trim() || loading}>
-              Ask
+              {editing ? 'Edit' : 'Ask'}
             </Button>
           )}
         </div>

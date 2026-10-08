@@ -393,25 +393,25 @@ function continueFrom(state: EditorState): number {
 /**
  * Starts an AI tool on the selected words (or `range`), or Continue at the cursor or after the selected
  * words (or at `at`). The words stream into a tracked change in place; nothing in the scene changes until
- * Accept.
+ * Accept. Resolves true once the change is on its way (false when it didn't start; why has been shown).
  */
 export async function startTool(
   tool: EditTool,
   o: { direction?: string; range?: Target; at?: number; onAccepted?: (words: { from: number; to: number }) => void; mustChange?: MustChange } = {}
-): Promise<void> {
+): Promise<boolean> {
   const v = view()
   const bridge = editorBridge()
   const sceneId = bridge?.sceneId
-  if (!v || !bridge || !sceneId || bridge.editor !== editor) return
+  if (!v || !bridge || !sceneId || bridge.editor !== editor) return false
   if (bridge.busy()) {
     toast('A draft is being written into this scene. Wait for it to finish (or stop it), then try again.')
-    return
+    return false
   }
   if (current()) {
     toast('One change at a time: accept or reject the AI’s waiting change first.', {
       action: { label: 'Show it', run: () => hooks?.reveal() }
     })
-    return
+    return false
   }
   const state = v.state
   const doc = state.doc
@@ -423,7 +423,7 @@ export async function startTool(
     const place = continuePlace(doc, o.at ?? continueFrom(state))
     if ('problem' in place) {
       toast(place.problem)
-      return
+      return false
     }
     from = to = place.at
     mode = place.mode
@@ -434,7 +434,7 @@ export async function startTool(
     const r = o.range ?? selectedWords(state)
     if ('problem' in r) {
       toast(r.problem)
-      return
+      return false
     }
     from = r.from
     to = r.to
@@ -475,7 +475,7 @@ export async function startTool(
     if (live?.taskId !== taskId) {
       // Stopped, rejected or dropped while it got ready.
       if (res.ok) void api.stopTask(taskId).catch(noop)
-      return
+      return false
     }
     if (!res.ok) {
       drop(taskId)
@@ -491,7 +491,7 @@ export async function startTool(
           }
         : undefined
       toast(res.problem, { action: open })
-      return
+      return false
     }
     const setup = [res.note, o.mustChange?.retried ? ASKED_AGAIN : null].filter(Boolean).join(' ') || null
     live.note = setup
@@ -500,12 +500,14 @@ export async function startTool(
       const note = [setup, current()?.note].filter(Boolean).join(' ') || null
       patch(taskId, { generationId: res.generationId, note })
     } else patch(taskId, { status: 'writing', generationId: res.generationId, note: setup })
+    return true
   } catch (e) {
-    if (live?.taskId !== taskId) return
+    if (live?.taskId !== taskId) return false
     const l = live
     drop(taskId)
     const err = e as ApiError
     toast(err.message, { tone: 'danger', action: settingsAction(err.message, err.code) ?? retryAction(l) })
+    return false
   }
 }
 

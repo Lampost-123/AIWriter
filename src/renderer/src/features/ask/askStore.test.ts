@@ -41,7 +41,7 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/flush', () => ({ registerDiscarder: () => () => undefined }))
 
 import { setEditorBridge, type EditorBridge } from '@/lib/editorBridge'
-import { ask, newChat, openChat, showStory, stopAnswer, storyOfChat, useAsk, type AskPlace } from './askStore'
+import { ask, howFor, newChat, openChat, pickChoice, sendBox, showStory, stopAnswer, storyOfChat, useAsk, type AskPlace } from './askStore'
 
 const place: AskPlace = { worldId: 'w', storyId: 's1', sceneId: null }
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
@@ -246,6 +246,50 @@ describe('the story a chat was asked in', () => {
     expect(storyOfChat('world:abc')).toBe(null)
     expect(storyOfChat('')).toBeUndefined()
     expect(storyOfChat(undefined)).toBeUndefined()
+  })
+})
+
+describe('a question with options (ask_user)', () => {
+  const choice = { question: 'Which part do you mean?', options: [{ label: 'The opening' }, { label: 'The ending', detail: 'the last lines' }], recommended: 1 }
+
+  it('shows as soon as the chat asks it, and a pick is sent as the next question in the same chat', async () => {
+    const asking = ask('Make it better', place)
+    const taskId = await started()
+    await asking
+    const generationId = `g-${taskId}`
+    main.listeners.get('ask:choice')?.({ taskId, generationId, choice })
+    expect(useAsk.getState().turns[0].choice).toEqual(choice)
+    // Not while the answer is still being written.
+    expect(pickChoice(generationId, [1], place)).toBe(false)
+    main.listeners.get('task:done')?.({ taskId, generationId, job: 'chat', text: 'Which part do you mean?', status: 'complete', error: null, cost: null, cutOff: false })
+    expect(pickChoice(generationId, [1], place)).toBe(true)
+    await settle()
+    const sent = main.replies.at(-1)!.input
+    expect(sent).toMatchObject({ question: 'The ending — the last lines', chatId: 'chat-1' })
+    expect(useAsk.getState().turns.map((t) => t.question)).toEqual(['Make it better', 'The ending — the last lines'])
+    // Answered now: not picked from again.
+    expect(pickChoice(generationId, [0], place)).toBe(false)
+  })
+})
+
+describe('the box with a selection quoted (Ask about this, Edit this)', () => {
+  const quote = { text: 'The lamp went out.', pids: ['p1'], mode: 'edit' as const }
+
+  it('sends the selection beside the question, and "Edit this" as mode edit', async () => {
+    useAsk.setState({ draft: `About this passage: “${quote.text}”\n\nMake it slower`, quote })
+    expect(sendBox(place)).toBe(true)
+    await settle()
+    expect(main.replies.at(-1)!.input).toMatchObject({
+      question: `About this passage: “${quote.text}”\n\nMake it slower`,
+      mode: 'edit',
+      selection: { text: quote.text, pids: ['p1'] }
+    })
+    expect(useAsk.getState()).toMatchObject({ draft: '', quote: null })
+  })
+
+  it('lets the quote go once the question no longer quotes it, and asks Ask about this without a mode', () => {
+    expect(howFor('Make it slower', quote)).toEqual({})
+    expect(howFor(`About this passage: “${quote.text}”\n\nWhy?`, { ...quote, mode: null, pids: [] })).toEqual({ selection: { text: quote.text } })
   })
 })
 

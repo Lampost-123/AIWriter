@@ -120,9 +120,11 @@ export const askHandlers: Handlers<keyof AskApi> = {
     }
     // The editor chat: its tools look things up and note proposed changes, never change anything themselves.
     let generationId = ''
+    // A question quoting words selected in the page ("Ask about this", "Edit this") already has the words to change.
+    const quoted = typeof input.selection?.text === 'string' && !!input.selection.text.trim()
     const agent = new EditorAgent(
       db,
-      { storyId, sceneId: input.sceneId ?? null, prefs: getWritingPrefs(), ...(intent ? { intent } : {}) },
+      { storyId, sceneId: input.sceneId ?? null, prefs: getWritingPrefs(), ...(intent ? { intent } : {}), ...(quoted ? { wordsInQuestion: true } : {}) },
       (label) => emit('ask:step', { taskId: input.taskId, generationId, label }),
       (proposals) => {
         if (generationId && db.open) saveProposals(db, generationId, proposals)

@@ -22,27 +22,13 @@ import { snapshotBefore } from '@/features/history/snapshot'
 import { openHistory } from '@/features/history/open'
 import { changeOf, planPassage, planRevert, planText, revertDoc, type BlockChange, type Plan } from './askEdits'
 import { chatOfTurn, setProposalStatus, storyOfChat } from './askStore'
-
-/** How long to wait for a scene to open in the page before giving up. */
-const OPEN_WAIT_MS = 4000
+import { startProposedDraft } from './applyDraft'
+import { sceneInPage } from './sceneInPage'
 
 const BUSY_APPLY = 'A draft is being written into this scene. Wait for it to finish, then apply.'
 const BUSY_UNDO = 'A draft is being written into this scene, so the change was left in. Wait for it to finish, then undo it by hand.'
 const CHANGED_SINCE =
   'The words this change made were changed since, so Undo left the scene as it is. History has the scene as it was before the change.'
-
-/** Opens a scene in the page (if it isn't) and resolves once the editor shows it; null if it didn't in time. */
-async function sceneInPage(sceneId: ID, storyId?: ID | null): Promise<NonNullable<ReturnType<typeof editorBridge>>['editor']> {
-  const app = useApp.getState()
-  if (app.view.kind !== 'write' || app.sceneId !== sceneId) app.selectScene(sceneId, storyId ?? undefined)
-  const until = Date.now() + OPEN_WAIT_MS
-  for (;;) {
-    const b = editorBridge()
-    if (b?.sceneId === sceneId && b.editor && !b.editor.isDestroyed) return b.editor
-    if (Date.now() > until) return null
-    await new Promise((r) => setTimeout(r, 50))
-  }
-}
 
 /** What Undo did: done (or there was nothing left to undo), or why not, in plain words (with the scene, for History). */
 export type Undone = { ok: true } | { ok: false; why: string; sceneId?: ID }
@@ -133,7 +119,8 @@ export async function revertWords(sceneId: ID, change: BlockChange): Promise<Und
 type Kept = { ok: true; undo: () => Promise<void> }
 
 const applyText = (p: Extract<Proposal, { kind: 'text' }>, place: ApplyPlace): Promise<Applied> =>
-  applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planText(doc, p.find, p.replace))
+  // Where the chat says the words stand, when it says (the same words may be elsewhere too); else where they are.
+  applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planText(doc, p.find, p.replace, p.at))
 
 async function applyCard(p: Extract<Proposal, { kind: 'card' }>): Promise<Kept> {
   const before: SceneCard = (await api.getScene(p.sceneId)).card
@@ -236,7 +223,7 @@ async function applyRename(p: Extract<Proposal, { kind: 'rename' }>): Promise<Ke
  * paragraphs stay, joined to the first and last new paragraph. Never across a scene break (askEdits.planPassage).
  */
 const applyPassage = (p: Extract<Proposal, { kind: 'passage' }>, place: ApplyPlace): Promise<Applied> =>
-  applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planPassage(doc, p.start, p.end, p.replace))
+  applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planPassage(doc, p.start, p.end, p.replace, p.at))
 
 /** Undo for a change to a record, which always can be put back. */
 const kept = async (r: Promise<Kept>): Promise<Applied> => {
@@ -271,8 +258,8 @@ export async function applyProposal(p: Proposal, place: ApplyPlace = {}): Promis
       case 'rename':
         return await kept(applyRename(p))
       case 'draft':
-        // A proposed draft (lab switch DRAFT) starts the writer's own job; the window can't do that from here yet.
-        return { ok: false, why: 'Drafting from the chat isn’t ready yet. Use the direction in the scene’s own Draft panel.' }
+        // A proposed draft starts the writer's own job (applyDraft.ts): applyAndKeep starts it, with no Undo of its own.
+        return { ok: false, why: 'A proposed draft is started from its own card.' }
     }
   } catch (e) {
     return { ok: false, why: (e as Error)?.message || 'That change couldn’t be applied.' }
@@ -285,15 +272,27 @@ export function storyForChanges(generationId: ID): ID | null {
   return s !== undefined ? s : useApp.getState().storyId
 }
 
-/** What applying a set of changes did, and Undo for each (in the order applied). */
+/**
+ * What applying a set of changes did, and Undo for each (in the order applied). A proposed draft is started instead
+ * (`started`: its scene's label); it is undone in the scene, as any draft is, so it has no Undo here.
+ */
 export async function applyAndKeep(
   generationId: ID,
   list: Proposal[],
   place: ApplyPlace = { storyId: storyForChanges(generationId) }
-): Promise<{ done: number; undos: (() => Promise<Undone>)[]; failed: string[] }> {
+): Promise<{ done: number; undos: (() => Promise<Undone>)[]; failed: string[]; started: { sceneId: ID; label: string }[] }> {
   const undos: (() => Promise<Undone>)[] = []
   const failed: string[] = []
+  const started: { sceneId: ID; label: string }[] = []
   for (const p of list) {
+    if (p.kind === 'draft') {
+      const s = await startProposedDraft(p, place.storyId)
+      if (s.ok) {
+        started.push({ sceneId: p.sceneId, label: p.sceneLabel })
+        await setProposalStatus(generationId, p.id, 'applied')
+      } else if (s.why) failed.push(s.why)
+      continue
+    }
     const r = await applyProposal(p, place)
     if (r.ok) {
       undos.push(async () => {
@@ -305,7 +304,7 @@ export async function applyAndKeep(
       await setProposalStatus(generationId, p.id, 'applied')
     } else failed.push(r.why)
   }
-  return { done: undos.length, undos, failed }
+  return { done: undos.length, undos, failed, started }
 }
 
 /** Undoes changes, the latest first, and says plainly what couldn't be (with the scene's History to hand). */
@@ -326,10 +325,18 @@ export async function undoChanges(undos: (() => Promise<Undone>)[]): Promise<Und
   return results
 }
 
+/** Shows a scene in the page (a started draft's "Show"). */
+export function showScene(sceneId: ID): void {
+  const app = useApp.getState()
+  if (app.view.kind !== 'write' || app.sceneId !== sceneId) app.selectScene(sceneId)
+}
+
 /** Applies the changes picked (one, or every one still waiting with Apply all), says how it went, and offers Undo. */
 export async function applyChanges(generationId: ID, list: Proposal[]): Promise<void> {
-  const { done, undos, failed } = await applyAndKeep(generationId, list)
+  const { done, undos, failed, started } = await applyAndKeep(generationId, list)
   if (failed.length) toast(failed.length === 1 ? failed[0] : `${failed.length} changes couldn’t be applied. ${failed[0]}`, { tone: 'danger' })
+  // A draft says where it is being written; its words are kept or undone in the scene, as any draft's are.
+  for (const s of started) toast(`The draft has started in ${s.label}.`, { action: { label: 'Show', run: () => showScene(s.sceneId) } })
   if (!done) return
   let used = false
   toast(done === 1 ? 'Change applied.' : `${done} changes applied.`, {

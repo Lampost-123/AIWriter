@@ -6,7 +6,22 @@ import { getSchema } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { Transform } from '@tiptap/pm/transform'
 import { sceneExtensions } from '@/features/editor/extensions'
-import { NOT_FOUND, NOT_PLAIN, changeOf, findQuote, planPassage, planRevert, planText, revertDoc, type PlannedEdit } from './askEdits'
+import {
+  NOT_FOUND,
+  NOT_PLAIN,
+  beatNumber,
+  changeOf,
+  continueAt,
+  findEditAt,
+  findPassageAt,
+  findQuote,
+  paragraphAt,
+  planPassage,
+  planRevert,
+  planText,
+  revertDoc,
+  type PlannedEdit
+} from './askEdits'
 
 const schema = getSchema(sceneExtensions())
 const italic = schema.marks.italic.create()
@@ -171,5 +186,71 @@ describe('Undo', () => {
     const back1 = revertDoc(back2, c1)
     if ('why' in back1) throw new Error(back1.why)
     expect(back1.eq(doc)).toBe(true)
+  })
+})
+
+describe('anchors (where the chat says the words stand)', () => {
+  // The same words twice: the chat's anchor says which (paragraphs numbered as read_scene numbers them).
+  const empty = (): PMNode => schema.nodes.paragraph.create({ pid: 'e' })
+  const doc = page(
+    para('a', 'The lamp went out.'),
+    empty(),
+    brk(),
+    para('b', 'Hesper waited. The lamp went out. Then dark.'),
+    para('c', 'The lamp went out.')
+  )
+  const posOfPara = (i: number): number => {
+    let at = 0
+    for (let k = 0; k < i; k++) at += doc.child(k).nodeSize
+    return at + 1
+  }
+
+  it('names a paragraph by its id, else by its number (empty paragraphs and scene breaks not counted)', () => {
+    expect(paragraphAt(doc, { paragraph: 2, pid: null, offset: 0 })?.start).toBe(posOfPara(3))
+    expect(paragraphAt(doc, { paragraph: 1, pid: 'c', offset: 0 })?.start).toBe(posOfPara(4))
+    // An id no longer in the scene: its number counts.
+    expect(paragraphAt(doc, { paragraph: 3, pid: 'gone', offset: 0 })?.start).toBe(posOfPara(4))
+    expect(paragraphAt(doc, { paragraph: 9, pid: null, offset: 0 })).toBeNull()
+  })
+
+  it('finds the words where the anchor says, not the first place they are', () => {
+    const at = { paragraph: 2, pid: 'b', offset: 'Hesper waited. '.length }
+    const r = findEditAt(doc, 'The lamp went out.', at)
+    expect(r).toEqual({ from: posOfPara(3) + at.offset, to: posOfPara(3) + at.offset + 'The lamp went out.'.length })
+    const after = apply(doc, planned(planText(doc, 'The lamp went out.', 'The lamp guttered.', at)))
+    expect(texts(after)).toEqual(['The lamp went out.', '', '* * *', 'Hesper waited. The lamp guttered. Then dark.', 'The lamp went out.'])
+    // In the paragraph it names, an offset gone stale (typing before it) still finds the words there.
+    expect(findEditAt(doc, 'The lamp went out.', { paragraph: 3, pid: 'c', offset: 4 })?.from).toBe(posOfPara(4))
+  })
+
+  it('falls back to the first place the words are when the anchor no longer holds', () => {
+    expect(findEditAt(doc, 'The lamp went out.', { paragraph: 9, pid: 'gone', offset: 0 })?.from).toBe(posOfPara(0))
+    expect(findEditAt(doc, 'The lamp went out.')?.from).toBe(posOfPara(0))
+  })
+
+  it('finds a passage by its start and end anchors', () => {
+    const at = { start: { paragraph: 2, pid: 'b', offset: 'Hesper waited. '.length }, end: { paragraph: 3, pid: 'c', offset: 'The lamp went out.'.length } }
+    expect(findPassageAt(doc, 'The lamp', 'went out.', at)).toEqual({ from: posOfPara(3) + at.start.offset, to: posOfPara(4) + 'The lamp went out.'.length })
+    // Without anchors: as before, from the first start words to the end words after them.
+    expect(findPassageAt(doc, 'The lamp', 'went out.')).toEqual({ from: posOfPara(0), to: posOfPara(0) + 'The lamp went out.'.length })
+  })
+})
+
+describe('a proposed draft', () => {
+  it('carries on from the end of the paragraph named, else the end of the scene’s words', () => {
+    const doc = page(para('a', 'One.'), para('b', 'Two.'), schema.nodes.paragraph.create({ pid: 'e' }))
+    expect(continueAt(doc, { paragraph: 1, pid: 'a', offset: 4 })).toBe(1 + 'One.'.length)
+    expect(continueAt(doc)).toBe(doc.child(0).nodeSize + 1 + 'Two.'.length)
+    expect(continueAt(page(schema.nodes.paragraph.create({ pid: 'e' })))).toBeNull()
+  })
+
+  it('names a card’s beat as Beat by beat counts them (blank beats left out), by its words first', () => {
+    const beats = ['Arrive at the lighthouse', '', 'The lamp fails', 'Climb the stair']
+    expect(beatNumber(beats, { index: 3, text: 'The lamp fails' })).toBe(2)
+    // Moved on the card since: found by its words.
+    expect(beatNumber(['The lamp fails', 'Arrive'], { index: 3, text: 'The lamp fails' })).toBe(1)
+    // Reworded: its place on the card.
+    expect(beatNumber(beats, { index: 4, text: 'Climb the stairs slowly' })).toBe(3)
+    expect(beatNumber(beats, { index: 2, text: 'Gone' })).toBeNull()
   })
 })

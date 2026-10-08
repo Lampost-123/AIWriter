@@ -157,9 +157,15 @@ function changesCall(tools, changes) {
 function askUserCall(tools) {
   const schema = paramsOf(tools, 'ask_user')
   const options = ['The opening paragraph', 'The ending', 'Hesper’s lines']
+  // One option with a detail, where the schema has room for one.
+  const details = { 'The ending': 'the last two lines, where the gulls go quiet' }
   const optSchema = schema?.properties?.options?.items
-  const opts = optSchema && (optSchema.type === 'object' || optSchema.properties) ? options.map((o) => fill(optSchema, { label: o, text: o, title: o, value: o })) : options
-  return { name: 'ask_user', arguments: fill(schema, { question: 'Which part do you mean?', options: opts, why: 'The ask could mean several things.' }) }
+  const opts =
+    optSchema && (optSchema.type === 'object' || optSchema.properties)
+      ? options.map((o) => fill(optSchema, { label: o, text: o, title: o, value: o, ...(details[o] ? { detail: details[o] } : {}) }))
+      : options
+  // The first option recommended (1 = the first), where the schema has `recommended`.
+  return { name: 'ask_user', arguments: fill(schema, { question: 'Which part do you mean?', options: opts, recommended: 1, why: 'The ask could mean several things.' }) }
 }
 
 /** propose_draft: a hand-off to the writer's own drafting, with a short direction. */

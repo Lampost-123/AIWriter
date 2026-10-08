@@ -11,8 +11,8 @@ import { Check } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
-import { applyChanges, declineChange } from './applyProposal'
-import { findPassage, findQuote } from './askEdits'
+import { applyChanges, declineChange, showScene } from './applyProposal'
+import { findEditAt, findPassageAt } from './askEdits'
 
 const CARD_LABELS: Record<string, string> = { goal: 'Goal', conflict: 'Conflict', outcome: 'Outcome', mood: 'Mood', when: 'When', notes: 'Notes' }
 
@@ -40,12 +40,20 @@ function headOf(p: Proposal): string {
   }
 }
 
-/** A proposed draft's way of writing, in words (propose_draft, lab switch DRAFT). */
-const DRAFT_MODE_LABELS: Record<string, string> = {
-  generate: 'Write the scene',
-  add_below: 'Add below',
-  continue: 'Continue',
-  redo_beat: 'Redo a beat'
+/** A proposed draft's way of writing, in the writer's own words for it (propose_draft, lab switch DRAFT). */
+export function draftModeLabel(p: Extract<Proposal, { kind: 'draft' }>): string {
+  switch (p.mode) {
+    case 'generate':
+      return 'Generate'
+    case 'add_below':
+      return 'Add below'
+    case 'continue':
+      return p.atParagraph ? `Continue from paragraph ${p.atParagraph.paragraph}` : 'Continue from the end'
+    case 'redo_beat':
+      return p.beat ? `Redo beat ${p.beat.index}` : 'Redo a beat'
+    default:
+      return String(p.mode)
+  }
 }
 
 const Line = ({ label, value }: { label: string; value: string }): React.JSX.Element => (
@@ -135,12 +143,12 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
       )
     case 'draft':
       return (
-        <div className="flex flex-col gap-0.5">
-          <Line label="How" value={DRAFT_MODE_LABELS[p.mode] ?? p.mode} />
+        <div className="flex flex-col gap-0.5" data-draft-mode={p.mode}>
+          <Line label="How" value={draftModeLabel(p)} />
+          <Line label="Scene" value={p.sceneLabel} />
           {p.beat ? <Line label={`Beat ${p.beat.index}`} value={p.beat.text} /> : null}
-          {p.atParagraph ? <Line label="From" value={`the end of paragraph ${p.atParagraph.paragraph}`} /> : null}
           <Line label="Direction" value={p.direction} />
-          {p.length ? <Line label="Length" value={`about ${p.length} words`} /> : null}
+          <Line label="Length" value={p.length ? `about ${p.length.toLocaleString()} words` : 'the scene’s own'} />
         </div>
       )
   }
@@ -155,7 +163,8 @@ function showInPage(p: Extract<Proposal, { kind: 'text' | 'passage' }>): void {
     const b = editorBridge()
     if (b?.sceneId === p.sceneId && b.editor && !b.editor.isDestroyed) {
       const doc = b.editor.state.doc
-      const r = p.kind === 'text' ? findQuote(doc, p.find) : (findPassage(doc, p.start, p.end) ?? findQuote(doc, p.start))
+      // Where the chat says the words stand, when it says (the same words may be elsewhere too); else where they are.
+      const r = p.kind === 'text' ? findEditAt(doc, p.find, p.at) : (findPassageAt(doc, p.start, p.end, p.at) ?? findEditAt(doc, p.start, p.at?.start))
       if (r) b.editor.chain().focus().setTextSelection(r).scrollIntoView().run()
       return
     }
@@ -178,8 +187,9 @@ function ProposalCard({ generationId, p, busy, onApply }: { generationId: ID; p:
       <div className="mb-1.5 flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold uppercase tracking-wide text-faint">{headOf(p)}</span>
         {p.status === 'applied' ? (
-          <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-success">
-            <Check size={13} aria-hidden /> Applied
+          <span className="flex shrink-0 animate-fade-in items-center gap-1 text-[12px] font-medium text-success">
+            {/* A draft is started, not applied: its words are written (and kept or undone) in the scene. */}
+            <Check size={13} aria-hidden /> {p.kind === 'draft' ? 'Started' : 'Applied'}
           </span>
         ) : p.status === 'declined' ? (
           <span className="shrink-0 text-[12px] text-faint">Set aside</span>
@@ -187,6 +197,13 @@ function ProposalCard({ generationId, p, busy, onApply }: { generationId: ID; p:
       </div>
       <Body p={p} />
       {p.why ? <p className="mt-1.5 break-words text-[12px] italic leading-relaxed text-muted">{p.why}</p> : null}
+      {p.kind === 'draft' && p.status === 'applied' ? (
+        <div className="mt-2 flex animate-fade-in flex-wrap items-center gap-1.5">
+          <Button size="sm" variant="ghost" onClick={() => showScene(p.sceneId)}>
+            Show {p.sceneLabel}
+          </Button>
+        </div>
+      ) : null}
       {p.status !== 'applied' ? (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="primary" disabled={busy} onClick={onApply}>
@@ -212,7 +229,8 @@ function ProposalCard({ generationId, p, busy, onApply }: { generationId: ID; p:
 export function Proposals({ generationId, proposals, streaming }: { generationId: ID; proposals: Proposal[]; streaming: boolean }): React.JSX.Element | null {
   const [busy, setBusy] = useState(false)
   if (!proposals.length) return null
-  const waiting = proposals.filter((p) => p.status === 'pending')
+  // A draft is started on its own (it writes into its scene for a while), never with Apply all.
+  const waiting = proposals.filter((p) => p.status === 'pending' && p.kind !== 'draft')
   const run = (list: Proposal[]): void => {
     setBusy(true)
     void applyChanges(generationId, list).finally(() => setBusy(false))

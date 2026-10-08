@@ -6,6 +6,7 @@
 //  - The chat reads italics as *…* (and bold as **…**): quoted words are found with or without the markers, and new
 //    words with them get italics (or bold) as a streamed draft's do (streamText.parseEmphasis).
 import { Fragment, Slice, type Node as PMNode, type Schema } from '@tiptap/pm/model'
+import type { ParaAnchor } from '@shared/contracts/ask'
 import { findTextRange, findTextRangeAfter } from '@/features/editor/findText'
 import { hasEmphasis, parseEmphasis } from '@/features/editor/streamText'
 
@@ -26,6 +27,68 @@ export function findQuote(doc: PMNode, quote: string): { from: number; to: numbe
 export function findQuoteAfter(doc: PMNode, quote: string, after: number): { from: number; to: number } | null {
   return findTextRangeAfter(doc, quote, after) ?? (hasEmphasis(quote) ? findTextRangeAfter(doc, plainOf(quote), after) : null)
 }
+
+// ---------- Anchors (lab switch ANCHOR): where the chat says the words stand ----------
+
+type Range = { from: number; to: number }
+
+/**
+ * The paragraph an anchor names: by its paragraph id while that is still in the scene, else by its number as the
+ * chat's read_scene counts them (paragraphs with words, scene breaks and empty ones left out). `start` and `end`
+ * are the positions of its content's start and end. Null when there's no such paragraph.
+ */
+export function paragraphAt(doc: PMNode, a: ParaAnchor): { start: number; end: number } | null {
+  let byPid: { start: number; end: number } | null = null
+  let byNumber: { start: number; end: number } | null = null
+  let n = 0
+  doc.descendants((node, pos) => {
+    if (byPid) return false
+    if (!node.isTextblock) return true
+    const here = { start: pos + 1, end: pos + 1 + node.content.size }
+    if (a.pid && node.attrs.pid === a.pid) byPid = here
+    if (node.textContent.trim() && ++n === a.paragraph) byNumber ??= here
+    return false
+  })
+  return byPid ?? byNumber
+}
+
+/** Every place quoted words stand in one paragraph (with or without their *…* markers), in order. */
+function hitsIn(doc: PMNode, quote: string, p: { start: number; end: number }): Range[] {
+  const out: Range[] = []
+  for (let at = p.start; ; ) {
+    const r = findQuoteAfter(doc, quote, at)
+    if (!r || r.from > p.end) return out
+    out.push(r)
+    at = r.from + 1
+  }
+}
+
+/** Of several places, the one whose start (or end) is nearest `want`. */
+const nearest = (hits: Range[], edge: 'from' | 'to', want: number): Range | null =>
+  hits.reduce<Range | null>((best, h) => (!best || Math.abs(h[edge] - want) < Math.abs(best[edge] - want) ? h : best), null)
+
+/**
+ * Where quoted words stand by an anchor: in the paragraph it names, the place nearest its offset (their start; with
+ * `edge` 'to', their end). Null when the paragraph is gone or doesn't have the words (then the words are searched
+ * for as before).
+ */
+export function findQuoteAt(doc: PMNode, quote: string, a: ParaAnchor, edge: 'from' | 'to' = 'from'): Range | null {
+  const p = paragraphAt(doc, a)
+  return p ? nearest(hitsIn(doc, quote, p), edge, p.start + a.offset) : null
+}
+
+/** Where a passage stands by its anchors (start words at `at.start`, end words ending at `at.end`), else as before. */
+export function findPassageAt(doc: PMNode, start: string, end: string, at?: { start: ParaAnchor; end: ParaAnchor }): Range | null {
+  const s = at ? findQuoteAt(doc, start, at.start) : null
+  if (!at || !s) return findPassage(doc, start, end)
+  const p = paragraphAt(doc, at.end)
+  const e = p ? nearest(hitsIn(doc, end, p).filter((h) => h.from >= s.from && h.to >= s.to), 'to', p.start + at.end.offset) : null
+  const to = e ?? findEnd(doc, end, s)
+  return to ? { from: s.from, to: to.to } : findPassage(doc, start, end)
+}
+
+/** Where a proposed edit's words are: by its anchor when it has one that still holds, else the first place they are. */
+export const findEditAt = (doc: PMNode, find: string, at?: ParaAnchor): Range | null => (at ? findQuoteAt(doc, find, at) : null) ?? findQuote(doc, find)
 
 /** A paragraph's words as inline content: *italics* and **bold** become marks; unpaired markers stay as they are. */
 export function inlineNodes(schema: Schema, text: string): PMNode[] {
@@ -54,8 +117,8 @@ export type Plan = PlannedEdit | { why: string }
  * words that take the marks of the words they replace. The chat's edits never add or cross italics (those come as
  * rewrites), so an asterisk in them is just an asterisk.
  */
-export function planText(doc: PMNode, find: string, replace: string): Plan {
-  const range = findQuote(doc, find)
+export function planText(doc: PMNode, find: string, replace: string, at?: ParaAnchor): Plan {
+  const range = findEditAt(doc, find, at)
   if (!range) return { why: NOT_FOUND }
   const $from = doc.resolve(range.from)
   if ($from.depth !== 1 || !$from.parent.isTextblock) return { why: NOT_PLAIN }
@@ -85,8 +148,8 @@ export function findPassage(doc: PMNode, start: string, end: string): { from: nu
  * before the start and after the end in their paragraphs stay, joined to the first and last new paragraph. Refused
  * when the passage runs across anything that isn't a paragraph (a scene break).
  */
-export function planPassage(doc: PMNode, start: string, end: string, replace: string): Plan {
-  const found = findPassage(doc, start, end)
+export function planPassage(doc: PMNode, start: string, end: string, replace: string, at?: { start: ParaAnchor; end: ParaAnchor }): Plan {
+  const found = findPassageAt(doc, start, end, at)
   if (!found) return { why: NOT_FOUND }
   const $a = doc.resolve(found.from)
   const $b = doc.resolve(found.to)
@@ -180,4 +243,35 @@ export function revertDoc(doc: PMNode, change: BlockChange): PMNode | { why: 'al
   const r = planRevert(doc, change)
   if ('why' in r) return r
   return doc.replace(r.from, r.to, new Slice(r.content, 0, 0))
+}
+
+// ---------- A proposed draft (lab switch DRAFT): where the writer's own job starts ----------
+
+/**
+ * Where Continue carries on for a proposed draft: the end of the paragraph its anchor names (while it is there), else
+ * the end of the scene's last paragraph with words. Null when the scene has no words to carry on from.
+ */
+export function continueAt(doc: PMNode, at?: ParaAnchor): number | null {
+  const p = at ? paragraphAt(doc, at) : null
+  if (p) return p.end
+  let last: number | null = null
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true
+    if (node.textContent.trim()) last = pos + 1 + node.content.size
+    return false
+  })
+  return last
+}
+
+/**
+ * Which beat Beat by beat calls a proposed beat: its number among the card's beats with words (blank ones don't count
+ * there), found by its words first (the card may have changed since), else by its place on the card (from 1). Null
+ * when the card no longer has it.
+ */
+export function beatNumber(cardBeats: readonly string[], beat: { index: number; text: string }): number | null {
+  const filled = cardBeats.map((b, i) => ({ b: b.trim(), i })).filter((x) => x.b)
+  const byWords = filled.findIndex((x) => x.b === beat.text.trim())
+  if (byWords >= 0) return byWords + 1
+  const byPlace = filled.findIndex((x) => x.i === beat.index - 1)
+  return byPlace >= 0 ? byPlace + 1 : null
 }

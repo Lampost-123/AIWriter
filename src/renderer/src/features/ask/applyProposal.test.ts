@@ -61,6 +61,14 @@ vi.mock('@/components/ui', () => ({
 }))
 vi.mock('@/features/history/snapshot', () => ({ snapshotBefore: async () => null }))
 vi.mock('@/features/history/open', () => ({ openHistory: async () => undefined }))
+// A proposed draft starts the writer's own job (applyDraft.ts, with the page's flows): stood in for here.
+const drafts = vi.hoisted(() => ({ started: [] as string[], reply: { ok: true } as { ok: true } | { ok: false; why: string } }))
+vi.mock('./applyDraft', () => ({
+  startProposedDraft: async (p: { id: string }) => {
+    drafts.started.push(p.id)
+    return drafts.reply
+  }
+}))
 
 import { setEditorBridge, type EditorBridge } from '@/lib/editorBridge'
 import { applyAndKeep, applyChanges, undoChanges } from './applyProposal'
@@ -199,6 +207,37 @@ describe('Undo of words', () => {
     undo.run()
     await new Promise((r) => setTimeout(r, 0))
     expect(main.statuses.filter((s) => s === 'a:pending')).toHaveLength(1)
+  })
+})
+
+describe('an anchored edit (the same words twice)', () => {
+  it('changes the place the chat named, not the first', async () => {
+    const p = openPage('sc1', page('The lamp went out.', 'Then the lamp went out.'))
+    const anchored = { ...edit('a', 'the lamp went out.', 'the lamp guttered.'), at: { paragraph: 2, pid: 'p1', offset: 5 } } as Proposal
+    await applyAndKeep('g1', [anchored], {})
+    expect(textsOf(p.doc())).toEqual(['The lamp went out.', 'Then the lamp guttered.'])
+  })
+})
+
+describe('a proposed draft', () => {
+  const draft = { id: 'd', kind: 'draft', sceneId: 'sc1', sceneLabel: 'Ch 1, Sc 1', mode: 'continue', direction: 'On to the stair.', why: '', status: 'pending' } as unknown as Proposal
+
+  it('starts the writer’s job, is marked started (applied), and has no Undo of its own', async () => {
+    drafts.started.length = 0
+    drafts.reply = { ok: true }
+    useAsk.setState({ turns: [{ generationId: 'g1', chatId: 's1:c1' } as never] })
+    await applyChanges('g1', [draft])
+    expect(drafts.started).toEqual(['d'])
+    expect(main.statuses).toEqual(['d:applied'])
+    expect(main.toasts.at(-1)).toMatchObject({ message: 'The draft has started in Ch 1, Sc 1.', action: { label: 'Show' } })
+  })
+
+  it('says why when it can’t start, and stays waiting', async () => {
+    drafts.reply = { ok: false, why: 'Something is being written into this scene already.' }
+    useAsk.setState({ turns: [{ generationId: 'g1', chatId: 's1:c1' } as never] })
+    await applyChanges('g1', [draft])
+    expect(main.statuses).toEqual([])
+    expect(main.toasts.at(-1)).toMatchObject({ tone: 'danger', message: 'Something is being written into this scene already.' })
   })
 })
 

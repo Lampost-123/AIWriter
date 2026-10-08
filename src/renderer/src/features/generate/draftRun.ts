@@ -183,20 +183,21 @@ function finish(p: AppEvents['generation:done']): void {
 /**
  * Drafts the scene into the page (the open scene, as `bridge` shows it). `replace`: in place of its
  * text. `takeKeyboard`: Adam picked where it goes, so the keyboard goes back into the page. The draft
- * options are read once the scene card is saved.
+ * options are read once the scene card is saved. Resolves true once the draft's words have begun streaming into the
+ * page (false when it didn't start; a reason, when there is one, has been shown).
  */
 export async function startDraft(
   sceneId: ID,
   bridge: EditorBridge,
   o: { replace: boolean; takeKeyboard: boolean; options: () => SceneDraftOptions }
-): Promise<void> {
+): Promise<boolean> {
   // One at a time, and not while the last draft is being polished.
-  if (run || polishingScene()) return
+  if (run || polishingScene()) return false
   // From now until the first words arrive, the text to be replaced is held as it is (dimmed, and
   // nothing can change it), so nothing typed while the draft gets ready goes with it.
   if (o.replace && !bridge.holdForReplace(sceneId)) {
     toast("The editor wasn't ready for this scene, so nothing was sent. Try again in a moment.")
-    return
+    return false
   }
   // Picked from the choice: the keyboard goes back into the page, so Ctrl+Z works as the choice says.
   if (o.takeKeyboard) bridge.takeKeyboard()
@@ -216,11 +217,12 @@ export async function startDraft(
   // If Adam opens another scene while it gets ready, this one is kept for the draft.
   bridge.expectDraft(sceneId)
   /** The draft didn't start: the held text is the scene's again (unless a newer draft has started since). */
-  const giveUp = (): void => {
-    if (run !== r && run !== null) return
+  const giveUp = (): false => {
+    if (run !== r && run !== null) return false
     run = null
     useDraft.setState(idle())
     bridge.releaseHold(sceneId)
+    return false
   }
   try {
     // Save the card and the page first, so the draft is built from the latest of both.
@@ -245,7 +247,7 @@ export async function startDraft(
         () => true
       )
       if (!gone) toast("The editor wasn't ready for this scene, so the draft was stopped. Try again in a moment.")
-      return
+      return false
     }
     r.generationId = generationId
     useApp.getState().setActiveGeneration({ id: generationId, sceneId })
@@ -253,11 +255,12 @@ export async function startDraft(
     for (const c of r.early) if (c.generationId === generationId) bridge.appendStream(generationId, c.text)
     r.early = []
     if (r.earlyDone?.generationId === generationId) finish(r.earlyDone)
+    return true
   } catch (e) {
     giveUp()
     const err = e as ApiError
     // Adam pressed Stop before it began: nothing was sent, and there's nothing to say.
-    if (err.code === 'cancelled') return
+    if (err.code === 'cancelled') return false
     if (err.code === 'no-writer-model') openPanel(sceneId, 'need-model')
     // A length the model can't write is changed in the draft options; key and model problems in Settings.
     else if (err.code === 'too-long') toast(err.message, { tone: 'danger', action: { label: 'Draft options', run: () => openPanel(sceneId, 'options') } })
@@ -266,6 +269,7 @@ export async function startDraft(
       const action = settings ? { label: 'Open Settings', run: () => useApp.getState().navigate({ kind: 'settings', tab: 'models' }) } : undefined
       toast(err.message, { tone: 'danger', action })
     }
+    return false
   }
 }
 

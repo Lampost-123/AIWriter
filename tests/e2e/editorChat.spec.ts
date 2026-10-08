@@ -140,6 +140,118 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
   }
 })
 
+// The chat overhaul's Phase 1 tools, behind their lab switches (ASKUSER, DRAFT): what the window makes of them.
+const PHASE1 = { env: { AIWRITE_EXP_CHAT_ASKUSER: 'on', AIWRITE_EXP_CHAT_DRAFT: 'on' } }
+
+test('a question with options shows as buttons; a pick is the next question, and the chat shows it picked when opened again', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 5 })
+  try {
+    const { win } = await launch(PHASE1)
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    await prose(win).click()
+    await win.keyboard.type('The tide came in over the flats. The gulls went quiet.')
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await ask(win, 'Make it better')
+
+    const choice = panel(win).locator('[data-choice]')
+    await expect(choice).toHaveAttribute('data-state', 'open')
+    await expect(choice).toContainText('Which part do you mean?')
+    const options = choice.locator('[data-option]')
+    await expect(options).toHaveCount(3)
+    await expect(options.nth(0)).toContainText('Recommended')
+    await expect(options.nth(1)).toContainText('the last two lines, where the gulls go quiet')
+    // The numbered options the answer's text ends with (for a window without buttons) don't show twice.
+    await expect(panel(win)).not.toContainText('1. The opening paragraph')
+    // Other… takes the keyboard to the box.
+    await choice.getByRole('button', { name: 'Other…' }).click()
+    await expect(box(win)).toBeFocused()
+
+    // A pick, by keyboard: it goes as the next question in the same chat.
+    await options.nth(1).focus()
+    await win.keyboard.press('Enter')
+    const questions = panel(win).locator('li > div > p')
+    await expect(questions.last()).toHaveText('The ending — the last two lines, where the gulls go quiet')
+    await expect(choice).toHaveAttribute('data-state', 'answered')
+    await expect(options.nth(1)).toHaveAttribute('data-picked', '')
+    await expect(options.nth(1)).toBeDisabled()
+    expect(JSON.stringify(fake.lastRequest()!.body)).toContain('The ending — the last two lines')
+
+    // Another chat, then this one again: it still shows which was picked.
+    await panel(win).getByRole('button', { name: 'New chat' }).click()
+    await expect(panel(win).locator('[data-choice]')).toHaveCount(0)
+    await panel(win).getByRole('button', { name: 'Earlier chats' }).click()
+    await win.getByRole('menuitem', { name: /Make it better/ }).click()
+    await expect(choice).toHaveAttribute('data-state', 'answered')
+    await expect(options.nth(1)).toHaveAttribute('data-picked', '')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a proposed draft starts the writer’s own drafting on Apply, and says it has started', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 5 })
+  try {
+    const { win } = await launch(PHASE1)
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    await expect(prose(win)).toHaveText('')
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await ask(win, 'Please draft the scene')
+    const card = changes(win).locator('[data-proposal]').first()
+    await expect(card).toContainText('Draft · Ch 1, Sc 1')
+    await expect(card.locator('[data-draft-mode]')).toContainText('Generate')
+    await expect(card).toContainText('please draft the scene')
+    // Nothing is written until Apply.
+    await expect(prose(win)).toHaveText('')
+
+    await card.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(card).toHaveAttribute('data-status', 'applied')
+    await expect(card).toContainText('Started')
+    await expect(card.getByRole('button', { name: 'Show Ch 1, Sc 1' })).toBeVisible()
+    // The draft is written into the page by Generate's own run.
+    await expect(prose(win)).not.toHaveText('', { timeout: 15_000 })
+
+    // Carrying on from the end is Continue's tracked change, to accept or reject as usual.
+    await expect(win.getByRole('button', { name: 'Stop' })).toHaveCount(0, { timeout: 15_000 })
+    await ask(win, 'Write the next bit')
+    const next = changes(win).last().locator('[data-proposal]').first()
+    await expect(next.locator('[data-draft-mode]')).toContainText('Continue from the end')
+    await next.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(next).toHaveAttribute('data-status', 'applied')
+    await expect(prose(win).locator('.aw-sugg-new').first()).toBeVisible({ timeout: 15_000 })
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Edit this quotes the selected words with the box set to ask for a change', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 5 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    await prose(win).click()
+    await win.keyboard.type('The tide came in over the flats.')
+    await win.keyboard.press('Shift+Home')
+    await win.getByRole('button', { name: 'Edit this' }).click()
+    await expect(box(win)).toHaveValue(/^About this passage: “The tide came in over the flats\.”/)
+    await expect(box(win)).toBeFocused()
+    await expect(panel(win).locator('[data-edit-mode]')).toContainText('Edit: say what to change')
+    await expect(panel(win).getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
+    await win.keyboard.type('Make it slower')
+    await box(win).press('Enter')
+    await expect(panel(win).locator('li > div > p').last()).toContainText('Make it slower')
+    await expect(box(win)).toHaveValue('')
+    await expect(panel(win).locator('[data-edit-mode]')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
 test('Ask about this quotes the selected words; a model that can’t use tools is said so plainly', async ({ launch }) => {
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
   const fake = await startFakeProvider({ delayMs: 5 })

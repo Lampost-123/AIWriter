@@ -183,6 +183,12 @@ export interface AskInput {
    * always asks for a change; 'talk' or none lets the question's words decide. Optional.
    */
   mode?: 'edit' | 'talk'
+  /**
+   * The words selected in the page that the question quotes ("Ask about this", "Edit this"), with their paragraphs'
+   * ids when known: the chat then knows the question carries the words to change (AgentPlace.wordsInQuestion). The
+   * question itself still quotes them as before. Optional.
+   */
+  selection?: { text: string; pids?: string[] }
 }
 
 /** One question and its answer. */
