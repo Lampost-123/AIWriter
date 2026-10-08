@@ -7,7 +7,6 @@
 // the next scenes are always the story's own words. The story is version 3 (the long story a live model wrote,
 // story-v3.json) unless --story v2 asks for the hand-written one.
 
-import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { checkout, countWords, git, openApp, whenEnded, type App, type TrapsConfig } from './app'
@@ -28,6 +27,7 @@ import {
 import { promptText, proseMetrics, sampleLines, summariseProse } from './prose'
 import type { Probe } from './story'
 import { loadFixture, storyV2, storyV3, type StoryData, type StoryScene } from './storyData'
+import { storyHash, storyHashes } from './worldCode.mjs'
 
 export { configFromEnv, type TrapsConfig } from './app'
 
@@ -36,9 +36,15 @@ export function storyFor(cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): StoryDa
   return cfg.story === 'v2' ? storyV2() : storyV3(loadFixture(cfg.storyFile), cfg.storyFile)
 }
 
-/** Which words the story is: version 2's own, or a hash of the written story file. */
-export const storyId = (cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): string =>
-  cfg.story === 'v2' ? 'story.ts v2' : createHash('sha1').update(readFileSync(cfg.storyFile)).digest('hex')
+/**
+ * Which words the story is: version 2's own, or a hash of the written story file with its line endings made LF (so a
+ * checkout with core.autocrlf gives the same id as one without; worldCode.mjs).
+ */
+export const storyId = (cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): string => (cfg.story === 'v2' ? 'story.ts v2' : storyHash(cfg.storyFile))
+
+/** Whether a saved world's story id is this story's: the LF id, or (worlds saved before) the file's own bytes. */
+export const storyMatches = (cfg: Pick<TrapsConfig, 'story' | 'storyFile'>, saved: string): boolean =>
+  cfg.story === 'v2' ? saved === 'story.ts v2' : storyHashes(cfg.storyFile).includes(saved)
 
 /** What a saved world was saved from: it is only used again for the same checkout, story and models. */
 export interface SavedWorld {
@@ -49,7 +55,14 @@ export interface SavedWorld {
   commit: string
   /** The app code's own version (git's id for the checkout's src folder): the same across harness-only commits. */
   srcTree: string
+  /** The world-building code's own id (worldCode.mjs WORLD_CODE); left out by worlds saved before it was kept. */
+  worldCode?: string
+  /**
+   * Uncommitted changes: before worldCode was kept, anywhere in src; since, in the world-building code (or a world
+   * built on a relaxed one), and `srcDirty` says whether src had any.
+   */
   dirty: boolean
+  srcDirty?: boolean
   models: { writer: string; memory: string; judge: string }
   savedAt: string
 }
@@ -199,8 +212,8 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
   const from = cfg.fromWorld ? findSavedWorld(cfg.fromWorld) : null
   if (from) {
     const s = from.saved
-    if (s.story !== story) throw new Error(`The saved world ${from.file} was made with another story; it can't be used for this one.`)
-    if (s.srcTree !== srcTree || !srcTree || s.dirty || tested.dirty) {
+    if (!storyMatches(cfg, s.story)) throw new Error(`The saved world ${from.file} was made with another story; it can't be used for this one.`)
+    if (s.srcTree !== srcTree || !srcTree || s.dirty || s.srcDirty || tested.dirty) {
       throw new Error(
         `The saved world ${from.file} was made with other app code (${s.commit.slice(0, 9)}${s.dirty ? ', with uncommitted changes' : ''}) than this checkout's (${tested.commit.slice(0, 9)}${tested.dirty ? ', with uncommitted changes' : ''}): build it again for this checkout.`
       )

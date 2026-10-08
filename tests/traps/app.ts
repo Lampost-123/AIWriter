@@ -14,7 +14,8 @@ import { appEvents } from './fakeElectron'
 import { Budget, DEFAULT_BUDGET } from './budget'
 import { JUDGE_MARKER, judgeMessages, readJudgeProse, readJudgeReply, type ChatMessage, type JudgeAnswer, type RubricAsk } from './judge'
 import type { ProseRubric } from './prose'
-import { DEEPSEEK_BASE_URL, KEY_VARIABLE, pickFlash, type TrapProvider } from './models'
+import { DEEPSEEK_BASE_URL, KEY_VARIABLE, pickFlash, PROVIDER_NAMES, type TrapProvider } from './models'
+import { guardFetch } from './guard'
 import type { Fix } from './page'
 import type { SampleResult, Usage } from './score'
 import type { Check } from './story'
@@ -556,7 +557,18 @@ export async function openApp(
       const { startFakeProvider } = await import('../fake-provider/server.mjs')
       fake = await startFakeProvider({ delayMs: 0, words: 220 })
       globalThis.fetch = budget.wrap(withStandIns(realFetch))
-    } else globalThis.fetch = budget.wrap(realFetch)
+    } else {
+      // A real provider: the guard (guard.ts) stops the run at once when it is out of balance or refuses the key, and
+      // waits out rate limits a few times first. Its stop is the budget's, so the run ends cleanly at its next step.
+      const guard = guardFetch(realFetch, {
+        provider: PROVIDER_NAMES[cfg.provider],
+        log: cfg.log,
+        stop: (why) => {
+          budget.hit ??= why
+        }
+      })
+      globalThis.fetch = budget.wrap(guard)
+    }
 
     const settings = await import('@app/main/settings')
     const providers = await import('@app/main/ai/providers')
@@ -579,6 +591,8 @@ export async function openApp(
     let modelNote: string | null = null
     if (retrieval) {
       process.env.AIWRITE_RECALL = 'on'
+      // The model is copied in below; the run never downloads it by itself (where the app can, 0.6.31 on).
+      process.env.AIWRITE_SEARCH_MODEL_AUTO = 'off'
       const files = await optional<ModelFilesModule>(cfg.root, 'main/retrieval/model/files')
       const { userDataDir } = await import('@app/main/paths')
       const got = files ? installSearchModel(files, userDataDir(), cfg.searchModel) : { ok: false, note: "This checkout's search model files aren't where the harness expects them." }

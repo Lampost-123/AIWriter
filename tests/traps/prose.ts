@@ -6,6 +6,8 @@
 // call it makes anyway (judge.ts). Pure, so it can be tested and run again offline (--rescore).
 
 import { outsideQuotes, sentences } from './patterns'
+import { contrastHits } from './slopScore'
+import { echoesInScene, repeatedParas } from './echo'
 
 /** The judge's 1 to 5 marks for one passage (null: not rated, or unreadable). */
 export interface ProseRubric {
@@ -42,6 +44,59 @@ export interface ProseMetrics {
   beatsRedone: number[]
   /** The judge's marks, when it rated the passage. */
   rubric?: ProseRubric
+  // Held-out measures: nothing in the writer aims at them, so they stay a fair test. Older reports lack them.
+  /** "not X, but Y" contrasts (slop-score's stage-1 patterns, slopScore.ts), and per 1,000 words. */
+  contrasts?: number
+  contrastRate?: number
+  /** Paragraphs, and one-line fragment paragraphs among them (5 words or fewer, no speech), and their share. */
+  paragraphs?: number
+  fragments?: number
+  fragmentRate?: number
+  /** Different 5-word runs of this passage already in an earlier step of the same chain. */
+  repeat5?: number
+  /** Paragraphs of this passage already on the page, word for word or nearly (echo.ts repeatedParas). */
+  repeatedParas?: number
+  /** What the scene says twice with the second time in this passage, a line of dialogue included (echo.ts echoesInScene). */
+  sceneEchoes?: number
+}
+
+const paragraphsIn = (text: string): string[] =>
+  text
+    .replace(/\r\n?/g, '\n')
+    .split(/\n[ \t]*\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+
+/** A one-line fragment paragraph: 5 words or fewer on one line, with no speech in it (EQ-Bench Longform's penalty). */
+export const isFragment = (para: string): boolean => {
+  const p = para.trim()
+  const n = wordsOf(p).length
+  return !!p && !/\n/.test(p) && !/["“”]|(?:^|\s)[‘']/.test(p) && n > 0 && n <= 5
+}
+
+/** The held-out measures of one passage (see ProseMetrics), from its words, the page before it and the earlier steps. */
+export function heldOut(
+  text: string,
+  before: string,
+  earlier: string[] = []
+): Required<Pick<ProseMetrics, 'contrasts' | 'contrastRate' | 'paragraphs' | 'fragments' | 'fragmentRate' | 'repeat5' | 'repeatedParas' | 'sceneEchoes'>> {
+  const w = wordsOf(text)
+  const contrasts = contrastHits(text).length
+  const paras = paragraphsIn(text)
+  const fragments = paras.filter(isFragment).length
+  const earlier5 = new Set(earlier.flatMap((t) => runs(wordsOf(t), 5)))
+  const page = paragraphsIn(before)
+  const echoes = echoesInScene([...page, ...paras]).filter((e) => e.again >= page.length)
+  return {
+    contrasts,
+    contrastRate: w.length ? (contrasts / w.length) * 1000 : 0,
+    paragraphs: paras.length,
+    fragments,
+    fragmentRate: paras.length ? fragments / paras.length : 0,
+    repeat5: [...new Set(runs(w, 5))].filter((g) => earlier5.has(g)).length,
+    repeatedParas: repeatedParas(paras, page).length,
+    sceneEchoes: echoes.length
+  }
 }
 
 /** Lower-case words, with straight apostrophes made curly ("that's" and "that’s" are one word). */
@@ -195,7 +250,8 @@ export function proseMetrics(p: ProseInput): ProseMetrics {
     tics: ticsIn(p.text),
     closing: closingOf(p.text),
     andRate: w.length ? (ands / w.length) * 100 : 0,
-    beatsRedone: beatsShown(p.text, beats).filter((b) => done.has(b))
+    beatsRedone: beatsShown(p.text, beats).filter((b) => done.has(b)),
+    ...heldOut(p.text, p.before, p.earlier ?? [])
   }
 }
 
@@ -233,7 +289,11 @@ export interface ProseSummary {
   rubric: Record<(typeof RUBRIC_KEYS)[number], number | null> & { rated: number }
   /** The worst examples, at most a line each. */
   worst: string[]
+  /** Held-out: contrasts per 1,000 words and fragment share (means), 5-word repeats (median), passages with a repeated paragraph or a scene echo; null or 0 when no passage was measured for them. */
+  heldOut?: { measured: number; contrastRate: number | null; fragmentRate: number | null; repeat5: number | null; withRepeatedParas: number; withSceneEchoes: number }
 }
+
+const avg = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
 
 export const median = (xs: number[]): number | null => {
   if (!xs.length) return null
@@ -290,7 +350,24 @@ export function summariseProse(entries: ProseEntry[]): ProseSummary {
     andRate: median(ms.map((m) => m.andRate)),
     beatsRedone: ms.filter((m) => m.beatsRedone.length).length,
     rubric,
-    worst: worst.slice(0, 6)
+    worst: worst.slice(0, 6),
+    ...heldOutSummary(ms)
+  }
+}
+
+/** The held-out measures summed up, over the passages that have them (older reports' passages don't). */
+function heldOutSummary(ms: ProseMetrics[]): Pick<ProseSummary, 'heldOut'> {
+  const h = ms.filter((m) => m.contrastRate != null)
+  if (!h.length) return {}
+  return {
+    heldOut: {
+      measured: h.length,
+      contrastRate: avg(h.map((m) => m.contrastRate!)),
+      fragmentRate: avg(h.map((m) => m.fragmentRate ?? 0)),
+      repeat5: median(h.map((m) => m.repeat5 ?? 0)),
+      withRepeatedParas: h.filter((m) => (m.repeatedParas ?? 0) > 0).length,
+      withSceneEchoes: h.filter((m) => (m.sceneEchoes ?? 0) > 0).length
+    }
   }
 }
 
@@ -314,9 +391,19 @@ export function proseRows(s: ProseSummary): [string, string][] {
     [
       `Judge, 1 to 5 (median; ${s.rubric.rated} rated): voices, subtext, direction, ending`,
       s.rubric.rated ? RUBRIC_KEYS.map((k) => n1(s.rubric[k])).join(', ') : 'not rated'
-    ]
+    ],
+    ...(s.heldOut
+      ? ([
+          ['Held out: "not X, but Y" contrasts per 1,000 words (mean)', n2(s.heldOut.contrastRate)],
+          ['Held out: one-line fragment paragraphs (mean share)', pc(s.heldOut.fragmentRate)],
+          ['Held out: 5-word runs from earlier steps (median)', n1(s.heldOut.repeat5)],
+          ['Held out: a paragraph already on the page', of(s.heldOut.withRepeatedParas, s.heldOut.measured)],
+          ['Held out: says again what the scene said (a line of dialogue included)', of(s.heldOut.withSceneEchoes, s.heldOut.measured)]
+        ] as [string, string][])
+      : [])
   ]
 }
+const n2 = (v: number | null): string => (v == null ? '–' : v.toFixed(2))
 
 /** The report's Prose section. */
 export function proseMarkdown(s: ProseSummary | undefined): string[] {
