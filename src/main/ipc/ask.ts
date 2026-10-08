@@ -36,7 +36,8 @@ import { startTask, type Emit } from '../ai/tasks'
 import { providerNotes } from '../ai/draftFlow'
 import { cachedCounter } from '../ai/context'
 import { countTokens } from '../ai/tokenService'
-import { finishAsk, prepareAsk } from '../ask/context'
+import { EDIT_BRIEFING_CAP, finishAsk, PAGE_BLOCK, prepareAsk } from '../ask/context'
+import { pageText } from '../ask/page'
 import { chatInStory, chatTurns, listChats, newChatId, toTurn } from '../ask/chats'
 import { saveNote, undoNote } from '../ask/note'
 import { EditorAgent, MAX_STEPS } from '../ask/agent'
@@ -101,6 +102,19 @@ export const askHandlers: Handlers<keyof AskApi> = {
     // What the question asks for, told from its words (no model call; ask/route.ts): used only by the switches on.
     const routed = routeIntent({ question, mode: input.mode, lastAnswer: earlier.at(-1)?.answer ?? null })
     const intent: AskIntent | null = route ? routed : null
+    // A question quoting words selected in the page ("Ask about this", "Edit this") already has the words to change.
+    const quoted = typeof input.selection?.text === 'string' && !!input.selection.text.trim()
+    // ACTFIRST (the Phase 2 fix): an edit reads before it asks, and "write the next bit" is made to draft.
+    const actFirst = chatExp('ACTFIRST')
+    const newProse = actFirst && intent === 'edit' && asksForNewProse(question)
+    // Phase 3. SCENE: an edit (or an unclear request, or one about a selection) gets the open scene's numbered words in
+    // the briefing, so it can propose without reading first. CACHE: the briefing's front stays the same from question
+    // to question. CAP: an edit's briefing is kept to EDIT_BRIEFING_CAP tokens.
+    const sceneId = input.sceneId ?? null
+    const page =
+      chatExp('SCENE') && sceneId && (routed === 'edit' || routed === 'unsure' || quoted)
+        ? pageText(db, sceneId, { question, selection: quoted ? input.selection : null })
+        : null
     const p = prepareAsk(db, {
       question,
       storyId,
@@ -110,7 +124,10 @@ export const askHandlers: Handlers<keyof AskApi> = {
       contextLength: model.choice.contextLength ?? null,
       // The answer may use tools: room is kept for what they bring back (ai/tasks.ts keeps them within it).
       withTools: true,
-      ...(intent ? { intent } : {})
+      ...(intent ? { intent } : {}),
+      ...(page ? { page } : {}),
+      ...(chatExp('CACHE') ? { cache: true } : {}),
+      ...(chatExp('CAP') && routed === 'edit' ? { briefingCap: EDIT_BRIEFING_CAP } : {})
     })
     const counts = await countCached(p.prepared.texts)
     if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the question could be asked.')
@@ -122,11 +139,10 @@ export const askHandlers: Handlers<keyof AskApi> = {
     }
     // The editor chat: its tools look things up and note proposed changes, never change anything themselves.
     let generationId = ''
-    // A question quoting words selected in the page ("Ask about this", "Edit this") already has the words to change.
-    const quoted = typeof input.selection?.text === 'string' && !!input.selection.text.trim()
-    // ACTFIRST (the Phase 2 fix): an edit reads before it asks, and "write the next bit" is made to draft.
-    const actFirst = chatExp('ACTFIRST')
-    const newProse = actFirst && intent === 'edit' && asksForNewProse(question)
+    // The page went in (not left out to fit), whole or around the words the question is about (or, for new prose,
+    // its end): its words count as read, so an edit's first request may be made to propose.
+    const pageSent = !!page && b.blocks.some((x) => x.id === PAGE_BLOCK.id && !x.dropped)
+    const wordsOnPage = pageSent && (page.whole || page.anchored || newProse)
     const agent = new EditorAgent(
       db,
       {
@@ -135,7 +151,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
         prefs: getWritingPrefs(),
         ...(intent ? { intent } : {}),
         ...(quoted ? { wordsInQuestion: true } : {}),
-        ...(newProse ? { newProse: true } : {})
+        ...(newProse ? { newProse: true } : {}),
+        ...(wordsOnPage ? { wordsOnPage: true } : {})
       },
       (label) => emit('ask:step', { taskId: input.taskId, generationId, label }),
       (proposals) => {

@@ -303,3 +303,82 @@ describe('a hard rule of the world', () => {
     expect(b.blocks.find((x) => x.id === 'world-rules' && !x.dropped)?.text).toContain('Nobody can work magic.')
   })
 })
+
+describe('Phase 3: the page, a steady front for the caches, and the cap (SCENE, CACHE, CAP)', () => {
+  const PAGE = { forms: ['“Low Tide”, 12 words, all 2 paragraphs.\n\n[1] The tide went out.\n\n[2] Mara waited on the steps.'] }
+
+  function briefWith(world: ReturnType<typeof dbWorld>, question: string, more: Record<string, unknown> = {}): AskBriefing {
+    return assembleAsk(
+      world.db,
+      { question, storyId: world.id('b1'), sceneId: world.id('b1.c3.s1'), turns: [], prefs: defaultWritingPrefs(), contextLength: null, ...more },
+      countRaw
+    )
+  }
+
+  /** The system message up to the blocks the question brings in (or the reminder). */
+  const front = (b: AskBriefing): string => {
+    const s = systemOf(b)
+    const ends = ['\n\n## The open scene’s words', '\n\n## Also relevant', '\n\n## Named', '\n\nReminder:'].map((h) => s.indexOf(h)).filter((i) => i >= 0)
+    return s.slice(0, Math.min(s.length, ...ends))
+  }
+
+  it('CACHE: the catalogue, the scene and the world’s rules are the same whatever the question names', () => {
+    const v = dbWorld()
+    repo.createEntry(v.db, 'lore', { name: 'The Iron Oath', description: 'No oath sworn on iron is ever broken.', hardRule: true })
+    const questions = ['What would Tobin do now?', 'How is Mara doing?', 'Does the Iron Oath bind anyone here?', 'Who looks after the ferry these days?']
+    const cached = questions.map((q) => briefWith(v, q, { cache: true }))
+    for (const b of cached) {
+      expect(textOf(b, 'catalogue')).toBe(textOf(cached[0], 'catalogue'))
+      expect(textOf(b, 'scene')).toBe(textOf(cached[0], 'scene'))
+      expect(textOf(b, 'world-rules')).toContain('No oath sworn on iron is ever broken.')
+      expect(front(b)).toBe(front(cached[0]))
+    }
+    // A named entry is still in its own block (and may be in the catalogue as well).
+    expect(textOf(cached[0], 'named')).toContain('### Tobin (character)')
+    expect(textOf(cached[0], 'catalogue')).toContain('- Tobin: A ferryman.')
+    expect(textOf(cached[2], 'named')).toContain('### The Iron Oath')
+    // Off (as before): the catalogue leaves out what the question brings in, and a named rule leaves its block.
+    const plain = questions.map((q) => briefWith(v, q))
+    expect(textOf(plain[0], 'catalogue')).not.toBe(textOf(plain[1], 'catalogue'))
+    expect(textOf(plain[2], 'world-rules')).not.toContain('No oath sworn on iron')
+  })
+
+  it('SCENE: the page goes after the blocks that change least and before what the question brings in', () => {
+    const order = (b: AskBriefing): string[] => b.blocks.filter((x) => !x.dropped).map((x) => x.id)
+    for (const cache of [false, true]) {
+      const b = briefWith(w, 'What would Tobin do now?', { page: PAGE, cache })
+      const ids = order(b)
+      expect(ids.indexOf('page'), String(cache)).toBeGreaterThan(ids.indexOf('catalogue'))
+      expect(ids.indexOf('page'), String(cache)).toBeLessThan(ids.indexOf('named'))
+      expect(systemOf(b)).toContain('## The open scene’s words\n\n“Low Tide”, 12 words')
+      expect(systemOf(b).indexOf('[2] Mara waited on the steps.')).toBeLessThan(systemOf(b).indexOf('## Named in the question'))
+    }
+    // CACHE: the scene's card and cast before the catalogue.
+    const ids = order(briefWith(w, 'Tighten this', { page: PAGE, cache: true }))
+    expect(ids.indexOf('scene')).toBeLessThan(ids.indexOf('catalogue'))
+    // Without a page, nothing new.
+    expect(sent(briefWith(w, 'Tighten this'), 'page')).toBeUndefined()
+  })
+
+  it('CAP: an edit’s briefing gives way from the bottom up; how to answer, where and the page always stay whole', () => {
+    const v = dbWorld()
+    for (let i = 0; i < 400; i++) repo.createEntry(v.db, 'place', { name: `Quay ${i}`, summary: `A grey stone quay, number ${i}, where the salt boats tie up in winter and the gulls wait for scraps.` })
+    const big = { contextLength: 1_000_000 }
+    const full = briefWith(v, 'Tighten this', { page: PAGE, cache: true, ...big })
+    const used = full.budget.used
+    expect(sent(full, 'catalogue')?.short).toBe(false)
+    const capped = briefWith(v, 'Tighten this', { page: PAGE, cache: true, briefingCap: Math.round(used * 0.6), ...big })
+    expect(capped.budget.used).toBeLessThanOrEqual(Math.round(used * 0.6))
+    expect(capped.budget.available).toBe(Math.round(used * 0.6))
+    for (const id of ['instructions', 'where', 'page']) {
+      expect(sent(capped, id), id).toBeTruthy()
+      expect(sent(capped, id)?.short, id).toBe(false)
+    }
+    const catalogue = capped.blocks.find((x) => x.id === 'catalogue')!
+    expect(catalogue.dropped || catalogue.short).toBe(true)
+    // A cap smaller than what must stay is raised to keep it.
+    const tiny = briefWith(v, 'Tighten this', { page: PAGE, cache: true, briefingCap: 10, ...big })
+    for (const id of ['instructions', 'where', 'page']) expect(sent(tiny, id)?.short, id).toBe(false)
+    expect(tiny.budget.available).toBeGreaterThan(10)
+  })
+})

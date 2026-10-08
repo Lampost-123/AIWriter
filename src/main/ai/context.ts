@@ -204,6 +204,8 @@ export interface PreparedContext {
   entries: ContextEntry[]
   /** Tokens kept free beside the reply for the editor chat's tool results (toolRoomFor); left out: none. */
   toolRoom?: number
+  /** The most tokens the briefing may take whatever the model's room (the editor chat's edits, ask/context.ts CAP); left out: none. */
+  briefingCap?: number
 }
 
 // ---------- Budget ----------
@@ -1898,6 +1900,8 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   }
   // With Auto, room is kept for the longest scene Auto allows (autoMax).
   let budget = computeBudget(prepared.contextLength, prepared.targetWords ?? prepared.autoMax ?? null, prepared.toolRoom)
+  // A cap on the briefing (the editor chat's edits): no more room than that, however much the model has.
+  if (prepared.briefingCap && prepared.briefingCap > 0) budget = { ...budget, available: Math.min(budget.available, prepared.briefingCap) }
   const fits = (): boolean => measure() <= budget.available
   const auto = prepared.targetWords == null && prepared.autoMax != null
   let ceiling = prepared.autoMax ?? AUTO_LENGTH.max

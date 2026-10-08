@@ -183,6 +183,20 @@ describe('TOOLCHOICE: one propose_changes tool, and one request made to propose'
     call(off, 'read_scene', {})
     expect(off.forceTool()).toBeNull()
   })
+
+  it('takes the words sent in the briefing (SCENE’s page) as read: the first request may already be made to propose', () => {
+    switchOn('TOOLCHOICE')
+    const onPage = paragraphs(PARAS, 'edit', { wordsOnPage: true }).agent
+    expect(onPage.knowsWords()).toBe(true)
+    expect(onPage.forceTool()).toBe('propose_changes')
+    expect(onPage.forceTool()).toBeNull()
+    // Not an edit: never made to propose, page or not.
+    expect(paragraphs(PARAS, 'unsure', { wordsOnPage: true }).agent.forceTool()).toBeNull()
+    // Without the page, as before: only once read.
+    const without = paragraphs(PARAS, 'edit').agent
+    expect(without.knowsWords()).toBe(false)
+    expect(without.forceTool()).toBeNull()
+  })
 })
 
 describe('TOOLCHOICE with ASKUSER: propose_changes can carry the question, alone', () => {

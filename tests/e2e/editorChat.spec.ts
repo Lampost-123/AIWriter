@@ -21,11 +21,15 @@ async function ask(win: Page, question: string): Promise<void> {
   await box(win).press('Enter')
 }
 
+// These two watch the chat read the scene for itself: Phase 3's SCENE (the open scene's words sent in the briefing, so
+// an edit needn't read) is off for them. The rewrite test below runs with it on.
+const READS = { env: { AIWRITE_EXP_CHAT_SCENE: 'off' } }
+
 test('the editor chat reads the scene, proposes a change, and changes nothing until it is applied; Undo takes it back', async ({ launch }) => {
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
   const fake = await startFakeProvider({ delayMs: 5 })
   try {
-    const { win } = await launch()
+    const { win } = await launch(READS)
     await createWorldFromWelcome(win, 'Harbour')
     await useFakeModel(win, fake)
     await prose(win).click()
@@ -98,7 +102,7 @@ test('each tool call shows as it happens (running, then ✓), opens to what it w
   // A model slow to write each call's arguments, so the call is seen running.
   const fake = await startFakeProvider({ delayMs: 5, toolDelayMs: 600 })
   try {
-    const { win } = await launch()
+    const { win } = await launch(READS)
     await createWorldFromWelcome(win, 'Harbour')
     await useFakeModel(win, fake)
     await prose(win).click()
@@ -169,6 +173,11 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
     await ask(win, 'Push this beat harder')
     const card = changes(win).locator('[data-proposal]').first()
     await expect(card).toContainText('Rewrite · Ch 1, Sc 1')
+    // SCENE (on by default): the scene's numbered words came in the briefing, so the chat proposed without reading it.
+    const sent = JSON.stringify((fake.lastRequest()!.body as { messages: unknown[] }).messages)
+    expect(sent).toContain('## The open scene’s words')
+    expect(sent).toContain('[2] The gulls went quiet.')
+    expect(sent).not.toContain('"name":"read_scene"')
     // Only what changes is marked: the words cut, then the words added.
     await expect(card.locator('ins').last()).toHaveText('screamed once, then nothing.')
     await expect(card.locator('del').last()).toHaveText('went quiet.')

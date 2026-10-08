@@ -22,6 +22,14 @@
 // never comes in this story: it is only named, with drafting's label ("from Book 1, not in this story so
 // far"). Nothing from a story this one doesn't know of ever comes in. Entries Adam keeps out ('hide'
 // pins) are left out everywhere, as in a draft, unless the question names them.
+//
+// The chat overhaul's Phase 3 (cost and speed), each asked for by the caller (ipc/ask.ts reads the switches):
+//   page   (SCENE) the open scene's numbered words (ask/page.ts), after the blocks that change least
+//   cache  (CACHE) the front of the briefing the same from question to question, for the providers' prefix caches:
+//          the scene's cast and the world's rules always in their own blocks (an entry the question names is in
+//          the named block too), the catalogue never shaped by the question, and the order stable → page → named
+//   cap    (CAP) an edit's briefing fitted into at most this many tokens (EDIT_BRIEFING_CAP): the story so far,
+//          the catalogue's detail and the themes give way first; how to answer, where and the page always stay
 
 import type Database from 'better-sqlite3'
 import type {
@@ -107,7 +115,25 @@ export interface AskContextInput {
   withTools?: boolean
   /** The intent routing gave the question (chat overhaul, AIWRITE_EXP_CHAT_ROUTE): stated in the contract's reminder. */
   intent?: AskIntent | null
+  /** SCENE: the open scene's words (ask/page.ts pageText), sent as the page block; its forms, longest first. */
+  page?: { forms: string[] } | null
+  /** CACHE: the same front of the briefing from question to question (see the top of this file). */
+  cache?: boolean
+  /** CAP: the most tokens the briefing may take (an edit's: EDIT_BRIEFING_CAP); left out, only the model's room. */
+  briefingCap?: number | null
 }
+
+/** The page block's id and title. */
+export const PAGE_BLOCK = { id: 'page', title: 'The open scene’s words' } as const
+
+/**
+ * CAP: an edit's briefing at most, in tokens. Story A's whole briefings (2,000-3,000 tokens) and any page fit with
+ * room to spare; the big world's 40,000-token briefing (story so far 15,000, catalogue 23,000) comes down by giving way
+ * from the bottom up (themes, the catalogue to names only, the story so far to its chapters and last scenes).
+ */
+export const EDIT_BRIEFING_CAP = 24_000
+/** Room the cap always leaves beside how to answer, where and the page (the cap is raised when those need it). */
+const CAP_SPARE = 4000
 
 /** The point the question is asked from, and the memory there. */
 export interface AskPoint {
@@ -338,13 +364,24 @@ interface Selection {
   keptOut: Set<ID>
 }
 
-function selectEntries(db: DB, point: AskPoint, question: string, turns: PastTurn[]): Selection {
+function selectEntries(db: DB, point: AskPoint, question: string, turns: PastTurn[], cache = false): Selection {
   const chosen = new Map<ID, Chosen>()
   /** Adds an entry to `list` for a reason, once. */
   const take = (list: Chosen[], e: EntryState | undefined, why: string, label: string | null = null, nameOnly = false): void => {
     if (!e || chosen.has(e.id)) return
     const c: Chosen = nameOnly ? { entry: e, why, label, nameOnly } : { entry: e, why, label }
     chosen.set(e.id, c)
+    list.push(c)
+  }
+  // CACHE: the scene's cast and the world's rules are the same whatever the question names (an entry it names is in
+  // the named block as well), so the blocks before the question's own stay the same from question to question.
+  const steady = new Set<ID>()
+  const takeSteady = (list: Chosen[], e: EntryState | undefined, why: string): void => {
+    if (!cache) return take(list, e, why)
+    if (!e || steady.has(e.id)) return
+    const c: Chosen = { entry: e, why, label: null }
+    steady.add(e.id)
+    if (!chosen.has(e.id)) chosen.set(e.id, c)
     list.push(c)
   }
   const pins = effectivePins(pinsAt(db, point))
@@ -375,11 +412,12 @@ function selectEntries(db: DB, point: AskPoint, question: string, turns: PastTur
   const cast: Chosen[] = []
   if (point.sceneId) {
     const card = repo.getScene(db, point.sceneId).card
-    for (const id of [card.povId, ...card.presentIds, card.locationId]) if (id && !hidden(id)) take(cast, point.here.get(id), ASK_WHY.scene)
+    for (const id of [card.povId, ...card.presentIds, card.locationId])
+      if (id && !hidden(id)) takeSteady(cast, point.here.get(id), ASK_WHY.scene)
   }
 
   const rules: Chosen[] = []
-  for (const e of point.here.values()) if (e.kind === 'lore' && e.hardRule && !hidden(e.id)) take(rules, e, ASK_WHY.rule)
+  for (const e of point.here.values()) if (e.kind === 'lore' && e.hardRule && !hidden(e.id)) takeSteady(rules, e, ASK_WHY.rule)
 
   // What the search finds for the question's words (found by more of the words first), then Adam's pins.
   const related: Chosen[] = []
@@ -602,8 +640,28 @@ export const ASK_ORDER = [
   'where',
   'story-so-far',
   'catalogue',
+  PAGE_BLOCK.id,
   'related',
   'scene',
+  'named',
+  'conversation'
+]
+
+/**
+ * CACHE's order: everything that changes only with the open scene first (its card and cast before the catalogue,
+ * which no longer depends on the question), then the page (sent only for an edit, so a question that isn't one still
+ * shares everything before it), then what the question brings in.
+ */
+export const ASK_ORDER_CACHED = [
+  'instructions',
+  'world-rules',
+  'themes',
+  'where',
+  'story-so-far',
+  'scene',
+  'catalogue',
+  PAGE_BLOCK.id,
+  'related',
   'named',
   'conversation'
 ]
@@ -620,6 +678,8 @@ export interface PreparedAsk {
   sceneId: ID | null
   /** The routed intent, when routing gave one. */
   intent?: AskIntent | null
+  /** CAP: the most tokens the briefing may take, before finishAsk makes room for how to answer, where and the page. */
+  cap?: number
 }
 
 /** Everything the briefing could send, before it is fitted to the model. */
@@ -628,12 +688,18 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
   const shape = loadShape(db)
   const point = askPoint(db, input.storyId, input.sceneId, shape)
   const turns = input.turns.filter((t) => clean(t.question) && clean(t.answer)).slice(-MAX_TURNS)
-  const sel = selectEntries(db, point, question, turns)
+  const cache = !!input.cache
+  const sel = selectEntries(db, point, question, turns, cache)
   const storyStyle = point.story ? repo.getStory(db, point.story.id).style : {}
   const style = effectiveStyle(input.prefs, repo.getWorldStyle(db), storyStyle)
 
   const ids = (cs: Chosen[]): ID[] => cs.map((c) => c.entry.id)
   const sent = new Set([...ids(sel.named), ...ids(sel.cast), ...ids(sel.rules), ...ids(sel.related)])
+  // The catalogue leaves out what other blocks show; with CACHE only the steady ones (cast and rules), so it never
+  // changes with the question.
+  const notInCatalogue = cache ? new Set([...ids(sel.cast), ...ids(sel.rules)]) : sent
+  const page = (input.page?.forms ?? []).filter((f) => f.trim())
+  const order = cache ? ASK_ORDER_CACHED : ASK_ORDER
   // What Adam keeps out here isn't named anywhere in what is sent, unless the question names it.
   const shown = withoutKeptOut(point, sel.keptOut)
   const conversation = [turns, turns.slice(-6), turns.slice(-3), turns.slice(-1)]
@@ -708,11 +774,16 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
       'The story so far',
       Array.from({ length: STORY_LEVELS }, (_, i) => storyText(point, i))
     ),
-    block('catalogue', 9, 'Everything else in the memory', [catalogueText(shown, sent, false), catalogueText(shown, sent, true)]),
-    block('themes', 10, 'Themes and tone', [themesText(db, point, false), themesText(db, point, true)])
+    block('catalogue', 9, 'Everything else in the memory', [
+      catalogueText(shown, notInCatalogue, false),
+      catalogueText(shown, notInCatalogue, true)
+    ]),
+    block('themes', 10, 'Themes and tone', [themesText(db, point, false), themesText(db, point, true)]),
+    // The open scene's words (SCENE): with the named entries, the last to give way.
+    page.length && point.sceneId ? block(PAGE_BLOCK.id, 3, PAGE_BLOCK.title, page) : null
   ]
     .filter((b): b is BlockDraft => !!b)
-    .sort((a, b) => ASK_ORDER.indexOf(a.id) - ASK_ORDER.indexOf(b.id))
+    .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
 
   const versions = new Map<ID, string>()
   for (const id of sent) {
@@ -739,8 +810,27 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
     label: point.story ? point.label : 'The world as it was set up',
     storyId: point.story?.id ?? null,
     sceneId: point.sceneId,
-    ...(input.intent ? { intent: input.intent } : {})
+    ...(input.intent ? { intent: input.intent } : {}),
+    ...(input.briefingCap && input.briefingCap > 0 ? { cap: input.briefingCap } : {})
   }
+}
+
+/** The ids of the blocks a capped briefing always keeps whole: how to answer, where, and the page. */
+const KEPT_UNDER_CAP = new Set(['instructions', 'where', PAGE_BLOCK.id])
+
+/**
+ * CAP: the briefing's room, at most `p.cap` tokens, but never less than how to answer, where and the page take in
+ * full, with CAP_SPARE beside them for the question, the named entries and the rest.
+ */
+function capFor(p: PreparedAsk, rawCounts: number[]): number | undefined {
+  if (!p.cap) return undefined
+  let at = 0
+  let kept = 0
+  for (const b of p.prepared.blocks) {
+    if (KEPT_UNDER_CAP.has(b.id)) kept += Math.ceil(((rawCounts[at] ?? 0) * 11) / 10)
+    at += formsOf(b).length
+  }
+  return Math.max(p.cap, kept + CAP_SPARE)
 }
 
 /**
@@ -749,7 +839,8 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
  * turns that fit, then the question.
  */
 export function finishAsk(p: PreparedAsk, rawCounts: number[]): AskBriefing {
-  const preview = finishContext(p.prepared, rawCounts)
+  const cap = capFor(p, rawCounts)
+  const preview = finishContext(cap ? { ...p.prepared, briefingCap: cap } : p.prepared, rawCounts)
   const sent = preview.blocks.filter((b) => !b.dropped)
   const system = sent
     .filter((b) => b.id !== 'conversation')

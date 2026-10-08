@@ -13,9 +13,26 @@ export type AskIntent = 'edit' | 'brainstorm' | 'answer' | 'unsure'
  * block format (shared/answerBlocks.ts); off, the plain-text answer rules. ACTFIRST (the Phase 2 fix): an edit reads
  * before it asks (the reminder no longer invites "which passage?", an ask before any words are read is sent back, an
  * edit answered with a question before reading is nudged), a clarifying answer keeps what it offered in the history,
- * and "write the next bit" is made to call propose_draft; off, Phase 2 as it was.
+ * and "write the next bit" is made to call propose_draft; off, Phase 2 as it was. Phase 3 (cost and speed): SCENE puts
+ * the open scene's numbered words in the briefing for an edit (or a selection), so the first request can propose
+ * without read_scene; CACHE keeps the briefing's front the same from question to question (provider prefix caching);
+ * CAP fits an edit's briefing into EDIT_BRIEFING_CAP tokens. Off, each as Phase 2 left it.
  */
-export const CHAT_SWITCHES = ['CONTRACT', 'ROUTE', 'TOOLCHOICE', 'ANCHOR', 'HISTORY', 'TEMP', 'ASKUSER', 'DRAFT', 'FORMAT', 'ACTFIRST'] as const
+export const CHAT_SWITCHES = [
+  'CONTRACT',
+  'ROUTE',
+  'TOOLCHOICE',
+  'ANCHOR',
+  'HISTORY',
+  'TEMP',
+  'ASKUSER',
+  'DRAFT',
+  'FORMAT',
+  'ACTFIRST',
+  'SCENE',
+  'CACHE',
+  'CAP'
+] as const
 export type ChatSwitch = (typeof CHAT_SWITCHES)[number]
 
 /** A switch's environment variable. */

@@ -470,6 +470,11 @@ export interface AgentPlace {
    * propose_changes (made to call propose_changes, DeepSeek proposed a new scene instead).
    */
   newProse?: boolean
+  /**
+   * The briefing carried the open scene's numbered words (SCENE, ask/page.ts), whole or around the selection: they
+   * count as read, so with TOOLCHOICE an edit's first request may already be made to propose.
+   */
+  wordsOnPage?: boolean
 }
 
 /** Something the model got wrong that it can put right (a scene it named that isn't there, words that aren't in it). */
@@ -607,7 +612,7 @@ function italicsOf(doc: unknown, text: string): { italic: boolean[]; paras: Para
 }
 
 /** A scene's words, plain and with its italics marked; null when the scene is gone. */
-function sceneWords(db: DB, sceneId: ID): (SceneWords & { title: string }) | null {
+export function sceneWords(db: DB, sceneId: ID): (SceneWords & { title: string }) | null {
   const s = sceneText(db, sceneId)
   if (!s) return null
   let doc: unknown = null
@@ -622,7 +627,7 @@ function sceneWords(db: DB, sceneId: ID): (SceneWords & { title: string }) | nul
 }
 
 /** The words of a plain range with their italics marked (balanced, whatever the range cuts). */
-const markedSlice = (w: SceneWords, from: number, to: number): string => markItalics(w.plain.slice(from, to), w.italic.slice(from, to)).marked
+export const markedSlice = (w: SceneWords, from: number, to: number): string => markItalics(w.plain.slice(from, to), w.italic.slice(from, to)).marked
 
 /** Where a waiting change to words or a passage is in the scene's plain text, or null when its words aren't there. */
 function rangeOf(p: Proposal, hay: string): [number, number] | null {
@@ -777,14 +782,14 @@ export class EditorAgent {
    */
   forceTool(): string | null {
     if (!this.switches.toolChoice || this.forced || this.place.intent !== 'edit') return null
-    if (this.proposals.length || this.choice || !(this.wordsRead || this.place.wordsInQuestion)) return null
+    if (this.proposals.length || this.choice || !this.knowsWords()) return null
     this.forced = true
     return this.switches.actFirst && this.switches.draft && this.place.newProse ? 'propose_draft' : 'propose_changes'
   }
 
-  /** The scene's words are known: read with read_scene this answer, or quoted in the question. */
+  /** The scene's words are known: read with read_scene this answer, quoted in the question, or sent in the briefing (SCENE). */
   knowsWords(): boolean {
-    return this.wordsRead || !!this.place.wordsInQuestion
+    return this.wordsRead || !!this.place.wordsInQuestion || !!this.place.wordsOnPage
   }
 
   /**

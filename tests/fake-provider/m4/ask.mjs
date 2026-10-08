@@ -220,6 +220,19 @@ const sentences = (content) => sceneText(content).trim().match(/[^.!?]+[.!?]/g)?
 /** The first sentence of the scene as read_scene gave it, or ''. */
 const firstSentence = (content) => (/^[^.!?]+[.!?]/.exec(sceneText(content).trim()) ?? [''])[0]
 
+/**
+ * The open scene's words when the app put them in the briefing (the chat overhaul's SCENE switch: a block headed
+ * "## The open scene’s words"), as read_scene would give them ("Text ([n]):" then the paragraphs); null when not there.
+ */
+function pageWords(system) {
+  const at = String(system ?? '').indexOf('\n## The open scene’s words\n\n')
+  if (at < 0) return null
+  const rest = system.slice(at).split('\n\n').slice(2)
+  const end = rest.findIndex((x) => x.startsWith('## ') || x.startsWith('Reminder:'))
+  const paras = (end < 0 ? rest : rest.slice(0, end)).filter((x) => !/^\[paragraphs? [\d-]+ not shown/.test(x))
+  return `Scene\nText ([n]):\n${paras.join('\n\n')}`
+}
+
 function scriptedCalls(system, messages, tools) {
   const users = messages.filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
   const nudged = users.some((u) => u.startsWith('[AI Write, not the writer] Your answer gives'))
@@ -230,6 +243,11 @@ function scriptedCalls(system, messages, tools) {
   const last = messages[messages.length - 1]
   const toolResults = messages.filter((m) => m.role === 'tool')
   const called = (name) => messages.some((m) => (m.tool_calls ?? []).some((c) => c.function?.name === name))
+  // With the open scene's words in the briefing (SCENE), they serve as read_scene's would, until a tool is called.
+  const page = pageWords(system)
+  const seen = last?.role === 'tool' ? last.content : !toolResults.length && page ? page : null
+  const mustRead = !toolResults.length && !page
+  const fresh = (last?.role === 'tool' && toolResults.length === 1) || (!toolResults.length && !!page)
   // The overhaul's tools, when offered: a draft hand-off for new prose, one question for a truly vague ask, and
   // propose_changes for a novelist's vague edit ("this drags", "punch this up"), after reading the scene.
   if (offered(tools, 'propose_draft') && /\b(next bit|continue from here|draft the scene)\b/.test(typed)) {
@@ -241,24 +259,24 @@ function scriptedCalls(system, messages, tools) {
   // ("Push … harder" is the rewrite across paragraphs below, through propose_changes when that is the tool offered.)
   if (offered(tools, 'propose_changes') && !/\bpush\b/.test(typed) && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it|do that|option \d)\b|^yes\b/.test(typed.trim())) {
     if (called('propose_changes')) return null
-    if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
-    const first = last?.role === 'tool' ? firstSentence(last.content) : ''
+    if (mustRead) return [{ name: 'read_scene', arguments: {} }]
+    const first = seen ? firstSentence(seen) : ''
     if (!first) return null
     const changes = [{ kind: 'edit', find: first, replace: first.replace(/\s+/g, ' ').toUpperCase(), why: 'Louder, as asked.' }]
-    const second = last?.role === 'tool' ? sentences(last.content)[1] : undefined
+    const second = seen ? sentences(seen)[1] : undefined
     if (/\bboth\b/.test(typed) && second) changes.push({ kind: 'edit', find: second, replace: second.toUpperCase(), why: 'And the other one.' })
     return [changesCall(tools, changes)]
   }
-  return legacyCalls(question, nudged, last, toolResults, tools)
+  return legacyCalls(question, nudged, { toolResults, tools, seen, mustRead, fresh })
 }
 
-function legacyCalls(question, nudged, last, toolResults, tools) {
+function legacyCalls(question, nudged, { toolResults, tools, seen, mustRead, fresh }) {
   // Asked to propose what it claimed ("pretend"), it does, as a fix would; a stubborn one still doesn't.
   if (/\bpretend\b/.test(question)) {
     if (!nudged || /\bstubborn/.test(question)) return null
-    if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
-    if (last?.role === 'tool' && toolResults.length === 1) {
-      const first = firstSentence(last.content)
+    if (mustRead) return [{ name: 'read_scene', arguments: {} }]
+    if (fresh) {
+      const first = firstSentence(seen)
       if (!first) return null
       const change = { find: first, replace: first.toUpperCase(), why: 'Tidied, as claimed.' }
       return [offered(tools, 'propose_edit') || !offered(tools, 'propose_changes') ? { name: 'propose_edit', arguments: change } : changesCall(tools, [{ kind: 'edit', ...change }])]
@@ -273,9 +291,9 @@ function legacyCalls(question, nudged, last, toolResults, tools) {
   }
   // Asked to push a passage harder: it reads the scene, then rewrites the whole of it (every paragraph) as two new ones.
   if (/\bpush\b/.test(question)) {
-    if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
-    if (last?.role === 'tool' && toolResults.length === 1) {
-      const words = sceneText(last.content).trim().split(/\s+/)
+    if (mustRead) return [{ name: 'read_scene', arguments: {} }]
+    if (fresh) {
+      const words = sceneText(seen).trim().split(/\s+/)
       if (words.length < 6) return null
       const replace = 'The tide *roared* in over the flats.\n\nThe gulls screamed once, then nothing.'
       const rewrite = { start: words.slice(0, 3).join(' '), end: words.slice(-3).join(' '), replace, why: 'Pushed harder, as asked.' }
@@ -285,9 +303,9 @@ function legacyCalls(question, nudged, last, toolResults, tools) {
     return null
   }
   if (!/\b(fix|tighten)\b/.test(question)) return null
-  if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
-  if (last?.role === 'tool' && toolResults.length === 1) {
-    const first = firstSentence(last.content)
+  if (mustRead) return [{ name: 'read_scene', arguments: {} }]
+  if (fresh) {
+    const first = firstSentence(seen)
     if (!first) return null
     const change = { find: first, replace: first.replace(/\s+/g, ' ').toUpperCase(), why: 'Shouted, as asked.' }
     // With propose_edit gone (the overhaul's single propose_changes), the same edit goes through propose_changes.
