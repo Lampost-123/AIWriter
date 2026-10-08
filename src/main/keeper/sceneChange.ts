@@ -2,7 +2,7 @@
 // source hash says what it was made from: the scene's words (a hash and a count) and, since this change, each
 // paragraph (its id, a hash and a short sketch of its words), so a later read can tell which paragraphs changed and
 // about how many words. A summary is due again when about forty words changed, or a changed paragraph names someone or
-// something in the memory; a few edited paragraphs can be patched into the old summary instead of summarising the scene
+// something in the memory (newly, or with eight or more of its words changed: never for a typo); a few edited paragraphs can be patched into the old summary instead of summarising the scene
 // again. Older hashes (words only) still work: they are compared by the scene's words. Reads only; no Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -18,6 +18,8 @@ type DB = Database.Database
 export const MIN_SUMMARY_WORDS = 40
 /** About this many words changed makes a summary due again. */
 export const DUE_WORDS = 40
+/** A changed paragraph that names someone already named in it makes a summary due once this many of its words changed. */
+export const NAMED_DUE_WORDS = 8
 
 /** A word's three-character sketch: enough to count words that changed in a paragraph, without keeping its text. */
 const sketch = (w: string): string => hashText(w).slice(0, 3)
@@ -70,6 +72,11 @@ export interface SceneChange {
   known: boolean
   /** Paragraphs new or edited since, as they read now, in scene order. */
   changed: Para[]
+  /**
+   * Each of `changed` with about how many of its words changed, and the word sketches of the paragraph it was (null for
+   * a new paragraph).
+   */
+  edits: { para: Para; changedWords: number; was: string[] | null }[]
   /** Paragraphs there before that are gone (not just edited). */
   removed: number
   /** About how many words changed (edited, added and deleted). */
@@ -83,7 +90,7 @@ export function changeSince(sourceHash: string, text: string, doc: unknown = nul
   const before = Number(sourceHash.split('|')[1]) || 0
   const wordsDelta = countWords(text) - before
   const old = oldParas(sourceHash)
-  if (!old) return { known: false, changed: [], removed: 0, changedWords: Math.abs(wordsDelta), wordsDelta }
+  if (!old) return { known: false, changed: [], edits: [], removed: 0, changedWords: Math.abs(wordsDelta), wordsDelta }
   const now = sceneParagraphs(doc, text)
   const unused = new Map<string, number>()
   for (const p of old) unused.set(p.hash, (unused.get(p.hash) ?? 0) + 1)
@@ -105,6 +112,7 @@ export function changeSince(sourceHash: string, text: string, doc: unknown = nul
   }
   const byId = new Map(leftOver.map((p) => [p.id, p]))
   let changedWords = 0
+  const edits: SceneChange['edits'] = []
   const matched = new Set<string>()
   for (const p of changed) {
     const now = words(p.text).map(sketch)
@@ -120,10 +128,10 @@ export function changeSince(sourceHash: string, text: string, doc: unknown = nul
       }
       if (best && best.apart * 2 <= Math.max(best.p.sketches.length, now.length)) was = best.p
     }
-    if (was) {
-      matched.add(was.id)
-      changedWords += wordsApart(was.sketches, now)
-    } else changedWords += now.length
+    const apart = was ? wordsApart(was.sketches, now) : now.length
+    if (was) matched.add(was.id)
+    changedWords += apart
+    edits.push({ para: p, changedWords: apart, was: was ? was.sketches : null })
   }
   let removed = 0
   for (const p of leftOver) {
@@ -131,7 +139,7 @@ export function changeSince(sourceHash: string, text: string, doc: unknown = nul
     removed++
     changedWords += p.sketches.length
   }
-  return { known: true, changed, removed, changedWords, wordsDelta }
+  return { known: true, changed, edits, removed, changedWords, wordsDelta }
 }
 
 /** Names of everyone and everything in the memory, for telling a changed paragraph that names one. */
@@ -146,7 +154,8 @@ export function memoryNames(db: DB): string[] {
 /**
  * True when a scene's summary should be written again (Adam's own never is). `done`: Adam marked the scene done, so any
  * change counts. Otherwise: its words changed since and the summary was marked stale (a fact's words were edited or
- * deleted), or about forty words changed, or a changed paragraph names someone or something in the memory. Reads only.
+ * deleted), or about forty words changed, or a changed paragraph names someone or something in the memory: one it didn't
+ * name before, or with eight or more of its words changed (a typo fix or a word or two never counts). Reads only.
  */
 export function summaryDue(db: DB, sceneId: ID, done: boolean, names?: string[]): boolean {
   const scene = kdb.keeperScene(db, sceneId)
@@ -161,5 +170,12 @@ export function summaryDue(db: DB, sceneId: ID, done: boolean, names?: string[])
   if (c.changedWords >= DUE_WORDS) return true
   if (!c.known) return false
   const all = names ?? memoryNames(db)
-  return c.changed.some((p) => all.some((n) => mentionAt(p.text, n) !== null))
+  // Whether the paragraph as it was already had all the name's words (by their sketches).
+  const namedBefore = (was: string[], n: string): boolean => {
+    const left = new Set(was)
+    return words(n).every((w) => left.has(sketch(w)))
+  }
+  return c.edits.some((e) =>
+    all.some((n) => mentionAt(e.para.text, n) !== null && (e.changedWords >= NAMED_DUE_WORDS || !e.was || !namedBefore(e.was, n)))
+  )
 }

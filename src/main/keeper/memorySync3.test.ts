@@ -10,11 +10,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
 import { defaultWritingPrefs } from '@shared/defaults'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { entryNamed, readScene, saveParas, testWorld } from '../../../tests/unit/keeperRead'
+import { entryNamed, fakeModel, readScene, saveParas, testWorld } from '../../../tests/unit/keeperRead'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
+import { sceneSummaryDue, writeSceneSummary, type SummaryOptions } from './summaries'
 import { undoItem } from './undo'
 import { gatherContextInput } from '../ai/gather'
 import { mustStayTrue } from '../ai/mustStay'
@@ -171,5 +172,57 @@ describe('the world builder’s drafts', () => {
     saveParas(w.db, s1, [['p3', 'Kell said the tide would turn by dusk.']])
     await readScene(w.db, fake, s1)
     expect(entryNamed(w.db, 'Kell')!.fields.eyes).toBe('grey')
+  })
+})
+
+// About forty words each, invented.
+const HARBOUR =
+  'The harbour lay grey under a low sky, and the fishing boats rocked at their moorings while the gulls quarrelled over scraps on the stones. Nobody hurried; the tide would not turn for hours, and the nets still hung drying on the rails.'
+const MARKET =
+  'Up the hill the market was setting out its stalls, apples and rope and lamp oil, the traders calling to one another across the square. A cart with a broken wheel stood abandoned by the fountain, its load of turnips spilling slowly.'
+
+const summaryOptions = (db: DB): SummaryOptions => ({
+  db,
+  model: fakeModel(fake),
+  signal: new AbortController().signal,
+  closed: () => false,
+  retryDelays: [0]
+})
+
+describe('a scene summary', () => {
+  it('isn’t due after a typo or a small edit in a paragraph that names someone', async () => {
+    const w = testWorld(1)
+    const [s1, s2] = w.scenes
+    saveParas(w.db, s1, [
+      ['p1', MARA_RIVER],
+      ['p2', HARBOUR],
+      ['p3', MARKET]
+    ])
+    await readScene(w.db, fake, s1)
+    expect(await writeSceneSummary(summaryOptions(w.db), s1, null, 'Ch 1, Sc 1')).toBe(true)
+    expect(sceneSummaryDue(w.db, s1, false)).toBe(false)
+    // A typo.
+    saveParas(w.db, s1, [
+      ['p1', 'Mara lost her knif in the river.'],
+      ['p2', HARBOUR],
+      ['p3', MARKET]
+    ])
+    expect(sceneSummaryDue(w.db, s1, false)).toBe(false)
+    // A word or two changed, naming no one new.
+    saveParas(w.db, s1, [
+      ['p1', 'Mara lost her old knife in the cold river.'],
+      ['p2', HARBOUR],
+      ['p3', MARKET]
+    ])
+    expect(sceneSummaryDue(w.db, s1, false)).toBe(false)
+    // So the writer isn't told it is being updated either.
+    expect(writerMemory(w.db, s2).storySoFar.scenes.find((x) => x.sceneId === s1)!.updating).toBeFalsy()
+    // The paragraph rewritten (eight words or more changed): due.
+    saveParas(w.db, s1, [
+      ['p1', 'Mara found her brother’s knife lying in the reeds beside the mill that morning.'],
+      ['p2', HARBOUR],
+      ['p3', MARKET]
+    ])
+    expect(sceneSummaryDue(w.db, s1, false)).toBe(true)
   })
 })
