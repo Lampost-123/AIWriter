@@ -308,6 +308,12 @@
 [data-arrangement='desk'] .dz-fact.is-first {
   flex: 2 1 200px;
 }
+/* A fact keeps its whole value ("Protagonist", not "Protago…"): the row wraps before a fact is cut short; only First
+   appears gives way. */
+[data-arrangement='desk'] .dz-fact:not(.is-first) {
+  flex: 1 0 auto;
+  max-width: 100%;
+}
 [data-arrangement='desk'] .dz-fact-v {
   max-width: 100%;
   overflow: hidden;

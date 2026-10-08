@@ -808,7 +808,9 @@ export function Dossier({
           facts.map((f) => (
             <div key={f.key} className="dz-fact">
               <span className="dz-caps">{f.label}</span>
-              <span className={cn('dz-fact-v', !f.value && 'is-empty')}>{f.value || 'Not set'}</span>
+              <span className={cn('dz-fact-v', !f.value && 'is-empty')} title={f.value || undefined}>
+                {f.value || 'Not set'}
+              </span>
             </div>
           ))
         )}

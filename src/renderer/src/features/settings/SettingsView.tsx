@@ -59,7 +59,7 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0">
       {/* The New look: a list with an icon for each page, its chosen row a raised pill that glides. */}
-      <nav className="relative w-[200px] shrink-0 border-r border-line bg-surface px-2 py-4 xl:w-[220px] look-new:border-transparent look-new:bg-transparent look-new:px-2.5">
+      <nav className="relative w-[200px] shrink-0 border-r border-line bg-surface px-2 py-4 xl:w-[220px] look-new:border-transparent look-new:bg-transparent look-new:px-2.5 desk:w-[244px]">
         <h2 className="px-2 pb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint look-new:pb-3 look-new:font-heading look-new:text-[19px] look-new:normal-case look-new:tracking-[-0.01em] look-new:text-fg">
           Settings
         </h2>
@@ -81,7 +81,9 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
                 )}
               >
                 {isNew ? <Icon size={17} selected={on} className={on ? 'text-accent' : 'text-muted'} /> : null}
-                <span className="min-w-0 truncate">{t.label}</span>
+                <span className="min-w-0 truncate" title={t.label}>
+                  {t.label}
+                </span>
               </button>
             )
           })}
