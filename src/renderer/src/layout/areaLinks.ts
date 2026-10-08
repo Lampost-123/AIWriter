@@ -22,7 +22,7 @@ import {
   WandSparkles,
   type IconType
 } from '@/components/ui/icons'
-import { useApp, type View } from '@/lib/store'
+import { useApp, type InspectorTab, type View } from '@/lib/store'
 import { openConsistency } from '@/features/consistency/checkStore'
 import { openOutlineHelper } from '@/features/outline/open'
 import { openRecipes } from '@/features/recipes/recipeStore'
@@ -68,7 +68,7 @@ export function openSceneCard(): void {
 }
 
 /** Opens a tab of the scene panel beside the page (the desk's drawer), on the writing page. */
-export function openSceneTab(tab: 'card' | 'issues'): void {
+export function openSceneTab(tab: InspectorTab): void {
   const app = useApp.getState()
   app.setInspectorTab(tab)
   app.peekEntry(null)

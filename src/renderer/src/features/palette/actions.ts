@@ -9,7 +9,8 @@ import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
 import { pressShortcut } from '@/lib/shortcuts'
-import { useApp, type SettingsTab } from '@/lib/store'
+import { useApp, type InspectorTab, type SettingsTab } from '@/lib/store'
+import { openSceneTab } from '@/layout/areaLinks'
 import * as binder from '@/features/binder/actions'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { useOutlineStore } from '@/features/binder/outlineStore'
@@ -24,7 +25,8 @@ import { openVariants } from '@/features/variants/open'
 import { startBeatByBeat } from '@/features/beats/start'
 import { continueFromCursor } from '@/features/edits/continue'
 import { openAsk } from '@/features/ask/open'
-import { setFlyout, toggleFlyout } from '@/features/desk/deskStore'
+import { setSpineFull, toggleFlyout } from '@/features/desk/deskStore'
+import { FULL_FROM } from '@/layout/desk/deskFit'
 import { deskOn } from '@/features/look/look'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
@@ -200,15 +202,12 @@ export async function runAction(id: ActionId): Promise<void> {
         await a.updateSettings({ theme: fixed.slice('theme-'.length) as 'light' | 'dark' | 'sepia' | 'system' })
         return
       case 'toggle-binder':
-        // The desk: the story's flyout beside the spine (unpinned if it was pinned open).
+        // The desk: the spine opens out to the whole story beside the page, or collapses to its rings; in a window too
+        // narrow for the full spine, the story's flyout shows or hides over the page.
         if (deskOn()) {
-          if (document.querySelector('.desk-flyout[data-pinned]')) {
-            setFlyout(false)
-            if (layout) await a.updateSettings({ layout: { binderOpen: false } })
-            return
-          }
           if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
-          toggleFlyout()
+          if (window.innerWidth >= FULL_FROM) setSpineFull(layout?.deskStory === 'slim')
+          else toggleFlyout()
           return
         }
         // In a small window the binder floats over the page: this shows or hides it and leaves the saved layout alone.
@@ -217,6 +216,13 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'toggle-panel':
         if (layout) await a.updateSettings({ layout: { inspectorOpen: !layout.inspectorOpen } })
+        return
+      case 'tab-card':
+      case 'tab-context':
+      case 'tab-cast':
+      case 'tab-issues':
+      case 'tab-drafts':
+        openSceneTab(fixed.slice('tab-'.length) as InspectorTab)
         return
       case 'backup-now':
         await flushAll()

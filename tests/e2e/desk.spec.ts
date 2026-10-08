@@ -1,8 +1,9 @@
 // The New look's desk layout (UI overhaul, phase 2: the frame), walked through on the sample world: the Layout choice in
 // Settings, the top bar (rooms, the command bar, the status island), every page in its room's frame, the story's spine
-// and its flyout (the binder, with its keys), the page as a sheet (its head, the drop cap, typing at the scene's start),
-// the shortcuts the page's tools carry, and the scene drawer (the scene panel over the page's edge).
-import type { ElectronApplication, Page } from '@playwright/test'
+// (full with the whole story, or slim with its rings and their flyout) and a single click on each of its controls, the
+// page as a sheet (its head, the drop cap, typing at the scene's start), the shortcuts the page's tools carry, and the
+// scene drawer (the scene panel over the page's edge) with every way into it.
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { expect, invoke, test, useFakeModel, type LaunchOptions } from './helpers'
 
 const DESK = { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk' }
@@ -194,51 +195,150 @@ async function openView(win: Page, kind: string): Promise<void> {
   }
 }
 
-test('the spine: a ring opens its scene, the spine opens the flyout; the binder’s keys work there; Esc closes it; pinned, it stays after a restart', async ({ launch }) => {
+const story = (win: Page) => win.getByRole('complementary', { name: 'Chapters and scenes' })
+const spine = (win: Page) => win.locator('[data-desk-spine]')
+
+/** One real press of the mouse at the middle of `target`, as a hand would click it (no forcing, no retries). */
+async function press(win: Page, target: Locator): Promise<void> {
+  const b = await target.boundingBox()
+  if (!b) throw new Error('nothing to click')
+  await win.mouse.click(b.x + b.width / 2, b.y + b.height / 2)
+}
+/** What a single click did shows straight away. */
+const AT_ONCE = { timeout: 1000 }
+
+test('the spine: full by default with every chapter and scene beside the page; collapsed, the rings name and open their scenes; the shape is kept', async ({ launch }) => {
   const { win, dataDir, app } = await sampleWorld(launch)
-  const spine = win.locator('[data-desk-spine]')
-  // A ring for each scene, the open one lit.
-  await expect(spine.locator('.spine-ring')).toHaveCount(4)
-  await expect(spine.locator('.spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /Lighting the Lamp/)
-  // A ring opens its scene straight away.
-  await spine.getByRole('button', { name: /^Low Tide/ }).click()
-  await expect(win.locator('[data-page-title]')).toContainText('Low Tide')
+  // Full (no one chose yet): the binder's rows on the spine's leather, chapters with their words, scenes with theirs.
+  await expect(spine(win)).toHaveAttribute('data-shape', 'full')
+  await expect(story(win)).toBeVisible()
+  await expect(story(win)).toContainText('4 scenes')
+  await expect(story(win).getByRole('treeitem', { name: /The Night Ferry/ })).toContainText('571')
+  await expect(story(win).getByRole('treeitem', { name: /Low Tide/ })).toContainText('288')
+  await expect(story(win).getByRole('treeitem', { name: /Lighting the Lamp/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(story(win).getByRole('button', { name: 'New scene' })).toBeVisible()
+  // The sheet lies in the room beside it, never under it.
+  const panel = (await story(win).boundingBox())!
+  const sheet = (await win.locator('.desk-sheet').boundingBox())!
+  expect(sheet.x).toBeGreaterThan(panel.x + panel.width + 8)
+  // A row opens its scene at the first click.
+  await press(win, story(win).getByRole('treeitem', { name: /Low Tide/ }))
+  await expect(win.locator('[data-page-title] h1')).toHaveText('Low Tide', AT_ONCE)
+  await expect(story(win)).toBeVisible()
+
+  // Collapsed: the slim spine, with a ring for each scene; the sheet moves back to the middle of the window.
+  await press(win, story(win).getByRole('button', { name: 'Collapse to the spine' }))
+  await expect(spine(win)).toHaveAttribute('data-shape', 'slim', AT_ONCE)
+  await expect(story(win)).toBeHidden()
+  await expect(spine(win).locator('.spine-ring')).toHaveCount(4)
+  await expect.poll(async () => (await invoke(win, 'getSettings')).layout.deskStory).toBe('slim')
+  await expect
+    .poll(async () => {
+      const s = (await win.locator('.desk-sheet').boundingBox())!
+      return Math.abs(s.x + s.width / 2 - (await win.evaluate<number>('innerWidth')) / 2)
+    })
+    .toBeLessThan(12)
+  // A ring names its scene while the pointer rests on it, and opens it at the first click.
+  const ring = spine(win).getByRole('button', { name: /^What the Letter Said/ })
+  const r = (await ring.boundingBox())!
+  await win.mouse.move(r.x + r.width / 2, r.y + r.height / 2, { steps: 3 })
+  await expect(win.getByRole('tooltip')).toContainText('What the Letter Said')
+  await expect(win.getByRole('tooltip')).toContainText('Chapter Two · The Drowned Steps')
+  await expect(win.getByRole('tooltip')).toContainText('Done · 246 words')
+  await win.mouse.down()
+  await win.mouse.up()
+  await expect(win.locator('[data-page-title] h1')).toHaveText('What the Letter Said', AT_ONCE)
+  await expect(spine(win).locator('.spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /What the Letter Said/)
+  // A click a little off a ring still opens its scene (the spine's width at its height is the ring's).
+  const low = (await spine(win).getByRole('button', { name: /^Low Tide/ }).boundingBox())!
+  await win.mouse.click(low.x + 6, low.y + low.height / 2)
+  await expect(win.locator('[data-page-title] h1')).toHaveText('Low Tide', AT_ONCE)
   await expect(flyout(win)).toBeHidden()
 
-  // The spine opens the flyout: the story's chapters and scenes, the open one selected and holding the keyboard.
-  await spine.getByRole('button', { name: 'Story contents' }).click()
-  await expect(flyout(win)).toBeVisible()
+  // The spine itself opens the flyout: the open scene's row selected and holding the keyboard; its keys work.
+  await press(win, spine(win).getByRole('button', { name: 'Story contents' }))
+  await expect(flyout(win)).toBeVisible(AT_ONCE)
   await expect(flyout(win)).toContainText('4 scenes')
   const lowTide = flyout(win).getByRole('treeitem', { name: /Low Tide/ })
   await expect(lowTide).toHaveAttribute('aria-selected', 'true')
   await expect(lowTide).toBeFocused()
-  // The binder's keys: up a row, Enter opens it (and the flyout, done with, closes).
   await win.keyboard.press('ArrowUp')
   await win.keyboard.press('Enter')
   await expect(win.locator('[data-page-title]')).toContainText('What the Letter Said')
   await expect(flyout(win)).toBeHidden()
-  // Esc closes it, and a click on the page.
-  await spine.getByRole('button', { name: 'Story contents' }).click()
-  await expect(flyout(win)).toBeVisible()
+  // Esc closes it (the keyboard back on the spine), and so does a click on the page.
+  await press(win, spine(win).getByRole('button', { name: 'Story contents' }))
+  await expect(flyout(win)).toBeVisible(AT_ONCE)
   await win.keyboard.press('Escape')
   await expect(flyout(win)).toBeHidden()
-  await expect(spine.getByRole('button', { name: 'Story contents' })).toBeFocused()
-  await spine.getByRole('button', { name: 'Story contents' }).click()
-  await win.locator('.scene-prose').click()
+  await expect(spine(win).getByRole('button', { name: 'Story contents' })).toBeFocused()
+  await press(win, spine(win).getByRole('button', { name: 'Story contents' }))
+  await expect(flyout(win)).toBeVisible(AT_ONCE)
+  // A row in the flyout opens its scene at the first click.
+  await press(win, flyout(win).getByRole('treeitem', { name: /A Letter for the Keeper/ }))
+  await expect(win.locator('[data-page-title] h1')).toHaveText('A Letter for the Keeper', AT_ONCE)
   await expect(flyout(win)).toBeHidden()
 
-  // Pinned open, it stays beside the page, through opening another scene and a restart.
-  await spine.getByRole('button', { name: 'Story contents' }).click()
-  await flyout(win).getByRole('button', { name: /^Pin open/ }).click()
-  await expect(flyout(win)).toHaveAttribute('data-pinned', 'true')
-  await flyout(win).getByRole('treeitem', { name: /Fog on the Quay|Low Tide/ }).first().click()
-  await expect(flyout(win)).toBeVisible()
-  await expect.poll(async () => (await invoke(win, 'getSettings')).layout.binderOpen).toBe(true)
+  // Kept: the next launch opens on the slim spine; its chevron opens it out again, and that is kept too.
   await app.close()
   const again = await launch({ dataDir, env: DESK })
   await expect(again.win.locator('.scene-prose')).toBeVisible()
-  await expect(flyout(again.win)).toBeVisible()
-  await expect(flyout(again.win)).toHaveAttribute('data-pinned', 'true')
+  await expect(spine(again.win)).toHaveAttribute('data-shape', 'slim')
+  await press(again.win, spine(again.win).getByRole('button', { name: 'Show every chapter and scene' }))
+  await expect(spine(again.win)).toHaveAttribute('data-shape', 'full', AT_ONCE)
+  await expect(story(again.win)).toBeVisible()
+  await expect.poll(async () => (await invoke(again.win, 'getSettings')).layout.deskStory).toBe('full')
+})
+
+test('the spine in a narrower window: slim, its chevron opens the story over the page, and the full spine comes back with the room', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  await size(app, win, 1100, 760)
+  // No room for the full spine beside the page: slim, though Adam never collapsed it.
+  await expect(spine(win)).toHaveAttribute('data-shape', 'slim')
+  await press(win, spine(win).getByRole('button', { name: 'Show every chapter and scene' }))
+  await expect(flyout(win)).toBeVisible(AT_ONCE)
+  await expect(flyout(win).getByRole('button', { name: /No room beside the page/ })).toBeDisabled()
+  await win.keyboard.press('Escape')
+  await size(app, win, 1440, 900)
+  await expect(spine(win)).toHaveAttribute('data-shape', 'full')
+  await expect(story(win)).toBeVisible()
+})
+
+test('the drawer’s ways in: Scene details by the scene’s head, its line, the tools’ Details, the palette for each tab; each tab at one click', async ({ launch }) => {
+  const { win } = await sampleWorld(launch)
+  const head = win.locator('[data-page-title]')
+  const tab = (name: RegExp) => drawer(win).getByRole('tab', { name })
+  // Scene details, at the end of the line under the title: the drawer, on the scene's card.
+  await press(win, head.getByRole('button', { name: 'Scene details' }))
+  await expect(drawer(win)).toBeVisible(AT_ONCE)
+  await expect(tab(/Scene card|Card/)).toHaveAttribute('aria-selected', 'true')
+  // Each tab answers the first click.
+  for (const name of [/^Context/, /^Cast/, /^Issues/, /^Drafts/, /Scene card|Card/]) {
+    await press(win, tab(name))
+    await expect(tab(name)).toHaveAttribute('aria-selected', 'true', AT_ONCE)
+  }
+  // Pressed again, Scene details closes it.
+  await press(win, head.getByRole('button', { name: 'Scene details' }))
+  await expect(drawer(win)).toBeHidden()
+  // The line itself ("Scene 1 of 2 · Told through …") opens the card.
+  await press(win, head.getByRole('button', { name: /Scene 1 of 2/ }))
+  await expect(tab(/Scene card|Card/)).toHaveAttribute('aria-selected', 'true', AT_ONCE)
+  await press(win, drawer(win).getByRole('button', { name: 'Close the scene panel' }))
+  await expect(drawer(win)).toBeHidden()
+  // The palette opens it on any tab.
+  for (const [query, name] of [
+    ['scene issues', /^Issues/],
+    ['scene cast', /^Cast/],
+    ['scene context', /^Context/],
+    ['scene drafts', /^Drafts/],
+    ['scene card', /Scene card|Card/]
+  ] as const) {
+    await win.keyboard.press('Control+K')
+    await win.keyboard.type(query)
+    await win.keyboard.press('Enter')
+    await expect(drawer(win)).toBeVisible()
+    await expect(tab(name)).toHaveAttribute('aria-selected', 'true')
+  }
 })
 
 test('the page: its head, a drop cap that types like any letter, and every shortcut the page’s tools carry', async ({ launch }) => {
@@ -271,11 +371,11 @@ test('the page: its head, a drop cap that types like any letter, and every short
   await expect(win.getByRole('textbox', { name: /^Find/ }).first()).toBeFocused()
   await win.keyboard.press('Escape')
   // Ctrl+Enter marks a scene done (Low Tide is drafted).
-  await win.locator('[data-desk-spine]').getByRole('button', { name: /^Low Tide/ }).click()
+  await win.getByRole('complementary', { name: 'Chapters and scenes' }).getByRole('treeitem', { name: /Low Tide/ }).click()
   await expect(head).toContainText('Low Tide')
   await win.locator('.scene-prose').click()
   await win.keyboard.press('Control+Enter')
-  await expect(win.locator('[data-desk-spine] .spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /Done/)
+  await expect.poll(() => statusOf(win, 'Low Tide')).toBe('done')
   await expect((await dockMenu(win)).getByRole('menuitem', { name: /Reopen the scene/ })).toBeVisible()
   await win.keyboard.press('Escape')
   // F11: focus mode; the spine steps away, the top bar dims; F11 again leaves.
@@ -322,6 +422,20 @@ test('the scene drawer: Ideas for this scene opens it on the card; a name Ctrl+c
 })
 
 // ---------- Phase 3: the AI dock ----------
+
+/** Opens a scene by its title: from the whole story beside the page, or the slim spine's rings. */
+async function openNamed(win: Page, title: string): Promise<void> {
+  const item = story(win).getByRole('treeitem', { name: new RegExp(title) })
+  if (await item.count()) await item.click()
+  else await spine(win).getByRole('button', { name: new RegExp(`^${title}`) }).click()
+  await expect(win.locator('[data-page-title] h1')).toHaveText(title)
+}
+
+/** The open scene's status, as saved. */
+async function statusOf(win: Page, title: string): Promise<string | undefined> {
+  const [s] = await invoke(win, 'listStories')
+  return (await invoke(win, 'getOutline', s.id)).scenes.find((x) => x.title === title)?.status
+}
 
 /** The open story's first scene and chapter. */
 async function firstScene(win: Page): Promise<{ sceneId: string; chapterId: string }> {
@@ -417,18 +531,15 @@ test('the dock: Ctrl+G opens Generate’s panels over it; the menu has the toolb
   await expect(menu.getByRole('menuitem', { name: /Status: Done/ })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Format' })).toBeVisible()
   await expect(menu.getByRole('menuitemcheckbox', { name: 'Ask the world' })).toBeVisible()
-  // The scene panel opens the drawer.
-  await menu.getByRole('menuitemcheckbox', { name: /Scene panel/ }).click()
-  await expect(drawer(win)).toBeVisible()
-  await drawer(win).getByRole('button', { name: 'Close the scene panel' }).click()
-  await expect(drawer(win)).toBeHidden()
+  // Scene details isn't on the dock: it has its own place, by the scene's head (and the top bar).
+  await expect(menu.getByRole('menuitemcheckbox', { name: /Scene details|Scene panel/ })).toHaveCount(0)
+  await win.keyboard.press('Escape')
 
   // An empty scene: Continue becomes Draft the scene.
   const { chapterId } = await firstScene(win)
   await invoke(win, 'createScene', chapterId, { title: 'Blank Page' })
   await win.reload()
-  await win.locator('[data-desk-spine]').getByRole('button', { name: /^Blank Page/ }).click()
-  await expect(win.locator('[data-page-title]')).toContainText('Blank Page')
+  await openNamed(win, 'Blank Page')
   await expect(dock(win).getByRole('button', { name: /^Draft the scene/ })).toBeVisible()
   await expect(dock(win).getByRole('button', { name: /^Continue/ })).toHaveCount(0)
 })
@@ -441,11 +552,10 @@ test('the shortcuts the panels’ toolbar carries each work once on the desk: Ct
     await useFakeModel(win, fake, 'fake/slow')
     const toasts = win.locator('div.fixed[aria-live="polite"]')
     // Ctrl+Enter on a drafted scene: marked done once (heard twice, it would also say it is already done).
-    await win.locator('[data-desk-spine]').getByRole('button', { name: /^Low Tide/ }).click()
-    await expect(win.locator('[data-page-title]')).toContainText('Low Tide')
+    await openNamed(win, 'Low Tide')
     await win.locator('.scene-prose').click()
     await win.keyboard.press('Control+Enter')
-    await expect(win.locator('[data-desk-spine] .spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /Done/)
+    await expect.poll(() => statusOf(win, 'Low Tide')).toBe('done')
     await win.waitForTimeout(400)
     await expect(toasts).not.toContainText('already marked done')
     // Ctrl+G: one choice, over the dock; Enter picks Add below; Esc stops it.
@@ -476,8 +586,7 @@ test('the next-beat chip: the card’s next beat; it ticks as its words land, th
   const chip = win.locator('[data-desk-chip]')
   await expect(chip).toHaveCount(0)
 
-  await win.locator('[data-desk-spine]').getByRole('button', { name: /^Low Tide/ }).click()
-  await expect(win.locator('[data-page-title]')).toContainText('Low Tide')
+  await openNamed(win, 'Low Tide')
   await expect(chip).toHaveAttribute('data-desk-chip', 'next')
   await expect(chip).toContainText('Next beat')
   await expect(chip).toContainText('Ansel rings the hand bell from the quay')
@@ -492,7 +601,7 @@ test('the next-beat chip: the card’s next beat; it ticks as its words land, th
   await chip.getByRole('button', { name: 'Mark done' }).click()
   await expect(chip).toHaveAttribute('data-desk-chip', 'done')
   await expect(chip).toContainText(/Scene done · [\d,]+ words/)
-  await expect(win.locator('[data-desk-spine] .spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /Done/)
+  await expect.poll(() => statusOf(win, 'Low Tide')).toBe('done')
 
   // Reopened from the dock's menu, Ctrl+Enter marks it done again (heard once).
   await (await dockMenu(win)).getByRole('menuitem', { name: 'Reopen the scene' }).click()
@@ -525,10 +634,8 @@ test('the margin: the scene card pinned beside the title, tethered to it, kept t
       .toBe('aligned')
   }
 
-  for (const [w, h] of [
-    [1440, 900],
-    [1920, 1080]
-  ] as const) {
+  // A large window: the column beside the sheet (with the whole story open beside the page on the left).
+  for (const [w, h] of [[1920, 1080]] as const) {
     await size(app, win, w, h)
     await expect(win.locator('[data-desk-margin="column"]')).toBeAttached()
     await expect(note).toBeVisible()
@@ -560,14 +667,21 @@ test('the margin: the scene card pinned beside the title, tethered to it, kept t
   await drawer(win).getByRole('button', { name: 'Close the scene panel' }).click()
   await expect(win.locator('[data-desk-margin]')).not.toHaveAttribute('data-away', 'true')
 
-  // A smaller window: the card folds into a tab on the sheet's edge that opens it.
+  // At 1440 with the whole story open beside the page there is no room for the column: the card folds into a tab on the
+  // sheet's edge; so it does in a smaller window, where it opens as a pop-up.
+  await size(app, win, 1440, 900)
+  await expect(win.locator('[data-desk-margin="tabs"]')).toBeAttached()
   await size(app, win, 1100, 800)
   await expect(win.locator('[data-desk-margin="tabs"]')).toBeAttached()
   await expect(note).toHaveCount(0)
   const tab = win.locator('[data-slip-tab="card"]')
   await expect(tab).toBeVisible()
-  const [t, s] = [(await tab.boundingBox())!, (await sheet.boundingBox())!]
-  expect(Math.abs(t.x + t.width / 2 - (s.x + s.width))).toBeLessThanOrEqual(4)
+  await expect
+    .poll(async () => {
+      const [t, s] = [(await tab.boundingBox())!, (await sheet.boundingBox())!]
+      return Math.abs(t.x + t.width / 2 - (s.x + s.width))
+    })
+    .toBeLessThanOrEqual(4)
   await tab.click()
   await expect(win.getByRole('dialog').getByText('Scene card')).toBeVisible()
   await expect(win.getByRole('dialog')).toContainText('The Gullhaven Light')

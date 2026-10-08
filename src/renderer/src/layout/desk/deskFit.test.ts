@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { deskFit, GUTTER, MARGIN_RESERVE, PINNED_LEFT_MIN, SHEET_LEFT_MIN, sheetPadding } from './deskFit'
+import { deskFit, GUTTER, MARGIN, MARGIN_RESERVE, SHEET_LEFT_MIN, sheetPadding, sheetSides, STORY_RIGHT } from './deskFit'
 
-/** Adam's default page: 70 characters of 19px Literata, about 660px. */
+/** The default page: 70 characters of 19px Literata, about 660px (Adam's machine measures nearer 760). */
 const COLUMN = 660
 
 describe('where the desk’s pieces go for a window size', () => {
@@ -15,8 +15,8 @@ describe('where the desk’s pieces go for a window size', () => {
     expect(deskFit(900, COLUMN, false).sheetW).toBe(740)
   })
 
-  it('puts the margin notes in a column beside the sheet from about 1180px, and in tabs below that', () => {
-    for (const w of [1920, 1440, 1280, 1180]) {
+  it('with the slim spine, puts the margin notes in a column from about 1180px, and in tabs below that', () => {
+    for (const w of [1440, 1280, 1180]) {
       const f = deskFit(w, COLUMN, false)
       expect(f.margin, `${w}`).toBe('column')
       expect(f.rightMin).toBe(MARGIN_RESERVE)
@@ -29,12 +29,15 @@ describe('where the desk’s pieces go for a window size', () => {
     }
   })
 
-  it('at 1440 the sheet, centred, still leaves the margin its column', () => {
-    const f = deskFit(1440, COLUMN, false)
-    const scroller = 1440 - 12
-    const left = Math.max(f.leftMin, Math.min((scroller - f.sheetW) / 2, scroller - f.sheetW - f.rightMin))
-    expect(left).toBe(326)
-    expect(scroller - left - f.sheetW).toBeGreaterThanOrEqual(MARGIN_RESERVE)
+  it('with the whole story beside the page, the column needs a wider window', () => {
+    expect(deskFit(1440, COLUMN, true).full).toBe(true)
+    expect(deskFit(1440, COLUMN, true).margin).toBe('tabs')
+    expect(deskFit(1460, COLUMN, true).margin).toBe('column')
+    expect(deskFit(1920, COLUMN, true).margin).toBe('column')
+    // Narrower than the full spine's room, the spine is slim whatever was asked, and the column comes back.
+    const narrow = deskFit(1240, COLUMN, true)
+    expect(narrow.full).toBe(false)
+    expect(narrow.margin).toBe('column')
   })
 
   it('follows Adam’s page width: wider text needs a wider window for the column', () => {
@@ -42,14 +45,25 @@ describe('where the desk’s pieces go for a window size', () => {
     expect(deskFit(1440, 860, false).margin).toBe('column')
   })
 
-  it('keeps the flyout pinned only when the sheet still fits after it; the margin then needs more room', () => {
-    const pinned = deskFit(1440, COLUMN, true)
-    expect(pinned.pinRoom).toBe(true)
-    expect(pinned.leftMin).toBe(PINNED_LEFT_MIN)
-    expect(pinned.margin).toBe('tabs')
-    expect(deskFit(1920, COLUMN, true).margin).toBe('column')
-    const small = deskFit(1100, COLUMN, true)
-    expect(small.pinRoom).toBe(false)
-    expect(small.leftMin).toBe(SHEET_LEFT_MIN)
+  it('centres the sheet, moving it left only as far as the margin column needs', () => {
+    // Plenty of room: centred, and the column fits on its right.
+    const wide = deskFit(1920, COLUMN, false)
+    const ws = sheetSides(wide)
+    expect(ws.left).toBe((1920 - 776) / 2)
+    expect(ws.right).toBeGreaterThanOrEqual(MARGIN_RESERVE)
+    // Tight: the sheet moves left of the centre to keep the column's room, never nearer the spine than its minimum.
+    const tight = deskFit(1200, COLUMN, false)
+    const ts = sheetSides(tight)
+    expect(ts.right).toBe(MARGIN_RESERVE)
+    expect(ts.left).toBe(1200 - 776 - MARGIN_RESERVE)
+    expect(ts.left).toBeGreaterThanOrEqual(SHEET_LEFT_MIN)
+    // The column's note fits inside the window: the sheet's right edge, less the overlap, plus the note's width.
+    expect(ts.left + 776 - MARGIN.overlap + MARGIN.width).toBeLessThanOrEqual(1200 - GUTTER)
+    // Tabs: centred in the window as before.
+    const tabs = sheetSides(deskFit(1100, COLUMN, false))
+    expect(tabs.left).toBe((1100 - 776) / 2)
+    // The full spine: centred in the room right of it.
+    const full = sheetSides(deskFit(1920, COLUMN, true))
+    expect(full.left).toBe(STORY_RIGHT + (1920 - STORY_RIGHT - 776) / 2)
   })
 })

@@ -23,7 +23,7 @@ import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
 import { PageTitle } from './PageTitle'
 import { useDesk, useNewLook } from '@/features/look/look'
-import { useDeskFrame } from '@/layout/desk/deskFit'
+import { sheetSides, useDeskFrame } from '@/layout/desk/deskFit'
 import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
 import { Dock } from '@/features/desk/dock/Dock'
 import { DeskSceneKeys } from '@/features/desk/keys/DeskSceneKeys'
@@ -273,15 +273,14 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     }
   }
 
-  // The desk: the sheet sits in the middle of the window (clear of the spine, and of the story's flyout when it is
-  // pinned open), and narrows when the window is too small for it. The paddings are the room either side of it.
-  const sheetW = `${frame.sheetW}px`
-  // With room for the margin notes' column, the sheet keeps clear of it too (it moves left of the middle only when it must).
-  const sideL = `max(${frame.leftMin}px, min(calc((100% - ${sheetW}) / 2), calc(100% - ${sheetW} - ${frame.rightMin}px)))`
-  const sideR = `max(${frame.rightMin}px, min(calc((100% - ${sheetW}) / 2), calc(100% - ${sheetW} - ${frame.leftMin}px)))`
-  const deskSides = desk ? { paddingLeft: sideL, paddingRight: sideR } : undefined
+  // The desk: the sheet sits in the middle of its room (beside the full spine, or the window clear of the slim one), and
+  // narrows when the window is too small for it. The paddings are the room either side of it; they glide as the spine
+  // opens out or collapses (desk.css), so the sheet moves across without its words re-wrapping. With room for the margin
+  // notes' column, the sheet keeps clear of it too.
+  const sides = sheetSides(frame)
+  const deskSides = desk ? { paddingLeft: sides.left, paddingRight: sides.right } : undefined
   // What lies over the sheet (its fade, its tools) also keeps the scrollbar's room, as the page does (desk.css).
-  const overSheet = desk ? { paddingLeft: sideL, paddingRight: `calc(${sideR} + 10px)` } : undefined
+  const overSheet = desk ? { paddingLeft: sides.left, paddingRight: sides.right + 10 } : undefined
 
   return (
     // The New look: the page is a sheet of paper lying on the window's frame (scene-sheet, styles.css). On the desk it is
@@ -333,7 +332,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <TypewriterLayer editor={editor} scrollerRef={scrollerRef} />
         {/* The desk: notes in the margin beside the sheet (or tabs on its edge in a smaller window), scrolling with it. */}
         {desk && shown && !error ? (
-          <MarginLayer editor={editor} sceneId={shown.id} scrollerRef={scrollerRef} sheetRef={columnRef} mode={frame.margin} />
+          <MarginLayer editor={editor} sceneId={shown.id} scrollerRef={scrollerRef} sheetRef={columnRef} mode={frame.margin} place={`${sides.left}:${frame.sheetW}`} />
         ) : null}
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
@@ -370,7 +369,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       {shown && !error ? (
         desk ? (
           // The desk: Beat by beat's bar takes the AI dock's place, over the foot of the sheet (and over its fade).
-          <div className="desk-beatbar pointer-events-none absolute inset-x-0 bottom-0 z-20" style={overSheet}>
+          <div className="desk-beatbar desk-over-sheet pointer-events-none absolute inset-x-0 bottom-0 z-20" style={overSheet}>
             <div className="relative mx-auto h-0" style={{ maxWidth: frame.sheetW }}>
               <BeatBar sceneId={shown.id} />
             </div>
@@ -381,14 +380,14 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       ) : null}
       {/* The desk: the page fades out at the foot of the window, under its tools, so the words never run into them. */}
       {desk ? (
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[132px]" style={overSheet}>
+        <div aria-hidden className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[132px]" style={overSheet}>
           <div className="desk-page-fade mx-auto h-full" style={{ maxWidth: frame.sheetW }} />
         </div>
       ) : null}
       {/* The desk: the AI dock floats at the foot of the sheet, where the AI is asked to write (the panels have Generate in
           the scene's toolbar above the page). The keys the panels' toolbar carries are heard by DeskSceneKeys. */}
       {desk && shown && !error ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center" style={overSheet}>
+        <div className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center" style={overSheet}>
           <div className="flex w-full flex-col items-center gap-3" style={{ maxWidth: Math.min(640, frame.sheetW - 48) }}>
             <NextBeatChip sceneId={shown.id} fallbackStatus={shown.status} />
             <Dock

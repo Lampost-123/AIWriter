@@ -64,13 +64,16 @@ export function MarginLayer({
   sceneId,
   scrollerRef,
   sheetRef,
-  mode
+  mode,
+  place
 }: {
   editor: Editor
   sceneId: ID
   scrollerRef: RefObject<HTMLDivElement | null>
   sheetRef: RefObject<HTMLDivElement | null>
   mode: 'column' | 'tabs'
+  /** Where the sheet lies (its left side and width): when it moves without changing size, the notes follow. */
+  place: string
 }): React.JSX.Element {
   const drawerOpen = useApp((s) => !!s.settings?.layout.inspectorOpen || s.askOpen)
   const dismissed = useMarginStore((s) => dismissedIn(s, sceneId))
@@ -97,12 +100,13 @@ export function MarginLayer({
     const scroller = scrollerRef.current
     const sheet = sheetRef.current
     if (!scroller || !sheet || editor.isDestroyed) return
-    const box = scroller.getBoundingClientRect()
-    const y = (v: number): number => v - box.top + scroller.scrollTop
-    const x = (v: number): number => v - box.left + scroller.scrollLeft
+    // Measured from the sheet's own place in the scroll area (its layout, not where it is drawn), so the sheet's rise as
+    // the page arrives (a transform) never leaves the notes where the words were for a moment.
     const sheetBox = sheet.getBoundingClientRect()
     if (!sheetBox.width) return
-    const sheetRight = x(sheetBox.right)
+    const y = (v: number): number => v - sheetBox.top + sheet.offsetTop
+    const x = (v: number): number => v - sheetBox.left + sheet.offsetLeft
+    const sheetRight = sheet.offsetLeft + sheet.offsetWidth
     const left = sheetRight - MARGIN.overlap
     const width = Math.max(200, Math.min(MARGIN.width, scroller.clientWidth - left - 8))
     const view = editor.view
@@ -195,17 +199,21 @@ export function MarginLayer({
       if (changesBlocks(transaction)) schedule()
     }
     editor.on('transaction', onTr)
+    // The sheet glides across as the spine opens out or collapses (its sides are a transition): measured once it lands.
+    const scroller = scrollerRef.current
+    scroller?.addEventListener('transitionend', schedule)
     let live = true
     void document.fonts?.ready.then(() => live && schedule())
     return () => {
       live = false
       ro.disconnect()
       editor.off('transaction', onTr)
+      scroller?.removeEventListener('transitionend', schedule)
     }
   }, [editor, sheetRef, scrollerRef, schedule, slipKey, sceneId])
   useLayoutEffect(() => {
     measure()
-  }, [measure, slipKey, sceneId, mode, fontSize, lineHeight, pageWidth])
+  }, [measure, slipKey, sceneId, mode, place, fontSize, lineHeight, pageWidth])
 
   // A note pushed along by the one above it glides there; a note that moved with its words moves at once.
   const placed = useRef(new Map<string, NoteGeo>())

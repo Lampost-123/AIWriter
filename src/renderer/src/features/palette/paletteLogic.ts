@@ -48,6 +48,11 @@ export type FixedActionId =
   | 'theme-system'
   | 'toggle-binder'
   | 'toggle-panel'
+  | 'tab-card'
+  | 'tab-context'
+  | 'tab-cast'
+  | 'tab-issues'
+  | 'tab-drafts'
   | 'settings-models'
   | 'settings-preferences'
   | 'settings-appearance'
@@ -232,6 +237,12 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'panel right side card context drafts',
     when: (c) => hasScene(c) && c.view === 'write'
   },
+  // The scene panel's tabs (on the desk, its drawer), each opened straight from here.
+  { id: 'tab-card', label: 'Scene card', also: 'Scene details', keywords: 'scene panel drawer goal summary point of view when beats', away: toWriting, when: hasScene },
+  { id: 'tab-context', label: 'Scene context', also: 'Scene panel › Context', keywords: 'briefing what the ai sees knows details drawer', away: toWriting, when: hasScene },
+  { id: 'tab-cast', label: 'Scene cast', also: 'Scene panel › Cast', keywords: 'characters people who is in it details drawer', away: toWriting, when: hasScene },
+  { id: 'tab-issues', label: 'Scene issues', also: 'Scene panel › Issues', keywords: 'problems mistakes consistency found details drawer', away: toWriting, when: hasScene },
+  { id: 'tab-drafts', label: 'Scene drafts', also: 'Scene panel › Drafts', keywords: 'ai versions written generated details drawer', away: toWriting, when: hasScene },
   {
     id: 'settings-models',
     label: 'Settings › Models',

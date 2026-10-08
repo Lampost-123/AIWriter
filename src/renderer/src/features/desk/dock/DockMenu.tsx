@@ -17,7 +17,6 @@ import {
   MessageSquareQuote,
   MessagesSquare,
   MoreHorizontal,
-  PanelRight,
   RefreshCw,
   RotateCcw,
   SeparatorHorizontal,
@@ -73,7 +72,6 @@ export function DockMenu({ sceneId, status, g, disabled }: { sceneId: ID; status
   const [marks, setMarks] = useState({ bold: false, italic: false, blockquote: false })
   const readAloud = useApp((s) => !!s.settings?.speech.readAloud)
   const speakers = useApp((s) => !!s.settings?.speech.showSpeakers)
-  const panelOpen = useApp((s) => !!s.settings?.layout.inspectorOpen && !s.askOpen)
   const asking = useApp((s) => s.askOpen && s.view.kind === 'write' && !!s.settings?.layout.inspectorOpen)
   const reading = useReading((s) => s.reading && s.sceneId === sceneId)
   const variantsWriting = useVariants((s) => isWriting(setOf(s, sceneId)))
@@ -195,17 +193,6 @@ export function DockMenu({ sceneId, status, g, disabled }: { sceneId: ID; status
               </M.SubContent>
             </M.Portal>
           </M.Sub>
-          <M.CheckboxItem
-            className={ITEM}
-            checked={panelOpen}
-            onSelect={pick(() => {
-              const app = useApp.getState()
-              if (app.askOpen) app.setAskOpen(false)
-              void app.updateSettings({ layout: { inspectorOpen: !panelOpen } })
-            })}
-          >
-            <Row icon={<PanelRight size={15} />}>Scene panel: card, context, cast, issues</Row>
-          </M.CheckboxItem>
           <M.CheckboxItem className={ITEM} checked={asking} onSelect={pick(() => (asking ? closeAsk() : openAsk()), { placed: !asking })}>
             <Row icon={<MessagesSquare size={15} />}>Ask the world</Row>
           </M.CheckboxItem>
