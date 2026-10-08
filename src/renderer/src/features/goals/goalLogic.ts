@@ -85,3 +85,27 @@ export function parseTarget(text: string): number | null {
   if (!Number.isFinite(n) || n <= 0) return null
   return Math.min(100_000, Math.round(n))
 }
+
+/** One day of the week's chart on the desk's story home. */
+export interface WeekDay {
+  date: string
+  /** "Mon", or "Today" for today. */
+  label: string
+  today: boolean
+  /** Words that day: typed, plus AI words kept. */
+  words: number
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** The last seven days up to today, oldest first, with each day's words (typed and AI words kept); none for a day with none. */
+export function weekOf(days: WritingDay[], today: string): WeekDay[] {
+  const out: WeekDay[] = []
+  for (let back = 6; back >= 0; back--) {
+    const date = daysBefore(today, back)
+    const d = dayOf(days, date)
+    const [y, m, dd] = date.split('-').map(Number)
+    out.push({ date, label: back === 0 ? 'Today' : WEEKDAYS[new Date(y, m - 1, dd).getDay()], today: back === 0, words: d.typed + d.ai })
+  }
+  return out
+}

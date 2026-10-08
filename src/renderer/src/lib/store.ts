@@ -54,6 +54,14 @@ export type View =
   | { kind: 'recipes'; page?: 'list' | 'make' | 'recipe'; recipeId?: ID | null }
   /** A new story from a recipe: its premise, chapters and scene cards suggested, to keep, edit or discard. */
   | { kind: 'recipePlan'; storyId: ID; recipeId: ID }
+  // The desk (UI overhaul, phase 5)
+  /** A story's home: its book, where Adam left off, its chapters on a shelf, its threads, cast and this week's writing. */
+  | { kind: 'storyHome'; storyId: ID }
+  /**
+   * The story board: the story's scenes as index cards, a column for each chapter, with the plot threads as strings.
+   * `chapterId`: the chapter to bring into view; `ideasFor`: a planned scene whose ideas open in the board's drawer.
+   */
+  | { kind: 'board'; storyId: ID; chapterId?: ID; ideasFor?: ID }
 
 /**
  * "What the AI saw" opened from another page (milestone 4): the page to go back to, the Back button's words

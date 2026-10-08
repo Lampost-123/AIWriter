@@ -1,5 +1,5 @@
-// The desk's top bar (the New look's desk layout), 52px, lying on the lit frame. Left: the lamp mark (the start
-// screen), the world (its menu: other worlds, the start screen, rename, new, export, the sample world, recipes) and the
+// The desk's top bar (the New look's desk layout), 52px, lying on the lit frame. Left: the lamp mark (the story's
+// home, as is the story's name), the world (its menu: other worlds, the start screen, rename, new, export, the sample world, recipes) and the
 // story (switch stories, its settings), with the sample world's chip. Middle: the rooms. Right: an update waiting, the
 // memory when it is reading or in trouble, the command bar, the status island, focus mode and Settings.
 // Nothing in it is cut short at the sizes the desk is made for; in a small window the command bar narrows first.
@@ -13,7 +13,7 @@ import { StorySwitcher } from '@/features/binder/StorySwitcher'
 import { FocusButton } from '@/features/look/FocusLayer'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
 import { SampleWorldChip } from '@/features/setup/SampleWorldBar'
-import { goToStartScreen } from '@/features/start/home'
+import { openStoryHome } from '@/features/desk/home/open'
 import { RenameWorld, useSettingsKey, WorldMenu } from '@/layout/TopBar'
 import { UpdateBanner } from '@/layout/UpdateBanner'
 import { CommandBar } from './CommandBar'
@@ -49,11 +49,13 @@ export function DeskTopBar(): React.JSX.Element {
       className="desk-topbar group/bar relative z-30 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 min-[1440px]:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]"
     >
       <div className="flex min-w-0 items-center">
+        {/* The story's home (the world menu has the start screen). */}
         <button
           type="button"
-          aria-label="Start screen"
-          title="Start screen: all your worlds and stories"
-          onClick={goToStartScreen}
+          aria-label="Story home"
+          aria-current={view.kind === 'storyHome' ? 'page' : undefined}
+          title="Story home: the book, its chapters, where you left off (the start screen is in the world’s menu)"
+          onClick={openStoryHome}
           className="desk-mark grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px]"
         >
           <LampMark />
@@ -64,7 +66,7 @@ export function DeskTopBar(): React.JSX.Element {
           <span aria-hidden className="mx-[3px] font-heading text-[17px] leading-5 text-faint">
             /
           </span>
-          <StorySwitcher bar />
+          <StorySwitcher bar onTitle={openStoryHome} />
           <RenameWorld trigger={worldButton} />
         </div>
         <div className="ml-3 flex shrink-0 items-center max-[1440px]:hidden">

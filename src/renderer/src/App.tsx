@@ -63,6 +63,7 @@ import { DeskTopBar } from '@/layout/desk/DeskTopBar'
 import { RoomFrame } from '@/layout/desk/RoomFrame'
 import { SceneDrawer } from '@/layout/desk/SceneDrawer'
 import { Spine } from '@/features/desk/spine/Spine'
+import { StoryHome } from '@/features/desk/home/StoryHome'
 import '@/layout/desk/desk.css'
 
 export function App(): React.JSX.Element | null {
@@ -262,7 +263,8 @@ function Workspace(): React.JSX.Element {
   const desk = useDesk()
   const overPage = focus && (!focusMoving || focusPanel)
   const { layout } = settings
-  const writing = view.kind === 'write'
+  // The desk's story home is the desk's own (the lamp mark opens it); in the panels and Classic it is the writing page.
+  const writing = view.kind === 'write' || (!desk && view.kind === 'storyHome')
   // Ask the world (milestone 4) shows in this panel too, even with no scene open.
   const scenePanel = writing && (!!sceneId || askOpen)
   // In a small window the open panels give up some width, so the page keeps room to write in.
@@ -346,7 +348,10 @@ function Workspace(): React.JSX.Element {
             <SceneView />
           </div>
           {!writing ? (
-            desk ? (
+            desk && view.kind === 'storyHome' ? (
+              // The desk's story home lies straight on the desk, in no room.
+              <StoryHome key={view.storyId} />
+            ) : desk ? (
               // The desk: every other page in its room's frame (its heading, the room's links, the page on a sheet).
               <RoomFrame key={view.kind} view={view}>
                 <Pages view={view} />
