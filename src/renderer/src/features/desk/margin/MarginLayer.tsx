@@ -277,7 +277,8 @@ export function MarginLayer({
                 <P.Content
                   side="bottom"
                   align="end"
-                  sideOffset={8}
+                  // The scene card's opens below the page's head, never over its title or its line (Scene details).
+                  sideOffset={slip.anchor === 'top' ? 80 : 8}
                   collisionPadding={12}
                   className="desk-slip-pop z-40 w-[300px] data-[state=open]:animate-pop-in"
                 >
