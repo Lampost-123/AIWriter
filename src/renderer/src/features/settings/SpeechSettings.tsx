@@ -1,18 +1,22 @@
 // Settings › Read aloud and dictation (milestone 4): the everyday choices on top (the speech engine,
 // reading aloud with the narrator's voice and speed, the dictation key) and the rest under More. Each
 // part fills its own sections (features/speech, features/readAloud, features/dictation). Opened from the reading
-// bar's Emotion and tone, More is open and the page shows How it reads.
+// bar's Emotion and tone, More is open and the page shows How it reads. The Cast (every character and their voice)
+// is with the everyday choices, under reading aloud.
 import { ChevronRight } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { SpeechEngineSettings } from '@/features/speech/SpeechEngineSettings'
 import { ReadAloudSettings } from '@/features/readAloud/ReadAloudSettings'
 import { takeSettingsReveal } from '@/features/readAloud/control'
+import { CastSettings } from '@/features/readAloud/CastSettings'
+import { CAST_SECTION } from '@/features/readAloud/voiceReveal'
 import { DictationSettings } from '@/features/dictation/DictationSettings'
 
 export function SpeechSettings(): React.JSX.Element {
   const [reveal] = useState(takeSettingsReveal)
-  const [more, setMore] = useState(!!reveal)
+  // The Cast is above More: opened there, More stays shut.
+  const [more, setMore] = useState(!!reveal && reveal !== CAST_SECTION)
   useEffect(() => {
     if (reveal) document.getElementById(reveal)?.scrollIntoView({ block: 'start' })
   }, [reveal])
@@ -20,6 +24,7 @@ export function SpeechSettings(): React.JSX.Element {
     <div className="flex flex-col gap-8">
       <SpeechEngineSettings section="everyday" />
       <ReadAloudSettings section="everyday" />
+      <CastSettings />
       <DictationSettings section="everyday" />
       <div className="border-t border-line pt-4">
         <button

@@ -3,26 +3,53 @@
 // Adam's rule, 2 October 2026). MCreader kept a cast per story; AI Write keeps these per entry in the world.
 //
 // On an entry's page: a character's "Read-aloud voice" (Suggest, Hear) and, for any entry, "Say it as"
-// with Listen. Kept in the world's meta key read_aloud. Shown in features/world/EntryForm.tsx only once
-// read aloud is turned on. Owned by the Read aloud part. Changes save as Adam types.
+// with Listen. Kept in the world's meta key read_aloud. In features/world/EntryForm.tsx a character's box sits just
+// under their description and fields, read aloud on or off: while it is off the box says so, with Turn on read aloud,
+// and their voice can still be described or picked, ready for when it is on (Hear and Listen wait for it). Other
+// kinds' "Say it as" is at the foot of the page, once read aloud is on. Their name in the reading bar or above a line,
+// the Cast list in Settings and the palette open the box (voiceReveal.ts). Owned by the Read aloud part. Changes save
+// as Adam types.
 import { AudioLines, Check, Play, Sparkles, Square, Volume2, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { EntryReadAloud } from '@shared/contracts/readAloud'
 import type { Entry } from '@shared/types'
-import { Button, Field, Input, Notice, Select, Spinner } from '@/components/ui'
+import { Button, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
+import { cn } from '@/lib/cn'
 import { openSpeechSettings } from './control'
 import { clearSampleError, playSample, useSample } from './useSample'
 import { useVoices } from './useVoices'
+import { takeVoiceReveal, useVoiceReveal } from './voiceReveal'
 
-export function EntryVoice({ entry }: { entry: Entry }): React.JSX.Element | null {
+/** The id of a character's Read-aloud voice box on their page. */
+export const VOICE_BOX = 'read-aloud-voice'
+
+/**
+ * `at`: where on the page this is. A character's box is at the top (with read aloud on or off), another kind's at the
+ * bottom (with it on).
+ */
+export function EntryVoice({ entry, at }: { entry: Entry; at: 'top' | 'bottom' }): React.JSX.Element | null {
   const on = useApp((s) => !!s.settings?.speech.readAloud)
-  if (!on) return null
-  return <VoiceBox key={entry.id} entry={entry} />
+  const character = entry.kind === 'character'
+  if (character ? at !== 'top' : at !== 'bottom' || !on) return null
+  return <VoiceBox key={entry.id} entry={entry} on={on} />
+}
+
+/** Turn on read aloud, from a character's page: the same switch as Settings › Read aloud and dictation. */
+async function turnOnReadAloud(): Promise<void> {
+  try {
+    await useApp.getState().updateSettings({ speech: { readAloud: true } })
+    toast('Read aloud is on. Listen is in the scene’s toolbar.', {
+      tone: 'success',
+      action: { label: 'Settings', run: openSpeechSettings }
+    })
+  } catch (e) {
+    toast(`Read aloud couldn’t be turned on. ${(e as Error).message}`, { tone: 'danger' })
+  }
 }
 
 const EMPTY: EntryReadAloud = { voice: { design: '', voice: '' }, say: '' }
@@ -33,7 +60,7 @@ type Proposal = { text: string; writing: boolean }
 /** A description as the AI writes it, without the quote marks it may wrap it in. */
 const tidy = (text: string): string => text.trim().replace(/^["“]/, '').replace(/["”]$/, '').trim()
 
-function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
+function VoiceBox({ entry, on }: { entry: Entry; on: boolean }): React.JSX.Element {
   const character = entry.kind === 'character'
   const castVoices = useApp((s) => s.settings?.speech.castVoices ?? true)
   const [value, setValue] = useState<EntryReadAloud | null>(null)
@@ -45,6 +72,12 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
   const ids = { design: useId(), say: useId(), title: useId() }
   const owns = useCallback((label: string) => label.endsWith(`:${entry.id}`) && label.startsWith('entry:'), [entry.id])
   const sample = useSample(owns)
+  const box = useRef<HTMLElement>(null)
+  const designBox = useRef<HTMLTextAreaElement>(null)
+  // Opened at their voice (their name on the page, the Cast list, the palette): brought into view once loaded, with
+  // the caret in How they sound, and lit for a moment so the eye finds it.
+  const asked = useVoiceReveal((s) => (s.id === entry.id ? s.n : 0))
+  const [lit, setLit] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -168,6 +201,15 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
   }
   const busy = (label: string): boolean => sample.playing === label || sample.loading === label
 
+  useEffect(() => {
+    if (!asked || !value || !takeVoiceReveal(entry.id)) return
+    box.current?.scrollIntoView({ block: 'center' })
+    designBox.current?.focus({ preventScroll: true })
+    setLit(true)
+    const t = setTimeout(() => setLit(false), 1600)
+    return () => clearTimeout(t)
+  }, [asked, value, entry.id])
+
   const v = value ?? EMPTY
   const own = !!(v.voice.design.trim() || v.voice.voice)
   const listed = voices ?? []
@@ -177,10 +219,21 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
   ]
 
   return (
-    <section aria-labelledby={ids.title} className="mt-6 rounded-lg border border-line bg-surface px-3 pb-3 pt-2.5">
+    <section
+      ref={box}
+      id={character ? VOICE_BOX : undefined}
+      aria-labelledby={ids.title}
+      className={cn(
+        'mt-6 scroll-mt-6 rounded-lg border bg-surface px-3 pb-3 pt-2.5 transition-[border-color,box-shadow] duration-500',
+        lit ? 'border-accent/60 shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_18%,transparent)]' : 'border-line'
+      )}
+    >
       <div className="mb-2 flex items-center gap-1.5">
-        <AudioLines size={13} className="text-muted" aria-hidden />
-        <h3 id={ids.title} className="flex-1 text-[12px] font-medium text-muted">
+        <AudioLines size={character ? 15 : 13} className={character ? 'text-accent' : 'text-muted'} aria-hidden />
+        <h3
+          id={ids.title}
+          className={cn('flex-1', character ? 'text-[13.5px] font-semibold text-fg' : 'text-[12px] font-medium text-muted')}
+        >
           {character ? 'Read-aloud voice' : 'Read aloud'}
         </h3>
         <SaveNote status={autosave.status} error={autosave.error} />
@@ -193,6 +246,18 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
         <div className={character ? 'min-h-[236px]' : 'min-h-[86px]'} aria-busy />
       ) : (
         <div className="flex flex-col gap-4 animate-fade-in">
+          {!on ? (
+            <Notice
+              action={
+                <Button size="sm" variant="secondary" onClick={() => void turnOnReadAloud()}>
+                  Turn on read aloud
+                </Button>
+              }
+            >
+              Read aloud is off. Describe or pick {entry.name.trim() ? `${entry.name.trim()}’s` : 'their'} voice now and it’s ready when you
+              turn it on.
+            </Notice>
+          ) : null}
           {character ? (
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
@@ -210,28 +275,31 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
                   >
                     Suggest
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={!own && !busy(hearLabel)}
-                    title={own ? `Hear ${name} say one of their lines` : 'Describe how they sound, or pick a voice, first'}
-                    icon={
-                      sample.loading === hearLabel ? (
-                        <Spinner size={12} />
-                      ) : sample.playing === hearLabel ? (
-                        <Square size={10} />
-                      ) : (
-                        <Play size={12} />
-                      )
-                    }
-                    onClick={() => (busy(hearLabel) ? playSample(hearLabel, { kind: 'character', entryId: entry.id }) : void hear())}
-                    className="w-[72px]"
-                  >
-                    {busy(hearLabel) ? 'Stop' : 'Hear'}
-                  </Button>
+                  {on ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={!own && !busy(hearLabel)}
+                      title={own ? `Hear ${name} say one of their lines` : 'Describe how they sound, or pick a voice, first'}
+                      icon={
+                        sample.loading === hearLabel ? (
+                          <Spinner size={12} />
+                        ) : sample.playing === hearLabel ? (
+                          <Square size={10} />
+                        ) : (
+                          <Play size={12} />
+                        )
+                      }
+                      onClick={() => (busy(hearLabel) ? playSample(hearLabel, { kind: 'character', entryId: entry.id }) : void hear())}
+                      className="w-[72px]"
+                    >
+                      {busy(hearLabel) ? 'Stop' : 'Hear'}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
               <AutoTextarea
+                ref={designBox}
                 id={ids.design}
                 value={v.voice.design}
                 minRows={2}
@@ -293,7 +361,7 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
                     ? 'The voice is made from the description once and kept, so it never drifts. Changing the words makes a new voice.'
                     : 'With neither, their lines are read in the dialogue voice.'}
               </p>
-              {!castVoices ? (
+              {on && !castVoices ? (
                 <Notice
                   action={
                     <Button size="sm" variant="ghost" onClick={openSpeechSettings}>
@@ -312,24 +380,26 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
               <label htmlFor={ids.say} className="text-[12px] font-medium text-muted">
                 Say it as
               </label>
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={
-                  sample.loading === sayLabel ? (
-                    <Spinner size={12} />
-                  ) : sample.playing === sayLabel ? (
-                    <Square size={10} />
-                  ) : (
-                    <Volume2 size={13} />
-                  )
-                }
-                title={`Hear how the voice says ${name}`}
-                onClick={() => (busy(sayLabel) ? playSample(sayLabel, { kind: 'say', entryId: entry.id }) : void listen())}
-                className="w-[78px]"
-              >
-                {busy(sayLabel) ? 'Stop' : 'Listen'}
-              </Button>
+              {on ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={
+                    sample.loading === sayLabel ? (
+                      <Spinner size={12} />
+                    ) : sample.playing === sayLabel ? (
+                      <Square size={10} />
+                    ) : (
+                      <Volume2 size={13} />
+                    )
+                  }
+                  title={`Hear how the voice says ${name}`}
+                  onClick={() => (busy(sayLabel) ? playSample(sayLabel, { kind: 'say', entryId: entry.id }) : void listen())}
+                  className="w-[78px]"
+                >
+                  {busy(sayLabel) ? 'Stop' : 'Listen'}
+                </Button>
+              ) : null}
             </div>
             <Input
               id={ids.say}

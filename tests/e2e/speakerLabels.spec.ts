@@ -7,6 +7,7 @@
 //  - "Show speakers and tone" is off at first: nothing shows. Turned on beside Listen, each paragraph shows who says it
 //    and how, small and faint above it, without changing the words, the layout or the page's width.
 //  - The same switch in Settings › Read aloud and dictation turns them off again.
+//  - A label that starts with a character from the world has their name to click: it opens their read-aloud voice.
 import type { Page } from '@playwright/test'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -202,6 +203,47 @@ test('a thought in italics is its thinker’s, and "Show speakers and tone" says
     await expect.poll(async () => (await labels(win)).filter((l) => l.includes(' · ')).length, { timeout: 30_000 }).toBe(2)
     // The thought is Mara's, read in her voice; the label says what it is (the fake director notes it "small and inward").
     expect((await labels(win))[1]).toBe('Mara · thought · small and inward')
+  } finally {
+    await speech.close()
+    await fake.close()
+  }
+})
+
+test('a speaker’s name above their line opens their read-aloud voice', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const fake = await startFake()
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the harbour ferry.' })
+    const tobin = await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true, markSpeakers: true, showSpeakers: true } })
+    await useFakeModel(win, fake)
+
+    await prose(win).click()
+    await generateButton(win).click()
+    await expect(prose(win)).toContainText('"You came," he said', { timeout: 30_000 })
+    await expect(generateButton(win)).toBeEnabled({ timeout: 30_000 })
+
+    // The line Tobin starts is labelled with his name, which takes the mouse; the narrator's label doesn't.
+    const his = win.locator('.scene-prose p[data-speaker-name="Tobin"]').first()
+    await expect(his).toBeVisible({ timeout: 30_000 })
+    await expect(his).toHaveAttribute('data-speaker-entry', tobin.id)
+    await expect(win.locator('.scene-prose p[data-speaker-label^="Narrator"][data-speaker-name]')).toHaveCount(0)
+    const cursor = await his.evaluate(
+      (el) =>
+        (globalThis as unknown as { getComputedStyle(e: unknown, p: string): { cursor: string } }).getComputedStyle(el, '::before').cursor
+    )
+    expect(cursor).toBe('pointer')
+
+    // Clicking his name opens his page at his Read-aloud voice.
+    const box = (await his.boundingBox())!
+    await win.mouse.click(box.x + 8, box.y - 6)
+    const voice = win.getByRole('region', { name: 'Read-aloud voice' })
+    await expect(voice).toBeInViewport()
+    await expect(win.getByRole('textbox', { name: 'Name' })).toHaveValue('Tobin')
+    await expect(voice.getByLabel('How they sound')).toBeFocused()
   } finally {
     await speech.close()
     await fake.close()

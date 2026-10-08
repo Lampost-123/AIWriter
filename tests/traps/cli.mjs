@@ -13,7 +13,9 @@
 //   --root <folder>        score the app code in another checkout (say the step 2 branch's worktree); it needs its own
 //                          node_modules (npm ci there). Default: this checkout.
 //   --samples <n>          samples per probe (default 3)
-//   --probes A,C           only these probes (default all); for chains, K2E is the edit chain (opt-in)
+//   --probes A,C           only these probes (default all; chains: K1 by default, or K1,K2,K3)
+//   --chain K1|K2|K3|both|all   the chains to run, or a list of them (K1,K3); "both" is K1 and K2. Instead of --probes
+//                          K2E, the edit chain, runs only when named (--probes K2E)
 //   --story-from s28       chains only: the memory reads the story from this scene on, not the whole story
 //   --writer <model id>    writer model (default: the model with "flash" in its id, from the provider's model list)
 //   --memory <model id>    memory model (default: the writer model)
@@ -41,6 +43,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { CHAIN_IDS, parseChains } from './chainArg.mjs'
 
 const here = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const args = process.argv.slice(2)
@@ -69,7 +72,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -189,6 +192,20 @@ if (flag('--rescore')) {
   if (flag('--no-save-world')) env.TRAPS_SAVE_WORLD = '0'
   set('--story-from', 'TRAPS_STORY_FROM')
   set('--probes', 'TRAPS_PROBES')
+  // --chain K1|K2|K3|both|all, or a list (K1,K3): the chains a run takes (probes v4; K1 by default), as TRAPS_PROBES.
+  const chainArg = value('--chain')
+  if (chainArg !== undefined) {
+    const chains = parseChains(chainArg)
+    if (!chains) {
+      console.error(`--chain is ${CHAIN_IDS.join(', ')}, both (K1,K2) or all, or a list of them (K1,K3).`)
+      process.exit(2)
+    }
+    if (value('--probes')) {
+      console.error('--chain and --probes both name what runs: give one of them.')
+      process.exit(2)
+    }
+    env.TRAPS_PROBES = chains.join(',')
+  }
   set('--writer', 'TRAPS_WRITER_MODEL')
   set('--memory', 'TRAPS_MEMORY_MODEL')
   set('--judge', 'TRAPS_JUDGE_MODEL')

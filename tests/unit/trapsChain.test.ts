@@ -2,7 +2,29 @@
 // lines, the slips and the lines that only look like slips (said aloud, a mention, a negation), and the bookkeeping
 // of which plants are in force. No model.
 import { describe, expect, it } from 'vitest'
-import { CHAINS, CHAIN_FAR, CHAIN_PLANTS, changeAt, endedBy, endedIn, excusedByChange, inForce, landed, landedByJudge, landingChecks, stepChecks, type ChainPlant } from '../traps/chain'
+import {
+  CHAINS,
+  CHAIN_FAR,
+  CHAIN_PLANTS,
+  DEFAULT_CHAINS,
+  K2_PLANTS,
+  changeAt,
+  confirmSlips,
+  confirmedEnds,
+  endedBy,
+  endedIn,
+  excusedByChange,
+  inForce,
+  landed,
+  landedByJudge,
+  landingChecks,
+  savedEnded,
+  stepChecks,
+  stepOfChange,
+  wordsSince,
+  type ChainPlant
+} from '../traps/chain'
+import type { App } from '../traps/app'
 import { findAcross, patternVerdict, refersTo } from '../traps/patterns'
 import { firstBreak } from '../traps/patterns'
 import { summariseChains, type ChainResult, type CheckResult } from '../traps/score'
@@ -301,3 +323,275 @@ describe('round 7 (b): Wren getting up is the change, not a slip', () => {
 })
 
 const paragraphsOfText = (t: string): string[] => t.split(/\n\s*\n/)
+
+// Chain K2 (lab branch): the open road in fog, on foot, a twisted ankle, a thing handed over, and who knows what.
+describe('chain K2: outdoors, on the move, who knows what', () => {
+  const k2 = CHAINS.find((c) => c.id === 'K2')!
+  const p2 = (id: string): ChainPlant => [...K2_PLANTS, ...CHAIN_FAR].find((p) => p.id === id)!
+  const drift2 = (id: string, text: string): string => {
+    const p = p2(id)
+    return patternVerdict({ ...p.drift!, id: p.id, trap: p.id }, text).verdict
+  }
+  const wire2 = (id: string, text: string): boolean => {
+    const p = p2(id)
+    // As the scoring tries a tripwire (score.ts judgeCheck): what is said aloud counts too.
+    return !!firstBreak({ broken: p.judge!.tripwire!, unlessBefore: p.change }, text)
+  }
+  it('is a chain like K1: 10 to 12 steps, Add below and Continue in turn, every plant aimed early, and K1 runs by default', () => {
+    expect(k2.steps.length).toBeGreaterThanOrEqual(10)
+    expect(k2.steps.length).toBeLessThanOrEqual(12)
+    k2.steps.forEach((s, i) => expect(s.kind).toBe(i % 2 ? 'continue' : 'addBelow'))
+    expect(new Set(k2.steps.flatMap((s) => s.plants ?? []))).toEqual(new Set(K2_PLANTS.map((p) => p.id)))
+    for (const s of k2.steps) if (s.plants) expect(landed(k2, s.plants, s.direction!).ok, s.direction).toBe(true)
+    expect(K2_PLANTS.map((p) => p.id).filter((id) => CHAIN_PLANTS.some((p) => p.id === id))).toEqual([])
+    expect(DEFAULT_CHAINS).toEqual(['K1'])
+  })
+  it('slips: far views in the fog, riding while on foot, the wrong ankle, Ash with the claim again', () => {
+    expect(drift2('fog', 'Far below them the sea glittered in the morning light.')).toBe('broken')
+    expect(drift2('fog', 'She could see for miles along the cliffs.')).toBe('broken')
+    expect(drift2('on-foot', 'They rode on in silence towards the ford.')).toBe('broken')
+    expect(drift2('ankle', 'Her right ankle throbbed with every step.')).toBe('broken')
+    expect(drift2('ankle', 'She favoured her twisted right foot.')).toBe('broken')
+    expect(drift2('claim-handed', 'Ash patted the claim in his coat pocket and smiled.')).toBe('broken')
+    expect(wire2('limp', 'Wren ran to the edge of the track.')).toBe(true)
+    expect(wire2('limp', 'She ran a few limping steps after the horse.')).toBe(false)
+    // One check a plant: a drift or a judge question, never both (saved answers re-score by plant).
+    for (const p of K2_PLANTS) expect(!!p.drift && !!p.judge, p.id).toBe(false)
+    expect(stepChecks([p2('limp'), p2('ash-stays')]).checks.map((c) => c.trap)).toEqual(['limp', 'ash-stays'])
+    expect(wire2('ash-stays', 'Hale nodded. "So you are not going back, then," the carter said, as if he had always known.')).toBe(true)
+    expect(wire2('ash-stays', 'Hale knew that Ash would not go home; it was in his face.')).toBe(true)
+    expect(wire2('ash-stays', '"I am not going back that way," Ash told the carter, and asked about the ford.')).toBe(false)
+  })
+  it('not slips: a change shown first, what is said aloud, a wish, a negation, the right side', () => {
+    expect(drift2('fog', 'The fog lifted at last, and far below them the sea glittered.')).not.toBe('broken')
+    expect(drift2('fog', '"On a clear day you could see for miles," Hale said.')).not.toBe('broken')
+    expect(drift2('fog', 'She could not see the sea, only hear it somewhere below.')).not.toBe('broken')
+    expect(drift2('on-foot', 'Ash swung himself back into the saddle. They rode on towards the ford.')).not.toBe('broken')
+    expect(drift2('on-foot', 'Hale lifted her up onto the cart, and she rode the last mile sitting on a sack.')).not.toBe('broken')
+    expect(drift2('on-foot', 'They had ridden this road before, in better weather.')).not.toBe('broken')
+    expect(drift2('ankle', 'Her left ankle throbbed with every step.')).not.toBe('broken')
+    expect(drift2('claim-handed', 'The claim was a stiff square against her ribs, inside her jacket.')).not.toBe('broken')
+    expect(drift2('claim-handed', 'Ash had carried the claim from Carrow, but no longer.')).not.toBe('broken')
+    expect(wire2('ash-stays', 'Hale asked where they were bound. Ash said Linmouth, maybe, and looked away.')).toBe(false)
+  })
+  it('ends the fog and being on foot on a change in the narration, not on one said aloud', () => {
+    const before = [p2('fog'), p2('on-foot')]
+    expect(endedBy('By noon the fog had thinned to a pale haze.', before)).toEqual(['fog'])
+    expect(endedBy('"The fog lifted by noon yesterday," Hale said.', before)).toEqual([])
+    expect(endedBy('Ash climbed back into the saddle.', before)).toEqual(['on-foot'])
+  })
+  it('a foot put in the stirrup is getting back on (round G K2-2/12); a foot put anywhere else is not', () => {
+    expect(drift2('on-foot', 'Ash put his foot in the stirrup. A little later they rode on towards the ford.')).not.toBe('broken')
+    expect(drift2('on-foot', 'Wren put her foot into the stirrup, and then they rode on.')).not.toBe('broken')
+    expect(endedBy('Ash put his foot in the stirrup.', [p2('on-foot')])).toEqual(['on-foot'])
+    expect(drift2('on-foot', 'Ash put his foot in the stream. A little later they rode on towards the ford.')).toBe('broken')
+    expect(drift2('on-foot', 'Wren put her foot on the stirrup leather to buckle it. Then they rode on.')).toBe('broken')
+    expect(endedBy('Ash put his foot in the mud.', [p2('on-foot')])).toEqual([])
+  })
+})
+
+describe('combo run (2026-10-08): end-of-plant and drift gaps, each with what must still be a slip', () => {
+  it('the case picked up in other words ends case-down; looking at it, or saying so, does not', () => {
+    const c = plant('case-down')
+    expect(endedBy('The case came up off it into her arms and she held it to her side.', [c])).toEqual(['case-down'])
+    expect(endedBy('The survey case came away from the sill with a scrape.', [c])).toEqual(['case-down'])
+    expect(endedBy('She gathered the case up and stood with it.', [c])).toEqual(['case-down'])
+    expect(endedBy('Her fingers closed round the survey case on the windowsill.', [c])).toEqual(['case-down'])
+    expect(endedBy('She carried the case to the table.', [c])).toEqual(['case-down'])
+    // Not a pickup: she looks at it, it stays put, or someone only says it.
+    expect(endedBy('She looked at the survey case on the sill and thought of the map inside.', [c])).toEqual([])
+    expect(endedBy('The case sat on the windowsill, its straps undone.', [c])).toEqual([])
+    expect(endedBy('"I’ll take the case up with me," she said.', [c])).toEqual([])
+    // The slip itself, with no pickup first, is still caught.
+    expect(wire('case-down', 'The case sat on the sill. Later she held the survey case in her lap.')).toBe(true)
+  })
+  it('Ash back in these wordings ends ash-out; the door opening as he goes out does not', () => {
+    const a = plant('ash-out')
+    const back = 'She woke to the bar lifting. The bar grated, and then the door swinging back and the rain coming in, and a boot on the flagstone, and Ash shaking his hat out with the door open behind him.'
+    expect(endedBy(back, [a])).toEqual(['ash-out'])
+    expect(endedBy('A boot on the step, and Ash in the doorway with the rain behind him.', [a])).toEqual(['ash-out'])
+    expect(endedBy('‘It’s me.’ He shut the door and dropped the bar back with his shoulder.', [a])).toEqual(['ash-out'])
+    expect(endedBy('Ash stood by the hearth, shaking the rain off his hat.', [a])).toEqual(['ash-out'])
+    // Going out is not coming back: neither in the step that plants it nor later.
+    const goes = "'I'll see to the horses,' Ash said.\n\nThe door swung open and Ash went out into the rain, and he shut the door behind him."
+    expect(endedIn(goes, [], [a])).toEqual([])
+    expect(endedBy('The door swung open in the wind and banged against the wall.', [a])).toEqual([])
+    // A door opening with no sign of him, then Ash in the room: still the slip.
+    expect(drift('ash-out', 'The door swung open in the wind. Ash poured the tea.')).toBe('broken')
+  })
+  it('the re-score review: more ways back in, and the ways out that must not count', () => {
+    const a = plant('ash-out')
+    expect(endedBy('Not the bar: she heard the bar lift, the iron drag of it, and Ash in the gap with the lamp.', [a])).toEqual(['ash-out'])
+    expect(endedBy('Then the bar lifted under her hand, and he was in the doorway with the rain coming off him.', [a])).toEqual(['ash-out'])
+    expect(endedBy('Ash stood on the step with his hat down and his jumper dark across the shoulders.', [a])).toEqual(['ash-out'])
+    expect(endedBy('He set the lamp on the table and shut the door and dropped the bar back into the iron himself.', [a])).toEqual(['ash-out'])
+    // Not back: she bars it after he went out; he stands in the doorway on his way out; the bar lifts for someone else.
+    expect(endedBy('He went out and she shut the door and dropped the bar into its keep.', [a])).toEqual([])
+    expect(endedBy('Ash stood in the doorway a moment, then went out into the rain.', [a])).toEqual([])
+    expect(endedBy('The bar lifted and Mother Rook came in with the candles.', [a])).toEqual([])
+    // And the slip after a false start is still the slip.
+    expect(drift('ash-out', 'She lifted the bar and looked out at the empty yard. Ash sat down by the fire.')).toBe('broken')
+  })
+  it('the re-score review: the case picked up as "it", Wren up in other words, a coming in still to come', () => {
+    const c = plant('case-down')
+    const w = plant('lie-down')
+    expect(endedBy('The case was on the windowsill behind her, and she turned and took it by the strap and put it under her arm.', [c])).toEqual(['case-down'])
+    expect(endedBy('The case was on the sill where she had left it, its brass corners square to the frame, and she took it up under her arm.', [c])).toEqual(['case-down'])
+    // "it" that is something else, near the case: not a pickup.
+    expect(endedBy('The case was on the sill and she took the cup and drank from it.', [c])).toEqual([])
+    expect(endedBy('She sat all the way up and put the blanket aside.', [w])).toEqual(['lie-down'])
+    expect(endedBy('She got her feet under her and crossed to the table.', [w])).toEqual(['lie-down'])
+    expect(endedBy('Wren was off the settle before she had decided to move.', [w])).toEqual(['lie-down'])
+    // Someone else's getting up is not hers; a blanket off the settle is not her.
+    expect(endedBy('Ash got his feet under him and stood.', [w])).toEqual([])
+    expect(endedBy('The blanket was off the settle and on the floor.', [w])).toEqual([])
+    // The tripwire still fires when she stands with no getting up.
+    expect(wire('lie-down', 'The blanket was off the settle. She stood at the window.')).toBe(true)
+    expect(drift('door-locked', 'She left his share on the board for him to see to when he came in.')).not.toBe('broken')
+    expect(drift('door-locked', 'When Ash came in he was wet to the elbows.')).toBe('broken')
+  })
+  it('Ash heard through the shut door is not Ash in the room; through his teeth, or muffled by a cup, still is', () => {
+    expect(drift('ash-out', "'It's me,' Ash said, muffled through the boards.")).not.toBe('broken')
+    expect(drift('ash-out', "'Open up,' Ash called through the door.")).not.toBe('broken')
+    expect(drift('ash-out', "'Bed,' Ash said through the wood.")).not.toBe('broken')
+    expect(drift('ash-out', "'Fine,' Ash said through his teeth.")).toBe('broken')
+    expect(drift('ash-out', "'Fine,' Ash said, muffled by his cup.")).toBe('broken')
+    expect(drift('ash-out', 'Ash said he was cold, standing in the doorway.')).toBe('broken')
+  })
+  it('"the cut hand" after the left hand is the other hand, unless the left is said to be the cut one', () => {
+    expect(drift('hand-cut', 'She pulled it wide with her left hand, the cut hand held behind her.')).not.toBe('broken')
+    expect(drift('hand-cut', 'She took the cup in her left hand and kept the bandaged hand in her lap.')).not.toBe('broken')
+    // The left said to be cut: slips, as before.
+    expect(drift('hand-cut', 'Her left hand, the cut one, throbbed.')).toBe('broken')
+    expect(drift('hand-cut', 'Her left hand, the cut hand, throbbed.')).toBe('broken')
+    expect(drift('hand-cut', 'She held up her left hand, bleeding hard.')).toBe('broken')
+    expect(drift('hand-cut', 'Her left palm stung where the shard had gone in.')).toBe('broken')
+    expect(drift('hand-cut', 'She wrapped her bleeding left hand in a napkin.')).toBe('broken')
+  })
+  it('boots off: her boot catching the hearth, water between her boots, are slips; boots by the hearth are not', () => {
+    expect(drift('boots-off', "Wren's boot caught the edge of the hearth and she caught herself on the table.")).toBe('broken')
+    expect(drift('boots-off', 'Her boot struck the leg of the table.')).toBe('broken')
+    expect(drift('boots-off', 'The blood ran down and dripped on the flags between her boots.')).toBe('broken')
+    // Not slips.
+    expect(drift('boots-off', 'Her boots caught the firelight where they stood.')).not.toBe('broken')
+    expect(drift('boots-off', 'She set the cup down between her boots on the hearth.')).not.toBe('broken')
+    expect(drift('boots-off', 'The case stood on its edge between her boots, the strap scorched.')).not.toBe('broken')
+    expect(drift('boots-off', "Ash's boot caught the leg of the settle.")).not.toBe('broken')
+    expect(drift('boots-off', 'She pulled her boots back on. Her boot caught the edge of the hearth.')).not.toBe('broken')
+  })
+  it('the re-score reuses a live "Ended?" yes only with its words in the passage, before the slip', () => {
+    const text = 'He put his hand on the key and the iron turned, and the door came open. "Cold," Ash said.'
+    const was: CheckResult = { id: 'ash-out', trap: 'ash-out', ask: 'Ended? Ash speaks or acts in the room without coming back first.', verdict: 'kept', by: 'judge', answer: 'yes', quote: 'He put his hand on the key and the iron turned' }
+    expect(savedEnded(was, text, '"Cold," Ash said.')).toBe(was.quote)
+    // Words that aren't in this passage, a change after the slip, or a judge's no: not reused.
+    expect(savedEnded({ ...was, quote: 'He drew back the bolt' }, text, '"Cold," Ash said.')).toBeNull()
+    expect(savedEnded({ ...was, quote: '"Cold," Ash said.' }, 'Ash said nothing. "Cold," Ash said.', 'Ash said nothing.')).toBeNull()
+    expect(savedEnded({ ...was, answer: 'no', verdict: 'broken' }, text, '"Cold," Ash said.')).toBeNull()
+    expect(savedEnded(undefined, text, '"Cold," Ash said.')).toBeNull()
+  })
+})
+
+describe('round E (20261008-100105): checker gaps, each with what must still be a slip', () => {
+  // An invented chain stretch: Tam goes out at step 3, is let back in at step 4 in words no pattern knows, and talks at
+  // step 6. (The checks are K1's, with K1's people: "Ash" is the one who went out.)
+  const step3 = "'I'll see to the horses,' Ash said, and he went out to the stable.\n\nWren sat on by the fire."
+  const step4 = 'The latch went and the cold came in, and boots crossed the flags to the hearth.'
+  const step5 = 'The kettle began to tick on the hob.'
+  const step6 = 'Ash said the grey was favouring her off fore.'
+  const steps = [
+    { step: 3, text: step3 },
+    { step: 4, text: step4 },
+    { step: 5, text: step5 }
+  ]
+  const slip = (): CheckResult => ({ id: 'ash-out', trap: 'ash-out', ask: 'Ash speaks or acts in the room without coming back first.', verdict: 'broken', by: 'pattern', answer: '', quote: step6 })
+  const judge = (answer: 'yes' | 'no', quote: string, seen: string[] = []): Pick<App, 'askJudge'> => ({
+    askJudge: async (_probe, text) => {
+      seen.push(text)
+      return { status: 'ok', raw: '', answers: [{ id: 'E1', answer, quote }] }
+    }
+  })
+  const look = { steps, landedAt: new Map([['ash-out', 3]]), planted: new Map([['ash-out', "'I'll see to the horses,' Ash said, and he went out to the stable."]]), step: 6 }
+
+  it('confirmSlips asks over the scene since the plant, and ends the plant at the step its words are in', async () => {
+    const seen: string[] = []
+    const got = await confirmSlips(judge('yes', 'The latch went and the cold came in', seen), [plant('ash-out')], [slip()], step6, look)
+    expect(seen[0]).toBe([step3, step4, step5, step6].join('\n\n'))
+    expect(got.results[0]).toMatchObject({ verdict: 'kept', by: 'judge', quote: 'The latch went and the cold came in' })
+    expect(got.endedAt.get('ash-out')).toBe(4)
+    expect(confirmedEnds(got.results, got.endedAt, 6)).toEqual({ here: [], earlier: new Map([[4, ['ash-out']]]) })
+    // With no look back (as before): only the words being checked.
+    const alone: string[] = []
+    await confirmSlips(judge('no', '', alone), [plant('ash-out')], [slip()], step6)
+    expect(alone[0]).toBe(step6)
+  })
+
+  it('confirmSlips: a no, words in no step, the planting itself, or words after the slip leave the slip counted', async () => {
+    const still = async (answer: 'yes' | 'no', quote: string) => (await confirmSlips(judge(answer, quote), [plant('ash-out')], [slip()], step6, look)).results[0].verdict
+    expect(await still('no', 'The latch went and the cold came in')).toBe('broken')
+    expect(await still('yes', 'He drew back the bolt and let him in')).toBe('broken')
+    expect(await still('yes', 'he went out to the stable')).toBe('broken')
+    const after = 'Ash said the grey was favouring her off fore. Then the latch lifted and he came in.'
+    expect((await confirmSlips(judge('yes', 'Then the latch lifted and he came in'), [plant('ash-out')], [slip()], after, look)).results[0].verdict).toBe('broken')
+    // The step a change is in, and the plant's own step after the planting.
+    const since = wordsSince(steps, 3, step6, 6)
+    expect(stepOfChange(since, 'Wren sat on by the fire', { plantStep: 3, plantQuote: look.planted.get('ash-out'), now: 6, slipQuote: step6 })).toBe(3)
+    expect(stepOfChange(since, 'The kettle began to tick', { plantStep: 3, now: 6, slipQuote: step6 })).toBe(5)
+    // The re-score reuses a saved yes from an earlier step the same way.
+    const was: CheckResult = { ...slip(), verdict: 'kept', by: 'judge', answer: 'yes', ask: 'Ended? x', quote: 'The latch went and the cold came in' }
+    expect(savedEnded(was, step6, step6, { steps, plantStep: 3, now: 6 })).toBe(was.quote)
+    expect(savedEnded(was, step6, step6)).toBeNull()
+  })
+
+  it('Ash back: "then there was Ash", the bar lifted and he came in, "When Ash came back", "before Ash was through"', () => {
+    const a = plant('ash-out')
+    expect(endedBy('The door to the yard opened and shut and then there was Ash, coatless, hair flat with rain.', [a])).toEqual(['ash-out'])
+    expect(endedBy('She lifted the bar and he came in sideways with a bucket in each hand.', [a])).toEqual(['ash-out'])
+    expect(endedBy('When Ash came back his hair was flat and dripping.', [a])).toEqual(['ash-out'])
+    expect(endedBy('Wren sat up.\n\nWhen he came back the fire had caught.', [a])).toEqual(['ash-out'])
+    expect(endedBy('When the door opened she had the map folded away before Ash was through.', [a])).toEqual(['ash-out'])
+    // Not back: going out with the bar lifted, a coming back still to come, someone else's things, still busy outside.
+    expect(endedBy('He lifted the bar and went out, and the rain came in at the door.', [a])).toEqual([])
+    expect(endedBy('She would keep the stew hot for when he came back.', [a])).toEqual([])
+    expect(endedBy('Then there was Ash’s coat on the peg, dripping.', [a])).toEqual([])
+    expect(endedBy('It would be an hour before Ash was through with the horses.', [a])).toEqual([])
+    // The slip with none of these before it still counts.
+    expect(drift('ash-out', 'The bar stayed where it was. Ash said the grey was lame.')).toBe('broken')
+  })
+
+  it('door locked: "the door to the yard opened" and "When Ash came back" are the door opening; a past perfect elsewhere is not', () => {
+    expect(drift('door-locked', 'The door to the yard opened and shut.')).toBe('broken')
+    expect(drift('door-locked', 'The yard door opened with a groan.')).toBe('broken')
+    expect(drift('door-locked', 'When Ash came back his collar was dark at the neck.')).toBe('broken')
+    expect(drift('door-locked', 'When the outer door opened again, the cold came down the passage ahead of him.')).toBe('broken')
+    // A memory of another door, long ago, or the inn's front door opening for a caller: not this one.
+    expect(drift('door-locked', 'In Linmouth she had opened the door on a good grey coat and no mud on it.')).not.toBe('broken')
+    expect(drift('door-locked', 'Out in the passage the landlady’s step crossed the boards, and the front door opened on a man’s voice.')).not.toBe('broken')
+    // Unlocked first, or a coming back still to come: not a slip, as before.
+    expect(drift('door-locked', 'She turned the key back. When Ash came back his collar was dark.')).not.toBe('broken')
+    expect(drift('door-locked', 'She left his share for him to see to when he came back.')).not.toBe('broken')
+    // The plain slip still counts.
+    expect(drift('door-locked', 'The door opened and Ash came in out of the rain.')).toBe('broken')
+  })
+
+  it('boots off: stockings in her boots are not her feet; walking in her boots still is', () => {
+    expect(drift('boots-off', 'Her stockings were in her boots and her boots were soaked.')).not.toBe('broken')
+    expect(drift('boots-off', 'Her socks were balled up in her boots by the fender.')).not.toBe('broken')
+    expect(drift('boots-off', 'She crossed to the window in her boots.')).toBe('broken')
+    expect(drift('boots-off', 'She walked to the door in her boots and her heavy stockings.')).toBe('broken')
+  })
+
+  it('on foot: "rode" needs a rider ("it rode against her side" is the packet); a rider riding still counts', () => {
+    const onFoot = K2_PLANTS.find((p) => p.id === 'on-foot')!
+    const v = (text: string) => patternVerdict({ ...onFoot.drift!, id: onFoot.id, trap: onFoot.id }, text).verdict
+    expect(v('The packet was under her shirt. It rode against her side and did not shift.')).not.toBe('broken')
+    expect(v('The strap rode up on her shoulder.')).not.toBe('broken')
+    expect(v('Ash rode ahead into the grey.')).toBe('broken')
+    expect(v('They rode on in silence.')).toBe('broken')
+    expect(v('Hale clicked his tongue and rode beside them.')).toBe('broken')
+  })
+
+  it('case down: the judge is told remembering the ride in does not count; the tripwire still asks', () => {
+    expect(plant('case-down').judge!.ask).toContain('remembering how she had it earlier (on the ride in, before she put it down)')
+    expect(wire('case-down', 'She held the survey case in her lap.')).toBe(true)
+  })
+})
