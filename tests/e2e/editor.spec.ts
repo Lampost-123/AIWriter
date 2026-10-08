@@ -42,6 +42,30 @@ test('typing goes straight into the page after creating a world and after openin
   await expect.poll(async () => (await invoke(win, 'getScene', scenes[1].id)).text).toBe('xyz')
 })
 
+test('the caret moved by a key stays where it went when the page redraws before the app has heard of the move', async ({ launch }) => {
+  // The arrow keys move the caret in the page first; the editor hears of it a moment later. The live checks' underlines
+  // (or beat marks, find marks, the reading's highlight) redrawing in that moment once put the caret back, so arrow
+  // presses on a busy computer were lost (features/editor/pageCaret.ts). Here a key moves the page's caret and a redraw
+  // is sent in the same moment, every time.
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Harbour')
+  await win.keyboard.type('The ferry was late again. Mara counted the lamps.')
+  const moved = await win.evaluate<{ from: number; to: number; text: string }>(`(() => {
+    const view = document.querySelector('.scene-prose').editor.view
+    const text = view.dom.querySelector('p').firstChild
+    // Shift+Right as the browser carries it out: the key reaches the editor, then the page's selection moves.
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true, cancelable: true }))
+    getSelection().setBaseAndExtent(text, 26, text, 30)
+    view.dispatch(view.state.tr.setMeta('aiwriteTestRedraw', true).setMeta('addToHistory', false))
+    const { from, to } = view.state.selection
+    return { from, to, text: view.state.doc.textBetween(from, to) }
+  })()`)
+  expect(moved.text).toBe('Mara')
+  await expect.poll(() => win.evaluate('String(getSelection())')).toBe('Mara')
+  await win.keyboard.type('Nell')
+  await expect(prose(win)).toContainText('The ferry was late again. Nell counted the lamps.')
+})
+
 test('leaving the page and coming back keeps the place in a long scene', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')

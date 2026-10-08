@@ -228,16 +228,23 @@ export function StoryHome(): React.JSX.Element {
             </div>
             {cast ? (
               cast.people.length ? (
-                <button type="button" className="home-cast" onClick={() => useApp.getState().navigate({ kind: 'codex' })} aria-label={`Cast: ${cast.people.map((p) => p.name).join(', ')}. ${cast.line}. Open the world.`}>
+                <button type="button" className="home-cast" onClick={() => useApp.getState().navigate({ kind: 'codex' })} aria-label={`Cast: ${[...cast.people.map((p) => p.name), ...cast.others].join(', ')}. ${cast.line}. Open the world.`}>
                   <span className="home-pts">
+                    {/* Side by side, each with its name under it (cut short, it shows whole on hover); the rest as "+N". */}
                     {cast.people.map((p, i) => (
-                      <span key={p.id} className="home-pt" style={{ left: i * 46, zIndex: 4 - i, ...at(740 + i * 50) }} title={p.name}>
+                      <span key={p.id} className="home-pt" style={at(740 + i * 50)} title={p.name}>
                         <span className="home-pt-face a-pop">
-                          <Portrait entry={p} size={60} motif={motifs.get(p.id)} />
+                          <Portrait entry={p} size={52} motif={motifs.get(p.id)} />
                         </span>
-                        {i < 2 ? <span className="home-pt-name">{p.name.split(' ')[0]}</span> : null}
+                        <span className="home-pt-name">{p.name.split(' ')[0]}</span>
                       </span>
                     ))}
+                    {cast.others.length ? (
+                      <span className="home-pt is-more" style={at(740 + cast.people.length * 50)} title={`Also: ${cast.others.join(', ')}`}>
+                        <span className="home-pt-face home-pt-more a-pop">+{cast.others.length}</span>
+                        <span className="home-pt-name">more</span>
+                      </span>
+                    ) : null}
                   </span>
                   <span className="home-cast-count">
                     <span>{cast.line}</span>
@@ -246,7 +253,9 @@ export function StoryHome(): React.JSX.Element {
                   {cast.places.length ? (
                     <span className="home-cast-places">
                       <span className="home-kdot" aria-hidden />
-                      <span className="truncate">{cast.places.join(', ')}</span>
+                      <span className="truncate" title={cast.places.join(', ')}>
+                        {cast.places.join(', ')}
+                      </span>
                     </span>
                   ) : null}
                 </button>
@@ -394,7 +403,9 @@ function Shelf({ shelf, storyId }: { shelf: ShelfChapter[]; storyId: ID | null }
               <span className="home-chap-num">{c.numeral}</span>
               <span className="home-chap-body">
                 <span className="desk-caps">{c.label}</span>
-                <span className="home-chap-title">{c.title || <em>Untitled</em>}</span>
+                <span className="home-chap-title" title={c.title || undefined}>
+                  {c.title || <em>Untitled</em>}
+                </span>
                 <span className="home-chap-meta">
                   <span className="home-sdots">
                     {c.scenes.slice(0, 9).map((s) => (

@@ -197,6 +197,8 @@ export interface Cast {
   line: string
   /** The best-known places, by name. */
   places: string[]
+  /** The characters beyond `people`, by name (the cast's "+N", named on hover). */
+  others: string[]
 }
 
 /** The cast for the home: the story's most important characters, how many characters and places, and the main places. */
@@ -206,7 +208,7 @@ export function castOf(cards: CodexCard[], storyId: ID | null, max = 4): Cast {
   const chars = cards.filter((c) => c.kind === 'character' && inStory(c)).sort(byImportance)
   const places = cards.filter((c) => c.kind === 'place' && inStory(c)).sort(byImportance)
   const line = [chars.length ? plural(chars.length, 'character') : '', places.length ? plural(places.length, 'place') : ''].filter(Boolean).join(' · ')
-  return { people: chars.slice(0, max), line, places: places.slice(0, 3).map((p) => p.name) }
+  return { people: chars.slice(0, max), line, places: places.slice(0, 3).map((p) => p.name), others: chars.slice(max).map((c) => c.name) }
 }
 
 /** The memory, in the home's footer: "Memory up to date · updated 2 hours ago", or what it is doing or missing. */

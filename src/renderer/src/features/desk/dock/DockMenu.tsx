@@ -1,4 +1,5 @@
-// The AI dock's "⋯" menu (the desk, UI overhaul phase 3): the other ways to write (amber, the AI's own colour) and the
+// The AI dock's More menu (the desk, UI overhaul phase 3; a labelled "More" since Phase 6, as a bare "⋯" didn't say what
+// it was for): the other ways to write (amber, the AI's own colour) and the
 // rest of what the panels' scene toolbar has, so nothing is lost on the desk. Ways to write: Rewrite the scene, Fresh
 // take, Draft three (variants side by side), Beat by beat, Draft options. The scene: Mark done (or Reopen), its status,
 // the scene panel, Ask the world, its history, Listen and speakers (with read aloud on), and Format (bold, italic,
@@ -42,6 +43,10 @@ import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
 import { insertSceneBreak, isFormatActive, pasteAsPlainText, toggleBlockQuote, toggleBold, toggleItalic } from '@/features/typing/format'
 import { openVariants } from '@/features/variants/open'
 import { isWriting, setOf, useVariants } from '@/features/variants/store'
+
+/** What More holds, on hover: a new writer can see what it is for before opening it. */
+const MORE_TIP =
+  'More: Rewrite the scene, Fresh take, Draft three, Beat by beat and Draft options; and the scene’s tools: Mark done, its status, Ask the world, Scene history, Listen and Format'
 
 const ITEM =
   'desk-menu-item flex h-[34px] select-none items-center gap-2.5 rounded-[9px] px-2.5 text-[13px] text-fg outline-none data-[highlighted]:bg-surface-2 data-[disabled]:opacity-50'
@@ -103,17 +108,18 @@ export function DockMenu({ sceneId, status, g, disabled }: { sceneId: ID; status
       <M.Trigger asChild disabled={disabled}>
         <button
           type="button"
-          aria-label="More ways to write"
-          title="More ways to write, and the scene’s tools"
+          aria-label="More ways to write and the scene’s tools"
+          title={MORE_TIP}
           onKeyDown={(e) => {
             byKey.current = e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown'
           }}
           onPointerDown={() => {
             byKey.current = false
           }}
-          className="desk-dock-more grid h-10 w-10 shrink-0 place-items-center rounded-xl text-muted outline-none"
+          className="desk-dock-more flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-[13px] font-medium text-muted outline-none @max-[560px]/dock:w-10 @max-[560px]/dock:px-0"
         >
-          <MoreHorizontal size={18} />
+          <MoreHorizontal size={18} aria-hidden />
+          <span className="@max-[560px]/dock:sr-only">More</span>
         </button>
       </M.Trigger>
       <M.Portal>
@@ -127,7 +133,7 @@ export function DockMenu({ sceneId, status, g, disabled }: { sceneId: ID; status
           }}
           className={CONTENT}
         >
-          <M.Label className="desk-caps px-2.5 pb-1 pt-1.5">Ways to write</M.Label>
+          <M.Label className="desk-caps px-2.5 pb-1 pt-1.5">More ways to write</M.Label>
           <M.Item className={ITEM} onSelect={pick(() => g.generate('replace', byKey.current), { placed: true })}>
             <Row icon={<RefreshCw size={15} />} ai>
               Rewrite the scene
@@ -165,7 +171,7 @@ export function DockMenu({ sceneId, status, g, disabled }: { sceneId: ID; status
           </M.Item>
 
           <M.Separator className="mx-1.5 my-1 h-px bg-line" />
-          <M.Label className="desk-caps px-2.5 pb-1 pt-1.5">This scene</M.Label>
+          <M.Label className="desk-caps px-2.5 pb-1 pt-1.5">This scene’s tools</M.Label>
           <M.Item className={ITEM} onSelect={pick(() => (done ? reopenScene(sceneId) : markSceneDone(sceneId)))}>
             <Row icon={done ? <RotateCcw size={14} /> : <Check size={15} />} keys={done ? undefined : 'markDone'}>
               {done ? 'Reopen the scene' : 'Mark done'}

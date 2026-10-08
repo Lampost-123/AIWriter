@@ -171,6 +171,8 @@ describe('the cast', () => {
     expect(cast.people.map((p) => p.name)).toEqual(['Wren', 'Edric'])
     expect(cast.line).toBe('3 characters · 2 places')
     expect(cast.places).toEqual(['Light', 'Gullhaven'])
+    // The one left out is named for the cast's "+1".
+    expect(cast.others).toEqual(['Ansel'])
   })
 })
 

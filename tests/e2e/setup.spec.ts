@@ -66,8 +66,11 @@ test('a fresh install walks through the setup, resumes after quitting, and lands
       second.app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, h] as [number, number])
     for (const [w, h] of [[1440, 900], [1024, 700]] as const) {
       await resize(w, h)
-      await expect.poll(() => win.evaluate('innerHeight')).toBe(h)
-      await expect.poll(async () => { const b = await next(win).boundingBox(); return b ? b.y + b.height : 9999 }).toBeLessThanOrEqual(h)
+      // Within a pixel: on CI's 1440×900 virtual screen (Linux, xvfb) a window as tall as the screen comes out 899 tall,
+      // as in desk.spec. Continue is then measured against the window's real height.
+      await expect.poll(async () => Math.abs(((await win.evaluate('innerHeight')) as number) - h)).toBeLessThanOrEqual(1)
+      const tall = (await win.evaluate('innerHeight')) as number
+      await expect.poll(async () => { const b = await next(win).boundingBox(); return b ? b.y + b.height : 9999 }).toBeLessThanOrEqual(tall)
       await expect(win.getByRole('button', { name: 'Back', exact: true })).toBeInViewport()
     }
     await resize(own[0], own[1])

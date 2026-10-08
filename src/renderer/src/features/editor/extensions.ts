@@ -4,6 +4,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { streamPlugin } from './streamDoc'
 import { StreamCaret } from './streamCaret'
 import { Arrival } from './arrival'
+import { PageCaret } from './pageCaret'
 import { Extension } from '@tiptap/core'
 import { requestMarkDone } from './doneShortcut'
 import { ParagraphIds } from './paragraphIds'
@@ -87,6 +88,8 @@ export function sceneExtensions(): AnyExtension[] {
     // The New look: a draft's words fade in, the lamp line, and the settle into ink.
     Arrival,
     MarkDoneShortcut,
+    // The caret where the page has it, through a timer's transaction sent while arrow keys are moving it (pageCaret.ts).
+    PageCaret,
     ParagraphIds,
     NameUnderlines,
     Suggestions,

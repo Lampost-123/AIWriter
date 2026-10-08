@@ -486,8 +486,8 @@
   border-radius: inherit;
   pointer-events: none;
   box-shadow:
-    0 2px 4px rgb(40 25 10 / 0.06),
-    0 28px 46px -18px rgb(70 45 20 / 0.44);
+    0 2px 4px rgb(var(--shade-deep-rgb) / 0.06),
+    0 28px 46px -18px rgb(var(--shade-rgb) / 0.44);
   opacity: 0;
   transition: opacity 300ms var(--desk-ease);
 }
@@ -569,7 +569,7 @@
   position: absolute;
   inset: auto 0 0;
   height: 40%;
-  background: linear-gradient(transparent, rgb(20 12 6 / 0.28));
+  background: linear-gradient(transparent, rgb(var(--shade-deep-rgb) / 0.28));
 }
 [data-arrangement='desk'] .g-art-far,
 [data-arrangement='desk'] .g-art-motif {
@@ -801,16 +801,16 @@
   border-radius: 12px;
 }
 [data-arrangement='desk'] .g-parchment {
-  background-color: color-mix(in oklab, #f6ead0 70%, var(--card));
+  background-color: color-mix(in oklab, var(--parch) 70%, var(--card));
   background-image:
     radial-gradient(130% 100% at 50% 35%, rgb(255 255 255 / 0.5), transparent 60%),
-    radial-gradient(160% 120% at 50% 50%, transparent 55%, rgb(170 128 70 / 0.16));
+    radial-gradient(160% 120% at 50% 50%, transparent 55%, rgb(var(--parch-edge-rgb) / 0.16));
   box-shadow:
-    0 0 0 1px rgb(120 90 50 / 0.15),
+    0 0 0 1px rgb(var(--parch-line-rgb) / 0.15),
     var(--sh-2);
 }
 [data-arrangement='desk'][data-theme='dark'] .g-parchment {
-  background-color: color-mix(in oklab, #3a3022 60%, var(--card));
+  background-color: color-mix(in oklab, var(--parch) 60%, var(--card));
   background-image: radial-gradient(160% 120% at 50% 50%, transparent 55%, rgb(0 0 0 / 0.25));
 }
 [data-arrangement='desk'] .g-rules {
@@ -903,16 +903,16 @@
   min-height: 150px;
   border-radius: 6px;
   margin: 0 8px;
-  background-color: color-mix(in oklab, #f6e9cf 72%, var(--card));
+  background-color: color-mix(in oklab, var(--parch) 72%, var(--card));
   background-image:
     linear-gradient(180deg, rgb(255 255 255 / 0.5), transparent 40%),
-    radial-gradient(140% 160% at 50% 50%, transparent 50%, rgb(160 120 60 / 0.18));
+    radial-gradient(140% 160% at 50% 50%, transparent 50%, rgb(var(--parch-edge-rgb) / 0.18));
   box-shadow:
-    0 0 0 1px rgb(120 90 50 / 0.14),
+    0 0 0 1px rgb(var(--parch-line-rgb) / 0.14),
     var(--sh-2);
 }
 [data-arrangement='desk'][data-theme='dark'] .g-scroll {
-  background-color: color-mix(in oklab, #3b3122 60%, var(--card));
+  background-color: color-mix(in oklab, var(--parch) 60%, var(--card));
   background-image: radial-gradient(140% 160% at 50% 50%, transparent 50%, rgb(0 0 0 / 0.25));
 }
 [data-arrangement='desk'] .g-roll {
@@ -921,13 +921,10 @@
   bottom: -7px;
   width: 20px;
   border-radius: 10px;
-  background: linear-gradient(90deg, #c9b28a, #f6ebd3 38%, #eadbbc 64%, #bfa67c);
+  background: linear-gradient(90deg, var(--roll-a), var(--roll-b) 38%, var(--roll-c) 64%, var(--roll-d));
   box-shadow:
-    0 0 0 1px rgb(110 80 40 / 0.18),
-    0 4px 8px -3px rgb(70 45 20 / 0.35);
-}
-[data-arrangement='desk'][data-theme='dark'] .g-roll {
-  background: linear-gradient(90deg, #5a4a33, #8a7656 38%, #7a6748 64%, #54442e);
+    0 0 0 1px rgb(var(--parch-line-rgb) / 0.18),
+    0 4px 8px -3px rgb(var(--shade-rgb) / 0.35);
 }
 [data-arrangement='desk'] .g-roll.is-left {
   left: -8px;
@@ -976,7 +973,7 @@
   border-radius: 6px;
   background: var(--card);
   box-shadow:
-    0 0 0 1px rgb(70 45 20 / 0.08),
+    0 0 0 1px rgb(var(--shade-rgb) / 0.08),
     var(--sh-2);
 }
 [data-arrangement='desk'] .g-ic-rules {
