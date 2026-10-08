@@ -203,6 +203,28 @@ test('the plot threads on the desk: a loom across the story, cards, and On the s
   await expect(win.locator(`.board-str[data-thread="${id}"]`)).toHaveClass(/is-lit/)
 })
 
+test('Mark paid off: a scene after the set-up, picked from a list, opens with the thread under Pays off; Undo takes it off', async ({ launch }) => {
+  const { win } = await sampleWorld(launch, null)
+  await room(win, 'Plan').click()
+  await links(win, 'Plan').getByRole('button', { name: 'Plot threads board' }).click()
+  const midwinter = page(win, 'threads').locator('article[data-thread]', { hasText: 'Will the light go dark at midwinter?' })
+  const threadId = (await midwinter.getAttribute('data-thread'))!
+  await midwinter.getByRole('button', { name: 'Mark paid off' }).click()
+  // Only the scenes after the one that sets it up (Ch 2, Sc 1), the latest first.
+  const items = win.getByRole('menuitem')
+  await expect(items).toHaveCount(1)
+  await expect(items.first()).toContainText('Ch 2, Sc 2')
+  await expect(items.first()).toContainText('Low Tide')
+  await items.first().click()
+  // The scene's card opens, with the thread under Pays off, saved as the field saves.
+  await expect(win.getByRole('tabpanel', { name: 'Scene card' })).toBeVisible()
+  const [story] = await invoke(win, 'listStories')
+  const low = (await invoke(win, 'getOutline', story.id)).scenes.find((sc) => sc.title === 'Low Tide')!
+  await expect.poll(async () => (await invoke(win, 'getScene', low.id)).card.paysOffIds).toContain(threadId)
+  await toastWith(win, 'as paid off in this scene').getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(async () => (await invoke(win, 'getScene', low.id)).card.paysOffIds).not.toContain(threadId)
+})
+
 test('the story board’s strings explain themselves: tags where they start and end, a line on hover, the hint once', async ({ launch }) => {
   const { win } = await sampleWorld(launch, null)
   await room(win, 'Plan').click()

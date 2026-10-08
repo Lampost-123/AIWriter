@@ -8,10 +8,11 @@
 // show it on the story board, plan its pay-off with the AI, Undo the memory's resolve. Filters by chapter and by
 // words; the header band has the threads weaving and the counts. Fills a big screen: the loom across the page, the
 // cards in as many columns as fit.
+import * as M from '@radix-ui/react-dropdown-menu'
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { BoardSceneCard, BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'
 import type { ID, Outline } from '@shared/types'
-import { ArrowUpRight, Hourglass, Plus, Search, Sparkles, Spool, StickyNote, Undo2 } from '@/components/ui/icons'
+import { ArrowUpRight, Check, Hourglass, Plus, Search, Sparkles, Spool, StickyNote, Undo2 } from '@/components/ui/icons'
 import { Button, Select, toast } from '@/components/ui'
 import { Motif } from '@/components/art/Motif'
 import { api } from '@/lib/api'
@@ -27,6 +28,7 @@ import { StoryFilter } from '@/features/timeline/viewParts'
 import { useEntryMotifs } from '@/features/world/art/artStore'
 import { columnsOf, openFor, paidOffWords, setUpWords, type PlaceWords } from './boardLogic'
 import { loomRuler, matchesWords, openMarks, sceneWords, strandOf, touchesChapter, type LoomRuler, type Strand } from './loomLogic'
+import { markPaidOff } from './payOff'
 import './threads.css'
 
 const openThread = (id: ID): void => useApp.getState().navigate({ kind: 'entries', entryKind: 'thread', entryId: id })
@@ -139,6 +141,11 @@ function Loaded({
   const current = useApp((s) => s.storyId)
   const onBoard = !!storyId && storyId === current
 
+  // The story's scenes in reading order, for "Mark paid off".
+  const scenes = useMemo(() => {
+    const titles = new Map((outline?.scenes ?? []).map((sc) => [sc.id, sc.title.trim()]))
+    return ruler.chapters.flatMap((c) => c.scenes.map((sc, k) => ({ id: sc.id, where: `Ch ${c.n}, Sc ${k + 1}`, title: titles.get(sc.id) || 'Untitled scene' })))
+  }, [ruler, outline])
   const chosen = ruler.chapters.find((c) => c.id === chapter) ?? null
   const shown = board.threads.filter((t) => matchesWords(t, words) && (!chosen || touchesChapter(t, chosen, touches.get(t.id))))
   const shownIds = new Set(shown.map((t) => t.id))
@@ -191,7 +198,17 @@ function Loaded({
                     .sort((a, b) => Number(b.longOpen) - Number(a.longOpen))
                     .map((t) => (
                       <li key={t.id}>
-                        <ThreadCard thread={t} ruler={ruler} ink={ink.get(t.id) ?? 1} lit={hover === t.id} dim={!!hover && hover !== t.id} setHover={setHover} onBoard={onBoard} storyId={storyId} />
+                        <ThreadCard
+                          thread={t}
+                          ruler={ruler}
+                          ink={ink.get(t.id) ?? 1}
+                          lit={hover === t.id}
+                          dim={!!hover && hover !== t.id}
+                          setHover={setHover}
+                          onBoard={onBoard}
+                          storyId={storyId}
+                          scenes={scenes}
+                        />
                       </li>
                     ))}
                 </ul>
@@ -353,7 +370,8 @@ function ThreadCard({
   dim,
   setHover,
   onBoard,
-  storyId
+  storyId,
+  scenes
 }: {
   thread: BoardThread
   ruler: LoomRuler
@@ -363,6 +381,8 @@ function ThreadCard({
   setHover: (id: ID | null) => void
   onBoard: boolean
   storyId: ID | null
+  /** The story's scenes in reading order. */
+  scenes: { id: ID; where: string; title: string }[]
 }): React.JSX.Element {
   const deal = useDealDelay()
   const motifs = useEntryMotifs()
@@ -401,6 +421,8 @@ function ThreadCard({
       onPointerEnter={() => setHover(t.id)}
       onPointerLeave={() => setHover(null)}
       onClick={(e) => {
+        // (A click in its Mark paid off menu, which lies outside the card, bubbles here through React: not the card's.)
+        if (!e.currentTarget.contains(e.target as Node)) return
         if (!(e.target as HTMLElement).closest('button')) openThread(t.id)
       }}
     >
@@ -460,6 +482,7 @@ function ThreadCard({
             <Sparkles size={13} aria-hidden /> Plan its pay-off
           </button>
         ) : null}
+        {t.column === 'open' && storyId && scenes.length ? <MarkPaidOff thread={t} scenes={scenes} storyId={storyId} /> : null}
         {t.resolved?.undoId ? (
           <Button size="sm" variant="ghost" icon={<Undo2 size={13} />} loading={undoing} title="Open this plot thread again" onClick={() => void undoResolve(t.resolved!.undoId!)}>
             Undo
@@ -467,6 +490,46 @@ function ThreadCard({
         ) : null}
       </div>
     </article>
+  )
+}
+
+/**
+ * "Mark paid off": a short list of the scenes after the one that sets it up, the latest first; picking one opens its card
+ * with this thread under Pays off (payOff.ts).
+ */
+function MarkPaidOff({ thread: t, scenes, storyId }: { thread: BoardThread; scenes: { id: ID; where: string; title: string }[]; storyId: ID }): React.JSX.Element {
+  const from = scenes.findIndex((sc) => sc.id === t.setUp?.sceneId)
+  const after = (from >= 0 ? scenes.slice(from + 1) : scenes).slice().reverse()
+  return (
+    <M.Root modal={false}>
+      <M.Trigger className="plan-txt th-act" title="Choose the scene that pays it off: its card opens with this thread under Pays off">
+        <Check size={13} aria-hidden /> Mark paid off
+      </M.Trigger>
+      <M.Portal>
+        <M.Content
+          align="start"
+          sideOffset={6}
+          collisionPadding={8}
+          className="z-50 max-h-[min(360px,var(--radix-dropdown-menu-content-available-height))] min-w-[260px] max-w-[360px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
+        >
+          <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Paid off in</M.Label>
+          {after.length ? (
+            after.map((sc) => (
+              <M.Item
+                key={sc.id}
+                onSelect={() => markPaidOff({ sceneId: sc.id, threadId: t.id, name: t.name }, storyId)}
+                className="flex h-8 items-center gap-2.5 rounded-md px-2 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2"
+              >
+                <span className="w-[74px] shrink-0 text-[12px] tabular-nums text-faint">{sc.where}</span>
+                <span className="min-w-0 flex-1 truncate">{sc.title}</span>
+              </M.Item>
+            ))
+          ) : (
+            <p className="px-2 py-1.5 text-[12.5px] text-muted">No scene comes after the one that sets it up yet.</p>
+          )}
+        </M.Content>
+      </M.Portal>
+    </M.Root>
   )
 }
 
