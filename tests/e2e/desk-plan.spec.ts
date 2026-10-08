@@ -1,6 +1,6 @@
 // The desk's story board, the Plan room's front page (UI overhaul, D5.2), on the sample world: the scenes as index cards
 // in a column for each chapter, with their pins, the plot threads as strings and their legend; a card opens its scene,
-// its ⋯ opens its card in the drawer; Cards | Outline; dragging a card (and Alt+arrows) moves the scene; the ghost slot
+// its pencil opens its card in the drawer; Cards | Outline; dragging a card (and Alt+arrows) moves the scene; the ghost slot
 // adds a planned scene without leaving the board; and the board fits beside the spine in a window that isn't full screen.
 import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, invoke, startFake, test, useFakeModel, type LaunchOptions } from './helpers'

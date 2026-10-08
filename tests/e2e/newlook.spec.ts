@@ -180,7 +180,8 @@ test('the New look while writing: the page as a sheet, its title, the save tick,
     const before = await formatAt()
     await header.getByRole('button', { name: /^Mark scene done/ }).click()
     await expect(header.getByRole('button', { name: /^Done\. Reopen/ })).toBeVisible()
-    expect(await formatAt()).toBe(before)
+    // Within a pixel: in CI's 1439-wide window the header's centred tools sit on half pixels.
+    expect(Math.abs((await formatAt()) - before)).toBeLessThanOrEqual(1)
     // (Hovered, the button offers Reopen instead.)
     await win.mouse.move(5, 500)
     await expect(header.locator('svg.drawn-tick-draw')).toBeVisible()

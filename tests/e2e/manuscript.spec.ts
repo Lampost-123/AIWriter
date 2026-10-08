@@ -379,6 +379,11 @@ test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) 
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
     await expect(win.locator('main header').getByRole('button', { name: 'Stop' })).toBeVisible()
     await expect(prose(win).locator('hr')).toHaveCount(1)
+    // Adam scrolls up to the name, as he would: the page stops following the draft (since the overhaul it follows a draft
+    // below a scene break too), so the name stays under the pointer rather than gliding away from it.
+    await prose(win).hover()
+    await win.mouse.wheel(0, -5000)
+    await expect.poll(() => win.locator('main .overflow-y-auto').first().evaluate((el) => el.scrollTop)).toBe(0)
     await names(win, w.tobin).hover()
     await expect(card(win)).toBeVisible()
     await win.keyboard.press('Escape')
