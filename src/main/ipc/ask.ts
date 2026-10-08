@@ -31,7 +31,7 @@ import { countTokens } from '../ai/tokenService'
 import { finishAsk, prepareAsk } from '../ask/context'
 import { chatInStory, chatTurns, listChats, newChatId, toTurn } from '../ask/chats'
 import { saveNote, undoNote } from '../ask/note'
-import { EDITOR_TOOLS, EditorAgent, MAX_STEPS } from '../ask/agent'
+import { EditorAgent, MAX_STEPS } from '../ask/agent'
 import { proposalsOf, saveProposals } from '../db/ask'
 
 /** Questions in a chat are asked again and again with the same briefing: only what changed is counted again. */
@@ -114,7 +114,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
       (proposals) => {
         if (generationId && db.open) saveProposals(db, generationId, proposals)
         emit('ask:proposals', { taskId: input.taskId, generationId, proposals })
-      }
+      },
+      (choice) => emit('ask:choice', { taskId: input.taskId, generationId, choice })
     )
     ;({ generationId } = startTask({
       db,
@@ -133,14 +134,17 @@ export const askHandlers: Handlers<keyof AskApi> = {
       emit: send,
       onKeyRejected: notes.onKeyRejected,
       agent: {
-        tools: EDITOR_TOOLS,
+        // The same list on every request of the answer (the lab switches are read once, by the agent).
+        tools: agent.tools,
         maxSteps: MAX_STEPS,
+        ended: () => agent.ended(),
+        forceTool: () => agent.forceTool(),
         run: (calls) => agent.runAll(calls),
         lastWords: () => agent.lastWords(),
         // An answer that claims changes it never proposed is asked once more to propose them.
         // An answer with no proposals is asked once more when it claims changes, or when the writer asked for edits.
         nudge: (answer) => (agent.proposals.length === 0 && (claimsChanges(answer) || asksForChanges(question)) ? PROPOSE_NOW : null),
-        extraParams: () => (agent.proposals.length ? { proposals: agent.proposals } : {})
+        extraParams: () => agent.extraParams()
       }
     }))
     const row = chatTurnRow(db, generationId)

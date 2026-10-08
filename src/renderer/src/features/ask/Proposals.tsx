@@ -35,7 +35,17 @@ function headOf(p: Proposal): string {
       return 'New chapter'
     case 'rename':
       return p.target === 'scene' ? 'New scene title' : 'New chapter title'
+    case 'draft':
+      return `Draft · ${p.sceneLabel}`
   }
+}
+
+/** A proposed draft's way of writing, in words (propose_draft, lab switch DRAFT). */
+const DRAFT_MODE_LABELS: Record<string, string> = {
+  generate: 'Write the scene',
+  add_below: 'Add below',
+  continue: 'Continue',
+  redo_beat: 'Redo a beat'
 }
 
 const Line = ({ label, value }: { label: string; value: string }): React.JSX.Element => (
@@ -122,6 +132,16 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
         <p className="break-words text-[12.5px] leading-relaxed text-fg">
           <del className="text-muted">{p.from || 'Untitled'}</del> → <span className="font-medium">{p.to}</span>
         </p>
+      )
+    case 'draft':
+      return (
+        <div className="flex flex-col gap-0.5">
+          <Line label="How" value={DRAFT_MODE_LABELS[p.mode] ?? p.mode} />
+          {p.beat ? <Line label={`Beat ${p.beat.index}`} value={p.beat.text} /> : null}
+          {p.atParagraph ? <Line label="From" value={`the end of paragraph ${p.atParagraph.paragraph}`} /> : null}
+          <Line label="Direction" value={p.direction} />
+          {p.length ? <Line label="Length" value={`about ${p.length} words`} /> : null}
+        </div>
       )
   }
 }

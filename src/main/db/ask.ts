@@ -3,7 +3,7 @@
 // over a better-sqlite3 handle, no Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Proposal } from '@shared/contracts/ask'
+import type { AskChoice, Proposal } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 
 type DB = Database.Database
@@ -55,6 +55,8 @@ export interface TurnRow {
   /** The editor chat's steps (their labels) and proposals, as kept in the record's params. */
   steps: string[]
   proposals: Proposal[]
+  /** The question with options the answer ended with (ask_user), if it did. */
+  choice: AskChoice | null
 }
 
 const jsonList = <T>(v: unknown): T[] => {
@@ -64,6 +66,16 @@ const jsonList = <T>(v: unknown): T[] => {
     return Array.isArray(parsed) ? (parsed as T[]) : []
   } catch {
     return []
+  }
+}
+
+const jsonObject = <T>(v: unknown): T | null => {
+  if (typeof v !== 'string' || !v) return null
+  try {
+    const parsed = JSON.parse(v) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as T) : null
+  } catch {
+    return null
   }
 }
 
@@ -79,13 +91,15 @@ const toTurn = (r: Row): TurnRow => ({
   cutOff: r.cut_off === 1 || r.cut_off === true,
   createdAt: r.created_at as string,
   steps: jsonList<{ label?: string }>(r.steps).map((s) => s.label ?? '').filter(Boolean),
-  proposals: jsonList<Proposal>(r.proposals)
+  proposals: jsonList<Proposal>(r.proposals),
+  choice: jsonObject<AskChoice>(r.choice)
 })
 
 const TURN_COLUMNS = `id, ${CHAT_ID} AS chat_id, status, error, direction, response, cost, prompt_tokens, created_at,
   CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cutOff') END AS cut_off,
   CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.steps') END AS steps,
-  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.proposals') END AS proposals`
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.proposals') END AS proposals,
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.choice') END AS choice`
 
 /** A chat's turns, oldest first. */
 export function chatTurnRows(db: DB, chatId: ID): TurnRow[] {

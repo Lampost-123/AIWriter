@@ -5,7 +5,8 @@
 // No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { CardProposal, EntryProposal, Proposal } from '@shared/contracts/ask'
+import type { AskChoice, CardProposal, DraftMode, EntryProposal, ParaAnchor, Proposal } from '@shared/contracts/ask'
+import type { AskIntent } from '@shared/askIntent'
 import { effectiveStyle } from '@shared/style'
 import { ENTRY_KINDS, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import type { AgentStep, ChatMessage, EntryKind, EntryState, ID, Outline, Pin, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
@@ -22,6 +23,21 @@ import { labeler } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import type { WorldShape } from '../memory/types'
 import { askedFrom, askPoint, NOT_YET, type AskPoint } from './context'
+import { chatExp } from './exp'
+import {
+  anchorAt,
+  findWords,
+  locate,
+  numbered,
+  occurrences,
+  pageFinds,
+  paraAt,
+  parasOfPlain,
+  wordAfter,
+  wordBefore,
+  type Found,
+  type Para
+} from './anchor'
 
 type DB = Database.Database
 
@@ -188,6 +204,222 @@ export const EDITOR_TOOLS: ToolSpec[] = [
   }
 ]
 
+// ---------- The chat overhaul's tools (each behind its lab switch; off, EDITOR_TOOLS as above) ----------
+
+/** The chat overhaul's switches the tools follow, read once per answer so every request of a turn offers the same tools. */
+export interface ToolSwitches {
+  anchor: boolean
+  toolChoice: boolean
+  askUser: boolean
+  draft: boolean
+}
+
+export const toolSwitches = (): ToolSwitches => ({
+  anchor: chatExp('ANCHOR'),
+  toolChoice: chatExp('TOOLCHOICE'),
+  askUser: chatExp('ASKUSER'),
+  draft: chatExp('DRAFT')
+})
+
+const num = { type: 'number' } as const
+const paragraphParam = {
+  type: 'number',
+  description: 'The paragraph the words are in: the [n] read_scene shows before it (never copy the [n] into the words).'
+} as const
+const occurrenceParam = { type: 'number', description: 'When the words occur more than once in that paragraph: which one (1 = the first).' } as const
+const rangeParam = {
+  type: 'array',
+  items: num,
+  description: 'Whole paragraphs to replace, by the [n] numbers read_scene shows: [from, to] ([4, 4] for paragraph 4 alone).'
+} as const
+
+/** read_scene with ANCHOR: the paragraphs come numbered. */
+const READ_SCENE_ANCHORED: ToolSpec = {
+  name: 'read_scene',
+  description:
+    "Read the full text of a scene in this story (the open scene when none is named), with its scene card. Each paragraph starts with its number, [n]: give it as `paragraph` (or in `replace_paragraphs`) when proposing a change; never copy it into the words. Italics are shown as *asterisks*, the way rewrites write them; copy words with or without them. A scene after the open one is marked later: the characters don't know its events yet.",
+  parameters: { type: 'object', properties: { scene: optionalScene } }
+}
+
+const EDIT_ANCHORED: ToolSpec = {
+  name: 'propose_edit',
+  description:
+    "Propose replacing some words in one paragraph of a scene: `paragraph` is its [n] from read_scene, `find` the words to change as they are there (copy them; quotes, dashes and spacing needn't match exactly), `replace` the new words ('' to cut). When the words occur more than once in the paragraph, give `occurrence`. The writer sees it and decides; nothing changes unless they apply it. One change per call; for several, make several calls at once. Changes must not overlap: all the fixes in one sentence go in one change. To revise a change you already proposed, give its number as `revises`. It keeps the words' formatting, so it can't add or remove italics, and it can't run across paragraphs: for either, use propose_rewrite.",
+  parameters: {
+    type: 'object',
+    properties: {
+      scene: optionalScene,
+      paragraph: paragraphParam,
+      find: str,
+      occurrence: occurrenceParam,
+      replace: str,
+      why: { type: 'string', description: 'A short reason, in plain words.' },
+      revises: { type: 'string', description: 'The number of an earlier change in this answer that this one takes the place of.' }
+    },
+    required: ['find', 'replace', 'why']
+  }
+}
+
+const REWRITE_ANCHORED: ToolSpec = {
+  name: 'propose_rewrite',
+  description:
+    "Propose rewriting a passage of a scene (a beat pushed harder, a stretch tightened, an opening redone, italics added or taken out). For whole paragraphs, give `replace_paragraphs: [from, to]` by the [n] numbers read_scene shows. For a passage that starts or ends inside a paragraph, give `start` (its first few words, copied from the scene) with `paragraph` (the [n] `start` is in) and `end` (its last few words, after `start`). `replace` is the whole new passage, with a blank line between paragraphs and *asterisks* for italics. Keep the writer's voice and change only what was asked. The writer sees the old and new passage and decides; nothing changes unless they apply it. To revise a change you already proposed, give its number as `revises`.",
+  parameters: {
+    type: 'object',
+    properties: {
+      scene: optionalScene,
+      replace_paragraphs: rangeParam,
+      paragraph: paragraphParam,
+      start: { type: 'string', description: 'The first few words of the passage, as in the scene.' },
+      end: { type: 'string', description: 'The last few words of the passage, as in the scene.' },
+      replace: { type: 'string', description: 'The new passage; a blank line between paragraphs.' },
+      why: { type: 'string', description: 'A short reason, in plain words.' },
+      revises: { type: 'string', description: 'The number of an earlier change in this answer that this one takes the place of.' }
+    },
+    required: ['replace', 'why']
+  }
+}
+
+/** The kinds of change propose_changes takes, and the separate tool each stands for. */
+export const CHANGE_KINDS = {
+  edit: 'propose_edit',
+  rewrite: 'propose_rewrite',
+  card: 'propose_scene_card',
+  entry: 'propose_entry_change',
+  new_entry: 'propose_new_entry',
+  new_scene: 'propose_new_scene',
+  new_chapter: 'propose_new_chapter',
+  rename: 'propose_rename'
+} as const
+export type ChangeKind = keyof typeof CHANGE_KINDS
+
+/** propose_changes (TOOLCHOICE): every kind of change in one tool, so one tool can be asked for. */
+function proposeChangesTool(anchor: boolean): ToolSpec {
+  const words = anchor
+    ? "edit: `paragraph` (its [n] from read_scene), `find` (the words there; quotes and spacing needn't match exactly), `occurrence` if they occur more than once in it, `replace` ('' cuts). One paragraph only, and it can't add or remove italics.\n- rewrite: `replace_paragraphs: [from, to]` for whole paragraphs, or `start` + `paragraph` and `end` for a passage that starts or ends inside one; `replace` is the whole new passage, a blank line between paragraphs and *asterisks* for italics."
+    : "edit: `find` (copied exactly from the scene, inside one paragraph, long enough to occur once) and `replace` ('' cuts). It can't add or remove italics.\n- rewrite: `start` and `end` (the passage's first and last few words, copied exactly; `start` must occur once) and `replace`, the whole new passage, a blank line between paragraphs and *asterisks* for italics."
+  return {
+    name: 'propose_changes',
+    description: [
+      'Propose changes for the writer to apply: one or several, each in `changes` with its `kind` and that kind’s fields. The writer sees each and decides; nothing changes unless they apply it. Each change is checked on its own: the result says which were proposed and why any were not. Changes to words must not overlap: all the fixes in one sentence go in one change. Every change needs `why`, a short reason in plain words; `scene` names a scene ("Ch 2, Sc 1" or its title), left out for the open one.',
+      `- ${words}`,
+      '  Either may give `revises`: the number of an earlier change in this answer it takes the place of.',
+      "- card: new values for parts of a scene's card (`goal`, `conflict`, `outcome`, `mood`, `when`, `notes`, `beats` as the whole list).",
+      '- entry: an existing entry by `name`, with new `summary`, `description`, `aliases` or `fields` (by the keys get_entry shows).',
+      '- new_entry: `entry_kind`, `name`, and `summary` / `description` if you have them.',
+      '- new_scene: at the end of `chapter` ("Ch 2" or its title), with `title`, and `goal` / `beats` if you have them.',
+      '- new_chapter: `title`, at the end of this story.',
+      '- rename: a `scene` or a `chapter`, and its new title as `to`.'
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        changes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: Object.keys(CHANGE_KINDS) },
+              scene: str,
+              ...(anchor ? { paragraph: paragraphParam, occurrence: occurrenceParam, replace_paragraphs: rangeParam } : {}),
+              find: str,
+              replace: str,
+              start: str,
+              end: str,
+              revises: str,
+              goal: str,
+              conflict: str,
+              outcome: str,
+              mood: str,
+              when: str,
+              notes: str,
+              beats: { type: 'array', items: str },
+              name: str,
+              entry_kind: { type: 'string', enum: [...ENTRY_KINDS] },
+              summary: str,
+              description: str,
+              aliases: { type: 'array', items: str },
+              fields: { type: 'object', additionalProperties: str },
+              chapter: str,
+              title: str,
+              to: str,
+              why: str
+            },
+            required: ['kind', 'why']
+          }
+        }
+      },
+      required: ['changes']
+    }
+  }
+}
+
+/** ask_user (ASKUSER): one question with options, which ends the answer. */
+const ASK_USER: ToolSpec = {
+  name: 'ask_user',
+  description:
+    "Ask the writer one short question with 2 to 4 options, when what they want could be clearly different things and guessing wrong would waste their time (never to ask permission, nor for something you can decide). It ends your answer: their pick comes back as their next message. Give each option a short `label` (and `detail` if it needs one); `recommended` is the number of the option you would pick (1 = the first); `multi` is true when more than one may be picked.",
+  parameters: {
+    type: 'object',
+    properties: {
+      question: str,
+      options: {
+        type: 'array',
+        items: { type: 'object', properties: { label: str, detail: str }, required: ['label'] },
+        description: '2 to 4 options.'
+      },
+      recommended: num,
+      multi: { type: 'boolean' }
+    },
+    required: ['question', 'options']
+  }
+}
+
+export const DRAFT_MODES: DraftMode[] = ['generate', 'add_below', 'continue', 'redo_beat']
+
+/** propose_draft (DRAFT): new prose for the writer's own drafting to write, once the writer applies it. */
+const PROPOSE_DRAFT: ToolSpec = {
+  name: 'propose_draft',
+  description:
+    "Propose new prose for the scene, written by the app's own drafting once the writer applies it (use this when asked to write new prose for a scene, instead of writing it in your answer). `mode`: 'generate' drafts the whole scene from its card; 'add_below' writes on after the scene's last words; 'continue' carries on from the end of paragraph `at_paragraph` (its [n] from read_scene; left out, the scene's end); 'redo_beat' redoes the card's beat number `beat`. `direction` says what should happen and how, in plain words (the writer sees it); `length` is the words to aim for, if it matters. Nothing is written unless the writer applies it.",
+  parameters: {
+    type: 'object',
+    properties: {
+      scene: optionalScene,
+      mode: { type: 'string', enum: DRAFT_MODES },
+      direction: str,
+      beat: num,
+      at_paragraph: num,
+      length: num,
+      why: { type: 'string', description: 'A short reason, in plain words.' },
+      revises: { type: 'string', description: 'The number of an earlier draft in this answer that this one takes the place of.' }
+    },
+    required: ['mode', 'direction']
+  }
+}
+
+const SEPARATE_PROPOSALS = new Set<string>(Object.values(CHANGE_KINDS))
+
+/**
+ * The tools offered for one answer, by the lab switches (all off: EDITOR_TOOLS, as before). TOOLCHOICE offers
+ * propose_changes instead of the separate propose_* tools; ANCHOR numbers read_scene's paragraphs and lets edits and
+ * rewrites name them; ASKUSER adds ask_user, DRAFT propose_draft.
+ */
+export function editorTools(s: ToolSwitches): ToolSpec[] {
+  const out: ToolSpec[] = []
+  for (const t of EDITOR_TOOLS) {
+    if (s.toolChoice && SEPARATE_PROPOSALS.has(t.name)) continue
+    if (s.anchor && t.name === 'read_scene') out.push(READ_SCENE_ANCHORED)
+    else if (s.anchor && t.name === 'propose_edit') out.push(EDIT_ANCHORED)
+    else if (s.anchor && t.name === 'propose_rewrite') out.push(REWRITE_ANCHORED)
+    else out.push(t)
+  }
+  if (s.toolChoice) out.push(proposeChangesTool(s.anchor))
+  if (s.draft) out.push(PROPOSE_DRAFT)
+  if (s.askUser) out.push(ASK_USER)
+  return out
+}
+
 /** A proposal before it has its number and status. */
 type NewProposal = Proposal extends infer P ? (P extends Proposal ? Omit<P, 'id' | 'status'> : never) : never
 
@@ -196,6 +428,13 @@ export interface AgentPlace {
   storyId: ID | null
   sceneId: ID | null
   prefs: WritingPrefs
+  /** What the question asks for, decided before the model runs (the chat overhaul's routing); left out: unknown. */
+  intent?: AskIntent
+  /**
+   * The question already carries the words to change (an "Ask about this" quote), so with TOOLCHOICE and an edit the
+   * first request may already be made to propose, without a read_scene first.
+   */
+  wordsInQuestion?: boolean
 }
 
 /** Something the model got wrong that it can put right (a scene it named that isn't there, words that aren't in it). */
@@ -204,6 +443,9 @@ class Mistake extends Error {}
 const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n[… cut short: ${s.length - max} more characters]` : s)
 const lower = (s: string): string => s.trim().toLocaleLowerCase()
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim()
+/** A whole number the model gave (as a number, or a string of digits), or undefined. */
+const intArg = (v: unknown): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : undefined
 
 /** "Ch 2, Sc 1" for a scene of the outline. */
 function sceneLabelIn(o: Outline, sceneId: ID): string {
@@ -227,14 +469,6 @@ function* subsets<T>(items: T[], k: number, from = 0): Generator<T[]> {
   for (let i = from; i <= items.length - k; i++) for (const rest of subsets(items, k - 1, i + 1)) yield [items[i], ...rest]
 }
 
-/** Every place `needle` starts in `hay` at or after `from` (overlapping ones too). */
-function occurrences(hay: string, needle: string, from = 0): number[] {
-  const out: number[] = []
-  if (!needle) return out
-  for (let i = hay.indexOf(needle, from); i >= 0; i = hay.indexOf(needle, i + 1)) out.push(i)
-  return out
-}
-
 // ---------- A scene's words, with its italics ----------
 
 /**
@@ -251,10 +485,12 @@ export interface SceneWords {
   toPlain: number[]
   /** For each character of `plain` (and its end), the place in `marked`. */
   toMarked: number[]
+  /** Its paragraphs (a scene break's too), with their stable ids when the page has them (ANCHOR's numbering). */
+  paras: Para[]
 }
 
 /** Plain words with *asterisks* around each run of italics (never across a line, never around spaces at its edges). */
-export function markItalics(plain: string, italic: boolean[]): Omit<SceneWords, 'plain' | 'italic'> {
+export function markItalics(plain: string, italic: boolean[]): Omit<SceneWords, 'plain' | 'italic' | 'paras'> {
   let marked = ''
   const toPlain: number[] = []
   const toMarked: number[] = []
@@ -287,19 +523,19 @@ export function markItalics(plain: string, italic: boolean[]): Omit<SceneWords, 
   return { marked, toPlain, toMarked }
 }
 
-type DocNode = { type?: string; text?: string; marks?: { type?: string }[]; content?: DocNode[] }
+type DocNode = { type?: string; text?: string; attrs?: { pid?: unknown }; marks?: { type?: string }[]; content?: DocNode[] }
 
 /**
- * Which characters of a scene's text are in italics, from its stored page: walked as the page's text is made
- * (shared/findReplace.ts docText: paragraphs a blank line apart, scene breaks "* * *"). Null when the page and the
- * text don't agree (an old scene with no page), so nothing is marked.
+ * Which characters of a scene's text are in italics, and its paragraphs with their stable ids, from its stored page:
+ * walked as the page's text is made (shared/findReplace.ts docText: paragraphs a blank line apart, scene breaks
+ * "* * *"). Null when the page and the text don't agree (an old scene with no page), so nothing is marked.
  */
-function italicsOf(doc: unknown, text: string): boolean[] | null {
+function italicsOf(doc: unknown, text: string): { italic: boolean[]; paras: Para[] } | null {
   if (!doc || typeof doc !== 'object') return null
-  const blocks: { t: string; it: boolean[] }[] = []
+  const blocks: { t: string; it: boolean[]; pid: string | null; rule: boolean }[] = []
   const visit = (n: DocNode): void => {
     if (n.type === 'horizontalRule') {
-      blocks.push({ t: '* * *', it: [false, false, false, false, false] })
+      blocks.push({ t: '* * *', it: [false, false, false, false, false], pid: null, rule: true })
       return
     }
     const kids = Array.isArray(n.content) ? n.content : []
@@ -316,7 +552,8 @@ function italicsOf(doc: unknown, text: string): boolean[] | null {
           it.push(false)
         }
       }
-      if (t.trim()) blocks.push({ t, it })
+      const pid = typeof n.attrs?.pid === 'string' && n.attrs.pid ? n.attrs.pid : null
+      if (t.trim()) blocks.push({ t, it, pid, rule: false })
       return
     }
     kids.forEach(visit)
@@ -324,7 +561,14 @@ function italicsOf(doc: unknown, text: string): boolean[] | null {
   ;(Array.isArray((doc as DocNode).content) ? (doc as DocNode).content! : []).forEach(visit)
   const plain = blocks.map((b) => b.t).join('\n\n')
   if (plain !== text) return null
-  return blocks.flatMap((b, i) => (i ? [false, false, ...b.it] : b.it))
+  const paras: Para[] = []
+  let at = 0
+  let n = 0
+  for (const b of blocks) {
+    paras.push({ n: b.rule ? 0 : ++n, pid: b.pid, from: at, to: at + b.t.length })
+    at += b.t.length + 2
+  }
+  return { italic: blocks.flatMap((b, i) => (i ? [false, false, ...b.it] : b.it)), paras }
 }
 
 /** A scene's words, plain and with its italics marked; null when the scene is gone. */
@@ -337,25 +581,9 @@ function sceneWords(db: DB, sceneId: ID): (SceneWords & { title: string }) | nul
   } catch {
     doc = null
   }
-  const italic = italicsOf(doc, s.text) ?? Array.from({ length: s.text.length }, () => false)
-  return { title: s.title, plain: s.text, italic, ...markItalics(s.text, italic) }
-}
-
-/**
- * Where words the model copied are in a scene, as ranges of the plain text: copied with the italics' asterisks (as
- * read_scene shows them), as plain words, or with the asterisks left off. `from` is a place in the plain text.
- */
-function locate(w: SceneWords, needle: string, from = 0): [number, number][] {
-  if (!needle) return []
-  if (w.marked !== w.plain) {
-    const hits = occurrences(w.marked, needle, w.toMarked[from]).map((at): [number, number] => [w.toPlain[at], w.toPlain[at + needle.length]])
-    if (hits.length) return hits
-  }
-  const plain = occurrences(w.plain, needle, from).map((at): [number, number] => [at, at + needle.length])
-  if (plain.length) return plain
-  const bare = needle.replace(/\*/g, '')
-  if (bare === needle || !bare.trim()) return []
-  return occurrences(w.plain, bare, from).map((at): [number, number] => [at, at + bare.length])
+  const page = italicsOf(doc, s.text)
+  const italic = page?.italic ?? Array.from({ length: s.text.length }, () => false)
+  return { title: s.title, plain: s.text, italic, ...markItalics(s.text, italic), paras: page?.paras ?? parasOfPlain(s.text) }
 }
 
 /** The words of a plain range with their italics marked (balanced, whatever the range cuts). */
@@ -474,14 +702,57 @@ export class EditorAgent {
   private shapeCache: WorldShape | null = null
   /** What a name the model gave was taken to mean, said at the top of the call's result ("Using Ch 3, Sc 2 “The Ford”"). */
   private notes: string[] = []
+  /** The chat overhaul's switches, read once for the answer. */
+  readonly switches: ToolSwitches
+  /** The tools offered on every request of this answer (the same list each time, so a provider's cache keeps it). */
+  readonly tools: ToolSpec[]
+  /** The question the chat asked the writer with ask_user (ASKUSER): the answer ends there. */
+  choice: AskChoice | null = null
+  /** A scene's words were read (read_scene), so a proposal can be asked for (TOOLCHOICE). */
+  private wordsRead = false
+  /** The one request of the answer made to propose was asked for already (TOOLCHOICE). */
+  private forced = false
 
   constructor(
     private readonly db: DB,
     private readonly place: AgentPlace,
     /** Told of each step and each new proposal as they happen. */
     private readonly onStep: (label: string) => void,
-    private readonly onProposals: (all: Proposal[]) => void
-  ) {}
+    private readonly onProposals: (all: Proposal[]) => void,
+    /** Told when the chat asks the writer a question with options (ask_user, ASKUSER). */
+    private readonly onChoice?: (choice: AskChoice) => void
+  ) {
+    this.switches = toolSwitches()
+    this.tools = editorTools(this.switches)
+  }
+
+  /**
+   * The tool the next request must call (TOOLCHOICE), or null: propose_changes, once per answer, for a question routed
+   * as an edit, once the scene's words are known (read, or quoted in the question), while nothing has been proposed
+   * and no question asked. Asking marks it used.
+   */
+  forceTool(): string | null {
+    if (!this.switches.toolChoice || this.forced || this.place.intent !== 'edit') return null
+    if (this.proposals.length || this.choice || !(this.wordsRead || this.place.wordsInQuestion)) return null
+    this.forced = true
+    return 'propose_changes'
+  }
+
+  /**
+   * Once the chat has asked the writer a question with options (ask_user): the words that end the answer (the question
+   * and its numbered options, for a window that shows only the text); null while the answer goes on.
+   */
+  ended(): string | null {
+    const c = this.choice
+    if (!c) return null
+    const lines = c.options.map((o, i) => `${i + 1}. ${o.label}${o.detail ? ` — ${o.detail}` : ''}${c.recommended === i ? ' (recommended)' : ''}`)
+    return [c.question, lines.join('\n'), c.multi ? 'You can pick more than one.' : ''].filter(Boolean).join('\n\n')
+  }
+
+  /** Kept with the turn's record: its proposals, and the question it ended with. */
+  extraParams(): { proposals?: Proposal[]; choice?: AskChoice } {
+    return { ...(this.proposals.length ? { proposals: this.proposals } : {}), ...(this.choice ? { choice: this.choice } : {}) }
+  }
 
   private outline(): Outline {
     if (!this.place.storyId) throw new Mistake('No story is open, so there are no scenes or chapters to look at.')
@@ -631,6 +902,7 @@ export class EditorAgent {
       const message = e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`
       // A proposal that didn't go through says so, so the model doesn't tell the writer it is waiting for them.
       if (call.name.startsWith('propose_')) return this.done(call, 'A change that didn’t fit', `Not proposed: nothing is waiting for the writer. ${message}`)
+      if (call.name === 'ask_user' && this.switches.askUser) return this.done(call, 'A question that didn’t fit', `Not asked: the writer hasn't seen it. ${message}`)
       return this.done(call, 'Looking something up', message)
     }
   }
@@ -809,8 +1081,370 @@ export class EditorAgent {
       .join('\n')
   }
 
+  // ---------- ANCHOR: edits and rewrites found by paragraph and tolerant matching ----------
+
+  /** Why words weren't taken (findWords), in words the model can act on: the closest words quoted exactly, where it can. */
+  private notTaken(f: Exclude<Found, { ok: true }>, s: SceneWords, what: string, rewrite: string): Mistake {
+    const quote = (from: number, to: number): string => `«${clip(s.plain.slice(from, to).replace(/\n/g, ' '), 300)}»`
+    switch (f.why) {
+      case 'empty':
+        return new Mistake(`${what} are empty. Copy them from the scene.`)
+      case 'no-paragraph':
+        return new Mistake(`There is no such paragraph: the scene's paragraphs are [1] to [${f.count}]. Read the scene for the numbers.`)
+      case 'none':
+        return new Mistake(
+          f.near
+            ? `${what} are not in the scene as written. Did you mean ${quote(f.near.from, f.near.to)} in [${f.near.para.n}]? Call again with those words (and paragraph ${f.near.para.n}).`
+            : `${what} are not in the scene as written. Read the scene and copy them from it.`
+        )
+      case 'many': {
+        const where = f.places.map((p) => `[${p.n}]`).join(', ')
+        if (f.occurrence != null) return new Mistake(`${what} occur ${f.count} times there, so there is no occurrence ${f.occurrence}. Give \`occurrence\` from 1 to ${f.count}.`)
+        return new Mistake(
+          `${what} occur ${f.count} times (in ${where}). Give \`paragraph\`${f.places.length < f.count ? ', and `occurrence` when they occur more than once in it (1 = the first)' : ''}, or more of the sentence.`
+        )
+      }
+      case 'spans':
+        return new Mistake(
+          `${what} run across paragraphs [${f.first.n}] to [${f.last.n}], and an edit stays inside one paragraph. Propose ${rewrite} instead, with \`replace_paragraphs\`: [${f.first.n}, ${f.last.n}].`
+        )
+    }
+  }
+
+  /** What a match that wasn't exact was taken to be, for the call's result. */
+  private noteMatch(f: Extract<Found, { ok: true }>, s: SceneWords, asked: number | undefined): void {
+    const words = `«${clip(s.plain.slice(f.from, f.to).replace(/\n/g, ' '), 300)}»`
+    if (f.how === 'fuzzy') this.notes.push(`Your words differed from the scene's; taken as ${words} in [${f.para.n}].`)
+    if (f.how === 'ellipsis') this.notes.push(`Your words were cut with an ellipsis; taken as everything from ${words.slice(0, 60)}… in [${f.para.n}].`)
+    if (f.elsewhere && asked != null) this.notes.push(`Those words are in paragraph [${f.para.n}], not [${asked}].`)
+  }
+
+  /** Where a waiting change to words or a passage is now (by its anchor when it has one). */
+  private rangeNow(p: Proposal, s: SceneWords): [number, number] | null {
+    const place = (x: ParaAnchor): number | null => {
+      const para = s.paras.find((q) => (x.pid ? q.pid === x.pid : q.n === x.paragraph))
+      return para ? para.from + x.offset : null
+    }
+    if (p.kind === 'text' && p.at) {
+      const from = place(p.at)
+      return from != null && s.plain.slice(from, from + p.find.length) === p.find ? [from, from + p.find.length] : rangeOf(p, s.plain)
+    }
+    if (p.kind === 'passage' && p.at) {
+      const from = place(p.at.start)
+      const to = place(p.at.end)
+      return from != null && to != null && to > from ? [from, to] : rangeOf(p, s.plain)
+    }
+    return rangeOf(p, s.plain)
+  }
+
+  /** A waiting change to words or a passage in the scene that [from, to) overlaps (not `skip`). */
+  private clashWith(sceneId: ID, s: SceneWords, from: number, to: number, skip?: Proposal): Proposal | undefined {
+    return this.proposals.find((p) => {
+      if (p === skip || p.status !== 'pending' || (p.kind !== 'text' && p.kind !== 'passage') || p.sceneId !== sceneId) return false
+      const r = this.rangeNow(p, s)
+      return !!r && r[0] < to && from < r[1]
+    })
+  }
+
+  private revising(a: Record<string, unknown>, kinds: Proposal['kind'][], what: string): Proposal | undefined {
+    const id = (typeof a.revises === 'string' ? a.revises : typeof a.revises === 'number' ? String(a.revises) : '').replace(/\D/g, '')
+    if (!id) return undefined
+    const p = this.proposals.find((x) => x.id === id)
+    if (!p || !kinds.includes(p.kind)) throw new Mistake(`There is no change ${id} to ${what} to revise.`)
+    return p
+  }
+
+  private editAnchored(a: Record<string, unknown>): [string, string] {
+    const text = (k: string): string => (typeof a[k] === 'string' ? (a[k] as string) : '')
+    const id = this.scene(a.scene)
+    const s = sceneWords(this.db, id)
+    if (!s) throw new Mistake('That scene no longer exists.')
+    const asked = text('find')
+    if (!asked.trim()) throw new Mistake('`find` is empty. Copy the words to change from the scene.')
+    let replace = text('replace')
+    if (replace.includes('\n')) throw new Mistake('An edit stays inside one paragraph, with no line breaks in `replace`. For new paragraphs, propose a rewrite.')
+    const paragraph = intArg(a.paragraph)
+    const f = findWords(s, s.paras, asked, { paragraph, occurrence: intArg(a.occurrence) })
+    if (!f.ok) throw this.notTaken(f, s, 'Those words', this.switches.toolChoice ? 'a change of kind rewrite' : 'a rewrite (propose_rewrite)')
+    if (f.how === 'ellipsis' && /\.\.\.|…/.test(replace)) {
+      throw new Mistake('`find` was cut short with an ellipsis, so the change replaces all the words between: give `replace` in full, with no ellipsis.')
+    }
+    const hay = s.plain
+    const [at, atEnd] = [f.from, f.to]
+    // As propose_edit: applying keeps the words' formatting, so a change into, out of or across italics would lose them.
+    const flags = s.italic.slice(at, atEnd)
+    const italic = flags.every(Boolean)
+    const mixed = !italic && flags.some(Boolean)
+    const marks = /\*[^*\n]+\*/.test(replace)
+    if (italic && marks && /^\*[^*\n]+\*$/.test(replace.trim())) replace = replace.replace(/\*/g, '')
+    else if (mixed || marks) {
+      throw new Mistake("Those words run into, out of or across italics (*…*), which an edit can't keep or set. Propose a rewrite of the passage instead: its `replace` keeps *asterisks* as italics.")
+    }
+    if (hay.slice(at, atEnd) === replace) throw new Mistake('The new words are the same as the old.')
+    // The page applies the first place it finds the words (case, quotes and dashes aside): widened a word at a time,
+    // inside the paragraph and keeping its formatting, until that is here. The anchor says where, either way.
+    let [from, to] = [at, atEnd]
+    for (let k = 1; pageFinds(hay, s.paras, hay.slice(from, to)) !== from && k <= 24; k++) {
+      const left = wordBefore(hay, f.para, from)
+      const right = wordAfter(hay, f.para, to)
+      if (left == null && right == null) break
+      if (right != null && (k % 2 === 1 || left == null)) to = right
+      else if (left != null) from = left
+    }
+    const sameFormat = [...s.italic.slice(from, at), ...s.italic.slice(atEnd, to)].every((x) => x === italic)
+    if (pageFinds(hay, s.paras, hay.slice(from, to)) !== from || !sameFormat) [from, to] = [at, atEnd]
+    const find = hay.slice(from, to)
+    replace = hay.slice(from, at) + replace + hay.slice(atEnd, to)
+    const revises = this.revising(a, ['text'], 'words')
+    const clash = this.clashWith(id, s, at, atEnd, revises)
+    if (clash?.kind === 'text') {
+      throw new Mistake(
+        `Those words overlap change ${clash.id} (“${clip(clash.find, 120)}”): once one is applied, the other's words are gone. Make one change covering both, with \`revises\`: "${clash.id}".`
+      )
+    }
+    if (clash) {
+      throw new Mistake(
+        `Those words are inside the passage change ${clash.id} rewrites: once one is applied, the other's words are gone. Leave this to that rewrite, or revise it.`
+      )
+    }
+    this.noteMatch(f, s, paragraph)
+    const label = sceneLabelIn(this.outline(), id)
+    const where = anchorAt(s.paras, from)
+    return [
+      revises ? `Revising change ${revises.id}` : `Proposing an edit to ${label}`,
+      this.propose({ kind: 'text', sceneId: id, sceneLabel: label, find, replace, ...(where ? { at: where } : {}), why: text('why') }, revises)
+    ]
+  }
+
+  private rewriteAnchored(a: Record<string, unknown>): [string, string] {
+    const text = (k: string): string => (typeof a[k] === 'string' ? (a[k] as string) : '')
+    const id = this.scene(a.scene)
+    const s = sceneWords(this.db, id)
+    if (!s) throw new Mistake('That scene no longer exists.')
+    const replace = text('replace').trim()
+    if (!replace) throw new Mistake('Give the new passage as `replace`. To cut words, propose an edit with an empty `replace`.')
+    const hay = s.plain
+    const paras = numbered(s.paras)
+    let from: number
+    let to: number
+    /** Where the matched start words end, and where the end words begin (the words to keep as `start` and `end`). */
+    let startTo: number
+    let endFrom: number
+    const range = Array.isArray(a.replace_paragraphs) ? a.replace_paragraphs : null
+    if (range?.length) {
+      const x = intArg(range[0])
+      const y = intArg(range[range.length - 1])
+      const first = paras.find((p) => p.n === x)
+      const last = paras.find((p) => p.n === y)
+      if (!first || !last || first.n > last.n) {
+        throw new Mistake(`\`replace_paragraphs\` is [from, to] by the [n] numbers read_scene shows: the scene's paragraphs are [1] to [${paras.length}].`)
+      }
+      from = first.from
+      to = last.to
+      // The first and last few words of the passage, widened below as the page needs.
+      startTo = from
+      for (let k = 0; k < 6; k++) startTo = wordAfter(hay, first, startTo) ?? startTo
+      endFrom = to
+      for (let k = 0; k < 6; k++) endFrom = wordBefore(hay, last, endFrom) ?? endFrom
+    } else {
+      const startAsked = text('start')
+      const endAsked = text('end')
+      if (!startAsked.trim() || !endAsked.trim()) {
+        throw new Mistake("Give `replace_paragraphs: [from, to]` for whole paragraphs, or the passage's first words as `start` (with its `paragraph`) and its last words as `end`.")
+      }
+      const paragraph = intArg(a.paragraph)
+      const fs = findWords(s, s.paras, startAsked, { paragraph, occurrence: intArg(a.occurrence) })
+      if (fs.ok) {
+        ;[from, startTo] = [fs.from, fs.to]
+        this.noteMatch(fs, s, paragraph)
+      } else if (fs.why === 'spans') {
+        // Start words that run on into the next paragraph: the passage starts where they do.
+        ;[from, startTo] = [fs.from, fs.first.to]
+      } else throw this.notTaken(fs, s, 'The `start` words', 'replace_paragraphs')
+      // The end is looked for after the start words; else (a passage no longer than them) ending with or after them.
+      let fe = findWords(s, s.paras, endAsked, { after: startTo, first: true })
+      if (!fe.ok && fe.why !== 'spans') {
+        const within = findWords(s, s.paras, endAsked, { after: from, first: true })
+        if (within.ok && within.to >= startTo) fe = within
+      }
+      if (fe.ok) {
+        ;[endFrom, to] = [fe.from, fe.to]
+        this.noteMatch(fe, s, undefined)
+      } else if (fe.why === 'spans') {
+        ;[endFrom, to] = [fe.last.from, fe.to]
+      } else throw this.notTaken(fe, s, 'The `end` words (after the `start` words)', 'replace_paragraphs')
+    }
+    const firstPara = paraAt(s.paras, from)!
+    const lastPara = paraAt(s.paras, to)!
+    if (s.paras.some((p) => p.n === 0 && p.from >= from && p.to <= to)) {
+      throw new Mistake('That passage runs across a scene break (* * *), which a rewrite can’t. Propose one on each side of it.')
+    }
+    // `start` and `end` as the page will look for them (findPassage): widened a word at a time until it finds them here.
+    for (let k = 0; pageFinds(hay, s.paras, hay.slice(from, startTo)) !== from && k < 24; k++) {
+      const next = wordAfter(hay, firstPara, startTo)
+      if (next == null || next > to) break
+      startTo = next
+    }
+    const endFound = (): boolean => {
+      const words = hay.slice(endFrom, to)
+      const after = pageFinds(hay, s.paras, words, startTo)
+      if (after != null) return after === endFrom
+      return pageFinds(hay, s.paras, words, from) === endFrom && to >= startTo
+    }
+    for (let k = 0; !endFound() && k < 24; k++) {
+      const prev = wordBefore(hay, lastPara, endFrom)
+      if (prev == null || prev < from) break
+      endFrom = prev
+    }
+    const start = hay.slice(from, startTo)
+    const end = hay.slice(endFrom, to)
+    // The old passage as read_scene showed it, italics marked, so only real changes show between old and new.
+    const original = markedSlice(s, from, to)
+    if (original.replace(/\s+/g, ' ') === replace.replace(/\s+/g, ' ')) throw new Mistake('The new passage is the same as the old.')
+    const revises = this.revising(a, ['text', 'passage'], 'words or a passage')
+    const clash = this.clashWith(id, s, from, to, revises)
+    if (clash) throw new Mistake(`That passage overlaps change ${clash.id}. Make one change covering both instead, with \`revises\`: "${clash.id}".`)
+    const label = sceneLabelIn(this.outline(), id)
+    const startAt = anchorAt(s.paras, from)
+    const endAt = anchorAt(s.paras, to)
+    return [
+      revises ? `Revising change ${revises.id}` : `Proposing a rewrite of ${label}`,
+      this.propose(
+        { kind: 'passage', sceneId: id, sceneLabel: label, start, end, original, replace, ...(startAt && endAt ? { at: { start: startAt, end: endAt } } : {}), why: text('why') },
+        revises
+      )
+    ]
+  }
+
+  // ---------- TOOLCHOICE: every kind of change in one tool ----------
+
+  private proposeChanges(a: Record<string, unknown>): [string, string] {
+    const items = Array.isArray(a.changes) ? (a.changes as unknown[]) : null
+    if (!items?.length) throw new Mistake('Give the changes as `changes`: a list, each with its `kind` and that kind’s fields.')
+    if (items.length > 20) throw new Mistake('At most 20 changes at once.')
+    const lines: string[] = []
+    const labels: string[] = []
+    let proposed = 0
+    items.forEach((raw, i) => {
+      const n = i + 1
+      const item = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null
+      const kind = typeof item?.kind === 'string' ? item.kind.trim().toLowerCase().replace(/[\s-]+/g, '_') : ''
+      const tool = (CHANGE_KINDS as Record<string, string>)[kind]
+      if (!item || !tool) {
+        lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${Object.keys(CHANGE_KINDS).join(', ')}.`)
+        return
+      }
+      const { kind: _kind, entry_kind: entryKind, ...rest } = item
+      const args = kind === 'new_entry' ? { ...rest, kind: entryKind ?? item.entryKind } : rest
+      this.notes = []
+      let said: string
+      try {
+        const [label, result] = this.answer(tool, args)
+        labels.push(label)
+        proposed++
+        const revised = /^Change (\d+) now/.exec(result)
+        said = revised ? `change ${revised[1]} now proposes this instead.` : `proposed as change ${/change (\d+)/.exec(result)?.[1] ?? '?'}.`
+      } catch (e) {
+        said = `Not proposed. ${e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`}`
+      }
+      const note = this.notes.join(' ')
+      lines.push(`${n}. ${kind}: ${said}${note ? ` (${note})` : ''}`)
+    })
+    this.notes = []
+    const failed = items.length - proposed
+    const head = proposed
+      ? `Proposed to the writer: ${proposed} of ${items.length}. Nothing has changed yet: it happens only if they apply it.${failed ? ' Fix the ones not proposed and call again with only those.' : ''}`
+      : 'Not proposed: nothing is waiting for the writer.'
+    const tail = proposed ? '\nTell them briefly what you proposed and why.' : ''
+    const label = labels.length === 1 ? labels[0] : labels.length ? `Proposing ${labels.length} changes` : 'A change that didn’t fit'
+    return [label, `${head}\n${lines.join('\n')}${tail}`]
+  }
+
+  // ---------- ASKUSER: one question with options, which ends the answer ----------
+
+  private askUser(a: Record<string, unknown>): [string, string] {
+    if (this.choice) throw new Mistake('You have asked the writer a question already; the answer ends with it.')
+    const question = squash(typeof a.question === 'string' ? a.question : '')
+    if (!question) throw new Mistake('Give the `question`.')
+    if (question.length > 400) throw new Mistake('Keep the question short: under 400 characters.')
+    const raw = Array.isArray(a.options) ? (a.options as unknown[]) : []
+    const options = raw.map((o) => {
+      if (typeof o === 'string') return { label: squash(o) }
+      const x = (o && typeof o === 'object' ? o : {}) as Record<string, unknown>
+      const detail = typeof x.detail === 'string' ? squash(x.detail).slice(0, 300) : ''
+      return { label: squash(typeof x.label === 'string' ? x.label : ''), ...(detail ? { detail } : {}) }
+    })
+    if (options.length < 2 || options.length > 4) throw new Mistake('Give 2 to 4 `options`, each with a `label`.')
+    if (options.some((o) => !o.label)) throw new Mistake('Every option needs a `label`.')
+    if (options.some((o) => o.label.length > 200)) throw new Mistake('Keep each option’s label short (put the rest in `detail`).')
+    if (new Set(options.map((o) => lower(o.label))).size < options.length) throw new Mistake('Two options say the same thing: give clearly different ones.')
+    const rec = intArg(a.recommended)
+    if (a.recommended != null && (rec == null || rec < 1 || rec > options.length)) {
+      throw new Mistake(`\`recommended\` is the number of an option: 1 to ${options.length}.`)
+    }
+    this.choice = { question, options, ...(rec ? { recommended: rec - 1 } : {}), ...(a.multi === true ? { multi: true } : {}) }
+    this.onChoice?.(this.choice)
+    return ['Asking you a question', 'Asked the writer. Your answer ends here: their pick comes back as their next message.']
+  }
+
+  // ---------- DRAFT: new prose for the writer's own drafting ----------
+
+  private proposeDraft(a: Record<string, unknown>): [string, string] {
+    const id = this.scene(a.scene)
+    const s = sceneWords(this.db, id)
+    if (!s) throw new Mistake('That scene no longer exists.')
+    const mode = (typeof a.mode === 'string' ? a.mode.trim().toLowerCase().replace(/[\s-]+/g, '_') : '') as DraftMode
+    if (!DRAFT_MODES.includes(mode)) throw new Mistake(`\`mode\` must be one of: ${DRAFT_MODES.join(', ')}.`)
+    const direction = (typeof a.direction === 'string' ? a.direction : '').trim()
+    if (!direction) throw new Mistake('Give the `direction`: what the new prose should do, in plain words.')
+    if (direction.length > 2000) throw new Mistake('Keep the direction under 2,000 characters.')
+    if (!s.plain.trim() && mode !== 'generate') {
+      throw new Mistake(`The scene has no words yet, so there is nothing to ${mode === 'redo_beat' ? 'redo' : 'carry on from'}: use mode generate.`)
+    }
+    let beat: { index: number; text: string } | undefined
+    if (mode === 'redo_beat') {
+      // Numbered as read_scene shows the card's beats (empty ones left out); kept as the card's own place, from 1.
+      const beats = repo
+        .getScene(this.db, id)
+        .card.beats.map((b, i) => ({ b: b.trim(), i }))
+        .filter((x) => x.b)
+      if (!beats.length) throw new Mistake("This scene's card has no beats to redo. Use add_below or continue instead.")
+      const n = intArg(a.beat)
+      if (n == null || n < 1 || n > beats.length) throw new Mistake(`Give \`beat\`: the number of the card's beat to redo, 1 to ${beats.length}.`)
+      beat = { index: beats[n - 1].i + 1, text: beats[n - 1].b }
+    } else if (a.beat != null) throw new Mistake('`beat` is only for redo_beat.')
+    let atParagraph: ParaAnchor | undefined
+    if (a.at_paragraph != null) {
+      if (mode !== 'continue') throw new Mistake('`at_paragraph` is only for continue.')
+      const paras = numbered(s.paras)
+      const p = paras.find((x) => x.n === intArg(a.at_paragraph))
+      if (!p) throw new Mistake(`There is no such paragraph: the scene's paragraphs are [1] to [${paras.length}].`)
+      atParagraph = { paragraph: p.n, pid: p.pid, offset: p.to - p.from }
+    }
+    let length: number | undefined
+    if (a.length != null) {
+      length = intArg(a.length)
+      if (length == null || length < 50 || length > 5000) throw new Mistake('`length` is the words to aim for: 50 to 5,000.')
+    }
+    const revises = this.revising(a, ['draft'], 'a draft')
+    const label = sceneLabelIn(this.outline(), id)
+    const why = typeof a.why === 'string' && a.why.trim() ? a.why : direction
+    return [
+      revises ? `Revising change ${revises.id}` : `Proposing a draft for ${label}`,
+      this.propose(
+        { kind: 'draft', sceneId: id, sceneLabel: label, mode, direction, ...(beat ? { beat } : {}), ...(atParagraph ? { atParagraph } : {}), ...(length ? { length } : {}), why },
+        revises
+      )
+    ]
+  }
+
   private answer(name: string, a: Record<string, unknown>): [string, string] {
     const text = (k: string): string => (typeof a[k] === 'string' ? (a[k] as string) : '')
+    if (name === 'propose_edit' && this.switches.anchor) return this.editAnchored(a)
+    if (name === 'propose_rewrite' && this.switches.anchor) return this.rewriteAnchored(a)
+    if (name === 'propose_changes' && this.switches.toolChoice) return this.proposeChanges(a)
+    if (name === 'ask_user' && this.switches.askUser) return this.askUser(a)
+    if (name === 'propose_draft' && this.switches.draft) return this.proposeDraft(a)
     const list = (k: string): string[] | undefined =>
       Array.isArray(a[k]) ? (a[k] as unknown[]).filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean) : undefined
     switch (name) {
@@ -832,6 +1466,13 @@ export class EditorAgent {
         ]
           .filter(Boolean)
           .join('\n')
+        this.wordsRead = true
+        if (this.switches.anchor && s.marked.trim()) {
+          // Each paragraph numbered, as propose_edit's `paragraph` and propose_rewrite's `replace_paragraphs` name them.
+          const body = s.paras.map((p) => `${p.n ? `[${p.n}] ` : ''}${markedSlice(s, p.from, p.to)}`).join('\n\n')
+          const key = `[n] numbers each paragraph${s.marked !== s.plain ? '; *asterisks* mark italics' : ''}`
+          return [`Reading ${label}`, `${heading}\n\nScene card:\n${cardText || '(empty)'}\n\nText (${key}):\n${clip(body, SCENE_CHARS)}`]
+        }
         const words = s.marked.trim() ? s.marked : '(The scene has no words yet.)'
         return [
           `Reading ${label}`,

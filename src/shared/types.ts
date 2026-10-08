@@ -815,6 +815,13 @@ export interface GenerationRecord extends GenerationSummary {
     steps?: AgentStep[]
     /** The editor chat: the changes the answer proposes, and what Adam made of each. */
     proposals?: import('./contracts/ask').Proposal[]
+    /** The editor chat ended its answer with a question with options (ask_user, lab switch ASKUSER). */
+    choice?: import('./contracts/ask').AskChoice
+    /**
+     * The editor chat's request that was made to call a tool (tool_choice, lab switch TOOLCHOICE): which tool, at which
+     * request (from 1), and whether the provider turned tool_choice down (so it was asked again without it).
+     */
+    toolChoice?: { tool: string; step: number; dropped?: boolean }
     // ----- The style guide's helpers -----
     /** min_p as sent (OpenRouter only, with the Balanced and Adventurous creativity); left out when it wasn't sent. */
     min_p?: number

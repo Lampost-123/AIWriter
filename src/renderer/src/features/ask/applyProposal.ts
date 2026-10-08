@@ -270,6 +270,9 @@ export async function applyProposal(p: Proposal, place: ApplyPlace = {}): Promis
         return await kept(applyNewChapter(p))
       case 'rename':
         return await kept(applyRename(p))
+      case 'draft':
+        // A proposed draft (lab switch DRAFT) starts the writer's own job; the window can't do that from here yet.
+        return { ok: false, why: 'Drafting from the chat isn’t ready yet. Use the direction in the scene’s own Draft panel.' }
     }
   } catch (e) {
     return { ok: false, why: (e as Error)?.message || 'That change couldn’t be applied.' }

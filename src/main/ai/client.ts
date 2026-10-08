@@ -42,7 +42,22 @@ export interface ChatBody {
   min_p?: number | null
   /** Tools the model may ask to use (the editor chat). Left out when empty. */
   tools?: ToolSpec[]
+  /**
+   * A tool the reply must call (the editor chat, lab switch TOOLCHOICE), sent as OpenAI's `tool_choice` with the tools.
+   * A model that turns it down is asked again without it (the provider then chooses), and not sent it again this session.
+   */
+  tool_choice?: ToolChoice
 }
+
+/** OpenAI's way of making a reply call one tool. */
+export interface ToolChoice {
+  type: 'function'
+  function: { name: string }
+}
+
+/** A provider turning a request down because of its tool_choice (4xx naming it), as OpenRouter, DeepSeek and others word it. */
+export const looksLikeToolChoiceRejected = (status: number, message: string): boolean =>
+  status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 429 && /tool[\s_-]?choice/i.test(message)
 
 export const APP_REFERER = 'https://github.com/lampost-123/aiwriter'
 export const APP_TITLE = 'AI Write'
@@ -129,6 +144,8 @@ export interface SentParams {
   sampling: boolean
   /** False when the model turned min_p down, so it is left out. */
   minP?: boolean
+  /** False when the model turned a forced tool_choice down, so it is left out. */
+  toolChoice?: boolean
 }
 
 const DEFAULT_PARAMS: SentParams = { tokenParam: 'max_tokens', sampling: true }
@@ -220,6 +237,8 @@ type Attempt =
       rejectedThinkingOption?: boolean
       /** min_p was sent and the provider named it, or turned the request down without saying why. */
       rejectedMinP?: 'named' | 'maybe'
+      /** tool_choice was sent and the provider named it. */
+      rejectedToolChoice?: boolean
     }
 
 type UsageMode = 'openrouter' | 'stream_options' | 'none'
@@ -477,7 +496,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     arm(headersTimeout)
     try {
       const { max_tokens: _limit, temperature, top_p, min_p, ...rest } = o.body
-      const { tools, ...plain } = rest
+      const { tools, tool_choice: toolChoice, ...plain } = rest
       const payload: Record<string, unknown> = {
         ...plain,
         messages: sentMessages(o.target, plain.model, plain.messages, o.cache !== false),
@@ -489,6 +508,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
           function: { name: t.name, description: t.description, parameters: t.parameters }
         }))
       }
+      const toolChoiceSent = !!tools?.length && !!toolChoice && sent.toolChoice !== false
+      if (toolChoiceSent) payload.tool_choice = toolChoice
       payload[sent.tokenParam] = maxTokens
       if (sent.sampling) Object.assign(payload, { temperature, top_p })
       // TODO(Adam, 2026-10-08): presence_penalty / frequency_penalty would also curb repeated phrases, but only send one
@@ -524,9 +545,11 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         if (o.signal.aborted) return { kind: 'stopped' }
         const message = extractProviderMessage(bodyText)
         const minPNamed = minPSent && looksLikeMinPRejected(res.status, message)
+        const toolChoiceNamed = toolChoiceSent && looksLikeToolChoiceRejected(res.status, `${message} ${bodyText.slice(0, 2000)}`)
         const unexplained =
           (res.status === 400 || res.status === 422) &&
           !minPNamed &&
+          !toolChoiceNamed &&
           !looksLikeContextTooLong(message) &&
           !looksLikeReplyLimitRejected(res.status, message) &&
           !looksLikeTokenParamRejected(res.status, message) &&
@@ -538,7 +561,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
           retryAfterMs: parseRetryAfter(res.headers.get('retry-after')),
           rejectedUsageOption: unexplained && usageMode === 'stream_options',
           rejectedThinkingOption: unexplained && effort != null,
-          ...(minPNamed ? { rejectedMinP: 'named' as const } : unexplained && minPSent ? { rejectedMinP: 'maybe' as const } : {})
+          ...(minPNamed ? { rejectedMinP: 'named' as const } : unexplained && minPSent ? { rejectedMinP: 'maybe' as const } : {}),
+          ...(toolChoiceNamed ? { rejectedToolChoice: true } : {})
         }
       }
 
@@ -609,10 +633,19 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   let triedTokenParam = false
   let triedNoSampling = false
   let triedNoMinP = false
+  let triedNoToolChoice = false
   for (;;) {
     if (o.signal.aborted) return finish('stopped', null)
     const r = await attemptOnce()
     if (r.kind === 'stopped') return finish('stopped', null)
+    // A model (or the service behind OpenRouter) that won't be made to call a tool: asked once more letting it choose,
+    // and not asked that way again this session. It names tool_choice, so nothing else is changed for it.
+    if (r.kind === 'fail' && r.rejectedToolChoice && !triedNoToolChoice) {
+      triedNoToolChoice = true
+      sent = { ...sent, toolChoice: false }
+      rememberParams(o.target, o.body.model, sent)
+      continue
+    }
     if (r.kind === 'ok') {
       if (s.finishReason === 'content_filter') return finish('error', { type: 'refused' })
       const rest = filter.end()

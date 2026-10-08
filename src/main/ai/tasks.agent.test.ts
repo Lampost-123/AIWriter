@@ -9,6 +9,7 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { setSpendHooks } from '../usage/gate'
 import { fitToRoom, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
+import { forgetParams } from './client'
 
 type Chunk = Record<string, unknown>
 type Sent = { tools?: unknown[]; messages: Record<string, unknown>[] }
@@ -233,6 +234,102 @@ describe('the editor chat tool loop', () => {
     expect('reasoning_content' in assistants(sent[2])[1]).toBe(false)
     expect(done.text).toBe('Odile.')
     expect(done.text).not.toMatch(/innkeeper|Enough/)
+  })
+})
+
+describe('the chat overhaul’s hooks in the loop', () => {
+  afterEach(() => forgetParams())
+  const PROPOSE: ToolSpec = { name: 'propose_changes', description: 'Proposes changes.', parameters: { type: 'object', properties: {} } }
+  const choiceOf = (s: Sent): unknown => (s as Record<string, unknown>).tool_choice
+
+  it('ends the answer when the tools say so (ask_user): its words close the reply, nothing more is asked, no nudge', async () => {
+    const { fetchImpl, sent } = scripted([
+      [text('Two ways this could go.'), call(0, 'q1', 'ask_user', '{}'), finish('tool_calls')],
+      [text('(never asked)'), finish('stop')]
+    ])
+    let asked = false
+    const req = request(fetchImpl, {
+      run: async (calls) => {
+        asked = calls.some((c) => c.name === 'ask_user')
+        return { results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'Asked.' })), steps: [] }
+      },
+      ended: () => (asked ? 'Which way?\n\n1. Odile lies\n2. Odile confesses' : null),
+      nudge: () => NUDGE,
+      extraParams: () => (asked ? { choice: { question: 'Which way?', options: [{ label: 'Odile lies' }, { label: 'Odile confesses' }] } } : {})
+    })
+    const done = await runTask(req)
+    expect(sent).toHaveLength(1)
+    expect(done.status).toBe('complete')
+    expect(done.text).toBe('Two ways this could go.\n\nWhich way?\n\n1. Odile lies\n2. Odile confesses')
+    expect(gens.getGeneration(req.db, done.generationId).params.choice).toMatchObject({ question: 'Which way?' })
+  })
+
+  it('makes one request call the tool asked for (tool_choice), with the same tools, and keeps that on the record', async () => {
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'p1', 'propose_changes', '{"changes":[]}'), finish('tool_calls')],
+      [text('Proposed one change.'), finish('stop')]
+    ])
+    let read = false
+    let forced = false
+    const req = request(fetchImpl, {
+      tools: [...TOOLS, PROPOSE],
+      run: async (calls) => {
+        read ||= calls.some((c) => c.name === 'read_scene')
+        return { results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'ok' })), steps: [] }
+      },
+      forceTool: () => {
+        if (!read || forced) return null
+        forced = true
+        return 'propose_changes'
+      }
+    })
+    const done = await runTask(req)
+    expect(sent).toHaveLength(3)
+    expect(choiceOf(sent[0])).toBeUndefined()
+    expect(choiceOf(sent[1])).toEqual({ type: 'function', function: { name: 'propose_changes' } })
+    expect(choiceOf(sent[2])).toBeUndefined()
+    // The tools are the same list on every request that offers them.
+    expect(sent[1].tools).toEqual(sent[0].tools)
+    expect(sent[2].tools).toEqual(sent[0].tools)
+    expect(gens.getGeneration(req.db, done.generationId).params.toolChoice).toEqual({ tool: 'propose_changes', step: 2 })
+  })
+
+  it('never forces the last request, which goes without tools', async () => {
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [text('Done.'), finish('stop')]
+    ])
+    const done = await runTask(request(fetchImpl, { tools: [...TOOLS, PROPOSE], forceTool: () => 'propose_changes' }, { maxSteps: 2 }))
+    expect(choiceOf(sent[0])).toEqual({ type: 'function', function: { name: 'propose_changes' } })
+    expect(sent[1].tools).toBeUndefined()
+    expect(choiceOf(sent[1])).toBeUndefined()
+    expect(done.status).toBe('complete')
+  })
+
+  it('asks again letting the model choose when the provider turns tool_choice down, and notes it', async () => {
+    const sent: Record<string, unknown>[] = []
+    const fetchImpl = (async (_url: unknown, init?: { body?: unknown }) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      sent.push(body)
+      if (body.tool_choice) {
+        return new Response(JSON.stringify({ error: { message: 'tool_choice is not supported for this model' } }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      const chunks = [text('No change needed.'), finish('stop')]
+      return new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n', {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' }
+      })
+    }) as unknown as typeof fetch
+    let n = 0
+    const req = request(fetchImpl, { tools: [...TOOLS, PROPOSE], forceTool: () => (n++ === 0 ? 'propose_changes' : null) })
+    const done = await runTask(req)
+    expect(done.status).toBe('complete')
+    expect(sent.map((s) => 'tool_choice' in s)).toEqual([true, false])
+    expect(gens.getGeneration(req.db, done.generationId).params.toolChoice).toEqual({ tool: 'propose_changes', step: 1, dropped: true })
   })
 })
 

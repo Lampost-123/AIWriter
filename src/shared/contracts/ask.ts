@@ -48,7 +48,40 @@ export interface AskEvents {
   'ask:step': { taskId: ID; generationId: ID; label: string }
   /** The editor chat proposed changes (all of this turn's, so far). */
   'ask:proposals': { taskId: ID; generationId: ID; proposals: Proposal[] }
+  /**
+   * The editor chat asked the writer one question with options (ask_user, lab switch ASKUSER), which ends its answer.
+   * The question and numbered options are also at the end of the answer's text, for a window that doesn't show these.
+   */
+  'ask:choice': { taskId: ID; generationId: ID; choice: AskChoice }
 }
+
+/**
+ * A question the editor chat asks the writer instead of guessing (ask_user): 2 to 4 options to pick from. The writer's
+ * pick is meant to come back as the next question in the chat (the window's part).
+ */
+export interface AskChoice {
+  question: string
+  options: { label: string; detail?: string }[]
+  /** The option the chat recommends: an index into `options` (0 = the first). */
+  recommended?: number
+  /** More than one option may be picked. */
+  multi?: boolean
+}
+
+/**
+ * Where words a proposal changes stand in the scene (lab switch ANCHOR), so they are found there even when the same
+ * words occur elsewhere: the paragraph as read_scene numbered it ([12] → 12), its stable paragraph id (attrs.pid; null
+ * for a scene saved without ids) and the offset in that paragraph's plain text (characters; a line break counts one,
+ * as in the page, so it is also the ProseMirror offset inside the paragraph).
+ */
+export interface ParaAnchor {
+  paragraph: number
+  pid: string | null
+  offset: number
+}
+
+/** How a proposed draft is written (propose_draft, lab switch DRAFT): the writer's own jobs. */
+export type DraftMode = 'generate' | 'add_below' | 'continue' | 'redo_beat'
 
 /** What Adam made of a proposed change. */
 export type ProposalStatus = 'pending' | 'applied' | 'declined'
@@ -76,6 +109,12 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       sceneLabel: string
       find: string
       replace: string
+      /**
+       * Where `find` starts (lab switch ANCHOR). `find` is always the scene's exact words, widened when it can be so the
+       * page finds them there first; when it couldn't be (the same words, as the page matches them, come earlier),
+       * Apply should use this place, not the first one.
+       */
+      at?: ParaAnchor
     }
   | {
       /**
@@ -90,6 +129,11 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       end: string
       original: string
       replace: string
+      /**
+       * Where the passage stands (lab switch ANCHOR): `start` at its first character, `end` just after its last (an
+       * exclusive offset in that paragraph). `start` and `end` are widened when they can be so the page finds them there.
+       */
+      at?: { start: ParaAnchor; end: ParaAnchor }
     }
   | { kind: 'card'; sceneId: ID; sceneLabel: string; patch: CardProposal }
   | { kind: 'entry'; entryId: ID; entryKind: EntryKind; name: string; patch: EntryProposal }
@@ -104,6 +148,22 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
     }
   | { kind: 'newChapter'; storyId: ID; title: string }
   | { kind: 'rename'; target: 'scene' | 'chapter'; targetId: ID; from: string; to: string }
+  | {
+      /**
+       * A draft for the writer to write (propose_draft, lab switch DRAFT): nothing is written until Adam applies it,
+       * which starts the writer's own job for the scene with this direction. `beat` (redo_beat): the card's beat, from
+       * 1, with its words as the card had them. `atParagraph` (continue): carry on from the end of this paragraph (left
+       * out: from the end of the scene). `length`: words to aim for (left out: the writer's own choice).
+       */
+      kind: 'draft'
+      sceneId: ID
+      sceneLabel: string
+      mode: DraftMode
+      direction: string
+      beat?: { index: number; text: string }
+      atParagraph?: ParaAnchor
+      length?: number
+    }
 )
 
 export interface AskInput {
@@ -139,6 +199,8 @@ export interface AskTurn {
   steps?: string[]
   /** The editor chat: the changes it proposes, and what Adam made of each. */
   proposals?: Proposal[]
+  /** The editor chat ended its answer with a question with options (ask_user, lab switch ASKUSER). */
+  choice?: AskChoice
 }
 
 /** A chat in the list of earlier chats. */

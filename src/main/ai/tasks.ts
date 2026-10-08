@@ -85,6 +85,16 @@ export interface TaskRequest {
     nudge?: (answer: string) => string | null
     /** Kept with the record when it finishes (the editor chat's proposals). */
     extraParams?: () => Partial<GenerationParams>
+    /**
+     * Asked after the tools of a step have run: words that end the answer there (the editor chat asked the writer a
+     * question with options, ASKUSER), added to the reply with no more requests and no nudge; null to go on.
+     */
+    ended?: () => string | null
+    /**
+     * Asked before each request that offers tools: a tool the request must call (sent as tool_choice; TOOLCHOICE), or
+     * null to let the model choose. A provider that turns tool_choice down is asked again without it (ai/client.ts).
+     */
+    forceTool?: () => string | null
   }
   /**
    * The writer was asked to tag who says each line (ai/speakerTags.ts): the tags are taken out of the text as it
@@ -279,7 +289,7 @@ async function stream(
     }
   }
 
-  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined): Promise<StreamOutcome> =>
+  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined, force: string | null = null): Promise<StreamOutcome> =>
     streamChat({
       target: model.target,
       body: {
@@ -289,7 +299,8 @@ async function stream(
         top_p: o.topP,
         max_tokens: o.limit,
         min_p: req.minP ?? null,
-        ...(tools?.length ? { tools } : {})
+        ...(tools?.length ? { tools } : {}),
+        ...(tools?.length && force ? { tool_choice: { type: 'function' as const, function: { name: force } } } : {})
       },
       signal: r.controller.signal,
       onText: (raw) => {
@@ -333,7 +344,20 @@ async function stream(
   let stepFrom = r.text.length
   // With a single step, the first request is the last: it goes without tools.
   const firstTools = agent && agent.maxSteps > 1 ? agent.tools : undefined
-  let outcome = await once(req.messages, firstTools)
+  // A request made to call a tool (TOOLCHOICE): at most one per answer, never once the model has turned it down.
+  let canForce = o.start.toolChoice !== false
+  const forceFor = (step: number): string | null => {
+    const tool = canForce ? (agent?.forceTool?.() ?? null) : null
+    if (tool) o.params.toolChoice = { tool, step }
+    return tool
+  }
+  const forcedTurnedDown = (r: StreamOutcome): void => {
+    if (r.sentParams.toolChoice !== false) return
+    canForce = false
+    if (o.params.toolChoice && !o.params.toolChoice.dropped) o.params.toolChoice = { ...o.params.toolChoice, dropped: true }
+  }
+  let outcome = await once(req.messages, firstTools, firstTools ? forceFor(1) : null)
+  forcedTurnedDown(outcome)
   if (agent) {
     let messages = req.messages
     const total = { prompt: outcome.promptTokens, cached: outcome.cachedTokens, completion: outcome.completionTokens, cost: outcome.cost }
@@ -389,6 +413,14 @@ async function stream(
         }
         steps.push(...answered.steps)
         results = answered.results
+        // The tools ended the answer (a question for the writer, ASKUSER): its words close the reply, nothing more is asked.
+        const closing = agent.ended?.() ?? null
+        if (closing) {
+          r.text = r.text.replace(/\s+$/, '')
+          r.text += `${r.text ? '\n\n' : ''}${closing}`
+          progressTimer ??= setTimeout(progress, PROGRESS_MS)
+          break
+        }
         // The thinking that came with the calls goes back with them (ai/client.ts sentMessages); never shown.
         next = [
           ...messages,
@@ -415,7 +447,8 @@ async function stream(
       }
       stepFrom = r.text.length
       const tools = last ? undefined : agent.tools
-      outcome = await once(messages, tools)
+      outcome = await once(messages, tools, tools ? forceFor(step + 1) : null)
+      forcedTurnedDown(outcome)
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)
       total.completion = add(total.completion, outcome.completionTokens)
@@ -462,7 +495,8 @@ async function stream(
       const minPDropped = o.params.min_p != null && (outcome.sentParams.minP === false || !outcome.sentParams.sampling)
       const { min_p: _minP, ...withoutMinP } = o.params
       const used = minPDropped ? (sentAs(withoutMinP, outcome) ?? withoutMinP) : sentAs(o.params, outcome)
-      const kept = used ?? (cutOff || tags ? o.params : undefined)
+      // The chat overhaul's notes on the answer (a question it ended with, a request made to call a tool) are always kept.
+      const kept = used ?? (cutOff || tags || o.params.choice || o.params.toolChoice ? o.params : undefined)
       gens.finishGeneration(db, r.generationId, {
         status,
         error,
