@@ -1829,8 +1829,8 @@ planner, a scene contract, quote-both-sides checks, logprobs, stop-string cuts, 
   `linkedPlaces`; pinned entries and those the plan asked for stay whole); the plan tests only what a change makes new
   for a told secret (`plan/plan.ts` `newWordsOf`: the key into her pocket was dropped for "the survey case"); the check
   never lists someone as not knowing a fact about themselves (`namesPerson` in `repair/prompts.ts` and
-  `checks/context.ts`). Still open, in the memory code: the stage keeps every field a reading leaves out
-  (`shared/continuity.ts` `mergeState`), and "finds Cinder has cast a shoe" reads as a getting (`memory/items.ts`).
+  `checks/context.ts`). The two left open in the memory code then (`mergeState` keeping every field a reading leaves
+  out; "finds Cinder has cast a shoe" read as a getting) are fixed in the next section.
 - **Stock phrases said afresh** (`ai/prompts.ts`, `repair/slop.ts`): the writer prompt names no stock phrase (the list in
   "Write like a person" and the clichés by example are gone; the rule says to show feeling through what someone does or
   says; Adam's own "Words and phrases to avoid" stay). After the check, stock phrases in the AI's words (`STOCK_TICS`, the
@@ -1841,6 +1841,34 @@ planner, a scene contract, quote-both-sides checks, logprobs, stop-string cuts, 
   whose quote isn't in the new words, or that the model took back in its own last sentence is dropped with no call;
   the rest go to one call on the memory model at its 0.2 (reason first, then real or not), and those ruled not real are
   neither mended nor asked. It may never excuse clothes or position as "could have happened off the page".
+
+## Memory fixes and cheaper prompts (0.6.35, lab round H, 2026-10-08)
+
+Faults seen in round G's real prompts, fixed where the memory is kept or read; then the memory keeper, check and
+repair, plan and Add below send the same words in an order a provider can reuse. Round H (DeepSeek Flash, 6 inn
+chains): canon kept 100%, no slips in 6 of 6 chains, passages with a stock phrase 7%, judge 4.55 of 5, prompt
+tokens served from the provider's cache 47%. Small samples: read these as "no worse, and the faults are gone".
+
+- **The stage** (`shared/continuity.ts` `mergeState`): when where someone is changes, how they were placed (posture,
+  touching, sees) goes unless the same change says it again, and anyone touching or watching them stops too. A thing
+  new in a reply never near-matches another new one in it ("the stable door" no longer swallows "the door: barred
+  and locked"), and a changed thing moves to the end so eviction drops the stalest (`shared/stageItems.ts`).
+- **Which door** (`shared/continuity.ts` `readChanges`, `unnamed`; the tracker prompt in `continuity/tracker.ts`): "the door" with two or more doors named just
+  before is kept as "the door (the yard door or the passage door?)", never the nearest name; "own", possessives and
+  punctuation never say which one, and it looks back about a page.
+- **Profiles and items**: a worn thing gone for good (lost, cut away, a bandage taken off) leaves the profile's
+  Typical clothing (`memory/looks.ts`, in `memory/state.ts` `stateAt`); "finds Cinder has cast a shoe" is a discovery, not a getting
+  (`memory/items.ts` `holdingsOf`). An animal (by its name, summary, tag or "it") neither knows nor has secrets kept
+  from it (`ai/mustStay.ts` `isPerson`, and the check and repair prompts).
+- **A door locked with someone outside** (`ai/lockRule.ts`): out is read from the place and the last action too
+  ("across the yard to the stall", "out of the inn"), and the line says no one comes back in "by any door" until it
+  is unlocked on the page.
+- **Order for the cache** (only the order and id numbers change; the same lines are sent): the memory keeper gives
+  entries fixed E ids by when each was made (`keeper/request.ts` `Ids`, `steadyIds`) and lists them in that order,
+  relationships and who knows what before them; check and repair put the scenes before, the card, the dead and the
+  facts ahead of where things stand and the new words (`repair/prompts.ts`); the plan puts what the writer is asked
+  and the direction last (`plan/plan.ts`); Add below keeps "Also relevant" and "Also in mind" in the order last sent
+  for the scene, new ones after (`ai/context.ts`, remembered for the last 20 scenes briefed).
 
 ## Beat markers and writing an earlier beat again (Adam, 2026-10-08)
 
