@@ -22,7 +22,8 @@ import { UserError } from '../util'
 import { changeInput, patchFor } from './apply'
 import { builderField, changeWords, fieldLabel, fieldValue, guessFields } from './facts'
 import { loadShapeSafe } from './places'
-import { memoryNames, sceneSourceHash, summaryDue } from './sceneChange'
+import { DUE_SUMMARY_SCENES, memoryNames, sceneSourceHash, summaryDue } from './sceneChange'
+import { hashText } from './text'
 
 type DB = Database.Database
 
@@ -55,6 +56,45 @@ export function noteFact(key: string): { kind: 'field'; entryId: ID; field: stri
 }
 
 const noteKey = (row: kdb.LogRow): string => String((row.undo as { key?: unknown } | null)?.key ?? '')
+
+/** Per world, whether each scene's summary was due, by what that was worked out from (see dueSummaries). */
+const dueSeen = new WeakMap<DB, Map<ID, { version: string; due: boolean }>>()
+
+/**
+ * Scenes whose summary is being brought up to date, in reading order: of each story, only the last DUE_SUMMARY_SCENES
+ * scenes up to its last one with words (those a draft goes on to refresh, engine.ts queueDueSummaries; an older one keeps
+ * its summary as it is). The list is read again after every memory change, so a scene's answer is kept until its
+ * words, its summary or the memory's names change: a long series isn't hashed through each time.
+ */
+function dueSummaries(db: DB): ID[] {
+  const byStory = new Map<ID, kdb.SceneSummaryState[]>()
+  for (const s of kdb.sceneSummaryStates(db)) {
+    const list = byStory.get(s.storyId)
+    if (list) list.push(s)
+    else byStory.set(s.storyId, [s])
+  }
+  const window: kdb.SceneSummaryState[] = []
+  for (const list of byStory.values()) {
+    let last = list.length - 1
+    while (last >= 0 && list[last].words <= 0) last--
+    window.push(...list.slice(Math.max(0, last + 1 - DUE_SUMMARY_SCENES), last + 1).filter((s) => s.textSummary))
+  }
+  if (!window.length) return []
+  const names = memoryNames(db)
+  const namesKey = hashText(names.join('\n'))
+  const before = dueSeen.get(db)
+  const now = new Map<ID, { version: string; due: boolean }>()
+  const out: ID[] = []
+  for (const s of window) {
+    const version = `${s.version}|${namesKey}`
+    const known = before?.get(s.sceneId)
+    const due = known && known.version === version ? known.due : summaryDue(db, s.sceneId, false, names)
+    now.set(s.sceneId, { version, due })
+    if (due) out.push(s.sceneId)
+  }
+  dueSeen.set(db, now)
+  return out
+}
 
 /** Everything the memory isn't sure about, by group (unconfirmed, guesses, summaries, notes). */
 export function listMemoryChecks(db: DB): MemoryCheckItem[] {
@@ -138,10 +178,8 @@ export function listMemoryChecks(db: DB): MemoryCheckItem[] {
     }
   }
 
-  // Scene summaries being brought up to date (A3).
-  const names = memoryNames(db)
-  for (const sceneId of kdb.scenesWithTextSummary(db)) {
-    if (!summaryDue(db, sceneId, false, names)) continue
+  // Scene summaries being brought up to date (A3): only those a draft would bring up to date.
+  for (const sceneId of dueSummaries(db)) {
     const row = kdb.summaryRow(db, 'scene', sceneId)
     if (!row?.text.trim()) continue
     out.push({

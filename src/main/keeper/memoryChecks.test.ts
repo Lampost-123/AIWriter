@@ -18,6 +18,7 @@ import { runScene } from './run'
 import { undoItem } from './undo'
 import { gatherContextInput } from '../ai/gather'
 import { keepMemoryCheck, listMemoryChecks, removeMemoryCheck, undoMemoryCheck } from './checkQueue'
+import { DUE_SUMMARY_SCENES, sceneSourceHash } from './sceneChange'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -320,4 +321,50 @@ describe('Check again now', () => {
     k.stop()
     expect(asked).toEqual([])
   })
+})
+
+describe('summaries being brought up to date', () => {
+  const para = 'The rain kept on over the harbour while the boats knocked at their moorings and nobody spoke. '.repeat(20).trim()
+  const otherPara = 'Wind came off the hills and the shutters banged all night in the empty square below. '.repeat(20).trim()
+  /** A scene's words, with a summary made from `from` (the same words: up to date; others: due). */
+  const write = (db: DB, sceneId: ID, paras: [string, string][], from: [string, string][] = paras, tell = false) => {
+    saveParas(db, sceneId, paras, tell)
+    const text = from.map(([, t]) => t).join('\n\n')
+    const doc = { type: 'doc', content: from.map(([pid, t]) => ({ type: 'paragraph', attrs: { pid }, content: [{ type: 'text', text: t }] })) }
+    mem.putSummary(db, { level: 'scene', targetId: sceneId, text: 'A summary.', origin: 'text', sourceHash: sceneSourceHash(text, doc) })
+  }
+
+  it('lists only those a draft would bring up to date: the last few written scenes of a story', () => {
+    const w = testWorld(14)
+    const written = w.scenes.slice(0, 14)
+    for (const id of written) write(w.db, id, [['p1', para]], [['p1', otherPara]])
+    // The last scene is planned, with no words yet: it doesn't move the window.
+    const listed = listMemoryChecks(w.db).filter((i) => i.group === 'summary').map((i) => i.sceneId)
+    expect(listed).toEqual(written.slice(-DUE_SUMMARY_SCENES))
+  })
+
+  it('stays quick on a long series: a scene not changed since is not worked out again', () => {
+    const w = testWorld(0)
+    const db = w.db
+    const ids: ID[] = []
+    db.transaction(() => {
+      for (let b = 0; b < 80; b++) {
+        const story = b === 0 ? w.storyId : repo.createStory(db, { title: `Book ${b + 1}` }).id
+        const chapter = b === 0 ? w.chapterId : repo.createChapter(db, story).id
+        for (let i = 0; i < 10; i++) {
+          const id = b === 0 && i === 0 ? w.scenes[0] : repo.createScene(db, chapter, { title: `S${i}` }).id
+          ids.push(id)
+          write(db, id, Array.from({ length: 12 }, (_, k): [string, string] => [`p${k}`, para]))
+        }
+      }
+    })()
+    expect(listMemoryChecks(db).filter((i) => i.group === 'summary')).toEqual([])
+    const t0 = performance.now()
+    expect(listMemoryChecks(db).filter((i) => i.group === 'summary')).toEqual([])
+    expect(performance.now() - t0).toBeLessThan(50)
+    // One scene's words change: it is worked out again, and its summary is listed.
+    saveParas(db, ids[405], Array.from({ length: 12 }, (_, k): [string, string] => [`p${k}`, k < 4 ? otherPara : para]))
+    kdb.noteSceneSaved(db, ids[405])
+    expect(listMemoryChecks(db).filter((i) => i.group === 'summary').map((i) => i.sceneId)).toEqual([ids[405]])
+  }, 120_000)
 })

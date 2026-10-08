@@ -469,15 +469,37 @@ export function openNoLongerNotes(db: DB, limit = 300): LogRow[] {
   ).map(toLog)
 }
 
-/** Scenes whose summary the memory wrote (not Adam), live ones only, in reading order. */
-export function scenesWithTextSummary(db: DB): ID[] {
+/** A live scene and its summary, as far as telling whether the summary is due needs, without the scene's words. */
+export interface SceneSummaryState {
+  sceneId: ID
+  storyId: ID
+  words: number
+  /** Changes whenever the scene's words or its summary change (the version, save and summary times, the summary's source). */
+  version: string
+  /** The memory wrote its summary (not Adam), and it says something. */
+  textSummary: boolean
+}
+
+/** Every live scene in reading order, with what tells whether its summary changed (one query; no scene's words). */
+export function sceneSummaryStates(db: DB): SceneSummaryState[] {
   return (
     db
       .prepare(
-        `${LIVE_IDS} AND EXISTS (SELECT 1 FROM summaries m WHERE m.level = 'scene' AND m.target_id = s.id AND m.origin <> 'adam') ${READING_ORDER}`
+        `SELECT s.id, c.story_id, s.word_count, s.text_version, s.updated_at, m.origin AS m_origin, m.stale AS m_stale,
+           m.updated_at AS m_at, length(m.source_hash) AS m_len, substr(m.source_hash, 1, 64) AS m_head,
+           (m.text IS NOT NULL AND trim(m.text) <> '') AS m_text
+         FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id
+         LEFT JOIN summaries m ON m.level = 'scene' AND m.target_id = s.id
+         WHERE s.deleted_at IS NULL AND c.deleted_at IS NULL AND st.deleted_at IS NULL ${READING_ORDER}`
       )
       .all() as Row[]
-  ).map((r) => r.id as string)
+  ).map((r) => ({
+    sceneId: r.id as string,
+    storyId: r.story_id as string,
+    words: (r.word_count as number) ?? 0,
+    version: [r.text_version, r.updated_at, r.word_count, r.m_origin, r.m_stale, r.m_at, r.m_len, r.m_head].join('|'),
+    textSummary: !!r.m_text && r.m_origin != null && r.m_origin !== 'adam'
+  }))
 }
 
 export function setLogQuestion(db: DB, id: ID, question: LogRow['question'], undo?: Record<string, unknown> | null): void {
