@@ -17,7 +17,7 @@ import type { SceneCheckContext } from '../checks/context'
 import { entryText, factsThatMatter, headsAt, holdingsHere } from '../checks/context'
 import { estimateTokens } from '../keeper/text'
 import { holdingLine, nameIn, namesOf } from '../memory/items'
-import { namesPerson } from '../ai/mustStay'
+import { isPerson, namesPerson } from '../ai/mustStay'
 
 export const REPAIR_MARKER = '[AIWRITE-REPAIR v1]'
 
@@ -129,8 +129,8 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
       lines.push({ code, kind: 'knows', label: f.fact.trim() })
       const knows = people.filter((c) => f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
       // Never "not known by" someone the fact is about ("Ash will be at the Crown... Not known by: Ash"), as the
-      // writer's own list has it (mustStay.ts realSecrets).
-      const not = people.filter((c) => !f.knownBy.includes(c.entry.id) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
+      // writer's own list has it (mustStay.ts realSecrets); nor an animal (isPerson).
+      const not = people.filter((c) => !f.knownBy.includes(c.entry.id) && isPerson(c.entry) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
       return `- [${code}] ${f.fact.trim()} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
     })
     sections.push({ id: 'knowledge', title: 'Who knows what at the start of this scene (K ids)', text: text.join('\n'), entryIds: [] })
@@ -206,7 +206,16 @@ export interface RepairRequest {
   entryIds: ID[]
 }
 
-/** The request: where things stand, the memory's facts, the scene card, the words just before, and the new words. */
+/**
+ * The order the request's sections are sent in (the cache audit of 8 October 2026: repair prompts matched for only their
+ * first ~100 characters, as where things stand came first). What stays the same through a scene first, so a provider
+ * that reuses the start of a prompt it has seen (DeepSeek, OpenAI) can: the scenes just before, the scene card and who
+ * is dead, then the memory's facts (which depend on what the new words name), and last where things stand, the words
+ * just before and the new words, which change at every check.
+ */
+export const REPAIR_SEND_ORDER = ['earlier', 'scene-card', 'dead', 'memory', 'knowledge', 'owned', 'stage', 'lead-in', 'new-words']
+
+/** The request: the memory's facts, the scene card, where things stand, the words just before, and the new words. */
 export function repairRequest(o: {
   stage: StageLine[]
   codex: ReturnType<typeof codexLines>
@@ -214,7 +223,9 @@ export function repairRequest(o: {
   leadIn: string
   newWords: string
 }): RepairRequest {
-  const sections = [
+  // Each section's priority is its place in the order "What the AI saw" has always listed them in (where things stand
+  // first); only the order sent changes.
+  const listed = [
     {
       id: 'stage',
       title: 'Where things stand just before the new words (W ids)',
@@ -227,11 +238,13 @@ export function repairRequest(o: {
       ? [{ id: 'lead-in', title: 'The words just before the new ones (already counted in where things stand; not to be checked)', text: `"""\n…${o.leadIn.trim()}\n"""`, entryIds: [] as ID[] }]
       : []),
     { id: 'new-words', title: 'The new words (check these)', text: `"""\n${o.newWords}\n"""`, entryIds: [] as ID[] }
-  ]
+  ].map((s, i) => ({ ...s, priority: Math.min(10, i + 1) }))
+  const rank = (id: string): number => (REPAIR_SEND_ORDER.includes(id) ? REPAIR_SEND_ORDER.indexOf(id) : REPAIR_SEND_ORDER.indexOf('stage') - 0.5)
+  const sections = [...listed].sort((a, b) => rank(a.id) - rank(b.id))
   const user = sections.map((s) => `## ${s.title}\n${s.text}`).join('\n\n')
-  const blocks: ContextBlock[] = sections.map((s, i) => ({
+  const blocks: ContextBlock[] = sections.map((s) => ({
     id: s.id,
-    priority: Math.min(10, i + 1),
+    priority: s.priority,
     title: s.title,
     text: s.text,
     tokens: estimateTokens(s.text),

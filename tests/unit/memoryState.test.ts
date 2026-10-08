@@ -116,6 +116,30 @@ describe('state', () => {
     expect(s.facts).toEqual([{ factId: 'f2', fact: 'Kell knows this.', knownBy: ['k'], at: -1 }])
   })
 
+  it('takes a thing worn gone for good out of the typical clothing, unless the change sets the clothing itself', () => {
+    // The lab's bridge reviews: a "bandage round his head" kept in a profile long after "bandage gone; wound closed".
+    const clothing = 'oilskin patched at the elbows; bandage round his head; wide hat'
+    const w = pureWorld(
+      world(
+        [who('r', 'Rook'), who('p', 'Pell')],
+        [
+          at('r', 'baseline', { kind: 'update', payload: { note: '', fields: { clothing } } }),
+          at('p', 'baseline', { kind: 'update', payload: { note: '', fields: { clothing: 'grey shawl; wide hat' } } }),
+          at('r', { scene: 'b1.c1.s1' }, { kind: 'update', payload: { note: 'took his hat off to greet Pell' } }),
+          at('r', { scene: 'b1.c2.s1' }, { kind: 'update', payload: { note: 'bandage gone; the cut has closed' } }),
+          at('p', { scene: 'b1.c2.s1' }, { kind: 'update', payload: { note: 'lost her hat to the wind', fields: { clothing: 'grey shawl; a borrowed cap' } } })
+        ]
+      )
+    )
+    // A hat taken off to greet someone is not gone.
+    expect(w.state('b1', 'b1.c2.s1').entries.get('r')?.fields.clothing).toBe(clothing)
+    const after = w.state('b1', 'b1.c3.s1').entries.get('r')
+    expect(after?.fields.clothing).toBe('oilskin patched at the elbows; wide hat')
+    expect(after?.changedWhere?.clothing).toBe('Book 1, Ch 2, Sc 1')
+    // The change gave the clothing: that is kept as given.
+    expect(w.state('b1', 'b1.c3.s1').entries.get('p')?.fields.clothing).toBe('grey shawl; a borrowed cap')
+  })
+
   it('applies changes at one place by position, then creation time', () => {
     const w = pureWorld(world([who('m', 'Mara')], []))
     const base = { entryId: 'm', anchor: 'scene' as const, storyId: 'b1', sceneId: 'b1.c1.s1', origin: 'adam' as const, runId: null }

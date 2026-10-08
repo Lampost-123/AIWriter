@@ -1829,8 +1829,8 @@ planner, a scene contract, quote-both-sides checks, logprobs, stop-string cuts, 
   `linkedPlaces`; pinned entries and those the plan asked for stay whole); the plan tests only what a change makes new
   for a told secret (`plan/plan.ts` `newWordsOf`: the key into her pocket was dropped for "the survey case"); the check
   never lists someone as not knowing a fact about themselves (`namesPerson` in `repair/prompts.ts` and
-  `checks/context.ts`). Still open, in the memory code: the stage keeps every field a reading leaves out
-  (`shared/continuity.ts` `mergeState`), and "finds Cinder has cast a shoe" reads as a getting (`memory/items.ts`).
+  `checks/context.ts`). The two left open in the memory code then (`mergeState` keeping every field a reading leaves
+  out; "finds Cinder has cast a shoe" read as a getting) are fixed in the next section.
 - **Stock phrases said afresh** (`ai/prompts.ts`, `repair/slop.ts`): the writer prompt names no stock phrase (the list in
   "Write like a person" and the clichés by example are gone; the rule says to show feeling through what someone does or
   says; Adam's own "Words and phrases to avoid" stay). After the check, stock phrases in the AI's words (`STOCK_TICS`, the
@@ -1841,6 +1841,84 @@ planner, a scene contract, quote-both-sides checks, logprobs, stop-string cuts, 
   whose quote isn't in the new words, or that the model took back in its own last sentence is dropped with no call;
   the rest go to one call on the memory model at its 0.2 (reason first, then real or not), and those ruled not real are
   neither mended nor asked. It may never excuse clothes or position as "could have happened off the page".
+
+## Memory fixes and cheaper prompts (0.6.35, lab round H, 2026-10-08)
+
+Faults seen in round G's real prompts, fixed where the memory is kept or read; then the memory keeper, check and
+repair, plan and Add below send the same words in an order a provider can reuse. Round H (DeepSeek Flash, 6 inn
+chains): canon kept 100%, no slips in 6 of 6 chains, passages with a stock phrase 7%, judge 4.55 of 5, prompt
+tokens served from the provider's cache 47%. Small samples: read these as "no worse, and the faults are gone".
+
+- **The stage** (`shared/continuity.ts` `mergeState`): when where someone is changes, how they were placed (posture,
+  touching, sees) goes unless the same change says it again, and anyone touching or watching them stops too. A thing
+  new in a reply never near-matches another new one in it ("the stable door" no longer swallows "the door: barred
+  and locked"), and a changed thing moves to the end so eviction drops the stalest (`shared/stageItems.ts`).
+- **Which door** (`shared/continuity.ts` `readChanges`, `unnamed`; the tracker prompt in `continuity/tracker.ts`): "the door" with two or more doors named just
+  before is kept as "the door (the yard door or the passage door?)", never the nearest name; "own", possessives and
+  punctuation never say which one, and it looks back about a page.
+- **Profiles and items**: a worn thing gone for good (lost, cut away, a bandage taken off) leaves the profile's
+  Typical clothing (`memory/looks.ts`, in `memory/state.ts` `stateAt`); "finds Cinder has cast a shoe" is a discovery, not a getting
+  (`memory/items.ts` `holdingsOf`). An animal (by its name, summary, tag or "it") neither knows nor has secrets kept
+  from it (`ai/mustStay.ts` `isPerson`, and the check and repair prompts).
+- **A door locked with someone outside** (`ai/lockRule.ts`): out is read from the place and the last action too
+  ("across the yard to the stall", "out of the inn"), and the line says no one comes back in "by any door" until it
+  is unlocked on the page.
+- **Order for the cache** (only the order and id numbers change; the same lines are sent): the memory keeper gives
+  entries fixed E ids by when each was made (`keeper/request.ts` `Ids`, `steadyIds`) and lists them in that order,
+  relationships and who knows what before them; check and repair put the scenes before, the card, the dead and the
+  facts ahead of where things stand and the new words (`repair/prompts.ts`); the plan puts what the writer is asked
+  and the direction last (`plan/plan.ts`); Add below keeps "Also relevant" and "Also in mind" in the order last sent
+  for the scene, new ones after (`ai/context.ts`, remembered for the last 20 scenes briefed).
+
+## Beat markers and writing an earlier beat again (Adam, 2026-10-08)
+
+Beat by beat used to forget which paragraphs each beat wrote at Finish, and Write it again only redid the last beat.
+Owned by the Beat by beat part (`contracts/beats.ts`, `ipc/beats.ts`, `src/main/beats/`, `features/beats/`).
+
+- **Kept with the scene.** `SceneBeatMarks` (contracts/beats.ts): per beat, the paragraph ids it wrote (every
+  version's) and each version that went in (record id, when, and a fingerprint of its words then). One row per scene
+  in the world's `meta` table (`beat_marks:<scene id>`, `src/main/beats/marks.ts`: tidied and capped; no migration);
+  a new session on the scene takes the place of the last one's once it writes. The interface reads them once a scene
+  and saves a moment after each change and before the window closes (`features/beats/marksStore.ts`). `flow.ts`
+  notes each beat's paragraphs as they stream and a version as each beat ends.
+  - **One session's markers per scene** (Adam's decision, 2026-10-08): starting a new Beat by beat session on a scene
+    replaces the saved markers as soon as its first beat writes (`flow.ts` `sessionMarks`); the old beats' words stay
+    on the page as Adam's own, with no markers or menu. Opening the bar without writing keeps the old markers.
+  - **They go with the scene.** While a scene is in Recently deleted its markers stay, so restoring it brings them
+    back; `purgeTrash` (db/trash.ts) clears the row of every scene gone for good (any `beat_marks:` key whose scene
+    is no longer in `scenes`). Being in `meta`, they travel in world.db with Export world / Import world and Make a
+    copy, and scene ids don't change there (transfer/worldFile.test.ts checks both).
+- **Worked out from the page** (`features/beats/marks.ts`, pure): the beats with words on the page; the version
+  showing is the one whose fingerprint the beat's words have (so undo puts an earlier version, and its record, back),
+  else the newest; check and repair's fixes update the fingerprint (`withMended`). A beat whose version went in
+  before an earlier beat's showing version is "written before beat N changed" until it is written again or kept as
+  it is (`keptAt`). A paragraph split inside a beat gives the new half to the beat (the words before the change were
+  exactly the two halves'); any other new paragraph stays Adam's own.
+- **On the page**: a decoration (`beatMarks.ts`, like speaker labels): classes and `data-beat` on the beat's
+  paragraphs, a band drawn by CSS (`beatMarks.css`, every size and colour a custom property, so the New look's
+  layouts can restyle it). `BeatMarksLayer.tsx` (SceneView, in the scrolling area) puts a "Beat N" button in the
+  left margin by each beat's first line (above it when the margin is narrow), shown on hover or keyboard focus (Tab
+  reaches it), with the beat's menu: Redo this beat, Change and redo (a one-line note), What the AI saw (that beat's
+  showing record), Keep it as it is, Redo the beats after this (the next, or all in order), Remove this beat, and
+  Show beats after you finish. Shown during a session on the scene, and after Finish only with "Show beats"
+  (`settings.editor.showBeats`: Settings › Editor, the palette's Show beats / Hide beats).
+- **Writing a beat again** (`redo.ts`). The session's last beat, while it ends the scene, goes the bar's way
+  (`writeAgainFromPage` → Write it again). Any other beat, and any beat after Finish, becomes a tracked change in its
+  place (the AI edits' suggestion layer: `showReplacement` from outside, with `status: 'starting'`, `stop`, `onGone`,
+  then `updateReplacement` as the beat's generation events arrive). It is a normal `beat` record (`startBeat`, one
+  draft job per scene), with the scene so far up to the beat only (`soFarText(…, leaveOut)` now stops where the beat
+  begins, so later beats aren't "so far") and the start of what follows it as `after`, quoted as "What comes after
+  this beat" (`afterBlock`, ~400 words) with its own closing lines. Accept keeps the scene in History first ("Before
+  beat N was written again"), goes in as one undo step, and makes the new words the beat's (paragraph ids, version,
+  the session's paragraphs and owners); then check and repair checks them. The beats after it get their note, a
+  message offers to redo them, and "all in order" writes each as its own tracked change after the last is accepted
+  or rejected.
+  - **Adam's words inside a beat** (Adam's decision, 2026-10-08). The change runs from the beat's first paragraph to
+    its last, so a paragraph he typed or pasted between them goes too. It isn't left out (the beat would lose its
+    shape); the change says so from the start, under its buttons: "This also replaces N paragraph(s) you wrote
+    yourself. Reject keeps them." (`othersInBeat`, `alsoReplaces` in sessionLogic.ts), kept with any note at the end.
+- **Remove this beat** keeps the scene in History ("Before beat N was taken out"), then takes the beat's paragraphs
+  out as one undo step (Ctrl+Z puts them back, marker and all).
 
 ## Milestone 1 scope
 

@@ -10,6 +10,8 @@ export interface FakeProviderOptions {
   waitMs?: number
   /** Use CRLF line endings in the stream. */
   crlf?: boolean
+  /** Beat by beat's beats each read differently (by their number), rather than all alike. */
+  varyBeats?: boolean
 }
 
 export interface FakeProvider {
@@ -22,7 +24,7 @@ export interface FakeProvider {
 }
 
 export const FAKE_MODELS: { id: string; name: string; context_length: number; pricing: { prompt: string; completion: string } }[]
-export function fakeProse(words: number): string
+export function fakeProse(words: number, sentences?: string[]): string
 /** A deterministic reply to a memory keeper reading request (its user message). */
 export function fakeMemoryReply(user: string): string
 /** A deterministic summary of a summary request (its user message). */

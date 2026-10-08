@@ -360,6 +360,11 @@ export interface EditorSettings {
   spellCheck: boolean
   /** Keep the line being typed at the same height on screen. */
   typewriter: boolean
+  /**
+   * Beat by beat: show where each beat begins on the page (a band down its edge and a "Beat N" label) after the
+   * session is finished too. While writing beat by beat they always show. Missing or false: off.
+   */
+  showBeats?: boolean
 }
 
 /** One day's words: typed by Adam, and AI words he kept. `date` is local, "2026-10-03". */

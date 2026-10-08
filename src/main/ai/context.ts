@@ -141,6 +141,12 @@ export interface ContextInput {
    * an item they name, or name by its main word, is brought in, and what must stay true puts it first. Left out: none.
    */
   soFar?: string
+  /**
+   * The order "Also relevant" and "Also in mind" listed their entries in when this scene was last briefed, by block id
+   * (sentOrderOf): those still there keep it and new ones go after them (keptOrder), so a provider can reuse more of the
+   * prompt from one step to the next. Left out: the steady order alone.
+   */
+  sentOrder?: Record<string, ID[]>
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -1336,12 +1342,36 @@ const kindWord = (e: Entry): string => KIND_LABELS[e.kind]?.one.toLowerCase() ??
 
 /** The title of block 9's entries named in the card, the direction or the scene, or pinned: always the same. */
 export const MENTIONED_TITLE = 'Also relevant'
+const MENTIONED_ID = 'mentioned'
 
 const KIND_ORDER = ['character', 'place', 'item', 'group', 'event', 'thread', 'lore']
 /** Entries in an order that doesn't change from step to step: by kind, then name, then id. */
 export function steadyOrder<T extends Pick<Entry, 'kind' | 'name' | 'id'>>(list: T[]): T[] {
   const rank = (k: string): number => (KIND_ORDER.includes(k) ? KIND_ORDER.indexOf(k) : KIND_ORDER.length)
   return [...list].sort((a, b) => rank(a.kind) - rank(b.kind) || a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+/** The entry blocks whose order is kept from one briefing of a scene to the next (keptOrder). */
+export const KEPT_ORDER_BLOCKS: readonly string[] = [MENTIONED_ID, RECALL_ENTRIES.id]
+
+/**
+ * Entries in the order they were sent last time (`before`, their ids), then any new ones in the steady order: added
+ * after, never sorted in, so what was sent before stays word for word the same up to where something changed (the
+ * cache audit of 8 October 2026: Add below's prompts stopped matching where a newly named card was sorted in).
+ */
+export function keptOrder<T extends Pick<Entry, 'kind' | 'name' | 'id'>>(list: T[], before?: readonly ID[]): T[] {
+  const steady = steadyOrder(list)
+  if (!before?.length) return steady
+  const at = new Map(before.map((id, i) => [id, i]))
+  const kept = steady.filter((e) => at.has(e.id)).sort((a, b) => at.get(a.id)! - at.get(b.id)!)
+  return [...kept, ...steady.filter((e) => !at.has(e.id))]
+}
+
+/** The order the kept-order blocks list their entries in, to pass as the next briefing's `sentOrder`. */
+export function sentOrderOf(blocks: Pick<BlockDraft, 'id' | 'entryIds'>[]): Record<string, ID[]> {
+  const out: Record<string, ID[]> = {}
+  for (const b of blocks) if (KEPT_ORDER_BLOCKS.includes(b.id)) out[b.id] = [...b.entryIds]
+  return out
 }
 
 /** Builds every block that has something in it, in the order they are sent. */
@@ -1598,7 +1628,8 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
       .join('\n\n')
   // Both in a steady order (by kind, then name) under a fixed title, so the same entries read the same from one step to
   // the next and a provider can reuse what comes before what changed (Adam, 2026-10-08: the title swapped between
-  // "Also mentioned" and "Also relevant", and the recalled entries' order flipped, between steps).
+  // "Also mentioned" and "Also relevant", and the recalled entries' order flipped, between steps). Within a scene, in the
+  // order they were sent last time with any new ones after (keptOrder, input.sentOrder), never sorted in among them.
   // Off the scene (briefingFixes.ts offScene, after Adam's Holodeck): a person the scene's own words (the card, the
   // direction, the scene so far) don't name, nor Adam pinned, nor the plan asked for, gets one line, not a card; a place not linked to where the
   // scene happens, nor named in those words, is left out (the writer lab found Oskar, Thistle, Fallow Cross and the Wheatsheaf in an
@@ -1612,11 +1643,11 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   const offstageText = (list: EntryState[], why: (e: Entry) => string = () => ''): string =>
     list.length ? `${OFFSTAGE_LEAD}\n${list.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n')}` : ''
   if (sel.others.length) {
-    const { full: others, offstage } = split(steadyOrder(sel.others))
+    const { full: others, offstage } = split(keptOrder(sel.others, input.sentOrder?.[MENTIONED_ID]))
     const all = [...others, ...offstage]
     if (all.length)
       add(
-        'mentioned',
+        MENTIONED_ID,
         9,
         MENTIONED_TITLE,
         [entriesText(others), offstageText(offstage)].filter(Boolean).join('\n\n'),
@@ -1626,7 +1657,7 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   }
   if (sel.recalled.length) {
     const why = (e: Entry): string => recalledWhy(sel.chosen.get(e.id)?.why)
-    const { full: recalled, offstage } = split(steadyOrder(sel.recalled))
+    const { full: recalled, offstage } = split(keptOrder(sel.recalled, input.sentOrder?.[RECALL_ENTRIES.id]))
     const all = [...recalled, ...offstage]
     if (all.length)
       add(

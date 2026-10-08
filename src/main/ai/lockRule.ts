@@ -18,11 +18,14 @@ const NOT_FAST =
   /\b(?:unlocked|unbarred|unbolted|(?:not|no longer|never|isn['’]t|wasn['’]t) (?:\w+ )?(?:locked|barred|bolted)|(?:locked|barred|bolted) (?:\w+ )?from (?:the )?outside|ajar|(?:stood|swung|standing|wide|half|left) open)\b/i
 /** Someone outside, by where the stage has them. */
 const OUTSIDE =
-  /\b(?:outside|out of doors|outdoors|out (?:in|at|on|under|across|by|into|to) the\b|in the (?:yard|stable|stables|street|lane|road|rain|dark|night|garden|courtyard|shed|stable ?yard)|at the (?:stable|stables|shed|well|woodpile))\b/i
+  /\b(?:outside|out of doors|outdoors|out (?:in|at|on|under|across|by|into|to) the\b|out of the (?:[a-z]+ )?(?:house|inn|tavern|mill|cottage|farmhouse|hall|building|door|gate)|(?:across|over|crossing|crossed) the (?:yard|courtyard|stable ?yard|lane|street|road|garden)|(?:in|into|to) the (?:yard|stable|stables|stall|stalls|street|lane|road|rain|dark|night|garden|courtyard|shed|stable ?yard|byre|barn|paddock|field|woods)|at the (?:stable|stables|stall|shed|well|woodpile|byre|barn|gate)|in (?:his|her|their|its) stall)\b/i
 /** Gone out through a door the stage names. */
 const WENT_OUT = /\b(?:went|gone|go|goes|going|stepped|slipped|let (?:himself|herself|themselves)) out\b/i
 /** Back in the room, by where the stage has them (a coming in wins over the going out before it). */
 const BACK_IN = /\b(?:back in(?:side)?|(?:came|come|comes|coming) (?:back )?in(?:side)?|let (?:back )?in|indoors|inside the (?:room|parlour|house|inn|kitchen))\b/i
+/** A place in the room ("by the fire", "at the table"): someone there is in, whatever they last did. */
+const INDOORS =
+  /\b(?:in|by|at|on|beside|near) the (?:fire|hearth|fireside|settle|table|bed|window|parlour|kitchen|taproom|room|bar|counter|stairs|landing|cellar)\b/i
 
 const plain = (s: string): string => s.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim()
 /** "the yard door" → "yard door": what the stage's words for a person may name it by. */
@@ -61,13 +64,16 @@ export function keyHolder(state: SceneState): string | null {
   return holding?.name ?? null
 }
 
-/** Where someone is, by the stage: their place, or with none what they last did. */
-const placeWords = (c: CharacterState): string => plain(c.where || c.lastAction || '')
+/** Where someone is, by the stage: their place and what they last did (round G: "gone out of the back parlour, across
+ * the yard to the stall" as the place, and "went out across the yard" as the last thing done). */
+const placeWords = (c: CharacterState): string => plain(`${c.where || ''} ${c.lastAction || ''}`)
 
 /** Whether the stage has someone outside the room, and which of the doors they went out through (null: none named). */
 function outThrough(c: CharacterState, doors: FastDoor[]): { out: boolean; door: FastDoor | null } {
   const w = placeWords(c)
-  if (!w || BACK_IN.test(w)) return { out: false, door: null }
+  const where = plain(c.where || '')
+  // A place in the room wins over a going out in what they last did (done before they came back).
+  if (!w || BACK_IN.test(w) || (INDOORS.test(where) && !OUTSIDE.test(where))) return { out: false, door: null }
   const named = doors.find((d) => w.includes(core(d.name))) ?? null
   const out = OUTSIDE.test(w) || (!!named && WENT_OUT.test(w)) || (!!named && /\bthrough\b/.test(w))
   return { out, door: named }
@@ -100,7 +106,10 @@ export function lockLines(state: SceneState | null | undefined, only?: string[])
     const key = how.includes('locked') && holder ? ` and ${holder} has the key` : ''
     const undo = joinAnd(how.map((h) => UNDO[h]))
     const it = these.length > 1 ? 'them' : 'it'
-    lines.push(`${c.name} is outside; ${what} ${verb} ${joinAnd(how)} from inside${key}. If ${first(c.name)} comes back in, someone ${undo} ${it} on the page first.`)
+    // "By any door": round G's writer brought Ash in through a "yard door" it made up, the locked one left alone.
+    lines.push(
+      `${c.name} is outside; ${what} ${verb} ${joinAnd(how)} from inside${key}. If ${first(c.name)} comes back in, by any door, someone ${undo} ${it} on the page first.`
+    )
   }
   return lines
 }

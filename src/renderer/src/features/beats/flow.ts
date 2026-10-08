@@ -58,6 +58,8 @@ import {
 import { WORDS_META } from '@/features/goals/wordsMeta'
 import { onRepaired, repairLanded } from '@/features/repair/repairRun'
 import { quietRepairs } from '@/features/repair/marks'
+import { beatSig, newMarks, withPids, withVersion, type SceneBeatMarks } from './marks'
+import { changeMarks, installMarks } from './marksStore'
 
 const BUSY = 'A draft is being written into this scene. Stop it first, or wait for it to finish.'
 const NOT_OPEN = 'Open this scene in the editor to write into it.'
@@ -281,6 +283,28 @@ export function writeAgain(): void {
   void writeBeat(s.written, { again: true })
   focusBar()
 }
+
+/**
+ * A beat's menu on the page (redo.ts): the session's last beat, while it ends the scene, is written again as
+ * Write it again does (in its place; Ctrl+Z takes the new version out), with `note` for it, and whatever was in
+ * the bar's box stays there for the next beat. False when that isn't the way (no session on the scene, an
+ * earlier beat, a beat being written...): redo.ts writes it as a tracked change instead.
+ */
+export function writeAgainFromPage(sceneId: ID, index: number, note: string): boolean {
+  const s = useBeats.getState().session
+  if (!s || s.sceneId !== sceneId || s.phase !== 'paused' || run || s.written !== index) return false
+  const ed = editorBridge()?.sceneId === s.sceneId ? editorBridge()?.editor : null
+  if (!ed || !endsPage(ed.state.doc, s.paragraphs[index] ?? [])) return false
+  const box = s.steer
+  patchSession({ steer: note })
+  writeAgain()
+  // Taken for this beat (the box empties as it starts): the box's own note goes back.
+  patchSession({ steer: box })
+  return true
+}
+
+/** The beat being written on this scene in the session, if any (so nothing else writes into the scene meanwhile). */
+export const beatBeingWritten = (sceneId: ID): number | null => (run && run.sceneId === sceneId ? run.index : null)
 
 /** The record of the beat the bar is about (the last one on the page): what the AI saw for it. */
 export function showRecord(): void {
@@ -584,6 +608,24 @@ function note(r: Run): void {
   const owners = withOwner(s.owners, pids, r.generationId)
   // The session's first words are on the page: from here, nothing before it is left to keep.
   if (paragraphs !== s.paragraphs || owners !== s.owners || !s.kept) patchSession({ paragraphs, owners, kept: true })
+  // Kept with the scene too, so its markers outlive Finish (marksStore.ts).
+  changeMarks(r.sceneId, (m) => withPids(sessionMarks(m, s), r.index, pids))
+}
+
+/** The scene's kept marks as this session has them: a new session's take the place of the last one's (once it writes). */
+function sessionMarks(m: SceneBeatMarks | null, s: BeatSession): SceneBeatMarks {
+  const base = m?.sessionId === s.id ? m : newMarks(s.sceneId, s.id, s.beats.length, s.mode)
+  return base.mode === s.mode && base.of === s.beats.length ? base : { ...base, mode: s.mode, of: s.beats.length }
+}
+
+/** A version of the beat went into the page (written, or put back with Ctrl+Y): kept with its record and its words' fingerprint. */
+function noteVersion(r: Run, recordId: ID, doc: PMNode): void {
+  const s = useBeats.getState().session
+  if (!s || s.sceneId !== r.sceneId) return
+  const pids = s.paragraphs[r.index] ?? []
+  changeMarks(r.sceneId, (m) =>
+    withVersion(withPids(sessionMarks(m, s), r.index, pids), r.index, { recordId, at: Date.now(), sig: beatSig(doc, pids) })
+  )
 }
 
 /** The beat has ended: the bar pauses for Adam's note, and a problem is said in one message (as for Generate). */
@@ -602,7 +644,10 @@ function finishBeat(r: Run, p: AppEvents['generation:done']): void {
   }
   run = null
   // The page as this beat left it, so Write it again can tell whether it is still the newest undo step.
-  if (r.wrote && bridge?.sceneId === r.sceneId && bridge.editor) marks.set(p.generationId, markPage(bridge.editor.state))
+  if (r.wrote && bridge?.sceneId === r.sceneId && bridge.editor) {
+    marks.set(p.generationId, markPage(bridge.editor.state))
+    noteVersion(r, p.generationId, bridge.editor.state.doc)
+  }
   const app = useApp.getState()
   if (app.activeGeneration?.id === p.generationId) app.setActiveGeneration(null)
   // Stopped, cut off, or a problem after some of its words: the bar says the beat is unfinished.
@@ -694,6 +739,7 @@ function takeOut(r: Run): void {
   let out = false
   if (r.wrote && undoDepth(ed.state) > depth) {
     marks.set(id, markPage(ed.state))
+    noteVersion(r, id, ed.state.doc)
     out = undoNoScroll(ed.state, ed.view.dispatch)
   }
   patchSession((x) => ({
@@ -957,6 +1003,7 @@ let installed = false
 function install(): void {
   if (installed) return
   installed = true
+  installMarks()
 
   onEvent('generation:chunk', (p) => {
     const r = run

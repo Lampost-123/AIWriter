@@ -30,6 +30,7 @@ import { holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../
 import { deathOf } from './deaths'
 import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './knows'
 import { clearStalePlacing } from './briefingFixes'
+import { animalNotPerson } from '../keeper/kinds'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
 export const MUST_MOST = 12
@@ -151,12 +152,22 @@ export interface Secret {
   keptFrom: string[]
 }
 
+/** Someone who may know a fact: a codex entry, with what says whether it is a person (summary, tags, pronouns). */
+export type Knower = Pick<EntryState, 'id' | 'name' | 'kind'> & Partial<Pick<EntryState, 'aliases' | 'summary' | 'tags' | 'fields'>>
+
+/**
+ * True when an entry is a person who can know things: a character, and not an animal and no more (round G: "Kept
+ * from Cinder … must not learn" for a horse; keeper/kinds.ts animalNotPerson).
+ */
+export const isPerson = (e: Pick<EntryState, 'kind' | 'name'> & Partial<Pick<EntryState, 'aliases' | 'summary' | 'tags' | 'fields'>>): boolean =>
+  e.kind === 'character' && !animalNotPerson(e)
+
 /**
  * What some of these people know and others don't, the most lately learned first (FactState.at; among facts learned at
- * the same point, or with no place, the last listed first).
+ * the same point, or with no place, the last listed first). Only people (isPerson): never an animal.
  */
-export function secretsAmong(people: Pick<EntryState, 'id' | 'name' | 'kind'>[], facts: FactState[]): Secret[] {
-  const here = people.filter((p) => p.kind === 'character')
+export function secretsAmong(people: Knower[], facts: FactState[]): Secret[] {
+  const here = people.filter(isPerson)
   if (here.length < 2) return []
   const order = facts.map((f, i) => ({ f, i })).sort((a, b) => (b.f.at ?? -2) - (a.f.at ?? -2) || b.i - a.i)
   const out: Secret[] = []
@@ -176,12 +187,12 @@ export function secretsAmong(people: Pick<EntryState, 'id' | 'name' | 'kind'>[],
  * lately learned first, at most `most`.
  */
 export function realSecrets(
-  people: Pick<EntryState, 'id' | 'name' | 'kind' | 'aliases'>[],
+  people: (Knower & Pick<EntryState, 'aliases'>)[],
   facts: FactState[],
   ctx: KnowsContext,
   most = MUST_GAPS
 ): Secret[] {
-  const here = people.filter((p) => p.kind === 'character')
+  const here = people.filter(isPerson)
   const out: Secret[] = []
   for (const s of secretsAmong(here, cleanKnows(facts, ctx))) {
     if (out.length >= most) break

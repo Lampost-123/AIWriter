@@ -50,6 +50,10 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
       generations += delGens.run(id).changes
       delScene.run(id)
     }
+    // Beat markers (beats/marks.ts, `beat_marks:<scene id>` in meta) go with their scene. While it is only in
+    // Recently deleted they stay, so a restored scene has its beats; this also clears any left by a scene that
+    // went for good another way (the outline helper's Undo, an imported story taking the empty first one's place).
+    db.prepare("DELETE FROM meta WHERE substr(key, 1, 11) = 'beat_marks:' AND substr(key, 12) NOT IN (SELECT id FROM scenes)").run()
     const delChapter = db.prepare('DELETE FROM chapters WHERE id = ?')
     for (const id of chapterSet) delChapter.run(id)
     // Milestone 4: deleted acts too (a purged story's acts go with it).

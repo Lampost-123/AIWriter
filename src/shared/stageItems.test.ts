@@ -68,7 +68,8 @@ describe('the stage piece by piece', () => {
     const picked = mergeItems(things, [piece('the case', 'gone'), piece('the lamp', 'lit')], false, 12).items
     expect(picked).toEqual([piece('the door', 'barred from inside'), piece('the lamp', 'lit')])
     const unbarred = mergeItems(picked, [piece('the door', 'unbarred and open')], false, 12).items
-    expect(unbarred[0]).toEqual(piece('the door', 'unbarred and open'))
+    // A change moves it to the end: the list runs from longest unchanged to latest.
+    expect(unbarred).toEqual([piece('the lamp', 'lit'), piece('the door', 'unbarred and open')])
   })
 
   it('keeps at most so many, letting go of those changed longest ago', () => {
@@ -78,6 +79,40 @@ describe('the stage piece by piece', () => {
     expect(items.map((x) => x.name)).toContain('thing 1')
     expect(items.map((x) => x.name)).not.toContain('thing 2')
     expect(items.at(-1)).toEqual(piece('the lamp', 'lit'))
+  })
+
+  it('a thing changed a step ago outlasts things never changed since (round G: the case dropped at step 7)', () => {
+    // Step 1: the satchel first, then ten pebbles on the shelf, never touched again.
+    const start = [piece('the satchel', 'on his back'), ...Array.from({ length: 10 }, (_, i) => piece(`pebble ${i + 1}`, 'on the shelf'))]
+    // Step 2: the satchel is set down, and changed again at step 3.
+    const two = mergeItems(start, [piece('the satchel', 'on the bench')], false, 12).items
+    expect(two.at(-1)).toEqual(piece('the satchel', 'on the bench'))
+    const three = mergeItems(two, [piece('the satchel', 'open on the bench'), piece('the candle', 'lit')], false, 12).items
+    // Step 4: three new things push the list past 12: the three oldest pebbles go, never the satchel.
+    const four = mergeItems(three, [piece('the jug', 'full'), piece('the cup', 'empty'), piece('the poker', 'in the fire')], false, 12).items
+    expect(four).toHaveLength(12)
+    expect(four.map((x) => x.name)).toContain('the satchel')
+    expect(four.map((x) => x.name)).not.toContain('pebble 3')
+    expect(four.map((x) => x.name)).toContain('pebble 4')
+    // Unchanged ones keep their order (no change: nothing moves).
+    expect(mergeItems(start, [], false, 12).items).toEqual(start)
+  })
+
+  it('a bare "the door" given with a new "the stable door" in one reply is another door (round G, K1-2)', () => {
+    const before = [piece('the lamp', 'lit')]
+    const one = mergeItems(before, [piece('the stable door', 'dragged open'), piece('the door', 'barred and locked')], false, 12)
+    expect(one.items).toEqual([piece('the lamp', 'lit'), piece('the stable door', 'dragged open'), piece('the door', 'barred and locked')])
+    // The other way round too.
+    const two = mergeItems(before, [piece('the door', 'barred and locked'), piece('the stable door', 'dragged open')], false, 12).items
+    expect(two.map((x) => x.name)).toEqual(['the lamp', 'the door', 'the stable door'])
+    // One already kept, or the same name again in one reply: still found, as before.
+    expect(mergeItems([piece('the stable door', 'shut')], [piece('the door', 'dragged open')], false, 12).items).toEqual([piece('the stable door', 'dragged open')])
+    const again = mergeItems(before, [piece('the stable door', 'dragged open'), piece('the stable door', 'shut again')], false, 12).items
+    expect(again).toEqual([piece('the lamp', 'lit'), piece('the stable door', 'shut again')])
+    // matching itself: one set apart is found only by its own name.
+    const made = piece('the stable door', 'dragged open')
+    expect(matching([made], 'the door', false, new Set([made]))).toEqual([])
+    expect(matching([made], 'the stable door', false, new Set([made]))).toEqual([0])
   })
 
   it('reads an old one-line "wearing" as pieces, with nothing lost', () => {
@@ -98,13 +133,13 @@ describe('the stage piece by piece', () => {
       piece('hat on the peg', ''),
       piece('gloves', '')
     ])
-    // A change finds the old piece by its own word, and takes its place.
+    // A change finds the old piece by its own word, and takes it over, moved to the end (the latest changed last).
     const merged = mergeItems(items, [piece('boots', 'on, laced'), piece('shirt', 'on, buttoned')], true, MOST_CLOTHES).items
     expect(merged.map(pieceText)).toEqual([
-      'shirt on, buttoned',
       'dark trousers',
+      'a silver ring and a cloak, over the chair',
       'boots on, laced',
-      'a silver ring and a cloak, over the chair'
+      'shirt on, buttoned'
     ])
     expect(itemsFromText('')).toEqual([])
   })

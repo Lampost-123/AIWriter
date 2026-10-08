@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
-import { clothesOf, layGone, pieceKey, quoteFound, saysGone, thingKey, withEdits, type CharacterState } from '@shared/continuity'
+import { clothesOf, layGone, pieceKey, quoteFound, saysGone, thingKey, unnamed, withEdits, type CharacterState } from '@shared/continuity'
 import { itemKey, MOST_CLOTHES, MOST_THINGS, pieceText } from '@shared/stageItems'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
@@ -246,6 +246,101 @@ describe('where things stand', () => {
     const quoted = mergeState(before, readChanges('{"characters": [{"name": "Wren Hollis", "holding": {"value": "nothing; the case on the sill", "quote": "She set the case on the sill"}}]}', words, 'inn')!)
     expect(quoted.characters[0].holding).toBe('nothing; the case on the sill')
     expect(quoted.said?.['wren hollis|holding']).toEqual({ quote: 'She set the case on the sill', sceneId: 'inn' })
+  })
+
+  it('a move clears how someone was placed, who they touched and saw, unless the same change gives them again', () => {
+    // The lab's bridge reviews: Ash still "riding, hands in his armpits" in the parlour, and "sitting on the settle ...
+    // looking at Wren" once he had gone out. Invented words here.
+    const before: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      things: [],
+      characters: [
+        person('Rook Abery', { where: 'on the lane, on the bay mare', posture: 'riding, reins in one fist', sees: 'watching Tamsin at the gate', holding: 'the reins', clothes: [{ name: 'oilskin', state: 'on, collar up' }] }),
+        person('Tamsin', { where: 'at the gate', posture: 'leaning on the gate', touching: "her hand on Rook's stirrup", sees: 'watching Rook ride in' }),
+        person('Pell', { where: 'in the yard', sees: 'watching the hens' })
+      ],
+      said: {
+        'rook abery|posture': { quote: 'Rook rode in with the reins in one fist', sceneId: 's1' },
+        'rook abery|sees': { quote: 'his eyes on Tamsin at the gate', sceneId: 's1' },
+        'tamsin|touching': { quote: "her hand on Rook's stirrup", sceneId: 's1' }
+      }
+    }
+    const after = mergeState(before, { characters: [person('Rook Abery', { where: 'in the parlour, by the fire' })], said: {} })
+    const rook = after.characters.find((c) => c.name === 'Rook Abery')!
+    expect(rook).toMatchObject({ where: 'in the parlour, by the fire', posture: '', sees: '', touching: '', holding: 'the reins' })
+    // What he wears and holds goes with him.
+    expect(clothesOf(rook)).toEqual([{ name: 'oilskin', state: 'on, collar up' }])
+    expect(after.said?.['rook abery|posture']).toBeUndefined()
+    expect(after.said?.['rook abery|sees']).toBeUndefined()
+    // Tamsin no longer touches or watches him; Pell, watching the hens, still does.
+    const tamsin = after.characters.find((c) => c.name === 'Tamsin')!
+    expect(tamsin).toMatchObject({ where: 'at the gate', posture: 'leaning on the gate', touching: '', sees: '' })
+    expect(after.said?.['tamsin|touching']).toBeUndefined()
+    expect(after.characters.find((c) => c.name === 'Pell')?.sees).toBe('watching the hens')
+    expect(stateText(after)).not.toContain('riding')
+
+    // Given again with the move: kept.
+    const sat = mergeState(before, {
+      characters: [person('Rook Abery', { where: 'in the parlour', posture: 'sitting on the settle' }), person('Tamsin', { sees: 'watching Rook through the window' })],
+      said: {}
+    })
+    expect(sat.characters.find((c) => c.name === 'Rook Abery')).toMatchObject({ posture: 'sitting on the settle', sees: '' })
+    expect(sat.characters.find((c) => c.name === 'Tamsin')).toMatchObject({ sees: 'watching Rook through the window', touching: '' })
+    // No move: the same place again (case and punctuation aside), or a first where, keeps how they are placed.
+    const same = mergeState(before, { characters: [person('Rook Abery', { where: 'On the lane - on the bay mare.', mood: 'tired' })], said: {} })
+    expect(same.characters.find((c) => c.name === 'Rook Abery')).toMatchObject({ posture: 'riding, reins in one fist', sees: 'watching Tamsin at the gate' })
+    expect(same.characters.find((c) => c.name === 'Tamsin')?.touching).toBe("her hand on Rook's stirrup")
+    const first = mergeState({ ...before, characters: [person('Rook Abery', { posture: 'kneeling' })] }, { characters: [person('Rook Abery', { where: 'by the well' })], said: {} })
+    expect(first.characters[0]).toMatchObject({ where: 'by the well', posture: 'kneeling' })
+  })
+
+  it('"the door" with two doors named just before is not the nearer one’s name: it is kept unnamed', () => {
+    // Lab round E (record 52622830): "the yard door stood open ... She put her shoulder to the door and shut it ... turned
+    // the key" was kept as the yard door locked, while she had come through the passage door. Invented words here.
+    const words =
+      "At the cellar door Tamsin set the lamp on the step. The cellar was cold, and across it the garden door hung open a hand's width, letting in the rain. She crossed, put her hip to the door and pushed it shut, and she turned the key in the lock."
+    const reply = (thing: string, state: string, quote: string) => JSON.stringify({ things: [{ thing, state, quote }] })
+    const locked = readChanges(reply('the garden door', 'shut and locked from inside, key taken out', 'put her hip to the door and pushed it shut … she turned the key in the lock'), words, 's1')!
+    expect(locked.things).toEqual([{ name: 'the door (the garden door or the cellar door?)', state: 'shut and locked from inside, key taken out' }])
+    expect(locked.said[thingKey('the door (the garden door or the cellar door?)')]).toMatchObject({ sceneId: 's1' })
+    expect(stateText(mergeState(null, locked))).toContain('- the door (the garden door or the cellar door?): shut and locked from inside, key taken out')
+    expect(unnamed('the garden door', 'put her hip to the door and pushed it shut', words)).toBe('the door (the garden door or the cellar door?)')
+
+    // Its own words name it, it is already unnamed, or only one door of its kind is named: kept as given.
+    expect(readChanges(reply('the garden door', "open a hand's width", "the garden door hung open a hand's width"), words, 's1')!.things).toEqual([
+      { name: 'the garden door', state: "open a hand's width" }
+    ])
+    expect(readChanges(reply('the cellar door', 'shut and locked', 'At the cellar door Tamsin … turned the key in the lock'), words, 's1')!.things?.[0].name).toBe('the cellar door')
+    expect(readChanges(reply('the door', 'shut and locked', 'she turned the key in the lock'), words, 's1')!.things?.[0].name).toBe('the door')
+    const one = "The heavy door creaked. Across the cellar the garden door hung open. She put her hip to the door and pushed it shut."
+    expect(unnamed('the garden door', 'put her hip to the door and pushed it shut', one)).toBe('the garden door')
+    // Something else of the kind named far back (more than a long page before) doesn't count.
+    const far = `The cellar door was painted green. ${'She waited for the rain to ease. '.repeat(50)}The garden door hung open. She put her hip to the door and pushed it shut.`
+    expect(unnamed('the garden door', 'put her hip to the door and pushed it shut', far)).toBe('the garden door')
+    // Round G: "own", a possessive or a name across a comma or a full stop is not which one it is.
+    const own = 'Tamsin came in by the cellar door and went up to her own door at the top of the stair. She pushed the door open.'
+    expect(unnamed('the cellar door', 'She pushed the door open', own)).toBe('the cellar door')
+    const whose = "Tamsin came in by the cellar door. Rook's door stood shut along the landing. She pushed the door open."
+    expect(unnamed('the cellar door', 'She pushed the door open', whose)).toBe('the cellar door')
+    const comma = 'She put the lamp on the table, her boot still in one hand. The left boot was soaked. She pulled the boot on.'
+    expect(unnamed('the left boot', 'She pulled the boot on', comma)).toBe('the left boot')
+    // A name's "'s" before a which still names which: the inn's back door and the cellar door are two.
+    const inns = "Tamsin came down past the inn's back door to the cellar door. She pushed the door open."
+    expect(unnamed('the cellar door', 'She pushed the door open', inns)).toBe('the door (the cellar door or the back door?)')
+    // Named in the quote's own sentence: borne out, though another is named before.
+    const same = 'The garden door hung open. At the cellar door she stopped, and she pushed the door open.'
+    expect(unnamed('the cellar door', 'she pushed the door open', same)).toBe('the cellar door')
+    // Not in its sentence, and two named before: still unnamed.
+    const before = 'The garden door hung open. At the cellar door she stopped. She pushed the door open.'
+    expect(unnamed('the cellar door', 'She pushed the door open', before)).toBe('the door (the cellar door or the garden door?)')
+    // About a page back is as far as it looks.
+    const page = `The cellar door was painted green. ${'She waited for the rain to ease. '.repeat(20)}The garden door hung open. She put her hip to the door and pushed it shut.`
+    expect(unnamed('the garden door', 'put her hip to the door and pushed it shut', page)).toBe('the garden door')
+    // The tracker is told so too.
+    const [system] = stateMessages(null, 'Words.', ['Tamsin'])
+    expect(system.content).toContain('it is not the nearest one named: it is the one the words show the person came through or stands at')
   })
 
   it('knows what says something is gone, and what doesn’t', () => {

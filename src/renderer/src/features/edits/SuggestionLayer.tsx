@@ -25,6 +25,19 @@ const VIEW_MARGIN = 16
 /** Room kept above the start of the change when the page scrolls to show it. */
 const START_MARGIN = 24
 
+/**
+ * How much of the bottom of the page's scrolling area something shown over it covers (`data-covers-page`: the beat
+ * bar while writing beat by beat), with a little room, so the change's buttons are kept above it.
+ */
+function coveredBelow(box: DOMRect): number {
+  let covered = 0
+  for (const el of document.querySelectorAll('[data-covers-page]')) {
+    const r = el.getBoundingClientRect()
+    if (r.height && r.top < box.bottom && r.bottom > box.top) covered = Math.max(covered, box.bottom - r.top + 8)
+  }
+  return covered
+}
+
 function useSuggestions(editor: Editor): SuggestionsState {
   const subscribe = useCallback(
     (onChange: () => void) => {
@@ -88,8 +101,9 @@ export function SuggestionLayer({
     panel.style.width = `${Math.round(prose.width)}px`
     const s = suggestionsOf(editor.state).active
     if (!follow.current || !s) return
-    // The buttons in view, and the start of the change too when it all fits.
-    const view = scroller.clientHeight
+    // The buttons in view, and the start of the change too when it all fits: above anything over the bottom of the page
+    // (the beat bar while writing beat by beat).
+    const view = scroller.clientHeight - coveredBelow(box)
     const bottom = top + panel.offsetHeight + VIEW_MARGIN
     let start = top
     try {
@@ -120,8 +134,9 @@ export function SuggestionLayer({
       const scroller = scrollerRef.current
       if (!panel || !scroller) return
       const top = panel.offsetTop
-      if (top < scroller.scrollTop || top + panel.offsetHeight > scroller.scrollTop + scroller.clientHeight) {
-        scroller.scrollTop = Math.max(0, top - scroller.clientHeight / 2)
+      const view = scroller.clientHeight - coveredBelow(scroller.getBoundingClientRect())
+      if (top < scroller.scrollTop || top + panel.offsetHeight > scroller.scrollTop + view) {
+        scroller.scrollTop = Math.max(0, top - view / 2)
       }
       editor.view.focus()
     })
@@ -278,7 +293,7 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
         ? 'Stopping…'
         : s.retrying
           ? 'The AI service is busy. Trying again…'
-          : `${TOOL_WORKING[s.tool]}…`
+          : `${s.working ?? TOOL_WORKING[s.tool]}…`
   return (
     <div className="rounded-lg border border-ai/30 bg-surface shadow-soft animate-fade-in">
       <div className="flex h-10 items-center gap-1.5 px-1.5">

@@ -584,3 +584,329 @@ test('A beat that ends out of sight is pointed to from the bar rather than in a 
     await fake.close()
   }
 })
+
+// ---------- Beat markers and writing an earlier beat again (2026-10-08) ----------
+
+const beatParas = (win: Page, n: number) => prose(win).locator(`p[data-beat="${n}"]`)
+const beatLabel = (win: Page, n: number) => win.locator(`[data-beat-label="${n}"]`)
+const beatTag = (win: Page, n: number) => beatLabel(win, n).getByRole('button', { name: new RegExp(`^Beat ${n}(,| :|:)`) })
+const beatMenu = (win: Page, n: number) => win.getByRole('menu', { name: `Beat ${n}` })
+
+type Editor = {
+  state: { selection: { empty: boolean; head: number }; doc: { resolve(pos: number): { parent: { content: { size: number } } } } }
+  view: { posAtDOM(node: unknown, offset: number): number }
+  commands: { focus(pos: number): boolean }
+}
+type Doc = { document: { querySelector(sel: string): { editor: Editor } | null } }
+
+/**
+ * Puts the caret at the end of beat `n`'s first paragraph through the editor itself (where a click lands
+ * depends on the window: a beat's label or a wrapped line), and waits until the editor has it there.
+ */
+async function caretAtEndOfBeat(win: Page, n: number): Promise<void> {
+  const end = await win.evaluate((n) => {
+    const { document } = globalThis as unknown as Doc
+    const { editor } = document.querySelector('.scene-prose')!
+    const start = editor.view.posAtDOM(document.querySelector(`.scene-prose p[data-beat="${n}"]`), 0)
+    const end = start + editor.state.doc.resolve(start).parent.content.size
+    editor.commands.focus(end)
+    return end
+  }, n)
+  const head = (): Promise<number> =>
+    win.evaluate(() => {
+      const { empty, head } = (globalThis as unknown as Doc).document.querySelector('.scene-prose')!.editor.state.selection
+      return empty ? head : -1
+    })
+  await expect.poll(head).toBe(end)
+  await expect(prose(win)).toBeFocused()
+}
+const change = (win: Page) => win.getByRole('group', { name: 'The AI’s change' })
+const changeButton = (win: Page, name: RegExp) => change(win).getByRole('button', { name })
+/** The fake writer opens a beat written again otherwise than the first time (tests/fake-provider/server.mjs). */
+const REDONE = 'By evening the rain had eased to a drizzle'
+/** How each beat opens with the fake writer's varyBeats (tests/fake-provider/server.mjs). */
+const OPENS = ['The rain had not let up', 'Tobin leaned forward', 'Three slow knocks']
+
+/**
+ * With AIWRITE_SHOTS set to a folder, a picture of the window there (invented test data only), once every animation
+ * that ends (a menu opening, say) has ended.
+ */
+async function shot(win: Page, name: string): Promise<void> {
+  const dir = process.env.AIWRITE_SHOTS
+  if (!dir) return
+  type Anim = { finished: Promise<unknown>; effect: { getComputedTiming(): { iterations?: number } } | null }
+  await win.evaluate(() =>
+    Promise.all(
+      (globalThis as unknown as { document: { getAnimations(): Anim[] } }).document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => undefined))
+    )
+  )
+  await win.waitForTimeout(100)
+  await win.screenshot({ path: `${dir}/${name}.png` })
+}
+
+/** The part of what was sent under one heading ("## The scene so far"), up to the next heading. */
+const section = (sent: string, heading: string): string => {
+  const at = sent.indexOf(`## ${heading}`)
+  if (at < 0) return ''
+  const rest = sent.slice(at + heading.length + 3)
+  const next = rest.indexOf('\n## ')
+  return next < 0 ? rest : rest.slice(0, next)
+}
+
+/** Opens a beat's menu from its label with the keyboard (the label is a button reached by Tab). */
+async function openBeatMenu(win: Page, n: number): Promise<void> {
+  await beatTag(win, n).focus()
+  await win.keyboard.press('Enter')
+  await expect(beatMenu(win, n)).toBeVisible()
+}
+
+/** Writes the three beats of the scene card, one after another, from an empty page. */
+async function writeThreeBeats(win: Page): Promise<void> {
+  await beatsButton(win).click()
+  await expect(status(win)).toHaveText('Beat 2 of 3')
+  await barButton(win, 'Write the next beat').click()
+  await expect(status(win)).toHaveText('Beat 3 of 3')
+  await barButton(win, 'Write the next beat').click()
+  await expect(status(win)).toHaveText('All 3 beats are written')
+}
+
+test('Beat markers show while writing beat by beat; an earlier beat is written again as a tracked change (Reject keeps it, Accept is one undo step), and the beats after it say so', async ({
+  launch
+}) => {
+  const fake = await fakeProvider({ words: 60, varyBeats: true })
+  try {
+    const { win, app } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    const { sceneId } = await firstScene(win)
+    await setBeats(win, sceneId, BEATS)
+    await useWriter(win, fake)
+    await watchSnapshots(app)
+    await writeThreeBeats(win)
+
+    // Each beat's paragraphs are marked; its label shows when the pointer is over the beat.
+    for (const n of [1, 2, 3]) await expect(beatParas(win, n).first()).toBeVisible()
+    await expect(beatParas(win, 2).first()).toHaveClass(/aw-beat-first/)
+    await win.mouse.move(2, 2)
+    await expect(beatTag(win, 2)).toHaveCSS('opacity', '0')
+    await beatParas(win, 2).first().hover()
+    await expect(beatTag(win, 2)).toHaveCSS('opacity', '1')
+    await expect(beatParas(win, 2).first()).toHaveClass(/aw-beat-hot/)
+    await shot(win, '1-markers-hover')
+
+    // The label is reached from the keyboard and opens the beat's menu.
+    await openBeatMenu(win, 2)
+    for (const item of ['Redo this beat', 'Change and redo…', 'What the AI saw', 'Remove this beat'])
+      await expect(beatMenu(win, 2).getByRole('menuitem', { name: item })).toBeVisible()
+    await shot(win, '2-beat-menu')
+
+    // What the AI saw opens that beat's record (not the last beat's).
+    const [, second] = await records(win)
+    await beatMenu(win, 2).getByRole('menuitem', { name: 'What the AI saw' }).click()
+    await expect(win.getByRole('heading', { name: 'What the AI saw', level: 1 })).toBeVisible()
+    await expect(win.getByText('(beat 2 of 3)', { exact: false }).first()).toBeVisible()
+    await win.getByRole('button', { name: /^Back to/ }).click()
+    await expect(status(win)).toHaveText('All 3 beats are written')
+    expect(second.params.beat).toMatchObject({ index: 2 })
+
+    // Redo this beat: written again as a tracked change in its place, from the text before it alone, leading into beat 3.
+    const before = await paragraphs(win)
+    const sentBefore = await sentCount(win, sceneId)
+    await openBeatMenu(win, 2)
+    await beatMenu(win, 2).getByRole('menuitem', { name: 'Redo this beat' }).click()
+    await expect(changeButton(win, /^Accept/)).toBeVisible()
+    await expect(prose(win).locator('.aw-sugg-new')).toContainText(REDONE)
+    await expect(beatParas(win, 2).first().locator('.aw-sugg-old')).toHaveCount(1)
+    // Accept and Reject are in view, not under the beat bar.
+    await expect.poll(() => changeButton(win, /^Accept/).evaluate(onTop)).toBe(true)
+    expect(await changeButton(win, /^Reject/).evaluate(onTop)).toBe(true)
+    await shot(win, '3-tracked-change')
+    expect(await sentCount(win, sceneId)).toBe(sentBefore + 1)
+    const sent = await lastSent(win, sceneId)
+    expect(sent).toContain('Write beat 2 of the 3 on the scene card again now, in place of the version on the page.')
+    expect(sent).toContain(`- Beat 3 (already written: it comes after this one): ${BEATS[2]}`)
+    // The scene so far is beat 1 alone (neither beat 2 nor beat 3 is in it), and beat 3's start is quoted as what comes after.
+    const soFar = section(sent, 'The scene so far')
+    expect(soFar).toContain(OPENS[0])
+    expect(soFar).not.toContain(OPENS[1])
+    expect(soFar).not.toContain(OPENS[2])
+    expect(section(sent, 'What comes after this beat')).toContain(OPENS[2])
+    const redone = (await lastRecord(win))!
+    expect(redone.params.beat).toMatchObject({ index: 2, of: 3 })
+
+    // Reject: nothing in the text changed.
+    await changeButton(win, /^Reject/).click()
+    await expect(change(win)).toHaveCount(0)
+    await expect(prose(win)).not.toContainText(REDONE)
+    expect(await paragraphs(win)).toBe(before)
+
+    // Change and redo: a one-line note for it, then Accept puts the new version in (kept in History first).
+    await openBeatMenu(win, 2)
+    await beatMenu(win, 2).getByRole('menuitem', { name: 'Change and redo…' }).click()
+    const noteBox = win.getByRole('textbox', { name: 'What to change in beat 2' })
+    await expect(noteBox).toBeFocused()
+    await noteBox.fill(NOTE)
+    await shot(win, '4-change-and-redo')
+    await win.keyboard.press('Enter')
+    await expect(changeButton(win, /^Accept/)).toBeVisible()
+    expect(await lastSent(win, sceneId)).toContain(`The author's note for this beat: ${NOTE}`)
+    await changeButton(win, /^Accept/).click()
+    await expect(change(win)).toHaveCount(0)
+    await expect(beatParas(win, 2).first()).toContainText(REDONE)
+    await expect(beatParas(win, 1).first()).not.toContainText(REDONE)
+    await expect.poll(() => snapshots(app)).toContain('Before beat 2 was written again')
+    await expect(status(win)).toHaveText('All 3 beats are written')
+
+    // Beat 3 was written before beat 2 changed: its label says so quietly, and its band is dashed. The default is to keep it.
+    await expect(beatLabel(win, 3)).toContainText('Written before beat 2 changed')
+    await expect(beatParas(win, 3).first()).toHaveClass(/aw-beat-stale/)
+    await expect(toasts(win).getByText('Beat 3 was written before beat 2 changed.', { exact: false })).toBeVisible()
+    await shot(win, '5-later-beat-note')
+
+    // Accept was one undo step: Ctrl+Z puts beat 2 back as it was (and the note goes), Ctrl+Y brings the new one again.
+    await prose(win).locator('p').last().click()
+    await win.keyboard.press('Control+z')
+    await expect(prose(win)).not.toContainText(REDONE)
+    await expect(beatLabel(win, 3)).not.toContainText('Written before')
+    await win.keyboard.press('Control+y')
+    await expect(beatParas(win, 2).first()).toContainText(REDONE)
+    await expect(beatLabel(win, 3)).toContainText('Written before beat 2 changed')
+
+    // Redo the beats after this: beat 3, as a tracked change too; accepted, its note goes.
+    await openBeatMenu(win, 2)
+    await beatMenu(win, 2).getByRole('menuitem', { name: 'Redo the next one after this (beat 3)' }).click()
+    await expect(changeButton(win, /^Accept/)).toBeVisible()
+    await expect(beatParas(win, 3).first().locator('.aw-sugg-old')).toHaveCount(1)
+    await changeButton(win, /^Accept/).click()
+    await expect(change(win)).toHaveCount(0)
+    // (The last beat has nothing after it to lead into, so the fake writer's words are as before: its record says it.)
+    await expect.poll(async () => (await invoke(win, 'getBeatMarks', sceneId))?.beats[2].versions.length).toBe(2)
+    await expect(beatLabel(win, 3)).not.toContainText('Written before')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Redoing a beat with paragraphs Adam wrote between its own says the change replaces them too, and Reject keeps them', async ({ launch }) => {
+  const fake = await fakeProvider({ words: 60, varyBeats: true })
+  const MINE = 'A line typed by hand in the middle of the beat.'
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    const { sceneId } = await firstScene(win)
+    await setBeats(win, sceneId, BEATS)
+    await useWriter(win, fake)
+    await writeThreeBeats(win)
+    expect(await beatParas(win, 2).count()).toBeGreaterThan(1)
+
+    // A paragraph of Adam's own after beat 2's first: it isn't the beat's (no marker), but it lies inside it.
+    // (The caret is put at the end of its words, so Enter splits nothing: a new empty paragraph comes after it.)
+    const first = beatParas(win, 2).first()
+    const words = (await first.textContent())!.trim()
+    const count = await prose(win).locator('p').count()
+    await caretAtEndOfBeat(win, 2)
+    await win.keyboard.press('Enter')
+    await expect(prose(win).locator('p')).toHaveCount(count + 1)
+    await expect(first.locator('xpath=following-sibling::p[1]')).not.toHaveAttribute('data-beat', /.*/)
+    await win.keyboard.type(MINE)
+    await expect(first).toHaveText(words)
+    const mine = prose(win).locator('p', { hasText: MINE })
+    await expect(mine).toHaveCount(1)
+    await expect(mine).toHaveText(MINE)
+    await expect(mine).not.toHaveAttribute('data-beat', /.*/)
+    await expect(first.locator('xpath=following-sibling::p[1]')).toHaveText(MINE)
+    const before = await paragraphs(win)
+
+    // Redo this beat: the tracked change says it replaces that paragraph too, from the start and once written.
+    await openBeatMenu(win, 2)
+    await beatMenu(win, 2).getByRole('menuitem', { name: 'Redo this beat' }).click()
+    await expect(changeButton(win, /^Accept/)).toBeVisible()
+    await expect(change(win)).toContainText('This also replaces 1 paragraph you wrote yourself. Reject keeps it.')
+    await expect(prose(win).locator('.aw-sugg-new')).toContainText(REDONE)
+    await shot(win, '7-replaces-your-words')
+
+    // Reject: Adam's paragraph is still there, and nothing else changed.
+    await changeButton(win, /^Reject/).click()
+    await expect(change(win)).toHaveCount(0)
+    await expect(mine).toHaveCount(1)
+    expect(await paragraphs(win)).toBe(before)
+
+    // A beat with nothing of Adam's inside it says nothing of the kind.
+    await openBeatMenu(win, 1)
+    await beatMenu(win, 1).getByRole('menuitem', { name: 'Redo this beat' }).click()
+    await expect(changeButton(win, /^Accept/)).toBeVisible()
+    await expect(change(win)).not.toContainText('you wrote yourself')
+    await changeButton(win, /^Reject/).click()
+    await expect(change(win)).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Remove this beat keeps the scene in History and Ctrl+Z puts it back; after Finish the markers go unless Show beats is on, and they come back after a restart', async ({
+  launch
+}) => {
+  const fake = await fakeProvider({ words: 60, varyBeats: true })
+  try {
+    const { win, app } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    const { sceneId } = await firstScene(win)
+    await setBeats(win, sceneId, BEATS)
+    await useWriter(win, fake)
+    await watchSnapshots(app)
+    await writeThreeBeats(win)
+    const all = await paragraphs(win)
+    const two = await beatParas(win, 2).count()
+
+    // Remove beat 2: its paragraphs go as one step, the scene kept in History first.
+    await openBeatMenu(win, 2)
+    await beatMenu(win, 2).getByRole('menuitem', { name: 'Remove this beat' }).click()
+    await expect(beatParas(win, 2)).toHaveCount(0)
+    expect(await paragraphs(win)).toBe(all - two)
+    await expect(toasts(win).getByText('Beat 2 is taken out. Ctrl+Z puts it back.')).toBeVisible()
+    await expect.poll(() => snapshots(app)).toContain('Before beat 2 was taken out')
+    await prose(win).locator('p').last().click()
+    await win.keyboard.press('Control+z')
+    await expect(beatParas(win, 2)).toHaveCount(two)
+    expect(await paragraphs(win)).toBe(all)
+
+    // Finish: the markers go with the bar.
+    await barButton(win, 'Finish').click()
+    await expect(bar(win)).toBeHidden()
+    await expect(prose(win).locator('p[data-beat]')).toHaveCount(0)
+    await expect(win.locator('[data-beat-label]')).toHaveCount(0)
+
+    // Show beats (from the palette): they come back, the same beats, and outlive a restart of the window.
+    await win.keyboard.press('Control+K')
+    await win.keyboard.type('show beats')
+    await expect(palette(win).getByRole('option', { selected: true })).toContainText('Show beats')
+    await win.keyboard.press('Enter')
+    for (const n of [1, 2, 3]) await expect(beatParas(win, n).first()).toBeVisible()
+    await expect.poll(async () => (await invoke(win, 'getSettings')).editor.showBeats).toBe(true)
+    await expect.poll(async () => (await invoke(win, 'getBeatMarks', sceneId))?.beats.map((b) => b.index)).toEqual([1, 2, 3])
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+    for (const n of [1, 2, 3]) await expect(beatParas(win, n).first()).toBeVisible()
+    await expect(beatParas(win, 2)).toHaveCount(two)
+    await shot(win, '6-show-beats-after-restart')
+
+    // After Finish, an earlier beat is still written again as a tracked change.
+    await openBeatMenu(win, 1)
+    await beatMenu(win, 1).getByRole('menuitem', { name: 'Redo this beat' }).click()
+    await expect(changeButton(win, /^Accept/)).toBeVisible()
+    await expect(beatParas(win, 1).first().locator('.aw-sugg-old')).toHaveCount(1)
+    await changeButton(win, /^Reject/).click()
+    await expect(change(win)).toHaveCount(0)
+
+    // Hide beats: gone again.
+    await win.keyboard.press('Control+K')
+    await win.keyboard.type('hide beats')
+    await expect(palette(win).getByRole('option', { selected: true })).toContainText('Hide beats')
+    await win.keyboard.press('Enter')
+    await expect(prose(win).locator('p[data-beat]')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})

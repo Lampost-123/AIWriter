@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type Database from 'better-sqlite3'
 import * as repo from '../../src/main/db/repo'
 import { purgeTrash } from '../../src/main/db/trash'
+import { getBeatMarks, saveBeatMarks } from '../../src/main/beats/marks'
+import type { SceneBeatMarks } from '../../src/shared/contracts/beats'
 import { memoryWorld } from './helpers'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -113,5 +115,34 @@ describe('purgeTrash', () => {
     const db = memoryWorld()
     expect(purgeTrash(db, 30, NOW)).toEqual({ stories: 0, chapters: 0, scenes: 0, entries: 0, generations: 0 })
     expect(count(db, 'scenes')).toBe(1)
+  })
+
+  it("forgets a scene's beat markers once it goes for good, never while it can still be restored", () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const [ch] = repo.getOutline(db, story.id).chapters
+    const [live] = repo.getOutline(db, story.id).scenes
+    const old = repo.createScene(db, ch.id)
+    const recent = repo.createScene(db, ch.id)
+    const marks = (sceneId: string): SceneBeatMarks => ({
+      sceneId,
+      sessionId: 'sess',
+      of: 2,
+      mode: 'whole',
+      beats: [{ index: 1, pids: ['p1'], versions: [{ recordId: 'g1', at: 1, sig: 'x' }] }]
+    })
+    for (const id of [live.id, old.id, recent.id]) saveBeatMarks(db, id, marks(id))
+    // One left behind by a scene that went another way.
+    repo.setMeta(db, 'beat_marks:no-such-scene', JSON.stringify(marks('no-such-scene')))
+    setDeleted(db, 'scenes', old.id, daysAgo(31))
+    setDeleted(db, 'scenes', recent.id, daysAgo(2))
+
+    purgeTrash(db, 30, NOW)
+    expect(getBeatMarks(db, old.id)).toBeNull()
+    expect(repo.getMeta(db, 'beat_marks:no-such-scene')).toBeNull()
+    expect(getBeatMarks(db, live.id)?.sessionId).toBe('sess')
+    // Restored from Recently deleted, its beats are still there.
+    repo.restoreDeleted(db, 'scene', recent.id)
+    expect(getBeatMarks(db, recent.id)?.beats[0].pids).toEqual(['p1'])
   })
 })
