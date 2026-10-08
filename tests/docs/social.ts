@@ -8,7 +8,15 @@ import { pathToFileURL } from 'node:url'
 const url = (path: string): string => pathToFileURL(path).href
 
 /** The page, with file addresses for the fonts the app bundles (out/renderer/assets), the icon and hero.png. */
-export function socialPage(root: string): string {
+/** The New look's colours for the card: background, text, quieter text, the sheet's paper and its shadow's hue. */
+const COLOURS = {
+  dark: { bg: '#12110f', fg: '#eee8de', muted: '#aaa295', page: '#221f1c', shadow: '0 0 0 1px rgb(255 240 220 / 0.08), 0 2px 4px rgb(0 0 0 / 0.3), 0 14px 34px rgb(0 0 0 / 0.45), 0 40px 80px -20px rgb(0 0 0 / 0.55)' },
+  light: { bg: '#ebe5da', fg: '#221d17', muted: '#574f45', page: '#fffdf9', shadow: '0 0 0 1px rgb(80 55 25 / 0.08), 0 2px 4px rgb(80 55 25 / 0.06), 0 14px 34px rgb(80 55 25 / 0.14), 0 40px 80px -20px rgb(80 55 25 / 0.2)' },
+  sepia: { bg: '#e5d9c0', fg: '#3b2f22', muted: '#56493a', page: '#faf4e5', shadow: '0 0 0 1px rgb(80 55 25 / 0.08), 0 2px 4px rgb(80 55 25 / 0.06), 0 14px 34px rgb(80 55 25 / 0.14), 0 40px 80px -20px rgb(80 55 25 / 0.2)' }
+}
+
+export function socialPage(root: string, theme: keyof typeof COLOURS = 'dark'): string {
+  const c = COLOURS[theme]
   const assets = join(root, 'out', 'renderer', 'assets')
   const files = readdirSync(assets)
   const font = (prefix: string): string => {
@@ -25,15 +33,15 @@ export function socialPage(root: string): string {
 @font-face { font-family: 'Literata Variable'; src: url('${literata}') format('woff2'); font-weight: 200 900; }
 @font-face { font-family: 'Inter Variable'; src: url('${inter}') format('woff2'); font-weight: 100 900; }
 html, body { margin: 0; width: 1280px; height: 640px; overflow: hidden; }
-body { background: #ebe5da; color: #221d17; font-family: 'Inter Variable', sans-serif; position: relative; }
+body { background: ${c.bg}; color: ${c.fg}; font-family: 'Inter Variable', sans-serif; position: relative; }
 .left { position: absolute; left: 60px; top: 0; bottom: 0; width: 466px; display: flex; flex-direction: column; justify-content: center; }
-.icon { width: 112px; height: 112px; margin-bottom: 28px; filter: drop-shadow(0 6px 14px rgb(80 55 25 / 0.18)); }
+.icon { width: 112px; height: 112px; margin-bottom: 28px; filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.3)); }
 h1 { font-family: 'Literata Variable', serif; font-weight: 600; font-size: 72px; line-height: 1; letter-spacing: -0.01em; margin: 0 0 22px; }
-.tag { font-size: 28px; line-height: 1.32; font-weight: 450; margin: 0 0 30px; color: #221d17; }
-.small { font-size: 17px; color: #574f45; font-weight: 500; white-space: nowrap; }
+.tag { font-size: 28px; line-height: 1.32; font-weight: 450; margin: 0 0 30px; color: ${c.fg}; }
+.small { font-size: 17px; color: ${c.muted}; font-weight: 500; white-space: nowrap; }
 .sheet { position: absolute; right: 44px; top: 50px; width: 700px; height: 540px; border-radius: 16px; overflow: hidden;
-  background: #fffdf9 url('${hero}') no-repeat; background-size: 907px auto; background-position: -199px -27px;
-  box-shadow: 0 0 0 1px rgb(80 55 25 / 0.08), 0 2px 4px rgb(80 55 25 / 0.06), 0 14px 34px rgb(80 55 25 / 0.14), 0 40px 80px -20px rgb(80 55 25 / 0.2); }
+  background: ${c.page} url('${hero}') no-repeat; background-size: 907px auto; background-position: -199px -27px;
+  box-shadow: ${c.shadow}; }
 </style></head><body>
 <div class="left">
   <img class="icon" src="${icon}" alt="">

@@ -2,13 +2,18 @@
 //
 //   npm run docs:screenshots                       builds the app, then takes every shot
 //   DOCS_SHOTS=hero,ask npm run docs:screenshots   only those (names without .png)
+//   DOCS_THEME=light npm run docs:screenshots      another theme (dark, light or sepia)
+//
+// Every shot is in the Dark theme by default (Settings › Appearance › Theme, set in the app's own settings), Classic
+// and the start screen included, and so is the social preview card (social-preview.png, 1280 x 640).
 //
 // Not part of the app tests or CI: it has its own config (tests/docs/playwright.config.ts) and the main
 // playwright.config.ts only looks in tests/e2e. Everything is invented and nothing costs anything:
 //  - the app runs on its own temp data folder (AIWRITE_DATA_DIR), never anyone's real worlds or settings;
 //  - the world is the built-in sample, Gullhaven, renamed "Gullhaven" so it reads as a world of one's own (the
-//    start screen shot keeps the sample as it comes);
-//  - AI text comes from a stand-in server on 127.0.0.1 (tests/docs/provider.ts) with text from content.ts;
+//    start screen shot keeps the sample as it comes, beside a made-up world, "The Salt Road");
+//  - AI text comes from a stand-in server (tests/docs/provider.ts), shown as LM Studio on localhost:1234, with text
+//    from content.ts;
 //  - read aloud uses the tests' fake speech server; no models are downloaded;
 //  - portraits are painted in the window (portraits.ts).
 // Each picture is shrunk to 1440 wide with Electron's own image tools and saved as soon as it is taken.
@@ -29,6 +34,8 @@ import { socialPage } from './social'
 const WIDTH = Number(process.env.DOCS_WIDTH ?? 1600)
 const HEIGHT = Math.round((WIDTH * 10) / 16)
 const OUT_WIDTH = 1440
+/** Settings › Appearance › Theme for every shot (the owner's choice, 2026-10-08): Dark, unless DOCS_THEME says otherwise. */
+const THEME = (process.env.DOCS_THEME ?? 'dark') as 'dark' | 'light' | 'sepia'
 const IMAGES = join(ROOT, 'docs', 'images')
 /** Above this, a picture is saved with a palette of 256 colours instead. */
 const MAX_BYTES = 400 * 1024
@@ -191,7 +198,7 @@ async function prepare(ai: DocsProvider): Promise<string> {
   const { app, win } = first
   await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   await invoke(win, 'openSampleWorld')
-  await invoke(win, 'updateSettings', { theme: 'light' })
+  await invoke(win, 'updateSettings', { theme: THEME })
   await connect(win, ai)
   for (const e of await invoke(win, 'listEntries', 'character')) {
     const look = LOOKS[e.name]
@@ -281,7 +288,7 @@ async function prepareStart(ai: DocsProvider): Promise<string> {
     }
   }
   await invoke(win, 'openSampleWorld')
-  await invoke(win, 'updateSettings', { theme: 'light' })
+  await invoke(win, 'updateSettings', { theme: THEME })
   await connect(win, ai)
   await closeWindow(app)
   await first.close()
@@ -323,7 +330,7 @@ test('docs screenshots', async () => {
     // GitHub's social preview card, drawn from a small page of its own in a hidden window, with part of hero.png.
     await take('social', async () => {
       const file = join(dataDir, 'social-preview.html')
-      writeFileSync(file, socialPage(ROOT))
+      writeFileSync(file, socialPage(ROOT, THEME))
       const card = await app.evaluate(async ({ BrowserWindow }, path) => {
         const w = new BrowserWindow({ show: false, width: 1280, height: 640, useContentSize: true, webPreferences: { offscreen: true } })
         try {
@@ -533,15 +540,6 @@ test('docs screenshots', async () => {
       await openScene(win, 'Lighting the Lamp')
     })
 
-    await take('hero-dark', async () => {
-      await invoke(win, 'updateSettings', { theme: 'dark' })
-      await win.reload()
-      await expect(prose(win)).toBeVisible()
-      await openScene(win, 'Lighting the Lamp')
-      await panelTab(win, 'Scene card')
-      await shot(app, win, 'hero-dark')
-      await invoke(win, 'updateSettings', { theme: 'light' })
-    })
   } finally {
     await open?.close()
     await (speech as { close(): Promise<void> } | null)?.close()

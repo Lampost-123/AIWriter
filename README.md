@@ -20,10 +20,7 @@ so chapter forty still agrees with chapter one.
 </div>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-    <img src="docs/images/hero.png" alt="AI Write with a scene open, the binder on the left and the scene card on the right" width="900">
-  </picture>
+  <img src="docs/images/hero.png" alt="AI Write with a scene open, the binder on the left and the scene card on the right" width="900">
 </p>
 
 ## Why AI Write
@@ -205,7 +202,7 @@ beside the words, so that doesn't happen.
   <img src="docs/images/start-screen.png" alt="The start screen with worlds and stories" width="49%">
   <img src="docs/images/look-classic.png" alt="AI Write in the Classic look" width="49%">
 </p>
-<p align="center"><sub>The start screen, and the same app in the <b>Classic</b> look. There are Light, Dark and Sepia themes too.</sub></p>
+<p align="center"><sub>The start screen, and the same app in the <b>Classic</b> look. Every picture here uses the Dark theme; there are Light and Sepia themes too.</sub></p>
 
 ## Quick start
 
