@@ -123,8 +123,20 @@ describe('sourceNote', () => {
       kind: 'words',
       quote: 'she lost her hand',
       sceneId: 's1',
+      paragraphId: 'p1',
       changed: false,
       more: 1
+    })
+  })
+
+  it('keeps the paragraph of words edited since, so the page can show where they were', () => {
+    expect(sourceNote('text', [{ ...link('changed', 'old words'), paragraphId: 'p9' }])).toEqual({
+      kind: 'words',
+      quote: 'old words',
+      sceneId: 's1',
+      paragraphId: 'p9',
+      changed: true,
+      more: 0
     })
   })
 
