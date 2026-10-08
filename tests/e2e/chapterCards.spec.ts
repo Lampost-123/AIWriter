@@ -9,7 +9,7 @@
 //
 // With AIWRITE_SHOTS set to a folder, pictures of the window go there once every animation has ended.
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openSettings, test, useFakeModel } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
@@ -150,6 +150,57 @@ test('a chapter card reaches the scenes that follow it; a scene keeps what it ch
   await chapterCard(win).getByRole('button', { name: 'Back to Scene card' }).click()
   await expect(sceneCard(win)).toBeVisible()
   await expect(sceneCard(win).getByRole('textbox', { name: /^Mood or tone/ })).toHaveValue('Hushed, salt in the air')
+})
+
+test('the palette opens the chapter card; a scene restored from Recently deleted takes the card as it is now', async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Calloway Point')
+  await makeCast(win)
+  await addScene(win, 'Chapter 1', 'Scene 2')
+  await sceneRow(win, 'Scene 1').click()
+  await expect(sceneCard(win)).toBeVisible()
+
+  // ----- "Chapter card" in the palette opens the open scene's chapter's card -----
+  await win.keyboard.press('Control+K')
+  await win.getByRole('combobox', { name: 'Search, or find an action' }).fill('chapter card')
+  const palette = win.getByRole('dialog', { name: 'Search' })
+  await expect(palette.getByRole('option', { selected: true })).toContainText('Chapter card')
+  await win.keyboard.press('Enter')
+  const card = chapterCard(win)
+  await expect(card.getByRole('heading', { name: 'Chapter card: Chapter 1' })).toBeVisible()
+  await pick(win, card, 'Point of view', 'Wren Calloway')
+  await expect(toastWith(win, 'Updated 2 scenes that follow this chapter card.')).toBeVisible()
+  await expect(card.getByText('Saved')).toBeVisible()
+  const [story] = await invoke(win, 'listStories')
+  const [, second] = (await invoke(win, 'getOutline', story.id)).scenes.map((s) => s.id)
+  await expect.poll(async () => (await invoke(win, 'getScene', second)).card.povId).toBeTruthy()
+  // Its toast goes, so the next change has a toast of its own.
+  await toastWith(win, 'Updated 2 scenes').getByRole('button', { name: 'Dismiss' }).click()
+  await expect(toastWith(win, 'that follow this chapter card')).toHaveCount(0)
+
+  // ----- Scene 2 goes to Recently deleted; the chapter card changes meanwhile -----
+  await sceneRow(win, 'Scene 2').focus()
+  await win.keyboard.press('Delete')
+  await expect(sceneRow(win, 'Scene 2')).toHaveCount(0)
+  await chapterRow(win, 'Chapter 1').click()
+  await pick(win, chapterCard(win), 'Location', 'Gull Quay')
+  await chapterCard(win).getByLabel('Mood or tone', { exact: true }).fill('Storm coming')
+  await expect(chapterCard(win).getByText('Saved')).toBeVisible()
+  await expect(toastWith(win, 'Updated 1 scene that follows this chapter card.')).toBeVisible()
+
+  // ----- Restored, it has the chapter's card as it is now -----
+  await openSettings(win, 'Recently deleted')
+  const list = win.getByRole('list', { name: 'Recently deleted' })
+  await list.getByRole('button', { name: 'Restore “Scene 2”' }).click()
+  await expect(win.getByText('Nothing deleted lately')).toBeVisible()
+  await sceneRow(win, 'Scene 2').click()
+  await expect(sceneCard(win)).toBeVisible()
+  await expect(sceneCard(win).getByRole('combobox', { name: /^Location/ })).toHaveText('Gull Quay')
+  await expect(part(win, 'Location')).toContainText('From chapter')
+  await expect(sceneCard(win).getByRole('textbox', { name: /^Mood or tone/ })).toHaveValue('Storm coming')
+  await expect(sceneCard(win).getByRole('combobox', { name: 'Point of view (from the chapter card)' })).toHaveText('Wren Calloway')
+  const restored = (await invoke(win, 'getScene', second)).card
+  expect([restored.inherits?.location, restored.inherits?.mood]).toEqual([true, true])
 })
 
 test('the outline helper fills each chapter card, and a scene somewhere else keeps that as its own', async ({ launch }) => {

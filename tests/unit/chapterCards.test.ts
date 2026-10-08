@@ -145,6 +145,42 @@ describe('chapter cards', () => {
     expect(repo.getChapterCard(db, ch).povId).toBe(wren)
   })
 
+  it('go back into a scene restored from Recently deleted: followed parts update, empty unsettled ones fill, its own stay', () => {
+    const { db, ch, wren, odo, tower, quay } = lighthouse()
+    const [first] = scenesOf(db, ch)
+    repo.saveChapterCard(db, ch, card({ povId: wren, when: 'Day 1, dawn' }))
+    // The point of view follows the chapter, the When is the scene's own, and the location and mood are unsettled
+    // (no mark): the location has a value of the scene's, the mood is empty.
+    db.prepare('UPDATE scenes SET card_json = ? WHERE id = ?').run(
+      JSON.stringify({ povId: wren, when: 'Day 1, noon', locationId: tower, inherits: { pov: true, when: false } }),
+      first
+    )
+    let c = repo.getScene(db, first).card
+    expect([c.inherits?.pov, c.inherits?.when, c.inherits?.location, c.inherits?.mood]).toEqual([true, false, undefined, undefined])
+    repo.deleteScene(db, first)
+    // The chapter card changes while the scene is deleted: the deleted scene isn't written.
+    const saved = repo.saveChapterCard(db, ch, card({ povId: odo, locationId: quay, when: 'Day 9, dusk', mood: 'Grey' }))
+    expect(saved.updated.map((u) => u.sceneId)).not.toContain(first)
+    const stored = db.prepare('SELECT card_json FROM scenes WHERE id = ?').get(first) as { card_json: string }
+    expect(JSON.parse(stored.card_json).povId).toBe(wren)
+    repo.restoreDeleted(db, 'scene', first)
+    c = repo.getScene(db, first).card
+    expect([c.povId, c.when, c.locationId, c.mood]).toEqual([odo, 'Day 1, noon', tower, 'Grey'])
+    expect([c.inherits?.pov, c.inherits?.when, c.inherits?.location, c.inherits?.mood]).toEqual([true, false, undefined, true])
+  })
+
+  it('leave a restored scene alone when nothing changed while it was deleted', () => {
+    const { db, ch, wren } = lighthouse()
+    const [first] = scenesOf(db, ch)
+    repo.saveChapterCard(db, ch, card({ povId: wren }))
+    const before = repo.getScene(db, first)
+    repo.deleteScene(db, first)
+    repo.restoreDeleted(db, 'scene', first)
+    const after = repo.getScene(db, first)
+    expect(after.card).toEqual(before.card)
+    expect(after.updatedAt).toBe(before.updatedAt)
+  })
+
   it('are filled from a chapter plan’s names, only where empty, names it doesn’t know left out', () => {
     const { db, ch, wren, odo, tower } = lighthouse()
     repo.saveChapterCard(db, ch, card({ mood: 'Adam’s own mood' }))

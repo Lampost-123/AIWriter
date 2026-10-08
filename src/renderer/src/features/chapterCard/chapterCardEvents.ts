@@ -41,7 +41,7 @@ const live = (): Batch | null => {
   return batch
 }
 
-const messageFor = (n: number): string => `Updated ${scenesWord(n)} that follow this chapter card.`
+const messageFor = (n: number): string => `Updated ${scenesWord(n)} that ${n === 1 ? 'follows' : 'follow'} this chapter card.`
 
 /** After a chapter card is saved: "Updated 3 scenes" with Undo, when it changed any scene card. */
 export function announceChapterCard(chapterId: ID, before: ChapterCard, saved: ChapterCardSaved): void {

@@ -252,6 +252,13 @@ export function restoreDeleted(db: DB, kind: Restorable, id: ID): void {
       ).run(chapterId)
       // Things added since may have taken its place number: number them again so the order stays clear.
       if (kind === 'scene') renumber(db, 'scenes', sceneIds(db, chapterId))
+      // Its chapter's card may have changed while it was deleted: the parts it follows take the chapter's value now,
+      // and an empty part it never settled takes the chapter's; a part of its own stays (adoptChapter 'follow').
+      if (kind === 'scene' && row.deleted_at) {
+        const was = getScene(db, id).card
+        const next = adoptChapter(was, getChapterCard(db, chapterId), 'follow')
+        if (JSON.stringify(next) !== JSON.stringify(was)) writeCard(db, id, next, now())
+      }
       if (kind === 'chapter' || chapterBack) {
         const storyId = (db.prepare('SELECT story_id FROM chapters WHERE id = ?').get(chapterId) as Row).story_id as string
         renumber(db, 'chapters', chapterIds(db, storyId))

@@ -183,7 +183,7 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
             {title}
           </h2>
           <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-            What this chapter’s scenes share. {sceneCount ? `Its ${scenesWord(sceneCount)} follow` : 'Its scenes follow'} each part
+            What this chapter’s scenes share. {sceneCount === 1 ? 'Its 1 scene follows' : sceneCount ? `Its ${scenesWord(sceneCount)} follow` : 'Its scenes follow'} each part
             until you give a scene its own on its card. New scenes start with it.
           </p>
         </div>
