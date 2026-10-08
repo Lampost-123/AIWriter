@@ -289,6 +289,7 @@ export function WorldGallery({
   } else if (!all.length) {
     body = (
       <EmptyState
+        art="codex"
         icon={<LayoutGrid size={20} />}
         title="Nothing in the world yet"
         className="mt-[6vh] max-w-md"
@@ -319,6 +320,8 @@ export function WorldGallery({
   } else if (!total) {
     body = (
       <EmptyState
+        // No characters yet (the Characters tab, nothing else asked): the monograms; else the search's lens.
+        art={filters.kind === 'character' && !filtersOn({ ...filters, kind: null }) ? 'characters' : 'search'}
         icon={<Search size={20} />}
         title="Nothing matches"
         className="mt-4"

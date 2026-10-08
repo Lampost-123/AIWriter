@@ -442,6 +442,7 @@ function NoScene(): React.JSX.Element {
   return (
     <div className="flex h-full items-start justify-center bg-page pt-[16vh] desk:bg-transparent">
       <EmptyState
+        art="scenes"
         icon={<Feather size={20} />}
         title={hasScenes ? 'No scene open' : 'Nothing written yet'}
         actions={

@@ -52,6 +52,7 @@ import {
   type ThreadRow
 } from './homeLogic'
 import './home.css'
+import './homeLife.css'
 
 const fmt = (x: number): string => x.toLocaleString('en-GB')
 /** An arriving piece's delay. */
@@ -156,7 +157,7 @@ export function StoryHome(): React.JSX.Element {
               onClick={continueWriting}
               aria-label={lastScene ? `Open the book where you left off, at ${lastScene.title}` : 'Open the book'}
             >
-              <BookCover title={title} kicker={kicker} foot={world ? `A ${world.name.replace(/^Sample world:\s*/i, '')} story` : ''} hue={cover.hue} art={cover.art} />
+              <BookCover title={title} kicker={kicker} foot={world ? `A ${world.name.replace(/^Sample world:\s*/i, '')} story` : ''} hue={cover.hue} art={cover.art} live />
             </button>
             {story ? (
               <CoverPicker story={story} motif={cover.motif} hue={cover.hue}>

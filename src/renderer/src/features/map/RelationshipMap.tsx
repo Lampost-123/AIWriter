@@ -134,6 +134,7 @@ export function RelationshipMap(): React.JSX.Element {
             empty={
               !data.any ? (
                 <EmptyState
+                  art="map"
                   icon={<Network size={20} />}
                   title="No relationships yet"
                   actions={

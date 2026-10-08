@@ -72,6 +72,8 @@ export const GalleryCard = memo(function GalleryCard({
     'data-shape': shape,
     'data-featured': featured || undefined,
     'data-opened': opened || undefined,
+    // Hovered, its drawing plays its small movement (components/art/motifMotion.css).
+    'data-art-hover': '',
     'aria-haspopup': 'dialog' as const,
     onClick: open,
     style: delay === null ? undefined : ({ '--d': `${delay}ms` } as React.CSSProperties)

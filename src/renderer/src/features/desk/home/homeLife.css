@@ -1,0 +1,129 @@
+/*
+  The story home's living art (UI overhaul, "living art"; BookCover's `live`, StoryHome). The cover: two sets of stars
+  twinkle, the swell rolls a few pixels, a slow sheen crosses the cover every eleven seconds (the glow's breath is in
+  home.css). The home's arrival, filling the gaps: each chapter's ring draws its segments in, a resolved thread's knot
+  pops onto its string. The scene you are at on the shelf has a ring that breathes. Transforms, opacity and
+  stroke-dashoffset only; still while the window is away and with less motion (components/art/living.css; the arrival
+  never plays with less motion, layout/desk/arrival.ts).
+*/
+[data-arrangement='desk'] .bk-cover > .cv-layer {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .cv-twinkle {
+  opacity: 0.7;
+}
+@keyframes cv-twinkle {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+@keyframes cv-sea {
+  from {
+    transform: translateX(-2.4%);
+  }
+  to {
+    transform: translateX(2.4%);
+  }
+}
+@keyframes cv-glint {
+  0% {
+    transform: translateX(-130%) skewX(-16deg);
+    opacity: 0;
+  }
+  4% {
+    opacity: 1;
+  }
+  22% {
+    transform: translateX(260%) skewX(-16deg);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(260%) skewX(-16deg);
+    opacity: 0;
+  }
+}
+[data-arrangement='desk'] .book-cover[data-live] .cv-tw1 {
+  animation: cv-twinkle 3.8s ease-in-out -1.2s infinite;
+}
+[data-arrangement='desk'] .book-cover[data-live] .cv-tw2 {
+  animation: cv-twinkle 4.6s ease-in-out -2.9s infinite;
+}
+[data-arrangement='desk'] .book-cover[data-live] .cv-sea1 {
+  animation: cv-sea 8s cubic-bezier(0.65, 0, 0.35, 1) infinite alternate;
+}
+[data-arrangement='desk'] .book-cover[data-live] .cv-sea2 {
+  animation: cv-sea 9.5s cubic-bezier(0.65, 0, 0.35, 1) infinite alternate-reverse;
+}
+/* A soft band of light that crosses the cover now and then, as if the lamp caught it. */
+[data-arrangement='desk'] .cv-glint {
+  top: -10%;
+  bottom: -10%;
+  left: 0;
+  width: 34%;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(90deg, rgb(255 248 232 / 0), rgb(255 248 232 / 0.13) 45%, rgb(255 248 232 / 0.2) 50%, rgb(255 248 232 / 0.13) 55%, rgb(255 248 232 / 0));
+  animation: cv-glint 11s cubic-bezier(0.45, 0, 0.25, 1) 2.4s infinite;
+}
+
+/* The arrival's gaps: chapter rings draw their segments in; a resolved thread's knot pops onto its string. */
+@keyframes home-seg-in {
+  from {
+    stroke-dashoffset: var(--seg, 10);
+  }
+}
+@keyframes home-knot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}
+[data-arrangement='desk'] .desk-home[data-arrive] .home-seg {
+  animation: home-seg-in 480ms var(--motion-glide) var(--d, 0ms) backwards;
+}
+[data-arrangement='desk'] .desk-home[data-arrive] .home-th-svg .th-knot {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: home-knot-in 320ms var(--motion-spring) calc(var(--d, 0ms) + 380ms) backwards;
+}
+
+/* The scene you are at, on the shelf: a ring that breathes, slowly. */
+@keyframes home-here {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.5);
+  }
+}
+[data-arrangement='desk'] .home-sdot.is-cur {
+  position: relative;
+}
+[data-arrangement='desk'] .home-sdot.is-cur::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--primary);
+  opacity: 0;
+  pointer-events: none;
+  animation: home-here 3.6s ease-in-out 1.2s infinite;
+}
+:root[data-art-still] .home-sdot.is-cur::after {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-arrangement='desk'] .home-sdot.is-cur::after {
+    animation: none;
+  }
+}

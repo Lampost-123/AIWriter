@@ -57,6 +57,7 @@ export function IssuesTab({
       </div>
       {nothing ? (
         <EmptyState
+          art="clear"
           icon={groups.ignored ? <CircleCheck size={20} /> : <SearchCheck size={20} />}
           title={groups.ignored ? 'Nothing left to look at' : 'No issues found'}
           className="mt-[4vh]"

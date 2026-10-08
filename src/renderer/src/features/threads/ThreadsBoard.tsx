@@ -51,6 +51,7 @@ export function ThreadsBoard(): React.JSX.Element {
         ) : (
           <div className="flex-1 overflow-auto">
             <EmptyState
+              art="threads"
               icon={<Spool size={20} />}
               title="No plot threads yet"
               className="mt-[8vh]"

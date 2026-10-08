@@ -12,7 +12,8 @@ export function Portrait({
   entry,
   size = 40,
   className,
-  motif
+  motif,
+  live = false
 }: {
   entry: Pick<Entry, 'name' | 'kind' | 'image'>
   /** Width and height in pixels. */
@@ -23,6 +24,8 @@ export function Portrait({
    * first letter. Adam's own portrait always wins. Only the desk passes one, so the panels and Classic are unchanged.
    */
   motif?: string | null
+  /** The drawing's quiet idle loop, where it is the one picture (the dossier: components/art/Motif). */
+  live?: boolean
 }): React.JSX.Element {
   // A picture that fails to load (removed since) falls back to the letter, never a broken image.
   const [failed, setFailed] = useState<string | null>(null)
@@ -45,7 +48,7 @@ export function Portrait({
       {src ? (
         <img src={src} alt="" draggable={false} decoding="async" loading="lazy" onError={() => setFailed(src)} className="h-full w-full object-cover" />
       ) : motif ? (
-        <Motif id={motif} size={Math.round(size * 0.72)} />
+        <Motif id={motif} size={Math.round(size * 0.72)} live={live} reveal={live} />
       ) : (
         entryInitial(entry.name)
       )}

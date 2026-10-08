@@ -8,6 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { BoardMarks, BoardSceneCard, ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID, Outline, SceneMeta } from '@shared/types'
+import { EmptyArt } from '@/components/art/EmptyArt'
 import { Check, Plus, Sparkles } from '@/components/ui/icons'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -506,9 +507,14 @@ function NextChapter({ layout, outline, storyId }: { layout: BoardLayout; outlin
         <span className="board-prog is-dashed" aria-hidden />
       </div>
       <div className="board-ghost is-next" style={{ position: 'relative', height: layout.next.ghost.h, marginTop: HEAD_H - 64 } as CSSProperties}>
-        <span className="board-gh-plus">
-          <Plus size={18} />
-        </span>
+        {/* A story with nothing planned yet: the empty board's picture (cards falling into place, a thread between them). */}
+        {blank ? (
+          <EmptyArt name="board" className="board-gh-art" />
+        ) : (
+          <span className="board-gh-plus">
+            <Plus size={18} />
+          </span>
+        )}
         <span className="board-gh-title">Chapter {numberWords(n)}</span>
         <span className="board-gh-sub">{blank ? 'Plan the story from its premise, or add a chapter.' : 'Add it, or plan it from the open threads.'}</span>
         <span className="board-gh-actions">

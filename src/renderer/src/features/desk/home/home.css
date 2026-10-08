@@ -172,10 +172,17 @@
   stroke-linecap: round;
   opacity: 0.28;
 }
+/* The glow the drawing stands in (its own layer, at 106, 172 in the cover's 212 by 300 box), breathing on the home. */
 [data-arrangement='desk'] .cv-glow {
-  transform-box: view-box;
-  transform-origin: 106px 172px;
+  left: 22.64%;
+  top: 38%;
+  width: 54.72%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 244 210 / 0.9), rgb(255 215 142 / 0.5) 30%, rgb(244 164 88 / 0.12) 70%, rgb(244 164 88 / 0));
   mix-blend-mode: screen;
+}
+[data-arrangement='desk'] .book-cover[data-live] .cv-glow {
   /* Three slow breaths as the home opens, then still: a drawing that blends can't be handed to the graphics card, so
      breathing for ever redrew the cover on every frame (about a tenth of a core on a fast screen) for as long as the
      home stayed open (Phase 6 speed pass). It ends on its middle, fully lit. */

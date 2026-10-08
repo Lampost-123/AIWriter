@@ -18,5 +18,5 @@ export function useStoryCover(story: Story | null, world: World | null): StoryCo
   const genres = story?.style?.genres?.length ? story.style.genres : (world?.style?.genres ?? [])
   const chosen = story ? coverChoice(choices, story.id) : {}
   const motif = story ? storyMotif(choices, story) : 'lantern'
-  return { hue: story ? coverHue(story.id, genres, chosen.hue) : 30, motif, art: createElement(Motif, { id: motif, size: '100%' }) }
+  return { hue: story ? coverHue(story.id, genres, chosen.hue) : 30, motif, art: createElement(Motif, { id: motif, size: '100%', live: true, reveal: true }) }
 }

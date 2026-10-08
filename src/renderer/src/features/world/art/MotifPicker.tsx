@@ -58,6 +58,7 @@ export function MotifGrid({
             type="button"
             role="radio"
             aria-checked={on}
+            data-art-hover=""
             aria-label={m.label}
             title={m.label}
             className={cn('motif-cell', tile, on && 'is-on')}
