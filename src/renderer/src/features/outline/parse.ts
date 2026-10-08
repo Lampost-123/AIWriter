@@ -17,6 +17,9 @@ export interface SuggestedScene {
   beats: string[]
   /** When it happens, in the story's count of days ("Day 3, dusk"); '' when the reply gives none. */
   when: string
+  /** The plot threads it sets up and pays off, by name ("Sets up:", "Pays off:"; 2026-10-08). Left out: none. */
+  setsUp?: string[]
+  paysOff?: string[]
   /** Fully arrived: something after it has started, or the reply has ended. */
   complete: boolean
 }
@@ -160,7 +163,22 @@ function splitTitle(s: string): { title: string; text: string } {
   return m ? { title: plain(m[1]), text: plain(m[2]) } : { title: s, text: '' }
 }
 
-const LABEL = /^(purpose|goal|aim|summary|what happens|beats|logline|title|when)\s*(?:[:：—–-]\s*(.*))?$/i
+const LABEL = /^(purpose|goal|aim|summary|what happens|beats|logline|title|when|sets up|pays off)\s*(?:[:：—–-]\s*(.*))?$/i
+
+/** "The drowned bell; Who keeps the key" (or with commas, or "none"): the plot thread names on a Sets up / Pays off line. */
+export function threadNames(text: string): string[] {
+  const t = plain(text)
+  if (!t || /^(none|nothing|n\/a|-)\.?$/i.test(t)) return []
+  return [
+    ...new Set(
+      t
+        // Semicolons as asked; a reply with none may use commas.
+        .split(t.includes(';') ? /\s*;\s*/ : /\s*,\s*/)
+        .map((s) => s.replace(/^["“'‘]+|["”'’.]+$/g, '').trim())
+        .filter((s) => s && s.length <= 120)
+    )
+  ]
+}
 
 /** "Purpose: …", "**Goal:** …", "Summary — …", "Title: …", "**Beats**", "When: …": the label (lower case) and what follows. */
 function labelled(line: string): { label: string; text: string } | null {
@@ -267,7 +285,7 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
 
     // A When may come as a list item too ("- When: Day 2, dusk"); any other labelled list item is a beat.
     const listed = bullet ? labelled(bullet[1]) : null
-    const field = labelled(line) ?? (listed?.label === 'when' ? listed : null)
+    const field = labelled(line) ?? (listed && ['when', 'sets up', 'pays off'].includes(listed.label) ? listed : null)
     const given = field?.label === 'title' ? plain(field.text) : untitled && first && !field && !bullet ? boldTitle(line) : ''
     first = false
     if (given && untitled) {
@@ -283,6 +301,14 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
     if (field?.label === 'when') {
       // A scene's When ("Day 3, dusk"); an act or chapter has none.
       if (s && !s.when) s.when = plain(field.text)
+      inBeats = false
+    } else if (field?.label === 'sets up' || field?.label === 'pays off') {
+      // The plot threads a scene sets up or pays off; an act or chapter has none.
+      if (s) {
+        const names = threadNames(field.text)
+        if (field.label === 'sets up') s.setsUp = [...new Set([...(s.setsUp ?? []), ...names])]
+        else s.paysOff = [...new Set([...(s.paysOff ?? []), ...names])]
+      }
       inBeats = false
     } else if (s) {
       if (field && (field.label === 'summary' || field.label === 'what happens' || field.label === 'goal' || field.label === 'logline')) {

@@ -28,6 +28,8 @@ import { existedEarlier } from './places'
 import { contradicts } from './agree'
 import { isSaidKind } from '../retrieval/said'
 import { thingNotCharacter } from './kinds'
+import { CLUE_NOTE, clueList, laterCardPaysOff, payoffLater, threadPlace, threadStatus, threadStep } from './threads'
+import type { ThreadList } from '@shared/threadLinks'
 import {
   changeContent,
   changeWords,
@@ -80,7 +82,12 @@ export type FieldUndo = { op: 'field-set'; entryId: ID; field: string; before: s
 export type Undo = (
   | { op: 'entry-added'; entryId: ID; changeIds?: ID[] }
   | { op: 'entry-trashed'; entryId: ID; changeIds: ID[] }
-  | { op: 'change-added'; changeId: ID }
+  | {
+      op: 'change-added'
+      changeId: ID
+      /** A plot thread the memory put on the scene card with it (keeper/threads.ts): Undo takes that link back too. */
+      cardLink?: { sceneId: ID; list: ThreadList; threadId: ID }
+    }
   | { op: 'change-updated'; changeId: ID; version: number; link: SourceLink | null }
   | { op: 'change-removed'; changeId: ID }
   | FieldUndo
@@ -476,6 +483,21 @@ class Run {
     return this.ctx.memory?.entries.find((x) => x.id === id) ?? null
   }
 
+  /**
+   * Where a plot thread stands just before this scene, as the memory has it here: resolved, open (a thread change on
+   * the line opened it), or none (planned, or not in the story yet). With this scene's own changes so far: threadNow.
+   */
+  threadBefore(id: ID): 'none' | 'open' | 'resolved' {
+    const t = this.ctx.memory?.threads.find((x) => x.entryId === id)
+    if (!t || t.planned) return 'none'
+    return t.status
+  }
+
+  /** Where a plot thread stands now in this scene: before it, then this scene's own thread changes (this run's too). */
+  threadNow(id: ID): 'none' | 'open' | 'resolved' {
+    return threadStatus(this.threadBefore(id), mem.changesInScene(this.db, this.scene.sceneId), id)
+  }
+
   noteRemovedChange(entryId: ID): void {
     this.removedChangeEntries.add(entryId)
   }
@@ -532,10 +554,10 @@ function updatedPayload(
         payload: { ...c.payload, fact: fact || c.payload.fact, forgets: v.forgets !== undefined ? bool(v.forgets) : c.payload.forgets }
       }
     }
-    case 'thread': {
-      const status = str(v.status, 20) === 'resolved' ? 'resolved' : str(v.status, 20) === 'open' ? 'open' : c.payload.status
-      return { kind: 'thread', payload: { status, note: str(v.note, 300) || c.payload.note } }
-    }
+    case 'thread':
+      // Its words were edited: the note may follow them, but whether it opened or was resolved here comes only from a
+      // new thread item (a resolve needs the payoff on the page: keeper/threads.ts).
+      return { kind: 'thread', payload: { status: c.payload.status, note: str(v.note, 300) || c.payload.note } }
     case 'full':
       return null
   }
@@ -636,6 +658,14 @@ function removeFact(run: Run, planned: SceneFact, why: string): void {
     case 'change': {
       mem.deleteChange(db, f.change.id, run.by)
       run.noteRemovedChange(f.change.entryId)
+      // A plot thread the memory put on this scene's card for it comes off with it (Adam's own link stays).
+      if (f.change.kind === 'thread' && f.change.sceneId) {
+        const status = f.change.payload.status
+        const still = mem
+          .changesInScene(db, f.change.sceneId)
+          .some((c) => c.entryId === f.change.entryId && c.kind === 'thread' && c.payload.status === status)
+        if (!still) repo.setAiThreadLink(db, f.change.sceneId, status === 'resolved' ? 'paysOff' : 'setsUp', f.change.entryId, false)
+      }
       run.log({
         action: 'removed',
         what: 'change',
@@ -995,6 +1025,164 @@ function raiseClash(run: Run, e: Entry, field: string | null, memory: string, te
   })
 }
 
+// ---------- Plot threads (2026-10-08, keeper/threads.ts) ----------
+
+/** Fills an empty field the text gives (a thread's promise) on the entry itself. Adam's field, or one already filled, stays. */
+function fillField(run: Run, entry: Entry, field: string, value: string, s: Spot): void {
+  const e = run.entry(entry.id)
+  if (!e || !value || adamField(e, field) || fieldValue(e, field).trim()) return
+  const fp = fingerprint({ type: 'field', entryId: e.id, field })
+  if (run.suppressed(fp, s.quote)) return
+  repo.updateEntry(run.db, e.id, patchFor(e, field, value), run.by)
+  const link = run.addLink('field', e.id, field, s)
+  run.log({
+    action: 'added',
+    what: 'entry',
+    entryId: e.id,
+    entryName: e.name,
+    text: `${fieldLabel(e, field)}: ${value}`,
+    before: '',
+    after: '',
+    quote: s.quote,
+    undo: {
+      op: 'field-set',
+      entryId: e.id,
+      field,
+      before: '',
+      beforeOrigin: e.fieldOrigins?.[field] ?? null,
+      linkIds: [link.id],
+      fingerprint: fp,
+      words: wordsOf(s.quote)
+    }
+  })
+}
+
+/** A clue for a plot thread: one more line of its clues (from the text); on Adam's own clues, a note on the thread here. */
+function addClue(run: Run, thread: Entry, clue: string, s: Spot): void {
+  const e = run.entry(thread.id)
+  if (!e || !clue) return
+  if (adamField(e, 'clues')) {
+    addChange(run, e, { kind: 'update', payload: { note: `${CLUE_NOTE}${clue}` } }, s)
+    return
+  }
+  const fp = fingerprint({ type: 'field', entryId: e.id, field: 'clues' })
+  if (run.suppressed(fp, s.quote)) return
+  const before = fieldValue(e, 'clues')
+  const list = clueList(before)
+  if (list.some((c) => plain(c) === plain(clue))) {
+    // The same clue again: these words support it too.
+    if (
+      !hist.linksForEntry(run.db, e.id).some((l) => l.factKind === 'field' && l.field === 'clues' && l.sceneId === run.scene.sceneId && l.state === 'ok')
+    )
+      run.addLink('field', e.id, 'clues', s)
+    return
+  }
+  const value = [...list, clue].join('\n')
+  repo.updateEntry(run.db, e.id, patchFor(e, 'clues', value), run.by)
+  const link = run.addLink('field', e.id, 'clues', s)
+  run.log({
+    action: before.trim() ? 'updated' : 'added',
+    what: 'entry',
+    entryId: e.id,
+    entryName: e.name,
+    text: `New clue: ${clue}`,
+    before,
+    after: value,
+    quote: s.quote,
+    undo: {
+      op: 'field-set',
+      entryId: e.id,
+      field: 'clues',
+      before,
+      beforeOrigin: e.fieldOrigins?.clues ?? null,
+      linkIds: [link.id],
+      fingerprint: fp,
+      words: wordsOf(s.quote)
+    }
+  })
+}
+
+/** Puts a thread the memory opened or resolved here on the scene card (the AI's link), and lets Undo take it back. */
+function linkCard(run: Run, list: ThreadList, threadId: ID, change: Change): void {
+  if (!repo.setAiThreadLink(run.db, run.scene.sceneId, list, threadId, true)) return
+  const line = [...run.lines].reverse().find((l) => l.factId === change.id)
+  const u = line?.undo as Extract<Undo, { op: 'change-added' }> | null | undefined
+  if (u?.op === 'change-added') u.cardLink = { sceneId: run.scene.sceneId, list, threadId }
+}
+
+function applyThread(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>, s: Spot): void {
+  const db = run.db
+  const step = threadStep(a.status ?? a.step)
+  let thread = a.entry ? run.resolve(a.entry, chunk.ids, refs) : null
+  if (thread && thread.kind !== 'thread') thread = null
+  const name = str(a.name, 200)
+  if (!thread && name) thread = run.byName(name, 'thread')
+  const note = str(a.note, 300)
+  const promise = str(a.promise, 300)
+  const clue = str(a.clue, 200) || (step === 'clue' ? note : '')
+  let made = false
+  if (!thread) {
+    // A clue or a step on needs a thread that is already there.
+    if (!name || step === 'clue' || step === 'developing') return
+    const fp = fingerprint({ type: 'entry', kind: 'thread', name })
+    if (run.suppressed(fp, s.quote) || run.deletedByAdam('thread', name, s)) return
+    thread = repo.createEntry(
+      db,
+      'thread',
+      { name, summary: note, fields: promise ? { promise } : {} },
+      { origin: 'text', originStoryId: run.scene.storyId, originSceneId: run.scene.sceneId, runId: run.ctx.runId }
+    )
+    run.entryMade(thread)
+    run.addLink('entry', thread.id, null, s)
+    if (promise) run.addLink('field', thread.id, 'promise', s)
+    made = true
+    run.log({
+      action: 'added',
+      what: 'entry',
+      entryId: thread.id,
+      entryName: thread.name,
+      text: 'New plot thread',
+      before: '',
+      after: promise || thread.summary,
+      quote: s.quote,
+      undo: { op: 'entry-added', entryId: thread.id, fingerprint: fp, words: wordsOf(s.quote) }
+    })
+  } else if (!run.ensureHere(thread, s)) return
+  const now = run.threadNow(thread.id)
+  switch (step) {
+    case 'open': {
+      if (!made && promise) fillField(run, thread, 'promise', promise, s)
+      // Open already: this is a step on, not a second opening.
+      if (now === 'open') {
+        if (note) addChange(run, thread, { kind: 'thread', payload: { status: 'open', note } }, s)
+        return
+      }
+      const c = addChange(run, thread, { kind: 'thread', payload: { status: 'open', note } }, s)
+      if (c) linkCard(run, 'setsUp', thread.id, c)
+      return
+    }
+    case 'clue':
+      if (now !== 'resolved') addClue(run, thread, clue, s)
+      return
+    case 'developing':
+      if (now === 'open' && note) addChange(run, thread, { kind: 'thread', payload: { status: 'open', note } }, s)
+      return
+    case 'resolved': {
+      if (now === 'resolved') return
+      // Only when the payoff is on the page, and not while Adam's plan puts it later: then it has only moved on.
+      const place = threadPlace(run.ctx.shape, run.scene.sceneId)
+      const entry = run.entry(thread.id) ?? thread
+      if (laterCardPaysOff(db, place, thread.id) || (place && payoffLater(fieldValue(entry, 'payoff'), place))) {
+        if (now === 'open' && note) addChange(run, thread, { kind: 'thread', payload: { status: 'open', note } }, s)
+        return
+      }
+      const c = addChange(run, thread, { kind: 'thread', payload: { status: 'resolved', note } }, s)
+      if (c) linkCard(run, 'paysOff', thread.id, c)
+      return
+    }
+  }
+}
+
 function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
   const type = str(a.type, 20).toLowerCase()
   if (type === 'entry') return addEntry(run, a, chunk, refs)
@@ -1049,39 +1237,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     })
     return
   }
-  if (type === 'thread') {
-    let thread = a.entry ? run.resolve(a.entry, chunk.ids, refs) : null
-    if (thread && thread.kind !== 'thread') thread = null
-    const name = str(a.name, 200)
-    if (!thread && name) thread = run.byName(name, 'thread')
-    if (!thread) {
-      if (!name) return
-      const fp = fingerprint({ type: 'entry', kind: 'thread', name })
-      if (run.suppressed(fp, s.quote) || run.deletedByAdam('thread', name, s)) return
-      thread = repo.createEntry(
-        db,
-        'thread',
-        { name, summary: str(a.note, 300) },
-        { origin: 'text', originStoryId: run.scene.storyId, originSceneId: run.scene.sceneId, runId: run.ctx.runId }
-      )
-      run.entryMade(thread)
-      run.addLink('entry', thread.id, null, s)
-      run.log({
-        action: 'added',
-        what: 'entry',
-        entryId: thread.id,
-        entryName: thread.name,
-        text: 'New plot thread',
-        before: '',
-        after: thread.summary,
-        quote: s.quote,
-        undo: { op: 'entry-added', entryId: thread.id, fingerprint: fp, words: wordsOf(s.quote) }
-      })
-    } else if (!run.ensureHere(thread, s)) return
-    const status = str(a.status, 20) === 'resolved' ? 'resolved' : 'open'
-    addChange(run, thread, { kind: 'thread', payload: { status, note: str(a.note, 300) } }, s)
-    return
-  }
+  if (type === 'thread') return applyThread(run, a, chunk, refs, s)
   const entry = run.resolve(a.entry, chunk.ids, refs)
   if (!entry || !run.ensureHere(entry, s)) return
   switch (type) {

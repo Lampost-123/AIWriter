@@ -384,6 +384,19 @@ export function listLog(db: DB, o: { sceneId?: ID; entryId?: ID; limit?: number 
   return rows.map(toLog)
 }
 
+/** The memory's line that added these changes (newest, not undone), by change id: what the board's Undo undoes. */
+export function addedLines(db: DB, changeIds: ID[]): Map<ID, ID> {
+  const out = new Map<ID, ID>()
+  const one = db.prepare(
+    "SELECT id FROM memory_log WHERE fact_id = ? AND action = 'added' AND what = 'change' AND undone_at IS NULL ORDER BY rowid DESC LIMIT 1"
+  )
+  for (const c of changeIds) {
+    const r = one.get(c) as Row | undefined
+    if (r) out.set(c, r.id as string)
+  }
+  return out
+}
+
 export function logForRun(db: DB, runId: ID): LogRow[] {
   return (db.prepare('SELECT * FROM memory_log WHERE run_id = ? ORDER BY rowid').all(runId) as Row[]).map(toLog)
 }

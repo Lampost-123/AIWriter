@@ -218,6 +218,14 @@ function NodeBox({ node, storyId, chapterId, run, current, setEditing }: TreePro
             ))}
           </ol>
         ) : null}
+        {/* The plot threads the scene sets up and pays off (2026-10-08): they go on its card when it is kept. */}
+        {node.setsUp?.length || node.paysOff?.length ? (
+          <p className="mt-1.5 break-words text-[12px] leading-relaxed text-faint" data-threads>
+            {node.setsUp?.length ? <span>Sets up: {node.setsUp.join('; ')}</span> : null}
+            {node.setsUp?.length && node.paysOff?.length ? <span> · </span> : null}
+            {node.paysOff?.length ? <span>Pays off: {node.paysOff.join('; ')}</span> : null}
+          </p>
+        ) : null}
       </div>
       {kept ? (
         <div className="flex h-6 shrink-0 items-center gap-1.5">

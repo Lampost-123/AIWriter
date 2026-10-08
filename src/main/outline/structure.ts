@@ -8,6 +8,7 @@ import type Database from 'better-sqlite3'
 import type { ChapterPlace, KeepItem, KeepRef, KeptItem } from '@shared/contracts/outline'
 import type { Chapter, ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
+import { withAiLink } from '@shared/threadLinks'
 import type { WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
@@ -27,6 +28,86 @@ const oneLine = (s: unknown, max: number): string =>
     .trim()
     .slice(0, max)
     .trim()
+
+/** The most plot threads one kept scene puts on each list of its card. */
+const MOST_THREADS = 6
+
+const threadKey = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/^(the|a|an)\s+/, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+/**
+ * Plot threads by name for one keep (2026-10-08): an existing thread by its name or another name (in the story's
+ * world), else a new one, AI-drafted, made in this story with the name as given. Each name is made once per keep.
+ */
+function threadFinder(db: DB, storyId: ID): (name: string) => { id: ID; made: boolean } | null {
+  const known = new Map<string, ID>()
+  for (const e of repo.listEntries(db)) {
+    if (e.kind !== 'thread') continue
+    for (const n of [e.name, ...e.aliases]) {
+      const k = threadKey(n)
+      if (k && !known.has(k)) known.set(k, e.id)
+    }
+  }
+  return (raw) => {
+    const name = oneLine(raw, KEEP_LIMITS.title)
+    const k = threadKey(name)
+    if (!k) return null
+    const id = known.get(k)
+    if (id) return { id, made: false }
+    const e = repo.createEntry(db, 'thread', { name }, { origin: 'ai', originStoryId: storyId })
+    known.set(k, e.id)
+    return { id: e.id, made: true }
+  }
+}
+
+/** The card with the kept scene's plot threads on it, marked as the AI's (never a second time, never one Adam took off). */
+function withThreads(
+  card: SceneCard,
+  item: KeepItem,
+  find: (name: string) => { id: ID; made: boolean } | null,
+  made: ID[]
+): SceneCard {
+  let out = card
+  for (const [list, names] of [
+    ['setsUp', item.setsUp],
+    ['paysOff', item.paysOff]
+  ] as const) {
+    for (const name of (Array.isArray(names) ? names : []).slice(0, MOST_THREADS)) {
+      const t = find(String(name ?? ''))
+      if (!t) continue
+      if (t.made && !made.includes(t.id)) made.push(t.id)
+      out = withAiLink(out, list, t.id) ?? out
+    }
+  }
+  return out
+}
+
+/**
+ * Undo of a keep: the plot threads it made go to Recently deleted while nothing else uses them (not edited by Adam,
+ * on no other scene's card, nothing in the memory about them).
+ */
+export function takeBackThreads(db: DB, kept: Pick<KeptItem, 'threadIds'>[]): void {
+  const ids = [...new Set(kept.flatMap((k) => k.threadIds ?? []))]
+  if (!ids.length) return
+  const onCards = new Set<ID>()
+  for (const r of db.prepare('SELECT card_json FROM scenes WHERE deleted_at IS NULL').all() as { card_json: string | null }[]) {
+    try {
+      const c = JSON.parse(r.card_json ?? '{}') as Partial<SceneCard>
+      for (const id of [...(c.setsUpIds ?? []), ...(c.paysOffIds ?? [])]) onCards.add(id)
+    } catch {
+      // A damaged card names nothing.
+    }
+  }
+  for (const e of repo.getEntries(db, ids)) {
+    if (e.origin !== 'ai' || e.byHand || onCards.has(e.id)) continue
+    if (db.prepare('SELECT 1 FROM changes WHERE entry_id = ? AND deleted_at IS NULL LIMIT 1').get(e.id)) continue
+    repo.deleteEntry(db, e.id, { origin: 'ai' })
+  }
+}
 
 /** A scene's beats as the card keeps them: one line each, no empty ones, at most KEEP_LIMITS.beats. */
 export const cleanBeats = (beats: unknown): string[] =>
@@ -108,6 +189,8 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
     let spareChapter: ID | null = blank ? (start.chapters[0]?.id ?? null) : null
     let spareScene: ID | null = blank && spareChapter ? (start.scenes.find((sc) => sc.chapterId === spareChapter)?.id ?? null) : null
     const made = new Map<string, KeptItem>()
+    // Plot threads named on the kept scenes, found or made once each for the whole keep.
+    let findThread: ReturnType<typeof threadFinder> | null = null
     // Chapters a scene has gone into already: their lone "Scene 1" is never taken after that.
     const lonesUsed = new Set<ID>()
     const resolve = (ref: KeepRef | undefined, kind: KeptItem['kind']): ID | null => {
@@ -130,6 +213,7 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
       let id: ID
       let reused = false
       let whenKept = false
+      const threadIds: ID[] = []
       if (item.kind === 'act') {
         id = acts.createAct(db, storyId, {
           title,
@@ -190,13 +274,17 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
         const card: SceneCard = reuse ? repo.getScene(db, scene.id).card : emptySceneCard()
         const had = !!card.when.trim()
         const when = had ? card.when : oneLine(item.when, KEEP_LIMITS.when) || fallbackWhen(whensBefore(db, storyId, scene.id))
-        repo.updateSceneCard(db, scene.id, { ...card, goal: text, beats: cleanBeats(item.beats), when })
+        const filled: SceneCard = { ...card, goal: text, beats: cleanBeats(item.beats), when }
+        const threaded =
+          item.setsUp?.length || item.paysOff?.length ? withThreads(filled, item, (findThread ??= threadFinder(db, storyId)), threadIds) : filled
+        repo.updateSceneCard(db, scene.id, threaded)
         whenKept = reuse !== null && had
         id = scene.id
       } else throw new UserError('Those suggestions are muddled. Please suggest again.')
       // Its Undo can then tell whether Adam has changed it since.
       acts.markMade(db, item.kind, id)
       const k: KeptItem = reused ? { key, kind: item.kind, id, reused, ...(whenKept ? { whenKept } : {}) } : { key, kind: item.kind, id }
+      if (threadIds.length) k.threadIds = threadIds
       made.set(key, k)
       kept.push(k)
     }

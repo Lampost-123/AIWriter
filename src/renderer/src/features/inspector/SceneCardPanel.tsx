@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cardLength, emptySceneCard } from '@shared/defaults'
 import type { Entry, ID, SceneCard } from '@shared/types'
+import { aiLinked, mergeThreadLinks, withListEdited, type ThreadList } from '@shared/threadLinks'
 import { Button, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
 import { Feather, ListOrdered, Spool, TextQuote, Users, type IconType } from '@/components/ui/icons'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
@@ -125,8 +126,43 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const setPov = useCallback((povId: ID | null) => update({ povId }), [update])
   const setLocation = useCallback((locationId: ID | null) => update({ locationId }), [update])
   const setPresent = useCallback((presentIds: ID[]) => update({ presentIds }), [update])
-  const setSetsUp = useCallback((setsUpIds: ID[]) => update({ setsUpIds }), [update])
-  const setPaysOff = useCallback((paysOffIds: ID[]) => update({ paysOffIds }), [update])
+  // A plot thread link the AI made and Adam takes off is never put back by it; one he adds is his (shared/threadLinks.ts).
+  const editThreads = useCallback(
+    (list: ThreadList, ids: ID[]) => {
+      if (!cardRef.current) return
+      const next = withListEdited(cardRef.current, list, ids)
+      update({ setsUpIds: next.setsUpIds, paysOffIds: next.paysOffIds, threadLinks: next.threadLinks })
+    },
+    [update]
+  )
+  const setSetsUp = useCallback((setsUpIds: ID[]) => editThreads('setsUp', setsUpIds), [editThreads])
+  const setPaysOff = useCallback((paysOffIds: ID[]) => editThreads('paysOff', paysOffIds), [editThreads])
+  // The memory links plot threads to this scene as it reads it: its links show as they come and go.
+  const memoryRev = useApp((s) => s.memoryRev)
+  useEffect(() => {
+    if (!cardRef.current) return
+    let live = true
+    api
+      .getScene(sceneId)
+      .then((s) => {
+        const mine = cardRef.current
+        if (!live || !mine) return
+        const merged = mergeThreadLinks(s.card, mine)
+        if (merged === mine) return
+        cardRef.current = merged
+        setCard(merged)
+        if (cardDrafts.get(sceneId)) cardDrafts.set(sceneId, merged)
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [sceneId, memoryRev])
+  const links = card?.threadLinks
+  const setsUpList = card?.setsUpIds
+  const paysOffList = card?.paysOffIds
+  const setsUpAi = useMemo(() => aiLinked({ setsUpIds: setsUpList ?? [], paysOffIds: [], threadLinks: links }, 'setsUp'), [setsUpList, links])
+  const paysOffAi = useMemo(() => aiLinked({ setsUpIds: [], paysOffIds: paysOffList ?? [], threadLinks: links }, 'paysOff'), [paysOffList, links])
   const characters = useMemo(() => (entries ?? []).filter((e) => e.kind === 'character'), [entries])
   const places = useMemo(() => (entries ?? []).filter((e) => e.kind === 'place'), [entries])
   const threads = useMemo(() => (entries ?? []).filter((e) => e.kind === 'thread'), [entries])
@@ -274,13 +310,14 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
             aria-describedby={ids.setsUpHint}
             value={card.setsUpIds}
             characters={threads}
+            aiIds={setsUpAi}
             onChange={setSetsUp}
             onCreate={createThread}
             noun="plot thread"
             listLabel="Plot threads"
           />
           <p id={ids.setsUpHint} className="text-[12px] text-faint">
-            Mysteries, promises and setups this scene opens. Type a name to add a new one.
+            Mysteries, promises and setups this scene opens. Type a name to add a new one. The AI adds those it reads in your text.
           </p>
         </div>
         <div className="flex flex-col gap-1">
@@ -292,6 +329,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
             aria-describedby={ids.paysOffHint}
             value={card.paysOffIds}
             characters={threads}
+            aiIds={paysOffAi}
             onChange={setPaysOff}
             onCreate={createThread}
             noun="plot thread"

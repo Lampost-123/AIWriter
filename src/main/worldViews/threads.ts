@@ -6,7 +6,7 @@
 // story shows as resolved only in the stories that count that side story (spec, Multi-story rules).
 // A thread the memory has never seen opened or resolved on the line is planned: it may be set up on a
 // scene card (the plan), or nowhere yet. Scene cards also show where an open thread is meant to pay off.
-import type { ID } from '@shared/types'
+import type { Change, ID } from '@shared/types'
 import type { BoardPlace, BoardThread, ThreadsBoard } from '@shared/contracts/worldViews'
 import type { Line, MemoryData, WorldShape } from '../memory/types'
 import { indexChanges, type MemoryStateAll } from '../memory/state'
@@ -26,6 +26,11 @@ export interface BoardInput {
   /** The memory at the story's end. */
   state: MemoryStateAll
   cards: Map<ID, CardInfo>
+  /**
+   * The words a resolving change was read from, and the "What changed" line that added it (2026-10-08). Left out (a
+   * test): no words, no Undo.
+   */
+  payoff?: (changeIds: ID[]) => Map<ID, { quote: string; undoId: ID | null }>
 }
 
 const COLUMN_ORDER: Record<BoardThread['column'], number> = { open: 0, resolved: 1, planned: 2 }
@@ -50,13 +55,21 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
 
   // Which threads the memory sees opened or resolved on the line, and the scene cards' plans, in line order.
   const changed = new Set<ID>()
-  for (const c of changes.baseline) if (c.kind === 'thread') changed.add(c.entryId)
+  // The change that resolved each thread last on the line (a later opening takes it back).
+  const resolvedBy = new Map<ID, Change>()
+  const note = (c: Change): void => {
+    if (c.kind !== 'thread') return
+    changed.add(c.entryId)
+    if (c.payload.status === 'resolved') resolvedBy.set(c.entryId, c)
+    else resolvedBy.delete(c.entryId)
+  }
+  for (const c of changes.baseline) note(c)
   const cardSetUp = new Map<ID, number>()
   const cardPayOff = new Map<ID, number>()
   line.steps.forEach((step, i) => {
     const { byStory, byScene } = changes
     const here = step.type === 'start-changes' ? byStory.get(step.storyId) : step.type === 'scene' ? byScene.get(step.sceneId) : []
-    for (const c of here ?? []) if (c.kind === 'thread') changed.add(c.entryId)
+    for (const c of here ?? []) note(c)
     if (step.type !== 'scene') return
     const card = cards.get(step.sceneId)
     for (const id of card?.setsUpIds ?? []) if (!cardSetUp.has(id)) cardSetUp.set(id, i)
@@ -73,6 +86,9 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
     return { label: words, storyId: at?.storyId ?? null, sceneId: at?.sceneId ?? null, planned: false }
   }
 
+  const resolving = state.threads.filter((t) => t.status === 'resolved').flatMap((t) => resolvedBy.get(t.entryId) ?? [])
+  const payoffs = input.payoff && resolving.length ? input.payoff(resolving.map((c) => c.id)) : new Map<ID, { quote: string; undoId: ID | null }>()
+  const entryRows = new Map(data.entries.map((e) => [e.id, e]))
   const threads: (BoardThread & { order: number })[] = []
   for (const t of state.threads) {
     const entry = state.entries.get(t.entryId)
@@ -83,6 +99,10 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
     const paidOff = column === 'resolved' ? fromWords(t.paidOff) : fromStep(cardPayOff.get(t.entryId))
     const setUpStep = inStory ? places.get(t.setUp)?.step : cardSetUp.get(t.entryId)
     const openChapters = column === 'open' && setUpStep !== undefined ? chaptersAfter(w, setUpStep) : null
+    const row = entryRows.get(t.entryId)
+    const by = column === 'resolved' ? resolvedBy.get(t.entryId) : undefined
+    const p = by ? payoffs.get(by.id) : undefined
+    const byAi = !!by && by.origin === 'text'
     threads.push({
       id: t.entryId,
       name: entry.name.trim() || 'Unnamed plot thread',
@@ -92,6 +112,8 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
       paidOff,
       openChapters,
       longOpen: openChapters !== null && openChapters >= LONG_OPEN_CHAPTERS,
+      aiMade: !!row && row.origin !== 'adam' && !row.byHand,
+      resolved: column === 'resolved' ? { quote: p?.quote ?? '', byAi, undoId: byAi ? (p?.undoId ?? null) : null } : null,
       order: setUpStep ?? Infinity
     })
   }

@@ -2,7 +2,7 @@
 // Resolved and (when there are any) Planned, with where each was set up and paid off linked to those
 // scenes. A thread open for many chapters gets a calm amber note, so nothing is forgotten. Clicking a
 // thread opens its page.
-import { Hourglass, Spool, Plus } from '@/components/ui/icons'
+import { Hourglass, Spool, Plus, Sparkles, Undo2 } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID } from '@shared/types'
 import type { BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'
@@ -128,6 +128,19 @@ function ThreadCard({ thread: t }: { thread: BoardThread }): React.JSX.Element {
   const setUp = setUpWords(t.setUp)
   const paidOff = paidOffWords(t.paidOff)
   const open = openFor(t)
+  const [undoing, setUndoing] = useState(false)
+  // The memory resolved it on its own (2026-10-08): Undo opens it again, and the same words won't resolve it again.
+  const undoResolve = async (id: ID): Promise<void> => {
+    setUndoing(true)
+    try {
+      await api.undoMemoryItem(id)
+      toast(`“${t.name}” is open again. The memory won't resolve it again from the same words.`)
+    } catch (e) {
+      toast(`That couldn't be undone. ${(e as Error).message}`, { tone: 'danger' })
+    } finally {
+      setUndoing(false)
+    }
+  }
   return (
     // The whole card opens the thread for the mouse; the name is the button for the keyboard.
     <div
@@ -153,6 +166,40 @@ function ThreadCard({ thread: t }: { thread: BoardThread }): React.JSX.Element {
       <div className="mt-2.5 flex flex-col gap-0.5 text-[12.5px] text-muted">
         <Place words={setUp} />
         {paidOff ? <Place words={paidOff} /> : null}
+      </div>
+      {t.resolved?.quote ? (
+        <blockquote
+          className="mt-2 border-l-2 border-line-strong pl-2.5 text-[12.5px] italic leading-relaxed text-muted"
+          title="The words that paid it off"
+          data-testid="thread-payoff"
+        >
+          “{t.resolved.quote}”
+        </blockquote>
+      ) : null}
+      {/* Who made it: the memory, from the text, or Adam; and who resolved it, with Undo for the memory's resolve. */}
+      <div className="mt-2.5 flex min-h-6 flex-wrap items-center gap-x-2 gap-y-1">
+        {t.aiMade ? (
+          <Badge tone="ai" className="gap-1">
+            <Sparkles size={11} aria-hidden />
+            Found by AI
+          </Badge>
+        ) : (
+          <span className="text-[12px] text-faint">Yours</span>
+        )}
+        {t.resolved?.byAi ? <span className="text-[12px] text-faint">· Resolved by AI</span> : null}
+        {t.resolved?.undoId ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Undo2 size={13} />}
+            loading={undoing}
+            className="ml-auto"
+            title="Open this plot thread again"
+            onClick={() => void undoResolve(t.resolved!.undoId!)}
+          >
+            Undo
+          </Button>
+        ) : null}
       </div>
       {t.longOpen && open ? (
         <Badge tone="ai" className="mt-2.5 gap-1">

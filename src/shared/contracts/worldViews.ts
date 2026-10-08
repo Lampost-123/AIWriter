@@ -186,6 +186,13 @@ export interface BoardThread {
   openChapters: number | null
   /** Open for many chapters: highlighted so it isn't forgotten. */
   longOpen: boolean
+  /** The memory found it in the text (2026-10-08): Adam never made or edited it. Left out by older boards. */
+  aiMade?: boolean
+  /**
+   * While resolved: the words of the payoff (from the scene, '' when it was marked by hand), whether the memory read
+   * it, and the "What changed" line Undo takes back (only for the memory's own resolve, while it can be undone).
+   */
+  resolved?: { quote: string; byAi: boolean; undoId: ID | null } | null
 }
 
 export interface ThreadsBoard {

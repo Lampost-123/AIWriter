@@ -17,6 +17,7 @@ import type {
   StyleGuide
 } from '@shared/types'
 import { countWords, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
+import { withAiLink, withoutAiLink, type ThreadList } from '@shared/threadLinks'
 import { newId, now, UserError } from '../util'
 import { addExistsPoint, defaultExistsPoint, loadShape } from './memory'
 import { buildLine, previousSceneStep } from '../memory/line'
@@ -418,6 +419,20 @@ export function updateSceneCard(db: DB, id: ID, card: SceneCard): SceneCard {
   const clean: SceneCard = { ...emptySceneCard(), ...card }
   db.prepare('UPDATE scenes SET card_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(clean), now(), id)
   return clean
+}
+
+/**
+ * The memory's own plot thread link on a scene card (shared/threadLinks.ts): added (`on`) unless the thread is on that
+ * list already or Adam took the memory's link off; taken back (not `on`) only when it is the memory's. True when the
+ * card changed. A deleted scene's card is left alone.
+ */
+export function setAiThreadLink(db: DB, sceneId: ID, list: ThreadList, threadId: ID, on: boolean): boolean {
+  const card = sceneCards(db, [sceneId]).get(sceneId)
+  if (!card) return false
+  const next = on ? withAiLink(card, list, threadId) : withoutAiLink(card, list, threadId)
+  if (!next) return false
+  db.prepare('UPDATE scenes SET card_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), now(), sceneId)
+  return true
 }
 
 export function deleteScene(db: DB, id: ID): void {

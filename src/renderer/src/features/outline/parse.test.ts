@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { outlineCounts, outlineScenes, parseIdeas, parseOutline, type ParsedOutline } from './parse'
+import { outlineCounts, outlineScenes, parseIdeas, parseOutline, threadNames, type ParsedOutline } from './parse'
 import { outlineReply } from '../../../../../tests/fake-provider/m4/outline.mjs'
 
 const TIDY = `# Act: The Arrival
@@ -57,6 +57,30 @@ describe('reading an outline', () => {
       '    a1c0s0 Pursuit through the market | The guild chases Mara. | A shout behind her'
     ])
     expect(outlineCounts(parseOutline(TIDY, true))).toEqual({ acts: 2, chapters: 2, scenes: 3 })
+  })
+
+  it('reads the plot threads a scene sets up and pays off, never as its summary or a beat (2026-10-08)', () => {
+    const reply = `## Chapter: Rain
+Goal: Mara finds her footing.
+
+### Scene: The bell
+When: Day 1, dusk
+Summary: The bell rings over the marsh.
+Sets up: Who rang the drowned bell; The ferryman's debt
+- Mara hears the bell
+- She finds the tower barred
+
+### Scene: The ferry
+Pays off: who rang the drowned bell
+- **Sets up:** none
+- The ferryman confesses`
+    const [first, second] = parseOutline(reply, true).chapters[0].scenes
+    expect(first).toMatchObject({ summary: 'The bell rings over the marsh.', setsUp: ['Who rang the drowned bell', "The ferryman's debt"] })
+    expect(first.beats).toEqual(['Mara hears the bell', 'She finds the tower barred'])
+    expect(first.paysOff).toBeUndefined()
+    expect(second).toMatchObject({ paysOff: ['who rang the drowned bell'], setsUp: [], beats: ['The ferryman confesses'] })
+    expect(threadNames('A, B')).toEqual(['A', 'B'])
+    expect(threadNames('None.')).toEqual([])
   })
 
   it('marks only what has fully arrived as complete while the reply is still coming', () => {

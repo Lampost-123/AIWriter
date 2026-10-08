@@ -22,6 +22,7 @@ import { holdingsOf } from '../memory/items'
 import { freshLooks, pastProfile } from '../ai/briefingFixes'
 import { withLockLines } from '../ai/lockRule'
 import { saidText } from '../retrieval/said'
+import { CONTINUE_THREADS_MOST, OPEN_THREADS_TITLE, openThreadsText, type OpenThread } from '../ai/openThreads'
 import type { SaidLine } from '../retrieval/types'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
@@ -53,11 +54,17 @@ export interface EditWorld {
    * recalled for the words near the cursor (those found by searching first), and what was said word for word. Left out:
    * none of it (the other tools, a test).
    */
-  core?: { timeline?: string; recalled?: Pick<EntryState, 'id' | 'name' | 'kind' | 'summary'>[]; said?: SaidLine[] }
+  core?: {
+    timeline?: string
+    recalled?: Pick<EntryState, 'id' | 'name' | 'kind' | 'summary'>[]
+    said?: SaidLine[]
+    /** The plot threads still open here (ai/openThreads.ts, 2026-10-08), kept alive gently; at most CORE_MOST.threads. */
+    threads?: OpenThread[]
+  }
 }
 
 /** The most of each part of Continue's memory core. */
-export const CORE_MOST = { recalled: 3, said: 4 }
+export const CORE_MOST = { recalled: 3, said: 4, threads: CONTINUE_THREADS_MOST }
 
 export type EditBriefing =
   | {
@@ -313,6 +320,9 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     const core = isContinue && withPeople && scale >= 0.5 ? world.core : undefined
     const timeline = core?.timeline?.trim()
     if (timeline) parts.push({ id: 'timeline', priority: 3, title: 'The story so far', text: `The story so far\n${timeline}`, entryIds: [] })
+    // The plot threads still open, short (the same from one Continue to the next, so next to the timeline).
+    const threads = openThreadsText((core?.threads ?? []).slice(0, CORE_MOST.threads), true)
+    if (threads) parts.push({ id: 'threads', priority: 3, title: OPEN_THREADS_TITLE, text: `${OPEN_THREADS_TITLE}\n${threads}`, entryIds: [] })
     const scene = sceneText(world, byId, isContinue)
     if (scene.text) parts.push({ id: 'scene', priority: 2, title: 'The scene', text: scene.text, entryIds: scene.entryIds })
     const shown = withPeople ? people.slice(0, Math.max(tool === 'voice' ? people.length : 1, Math.round(people.length * scale))) : []

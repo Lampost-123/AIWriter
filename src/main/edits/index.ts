@@ -5,6 +5,8 @@
 // words reach the window as task events; the interface shows them as a tracked change.
 
 import type { EditInput, EditStart } from '@shared/contracts/edits'
+import type { SceneCard } from '@shared/types'
+import { CONTINUE_THREADS_MOST, openThreadsAt } from '../ai/openThreads'
 import { effectiveStyle } from '@shared/style'
 import * as world from '../world'
 import * as repo from '../db/repo'
@@ -48,8 +50,16 @@ export const CONTINUE_TIMELINE_LEVEL = 2
  * cursor (entries found by searching first, then those of the last two scenes; what was said word for word). Recall is
  * skipped when it is off or fails; it never holds Continue up for long (its own wait, recall.ts MEANING_WAIT_MS).
  */
-async function continueCore(db: ReturnType<typeof world.db>, input: EditInput, memory: SceneMemory, storyTitle: string): Promise<EditWorld['core']> {
+async function continueCore(
+  db: ReturnType<typeof world.db>,
+  input: EditInput,
+  memory: SceneMemory,
+  storyTitle: string,
+  card: SceneCard
+): Promise<EditWorld['core']> {
   const timeline = timelineText(memory.storySoFar, timelineFrom({ memory, story: { title: storyTitle } }), CONTINUE_TIMELINE_LEVEL)
+  // The plot threads still open here, kept alive gently (2026-10-08).
+  const threads = openThreadsAt(memory, card, CONTINUE_THREADS_MOST)
   let recalled: NonNullable<EditWorld['core']>['recalled'] = []
   let said: NonNullable<EditWorld['core']>['said'] = []
   try {
@@ -70,7 +80,7 @@ async function continueCore(db: ReturnType<typeof world.db>, input: EditInput, m
   } catch (e) {
     console.warn('Continue goes without recall this time', e instanceof Error ? e.message : e)
   }
-  return { timeline, recalled, said }
+  return { timeline, recalled, said, threads }
 }
 
 /**
@@ -89,7 +99,7 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const memory = sceneMemory(db, input.sceneId)
   // The other tools don't wait for where things stand: only what is already kept at exactly that point (step 4).
   const kept = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
-  const core = tool === 'continue' ? await continueCore(db, input, memory, story.title) : undefined
+  const core = tool === 'continue' ? await continueCore(db, input, memory, story.title, scene.card) : undefined
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
   // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07).
   const stand = stageInScene(kept, stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after]))

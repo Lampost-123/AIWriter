@@ -1,7 +1,9 @@
 // What the outline helper and next scene ideas ask the chat and brainstorm model, and the form its
 // answer takes. Every system prompt starts with "[AIWRITE-OUTLINE v1] <job>" (the fake provider in
 // tests answers by it). The interface reads the answers as they arrive (features/outline/parse.ts), so
-// keep the forms here and the reading there in step. No Electron imports.
+// keep the forms here and the reading there in step. Since 2026-10-08 (the AI manages plot threads) an outline's scenes
+// say which plot threads they set up and pay off ("Sets up:", "Pays off:"); keeping a scene puts them on its card
+// (outline/structure.ts), making any new thread it names. No Electron imports.
 
 import type { OutlineSize } from '@shared/contracts/outline'
 
@@ -32,6 +34,8 @@ const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n =
 const SCENE_FORM = `### Scene: <the scene's title>
 When: <the day it happens on, in the story's count of days, and the time of day: "Day 1, morning", "Day 3, dusk">
 Summary: <one sentence: what happens in it>
+Sets up: <the plot threads this scene opens, by name, separated by semicolons; leave this line out when it opens none>
+Pays off: <the plot threads this scene resolves, by name, separated by semicolons; leave this line out when it resolves none>
 - <a beat: one thing that must happen in the scene>
 - <the next beat>
 - <the next beat>`
@@ -44,7 +48,8 @@ const SHARED_RULES = `- Each scene has 3 to 6 beats, in order, each a short line
 - Titles are a few words, with no numbers.
 - Continue from what the story already has. Never repeat or retell it.
 - Use the characters, places and plot threads given, by their names. Bring in someone or something new only when the story needs it.
-- Move the open plot threads on, towards being paid off.
+- Move the open plot threads on, towards being paid off. Plan where each is paid off: name it on the "Pays off" line of the scene that answers it (it may stay open past these scenes when the story needs it to).
+- A new plot thread (a question, promise, threat or secret the story will answer) goes on the "Sets up" line of the scene that opens it, named in a few words, and is paid off in a later scene or left open for later. Never pay off a thread before the scene that sets it up.
 - Keep to the premise, the tone and everything the story has established.`
 
 /** The outline helper's instructions: acts (unless none are asked for), chapters and scene cards, in a fixed plain-text form. */

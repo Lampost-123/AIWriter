@@ -11,6 +11,7 @@ import { READING_SYSTEM } from './prompts'
 import { changeWords, fieldValue, type SceneFact } from './facts'
 import { clip, estimateTokens, firstWords, lastWords, likeness, mentionAt, splitLong, words, type Para } from './text'
 import { DEFAULT_MEMORY_CONTEXT } from './model'
+import { lastClue } from './threads'
 
 /** How much of the model's window each request may use. */
 export interface ReadingBudget {
@@ -364,13 +365,21 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     const line = `- ${ids.knownFact(f.factId, f.fact)} ${q(f.fact)}${known.length ? `: known by ${known.join(', ')}` : ''}`
     if (factLines.length < 40 && room.take(line)) factLines.push(line)
   }
+  // Each open thread with what it promises and its last clue (2026-10-08), so a clue or a payoff is told apart from news.
   const threadLines: string[] = []
   for (const t of sm?.threads ?? []) {
     if (t.status !== 'open') continue
     const e = byId.get(t.entryId)
     if (!e) continue
-    const line = `- ${ids.entry(e.id)} ${q(e.name)}`
+    const promise = clip(e.fields?.promise ?? '', 30)
+    const clue = clip(lastClue(e), 20)
+    const payoff = clip(e.fields?.payoff ?? '', 20)
+    const about = [promise ? `promise: ${promise}` : '', clue ? `last clue: ${clue}` : '', payoff ? `meant to pay off: ${payoff}` : '']
+      .filter(Boolean)
+      .join('; ')
+    const line = `- ${ids.peek(e.id)} thread ${q(e.name)}${about ? `. ${about}` : ''}`
     if (threadLines.length < 30 && room.take(line)) {
+      ids.entry(e.id)
       threadLines.push(line)
       shown.add(e.id)
     }

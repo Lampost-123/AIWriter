@@ -18,6 +18,9 @@ export interface TreeNode {
   beats: string[]
   /** When a scene happens ("Day 3, dusk"); '' for acts and chapters, and for a scene the reply gave none. */
   when: string
+  /** The plot threads a scene sets up and pays off, by name (2026-10-08). Left out: none. */
+  setsUp?: string[]
+  paysOff?: string[]
   /** Fully arrived (see parse.ts). */
   complete: boolean
   children: TreeNode[]
@@ -59,6 +62,8 @@ const chapterNode = (c: SuggestedChapter): TreeNode => ({
     text: s.summary,
     beats: s.beats,
     when: s.when,
+    ...(s.setsUp?.length ? { setsUp: s.setsUp } : {}),
+    ...(s.paysOff?.length ? { paysOff: s.paysOff } : {}),
     complete: s.complete,
     children: []
   }))
@@ -177,6 +182,9 @@ export function keepPlan(tree: TreeNode[], decisions: Decisions, edits: Edits, k
       // Adam's When if he changed it, else the AI's; empty, the story fills it in (keepOutline).
       const when = (edits[node.key]?.when ?? node.when).trim()
       if (when) item.when = when
+      // The plot threads it sets up and pays off go on its card (new ones are made: outline/structure.ts).
+      if (node.setsUp?.length) item.setsUp = node.setsUp
+      if (node.paysOff?.length) item.paysOff = node.paysOff
     }
     const p = ref(parent)
     if (p) item.parent = p
