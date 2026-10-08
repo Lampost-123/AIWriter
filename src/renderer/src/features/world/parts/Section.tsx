@@ -2,6 +2,21 @@ import { ChevronRight } from '@/components/ui/icons'
 import { useId, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 
+/**
+ * What a section's heading says it holds. The New look says it as a number and a word, so the sections read alike:
+ * "3 of 5 filled" for fields, "2 relationships" for a list (Classic keeps its "3 of 5" and "2"). Nothing when it
+ * holds nothing.
+ */
+export function sectionMeta(n: number, one: string, many: string, of?: number): ReactNode {
+  if (!n) return null
+  return (
+    <>
+      {of === undefined ? n : `${n} of ${of}`}
+      <span className="hidden look-new:inline"> {n === 1 || of !== undefined ? one : many}</span>
+    </>
+  )
+}
+
 /** A collapsible group of fields. Closed sections don't render their fields, which keeps long forms quick. */
 export function Section({
   title,

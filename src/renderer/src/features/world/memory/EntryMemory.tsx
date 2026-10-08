@@ -4,7 +4,7 @@ import type { Entry, ID } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { describeChange, splitChanges } from '../memoryLogic'
-import { Section } from '../parts/Section'
+import { Section, sectionMeta } from '../parts/Section'
 import { useSceneLabels } from '../useSceneLabels'
 import { AppearsSection } from './AppearsSection'
 import { ChangesSection, type ChangeItem } from './ChangesSection'
@@ -91,7 +91,7 @@ export const EntryMemorySections = memo(function EntryMemorySections({
     <>
       <Section
         title={relationshipsTitle(kind)}
-        meta={relCount || null}
+        meta={sectionMeta(relCount, 'relationship', 'relationships')}
         open={open.has('relationships')}
         onToggle={() => onToggle('relationships')}
       >
@@ -106,14 +106,14 @@ export const EntryMemorySections = memo(function EntryMemorySections({
         />
       </Section>
       {kind === 'character' ? (
-        <Section title="Knows at the start" meta={split?.knows.length || null} open={open.has('knows')} onToggle={() => onToggle('knows')}>
+        <Section title="Knows at the start" meta={sectionMeta(split?.knows.length ?? 0, 'fact', 'facts')} open={open.has('knows')} onToggle={() => onToggle('knows')}>
           <KnowledgeSection self={self} adamsEntry={adamsEntry} rows={split?.knows ?? []} data={data} places={places} />
         </Section>
       ) : null}
-      <Section title="Changes over time" meta={items.length || null} open={open.has('changes')} onToggle={() => onToggle('changes')}>
+      <Section title="Changes over time" meta={sectionMeta(items.length, 'change', 'changes')} open={open.has('changes')} onToggle={() => onToggle('changes')}>
         <ChangesSection name={name} kind={kind} items={items} data={data} places={places} />
       </Section>
-      <Section title="Appears in" meta={appears.data?.length || null} open={open.has('appears')} onToggle={() => onToggle('appears')}>
+      <Section title="Appears in" meta={sectionMeta(appears.data?.length ?? 0, 'scene', 'scenes')} open={open.has('appears')} onToggle={() => onToggle('appears')}>
         <AppearsSection name={name} kind={kind} data={appears} />
       </Section>
       <Section title="Earlier versions" open={open.has('history')} onToggle={() => onToggle('history')}>
