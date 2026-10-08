@@ -1654,7 +1654,8 @@ function settleEnds(run: Run): void {
       before: '',
       after: '',
       quote: u.quote,
-      undo: { op: 'until-set', changeId: c.id, before: u }
+      // Undo keeps the end as Adam's (no words behind it), so the next read of the scene doesn't take it back again.
+      undo: { op: 'until-set', changeId: c.id, before: { ...u, origin: 'adam', quote: '', paragraphId: null } }
     })
   }
 }
