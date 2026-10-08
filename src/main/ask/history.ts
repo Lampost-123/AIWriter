@@ -5,7 +5,7 @@
 // format (AIWRITE_EXP_CHAT_FORMAT), an answer in blocks is shown again compact: compactBlocks. Pure.
 
 import { answerText, hasBlockMarkers, parseAnswer, type AnswerBlock } from '@shared/answerBlocks'
-import type { Proposal } from '@shared/contracts/ask'
+import type { DraftMode, Proposal } from '@shared/contracts/ask'
 
 /** The most of either side of a change shown again. */
 export const CLIP = 120
@@ -17,6 +17,21 @@ export function clipLine(s: string, max = CLIP): string {
 }
 
 const q = (s: string): string => `"${clipLine(s)}"`
+
+/** "[4]" for one paragraph, "[4]–[6]" for several. */
+const paraSpan = (from: number, to: number): string => (from === to ? `[${from}]` : `[${from}]–[${to}]`)
+
+/** A proposed draft's mode in words. */
+const DRAFT_WORDS: Record<DraftMode, string> = { generate: 'whole scene', add_below: 'add below', continue: 'continue', redo_beat: 'redo beat' }
+
+/** What a beats change did: one beat put in, reworded or taken out, or the whole new list. */
+function beatsChange(p: Extract<Proposal, { kind: 'beats' }>): string {
+  const at = p.index ?? 0
+  if (p.op === 'insert') return `insert ${at} ${q(p.beats[at - 1] ?? '')}`
+  if (p.op === 'edit') return `beat ${at} ${q(p.before[at - 1] ?? '')} → ${q(p.beats[at - 1] ?? '')}`
+  if (p.op === 'remove') return `remove ${at} ${q(p.before[at - 1] ?? '')}`
+  return `${p.before.length} → ${p.beats.length}: ${q(p.beats.join('; '))}`
+}
 
 /** What one proposal changed, on one line: `change 2: [Ch 1, Sc 2] "old" → "new" (applied)`. */
 export function proposalLine(p: Proposal): string {
@@ -47,6 +62,22 @@ export function proposalLine(p: Proposal): string {
         return `new chapter ${q(p.title)}`
       case 'rename':
         return `rename ${p.target} ${q(p.from)} → ${q(p.to)}`
+      case 'insert':
+        return `[${p.sceneLabel}] insert ${p.where} [${p.at.paragraph}]: ${q(p.text)}`
+      case 'cut':
+        return `[${p.sceneLabel}] cut ${paraSpan(p.from.paragraph, p.to.paragraph)}: ${q(p.paragraphs.join(' '))}`
+      case 'beats':
+        return `[${p.sceneLabel}] beats: ${beatsChange(p)}`
+      case 'draft':
+        return `[${p.sceneLabel}] draft (${DRAFT_WORDS[p.mode]}${p.mode === 'redo_beat' && p.beat ? ` ${p.beat.index}` : ''}): ${q(p.direction)}`
+      case 'issueFix':
+        return `${p.sceneLabel ? `[${p.sceneLabel}] ` : ''}issue fix (${p.how === 'memory' ? 'memory' : 'text'}) ${q(p.message)}${
+          p.how === 'memory' && p.memory ? `: ${p.memory.name} ${p.memory.fieldLabel} ${q(p.memory.from)} → ${q(p.memory.to)}` : p.fix ? `: ${q(p.quote)} → ${q(p.fix)}` : ''
+        }`
+      case 'chapterCard':
+        return `[${p.chapterLabel}] chapter card: ${p.lines.map((l) => `${l.label} ${q(l.to)}`).join(', ') || 'no parts'}${p.scenes ? ` (into ${p.scenes} scene card${p.scenes === 1 ? '' : 's'})` : ''}`
+      case 'thread':
+        return `[${p.sceneLabel}] thread ${q(p.name)}${p.threadId ? '' : ' (new)'}: ${p.action} (${p.list === 'paysOff' ? 'pays off' : 'sets up'})${p.note ? ` ${q(p.note)}` : ''}`
       default:
         return `a ${(p as { kind: string }).kind} change`
     }

@@ -57,6 +57,72 @@ describe('proposalLine', () => {
       })
     ).toBe('change 5: [Ch 2, Sc 1] scene card: goal "Reach the ferry", beats "Run; Hide" (pending)')
   })
+  it('gives the Phase 3 kinds (insert, cut, beats, draft, issue fix, chapter card, thread) their own line', () => {
+    const base = { status: 'pending' as const, why: '', sceneId: 's1', sceneLabel: 'Ch 1, Sc 2' }
+    const at = (paragraph: number) => ({ paragraph, pid: null, offset: 0 })
+    const lines = [
+      proposalLine({ ...base, id: '1', kind: 'insert', where: 'after', at: at(4), near: 'The gulls went quiet.', text: 'Mara counted the boats again.' }),
+      proposalLine({ ...base, id: '2', kind: 'cut', from: at(6), to: at(7), paragraphs: ['The rain came.', 'It went.'] }),
+      proposalLine({ ...base, id: '3', kind: 'cut', from: at(9), to: at(9), paragraphs: ['Nothing moved.'] }),
+      proposalLine({ ...base, id: '4', kind: 'beats', op: 'edit', index: 2, before: ['Arrive', 'Argue', 'Leave'], beats: ['Arrive', 'Shout', 'Leave'] }),
+      proposalLine({ ...base, id: '5', kind: 'beats', op: 'insert', index: 3, before: ['Arrive', 'Argue'], beats: ['Arrive', 'Argue', 'Leave'] }),
+      proposalLine({ ...base, id: '6', kind: 'beats', op: 'remove', index: 1, before: ['Arrive', 'Argue'], beats: ['Argue'] }),
+      proposalLine({ ...base, id: '7', kind: 'beats', op: 'replace', before: ['Arrive'], beats: ['Wake', 'Run'] }),
+      proposalLine({ ...base, id: '8', kind: 'draft', mode: 'continue', direction: 'Mara goes back to the quay.' }),
+      proposalLine({
+        ...base,
+        id: '9',
+        kind: 'issueFix',
+        issueId: 'i1',
+        how: 'text',
+        message: 'Mara’s age is 34 in memory.',
+        severity: 'must-fix',
+        quote: 'She was thirty.',
+        fix: 'She was thirty-four.'
+      }),
+      proposalLine({
+        ...base,
+        id: '10',
+        kind: 'issueFix',
+        issueId: 'i2',
+        how: 'memory',
+        sceneId: null,
+        sceneLabel: '',
+        message: 'The boat’s name differs.',
+        severity: 'warning',
+        quote: 'the Gull',
+        fix: null,
+        memory: { entryId: 'e1', name: 'Mara Venn', field: 'boat', fieldLabel: 'Boat', from: 'Tern', to: 'Gull' }
+      }),
+      proposalLine({
+        id: '11',
+        status: 'applied',
+        why: '',
+        kind: 'chapterCard',
+        chapterId: 'c1',
+        chapterLabel: 'Ch 2',
+        patch: { when: 'Winter' },
+        lines: [{ label: 'When', from: '', to: 'Winter' }],
+        scenes: 3
+      }),
+      proposalLine({ ...base, id: '12', kind: 'thread', threadId: null, name: 'The missing barrels', action: 'open', list: 'setsUp', note: 'Who took them?' })
+    ]
+    expect(lines).toEqual([
+      'change 1: [Ch 1, Sc 2] insert after [4]: "Mara counted the boats again." (pending)',
+      'change 2: [Ch 1, Sc 2] cut [6]–[7]: "The rain came. It went." (pending)',
+      'change 3: [Ch 1, Sc 2] cut [9]: "Nothing moved." (pending)',
+      'change 4: [Ch 1, Sc 2] beats: beat 2 "Argue" → "Shout" (pending)',
+      'change 5: [Ch 1, Sc 2] beats: insert 3 "Leave" (pending)',
+      'change 6: [Ch 1, Sc 2] beats: remove 1 "Arrive" (pending)',
+      'change 7: [Ch 1, Sc 2] beats: 1 → 2: "Wake; Run" (pending)',
+      'change 8: [Ch 1, Sc 2] draft (continue): "Mara goes back to the quay." (pending)',
+      'change 9: [Ch 1, Sc 2] issue fix (text) "Mara’s age is 34 in memory.": "She was thirty." → "She was thirty-four." (pending)',
+      'change 10: issue fix (memory) "The boat’s name differs.": Mara Venn Boat "Tern" → "Gull" (pending)',
+      'change 11: [Ch 2] chapter card: When "Winter" (into 3 scene cards) (applied)',
+      'change 12: [Ch 1, Sc 2] thread "The missing barrels" (new): open (sets up) "Who took them?" (pending)'
+    ])
+    for (const l of lines) expect(l).not.toMatch(/ change \(|a \w+ change/)
+  })
   it('clips each side to about 120 characters on one line', () => {
     expect(clipLine('a\n\nb  c')).toBe('a b c')
     expect(clipLine('x'.repeat(300))).toHaveLength(120)
