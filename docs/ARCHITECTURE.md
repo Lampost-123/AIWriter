@@ -165,6 +165,13 @@ again, with Undo).
   writer's "Kept from …" lines (`ai/mustStay.ts` `secretsAmong`, so the plan's too) and the check's and repair's "Not
   known by" leave out every fact that isn't backed: a plain "knows" the memory read on its own says nothing of who
   doesn't know it.
+- *B7, clear actions for the memory model.* The reading prompt (`keeper/prompts.ts`) has one rule line, "Actions on
+  the memory", and four items in the same shape (an entry id, a quote): `end` (B1), `guess` with `do` confirm or
+  withdraw (the memory lines mark the AI's own guesses "(guess)", `keeper/request.ts`), `close` (an open thread, applied
+  as a resolve under the same rules: `applyThread`) and `summary` (A2's revise). A guess confirmed gets a link and
+  becomes text-born; withdrawn, it is cleared (never an entry's summary); only `guessFields` count, so Adam's fields and
+  the world builder's drafts are never touched; each has Undo and a suppression. To make room, some examples were cut,
+  so the prompt is 5,948 characters (about 1,700 tokens; 5,806 before round 2) and still fits a 3,000-token model.
 
 ### How memory over time works
 

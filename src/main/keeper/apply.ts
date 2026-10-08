@@ -1580,6 +1580,53 @@ function endChange(run: Run, c: Change, when: string, s: Spot): void {
 }
 
 /**
+ * One of the memory's own guesses (World Memory Overhaul A4: a detail the AI filled in on an entry found in the story,
+ * with no words behind it) that the words now bear out or rule out (B7, a "guess" item). Confirmed, it rests on those
+ * words like a detail read from the scene; withdrawn, it goes (an entry's summary is never withdrawn: it waits for a new
+ * one). Only ever a guess: Adam's fields, and the world builder's drafts on his entries, are never guesses, so never
+ * touched. Undo puts it back as it was, and the same words don't settle it again.
+ */
+function settleGuess(run: Run, e: Entry, field: string, act: 'confirm' | 'withdraw', s: Spot): void {
+  if (!guessFields(e).includes(field) || (act === 'withdraw' && field === 'summary')) return
+  const value = fieldValue(e, field)
+  if (!value.trim()) return
+  const db = run.db
+  const fp = fingerprint({ type: 'field', entryId: e.id, field })
+  if (run.suppressed(fp, s.quote)) return
+  const label = fieldLabel(e, field)
+  const undo = { op: 'field-set' as const, entryId: e.id, field, before: value, beforeOrigin: 'ai' as const, fingerprint: fp, words: wordsOf(s.quote) }
+  if (act === 'confirm') {
+    if (hist.linksForEntry(db, e.id).some((l) => hist.isFieldLink(l, field) && l.state === 'ok')) return
+    const link = run.addLink(field === 'summary' ? 'summary' : 'field', e.id, field, s)
+    kdb.setFieldOrigins(db, e.id, { [field]: 'text' })
+    run.log({
+      action: 'updated',
+      what: 'entry',
+      entryId: e.id,
+      entryName: e.name,
+      text: `${label}: the story bears out the guess`,
+      before: value,
+      after: value,
+      quote: s.quote,
+      undo: { ...undo, linkIds: [link.id] }
+    })
+    return
+  }
+  repo.updateEntry(db, e.id, patchFor(e, field, ''), run.by)
+  run.log({
+    action: 'removed',
+    what: 'entry',
+    entryId: e.id,
+    entryName: e.name,
+    text: `${label}: a guess the story doesn't bear out`,
+    before: value,
+    after: '',
+    quote: s.quote,
+    undo: { ...undo, linkIds: [] }
+  })
+}
+
+/**
  * The ends read from this scene follow their words, like any fact (B1): moved words carry the end with them, and an end
  * whose words are gone (and that this read didn't give again) is taken back, with Undo. The tidy-up, which can't ask
  * the model, keeps an end while its paragraph is still there. A deleted scene's ends stay, for when it comes back.
@@ -1680,9 +1727,18 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     return
   }
   if (type === 'thread') return applyThread(run, a, chunk, refs, s)
+  // Close an open thread (B7): a resolve, under the same rules (the payoff on the page, not while the plan puts it later).
+  if (type === 'close') return applyThread(run, { ...a, status: 'resolved' }, chunk, refs, s)
   const entry = run.resolve(a.entry, chunk.ids, refs)
   if (!entry || !run.ensureHere(entry, s)) return
   switch (type) {
+    case 'guess': {
+      // Confirm or withdraw one of the memory's own guesses (B7).
+      const field = fieldKey(entry.kind, a.field)
+      const act = str(a.do ?? a.verdict ?? a.action, 20).toLowerCase()
+      if (field && (act === 'confirm' || act === 'withdraw')) settleGuess(run, run.entry(entry.id) ?? entry, field, act, s)
+      return
+    }
     case 'end': {
       // Something "So far" (or a fact they knew) is no longer true from here (B1).
       const target = endTarget(run, run.entry(entry.id) ?? entry, str(a.fact ?? a.note, 300), chunk)

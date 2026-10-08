@@ -53,7 +53,7 @@
 //   - "Nobody knew who|why|where|what|how|whether <x>."  opens a plot thread "Who <x>" (promise "Who <x>?")
 //   - "A clue: <x>."                                a clue for the first open plot thread listed (or one opened above)
 //   - "Things moved on: <x>."                       the same thread moves on (developing, note <x>)
-//   - "At last the answer came: <x>."               the same thread is resolved (note <x>)
+//   - "At last the answer came: <x>."               the same thread is closed (a "close" item, note <x>)
 //   - "<Name> found her|his|their <thing> again."   ends <Name>'s "lost her <thing>" (an "end" item; a leading
 //                                                    "The next morning," and the like is its "when")
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
@@ -294,7 +294,8 @@ export function fakeMemoryReply(user) {
       if (!target) continue
       if (r.kind === 'thread-clue') add.push({ type: 'thread', ...target, status: 'clue', clue: r.clue, quote: s })
       if (r.kind === 'thread-developing') add.push({ type: 'thread', ...target, status: 'developing', note: r.note, quote: s })
-      if (r.kind === 'thread-resolved') add.push({ type: 'thread', ...target, status: 'resolved', note: r.note, quote: s })
+      // Closed with the "close" action (World Memory Overhaul B7), as the reading prompt now asks.
+      if (r.kind === 'thread-resolved') add.push({ type: 'close', ...target, note: r.note, quote: s })
       continue
     }
     const entry = ref(r.name)
