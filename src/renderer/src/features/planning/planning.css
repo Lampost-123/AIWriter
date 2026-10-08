@@ -11,11 +11,9 @@
 */
 
 /* ---------- The page: a wider sheet, the header band, two columns ---------- */
-[data-arrangement='desk'][data-look='new'] .desk-room-sheet:has(> .plan-page) {
-  width: min(1600px, calc(100% - 80px));
-}
-[data-arrangement='desk'][data-look='new'] .desk-room:has(> .desk-room-sheet > .plan-page) > .desk-room-head {
-  padding-inline: max(40px, calc((100% - 1600px) / 2));
+/* The planning pages are two columns: their sheet may be wider than the room's own (desk.css, --room-max), from 1600px. */
+[data-arrangement='desk'][data-look='new'] .desk-room:has(> .desk-room-sheet > .plan-page) {
+  --room-max: clamp(1600px, calc(100vw - 960px), 2000px);
 }
 [data-arrangement='desk'][data-look='new'] .plan-page {
   position: absolute;
