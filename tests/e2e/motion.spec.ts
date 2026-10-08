@@ -3,7 +3,7 @@
 // motion makes every change instant. Timings are read from the animations the window really runs.
 // (Code run in the window is written as text: the tests' own types have no DOM.)
 import type { Page } from '@playwright/test'
-import { expect, invoke, test } from './helpers'
+import { createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
 
 const rail = (win: Page) => win.getByRole('navigation', { name: 'Areas' })
 const area = (win: Page, name: string) => rail(win).getByRole('button', { name, exact: true })
@@ -161,4 +161,59 @@ test('the New look: a page change from the pointer crossfades; from the keyboard
     return parts
   })()`)
   expect(moving).toBe(0)
+})
+
+test('the New look: an amber caret stands where a streaming draft’s words arrive, and goes when it ends', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 10, slowDelayMs: 40 })
+  try {
+    const { win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake, 'fake/slow')
+    const header = win.locator('main header')
+    const caret = win.locator('.scene-prose .aw-stream-caret')
+    await win.locator('.scene-prose').click()
+    await win.keyboard.type('The tide was out. ')
+    await expect(caret).toHaveCount(0)
+
+    await header.getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.getByRole('button', { name: /^Add below/ }).click()
+    await expect(header.locator('.gen-running')).toBeVisible()
+    // Once words arrive: one caret, at the very end of the last paragraph, blinking.
+    await expect(caret).toHaveCount(1)
+    await expect(caret).toBeVisible()
+    expect(
+      await win.evaluate<boolean>(`(() => {
+        const c = document.querySelector('.scene-prose .aw-stream-caret')
+        const last = document.querySelector('.scene-prose').lastElementChild
+        // (ProseMirror may put an empty helper after it, for the cursor.)
+        let after = ''
+        for (let n = c.nextSibling; n; n = n.nextSibling) after += n.textContent
+        return c.parentElement === last && after === ''
+      })()`)
+    ).toBe(true)
+    expect(await animationsOf(win, '.scene-prose .aw-stream-caret')).toEqual([{ name: 'aw-sugg-blink', ms: 1100 }])
+    // The same caret stays while words keep coming into its paragraph (its blink doesn't restart with every word).
+    await win.evaluate(`window.streamCaret = document.querySelector('.scene-prose .aw-stream-caret')`)
+    const words = async () => (await win.locator('.scene-prose').innerText()).split(/\s+/).length
+    const before = await words()
+    await expect.poll(words).toBeGreaterThan(before + 3)
+    expect(await win.evaluate<boolean>(`(() => {
+      const c = document.querySelector('.scene-prose .aw-stream-caret')
+      return c === window.streamCaret || c.parentElement !== window.streamCaret.parentElement
+    })()`)).toBe(true)
+
+    // Classic never shows it.
+    await win.evaluate(`document.documentElement.dataset.look = 'classic'`)
+    await expect(caret).toHaveCount(0)
+    await win.evaluate(`document.documentElement.dataset.look = 'new'`)
+    await expect(caret).toHaveCount(1)
+
+    // Stopped: gone that moment.
+    await header.getByRole('button', { name: 'Stop' }).click()
+    await expect(header.locator('.gen-running')).toHaveCount(0)
+    await expect(caret).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
 })

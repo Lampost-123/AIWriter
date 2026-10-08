@@ -2,6 +2,7 @@ import type { AnyExtension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { streamPlugin } from './streamDoc'
+import { StreamCaret } from './streamCaret'
 import { Extension } from '@tiptap/core'
 import { requestMarkDone } from './doneShortcut'
 import { ParagraphIds } from './paragraphIds'
@@ -55,7 +56,8 @@ const MarkDoneShortcut = Extension.create({
  * milestone 5 the live checks' underlines (features/liveChecks/liveDecorations.ts). Writing by hand adds spell check
  * and synonyms (features/spelling/editorSpelling.ts) and the daily word count (features/goals/wordTally.ts); sound effects mark
  * the words each sound plays on while the Sounds view shows (features/sounds/soundMarks.ts); check and repair shows the
- * slips it mended as new AI words landed, in amber (features/repair/marks.ts).
+ * slips it mended as new AI words landed, in amber (features/repair/marks.ts). The New look shows an amber caret where a
+ * streaming draft's words arrive (streamCaret.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -74,6 +76,8 @@ export function sceneExtensions(): AnyExtension[] {
     }),
     Placeholder.configure({ placeholder: EDITOR_PLACEHOLDER }),
     StreamTracking,
+    // The New look: an amber caret where a streaming draft's words arrive.
+    StreamCaret,
     MarkDoneShortcut,
     ParagraphIds,
     NameUnderlines,
