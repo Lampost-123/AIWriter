@@ -1,0 +1,343 @@
+/*
+  The living art (UI overhaul, "living art"; components/art/living.ts): the pictures that move on their own, and the
+  rules every one of them keeps.
+
+  - Ambient loops are slow (seconds long) and small (a few pixels, a few degrees, a little opacity), and move only by
+    transform, opacity or stroke-dashoffset. A picture's root has the class .la; each element that loops has .lp.
+  - They are still while the window is hidden or another window has the focus (<html data-art-still>, living.ts), and
+    while Adam is typing in any text box (<html data-art-typing>: nothing moves near his words).
+  - With less motion (Windows: animation effects off) nothing moves at all: every picture shows its resting frame.
+  - None in the Write room's page: the empty page there draws itself once and rests (EmptyArt's "scenes").
+  - The lamp light here is a pale warm light of its own (--hb-lamp), never the AI's amber.
+*/
+
+/* ---------- the rules ---------- */
+:root[data-art-still] :is(.la, .la *) {
+  animation-play-state: paused !important;
+}
+:root[data-art-typing] :is(.lp, .lp *) {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.la, .la *) {
+    animation: none !important;
+  }
+}
+
+/* ---------- the harbour's colours (Harbour.tsx), in every look: the sky takes the theme's accent ---------- */
+:root,
+[data-theme='light'] {
+  --hb-night: #121a33;
+  --hb-dusk: #7a5878;
+  --hb-horizon: #f1bd86;
+  --hb-sun: #ffe3ae;
+  --hb-cloud: #f6be93;
+  --hb-land-far: #3f3a5e;
+  --hb-land: #2e2739;
+  --hb-land-near: #231d2e;
+  --hb-roof: #2a2540;
+  --hb-rim: #a0747e;
+  --hb-tower: #f8ecda;
+  --hb-tower-2: #e6d0b4;
+  --hb-tower-shade: #ae937f;
+  --hb-band: #a54b44;
+  --hb-door: #4b3640;
+  --hb-iron: #33272e;
+  --hb-hull: #1d1a2b;
+  --hb-sail: #eed8bc;
+  --hb-sail-2: #d6b99e;
+  --hb-gull: #2a2440;
+  --hb-wave: #aeb8da;
+  --hb-star: #fff3da;
+  --hb-window: #ffd48a;
+  /* The lamp's own light: pale and warm, not the AI's amber. */
+  --hb-lamp: #ffe9b8;
+  --hb-lamp-core: #fff8e2;
+  --hb-lamp-room: #ffe7b0;
+  --hb-glint: #ffdca6;
+}
+[data-theme='dark'] {
+  --hb-night: #060a17;
+  --hb-dusk: #353b66;
+  --hb-horizon: #8f9cc9;
+  --hb-sun: #d9e2ff;
+  --hb-cloud: #8e9acb;
+  --hb-land-far: #1b2140;
+  --hb-land: #12172b;
+  --hb-land-near: #0c1022;
+  --hb-roof: #141a33;
+  --hb-rim: #56628f;
+  --hb-tower: #d9dfec;
+  --hb-tower-2: #b3bbd0;
+  --hb-tower-shade: #6f7896;
+  --hb-band: #8a4448;
+  --hb-door: #2a2c45;
+  --hb-iron: #1b1f33;
+  --hb-hull: #0b0e1d;
+  --hb-sail: #c9d0e4;
+  --hb-sail-2: #a3acc6;
+  --hb-gull: #1a1f38;
+  --hb-wave: #8d9ccc;
+  --hb-star: #f4f1ff;
+  --hb-window: #f7d58f;
+  --hb-lamp: #fbe9bf;
+  --hb-lamp-core: #fffaea;
+  --hb-lamp-room: #f6e2b2;
+  --hb-glint: #e9dcc0;
+}
+[data-theme='sepia'] {
+  --hb-night: #2a1a14;
+  --hb-dusk: #8a5048;
+  --hb-horizon: #f0b070;
+  --hb-sun: #ffe1a6;
+  --hb-cloud: #f2b583;
+  --hb-land-far: #4a3330;
+  --hb-land: #352420;
+  --hb-land-near: #281a17;
+  --hb-roof: #31211d;
+  --hb-rim: #a56f5e;
+  --hb-tower: #f6e7cf;
+  --hb-tower-2: #e3caa6;
+  --hb-tower-shade: #a88a6c;
+  --hb-band: #9e4434;
+  --hb-door: #4a3028;
+  --hb-iron: #33231d;
+  --hb-hull: #22150f;
+  --hb-sail: #f0d9b8;
+  --hb-sail-2: #d8b893;
+  --hb-gull: #33211b;
+  --hb-wave: #d2b49a;
+  --hb-star: #fff1d6;
+  --hb-window: #ffd283;
+  --hb-lamp: #ffe6b0;
+  --hb-lamp-core: #fff6dc;
+  --hb-lamp-room: #ffe3a6;
+  --hb-glint: #ffd59c;
+}
+.hb {
+  --hb-sky-1: color-mix(in oklab, var(--accent) 22%, var(--hb-night));
+  --hb-sky-2: color-mix(in oklab, var(--accent) 46%, var(--hb-night));
+  --hb-sky-3: color-mix(in oklab, var(--hb-dusk) 78%, var(--accent));
+  --hb-sky-4: color-mix(in oklab, var(--hb-horizon) 70%, var(--hb-dusk));
+  --hb-sea-1: color-mix(in oklab, var(--hb-dusk) 72%, var(--hb-night));
+  --hb-sea-2: color-mix(in oklab, var(--hb-dusk) 40%, color-mix(in oklab, var(--accent) 30%, var(--hb-night)));
+  --hb-sea-3: color-mix(in oklab, var(--accent) 22%, var(--hb-night));
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  container-type: size;
+  background: var(--hb-night);
+  box-shadow:
+    0 1px 0 rgb(40 30 20 / 0.06),
+    0 18px 40px -22px rgb(20 20 50 / 0.45);
+}
+/* The drawing covers the frame like a picture cut to fit (the drawing box is 1040 by 288). */
+.hb-stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100cqw, 100cqh * 1040 / 288);
+  aspect-ratio: 1040 / 288;
+  transform: translate(-50%, -50%);
+}
+.hb-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.hb-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(75% 90% at 50% 42%, transparent 55%, rgb(8 8 24 / 0.32));
+  pointer-events: none;
+}
+.hb-rim {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 240 215 / 0.12),
+    inset 0 1px 0 rgb(255 240 215 / 0.2);
+}
+.hb-wave path {
+  fill: none;
+  stroke: var(--hb-wave);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+}
+.hb-glint rect {
+  fill: var(--hb-glint);
+}
+
+/* The loops: seconds long, a few pixels. (Percentages are of the drawing: 1% across is 10.4 of its 1040.) */
+@keyframes hb-twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes hb-sea {
+  from {
+    transform: translateX(-1.54%);
+  }
+  to {
+    transform: translateX(1.54%);
+  }
+}
+@keyframes hb-glint {
+  0% {
+    transform: translateX(-0.87%);
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(0.87%);
+    opacity: 0.7;
+  }
+}
+@keyframes hb-sweep {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+    opacity: 0.8;
+  }
+  50% {
+    transform: rotate(5deg);
+    opacity: 1;
+  }
+}
+@keyframes hb-breathe {
+  0%,
+  100% {
+    opacity: 0.82;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+@keyframes hb-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.82;
+  }
+  55% {
+    opacity: 0.96;
+  }
+  70% {
+    opacity: 0.88;
+  }
+}
+@keyframes hb-drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(5.77%);
+  }
+}
+@keyframes hb-bob {
+  from {
+    transform: translateY(0) rotate(-1.2deg);
+  }
+  to {
+    transform: translateY(0.52%) rotate(1.2deg);
+  }
+}
+.hb {
+  --hb-ease: cubic-bezier(0.65, 0, 0.35, 1);
+}
+.hb-star {
+  animation: hb-twinkle 4s ease-in-out infinite;
+}
+.hb-st1 {
+  animation-duration: 3.2s;
+  animation-delay: -1.1s;
+}
+.hb-st2 {
+  animation-duration: 4.4s;
+  animation-delay: -2.3s;
+}
+.hb-st3 {
+  animation-duration: 4.9s;
+  animation-delay: -3.1s;
+}
+.hb-w1 {
+  opacity: 0.32;
+  animation: hb-sea 9s var(--hb-ease) infinite alternate;
+}
+.hb-w2 {
+  opacity: 0.26;
+  animation: hb-sea 7.5s var(--hb-ease) infinite alternate-reverse;
+}
+.hb-w3 {
+  opacity: 0.22;
+  animation: hb-sea 8.5s var(--hb-ease) infinite alternate;
+}
+.hb-g1 {
+  animation: hb-glint 8s var(--hb-ease) infinite alternate;
+}
+.hb-g2 {
+  animation: hb-glint 7s var(--hb-ease) infinite alternate-reverse;
+}
+.hb-g3 {
+  animation: hb-glint 9s var(--hb-ease) infinite alternate;
+}
+/* The beam and the glow turn and breathe about the lamp (840, 86 in the drawing). */
+.hb-beam {
+  transform-origin: 80.77% 29.86%;
+  animation: hb-sweep 9s var(--hb-ease) infinite;
+}
+.hb-glow {
+  transform-origin: 80.77% 29.86%;
+  animation: hb-breathe 4.5s var(--hb-ease) infinite;
+}
+.hb-flame {
+  animation: hb-flicker 3.6s var(--hb-ease) infinite;
+}
+.hb-drift {
+  position: absolute;
+  inset: 0;
+  animation: hb-drift 28s var(--hb-ease) infinite alternate;
+}
+/* The boat rocks about its keel (500, 244). */
+.hb-bob {
+  transform-origin: 48.08% 84.72%;
+  animation: hb-bob 4.2s var(--hb-ease) infinite alternate;
+}
+
+/* The AI Write mark's spark (start/Opening.tsx), once the opening is over: it glints now and then. */
+@keyframes start-spark-glint {
+  0%,
+  84%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  90% {
+    opacity: 0.55;
+    transform: scale(0.8);
+  }
+  95% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+.start-screen[data-opening='done'] .start-mark .start-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: start-spark-glint 7s ease-in-out 1s infinite;
+}

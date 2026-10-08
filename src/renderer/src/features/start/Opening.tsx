@@ -56,7 +56,7 @@ export function InkMark({ size = 44, className }: { size?: number; className?: s
       width={size}
       height={size}
       aria-hidden
-      className={cn('start-mark shrink-0 text-accent', className)}
+      className={cn('start-mark la shrink-0 text-accent', className)}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.9}
@@ -73,7 +73,7 @@ export function InkMark({ size = 44, className }: { size?: number; className?: s
       {stroke('M11 31 C13.5 30.6 15.5 30.8 17 31.3', 510)}
       {stroke('M31 31.3 C32.5 30.8 34.5 30.6 37 31', 550)}
       <path
-        className="start-spark"
+        className="start-spark lp"
         d="M37 2.5 Q37.8 6.2 41.5 7 Q37.8 7.8 37 11.5 Q36.2 7.8 32.5 7 Q36.2 6.2 37 2.5 Z"
         pathLength={1}
         fill="currentColor"

@@ -13,7 +13,7 @@ import { flushBeforeWorldChange } from '@/lib/flush'
 import { isShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
-import { LitWindow } from '@/components/ui/LitWindow'
+import { Harbour } from '@/components/art/Harbour'
 import { useNewLook } from '@/features/look/look'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { createWorldAndBuild } from '@/features/worldBuilder/open'
@@ -145,12 +145,8 @@ export function StartScreen(): React.JSX.Element {
       <DriftingTexture />
       <div className="absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
         <div className="relative mx-auto w-full max-w-[800px] px-8 pb-20 pt-[9vh]">
-          {/* The New look: a lit window over the water above it all (still: nothing moves at launch but the opening). */}
-          {isNew ? (
-            <div className="start-rise -mx-2 mb-6 h-[140px] overflow-hidden rounded-card" style={rise(0)}>
-              <LitWindow />
-            </div>
-          ) : null}
+          {/* The New look: the harbour at dusk above it all, its lighthouse beam sweeping slowly (components/art/Harbour). */}
+          {isNew ? <Harbour className="start-rise -mx-2 mb-6 h-[clamp(150px,23vh,208px)] rounded-card" style={rise(0)} /> : null}
           <header className="mb-8 flex items-center gap-3.5">
             <InkMark />
             <div className="min-w-0 flex-1">
