@@ -680,10 +680,10 @@ export function Dossier({
 
       <div className="dz-portrait">
         {PICTURED.includes(kind) ? (
-          <PortraitDrop entry={draft} size={88} motif={motif} onChange={(saved) => takeNewer(saved, editor.base.current)} />
+          <PortraitDrop entry={draft} size={88} motif={motif} live onChange={(saved) => takeNewer(saved, editor.base.current)} />
         ) : (
           <span aria-hidden className="dz-mono">
-            {kind === 'lore' && draft.hardRule ? <ShieldCheck size={36} /> : motif ? <Motif id={motif} size={54} /> : entryInitial(name)}
+            {kind === 'lore' && draft.hardRule ? <ShieldCheck size={36} /> : motif ? <Motif id={motif} size={54} live reveal /> : entryInitial(name)}
           </span>
         )}
       </div>

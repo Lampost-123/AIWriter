@@ -2,7 +2,7 @@
 // for each entry in the world and for each story's book cover (src/shared/motifs.ts says which suits what). Drawn in a
 // 48 by 48 box in currentColor, so they take the ink of wherever they sit, in every theme.
 
-/** One SVG element: its tag, its attributes and any children. */
+/** One SVG element: its tag, its attributes and any children. A part that moves on its own has a data-part (motifMotion.ts). */
 export type MotifShape = [tag: string, attrs: Record<string, string>, children?: MotifShape[]]
 
 /** Each drawing's shapes, by its id. */
@@ -13,7 +13,7 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['rect', { x: '18', y: '16', width: '12', height: '18', class: 'soft' }],
     ['path', { d: 'M17 16h14M18 16v18M30 16v18' }],
     ['path', { d: 'M21 16v18M27 16v18', class: 'fine' }],
-    ['path', { d: 'M24 21.2c1.9 2.3 2.8 3.9 2.8 5.4a2.8 2.8 0 0 1-5.6 0c0-1.5.9-3.1 2.8-5.4z', class: 'solid' }],
+    ['path', { d: 'M24 21.2c1.9 2.3 2.8 3.9 2.8 5.4a2.8 2.8 0 0 1-5.6 0c0-1.5.9-3.1 2.8-5.4z', class: 'solid' , 'data-part': 'flame' }],
     ['path', { d: 'M16.5 34h15l-1.8 4.5H18.3z' }],
     ['path', { d: 'M19.5 38.5V41h9v-2.5' }]
   ],
@@ -33,7 +33,7 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M24 29.5V6.5M24 6.5l4 1.5-4 1.5' }],
     ['path', { d: 'M7 29.5h34c-1.5 4-4 7-8 7H15c-4 0-6.5-3-8-7z' }],
     ['path', { d: 'M10 32.5h28', class: 'fine' }],
-    ['path', { d: 'M5 40.5q2.4-1.6 4.8 0t4.8 0t4.8 0t4.8 0t4.8 0t4.8 0t4.8 0t4.8 0', class: 'fine' }]
+    ['path', { d: 'M5 40.5q2.4-1.6 4.8 0t4.8 0t4.8 0t4.8 0t4.8 0t4.8 0t4.8 0t4.8 0', class: 'fine' , 'data-part': 'water' }]
   ],
   boat: [
     ['path', { d: 'M5 22c4 1.6 9 2.2 19 2.2s15-.6 19-2.2c-1.4 6-5 10-10.5 10h-17C10 32 6.4 28 5 22z', class: 'soft' }],
@@ -43,9 +43,9 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['ellipse', { cx: '16.1', cy: '37.4', rx: '1.8', ry: '3.8', transform: 'rotate(32.9 16.1 37.4)', class: 'soft' }],
     ['ellipse', { cx: '16.1', cy: '37.4', rx: '1.8', ry: '3.8', transform: 'rotate(32.9 16.1 37.4)' }],
     ['circle', { cx: '27.7', cy: '19.5', r: '1', class: 'solid' }],
-    ['path', { d: 'M22 38q2.5-1.4 5 0t5 0t5 0', class: 'fine' }],
-    ['path', { d: 'M6 38q2-1.2 4 0', class: 'fine' }],
-    ['path', { d: 'M26 41.5q2-1.2 4 0t4 0', class: 'fine' }]
+    ['path', { d: 'M22 38q2.5-1.4 5 0t5 0t5 0', class: 'fine' , 'data-part': 'water' }],
+    ['path', { d: 'M6 38q2-1.2 4 0', class: 'fine' , 'data-part': 'water' }],
+    ['path', { d: 'M26 41.5q2-1.2 4 0t4 0', class: 'fine' , 'data-part': 'water' }]
   ],
   anchor: [
     ['circle', { cx: '24', cy: '9', r: '2.6' }],
@@ -124,7 +124,7 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M13 18V9h3.4v3h2.8V9h3.4v3h2.8V9h3.4v3h2.8V9H35v9z', class: 'soft' }],
     ['path', { d: 'M13 18V9h3.4v3h2.8V9h3.4v3h2.8V9h3.4v3h2.8V9H35v9z' }],
     ['path', { d: 'M15 18v23M33 18v23' }],
-    ['path', { d: 'M22.2 27v-3.8a1.8 1.8 0 0 1 3.6 0V27z', class: 'solid' }],
+    ['path', { d: 'M22.2 27v-3.8a1.8 1.8 0 0 1 3.6 0V27z', class: 'solid' , 'data-part': 'window' }],
     ['path', { d: 'M21 41v-5a3 3 0 0 1 6 0v5' }],
     ['path', { d: 'M10 41h28' }],
     ['path', { d: 'M15 22.5h4M29 30h4M15 33h3.5M29.5 22.5h3.5M18 37h2M15 27.5h2.5M30 36.5h3', class: 'fine' }]
@@ -136,9 +136,9 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M16 22v-3.5h2.8v2h1.6v-2h2.8v2h1.6v-2h2.8v2h1.6v-2H32V22' }],
     ['path', { d: 'M20.5 40v-7a3.5 3.5 0 0 1 7 0v7' }],
     ['path', { d: 'M24 18.5V8' }],
-    ['path', { d: 'M24 8l4.5 1.6L24 11.2z', class: 'solid' }],
-    ['rect', { x: '11.3', y: '21', width: '1.4', height: '3.6', rx: '.7', class: 'solid' }],
-    ['rect', { x: '35.3', y: '21', width: '1.4', height: '3.6', rx: '.7', class: 'solid' }],
+    ['path', { d: 'M24 8l4.5 1.6L24 11.2z', class: 'solid' , 'data-part': 'flag' }],
+    ['rect', { x: '11.3', y: '21', width: '1.4', height: '3.6', rx: '.7', class: 'solid' , 'data-part': 'window' }],
+    ['rect', { x: '35.3', y: '21', width: '1.4', height: '3.6', rx: '.7', class: 'solid' , 'data-part': 'window' }],
     ['path', { d: 'M5 40h38' }],
     ['path', { d: 'M8.5 31h3.5M35.5 28h3.5M17 27h4M27 31h4M12 35.5h3M33 35.5h3', class: 'fine' }]
   ],
@@ -149,8 +149,9 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M17.5 18h13' }],
     ['path', { d: 'M20.5 18v-6h7v6' }],
     ['path', { d: 'M19.5 12L24 7.5l4.5 4.5zM24 7.5V5.5' }],
-    ['circle', { cx: '24', cy: '15', r: '1.5', class: 'solid' }],
-    ['path', { d: 'M16.5 13l-6-2.5M16.5 16.5l-6 2M31.5 13l6-2.5M31.5 16.5l6 2' }],
+    ['circle', { cx: '24', cy: '15', r: '1.5', class: 'solid' , 'data-part': 'lamp' }],
+    ['path', { d: 'M16.5 13l-6-2.5M16.5 16.5l-6 2', 'data-part': 'beam-l' }],
+    ['path', { d: 'M31.5 13l6-2.5M31.5 16.5l6 2', 'data-part': 'beam-r' }],
     ['path', { d: 'M19.7 25h8.6M19.1 30h9.7', class: 'fine' }],
     ['path', { d: 'M22.5 40.5V37a1.5 1.5 0 0 1 3 0v3.5' }],
     ['path', { d: 'M11 40.5h26' }]
@@ -160,9 +161,9 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M10 26.5L24 14l14 12.5' }],
     ['path', { d: 'M13 24v17.5h22V24' }],
     ['path', { d: 'M31 20.2V14h3.5v9.3' }],
-    ['path', { d: 'M33.3 11.2c-1.4-1.2-.6-2.6.8-3.1s1.8-2 .8-3.2', class: 'fine' }],
+    ['path', { d: 'M33.3 11.2c-1.4-1.2-.6-2.6.8-3.1s1.8-2 .8-3.2', class: 'fine' , 'data-part': 'smoke' }],
     ['path', { d: 'M18 41.5V34h5v7.5' }],
-    ['rect', { x: '27', y: '29', width: '4.5', height: '4.2', class: 'soft' }],
+    ['rect', { x: '27', y: '29', width: '4.5', height: '4.2', class: 'soft' , 'data-part': 'window' }],
     ['rect', { x: '27', y: '29', width: '4.5', height: '4.2' }],
     ['path', { d: 'M29.3 29v4.2M27 31.1h4.5', class: 'fine' }],
     ['path', { d: 'M9 41.5h30' }]
@@ -173,8 +174,8 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M11 33c0-7.7 5.8-13 13-13s13 5.3 13 13' }],
     ['path', { d: 'M5 16.5h38', class: 'fine' }],
     ['path', { d: 'M24 20v-3.5M30.5 21.7l1.5-2.6M17.5 21.7L16 19.1M35.3 26.5l2.6-1.5M12.7 26.5L10.1 25', class: 'fine' }],
-    ['path', { d: 'M7 37q2.5-1.4 5 0t5 0t5 0t5 0t5 0t5 0t5 0', class: 'fine' }],
-    ['path', { d: 'M14 40.5q2.5-1.4 5 0t5 0t5 0t5 0', class: 'fine' }]
+    ['path', { d: 'M7 37q2.5-1.4 5 0t5 0t5 0t5 0t5 0t5 0t5 0', class: 'fine' , 'data-part': 'water' }],
+    ['path', { d: 'M14 40.5q2.5-1.4 5 0t5 0t5 0t5 0', class: 'fine' , 'data-part': 'water' }]
   ],
   gate: [
     ['path', { d: 'M15 42V22.5a9 9 0 0 1 18 0V42z', class: 'soft' }],
@@ -218,37 +219,37 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M5 34c8 0 9-8 9-14 0-5.5 4-10 10-10 5 0 8.5 3.5 8.5 7.5 0 3-2.2 5.2-5 5.2-2.4 0-4.2-1.7-4.2-4 0-1.8 1.3-3.2 3-3.2' }],
     ['path', { d: 'M29.9 22.3c-.5 6 4 11 13.1 11.7' }],
     ['path', { d: 'M10 31.5c4-2 6-6 6.5-11M16.5 31c2-2.5 3-6 3-9.5', class: 'fine' }],
-    ['path', { d: 'M4 38.5q2.5-1.5 5 0t5 0t5 0t5 0t5 0t5 0t5 0t5 0', class: 'fine' }],
-    ['path', { d: 'M12 42q2.5-1.5 5 0t5 0t5 0t5 0', class: 'fine' }]
+    ['path', { d: 'M4 38.5q2.5-1.5 5 0t5 0t5 0t5 0t5 0t5 0t5 0t5 0', class: 'fine' , 'data-part': 'water' }],
+    ['path', { d: 'M12 42q2.5-1.5 5 0t5 0t5 0t5 0', class: 'fine' , 'data-part': 'water' }]
   ],
   moon: [
     ['path', { d: 'M22.1 9A16 16 0 1 0 37.2 30.1A13 13 0 0 1 22.1 9z', class: 'soft' }],
     ['path', { d: 'M22.1 9A16 16 0 1 0 37.2 30.1A13 13 0 0 1 22.1 9z' }],
-    ['path', { d: 'M36 7.5l1.1 3.4 3.4 1.1-3.4 1.1L36 16.5l-1.1-3.4-3.4-1.1 3.4-1.1z', class: 'solid' }],
-    ['circle', { cx: '40.5', cy: '22', r: '.9', class: 'solid' }]
+    ['path', { d: 'M36 7.5l1.1 3.4 3.4 1.1-3.4 1.1L36 16.5l-1.1-3.4-3.4-1.1 3.4-1.1z', class: 'solid' , 'data-part': 'twinkle' }],
+    ['circle', { cx: '40.5', cy: '22', r: '.9', class: 'solid' , 'data-part': 'twinkle' }]
   ],
   sun: [
     ['circle', { cx: '24', cy: '24', r: '7.5', class: 'soft' }],
     ['circle', { cx: '24', cy: '24', r: '7.5' }],
     ['circle', { cx: '24', cy: '24', r: '4.6', class: 'fine' }],
-    ['path', { d: 'M24 13.2L24 5M31.6 16.4L37.4 10.6M34.8 24L43 24M31.6 31.6L37.4 37.4M24 34.8L24 43M16.4 31.6L10.6 37.4M13.2 24L5 24M16.4 16.4L10.6 10.6' }],
-    ['path', { d: 'M28.1 14L29.7 10.1M34 19.9L37.9 18.3M34 28.1L37.9 29.7M28.1 34L29.7 37.9M19.9 34L18.3 37.9M14 28.1L10.1 29.7M14 19.9L10.1 18.3M19.9 14L18.3 10.1', class: 'fine' }]
+    ['path', { d: 'M24 13.2L24 5M31.6 16.4L37.4 10.6M34.8 24L43 24M31.6 31.6L37.4 37.4M24 34.8L24 43M16.4 31.6L10.6 37.4M13.2 24L5 24M16.4 16.4L10.6 10.6' , 'data-part': 'rays' }],
+    ['path', { d: 'M28.1 14L29.7 10.1M34 19.9L37.9 18.3M34 28.1L37.9 29.7M28.1 34L29.7 37.9M19.9 34L18.3 37.9M14 28.1L10.1 29.7M14 19.9L10.1 18.3M19.9 14L18.3 10.1', class: 'fine' , 'data-part': 'rays' }]
   ],
   star: [
     ['path', { d: 'M24 24L24 4.5L25.4 20.7zM24 24L31.8 16.2L27.3 22.6zM24 24L43.5 24L27.3 25.4zM24 24L31.8 31.8L25.4 27.3zM24 24L24 43.5L22.6 27.3zM24 24L16.2 31.8L20.7 25.4zM24 24L4.5 24L20.7 22.6zM24 24L16.2 16.2L22.6 20.7z', class: 'soft' }],
     ['path', { d: 'M24 4.5L25.4 20.7L31.8 16.2L27.3 22.6L43.5 24L27.3 25.4L31.8 31.8L25.4 27.3L24 43.5L22.6 27.3L16.2 31.8L20.7 25.4L4.5 24L20.7 22.6L16.2 16.2L22.6 20.7z' }],
     ['path', { d: 'M24 24L24 7M24 24L41 24M24 24L24 41M24 24L7 24M24 24L30.7 17.3M24 24L30.7 30.7M24 24L17.3 30.7M24 24L17.3 17.3', class: 'fine' }],
-    ['circle', { cx: '24', cy: '24', r: '1.4', class: 'solid' }]
+    ['circle', { cx: '24', cy: '24', r: '1.4', class: 'solid' , 'data-part': 'twinkle' }]
   ],
   flame: [
     ['path', { d: 'M24 42c-7 0-11.5-4.5-11.5-11 0-4.5 2-7.5 3.5-11 1 2.5 2.5 4 4 4.5-.5-6 1-12 4-17.5 2.5 5.5 7.5 9 9.5 13.5.5-2 .3-4-.5-6 3.5 3 6 7.5 6 13 0 8-6 14.5-15 14.5z', class: 'soft' }],
     ['path', { d: 'M24 42c-7 0-11.5-4.5-11.5-11 0-4.5 2-7.5 3.5-11 1 2.5 2.5 4 4 4.5-.5-6 1-12 4-17.5 2.5 5.5 7.5 9 9.5 13.5.5-2 .3-4-.5-6 3.5 3 6 7.5 6 13 0 8-6 14.5-15 14.5z' }],
-    ['path', { d: 'M24.5 39.5c-3.5 0-6-2.5-6-6 0-3.5 2.5-5.5 4-9 1.8 2.5 4 3.5 4.5 6.5 1-1 1.5-2.5 1.5-4 2 2 3 4.5 3 6.5 0 3.5-3 6-7 6z', class: 'soft' }],
-    ['path', { d: 'M24.5 39.5c-3.5 0-6-2.5-6-6 0-3.5 2.5-5.5 4-9 1.8 2.5 4 3.5 4.5 6.5 1-1 1.5-2.5 1.5-4 2 2 3 4.5 3 6.5 0 3.5-3 6-7 6z', class: 'fine' }]
+    ['path', { d: 'M24.5 39.5c-3.5 0-6-2.5-6-6 0-3.5 2.5-5.5 4-9 1.8 2.5 4 3.5 4.5 6.5 1-1 1.5-2.5 1.5-4 2 2 3 4.5 3 6.5 0 3.5-3 6-7 6z', class: 'soft' , 'data-part': 'flame' }],
+    ['path', { d: 'M24.5 39.5c-3.5 0-6-2.5-6-6 0-3.5 2.5-5.5 4-9 1.8 2.5 4 3.5 4.5 6.5 1-1 1.5-2.5 1.5-4 2 2 3 4.5 3 6.5 0 3.5-3 6-7 6z', class: 'fine' , 'data-part': 'flame' }]
   ],
   candle: [
-    ['circle', { cx: '24', cy: '12.5', r: '6', class: 'soft' }],
-    ['path', { d: 'M24 6.5c2 2.8 3 4.6 3 6.2a3 3 0 0 1-6 0c0-1.6 1-3.4 3-6.2z', class: 'solid' }],
+    ['circle', { cx: '24', cy: '12.5', r: '6', class: 'soft' , 'data-part': 'flame' }],
+    ['path', { d: 'M24 6.5c2 2.8 3 4.6 3 6.2a3 3 0 0 1-6 0c0-1.6 1-3.4 3-6.2z', class: 'solid' , 'data-part': 'flame' }],
     ['path', { d: 'M24 15.7V18' }],
     ['path', { d: 'M19 36V19.5c0-.8 2.2-1.5 5-1.5s5 .7 5 1.5V36' }],
     ['path', { d: 'M29 19.5c0 1.5-.8 2.5-.8 4 0 1 .8 1 .8 0', class: 'fine' }],
@@ -262,7 +263,7 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M24 9c-6 0-9 4.5-9 11v7c0 3-2 5.5-4 7h26c-2-1.5-4-4-4-7v-7c0-6.5-3-11-9-11z' }],
     ['path', { d: 'M22 9V7.5a2 2 0 0 1 4 0V9' }],
     ['path', { d: 'M15.3 25h17.4M15 27.5h18', class: 'fine' }],
-    ['circle', { cx: '24', cy: '37.6', r: '2.4', class: 'solid' }],
+    ['circle', { cx: '24', cy: '37.6', r: '2.4', class: 'solid' , 'data-part': 'clapper' }],
     ['path', { d: 'M8.5 14c-1.5 2-2 4-1.5 6M39.5 14c1.5 2 2 4 1.5 6', class: 'fine' }]
   ],
   book: [
@@ -294,7 +295,7 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M17 8l14 4v28l-14-4z', class: 'soft' }],
     ['path', { d: 'M6 12l11-4 14 4 11-4v28l-11 4-14-4-11 4z' }],
     ['path', { d: 'M17 8v28M31 12v28', class: 'fine' }],
-    ['path', { d: 'M10 32c3-3 5-8 10-8s6 5 10 3 3-6 4-8.5', class: 'fine', 'stroke-dasharray': '2 2' }],
+    ['path', { d: 'M10 32c3-3 5-8 10-8s6 5 10 3 3-6 4-8.5', class: 'fine', 'stroke-dasharray': '2 2' , 'data-part': 'route' }],
     ['path', { d: 'M32.5 13.5l4 4M36.5 13.5l-4 4' }]
   ],
   compass: [
@@ -304,8 +305,8 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M22 9V7.3a2 2 0 0 1 4 0V9' }],
     ['path', { d: 'M26.6 12.3L27.2 9.3M31.5 14.3L33.2 11.8M35.2 18L37.7 16.3M37.2 22.9L40.2 22.3M37.2 28.1L40.2 28.7M35.2 33L37.7 34.7M31.5 36.7L33.2 39.2M26.6 38.7L27.2 41.7M21.4 38.7L20.8 41.7M16.5 36.7L14.8 39.2M12.8 33L10.3 34.7M10.8 28.1L7.8 28.7M10.8 22.9L7.8 22.3M12.8 18L10.3 16.3M16.5 14.3L14.8 11.8M21.4 12.3L20.8 9.3', class: 'fine' }],
     ['g', { transform: 'rotate(28 24 25.5)' }, [
-      ['path', { d: 'M24 14.5l3.4 11-3.4 11-3.4-11z' }],
-      ['path', { d: 'M24 14.5l3.4 11h-6.8z', class: 'solid' }]
+      ['path', { d: 'M24 14.5l3.4 11-3.4 11-3.4-11z' , 'data-part': 'needle' }],
+      ['path', { d: 'M24 14.5l3.4 11h-6.8z', class: 'solid' , 'data-part': 'needle' }]
     ]],
     ['circle', { cx: '24', cy: '25.5', r: '1.3', class: 'solid' }]
   ],
@@ -313,8 +314,8 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['rect', { x: '12', y: '6', width: '24', height: '3', rx: '1' }],
     ['rect', { x: '12', y: '39', width: '24', height: '3', rx: '1' }],
     ['path', { d: 'M15.5 9c0 6.5 3.5 10 7 13.5v3c-3.5 3.5-7 7-7 13.5M32.5 9c0 6.5-3.5 10-7 13.5v3c3.5 3.5 7 7 7 13.5' }],
-    ['path', { d: 'M18.3 16h11.4c-1.5 3-3.8 5-5.7 6.7-1.9-1.7-4.2-3.7-5.7-6.7z', class: 'soft' }],
-    ['path', { d: 'M16.3 39c.5-3.5 4-6.5 7.7-6.5s7.2 3 7.7 6.5z', class: 'soft' }],
+    ['path', { d: 'M18.3 16h11.4c-1.5 3-3.8 5-5.7 6.7-1.9-1.7-4.2-3.7-5.7-6.7z', class: 'soft' , 'data-part': 'sand-top' }],
+    ['path', { d: 'M16.3 39c.5-3.5 4-6.5 7.7-6.5s7.2 3 7.7 6.5z', class: 'soft' , 'data-part': 'sand-bottom' }],
     ['path', { d: 'M24 24v8.5M13.5 9v30M34.5 9v30', class: 'fine' }]
   ],
   eye: [
@@ -342,10 +343,10 @@ export const MOTIF_SHAPES: Record<string, MotifShape[]> = {
     ['path', { d: 'M17 31l3.5 1M29.5 27.5l-3 .8', class: 'fine' }]
   ],
   bird: [
-    ['path', { d: 'M22.5 29c-2.5-5-6-8.6-10-10.1-3-1.1-6.6.4-9 5.1 3-1.2 6-1.4 8.5-.2 3.5 1.7 6.5 3.6 10.5 5.2zM25.5 29c2.5-5 6-8.6 10-10.1 3-1.1 6.6.4 9 5.1-3-1.2-6-1.4-8.5-.2-3.5 1.7-6.5 3.6-10.5 5.2z', class: 'soft' }],
-    ['path', { d: 'M22.5 29c-2.5-5-6-8.6-10-10.1-3-1.1-6.6.4-9 5.1 3-1.2 6-1.4 8.5-.2 3.5 1.7 6.5 3.6 10.5 5.2zM25.5 29c2.5-5 6-8.6 10-10.1 3-1.1 6.6.4 9 5.1-3-1.2-6-1.4-8.5-.2-3.5 1.7-6.5 3.6-10.5 5.2z' }],
+    ['path', { d: 'M22.5 29c-2.5-5-6-8.6-10-10.1-3-1.1-6.6.4-9 5.1 3-1.2 6-1.4 8.5-.2 3.5 1.7 6.5 3.6 10.5 5.2zM25.5 29c2.5-5 6-8.6 10-10.1 3-1.1 6.6.4 9 5.1-3-1.2-6-1.4-8.5-.2-3.5 1.7-6.5 3.6-10.5 5.2z', class: 'soft', 'data-part': 'wings' }],
+    ['path', { d: 'M22.5 29c-2.5-5-6-8.6-10-10.1-3-1.1-6.6.4-9 5.1 3-1.2 6-1.4 8.5-.2 3.5 1.7 6.5 3.6 10.5 5.2zM25.5 29c2.5-5 6-8.6 10-10.1 3-1.1 6.6.4 9 5.1-3-1.2-6-1.4-8.5-.2-3.5 1.7-6.5 3.6-10.5 5.2z', 'data-part': 'wings' }],
     ['path', { d: 'M21.8 29.6c.7-1.5 3.7-1.5 4.4 0 .2 2-.8 3.9-2.2 4.9-1.4-1-2.4-2.9-2.2-4.9z' }],
-    ['path', { d: 'M8 21.6c2.6.4 5 1.6 7 3.4M40 21.6c-2.6.4-5 1.6-7 3.4', class: 'fine' }],
+    ['path', { d: 'M8 21.6c2.6.4 5 1.6 7 3.4M40 21.6c-2.6.4-5 1.6-7 3.4', class: 'fine' , 'data-part': 'wings' }],
     ['path', { d: 'M28 11.5c1.5-1.2 3-1.2 4 .5 1-1.7 2.5-1.7 4-.5', class: 'fine' }]
   ],
   raven: [

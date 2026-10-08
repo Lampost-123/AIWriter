@@ -2,8 +2,8 @@
 // each entry's own way (galleryLogic.artHue), so the same entry always has the same picture. Two layers each: a far one
 // (stars, swell, a ridge) and a near one (the kind's two-tone icon in its glow, or a headland with its lit window), which
 // part a few pixels on hover (desk.css, the art parallax). An entry's own portrait always wins: then the picture is his.
-// The Phosphor two-tone icons are the app's own (components/ui/icons); the landscapes follow the start screen's lit
-// window (components/ui/LitWindow.tsx). With the desk's drawing library (phase 5), an entry's drawing (`motif`, its own
+// The Phosphor two-tone icons are the app's own (components/ui/icons); the landscapes follow the start screen's old lit
+// window (now its harbour, components/art/Harbour.tsx). With the desk's drawing library (phase 5), an entry's drawing (`motif`, its own
 // or the one its words call for) takes the place of the cameo, the headland and the seal's icon.
 import { useState } from 'react'
 import type { EntryKind } from '@shared/types'
@@ -116,7 +116,7 @@ export function PortraitArt({
       <span className="g-art-motif">
         <span className="g-art-glow" />
         {motif ? (
-          <Motif id={motif} size={featured ? 100 : 84} className="g-art-icon g-art-drawing" />
+          <Motif id={motif} size={featured ? 100 : 84} className="g-art-icon g-art-drawing" reveal />
         ) : kind === 'character' ? (
           <Cameo id={id} size={featured ? 112 : 96} />
         ) : (
@@ -177,7 +177,7 @@ export function LandscapeArt({ id, image, motif = null }: { id: string; image: s
         </svg>
         <span className="g-art-motif g-art-land">
           <span className="g-art-glow" />
-          <Motif id={motif} size={64} className="g-art-icon g-art-drawing" />
+          <Motif id={motif} size={64} className="g-art-icon g-art-drawing" reveal />
         </span>
       </span>
     )
@@ -225,7 +225,7 @@ export function Seal({ kind, size = 34, motif = null }: { kind: EntryKind; size?
   const Icon = KIND_ICONS[kind]
   return (
     <span aria-hidden className="g-seal" data-kind={kind} style={{ width: size, height: size }}>
-      {motif ? <Motif id={motif} size={Math.round(size * 0.66)} /> : <Icon size={Math.round(size * 0.52)} />}
+      {motif ? <Motif id={motif} size={Math.round(size * 0.66)} reveal /> : <Icon size={Math.round(size * 0.52)} />}
     </span>
   )
 }
