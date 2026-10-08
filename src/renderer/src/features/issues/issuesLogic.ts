@@ -2,6 +2,7 @@
 import type { CheckKind, CheckProgress, CheckReport, Issue, IssueKind, IssueSeverity } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { FIELD_GROUPS } from '@shared/fields'
+import { sameWords } from '@/features/edits/text'
 
 /** What each severity is called on screen. */
 export const SEVERITY_WORDS: Record<IssueSeverity, string> = { 'must-fix': 'Must fix', warning: 'Worth a look', minor: 'Minor' }
@@ -61,9 +62,45 @@ export function memoryFixWords(issue: Issue): string | null {
   return `Set ${who}${fieldWords(fix.field)} to “${fix.value}” in the memory`
 }
 
-/** The direction Rewrite is given to fix an issue without a suggested rewrite. */
-export const fixDirection = (issue: Issue): string =>
-  `Change only what is needed so this is no longer a problem: ${issue.message.trim()} Keep the rest as it is.`
+/**
+ * The direction Rewrite is given to fix an issue without a suggested rewrite. It says the words are wrong as they
+ * stand, what they disagree with, and that the reply must differ (Adam, 2026-10-08: told only "change only what is
+ * needed", the writer model often sent the words back unchanged). When it still does, Fix the text asks once more with
+ * fixAgainNote (edits/session.ts).
+ */
+export const fixDirection = (issue: Issue): string => {
+  const what = disagreesWith(issue)
+  return [
+    `These words are wrong as they stand and must change: ${issue.message.trim()}`,
+    what ? `They disagree with ${what}.` : '',
+    'Rewrite them so they no longer do: your reply must not be the same words. Change only what is needed, and keep the rest as it is.'
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** Added to the direction the second time, when the first reply was the words unchanged. */
+export const fixAgainNote = (issue: Issue): string => {
+  const what = disagreesWith(issue)
+  return `Your last answer was identical to the selected words, so nothing was fixed. Change the line so it no longer ${
+    what ? `disagrees with ${what}` : 'has this problem'
+  }.`
+}
+
+/** The check's suggested rewrite, unless it is the quoted words again (it would change nothing): null then. */
+export const usableFix = (issue: Issue): string | null => (issue.fix && !sameWords(issue.fix, issue.quote) ? issue.fix : null)
+
+/** Said when the second reply was the words unchanged too. */
+export const NO_FIX_FOUND = 'Couldn’t find a fix. Edit the words by hand, or Ignore the issue.'
+
+/** What the issue's words disagree with, in a few words ("Mara’s eyes and The premise"), or '' when it doesn't say. */
+export function disagreesWith(issue: Issue): string {
+  const names = issue.sources.map((s) =>
+    s.kind === 'entry' ? (s.field ? `${s.name}’s ${fieldWords(s.field)}` : s.name) : s.kind === 'scene' ? s.label : s.kind === 'story' ? s.title : s.name
+  )
+  const words = [...new Set(names.map((n) => n.trim()).filter(Boolean))]
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : (words[0] ?? '')
+}
 
 /**
  * The sentence around a range in a paragraph's text (offsets into it), so Rewrite gets whole words: from

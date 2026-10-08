@@ -32,7 +32,7 @@ import {
   type Suggestion
 } from './suggestions'
 import { TOOL_NAMES } from './names'
-import { cleanReply, continuePlace, parseAlternatives, selectedWords, textOf, wordsIn, type Target } from './text'
+import { cleanReply, continuePlace, parseAlternatives, sameWords, selectedWords, textOf, wordsIn, type Target } from './text'
 import { repairLanded } from '@/features/repair/repairRun'
 
 /** Why a suggestion went without Adam accepting or rejecting it, in plain words. */
@@ -72,7 +72,24 @@ interface Live {
   note: string | null
   ended: boolean
   stopTimer: ReturnType<typeof setTimeout> | null
+  /** The words must change (Fix the text): what to add when they come back the same, and what to say if they do again. */
+  mustChange?: MustChange
 }
+
+/**
+ * A change that is no use unless the words change (Fix the text). A reply that is the selected words again is never
+ * shown as a change: the AI is asked once more with `again` added to the direction, and if it still sends them back,
+ * `giveUp` is said and nothing waits in the page.
+ */
+export interface MustChange {
+  again: string
+  giveUp: string
+  /** Set on the second asking. */
+  retried?: boolean
+}
+
+/** The note on a change asked for a second time, because the first answer changed nothing. */
+const ASKED_AGAIN = 'The first answer changed nothing, so the AI was asked again.'
 
 /** The task writing the suggestion in the page, until it ends and the suggestion goes. */
 let live: Live | null = null
@@ -262,6 +279,10 @@ function finish(d: Pick<TaskDone, 'text' | 'status' | 'error' | 'cutOff'>): void
   }
   const versions = (s.versions ?? []).filter((x) => x.trim())
   const words = l.tool === 'alternatives' ? versions.length > 0 : !!s.text.trim()
+  if (words && l.mustChange && l.tool !== 'alternatives' && d.status === 'complete' && sameWords(s.text, l.selection)) {
+    unchanged(l, s.id)
+    return
+  }
   if (!words) {
     const retry = retryAction(l)
     drop(s.id)
@@ -288,6 +309,31 @@ function finish(d: Pick<TaskDone, 'text' | 'status' | 'error' | 'cutOff'>): void
   // A reply with one version (it didn't keep to the three) needs no picking.
   if (l.tool === 'alternatives' && s.chosen === null && versions.length === 1) Object.assign(p, { chosen: 0, text: versions[0] })
   patch(s.id, p)
+}
+
+/**
+ * A change that had to change the words came back as the same words: it goes from the page unseen as a change, and
+ * the AI is asked once more (told its answer was identical); after a second such answer, a plain word instead.
+ */
+function unchanged(l: Live, id: ID): void {
+  const must = l.mustChange
+  if (!must) return
+  const accepted = onAccepted.get(id)
+  onAccepted.delete(id)
+  drop(id)
+  const v = view()
+  const fits =
+    !!v && editorBridge()?.sceneId === l.sceneId && l.to <= v.state.doc.content.size && textOf(v.state.doc, l.from, l.to) === l.selection
+  if (must.retried || !fits) {
+    toast(must.giveUp)
+    return
+  }
+  void startTool(l.tool, {
+    direction: `${l.direction}\n${must.again}`,
+    range: { from: l.from, to: l.to },
+    ...(accepted ? { onAccepted: accepted } : {}),
+    mustChange: { ...must, retried: true }
+  })
 }
 
 // ---------- Starting ----------
@@ -351,7 +397,7 @@ function continueFrom(state: EditorState): number {
  */
 export async function startTool(
   tool: EditTool,
-  o: { direction?: string; range?: Target; at?: number; onAccepted?: () => void } = {}
+  o: { direction?: string; range?: Target; at?: number; onAccepted?: (words: { from: number; to: number }) => void; mustChange?: MustChange } = {}
 ): Promise<void> {
   const v = view()
   const bridge = editorBridge()
@@ -406,7 +452,20 @@ export async function startTool(
   }
   const taskId = input.taskId
   if (o.onAccepted) onAccepted.set(taskId, o.onAccepted)
-  live = { taskId, sceneId, tool, direction, selection: input.selection, from, to, raw: '', note: null, ended: false, stopTimer: null }
+  live = {
+    taskId,
+    sceneId,
+    tool,
+    direction,
+    selection: input.selection,
+    from,
+    to,
+    raw: '',
+    note: null,
+    ended: false,
+    stopTimer: null,
+    ...(o.mustChange ? { mustChange: o.mustChange } : {})
+  }
   v.dispatch(showSuggestion(v.state, { id: taskId, sceneId, tool, direction, from, to, mode, lineBreaks: keepsLineBreaks(input) }))
   dropRejectedToast()
   known = taskId
@@ -434,12 +493,13 @@ export async function startTool(
       toast(res.problem, { action: open })
       return
     }
-    live.note = res.note
+    const setup = [res.note, o.mustChange?.retried ? ASKED_AGAIN : null].filter(Boolean).join(' ') || null
+    live.note = setup
     if (live.ended) {
       // All of it came before this answer did: it is ready already, and its note goes first.
-      const note = [res.note, current()?.note].filter(Boolean).join(' ') || null
+      const note = [setup, current()?.note].filter(Boolean).join(' ') || null
       patch(taskId, { generationId: res.generationId, note })
-    } else patch(taskId, { status: 'writing', generationId: res.generationId, note: res.note })
+    } else patch(taskId, { status: 'writing', generationId: res.generationId, note: setup })
   } catch (e) {
     if (live?.taskId !== taskId) return
     const l = live
