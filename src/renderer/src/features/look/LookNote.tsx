@@ -4,6 +4,8 @@
 // Its second form is about the desk: someone already on the New look who is moved to the desk is told so once, with
 // the panels a click away (Settings.arrangementNote); Settings › Appearance › Layout switches any time after.
 import { X } from '@/components/ui/icons'
+import { cn } from '@/lib/cn'
+import { LampMark } from '@/layout/desk/DeskTopBar'
 import { Button, IconButton } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { chooseArrangement, chooseLook } from './LookPicker'
@@ -31,13 +33,17 @@ export function LookNote(): React.JSX.Element | null {
   const desk = useDesk()
   if (isNew && !due && deskDue && desk) {
     return (
-      <section aria-label="The desk" className={card}>
+      // On the desk: at the bottom right, clear of the spine and the AI dock, on a slip of the desk's paper.
+      <section aria-label="The desk" className={cn(card, 'desk-note-card left-auto right-5 w-[360px]')}>
         <div className="flex items-start gap-3">
+          <span aria-hidden className="desk-mark mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-[10px]">
+            <LampMark />
+          </span>
           <div className="min-w-0 flex-1">
-            <h2 className="font-heading text-[16px] font-semibold text-fg">AI Write has a new layout, the desk</h2>
+            <h2 className="font-heading text-[16px] font-semibold text-fg">The new desk</h2>
             <p className="mt-1 text-[13px] leading-relaxed text-muted">
-              The page sits in the middle, your chapters and scenes are on the spine at the left, and the rooms are at the top. Prefer the panels? Switch
-              back now, or any time in Settings › Appearance.
+              Your page sits in the middle, your chapters and scenes are on the spine at the left, and Write, Plan, World and Check are at the top.
+              Prefer the panels? Switch back now, or any time in Settings › Appearance.
             </p>
           </div>
           <IconButton label="Close" size="sm" onClick={deskDone} className="-mr-1 -mt-1">

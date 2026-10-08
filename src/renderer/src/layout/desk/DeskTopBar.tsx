@@ -22,7 +22,7 @@ import { RoomSwitch } from './RoomSwitch'
 import { StatusIsland } from './StatusIsland'
 
 /** The lamp: AI Write's mark on a small lit tile. */
-function LampMark(): React.JSX.Element {
+export function LampMark(): React.JSX.Element {
   return (
     <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M10 4.4a2 2 0 0 1 4 0" />
