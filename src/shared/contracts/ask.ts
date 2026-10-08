@@ -37,8 +37,11 @@ export interface AskApi {
    * first exists in that story.
    */
   saveAskNote(input: SaveNoteInput): Promise<SavedNote>
-  /** Takes a note saved with saveAskNote back out (the toast's Undo). */
-  undoAskNote(undo: NoteUndo): Promise<void>
+  /**
+   * Takes a note saved with saveAskNote back out (the toast's Undo). With the answer's record (`generationId`), that
+   * answer no longer counts as saved.
+   */
+  undoAskNote(undo: NoteUndo, generationId?: ID): Promise<void>
   /** The editor chat: records what Adam made of a proposed change (it is applied by the window, through the usual calls). */
   setProposalStatus(generationId: ID, proposalId: string, status: ProposalStatus): Promise<void>
 }
@@ -115,6 +118,11 @@ export interface AskInput {
   /** The open story and scene: the answer is from this point of view. */
   storyId: ID | null
   sceneId: ID | null
+  /**
+   * What the writer pressed, when the box offers a choice (chat overhaul): 'edit' ("Edit this", or the Edit mode)
+   * always asks for a change; 'talk' or none lets the question's words decide. Optional.
+   */
+  mode?: 'edit' | 'talk'
 }
 
 /** One question and its answer. */
@@ -139,6 +147,8 @@ export interface AskTurn {
   steps?: string[]
   /** The editor chat: the changes it proposes, and what Adam made of each. */
   proposals?: Proposal[]
+  /** The note saved from this answer, kept with its record (so it still shows "Saved" after a restart). */
+  saved?: SavedNote
 }
 
 /** A chat in the list of earlier chats. */
@@ -162,6 +172,8 @@ export interface SaveNoteInput {
   storyId: ID | null
   /** The open scene: the note goes on the entry as it is there (at the story's end when none is open). */
   sceneId?: ID | null
+  /** The answer's record: the note is kept with it, so the answer shows "Saved" after a restart too. */
+  generationId?: ID
 }
 
 export interface SavedNote {
