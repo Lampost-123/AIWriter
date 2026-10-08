@@ -173,6 +173,8 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
       <section
         ref={barRef}
         data-beat-bar
+        // The AI edits' change keeps its buttons above the bar (features/edits/SuggestionLayer.tsx).
+        data-covers-page=""
         aria-label="Beat by beat"
         className="@container pointer-events-auto relative w-full max-w-[680px] rounded-xl border border-line bg-surface px-4 pb-3 pt-2 shadow-pop animate-slide-up"
       >

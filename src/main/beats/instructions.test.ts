@@ -3,6 +3,10 @@ import { defaultStyleGuide } from '@shared/defaults'
 import type { SoFarEnd } from '@shared/contracts/beats'
 import type { FinalOptions } from '../ai/prompts'
 import {
+  AFTER_BLOCK,
+  AFTER_WORDS,
+  afterBlock,
+  sceneHead,
   beatDirection,
   beatInstruction,
   beatWords,
@@ -25,7 +29,10 @@ const final = (over: Partial<FinalOptions> = {}): FinalOptions => ({
   ...over
 })
 
-const ask = (index: number, over: Partial<{ steer: string; hasSoFar: boolean; beats: string[]; soFarEnds: SoFarEnd }> = {}) => ({
+const ask = (
+  index: number,
+  over: Partial<{ steer: string; hasSoFar: boolean; beats: string[]; soFarEnds: SoFarEnd; hasAfter: boolean }> = {}
+) => ({
   index,
   beats: BEATS,
   steer: '',
@@ -160,6 +167,40 @@ describe('the scene so far', () => {
     expect(soFarLimit(16000)).toBe(Math.round((16000 * 0.25) / 1.35))
     expect(soFarLimit(200000)).toBe(3500)
     expect(soFarLimit(null)).toBe(soFarLimit(16000))
+  })
+})
+
+describe('an earlier beat written again in the middle of the scene', () => {
+  it('says the beats after it are written, and asks it to lead into what comes after', () => {
+    const text = beatInstruction(final(), { ...ask(2), hasAfter: true })
+    expect(text).toMatch(/^Write beat 2 of the 4 on the scene card again now, in place of the version on the page\./)
+    expect(text).toContain('- Beat 3 (already written: it comes after this one): She refuses.')
+    expect(text).not.toContain('leave it for later')
+    expect(text).toContain('- Write what happens in this beat, then stop at its end.')
+    expect(text).toContain('- The words under "What comes after this beat" carry on from where this beat ends')
+    expect(text).toContain('- Beat 1 (already written: the scene so far ends with it)')
+  })
+
+  it('opens the scene when it is the first beat, with nothing before it', () => {
+    const text = beatInstruction(final(), { ...ask(1), hasSoFar: false, hasAfter: true })
+    expect(text).toContain('- Open the scene with this beat.')
+    expect(text).toContain('- Beat 2 (already written: it comes after this one): Tobin asks for the ledger.')
+  })
+
+  it('quotes the start of what comes after, whole paragraphs at a time', () => {
+    expect(afterBlock('  ')).toBeNull()
+    expect(afterBlock('She refuses.\n\nThe knock.')).toEqual({ id: AFTER_BLOCK, title: 'What comes after this beat', text: 'She refuses.\n\nThe knock.' })
+    const long = Array.from({ length: 60 }, (_, i) => `Paragraph ${i + 1} has a few words in it, ten or so in all.`).join('\n\n')
+    const head = afterBlock(long)!.text
+    expect(head.startsWith('Paragraph 1 has')).toBe(true)
+    expect(head.split(/\s+/).length).toBeLessThanOrEqual(AFTER_WORDS)
+    expect(head.endsWith('ten or so in all.')).toBe(true)
+  })
+
+  it('cuts one very long paragraph at a sentence end', () => {
+    const one = Array.from({ length: 100 }, (_, i) => `Sentence ${i + 1} is here.`).join(' ')
+    expect(sceneHead(one, 20)).toBe('Sentence 1 is here. Sentence 2 is here. Sentence 3 is here. Sentence 4 is here. Sentence 5 is here.')
+    expect(sceneHead('word '.repeat(50), 10)).toBe(`${'word '.repeat(10).trim()}…`)
   })
 })
 

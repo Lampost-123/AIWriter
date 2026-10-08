@@ -16,7 +16,7 @@ import { draftBriefing, providerNotes, withPlan, type DraftBriefing } from '../a
 import type { ContextExtras } from '../ai/context'
 import { noteStage, stageTold } from '../repair'
 import { isDrafting, startDraftJob, type Emit } from '../ai/drafts'
-import { beatDirection, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
+import { afterBlock, beatDirection, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
 import { noteWriterSpeakers } from '../readAloud'
 
 const BUSY = 'A draft is already being written for this scene. Stop it first, or wait for it to finish.'
@@ -60,6 +60,8 @@ export async function startBeat(
   const steer = tidySteer(input.steer)
   const block = soFarBlock(typeof input.soFar === 'string' ? input.soFar : '', getSettings().models.writer?.contextLength ?? null)
   const soFarEnds = input.soFarEnds === 'mid-beat' || input.soFarEnds === 'after-beat' ? input.soFarEnds : 'with-beat'
+  // An earlier beat written again in the middle of the scene: the start of what follows it, which it leads into.
+  const next = afterBlock(typeof input.after === 'string' ? input.after : '')
   // Where things stand is worked out from the whole page when the beats so far end it (below a scene break, the words
   // above it count too), else from the scene so far as given (a beat written again, say).
   const given = typeof input.soFar === 'string' ? input.soFar.trim() : ''
@@ -74,8 +76,8 @@ export async function startBeat(
     // With Auto, each beat gets its share of a typical scene's length.
     const scene = cleanOptions(input.options, { targetWords: cardLength(repo.getScene(db, sceneId).card), creativity: 'balanced' })
     const extras = (): ContextExtras => ({
-      final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds }),
-      extraBlocks: block ? [block] : []
+      final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds, hasAfter: !!next }),
+      extraBlocks: [block, next].filter((x): x is NonNullable<typeof x> => !!x)
     })
     // Planned below, once the beats are settled (so never twice), and only this beat.
     const briefing = (catchUp: boolean): Promise<DraftBriefing> => {

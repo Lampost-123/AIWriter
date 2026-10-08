@@ -24,6 +24,7 @@ import { PageTitle } from './PageTitle'
 import { useNewLook } from '@/features/look/look'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
+import { BeatMarksLayer } from '@/features/beats/BeatMarksLayer'
 import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
 import { SpeakerLabelsLayer } from '@/features/readAloud/SpeakerLabelsLayer'
 import { LiveChecksLayer } from '@/features/liveChecks/LiveChecksLayer'
@@ -251,6 +252,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <SpeakerLabelsLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <LiveChecksLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <TypewriterLayer editor={editor} scrollerRef={scrollerRef} />
+        <BeatMarksLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
             <EmptyState

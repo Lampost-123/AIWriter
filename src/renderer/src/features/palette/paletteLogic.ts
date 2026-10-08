@@ -62,6 +62,8 @@ export type FixedActionId =
   // Milestone 4
   | 'variants'
   | 'beat-by-beat'
+  | 'show-beats'
+  | 'hide-beats'
   | 'history'
   | 'continue'
   | 'ask-world'
@@ -138,6 +140,8 @@ export interface ActionContext {
   spellCheck?: boolean
   /** Sound effects are on (with read aloud): the scene panel has its Sounds tab. */
   soundEffects?: boolean
+  /** Beat by beat: "Show beats" is on (where each beat begins shows after Finish too). */
+  showBeats?: boolean
 }
 
 export interface ActionDef {
@@ -273,6 +277,18 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'ai draft steer step pause',
     away: toWriting,
     when: (c) => hasScene(c) && !c.drafting
+  },
+  {
+    id: 'show-beats',
+    label: 'Show beats',
+    keywords: 'beat by beat markers where each beat begins redo labels',
+    when: (c) => !c.showBeats
+  },
+  {
+    id: 'hide-beats',
+    label: 'Hide beats',
+    keywords: 'beat by beat markers where each beat begins redo labels',
+    when: (c) => !!c.showBeats
   },
   { id: 'history', label: 'Scene history', keywords: 'snapshots earlier versions compare restore drafts', away: true, when: hasScene },
   {

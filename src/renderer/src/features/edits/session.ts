@@ -90,6 +90,19 @@ let rejectedToast: number | null = null
 const onAccepted = new Map<ID, (words: { from: number; to: number }) => void>()
 /** History's label for the snapshot taken before a ready-made change goes in, by its id ("Before the polish pass"). */
 const snapshotLabels = new Map<ID, string>()
+/**
+ * A change written by another part rather than an AI tool's task (Beat by beat writing an earlier beat again,
+ * features/beats/redo.ts), by its id: how to stop what writes it, and what to tell it when the change goes
+ * without being accepted (rejected, its words edited, another scene...).
+ */
+const outside = new Map<ID, { stop: () => void; gone?: (reason: GoneReason | 'scene') => void }>()
+
+/** Tells the part writing a change from outside that it went, once. */
+function tellGone(id: ID, reason: GoneReason | 'scene'): void {
+  const o = outside.get(id)
+  outside.delete(id)
+  o?.gone?.(reason)
+}
 
 const noop = (): void => undefined
 
@@ -132,6 +145,10 @@ export function attachEditor(e: Editor): () => void {
     // The page is going (another world, or the window closing): a change still being written stops.
     if (live && !live.ended) void api.stopTask(live.taskId).catch(noop)
     clearLive()
+    for (const [id, o] of [...outside]) {
+      o.stop()
+      tellGone(id, 'scene')
+    }
     known = null
     editor = null
     setSuggestionHandlers(null)
@@ -159,6 +176,11 @@ function notice(why: 'scene' | null = null): void {
       if (!live.ended) void api.stopTask(id).catch(noop)
       clearLive()
     }
+    const o = outside.get(id)
+    if (o && reason !== 'accepted') {
+      o.stop()
+      tellGone(id, reason)
+    }
     const message = DROPPED[reason]
     if (message) toast(message)
   }
@@ -184,6 +206,7 @@ function patch(id: ID, p: Partial<Suggestion>): void {
 function drop(id: ID): void {
   if (live?.taskId === id) clearLive()
   if (known === id) known = null
+  tellGone(id, 'cleared')
   const v = view()
   if (v && activeSuggestion(v.state)?.id === id) v.dispatch(clearSuggestion(v.state, id))
 }
@@ -449,6 +472,7 @@ export async function accept(id?: ID): Promise<void> {
   }
   clearLive()
   known = null
+  outside.delete(s.id)
   // Where the new words are once in: from where the change starts (a paragraph's start, for new paragraphs ahead of
   // it) to where it ends, mapped through the change.
   const at = now.mode === 'before' ? v2.state.doc.resolve(now.from).before() : now.from
@@ -471,6 +495,11 @@ export async function accept(id?: ID): Promise<void> {
  * revision of a draft). `label` names it beside it, and `snapshot` is History's label for the snapshot taken
  * before it goes in; `generationId` is the record What the AI saw opens. Returns its id, or null when the page
  * can't take it now (a draft is being written, or another change waits; it says so).
+ *
+ * Written by another part as it shows (Beat by beat writing an earlier beat again): `status: 'starting'` with no
+ * words yet, `working` what shows while it is written ("Writing beat 2 again"), `stop` stops what writes it (Stop,
+ * Esc, Reject meanwhile), `onGone` hears when it goes without Accept; its words and status come with
+ * updateReplacement, and dropReplacement takes it away.
  */
 export function showReplacement(o: {
   from: number
@@ -481,11 +510,16 @@ export function showReplacement(o: {
   label?: string
   snapshot?: string
   generationId?: ID | null
+  status?: 'starting' | 'ready'
+  working?: string
+  stop?: () => void
+  onGone?: (reason: GoneReason | 'scene') => void
 }): ID | null {
   const v = view()
   const bridge = editorBridge()
   const sceneId = bridge?.sceneId
-  if (!v || !bridge || !sceneId || bridge.editor !== editor || !o.text.trim()) return null
+  const writing = o.status === 'starting'
+  if (!v || !bridge || !sceneId || bridge.editor !== editor || (!writing && !o.text.trim())) return null
   if (bridge.busy()) {
     toast('A draft is being written into this scene. Wait for it to finish (or stop it), then try again.')
     return null
@@ -499,6 +533,7 @@ export function showReplacement(o: {
   const id = newTaskId()
   if (o.onAccepted) onAccepted.set(id, o.onAccepted)
   if (o.snapshot) snapshotLabels.set(id, o.snapshot)
+  if (o.stop) outside.set(id, { stop: o.stop, gone: o.onGone })
   v.dispatch(
     showSuggestion(v.state, {
       id,
@@ -509,9 +544,10 @@ export function showReplacement(o: {
       to: o.to,
       mode: 'replace',
       text: o.text,
-      status: 'ready',
+      status: writing ? 'starting' : 'ready',
       note: o.note ?? null,
       label: o.label ?? null,
+      working: o.working ?? null,
       generationId: o.generationId ?? null
     })
   )
@@ -522,12 +558,37 @@ export function showReplacement(o: {
   return id
 }
 
+/**
+ * A change shown from outside (showReplacement with `stop`), as its words arrive and it ends: false when it is no
+ * longer in the page (rejected, dropped, accepted).
+ */
+export function updateReplacement(
+  id: ID,
+  p: Partial<Pick<Suggestion, 'text' | 'status' | 'note' | 'generationId' | 'retrying'>>
+): boolean {
+  const s = current()
+  if (!s || s.id !== id) return false
+  // Stopping: only the end of the words takes it out of that.
+  const next = s.status === 'stopping' && p.status === 'writing' ? { ...p, status: undefined } : p
+  patch(id, Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined)) as Partial<Suggestion>)
+  return true
+}
+
+/** Takes a change shown from outside away (nothing came, or it couldn't start), with nothing said. */
+export function dropReplacement(id: ID): void {
+  outside.delete(id)
+  onAccepted.delete(id)
+  snapshotLabels.delete(id)
+  drop(id)
+}
+
 /** Reject: the text stays as it was. Undo (or Ctrl+Y) brings the change back. */
 export function reject(id?: ID, how: 'button' | 'key' | 'undo' = 'button'): void {
   const v = view()
   const s = current()
   if (!v || !s || (id && s.id !== id) || s.status === 'accepting') return
   if (s.status === 'starting') {
+    outside.get(s.id)?.stop()
     drop(s.id)
     toast(NOTHING_CHANGED)
     return
@@ -536,8 +597,10 @@ export function reject(id?: ID, how: 'button' | 'key' | 'undo' = 'button'): void
   // Words to bring back (if it was still being written, those that had come).
   const kept = s.versions ? s.versions.some((x) => x.trim()) : !!s.text.trim()
   if (live?.taskId === s.id && !live.ended) void api.stopTask(s.id).catch(noop)
+  if (writing) outside.get(s.id)?.stop()
   clearLive()
   known = null
+  tellGone(s.id, 'rejected')
   if (writing && kept) patch(s.id, { note: [s.note, stoppedNote(s.tool)].filter(Boolean).join(' ') })
   v.dispatch(rejectSuggestion(v.state, s.id))
   if (useApp.getState().view.kind === 'write' && how !== 'undo') v.focus()
@@ -580,12 +643,19 @@ export function stop(id?: ID): void {
   const s = current()
   if (!s || (id && s.id !== id)) return
   if (s.status === 'starting') {
+    outside.get(s.id)?.stop()
     drop(s.id)
     toast(NOTHING_CHANGED)
     return
   }
   if (s.status !== 'writing') return
   patch(s.id, { status: 'stopping' })
+  // Written from outside: what writes it stops it, and says when its last words are in (updateReplacement).
+  const o = outside.get(s.id)
+  if (o) {
+    o.stop()
+    return
+  }
   void api.stopTask(s.id).catch(noop)
   const l = live
   if (l?.taskId === s.id) {

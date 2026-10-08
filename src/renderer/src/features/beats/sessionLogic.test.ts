@@ -16,6 +16,11 @@ import {
 } from '@/features/editor/streamDoc'
 import { newSplitState, splitChunk } from '@/features/editor/streamText'
 import {
+  afterText,
+  alsoReplaces,
+  beatRange,
+  othersInBeat,
+  pidsBetween,
   beatsOnPage,
   endsPage,
   endsWithBeat,
@@ -151,6 +156,63 @@ describe('the scene so far', () => {
     expect(soFarText(s.doc, 'below', beats)).toBe('New one.\n\nNew two.')
     expect(soFarText(s.doc, 'below', beats, 2)).toBe('New one.')
     expect(soFarText(stateFrom('Only old.').doc, 'below', {})).toBe('')
+  })
+
+  it('writing an earlier beat again, stops where it begins: the beats after it are not "so far"', () => {
+    let s = stateFrom('')
+    let beats: BeatParagraphs = {}
+    ;({ state: s, beats } = writeBeat(s, beats, 1, 'One.\n\nOne more.'))
+    ;({ state: s, beats } = writeBeat(s, beats, 2, 'Two.'))
+    ;({ state: s, beats } = writeBeat(s, beats, 3, 'Three.\n\nThree more.'))
+    // Adam's own paragraph after beat 3.
+    s = s.apply(s.tr.insert(s.doc.content.size, s.schema.nodes.paragraph.create(null, s.schema.text('Adam ends it.'))))
+    expect(soFarText(s.doc, 'whole', beats, 2)).toBe('One.\n\nOne more.')
+    expect(soFarText(s.doc, 'whole', beats, 1)).toBe('')
+    expect(soFarText(s.doc, 'whole', beats, 3)).toBe('One.\n\nOne more.\n\nTwo.')
+    // The beat before ends what comes before it.
+    expect(endsWithBeat(s.doc, beats, 2, 2)).toBe(true)
+    expect(endsWithBeat(s.doc, beats, 3, 3)).toBe(true)
+    // What follows it: the next beat first, then the rest (Adam's words too).
+    expect(afterText(s.doc, beats[2])).toBe('Three.\n\nThree more.\n\nAdam ends it.')
+    expect(afterText(s.doc, beats[1])).toBe('Two.\n\nThree.\n\nThree more.\n\nAdam ends it.')
+    expect(afterText(stateFrom('Only old.').doc, beats[2])).toBe('')
+  })
+
+  it('below a scene break: the first beat written again has nothing before it', () => {
+    let s = stateFrom('The old draft.')
+    let beats: BeatParagraphs = {}
+    ;({ state: s, beats } = writeBeat(s, beats, 1, 'New one.', { noBreak: false }))
+    ;({ state: s, beats } = writeBeat(s, beats, 2, 'New two.'))
+    expect(soFarText(s.doc, 'below', beats, 1)).toBe('')
+    expect(soFarText(s.doc, 'below', beats, 2)).toBe('New one.')
+    expect(afterText(s.doc, beats[1])).toBe('New two.')
+  })
+})
+
+describe('where a beat is, for a tracked change in its place', () => {
+  it("runs from the start of its first paragraph's words to the end of its last's", () => {
+    let s = stateFrom('')
+    let beats: BeatParagraphs = {}
+    ;({ state: s, beats } = writeBeat(s, beats, 1, 'One.'))
+    ;({ state: s, beats } = writeBeat(s, beats, 2, 'Two.\n\nTwo more.'))
+    ;({ state: s, beats } = writeBeat(s, beats, 3, 'Three.'))
+    const range = beatRange(s.doc, beats[2])!
+    expect(s.doc.textBetween(range.from, range.to, '|')).toBe('Two.|Two more.')
+    expect(pidsBetween(s.doc, range.from, range.to)).toEqual(beats[2])
+    expect(beatRange(s.doc, ['gone'])).toBeNull()
+  })
+
+  it("counts the paragraphs Adam wrote between a beat's own, which the change would replace too, and says so", () => {
+    const s = stateFrom('One.\n\nTwo.\n\nTyped by hand.\n\nPasted in too.\n\nTwo more.\n\nThree.\n\nAfter it.')
+    const ids = filledParagraphs(s.doc).map((p) => p.pid)
+    // Beat 2 is "Two." and "Two more."; the two between them are Adam's own. "After it." comes after the beat, so it stays.
+    expect(othersInBeat(s.doc, [ids[1], ids[4]])).toBe(2)
+    expect(othersInBeat(s.doc, [ids[0]])).toBe(0)
+    expect(othersInBeat(s.doc, [ids[5]])).toBe(0)
+    expect(othersInBeat(s.doc, ['gone'])).toBe(0)
+    expect(alsoReplaces(0)).toBe('')
+    expect(alsoReplaces(1)).toBe('This also replaces 1 paragraph you wrote yourself. Reject keeps it.')
+    expect(alsoReplaces(2)).toBe('This also replaces 2 paragraphs you wrote yourself. Reject keeps them.')
   })
 })
 

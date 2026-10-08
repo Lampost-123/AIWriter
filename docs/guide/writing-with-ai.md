@@ -103,6 +103,12 @@ For close control, the AI can write one beat of the scene card at a time.
 3. Click **Write the next beat**, or **Write it again** to redo the last one.
 4. Click **Finish** when you're done.
 
+While you write beat by beat, a band marks where each beat begins. Point at a beat and click its **Beat N** label to
+redo it (with a note if you like), see what the AI saw, or remove it. An earlier beat comes back as a tracked
+change: **Accept** or **Reject** it. If you typed your own paragraphs inside that beat, the change says it replaces
+them too, so you can reject it. To keep the markers after **Finish**, turn on **Show beats** in **Settings ›
+Editor**. Starting a new beat by beat session on the scene replaces the old markers.
+
 ## Small slips are mended for you
 
 With **Check new words straight away** on (it is by default, in **Settings › Models**), new AI words are checked as

@@ -53,6 +53,51 @@ export function soFarBlock(text: string, contextLength: number | null): { id: st
     : { id: SO_FAR_BLOCK, title: 'End of the scene so far', text: tail }
 }
 
+export const AFTER_BLOCK = 'scene-after'
+
+/** How much of what comes after an earlier beat written again is quoted, in words (the next beat's opening is what matters). */
+export const AFTER_WORDS = 400
+
+/**
+ * The start of a text, whole paragraphs at a time, up to about `max` words: a first paragraph longer than
+ * that is cut at the last sentence end within it (or at the word, with an ellipsis).
+ */
+export function sceneHead(text: string, max: number): string {
+  const paras = text
+    .trim()
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const out: string[] = []
+  let words = 0
+  for (const p of paras) {
+    const n = p.split(/\s+/).length
+    if (words + n <= max) {
+      out.push(p)
+      words += n
+      continue
+    }
+    if (!out.length) {
+      const cut = p.split(/\s+/).slice(0, max).join(' ')
+      // The last sentence end within the cut (closing quotes and brackets with it).
+      let end = -1
+      for (const m of cut.matchAll(/[.!?…]["'”’)\]]*(?=\s|$)/g)) end = (m.index ?? 0) + m[0].length
+      out.push(end > cut.length / 3 ? cut.slice(0, end) : `${cut}…`)
+    }
+    break
+  }
+  return out.join('\n\n')
+}
+
+/**
+ * An earlier beat written again in the middle of the scene: the start of what follows it on the page, as a
+ * block of the briefing ("What comes after this beat"), so the new version leads into it. Null when nothing does.
+ */
+export function afterBlock(text: string): { id: string; title: string; text: string } | null {
+  const t = sceneHead(text, AFTER_WORDS)
+  return t ? { id: AFTER_BLOCK, title: 'What comes after this beat', text: t } : null
+}
+
 /** What the closing instruction for one beat needs besides the usual closing's options. */
 export interface BeatAsk {
   /** Which beat, from 1. */
@@ -65,6 +110,11 @@ export interface BeatAsk {
   hasSoFar: boolean
   /** How the scene so far ends: with the beat before (the default), part-way through it, or with Adam's own words after it. */
   soFarEnds?: SoFarEnd
+  /**
+   * The beat is written again in the middle of the scene: the briefing quotes what comes after it on the page
+   * (afterBlock), which the new version leads into.
+   */
+  hasAfter?: boolean
 }
 
 /** What the closing instruction says of the beat before this one. */
@@ -94,18 +144,22 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
   const last = i === n
   const only = n === 1
 
+  // Written again in the middle of the scene: what comes after it is on the page already.
+  const after = !!ask.hasAfter
   const head = only
     ? 'Write the scene now. The scene card has one beat:'
-    : last
-      ? `Write only the last beat of the scene now: beat ${i} of the ${n} on the scene card.`
-      : `Write only the ${i === 1 ? 'first beat' : 'next beat'} of the scene now: beat ${i} of the ${n} on the scene card. The beats after it will be written later, one at a time.`
+    : after
+      ? `Write beat ${i} of the ${n} on the scene card again now, in place of the version on the page. The scene already carries on after it: the words under "What comes after this beat".`
+      : last
+        ? `Write only the last beat of the scene now: beat ${i} of the ${n} on the scene card.`
+        : `Write only the ${i === 1 ? 'first beat' : 'next beat'} of the scene now: beat ${i} of the ${n} on the scene card. The beats after it will be written later, one at a time.`
 
   const where: string[] = []
   if (only) where.push(`- ${beat(1)}`)
   else {
     if (i > 1) where.push(`- Beat ${i - 1} (${beforeNote(ask)}): ${beat(i - 1)}`)
     where.push(`- Beat ${i} (write this one now): ${beat(i)}`)
-    if (!last) where.push(`- Beat ${i + 1} (comes next: leave it for later): ${beat(i + 1)}`)
+    if (!last) where.push(`- Beat ${i + 1} (${after ? 'already written: it comes after this one' : 'comes next: leave it for later'}): ${beat(i + 1)}`)
   }
 
   const parts = only ? [`${head}\n${where[0]}`] : [head, where.join('\n')]
@@ -139,8 +193,14 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
     } else if (!only) lines.push('- Open the scene with this beat.')
   } else lines.push('- Start the page with this beat, as if the beats before it had just happened.')
   if (only) lines.push('- Write the whole scene around that beat, from its first line to its last.')
+  else if (after) lines.push('- Write what happens in this beat, then stop at its end.')
   else if (last) lines.push('- Write what happens in this beat, and end the scene with it.')
   else lines.push(`- Write what happens in this beat, then stop at its end: don't begin beat ${i + 1}, and don't round the scene off.`)
+  if (after) {
+    lines.push(
+      `- The words under "What comes after this beat" carry on from where this beat ends, so end it where they follow on naturally. Don't write any of them, and don't round the scene off.`
+    )
+  }
   if (ask.steer) lines.push("- Follow the author's note for this beat.")
   lines.push(
     '- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no beat numbers, no notes or comments before or after.'

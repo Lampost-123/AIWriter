@@ -1,0 +1,153 @@
+/* Beat markers (beatMarks.ts, BeatMarksLayer.tsx): a slim band down the left edge of each beat's paragraphs, and a
+   small "Beat N" label in the margin beside where it begins. Drawn from classes and data attributes only, so the
+   words and the layout never change; colours come from the theme tokens in styles.css. Every size and colour is a
+   custom property here, so a new layout can restyle them (or move the labels) without touching the code. */
+
+.scene-prose {
+  /* How far left of the text the band sits, and its width. */
+  --aw-beat-band-x: -18px;
+  --aw-beat-band-w: 3px;
+  /* The gap below a paragraph (as editor.css has it), which the band bridges to the next paragraph of its beat. */
+  --aw-beat-bridge: 0.85em;
+}
+
+[data-paragraphs='book'] .scene-prose {
+  --aw-beat-bridge: 0px;
+}
+
+.scene-prose p.aw-beat {
+  position: relative;
+  --aw-beat-ink: color-mix(in srgb, var(--ai) 34%, transparent);
+}
+
+/* Beats side by side alternate in strength, so where one ends and the next begins shows (the Book style has no gap). */
+.scene-prose p.aw-beat-even {
+  --aw-beat-ink: color-mix(in srgb, var(--ai) 18%, transparent);
+}
+
+.scene-prose p.aw-beat-hot {
+  --aw-beat-ink: color-mix(in srgb, var(--ai) 85%, transparent);
+}
+
+.scene-prose p.aw-beat::before {
+  content: '';
+  position: absolute;
+  left: var(--aw-beat-band-x);
+  width: var(--aw-beat-band-w);
+  top: 0;
+  bottom: calc(-1 * var(--aw-beat-bridge));
+  border-radius: 0;
+  background: var(--aw-beat-ink);
+  pointer-events: none;
+  user-select: none;
+  transition: background-color 150ms ease;
+}
+
+.scene-prose p.aw-beat-first::before {
+  top: 0.3em;
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+
+.scene-prose p.aw-beat-last::before {
+  bottom: 0.3em;
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+
+/* Written before an earlier beat changed: the band is dashed. */
+.scene-prose p.aw-beat-stale::before {
+  background: repeating-linear-gradient(to bottom, var(--aw-beat-ink) 0 6px, transparent 6px 10px);
+}
+
+/* The labels: a layer over the page's scrolling area (it scrolls with the words). */
+.aw-beat-labels {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.aw-beat-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 150px;
+  /* Level with the beat's first line. */
+  transform: translateY(0.3em);
+  font-family: var(--font-sans);
+  pointer-events: auto;
+}
+
+.aw-beat-tag {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  color: var(--faint);
+  background: transparent;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.aw-beat-label[data-shown] .aw-beat-tag,
+.aw-beat-tag:focus-visible,
+.aw-beat-tag[data-state='open'] {
+  opacity: 1;
+}
+
+.aw-beat-tag:hover,
+.aw-beat-tag:focus-visible,
+.aw-beat-tag[data-state='open'] {
+  color: var(--ai);
+  background: var(--ai-soft);
+}
+
+.aw-beat-tag:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* A quiet note under the label of a beat written before an earlier one changed. */
+.aw-beat-note {
+  margin-top: 1px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  text-align: right;
+  color: var(--faint);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* A narrow window: no room in the margin, so the label sits just above the beat's first line, in a row. */
+.aw-beat-labels.is-inside .aw-beat-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  max-width: none;
+  transform: translateY(-100%);
+}
+
+.aw-beat-labels.is-inside .aw-beat-tag {
+  padding: 0 4px;
+  height: 16px;
+  line-height: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-prose p.aw-beat::before,
+  .aw-beat-tag {
+    transition: none;
+  }
+}

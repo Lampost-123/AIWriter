@@ -72,6 +72,8 @@ export interface Suggestion {
   note: string | null
   /** What it is called beside it, in place of its tool's name (a ready-made change: "Polish pass"). */
   label?: string | null
+  /** What shows while it is written, in place of its tool's ("Writing beat 2 again"). */
+  working?: string | null
   /** The AI service was busy, so the request is being tried again. */
   retrying: boolean
   /** The undo history's depth when it showed: Ctrl+Z with nothing done since then rejects it. */
