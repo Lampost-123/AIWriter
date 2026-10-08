@@ -1501,3 +1501,30 @@
     animation: none;
   }
 }
+
+/* The cast's way into the character builder (an AI thing: the lamp's ink). */
+[data-arrangement='desk'] .home-build {
+  display: inline-flex;
+  height: 24px;
+  align-items: center;
+  gap: 5px;
+  margin: -4px -9px -4px auto;
+  border-radius: 999px;
+  padding: 0 9px 0 7px;
+  font: 600 12px/1 var(--font-sans);
+  color: var(--ai);
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .home-build:hover {
+  background: var(--ai-soft);
+}
+[data-arrangement='desk'] .home-build:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .home-build:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}

@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID } from '@shared/types'
-import { ArrowRight, ChevronDown, Palette, Plus, RotateCcw, X } from '@/components/ui/icons'
+import { ArrowRight, ChevronDown, Palette, Plus, RotateCcw, WandSparkles, X } from '@/components/ui/icons'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -30,6 +30,7 @@ import { useArrival } from '@/layout/desk/arrival'
 import { GUTTER, useDeskFrame, useSheetGlide } from '@/layout/desk/deskFit'
 import { useEntryMotifs } from '@/features/world/art/artStore'
 import { CoverPicker } from '@/features/world/art/MotifPicker'
+import { openBuilder } from '@/features/builder/open'
 import { BookCover } from './BookCover'
 import { useStoryCover } from './cover'
 import {
@@ -224,6 +225,15 @@ export function StoryHome(): React.JSX.Element {
           <div className="home-lc a-up" style={at(660)}>
             <div className="home-lc-head">
               <span className="desk-caps">Cast</span>
+              <button
+                type="button"
+                className="home-build"
+                onClick={() => openBuilder('character')}
+                title="Walk through who they are step by step; the AI can suggest each part"
+              >
+                <WandSparkles size={13} aria-hidden />
+                Build a character with AI
+              </button>
             </div>
             {cast ? (
               cast.people.length ? (

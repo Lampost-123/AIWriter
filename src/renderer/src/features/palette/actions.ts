@@ -198,6 +198,12 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'quick-character':
         a.navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })
         return
+      case 'build-character':
+      case 'build-place':
+      case 'build-group':
+      case 'build-item':
+        a.navigate({ kind: 'builder', entryKind: fixed.slice('build-'.length) as 'character', entryId: null, start: { mode: 'guided' } })
+        return
       case 'theme-light':
       case 'theme-dark':
       case 'theme-sepia':

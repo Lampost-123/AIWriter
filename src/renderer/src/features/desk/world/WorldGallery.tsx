@@ -44,6 +44,7 @@ import { useEntryMotifs } from '@/features/world/art/artStore'
 import { createEntry } from '@/features/world/entryActions'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
+import { BUILD_WORDS, openBuilder } from '@/features/builder/open'
 import { useArrival } from '@/layout/desk/arrival'
 import { GalleryCard, type OpenHow } from './GalleryCard'
 import { gallerySections, galleryTabs, staggerDelay, tabClip, worldLine } from './galleryLogic'
@@ -80,7 +81,10 @@ async function newEntry(kind: EntryKind, open: (id: ID, kind: EntryKind) => void
   }
 }
 
-/** The kinds to make, as a menu's rows (the New entry button's, and the ghost card's). */
+/** The kinds with a builder, step by step with the AI's help. */
+const BUILDER_KINDS = ['character', 'place', 'group', 'item'] as const
+
+/** The kinds to make, as a menu's rows (the New entry button's, and the ghost card's), then the builders. */
 function NewEntryItems({ onPick }: { onPick: (kind: EntryKind) => void }): React.JSX.Element {
   return (
     <>
@@ -96,10 +100,14 @@ function NewEntryItems({ onPick }: { onPick: (kind: EntryKind) => void }): React
         )
       })}
       <M.Separator className="my-1 h-px bg-line" />
-      <M.Item
-        className={ITEM}
-        onSelect={() => useApp.getState().navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })}
-      >
+      <M.Label className={LABEL}>Build with AI</M.Label>
+      {BUILDER_KINDS.map((k) => (
+        <M.Item key={`build-${k}`} className={ITEM} onSelect={() => openBuilder(k)}>
+          <WandSparkles size={15} className="text-ai" aria-hidden />
+          <span className="min-w-0 flex-1">{BUILD_WORDS[k]}</span>
+        </M.Item>
+      ))}
+      <M.Item className={ITEM} onSelect={() => openBuilder('character', 'quick')}>
         <Sparkles size={15} className="text-ai" aria-hidden />
         Quick start from a few notes
       </M.Item>
@@ -297,12 +305,10 @@ export function WorldGallery({
             <Button variant="primary" icon={<Plus size={15} />} onClick={() => void newEntry('character', onCreated)}>
               Create a character
             </Button>
-            <Button
-              icon={<Sparkles size={15} />}
-              onClick={() =>
-                useApp.getState().navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })
-              }
-            >
+            <Button variant="ai" icon={<WandSparkles size={15} />} onClick={() => openBuilder('character')}>
+              Build a character with AI
+            </Button>
+            <Button icon={<Sparkles size={15} />} onClick={() => openBuilder('character', 'quick')}>
               Quick start from a few notes
             </Button>
             <Button icon={<WandSparkles size={15} />} onClick={() => openWorldBuilder()}>
@@ -379,6 +385,18 @@ export function WorldGallery({
                     </li>
                   )
                 })}
+                {s.kind === 'character' && !filters.query.trim() && !extra ? (
+                  // An empty portrait at the end of the cast: the way into the character builder.
+                  <li className="g-item g-in" data-shape={s.shape} style={gen ? ({ '--d': `${staggerDelay(order)}ms` } as React.CSSProperties) : undefined}>
+                    <button type="button" className="g-card g-build" onClick={() => openBuilder('character')} title="Walk through who they are step by step; the AI can suggest each part">
+                      <span aria-hidden className="g-build-face">
+                        <WandSparkles size={26} />
+                      </span>
+                      <span className="g-build-t">Build a character with AI</span>
+                      <span className="g-build-d">Step by step: looks, personality, past, voice. The AI can suggest each part.</span>
+                    </button>
+                  </li>
+                ) : null}
               </ul>
             </section>
           )
