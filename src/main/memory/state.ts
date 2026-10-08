@@ -27,6 +27,10 @@
 //   last resolved, and a later opening change reopens it.
 // - A change whose note says a thing worn is gone for good ("bandage gone; wound closed"), and which doesn't set the
 //   clothing itself, takes the pieces naming it out of the character's typical clothing (memory/looks.ts).
+// - A change with a "true until" scene (World Memory Overhaul B1) stops counting when the walk reaches that scene,
+//   before the scene's own changes: its note moves from what has happened to what has ended (history), a field it set
+//   goes back to what it was before it (unless something later set it again), a relationship it set ends, and what it
+//   taught is no longer known. Plot threads and full descriptions don't end this way (a thread is resolved instead).
 
 import type { Change, EntryState, FactState, ID, RelationshipPayload, RelationshipState, ThreadState } from '@shared/types'
 import type { Line, MemoryData, MemoryState, WorldShape } from './types'
@@ -229,6 +233,34 @@ export function stateAt(
     return out
   }
 
+  // ----- Ending changes (B1) -----
+  /** Changes that stop being true at a scene, by that scene. */
+  const endsAt = new Map<ID, Change[]>()
+  for (const c of data.changes) {
+    if (!c.until?.sceneId || c.kind === 'thread' || c.kind === 'full') continue
+    const list = endsAt.get(c.until.sceneId)
+    if (list) list.push(c)
+    else endsAt.set(c.until.sceneId, [c])
+  }
+  /** What a change that may end set, so ending it can put things back: each field's value before, and who set it last. */
+  const before = new Map<ID, { fields: Map<string, { had: boolean; value: string; where: string | undefined; changed: boolean }> }>()
+  const setBy = new Map<string, ID>()
+  const relBy = new Map<string, ID>()
+  const remember = (c: Change, e: EntryState, k: string): void => {
+    setBy.set(`${e.id}|${k}`, c.id)
+    if (!c.until) return
+    let b = before.get(c.id)
+    if (!b) before.set(c.id, (b = { fields: new Map() }))
+    if (b.fields.has(k)) return
+    const value = k === 'description' || k === 'summary' ? e[k] : e.fields[k]
+    b.fields.set(k, {
+      had: k === 'description' || k === 'summary' || Object.prototype.hasOwnProperty.call(e.fields, k),
+      value: value ?? '',
+      where: e.changedWhere?.[k],
+      changed: e.changed.includes(k)
+    })
+  }
+
   // ----- Applying changes -----
   /** Where on the walk the change being applied sits (a step index; -1 for the baseline), so views can order history. */
   let at = -1
@@ -255,14 +287,61 @@ export function stateAt(
     if (p.ended) rels.delete(pk)
     else rels.set(pk, { aId: a, bId: b, type: p.type ?? '', aFeels: p.feels ?? '', bFeels: p.otherFeels ?? '', where, at })
   }
+  const touchFieldOrValue = (e: EntryState, k: string): void =>
+    k === 'description' || k === 'summary' ? touchValue(e, k) : touchField(e, k)
+  /** A change stops being true here (B1): what it made true is put back, and its note becomes history. */
+  const end = (c: Change, until: string): void => {
+    const e = states.get(c.entryId)
+    if (!e) return
+    // Taken back while a side story is added whole, like any other change it makes.
+    if (c.kind === 'update') for (const k of before.get(c.id)?.fields.keys() ?? []) touchFieldOrValue(e, k)
+    switch (c.kind) {
+      case 'update': {
+        const i = e.happened.findIndex((h) => h.changeId === c.id)
+        if (i >= 0) {
+          const [h] = e.happened.splice(i, 1)
+          ;(e.ended ??= []).push({ ...h, until, ...(c.until?.when ? { when: c.until.when } : {}) })
+        }
+        for (const [k, b] of before.get(c.id)?.fields ?? []) {
+          if (setBy.get(`${e.id}|${k}`) !== c.id) continue
+          if (k === 'description' || k === 'summary') e[k] = b.value
+          else if (b.had) e.fields[k] = b.value
+          else delete e.fields[k]
+          setBy.delete(`${e.id}|${k}`)
+          if (!b.changed) e.changed = e.changed.filter((x) => x !== k)
+          if (b.where !== undefined) (e.changedWhere ??= {})[k] = b.where
+          else if (e.changedWhere) delete e.changedWhere[k]
+        }
+        break
+      }
+      case 'relationship': {
+        const b = c.payload.otherId
+        if (!b) break
+        const pk = pairKey(c.entryId, b)
+        if (relBy.get(pk) === c.id && !c.payload.ended) {
+          touchRel(c.entryId, b)
+          rels.delete(pk)
+          relBy.delete(pk)
+        }
+        break
+      }
+      case 'knowledge':
+        if (!c.payload.forgets) knows.get(c.entryId)?.delete(c.payload.factId)
+        break
+    }
+  }
+  /** Changes applied so far on the walk (only those can end). */
+  const applied = new Set<ID>()
   const apply = (c: Change, where: string): void => {
     const e = states.get(c.entryId)
     if (!e) return
+    if (c.until) applied.add(c.id)
     switch (c.kind) {
       case 'update': {
         const p = c.payload
         if (p.note) e.happened.push({ note: p.note, where, changeId: c.id, at })
         for (const [k, v] of Object.entries(p.fields ?? {})) {
+          remember(c, e, k)
           touchField(e, k)
           e.fields[k] = v
           addChanged(e, k, where)
@@ -272,17 +351,20 @@ export function stateAt(
         if (e.kind === 'character' && p.note && e.fields.clothing && !Object.prototype.hasOwnProperty.call(p.fields ?? {}, 'clothing')) {
           const now = clothingAfter(e.fields.clothing, p.note)
           if (now !== null) {
+            remember(c, e, 'clothing')
             touchField(e, 'clothing')
             e.fields.clothing = now
             addChanged(e, 'clothing', where)
           }
         }
         if (p.description !== undefined) {
+          remember(c, e, 'description')
           touchValue(e, 'description')
           e.description = p.description
           addChanged(e, 'description', where)
         }
         if (p.summary !== undefined) {
+          remember(c, e, 'summary')
           touchValue(e, 'summary')
           e.summary = p.summary
           addChanged(e, 'summary', where)
@@ -291,15 +373,18 @@ export function stateAt(
       }
       case 'full': {
         const p = c.payload
+        remember(c, e, 'description')
         touchValue(e, 'description')
         e.description = p.description ?? ''
         addChanged(e, 'description', where)
         if (p.summary !== undefined) {
+          remember(c, e, 'summary')
           touchValue(e, 'summary')
           e.summary = p.summary
           addChanged(e, 'summary', where)
         }
         for (const [k, v] of Object.entries(p.fields ?? {})) {
+          remember(c, e, k)
           touchField(e, k)
           e.fields[k] = v
           addChanged(e, k, where)
@@ -317,6 +402,7 @@ export function stateAt(
       }
       case 'relationship':
         setRel(e.id, c.payload, where)
+        if (c.payload.otherId) relBy.set(pairKey(e.id, c.payload.otherId), c.id)
         break
       case 'knowledge': {
         const p = c.payload
@@ -361,6 +447,11 @@ export function stateAt(
     } else if (step.type === 'scene') {
       scenePos.set(step.sceneId, i)
       at = i
+      const ending = endsAt.get(step.sceneId)
+      if (ending) {
+        const until = label({ storyId: step.storyId, sceneId: step.sceneId })
+        for (const c of ending) if (applied.delete(c.id)) end(c, until)
+      }
       const list = changes.byScene.get(step.sceneId)
       if (list) {
         const where = label({ storyId: step.storyId, sceneId: step.sceneId })

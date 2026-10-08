@@ -330,6 +330,10 @@ export function undoItem(db: DB, id: ID, opts: { keepLinks?: boolean } = {}): Ou
     case 'summary-refresh':
       if (u.refreshed) restoreSummary(db, 'scene', u.sceneId, u.version, 'adam')
       break
+    case 'until-set':
+      // Where the fact stopped being true goes back to what it was (B1): an end taken back, or a cleared one restored.
+      if (liveChange(db, u.changeId)) mem.setChangeUntil(db, u.changeId, u.before, ADAM)
+      break
   }
   if (u.fingerprint && u.words != null && row.sceneId) kdb.addSuppression(db, u.fingerprint, row.sceneId, u.words)
   kdb.markUndone(db, id)

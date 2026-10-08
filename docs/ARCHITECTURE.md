@@ -130,6 +130,22 @@ Remove and Undo. Each part of the writer's briefing records what its memory line
 (`ContextBlock.memory`, built in `ai/memoryTags.ts`, stored inside `blocks_json`: names and ids only);
 `shared/memoryTags.ts` `countMemoryTags` and `db/generations.ts` `memoryTagCounts` count them for a record.
 
+**Migration 4: facts with a start and an end** (Part B round 2, B1, 2026-10-08). The written reason: a change was true
+from its scene for ever, so "lost her knife" was still told to the writer chapters after she found it again; the only
+ends were a relationship's `ended`, a known fact's `forgets` and a thread's resolve, each a new change the writer had to
+weigh against the old one. `changes` gains `until_scene_id`, `until_when` (the story's words for when, optional),
+`until_origin`, `until_quote` and `until_paragraph_id` (the words that end it, so the end follows them). Columns only,
+all empty for older worlds, so every change keeps holding as before. `Change.until` carries them; `db/memory.ts`
+`setChangeUntil` sets or clears one with a version. The line (`memory/state.ts`) stops counting a change when the walk
+reaches its until scene: its note moves from `happened` to `ended` (history), a field it set goes back to what it was
+unless something later set it again, a relationship it set ends and a fact it taught is no longer known. The briefing,
+what must stay true and the memory keeper's "So far" see only what holds; the canon timeline marks what ended as past
+("Mara: lost her knife (until Ch 4, Sc 2)", `ai/timeline.ts`); entry pages say "until …" (`changeViews` `untilWhere`).
+The memory model ends a fact with an "end" item (a "So far" note or a K id, with "when" if the words say;
+`keeper/apply.ts` `endChange`): never one Adam made himself (a quiet note instead), Undo puts it back and records a
+suppression, and `settleEnds` makes the end follow its words (moved words carry it; gone words make the fact true
+again, with Undo).
+
 ### How memory over time works
 
 - An entry row is its **baseline**. Every later fact is a row in `changes`, pinned to an anchor:

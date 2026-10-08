@@ -1065,8 +1065,25 @@ export type Change = ChangeData & {
   origin: Origin
   /** The memory keeper run that made or last changed it. */
   runId: ID | null
+  /**
+   * Where it stops being true (World Memory Overhaul B1, migration 4): from that scene on it no longer counts (she finds
+   * the knife again: "lost her knife" ends). Missing while it still holds.
+   */
+  until?: ChangeUntil
   createdAt: string
   updatedAt: string
+}
+
+/** Where a change stops being true: a scene, with the story's own words for when (optional), and the words that say so. */
+export interface ChangeUntil {
+  sceneId: ID
+  /** Story time, as the text says it ("the next morning"); '' when it doesn't say. */
+  when: string
+  /** Who ended it: 'text' (read from the scene, with its words) or 'adam'. */
+  origin: Origin
+  /** The words in that scene that end it ('' for Adam's), and their paragraph, so the end follows its words. */
+  quote: string
+  paragraphId: string | null
 }
 
 export type ChangeInput = ChangeData & {
@@ -1077,7 +1094,12 @@ export type ChangeInput = ChangeData & {
 }
 
 /** A change as an entry page lists it, with where it happened in plain words ("Book 1, Ch 12, Sc 3") and the words it came from. */
-export type ChangeView = Change & { where: string; links: SourceLink[] }
+export type ChangeView = Change & {
+  where: string
+  links: SourceLink[]
+  /** Where it stops being true, in plain words ("Book 1, Ch 4, Sc 2"); missing while it still holds (B1). */
+  untilWhere?: string
+}
 
 /** Where an entry first exists. An entry counts at a scene only if one of these is on that story's line, at or before the scene. */
 export type ExistsKind = 'world' | 'story-pre' | 'story-post' | 'scene'
@@ -1096,6 +1118,12 @@ export interface ExistsPoint {
 export interface EntryState extends Entry {
   /** What has happened to it so far, oldest first ("lost her left hand", with where). */
   happened: { note: string; where: string; changeId: ID; at?: number }[]
+  /**
+   * What happened to it that is no longer true here (B1: a change whose "true until" scene came before this point), oldest
+   * first, with where it stopped ("until"). History only: the briefing and what must stay true never use it; the canon
+   * timeline may mark it as past. Missing when there is none.
+   */
+  ended?: { note: string; where: string; changeId: ID; at?: number; until: string; when?: string }[]
   /** Field keys (and 'description' / 'summary') a change has set, so views can mark them. */
   changed: string[]
   /**

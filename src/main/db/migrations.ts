@@ -355,6 +355,17 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE source_links ADD COLUMN changed_at TEXT;
   ALTER TABLE source_links ADD COLUMN checks INTEGER NOT NULL DEFAULT 0;
   UPDATE source_links SET changed_at = updated_at WHERE state = 'changed';
+  `,
+  // 4: World Memory Overhaul, part B1 (2026-10-08; the reason is in docs/ARCHITECTURE.md, "Facts with a start and an
+  // end"). A change can stop being true at a later scene ("lost her knife" ends where she finds it again), with the
+  // story's words for when, who ended it, and the words that say so (so the end follows them). Columns only: every
+  // existing change keeps holding, as before.
+  `
+  ALTER TABLE changes ADD COLUMN until_scene_id TEXT;
+  ALTER TABLE changes ADD COLUMN until_when TEXT NOT NULL DEFAULT '';
+  ALTER TABLE changes ADD COLUMN until_origin TEXT;
+  ALTER TABLE changes ADD COLUMN until_quote TEXT NOT NULL DEFAULT '';
+  ALTER TABLE changes ADD COLUMN until_paragraph_id TEXT;
   `
 ]
 

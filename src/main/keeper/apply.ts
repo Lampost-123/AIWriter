@@ -16,7 +16,7 @@
 // The caller runs this inside one transaction. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Change, ChangeData, Entry, EntryKind, ID, Origin, SourceLink } from '@shared/types'
+import type { Change, ChangeData, ChangeUntil, Entry, EntryKind, ID, Origin, SourceLink } from '@shared/types'
 import type { SceneMemory, WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
@@ -154,6 +154,8 @@ export type Undo = (
    * Adam's own facts, or the tidy-up's summary line. Undoing it only dismisses it.
    */
   | { op: 'note'; key: string }
+  /** Where a fact stops being true was set or cleared (World Memory Overhaul B1): Undo puts back what it was before. */
+  | { op: 'until-set'; changeId: ID; before: ChangeUntil | null }
 ) & { fingerprint?: string; words?: string }
 
 // ---------- Small helpers ----------
@@ -1455,6 +1457,118 @@ function applyThread(run: Run, a: Record<string, unknown>, chunk: ChunkReply, re
   }
 }
 
+// ---------- Facts with an end (World Memory Overhaul B1) ----------
+
+const lowerFirst = (s: string): string => (s ? s[0].toLowerCase() + s.slice(1) : s)
+
+/**
+ * The fact an "end" item means: one of the entry's "So far" notes as of this scene (by its words), or a fact it knows
+ * (a K id, or the fact's words). Only what is still true here can end. Null when nothing fits.
+ */
+function endTarget(run: Run, entry: Entry, fact: string, chunk: ChunkReply): Change | null {
+  if (!fact) return null
+  const here = run.ctx.memory?.entries.find((x) => x.id === entry.id)
+  const k = fact.toUpperCase()
+  const knownId =
+    (/^K\d+$/.test(k) ? chunk.ids.known.get(k) : undefined) ??
+    run.ctx.memory?.facts.find((f) => f.knownBy.includes(entry.id) && sameFact(f.fact, fact))?.factId
+  const own = mem.changesForEntry(run.db, entry.id).filter((c) => c.entryId === entry.id && c.sceneId !== run.scene.sceneId)
+  if (knownId && run.ctx.memory?.facts.some((f) => f.factId === knownId && f.knownBy.includes(entry.id))) {
+    const learned = own.filter((c) => c.kind === 'knowledge' && c.payload.factId === knownId && !c.payload.forgets)
+    const last = learned.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))[0]
+    if (last) return last
+  }
+  let best: { id: ID; score: number } | null = null
+  for (const h of here?.happened ?? []) {
+    const score = sameFact(h.note, fact) ? 1 : likeness(fact, h.note)
+    if (score >= 0.6 && (!best || score > best.score)) best = { id: h.changeId, score }
+  }
+  return (best && own.find((c) => c.id === best.id && c.kind === 'update')) || null
+}
+
+/**
+ * The words say a fact is no longer true (she finds the lost knife): it stops counting from this scene on, with the
+ * story's own words for when. Adam's own facts are never ended (Adam's rule): a quiet note says so instead, once per
+ * set of words. Undo puts it back as it was, and it isn't ended again from the same words.
+ */
+function endChange(run: Run, c: Change, when: string, s: Spot): void {
+  const db = run.db
+  const nameOf = (id: ID): string => run.entry(id)?.name ?? 'someone'
+  const what = changeWords(c, nameOf)
+  const entryName = run.entry(c.entryId)?.name ?? ''
+  if (adamMadeChange(db, c)) {
+    const key = `ended:${c.id}:${wordsOf(s.quote)}`
+    if (kdb.lineGiven(db, key) || run.lines.some((l) => (l.undo as { key?: string } | null)?.key === key)) return
+    run.log({
+      action: 'updated',
+      what: 'change',
+      entryId: c.entryId,
+      factId: c.id,
+      entryName,
+      text: `${what}: the scene says this is no longer true (yours is kept as it is)`,
+      before: '',
+      after: '',
+      quote: s.quote,
+      undo: { op: 'note', key }
+    })
+    return
+  }
+  const fp = `until:${c.id}`
+  if (run.suppressed(fp, s.quote)) return
+  if (c.until?.sceneId === run.scene.sceneId) {
+    // Ended here already: the end follows the words that say it now.
+    if (c.until.quote !== s.quote || c.until.paragraphId !== s.paragraphId) mem.moveUntilWords(db, c.id, s)
+    return
+  }
+  const before = c.until ?? null
+  mem.setChangeUntil(db, c.id, { sceneId: run.scene.sceneId, when, origin: 'text', quote: s.quote, paragraphId: s.paragraphId }, run.by)
+  run.log({
+    action: 'updated',
+    what: 'change',
+    entryId: c.entryId,
+    factId: c.id,
+    entryName,
+    text: `No longer true from here: ${lowerFirst(what)}${when ? ` (${when})` : ''}`,
+    before: what,
+    after: '',
+    quote: s.quote,
+    undo: { op: 'until-set', changeId: c.id, before, fingerprint: fp, words: wordsOf(s.quote) }
+  })
+}
+
+/**
+ * The ends read from this scene follow their words, like any fact (B1): moved words carry the end with them, and an end
+ * whose words are gone (and that this read didn't give again) is taken back, with Undo. The tidy-up, which can't ask
+ * the model, keeps an end while its paragraph is still there. A deleted scene's ends stay, for when it comes back.
+ */
+function settleEnds(run: Run): void {
+  if (run.ctx.removed) return
+  const db = run.db
+  for (const c of mem.changesEndingIn(db, run.scene.sceneId)) {
+    const u = c.until
+    if (!u || u.origin !== 'text' || !u.quote) continue
+    const to = relocate({ paragraphId: u.paragraphId, quote: u.quote }, run.plan.paras)
+    if (to) {
+      if (to.quote !== u.quote || to.paragraphId !== u.paragraphId) mem.moveUntilWords(db, c.id, to)
+      continue
+    }
+    if (run.ctx.sweep && u.paragraphId && run.plan.paras.some((p) => p.pid === u.paragraphId)) continue
+    mem.setChangeUntil(db, c.id, null, run.by)
+    run.log({
+      action: 'removed',
+      what: 'change',
+      entryId: c.entryId,
+      factId: c.id,
+      entryName: run.entry(c.entryId)?.name ?? '',
+      text: `True again: ${lowerFirst(changeWords(c, (id) => run.entry(id)?.name ?? 'someone'))} (the words that ended it are gone)`,
+      before: '',
+      after: '',
+      quote: u.quote,
+      undo: { op: 'until-set', changeId: c.id, before: u }
+    })
+  }
+}
+
 function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
   const type = str(a.type, 20).toLowerCase()
   if (type === 'entry') return addEntry(run, a, chunk, refs)
@@ -1515,6 +1629,12 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
   const entry = run.resolve(a.entry, chunk.ids, refs)
   if (!entry || !run.ensureHere(entry, s)) return
   switch (type) {
+    case 'end': {
+      // Something "So far" (or a fact they knew) is no longer true from here (B1).
+      const target = endTarget(run, run.entry(entry.id) ?? entry, str(a.fact ?? a.note, 300), chunk)
+      if (target) endChange(run, target, str(a.when, 120), s)
+      return
+    }
     case 'summary':
     case 'revise': {
       // The scene now tells it differently: a new one-line summary for an entry or event (World Memory Overhaul A2).
@@ -1887,6 +2007,7 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
     for (const c of chunk.reply.clashes) applyClash(run, c, chunk, refs)
   }
   settleUnconfirmed(run, replies)
+  settleEnds(run)
   trashForgotten(run)
   const later = run.laterSummaries ?? []
   run.laterSummaries = null

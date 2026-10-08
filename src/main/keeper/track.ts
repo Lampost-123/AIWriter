@@ -10,6 +10,7 @@ import type Database from 'better-sqlite3'
 import type { ID, SourceLink } from '@shared/types'
 import type { KeeperScene } from '../db/keeper'
 import { isFieldLink, linksForEntry, linksForFact } from '../db/history'
+import { changesEndingIn } from '../db/memory'
 import { factSaysSomething, sceneFacts, type SceneFact } from './facts'
 import {
   closestSentence,
@@ -61,6 +62,8 @@ export interface ReadPlan {
   found: SceneFact[]
   /** Entries that lost some of their words in this scene (checked for "last mention gone" after the run). */
   touchedEntries: Set<ID>
+  /** How many ends read from this scene (B1) have words that moved or went. */
+  endsMoved?: number
 }
 
 /** Where a paragraph-relative range sits, as a link stores it. */
@@ -203,8 +206,16 @@ export function planRead(db: DB, scene: KeeperScene): ReadPlan {
     return m ? m.state === 'ok' : l.state === 'ok'
   }
   const found = facts.filter((f) => !risky.has(f.key) && f.links.some(okAfter))
-  return { scene, version, paras, diff, toRead, moves, atRisk, gone, found, touchedEntries }
+  // Ends read from this scene (B1) whose words moved or went: the run settles them (keeper/apply.ts settleEnds).
+  const endsMoved = changesEndingIn(db, scene.sceneId).filter((c) => {
+    const u = c.until
+    if (!u || u.origin !== 'text' || !u.quote) return false
+    const to = relocate({ paragraphId: u.paragraphId, quote: u.quote }, paras)
+    return !to || to.quote !== u.quote || to.paragraphId !== u.paragraphId
+  }).length
+  return { scene, version, paras, diff, toRead, moves, atRisk, gone, found, touchedEntries, endsMoved }
 }
 
-/** True when a run would change nothing: no new words to read and no fact lost or moved its words. */
-export const nothingToDo = (p: ReadPlan): boolean => !p.toRead.length && !p.moves.length && !p.atRisk.length && !p.gone.length
+/** True when a run would change nothing: no new words to read and no fact (or end) lost or moved its words. */
+export const nothingToDo = (p: ReadPlan): boolean =>
+  !p.toRead.length && !p.moves.length && !p.atRisk.length && !p.gone.length && !p.endsMoved

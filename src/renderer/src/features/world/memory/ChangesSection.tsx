@@ -5,7 +5,7 @@ import { IconButton, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { announceDelete } from '@/lib/undoDelete'
-import { changeWhere, shortQuote, sourceNote, type ChangeWords } from '../memoryLogic'
+import { changeUntil, changeWhere, shortQuote, sourceNote, type ChangeWords } from '../memoryLogic'
 import type { ScenePlace } from '../useSceneLabels'
 import { QuietError } from './QuietError'
 import { EditedSince, PlaceLink } from './SourceLine'
@@ -70,6 +70,7 @@ const ChangeRow = memo(function ChangeRow({
 }): React.JSX.Element {
   const { change: c, words } = item
   const where = changeWhere(c)
+  const until = changeUntil(c)
   const note = sourceNote(c.origin, c.links)
   // Another entry's fresh description sets this relationship: removing it would remove all of that, so it isn't offered here.
   const removable = !(c.kind === 'full' && !item.mine)
@@ -108,6 +109,23 @@ const ChangeRow = memo(function ChangeRow({
         ) : (
           <span className="font-medium text-muted">{where}</span>
         )}
+        {until ? (
+          <>
+            <span aria-hidden>·</span>
+            {c.until?.sceneId && c.until.quote ? (
+              <button
+                type="button"
+                title="Show the words that end it"
+                onClick={() => showWords(c.until!.sceneId, c.until!.quote, c.until!.paragraphId)}
+                className="min-w-0 truncate rounded-sm text-left transition-colors duration-150 hover:text-accent hover:underline"
+              >
+                {until}
+              </button>
+            ) : (
+              <span className="min-w-0 truncate">{until}</span>
+            )}
+          </>
+        ) : null}
         {note?.kind === 'ai' ? (
           <>
             <span aria-hidden>·</span>

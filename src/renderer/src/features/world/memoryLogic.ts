@@ -471,5 +471,16 @@ export function changeWhere(c: Pick<ChangeView, 'where' | 'anchor'>): string {
   return c.anchor === 'baseline' ? 'From the start' : 'Somewhere in your story'
 }
 
+/**
+ * Where a change stops being true, for its row (World Memory Overhaul B1): "until Book 1, Ch 4, Sc 2", with the story's
+ * own words for when ("until Book 1, Ch 4, Sc 2 (the next morning)"); '' while it still holds.
+ */
+export function changeUntil(c: Pick<ChangeView, 'untilWhere' | 'until'>): string {
+  const w = c.untilWhere?.trim()
+  if (!w) return ''
+  const when = c.until?.when?.trim()
+  return `until ${w}${when ? ` (${when})` : ''}`
+}
+
 /** A short form of a fact or note for a toast: "Removed "Mara is the heir"." */
 export const shortQuote = (s: string, max = 60): string => `“${excerpt(s, max)}”`

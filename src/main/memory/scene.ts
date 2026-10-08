@@ -464,9 +464,14 @@ export function changeViews(db: DB, changes: Change[], shape: WorldShape = loadS
     'change',
     keyed.map(({ c }) => c.id)
   )
-  return keyed.map(({ c }) => ({
-    ...c,
-    where: c.anchor === 'baseline' ? 'Before any story' : label({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }),
-    links: links.get(c.id) ?? []
-  }))
+  return keyed.map(({ c }) => {
+    // Where it stops being true (B1), while that scene is still in the story.
+    const until = c.until?.sceneId && storyOf.has(c.until.sceneId) ? label({ storyId: storyOf.get(c.until.sceneId)!, sceneId: c.until.sceneId }) : ''
+    return {
+      ...c,
+      where: c.anchor === 'baseline' ? 'Before any story' : label({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }),
+      links: links.get(c.id) ?? [],
+      ...(until ? { untilWhere: until } : {})
+    }
+  })
 }
