@@ -4,6 +4,7 @@ import {
   beforeAfter,
   canUndo,
   changesNote,
+  checkAgainFailed,
   freshUpdate,
   groupHeading,
   groupLog,
@@ -36,6 +37,23 @@ const item = (runId: string, sceneId: string | null, where: string, extra: Parti
   createdAt: '2026-10-02T10:00:00Z',
   undone: false,
   ...extra
+})
+
+describe('checkAgainFailed', () => {
+  const bad = "The memory model's reply wasn't in the right format."
+  it('waits while the status is still the one from the ask, or the memory is reading', () => {
+    const asked = status({ error: bad, failed: 1 })
+    expect(checkAgainFailed(asked, asked)).toBeNull()
+    expect(checkAgainFailed(asked, status({ error: bad, reading: { sceneId: 's1', title: 'The ferry' } }))).toBeNull()
+    expect(checkAgainFailed(null, null)).toBeNull()
+  })
+
+  it('gives the reason once a later status has the memory idle with an error, and nothing when it read fine', () => {
+    const asked = status({ error: bad, failed: 1 })
+    expect(checkAgainFailed(asked, status({ error: bad, failed: 1 }))).toBe(bad)
+    expect(checkAgainFailed(status({}), status({ error: 'No memory model' }))).toBe('No memory model')
+    expect(checkAgainFailed(asked, status({}))).toBeNull()
+  })
 })
 
 describe('keeperState', () => {

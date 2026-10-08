@@ -16,6 +16,17 @@ export function keeperState(status: MemoryStatus | null): KeeperState {
   return 'idle'
 }
 
+/**
+ * After "Check again now" (World Memory Overhaul B2): why that read failed, once a status that came after the ask (not
+ * `asked`, the one showing when it was asked) has the memory idle with an error. Then the line goes back from
+ * "Checking…" to "Check again now", and the reason shows as it is. Null while it may still be reading, and when it read
+ * without an error.
+ */
+export function checkAgainFailed(asked: MemoryStatus | null, now: MemoryStatus | null): string | null {
+  if (!now || now === asked || now.reading || !now.error) return null
+  return now.error
+}
+
 /** The tooltip while the memory reads: "Reading “The ferry”, then 2 more scenes." */
 export function readingNote(status: MemoryStatus): string {
   const title = status.reading?.title.trim() || 'Untitled scene'

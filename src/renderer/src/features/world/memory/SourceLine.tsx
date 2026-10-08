@@ -1,11 +1,12 @@
 import { Check, PenLine, Sparkles } from '@/components/ui/icons'
-import { useState } from 'react'
-import type { ID } from '@shared/types'
+import { useEffect, useRef, useState } from 'react'
+import type { ID, MemoryStatus } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
+import { checkAgainFailed } from '@/features/memory/logic'
 import { showWords } from '@/features/memory/openScene'
 import type { SourceNote } from '../memoryLogic'
 import type { ScenePlace } from '../useSceneLabels'
@@ -81,7 +82,20 @@ export function QuoteLink({ sceneId, words, className }: { sceneId: ID; words: W
  */
 export function EditedSince({ sceneId, words, className }: { sceneId: ID; words: WordsAt; className?: string }): React.JSX.Element {
   const [asked, setAsked] = useState(false)
+  // The memory's status when it was asked: a read that fails leaves the words "since edited", and the button comes back
+  // (it said "Checking…" for good otherwise).
+  const status = useApp((s) => s.memoryStatus)
+  const askedWith = useRef<MemoryStatus | null>(null)
+  useEffect(() => {
+    if (!asked) return
+    const failed = checkAgainFailed(askedWith.current, status)
+    if (!failed) return
+    setAsked(false)
+    // Its own words already say what went wrong ("The memory couldn't read …") and what to do.
+    toast(failed)
+  }, [asked, status])
   const checkAgain = async (): Promise<void> => {
+    askedWith.current = useApp.getState().memoryStatus
     setAsked(true)
     try {
       await api.checkMemoryAgain(sceneId)
