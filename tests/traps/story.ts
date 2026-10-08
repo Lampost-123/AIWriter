@@ -384,6 +384,8 @@ export interface Tripwire {
   pattern: RegExp
   not?: RegExp
   unlessBefore?: RegExp
+  /** Only the narration counts (what is said aloud is left out), as for a PatternCheck. Off unless set (K3's threads). */
+  outsideQuotes?: boolean
 }
 
 export interface Probe {

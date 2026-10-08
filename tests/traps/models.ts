@@ -6,6 +6,9 @@ export type TrapProvider = 'deepseek' | 'openrouter'
 /** The app's DeepSeek preset (features/settings/ModelsSettings.tsx PRESETS): a custom, OpenAI-compatible provider. */
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
 
+/** Each provider's name, for messages and as it is set up in Settings › Models. */
+export const PROVIDER_NAMES: Record<TrapProvider, string> = { deepseek: 'DeepSeek', openrouter: 'OpenRouter' }
+
 /** The environment variable each provider's key is read from (and nowhere else). */
 export const KEY_VARIABLE: Record<TrapProvider, string> = { deepseek: 'DEEPSEEK_API_KEY', openrouter: 'OPENROUTER_API_KEY' }
 
