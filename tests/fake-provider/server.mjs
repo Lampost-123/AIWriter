@@ -37,6 +37,7 @@
 //   fake/no-thinking-option 400 for any thinking setting (reasoning / reasoning_effort), else a normal stream
 //   fake/content-parts     sends its reply as lists of content parts (with a thinking part that isn't text)
 //   fake/finish-error-once stops with finish_reason "error" and no text on the first request, then a normal stream
+//   fake/stubborn          asked to fix an issue's words (Fix the text), sends them back unchanged every time (m4/edits.mjs)
 //
 // Prompt caching, as Claude does it through OpenRouter: a message sent as content parts, some marked with
 // cache_control, keeps everything up to its last mark; sent again unchanged, that part is reported as
@@ -49,6 +50,10 @@
 //   - "<Name> learned|learns|discovered that <x>."  <Name> knows <x>
 //   - "<Name> wanted the <word> <thing>."           a new entry "<Name>'s <word> <thing>", filed as a character with
 //                                                    pronouns "it/its" (the slip a real model made with a bead)
+//   - "Nobody knew who|why|where|what|how|whether <x>."  opens a plot thread "Who <x>" (promise "Who <x>?")
+//   - "A clue: <x>."                                a clue for the first open plot thread listed (or one opened above)
+//   - "Things moved on: <x>."                       the same thread moves on (developing, note <x>)
+//   - "At last the answer came: <x>."               the same thread is resolved (note <x>)
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
@@ -140,14 +145,42 @@ function continuityReply(system, user) {
   return JSON.stringify({ time: { value: 'evening', quote: opening }, things, characters })
 }
 
-/** Deterministic prose of about `words` words, in paragraphs. */
-export function fakeProse(words) {
+/**
+ * With `varyBeats` (beat markers' app tests), Beat by beat's beats 2 and 3 (and 5 and 6...) are written from these
+ * instead, so the beats read differently (and the live checks don't mark the words a copy of beat 1 repeats).
+ */
+const BEAT_SENTENCES = [
+  SENTENCES,
+  [
+    'Tobin leaned forward and asked, quietly, for the ledger.',
+    'Mara felt its weight against her ribs, wrapped in oilcloth beneath her coat.',
+    '"Not here," she answered, glancing toward the crowded bar.',
+    'He smiled without warmth and slid a coin across the scarred wood.',
+    'Behind them a dice game erupted into shouting and spilled ale.',
+    'The fire popped, and a log settled into embers.',
+    'A serving girl hurried past with a tray of empty mugs.',
+    'Tobin waited, fingers drumming once, then stilled.'
+  ],
+  [
+    'Three slow knocks sounded from the side entrance.',
+    'Every conversation in the room stopped at once.',
+    "Tobin's hand drifted toward his belt, toward the knife he pretended not to carry.",
+    'Mara stepped back until her shoulders found the cold plaster wall.',
+    'Whoever waited outside knocked again, patient and certain.',
+    'Somewhere a dog began barking in the alley.',
+    'Nobody moved to answer it.',
+    'Even the fiddler lowered his bow.'
+  ]
+]
+
+/** Deterministic prose of about `words` words, in paragraphs (from `sentences`, SENTENCES unless said). */
+export function fakeProse(words, sentences = SENTENCES) {
   const out = []
   let count = 0
   let i = 0
   let para = []
   while (count < words) {
-    const s = SENTENCES[i % SENTENCES.length]
+    const s = sentences[i % sentences.length]
     para.push(s)
     count += s.split(/\s+/).length
     i++
@@ -204,6 +237,18 @@ function readSentence(s) {
   if (m) return { kind: 'knows', name: m[1], fact: m[2].trim() }
   m = s.match(/\b([A-Z][a-z]+) wanted the ([a-z]+) ([a-z]+)\.$/)
   if (m) return { kind: 'wants', name: m[1], what: m[2], thing: m[3] }
+  // Plot threads (the AI manages plot threads, 2026-10-08).
+  m = s.match(/^Nobody knew (who|why|where|what|how|whether) ([^.!?]+)[.!?]/)
+  if (m) {
+    const question = `${m[1].charAt(0).toUpperCase()}${m[1].slice(1)} ${m[2].trim()}`
+    return { kind: 'thread-open', name: question, promise: `${question}?` }
+  }
+  m = s.match(/^A clue: ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'thread-clue', clue: m[1].trim() }
+  m = s.match(/^Things moved on: ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'thread-developing', note: m[1].trim() }
+  m = s.match(/^At last the answer came: ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'thread-resolved', note: m[1].trim() }
   return null
 }
 
@@ -229,9 +274,25 @@ export function fakeMemoryReply(user) {
     add.push({ type: 'entry', ref: r, kind: 'character', name, summary: `Someone called ${name}.`, quote: name })
     return r
   }
+  // The open plot threads the memory lists ("- E5 thread "Who rang the bell". promise: …"), first listed first.
+  const threads = lines.map((l) => l.match(/^- (E\d+) thread "/)?.[1]).filter(Boolean)
+  let opened = null
   for (const s of sentences) {
     const r = readSentence(s)
     if (!r) continue
+    if (r.kind.startsWith('thread-')) {
+      if (r.kind === 'thread-open') {
+        opened = r.name
+        add.push({ type: 'thread', name: r.name, status: 'open', promise: r.promise, quote: s })
+        continue
+      }
+      const target = threads[0] ? { entry: threads[0] } : opened ? { name: opened } : null
+      if (!target) continue
+      if (r.kind === 'thread-clue') add.push({ type: 'thread', ...target, status: 'clue', clue: r.clue, quote: s })
+      if (r.kind === 'thread-developing') add.push({ type: 'thread', ...target, status: 'developing', note: r.note, quote: s })
+      if (r.kind === 'thread-resolved') add.push({ type: 'thread', ...target, status: 'resolved', note: r.note, quote: s })
+      continue
+    }
     const entry = ref(r.name)
     if (r.kind === 'change') add.push({ type: 'change', entry, note: r.note, fields: r.fields, quote: s })
     if (r.kind === 'detail') add.push({ type: 'detail', entry, field: r.field, value: r.value, quote: s })
@@ -412,6 +473,16 @@ export async function startFakeProvider(options = {}) {
     const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)
     if (memory === null && lastUser.includes('put who says it and how it is said in curly braces')) {
       full = full.replaceAll('"You came,"', '{Tobin|dry, a little amused}"You came,"').replaceAll('"I said I would."', '{Mara|flat and certain}"I said I would."')
+    }
+    // With varyBeats, each beat of Beat by beat reads differently (its number picks the sentences).
+    const beat = memory === null && opts.varyBeats ? /\bbeat (\d+) of the \d+ on the scene card/.exec(lastUser) : null
+    if (beat && full) full = fakeProse(words, BEAT_SENTENCES[(Number(beat[1]) - 1) % BEAT_SENTENCES.length])
+    // Beat by beat writing an earlier beat again (src/main/beats/instructions.ts, afterBlock): it opens otherwise, so a
+    // test can tell the new version from the old.
+    if (memory === null && lastUser.includes('## What comes after this beat')) {
+      const was = 'The rain had not let up since noon'
+      const now = 'By evening the rain had eased to a drizzle'
+      full = full.includes(was) ? full.replace(was, now) : `${now}. ${full}`
     }
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4

@@ -21,6 +21,7 @@ import {
   withActStartedAt
 } from './outlineModel'
 import { useOutlineStore } from './outlineStore'
+import { notifyChapterCard } from '@/features/chapterCard/chapterCardEvents'
 
 const app = useApp.getState
 const outlineStore = useOutlineStore.getState
@@ -239,6 +240,8 @@ export async function deleteChapter(id: ID, opts: { stay?: boolean } = {}): Prom
     return
   }
   const wasOpen = moveSelectionAway(sceneIds, opts.stay)
+  // Its card, if it shows beside the page, goes with it.
+  if (app().chapterCardId === id) app().openChapterCard(null)
   removeFromOutline(sceneIds, id)
   app().bumpOutline()
   const count = sceneIds.length
@@ -269,8 +272,10 @@ export async function moveScene(id: ID, chapterId: ID, index: number): Promise<v
     return
   }
   app().bumpOutline()
+  // In another chapter, the parts of its card that follow the chapter card follow the new chapter's.
+  notifyChapterCard()
   const from = preview?.from
-  if (preview && from?.chapterId) tellMoved(preview.notes, () => api.moveScene(id, from.chapterId!, from.index))
+  if (preview && from?.chapterId) tellMoved(preview.notes, () => api.moveScene(id, from.chapterId!, from.index).then(() => notifyChapterCard()))
 }
 
 export async function moveChapter(id: ID, index: number): Promise<void> {

@@ -396,6 +396,108 @@ export function layGone(field: 'holding' | 'wearing', before: string, now: strin
   return out && plain(out) !== plain(before) ? out : null
 }
 
+// ---------- "The door", when two doors are named ----------
+// The memory model named a thing by the nearest name the words gave (lab round E, record 52622830): "at the passage door
+// she put her hand on the iron ring ... at the end of it the yard door stood open ... She put her shoulder to the door
+// and shut it ... she turned the key", read as "the yard door: shut and locked from inside", while the lock may as well
+// be on the passage door she came through. The words don't say which, so neither name is kept as if they did: a thing
+// whose name says which one it is ("the yard door"), when its own words don't say so ("the door") and the words just
+// before name two or more of its kind, is kept as "the door (the yard door or the passage door?)".
+
+/** Words that start a name: whose it is, or which ("the", "her"). Past one, the words before don't go with the thing. */
+const STARTS = new Set('a an the this that these those his her their its my your our'.split(' '))
+/**
+ * Words before a thing's main word that only say how it looks or whose it is, not which one it is ("the heavy door",
+ * "her own door", "a door of his own").
+ */
+const LOOKS_ONLY = new Set([
+  ...STARTS,
+  ...'own mine yours hers ours theirs whose one other same open shut closed locked unlocked barred bolted heavy old great big small little low narrow wide thick stout battered half ajar near far nearest first second last only'.split(
+    ' '
+  )
+])
+/** How far before a thing's words other names of its kind count, in characters of the words as compared (about a page). */
+const NAMED_NEAR = 600
+
+/** The words of a name that say which one it is: "yard" for "the yard door", '' for "the door" or "the heavy door". */
+const whichOf = (words: string[]): string => words.filter((w) => !LOOKS_ONLY.has(w)).join(' ')
+
+/**
+ * Text as compared for which one a name is: as plain, but where a sentence ends there is a " . ", and a comma, colon,
+ * dash, bracket or quotation mark is a " , ", so no name runs across them ("the table, her boot" names no "table boot").
+ * A name's "'s" is a "his": "Wren's door" says whose door, not which ("the inn's back door" is the back door).
+ */
+const marked = (s: string): string =>
+  ` ${s
+    .toLowerCase()
+    .replace(/[\p{L}\p{N}]+[’']s(?![\p{L}\p{N}])/gu, ' his ')
+    .replace(/[‘’'`´]/g, '')
+    .replace(/[.!?…]+/g, ' . ')
+    .replace(/[,;:()[\]–—“”"]+/g, ' , ')
+    .replace(/[^\p{L}\p{N}.,]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()} `
+/** A quote's words, marked the same way but with no marks: what to look for in marked text. */
+const markedWords = (s: string): string[] =>
+  marked(s)
+    .split(' ')
+    .filter((w) => w && w !== '.' && w !== ',')
+
+/**
+ * A thing's name as its words bear it out (see above): as given, unless it says which one it is, its quote doesn't and
+ * nor does the sentence the quote is in, and the words up to the quote's end (the last NAMED_NEAR characters before it)
+ * name two or more of its kind by which.
+ */
+export function unnamed(name: string, quote: string, words: string): string {
+  const key = itemKey(name).split(' ')
+  const head = singular(key.at(-1) ?? '')
+  const which = whichOf(key.slice(0, -1))
+  if (head.length < 3 || !which) return name
+  const q = plain(quote)
+  if (which.split(' ').every((w) => q.includes(` ${w} `))) return name
+  // Where the quote's words are in the words read (any marks between its words aside).
+  const body = marked(words)
+  const parts = quote
+    .split(/…|\.{3}/)
+    .map(markedWords)
+    .filter((p) => p.length)
+  let first = -1
+  let end = 0
+  for (const p of parts) {
+    const find = new RegExp(` ${p.join('(?: [.,])* ')} `, 'gu')
+    find.lastIndex = end
+    const m = find.exec(body)
+    if (!m) return name
+    if (first < 0) first = m.index
+    end = m.index + m[0].length - 1
+  }
+  // The sentence (or sentences) the quote is in: when it names this one by which, the name is borne out.
+  const from = body.lastIndexOf(' . ', first)
+  const to = body.indexOf(' . ', end)
+  const sentence = body.slice(from < 0 ? 0 : from, to < 0 ? body.length : to + 1).replace(/ ,(?= )/g, '')
+  if (sentence.includes(` ${which} ${head} `) || sentence.includes(` ${which} ${head}s `)) return name
+  const near = body.slice(Math.max(0, first - NAMED_NEAR), end + 1)
+  // Each of its kind named there, by which ("the yard door", "a passage door"), the latest last: only the words after
+  // the last that starts a name ("the table her boot" names no "table boot"), never across a mark.
+  const named: string[] = []
+  const kind = new RegExp(`(?<= )(?:the|a|an|this|that|his|her|their|its) ((?:[\\p{L}\\p{N}]+ ){1,2})${head}s?(?= )`, 'gu')
+  for (const m of near.matchAll(kind)) {
+    const ws = m[1].trim().split(' ')
+    let start = 0
+    ws.forEach((x, i) => {
+      if (STARTS.has(x)) start = i + 1
+    })
+    const w = whichOf(ws.slice(start))
+    if (!w) continue
+    const i = named.indexOf(w)
+    if (i >= 0) named.splice(i, 1)
+    named.push(w)
+  }
+  if (named.length < 2) return name
+  const said = named.slice(-2).reverse()
+  return `the ${head} (${said.map((w) => `the ${w} ${head}`).join(' or ')}?)`
+}
+
 /**
  * A reply read as the changes a stretch of the story makes. Each value is {"value", "quote"}: kept only when the
  * quote's words are in `words` (what the model was given to read), so nothing appears without words behind it; a
@@ -447,6 +549,8 @@ export function readChanges(reply: string, words: string, sceneId: string): (Par
       if (!it.state) continue
       const q = quoted(raw)
       if (!q && !isGone(it.state, nameKey === 'item') && !(nameKey === 'item' && isOff(it.state))) continue
+      // "the door", when two doors are named just before it, is not the nearer one's name (unnamed).
+      if (q && nameKey === 'thing') it.name = unnamed(it.name, q, words)
       if (q) said[keyOf(it.name)] = { quote: q, sceneId }
       out.push(it)
     }
@@ -622,9 +726,58 @@ export function heldNotPlaced(state: Pick<SceneState, 'things' | 'characters'>, 
   return kept.length === parts.length ? holding : kept.join('; ')
 }
 
+// ---------- How someone is placed belongs to where they are ----------
+// A field a reply leaves out carries on, so a move that said nothing of how someone is placed kept the old pose (the
+// lab's bridge reviews B and C: Ash "riding, hands in his armpits" in the inn's parlour, and "sitting on the settle...
+// looking at Wren" once he had gone out to the stable). How they are placed, who they touch and who they see or hear
+// belong to the place: when where they are changes, those go unless the same change gives them again. What they hold,
+// wear, how they are and how they feel go with them. Someone else touching them or watching them loses that too.
+
+/** The fields that belong to where someone is. */
+const PLACE_BOUND = ['posture', 'touching', 'sees'] as const
+
+/** A place as compared: lower case, words only. */
+const placeWords = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+
+/** True when someone known to be somewhere is now said to be somewhere else (never for a first where). */
+const movedOn = (was: string, now: string | undefined): boolean => !!now && !!placeWords(was) && placeWords(was) !== placeWords(now)
+
+/** True when a value names this person: any word of their name, capitalised as names are ("Ash" in "looking at Ash"). */
+function namesPerson(value: string, name: string): boolean {
+  if (!value) return false
+  return name
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && /^\p{Lu}/u.test(w))
+    .some((w) => new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(value))
+}
+
+/**
+ * After a move (see above): for each person who moved, how they are placed, who they touch and who they see go unless
+ * the change set gave them again, their words with them; anyone else who touches or sees a person who moved, and isn't
+ * said to again, no longer does.
+ */
+function placedAfterMove(out: SceneState, said: StateSources, moved: CharacterState[], restated: Map<CharacterState, Partial<CharacterState>>): void {
+  if (!moved.length) return
+  const clear = (c: CharacterState, f: (typeof PLACE_BOUND)[number]): void => {
+    if (restated.get(c)?.[f]) return
+    if (c[f]) c[f] = ''
+    delete said[sourceKey(c.name, f)]
+  }
+  for (const c of moved) for (const f of PLACE_BOUND) clear(c, f)
+  for (const c of out.characters) {
+    if (moved.includes(c)) continue
+    for (const f of ['touching', 'sees'] as const) if (moved.some((m) => namesPerson(c[f] ?? '', m.name))) clear(c, f)
+  }
+}
+
 /**
  * The state after a scene: the one before it with what the scene says laid over it. A value the scene gives
- * replaces the old one (Adam: the old is discarded, not kept beside it); what it doesn't mention carries on. A holding
+ * replaces the old one (Adam: the old is discarded, not kept beside it); what it doesn't mention carries on, except how
+ * someone is placed, who they touch and who they see, which go when they move (placedAfterMove). A holding
  * or wearing value that only says something is gone (`gone`, from readChanges) is laid over the old one (layGone): an
  * empty hand clears what was held, and its words with it. Piece by piece (step 2b): a change to one piece of clothing,
  * or one thing in the place, touches only that one (boots off leaves the coat as it was); "gone" takes it off the list.
@@ -660,11 +813,16 @@ export function mergeState(before: SceneState | null, now: Partial<SceneState> &
   const gone = new Set(now.gone ?? [])
   /** What this change set says each person (by the name kept) took up: what they hold now, the pieces they have on now. */
   const given: Given = new Map()
+  /** Who moved somewhere else in this change set (moved), and what the change set gave each person. */
+  const moved: CharacterState[] = []
+  const restated = new Map<CharacterState, Partial<CharacterState>>()
   for (const c of now.characters ?? []) {
     let had = out.characters.find((x) => x.name.toLowerCase() === c.name.toLowerCase())
     if (!had) out.characters.push((had = blankCharacter(c.name)))
     const mine = { holding: false, pieces: new Set<string>() }
     given.set(had, mine)
+    restated.set(had, c)
+    if (movedOn(had.where, c.where)) moved.push(had)
     for (const f of STATE_FIELDS) {
       const value = c[f]
       if (!value) continue
@@ -701,6 +859,7 @@ export function mergeState(before: SceneState | null, now: Partial<SceneState> &
       }
     }
   }
+  placedAfterMove(out, said, moved, restated)
   onePlace(out, said, placedNow, given)
   // The characters seen most lately first, so a long story keeps the ones that matter.
   const named = new Set((now.characters ?? []).map((c) => c.name.toLowerCase()))

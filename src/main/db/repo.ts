@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import type {
   Chapter,
+  ChapterCard,
   DeletedItem,
   Entry,
   EntryInput,
@@ -17,6 +18,9 @@ import type {
   StyleGuide
 } from '@shared/types'
 import { countWords, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
+import { withAiLink, withoutAiLink, type ThreadList } from '@shared/threadLinks'
+import { adoptChapter, carryOf, CHAPTER_CARD_PREFIX, chapterCardEmpty, cleanChapterCard, resolveCardWrite, withCarry } from '@shared/chapterCard'
+import type { ChapterCardUpdate } from '@shared/contracts/chapterCards'
 import { newId, now, UserError } from '../util'
 import { addExistsPoint, defaultExistsPoint, loadShape } from './memory'
 import { buildLine, previousSceneStep } from '../memory/line'
@@ -249,6 +253,13 @@ export function restoreDeleted(db: DB, kind: Restorable, id: ID): void {
       ).run(chapterId)
       // Things added since may have taken its place number: number them again so the order stays clear.
       if (kind === 'scene') renumber(db, 'scenes', sceneIds(db, chapterId))
+      // Its chapter's card may have changed while it was deleted: the parts it follows take the chapter's value now,
+      // and an empty part it never settled takes the chapter's; a part of its own stays (adoptChapter 'follow').
+      if (kind === 'scene' && row.deleted_at) {
+        const was = getScene(db, id).card
+        const next = adoptChapter(was, getChapterCard(db, chapterId), 'follow')
+        if (JSON.stringify(next) !== JSON.stringify(was)) writeCard(db, id, next, now())
+      }
       if (kind === 'chapter' || chapterBack) {
         const storyId = (db.prepare('SELECT story_id FROM chapters WHERE id = ?').get(chapterId) as Row).story_id as string
         renumber(db, 'chapters', chapterIds(db, storyId))
@@ -329,6 +340,20 @@ const toScene = (r: Row): Scene => ({
   text: r.text as string
 })
 
+/** The scene cards of these scenes (those that still exist), by id, without their text: one query per 500. */
+export function sceneCards(db: DB, ids: ID[]): Map<ID, SceneCard> {
+  const out = new Map<ID, SceneCard>()
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500)
+    if (!chunk.length) continue
+    const rows = db
+      .prepare(`SELECT id, card_json FROM scenes WHERE deleted_at IS NULL AND id IN (${chunk.map(() => '?').join(',')})`)
+      .all(...chunk) as Row[]
+    for (const r of rows) out.set(r.id as string, { ...emptySceneCard(), ...json<Partial<SceneCard>>(r.card_json, {}) })
+  }
+  return out
+}
+
 function sceneIds(db: DB, chapterId: ID): ID[] {
   return (db.prepare('SELECT id FROM scenes WHERE chapter_id = ? AND deleted_at IS NULL ORDER BY position').all(chapterId) as Row[]).map(
     (r) => r.id as string
@@ -360,11 +385,13 @@ export function createScene(db: DB, chapterId: ID, input: { title?: string; afte
     const after = input.afterId ? ids.indexOf(input.afterId) : -1
     const at = after >= 0 ? after + 1 : ids.length
     const title = input.title ?? `Scene ${ids.length + 1}`
+    // A new scene starts with its chapter's card, following every part of it.
+    const card = adoptChapter(emptySceneCard(), getChapterCard(db, chapterId), 'new')
     db.prepare('INSERT INTO scenes (id, chapter_id, title, card_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(
       id,
       chapterId,
       title,
-      JSON.stringify(emptySceneCard()),
+      JSON.stringify(card),
       t,
       t
     )
@@ -399,11 +426,98 @@ export function saveSceneText(db: DB, id: ID, doc: unknown, text: string): { wor
   return { wordCount, updatedAt: t, status }
 }
 
+/**
+ * Saves a scene card. A part that follows the chapter card stays so unless the card changes it to something other
+ * than the chapter's: then it is the scene's own from now on (shared/chapterCard.ts resolveCardWrite).
+ */
 export function updateSceneCard(db: DB, id: ID, card: SceneCard): SceneCard {
-  getSceneMeta(db, id)
-  const clean: SceneCard = { ...emptySceneCard(), ...card }
+  const meta = getSceneMeta(db, id)
+  const prev = getScene(db, id).card
+  const clean: SceneCard = resolveCardWrite(prev, { ...emptySceneCard(), ...card }, getChapterCard(db, meta.chapterId))
   db.prepare('UPDATE scenes SET card_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(clean), now(), id)
   return clean
+}
+
+/**
+ * The memory's own plot thread link on a scene card (shared/threadLinks.ts): added (`on`) unless the thread is on that
+ * list already or Adam took the memory's link off; taken back (not `on`) only when it is the memory's. True when the
+ * card changed. A deleted scene's card is left alone.
+ */
+export function setAiThreadLink(db: DB, sceneId: ID, list: ThreadList, threadId: ID, on: boolean): boolean {
+  const card = sceneCards(db, [sceneId]).get(sceneId)
+  if (!card) return false
+  const next = on ? withAiLink(card, list, threadId) : withoutAiLink(card, list, threadId)
+  if (!next) return false
+  db.prepare('UPDATE scenes SET card_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), now(), sceneId)
+  return true
+}
+
+// ---------- Chapter cards (2026-10-08) ----------
+// The scene card parts a chapter's scenes share, kept in the meta table (one row a chapter, `chapter_card:<id>`): the
+// data model is frozen, and the meta table is the world's own key-value store. The chapter's values are written into
+// the scene cards that follow them (shared/chapterCard.ts), so nothing that reads a scene card reads this.
+
+const chapterCardKey = (chapterId: ID): string => `${CHAPTER_CARD_PREFIX}${chapterId}`
+
+/** The chapter's card; an empty one when it has none. */
+export function getChapterCard(db: DB, chapterId: ID): ChapterCard {
+  return cleanChapterCard(json<unknown>(getMeta(db, chapterCardKey(chapterId)), {}))
+}
+
+function storeChapterCard(db: DB, chapterId: ID, card: ChapterCard): void {
+  if (chapterCardEmpty(card)) db.prepare('DELETE FROM meta WHERE key = ?').run(chapterCardKey(chapterId))
+  else setMeta(db, chapterCardKey(chapterId), JSON.stringify(card))
+}
+
+/** A scene card written by the chapter card: its time moves, so everything kept from it (views, search) is made again. */
+function writeCard(db: DB, id: ID, card: SceneCard, t: string): void {
+  db.prepare('UPDATE scenes SET card_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(card), t, id)
+}
+
+/**
+ * Saves a chapter's card, and puts it into the cards of its scenes (adoptChapter 'follow'), all in one go. Says which
+ * scene cards changed, with what they had before, so one Undo can put them back.
+ */
+export function saveChapterCard(db: DB, chapterId: ID, input: unknown): { card: ChapterCard; updated: ChapterCardUpdate[] } {
+  getChapter(db, chapterId)
+  const card = cleanChapterCard(input)
+  return db.transaction(() => {
+    storeChapterCard(db, chapterId, card)
+    const t = now()
+    const updated: ChapterCardUpdate[] = []
+    for (const sceneId of sceneIds(db, chapterId)) {
+      const was = getScene(db, sceneId).card
+      const next = adoptChapter(was, card, 'follow')
+      if (JSON.stringify(next) === JSON.stringify(was)) continue
+      writeCard(db, sceneId, next, t)
+      updated.push({ sceneId, before: carryOf(was) })
+    }
+    return { card, updated }
+  })()
+}
+
+/**
+ * Undo for saveChapterCard: the chapter's card as it was, and those scenes' parts and marks as they were (scenes since
+ * deleted, or moved to another chapter, are left as they are). Their other parts are never touched.
+ */
+export function restoreChapterCard(db: DB, chapterId: ID, card: unknown, scenes: ChapterCardUpdate[]): number {
+  getChapter(db, chapterId)
+  const clean = cleanChapterCard(card)
+  return db.transaction(() => {
+    storeChapterCard(db, chapterId, clean)
+    const t = now()
+    let n = 0
+    for (const u of Array.isArray(scenes) ? scenes : []) {
+      const r = db.prepare('SELECT chapter_id FROM scenes WHERE id = ? AND deleted_at IS NULL').get(String(u?.sceneId ?? '')) as Row | undefined
+      if (!r || r.chapter_id !== chapterId || !u.before) continue
+      const was = getScene(db, u.sceneId).card
+      const next = withCarry(was, { parts: cleanChapterCard(u.before.parts), inherits: u.before.inherits ?? null })
+      if (JSON.stringify(next) === JSON.stringify(was)) continue
+      writeCard(db, u.sceneId, next, t)
+      n++
+    }
+    return n
+  })()
 }
 
 export function deleteScene(db: DB, id: ID): void {
@@ -417,6 +531,10 @@ export function moveScene(db: DB, id: ID, chapterId: ID, index: number): void {
     if (s.chapterId !== chapterId) {
       db.prepare('UPDATE scenes SET chapter_id = ? WHERE id = ?').run(chapterId, id)
       renumber(db, 'scenes', sceneIds(db, s.chapterId))
+      // In its new chapter, the parts it follows take that chapter's card (a part of its own stays).
+      const was = getScene(db, id).card
+      const next = adoptChapter(was, getChapterCard(db, chapterId), 'follow')
+      if (JSON.stringify(next) !== JSON.stringify(was)) writeCard(db, id, next, now())
     }
     const ids = sceneIds(db, chapterId).filter((x) => x !== id)
     ids.splice(Math.max(0, Math.min(index, ids.length)), 0, id)

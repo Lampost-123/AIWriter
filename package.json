@@ -1,7 +1,7 @@
 {
   "name": "ai-write",
   "productName": "AI Write",
-  "version": "0.6.30",
+  "version": "0.6.38",
   "description": "Write long, consistent stories with AI and a memory of your world.",
   "author": "Adam (Lampost-123)",
   "private": true,
@@ -17,6 +17,7 @@
     "traps:write": "node tests/traps/cli.mjs --write",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
+    "docs:screenshots": "npm run build && playwright test -c tests/docs/playwright.config.ts",
     "rebuild:node": "npm rebuild better-sqlite3",
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
     "release:win": "npm run build && electron-builder --win --x64 --publish always",

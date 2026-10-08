@@ -6,8 +6,11 @@
 
 import type Database from 'better-sqlite3'
 import type { ChapterPlace, KeepItem, KeepRef, KeptItem } from '@shared/contracts/outline'
-import type { Chapter, ID, SceneCard } from '@shared/types'
+import type { Chapter, ChapterCard, ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
+import { withAiLink } from '@shared/threadLinks'
+import { changedFields, cleanChapterCard, copyField, follows, isFieldEmpty, sameField, followChapterPart, withMark } from '@shared/chapterCard'
+import { cleanNames, fillEmpty, namedEntries, partsFromNames } from './chapterCard'
 import type { WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
@@ -28,6 +31,86 @@ const oneLine = (s: unknown, max: number): string =>
     .slice(0, max)
     .trim()
 
+/** The most plot threads one kept scene puts on each list of its card. */
+const MOST_THREADS = 6
+
+const threadKey = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/^(the|a|an)\s+/, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+/**
+ * Plot threads by name for one keep (2026-10-08): an existing thread by its name or another name (in the story's
+ * world), else a new one, AI-drafted, made in this story with the name as given. Each name is made once per keep.
+ */
+function threadFinder(db: DB, storyId: ID): (name: string) => { id: ID; made: boolean } | null {
+  const known = new Map<string, ID>()
+  for (const e of repo.listEntries(db)) {
+    if (e.kind !== 'thread') continue
+    for (const n of [e.name, ...e.aliases]) {
+      const k = threadKey(n)
+      if (k && !known.has(k)) known.set(k, e.id)
+    }
+  }
+  return (raw) => {
+    const name = oneLine(raw, KEEP_LIMITS.title)
+    const k = threadKey(name)
+    if (!k) return null
+    const id = known.get(k)
+    if (id) return { id, made: false }
+    const e = repo.createEntry(db, 'thread', { name }, { origin: 'ai', originStoryId: storyId })
+    known.set(k, e.id)
+    return { id: e.id, made: true }
+  }
+}
+
+/** The card with the kept scene's plot threads on it, marked as the AI's (never a second time, never one Adam took off). */
+function withThreads(
+  card: SceneCard,
+  item: KeepItem,
+  find: (name: string) => { id: ID; made: boolean } | null,
+  made: ID[]
+): SceneCard {
+  let out = card
+  for (const [list, names] of [
+    ['setsUp', item.setsUp],
+    ['paysOff', item.paysOff]
+  ] as const) {
+    for (const name of (Array.isArray(names) ? names : []).slice(0, MOST_THREADS)) {
+      const t = find(String(name ?? ''))
+      if (!t) continue
+      if (t.made && !made.includes(t.id)) made.push(t.id)
+      out = withAiLink(out, list, t.id) ?? out
+    }
+  }
+  return out
+}
+
+/**
+ * Undo of a keep: the plot threads it made go to Recently deleted while nothing else uses them (not edited by Adam,
+ * on no other scene's card, nothing in the memory about them).
+ */
+export function takeBackThreads(db: DB, kept: Pick<KeptItem, 'threadIds'>[]): void {
+  const ids = [...new Set(kept.flatMap((k) => k.threadIds ?? []))]
+  if (!ids.length) return
+  const onCards = new Set<ID>()
+  for (const r of db.prepare('SELECT card_json FROM scenes WHERE deleted_at IS NULL').all() as { card_json: string | null }[]) {
+    try {
+      const c = JSON.parse(r.card_json ?? '{}') as Partial<SceneCard>
+      for (const id of [...(c.setsUpIds ?? []), ...(c.paysOffIds ?? [])]) onCards.add(id)
+    } catch {
+      // A damaged card names nothing.
+    }
+  }
+  for (const e of repo.getEntries(db, ids)) {
+    if (e.origin !== 'ai' || e.byHand || onCards.has(e.id)) continue
+    if (db.prepare('SELECT 1 FROM changes WHERE entry_id = ? AND deleted_at IS NULL LIMIT 1').get(e.id)) continue
+    repo.deleteEntry(db, e.id, { origin: 'ai' })
+  }
+}
+
 /** A scene's beats as the card keeps them: one line each, no empty ones, at most KEEP_LIMITS.beats. */
 export const cleanBeats = (beats: unknown): string[] =>
   (Array.isArray(beats) ? beats : [])
@@ -47,6 +130,38 @@ export function fallbackWhen(before: string[]): string {
     if (when) return dayName(when) ?? 'Later that day'
   }
   return 'Day 1'
+}
+
+/** A When as compared with another: case, spacing and a closing full stop don't count. */
+const whenKey = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[\s.]+$/, '')
+    .trim()
+
+/**
+ * A kept scene's When (chapter cards, 2026-10-08). The same as its chapter card's When, or none given while the
+ * chapter has one: it follows the chapter's. Another When is the scene's own (a later time of day, a jump in time).
+ * None given and none on the chapter: `fallback` (fallbackWhen), as the scene's own.
+ */
+export function sceneWhen(card: SceneCard, chapter: ChapterCard, given: string, fallback: () => string): SceneCard {
+  const chapterWhen = chapter.when.trim()
+  if (chapterWhen && (!given || whenKey(given) === whenKey(chapterWhen))) return followChapterPart(card, chapter, 'when')
+  return withMark({ ...card, when: given || fallback() }, 'when', false)
+}
+
+/**
+ * Where a new scene differs from its chapter card (its point of view, characters present, location or mood, as the
+ * AI gave them), those parts are its own; the same as the chapter's, it follows the chapter.
+ */
+export function ownParts(card: SceneCard, chapter: ChapterCard, parts: Partial<ChapterCard>): SceneCard {
+  let out = card
+  for (const f of ['pov', 'present', 'location', 'mood'] as const) {
+    if (isFieldEmpty(parts, f) || sameField(parts, chapter, f)) continue
+    out = withMark(copyField(out, parts, f), f, false)
+  }
+  return out
 }
 
 /** The Whens of the story's scenes before this one, in reading order. */
@@ -108,6 +223,8 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
     let spareChapter: ID | null = blank ? (start.chapters[0]?.id ?? null) : null
     let spareScene: ID | null = blank && spareChapter ? (start.scenes.find((sc) => sc.chapterId === spareChapter)?.id ?? null) : null
     const made = new Map<string, KeptItem>()
+    // Plot threads named on the kept scenes, found or made once each for the whole keep.
+    let findThread: ReturnType<typeof threadFinder> | null = null
     // Chapters a scene has gone into already: their lone "Scene 1" is never taken after that.
     const lonesUsed = new Set<ID>()
     const resolve = (ref: KeepRef | undefined, kind: KeptItem['kind']): ID | null => {
@@ -119,6 +236,8 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
       return ref.id ?? null
     }
     const kept: KeptItem[] = []
+    /** The world's characters and places, read once when a card names any. */
+    let world: ReturnType<typeof namedEntries> | undefined
     for (const item of items) {
       const key = String(item?.key ?? '')
       if (!key || made.has(key)) throw new UserError('Those suggestions are muddled. Please suggest again.')
@@ -130,6 +249,8 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
       let id: ID
       let reused = false
       let whenKept = false
+      const threadIds: ID[] = []
+      let cardFilled: KeptItem['card'] | null = null
       if (item.kind === 'act') {
         id = acts.createAct(db, storyId, {
           title,
@@ -150,6 +271,16 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
         if (text) repo.updateChapter(db, chapter.id, { goal: text })
         acts.placeChapter(db, chapter.id, { actId, afterId: resolve(item.after, 'chapter'), beforeId: resolve(item.before, 'chapter') })
         id = chapter.id
+        // The chapter card the AI gave it goes into its empty parts (a card Adam set on a reused chapter stays).
+        const names = cleanNames(item.card)
+        if (Object.keys(names).length) {
+          const before = repo.getChapterCard(db, id)
+          const { card, filled } = fillEmpty(before, partsFromNames(names, (world ??= namedEntries(db))))
+          if (filled.length) {
+            repo.saveChapterCard(db, id, card)
+            if (reused) cardFilled = { before, after: repo.getChapterCard(db, id) }
+          }
+        }
       } else if (item.kind === 'scene') {
         const chapterId = resolve(item.parent, 'chapter')
         if (!chapterId) throw new UserError('That chapter no longer exists.')
@@ -186,21 +317,57 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
             if (order.includes(before)) repo.moveScene(db, scene.id, chapterId, order.indexOf(before))
           }
         }
-        // A reused scene keeps what its card has; a When already on it (Adam's) is never replaced.
-        const card: SceneCard = reuse ? repo.getScene(db, scene.id).card : emptySceneCard()
-        const had = !!card.when.trim()
-        const when = had ? card.when : oneLine(item.when, KEEP_LIMITS.when) || fallbackWhen(whensBefore(db, storyId, scene.id))
-        repo.updateSceneCard(db, scene.id, { ...card, goal: text, beats: cleanBeats(item.beats), when })
-        whenKept = reuse !== null && had
+        // A new scene starts with its chapter's card (repo.createScene); a reused one keeps what its card has.
+        const chapterCard = repo.getChapterCard(db, chapterId)
+        let card: SceneCard = { ...emptySceneCard(), ...repo.getScene(db, scene.id).card }
+        // Where a new scene differs from its chapter (another point of view, cast, place or mood), that is its own.
+        if (!reuse) card = ownParts(card, chapterCard, partsFromNames(cleanNames({ ...item.card, when: undefined }), (world ??= namedEntries(db))))
+        // A When of Adam's own already on a reused scene is never replaced; one it follows from the chapter is the chapter's.
+        const had = reuse !== null && !!card.when.trim() && !follows(card, 'when')
+        if (!had) card = sceneWhen(card, chapterCard, oneLine(item.when, KEEP_LIMITS.when), () => fallbackWhen(whensBefore(db, storyId, scene.id)))
+        const filled: SceneCard = { ...card, goal: text, beats: cleanBeats(item.beats) }
+        // The plot threads it sets up and pays off go on its card as the AI's.
+        const threaded =
+          item.setsUp?.length || item.paysOff?.length ? withThreads(filled, item, (findThread ??= threadFinder(db, storyId)), threadIds) : filled
+        repo.updateSceneCard(db, scene.id, threaded)
+        whenKept = had
         id = scene.id
       } else throw new UserError('Those suggestions are muddled. Please suggest again.')
       // Its Undo can then tell whether Adam has changed it since.
       acts.markMade(db, item.kind, id)
-      const k: KeptItem = reused ? { key, kind: item.kind, id, reused, ...(whenKept ? { whenKept } : {}) } : { key, kind: item.kind, id }
+      const k: KeptItem = reused
+        ? { key, kind: item.kind, id, reused, ...(whenKept ? { whenKept } : {}), ...(cardFilled ? { card: cardFilled } : {}) }
+        : { key, kind: item.kind, id }
+      if (threadIds.length) k.threadIds = threadIds
       made.set(key, k)
       kept.push(k)
     }
     return kept
+  })()
+}
+
+/**
+ * Undo for keepOutline (acts.takeBackKept), with the chapter cards it filled on a reused chapter put back as they
+ * were, unless Adam has changed them since: the scenes that follow them go back with them. The plot threads the keep
+ * made go too, while nothing else uses them (takeBackThreads, once the kept scenes and their links are gone).
+ */
+export function unkeepOutline(db: DB, kept: KeptItem[]): { storyIds: ID[]; sceneIds: ID[] } {
+  const list = Array.isArray(kept) ? kept : []
+  return db.transaction(() => {
+    const out = acts.takeBackKept(db, list, {
+      restoreCards: () => {
+        for (const k of list) {
+          if (k?.kind !== 'chapter' || !k.reused || !k.card) continue
+          const now = db.prepare('SELECT 1 FROM chapters WHERE id = ? AND deleted_at IS NULL').get(k.id)
+          if (!now) continue
+          const card = repo.getChapterCard(db, k.id)
+          if (changedFields(card, cleanChapterCard(k.card.after)).length) continue
+          repo.saveChapterCard(db, k.id, cleanChapterCard(k.card.before))
+        }
+      }
+    })
+    takeBackThreads(db, list)
+    return out
   })()
 }
 

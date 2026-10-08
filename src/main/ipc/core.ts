@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import type { Handlers } from './index'
 import type { RecoveryItem } from '@shared/types'
+import { mergeThreadLinks } from '@shared/threadLinks'
 import * as repo from '../db/repo'
 import * as world from '../world'
 import { ensureLibraryFolder, getSettings, getWritingPrefs, setWritingPrefs, updateSettings } from '../settings'
@@ -149,7 +150,12 @@ export const coreHandlers: Handlers<CoreMethods> = {
     sceneSavedForMarks(id, doc)
     return saved
   },
-  updateSceneCard: (id, card) => write(() => repo.updateSceneCard(world.db(), id, card)),
+  // The panel's copy may predate a plot thread link the memory made or took back since: those stay as the memory left them.
+  updateSceneCard: (id, card) =>
+    write(() => {
+      const db = world.db()
+      return repo.updateSceneCard(db, id, mergeThreadLinks(repo.sceneCards(db, [id]).get(id) ?? null, card))
+    }),
   deleteScene: (id) =>
     write(() => {
       repo.deleteScene(world.db(), id)

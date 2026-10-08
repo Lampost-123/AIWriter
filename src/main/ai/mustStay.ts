@@ -28,6 +28,9 @@ import { FIELD_GROUPS } from '@shared/fields'
 import { isOff, namesItem as namesStageItem, pieceText, thingText, type StageItem } from '@shared/stageItems'
 import { holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
 import { deathOf } from './deaths'
+import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './knows'
+import { clearStalePlacing } from './briefingFixes'
+import { animalNotPerson } from '../keeper/kinds'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
 export const MUST_MOST = 12
@@ -88,6 +91,14 @@ export interface MustInput {
    * codex's changed looks (the briefing above has those).
    */
   short?: boolean
+  /**
+   * The briefing's stage block says where things stand at this same moment, right above the list (carrying on inside a
+   * scene): the list then leaves out what the stage says, and keeps what it doesn't (who is dead, marks, changed looks,
+   * what someone no longer has, secrets). Adam, 2026-10-08: the door, the boots and the coat were said three times over.
+   */
+  stageShown?: boolean
+  /** What has happened so far, for telling a plan that has happened (realSecrets); left out: what has happened to `people` and `named`. */
+  happened?: KnowsContext['happened']
 }
 
 /**
@@ -141,12 +152,22 @@ export interface Secret {
   keptFrom: string[]
 }
 
+/** Someone who may know a fact: a codex entry, with what says whether it is a person (summary, tags, pronouns). */
+export type Knower = Pick<EntryState, 'id' | 'name' | 'kind'> & Partial<Pick<EntryState, 'aliases' | 'summary' | 'tags' | 'fields'>>
+
+/**
+ * True when an entry is a person who can know things: a character, and not an animal and no more (round G: "Kept
+ * from Cinder … must not learn" for a horse; keeper/kinds.ts animalNotPerson).
+ */
+export const isPerson = (e: Pick<EntryState, 'kind' | 'name'> & Partial<Pick<EntryState, 'aliases' | 'summary' | 'tags' | 'fields'>>): boolean =>
+  e.kind === 'character' && !animalNotPerson(e)
+
 /**
  * What some of these people know and others don't, the most lately learned first (FactState.at; among facts learned at
- * the same point, or with no place, the last listed first).
+ * the same point, or with no place, the last listed first). Only people (isPerson): never an animal.
  */
-export function secretsAmong(people: Pick<EntryState, 'id' | 'name' | 'kind'>[], facts: FactState[]): Secret[] {
-  const here = people.filter((p) => p.kind === 'character')
+export function secretsAmong(people: Knower[], facts: FactState[]): Secret[] {
+  const here = people.filter(isPerson)
   if (here.length < 2) return []
   const order = facts.map((f, i) => ({ f, i })).sort((a, b) => (b.f.at ?? -2) - (a.f.at ?? -2) || b.i - a.i)
   const out: Secret[] = []
@@ -157,6 +178,39 @@ export function secretsAmong(people: Pick<EntryState, 'id' | 'name' | 'kind'>[],
     out.push({ fact, knownBy: knowers.map((p) => p.name), keptFrom: here.filter((p) => !f.knownBy.includes(p.id)).map((p) => p.name) })
   }
   return out
+}
+
+/**
+ * The real secrets among these people (Adam, 2026-10-08): what one of them knows that another here doesn't, as of this
+ * point, never kept from someone the fact is about ("Wren does not know: Wren will go up to the abbey"), with plans
+ * that have happened or whose time has passed left out and the same fact given once (knows.ts cleanKnows); the most
+ * lately learned first, at most `most`.
+ */
+export function realSecrets(
+  people: (Knower & Pick<EntryState, 'aliases'>)[],
+  facts: FactState[],
+  ctx: KnowsContext,
+  most = MUST_GAPS
+): Secret[] {
+  const here = people.filter(isPerson)
+  const out: Secret[] = []
+  for (const s of secretsAmong(here, cleanKnows(facts, ctx))) {
+    if (out.length >= most) break
+    const keptFrom = s.keptFrom.filter((name) => {
+      const p = here.find((x) => x.name === name)
+      return !p || !namesPerson(s.fact, p)
+    })
+    if (keptFrom.length) out.push({ ...s, keptFrom })
+  }
+  return out
+}
+
+/** True when a text names this person: by name, another name, or a first name of three letters or more. */
+export function namesPerson(text: string, p: Pick<EntryState, 'name' | 'aliases'>): boolean {
+  const names = [p.name, ...(p.aliases ?? [])].map(clean).filter(Boolean)
+  const first = clean(p.name).split(' ')[0] ?? ''
+  if (first.length >= 3 && /^\p{Lu}/u.test(first)) names.push(first)
+  return names.some((n) => nameIn(text, n))
 }
 
 /** A place without this story's title ("Book 1, Ch 3, Sc 2" in Book 1 is "Ch 3, Sc 2"). */
@@ -197,6 +251,15 @@ export interface StageScope {
   cast: Pick<EntryState, 'name' | 'aliases'>[]
   /** The scene's own words that can name someone: its card's beats, notes and aims, Adam's direction, the scene so far. */
   words: string
+  /**
+   * The scene before this one on the story's line (null: none). Given, values whose words are from an older scene stay
+   * out (Adam, 2026-10-08: "out in the middle of the flood" and "hat on" indoors, days later), except how someone is and
+   * what they hold; and someone only named in the scene's words is in it only with words from this scene (or the one
+   * before, when its time carries on). Left out (older callers): no such rule.
+   */
+  previousSceneId?: ID | null
+  /** The characters dead by now (their names and other names): only ever dead on the stage, never "burning in his chair". */
+  dead?: string[]
 }
 
 /** The names a stage person goes by: as the stage has them, their codex entry's names, and their first name when no one else here shares it. */
@@ -219,9 +282,56 @@ function namesFor(c: CharacterState, scope: StageScope, stand: SceneState): stri
  */
 export function stageInScene(stand: SceneState | null | undefined, scope: StageScope): SceneState | null {
   if (!stand) return null
-  const here = (c: CharacterState): boolean =>
-    scope.onCard.some((e) => stageFor(e, { ...stand, characters: [c] })) || namesFor(c, scope, stand).some((n) => nameIn(scope.words, n))
-  const characters = stand.characters.filter(here)
+  const ruled = scope.previousSceneId !== undefined
+  /** The scenes whose words still hold here: this one, and the one before (a value whose words aren't known is kept). */
+  const fresh = (sceneId: string | undefined): boolean => !ruled || !sceneId || sceneId === scope.sceneId || sceneId === scope.previousSceneId
+  const sourcesOf = (c: CharacterState): StateSource[] => {
+    const who = `${clean(c.name).toLowerCase()}|`
+    return Object.entries(stand.said ?? {})
+      .filter(([k]) => k.startsWith(who))
+      .map(([, v]) => v)
+  }
+  const onCard = (c: CharacterState): boolean => scope.onCard.some((e) => stageFor(e, { ...stand, characters: [c] }))
+  const named = (c: CharacterState): boolean => namesFor(c, scope, stand).some((n) => nameIn(scope.words, n))
+  /** Only named in the scene's words: in it only with words from this scene (or the one before, its time carrying on). */
+  const seenHere = (c: CharacterState): boolean => {
+    const from = sourcesOf(c)
+    return !ruled || !from.length || from.some((f) => f.sceneId === scope.sceneId || (scope.timeCarries && f.sceneId === scope.previousSceneId))
+  }
+  const deadNames = new Set((scope.dead ?? []).map((n) => clean(n).toLowerCase()).filter(Boolean))
+  const isDead = (c: CharacterState): boolean => namesFor(c, scope, stand).some((n) => deadNames.has(n.toLowerCase()))
+  const characters: CharacterState[] = []
+  for (const c of stand.characters) {
+    if (!onCard(c) && !(named(c) && seenHere(c))) continue
+    if (isDead(c)) {
+      // Dead: never a live state. Where the body is, only from this scene's own words; otherwise left out (the scene
+      // card and what must stay true say who is dead).
+      const whereFrom = stand.said?.[sourceKey(c.name, 'where')]?.sceneId
+      if (!sourcesOf(c).some((f) => f.sceneId === scope.sceneId)) continue
+      characters.push({ name: c.name, where: whereFrom === scope.sceneId ? c.where : '', posture: '', holding: '', condition: 'dead', mood: '', lastAction: '', clothes: [] })
+      continue
+    }
+    // How they are placed, who they touch and who they see no longer hold once they have moved since those were said
+    // (ai/briefingFixes.ts).
+    const placed = (x: CharacterState): CharacterState => clearStalePlacing(x, stand.said, scope.sceneId, scope.words)
+    if (!ruled) {
+      characters.push(placed(c))
+      continue
+    }
+    // Words from an older scene no longer hold, except how they are (injuries) and what they hold.
+    const field = (f: StateField): string => (f === 'condition' || f === 'holding' || fresh(stand.said?.[sourceKey(c.name, f)]?.sceneId) ? (c[f] ?? '') : '')
+    const kept: CharacterState = {
+      ...c,
+      where: field('where'),
+      posture: field('posture'),
+      mood: field('mood'),
+      lastAction: field('lastAction'),
+      ...(c.touching !== undefined ? { touching: field('touching') } : {}),
+      ...(c.sees !== undefined ? { sees: field('sees') } : {})
+    }
+    if (c.clothes) kept.clothes = c.clothes.filter((p) => fresh(pieceSource(stand.said, c.name, p.name)?.sceneId))
+    characters.push(placed(kept))
+  }
   const out: SceneState = { ...stand, characters }
   for (const f of ['time', 'weather', 'light'] as const) {
     if (!scope.timeCarries && stand.said?.[sourceKey(null, f)]?.sceneId !== scope.sceneId) out[f] = ''
@@ -304,6 +414,7 @@ export function mustStayTrue(o: MustInput): string[] {
     })
 
   function stageLines(c: CharacterState, who: number): void {
+    if (o.stageShown && o.reach === 'here') return
     const name = clean(c.name)
     // Never what they hold or have on that a thing in the place says is somewhere else (the case on the sill, not on
     // her back): the thing's line says where it is.
@@ -314,7 +425,11 @@ export function mustStayTrue(o: MustInput): string[] {
     }
     // What they wear, piece by piece: those the scene names first, then what is off, then what is on in some way.
     if (!keep.has('wearing')) return
-    const worn = clothesOf(c).filter((p) => !pieceClashes(stand, name, p))
+    // Not a piece a thing in the place already says where it is (the boots on the hearth), and one line for a piece kept
+    // under two names (an oilskin and an oilskin coat): the newer (Adam, 2026-10-08: the oilskin was listed twice).
+    const placed = keep.has('thing') ? thingsOf(stand) : []
+    const all = clothesOf(c).filter((p) => !pieceClashes(stand, name, p) && !placed.some((t) => namesStageItem(clean(t.name), p)))
+    const worn = all.filter((p, i) => !all.some((q, j) => j > i && (namesStageItem(clean(q.name), p) || namesStageItem(clean(p.name), q))))
     for (const p of namedFirst(worn, about, true).slice(0, MUST_CLOTHES)) {
       const line = pieceLine(name, p)
       if (line) add(namesStageItem(about, p) || isOff(p.state) ? 'wearingNamed' : 'wearing', who, line, sinceOf(pieceSource(o.stand?.said, name, p.name)))
@@ -323,7 +438,7 @@ export function mustStayTrue(o: MustInput): string[] {
 
   // The scene's time, light and weather, carrying on inside it (a new scene's are on its card); and the things in the
   // place, those the scene names first, then those changed most lately.
-  const scene = o.stand
+  const scene = o.stageShown && o.reach === 'here' ? null : o.stand
   if (scene) {
     for (const kind of ['time', 'light', 'weather'] as const) {
       const v = clean(scene[kind])
@@ -347,12 +462,12 @@ export function mustStayTrue(o: MustInput): string[] {
   all.forEach((e, i) => {
     const died = deathOf(e)
     const note = clean(died?.note).replace(/[.]$/, '')
-    if (note) add('dead', i, `${e.name} is dead: ${note}`, shortPlace(died?.where ?? '', o.storyTitle))
+    if (note) add('dead', i, `${e.name} is dead: ${pastDeathNote(note)}`, shortPlace(died?.where ?? '', o.storyTitle))
   })
 
   // What some of those in the scene know and others don't, the most lately learned first: kept from the others, who
   // must not learn, guess or think it here (when the point-of-view character is one of them, not even in thought).
-  secretsAmong(people, o.facts)
+  realSecrets(people, o.facts, { happened: o.happened ?? happenedOf([...people, ...o.named]) })
     .slice(0, MUST_GAPS)
     .forEach((s, i) => {
       const not = joinAnd(s.keptFrom)
@@ -360,8 +475,15 @@ export function mustStayTrue(o: MustInput): string[] {
       add('gap', 2000 + i, `Kept from ${not}: ${clipTo(s.fact, LONGEST_FACT)} (${knows}). ${not} must not learn, guess or think it here unless the scene card says so`, '', true)
     })
 
-  // The most that matter, then in order: person by person, then the scene, then who knows what.
-  const room = o.short ? out.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.changed) : out
+  // The most that matter, then in order: person by person, then the scene, then who knows what. The same line once only.
+  const seen = new Set<string>()
+  const once = out.filter((l) => {
+    const k = l.text.replace(/\s*\(since [^)]*\)$/, '').toLowerCase()
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+  const room = o.short ? once.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.changed) : once
   // The short form: one piece of clothing a person at most, the one that matters most.
   const dressed = new Set<number>()
   const ranked = [...room]

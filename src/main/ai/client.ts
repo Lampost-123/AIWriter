@@ -452,6 +452,10 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       }
       payload[sent.tokenParam] = maxTokens
       if (sent.sampling) Object.assign(payload, { temperature, top_p })
+      // TODO(Adam, 2026-10-08): presence_penalty / frequency_penalty would also curb repeated phrases, but only send one
+      // once the provider is known to honour it (DeepSeek's docs list it, but whether its current models act on it is
+      // not checked; some providers reject or ignore it). Until then the closing instruction lists phrases the scene has
+      // used already (ai/repetition.ts), with no extra request field.
       const minPSent = sent.sampling && sent.minP !== false && min_p != null && o.target.kind === 'openrouter'
       if (minPSent) payload.min_p = min_p
       // OpenRouter's own way of asking every model; other servers take OpenAI's.

@@ -3,6 +3,8 @@
 // Since 0.6.29 (story memory step 5) it also picks up what was said: promises, threats and secrets told, with the line
 // itself and who heard it ("said" items, kept as facts the speaker and hearers know: keeper/apply.ts).
 // Since 2026-10-07 it is told that a thing someone has or wants is an item, never a character (keeper/kinds.ts checks).
+// Since 2026-10-08 (the AI manages plot threads) it opens a plot thread with its promise, adds clues, notes when one
+// moves on, and resolves one only when the payoff is on the page (keeper/threads.ts applies these).
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -30,9 +32,10 @@ Rules
 - Every fact needs "quote": words copied exactly, character for character, from one P paragraph: the shortest phrase or sentence that shows it.
 - Refer to entries by their ids (E1, E2 ...). If someone or something is listed under "Elsewhere in the world", use that id: never make a new entry with a name or alias already listed. A new entry you add can be referred to in later items by the "ref" you give it (N1, N2 ...).
 - A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives, buys or makes (a bead, a letter, a sword, a cart) is an item, however much it matters to them, and gets item fields. Give a new entry only fields the words show.
-- Changes are what is now different: injuries, possessions, looks, where someone is, goals, someone's death. Write a "note" as a short phrase without the name, such as "lost her left hand" or "now carries the Duke's seal".
+- Changes are what is now different: injuries, possessions, looks, where someone is, goals, someone's death. Write a "note" as a short phrase without the name, such as "lost her left hand" or "now carries the Duke's seal". When a change ends what one of their fields says (a bandage off for good, a hat lost), give that field's new value in the change's "fields" too, without it.
 - Details are facts about an entry that don't change in the scene (a newcomer's eye colour, what a place smells like).
 - What was said that later scenes must keep to: a promise or vow, a threat or warning of harm, or a secret told. Give each as a "said" item: who says it, everyone in the scene who hears it, and the spoken line itself as the quote, copied exactly. A secret told is something the hearers now know: give it as "said" only, not also as "knows".
+- Plot threads: a promise, mystery, threat, goal, debt or secret the story must answer. "open" when the words set one up, with its "promise" (what the reader waits on); "clue" for a new hint; "developing" with a note when it moves on; "resolved" only when the payoff itself is on the page, never for a hint or a plan.
 - Facts under "Facts whose words changed" need a verdict each: "keep" (the scene still says it; give the words that now show it), "update" (it now says something else; give the new value and words) or "remove" (the scene no longer says it).
 - Don't repeat facts listed under "Facts from this scene".
 - If the scene contradicts the memory without it happening in the story (a different eye colour, a dead character walking about), put it under "clashes" rather than changing anything. A clash is only something that can't be true alongside what the memory says. A detail the memory doesn't have, a fuller or vaguer description, or the same thing in other words ("redder" for "red", "about twelve" for "12") is never a clash.
@@ -52,7 +55,7 @@ New facts, by "type":
 {"type": "relationship", "entry": "E1", "other": "E2", "rel": "sister, rival, holds, member of...", "feels": "how E1 feels about E2", "otherFeels": "how E2 feels about E1", "ended": false, "quote": "..."}
 {"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 when it is a fact listed under Facts", "forgets": false, "quote": "..."}
 {"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "what it amounts to, in a few words: Mara will come back for Tobin before the snow", "factId": "K1 when it is a fact listed under Facts", "quote": "the spoken line, copied exactly"}
-{"type": "thread", "entry": "E5 (an open plot thread), or leave it out and give a name", "name": "the question or promise", "status": "open|resolved", "note": "...", "quote": "..."}
+{"type": "thread", "entry": "E5 (an open plot thread), or leave it out and give a name", "name": "the question or promise", "status": "open|clue|developing|resolved", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
 {"type": "event", "name": "...", "summary": "what happened, in one line", "involved": ["E1", "E2"], "quote": "..."}
 {"type": "voice", "entry": "E1", "quote": "a line of their dialogue that is especially typical of how they speak"}
 

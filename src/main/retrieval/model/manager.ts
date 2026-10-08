@@ -27,6 +27,9 @@ export interface ModelDeps {
   check?: (e: Embedder) => Promise<{ ok: boolean; why?: string }>
 }
 
+/** How a download ended: here and checked, failed (offline, damaged), stopped (Stop, Remove), or one already under way. */
+export type DownloadEnd = 'done' | 'failed' | 'stopped' | 'busy'
+
 /** How many times the model is started again after its threads stop, before it is marked as not working. */
 export const RESTARTS = 1
 
@@ -38,7 +41,7 @@ export class SearchModel {
   private gen = 0
   private broken: string | null = null
   private download: AbortController | null = null
-  private downloading: Promise<void> | null = null
+  private downloading: Promise<DownloadEnd> | null = null
   private progress: number | null = null
   private problem: string | null = null
   private restarts = 0
@@ -154,9 +157,9 @@ export class SearchModel {
     }
   }
 
-  /** Starts the download (or Try again). */
-  startDownload(): void {
-    if (this.download || this.embedder) return
+  /** Starts the download (or Try again); resolves (never rejects) with how it ended. */
+  startDownload(): Promise<DownloadEnd> {
+    if (this.download || this.embedder) return Promise.resolve('busy')
     const stop = new AbortController()
     this.download = stop
     this.progress = 0
@@ -166,7 +169,7 @@ export class SearchModel {
     let last = 0
     const dir = this.deps.dir()
     const engine = engineToDownload(dir, this.deps.shipped?.())
-    this.downloading = downloadModel(dir, {
+    const ended: Promise<DownloadEnd> = downloadModel(dir, {
       fetchImpl: this.deps.fetchImpl,
       signal: stop.signal,
       base: this.deps.base?.(),
@@ -180,22 +183,26 @@ export class SearchModel {
         }
       }
     }).then(
-      () => {
-        if (this.download !== stop) return
+      (): DownloadEnd => {
+        if (this.download !== stop) return 'stopped'
         this.download = null
         this.progress = null
         this.restarts = 0
         void this.startSoon()
+        return 'done'
       },
-      (e: unknown) => {
+      (e: unknown): DownloadEnd => {
         // Only the download under way says how it ended: one stopped or replaced since says nothing.
-        if (this.download !== stop) return
+        if (this.download !== stop) return 'stopped'
         this.download = null
         this.progress = null
         this.problem = e instanceof DownloadStopped ? null : e instanceof Error ? e.message : String(e)
         this.deps.changed()
+        return e instanceof DownloadStopped ? 'stopped' : 'failed'
       }
     )
+    this.downloading = ended
+    return ended
   }
 
   stopDownload(): void {

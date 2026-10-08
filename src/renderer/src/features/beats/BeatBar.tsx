@@ -20,6 +20,7 @@ import {
   dismissQuestion,
   finish,
   reloadBeats,
+  resumeBeats,
   revealBeat,
   showRecord,
   stopBeat,
@@ -36,8 +37,16 @@ let focusSeen = 0
 
 export function BeatBar({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
   const session = useBeats((s) => (s.session?.sceneId === sceneId ? s.session : null))
+  const anyOn = useBeats((s) => !!s.session)
   // Another scene shows: a page height held while a beat was written again goes with the last one.
   useLayoutEffect(() => () => clearHeight(), [sceneId])
+  // The scene's last session didn't Finish (the app closed, say): with no session on, it carries on where it was,
+  // once the scene's page shows (resumeBeats checks its beats are still on it).
+  useEffect(() => {
+    if (anyOn) return
+    const frame = requestAnimationFrame(() => void resumeBeats(sceneId, { auto: true }))
+    return () => cancelAnimationFrame(frame)
+  }, [sceneId, anyOn])
   return session ? <Bar session={session} /> : null
 }
 
@@ -173,6 +182,8 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
       <section
         ref={barRef}
         data-beat-bar
+        // The AI edits' change keeps its buttons above the bar (features/edits/SuggestionLayer.tsx).
+        data-covers-page=""
         aria-label="Beat by beat"
         className="@container pointer-events-auto relative w-full max-w-[680px] rounded-xl border border-line bg-surface px-4 pb-3 pt-2 shadow-pop animate-slide-up"
       >
@@ -205,9 +216,15 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
               variant="ghost"
               size="sm"
               icon={<FileSearch size={13} />}
-              disabled={!s.last}
+              disabled={!s.last && !s.tried}
               onClick={showRecord}
-              title={again != null && s.last ? `See exactly what the AI was given for beat ${again}` : undefined}
+              title={
+                again != null && s.last
+                  ? `See exactly what the AI was given for beat ${again}`
+                  : s.tried
+                    ? 'See what the AI was given for the last beat tried, and what came back'
+                    : undefined
+              }
             >
               <span className="@max-[540px]:sr-only">What the AI saw</span>
             </Button>

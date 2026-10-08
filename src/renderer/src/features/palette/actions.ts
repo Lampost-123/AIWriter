@@ -22,6 +22,7 @@ import { toggleFloatingBinder, useFloatingBinder } from '@/layout/ResizablePane'
 import { openHistory } from '@/features/history/open'
 import { openVariants } from '@/features/variants/open'
 import { startBeatByBeat } from '@/features/beats/start'
+import { setShowBeats } from '@/features/beats/BeatSettings'
 import { continueFromCursor } from '@/features/edits/continue'
 import { openAsk } from '@/features/ask/open'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
@@ -239,6 +240,10 @@ export async function runAction(id: ActionId): Promise<void> {
         backToWriting()
         startBeatByBeat(a.sceneId)
         return
+      case 'show-beats':
+      case 'hide-beats':
+        await setShowBeats(fixed === 'show-beats')
+        return
       case 'history':
         if (a.sceneId) await openHistory(a.sceneId)
         return
@@ -266,6 +271,12 @@ export async function runAction(id: ActionId): Promise<void> {
         const o = useOutlineStore.getState().outline
         const chapterId = o?.scenes.find((sc) => sc.id === a.sceneId)?.chapterId
         if (o && chapterId) openChapterInterview(o.story.id, chapterId)
+        return
+      }
+      case 'chapter-card': {
+        // The card already open, else the open scene's chapter's.
+        const chapterId = a.chapterCardId ?? currentChapterId()
+        if (chapterId) a.openChapterCard(chapterId)
         return
       }
       case 'listen':

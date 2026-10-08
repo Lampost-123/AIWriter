@@ -31,6 +31,7 @@ import { stateText, type SceneState } from '@shared/continuity'
 import { keptStateBefore } from '../continuity/tracker'
 import { estimateTokens } from '../keeper/text'
 import { holdingLine, holdingsFirst, holdingsOf, itemHeads, namesOf, type Holding } from '../memory/items'
+import { isPerson, namesPerson } from '../ai/mustStay'
 
 type DB = Database.Database
 
@@ -333,7 +334,8 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
     )
     const lines = facts.map((f) => {
       const knows = people.filter((c) => f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
-      const not = people.filter((c) => !f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
+      // Never "not known by" someone the fact is about, nor an animal (as repair/prompts.ts codexLines).
+      const not = people.filter((c) => !f.knownBy.includes(c.entry.id) && isPerson(c.entry) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
       return `- ${clean(f.fact)} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
     })
     out.push({

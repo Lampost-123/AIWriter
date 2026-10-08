@@ -127,6 +127,22 @@ describe('the actions', () => {
     expect(ids({ ...writing, storyId: null, sceneId: null })).not.toContain('new-scene')
   })
 
+  it('offer the chapter card only with a chapter in hand, found by its name and its parts', () => {
+    const ids = (c: ActionContext): string[] => availableActions(c).map((a) => a.id)
+    expect(ids(writing)).not.toContain('chapter-card')
+    expect(ids({ ...writing, chapterId: null })).not.toContain('chapter-card')
+    expect(ids({ ...writing, chapterId: 'ch' })).toContain('chapter-card')
+    // A chapter card open with no scene open still counts.
+    expect(ids({ ...writing, sceneId: null, chapterId: 'ch' })).toContain('chapter-card')
+    const inHand: ActionContext = { ...writing, chapterId: 'ch' }
+    expect(labels('chapter card', inHand)[0]).toBe('Chapter card')
+    expect(labels('mood', inHand)).toContain('Chapter card')
+    expect(labels('chapter card')).not.toContain('Chapter card')
+    // From another page it goes back to writing, where the card shows.
+    expect(goesAway(ACTIONS.find((a) => a.id === 'chapter-card')!, { ...inHand, view: 'codex' })).toBe(true)
+    expect(goesAway(ACTIONS.find((a) => a.id === 'chapter-card')!, inHand)).toBe(false)
+  })
+
   it('know when they take Adam to another page, so focus goes there rather than back where it was', () => {
     const away = (id: string, c: ActionContext): boolean => goesAway(ACTIONS.find((a) => a.id === id)!, c)
     const codex: ActionContext = { ...writing, view: 'codex' }

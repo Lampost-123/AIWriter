@@ -62,6 +62,8 @@ export type FixedActionId =
   // Milestone 4
   | 'variants'
   | 'beat-by-beat'
+  | 'show-beats'
+  | 'hide-beats'
   | 'history'
   | 'continue'
   | 'ask-world'
@@ -69,6 +71,8 @@ export type FixedActionId =
   | 'scene-ideas'
   | 'scene-interview'
   | 'chapter-interview'
+  // Chapter cards
+  | 'chapter-card'
   | 'listen'
   | 'stop-reading'
   | 'show-speakers'
@@ -119,6 +123,8 @@ export interface ActionContext {
   view: string
   storyId: string | null
   sceneId: string | null
+  /** The chapter in hand: the one whose card is open, else the open scene's chapter. */
+  chapterId?: string | null
   /** The open scene is marked done. */
   sceneDone: boolean
   /** A draft is being written. */
@@ -138,6 +144,8 @@ export interface ActionContext {
   spellCheck?: boolean
   /** Sound effects are on (with read aloud): the scene panel has its Sounds tab. */
   soundEffects?: boolean
+  /** Beat by beat: "Show beats" is on (where each beat begins shows after Finish too). */
+  showBeats?: boolean
 }
 
 export interface ActionDef {
@@ -274,6 +282,18 @@ export const ACTIONS: ActionDef[] = [
     away: toWriting,
     when: (c) => hasScene(c) && !c.drafting
   },
+  {
+    id: 'show-beats',
+    label: 'Show beats',
+    keywords: 'beat by beat markers where each beat begins redo labels',
+    when: (c) => !c.showBeats
+  },
+  {
+    id: 'hide-beats',
+    label: 'Hide beats',
+    keywords: 'beat by beat markers where each beat begins redo labels',
+    when: (c) => !!c.showBeats
+  },
   { id: 'history', label: 'Scene history', keywords: 'snapshots earlier versions compare restore drafts', away: true, when: hasScene },
   {
     id: 'continue',
@@ -287,6 +307,14 @@ export const ACTIONS: ActionDef[] = [
   { id: 'scene-ideas', label: 'Ideas for this scene', keywords: 'ai next scene directions suggest card', away: toWriting, when: hasScene },
   { id: 'scene-interview', label: 'Interview me about this scene', keywords: 'ai questions plan card fill', away: toWriting, when: hasScene },
   { id: 'chapter-interview', label: 'Interview me about this chapter', keywords: 'ai questions plan goal scenes suggest', away: true, when: hasScene },
+  // The current chapter's card, in the right panel (only with a chapter in hand).
+  {
+    id: 'chapter-card',
+    label: 'Chapter card',
+    keywords: 'chapter shared scene parts point view characters present location when mood tone length notes',
+    away: toWriting,
+    when: (c) => !!c.chapterId
+  },
   {
     id: 'listen',
     label: 'Listen',

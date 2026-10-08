@@ -374,6 +374,7 @@ function watch(): void {
       (speech.markSpeakers !== was.markSpeakers ||
         speech.sounds !== was.sounds ||
         speech.steadyNarrator !== was.steadyNarrator ||
+        speech.voicedLines !== was.voicedLines ||
         speech.soundEffects !== was.soundEffects)
     )
       session?.settingsChanged()

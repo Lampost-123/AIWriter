@@ -429,6 +429,20 @@ describe('what the planner reads', () => {
     expect(user.content.trimEnd().endsWith('Plan the scene now, as one JSON object.')).toBe(true)
   })
 
+  it('reads the open plot threads as the writer gets them, and plans no payoff the card does not ask for (2026-10-08)', () => {
+    const input = draftInput()
+    const bell = entry('thread', 'The drowned bell', { fields: { promise: 'Who rang the drowned bell?', clues: 'a coin on the bell' } })
+    input.memory.entries.push(bell)
+    input.memory.threads = [{ entryId: bell.id, status: 'open', setUp: 'The Mill, Ch 1, Sc 1', paidOff: '' }]
+    const m = materialOf(input)
+    expect(m.threads).toContain('- The drowned bell — Who rang the drowned bell? — last clue: a coin on the bell')
+    const [system, user] = planMessages(m)
+    expect(system.content).toContain('Open plot threads stay open: plan no payoff for one unless the scene card or the author')
+    expect(user.content).toContain("## Open plot threads\nPlot threads still open in the story. Keep these alive.")
+    // None open: no part for them.
+    expect(planMessages(materialOf(draftInput()))[1].content).not.toContain('## Open plot threads')
+  })
+
   it('after a gap not known it says only injuries surely carry on; from another story it gives none of it', () => {
     const gap = draftInput()
     gap.scene.card.when = 'Three weeks later'
@@ -438,6 +452,45 @@ describe('what the planner reads', () => {
     const m = materialOf(other)
     expect(m.stand).toBe('')
     expect(planMessages(m)[1].content).not.toContain('## Where things stand')
+  })
+
+  it('sends the card, what must stay true and the codex first, and what the writer is asked and the direction last (for the cache)', () => {
+    const input = draftInput()
+    input.options = { ...input.options, addBelow: true, direction: 'Osric asks about the tax.' }
+    const m = materialOf(input)
+    expect(m.card).not.toContain("The author's direction")
+    expect(m.direction).toBe("The author's direction for this stretch:\nOsric asks about the tax.")
+    expect(m.calls).toBe(`${m.card}\n\n${m.direction}`)
+    const user = planMessages(m)[1].content
+    const heads = user.split('\n').filter((l) => l.startsWith('## ')).map((l) => l.replace(/^## /, ''))
+    expect(heads).toEqual(['The scene card', 'Must stay true', 'In the briefing', 'Also in the world (not in the briefing)', m.standTitle, m.before!.title, 'What the writer is asked'])
+    expect(user.trimEnd().endsWith(`${m.ask.trim()}\n\n${m.direction}\n\nPlan the scene now, as one JSON object.`)).toBe(true)
+  })
+
+  it('only the order changes: the same parts, each word for word, as when what the writer is asked came first', () => {
+    const input = draftInput()
+    input.options = { ...input.options, addBelow: true, direction: 'Osric asks about the tax.' }
+    const m = materialOf(input)
+    const parts = planMessages(m)[1].content.split('\n\n## ')
+    // The order before: the ask, the card with the direction, must stay true, the stage, the words before, the codex.
+    const part = (title: string, body: string): string => `## ${title}\n${body.trim()}`
+    const before = [
+      part('What the writer is asked', m.ask),
+      part('The scene card', `${m.card}\n\n${m.direction}`),
+      part('Must stay true', m.must),
+      part(m.standTitle, [m.standNote, m.stand].filter(Boolean).join('\n')),
+      part(m.before!.title, `"""\n${m.before!.text}\n"""`),
+      part('In the briefing', m.inBriefing.map((l) => `- ${l}`).join('\n')),
+      part('Also in the world (not in the briefing)', m.others.join('; ')),
+      'Plan the scene now, as one JSON object.'
+    ].join('\n\n')
+    const sorted = (s: string): string => s.split('\n').sort().join('\n')
+    expect(sorted(planMessages(m)[1].content)).toBe(sorted(before))
+    expect(parts).toHaveLength(7)
+    // With no scene card, the direction stands as the card, as before.
+    const bare = planMessages({ ...m, card: '' })[1].content
+    expect(bare).toContain(`## The scene card\n${m.direction}`)
+    expect(bare.match(/The author's direction/g)).toHaveLength(1)
   })
 
   it('for one beat: plans only that beat, which is what its events must answer to', () => {
@@ -482,6 +535,7 @@ function call(fetchImpl: typeof fetch, over: { signal?: AbortSignal; limitMs?: n
   const material: PlanMaterial = {
     ask: 'Write the scene now.',
     card: CARD,
+    direction: '',
     focus: '',
     must: '- Wren: a burn scar on her right hand',
     reach: 'here',

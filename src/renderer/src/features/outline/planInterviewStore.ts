@@ -19,6 +19,9 @@ import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { fillOnCard, filledMessage, unfill } from './planInterviewLogic'
 import { chapterHelperKey, suggestChapter, treeOf, useOutlineHelper } from './helperStore'
+import { cardNames } from './tree'
+import type { ChapterCardNames } from '@shared/contracts/chapterCards'
+import { notifyChapterCard, scenesWord } from '@/features/chapterCard/chapterCardEvents'
 
 export interface PlanProblem {
   message: string
@@ -311,10 +314,33 @@ function listen(): void {
     const run = found?.[1].run
     if (!found || !run?.lead) return
     const chapterId = found[0].slice(found[0].lastIndexOf('#') + 1)
-    const goal = treeOf({ ...run, text: d.text, status: 'complete' })[0]
-      ?.text.replace(/\s+/g, ' ')
-      .trim()
+    const chapter = treeOf({ ...run, text: d.text, status: 'complete' })[0]
+    const goal = chapter?.text.replace(/\s+/g, ' ').trim()
     if (goal) void giveGoal(chapterId, goal)
+    // Chapter cards: the point of view, characters, location, When and mood it gave the chapter fill its card's empty parts.
+    const names = cardNames(chapter?.card, true)
+    if (names) void giveCard(chapterId, names)
+  })
+}
+
+async function giveCard(chapterId: ID, names: ChapterCardNames): Promise<void> {
+  let out: Awaited<ReturnType<typeof api.fillChapterCard>>
+  try {
+    out = await api.fillChapterCard(chapterId, names)
+  } catch {
+    return
+  }
+  if (!out.filled.length) return
+  notifyChapterCard()
+  const scenes = out.updated.length ? ` and ${scenesWord(out.updated.length)} in it` : ''
+  toast(`Filled in the chapter card${scenes} from the plan.`, {
+    action: {
+      label: 'Undo',
+      run: async () => {
+        await api.restoreChapterCard(chapterId, out.before, out.updated).catch(() => undefined)
+        notifyChapterCard()
+      }
+    }
   })
 }
 

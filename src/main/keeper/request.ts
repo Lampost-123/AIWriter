@@ -1,8 +1,9 @@
 // Builds the memory model's reading requests for one scene: the changed paragraphs split into
 // chunks that fit the model, each with a little surrounding text, the scene card, the facts whose
 // words changed, the facts already read from the scene and the memory at this point (entries the
-// chunk mentions first, then names of the rest while there is room). Entries, facts and known facts
-// are given short ids (E1, F1, K1), mapped back when the reply is applied. No Electron imports.
+// chunk mentions in full, then names of the rest while there is room). Entries, facts and known facts
+// are given short ids (E1, F1, K1), mapped back when the reply is applied; an entry's E id is fixed by
+// when it was made, so it reads the same in every request. No Electron imports.
 
 import type { ChatMessage, ContextBlock, EntryState, ID, ModelChoice, SceneCard } from '@shared/types'
 import type { SceneMemory } from '../memory/types'
@@ -10,6 +11,7 @@ import { READING_SYSTEM } from './prompts'
 import { changeWords, fieldValue, type SceneFact } from './facts'
 import { clip, estimateTokens, firstWords, lastWords, likeness, mentionAt, splitLong, words, type Para } from './text'
 import { DEFAULT_MEMORY_CONTEXT } from './model'
+import { lastClue } from './threads'
 
 /** How much of the model's window each request may use. */
 export interface ReadingBudget {
@@ -148,22 +150,39 @@ export function splitChunk(chunk: ReadingChunk): [ReadingChunk, ReadingChunk] | 
   return halves
 }
 
-/** Short ids for one request, and what they stand for. */
+/**
+ * Short ids for one request, and what they stand for. `order`: entries whose E id is fixed by their place in it (E1 the
+ * first), whatever order the request names them in, so the same entry reads the same from one request to the next and a
+ * provider can reuse the start of a prompt it has seen (DeepSeek, OpenAI); any other entry gets the next id after them.
+ */
 export class Ids {
   readonly entries = new Map<string, ID>()
   readonly byEntry = new Map<ID, string>()
   readonly facts = new Map<string, SceneFact>()
   readonly known = new Map<string, ID>()
   readonly knownText = new Map<string, string>()
+  private readonly fixed = new Map<ID, number>()
+  private extra = 0
 
+  constructor(order: ID[] = []) {
+    for (const id of order) if (!this.fixed.has(id)) this.fixed.set(id, this.fixed.size + 1)
+  }
+
+  /** The number an entry's E id has, or would get next (without giving it one). */
+  private number(id: ID): number {
+    const e = this.byEntry.get(id)
+    if (e) return Number(e.slice(1))
+    return this.fixed.get(id) ?? this.fixed.size + this.extra + 1
+  }
   /** The short id an entry has, or would get next (without giving it one). */
   peek(id: ID): string {
-    return this.byEntry.get(id) ?? `E${this.byEntry.size + 1}`
+    return `E${this.number(id)}`
   }
   entry(id: ID): string {
     let e = this.byEntry.get(id)
     if (!e) {
-      e = `E${this.byEntry.size + 1}`
+      if (!this.fixed.has(id)) this.extra++
+      e = `E${this.fixed.get(id) ?? this.fixed.size + this.extra}`
       this.byEntry.set(id, e)
       this.entries.set(e, id)
     }
@@ -234,6 +253,21 @@ function entryLine(e: EntryState, id: string, full: boolean): string {
   return `${head}. ${parts.join('. ')}`.replace(/\.\s*\./g, '.').trim()
 }
 
+/**
+ * The entries in the order their E ids are fixed in: by when each was made, then by id. An entry the keeper adds goes
+ * last, so the ids of the others stay as they were from one request to the next.
+ */
+export function steadyIds(entries: Pick<EntryState, 'id' | 'createdAt'>[]): ID[] {
+  const made = (e: Pick<EntryState, 'createdAt'>): string => e.createdAt ?? ''
+  return [...entries].sort((a, b) => (made(a) < made(b) ? -1 : made(a) > made(b) ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((e) => e.id)
+}
+
+/** Entry lines ("- E3 character ...") by their E id's number. */
+function byIdNumber(lines: string[]): string[] {
+  const n = (l: string): number => Number(/^- E(\d+)\b/.exec(l)?.[1] ?? Infinity)
+  return [...lines].sort((a, b) => n(a) - n(b))
+}
+
 function mentioned(e: EntryState, text: string): boolean {
   return [e.name, ...e.aliases].some((n) => mentionAt(text, n) !== null)
 }
@@ -269,10 +303,10 @@ export interface RequestInput {
 
 /** The messages for one chunk, and the blocks saved for "What the AI saw". */
 export function buildRequest(r: RequestInput): ReadingRequest {
-  const ids = new Ids()
   const sm = r.memory
-  const chunkText = r.chunk.pieces.map((p) => p.text).join('\n')
   const here = sm?.entries ?? []
+  const ids = new Ids(steadyIds([...here, ...(sm?.elsewhere ?? []).map((x) => x.entry)]))
+  const chunkText = r.chunk.pieces.map((p) => p.text).join('\n')
   const byId = new Map<ID, EntryState>(here.map((e) => [e.id, e]))
   const onCard = new Set<ID>([r.card.povId, ...r.card.presentIds, r.card.locationId].filter((x): x is ID => !!x))
 
@@ -331,13 +365,21 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     const line = `- ${ids.knownFact(f.factId, f.fact)} ${q(f.fact)}${known.length ? `: known by ${known.join(', ')}` : ''}`
     if (factLines.length < 40 && room.take(line)) factLines.push(line)
   }
+  // Each open thread with what it promises and its last clue (2026-10-08), so a clue or a payoff is told apart from news.
   const threadLines: string[] = []
   for (const t of sm?.threads ?? []) {
     if (t.status !== 'open') continue
     const e = byId.get(t.entryId)
     if (!e) continue
-    const line = `- ${ids.entry(e.id)} ${q(e.name)}`
+    const promise = clip(e.fields?.promise ?? '', 30)
+    const clue = clip(lastClue(e), 20)
+    const payoff = clip(e.fields?.payoff ?? '', 20)
+    const about = [promise ? `promise: ${promise}` : '', clue ? `last clue: ${clue}` : '', payoff ? `meant to pay off: ${payoff}` : '']
+      .filter(Boolean)
+      .join('; ')
+    const line = `- ${ids.peek(e.id)} thread ${q(e.name)}${about ? `. ${about}` : ''}`
     if (threadLines.length < 30 && room.take(line)) {
+      ids.entry(e.id)
       threadLines.push(line)
       shown.add(e.id)
     }
@@ -365,13 +407,17 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     nameLines.push(line)
   }
 
+  // Sent in an order that changes as little as it can from one request to the next, so a provider can reuse the start of
+  // a prompt it has seen (the cache audit of 8 October 2026 found keeper prompts matching for only their first ~1,000
+  // characters): relationships and who knows what (the same unless the memory learns something) before the memory, and
+  // the memory's lines by their E ids (fixed by when each entry was made: steadyIds), not by which ones the chunk names.
   const memoryText = [
     sm?.knows ? sm.knows : '',
-    memoryLines.length || nameLines.length
-      ? ['## Memory at this point', ...memoryLines, ...nameLines].join('\n')
-      : '## Memory at this point\n(nothing yet)',
     relLines.length ? ['Relationships:', ...relLines].join('\n') : '',
     factLines.length ? ['Facts (who knows what):', ...factLines].join('\n') : '',
+    memoryLines.length || nameLines.length
+      ? ['## Memory at this point', ...byIdNumber([...memoryLines, ...nameLines])].join('\n')
+      : '## Memory at this point\n(nothing yet)',
     threadLines.length ? ['Open plot threads:', ...threadLines].join('\n') : '',
     elsewhereLines.length ? ['## Elsewhere in the world (not at this point yet; use these ids)', ...elsewhereLines].join('\n') : ''
   ]

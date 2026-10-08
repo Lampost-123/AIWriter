@@ -225,6 +225,11 @@ export function undoItem(db: DB, id: ID): Outcome {
         if (l.id !== id && !l.undone && ((l.factId && gone.has(l.factId)) || l.entryId === u.entryId)) kdb.markUndone(db, l.id)
       }
       if (e) repo.deleteEntry(db, e.id, ADAM)
+      // A plot thread the memory made here leaves the scene card with it (only the memory's own links).
+      if (e?.kind === 'thread' && row.sceneId) {
+        repo.setAiThreadLink(db, row.sceneId, 'setsUp', e.id, false)
+        repo.setAiThreadLink(db, row.sceneId, 'paysOff', e.id, false)
+      }
       break
     }
     case 'entry-trashed': {
@@ -237,6 +242,8 @@ export function undoItem(db: DB, id: ID): Outcome {
     }
     case 'change-added': {
       if (liveChange(db, u.changeId)) mem.deleteChange(db, u.changeId, ADAM)
+      // A plot thread the memory put on the scene card with it comes off too (Adam's own link stays).
+      if (u.cardLink) repo.setAiThreadLink(db, u.cardLink.sceneId, u.cardLink.list, u.cardLink.threadId, false)
       deleteLinks(
         db,
         hist.linksForFact(db, 'change', u.changeId).map((l) => l.id)

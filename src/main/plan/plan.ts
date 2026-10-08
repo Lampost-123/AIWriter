@@ -23,6 +23,7 @@ import * as gens from '../db/generations'
 import { callModel, type MemoryModel } from '../keeper/model'
 import { estimateTokens } from '../keeper/text'
 import { MUST_BLOCK, sceneTail, stageReach, type ContextInput, type PreparedContext } from '../ai/context'
+import { OPEN_THREADS_BLOCK } from '../ai/openThreads'
 import { deathOf } from '../ai/deaths'
 import { pieceLine, secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
@@ -53,6 +54,8 @@ export interface PlanMaterial {
   /** What the writer is asked: the closing instruction. */
   ask: string
   card: string
+  /** Add below's direction ("The author's direction for this stretch: …"), sent after what the writer is asked; '' for none. */
+  direction: string
   /** For Beat by beat: the one beat to plan ("beat 2 of 5: …", with Adam's note for it); '' plans the scene. */
   focus: string
   /** What must stay true (ai/mustStay.ts), as the writer gets it; '' for none. */
@@ -74,6 +77,11 @@ export interface PlanMaterial {
   secrets: Secret[]
   /** What an event the plan has happen must answer to: the scene card (with the author's direction), or the beat. */
   calls: string
+  /**
+   * The other plot threads still open, as the writer gets them (ai/openThreads.ts, 2026-10-08): kept alive gently, and
+   * never paid off unless the card or the direction asks. '' or left out: none.
+   */
+  threads?: string
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -126,9 +134,15 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
     .filter((e): e is EntryState => !!e && e.kind === 'character')
   const reach = stageReach(input)
   const stand = reach === 'none' ? null : block('continuity')
+  // Add below's scene card leaves Adam's direction out (it is the closing instruction's last words): the planner gets it
+  // after what the writer is asked, and an event it calls for answers to it (with the card).
+  const direction = clean(input.options.direction)
+  const directionText = input.options.addBelow && direction ? `The author's direction for this stretch:\n${direction}` : ''
+  const cardText = [text('scene-card'), directionText].filter(Boolean).join('\n\n')
   return {
     ask,
     card: text('scene-card'),
+    direction: directionText,
     focus: clean(focus),
     must: text(MUST_BLOCK),
     reach,
@@ -140,7 +154,8 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
     others,
     people: people.map((e) => e.name),
     secrets: secretsAmong(people, input.memory.facts),
-    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : text('scene-card')
+    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : cardText,
+    threads: text(OPEN_THREADS_BLOCK)
   }
 }
 
@@ -159,20 +174,31 @@ Reply with only a JSON object:
 - A piece of clothing: what is "wearing", and the value, from and to name the piece and how it is ("boots off, by the door"). A thing in the place: what is "thing", who is whoever changes it (or ""), and the value, from and to name the thing and how it is ("the door: barred from inside").
 - Keep to what must stay true and to where things stand: nothing changes unless it happens on the page, and each change starts from how things are now.
 - What is kept from someone stays kept: never have them learn, guess or be told it, unless the scene card says so.
+- Open plot threads stay open: plan no payoff for one unless the scene card or the author's direction asks for it. One may come in only where it fits what is asked.
 - At most ${PLAN_MOST.relies} relies and ${PLAN_MOST.changes} changes, the ones that matter most. Keep each short.`
 
-/** What the memory model is asked. */
+/**
+ * What the memory model is asked. In an order a provider that reuses the start of a prompt it has seen (DeepSeek,
+ * OpenAI) can use (the cache audit of 8 October 2026: plan prompts matched for only their first ~1,000 characters, as
+ * what the writer is asked came first, with the beats done so far): the scene card, what must stay true and the codex
+ * first, then where things stand and the words just before, and last what the writer is asked and Add below's
+ * direction, which change at every step.
+ */
 export function planMessages(m: PlanMaterial): ChatMessage[] {
   const part = (title: string, body: string): string => (body.trim() ? `## ${title}\n${body.trim()}` : '')
+  // With no scene card to go with, the direction stands as the card, as it always has.
+  const direction = m.card.trim() ? m.direction.trim() : ''
   const user = [
-    part('What the writer is asked', m.ask),
-    part('The scene card', m.card),
+    part('The scene card', m.card.trim() ? m.card : m.direction),
     part('Plan only this beat', m.focus ? `${m.focus}\nThe beats after it are written later: plan nothing from them.` : ''),
     part('Must stay true', m.must),
-    part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
-    m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
     part('In the briefing', m.inBriefing.map((l) => `- ${l}`).join('\n')),
     part('Also in the world (not in the briefing)', m.others.join('; ')),
+    part('Open plot threads', m.threads ?? ''),
+    part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
+    m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
+    part('What the writer is asked', m.ask),
+    direction,
     `Plan the ${m.focus ? 'beat' : 'scene'} now, as one JSON object.`
   ]
     .filter(Boolean)
@@ -357,6 +383,14 @@ const meaningWords = (s: string, names: ReadonlySet<string>): Set<string> =>
   new Set(tokens(s).filter((w) => w.length >= 3 && !FILLER.has(w) && !names.has(w)).map(stem))
 const sharedWords = (a: Set<string>, b: Set<string>): number => [...a].filter((w) => b.has(w)).length
 
+/** The words of a change's `to` that weren't there before (`was`: its `from` and how things stand), in order. */
+export function newWordsOf(to: string, was: string): string {
+  const old = new Set(tokens(was))
+  return tokens(to)
+    .filter((t) => !old.has(t))
+    .join(' ')
+}
+
 /** True when `text` says the secret `fact`: enough of the fact's own words (two, or a third of them) are in it. */
 function says(text: string, fact: string, names: ReadonlySet<string>): boolean {
   const f = meaningWords(fact, names)
@@ -492,6 +526,10 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
     const f = fieldOf(c.what)
     const now = f && (SCENE_FIELDS.includes(f) || f === 'thing' || c.who) ? nowOf(c.who, f, [c.from, c.to, c.how].join(' ')) : ''
     const said = [c.how, c.to].filter(Boolean).join('. ')
+    // Only what the change makes new is tested for a secret, never what it carries over (the writer lab's bridge
+    // reviews: "to": "the survey case under her arm; the key in her pocket" read as telling "Gale does not know what is
+    // in the survey case", so Wren's key into her pocket was dropped from the notes).
+    const secretSaid = [c.how, newWordsOf(c.to, `${c.from} ${now}`)].filter(Boolean).join('. ')
     // Someone who could move or dress here (on the card, or on the stage carrying on inside the scene); anyone else only
     // when the card (or the beat) names them.
     const here = onCard(c.who) || (w.reach === 'here' && !!stage(c.who))
@@ -501,7 +539,7 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
       // Already so: nothing to change. Starting from something the stage says isn't so: planned from a wrong picture.
       (!!now && ((!!c.to && alreadySo(c.who, f!, c.to, now)) || (!!c.from && contradicts(c.from, now)))) ||
       // Someone learning what is kept from them, when the scene card doesn't say they do.
-      tellsSecret(said) ||
+      tellsSecret(secretSaid) ||
       // An event (or an injury, or someone not in the scene) the card or the beat doesn't call for.
       (!(f && FREE_MOVES.includes(f) && here) && !(named && calledFor(said, w.calls, names)))
     if (leave) {

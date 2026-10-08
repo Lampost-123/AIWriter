@@ -176,7 +176,35 @@ export interface SceneCard {
   setsUpIds: ID[]
   /** Plot threads this scene pays off. */
   paysOffIds: ID[]
+  /**
+   * Who made each plot thread link (2026-10-08, the AI manages plot threads; shared/threadLinks.ts), keyed
+   * `setsUp:<threadId>` or `paysOff:<threadId>`: 'ai' while the memory set it, 'removed' once Adam took an AI link
+   * off (it isn't put back), 'undone' when the memory took its own link back. A link not listed is Adam's. Left out
+   * on older cards: every link is Adam's.
+   */
+  threadLinks?: Record<string, ThreadLinkMark>
+  /**
+   * Which of the parts a chapter card carries the scene follows from its chapter's card (true), keeps as its own
+   * (false), or hasn't settled yet (left out: an empty part takes the chapter's when it has one). The chapter's value
+   * is written into the card itself, so everything that reads a card reads the value as usual (shared/chapterCard.ts).
+   */
+  inherits?: Inherits
 }
+
+/** Who made a plot thread link on a scene card (SceneCard.threadLinks). */
+export type ThreadLinkMark = 'ai' | 'removed' | 'undone'
+
+/** The parts of a scene card a chapter card carries: who and where, when, how it reads, and the notes for the AI. */
+export type CarryField = 'pov' | 'present' | 'location' | 'when' | 'mood' | 'length' | 'notes'
+
+/** A scene card's "follows the chapter" marks, one for each part a chapter card carries (see SceneCard.inherits). */
+export type Inherits = Partial<Record<CarryField, boolean>>
+
+/**
+ * A chapter card (2026-10-08): the scene card parts the chapter's scenes share, kept in the world's meta table
+ * (`chapter_card:<chapter id>`, no migration). Its scenes follow each part until they are given their own.
+ */
+export type ChapterCard = Pick<SceneCard, 'povId' | 'presentIds' | 'locationId' | 'when' | 'mood' | 'targetWords' | 'lengthSet' | 'notes'>
 
 export interface SceneMeta {
   id: ID
@@ -360,6 +388,11 @@ export interface EditorSettings {
   spellCheck: boolean
   /** Keep the line being typed at the same height on screen. */
   typewriter: boolean
+  /**
+   * Beat by beat: show where each beat begins on the page (a band down its edge and a "Beat N" label) after the
+   * session is finished too. While writing beat by beat they always show. Missing or false: off.
+   */
+  showBeats?: boolean
 }
 
 /** One day's words: typed by Adam, and AI words he kept. `date` is local, "2026-10-03". */
@@ -441,6 +474,11 @@ export interface Settings {
    * the briefing also finds earlier passages and facts by what they mean, not only by their words (src/main/retrieval/).
    */
   findByMeaning: boolean
+  /**
+   * The search model downloads by itself while "Find by meaning" is on (Adam, 2026-10-08; src/main/retrieval/model/
+   * auto.ts): false once Adam presses Stop or Remove, true again when he presses Download.
+   */
+  searchModelAuto: boolean
 }
 
 /**
@@ -510,6 +548,11 @@ export interface SpeechSettings {
   style: string
   /** "Keep the narrator's voice steady": narration read plainly, only dialogue acted. */
   steadyNarrator: boolean
+  /**
+   * "Read thoughts, messages and letters in the character's voice": a thought, a text message, a chat line or a letter
+   * a character owns is read in their voice (a thought softly), not the narrator's. On by default.
+   */
+  voicedLines: boolean
   /** "Mark who says what": the AI also notes each line's tone and pace, a little ahead of the reading. */
   markSpeakers: boolean
   /**
@@ -1045,6 +1088,8 @@ export interface ThreadState {
   /** Where it was set up and paid off, in plain words. */
   setUp: string
   paidOff: string
+  /** Not opened or resolved on the line yet (2026-10-08): planned on scene cards, or nowhere. Left out otherwise. */
+  planned?: true
 }
 
 // ---------- Summaries, pins, answers ----------

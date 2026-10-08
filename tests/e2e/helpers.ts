@@ -46,6 +46,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // Story memory step 5 (sticky entries, what was said, earlier passages found by searching) changes what a briefing
   // holds: app tests that aren't about it leave it out, and ask for it with { env: { AIWRITE_RECALL: 'on' } }.
   env.AIWRITE_RECALL = 'off'
+  // The search model downloads by itself while "Find by meaning" is on (Adam, 2026-10-08): never in app tests, which
+  // ask for it with { env: { AIWRITE_SEARCH_MODEL_AUTO: 'on' } } (and a local server, never Hugging Face).
+  env.AIWRITE_SEARCH_MODEL_AUTO = 'off'
   // A fresh data folder would show the first-run setup (milestone 6); app tests start at the start screen's
   // "Create a world" unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }. A world reopened at
   // launch opens straight away, not under the start screen, unless they ask for it with { env: { AIWRITE_START: 'on' } }.

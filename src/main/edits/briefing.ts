@@ -2,19 +2,28 @@
 // The style guide with Adam's preferences, the point of view and tense, the characters in the scene (for
 // Fix voice, each speaker's voice and who says which line), the words around the selection, the selection
 // itself, and the job once more at the end. For Continue, the scene so far, the scene card's beats and where things
-// stand at the point it carries on from (where each person is, what they wear, how they are placed).
+// stand at the point it carries on from (where each person is, what they wear, how they are placed); and since
+// 2026-10-08 (Adam: Continue, his most used tool, got none of the story memory) a compact memory core: the canon
+// timeline's short form (ai/timeline.ts), a few entries recalled near the cursor, what was said word for word, the
+// point-of-view character's facts to keep, an optional "what happens next" from Adam, and the phrases the scene has
+// used already (ai/repetition.ts). What stays the same from one Continue to the next comes first (the cache).
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
 import type { ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, RelationshipState, SceneCard, StyleGuide } from '@shared/types'
 import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
-import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
+import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defaults'
 import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
 import { MUST_TITLE, mustStayTrue, mustText, stageFor } from '../ai/mustStay'
 import { holdingsOf } from '../memory/items'
+import { freshLooks, pastProfile } from '../ai/briefingFixes'
+import { withLockLines } from '../ai/lockRule'
+import { saidText } from '../retrieval/said'
+import { CONTINUE_THREADS_MOST, OPEN_THREADS_TITLE, openThreadsText, type OpenThread } from '../ai/openThreads'
+import type { SaidLine } from '../retrieval/types'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
 
@@ -40,7 +49,22 @@ export interface EditWorld {
    * what those in the briefing gave away, lost or got: memory/items.ts). Left out: no list.
    */
   must?: { facts: FactState[]; sceneId: ID; storyTitle: string; places: Record<ID, string>; relationships?: RelationshipState[] }
+  /**
+   * Continue's memory core (Adam, 2026-10-08), each part capped (CORE_MOST): the canon timeline's short form, entries
+   * recalled for the words near the cursor (those found by searching first), and what was said word for word. Left out:
+   * none of it (the other tools, a test).
+   */
+  core?: {
+    timeline?: string
+    recalled?: Pick<EntryState, 'id' | 'name' | 'kind' | 'summary'>[]
+    said?: SaidLine[]
+    /** The plot threads still open here (ai/openThreads.ts, 2026-10-08), kept alive gently; at most CORE_MOST.threads. */
+    threads?: OpenThread[]
+  }
 }
+
+/** The most of each part of Continue's memory core. */
+export const CORE_MOST = { recalled: 3, said: 4, threads: CONTINUE_THREADS_MOST }
 
 export type EditBriefing =
   | {
@@ -124,7 +148,9 @@ function profile(e: EntryState, keys: ReadonlySet<string>): string {
 const KEYS = {
   other: new Set(['pronouns', 'age', 'role', 'speech', 'tics', 'sampleLines']),
   voice: new Set(['pronouns', 'age', 'role', 'traits', ...VOICE_KEYS]),
-  continue: new Set(['pronouns', 'age', 'role', 'traits', 'wants', 'motivation', ...VOICE_KEYS])
+  continue: new Set(['pronouns', 'age', 'role', 'traits', 'wants', 'motivation', ...VOICE_KEYS]),
+  /** Continue's point-of-view character: the facts to keep too (the marks anyone would notice). */
+  continuePov: new Set(['pronouns', 'age', 'role', 'marks', 'traits', 'wants', 'motivation', ...VOICE_KEYS])
 }
 
 const fence = (text: string): string => `"""\n${text}\n"""`
@@ -257,9 +283,21 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   const away = people.filter((e) => !here.includes(e))
   const holdings = world.must ? holdingsOf({ entries: world.entries, relationships: world.must.relationships ?? [], people: here.map((e) => e.id) }) : []
   const about = [near, card.goal, card.conflict, card.outcome, card.notes, ...(card.beats ?? []), direction].filter((t) => t?.trim()).join('\n')
+  // Continue sends where things stand at this same moment right above the list: the list doesn't say it again.
   const mustOf = (short: boolean): string[] =>
     world.must
-      ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people: here, named: away, ...world.must, holdings, about, short })
+      ? mustStayTrue({
+          stand: world.stand,
+          reach: world.stand ? 'here' : 'none',
+          // Their usual looks put right for this moment, and their profiles' relative times made past (ai/briefingFixes.ts).
+          people: here.map((e) => pastProfile(freshLooks(e, stageFor(e, world.stand)))),
+          named: away,
+          ...world.must,
+          holdings,
+          about,
+          short,
+          stageShown: isContinue && !!world.stand
+        })
       : []
   const must = { full: mustOf(false), short: mustOf(true) }
 
@@ -278,6 +316,13 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   /** The parts, as big as `scale` allows (1 is full size; smaller sends less of the text around and fewer people). */
   const build = (scale: number, withPeople: boolean, withAfter: boolean): Part[] => {
     const parts: Part[] = []
+    // Continue's memory core, what stays the same from one Continue to the next first (the timeline).
+    const core = isContinue && withPeople && scale >= 0.5 ? world.core : undefined
+    const timeline = core?.timeline?.trim()
+    if (timeline) parts.push({ id: 'timeline', priority: 3, title: 'The story so far', text: `The story so far\n${timeline}`, entryIds: [] })
+    // The plot threads still open, short (the same from one Continue to the next, so next to the timeline).
+    const threads = openThreadsText((core?.threads ?? []).slice(0, CORE_MOST.threads), true)
+    if (threads) parts.push({ id: 'threads', priority: 3, title: OPEN_THREADS_TITLE, text: `${OPEN_THREADS_TITLE}\n${threads}`, entryIds: [] })
     const scene = sceneText(world, byId, isContinue)
     if (scene.text) parts.push({ id: 'scene', priority: 2, title: 'The scene', text: scene.text, entryIds: scene.entryIds })
     const shown = withPeople ? people.slice(0, Math.max(tool === 'voice' ? people.length : 1, Math.round(people.length * scale))) : []
@@ -289,7 +334,7 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
         id: 'characters',
         priority: 3,
         title,
-        text: `${title}\n\n${describe.map((e) => profile(e, keys)).join('\n\n')}`,
+        text: `${title}\n\n${describe.map((e) => profile(e, isContinue && e.id === card.povId ? KEYS.continuePov : keys)).join('\n\n')}`,
         entryIds: describe.map((e) => e.id)
       })
     }
@@ -308,6 +353,26 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
         priority: 1,
         title: 'Who says each line',
         text: `Who says each line, worked out from the speech tags and names:\n${list.join('\n')}`,
+        entryIds: []
+      })
+    }
+    const recalled = (core?.recalled ?? []).filter((e) => !describe.some((d) => d.id === e.id)).slice(0, CORE_MOST.recalled)
+    if (recalled.length) {
+      parts.push({
+        id: 'recalled',
+        priority: 3,
+        title: 'Also in mind',
+        text: `Also in mind (from earlier in the story, for reference)\n${recalled.map((e) => `- ${e.name}${e.summary?.trim() ? `: ${e.summary.trim()}` : ''}`).join('\n')}`,
+        entryIds: recalled.map((e) => e.id)
+      })
+    }
+    const said = (core?.said ?? []).slice(0, CORE_MOST.said)
+    if (said.length) {
+      parts.push({
+        id: 'said',
+        priority: 3,
+        title: 'What was said, word for word',
+        text: `What was said earlier, word for word (keep to it: what was said, by whom, and who heard it)\n${said.map(saidText).join('\n')}`,
         entryIds: []
       })
     }
@@ -343,7 +408,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       const lead = isContinue ? "The text that comes after (lead into it; don't repeat it):" : 'The text just after the selected words:'
       parts.push({ id: 'after', priority: 4, title, text: `${lead}\n${fence(after)}`, entryIds: [] })
     }
-    const stand = isContinue && world.stand ? stateText(world.stand) : ''
+    // A door locked from inside with someone outside is said in one line after the stage (ai/lockRule.ts).
+    const stand = isContinue && world.stand ? withLockLines(stateText(world.stand), world.stand) : ''
     if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
     const mustLines = scale === 0 ? [] : withPeople ? must.full : must.short
     if (mustLines.length) parts.push({ id: 'must', priority: 2, title: MUST_TITLE, text: mustText(mustLines, withPeople ? 'here' : null), entryIds: [] })
@@ -410,7 +476,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     blocks,
     entries: [...sent].map((id) => ({ entryId: id, version: byId.get(id)?.updatedAt ?? '' })),
     reply,
-    temperature: preset.temperature,
+    // Continue is the writer carrying the scene on: the writer's temperature (writerTemperature). The edit tools: their own.
+    temperature: tool === 'continue' ? writerTemperature(CREATIVITY[tool]) : preset.temperature,
     topP: preset.top_p,
     note
   }

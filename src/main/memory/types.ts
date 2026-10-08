@@ -146,8 +146,11 @@ export interface MemoryState {
 // ---------- What a scene's briefing and the memory keeper are given ----------
 
 export interface StorySoFar {
-  /** This story's scene summaries before this scene, oldest first. */
-  scenes: { sceneId: ID; chapterId: ID; label: string; text: string }[]
+  /**
+   * This story's scene summaries before this scene, oldest first, with what each scene's card says of when, where and
+   * who (the writer's timeline, ai/timeline.ts; left out by anything older).
+   */
+  scenes: { sceneId: ID; chapterId: ID; label: string; text: string; when?: string; whereId?: ID | null; whoIds?: ID[] }[]
   /** This story's chapters that ended before this scene, oldest first, with their summaries. */
   chapters: { chapterId: ID; label: string; text: string }[]
   /**

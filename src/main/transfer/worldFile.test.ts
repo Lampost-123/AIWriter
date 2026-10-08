@@ -9,6 +9,8 @@ import * as repo from '../db/repo'
 import { openHistory } from '../history/open'
 import { HistoryStore } from '../history/store'
 import { UserError } from '../util'
+import type { SceneBeatMarks } from '@shared/contracts/beats'
+import { getBeatMarks, saveBeatMarks } from '../beats/marks'
 import { checkManifest, copyWorld, exportWorld, importWorld, isNewerVersion, removeStaleStaging, stagedName, WORLD_FILE_FORMAT } from './worldFile'
 
 let root: string
@@ -22,6 +24,24 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 const TEXT = 'The rain had not stopped since dawn.'
+
+/** Where the scene's beats are (beat markers), kept in the world's meta table: they travel with the world. */
+const BEAT_MARKS = (sceneId: string): SceneBeatMarks => ({
+  sceneId,
+  sessionId: 'sess-1',
+  of: 2,
+  mode: 'whole',
+  beats: [{ index: 1, pids: ['p-1', 'p-2'], versions: [{ recordId: 'g-1', at: 1000, sig: 'abc' }] }]
+})
+
+const beatMarksIn = (folder: string, sceneId: string): SceneBeatMarks | null => {
+  const d = new Database(join(folder, 'world.db'), { readonly: true })
+  try {
+    return getBeatMarks(d, sceneId)
+  } finally {
+    d.close()
+  }
+}
 
 /** A world folder like the app makes: world.db (WAL, as the app keeps it), history.db with one snapshot, a picture. */
 function makeWorld(name = 'Northern Reaches', withHistory = true): { folder: string; id: string; sceneId: string } {
@@ -39,6 +59,9 @@ function makeWorld(name = 'Northern Reaches', withHistory = true): { folder: str
   const sceneId = repo.getOutline(db, story.id).scenes[0].id
   repo.saveSceneText(db, sceneId, null, TEXT)
   repo.setMeta(db, 'read_aloud', JSON.stringify({ voices: { x: 'deep' } }))
+  saveBeatMarks(db, sceneId, BEAT_MARKS(sceneId))
+  // A chapter card (meta, `chapter_card:<chapter id>`): it travels with the world.
+  repo.saveChapterCard(db, repo.getOutline(db, story.id).chapters[0].id, { ...repo.getChapterCard(db, 'none'), when: 'Day 4, dawn', mood: 'Hushed' })
   db.close()
   if (withHistory) {
     const h = openHistory(folder, Date.now())
@@ -71,6 +94,18 @@ const sceneText = (folder: string, sceneId: string): string => {
   const d = new Database(join(folder, 'world.db'), { readonly: true })
   try {
     return repo.getScene(d, sceneId).text
+  } finally {
+    d.close()
+  }
+}
+
+/** The card of the scene's chapter (its When and mood), and the When the scene follows from it. */
+const chapterCardIn = (folder: string, sceneId: string): { when: string; mood: string; sceneWhen: string } => {
+  const d = new Database(join(folder, 'world.db'), { readonly: true })
+  try {
+    const scene = repo.getScene(d, sceneId)
+    const card = repo.getChapterCard(d, scene.chapterId)
+    return { when: card.when, mood: card.mood, sceneWhen: scene.card.when }
   } finally {
     d.close()
   }
@@ -111,6 +146,10 @@ describe('the .aiwrite file', () => {
     expect(metaOf(made.folder, 'id')).toBe(made.id)
     expect(metaOf(made.folder, 'read_aloud')).toContain('deep')
     expect(sceneText(made.folder, w.sceneId)).toBe(TEXT)
+    // The scene's beat markers come with it (its id is the same in the imported world).
+    expect(beatMarksIn(made.folder, w.sceneId)).toEqual(BEAT_MARKS(w.sceneId))
+    // The chapter card comes with it, and so does what its scene follows (the same ids in the imported world).
+    expect(chapterCardIn(made.folder, w.sceneId)).toEqual({ when: 'Day 4, dawn', mood: 'Hushed', sceneWhen: 'Day 4, dawn' })
     expect(snapshotsIn(made.folder)).toEqual([TEXT])
     expect(readFileSync(join(made.folder, 'images', 'maps', 'reach.png'))).toEqual(Buffer.from([1, 2, 3, 4]))
     expect(readdirSync(join(made.folder, 'backups'))).toEqual([])
@@ -245,6 +284,7 @@ describe('Make a copy', () => {
     // Its spending up to now is the original's, so the usage page counts it once.
     expect(metaOf(made.folder, 'usage_from_rowid')).toMatch(/^\d+$/)
     expect(sceneText(made.folder, w.sceneId)).toBe(TEXT)
+    expect(beatMarksIn(made.folder, w.sceneId)).toEqual(BEAT_MARKS(w.sceneId))
     expect(snapshotsIn(made.folder)).toEqual([TEXT])
     expect(existsSync(join(made.folder, 'images', 'maps', 'reach.png'))).toBe(true)
     // Its own empty backups folder; the original is untouched.

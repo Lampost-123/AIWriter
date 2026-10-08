@@ -106,12 +106,12 @@ function Choosing({
     setPick(undefined)
     api
       .listModels(provider.id)
-      .then((models) => live && setPick(recommendWriter(models)))
+      .then((models) => live && setPick(recommendWriter(models, provider.baseUrl)))
       .catch(() => live && setPick(null))
     return () => {
       live = false
     }
-  }, [provider.id])
+  }, [provider.id, provider.baseUrl])
 
   return pick === undefined ? <div className="min-h-[420px]" aria-busy /> : children(pick, provider)
 }

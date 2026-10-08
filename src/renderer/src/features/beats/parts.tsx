@@ -23,7 +23,7 @@ function ModeChoice({
   keyboard,
   onClick
 }: {
-  mode: 'replace' | 'add'
+  mode: 'resume' | 'replace' | 'add'
   icon: ReactNode
   label: string
   hint: string
@@ -65,7 +65,7 @@ function ModeChoice({
 export function QuestionPanel({ question, side }: { question: BeatQuestion; side: 'top' | 'bottom' }): React.JSX.Element {
   /** Where the keyboard was when the question opened, so closing it puts the keyboard back. */
   const before = useRef<HTMLElement | null>(null)
-  const { kind, byKey, sceneId } = question
+  const { kind, byKey, sceneId, resume } = question
   return (
     <P.Portal>
       <P.Content
@@ -80,7 +80,7 @@ export function QuestionPanel({ question, side }: { question: BeatQuestion; side
           const here = document.activeElement
           before.current = here instanceof HTMLElement && !here.closest('[data-radix-popper-content-wrapper]') ? here : null
           const panel = e.currentTarget instanceof HTMLElement ? e.currentTarget : null
-          const first = byKey ? panel?.querySelector<HTMLElement>(kind === 'choose' ? '[data-choice="add"]' : '[data-first]') : panel
+          const first = byKey ? panel?.querySelector<HTMLElement>(kind === 'choose' ? (resume ? '[data-choice="resume"]' : '[data-choice="add"]') : '[data-first]') : panel
           ;(first ?? panel)?.focus({ preventScroll: true })
         }}
         onCloseAutoFocus={(e) => {
@@ -111,8 +111,24 @@ export function QuestionPanel({ question, side }: { question: BeatQuestion; side
         {kind === 'choose' ? (
           <>
             <h3 className="text-[13.5px] font-semibold text-fg">This scene already has text</h3>
-            <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">Where should the new draft go?</p>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
+              {resume ? 'Carry on with its beats, or start a new draft?' : 'Where should the new draft go?'}
+            </p>
             <div className="mt-3 flex flex-col gap-2">
+              {resume ? (
+                <ModeChoice
+                  mode="resume"
+                  icon={<ListOrdered size={14} />}
+                  label={`Carry on from beat ${resume.written + 1} of ${resume.of}`}
+                  hint={
+                    resume.written === 1
+                      ? 'Beat 1 stays as it is, and the next beat follows it.'
+                      : `Beats 1 to ${resume.written} stay as they are, and the next beat follows them.`
+                  }
+                  keyboard={byKey}
+                  onClick={() => answer('resume')}
+                />
+              ) : null}
               <ModeChoice
                 mode="replace"
                 icon={<RefreshCw size={14} />}

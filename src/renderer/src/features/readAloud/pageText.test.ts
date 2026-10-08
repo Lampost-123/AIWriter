@@ -25,6 +25,10 @@ describe('the page as reading aloud sees it', () => {
     expect(list[0]).toMatchObject({ text: 'She never said it.', italics: [[4, 9]] })
     expect(list[1].text).toBe('Line one\nline two.')
     expect(list[2].text).toBe('“A sign,” it read.')
+    // In a blockquote: set apart on the page (a letter, a sign), and said so to reading aloud.
+    expect(list[2].block).toBe('quote')
+    expect(forPlan(list[2])).toEqual({ pid: 'p3', text: '“A sign,” it read.', block: 'quote' })
+    expect(list[0].block).toBeUndefined()
     expect(forPlan(list[0])).toEqual({ pid: 'p1', text: 'She never said it.', italics: [[4, 9]] })
     expect(forPlan(list[1])).toEqual({ pid: 'p2', text: 'Line one\nline two.' })
   })

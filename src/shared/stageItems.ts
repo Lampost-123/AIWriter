@@ -78,9 +78,10 @@ const within = (a: Set<string>, b: Set<string>): boolean => [...a].every((w) => 
  * (by the door)" read from an old line), but never another of its kind ("blue cloak" is not the "grey cloak": changing
  * clothes keeps both), never across left and right, and never a plain pair for a "left boot" (both are kept). When
  * several fit, a bare word ("boots") is about all of them for clothing; otherwise it is about none, and the change is a
- * new one.
+ * new one. `apart`: ones only the same name finds (one new in the same change set: "the door" given with "the stable
+ * door" in one reply is another door, not the stable door).
  */
-export function matching(list: readonly StageItem[], name: string, clothing: boolean): number[] {
+export function matching(list: readonly StageItem[], name: string, clothing: boolean, apart?: ReadonlySet<StageItem>): number[] {
   const key = itemKey(name)
   if (!key) return []
   const same = list.findIndex((x) => itemKey(x.name) === key)
@@ -90,6 +91,7 @@ export function matching(list: readonly StageItem[], name: string, clothing: boo
   const mine = wordSet(key)
   const near: number[] = []
   list.forEach((x, i) => {
+    if (apart?.has(x)) return
     const k = itemKey(x.name)
     const theirs = wordSet(k)
     if (!theirs.has(head)) return
@@ -116,25 +118,28 @@ export interface Merged {
 }
 
 /**
- * A list with changes laid over it, each on the piece or thing it is about (`matching`): a new state replaces the old,
- * "gone" takes it off, and anything new goes at the end; what no change names carries on. At most `most`: the ones
- * longest unchanged go first.
+ * A list with changes laid over it, each on the piece or thing it is about (`matching`, where one this change set made
+ * new is found only by its own name): a new state replaces the old and moves it to the end, "gone" takes it off, and
+ * anything new goes at the end; what no change names carries on. So the list runs from longest unchanged to latest, and
+ * at most `most` are kept: the ones longest unchanged go first (round G: the survey case, changed at step 5, was the
+ * first dropped at step 7 while things never changed since step 1 stayed, because it kept its old place).
  */
 export function mergeItems(before: readonly StageItem[], changes: readonly StageItem[], clothing: boolean, most: number): Merged {
   let items = before.map((x) => ({ ...x }))
   const changed: Merged['changed'] = []
   const fresh = new Set<StageItem>()
+  /** The ones this change set made new (not ones it changed). */
+  const made = new Set<StageItem>()
   for (const c of changes) {
-    const at = matching(items, c.name, clothing)
+    const at = matching(items, c.name, clothing, made)
     if (isGone(c.state, clothing)) {
       items = items.filter((_, i) => !at.includes(i))
       continue
     }
     const next: StageItem = { name: at.length === 1 ? keptName(items[at[0]], c.name) : c.name, state: c.state }
-    if (at.length) {
-      items[at[0]] = next
-      items = items.filter((_, i) => i === at[0] || !at.includes(i))
-    } else items.push(next)
+    if (at.some((i) => made.has(items[i])) || !at.length) made.add(next)
+    items = items.filter((_, i) => !at.includes(i))
+    items.push(next)
     fresh.add(next)
     changed.push({ from: c.name, to: next.name })
   }

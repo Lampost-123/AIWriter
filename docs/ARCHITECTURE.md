@@ -1010,6 +1010,15 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
     what was said go on. `AIWRITE_RECALL=off` turns all of step 5 off; app tests set it (tests/e2e/helpers.ts) and ask
     for it with `AIWRITE_RECALL=on`; `AIWRITE_SEARCH_MODEL=stub` uses a stand-in model (`stub.ts`) that knows a few
     words of like meaning, for tests only.
+  - **The download by itself** (Adam, 2026-10-08: "download the search model automatically"; `model/auto.ts`): while
+    "Find by meaning" is on and the model isn't here, it downloads quietly in the background 45 seconds after start-up
+    (so opening isn't slowed) or 5 seconds after the switch is turned on. Stop or Remove sets `settings.searchModelAuto`
+    false, and it never starts by itself again until Adam presses Download (which sets it true); the switch off stops
+    nothing under way but never starts it. A failed download (offline, a damaged file) is tried again an hour later,
+    then two, four, up to a day apart, and at the next start; Settings shows the problem as before, with no pop-ups.
+    `AIWRITE_SEARCH_MODEL_AUTO=off` keeps it out of app tests (tests/e2e/helpers.ts), unit tests (vitest.config.ts)
+    and trap runs; `AIWRITE_SEARCH_MODEL_AUTO_MS` shortens the wait for the one app test about it, which uses a local
+    server, never Hugging Face.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
@@ -1736,6 +1745,271 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
   sends it, the fixes are made with the page's own code (`features/repair/apply.ts`, on a ProseMirror copy of the
   page, `page.ts`), and the passage is scored as written and after the fixes, with the fixes, the questions and the
   repair's own calls in the report. Older checkouts run exactly as before.
+
+## The AI writer makes full use of the story memory (Adam, 2026-10-08)
+
+A read-only audit of 122 real writer calls on DeepSeek Flash (an invented test story) found Add below given Generate's
+"write a complete, polished scene… End on the scene's final beat" (it invented action to reach its length, 6 of the 7
+remaining trap breaks; closed scenes off with sleep or silence; wrote card beats again), Continue given none of the
+memory, a briefing padded with false or stale lines, sample lines and stock tics repeated word for word, and only 40% of
+Add below's prompt reused by the provider's cache (Continue 25%). Adam chose six fixes (shipped in 0.6.35, with the
+lab's winners in the next section):
+
+- **Add below's own instructions** (`ai/prompts.ts` `writerInstructions(pov, true)`, `addBelowFinal`): carry the scene on
+  from where it stands; the length is a ceiling, not a target; stop once what is asked has happened, mid-motion, without
+  wrapping up or closing the scene unless asked; invent no events beyond the direction or the next beat; beats already
+  on the page are done (`ai/repetition.ts` `beatsOnPage`: most of a beat's own words on the page, beats in order) and
+  never written again. Adam's direction is the closing instruction's last words ("What happens now, as the author
+  directs…"), not in the scene card; with none, the next beat not on the page. The planner gets the direction with the
+  card (`plan/plan.ts`). Generate keeps its complete-scene prompt.
+- **Order for the cache** (`ai/context.ts` `SEND_ORDER`): what stays the same from one step of a scene to the next comes
+  first (instructions, world rules, themes, setting, the story so far, the previous scene's end, plot threads), then the
+  people (the same unless the memory learns something), then what a step brings in (entries named, recalled, what was
+  said, earlier passages), and last the scene card, the scene so far, the stage and what must stay true. Block 9's
+  entries and the recalled entries go in a steady order (kind, then name) under fixed titles (`MENTIONED_TITLE`). Claude's
+  cache breakpoint ends before the people. Measured on an invented scene, two Add below steps in a row
+  (`tests/unit/writerRound.test.ts`): the second step's prompt that the first already sent went from 29% to 69% with a
+  short story so far, and from 11% to 71% with a long one (12,234 tokens down to 4,431, the timeline below included).
+- **A cleaner briefing**: "X does not know" only for real secrets (`ai/mustStay.ts` `realSecrets`: what one person here
+  knows and another here doesn't, never kept from someone it is about, at most 3); "What X knows" gives each fact once
+  and drops plans that happened or whose time has passed (`ai/knows.ts` `cleanKnows`: a later note with most of the
+  plan's words; "tonight", "tomorrow", "in the morning" with two or more later scenes since); deaths told later lose
+  "this afternoon" (`pastDeathNote`) and say where; on the stage (`stageInScene`, with `previousSceneId` and `dead` in
+  the scope) the dead are never a live state (left out unless this scene's words put the body somewhere), someone only
+  named is in it only with words from this scene (or the one before, its time carrying on), and words from older scenes
+  no longer hold except injuries and what people hold (no "out in the middle of the flood", no "hat on" from days
+  before); what must stay true doesn't say again what the stage block right above it says at the same moment
+  (`stageShown`, carrying on inside a scene: it keeps the dead, marks, changed looks, what someone no longer has and
+  secrets), and says nothing twice (a piece of clothing a thing in the place already places, a piece under two names);
+  sample lines are speech only (`speechSamples`), never narration, and the instructions say never to reuse one.
+- **Continue's memory core** (`edits/index.ts` `continueCore`, `edits/briefing.ts` `core`): the timeline's short form
+  (about 800 tokens), up to 3 entries recalled for the words near the cursor (step 5's search, found first), up to 4
+  lines of what was said word for word, the point of view's facts to keep (marks), and Adam's optional "what happens
+  next", said last. The timeline goes first (the same from one Continue to the next). It goes before the edit is
+  refused on a small model, and adds at most a few thousand tokens. The "what happens next" field is a small optional
+  box in the AI tools menu, above "Continue after these words" (`features/edits/AiTools.tsx`); the palette's Continue
+  has none.
+- **Phrases not to say again**: the round listed up to 8 in the closing instruction (sample lines on the page, stock
+  tics, `ai/repetition.ts` `STOCK_TICS`, and runs said twice). Replaced before it shipped by "stock phrases said
+  afresh" (next section): naming a phrase can prime it. No presence_penalty is sent (DeepSeek's docs say it does nothing).
+- **The canon timeline** (`ai/timeline.ts`; Adam: "a clear outline of what has happened so far in the story and when and
+  involving who"): in place of the prose summaries (8.8k tokens in Add below, none in Continue), "Canon: what has
+  already happened… never contradict it, and never write it again as if it were new", oldest first, on this scene's own
+  line only (the memory's StorySoFar): earlier stories a line each, this story's older chapters rolled up a line each,
+  the last two chapters a line a scene with when (the card's When), where and who (the earlier cards, read in one query:
+  `db/repo.ts` `sceneCards`, `memory/scene.ts` `withCards`), the last 5 scenes in the most detail, and deaths, departures
+  and things changing hands marked on the scene they happened in (`timelineMarks`). Capped at about 2,500 tokens in
+  full, 1,500 short, 800 smaller (Continue's), then only the most recent parts, the oldest detail going first. Its words
+  depend only on scenes before this one, so it reads the same at every step. Ask the world, the checks and the
+  interview keep the prose summaries (`storySoFarText`).
+
+## The writer lab's winners, as defaults (0.6.35, 2026-10-08)
+
+Each was tried first as a switch in a local lab (never pushed), on the trap harness's inn chain (K1: 12 steps of Add
+below and Continue after a whole invented story) with DeepSeek Flash, Thinking off. Samples were small (2 to 5 chains a
+variant), so nearly every 95% interval overlaps; these went in because they cost little, fixed real faults seen in the
+prompts, and none did worse. Not taken: prefix completion, repeating key facts at the end, beat options, a thinking
+planner, a scene contract, quote-both-sides checks, logprobs, stop-string cuts, "coming later" and the loop guard.
+
+- **Temperature 1.0 for the writer** (`shared/defaults.ts` `writerTemperature`): Generate, Add below, beats and Continue
+  write Balanced (the default preset) at 1.0, not 0.85. 1.0 kept canon and the judge's marks, with fewer stock phrases
+  and echoes of earlier steps; 1.3 and 1.5 fell apart. Steady, Adventurous and the edit tools keep their own; the
+  planner, check and memory keep 0.2. Thinking off, as ever, is `reasoning_effort: "none"`, which DeepSeek honours.
+- **Continue plays out what is under way** (`edits/prompts.ts` `continueTask`, `CARRY_ON_LAST`): with no "what happens
+  next", whatever is under way in the last paragraphs plays out before the card's next beat, nothing new is brought in,
+  and the ask ends "Carry on from the last paragraph…" (a knock at the door had been left for talk of the road ahead).
+  Continue asks for 180 to 280 words (was 120 to 250; it wrote past 250 about half the time anyway), with reply room for
+  twice the top in tokens (756).
+- **A door locked with someone outside** (`ai/lockRule.ts`): when the stage has a door locked, barred or bolted from
+  inside and someone out ("out in the yard", or gone out through it), Where things stand (Continue's, and Add below's
+  block 3b) gets one line: "Ash Penrose is outside; the yard door is locked from inside and Wren Hollis has the key. If
+  Ash comes back in, someone unlocks it on the page first." Round E's real slips were nearly all this: the Continue
+  straight after the lock walked Ash in through it. With the line (round F, 4 chains each): door kept 71% → 100%, no slip
+  in 4 of 4 chains (2 of 4 without).
+- **Prompt bugs found in the lab's real prompts** (`ai/briefingFixes.ts`, read side only; the memory as kept is
+  untouched): how someone is placed (posture, touching, sees) is left out once they moved after it was said
+  (`clearStalePlacing`, in `stageInScene`); a profile's usual clothing or way of moving that the stage or a later note
+  undoes is left out, and its "this day", "tomorrow" made past (`freshLooks`, `pastProfile`); people the scene's own
+  words don't name get one line under "Not in this scene", and places not linked to the scene are left out (`offScene`,
+  `linkedPlaces`; pinned entries and those the plan asked for stay whole); the plan tests only what a change makes new
+  for a told secret (`plan/plan.ts` `newWordsOf`: the key into her pocket was dropped for "the survey case"); the check
+  never lists someone as not knowing a fact about themselves (`namesPerson` in `repair/prompts.ts` and
+  `checks/context.ts`). The two left open in the memory code then (`mergeState` keeping every field a reading leaves
+  out; "finds Cinder has cast a shoe" read as a getting) are fixed in the next section.
+- **Stock phrases said afresh** (`ai/prompts.ts`, `repair/slop.ts`): the writer prompt names no stock phrase (the list in
+  "Write like a person" and the clichés by example are gone; the rule says to show feeling through what someone does or
+  says; Adam's own "Words and phrases to avoid" stay). After the check, stock phrases in the AI's words (`STOCK_TICS`, the
+  trap runs' others, the app's AI phrases but "not X but Y", sample lines copied whole) are rewritten by one memory-model
+  call, one instruction per kind of tic, and come back as more amber fixes with Undo. Not when "Steer clear of common AI
+  phrases" is off. Round E: passages with a stock phrase 21% → 4%, the one difference outside the noise.
+- **A second opinion before repair** (`repair/second.ts`, after Adam's Holodeck critic): a slip whose line wasn't given,
+  whose quote isn't in the new words, or that the model took back in its own last sentence is dropped with no call;
+  the rest go to one call on the memory model at its 0.2 (reason first, then real or not), and those ruled not real are
+  neither mended nor asked. It may never excuse clothes or position as "could have happened off the page".
+
+## Memory fixes and cheaper prompts (0.6.35, lab round H, 2026-10-08)
+
+Faults seen in round G's real prompts, fixed where the memory is kept or read; then the memory keeper, check and
+repair, plan and Add below send the same words in an order a provider can reuse. Round H (DeepSeek Flash, 6 inn
+chains): canon kept 100%, no slips in 6 of 6 chains, passages with a stock phrase 7%, judge 4.55 of 5, prompt
+tokens served from the provider's cache 47%. Small samples: read these as "no worse, and the faults are gone".
+
+- **The stage** (`shared/continuity.ts` `mergeState`): when where someone is changes, how they were placed (posture,
+  touching, sees) goes unless the same change says it again, and anyone touching or watching them stops too. A thing
+  new in a reply never near-matches another new one in it ("the stable door" no longer swallows "the door: barred
+  and locked"), and a changed thing moves to the end so eviction drops the stalest (`shared/stageItems.ts`).
+- **Which door** (`shared/continuity.ts` `readChanges`, `unnamed`; the tracker prompt in `continuity/tracker.ts`): "the door" with two or more doors named just
+  before is kept as "the door (the yard door or the passage door?)", never the nearest name; "own", possessives and
+  punctuation never say which one, and it looks back about a page.
+- **Profiles and items**: a worn thing gone for good (lost, cut away, a bandage taken off) leaves the profile's
+  Typical clothing (`memory/looks.ts`, in `memory/state.ts` `stateAt`); "finds Cinder has cast a shoe" is a discovery, not a getting
+  (`memory/items.ts` `holdingsOf`). An animal (by its name, summary, tag or "it") neither knows nor has secrets kept
+  from it (`ai/mustStay.ts` `isPerson`, and the check and repair prompts).
+- **A door locked with someone outside** (`ai/lockRule.ts`): out is read from the place and the last action too
+  ("across the yard to the stall", "out of the inn"), and the line says no one comes back in "by any door" until it
+  is unlocked on the page.
+- **Order for the cache** (only the order and id numbers change; the same lines are sent): the memory keeper gives
+  entries fixed E ids by when each was made (`keeper/request.ts` `Ids`, `steadyIds`) and lists them in that order,
+  relationships and who knows what before them; check and repair put the scenes before, the card, the dead and the
+  facts ahead of where things stand and the new words (`repair/prompts.ts`); the plan puts what the writer is asked
+  and the direction last (`plan/plan.ts`); Add below keeps "Also relevant" and "Also in mind" in the order last sent
+  for the scene, new ones after (`ai/context.ts`, remembered for the last 20 scenes briefed).
+
+## Beat markers and writing an earlier beat again (Adam, 2026-10-08)
+
+Beat by beat used to forget which paragraphs each beat wrote at Finish, and Write it again only redid the last beat.
+Owned by the Beat by beat part (`contracts/beats.ts`, `ipc/beats.ts`, `src/main/beats/`, `features/beats/`).
+
+- **Kept with the scene.** `SceneBeatMarks` (contracts/beats.ts): per beat, the paragraph ids it wrote (every
+  version's) and each version that went in (record id, when, and a fingerprint of its words then). One row per scene
+  in the world's `meta` table (`beat_marks:<scene id>`, `src/main/beats/marks.ts`: tidied and capped; no migration);
+  a new session on the scene takes the place of the last one's once it writes. The interface reads them once a scene
+  and saves a moment after each change and before the window closes (`features/beats/marksStore.ts`). `flow.ts`
+  notes each beat's paragraphs as they stream and a version as each beat ends.
+  - **One session's markers per scene** (Adam's decision, 2026-10-08): starting a new Beat by beat session on a scene
+    replaces the saved markers as soon as its first beat writes (`flow.ts` `sessionMarks`); the old beats' words stay
+    on the page as Adam's own, with no markers or menu. Opening the bar without writing keeps the old markers.
+  - **They go with the scene.** While a scene is in Recently deleted its markers stay, so restoring it brings them
+    back; `purgeTrash` (db/trash.ts) clears the row of every scene gone for good (any `beat_marks:` key whose scene
+    is no longer in `scenes`). Being in `meta`, they travel in world.db with Export world / Import world and Make a
+    copy, and scene ids don't change there (transfer/worldFile.test.ts checks both).
+- **Worked out from the page** (`features/beats/marks.ts`, pure): the beats with words on the page; the version
+  showing is the one whose fingerprint the beat's words have (so undo puts an earlier version, and its record, back),
+  else the newest; check and repair's fixes update the fingerprint (`withMended`). A beat whose version went in
+  before an earlier beat's showing version is "written before beat N changed" until it is written again or kept as
+  it is (`keptAt`). A paragraph split inside a beat gives the new half to the beat (the words before the change were
+  exactly the two halves'); any other new paragraph stays Adam's own.
+- **On the page**: a decoration (`beatMarks.ts`, like speaker labels): classes and `data-beat` on the beat's
+  paragraphs, a band drawn by CSS (`beatMarks.css`, every size and colour a custom property, so the New look's
+  layouts can restyle it). `BeatMarksLayer.tsx` (SceneView, in the scrolling area) puts a "Beat N" button in the
+  left margin by each beat's first line (above it when the margin is narrow), shown on hover or keyboard focus (Tab
+  reaches it), with the beat's menu: Redo this beat, Change and redo (a one-line note), What the AI saw (that beat's
+  showing record), Keep it as it is, Redo the beats after this (the next, or all in order), Remove this beat, and
+  Show beats after you finish. Shown during a session on the scene, and after Finish only with "Show beats"
+  (`settings.editor.showBeats`: Settings › Editor, the palette's Show beats / Hide beats).
+- **Writing a beat again** (`redo.ts`). The session's last beat, while it ends the scene, goes the bar's way
+  (`writeAgainFromPage` → Write it again). Any other beat, and any beat after Finish, becomes a tracked change in its
+  place (the AI edits' suggestion layer: `showReplacement` from outside, with `status: 'starting'`, `stop`, `onGone`,
+  then `updateReplacement` as the beat's generation events arrive). It is a normal `beat` record (`startBeat`, one
+  draft job per scene), with the scene so far up to the beat only (`soFarText(…, leaveOut)` now stops where the beat
+  begins, so later beats aren't "so far") and the start of what follows it as `after`, quoted as "What comes after
+  this beat" (`afterBlock`, ~400 words) with its own closing lines. Accept keeps the scene in History first ("Before
+  beat N was written again"), goes in as one undo step, and makes the new words the beat's (paragraph ids, version,
+  the session's paragraphs and owners); then check and repair checks them. The beats after it get their note, a
+  message offers to redo them, and "all in order" writes each as its own tracked change after the last is accepted
+  or rejected.
+  - **Adam's words inside a beat** (Adam's decision, 2026-10-08). The change runs from the beat's first paragraph to
+    its last, so a paragraph he typed or pasted between them goes too. It isn't left out (the beat would lose its
+    shape); the change says so from the start, under its buttons: "This also replaces N paragraph(s) you wrote
+    yourself. Reject keeps them." (`othersInBeat`, `alsoReplaces` in sessionLogic.ts), kept with any note at the end.
+- **Remove this beat** keeps the scene in History ("Before beat N was taken out"), then takes the beat's paragraphs
+  out as one undo step (Ctrl+Z puts them back, marker and all).
+
+## The AI manages plot threads (2026-10-08)
+
+Adam's choices: weave gently (an open thread comes in only where it fits; never forced), and the memory resolves a
+thread on its own when the payoff is on the page, with the quote, which he can undo from the board. No migration: the
+existing thread entries (`promise`, `clues`, `payoff`), `changes` of kind `thread` ({status, note}, open or resolved
+only) with their source links, and the scene card's `setsUpIds` / `paysOffIds` in `card_json`.
+
+- **What the memory reads** (`keeper/prompts.ts`, `keeper/apply.ts` `applyThread`, rules in `keeper/threads.ts`): a
+  thread item's status is `open`, `clue`, `developing` or `resolved`, always with a quote. Open makes the thread (text
+  origin) with its promise, or opens one already there (a planned thread of Adam's gets the promise only when the field
+  is empty and not his), as a thread change pinned to the scene; an open thread "opened" again is only a note. A clue is
+  one more line of `clues` (field origin text, with its link; field-set Undo with a suppression); on Adam's own clues
+  it is an update note "Clue: …" in that scene instead. Developing is an open change with a note. Resolved needs the
+  payoff on the page and is ignored (kept as a note that it moved on) while a later scene card in the story pays it off
+  (`laterCardPaysOff`; a memory link for a resolve it read there doesn't count) or the thread's payoff says it comes
+  later (`payoffLater`: a later chapter or book by number, a sequel, later/eventually, or the finale, climax, end or
+  last chapter unless this is the last chapter). A verdict on edited words keeps the status (only the note follows).
+  The keeper is shown each open thread with its promise, last clue and planned payoff (`keeper/request.ts`).
+  `ThreadState.planned` marks a thread with no thread change on the line yet (`memory/state.ts`).
+- **Scene card links** (`shared/threadLinks.ts`): an opening puts the thread on that scene's "Sets up", a resolve on
+  "Pays off", marked in `card.threadLinks` (`setsUp:<id>` → `ai`; `removed` once Adam takes it off, never put back;
+  `undone` when the memory takes it back). Unmarked links are Adam's and are never removed. The card shows an AI tag on
+  the memory's chips (`CastPicker` `aiIds`); a save from the panel merges what the memory did since it read the card
+  (`mergeThreadLinks`, in the `updateSceneCard` handler), and the panel picks the links up on each memory change.
+  Undo of the opening or resolve (What changed or the board), or the words going, takes the memory's link back
+  (`repo.setAiThreadLink`).
+- **The board** (`worldViews/threads.ts`): "Found by AI" (text or AI origin, never edited by Adam) or "Yours"; a
+  resolved thread shows the words that paid it off, "Resolved by AI" and Undo (the What changed line that added the
+  resolve, `kdb.addedLines`), which reopens it and records a suppression.
+- **The writer** (`ai/openThreads.ts`): "Open plot threads" — the threads open here (not planned, not on the card),
+  one line each (name — promise — last clue), those the card's words name first, then the most recently moved; at most
+  6 (short: 3) for Generate and Add below, block `open-threads` at priority 9 in the steady part of `SEND_ORDER` (right
+  after the card's `threads`, before the people, so it is cached); the planner gets the same block, in its steady part (after the
+  world, before where things stand and the ask), and the rule to plan no payoff the card or direction doesn't ask for
+  (`plan/plan.ts`); Continue gets at most 4, short, next to the
+  timeline (`edits/briefing.ts`). The lead: "Keep these alive. Bring one in only where it fits naturally. Don't pay a
+  thread off unless the scene card or the author's direction asks for it." The card's own threads keep their block
+  ("this scene pays it off").
+- **Outlines** (`outline/prompts.ts`, `outline/interview.ts`, `features/outline/parse.ts`): each scene may give
+  "Sets up:" and "Pays off:" lines (thread names, semicolons); the suggestions show them, and keeping a scene puts them
+  on its card as the AI's (`outline/structure.ts` `withThreads`), finding a thread by name or other name, else making
+  one (AI origin) once per keep. Undo of the keep takes the new threads to Recently deleted while nothing else uses them
+  (`takeBackThreads`), and a reused first scene loses only the AI links.
+
+## Chapter cards (Adam, 2026-10-08)
+
+A chapter card holds the scene card parts a chapter's scenes share: point of view, characters present, location,
+When, mood, length and notes for the AI. Goal, conflict, outcome, beats, plot threads and the summary stay the scene's.
+
+- **Storage, no migration.** The data model is frozen, so a chapter card lives in the world's `meta` table, one row a
+  chapter (`chapter_card:<chapter id>`, JSON of `ChapterCard`; no row for an empty card), as beat markers and map
+  layouts do. It travels in world files and backups with the rest of `meta`. A chapter in Recently deleted keeps its
+  card (a restore brings it back); `purgeTrash` and the outline helper's Undo drop the rows of chapters gone for good.
+- **Copy through, not read through.** About twenty readers use `scenes.card_json` directly (the briefing, memory,
+  tracker, retrieval, search, the views), so the chapter's values are *written into* each scene card that follows them,
+  and every reader stays as it was. `SceneCard.inherits` marks each carried part: `true` follows the chapter, `false` is
+  the scene's own, absent is unsettled (cards made before chapter cards). The rules are in `src/shared/chapterCard.ts`
+  and used on both sides:
+  - a new scene (`repo.createScene`, so every caller) follows every part of its chapter's card;
+  - saving a chapter card (`repo.saveChapterCard`, one transaction) writes it into every scene that follows each part,
+    and into a scene's *empty, unsettled* parts (which then follow); a scene's own parts never change. Each scene
+    written gets a new `updated_at`, so the views, search and entry pages kept from cards are made again;
+  - moving a scene to another chapter (`repo.moveScene`) does the same with the new chapter's card;
+  - any scene card write (`repo.updateSceneCard`: the card on screen, the interview's fill, ideas, Ask proposals, the
+    timeline's "Day 1") goes through `resolveCardWrite`: a followed part stays followed unless the write changed it to
+    something that isn't the chapter's, which makes it the scene's own. "Use chapter's" is a write marking it followed.
+- **Screens.** A click on a chapter in the binder, or "Chapter card" in its menu (the keyboard then carries on in the
+  card), shows the card in the right-hand panel in place of the scene panel's tabs, laid out like the scene card and
+  saving as Adam types (`features/chapterCard/`). Each save that changes scene cards shows "Updated N scenes that follow
+  this chapter card" with one Undo (`restoreChapterCard`: the card, and only those scenes' carried parts and marks, as
+  they were before the first change while the toast shows). On a scene card, a followed part the chapter has a value
+  for is tagged "From chapter" (screen readers hear it in the label); a part of its own offers "Use chapter's". Open
+  scene cards reload what they follow whenever a chapter card changes (`chapterCardsRev`).
+- **The AI fills them.** The outline helper, a recipe's story and a chapter's plan ask for `Point of view:`,
+  `Characters:`, `Location:`, `When:` and `Mood:` lines under each chapter, and the same lines under a scene only where
+  it differs from its chapter (`outline/prompts.ts` `CHAPTER_CARD_FORM`, read by `features/outline/parse.ts`). Kept
+  (`keepOutline`), names are matched to the world's characters and places (`outline/names.ts`; unknown names are left
+  out) and go into the chapter card's empty parts; a new scene's differing parts are its own. A scene's When the same as
+  its chapter's, or none while the chapter has one, follows the chapter's; another When is the scene's own, and
+  `fallbackWhen` is only used when neither has one. Undo of a keep on the story's reused "Chapter 1" puts its card back
+  unless Adam changed it since. A chapter's plan fills its card's empty parts when the reply ends, with Undo.
+- **With plot threads (0.6.36).** A kept scene gets both: its chapter card parts (`ownParts`, `sceneWhen`) and the
+  "Sets up" / "Pays off" links as the AI's (`withThreads`), all in one card write through `resolveCardWrite`, so
+  `card_json` carries `inherits` and `threadLinks` side by side. `unkeepOutline` undoes both: the chapter cards it
+  filled, the AI links on a reused first scene (`acts.takeBackKept`), then the threads it made (`takeBackThreads`).
 
 ## Milestone 1 scope
 

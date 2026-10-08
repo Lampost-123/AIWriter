@@ -12,6 +12,7 @@ import { PeekPanel } from '@/features/peek/PeekPanel'
 import { AskPanel } from '@/features/ask/AskPanel'
 import { IssuesPanel, IssuesTabCount } from '@/features/issues/IssuesPanel'
 import { SoundsPanel } from '@/features/sounds/SoundsPanel'
+import { ChapterCardPanel } from '@/features/chapterCard/ChapterCardPanel'
 
 const TAB_LABELS: Record<InspectorTab, string> = {
   card: 'Scene card',
@@ -65,32 +66,37 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const setTab = useApp((s) => s.setInspectorTab)
   const peekId = useApp((s) => s.peekEntryId)
   const askOpen = useApp((s) => s.askOpen)
+  const chapterCardId = useApp((s) => s.chapterCardId)
   const rootRef = useRef<HTMLDivElement>(null)
 
   const back = (): void => {
     const wasInside = !!rootRef.current?.contains(document.activeElement)
     useApp.getState().peekEntry(null)
+    useApp.getState().openChapterCard(null)
     // From the panel's own Back, the keyboard carries on from the tab it returns to.
     if (wasInside) requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus())
   }
 
-  // When something else picks a tab while an entry shows here, the tab shows instead of the entry.
+  // When something else picks a tab while an entry or a chapter card shows here, the tab shows instead.
   const lastTab = useRef(tab)
   useEffect(() => {
     if (lastTab.current === tab) return
     lastTab.current = tab
     if (useApp.getState().peekEntryId) useApp.getState().peekEntry(null)
+    if (useApp.getState().chapterCardId) useApp.getState().openChapterCard(null)
   }, [tab])
 
+  const chapterShown = !!chapterCardId && !askOpen && !peekId
   return (
     <div ref={rootRef} className="@container h-full min-h-0">
       {askOpen ? <AskPanel sceneId={sceneId} onClose={() => useApp.getState().setAskOpen(false)} /> : null}
       {peekId && !askOpen ? <PeekPanel sceneId={sceneId} entryId={peekId} backLabel={TAB_LABELS[tab]} onBack={back} /> : null}
+      {chapterShown ? <ChapterCardPanel chapterId={chapterCardId} closeLabel={TAB_LABELS[tab]} onClose={back} /> : null}
       <Tabs
         value={tab}
         onValueChange={(v) => setTab(v as InspectorTab)}
-        // Hidden, not unmounted, while an entry shows, so Back finds the tab as it was.
-        className={cn('h-full min-h-0 flex-col', peekId || askOpen ? 'hidden' : 'flex')}
+        // Hidden, not unmounted, while an entry or a chapter card shows, so Back finds the tab as it was.
+        className={cn('h-full min-h-0 flex-col', peekId || askOpen || chapterShown ? 'hidden' : 'flex')}
       >
         <TabsList
           tall

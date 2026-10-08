@@ -50,6 +50,9 @@ describe('format', () => {
     expect(creativityOf({ temperature: 0.85, creativity: 'balanced' })).toBe('Balanced')
     expect(creativityOf({ temperature: 0.6 })).toBe('Steady')
     expect(creativityOf({ temperature: 0.3 })).toBe('Temperature 0.3')
+    // Since 0.6.35 the writer writes Balanced at 1.0: a Continue record, which keeps only its temperature, reads so.
+    expect(creativityOf({ temperature: 1 })).toBe('Balanced')
+    expect(creativityOf({ temperature: 0.85 })).toBe('Balanced')
   })
 
   it('estimates a draft cost only when prices are known', () => {

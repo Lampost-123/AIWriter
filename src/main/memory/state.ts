@@ -25,10 +25,13 @@
 // - A plot thread is set up where it was first opened on the walk; with no opening change before it
 //   was first resolved, where it first exists ('' for the starting setup). It is paid off where it was
 //   last resolved, and a later opening change reopens it.
+// - A change whose note says a thing worn is gone for good ("bandage gone; wound closed"), and which doesn't set the
+//   clothing itself, takes the pieces naming it out of the character's typical clothing (memory/looks.ts).
 
 import type { Change, EntryState, FactState, ID, RelationshipPayload, RelationshipState, ThreadState } from '@shared/types'
 import type { Line, MemoryData, MemoryState, WorldShape } from './types'
 import { hostSpans, labeler } from './line'
+import { clothingAfter } from './looks'
 
 /** MemoryState, plus every entry that doesn't exist here, as of this point (for "not in the story yet" labels). */
 export interface MemoryStateAll extends MemoryState {
@@ -264,6 +267,16 @@ export function stateAt(
           e.fields[k] = v
           addChanged(e, k, where)
         }
+        // A thing worn gone for good ("bandage gone; wound closed") is no longer in what they typically wear, unless
+        // the change says what that is now (memory/looks.ts).
+        if (e.kind === 'character' && p.note && e.fields.clothing && !Object.prototype.hasOwnProperty.call(p.fields ?? {}, 'clothing')) {
+          const now = clothingAfter(e.fields.clothing, p.note)
+          if (now !== null) {
+            touchField(e, 'clothing')
+            e.fields.clothing = now
+            addChanged(e, 'clothing', where)
+          }
+        }
         if (p.description !== undefined) {
           touchValue(e, 'description')
           e.description = p.description
@@ -431,7 +444,9 @@ export function stateAt(
       entryId: id,
       status: t?.status ?? 'open',
       setUp: t && t.setUp !== null && t.setUp !== FROM_EXISTS ? t.setUp : (existsAt.get(id) ?? ''),
-      paidOff: t?.status === 'resolved' ? t.paidOff : ''
+      paidOff: t?.status === 'resolved' ? t.paidOff : '',
+      // No thread change on the line yet: only planned (on scene cards, or nowhere), not set up in the story.
+      ...(t ? {} : { planned: true as const })
     })
   }
 

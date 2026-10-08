@@ -199,7 +199,7 @@ try {
   check(sent.messages[1].content.includes("The author's direction for this draft:\nMake it tense, end on the knock at the door"), 'direction in the briefing')
   check(!sent.messages[1].content.includes('1. Make it tense'), 'direction not typed into the beats')
   check(!sentText.includes('PRIVATE'), 'private notes never sent')
-  check(sent.temperature === 0.85 && sent.stream === true, 'creativity and streaming')
+  check(sent.temperature === 1 && sent.stream === true, 'creativity (the writer writes Balanced at 1.0) and streaming')
 
   // ----- Stop -----
   await invoke('updateSettings', { models: { writer: { ...settings.models.writer, modelId: 'fake/slow', label: 'Fake: Slow' } } })

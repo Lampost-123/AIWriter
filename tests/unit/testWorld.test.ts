@@ -96,7 +96,8 @@ describe.each(routes)('the test world %s', (_, make) => {
 
   it('a plot thread is opened in Book 1 and resolved in Book 3', () => {
     const thread = (s: ReturnType<TestWorld['state']>) => s.threads.find((t) => t.entryId === w.id('burned'))
-    expect(thread(w.state('b1', 'b1.c1.s2'))).toEqual({ entryId: w.id('burned'), status: 'open', setUp: '', paidOff: '' })
+    // Before the scene that opens it, it is only planned (2026-10-08).
+    expect(thread(w.state('b1', 'b1.c1.s2'))).toEqual({ entryId: w.id('burned'), status: 'open', setUp: '', paidOff: '', planned: true })
     expect(thread(w.state('b2'))).toEqual({ entryId: w.id('burned'), status: 'open', setUp: 'Book 1, Ch 1, Sc 2', paidOff: '' })
     expect(thread(w.state('b3', 'b3.c1.s2'))?.status).toBe('open')
     expect(thread(w.state('b4'))).toEqual({
@@ -393,7 +394,7 @@ describe('story so far, from the summaries', () => {
 
   it('this story’s own scenes and chapters, and a series roll-up only when all of it is on the walk', () => {
     const s = sceneMemory(db, w.id('b3.c1.s2')).storySoFar
-    expect(s.scenes).toEqual([{ sceneId: w.id('b3.c1.s1'), chapterId: w.id('b3.c1'), label: 'Book 3, Ch 1, Sc 1', text: 'Book 3 opens.' }])
+    expect(s.scenes).toEqual([{ sceneId: w.id('b3.c1.s1'), chapterId: w.id('b3.c1'), label: 'Book 3, Ch 1, Sc 1', text: 'Book 3 opens.', when: '', whereId: null, whoIds: [] }])
     const b2 = sceneMemory(db, w.id('b2.c4.s1')).storySoFar
     expect(b2.chapters.map((c) => c.label)).toEqual(['Book 2, Ch 1', 'Book 2, Ch 2', 'Book 2, Ch 3'])
     const ld = sceneMemory(db, w.id('ld.c1.s1')).storySoFar
