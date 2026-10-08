@@ -695,9 +695,16 @@
 }
 .ra .ra-thread {
   fill: none;
-  stroke-width: 2.4;
+  stroke-width: 2.6;
   stroke-linecap: round;
-  stroke-dasharray: 10 6;
+}
+.ra .ra-stitch {
+  fill: none;
+  stroke: var(--page) !important;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 1.5 7;
+  opacity: 0.8;
   animation: ra-flow 5s linear infinite;
 }
 .ra .ra-t1 {
@@ -713,7 +720,7 @@
 }
 @keyframes ra-flow {
   to {
-    stroke-dashoffset: -32;
+    stroke-dashoffset: -34;
   }
 }
 .ra .ra-knot {

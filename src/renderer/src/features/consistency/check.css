@@ -43,7 +43,22 @@
   padding: 26px 22px 28px 26px;
   border-right: 1px solid var(--desk-line-2);
   background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 5%, var(--page)), var(--page) 70%);
-  scrollbar-width: thin;
+}
+/* A quiet scroll bar for the column, shown only while it is in use. */
+[data-arrangement='desk'] .ck-side::-webkit-scrollbar {
+  width: 8px;
+}
+[data-arrangement='desk'] .ck-side::-webkit-scrollbar-button {
+  display: none;
+}
+[data-arrangement='desk'] .ck-side::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+  background-color: transparent;
+}
+[data-arrangement='desk'] .ck-side:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--fg) 22%, transparent);
 }
 [data-arrangement='desk'] .ck-art {
   width: 100%;
@@ -1213,10 +1228,15 @@
   }
   [data-arrangement='desk'] .ck-issues .ck-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
     align-items: start;
   }
   [data-arrangement='desk'] .ck-report {
     max-width: 1180px;
   }
+}
+
+/* The report sits in the middle of what the column leaves, on any width. */
+[data-arrangement='desk'] :is(.ck-issues, .ck-report, .lg-list) {
+  margin-inline: auto;
 }

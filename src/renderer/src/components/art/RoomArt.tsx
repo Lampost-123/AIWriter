@@ -361,9 +361,17 @@ export function LoomArt({ className }: ArtProps): React.JSX.Element {
   const rest = useRest()
   return (
     <svg {...rest} viewBox="0 0 96 64" className={cn('ra la ra-loom', className)} aria-hidden data-room-art="loom">
-      <path className="ra-thread ra-t1 lp" d="M4 20 C 24 8 36 40 52 28 S 80 12 92 22" />
-      <path className="ra-thread ra-t2 lp" d="M4 34 C 22 46 40 18 56 34 S 80 48 92 36" />
-      <path className="ra-thread ra-t3 lp" d="M4 48 C 26 40 38 56 58 46 S 82 40 92 50" />
+      {[
+        ['ra-t1', 'M4 20 C 24 8 36 40 52 28 S 80 12 92 22'],
+        ['ra-t2', 'M4 34 C 22 46 40 18 56 34 S 80 48 92 36'],
+        ['ra-t3', 'M4 48 C 26 40 38 56 58 46 S 82 40 92 50']
+      ].map(([t, d]) => (
+        <g key={t}>
+          <path className={cn('ra-thread', t)} d={d} />
+          {/* The stitches running along it. */}
+          <path className={cn('ra-stitch lp', t)} d={d} />
+        </g>
+      ))}
       <circle className="ra-knot" cx="52" cy="28" r="3" />
       <circle className="ra-knot ra-knot-open" cx="92" cy="36" r="3" />
     </svg>
