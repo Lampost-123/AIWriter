@@ -30,6 +30,8 @@ export const FULL_FROM = 1280
  */
 export const MARGIN = { width: 300, overlap: 16 } as const
 export const MARGIN_RESERVE = MARGIN.width - MARGIN.overlap + GUTTER
+/** The furthest the sheet moves left of its centre to make room for the margin column. */
+export const MARGIN_SHIFT = 32
 /** The page's scrollbar room inside the desk's scroll area (kept whether it scrolls or not). */
 const SCROLLBAR = 12
 
@@ -72,9 +74,14 @@ export function deskFit(windowW: number, columnW: number, wantsFull: boolean): D
   const fullRoom = windowW >= FULL_FROM
   const full = wantsFull && fullRoom
   const leftMin = full ? STORY_RIGHT + GUTTER : SHEET_LEFT_MIN
-  const margin = windowW - SCROLLBAR >= leftMin + sheetW + MARGIN_RESERVE ? 'column' : 'tabs'
+  // The column needs its room, and the page stays the middle of the desk: it moves left of its centre for the column
+  // by MARGIN_SHIFT at most (the mockup's 20px or so); with less room than that the notes fold into tabs.
+  const roomLeft = full ? STORY_RIGHT : 0
+  const centre = full ? roomLeft + Math.max(GUTTER, (windowW - roomLeft - sheetW) / 2) : (windowW - sheetW) / 2
+  const shift = centre - Math.min(centre, windowW - sheetW - MARGIN_RESERVE)
+  const margin = windowW - SCROLLBAR >= leftMin + sheetW + MARGIN_RESERVE && shift <= MARGIN_SHIFT ? 'column' : 'tabs'
   const rightMin = margin === 'column' ? MARGIN_RESERVE : GUTTER
-  return { windowW, padX, sheetW, fullRoom, full, roomLeft: full ? STORY_RIGHT : 0, leftMin, margin, rightMin }
+  return { windowW, padX, sheetW, fullRoom, full, roomLeft, leftMin, margin, rightMin }
 }
 
 /**

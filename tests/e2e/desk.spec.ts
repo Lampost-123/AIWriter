@@ -237,7 +237,8 @@ test('the spine: full by default with every chapter and scene beside the page; c
       const s = (await win.locator('.desk-sheet').boundingBox())!
       return Math.abs(s.x + s.width / 2 - (await win.evaluate<number>('innerWidth')) / 2)
     })
-    .toBeLessThan(12)
+    // (Phase 3: with room for the margin notes' column beside it, the sheet may sit up to 32px left of the middle.)
+    .toBeLessThan(12 + 32)
   // A ring names its scene while the pointer rests on it, and opens it at the first click.
   const ring = spine(win).getByRole('button', { name: /^What the Letter Said/ })
   const r = (await ring.boundingBox())!
