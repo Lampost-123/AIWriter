@@ -90,7 +90,7 @@ const clean = (s: string | null | undefined): string => (s ?? '').trim()
 export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): SceneCheckContext {
   const scene = repo.getScene(db, sceneId)
   const { story } = repo.sceneLocation(db, sceneId)
-  const memory = sceneMemory(db, sceneId)
+  const memory = sceneMemory(db, sceneId, { forWriter: true, dropGuesses: true })
   const shape = loadShape(db)
   const label = labeler(shape)
   const card = scene.card

@@ -43,6 +43,8 @@ import {
   fieldLabel,
   fieldOrigin,
   fieldValue,
+  builderField,
+  guessFields,
   fingerprint,
   kindWord,
   removedWords,
@@ -70,6 +72,11 @@ export interface ApplyContext {
   sideClashes: SideClashes | null
   /** The scene was deleted: every fact read from it loses those words, and the scene isn't marked read. */
   removed?: boolean
+  /**
+   * The memory is being tidied against the text with no model (tidy.ts, World Memory Overhaul A7): links follow their
+   * words and facts whose words are gone go, but nothing new is read and the scene isn't marked read.
+   */
+  sweep?: boolean
 }
 
 export interface ApplyResult {
@@ -142,6 +149,11 @@ export type Undo = (
       place: { storyId: ID | null; chapterId: ID | null }
     }
   | { op: 'summary-refresh'; key: string; sceneId: ID; version: number; refreshed?: boolean }
+  /**
+   * A quiet note that changes nothing (World Memory Overhaul, 2026-10-08): "the scene no longer says this" under one of
+   * Adam's own facts, or the tidy-up's summary line. Undoing it only dismisses it.
+   */
+  | { op: 'note'; key: string }
 ) & { fingerprint?: string; words?: string }
 
 // ---------- Small helpers ----------
@@ -194,6 +206,7 @@ export const patchFor = (e: Entry, field: string, value: string): Parameters<typ
 /** True when Adam typed this field's value himself (an empty field he never touched can still be filled). */
 function adamField(e: Entry, field: string): boolean {
   if (e.fieldOrigins?.[field] === 'adam') return true
+  if (builderField(e, field) && fieldValue(e, field).trim() !== '') return true // the world builder's drafts count as Adam's (2026-10-08)
   return fieldOrigin(e, field) === 'adam' && fieldValue(e, field).trim() !== ''
 }
 
@@ -692,6 +705,70 @@ function allLinks(run: Run, f: SceneFact): SourceLink[] {
 }
 
 /**
+ * An entry's summary whose words are gone, or which the model wouldn't confirm, while the entry stays (Adam,
+ * 2026-10-08): the old summary is kept, and the writer goes on seeing it, until a new one is written. The first time,
+ * its link moves to words that still mention the entry (in this scene, else another), marked changed, so the next read
+ * of that scene asks the model about it ("summary E3: …") and it can be revised from what is left. If that read doesn't
+ * settle it, the summary simply stays, resting on no words (asked about no more; a re-reported entry or a "summary"
+ * item can still give it new words).
+ */
+function keepSummaryForRewrite(run: Run, f: Extract<SceneFact, { kind: 'field' }>): void {
+  const db = run.db
+  const here = hist.linksById(
+    db,
+    linksHere(f, run).map((l) => l.id)
+  )
+  if (!here.length) return
+  const asked = here.some((l) => l.state === 'changed' && (l.checks ?? 0) >= 1)
+  const mention = asked ? null : findMention([f.entry.name, ...f.entry.aliases], run.plan.paras)
+  const elsewhere = asked || mention ? null : mentionedSomewhere(db, f.entry)
+  const [first, ...rest] = here
+  for (const l of rest) hist.deleteLink(db, l.id)
+  if (mention) {
+    hist.updateLink(db, first.id, { paragraphId: mention.paragraphId, state: 'changed' })
+    hist.updateLink(db, first.id, { checks: 1 })
+  } else if (elsewhere && elsewhere.scene.sceneId !== run.scene.sceneId) {
+    hist.deleteLink(db, first.id)
+    const l = hist.addLink(db, {
+      factKind: 'summary',
+      factId: f.entry.id,
+      field: 'summary',
+      sceneId: elsewhere.scene.sceneId,
+      sceneVersion: elsewhere.scene.textVersion,
+      paragraphId: elsewhere.spot.paragraphId,
+      start: elsewhere.spot.start,
+      end: elsewhere.spot.end,
+      quote: first.quote,
+      state: 'changed'
+    })
+    hist.updateLink(db, l.id, { checks: 1 })
+  } else hist.deleteLink(db, first.id)
+}
+
+/**
+ * Adam's own fact that the scene no longer supports (Adam, 2026-10-08): it is never changed or removed, only a quiet
+ * note says so, which he can dismiss (once per set of words).
+ */
+function noteNoLonger(run: Run, f: SceneFact): void {
+  if (f.kind !== 'field' && f.kind !== 'change') return
+  const key = `no-longer:${f.key}:${wordsOf(f.links[0]?.quote ?? '')}`
+  if (kdb.lineGiven(run.db, key) || run.lines.some((l) => (l.undo as { key?: string } | null)?.key === key)) return
+  const label = f.kind === 'field' ? fieldLabel(f.entry, f.field) : changeWords(f.change, (id) => run.entry(id)?.name ?? 'someone')
+  run.log({
+    action: 'updated',
+    what: f.kind === 'field' ? 'entry' : 'change',
+    entryId: f.entry.id,
+    factId: f.kind === 'change' ? f.change.id : null,
+    entryName: f.entry.name,
+    text: `${label}: the scene no longer says this (yours is kept as it is)`,
+    before: '',
+    after: '',
+    quote: f.links[0]?.quote ?? '',
+    undo: { op: 'note', key }
+  })
+}
+
+/**
  * Removes a text (or AI-drafted) fact whose words are gone or no longer say it. `unconfirmed`: the links of a fact
  * removed because it stayed unconfirmed; undoing the removal forgets them, so the fact is Adam's to keep.
  */
@@ -705,8 +782,10 @@ function removeFact(run: Run, planned: SceneFact, why: string, unconfirmed?: ID[
   if (!f) return
   if (keptForAdam(run, planned, f)) {
     run.keptForAdam.add(f.kind === 'change' ? f.change.entryId : f.entry.id)
-    return askRefresh(run, f, null, null)
+    return noteNoLonger(run, f)
   }
+  // An entry's summary is never cleared while the entry stays (Adam, 2026-10-08): it waits for a new one.
+  if (f.kind === 'field' && f.field === 'summary') return keepSummaryForRewrite(run, f)
   const quote = f.links[0]?.quote ?? ''
   const nameOf = (id: ID): string => run.entry(id)?.name ?? 'someone'
   switch (f.kind) {
@@ -1185,7 +1264,7 @@ function pinDetail(run: Run, e: Entry, field: string, value: string, before: str
 
 /** The text disagrees with the memory: AI-drafted fields give way; Adam's facts (and other scenes' words) raise an issue. */
 function clash(run: Run, e: Entry, field: string | null, memory: string, text: string, s: Spot): void {
-  if (field && fieldOrigin(e, field) === 'ai' && e.fieldOrigins?.[field] !== 'adam' && text) {
+  if (field && fieldOrigin(e, field) === 'ai' && !builderField(e, field) && e.fieldOrigins?.[field] !== 'adam' && text) {
     const updated = run.entry(e.id)
     if (updated) addDetail(run, updated, field, text, s)
     return
@@ -1611,6 +1690,33 @@ function adamAddedTo(db: DB, e: Entry): boolean {
   return false
 }
 
+/**
+ * The memory's guesses about a text entry (fields the AI filled in with no words in the story behind them: World Memory
+ * Overhaul A4) go when no words say anything of the entry any more, each with Undo.
+ */
+function clearGuesses(run: Run, e: Entry): void {
+  const links = hist.linksForEntry(run.db, e.id)
+  for (const field of guessFields(e)) {
+    if (links.some((l) => l.field === field && l.state === 'ok')) continue
+    const fresh = run.entry(e.id)
+    if (!fresh) return
+    const before = fieldValue(fresh, field)
+    if (!before.trim()) continue
+    repo.updateEntry(run.db, fresh.id, patchFor(fresh, field, ''), run.by)
+    run.log({
+      action: 'removed',
+      what: 'entry',
+      entryId: fresh.id,
+      entryName: fresh.name,
+      text: `${fieldLabel(fresh, field)}: a guess, and no scene mentions ${fresh.name} any more`,
+      before,
+      after: '',
+      quote: '',
+      undo: { op: 'field-set', entryId: fresh.id, field, before, beforeOrigin: fresh.fieldOrigins?.[field] ?? null, linkIds: [] }
+    })
+  }
+}
+
 /** A change Adam made himself (not one read from the text that he edited). */
 const adamMadeChange = (db: DB, c: Change): boolean => c.origin === 'adam' && (hist.firstOrigin(db, 'change', c.id) ?? 'adam') === 'adam'
 
@@ -1623,17 +1729,16 @@ function trashForgotten(run: Run): void {
   const candidates = new Set([...run.plan.touchedEntries, ...run.removedChanges])
   for (const id of candidates) {
     const e = run.entry(id)
-    if (!e || e.origin !== 'text' || run.keptForAdam.has(id) || adamAddedTo(db, e)) continue
+    if (!e || e.origin !== 'text' || run.keptForAdam.has(id)) continue
     if (hist.linksForEntry(db, id).some((l) => l.state === 'ok')) continue
     const own = mem.changesForEntry(db, id)
-    if (own.some((c) => c.origin === 'ai' || adamMadeChange(db, c))) continue
     const unsupported: ID[] = []
     let supported = false
     for (const c of own) {
       if (hist.linksForFact(db, 'change', c.id).some((l) => l.state === 'ok')) supported = true
       else unsupported.push(c.id)
     }
-    if (supported || kdb.entryReferenced(db, id, unsupported)) continue
+    if (supported) continue
     // Another scene still names it (one read before the entry existed, or not read yet): it stays, linked there.
     const still = mentionedSomewhere(db, e)
     if (still) {
@@ -1645,6 +1750,16 @@ function trashForgotten(run: Run): void {
         sceneVersion: still.scene.textVersion,
         ...still.spot
       })
+      continue
+    }
+    // No words in any scene say anything of it now. It stays for something of Adam's (or on a card, a pin...), but the
+    // memory's guesses about it go (World Memory Overhaul A4).
+    if (
+      adamAddedTo(db, e) ||
+      own.some((c) => c.origin === 'ai' || adamMadeChange(db, c)) ||
+      kdb.entryReferenced(db, id, unsupported)
+    ) {
+      clearGuesses(run, e)
       continue
     }
     for (const cid of unsupported) mem.deleteChange(db, cid, run.by)
@@ -1751,7 +1866,7 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
   // unconfirmed once the new facts are in (settleUnconfirmed).
   for (const f of plan.gone) removeFact(run, f, ctx.removed ? 'those words were deleted with the scene' : 'those words were deleted')
 
-  linkMentions(run)
+  if (!ctx.sweep) linkMentions(run)
   for (const chunk of replies) {
     const refs = refsFor.get(chunk)!
     for (const a of chunk.reply.add) {
@@ -1771,7 +1886,7 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
   askWhichLast(run)
 
   for (const l of run.lines) kdb.insertLog(db, l)
-  if (!ctx.removed) {
+  if (!ctx.removed && !ctx.sweep) {
     kdb.markProcessed(
       db,
       plan.scene.sceneId,

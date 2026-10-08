@@ -14,6 +14,7 @@ import { callModel, DEFAULT_MEMORY_CONTEXT, type CallResult, type MemoryModel } 
 import { SUMMARY_SYSTEM, cleanSummary, summaryPrompt, type SummaryAsk } from './prompts'
 import { estimateTokens, firstWords, hashText, splitLong, textParas } from './text'
 import type { Undo } from './apply'
+import { MIN_SUMMARY_WORDS, changeSince, sameSource, sceneSourceHash, summaryDue } from './sceneChange'
 
 type DB = Database.Database
 
@@ -28,18 +29,23 @@ export interface SummaryOptions {
 }
 
 /** Too short to be worth a summary. */
-const MIN_WORDS = 40
+const MIN_WORDS = MIN_SUMMARY_WORDS
 const SCENE_REPLY = 700
 const ROLLUP_REPLY = 900
+/** A patched summary's reply: about its own length, never the full rewrite's room (World Memory Overhaul A3). */
+const PATCH_REPLY_MIN = 200
+const PATCH_REPLY_MAX = 450
+/** At most this many changed words (and less than half the scene) are patched in; more, and the scene is summarised again. */
+const PATCH_WORDS = 600
 
 const summaryFingerprint = (level: SummaryLevel, targetId: ID): string => `summary:${level}:${targetId}`
 
-/** What a scene summary stands for: the scene's words and how many there are. */
-export const sceneSourceHash = (text: string): string => `${hashText(text)}|${countWords(text)}`
+export { sceneSourceHash }
 
 /** A summary Adam undid isn't written again from the same sources (stored as a suppression keyed by the summary's target). */
 function suppressed(db: DB, level: SummaryLevel, targetId: ID, hash: string): boolean {
-  return kdb.suppressionsInScene(db, targetId).some((s) => s.fingerprint === summaryFingerprint(level, targetId) && s.words === hash)
+  const fp = summaryFingerprint(level, targetId)
+  return kdb.suppressionsInScene(db, targetId).some((s) => s.fingerprint === fp && (s.words === hash || (level === 'scene' && sameSource(s.words, hash))))
 }
 
 /** After an undo: this summary isn't written again until what it is made from changes. */
@@ -47,7 +53,11 @@ export function suppressSummary(db: DB, level: SummaryLevel, targetId: ID, sourc
   if (sourceHash) kdb.addSuppression(db, summaryFingerprint(level, targetId), targetId, sourceHash)
 }
 
-/** True when a scene's summary should be (re)written now. */
+/**
+ * True when a scene's summary should be (re)written now. Since 2026-10-08 (World Memory Overhaul A3), while Adam is
+ * still writing, when about forty words changed or a changed paragraph names someone or something in the memory
+ * (sceneChange.ts summaryDue), rather than only when the scene grew or shrank a good deal.
+ */
 export function sceneSummaryDue(db: DB, sceneId: ID, done: boolean): boolean {
   const scene = kdb.keeperScene(db, sceneId)
   if (!scene) return false
@@ -58,14 +68,19 @@ export function sceneSummaryDue(db: DB, sceneId: ID, done: boolean): boolean {
     if (words === 0 && row) kdb.deleteTextSummary(db, 'scene', sceneId)
     return false
   }
-  const hash = sceneSourceHash(scene.text)
-  if (suppressed(db, 'scene', sceneId, hash)) return false
-  if (!row) return true
-  if (row.sourceHash === hash) return false
-  if (done || row.stale) return true
-  // While Adam is still writing: only when the scene has grown or shrunk a good deal.
-  const before = Number(row.sourceHash.split('|')[1])
-  return !before || Math.abs(words - before) >= Math.max(150, before * 0.3)
+  if (suppressed(db, 'scene', sceneId, sceneSourceHash(scene.text, scene.doc))) return false
+  return summaryDue(db, sceneId, done)
+}
+
+/** The edits a scene's summary can be patched with (a few changed paragraphs, none deleted), or null to write it again. */
+function patchable(db: DB, sceneId: ID, scene: { text: string; doc: unknown }): { summary: string; paragraphs: string[] } | null {
+  const row = kdb.summaryRow(db, 'scene', sceneId)
+  if (!row || row.origin === 'adam' || !row.text.trim()) return null
+  const c = changeSince(row.sourceHash, scene.text, scene.doc)
+  if (!c.known || c.removed > 0 || !c.changed.length) return null
+  const changedWords = c.changed.reduce((n, p) => n + countWords(p.text), 0)
+  if (changedWords > PATCH_WORDS || changedWords * 2 >= countWords(scene.text)) return null
+  return { summary: row.text, paragraphs: c.changed.map((p) => p.text) }
 }
 
 /** Room for the text to summarise in one request. */
@@ -209,11 +224,16 @@ export async function writeSceneSummary(
   if (!scene || !scene.text.trim()) return false
   const text = scene.text
   const words = countWords(text)
-  const sourceHash = sceneSourceHash(text)
+  const sourceHash = sceneSourceHash(text, scene.doc)
   const room = textRoom(o.model, SCENE_REPLY)
   const calls: CallResult[] = []
   let written: Written | null = null
-  if (estimateTokens(text) <= room) {
+  // A few paragraphs edited or added: the old summary is patched from them alone, in a short reply (A3).
+  const patch = force ? null : patchable(o.db, sceneId, scene)
+  if (patch) {
+    const reply = Math.min(PATCH_REPLY_MAX, Math.max(PATCH_REPLY_MIN, Math.ceil(estimateTokens(patch.summary) * 1.4) + 40))
+    written = await ask(o, sceneId, { level: 'scene-patch', where, title: scene.title, ...patch }, reply, calls)
+  } else if (estimateTokens(text) <= room) {
     written = await ask(o, sceneId, { level: 'scene', where, title: scene.title, text, words }, SCENE_REPLY, calls)
   } else {
     // A long scene: summarise it in parts, then join the parts.

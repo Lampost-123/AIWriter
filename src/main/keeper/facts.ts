@@ -22,6 +22,26 @@ export type SceneFact =
 /** Who a field's value comes from (missing keys follow the entry's own origin). */
 export const fieldOrigin = (e: Entry, field: string): Origin => e.fieldOrigins?.[field] ?? e.origin
 
+/**
+ * True when the field holds what the world builder drafted (interview, Quick start, Finish the rest, kept suggestions)
+ * for an entry Adam made: an AI-drafted field on Adam's own entry. It counts as Adam's (Adam, 2026-10-08): always kept,
+ * never replaced by the text, given to the writer as fact. Worlds from before need nothing new to tell these apart: the
+ * memory keeper only ever drafts fields on entries it found in the text, never on Adam's.
+ */
+export const builderField = (e: Pick<Entry, 'origin' | 'fieldOrigins'>, field: string): boolean =>
+  e.origin === 'adam' && e.fieldOrigins?.[field] === 'ai'
+
+/**
+ * The memory's guesses about an entry it found in the text (World Memory Overhaul A4): fields the AI filled in on a text
+ * entry ('ai' origin). Some rest on words in the story (they have links); the writer is told the rest are guesses.
+ */
+export function guessFields(e: Pick<Entry, 'origin' | 'fieldOrigins'>): string[] {
+  if (e.origin !== 'text') return []
+  return Object.entries(e.fieldOrigins ?? {})
+    .filter(([k, o]) => o === 'ai' && k !== 'name' && k !== 'aliases')
+    .map(([k]) => k)
+}
+
 /** A field's value: kind-specific fields, or one of the entry's own ('name', 'summary', 'description'). */
 export function fieldValue(e: Entry, field: string): string {
   if (field === 'name') return e.name

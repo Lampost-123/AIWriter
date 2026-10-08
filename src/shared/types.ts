@@ -285,6 +285,11 @@ export interface Entry {
    * null when it has none (milestone 3). Set with AppApi.setEntryImage; lists never carry the image itself.
    */
   image?: string | null
+  /**
+   * Only as the writer is given it (World Memory Overhaul A4, memory/scene.ts writerData): fields that are the memory's
+   * guesses, with no words in the story behind them. The briefing labels them; "must stay true" leaves them out.
+   */
+  guesses?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -1220,6 +1225,8 @@ export interface MemoryLogItem {
   createdAt: string
   /** Adam undid it. */
   undone: boolean
+  /** A quiet note that changes nothing ("the scene no longer says this"): dismissed rather than undone. */
+  note?: boolean
 }
 
 export interface MemoryStatus {

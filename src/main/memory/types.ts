@@ -150,7 +150,22 @@ export interface StorySoFar {
    * This story's scene summaries before this scene, oldest first, with what each scene's card says of when, where and
    * who (the writer's timeline, ai/timeline.ts; left out by anything older).
    */
-  scenes: { sceneId: ID; chapterId: ID; label: string; text: string; when?: string; whereId?: ID | null; whoIds?: ID[] }[]
+  scenes: {
+    sceneId: ID
+    chapterId: ID
+    label: string
+    text: string
+    when?: string
+    whereId?: ID | null
+    whoIds?: ID[]
+    /**
+     * For the writer (World Memory Overhaul A3): the scene changed since this summary was written, enough for a new one
+     * to be due; it is being brought up to date.
+     */
+    updating?: boolean
+    /** With `updating`, for the most recent such scenes: the last few dozen words of the scene as it now reads. */
+    excerpt?: string
+  }[]
   /** This story's chapters that ended before this scene, oldest first, with their summaries. */
   chapters: { chapterId: ID; label: string; text: string }[]
   /**

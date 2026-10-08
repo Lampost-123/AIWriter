@@ -309,7 +309,9 @@ export interface LogRow extends Omit<MemoryLogItem, 'where'> {
   undo: Record<string, unknown> | null
 }
 
-const toLog = (r: Row): LogRow => ({
+const toLog = (r: Row): LogRow => {
+  const undo = json<Record<string, unknown> | null>(r.undo_json, null)
+  return {
   id: r.id as string,
   runId: r.run_id as string,
   sceneId: (r.scene_id as string | null) ?? null,
@@ -325,10 +327,13 @@ const toLog = (r: Row): LogRow => ({
   question: json<LogRow['question']>(r.question_json, null),
   createdAt: r.created_at as string,
   undone: r.undone_at != null,
-  undo: json<Record<string, unknown> | null>(r.undo_json, null)
-})
+  undo,
+  // A quiet note (World Memory Overhaul, 2026-10-08): the window offers Dismiss rather than Undo.
+  ...(undo?.op === 'note' ? { note: true } : {})
+  }
+}
 
-export type NewLog = Omit<LogRow, 'id' | 'createdAt' | 'undone'>
+export type NewLog = Omit<LogRow, 'id' | 'createdAt' | 'undone' | 'note'>
 
 export function insertLog(db: DB, l: NewLog): LogRow {
   const id = newId()
@@ -576,7 +581,21 @@ export function questionAsked(db: DB, key: string): boolean {
   return rows.some((r) => json<{ key?: string }>(r.undo_json, {}).key === key)
 }
 
+/** True when a line with this key (a question or a quiet note) is already in What changed. */
+export function lineGiven(db: DB, key: string): boolean {
+  const rows = db.prepare('SELECT undo_json FROM memory_log WHERE undo_json LIKE ?').all(`%${key}%`) as Row[]
+  return rows.some((r) => json<{ key?: string }>(r.undo_json, {}).key === key)
+}
+
 // ---------- References ----------
+
+/** True when the id is one of the values in a card (at any depth), never only in a key. */
+function cardNames(v: unknown, id: ID): boolean {
+  if (typeof v === 'string') return v.includes(id)
+  if (Array.isArray(v)) return v.some((x) => cardNames(x, id))
+  if (v && typeof v === 'object') return Object.values(v as Record<string, unknown>).some((x) => cardNames(x, id))
+  return false
+}
 
 /**
  * True when something other than the keeper's own links refers to the entry: a live change on it
@@ -588,7 +607,10 @@ export function entryReferenced(db: DB, entryId: ID, ignoreChangeIds: ID[] = [])
     .prepare('SELECT id FROM changes WHERE deleted_at IS NULL AND (entry_id = ? OR payload_json LIKE ?)')
     .all(entryId, `%${entryId}%`) as Row[]
   if (changes.some((c) => !ignore.has(c.id as string))) return true
-  if (db.prepare('SELECT 1 FROM scenes WHERE deleted_at IS NULL AND card_json LIKE ? LIMIT 1').get(`%${entryId}%`)) return true
+  // A card names it only where the id is one of the card's values: the marks of plot thread links taken off are kept
+  // under keys holding the id ('setsUp:<id>': 'undone'), which name nothing (World Memory Overhaul A5, 2026-10-08).
+  const cards = db.prepare('SELECT card_json FROM scenes WHERE deleted_at IS NULL AND card_json LIKE ?').all(`%${entryId}%`) as Row[]
+  if (cards.some((r) => cardNames(json<unknown>(r.card_json, null), entryId))) return true
   if (db.prepare('SELECT 1 FROM pins WHERE entry_id = ? LIMIT 1').get(entryId)) return true
   return !!db.prepare('SELECT 1 FROM entries WHERE parent_id = ? AND deleted_at IS NULL LIMIT 1').get(entryId)
 }

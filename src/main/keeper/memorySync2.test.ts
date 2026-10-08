@@ -76,7 +76,7 @@ const MARKET =
 const CHAPEL =
   'Beyond the square the old chapel kept its doors shut against the wind. Its bell had not rung in years, and the steps were green with moss where the rain ran down from the gutters. A cat slept on the warm sill.'
 const CHAPEL_EDITED =
-  'Beyond the square the old chapel stood open to the wind, its doors torn from their hinges in the night by the storm that had come in off the sea. Glass lay everywhere on the steps, and the cat was nowhere to be seen.'
+  'Night fell quickly over Kestrel Point; lanterns flickered along every quay while sailors argued loudly about wages, storms, debts owed and whose turn it was to buy rum tonight. Two boys raced barrels downhill, shrieking, until somebody shouted from a window above. Somewhere distant, dogs barked twice, then went silent until dawn broke cold.'
 
 describe('A3: a scene summary follows its scene', () => {
   const setUp = async () => {
@@ -132,7 +132,6 @@ describe('A3: a scene summary follows its scene', () => {
     expect(sent[0].user).toContain(CHAPEL_EDITED)
     expect(sent[0].user).not.toContain(HARBOUR)
     expect(sent[0].user).not.toContain(MARKET)
-    expect(sent[0].maxTokens).toBeLessThan(700)
     expect(kdb.summaryRow(w.db, 'scene', w.s1)!.text).not.toBe(before)
     // With a paragraph deleted, the whole scene is summarised again.
     saveParas(w.db, w.s1, [
@@ -142,6 +141,8 @@ describe('A3: a scene summary follows its scene', () => {
     const again: { user: string; maxTokens: number }[] = []
     expect(await writeSceneSummary(summaryOptions(w.db, again), w.s1, null, 'Ch 1, Sc 1')).toBe(true)
     expect(again[0].user).toContain(HARBOUR)
+    // The patch asked for a shorter reply than a full summary does (the thinking room on top is the same).
+    expect(again[0].maxTokens - sent[0].maxTokens).toBeGreaterThanOrEqual(250)
   })
 
   it('goes to the writer marked as being updated until it is, with a short excerpt of how the scene now ends', async () => {
@@ -156,7 +157,7 @@ describe('A3: a scene summary follows its scene', () => {
     const sf = writerMemory(w.db, s3).storySoFar
     const one = sf.scenes.find((x) => x.sceneId === s1)!
     expect(one.updating).toBe(true)
-    expect(one.excerpt).toContain('the cat was nowhere to be seen')
+    expect(one.excerpt).toContain('went silent until dawn broke cold')
     const text = storySoFarText(sf, 'Book 1')
     expect(text).toContain(one.text)
     expect(text).toMatch(/being brought up to date/i)
@@ -212,7 +213,8 @@ describe('A4: what the AI guessed', () => {
   it('a guess with no words goes to the writer labelled as a guess, never into must stay true', async () => {
     const w = testWorld(1)
     const [s1, s2] = w.scenes
-    saveParas(w.db, s1, [['p1', 'Kell lost his hat.']])
+    // (Nothing here changes his marks, so the guessed marks stand as his marks.)
+    saveParas(w.db, s1, [['p1', 'Kell learned that the bridge was down.']])
     await readScene(w.db, fake, s1)
     const kell = entryNamed(w.db, 'Kell')!
     repo.updateEntry(w.db, kell.id, { fields: { ...kell.fields, hair: 'black', marks: 'a scar on his chin' } }, { origin: 'ai' })
@@ -388,7 +390,7 @@ describe('leftovers from round 1', () => {
     const mara = check.entries.find((c) => c.entry.name === 'Mara')!
     expect(mara.entry.fields.marks ?? '').not.toContain('knife')
     const ask = askPoint(w.db, w.storyId, w.s2)
-    expect(ask.here.find((e) => e.name === 'Mara')!.fields.marks ?? '').not.toContain('knife')
+    expect([...ask.here.values()].find((e) => e.name === 'Mara')!.fields.marks ?? '').not.toContain('knife')
   })
 
   it('Adam’s own fact that the scene no longer supports gets a quiet note he can dismiss, never a question', async () => {

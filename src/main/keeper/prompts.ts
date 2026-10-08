@@ -82,6 +82,8 @@ export type SummaryAsk =
   | { level: 'scene'; where: string; title: string; text: string; words: number }
   | { level: 'scene-part'; where: string; title: string; part: number; parts: number; text: string }
   | { level: 'scene-parts'; where: string; title: string; summaries: string[]; words: number }
+  /** A scene's summary patched from the paragraphs added or rewritten since (World Memory Overhaul A3). */
+  | { level: 'scene-patch'; where: string; title: string; summary: string; paragraphs: string[] }
   | { level: 'chapter'; where: string; title: string; summaries: { label: string; text: string }[] }
   | { level: 'story'; title: string; summaries: { label: string; text: string }[] }
   | { level: 'series'; name: string; summaries: { label: string; text: string }[] }
@@ -102,6 +104,8 @@ export function summaryPrompt(a: SummaryAsk): string {
       return `This is part ${a.part} of ${a.parts} of a long scene (${a.where}${a.title ? ` "${a.title}"` : ''}). Summarise this part in about 80 words.\n\n${a.text}`
     case 'scene-parts':
       return `These summarise the parts of one scene, in order (${a.where}${a.title ? ` "${a.title}"` : ''}). Join them into one summary of the scene ${sceneSummaryLength(a.words)}.\n\n${a.summaries.map((s, i) => `Part ${i + 1}: ${s}`).join('\n\n')}`
+    case 'scene-patch':
+      return `This is the summary of a scene (${a.where}${a.title ? ` "${a.title}"` : ''}), then the paragraphs of the scene that are new or rewritten since it was written. Edit the summary so it is true to the scene as it now reads, changing as little as you can and keeping about its length. Reply with the whole edited summary.\n\nSummary: ${a.summary}\n\nNew or rewritten paragraphs:\n\n${a.paragraphs.join('\n\n')}`
     case 'chapter':
       return `Summarise this chapter (${a.where}${a.title ? `, "${a.title}"` : ''}) from its scene summaries, in 100 to 250 words.\n\n${list(a.summaries)}`
     case 'story':

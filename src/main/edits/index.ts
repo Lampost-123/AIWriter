@@ -21,7 +21,7 @@ import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
-import { gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
+import { catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
 import { sceneTail, stageScope, timelineFrom } from '../ai/context'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
@@ -94,6 +94,12 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const settings = getSettings()
   const model = jobModel('writer', { settings, getProvider: providers.getProvider, providerTarget: providers.providerTarget })
   const db = world.db()
+  // Continue, like a draft, first lets the memory catch up: earlier scenes, then this scene's own unread words
+  // (World Memory Overhaul A6), never for long.
+  if (tool === 'continue') {
+    await catchUpBeforeDraft(db, input.sceneId)
+    if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
+  }
   const scene = repo.getScene(db, input.sceneId)
   const { story } = repo.sceneLocation(db, input.sceneId)
   const memory = sceneMemory(db, input.sceneId, { forWriter: true })

@@ -412,6 +412,39 @@ describe('a text fact Adam edited whose words now say something else', () => {
   })
 })
 
+describe('an entry’s summary whose words are deleted while the entry is still mentioned (Adam, 2026-10-08)', () => {
+  it('is kept, the writer still sees it, and the next read asks the model once to revise it from what is left', async () => {
+    const w = world()
+    const lamps = 'Oskar lit the harbour lamps every night.'
+    save(w.db, w.sceneId, [
+      ['p1', lamps],
+      ['p2', 'Oskar waited by the gate.']
+    ])
+    await read(w.db, w.sceneId, {
+      add: [{ type: 'entry', kind: 'character', name: 'Oskar', summary: 'A lamplighter at the harbour.', quote: lamps }]
+    })
+    const oskar = named(w.db, 'Oskar')!
+    const summaryLinks = () => hist.linksForEntry(w.db, oskar.id).filter((l) => l.factKind === 'summary')
+    expect(summaryLinks().map((l) => l.state)).toEqual(['ok'])
+    // The words the summary rests on go; Oskar is still in the scene.
+    save(w.db, w.sceneId, [['p2', 'Oskar waited by the gate.']])
+    await read(w.db, w.sceneId)
+    expect(named(w.db, 'Oskar')!.summary).toBe('A lamplighter at the harbour.')
+    expect(writerEntry(w.db, w.later, 'Oskar')!.summary).toBe('A lamplighter at the harbour.')
+    expect(summaryLinks().map((l) => [l.state, l.paragraphId])).toEqual([['changed', 'p2']])
+    expect(removedLines(w.db).filter((l) => l.entryId === oskar.id)).toEqual([])
+    // The next read asks about it; the model doesn't revise it, so the old one stays (now resting on no words).
+    save(w.db, w.sceneId, [['p2', 'Oskar waited by the old gate.']])
+    const next = await read(w.db, w.sceneId)
+    expect(next.asked.join('\n')).toMatch(/^- F\d+ summary E\d+: A lamplighter at the harbour/m)
+    expect(named(w.db, 'Oskar')!.summary).toBe('A lamplighter at the harbour.')
+    expect(summaryLinks()).toEqual([])
+    // And it isn't asked about again.
+    save(w.db, w.sceneId, [['p2', 'Oskar waited by the old gate again.']])
+    expect((await read(w.db, w.sceneId)).asked.join('\n')).not.toMatch(/summary E\d+/)
+  })
+})
+
 describe('an event', () => {
   const event = (summary: string, quote: string) => ({ type: 'event', name: 'The river crossing', summary, involved: ['Mara'], quote })
 

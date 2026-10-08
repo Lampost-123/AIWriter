@@ -25,6 +25,9 @@ import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, sto
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
 import * as mem from '../db/memory'
 import { factHealth, linksForFacts } from '../db/history'
+import { summaryDue } from '../keeper/sceneChange'
+import { fieldValue, guessFields } from '../keeper/facts'
+import { lastWords } from '../keeper/text'
 import * as repo from '../db/repo'
 import { UserError } from '../util'
 
@@ -71,7 +74,8 @@ export function loadMemoryData(db: DB): MemoryData {
  * The memory as the writer is given it (World Memory Overhaul A1, Adam 2026-10-08): a fact read from the text whose
  * words were edited or deleted, with nothing confirming it yet ('unsure' in db/history.ts factHealth), is left out until
  * a read confirms it: a change is dropped, a field is left empty. Adam's own values (his facts, and text facts he
- * edited) always count. The memory keeper and the memory pages see everything (loadMemoryData).
+ * edited) always count, and so does an entry's summary (Adam, 2026-10-08: the old one stands until a new one is
+ * written). The memory keeper and the memory pages see everything (loadMemoryData).
  */
 export function writerData(db: DB, data: MemoryData): MemoryData {
   const health = factHealth(db)
@@ -81,14 +85,15 @@ export function writerData(db: DB, data: MemoryData): MemoryData {
     ...data,
     entries: data.entries.map((e) => {
       const fields = Object.keys(e.fields ?? {}).filter((k) => e.fields[k] && unsure(e, k))
-      const summary = !!e.summary && unsure(e, 'summary')
       const description = !!e.description && unsure(e, 'description')
-      if (!fields.length && !summary && !description) return e
+      // The memory's guesses with no words behind them (A4): labelled for the writer, never in "must stay true".
+      const guesses = guessFields(e).filter((k) => health.field(e.id, k) === 'unlinked' && fieldValue(e, k).trim())
+      if (!fields.length && !description && !guesses.length) return e
       return {
         ...e,
-        summary: summary ? '' : e.summary,
         description: description ? '' : e.description,
-        fields: { ...e.fields, ...Object.fromEntries(fields.map((k) => [k, ''])) }
+        fields: { ...e.fields, ...Object.fromEntries(fields.map((k) => [k, ''])) },
+        ...(guesses.length ? { guesses } : {})
       }
     }),
     changes: data.changes.filter((c) => c.origin === 'adam' || health.change(c.id) !== 'unsure')
@@ -99,7 +104,7 @@ export function writerData(db: DB, data: MemoryData): MemoryData {
  * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
  * briefing and the "must stay true" list.
  */
-export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean } = {}): SceneMemory {
+export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
   const shape = loadShape(db)
   const story = storyOfScene(shape, sceneId)
   if (!story) throw new UserError('That scene no longer exists.')
@@ -108,26 +113,71 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean } =
   const changes = indexChanges(data.changes)
   const line = buildLine(shape, { storyId: story.id, before: sceneId })
   const state = stateAt(data, shape, line, changes)
+  // A guessed field the story has since changed (a change read from the text) is no guess any more. A check leaves the
+  // guesses out altogether: the text never contradicts a guess.
+  if (opts.forWriter) {
+    for (const [id, e] of state.entries) {
+      if (!e.guesses?.length) continue
+      const left = e.guesses.filter((k) => !(e.changed ?? []).includes(k))
+      if (opts.dropGuesses && left.length) {
+        const next: EntryState = { ...e, fields: { ...e.fields }, guesses: undefined }
+        for (const k of left) {
+          if (k === 'summary') next.summary = ''
+          else if (k === 'description') next.description = ''
+          else next.fields[k] = ''
+        }
+        state.entries.set(id, next)
+      } else state.entries.set(id, { ...e, guesses: left.length ? left : undefined })
+    }
+  }
 
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
+  const previous = previousScene(db, shape, story.id, line)
+  const sf = withCards(db, storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries)))
 
   return {
     storyId: story.id,
     sceneId,
     knows: knowsSentence(shape, line),
-    previous: previousScene(db, shape, story.id, line),
+    previous,
     entries: [...state.entries.values()],
     firstHere: [...state.firstHere],
     elsewhere: elsewhere(shape, line, data, state),
     relationships: state.relationships,
     facts: state.facts,
     threads: state.threads,
-    storySoFar: withCards(
-      db,
-      storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries))
-    ),
+    storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries) : sf,
     bringAbout: changes.byScene.get(sceneId) ?? []
   }
+}
+
+/** The most recent scenes whose summary is being brought up to date that also get a short excerpt of how they now end. */
+const EXCERPT_SCENES = 2
+const EXCERPT_WORDS = 60
+
+/**
+ * For the writer (World Memory Overhaul A3): an earlier scene whose words changed since its summary was written, enough
+ * for a new one to be due (keeper/sceneChange.ts), keeps its old summary, marked as being brought up to date (the memory
+ * keeper refreshes it before long: engine.ts queueDueSummaries). The most recent two of them, but never the scene just
+ * before (the briefing has its words), also say in a few words how the scene now ends.
+ */
+function markUpdating(db: DB, s: StorySoFar, previousId: ID | null, entries: Entry[]): StorySoFar {
+  if (!s.scenes.length) return s
+  const names = entries
+    .flatMap((e) => [e.name, ...e.aliases])
+    .map((n) => n.trim())
+    .filter((n) => n.length >= 2)
+  const scenes = s.scenes.map((x) => (summaryDue(db, x.sceneId, false, names) ? { ...x, updating: true } : x))
+  let excerpts = 0
+  for (let i = scenes.length - 1; i >= 0 && excerpts < EXCERPT_SCENES; i--) {
+    const x = scenes[i]
+    if (!x.updating || x.sceneId === previousId) continue
+    const text = mem.sceneText(db, x.sceneId)?.text ?? ''
+    if (!text.trim()) continue
+    scenes[i] = { ...x, excerpt: lastWords(text, EXCERPT_WORDS) }
+    excerpts++
+  }
+  return { ...s, scenes }
 }
 
 /**

@@ -43,7 +43,7 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { memoryAt } from '../memory/asOf'
 import { knowsSentence, labeler } from '../memory/line'
-import { loadMemoryData, loadShape, sceneMemory } from '../memory/scene'
+import { loadMemoryData, loadShape, sceneMemory, writerData } from '../memory/scene'
 import type { MemoryData, StoryNode, StorySoFar, WorldShape } from '../memory/types'
 import { searchIndex } from '../search'
 import {
@@ -192,7 +192,7 @@ export function askPoint(
   storyId: ID | null,
   sceneId: ID | null,
   shape: WorldShape = loadShape(db),
-  data: MemoryData = loadMemoryData(db)
+  data: MemoryData = writerData(db, loadMemoryData(db))
 ): AskPoint {
   const names = new Map(data.entries.map((e) => [e.id, e.name]))
   const place = askedFrom(shape, storyId, sceneId)
@@ -245,7 +245,7 @@ export function askPoint(
 
   // The story so far: up to the open scene (or the story's last), then that scene's own summary.
   const upTo = openScene ?? lastScene(story)
-  const sm = upTo ? sceneMemory(db, upTo) : null
+  const sm = upTo ? sceneMemory(db, upTo, { forWriter: true }) : null
   const summary = upTo ? clean(mem.getSummary(db, 'scene', upTo)?.text) : ''
   return {
     story,

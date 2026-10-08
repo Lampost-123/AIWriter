@@ -386,7 +386,9 @@ export function mustStayTrue(o: MustInput): string[] {
     const c = stageFor(e, o.stand)
     if (c) stageLines(c, who)
     if (!living.has(e.id)) return
-    const marks = clean(e.fields?.marks)
+    // The memory's guesses (World Memory Overhaul A4) are never facts to keep to.
+    const guessed = new Set(e.guesses ?? [])
+    const marks = guessed.has('marks') ? '' : clean(e.fields?.marks)
     if (marks) add('marks', who, `${e.name}: ${marks}`, shortPlace(e.changedWhere?.marks ?? '', o.storyTitle))
     for (const k of e.changed ?? []) {
       const label = FIELD_LABEL.get(k)

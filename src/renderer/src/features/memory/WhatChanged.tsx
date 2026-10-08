@@ -99,7 +99,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
     setItems((list) => (list ? markUndone(list, item.id) : list))
     try {
       await api.undoMemoryItem(item.id)
-      toast(flowRuns.has(item.runId) ? 'Undone.' : "Undone. The memory won't add that again from the same words.")
+      toast(item.note ? 'Dismissed.' : flowRuns.has(item.runId) ? 'Undone.' : "Undone. The memory won't add that again from the same words.")
     } catch (e) {
       setItems((list) => (list ? markUndone(list, item.id, false) : list))
       toast(`That couldn't be undone. ${plainReason(e)}`)
@@ -420,7 +420,7 @@ function LogRow({
           </Button>
         ) : item.undone ? (
           <span ref={undoneRef} tabIndex={-1} className="flex h-7 items-center rounded-md px-2 text-[12px] text-faint outline-none">
-            Undone
+            {item.note ? 'Dismissed' : 'Undone'}
           </span>
         ) : canUndo(item) && !changeGone ? (
           <Button
@@ -431,10 +431,10 @@ function LogRow({
               focusUndone.current = e.currentTarget === document.activeElement
               onUndo()
             }}
-            aria-label={`Undo: ${name ? `${name}, ` : ''}${item.text}`}
-            title={place === null ? "Undo this. The memory won't add it again from the same words." : 'Undo this'}
+            aria-label={`${item.note ? 'Dismiss' : 'Undo'}: ${name ? `${name}, ` : ''}${item.text}`}
+            title={item.note ? 'Dismiss this note' : place === null ? "Undo this. The memory won't add it again from the same words." : 'Undo this'}
           >
-            Undo
+            {item.note ? 'Dismiss' : 'Undo'}
           </Button>
         ) : null}
       </div>
