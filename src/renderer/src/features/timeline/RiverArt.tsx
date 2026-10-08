@@ -1,6 +1,7 @@
 // The living picture on the New look's empty timeline (UI overhaul): a river under a sky, three days marked along its
-// bank with little cards floating over them, the sun going over and the water moving. Drawn in the theme's colours. It
-// stays still with less motion, and pauses while the window is hidden.
+// bank with little cards floating over them, the sun going over and the water moving for a while before it rests (nothing
+// runs on an idle page). Drawn in the theme's colours. It stays still with less motion, and pauses while the window is
+// hidden.
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/cn'
 

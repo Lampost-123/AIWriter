@@ -3,8 +3,8 @@
   (Classic keeps its table), on the desk and in the panels, in every theme: the desk's blue Light and Dark, Sepia warm.
   Each lane has an ink from the kind colours (never amber: amber is the AI's). Cards are index cards like the story
   board's. Motion: the lanes draw in once and their marks pop (only when the river first shows), hover lights at the
-  quick speed, a new layout glides at the view speed; with less motion everything is at once (styles.css), and the
-  living art and the "now" pulse pause while the window is hidden.
+  quick speed, a new layout glides at the view speed; with less motion everything is at once (styles.css). The living
+  art and the "now" pulse run a few times and rest (nothing runs on an idle page), pausing while the window is hidden.
 */
 
 [data-look='new'] .tl {
@@ -610,7 +610,8 @@
   stroke: none;
   transform-box: fill-box;
   transform-origin: center;
-  animation: tl-pulse 3s var(--tl-ease) 1.2s infinite;
+  /* Three times, then it rests: nothing runs on an idle page. */
+  animation: tl-pulse 3s var(--tl-ease) 1.2s 3;
   opacity: 0;
 }
 [data-look='new'] [data-paused] .tl-pulse {
@@ -1163,7 +1164,7 @@
 [data-look='new'] .tl-art-sun {
   transform-box: view-box;
   transform-origin: 300px 340px;
-  animation: tl-sun 36s ease-in-out infinite alternate;
+  animation: tl-sun 18s ease-in-out 2 alternate;
 }
 [data-look='new'] .tl-art-sunbody {
   fill: color-mix(in oklab, var(--accent) 35%, var(--tl-card, var(--surface)));
@@ -1178,7 +1179,7 @@
   stroke-width: 1.4;
   stroke-dasharray: 8 14;
   opacity: 0.35;
-  animation: tl-ripple 7s linear infinite;
+  animation: tl-ripple 7s linear 5;
 }
 [data-look='new'] .tl-art-ripple.is-2 {
   opacity: 0.22;
@@ -1215,7 +1216,7 @@
   text-anchor: middle;
 }
 [data-look='new'] .tl-art-card {
-  animation: tl-bob 6.4s ease-in-out infinite alternate;
+  animation: tl-bob 6.4s ease-in-out 6 alternate;
 }
 [data-look='new'] .tl-art-cardbody {
   fill: var(--tl-card, var(--raise));
