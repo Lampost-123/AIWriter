@@ -12,6 +12,7 @@ import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
 import {
   AlertTriangle,
+  BookA,
   CheckCircle2,
   CircleSlash,
   Feather,
@@ -22,6 +23,7 @@ import {
   SquareStack,
   TextCursorInput,
   Undo2 as Undo,
+  Wrench,
   type IconType
 } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
@@ -55,8 +57,32 @@ function headOf(p: Proposal): string {
       return p.target === 'scene' ? 'New scene title' : 'New chapter title'
     case 'draft':
       return `Draft · ${p.sceneLabel}`
+    case 'issueFix':
+      return p.how === 'memory' && p.memory ? `Memory fix · ${p.memory.name}` : `Issue fix${p.sceneLabel ? ` · ${p.sceneLabel}` : ''}`
+    case 'chapterCard':
+      return `Chapter card · ${p.chapterLabel}`
+    case 'thread':
+      return `${p.threadId ? 'Plot thread' : 'New plot thread'} · ${p.name}`
   }
 }
+
+/** A change's from → to, for a card's part or an entry's field. */
+const Change = ({ label, from, to }: { label: string; from: string; to: string }): React.JSX.Element => (
+  <div className="break-words text-[12.5px] leading-relaxed">
+    <span className="font-medium text-muted">{label}: </span>
+    {from ? (
+      <>
+        <del className="text-muted">{from}</del> →{' '}
+      </>
+    ) : null}
+    <span className="text-fg">{to || '(empty)'}</span>
+  </div>
+)
+
+const SEVERITY: Record<Extract<Proposal, { kind: 'issueFix' }>['severity'], string> = { 'must-fix': 'Must fix', warning: 'Worth a look', minor: 'Minor' }
+
+/** Started in the page rather than applied here (it is kept or undone there): a draft, or a fix with no suggested rewrite. */
+const startedInPage = (p: Proposal): boolean => p.kind === 'draft' || (p.kind === 'issueFix' && p.how === 'text' && !p.fix)
 
 /** A proposed draft's way of writing, in the writer's own words for it (propose_draft, lab switch DRAFT). */
 export function draftModeLabel(p: Extract<Proposal, { kind: 'draft' }>): string {
@@ -153,6 +179,9 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
     case 'card':
       return (
         <div className="flex flex-col gap-0.5">
+          {(p.names ?? []).map((n) => (
+            <Change key={n.label} {...n} />
+          ))}
           {Object.entries(CARD_LABELS).map(([k, label]) =>
             typeof p.patch[k as keyof typeof p.patch] === 'string' ? <Line key={k} label={label} value={p.patch[k as 'goal'] as string} /> : null
           )}
@@ -213,6 +242,43 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
           <Line label="Length" value={p.length ? `about ${p.length.toLocaleString()} words` : 'the scene’s own'} />
         </div>
       )
+    case 'issueFix':
+      return (
+        <div className="flex flex-col gap-1" data-issue-fix={p.how}>
+          <div className="break-words text-[12.5px] leading-relaxed text-fg">
+            <span className={cn('mr-1.5 text-[11px] font-semibold uppercase tracking-wide', p.severity === 'must-fix' ? 'text-danger' : 'text-muted')}>{SEVERITY[p.severity]}</span>
+            {p.message}
+          </div>
+          {p.how === 'memory' && p.memory ? (
+            <Change label={`${p.memory.name}’s ${p.memory.fieldLabel}`} from={p.memory.from} to={p.memory.to} />
+          ) : p.fix ? (
+            <Diff before={p.quote} after={p.fix} />
+          ) : (
+            <>
+              {p.quote ? <div className="break-words font-serif text-[13.5px] leading-[1.6] text-muted">“{p.quote}”</div> : null}
+              <div className="text-[12px] leading-relaxed text-muted">No suggested rewrite: Apply has the AI rewrite the sentence, as a change to accept or reject in the page.</div>
+            </>
+          )}
+        </div>
+      )
+    case 'chapterCard':
+      return (
+        <div className="flex flex-col gap-0.5">
+          {p.lines.map((l) => (
+            <Change key={l.label} {...l} />
+          ))}
+          <div className="mt-0.5 text-[12px] text-muted" data-chapter-scenes={p.scenes}>
+            {p.scenes ? `Updates ${p.scenes} ${p.scenes === 1 ? 'scene' : 'scenes'} that follow this chapter card` : 'No scene follows these parts yet'}
+          </div>
+        </div>
+      )
+    case 'thread':
+      return (
+        <div className="flex flex-col gap-0.5" data-thread-action={p.action}>
+          <Line label={p.list === 'setsUp' ? 'Set up in' : 'Paid off in'} value={p.sceneLabel} />
+          {!p.threadId && p.note ? <Line label="What it promises" value={p.note} /> : null}
+        </div>
+      )
   }
 }
 
@@ -257,14 +323,16 @@ async function apply(generationId: ID, list: Proposal[]): Promise<void> {
   }
 }
 
-const KIND_ICON: Record<Exclude<Proposal['kind'], 'entry' | 'newEntry'>, IconType> = {
+const KIND_ICON: Record<Exclude<Proposal['kind'], 'entry' | 'newEntry' | 'thread'>, IconType> = {
   text: Pencil,
   passage: Pilcrow,
   card: SquareStack,
   newScene: FilePlus,
   newChapter: FilePlus,
   rename: TextCursorInput,
-  draft: Feather
+  draft: Feather,
+  issueFix: Wrench,
+  chapterCard: BookA
 }
 
 /** A change's icon and its tile's ink: an entry's kind in its own ink; a cut, scissors; the rest by what they change. */
@@ -272,6 +340,9 @@ function markOf(p: Proposal): { Icon: IconType; tile: string } {
   if (p.kind === 'entry' || p.kind === 'newEntry') return { Icon: KIND_ICONS[p.entryKind], tile: KIND_INK[p.entryKind].tile }
   if (p.kind === 'text' && !p.replace) return { Icon: Scissors, tile: 'bg-danger-soft text-danger' }
   if (p.kind === 'draft') return { Icon: Feather, tile: 'bg-ai-soft text-ai' }
+  // A plot thread in its own ink, with the app's thread mark; an issue fix as a fix (a memory fix in the memory's ink).
+  if (p.kind === 'thread') return { Icon: KIND_ICONS.thread, tile: KIND_INK.thread.tile }
+  if (p.kind === 'issueFix') return { Icon: p.how === 'memory' ? CheckCircle2 : Wrench, tile: 'bg-accent-soft text-accent' }
   return { Icon: KIND_ICON[p.kind], tile: 'bg-surface-2 text-muted' }
 }
 
@@ -281,7 +352,7 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
   const key = localKey(generationId, p.id)
   const local = useLocal((s) => s[key]) ?? {}
   const { Icon, tile } = markOf(p)
-  const entryInk = p.kind === 'entry' || p.kind === 'newEntry' ? KIND_INK[p.entryKind] : null
+  const entryInk = p.kind === 'entry' || p.kind === 'newEntry' ? KIND_INK[p.entryKind] : p.kind === 'thread' ? KIND_INK.thread : null
   const stale = p.status === 'pending' && !local.applying && !!local.stale
   const state = local.applying ? 'applying' : stale ? 'stale' : p.status
   return (
@@ -307,7 +378,7 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
         {p.status === 'applied' ? (
           <span className="flex shrink-0 animate-fade-in items-center gap-1 text-[12px] font-medium text-success">
             {/* A draft is started, not applied: its words are written (and kept or undone) in the scene. */}
-            <CheckCircle2 size={13} aria-hidden /> {p.kind === 'draft' ? 'Started' : 'Applied'}
+            <CheckCircle2 size={13} aria-hidden /> {p.kind === 'draft' ? 'Started' : startedInPage(p) ? 'In the page' : 'Applied'}
           </span>
         ) : p.status === 'declined' ? (
           <span className="flex shrink-0 items-center gap-1 text-[12px] text-faint">
@@ -326,8 +397,8 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
       {stale ? <div className="mt-1.5 break-words text-[12px] leading-relaxed text-danger">{local.stale}</div> : null}
       <div className="mt-2 flex min-h-7 flex-wrap items-center gap-1.5">
         {p.status === 'applied' ? (
-          p.kind === 'draft' ? (
-            <Button size="sm" variant="ghost" onClick={() => showScene(p.sceneId)}>
+          (p.kind === 'draft' || startedInPage(p)) && 'sceneId' in p && p.sceneId ? (
+            <Button size="sm" variant="ghost" onClick={() => showScene(p.sceneId!)}>
               Show {p.sceneLabel}
             </Button>
           ) : local.undo ? (
@@ -362,7 +433,7 @@ function ChangesBar({ generationId, proposals, locked }: { generationId: ID; pro
   const local = useLocal()
   const pending = proposals.filter((p) => p.status === 'pending')
   // A draft is started on its own (it writes into its scene for a while), never with Apply all.
-  const waiting = pending.filter((p) => p.kind !== 'draft')
+  const waiting = pending.filter((p) => !startedInPage(p))
   const inPage = pending.filter(isWords)
   const applied = proposals.filter((p) => p.status === 'applied').length
   const busy = proposals.some((p) => local[localKey(generationId, p.id)]?.applying)

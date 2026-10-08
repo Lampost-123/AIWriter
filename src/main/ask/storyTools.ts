@@ -351,8 +351,6 @@ function proposeIssueFix(ctx: StoryCtx, a: Record<string, unknown>): [string, st
   const howAsked = lower(a.how)
   if (howAsked && howAsked !== 'text' && howAsked !== 'memory') ctx.fail('`how` is text or memory.')
   const how: 'text' | 'memory' = howAsked === 'memory' ? 'memory' : 'text'
-  const already = ctx.proposals().find((p) => p.kind === 'issueFix' && p.issueId === issue.id && p.status === 'pending')
-  if (already) ctx.fail(`Change ${already.id} already fixes that issue.`)
   let memory: Extract<Proposal, { kind: 'issueFix' }>['memory']
   if (how === 'memory') {
     const fix = issue.memoryFix
@@ -367,6 +365,8 @@ function proposeIssueFix(ctx: StoryCtx, a: Record<string, unknown>): [string, st
   } else if (!issue.sceneId || !issue.quote.trim()) {
     ctx.fail('That issue quotes no words in a scene, so there is no text to fix. Propose an edit to the scene instead, or how: memory where it has a memory fix.')
   }
+  const already = ctx.proposals().find((p) => p.kind === 'issueFix' && p.issueId === issue.id && p.status === 'pending')
+  if (already) ctx.fail(`Change ${already.id} already fixes that issue.`)
   const fix = issue.fix && squash(issue.fix) !== squash(issue.quote) ? issue.fix : null
   const label = issue.sceneId ? ctx.sceneLabel(issue.sceneId) : ''
   const why = squash(a.why) || issue.message
@@ -384,9 +384,8 @@ function proposeIssueFix(ctx: StoryCtx, a: Record<string, unknown>): [string, st
     ...(memory ? { memory } : {}),
     why
   })
-  const extra =
-    how === 'text' && !fix ? ' It has no suggested rewrite: when the writer applies it, the app rewrites the sentence as a change they accept or reject in the page.' : ''
-  return [`Proposing ${how === 'memory' ? 'a memory fix' : 'a fix'} for an issue${label ? ` in ${label}` : ''}`, `${said}${extra}`]
+  if (how === 'text' && !fix) ctx.note('It has no suggested rewrite: when the writer applies it, the app rewrites the sentence as a change they accept or reject in the page.')
+  return [`Proposing ${how === 'memory' ? 'a memory fix' : 'a fix'} for an issue${label ? ` in ${label}` : ''}`, said]
 }
 
 // ---------- Names on a card ----------
@@ -399,7 +398,10 @@ function named(ctx: StoryCtx, name: string, kind: EntryKind): SeenEntry | null {
   const exact = pool.find((s) => [s.e.name, ...(s.e.aliases ?? [])].some((n) => lower(n) === want))
   if (exact) return exact
   const shown = pool.filter((s) => !v.hidden.has(s.e.id))
-  const m = matchEntry(name, shown.map((s) => s.e))
+  // Else as the outline helper matches a name ("Mara" for "Mara Venn"), else the one name that has the words in it.
+  const words = (n: string): string => ` ${lower(n).replace(/^the\s+/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `
+  const inside = shown.filter((s) => [s.e.name, ...(s.e.aliases ?? [])].some((n) => words(n).includes(words(name))))
+  const m = matchEntry(name, shown.map((s) => s.e)) ?? (inside.length === 1 ? inside[0].e : null)
   if (!m) return null
   if (lower(m.name) !== want) ctx.note(`Using ${m.name} for “${name}”.`)
   return shown.find((s) => s.e.id === m.id) ?? null
@@ -463,6 +465,9 @@ function partWords(ctx: StoryCtx, card: Partial<ChapterCard>, f: CarryField): st
 
 // ---------- Chapter cards ----------
 
+/** A part's name inside a sentence ("point of view", "notes for the AI"). */
+const partName = (f: CarryField): string => CARRY_LABELS[f].charAt(0).toLowerCase() + CARRY_LABELS[f].slice(1)
+
 /** The chapter meant, or the open scene's chapter when none is named. */
 function chapterOf(ctx: StoryCtx, a: Record<string, unknown>): ID {
   if (squash(a.chapter)) return ctx.chapter(a.chapter)
@@ -494,8 +499,8 @@ function readChapterCard(ctx: StoryCtx, a: Record<string, unknown>): [string, st
     const c = cards.get(s.id)
     const mark = s.id === ctx.sceneId ? ' (the open scene)' : ctx.sceneHeading(s.id).includes(ctx.later) ? ' (later)' : ''
     if (!c) return `- Sc ${i + 1} ${s.title.trim() || 'Untitled'}${mark}`
-    const followsList = CARRY_FIELDS.filter((f) => follows(c, f)).map((f) => CARRY_LABELS[f].toLowerCase())
-    const own = CARRY_FIELDS.filter((f) => !follows(c, f) && !isFieldEmpty(c, f)).map((f) => `${CARRY_LABELS[f].toLowerCase()}: ${partWords(ctx, c, f)}`)
+    const followsList = CARRY_FIELDS.filter((f) => follows(c, f)).map(partName)
+    const own = CARRY_FIELDS.filter((f) => !follows(c, f) && !isFieldEmpty(c, f)).map((f) => `${partName(f)}: ${partWords(ctx, c, f)}`)
     return `- Sc ${i + 1} ${s.title.trim() || 'Untitled'}${mark}: ${followsList.length ? `follows the chapter's ${followsList.join(', ')}` : 'follows none of it'}${own.length ? `; its own ${own.join('; ')}` : ''}`
   })
   const empty = chapterCardEmpty(card)
@@ -534,8 +539,8 @@ function proposeChapterCard(ctx: StoryCtx, a: Record<string, unknown>): [string,
   let n = 0
   for (const c of cards.values()) if (JSON.stringify(adoptChapter(c, after, 'follow')) !== JSON.stringify(c)) n++
   const said = ctx.propose({ kind: 'chapterCard', chapterId: id, chapterLabel: label, patch, lines, scenes: n, why: squash(a.why) })
-  const reach = n ? ` Applied, it updates ${counted(n, 'scene')} that follow the chapter card.` : ' No scene card follows these parts yet, so only the chapter card changes.'
-  return [`Proposing a change to the card of ${label}`, `${said}${reach}`]
+  ctx.note(n ? `Applied, it updates ${counted(n, 'scene')} that ${n === 1 ? 'follows' : 'follow'} the chapter card.` : 'No scene card follows these parts yet, so only the chapter card changes.')
+  return [`Proposing a change to the card of ${label}`, said]
 }
 
 /** Each part's key on a chapter card. */
@@ -683,6 +688,6 @@ function proposeThread(ctx: StoryCtx, a: Record<string, unknown>): [string, stri
   if (twice) ctx.fail(`Change ${twice.id} already does that.`)
   const note = squash(a.note).slice(0, 1000)
   const said = ctx.propose({ kind: 'thread', threadId: found?.e.id ?? null, name: threadName, action, list, sceneId, sceneLabel: label, note, why: squash(a.why) })
-  const extra = found ? '' : ` “${threadName}” is a new plot thread: it is made when the writer applies this.`
-  return [`Proposing a plot thread link in ${label}`, `${said}${extra}`]
+  if (!found) ctx.note(`“${threadName}” is a new plot thread: it is made when the writer applies this.`)
+  return [`Proposing a plot thread link in ${label}`, said]
 }

@@ -9,6 +9,7 @@
 import { useEffect, useId, useState } from 'react'
 import type { ToolActivity, ToolKind } from '@shared/toolActivity'
 import {
+  BookA,
   BookOpen,
   BookOpenText,
   Check,
@@ -44,6 +45,8 @@ export const TOOL_ICONS: Record<ToolKind, IconType> = {
   entry: UserRound,
   style: Palette,
   issues: MessageSquareWarning,
+  chapter: BookA,
+  threads: KIND_ICONS.thread,
   propose: PenLine,
   draft: Feather,
   ask: CircleHelp,

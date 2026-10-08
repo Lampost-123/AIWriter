@@ -19,6 +19,11 @@ export function registerChapterCardForm(chapterId: ID, onRestored: (card: Chapte
   }
 }
 
+/** The chapter card was changed from elsewhere (the editor chat's change, or its Undo): its form on screen shows it. */
+export function chapterCardShown(chapterId: ID, card: ChapterCard): void {
+  liveCards.get(chapterId)?.(card)
+}
+
 /** Scene cards changed because of a chapter card: the scene card on screen reloads what it follows, and the briefing too. */
 export function notifyChapterCard(): void {
   useApp.getState().bumpChapterCards()

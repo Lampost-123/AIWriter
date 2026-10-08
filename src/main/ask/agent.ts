@@ -26,6 +26,16 @@ import type { WorldShape } from '../memory/types'
 import { askedFrom, askPoint, NOT_YET, type AskPoint } from './context'
 import { chatExp } from './exp'
 import {
+  SCENE_CARD_WITH_NAMES,
+  STORY_CHANGE_KINDS,
+  STORY_ITEM_PROPERTIES,
+  STORY_KIND_LINES,
+  storyAnswer,
+  storyProposeTools,
+  storyReadTools,
+  type StoryCtx
+} from './storyTools'
+import {
   anchorAt,
   findWords,
   locate,
@@ -215,6 +225,8 @@ export interface ToolSwitches {
   draft: boolean
   /** ACTFIRST: an edit's question before any words are read is sent back; "write the next bit" is made to draft. */
   actFirst?: boolean
+  /** STORYTOOLS (chat Phase 3): list_issues, chapter_card, list_threads and the issue_fix, chapter_card, thread changes. */
+  storyTools?: boolean
 }
 
 export const toolSwitches = (): ToolSwitches => ({
@@ -222,7 +234,8 @@ export const toolSwitches = (): ToolSwitches => ({
   toolChoice: chatExp('TOOLCHOICE'),
   askUser: chatExp('ASKUSER'),
   draft: chatExp('DRAFT'),
-  actFirst: chatExp('ACTFIRST')
+  actFirst: chatExp('ACTFIRST'),
+  storyTools: chatExp('STORYTOOLS')
 })
 
 const num = { type: 'number' } as const
@@ -305,7 +318,7 @@ export const ASK_KIND = 'ask'
  * an item can be a question for the writer instead, as ask_user asks it, so a request made to propose can still ask
  * when the request could mean clearly different things. An ask goes alone: given with changes, it isn't asked.
  */
-function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
+function proposeChangesTool(anchor: boolean, ask = false, story = false): ToolSpec {
   const words = anchor
     ? "edit: `paragraph` (its [n] from read_scene), `find` (the words there; quotes and spacing needn't match exactly), `occurrence` if they occur more than once in it, `replace` ('' cuts). One paragraph only, and it can't add or remove italics.\n- rewrite: `replace_paragraphs: [from, to]` for whole paragraphs, or `start` + `paragraph` and `end` for a passage that starts or ends inside one; `replace` is the whole new passage, a blank line between paragraphs and *asterisks* for italics."
     : "edit: `find` (copied exactly from the scene, inside one paragraph, long enough to occur once) and `replace` ('' cuts). It can't add or remove italics.\n- rewrite: `start` and `end` (the passage's first and last few words, copied exactly; `start` must occur once) and `replace`, the whole new passage, a blank line between paragraphs and *asterisks* for italics."
@@ -321,6 +334,7 @@ function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
       '- new_scene: at the end of `chapter` ("Ch 2" or its title), with `title`, and `goal` / `beats` if you have them.',
       '- new_chapter: `title`, at the end of this story.',
       '- rename: a `scene` or a `chapter`, and its new title as `to`.',
+      ...(story ? STORY_KIND_LINES : []),
       ...(ask
         ? [
             "- ask: instead of proposing, ask the writer one short question, only when you can't tell which passage is meant or two readings would give clearly different changes (never to ask permission). Give `question` and 2 to 4 `options`, each with a short `label` (and `detail` if it needs one); `recommended` is the number of the option you would pick (1 = the first); `multi` is true when more than one may be picked. No `why`. It ends your answer: their pick comes back as their next message. An ask goes alone, as the only item: given with changes, it is not asked and the changes are checked as usual."
@@ -335,7 +349,7 @@ function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
           items: {
             type: 'object',
             properties: {
-              kind: { type: 'string', enum: [...Object.keys(CHANGE_KINDS), ...(ask ? [ASK_KIND] : [])] },
+              kind: { type: 'string', enum: [...Object.keys(CHANGE_KINDS), ...(story ? Object.keys(STORY_CHANGE_KINDS) : []), ...(ask ? [ASK_KIND] : [])] },
               ...(ask
                 ? {
                     question: str,
@@ -371,6 +385,7 @@ function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
               chapter: str,
               title: str,
               to: str,
+              ...(story ? STORY_ITEM_PROPERTIES : {}),
               why: str
             },
             // An ask has no `why`: only `kind` is required of every item then (a change without `why` is still told so).
@@ -441,16 +456,20 @@ export function editorTools(s: ToolSwitches): ToolSpec[] {
     if (s.anchor && t.name === 'read_scene') out.push(READ_SCENE_ANCHORED)
     else if (s.anchor && t.name === 'propose_edit') out.push(EDIT_ANCHORED)
     else if (s.anchor && t.name === 'propose_rewrite') out.push(REWRITE_ANCHORED)
+    else if (s.storyTools && t.name === 'scene_issues') out.push(...storyReadTools(s.toolChoice))
+    else if (s.storyTools && t.name === 'propose_scene_card') out.push(SCENE_CARD_WITH_NAMES)
     else out.push(t)
   }
-  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser))
+  // STORYTOOLS without TOOLCHOICE: the story kinds as their own propose_ tools.
+  if (s.storyTools && !s.toolChoice) out.push(...storyProposeTools())
+  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser, !!s.storyTools))
   if (s.draft) out.push(PROPOSE_DRAFT)
   if (s.askUser) out.push(ASK_USER)
   return out
 }
 
 /** A proposal before it has its number and status. */
-type NewProposal = Proposal extends infer P ? (P extends Proposal ? Omit<P, 'id' | 'status'> : never) : never
+export type NewProposal = Proposal extends infer P ? (P extends Proposal ? Omit<P, 'id' | 'status'> : never) : never
 
 /** Where the chat was asked: the story and the scene open then. */
 export interface AgentPlace {
@@ -641,7 +660,7 @@ function rangeOf(p: Proposal, hay: string): [number, number] | null {
 // ---------- This story's point (rule C6) ----------
 
 /** An entry the chat can name here, with drafting's label and whether only its name may be given. */
-interface SeenEntry {
+export interface SeenEntry {
   e: EntryState
   /** "not in the story yet at this point" or "from Book 1, not in this story so far"; null when it is here. */
   label: string | null
@@ -649,7 +668,7 @@ interface SeenEntry {
 }
 
 /** Where a scene the chat may read stands. */
-interface ScenePlace {
+export interface ScenePlace {
   storyId: ID
   /** "Book 1, Ch 2, Sc 3". */
   label: string
@@ -661,7 +680,7 @@ interface ScenePlace {
  * What the chat may see from where it was asked, as the briefing has it (context.ts): the memory as of the open
  * scene (the story's end with none, the world as set up with no story), along this story's line only.
  */
-interface StoryView {
+export interface StoryView {
   point: AskPoint
   /** Entries Adam keeps out here ('hide' pins): never shown unless named exactly. */
   hidden: Set<ID>
@@ -1491,9 +1510,10 @@ export class EditorAgent {
         lines.push(`${n}. ask: Not asked: an ask goes alone, never beside changes.`)
         return
       }
-      const tool = (CHANGE_KINDS as Record<string, string>)[kind]
+      const kinds: Record<string, string> = this.switches.storyTools ? { ...CHANGE_KINDS, ...STORY_CHANGE_KINDS } : CHANGE_KINDS
+      const tool = kinds[kind]
       if (!item || !tool) {
-        lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${Object.keys(CHANGE_KINDS).join(', ')}.`)
+        lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${Object.keys(kinds).join(', ')}.`)
         reasons.push('no kind given')
         return
       }
@@ -1613,6 +1633,35 @@ export class EditorAgent {
     ]
   }
 
+  // ---------- STORYTOOLS (chat Phase 3): the story tools, answered in storyTools.ts ----------
+
+  /** What the story tools may use of this answer: the story's point, its names, and proposing. */
+  private storyCtx(): StoryCtx {
+    return {
+      db: this.db,
+      storyId: this.place.storyId,
+      sceneId: this.place.sceneId,
+      later: LATER,
+      view: () => this.view(),
+      outline: () => this.outline(),
+      scene: (n) => this.scene(n),
+      chapter: (n) => this.chapter(n),
+      sceneLabel: (id) => sceneLabelIn(this.outline(), id),
+      sceneHeading: (id) => this.sceneHeading(id),
+      proposals: () => this.proposals,
+      propose: (p) => this.propose(p),
+      mark: (m) => {
+        this.mark = { ...this.mark, ...m }
+      },
+      note: (line) => {
+        this.notes.push(line)
+      },
+      fail: (message) => {
+        throw new Mistake(message)
+      }
+    }
+  }
+
   private answer(name: string, a: Record<string, unknown>): [string, string] {
     const text = (k: string): string => (typeof a[k] === 'string' ? (a[k] as string) : '')
     if (name === 'propose_edit' && this.switches.anchor) return this.editAnchored(a)
@@ -1620,6 +1669,10 @@ export class EditorAgent {
     if (name === 'propose_changes' && this.switches.toolChoice) return this.proposeChanges(a)
     if (name === 'ask_user' && this.switches.askUser) return this.askUser(a)
     if (name === 'propose_draft' && this.switches.draft) return this.proposeDraft(a)
+    if (this.switches.storyTools) {
+      const story = storyAnswer(this.storyCtx(), name, a)
+      if (story) return story
+    }
     const list = (k: string): string[] | undefined =>
       Array.isArray(a[k]) ? (a[k] as unknown[]).filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean) : undefined
     switch (name) {

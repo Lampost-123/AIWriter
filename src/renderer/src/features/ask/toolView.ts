@@ -21,7 +21,11 @@ export function runningPhrase(c: Call): string {
     case 'style':
       return 'Checking the style guide'
     case 'issues':
-      return 'Listing open issues'
+      return s ? `Listing open issues in ${s}` : 'Listing open issues'
+    case 'chapter':
+      return `Reading the chapter card of ${s || 'the open chapter'}`
+    case 'threads':
+      return `Listing ${s || 'plot threads'}`
     case 'propose':
       return s ? `Proposing ${s}` : 'Proposing changes'
     case 'draft':
@@ -50,7 +54,11 @@ export function toolPhrase(c: Call): string {
     case 'style':
       return tried ? 'Tried to check the style guide' : 'Checked the style guide'
     case 'issues':
-      return tried ? 'Tried to list open issues' : 'Listed open issues'
+      return `${tried ? 'Tried to list open issues' : 'Listed open issues'}${s ? ` in ${s}` : ''}`
+    case 'chapter':
+      return `${tried ? 'Tried to read' : 'Read'} the chapter card of ${s || 'the open chapter'}`
+    case 'threads':
+      return `${tried ? 'Tried to list' : 'Listed'} ${s || 'plot threads'}`
     case 'propose':
       return `${tried ? 'Tried to propose' : 'Proposed'} ${s || 'changes'}`
     case 'draft':
