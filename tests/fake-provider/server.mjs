@@ -49,6 +49,10 @@
 //   - "<Name> learned|learns|discovered that <x>."  <Name> knows <x>
 //   - "<Name> wanted the <word> <thing>."           a new entry "<Name>'s <word> <thing>", filed as a character with
 //                                                    pronouns "it/its" (the slip a real model made with a bead)
+//   - "Nobody knew who|why|where|what|how|whether <x>."  opens a plot thread "Who <x>" (promise "Who <x>?")
+//   - "A clue: <x>."                                a clue for the first open plot thread listed (or one opened above)
+//   - "Things moved on: <x>."                       the same thread moves on (developing, note <x>)
+//   - "At last the answer came: <x>."               the same thread is resolved (note <x>)
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
@@ -232,6 +236,18 @@ function readSentence(s) {
   if (m) return { kind: 'knows', name: m[1], fact: m[2].trim() }
   m = s.match(/\b([A-Z][a-z]+) wanted the ([a-z]+) ([a-z]+)\.$/)
   if (m) return { kind: 'wants', name: m[1], what: m[2], thing: m[3] }
+  // Plot threads (the AI manages plot threads, 2026-10-08).
+  m = s.match(/^Nobody knew (who|why|where|what|how|whether) ([^.!?]+)[.!?]/)
+  if (m) {
+    const question = `${m[1].charAt(0).toUpperCase()}${m[1].slice(1)} ${m[2].trim()}`
+    return { kind: 'thread-open', name: question, promise: `${question}?` }
+  }
+  m = s.match(/^A clue: ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'thread-clue', clue: m[1].trim() }
+  m = s.match(/^Things moved on: ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'thread-developing', note: m[1].trim() }
+  m = s.match(/^At last the answer came: ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'thread-resolved', note: m[1].trim() }
   return null
 }
 
@@ -257,9 +273,25 @@ export function fakeMemoryReply(user) {
     add.push({ type: 'entry', ref: r, kind: 'character', name, summary: `Someone called ${name}.`, quote: name })
     return r
   }
+  // The open plot threads the memory lists ("- E5 thread "Who rang the bell". promise: …"), first listed first.
+  const threads = lines.map((l) => l.match(/^- (E\d+) thread "/)?.[1]).filter(Boolean)
+  let opened = null
   for (const s of sentences) {
     const r = readSentence(s)
     if (!r) continue
+    if (r.kind.startsWith('thread-')) {
+      if (r.kind === 'thread-open') {
+        opened = r.name
+        add.push({ type: 'thread', name: r.name, status: 'open', promise: r.promise, quote: s })
+        continue
+      }
+      const target = threads[0] ? { entry: threads[0] } : opened ? { name: opened } : null
+      if (!target) continue
+      if (r.kind === 'thread-clue') add.push({ type: 'thread', ...target, status: 'clue', clue: r.clue, quote: s })
+      if (r.kind === 'thread-developing') add.push({ type: 'thread', ...target, status: 'developing', note: r.note, quote: s })
+      if (r.kind === 'thread-resolved') add.push({ type: 'thread', ...target, status: 'resolved', note: r.note, quote: s })
+      continue
+    }
     const entry = ref(r.name)
     if (r.kind === 'change') add.push({ type: 'change', entry, note: r.note, fields: r.fields, quote: s })
     if (r.kind === 'detail') add.push({ type: 'detail', entry, field: r.field, value: r.value, quote: s })

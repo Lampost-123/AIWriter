@@ -429,6 +429,20 @@ describe('what the planner reads', () => {
     expect(user.content.trimEnd().endsWith('Plan the scene now, as one JSON object.')).toBe(true)
   })
 
+  it('reads the open plot threads as the writer gets them, and plans no payoff the card does not ask for (2026-10-08)', () => {
+    const input = draftInput()
+    const bell = entry('thread', 'The drowned bell', { fields: { promise: 'Who rang the drowned bell?', clues: 'a coin on the bell' } })
+    input.memory.entries.push(bell)
+    input.memory.threads = [{ entryId: bell.id, status: 'open', setUp: 'The Mill, Ch 1, Sc 1', paidOff: '' }]
+    const m = materialOf(input)
+    expect(m.threads).toContain('- The drowned bell — Who rang the drowned bell? — last clue: a coin on the bell')
+    const [system, user] = planMessages(m)
+    expect(system.content).toContain('Open plot threads stay open: plan no payoff for one unless the scene card or the author')
+    expect(user.content).toContain("## Open plot threads\nPlot threads still open in the story. Keep these alive.")
+    // None open: no part for them.
+    expect(planMessages(materialOf(draftInput()))[1].content).not.toContain('## Open plot threads')
+  })
+
   it('after a gap not known it says only injuries surely carry on; from another story it gives none of it', () => {
     const gap = draftInput()
     gap.scene.card.when = 'Three weeks later'

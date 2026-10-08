@@ -113,7 +113,10 @@ export function openThreads(threads: ThreadState[], byId: Map<ID, EntryState>): 
     .filter((t) => t.status === 'open')
     .flatMap((t) => {
       const e = byId.get(t.entryId)
-      return e ? [{ id: e.id, name: e.name, summary: e.summary || e.description, setUp: t.setUp, version: e.updatedAt }] : []
+      // What it promises the reader first (2026-10-08); a thread only planned isn't "set up" anywhere yet.
+      if (!e) return []
+      const about = (e.fields?.promise ?? '').trim() || e.summary || e.description
+      return [{ id: e.id, name: e.name, summary: about, setUp: t.planned ? '' : t.setUp, version: e.updatedAt }]
     })
 }
 

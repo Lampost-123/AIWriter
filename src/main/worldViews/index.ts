@@ -15,6 +15,8 @@ import { buildLine } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import type { MemoryData, WorldShape } from '../memory/types'
 import { changesMade, readMapLayout, sceneCards, storyGaps, writeMapLayout, type CardInfo } from '../db/worldViews'
+import * as hist from '../db/history'
+import * as kdb from '../db/keeper'
 import { UserError } from '../util'
 import { buildTimeline } from './timeline'
 import { buildBoard } from './threads'
@@ -81,9 +83,22 @@ export function threadsBoardOf(db: DB, storyId: ID): ThreadsBoard {
   let b = r.boards.get(storyId)
   if (!b) {
     const { shape, data, line, state, cards } = atEnd(db, r, storyId)
-    r.boards.set(storyId, (b = buildBoard({ storyId, shape, data, line, state, cards })))
+    r.boards.set(storyId, (b = buildBoard({ storyId, shape, data, line, state, cards, payoff: (ids) => payoffWords(db, ids) })))
   }
   return b
+}
+
+/** The words each resolving change was read from (its first link still in the scene), and the line Undo takes back. */
+function payoffWords(db: DB, changeIds: ID[]): Map<ID, { quote: string; undoId: ID | null }> {
+  const links = hist.linksForFacts(db, 'change', changeIds)
+  const lines = kdb.addedLines(db, changeIds)
+  const out = new Map<ID, { quote: string; undoId: ID | null }>()
+  for (const id of changeIds) {
+    const list = links.get(id) ?? []
+    const link = list.find((l) => l.state === 'ok') ?? list[0]
+    out.set(id, { quote: link?.quote ?? '', undoId: lines.get(id) ?? null })
+  }
+  return out
 }
 
 const layoutFor = createLayoutCache<DB>({ load: readMapLayout, save: writeMapLayout })

@@ -23,6 +23,7 @@ import * as gens from '../db/generations'
 import { callModel, type MemoryModel } from '../keeper/model'
 import { estimateTokens } from '../keeper/text'
 import { MUST_BLOCK, sceneTail, stageReach, type ContextInput, type PreparedContext } from '../ai/context'
+import { OPEN_THREADS_BLOCK } from '../ai/openThreads'
 import { deathOf } from '../ai/deaths'
 import { pieceLine, secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
@@ -76,6 +77,11 @@ export interface PlanMaterial {
   secrets: Secret[]
   /** What an event the plan has happen must answer to: the scene card (with the author's direction), or the beat. */
   calls: string
+  /**
+   * The other plot threads still open, as the writer gets them (ai/openThreads.ts, 2026-10-08): kept alive gently, and
+   * never paid off unless the card or the direction asks. '' or left out: none.
+   */
+  threads?: string
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -148,7 +154,8 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
     others,
     people: people.map((e) => e.name),
     secrets: secretsAmong(people, input.memory.facts),
-    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : cardText
+    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : cardText,
+    threads: text(OPEN_THREADS_BLOCK)
   }
 }
 
@@ -167,6 +174,7 @@ Reply with only a JSON object:
 - A piece of clothing: what is "wearing", and the value, from and to name the piece and how it is ("boots off, by the door"). A thing in the place: what is "thing", who is whoever changes it (or ""), and the value, from and to name the thing and how it is ("the door: barred from inside").
 - Keep to what must stay true and to where things stand: nothing changes unless it happens on the page, and each change starts from how things are now.
 - What is kept from someone stays kept: never have them learn, guess or be told it, unless the scene card says so.
+- Open plot threads stay open: plan no payoff for one unless the scene card or the author's direction asks for it. One may come in only where it fits what is asked.
 - At most ${PLAN_MOST.relies} relies and ${PLAN_MOST.changes} changes, the ones that matter most. Keep each short.`
 
 /**
@@ -186,6 +194,7 @@ export function planMessages(m: PlanMaterial): ChatMessage[] {
     part('Must stay true', m.must),
     part('In the briefing', m.inBriefing.map((l) => `- ${l}`).join('\n')),
     part('Also in the world (not in the briefing)', m.others.join('; ')),
+    part('Open plot threads', m.threads ?? ''),
     part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
     m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
     part('What the writer is asked', m.ask),

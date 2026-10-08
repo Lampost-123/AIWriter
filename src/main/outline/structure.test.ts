@@ -7,7 +7,7 @@ import * as acts from '../db/acts'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { pureWorld } from '../../../tests/unit/testWorld'
 import { parseWhen, placeWhens } from '../worldViews/when'
-import { actDeleteNotes, cleanBeats, createChapterAt, fallbackWhen, keepOutline } from './structure'
+import { actDeleteNotes, cleanBeats, createChapterAt, fallbackWhen, keepOutline, takeBackThreads } from './structure'
 
 const book = (db: Database.Database): ID => repo.listStories(db)[0].id
 
@@ -292,5 +292,48 @@ describe('what deleting an act does to other stories', () => {
     ])
     expect(actDeleteNotes(shape, ['b1.c3'])).toEqual([])
     expect(actDeleteNotes(shape, [])).toEqual([])
+  })
+})
+
+describe('plot threads planned in an outline (2026-10-08)', () => {
+  it('puts each scene’s threads on its card as the AI’s, finding Adam’s threads by name and making new ones once', () => {
+    const db = writtenWorld()
+    const mine = repo.createEntry(db, 'thread', { name: 'The drowned bell', aliases: ['The bell'] })
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Rain'),
+      scene('c0s0', 'Docks', 'c0', { setsUp: ['Who keeps the ferry key', 'the bell'] }),
+      scene('c0s1', 'Ferry', 'c0', { after: { key: 'c0s0' }, paysOff: ['Who keeps the ferry key', 'The drowned bell'] })
+    ])
+    const threads = repo.listEntries(db).filter((e) => e.kind === 'thread')
+    expect(threads.map((t) => t.name).sort()).toEqual(['The drowned bell', 'Who keeps the ferry key'])
+    const key = threads.find((t) => t.name === 'Who keeps the ferry key')!
+    expect(key.origin).toBe('ai')
+    const [docks, ferry] = [kept[1].id, kept[2].id].map((id) => repo.getScene(db, id).card)
+    expect(docks.setsUpIds).toEqual([key.id, mine.id])
+    expect(ferry.paysOffIds).toEqual([key.id, mine.id])
+    expect(docks.threadLinks).toEqual({ [`setsUp:${key.id}`]: 'ai', [`setsUp:${mine.id}`]: 'ai' })
+    expect(kept[1].threadIds).toEqual([key.id])
+    expect(kept[2].threadIds).toBeUndefined()
+
+    // Undo of the keep: the scenes go, and so does the thread it made; Adam's stays.
+    acts.takeBackKept(db, kept)
+    takeBackThreads(db, kept)
+    expect(
+      repo
+        .listEntries(db)
+        .filter((e) => e.kind === 'thread')
+        .map((t) => t.name)
+    ).toEqual(['The drowned bell'])
+  })
+
+  it('an undone keep leaves a thread it made that another scene still uses', () => {
+    const db = writtenWorld()
+    const first = keepOutline(db, book(db), [chapter('c0', 'Rain'), scene('c0s0', 'Docks', 'c0', { setsUp: ['Who keeps the ferry key'] })])
+    const id = first[1].threadIds![0]
+    const other = repo.getOutline(db, book(db)).scenes[0].id
+    repo.updateSceneCard(db, other, { ...repo.getScene(db, other).card, paysOffIds: [id] })
+    acts.takeBackKept(db, first)
+    takeBackThreads(db, first)
+    expect(repo.getEntries(db, [id])).toHaveLength(1)
   })
 })

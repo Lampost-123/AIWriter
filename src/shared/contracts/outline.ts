@@ -87,6 +87,12 @@ export interface KeepItem {
    * already on a reused first scene's card is never replaced.
    */
   when?: string
+  /**
+   * The plot threads a scene sets up and pays off, by name (2026-10-08): each goes on the card's "Sets up" or "Pays
+   * off", marked as the AI's; a name no plot thread has yet makes one (AI-drafted).
+   */
+  setsUp?: string[]
+  paysOff?: string[]
 }
 
 export interface KeptItem {
@@ -97,6 +103,8 @@ export interface KeptItem {
   reused?: boolean
   /** A reused scene whose card had a When already (kept as it was): its Undo leaves that When on the card. */
   whenKept?: boolean
+  /** Plot threads this keep made for the scene: its Undo moves them to Recently deleted while nothing else uses them. */
+  threadIds?: ID[]
 }
 
 // ----- Interview me, on a scene or a chapter -----

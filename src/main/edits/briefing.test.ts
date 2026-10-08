@@ -5,6 +5,7 @@ import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import { STAND_LEAD_HERE, editBriefing, replyRoom, type EditWorld } from './briefing'
 import { EDIT_MARKER } from './prompts'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
+import { OPEN_THREADS_LEAD } from '../ai/openThreads'
 
 function entry(id: string, name: string, o: Partial<EntryState> = {}): EntryState {
   return {
@@ -447,5 +448,18 @@ describe("Continue's memory core (Adam, 2026-10-08)", () => {
     // A small model: the core goes first.
     const small = go({}, { core: big, contextLength: 3000 })
     expect(small.blocks.some((x) => x.id === 'timeline')).toBe(false)
+  })
+
+  it('gives the open plot threads short, at most 4, next to the timeline, with the gentle rule (2026-10-08)', () => {
+    const threads = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, name: `The drowned bell ${i}`, promise: `Who rang it ${i}?`, clue: i === 0 ? 'a coin on the bell' : '' }))
+    const b = go({}, { core: { ...core, threads } })
+    const ids = b.blocks.map((x) => x.id)
+    expect(ids.indexOf('threads')).toBe(ids.indexOf('timeline') + 1)
+    const text = b.blocks.find((x) => x.id === 'threads')!.text
+    expect(text).toContain(OPEN_THREADS_LEAD)
+    expect(text).toContain('- The drowned bell 0 — Who rang it 0? — last clue: a coin on the bell')
+    expect(text.match(/^- The drowned bell/gm)).toHaveLength(4)
+    // None open: no block.
+    expect(go().blocks.some((x) => x.id === 'threads')).toBe(false)
   })
 })

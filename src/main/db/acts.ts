@@ -450,7 +450,17 @@ export function takeBackKept(db: DB, kept: Pick<KeptItem, 'kind' | 'id' | 'reuse
       } catch {
         // Put back empty.
       }
-      const back = { ...card, goal: '', beats: [], when: k.whenKept && typeof card.when === 'string' ? card.when : '' }
+      // The plot threads it put on the card (marked as the AI's) go too; Adam's stay.
+      const ai = (list: 'setsUp' | 'paysOff', id: string): boolean => card.threadLinks?.[`${list}:${id}`] === 'ai'
+      const back = {
+        ...card,
+        goal: '',
+        beats: [],
+        when: k.whenKept && typeof card.when === 'string' ? card.when : '',
+        setsUpIds: (card.setsUpIds ?? []).filter((id) => !ai('setsUp', id)),
+        paysOffIds: (card.paysOffIds ?? []).filter((id) => !ai('paysOff', id)),
+        threadLinks: undefined
+      }
       db.prepare("UPDATE scenes SET title = 'Scene 1', card_json = ? WHERE id = ?").run(JSON.stringify(back), k.id)
       markMade(db, 'scene', k.id)
     }

@@ -175,7 +175,8 @@ describe('state', () => {
         ]
       )
     )
-    expect(w.state('b1', 'b1.c2.s1').threads).toEqual([{ entryId: 'th', status: 'open', setUp: 'Book 1, Ch 1, Sc 1', paidOff: '' }])
+    // Before its opening scene it is only planned (2026-10-08).
+    expect(w.state('b1', 'b1.c2.s1').threads).toEqual([{ entryId: 'th', status: 'open', setUp: 'Book 1, Ch 1, Sc 1', paidOff: '', planned: true }])
     expect(w.state('b1', 'b1.c3.s1').threads).toEqual([
       { entryId: 'th', status: 'resolved', setUp: 'Book 1, Ch 1, Sc 1', paidOff: 'Book 1, Ch 2, Sc 1' }
     ])

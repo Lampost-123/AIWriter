@@ -176,7 +176,17 @@ export interface SceneCard {
   setsUpIds: ID[]
   /** Plot threads this scene pays off. */
   paysOffIds: ID[]
+  /**
+   * Who made each plot thread link (2026-10-08, the AI manages plot threads; shared/threadLinks.ts), keyed
+   * `setsUp:<threadId>` or `paysOff:<threadId>`: 'ai' while the memory set it, 'removed' once Adam took an AI link
+   * off (it isn't put back), 'undone' when the memory took its own link back. A link not listed is Adam's. Left out
+   * on older cards: every link is Adam's.
+   */
+  threadLinks?: Record<string, ThreadLinkMark>
 }
+
+/** Who made a plot thread link on a scene card (SceneCard.threadLinks). */
+export type ThreadLinkMark = 'ai' | 'removed' | 'undone'
 
 export interface SceneMeta {
   id: ID
@@ -1055,6 +1065,8 @@ export interface ThreadState {
   /** Where it was set up and paid off, in plain words. */
   setUp: string
   paidOff: string
+  /** Not opened or resolved on the line yet (2026-10-08): planned on scene cards, or nowhere. Left out otherwise. */
+  planned?: true
 }
 
 // ---------- Summaries, pins, answers ----------

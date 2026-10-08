@@ -495,6 +495,8 @@ Goal: <one sentence: what this chapter achieves>
 ### Scene: <the scene's title>
 When: <the day it happens on, in the story's count of days, and the time of day: "Day 1, morning", "Day 3, dusk">
 Summary: <one sentence: what happens in it>
+Sets up: <the plot threads this scene opens, by name, separated by semicolons; leave this line out when it opens none>
+Pays off: <the plot threads this scene resolves, by name, separated by semicolons; leave this line out when it resolves none>
 - <a beat: one thing that must happen in the scene>
 - <the next beat>
 - <the next beat>
@@ -506,6 +508,7 @@ Rules:
 - Each scene has a When, carrying on from the scenes before ("Day 2, evening"). If the story's scenes give their time another way (a date or a year), use that way instead.
 - Titles are a few words, with no numbers.
 - Use the characters, places and plot threads given, by their names. Bring in someone or something new only when the chapter needs it.
+- A scene that opens a plot thread names it on its "Sets up" line; one that answers an open thread, on its "Pays off" line. Pay a thread off only where the chapter calls for it.
 - The chapter leads on to the chapter after it, if there is one.`
 }
 
