@@ -29,3 +29,30 @@
   user-select: none;
   animation: var(--animate-fade-in);
 }
+
+/* A label that starts with a character from the world: their name, drawn again exactly over the label's first words,
+   takes the mouse (the rest of the label never does). Clicking it opens their read-aloud voice (speakerLabels.ts). */
+.scene-prose p.aw-speaker[data-speaker-name]::before {
+  content: attr(data-speaker-name) / '';
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  z-index: 1;
+  max-width: 100%;
+  padding-bottom: 1px;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 450;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-indent: 0;
+  color: var(--muted);
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 55%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  user-select: none;
+  animation: var(--animate-fade-in);
+}
