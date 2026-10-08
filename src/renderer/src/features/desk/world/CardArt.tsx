@@ -3,9 +3,11 @@
 // (stars, swell, a ridge) and a near one (the kind's two-tone icon in its glow, or a headland with its lit window), which
 // part a few pixels on hover (desk.css, the art parallax). An entry's own portrait always wins: then the picture is his.
 // The Phosphor two-tone icons are the app's own (components/ui/icons); the landscapes follow the start screen's lit
-// window (components/ui/LitWindow.tsx). The desk's motif library (one drawing chosen per entry) comes in phase 5.
+// window (components/ui/LitWindow.tsx). With the desk's drawing library (phase 5), an entry's drawing (`motif`, its own
+// or the one its words call for) takes the place of the cameo, the headland and the seal's icon.
 import { useState } from 'react'
 import type { EntryKind } from '@shared/types'
+import { Motif } from '@/components/art/Motif'
 import { KIND_ICONS } from '@/features/world/kindIcons'
 import { artHue, hashOf, variantOf } from './galleryLogic'
 
@@ -61,12 +63,15 @@ export function PortraitArt({
   id,
   kind,
   image,
-  featured = false
+  featured = false,
+  motif = null
 }: {
   id: string
   kind: EntryKind
   image: string | null
   featured?: boolean
+  /** The entry's drawing from the drawing library, drawn in place of the cameo or the kind's icon. */
+  motif?: string | null
 }): React.JSX.Element {
   const [src, onError] = usePicture(image)
   const hue = artHue(kind, id)
@@ -110,7 +115,13 @@ export function PortraitArt({
       </svg>
       <span className="g-art-motif">
         <span className="g-art-glow" />
-        {kind === 'character' ? <Cameo id={id} size={featured ? 112 : 96} /> : <Icon size={featured ? 64 : 54} className="g-art-icon" />}
+        {motif ? (
+          <Motif id={motif} size={featured ? 100 : 84} className="g-art-icon g-art-drawing" />
+        ) : kind === 'character' ? (
+          <Cameo id={id} size={featured ? 112 : 96} />
+        ) : (
+          <Icon size={featured ? 64 : 54} className="g-art-icon" />
+        )}
       </span>
     </span>
   )
@@ -139,7 +150,7 @@ const LANDS = [
 ]
 
 /** A landscape card's picture (places): a sky in the place's colour, a far ridge, the near land, still water and a lit window. */
-export function LandscapeArt({ id, image }: { id: string; image: string | null }): React.JSX.Element {
+export function LandscapeArt({ id, image, motif = null }: { id: string; image: string | null; motif?: string | null }): React.JSX.Element {
   const [src, onError] = usePicture(image)
   const hue = artHue('place', id)
   if (src) {
@@ -147,6 +158,27 @@ export function LandscapeArt({ id, image }: { id: string; image: string | null }
       <span aria-hidden className="g-art g-art-photo">
         <img src={src} alt="" draggable={false} decoding="async" loading="lazy" onError={onError} className="g-art-motif" />
         <span className="g-art-shade" />
+      </span>
+    )
+  }
+  if (motif) {
+    // Its drawing over the sky and the far ridge, lit from behind, in place of the headland.
+    return (
+      <span
+        aria-hidden
+        className="g-art"
+        style={{ background: `linear-gradient(180deg, hsl(${hue} 36% 74%), hsl(${hue} 34% 52%) 70%, hsl(${hue} 40% 36%))` }}
+      >
+        <svg className="g-art-far" viewBox="0 0 300 100" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">
+          {stars(id, 300, 100, 5).map((s, i) => (
+            <circle key={i} cx={s.x} cy={s.y * 0.7} r={s.r * 0.8} fill="#f2fbf8" opacity={s.o * 0.9} />
+          ))}
+          <path d="M0 66 C 60 54 110 58 160 60 C 210 62 250 54 300 58 L300 100 L0 100 Z" fill={`hsl(${hue} 30% 40%)`} opacity={0.55} />
+        </svg>
+        <span className="g-art-motif g-art-land">
+          <span className="g-art-glow" />
+          <Motif id={motif} size={64} className="g-art-icon g-art-drawing" />
+        </span>
       </span>
     )
   }
@@ -189,11 +221,11 @@ export function LandscapeArt({ id, image }: { id: string; image: string | null }
 }
 
 /** A kind's icon on a small round seal (a group's parchment, a plain card's corner). */
-export function Seal({ kind, size = 34 }: { kind: EntryKind; size?: number }): React.JSX.Element {
+export function Seal({ kind, size = 34, motif = null }: { kind: EntryKind; size?: number; motif?: string | null }): React.JSX.Element {
   const Icon = KIND_ICONS[kind]
   return (
     <span aria-hidden className="g-seal" data-kind={kind} style={{ width: size, height: size }}>
-      <Icon size={Math.round(size * 0.52)} />
+      {motif ? <Motif id={motif} size={Math.round(size * 0.66)} /> : <Icon size={Math.round(size * 0.52)} />}
     </span>
   )
 }

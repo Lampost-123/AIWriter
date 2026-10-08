@@ -40,6 +40,7 @@ import {
   tidyFilters,
   type CodexFilters
 } from '@/features/codex/codexLogic'
+import { useEntryMotifs } from '@/features/world/art/artStore'
 import { createEntry } from '@/features/world/entryActions'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
@@ -129,6 +130,8 @@ export function WorldGallery({
   const storyTitle = useApp((s) => s.stories.find((x) => x.id === s.storyId)?.title.trim() ?? '')
   const scroller = useRef<HTMLDivElement>(null)
   const find = useRef<HTMLInputElement>(null)
+  // Each entry's drawing (phase 5's library): Adam's choice, else the one its words call for.
+  const motifs = useEntryMotifs()
 
   const all = useMemo(() => (cards ?? []).filter((c) => GALLERY_KINDS.includes(c.kind)), [cards])
   const tabs = useMemo(() => galleryTabs(all), [all])
@@ -370,6 +373,7 @@ export function WorldGallery({
                         featured={s.featured === c.id}
                         delay={delay}
                         opened={openId === c.id}
+                        motif={motifs.get(c.id) ?? null}
                         onOpen={onOpen}
                       />
                     </li>

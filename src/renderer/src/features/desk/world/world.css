@@ -597,6 +597,19 @@
   color: rgb(255 251 246 / 0.95);
   filter: drop-shadow(0 4px 8px rgb(30 15 50 / 0.3));
 }
+/* An entry's drawing from the drawing library (phase 5) in place of the interim cameo, headland or icon. */
+[data-arrangement='desk'] .g-art-drawing {
+  filter: drop-shadow(0 3px 6px rgb(30 15 50 / 0.32));
+}
+[data-arrangement='desk'] span.g-art-land {
+  padding-bottom: 6px;
+}
+[data-arrangement='desk'] .g-art-land .g-art-glow {
+  top: 50%;
+  width: 92px;
+  height: 92px;
+  margin: -46px 0 0 -46px;
+}
 [data-arrangement='desk'] .g-portrait:hover .g-art-motif {
   translate: 0 -4px;
 }

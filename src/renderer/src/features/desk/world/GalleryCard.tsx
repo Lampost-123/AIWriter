@@ -31,6 +31,8 @@ export interface GalleryCardProps {
   delay: number | null
   /** Its dossier is open over the gallery: the card steps out (it became the dossier). */
   opened: boolean
+  /** Its drawing from the drawing library (phase 5); its own portrait still wins. */
+  motif: string | null
   onOpen: (card: CodexCard, el: HTMLElement, how: OpenHow) => void
 }
 
@@ -54,6 +56,7 @@ export const GalleryCard = memo(function GalleryCard({
   featured,
   delay,
   opened,
+  motif,
   onOpen
 }: GalleryCardProps): React.JSX.Element {
   const name = displayName(card)
@@ -82,7 +85,7 @@ export const GalleryCard = memo(function GalleryCard({
   if (shape === 'portrait') {
     return (
       <button {...common} aria-label={label.join(', ')} className={cn('g-card g-portrait', featured && 'is-featured')}>
-        <PortraitArt id={card.id} kind={card.kind} image={card.image} featured={featured} />
+        <PortraitArt id={card.id} kind={card.kind} image={card.image} featured={featured} motif={motif} />
         {role ? <span className="g-role">{role}</span> : null}
         {card.image ? null : (
           <span aria-hidden className="g-mono">
@@ -100,7 +103,7 @@ export const GalleryCard = memo(function GalleryCard({
   if (shape === 'landscape') {
     return (
       <button {...common} aria-label={label.join(', ')} className="g-card g-landscape">
-        <LandscapeArt id={card.id} image={card.image} />
+        <LandscapeArt id={card.id} image={card.image} motif={motif} />
         <span className="g-ptag">{inside ? `In ${inside}` : 'Place'}</span>
         <span className="g-body">
           <span className={cn('g-name', !card.name.trim() && 'is-unnamed')}>{name}</span>
@@ -114,7 +117,7 @@ export const GalleryCard = memo(function GalleryCard({
     return (
       <button {...common} aria-label={label.join(', ')} className="g-card g-parchment">
         <span aria-hidden className="g-rules" />
-        <Seal kind={card.kind} />
+        <Seal kind={card.kind} motif={motif} />
         <span className="g-body">
           <span className="g-caps">{category || KIND_LABELS[card.kind].one}</span>
           <span className={cn('g-title', !card.name.trim() && 'is-unnamed')}>{name}</span>
@@ -196,7 +199,7 @@ export const GalleryCard = memo(function GalleryCard({
   }
   return (
     <button {...common} aria-label={label.join(', ')} className="g-card g-plain">
-      <Seal kind={card.kind} size={30} />
+      <Seal kind={card.kind} size={30} motif={motif} />
       <span className="g-body">
         <span className="g-caps">{category || KIND_LABELS[card.kind].one}</span>
         <span className={cn('g-title', !card.name.trim() && 'is-unnamed')}>{name}</span>

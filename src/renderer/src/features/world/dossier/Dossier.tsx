@@ -35,6 +35,8 @@ import { EntryVoice } from '@/features/readAloud/EntryVoice'
 import { Portrait } from '@/features/views/Portrait'
 import { PortraitDrop } from '@/features/views/PortraitDrop'
 import { useEntryAsOf } from '@/features/views/useAsOf'
+import { Motif } from '@/components/art/Motif'
+import { useEntryMotifs } from '@/features/world/art/artStore'
 import { MotifPicker } from '@/features/world/art/MotifPicker'
 import { artHue, shortPlace } from '@/features/desk/world/galleryLogic'
 import { setAsOfMode, useAsOfMode } from '../asOfMode'
@@ -308,6 +310,8 @@ export function Dossier({
   const parent = draft.parentId ? places.find((p) => p.id === draft.parentId) : null
   const hue = artHue(kind, entry.id)
   const Icon = KIND_ICONS[kind]
+  // Its drawing (the card's, as the gallery shows it): on the portrait while it has none of Adam's.
+  const motif = useEntryMotifs().get(entry.id) ?? null
 
   const openBuilder = async (): Promise<void> => {
     if (!PICTURED.includes(kind)) return
@@ -676,10 +680,10 @@ export function Dossier({
 
       <div className="dz-portrait">
         {PICTURED.includes(kind) ? (
-          <PortraitDrop entry={draft} size={88} onChange={(saved) => takeNewer(saved, editor.base.current)} />
+          <PortraitDrop entry={draft} size={88} motif={motif} onChange={(saved) => takeNewer(saved, editor.base.current)} />
         ) : (
           <span aria-hidden className="dz-mono">
-            {kind === 'lore' && draft.hardRule ? <ShieldCheck size={36} /> : entryInitial(name)}
+            {kind === 'lore' && draft.hardRule ? <ShieldCheck size={36} /> : motif ? <Motif id={motif} size={54} /> : entryInitial(name)}
           </span>
         )}
       </div>
