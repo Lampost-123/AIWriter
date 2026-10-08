@@ -18,10 +18,16 @@
 //  - A line the rules can't place (someone outside the cast) is marked by the AI, with no voices of their own.
 //  - A line the voice can't read stays lit, with Try again and Skip this line.
 //  - The speech engine not running, then its voices not ready: plain words, with the way to fix it.
+//  - A character's Read-aloud voice box sits near the top of their page, read aloud on or off; off, it says so with
+//    Turn on read aloud, and their voice can be described ahead of time.
+//  - Settings › Read aloud › Cast: the sample world's characters with their voices; a voice picked there is saved and
+//    shows on their page (Open page); Give everyone without a voice a voice (with the studio voices), and Undo. The
+//    palette opens the cast, and a character's voice from their page.
 import type { Page } from '@playwright/test'
-import { join } from 'node:path'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, newDataDir, openSettings, startFake, test, useFakeModel } from './helpers'
 
 // These tests type straight quotes and look for them as typed (smart punctuation is Writing by hand's).
 test.use({ smartPunctuation: false })
@@ -467,7 +473,9 @@ test('the bar names the chapter and scene being read, and the binder marks them 
     await expect(highlight(win).first()).toBeInViewport()
 
     // Keep reading goes on into the next chapter: the bar and the marks go with it.
-    await readingBar(win).getByRole('button', { name: /^Carry on/ }).click()
+    await readingBar(win)
+      .getByRole('button', { name: /^Carry on/ })
+      .click()
     const next = readingBar(win).getByRole('button', { name: 'Chapter 2 · The Ferry' })
     await expect(next).toBeVisible({ timeout: 30_000 })
     // The chapter's own title is in its tooltip.
@@ -670,6 +678,205 @@ test('the speech engine not running, then its voices not ready: plain words, and
     await readingBar(win).getByRole('button', { name: 'Try again' }).click()
     await expect(readingBar(win)).toContainText("The voices aren't ready yet.", { timeout: 30_000 })
     await expect(readingBar(win).getByRole('button', { name: 'Open speech settings' })).toBeVisible()
+  } finally {
+    await speech.close()
+  }
+})
+
+// ---------- A character's voice: on their page and in the Cast ----------
+
+const voiceBox = (win: Page) => win.getByRole('region', { name: 'Read-aloud voice' })
+const castList = (win: Page) => win.getByRole('list', { name: 'Cast' })
+const castRow = (win: Page, name: string) => castList(win).locator('li', { hasText: name })
+
+/** Opens the sample world (Gullhaven: Wren Halloway, Edric Halloway, Ansel Crane and Iska Vey) in the window. */
+async function sampleWorld(win: Page): Promise<void> {
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await invoke(win, 'openSampleWorld')
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps to the lamp room.')
+}
+
+/** The sample world's characters by name. */
+async function characters(win: Page): Promise<Record<string, string>> {
+  return Object.fromEntries((await invoke(win, 'listEntries', 'character')).map((e) => [e.name, e.id]))
+}
+
+/**
+ * A data folder whose speech folder has the voices and the two made-up studio voices (Clara and Arthur) "downloaded",
+ * as tests/fake-speech/install.mjs leaves them, so Give everyone a voice has studio voices to give.
+ */
+function withStudioVoices(): string {
+  const dataDir = newDataDir()
+  const home = join(dataDir, 'app', 'speech')
+  const touch = (...parts: string[]): void => {
+    const file = join(home, ...parts)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, '')
+  }
+  touch('venvs', 'breeze', ...(process.platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python']))
+  touch('models', 'breeze', 'code', 'breeze_infer', '__init__.py')
+  touch('models', 'breeze', '.ready')
+  touch('models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2', 'snapshots', 'fake', 'config.json')
+  touch('voices', 'library', '.ready')
+  const index = [
+    { id: 'p001', gender: 'female', age: '26-35', hz: 210, moods: ['anger', 'whisper'], name: 'Clara', pitch: 'mid' },
+    { id: 'p002', gender: 'male', age: '46-55', hz: 110, moods: ['anger', 'whisper'], name: 'Arthur', pitch: 'low' }
+  ]
+  writeFileSync(join(home, 'voices', 'library', 'index.json'), JSON.stringify(index))
+  const at = new Date().toISOString()
+  writeFileSync(join(home, 'installed.json'), JSON.stringify({ voices: { at, from: 'own', root: home, gpu: '' }, studio: { at } }))
+  return dataDir
+}
+
+const top = async (el: ReturnType<Page['locator']>): Promise<number> => (await el.boundingBox())!.y
+
+test('a character’s voice box is near the top of their page, with read aloud off or on', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    const mara = await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the harbour ferry.' })
+    await invoke(win, 'createEntry', 'place', { name: 'The Quay' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url } })
+    expect((await invoke(win, 'getSettings')).speech.readAloud).toBe(false)
+
+    // Read aloud is off, and Mara's page still has her voice box, under her description and above the sections.
+    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await win.locator('[data-entry]').filter({ hasText: 'Mara' }).first().click()
+    const box = voiceBox(win)
+    await expect(box).toBeVisible()
+    await expect(box.getByRole('heading', { name: 'Read-aloud voice' })).toBeVisible()
+    await expect(box).toContainText('Read aloud is off. Describe or pick Mara’s voice now')
+    expect(await top(box)).toBeGreaterThan(await top(win.getByLabel('Description', { exact: true })))
+    expect(await top(box)).toBeLessThan(await top(win.getByRole('button', { name: /^Basics/ })))
+    expect(await top(box)).toBeLessThan(await top(win.getByText('Private notes (never sent to the AI)')))
+    // Hear and Listen wait for read aloud; her voice can be described now, ready for it.
+    await expect(box.getByRole('button', { name: 'Hear' })).toHaveCount(0)
+    await box.getByLabel('How they sound').fill('A low, quick voice with a harbour burr.')
+    await expect
+      .poll(async () => (await invoke(win, 'getEntryReadAloud', mara.id)).voice.design)
+      .toBe('A low, quick voice with a harbour burr.')
+
+    // Turn on read aloud, from her page: on, and the box has Hear.
+    await box.getByRole('button', { name: 'Turn on read aloud' }).click()
+    await expect.poll(async () => (await invoke(win, 'getSettings')).speech.readAloud).toBe(true)
+    await expect(box).not.toContainText('Read aloud is off')
+    await expect(box.getByRole('button', { name: 'Hear' })).toBeEnabled()
+    await expect(box.getByLabel('How they sound')).toHaveValue('A low, quick voice with a harbour burr.')
+
+    // A place has no voice of its own: its "Say it as" stays at the foot of its page.
+    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await win.locator('[data-entry]').filter({ hasText: 'The Quay' }).first().click()
+    const said = win.getByRole('region', { name: 'Read aloud', exact: true })
+    await expect(said).toBeVisible()
+    expect(await top(said)).toBeGreaterThan(await top(win.getByLabel('Description', { exact: true })))
+    await expect(voiceBox(win)).toHaveCount(0)
+  } finally {
+    await speech.close()
+  }
+})
+
+test('the Cast in Settings: every character and their voice; a voice picked there shows on their page', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await sampleWorld(win)
+    const ids = await characters(win)
+    await invoke(win, 'setEntryReadAloud', ids['Iska Vey'], { voice: { design: 'Husky and quick, never still.', voice: '' }, say: '' })
+    await invoke(win, 'setEntryReadAloud', ids['Ansel Crane'], { voice: { design: '', voice: 'old-man' }, say: '' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true } })
+    // The window reads the settings afresh.
+    await win.reload()
+    await expect(win.locator('.scene-prose')).toBeVisible()
+
+    // The palette's Read-aloud cast opens it.
+    await win.keyboard.press('Control+K')
+    await win.keyboard.type('read-aloud cast')
+    await expect(win.getByRole('dialog', { name: 'Search' }).getByRole('option', { selected: true })).toContainText('Read-aloud cast')
+    await win.keyboard.press('Enter')
+    await expect(win.getByRole('heading', { level: 1, name: 'Read aloud and dictation' })).toBeVisible()
+    await expect(win.getByRole('heading', { name: 'Cast', exact: true })).toBeInViewport()
+
+    // Each of the sample world's characters, by name, with the voice their lines are read in.
+    await expect(castList(win).locator('li')).toHaveCount(4)
+    await expect(castList(win).locator('li p:first-child')).toHaveText(['Ansel Crane', 'Edric Halloway', 'Iska Vey', 'Wren Halloway'])
+    await expect(castRow(win, 'Ansel Crane').locator('[data-cast-voice]')).toHaveText('Old man')
+    await expect(castRow(win, 'Iska Vey').locator('[data-cast-voice]')).toHaveText('Made from their description')
+    await expect(castRow(win, 'Wren Halloway').locator('[data-cast-voice]')).toHaveText('Dialogue voice')
+    // Without the studio voices, nobody can be given one here.
+    await expect(win.getByRole('button', { name: 'Give everyone without a voice a voice' })).toBeDisabled()
+    await expect(win.getByText('Needs the studio voices')).toBeVisible()
+    // Hear plays a line in their voice.
+    await castRow(win, 'Ansel Crane').getByRole('button', { name: 'Hear Ansel Crane' }).click()
+    await expect.poll(async () => (await spoken(speech)).some((s) => s.voice === 'old-man')).toBe(true)
+
+    // A voice picked for Wren is saved at once, as on her page.
+    await castRow(win, 'Wren Halloway').getByRole('combobox', { name: 'Wren Halloway’s voice' }).click()
+    await win.getByRole('option', { name: /^Young woman/ }).click()
+    await expect(castRow(win, 'Wren Halloway').locator('[data-cast-voice]')).toHaveText('Young woman')
+    await expect.poll(async () => (await invoke(win, 'getEntryReadAloud', ids['Wren Halloway'])).voice.voice).toBe('young-woman')
+
+    // Open page: her page, at her voice, with the voice picked there too.
+    await castRow(win, 'Wren Halloway').getByRole('button', { name: 'Open page' }).click()
+    const box = voiceBox(win)
+    await expect(box).toBeInViewport()
+    await expect(box.getByRole('combobox', { name: 'Or a voice from the list' })).toContainText('Young woman')
+    await expect(box.getByLabel('How they sound')).toBeFocused()
+
+    // From her page, the palette offers Set Wren Halloway’s voice.
+    await win.keyboard.press('Control+K')
+    await win.keyboard.type('voice')
+    await expect(win.getByRole('dialog', { name: 'Search' }).getByRole('option', { name: /Set Wren Halloway’s voice/ })).toBeVisible()
+    await win.keyboard.press('Escape')
+  } finally {
+    await speech.close()
+  }
+})
+
+test('Give everyone without a voice a voice: each gets a studio voice, the Cast says so, and Undo takes them back', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch({ dataDir: withStudioVoices() })
+    await sampleWorld(win)
+    const ids = await characters(win)
+    // Iska is described and Ansel has a voice picked: those stay theirs.
+    await invoke(win, 'setEntryReadAloud', ids['Iska Vey'], { voice: { design: 'Husky and quick, never still.', voice: '' }, say: '' })
+    await invoke(win, 'setEntryReadAloud', ids['Ansel Crane'], { voice: { design: '', voice: 'old-man' }, say: '' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true } })
+    // The window reads the settings afresh.
+    await win.reload()
+    await expect(win.locator('.scene-prose')).toBeVisible()
+    expect((await invoke(win, 'getSpeechStatus')).installed.studio).toBe(true)
+
+    await openSettings(win, 'Read aloud and dictation')
+    await expect(castList(win).locator('li')).toHaveCount(4)
+    await expect(win.getByText('2 characters have no voice yet')).toBeVisible()
+    await win.getByRole('button', { name: 'Give everyone without a voice a voice' }).click()
+
+    // Wren and Edric each got one of the two studio voices; the Cast says who got which, and that the app gave them.
+    const given = win.getByRole('status').filter({ hasText: 'Given voices' })
+    await expect(given).toBeVisible()
+    const wren = (await invoke(win, 'getEntryReadAloud', ids['Wren Halloway'])).voice.voice
+    const edric = (await invoke(win, 'getEntryReadAloud', ids['Edric Halloway'])).voice.voice
+    expect([wren, edric].sort()).toEqual(['clip:library/p001.wav', 'clip:library/p002.wav'])
+    const name = (id: string): string => (id === 'clip:library/p001.wav' ? 'Clara' : 'Arthur')
+    await expect(given).toContainText(`Wren Halloway: ${name(wren)}`)
+    await expect(given).toContainText(`Edric Halloway: ${name(edric)}`)
+    await expect(castRow(win, 'Wren Halloway').locator('[data-cast-voice]')).toHaveText(`Auto: ${name(wren)} (studio voice)`)
+    await expect(castRow(win, 'Iska Vey').locator('[data-cast-voice]')).toHaveText('Made from their description')
+    await expect(castRow(win, 'Ansel Crane').locator('[data-cast-voice]')).toHaveText('Old man')
+    await expect(win.getByText('Everyone here has a voice of their own.')).toBeVisible()
+    await expect(win.getByRole('button', { name: 'Give everyone without a voice a voice' })).toBeDisabled()
+
+    // Undo: they are back to the dialogue voice.
+    await given.getByRole('button', { name: 'Undo' }).click()
+    await expect(given).toBeHidden()
+    await expect(castRow(win, 'Wren Halloway').locator('[data-cast-voice]')).toHaveText('Dialogue voice')
+    expect((await invoke(win, 'getEntryReadAloud', ids['Edric Halloway'])).voice.voice).toBe('')
   } finally {
     await speech.close()
   }

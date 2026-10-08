@@ -8,7 +8,8 @@
 // comes and goes; it fades in and out, and keeps one height while it plays. While it shows, the page keeps the cursor
 // and the sentence being read clear of it (highlight.ts, follow.ts). It also hands the page to the reading
 // (control.ts) and listens for Ctrl+Shift+Space, which stops reading from anywhere. In a narrow page the labels
-// shorten (the speed's arrow and Emotion and tone's words go first); the buttons always keep their room.
+// shorten (the speed's arrow and Emotion and tone's words go first); the buttons always keep their room. The speaker's
+// name, when they are a character in the world, opens their read-aloud voice (voiceReveal.ts).
 import * as M from '@radix-ui/react-dropdown-menu'
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
@@ -19,6 +20,7 @@ import { Button, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
+import { api } from '@/lib/api'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { PopoverPanel } from '@/features/generate/parts'
 import { SceneMuteButton } from '@/features/sounds/SceneMuteButton'
@@ -45,6 +47,7 @@ import {
   useReading,
   type ReadingBar
 } from './control'
+import { openEntryVoice } from './voiceReveal'
 import { setBarRoom } from './highlight'
 import { useNewLook } from '@/features/look/look'
 import { playingPlace } from './playing'
@@ -262,6 +265,41 @@ function Indicator({ phase }: { phase: ReadingBar['phase'] }): React.JSX.Element
   )
 }
 
+/** The world's characters by name, so the bar's speaker can open their voice. */
+function useCharacterIds(): ReadonlyMap<string, ID> {
+  const rev = useApp((s) => s.entriesRev)
+  const worldId = useApp((s) => s.world?.id ?? null)
+  const [ids, setIds] = useState<ReadonlyMap<string, ID>>(new Map())
+  useEffect(() => {
+    if (!worldId) return
+    let live = true
+    api
+      .listEntries('character')
+      .then((list) => live && setIds(new Map(list.map((e) => [e.name.trim(), e.id]))))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [rev, worldId])
+  return ids
+}
+
+/** Who is speaking: a character's name opens their read-aloud voice; the narrator and "Someone" are plain words. */
+function Speaker({ who }: { who: string }): React.JSX.Element {
+  const id = useCharacterIds().get(who.trim())
+  if (!id) return <span className="font-semibold text-fg">{who}</span>
+  return (
+    <button
+      type="button"
+      title={`${who}’s read-aloud voice`}
+      onClick={() => openEntryVoice(id)}
+      className="rounded-sm font-semibold text-fg underline decoration-dotted decoration-faint underline-offset-2 outline-none transition-colors duration-150 hover:text-accent hover:decoration-accent focus-visible:ring-2 focus-visible:ring-accent/40"
+    >
+      {who}
+    </button>
+  )
+}
+
 function Words({ bar }: { bar: ReadingBar }): React.JSX.Element {
   const speaking = (bar.phase === 'playing' || bar.phase === 'paused') && !!bar.who
   // Which paragraph, while it reads and where it stopped.
@@ -279,7 +317,7 @@ function Words({ bar }: { bar: ReadingBar }): React.JSX.Element {
         >
           {speaking ? (
             <>
-              <span className="font-semibold text-fg">{bar.who}</span>
+              <Speaker who={bar.who} />
               {bar.how ? <span className="text-muted"> · {bar.how}</span> : null}
               {bar.phase === 'paused' ? <span className="text-accent"> · Paused</span> : null}
             </>

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DraftMarks, FORGET_AFTER_MS, MARK_AFTER_MS, type DraftMarksDeps } from './draftMarks'
-import { labelOf, markedEnough } from './labels'
+import { labelOf, labelSpeaker, markedEnough } from './labels'
 
 /** A scene's page as TipTap saves it: paragraphs with their ids. */
 const doc = (...paras: [string, string][]) => ({
@@ -163,6 +163,24 @@ describe('the labels "Show speakers and tone" shows', () => {
       ])
     ).toBe('Mara · quiet; Tobin; Narrator · tense; …')
     expect(labelOf([])).toBe('')
+  })
+
+  it('says who a label starts with, so their name on the page can open their voice', () => {
+    expect(labelSpeaker([{ who: 'Narrator', how: '' }])).toBe('Narrator')
+    expect(
+      labelSpeaker([
+        { who: 'Narrator', how: '' },
+        { who: 'Mara', how: 'sharp' }
+      ])
+    ).toBe('Mara')
+    // Narration with a tone stays in the label, first.
+    expect(
+      labelSpeaker([
+        { who: 'Narrator', how: 'tense' },
+        { who: 'Mara', how: '' }
+      ])
+    ).toBe('Narrator')
+    expect(labelSpeaker([])).toBeNull()
   })
 
   it('shows a paragraph only once its marks are in', () => {

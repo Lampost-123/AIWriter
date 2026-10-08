@@ -165,6 +165,22 @@ export interface SpeakerLabelsRequest {
 export interface SpeakerLabel {
   pid: string
   label: string
+  /** The character the label starts with, when they have a page in the world: their name opens their voice. */
+  speaker?: { entryId: ID; name: string }
+}
+
+/** One character in Settings › Read aloud › Cast. */
+export interface CastEntry {
+  id: ID
+  name: string
+  /** Their portrait's address, or null. */
+  image: string | null
+  /** Their voice and "Say it as", as on their page. */
+  value: EntryReadAloud
+  /** The app gave them this voice on its own (as they first spoke, or Give everyone a voice); false once it is changed. */
+  auto: boolean
+  /** The studio voice's name ("Clara") when they have one, from the studio voices' list. */
+  studioName: string | null
 }
 
 /** What a Sample, Hear or Listen button plays, exactly as reading will sound. */
@@ -232,6 +248,14 @@ export interface ReadAloudApi {
   giveStudioVoices(): Promise<{ given: number; before: Record<ID, EntryReadAloud> }>
   /** Undo for giveStudioVoices: those characters get back what they had, unless changed since. Returns how many. */
   restoreStudioVoices(before: Record<ID, EntryReadAloud>): Promise<number>
+  /** Settings › Read aloud › Cast: every character in the open world, by name, with the voice they are read in. */
+  readAloudCast(): Promise<CastEntry[]>
+  /**
+   * "Give everyone without a voice a voice": each character with none picked and nothing in How they sound gets a
+   * studio voice that fits them, by the rules (no AI call), as reading does when they first speak. `before` is for
+   * Undo (restoreStudioVoices). A plain-words error when the studio voices aren't downloaded.
+   */
+  castVoicelessCharacters(): Promise<{ given: ID[]; before: Record<ID, EntryReadAloud> }>
   /**
    * "Redo this line": the line is voiced again as another take, kept for it from now on (a reading asks for its clips
    * again to hear it). Returns the clip as it is asked for now.

@@ -77,6 +77,7 @@ import { followRecent, recentPlaces } from './recent'
 import { useReading } from '@/features/readAloud/control'
 import { canBuildMemory, useImport } from '@/features/importing/importStore'
 import { useFocusMode } from '@/features/look/focusMode'
+import { getDraft } from '@/features/world/entryDrafts'
 
 /** How many recent places show with nothing typed. */
 const RECENT = 5
@@ -312,10 +313,51 @@ function useActionContext(): ActionContext {
   const focus = useFocusMode((s) => s.on)
   const soundEffects = useApp((s) => !!s.settings?.speech.readAloud && !!s.settings?.speech.soundEffects)
   const showBeats = useApp((s) => !!s.settings?.editor?.showBeats)
+  const character = useOpenCharacter()
   return useMemo(
-    () => ({ view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats }),
-    [view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats]
+    () => ({
+      view,
+      storyId,
+      sceneId,
+      chapterId,
+      sceneDone,
+      drafting,
+      theme,
+      readAloud,
+      reading,
+      speakers,
+      unreadStory,
+      focus,
+      spellCheck,
+      soundEffects,
+      showBeats,
+      character
+    }),
+    [view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats, character]
   )
+}
+
+/** The character whose page is open, with their name (as being typed, else as saved), for "Set <name>’s voice". */
+function useOpenCharacter(): { id: string; name: string } | null {
+  const id = useApp((s) => (s.view.kind === 'entries' && s.view.entryKind === 'character' ? s.view.entryId : null))
+  const rev = useApp((s) => s.entriesRev)
+  const [saved, setSaved] = useState<{ id: string; name: string } | null>(null)
+  useEffect(() => {
+    if (!id) return
+    let live = true
+    api
+      .getEntry(id)
+      .then((e) => live && e.kind === 'character' && setSaved({ id, name: e.name.trim() }))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [id, rev])
+  return useMemo(() => {
+    if (!id) return null
+    const name = getDraft(id)?.name.trim() || (saved?.id === id ? saved.name : '') || 'this character'
+    return { id, name }
+  }, [id, saved])
 }
 
 /** Ctrl+K (⌘K) from anywhere, even the page: caught on the way down, before the editor sees it. */
