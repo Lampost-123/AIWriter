@@ -20,6 +20,8 @@ export interface EvalEntry {
   description: string
   /** Made in story B (the Glasswright): it exists only there. */
   storyB?: boolean
+  /** Made in story C (Saltreach Winters, the big briefing: bigWorld.ts): it exists only there. */
+  storyC?: boolean
   /** First exists at this scene (a later scene of story A): origin 'text' at that scene. */
   firstAt?: string
   /** Kept out of every briefing (a world 'hide' pin). */

@@ -15,7 +15,8 @@
 //              - from the second question in a chat on, it starts "Answer N in this chat." (N counts the
 //                earlier answers sent with it, so tests can see the conversation was sent);
 //            A question with "pretend" in it gets an answer that tells the writer to apply changes it never
-//            proposed. Otherwise two short paragraphs; with model fake/slow, a list of twenty ideas after them, one a line, so
+//            proposed. Otherwise two short paragraphs (then three numbered options when it asks for ideas, options,
+//            any thoughts or titles); with model fake/slow, a list of twenty ideas after them, one a line, so
 //            there is time to Stop.
 const MARKER = '[AIWRITE-ASK v1]'
 
@@ -61,6 +62,10 @@ export function askReply(system, messages, model) {
     `${lead}From the memory: ${who}. You asked: “${question.replace(/\s+/g, ' ').slice(0, 120)}”.`,
     `One idea that fits: they meet at [[The Grey Ferry]] at dusk, where *nobody* is watching.`
   ]
+  // Asked for ideas, options, thoughts or titles, it ends with three numbered options, as a real model does, so a
+  // follow-up pick ("option 2", "the second one", "yes, do that") has something to pick.
+  if (/\b(ideas|options|any thoughts|titles)\b/i.test(question))
+    paragraphs.push(['1. Cut it back to the one strong image.', '2. End on the line of dialogue instead.', '3. Keep it, but move it earlier.'].join('\n'))
   if (model === 'fake/slow') {
     const more = []
     for (let i = 1; i <= 20; i++) more.push(`Idea ${i}: something quiet happens by the water, and it changes what they want.`)
@@ -74,48 +79,180 @@ export function askReply(system, messages, model) {
  * the fake model works like a real one: it reads the open scene first (read_scene), then proposes an edit to the
  * scene's first sentence (propose_edit: the sentence in capitals), then answers in words. A question asking for a new
  * place proposes one (propose_new_entry). Returns the tool calls to send now, or null to answer in words (askReply).
+ *
+ * The chat overhaul's tools (Phase 1), only when the app offers them (plumbing only, never a score):
+ *   propose_draft    "next bit" / "continue from here" / "draft the scene": a draft hand-off straight away
+ *   ask_user         "make it better" / "shorten it" / "change his name" / "thing we talked about" / "which one":
+ *                    one question with three options
+ *   propose_changes  "drags" / "punch" / "sort" / "angrier" / "harder" / "flat" / "both" / "second one" / "go ahead" /
+ *                    "do that" / "option 2" / a reply starting "yes" /
+ *                    "do it": reads the scene, then one edit item on its first sentence (on the first two for "both"); also used for
+ *                    "fix" / "tighten" when propose_edit isn't offered
+ * Only the words he typed count for these (not a selection quoted above them). A forced tool_choice is obeyed.
  */
-export function askToolCalls(system, messages, tools) {
+export function askToolCalls(system, messages, tools, toolChoice) {
   if (!system.startsWith(MARKER) || !Array.isArray(tools) || !tools.length) return null
+  const calls = scriptedCalls(system, messages, tools)
+  // A request that forces a tool (tool_choice, the chat overhaul's TOOLCHOICE switch) gets that tool, as a real API
+  // would insist; "required" with nothing scripted asks the writer (ask_user) when it is offered.
+  const forced = typeof toolChoice === 'object' ? toolChoice?.function?.name : toolChoice === 'required' ? 'required' : null
+  if (!forced) return calls
+  if (forced === 'required') return calls ?? (offered(tools, 'ask_user') ? [askUserCall(tools)] : null)
+  if (calls?.some((c) => c.name === forced) || !offered(tools, forced)) return calls
+  if (forced === 'ask_user') return [askUserCall(tools)]
+  if (forced === 'propose_draft') return [draftCall(tools, 'Carry on from the end of the scene.')]
+  return [{ name: forced, arguments: fill(paramsOf(tools, forced), { why: 'As asked.' }) }]
+}
+
+// ---------- The chat overhaul's tools (Phase 1): propose_changes, ask_user, propose_draft ----------
+// Their argument shapes are read from the tools as offered (each tool's JSON schema), so the fake keeps working while
+// the shapes settle: known words are filled in where the schema has a property of that name, anything else required
+// gets a plain value of its type.
+
+const nameOf = (t) => t?.function?.name ?? t?.name
+const offered = (tools, name) => tools.some((t) => nameOf(t) === name)
+const paramsOf = (tools, name) => {
+  const t = tools.find((x) => nameOf(x) === name)
+  return t?.function?.parameters ?? t?.parameters ?? { type: 'object', properties: {} }
+}
+
+/** A value for a JSON schema: `hints` by property name first, else a plain value of the right type for what is required. */
+function fill(schema, hints = {}, depth = 0) {
+  if (!schema || depth > 5) return ''
+  if (Array.isArray(schema.enum)) return schema.enum[0]
+  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
+  if (type === 'object' || schema.properties) {
+    const out = {}
+    const required = new Set(schema.required ?? [])
+    for (const [k, v] of Object.entries(schema.properties ?? {})) {
+      if (k in hints) out[k] = Array.isArray(v?.enum) && !v.enum.includes(hints[k]) ? v.enum[0] : hints[k]
+      else if (required.has(k)) out[k] = fill(v, hints, depth + 1)
+    }
+    return out
+  }
+  if (type === 'array') return [fill(schema.items, hints, depth + 1)]
+  if (type === 'number' || type === 'integer') return 1
+  if (type === 'boolean') return true
+  return 'As asked.'
+}
+
+/** The array property of a schema (propose_changes' list of items): its name and its items' schema. */
+function listOf(schema) {
+  const props = schema?.properties ?? {}
+  const name = 'items' in props ? 'items' : 'changes' in props ? 'changes' : Object.keys(props).find((k) => props[k]?.type === 'array')
+  return name ? { name, items: props[name].items ?? { type: 'object', properties: {} } } : null
+}
+
+/** propose_changes with one item per change: { kind, find, replace, why } filled into the item schema. */
+function changesCall(tools, changes) {
+  const schema = paramsOf(tools, 'propose_changes')
+  const list = listOf(schema)
+  const items = changes.map((c) => fill(list?.items, c))
+  const top = fill(schema, { why: 'As asked.' })
+  if (list) top[list.name] = items
+  return { name: 'propose_changes', arguments: top }
+}
+
+/** ask_user: one question with options (options as strings, or as objects when the schema wants them). */
+function askUserCall(tools) {
+  const schema = paramsOf(tools, 'ask_user')
+  const options = ['The opening paragraph', 'The ending', 'Hesper’s lines']
+  const optSchema = schema?.properties?.options?.items
+  const opts = optSchema && (optSchema.type === 'object' || optSchema.properties) ? options.map((o) => fill(optSchema, { label: o, text: o, title: o, value: o })) : options
+  return { name: 'ask_user', arguments: fill(schema, { question: 'Which part do you mean?', options: opts, why: 'The ask could mean several things.' }) }
+}
+
+/** propose_draft: a hand-off to the writer's own drafting, with a short direction. */
+function draftCall(tools, direction) {
+  const mode = /draft the scene/.test(direction) ? 'generate' : 'continue'
+  const hints = { direction, mode, why: 'You asked for new prose.' }
+  return { name: 'propose_draft', arguments: fill(paramsOf(tools, 'propose_draft'), hints) }
+}
+
+/** The scene's words as read_scene gave them: after "Text:" (or, with numbered paragraphs, "Text ([n] …):"), numbers taken out. */
+const sceneText = (content) => {
+  const parts = String(content ?? '').split(/\nText(?: \([^)\n]*\))?:\n/)
+  return (parts[1] ?? '').replace(/^\[\d+\] /gm, '')
+}
+
+/** The sentences of the scene as read_scene gave it. */
+const sentences = (content) => sceneText(content).trim().match(/[^.!?]+[.!?]/g)?.map((x) => x.trim()) ?? []
+
+/** The first sentence of the scene as read_scene gave it, or ''. */
+const firstSentence = (content) => (/^[^.!?]+[.!?]/.exec(sceneText(content).trim()) ?? [''])[0]
+
+function scriptedCalls(system, messages, tools) {
   const users = messages.filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
   const nudged = users.some((u) => u.startsWith('[AI Write, not the writer] Your answer gives'))
   // The question is Adam's, not the app's note asking for the tools.
   const question = (users.filter((u) => !u.startsWith('[AI Write, not the writer]')).at(-1) ?? '').toLowerCase()
+  // What he typed (after a quoted selection, "About this passage: “…”", if any).
+  const typed = question.startsWith('about this passage:') ? question.slice(question.lastIndexOf('\n\n') + 2) : question
   const last = messages[messages.length - 1]
   const toolResults = messages.filter((m) => m.role === 'tool')
+  const called = (name) => messages.some((m) => (m.tool_calls ?? []).some((c) => c.function?.name === name))
+  // The overhaul's tools, when offered: a draft hand-off for new prose, one question for a truly vague ask, and
+  // propose_changes for a novelist's vague edit ("this drags", "punch this up"), after reading the scene.
+  if (offered(tools, 'propose_draft') && /\b(next bit|continue from here|draft the scene)\b/.test(typed)) {
+    return called('propose_draft') ? null : [draftCall(tools, typed.replace(/\s+/g, ' ').slice(0, 200))]
+  }
+  if (offered(tools, 'ask_user') && /\b(make it better|shorten it|change his name|thing we talked about|which one)\b/.test(typed)) {
+    return called('ask_user') ? null : [askUserCall(tools)]
+  }
+  if (offered(tools, 'propose_changes') && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it|do that|option \d)\b|^yes\b/.test(typed.trim())) {
+    if (called('propose_changes')) return null
+    if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
+    const first = last?.role === 'tool' ? firstSentence(last.content) : ''
+    if (!first) return null
+    const changes = [{ kind: 'edit', find: first, replace: first.replace(/\s+/g, ' ').toUpperCase(), why: 'Louder, as asked.' }]
+    const second = last?.role === 'tool' ? sentences(last.content)[1] : undefined
+    if (/\bboth\b/.test(typed) && second) changes.push({ kind: 'edit', find: second, replace: second.toUpperCase(), why: 'And the other one.' })
+    return [changesCall(tools, changes)]
+  }
+  return legacyCalls(question, nudged, last, toolResults, tools)
+}
+
+function legacyCalls(question, nudged, last, toolResults, tools) {
   // Asked to propose what it claimed ("pretend"), it does, as a fix would; a stubborn one still doesn't.
   if (/\bpretend\b/.test(question)) {
     if (!nudged || /\bstubborn/.test(question)) return null
     if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
     if (last?.role === 'tool' && toolResults.length === 1) {
-      const text = String(last.content).split('\nText:\n')[1] ?? ''
-      const first = (/^[^.!?]+[.!?]/.exec(text.trim()) ?? [''])[0]
-      return first ? [{ name: 'propose_edit', arguments: { find: first, replace: first.toUpperCase(), why: 'Tidied, as claimed.' } }] : null
+      const first = firstSentence(last.content)
+      if (!first) return null
+      const change = { find: first, replace: first.toUpperCase(), why: 'Tidied, as claimed.' }
+      return [offered(tools, 'propose_edit') || !offered(tools, 'propose_changes') ? { name: 'propose_edit', arguments: change } : changesCall(tools, [{ kind: 'edit', ...change }])]
     }
     return null
   }
   if (/\bnew place\b/.test(question)) {
     if (toolResults.length) return null
-    return [{ name: 'propose_new_entry', arguments: { kind: 'place', name: 'The Salt Stair', summary: 'Worn steps cut into the harbour wall.', why: 'You asked for a new place.' } }]
+    const place = { name: 'The Salt Stair', summary: 'Worn steps cut into the harbour wall.', why: 'You asked for a new place.' }
+    if (!offered(tools, 'propose_new_entry') && offered(tools, 'propose_changes')) return [changesCall(tools, [{ kind: 'new_entry', entry_kind: 'place', ...place }])]
+    return [{ name: 'propose_new_entry', arguments: { kind: 'place', ...place } }]
   }
   // Asked to push a passage harder: it reads the scene, then rewrites the whole of it (every paragraph) as two new ones.
   if (/\bpush\b/.test(question)) {
     if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
     if (last?.role === 'tool' && toolResults.length === 1) {
-      const words = (String(last.content).split('\nText:\n')[1] ?? '').trim().split(/\s+/)
+      const words = sceneText(last.content).trim().split(/\s+/)
       if (words.length < 6) return null
       const replace = 'The tide *roared* in over the flats.\n\nThe gulls screamed once, then nothing.'
-      return [{ name: 'propose_rewrite', arguments: { start: words.slice(0, 3).join(' '), end: words.slice(-3).join(' '), replace, why: 'Pushed harder, as asked.' } }]
+      const rewrite = { start: words.slice(0, 3).join(' '), end: words.slice(-3).join(' '), replace, why: 'Pushed harder, as asked.' }
+      if (!offered(tools, 'propose_rewrite') && offered(tools, 'propose_changes')) return [changesCall(tools, [{ kind: 'rewrite', ...rewrite }])]
+      return [{ name: 'propose_rewrite', arguments: rewrite }]
     }
     return null
   }
   if (!/\b(fix|tighten)\b/.test(question)) return null
   if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
   if (last?.role === 'tool' && toolResults.length === 1) {
-    const text = String(last.content).split('\nText:\n')[1] ?? ''
-    const first = (/^[^.!?]+[.!?]/.exec(text.trim()) ?? [''])[0]
+    const first = firstSentence(last.content)
     if (!first) return null
-    return [{ name: 'propose_edit', arguments: { find: first, replace: first.replace(/\s+/g, ' ').toUpperCase(), why: 'Shouted, as asked.' } }]
+    const change = { find: first, replace: first.replace(/\s+/g, ' ').toUpperCase(), why: 'Shouted, as asked.' }
+    // With propose_edit gone (the overhaul's single propose_changes), the same edit goes through propose_changes.
+    if (!offered(tools, 'propose_edit') && offered(tools, 'propose_changes')) return [changesCall(tools, [{ kind: 'edit', ...change }])]
+    return [{ name: 'propose_edit', arguments: change }]
   }
   return null
 }

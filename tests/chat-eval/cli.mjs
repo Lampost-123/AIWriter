@@ -8,7 +8,9 @@
 //        openrouter  a real model; refuses unless AIWRITE_CHAT_EVAL_PAID=yes AND a cap (--max-usd or
 //                    AIWRITE_CHAT_EVAL_MAX_USD) are set, and OPENROUTER_API_KEY is in the environment; never in CI
 //        deepseek    a real model on DeepSeek's own API (default deepseek-flash); the same locks, with DEEPSEEK_API_KEY
-//   --scenarios E01,S03|subset     only these (default all 40; "subset" is the 12 in scenarios.ts SUBSET)
+//   --scenarios core|real|all|subset|E01,R05   which scenarios (default core: the 40 of Phase 0; real: the 24 of
+//                                  real.ts (long chats, a big briefing, vague asks, follow-ups, "write the next bit");
+//                                  all: both; subset: 12 of the core; or ids, comma-separated; sets and ids mix)
 //   --out <folder>                 report folder (default ..\AIWriter-chat-results\<date>-<backend>); never written over
 //   --bridge-dir <folder>          the bridge's folder (default ..\AIWriter-chat-results\bridge)
 //   --model <id>                   OpenRouter model (default: DeepSeek Flash from OpenRouter's list)
@@ -20,6 +22,8 @@
 //   --label <text>                 a name for the run (in the report and the bridge's file names)
 //   --matcher                      the free matcher measurement instead of the scenarios (no model, no network)
 //   --keep                         keep the throwaway data folder
+//   --compare <A> <B> [...] --out <folder>   no model: puts saved reports (folders or report.json files) side by side
+//                                  in <folder>\compare.md, each re-scored with today's score.ts (the A/B of switches)
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -28,12 +32,31 @@ import { fileURLToPath } from 'node:url'
 const here = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const args = process.argv.slice(2)
 const env = { ...process.env }
-const known = ['--backend', '--scenarios', '--out', '--bridge-dir', '--model', '--max-usd', '--root', '--env', '--label', '--matcher', '--keep']
+const known = ['--backend', '--scenarios', '--out', '--bridge-dir', '--model', '--max-usd', '--root', '--env', '--label', '--matcher', '--keep', '--compare']
 const fail = (msg) => {
   console.error(msg)
   process.exit(2)
 }
 for (const a of args) if (a.startsWith('--') && !known.includes(a)) fail(`Unknown flag ${a}. See the top of tests/chat-eval/cli.mjs.`)
+
+// --compare: saved reports side by side; no model, no network, so nothing below (backends, keys) applies.
+if (args.includes('--compare')) {
+  const at = args.indexOf('--compare')
+  const reports = []
+  for (let i = at + 1; i < args.length && !args[i].startsWith('--'); i++) reports.push(resolve(args[i]))
+  if (reports.length < 2) fail('--compare needs two or more report folders (or report.json files).')
+  for (const r of reports) if (!existsSync(r) || (!r.endsWith('.json') && !existsSync(join(r, 'report.json')))) fail(`No report at ${r}.`)
+  const o = args.indexOf('--out')
+  if (o < 0 || !args[o + 1] || args[o + 1].startsWith('--')) fail('--compare needs --out <folder> for compare.md.')
+  for (const k of ['CHAT_EVAL_RUN', 'CHAT_EVAL_MATCHER']) delete env[k]
+  env.CHAT_EVAL_COMPARE = JSON.stringify(reports)
+  env.CHAT_EVAL_OUT = resolve(args[o + 1])
+  env.CHAT_EVAL_BACKEND = 'fake'
+  const vitest = join(here, 'node_modules', 'vitest', 'vitest.mjs')
+  const r = spawnSync(process.execPath, [vitest, 'run', '--config', join(here, 'tests', 'chat-eval', 'vitest.chat-eval.config.ts')], { cwd: here, env, stdio: 'inherit' })
+  process.exit(r.status ?? 1)
+}
+delete env.CHAT_EVAL_COMPARE
 const values = (name) => {
   const out = []
   args.forEach((a, i) => {

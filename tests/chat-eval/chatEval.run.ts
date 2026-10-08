@@ -1,12 +1,12 @@
 // The chat eval and the matcher measurement, each as one long Vitest "test" so the app's TypeScript and its aliases run
 // as in the unit tests. Only `npm run chat-eval` runs this (tests/chat-eval/cli.mjs, with vitest.chat-eval.config.ts):
 // `npm test` never picks up a *.run.ts file, and this does nothing unless CHAT_EVAL_RUN or CHAT_EVAL_MATCHER is set.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { configFromEnv, git, isPaid, openEvalApp, runScenario, type TurnResult } from './harness'
-import { SCENARIOS, SUBSET } from './scenarios'
-import { reportMarkdown, summarise, type RunMeta } from './score'
+import { pickScenarios } from './scenarios'
+import { compareMarkdown, reportMarkdown, summarise, type Compared, type RunMeta } from './score'
 import { matcherMarkdown, measureMatcher } from './matcher'
 
 const DAY = 24 * 60 * 60_000
@@ -42,7 +42,7 @@ function freshOut(out: string, file: string): void {
 }
 
 const NOTES: Record<string, string> = {
-  fake: 'Fake provider: plumbing only (it reads the scene and proposes only for "fix" / "tighten" / "push" questions). Not a score of any model.',
+  fake: 'Fake provider: plumbing only (it reads the scene and proposes only for "fix" / "tighten" / "push" questions; when the app offers propose_changes, ask_user or propose_draft, it calls them on set words: see tests/fake-provider/m4/ask.mjs). Not a score of any model.',
   bridge: 'File bridge: a Claude session stood in for the model, answering each request from its content only. Plumbing and prompt-clarity evidence, NOT a DeepSeek result. Tokens are estimated from text.',
   openrouter: 'A real model on OpenRouter.',
   deepseek: "A real model on DeepSeek's own API. Cost is estimated from tokens at OpenRouter's list price."
@@ -54,10 +54,10 @@ describe.runIf(process.env.CHAT_EVAL_RUN === '1')('chat eval', () => {
     async () => {
       const cfg = configFromEnv()
       freshOut(cfg.out, 'report.json')
-      const wanted = cfg.only?.length === 1 && cfg.only[0] === 'SUBSET' ? SUBSET : cfg.only
-      const list = wanted ? SCENARIOS.filter((s) => wanted.includes(s.id)) : SCENARIOS
+      const list = pickScenarios(cfg.only)
       if (!list.length) throw new Error(`No scenarios match ${cfg.only?.join(',')}.`)
-      const app = await openEvalApp(cfg)
+      // Story C (the big briefing) is seeded only when a scenario asks in it.
+      const app = await openEvalApp(cfg, { network: true, big: list.some((s) => s.big) })
       const turns: TurnResult[] = []
       const m = meta(cfg.root, { backend: cfg.backend, model: app.model, provider: app.providerName, label: cfg.label, switches: cfg.switches, note: NOTES[cfg.backend] })
       const save = (partial: boolean): void => {
@@ -109,4 +109,24 @@ describe.runIf(process.env.CHAT_EVAL_MATCHER === '1')('matcher measurement', () 
     },
     10 * 60_000
   )
+})
+
+describe.runIf(process.env.CHAT_EVAL_COMPARE != null && process.env.CHAT_EVAL_COMPARE !== '')('compare', () => {
+  it('puts several reports side by side', () => {
+    const paths = JSON.parse(process.env.CHAT_EVAL_COMPARE!) as string[]
+    const out = process.env.CHAT_EVAL_OUT
+    if (!out) throw new Error('--compare needs --out <folder> for compare.md.')
+    freshOut(out, 'compare.md')
+    const runs: Compared[] = paths.map((p) => {
+      const file = existsSync(p) && statSync(p).isDirectory() ? join(p, 'report.json') : p
+      const r = JSON.parse(readFileSync(file, 'utf8')) as { meta: RunMeta; turns: TurnResult[]; partial?: boolean }
+      const name = `${r.meta.label || basename(dirname(file))}${r.partial ? ' (partial)' : ''}`
+      // Re-scored with today's scores, so old and new reports compare like for like.
+      return { name, meta: r.meta, turns: r.turns, summary: summarise(r.turns, r.meta.backend !== 'openrouter' && r.meta.backend !== 'deepseek') }
+    })
+    const md = compareMarkdown(runs)
+    writeFileSync(join(out, 'compare.md'), md)
+    console.log(md)
+    expect(runs.length).toBeGreaterThan(1)
+  })
 })
