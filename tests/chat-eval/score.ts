@@ -13,8 +13,12 @@
 //   - the real set's headline: of its turns that should propose, how many did (or asked one question, where allowed);
 //   - answers that open with a preamble ("I'll read the scene first…"), words outside lists;
 //   - requests that forced a tool (tool_choice), the intent the app recorded on the turn, and the briefing's size.
+// Phase 2 adds the answer format (A1-A4), read with the app's parser (shared/answerBlocks.ts; an answer with no markers
+// through its fallback): markers balanced, the lead first and short, words outside blocks, option cards per ideas
+// answer, ::next follow-ups, and edit answers that repeat the change in words.
 // compareMarkdown puts several reports side by side (the A/B of the AIWRITE_EXP_CHAT_* switches).
 
+import { answerMarkers, parseAnswer, wordsOutsideBlocks } from '@shared/answerBlocks'
 import { CANARIES } from './world'
 import type { TurnResult } from './harness'
 
@@ -122,6 +126,72 @@ export function shapeOf(answer: string): Shape {
   }
 }
 
+// ---------- Phase 2: the answer format (AIWRITE_EXP_CHAT_FORMAT, plan A1-A4), read with the app's own parser ----------
+
+/** The most words a lead may have and still count as short (A1). */
+export const LEAD_WORDS = 25
+/** The most ::next follow-ups an answer should offer (A3). */
+export const MAX_NEXT = 3
+
+/** A turn that asked for ideas: routed as a brainstorm, or worded so, and not one that should propose. */
+export const ideasTurn = (t: TurnResult): boolean =>
+  t.expect.do !== 'propose' && (t.intent === 'brainstorm' || /\b(ideas?|options?|brainstorm|what (could|might)|names? for|titles?)\b/i.test(t.question))
+
+const wordsOf = (s: string): string[] => s.toLowerCase().replace(/[’‘]/g, "'").match(/[\p{L}\p{N}']+/gu) ?? []
+
+/**
+ * The answer's words repeat a change it proposed (A4): 8 words in a row of a proposal's new text, or the whole of a
+ * short one (4 to 7 words), in the lead or text blocks.
+ */
+export function repeatsChange(t: TurnResult): boolean {
+  const prose = wordsOf(
+    parseAnswer(t.answer)
+      .filter((b) => b.kind === 'lead' || b.kind === 'text')
+      .map((b) => ('text' in b ? b.text : ''))
+      .join(' ')
+  ).join(' ')
+  if (!prose) return false
+  return t.proposals.some((p) => {
+    const replace = 'replace' in p && typeof p.replace === 'string' ? wordsOf(p.replace) : []
+    if (replace.length < 4) return false
+    if (replace.length < 8) return ` ${prose} `.includes(` ${replace.join(' ')} `)
+    for (let i = 0; i + 8 <= replace.length; i++) if (` ${prose} `.includes(` ${replace.slice(i, i + 8).join(' ')} `)) return true
+    return false
+  })
+}
+
+export interface Format {
+  /** The answer uses block markers at all. */
+  marked: boolean
+  /** Its markers pair up (every block closed, no stray "::"); true for an answer with none. */
+  balanced: boolean
+  /** The first block is the lead (a first line that answers). */
+  leadFirst: boolean
+  leadWords: number
+  /** Words in the lead and text blocks (A2: about 60 at most). */
+  wordsOutsideBlocks: number
+  /** Option cards (::options items, or a list of ideas the fallback makes cards of). */
+  options: number
+  /** ::next follow-ups. */
+  next: number
+}
+
+/** A turn's answer read as blocks, as the app shows it. */
+export function formatOf(t: TurnResult): Format {
+  const blocks = parseAnswer(t.answer, { ideas: ideasTurn(t) })
+  const marks = answerMarkers(t.answer)
+  const lead = blocks[0]?.kind === 'lead' ? blocks[0].text : null
+  return {
+    marked: marks.opened > 0,
+    balanced: marks.balanced,
+    leadFirst: lead != null,
+    leadWords: lead ? words(lead) : 0,
+    wordsOutsideBlocks: wordsOutsideBlocks(blocks),
+    options: blocks.reduce((n, b) => n + (b.kind === 'options' ? b.items.length : 0), 0),
+    next: blocks.reduce((n, b) => n + (b.kind === 'next' ? b.items.length : 0), 0)
+  }
+}
+
 /** Did the turn propose what it should (any proposal of the expected kinds, or a draft hand-off where one counts)? */
 export function proposedRight(t: TurnResult): boolean {
   if (t.expect.do !== 'propose') return false
@@ -185,6 +255,27 @@ export interface Summary {
   intents: Record<string, number>
   /** The briefing's size (system message), in characters and estimated tokens (chars / 4), by story. */
   briefing: { known: boolean; small: { turns: number; meanTokens: number | null; maxTokens: number }; big: { turns: number; meanTokens: number | null; maxTokens: number; prompt: number; completion: number; cost: number | null } }
+  // ----- Phase 2 -----
+  /** The answer's shape as blocks (the app's parser; answers with no markers read through its fallback). */
+  format: {
+    answers: number
+    /** Answers with block markers, and of those, how many have them balanced. */
+    marked: number
+    balanced: number
+    /** Answers whose first block is the lead, and whose lead is also at most LEAD_WORDS words. */
+    leadFirst: number
+    leadShort: number
+    meanLeadWords: number | null
+    meanWordsOutsideBlocks: number | null
+    /** Answers with more than about 60 words outside blocks. */
+    over60: number
+    /** Ideas turns: their answers, those with option cards, the mean cards, those with 3 to 5. */
+    ideas: { answers: number; withOptions: number; meanOptions: number | null; inRange: number }
+    /** Answers with ::next, and those with more than MAX_NEXT follow-ups. */
+    next: { answers: number; overMax: number }
+    /** Turns with proposals whose words repeat a change (A4). */
+    editRepeats: { turns: number; of: number }
+  }
 }
 
 const rate = (a: number, b: number): number | null => (b ? a / b : null)
@@ -270,8 +361,43 @@ export function summarise(turns: TurnResult[], estimatedTokens: boolean): Summar
       byChoice: count(turns.flatMap((t) => t.forced ?? []))
     },
     intents: count(turns.map((t) => t.intent ?? 'none')),
-    briefing: briefingSummary(turns)
+    briefing: briefingSummary(turns),
+    format: formatSummary(turns)
   }
+}
+
+function formatSummary(turns: TurnResult[]): Summary['format'] {
+  const answered = turns.filter((t) => t.answer.trim())
+  const fs = answered.map(formatOf)
+  const leads = fs.filter((f) => f.leadFirst)
+  const ideas = answered.filter(ideasTurn).map(formatOf)
+  const withOptions = ideas.filter((f) => f.options > 0)
+  const edits = turns.filter((t) => t.proposals.length > 0)
+  return {
+    answers: fs.length,
+    marked: fs.filter((f) => f.marked).length,
+    balanced: fs.filter((f) => f.marked && f.balanced).length,
+    leadFirst: leads.length,
+    leadShort: leads.filter((f) => f.leadWords <= LEAD_WORDS).length,
+    meanLeadWords: rate(leads.reduce((a, f) => a + f.leadWords, 0), leads.length),
+    meanWordsOutsideBlocks: rate(fs.reduce((a, f) => a + f.wordsOutsideBlocks, 0), fs.length),
+    over60: fs.filter((f) => f.wordsOutsideBlocks > 60).length,
+    ideas: {
+      answers: ideas.length,
+      withOptions: withOptions.length,
+      meanOptions: rate(withOptions.reduce((a, f) => a + f.options, 0), withOptions.length),
+      inRange: ideas.filter((f) => f.options >= 3 && f.options <= 5).length
+    },
+    next: { answers: fs.filter((f) => f.next > 0).length, overMax: fs.filter((f) => f.next > MAX_NEXT).length },
+    editRepeats: { turns: edits.filter(repeatsChange).length, of: edits.length }
+  }
+}
+
+/** The answer format's line in the report. */
+function formatLine(s: Summary): string {
+  const f = s.format
+  const n = (x: number | null): string => (x == null ? '–' : x.toFixed(1))
+  return `blocks in ${f.marked} of ${f.answers} answers (markers balanced ${f.balanced} of ${f.marked}); lead first ${f.leadFirst}, of which ≤ ${LEAD_WORDS} words ${f.leadShort} (${n(f.meanLeadWords)} words on average); ${n(f.meanWordsOutsideBlocks)} words outside blocks on average, over 60 in ${f.over60}`
 }
 
 function realSummary(turns: TurnResult[]): Summary['real'] {
@@ -379,6 +505,12 @@ export function reportMarkdown(meta: RunMeta, s: Summary, turns: TurnResult[]): 
   L.push(`| Answer shape | first line leads ${s.shape.firstLineLeads} of ${s.shape.of}; ${Math.round(s.shape.meanWords ?? 0)} words on average; writes changed words out ${s.shape.writesWordsOut} |`)
   L.push(`| Opens with a preamble ("I'll read the scene first") | ${s.shape.preamble} of ${s.shape.of} |`)
   L.push(`| Words outside lists | ${Math.round(s.shape.meanWordsOutsideLists ?? 0)} on average |`)
+  L.push(`| Answer format (blocks) | ${formatLine(s)} |`)
+  L.push(
+    `| Ideas answers: option cards | ${s.format.ideas.withOptions} of ${s.format.ideas.answers} with cards (${s.format.ideas.meanOptions?.toFixed(1) ?? '–'} on average); 3 to 5 cards ${s.format.ideas.inRange} |`
+  )
+  L.push(`| ::next follow-ups | in ${s.format.next.answers} answers; more than ${MAX_NEXT} in ${s.format.next.overMax} |`)
+  L.push(`| Edit answers repeating the change in words | ${s.format.editRepeats.turns} of ${s.format.editRepeats.of} |`)
   L.push(`| New tools | ${toolsLine(s)} |`)
   L.push(`| Tool forced (tool_choice) | ${forcedLine(s)} |`)
   L.push(`| Intent recorded | ${Object.entries(s.intents).map(([k, v]) => `${k} ${v}`).join(', ')} |`)
@@ -473,6 +605,12 @@ export function compareMarkdown(runs: Compared[]): string {
   row('Opens with a preamble', (s) => of(s.shape.preamble, s.shape.of))
   row('First line leads', (s) => of(s.shape.firstLineLeads, s.shape.of))
   row('Words per answer / outside lists', (s) => `${Math.round(s.shape.meanWords ?? 0)} / ${Math.round(s.shape.meanWordsOutsideLists ?? 0)}`)
+  row('Answers in blocks (markers balanced)', (s) => `${of(s.format.marked, s.format.answers)} (${s.format.balanced})`)
+  row(`Lead first, ≤ ${LEAD_WORDS} words`, (s) => of(s.format.leadShort, s.format.answers))
+  row('Words outside blocks (over 60)', (s) => `${Math.round(s.format.meanWordsOutsideBlocks ?? 0)} (${s.format.over60})`)
+  row('Ideas answers with 3-5 option cards', (s) => of(s.format.ideas.inRange, s.format.ideas.answers))
+  row(`::next over ${MAX_NEXT}`, (s) => `${s.format.next.overMax} (of ${s.format.next.answers} with ::next)`)
+  row('Edit answers repeating the change', (s) => `${s.format.editRepeats.turns} of ${s.format.editRepeats.of}`)
   row(`${TOOLS.changes} calls (turns)`, (s) => (s.tools.known ? `${s.tools.changes.calls} (${s.tools.changes.turns})` : '–'))
   row(`${TOOLS.ask} calls (turns)`, (s) => (s.tools.known ? `${s.tools.askUser.calls} (${s.tools.askUser.turns})` : '–'))
   row(`${TOOLS.draft} calls (turns)`, (s) => (s.tools.known ? `${s.tools.draft.calls} (${s.tools.draft.turns})` : '–'))

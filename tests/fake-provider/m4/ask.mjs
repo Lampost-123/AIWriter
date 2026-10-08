@@ -18,6 +18,10 @@
 //            proposed. Otherwise two short paragraphs (then three numbered options when it asks for ideas, options,
 //            any thoughts or titles); with model fake/slow, a list of twenty ideas after them, one a line, so
 //            there is time to Stop.
+//            When the instructions ask for the block format (they mention ::options: AIWRITE_EXP_CHAT_FORMAT on), the
+//            ideas come as an ::options block with a ::next block after it (also for "brainstorm" / "what could"), and
+//            a question of fact ("did I already", "how old", "who is") is "Not in memory yet." with a ::facts unknown
+//            block citing the names. Plumbing only: with the switch off, the old plain answers.
 const MARKER = '[AIWRITE-ASK v1]'
 
 /** The briefing's parts, by their "## Title". */
@@ -62,10 +66,28 @@ export function askReply(system, messages, model) {
     `${lead}From the memory: ${who}. You asked: “${question.replace(/\s+/g, ' ').slice(0, 120)}”.`,
     `One idea that fits: they meet at [[The Grey Ferry]] at dusk, where *nobody* is watching.`
   ]
+  // The answer format (Phase 2): the instructions ask for blocks.
+  const format = system.includes('::options')
   // Asked for ideas, options, thoughts or titles, it ends with three numbered options, as a real model does, so a
   // follow-up pick ("option 2", "the second one", "yes, do that") has something to pick.
-  if (/\b(ideas|options|any thoughts|titles)\b/i.test(question))
-    paragraphs.push(['1. Cut it back to the one strong image.', '2. End on the line of dialogue instead.', '3. Keep it, but move it earlier.'].join('\n'))
+  if (/\b(ideas|options|any thoughts|titles)\b/i.test(question) || (format && /\b(brainstorm|what could)\b/i.test(question)))
+    paragraphs.push(
+      format
+        ? [
+            '::options',
+            '- **Cut it back**: to the one strong image.',
+            '- **End on the dialogue**: the line of dialogue instead.',
+            '- **Move it earlier**: keep it, but sooner.',
+            '::',
+            '::next',
+            '- Draft the second one',
+            '- Give me three more',
+            '::'
+          ].join('\n')
+        : ['1. Cut it back to the one strong image.', '2. End on the line of dialogue instead.', '3. Keep it, but move it earlier.'].join('\n')
+    )
+  else if (format && /\b(did i already|how old|who is)\b/i.test(question))
+    return [`${lead}Not in memory yet.`, '::facts unknown', ...(cited.length ? cited : ['Nothing']).map((c) => `- ${c}: named in the memory, no more said (its entry).`), '::'].join('\n')
   if (model === 'fake/slow') {
     const more = []
     for (let i = 1; i <= 20; i++) more.push(`Idea ${i}: something quiet happens by the water, and it changes what they want.`)
