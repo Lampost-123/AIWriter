@@ -382,9 +382,9 @@ function fixFor(
   return null
 }
 
-/** The claim's quote with the fix's words changed in it, or null when they aren't in it. */
+/** The claim's quote with the fix's words changed in it, or null when they aren't in it (or it changes nothing). */
 function rewriteOf(quote: string, fix: { replace: string; with: string }): string | null {
   const i = quote.indexOf(fix.replace)
-  if (i < 0 || !fix.with.trim()) return null
+  if (i < 0 || !fix.with.trim() || fix.with.trim() === fix.replace.trim()) return null
   return quote.slice(0, i) + fix.with + quote.slice(i + fix.replace.length)
 }

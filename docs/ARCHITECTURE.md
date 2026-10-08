@@ -1920,6 +1920,92 @@ Owned by the Beat by beat part (`contracts/beats.ts`, `ipc/beats.ts`, `src/main/
 - **Remove this beat** keeps the scene in History ("Before beat N was taken out"), then takes the beat's paragraphs
   out as one undo step (Ctrl+Z puts them back, marker and all).
 
+## The AI manages plot threads (2026-10-08)
+
+Adam's choices: weave gently (an open thread comes in only where it fits; never forced), and the memory resolves a
+thread on its own when the payoff is on the page, with the quote, which he can undo from the board. No migration: the
+existing thread entries (`promise`, `clues`, `payoff`), `changes` of kind `thread` ({status, note}, open or resolved
+only) with their source links, and the scene card's `setsUpIds` / `paysOffIds` in `card_json`.
+
+- **What the memory reads** (`keeper/prompts.ts`, `keeper/apply.ts` `applyThread`, rules in `keeper/threads.ts`): a
+  thread item's status is `open`, `clue`, `developing` or `resolved`, always with a quote. Open makes the thread (text
+  origin) with its promise, or opens one already there (a planned thread of Adam's gets the promise only when the field
+  is empty and not his), as a thread change pinned to the scene; an open thread "opened" again is only a note. A clue is
+  one more line of `clues` (field origin text, with its link; field-set Undo with a suppression); on Adam's own clues
+  it is an update note "Clue: …" in that scene instead. Developing is an open change with a note. Resolved needs the
+  payoff on the page and is ignored (kept as a note that it moved on) while a later scene card in the story pays it off
+  (`laterCardPaysOff`; a memory link for a resolve it read there doesn't count) or the thread's payoff says it comes
+  later (`payoffLater`: a later chapter or book by number, a sequel, later/eventually, or the finale, climax, end or
+  last chapter unless this is the last chapter). A verdict on edited words keeps the status (only the note follows).
+  The keeper is shown each open thread with its promise, last clue and planned payoff (`keeper/request.ts`).
+  `ThreadState.planned` marks a thread with no thread change on the line yet (`memory/state.ts`).
+- **Scene card links** (`shared/threadLinks.ts`): an opening puts the thread on that scene's "Sets up", a resolve on
+  "Pays off", marked in `card.threadLinks` (`setsUp:<id>` → `ai`; `removed` once Adam takes it off, never put back;
+  `undone` when the memory takes it back). Unmarked links are Adam's and are never removed. The card shows an AI tag on
+  the memory's chips (`CastPicker` `aiIds`); a save from the panel merges what the memory did since it read the card
+  (`mergeThreadLinks`, in the `updateSceneCard` handler), and the panel picks the links up on each memory change.
+  Undo of the opening or resolve (What changed or the board), or the words going, takes the memory's link back
+  (`repo.setAiThreadLink`).
+- **The board** (`worldViews/threads.ts`): "Found by AI" (text or AI origin, never edited by Adam) or "Yours"; a
+  resolved thread shows the words that paid it off, "Resolved by AI" and Undo (the What changed line that added the
+  resolve, `kdb.addedLines`), which reopens it and records a suppression.
+- **The writer** (`ai/openThreads.ts`): "Open plot threads" — the threads open here (not planned, not on the card),
+  one line each (name — promise — last clue), those the card's words name first, then the most recently moved; at most
+  6 (short: 3) for Generate and Add below, block `open-threads` at priority 9 in the steady part of `SEND_ORDER` (right
+  after the card's `threads`, before the people, so it is cached); the planner gets the same block, in its steady part (after the
+  world, before where things stand and the ask), and the rule to plan no payoff the card or direction doesn't ask for
+  (`plan/plan.ts`); Continue gets at most 4, short, next to the
+  timeline (`edits/briefing.ts`). The lead: "Keep these alive. Bring one in only where it fits naturally. Don't pay a
+  thread off unless the scene card or the author's direction asks for it." The card's own threads keep their block
+  ("this scene pays it off").
+- **Outlines** (`outline/prompts.ts`, `outline/interview.ts`, `features/outline/parse.ts`): each scene may give
+  "Sets up:" and "Pays off:" lines (thread names, semicolons); the suggestions show them, and keeping a scene puts them
+  on its card as the AI's (`outline/structure.ts` `withThreads`), finding a thread by name or other name, else making
+  one (AI origin) once per keep. Undo of the keep takes the new threads to Recently deleted while nothing else uses them
+  (`takeBackThreads`), and a reused first scene loses only the AI links.
+
+## Chapter cards (Adam, 2026-10-08)
+
+A chapter card holds the scene card parts a chapter's scenes share: point of view, characters present, location,
+When, mood, length and notes for the AI. Goal, conflict, outcome, beats, plot threads and the summary stay the scene's.
+
+- **Storage, no migration.** The data model is frozen, so a chapter card lives in the world's `meta` table, one row a
+  chapter (`chapter_card:<chapter id>`, JSON of `ChapterCard`; no row for an empty card), as beat markers and map
+  layouts do. It travels in world files and backups with the rest of `meta`. A chapter in Recently deleted keeps its
+  card (a restore brings it back); `purgeTrash` and the outline helper's Undo drop the rows of chapters gone for good.
+- **Copy through, not read through.** About twenty readers use `scenes.card_json` directly (the briefing, memory,
+  tracker, retrieval, search, the views), so the chapter's values are *written into* each scene card that follows them,
+  and every reader stays as it was. `SceneCard.inherits` marks each carried part: `true` follows the chapter, `false` is
+  the scene's own, absent is unsettled (cards made before chapter cards). The rules are in `src/shared/chapterCard.ts`
+  and used on both sides:
+  - a new scene (`repo.createScene`, so every caller) follows every part of its chapter's card;
+  - saving a chapter card (`repo.saveChapterCard`, one transaction) writes it into every scene that follows each part,
+    and into a scene's *empty, unsettled* parts (which then follow); a scene's own parts never change. Each scene
+    written gets a new `updated_at`, so the views, search and entry pages kept from cards are made again;
+  - moving a scene to another chapter (`repo.moveScene`) does the same with the new chapter's card;
+  - any scene card write (`repo.updateSceneCard`: the card on screen, the interview's fill, ideas, Ask proposals, the
+    timeline's "Day 1") goes through `resolveCardWrite`: a followed part stays followed unless the write changed it to
+    something that isn't the chapter's, which makes it the scene's own. "Use chapter's" is a write marking it followed.
+- **Screens.** A click on a chapter in the binder, or "Chapter card" in its menu (the keyboard then carries on in the
+  card), shows the card in the right-hand panel in place of the scene panel's tabs, laid out like the scene card and
+  saving as Adam types (`features/chapterCard/`). Each save that changes scene cards shows "Updated N scenes that follow
+  this chapter card" with one Undo (`restoreChapterCard`: the card, and only those scenes' carried parts and marks, as
+  they were before the first change while the toast shows). On a scene card, a followed part the chapter has a value
+  for is tagged "From chapter" (screen readers hear it in the label); a part of its own offers "Use chapter's". Open
+  scene cards reload what they follow whenever a chapter card changes (`chapterCardsRev`).
+- **The AI fills them.** The outline helper, a recipe's story and a chapter's plan ask for `Point of view:`,
+  `Characters:`, `Location:`, `When:` and `Mood:` lines under each chapter, and the same lines under a scene only where
+  it differs from its chapter (`outline/prompts.ts` `CHAPTER_CARD_FORM`, read by `features/outline/parse.ts`). Kept
+  (`keepOutline`), names are matched to the world's characters and places (`outline/names.ts`; unknown names are left
+  out) and go into the chapter card's empty parts; a new scene's differing parts are its own. A scene's When the same as
+  its chapter's, or none while the chapter has one, follows the chapter's; another When is the scene's own, and
+  `fallbackWhen` is only used when neither has one. Undo of a keep on the story's reused "Chapter 1" puts its card back
+  unless Adam changed it since. A chapter's plan fills its card's empty parts when the reply ends, with Undo.
+- **With plot threads (0.6.36).** A kept scene gets both: its chapter card parts (`ownParts`, `sceneWhen`) and the
+  "Sets up" / "Pays off" links as the AI's (`withThreads`), all in one card write through `resolveCardWrite`, so
+  `card_json` carries `inherits` and `threadLinks` side by side. `unkeepOutline` undoes both: the chapter cards it
+  filled, the AI links on a reused first scene (`acts.takeBackKept`), then the threads it made (`takeBackThreads`).
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

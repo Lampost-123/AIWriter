@@ -13,7 +13,7 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useDelayed } from '@/features/generate/parts'
 import { checkThisScene, fixTheText, ignore, openSource, reopen, showWords, stopRun, updateTheMemory } from './actions'
-import { KIND_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIssues } from './issuesLogic'
+import { KIND_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIssues, usableFix } from './issuesLogic'
 import { useIssuesStore, useSceneIssues } from './issuesStore'
 import { revealLiveFlag, useLiveFlagCounts } from '@/features/liveChecks/liveFlags'
 import type { LiveFlagKind } from '@shared/liveChecks'
@@ -219,6 +219,7 @@ function SourceLink({ source }: { source: IssueSource }): React.JSX.Element {
 function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
   const memoryWords = memoryFixWords(issue)
   const canFix = !!issue.quote.trim() && !!issue.sceneId
+  const fix = usableFix(issue)
   return (
     <article
       aria-label={`${SEVERITY_WORDS[issue.severity]}: ${issue.message}`}
@@ -241,11 +242,11 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
       <p className="mt-1 text-[12.5px] leading-[18px] text-muted">{issue.message}</p>
       {/* The critic's suggestion, shown before anything changes: Fix the text puts the rewrite in the page to accept
           or reject; advice is for Adam to act on. */}
-      {issue.fix || issue.advice ? (
+      {fix || issue.advice ? (
         <div className="mt-1.5 rounded-md bg-surface-2 px-2 py-1.5 text-[12.5px] leading-[18px]" data-suggested-fix>
           <span className="font-medium text-fg">Suggested fix: </span>
-          {issue.fix ? <span className="font-serif text-fg">{quoted(issue.fix.trim())}</span> : null}
-          {issue.fix && issue.advice ? ' ' : null}
+          {fix ? <span className="font-serif text-fg">{quoted(fix.trim())}</span> : null}
+          {fix && issue.advice ? ' ' : null}
           {issue.advice ? <span className="text-muted">{issue.advice}</span> : null}
         </div>
       ) : null}
@@ -266,12 +267,12 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
             size="sm"
             onClick={() => fixTheText(issue)}
             title={
-              issue.fix
+              fix
                 ? 'Shows the suggested fix in the page, to accept or reject: nothing changes until you accept'
                 : 'Asks the writer model to rewrite the sentence, shown in the page to accept or reject'
             }
           >
-            {issue.fix ? 'Review the fix' : 'Fix the text'}
+            {fix ? 'Review the fix' : 'Fix the text'}
           </Button>
         ) : null}
         {memoryWords ? (

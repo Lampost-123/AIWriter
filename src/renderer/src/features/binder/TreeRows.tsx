@@ -29,6 +29,8 @@ export type RowKind = 'scene' | 'chapter' | 'act'
 export interface RowHandlers {
   /** Opens the scene and puts the caret in its page. */
   open(sceneId: ID): void
+  /** Shows the chapter's card in the right-hand panel. */
+  openChapter(chapterId: ID): void
   /** Folds or unfolds a chapter or an act. */
   toggle(id: ID): void
   startRename(kind: RowKind, id: ID): void
@@ -250,6 +252,8 @@ export interface ChapterBlockProps {
   menuOpen: boolean
   /** This chapter is being dragged: show only its heading. */
   lifted: boolean
+  /** Its chapter card shows in the right-hand panel. */
+  cardOpen?: boolean
   h: RowHandlers
   children?: ReactNode
 }
@@ -316,6 +320,7 @@ export const ChapterBlock = memo(function ChapterBlock({
   tabbable,
   menuOpen,
   lifted,
+  cardOpen = false,
   h,
   children
 }: ChapterBlockProps): React.JSX.Element {
@@ -335,6 +340,11 @@ export const ChapterBlock = memo(function ChapterBlock({
         tabIndex={tabbable ? 0 : -1}
         data-row="chapter"
         data-id={chapter.id}
+        data-card-open={cardOpen || undefined}
+        // A click shows the chapter's card beside the page (the arrow folds it; a double click renames it).
+        onClick={() => {
+          if (!renaming) h.openChapter(chapter.id)
+        }}
         onDoubleClick={() => h.startRename('chapter', chapter.id)}
         onContextMenu={(e) => {
           e.preventDefault()
@@ -344,7 +354,12 @@ export const ChapterBlock = memo(function ChapterBlock({
           rowBase,
           chapterPad(level),
           'pr-1.5',
-          isDragging ? 'bg-accent-soft ring-1 ring-inset ring-accent/40 [&>*]:opacity-0' : menuOpen ? 'bg-surface-2' : 'hover:bg-surface-2'
+          isDragging
+            ? 'bg-accent-soft ring-1 ring-inset ring-accent/40 [&>*]:opacity-0'
+            : menuOpen || cardOpen
+              ? 'bg-surface-2'
+              : 'hover:bg-surface-2',
+          cardOpen && !isDragging && 'ring-1 ring-inset ring-accent/30'
         )}
       >
         <ChapterRowContent chapter={chapter} words={words} collapsed={collapsed || lifted} renaming={renaming} h={h} forceButtons={menuOpen} />

@@ -11,6 +11,7 @@
 import type { OutlineSize } from '@shared/contracts/outline'
 import type { RecipePartId, RecipeParts } from '@shared/contracts/recipes'
 import { feelChoices } from './feel'
+import { CHAPTER_CARD_FORM, CHAPTER_CARD_RULES } from '../outline/prompts'
 
 export const MARKER = '[AIWRITE-RECIPE v1]'
 
@@ -156,7 +157,8 @@ Summary: <one sentence: what happens in it>
 - <the next beat>`
 
 const CHAPTER_FORM = `## Chapter: <the chapter's title>
-Goal: <one sentence: what this chapter achieves>`
+Goal: <one sentence: what this chapter achieves>
+${CHAPTER_CARD_FORM}`
 
 /** The story's plan: a premise line, then the outline helper's own form (keep it in step with outline/prompts.ts). */
 export function storySystem(withActs: boolean): string {
@@ -182,6 +184,7 @@ ${form}
 Rules:
 ${withActs ? '- Every chapter belongs to the act above it, and every scene to the chapter above it.\n' : '- Every scene belongs to the chapter above it. No acts.\n'}- Each scene has 3 to 6 beats, in order, each a short line.
 - Each scene has a When: "Day" and the day's number, counting the day the story opens as Day 1, then a comma and the time of day. Days never go back.
+${CHAPTER_CARD_RULES}
 - Titles are a few words, with no numbers.
 - Put the recipe's turning points at about the same share of the way through.
 - Use the characters, places and lore given, by their names, when they fit the guidance.`

@@ -444,7 +444,9 @@ export function stateAt(
       entryId: id,
       status: t?.status ?? 'open',
       setUp: t && t.setUp !== null && t.setUp !== FROM_EXISTS ? t.setUp : (existsAt.get(id) ?? ''),
-      paidOff: t?.status === 'resolved' ? t.paidOff : ''
+      paidOff: t?.status === 'resolved' ? t.paidOff : '',
+      // No thread change on the line yet: only planned (on scene cards, or nowhere), not set up in the story.
+      ...(t ? {} : { planned: true as const })
     })
   }
 

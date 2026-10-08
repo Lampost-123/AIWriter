@@ -273,6 +273,12 @@ export async function runAction(id: ActionId): Promise<void> {
         if (o && chapterId) openChapterInterview(o.story.id, chapterId)
         return
       }
+      case 'chapter-card': {
+        // The card already open, else the open scene's chapter's.
+        const chapterId = a.chapterCardId ?? currentChapterId()
+        if (chapterId) a.openChapterCard(chapterId)
+        return
+      }
       case 'listen':
         backToWriting()
         toggleListen()

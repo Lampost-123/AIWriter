@@ -39,9 +39,11 @@ import {
   DETAILS_LABEL,
   FACTS_LABEL,
   MENTIONED_TITLE,
-  RELATIONSHIP_SECRETS
+  RELATIONSHIP_SECRETS,
+  SEND_ORDER
 } from './context'
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
+import { OPEN_THREADS_BLOCK, OPEN_THREADS_LEAD } from './openThreads'
 import { TIMELINE_LEAD } from './timeline'
 import { countRaw } from './tokens'
 
@@ -2179,5 +2181,61 @@ describe('who is dead by this point', () => {
   it('a death later in a note of what they did', () => {
     expect(who(['fled across the causeway and was taken by the tide'])).toEqual([])
     expect(who(['fought the watch and was killed by Sallow'])).toHaveLength(1)
+  })
+})
+
+describe('the open plot threads (the AI manages plot threads, 2026-10-08)', () => {
+  /** An input with these threads open (or planned), with promises and clues. */
+  const withThreads = (n: number, cardOver: Partial<ContextInput['scene']['card']> = {}) => {
+    const threads = Array.from({ length: n }, (_, i) =>
+      entry('thread', `Thread ${i + 1}`, {
+        fields: { promise: `Question ${i + 1}?`, clues: i === 0 ? 'a wet rope\na coin on the bell' : '' },
+        happened: [{ note: 'moved on', where: '', changeId: `c${i}`, at: i }]
+      })
+    )
+    const inp = input()
+    inp.memory = { ...inp.memory, entries: [...inp.memory.entries, ...threads] }
+    inp.memory.threads = threads.map((t) => ({ entryId: t.id, status: 'open' as const, setUp: 'Book 2, Ch 1, Sc 1', paidOff: '' }))
+    inp.scene.card = { ...inp.scene.card, ...cardOver }
+    return { inp, threads }
+  }
+
+  it('gives the writer every open thread, a line each with its promise and last clue, gently, at most 6, newest first', () => {
+    const { inp, threads } = withThreads(8)
+    const b = blockOf(inp, OPEN_THREADS_BLOCK)!
+    expect(b.title).toBe('Open plot threads')
+    expect(b.text.split('\n')[0]).toBe(OPEN_THREADS_LEAD)
+    expect(OPEN_THREADS_LEAD).toContain('Bring one in only where it fits naturally')
+    expect(OPEN_THREADS_LEAD).toContain("Don't pay a thread off unless the scene card or the author's direction asks for it")
+    const lines = b.text.split('\n').slice(1)
+    expect(lines).toHaveLength(6)
+    expect(lines[0]).toBe('- Thread 8 — Question 8?')
+    expect(b.short?.split('\n')).toHaveLength(4)
+    // The first thread's last clue shows once it is among the six.
+    const { inp: few } = withThreads(2)
+    expect(blockOf(few, OPEN_THREADS_BLOCK)!.text).toContain('- Thread 1 — Question 1? — last clue: a coin on the bell')
+    expect(threads).toHaveLength(8)
+  })
+
+  it('puts a thread the scene card names first, leaves out threads on the card and those only planned', () => {
+    const { inp, threads } = withThreads(8)
+    const bell = inp.memory.entries.find((e) => e.id === threads[0].id)!
+    bell.name = 'The drowned bell'
+    bell.fields = { ...bell.fields, promise: 'Who rang the drowned bell?' }
+    inp.scene.card.beats = [...inp.scene.card.beats, 'Mara hears the drowned bell again']
+    inp.scene.card.paysOffIds = [threads[7].id]
+    inp.memory.threads[6] = { ...inp.memory.threads[6], planned: true }
+    const lines = blockOf(inp, OPEN_THREADS_BLOCK)!.text.split('\n').slice(1)
+    expect(lines[0]).toMatch(/^- The drowned bell — Who rang the drowned bell\? — last clue: a coin on the bell$/)
+    expect(lines.join('\n')).not.toMatch(/Thread 8|Thread 7/)
+    // The card's own thread is told as before: this scene pays it off.
+    expect(blockOf(inp, 'threads')!.text).toContain('Thread 8 (this scene pays it off')
+  })
+
+  it('is sent in the steady part, just after the card’s threads, before the people', () => {
+    expect(SEND_ORDER.indexOf(OPEN_THREADS_BLOCK)).toBe(SEND_ORDER.indexOf('threads') + 1)
+    expect(SEND_ORDER.indexOf(OPEN_THREADS_BLOCK)).toBeLessThan(SEND_ORDER.indexOf('pov'))
+    const { inp } = withThreads(0)
+    expect(blockOf(inp, OPEN_THREADS_BLOCK)).toBeUndefined()
   })
 })

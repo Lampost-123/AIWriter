@@ -28,8 +28,11 @@ export const CastPicker = memo(function CastPicker({
   id,
   noun = 'character',
   listLabel = 'Characters',
+  aiIds,
   'aria-describedby': describedBy
 }: {
+  /** Chips the AI put there (plot threads the memory linked): shown with an AI tag, removable like any other. */
+  aiIds?: ReadonlySet<ID>
   value: ID[]
   /** The entries to pick from (characters, unless `noun` says otherwise). */
   characters: Entry[]
@@ -145,6 +148,15 @@ export const CastPicker = memo(function CastPicker({
               {isNew ? <Portrait entry={c} size={20} /> : null}
               {c.id === povId ? <Eye size={11} aria-label="Point of view" className="shrink-0 look-new:text-accent" /> : null}
               <span className="truncate">{nameOf(c)}</span>
+              {aiIds?.has(c.id) ? (
+                <span
+                  className="shrink-0 rounded bg-ai-soft px-1 text-[10px] font-semibold leading-4 text-ai"
+                  title="Linked by the AI from your text. Remove it if it's wrong."
+                  data-testid="ai-link"
+                >
+                  AI
+                </span>
+              ) : null}
               <button
                 type="button"
                 aria-label={`Remove ${nameOf(c)}`}

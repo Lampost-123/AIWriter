@@ -28,6 +28,7 @@
 //  8 story so far: recent scenes, this story's chapters, earlier stories, "Leads into" (fewer scenes, series roll-ups;
 //    smaller: only the most recent parts)
 //  9 other entries named in the beats, notes or direction, and pins (one line each)
+//  9 the other plot threads open here, a line each, kept alive gently (ai/openThreads.ts; short: the first 3)
 // 10 themes, tone and premise (one line)
 // 11 ties to people not in this scene: for each character present, the people they're tied to who aren't
 //    there, with where things stand and what has happened between them, newest first (names and relationship
@@ -78,6 +79,7 @@ import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { sameWhen, stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
+import { OPEN_THREADS_BLOCK, OPEN_THREADS_MOST, OPEN_THREADS_TITLE, openThreadsAt, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustStayTrue, mustText, realSecrets, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
@@ -1590,6 +1592,11 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     )
   }
 
+  // 9 The other plot threads still open here (2026-10-08, ai/openThreads.ts): a line each, kept alive gently. In the
+  //   steady part, after the card's threads: only the card and the memory before this scene decide it.
+  const openNow = openThreadsAt(input.memory, input.scene.card, OPEN_THREADS_MOST)
+  add(OPEN_THREADS_BLOCK, 9, OPEN_THREADS_TITLE, openThreadsText(openNow), openThreadsText(openNow.slice(0, 3), true), [])
+
   // 8 The story so far (short: fewer scenes, chapter summaries, series roll-ups; smaller: only the most recent parts).
   // Since 2026-10-08 (Adam: "a clear outline of what has happened so far, when, and involving who"): a timeline of
   // canon, one line a scene for the recent part and a chapter or story for the rest, with deaths, departures and things
@@ -1715,6 +1722,7 @@ export const SEND_ORDER = [
   'story-so-far',
   'previous-scene',
   'threads',
+  OPEN_THREADS_BLOCK,
   // The same within a scene unless the memory learns something new.
   'pov',
   'present',

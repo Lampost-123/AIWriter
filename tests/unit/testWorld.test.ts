@@ -96,7 +96,8 @@ describe.each(routes)('the test world %s', (_, make) => {
 
   it('a plot thread is opened in Book 1 and resolved in Book 3', () => {
     const thread = (s: ReturnType<TestWorld['state']>) => s.threads.find((t) => t.entryId === w.id('burned'))
-    expect(thread(w.state('b1', 'b1.c1.s2'))).toEqual({ entryId: w.id('burned'), status: 'open', setUp: '', paidOff: '' })
+    // Before the scene that opens it, it is only planned (2026-10-08).
+    expect(thread(w.state('b1', 'b1.c1.s2'))).toEqual({ entryId: w.id('burned'), status: 'open', setUp: '', paidOff: '', planned: true })
     expect(thread(w.state('b2'))).toEqual({ entryId: w.id('burned'), status: 'open', setUp: 'Book 1, Ch 1, Sc 2', paidOff: '' })
     expect(thread(w.state('b3', 'b3.c1.s2'))?.status).toBe('open')
     expect(thread(w.state('b4'))).toEqual({
