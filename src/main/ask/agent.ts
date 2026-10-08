@@ -71,6 +71,58 @@ const SHORT_CHARS = 3_000
 /** The most search results listed. */
 const SEARCH_HITS = 12
 
+// ---------- The runaway guard (chat Phase 3): no change too long for one reply ----------
+
+/**
+ * The most words one rewrite or insert may carry (said in the tools' descriptions and checked): longer ones risk being
+ * cut off at the reply limit (the A03 run sent a ~22,800-character rewrite ten times, cut off each time). New prose
+ * that long is propose_draft's.
+ */
+export const MAX_ITEM_WORDS = 600
+
+const wordsIn = (s: string): number => (s.match(/[\p{L}\p{N}’']+/gu) ?? []).length
+
+/**
+ * True when a call's arguments stop before they end: inside a string, or with a { or [ never closed (the request was
+ * cut off at the reply limit partway through writing them).
+ */
+export function unterminatedJson(s: string): boolean {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (const ch of s) {
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+    } else if (ch === '"') inString = true
+    else if (ch === '{' || ch === '[') depth++
+    else if (ch === '}' || ch === ']') depth--
+  }
+  return inString || depth > 0
+}
+
+/** Arguments at least this long that never close are taken for cut off, whatever the request said (short ones: a slip). */
+export const CUT_OFF_CHARS = 500
+
+/** The result for a call cut off at the reply limit: what happened, and how to make the change fit. */
+export function cutOffResult(proposing: boolean, draft: boolean): string {
+  return [
+    proposing ? 'Not proposed: nothing is waiting for the writer.' : 'Not run.',
+    'Your call was cut off at the reply limit, so its arguments never ended: sending it again the same way will be cut off again.',
+    `Split the change into smaller items (each under about ${MAX_ITEM_WORDS} words, one passage each)${draft ? `, or use propose_draft for new prose over about ${MAX_ITEM_WORDS} words` : ''}.`
+  ].join(' ')
+}
+
+/** Throws when a rewrite's or insert's new words are over MAX_ITEM_WORDS, saying how to make them fit. */
+function checkItemSize(words: string, what: string, draft: boolean): void {
+  const n = wordsIn(words)
+  if (n <= MAX_ITEM_WORDS) return
+  throw new Mistake(
+    `That ${what} is about ${n} words: keep each change under about ${MAX_ITEM_WORDS} words. Split it into smaller changes, one passage each${draft ? `, or use propose_draft for new prose that long` : ''}.`
+  )
+}
+
 /** How a scene after the open one is labelled (rule C6: it may be read, but nobody in the story knows it yet). */
 export const LATER = "later — after the open scene; characters don't know these events yet"
 /** How the open scene is marked in the outline and in what read_scene and search show. */
@@ -288,7 +340,7 @@ const EDIT_ANCHORED: ToolSpec = {
 const REWRITE_ANCHORED: ToolSpec = {
   name: 'propose_rewrite',
   description:
-    "Propose rewriting a passage of a scene (a beat pushed harder, a stretch tightened, an opening redone, italics added or taken out). For whole paragraphs, give `replace_paragraphs: [from, to]` by the [n] numbers read_scene shows. For a passage that starts or ends inside a paragraph, give `start` (its first few words, copied from the scene) with `paragraph` (the [n] `start` is in) and `end` (its last few words, after `start`). `replace` is the whole new passage, with a blank line between paragraphs and *asterisks* for italics. Keep the writer's voice and change only what was asked. The writer sees the old and new passage and decides; nothing changes unless they apply it. To revise a change you already proposed, give its number as `revises`.",
+    "Propose rewriting a passage of a scene (a beat pushed harder, a stretch tightened, an opening redone, italics added or taken out). For whole paragraphs, give `replace_paragraphs: [from, to]` by the [n] numbers read_scene shows. For a passage that starts or ends inside a paragraph, give `start` (its first few words, copied from the scene) with `paragraph` (the [n] `start` is in) and `end` (its last few words, after `start`). `replace` is the whole new passage, with a blank line between paragraphs and *asterisks* for italics. Keep the writer's voice and change only what was asked. The writer sees the old and new passage and decides; nothing changes unless they apply it. To revise a change you already proposed, give its number as `revises`. `replace` is at most about 600 words (a longer reply is cut off): split a longer rewrite into several calls.",
   parameters: {
     type: 'object',
     properties: {
@@ -318,6 +370,9 @@ export const CHANGE_KINDS = {
 } as const
 export type ChangeKind = keyof typeof CHANGE_KINDS
 
+/** What the tools' descriptions say of a change's size (the runaway guard; checked by checkItemSize). */
+export const SIZE_LINE = `A rewrite's or insert's new words: at most about ${MAX_ITEM_WORDS} words per change (a longer reply is cut off and lost). Split a longer change into several, one passage each; new prose that long goes through propose_draft, when you have it.`
+
 /** The item kind that asks the writer a question through propose_changes (TOOLCHOICE with ASKUSER). */
 export const ASK_KIND = 'ask'
 
@@ -336,6 +391,7 @@ function proposeChangesTool(anchor: boolean, ask = false, text = false, story = 
       'Propose changes for the writer to apply: one or several, each in `changes` with its `kind` and that kind’s fields. This is the tool for every propose_ change: where your instructions say propose_edit, propose_rewrite, propose_scene_card, propose_entry_change, propose_new_entry, propose_new_scene, propose_new_chapter or propose_rename, give a change of kind edit, rewrite, card, entry, new_entry, new_scene, new_chapter or rename here. The writer sees each and decides; nothing changes unless they apply it. Each change is checked on its own: the result says which were proposed and why any were not. Changes to words must not overlap: all the fixes in one sentence go in one change. Every change needs `why`, a short reason in plain words; `scene` names a scene ("Ch 2, Sc 1" or its title), left out for the open one.',
       `- ${words}`,
       '  Either may give `revises`: the number of an earlier change in this answer it takes the place of.',
+      `  ${SIZE_LINE}`,
       "- card: new values for parts of a scene's card (`goal`, `conflict`, `outcome`, `mood`, `when`, `notes`, `beats` as the whole list).",
       '- entry: an existing entry by `name`, with new `summary`, `description`, `aliases` or `fields` (by the keys get_entry shows).',
       '- new_entry: `entry_kind`, `name`, and `summary` / `description` if you have them.',
@@ -1092,9 +1148,10 @@ export class EditorAgent {
 
   /**
    * Answers one call: what it found, or a plain line on what went wrong. Never throws. `begun`: the call as it was
-   * shown starting (callStarted); without it, it starts now.
+   * shown starting (callStarted); without it, it starts now. `cutOff`: the request stopped at the reply limit, so
+   * arguments that don't parse were cut off there (as are long arguments that never close, whatever the request said).
    */
-  run(call: ToolCall, begun?: ToolActivity): { result: string; step: ToolActivity } {
+  run(call: ToolCall, begun?: ToolActivity, cutOff = false): { result: string; step: ToolActivity } {
     this.notes = []
     this.mark = {}
     const started = begun ?? this.begin(call.name, null)
@@ -1102,6 +1159,15 @@ export class EditorAgent {
     try {
       args = call.arguments.trim() ? (JSON.parse(call.arguments) as Record<string, unknown>) : {}
     } catch {
+      // The runaway guard: a long rewrite cut off at the reply limit, sent again whole, is cut off again (the A03 run
+      // sent one ten times). Said plainly, with what to do instead.
+      if (cutOff || (call.arguments.length >= CUT_OFF_CHARS && unterminatedJson(call.arguments))) {
+        const proposing = call.name.startsWith('propose_')
+        return this.done(call, started, {}, 'A call that was cut off', cutOffResult(proposing, this.switches.draft), {
+          status: proposing ? 'not-proposed' : 'failed',
+          outcome: 'cut off at the reply limit'
+        })
+      }
       return this.done(call, started, {}, 'Something went wrong', 'The arguments were not valid JSON. Call the tool again with valid JSON.', {
         status: 'failed',
         outcome: 'the arguments weren’t valid JSON'
@@ -1479,6 +1545,7 @@ export class EditorAgent {
     if (!s) throw new Mistake('That scene no longer exists.')
     const replace = text('replace').trim()
     if (!replace) throw new Mistake('Give the new passage as `replace`. To cut words, propose an edit with an empty `replace`.')
+    checkItemSize(replace, 'rewrite', this.switches.draft)
     const hay = s.plain
     const paras = numbered(s.paras)
     let from: number
@@ -1898,6 +1965,7 @@ export class EditorAgent {
       .replace(/\n\s*\n\s*/g, '\n\n')
       .trim()
     if (!text) throw new Mistake('Give the new words as `text` (a blank line between paragraphs).')
+    checkItemSize(text, 'insert', this.switches.draft)
     if (text.length > 8000) throw new Mistake('Keep an insert under 8,000 characters. For more new prose, propose a draft.')
     const given = (k: string): boolean => a[k] != null && a[k] !== ''
     if (given('after_paragraph') === given('before_paragraph')) {
@@ -2209,6 +2277,7 @@ export class EditorAgent {
         const replace = text('replace').trim()
         if (!startAsked || !endAsked) throw new Mistake('Give the passage\'s first words as `start` and its last words as `end`, copied from the scene.')
         if (!replace) throw new Mistake('Give the new passage as `replace`. To cut words, use propose_edit with an empty `replace`.')
+        checkItemSize(replace, 'rewrite', this.switches.draft)
         const hay = s.plain
         const starts = locate(s, startAsked)
         if (starts.length === 0) throw new Mistake('The `start` words are not in the scene as written. Read the scene and copy them exactly.')
@@ -2315,7 +2384,7 @@ export class EditorAgent {
   }
 
   /** Answers a model turn's calls, in order: the tool messages to send back, and the steps for "What the AI saw". */
-  async runAll(calls: ToolCall[], step?: number): Promise<{ results: ChatMessage[]; steps: ToolActivity[] }> {
+  async runAll(calls: ToolCall[], step?: number, cutOff = false): Promise<{ results: ChatMessage[]; steps: ToolActivity[] }> {
     // The calls as they were shown starting, in their order in the request (a call's id may only come later, so each
     // is matched by its place); one that never came whole ends as not run.
     const begun = [...this.started.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c)
@@ -2323,7 +2392,7 @@ export class EditorAgent {
     const results: ChatMessage[] = []
     const steps: ToolActivity[] = []
     for (const [i, c] of calls.entries()) {
-      const { result, step: done } = this.run(c, begun[i] ?? this.begin(c.name, step ?? null))
+      const { result, step: done } = this.run(c, begun[i] ?? this.begin(c.name, step ?? null), cutOff)
       results.push({ role: 'tool', toolCallId: c.id, content: result })
       steps.push(done)
     }

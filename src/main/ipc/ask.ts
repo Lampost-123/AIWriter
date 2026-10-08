@@ -189,7 +189,7 @@ export const askHandlers: Handlers<keyof AskApi> = {
         forceTool: () => agent.forceTool(),
         // With the contract on, a short "I'll read the scene first" written before tool calls is left out of the reply.
         ...(contract ? { dropBeforeTools: stepPreamble } : {}),
-        run: (calls, step) => agent.runAll(calls, step),
+        run: (calls, step, info) => agent.runAll(calls, step, info?.cutOff ?? false),
         onCallStart: (slot, name, step) => agent.callStarted(slot, name, step),
         // With the contract on, the last words say what was proposed or what blocked it (never "ask again").
         lastWords: () => (contract ? contractLastWords(agent.proposals.map((x) => x.id), intent) : agent.lastWords()),

@@ -6,7 +6,7 @@ import { defaultWritingPrefs } from '@shared/defaults'
 import type { ToolActivity } from '@shared/toolActivity'
 import { chatSwitches, memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
-import { EditorAgent } from './agent'
+import { CUT_OFF_CHARS, cutOffResult, EditorAgent, MAX_ITEM_WORDS, SIZE_LINE, unterminatedJson } from './agent'
 
 afterEach(() => chatSwitches(null))
 
@@ -103,6 +103,58 @@ describe('each tool call as a record', () => {
     const { agent } = setup()
     const d = run(agent, 'propose_draft', { mode: 'continue', direction: 'Odile lights the lamp.' })
     expect(d).toMatchObject({ kind: 'draft', status: 'done', summary: 'a draft for Ch 1, Sc 1 “The Ford”', outcome: 'proposed' })
+  })
+})
+
+describe('the runaway guard: changes too long for one reply', () => {
+  const longWords = (n: number): string => Array.from({ length: n }, (_, i) => `word${i}`).join(' ')
+
+  it('knows arguments that stop partway (inside a string, or a { or [ never closed)', () => {
+    expect(unterminatedJson('{"changes": [{"kind": "rewrite", "replace": "The water moved und')).toBe(true)
+    expect(unterminatedJson('{"changes": [{"kind": "rewrite"}')).toBe(true)
+    expect(unterminatedJson('{"a": "a \\" quote"}')).toBe(false)
+    expect(unterminatedJson('{"a": "[{"}')).toBe(false)
+    expect(unterminatedJson('{"a": 1}}')).toBe(false)
+  })
+
+  it('answers a call cut off at the reply limit with what to do, not "not valid JSON"', async () => {
+    const { agent } = setup()
+    const cut = `{"changes": [{"kind": "rewrite", "replace_paragraphs": [1, 3], "replace": "${longWords(40)}`
+    const { results, steps } = await agent.runAll([{ id: 'x', name: 'propose_changes', arguments: cut }], 2, true)
+    expect(results[0].content).toBe(cutOffResult(true, true))
+    expect(results[0].content).toMatch(/^Not proposed: nothing is waiting for the writer\. Your call was cut off at the reply limit/)
+    expect(results[0].content).toMatch(/smaller items \(each under about 600 words, one passage each\), or use propose_draft for new prose over about 600 words/)
+    expect(steps[0]).toMatchObject({ status: 'not-proposed', outcome: 'cut off at the reply limit' })
+    // Long arguments that never close are taken for cut off even when the request didn't say so; short ones stay a slip.
+    const long = `{"changes": [{"kind": "rewrite", "replace": "${longWords(CUT_OFF_CHARS / 5)}`
+    expect(long.length).toBeGreaterThanOrEqual(CUT_OFF_CHARS)
+    expect(run(agent, 'propose_changes', long)).toMatchObject({ status: 'not-proposed', outcome: 'cut off at the reply limit' })
+    expect(run(agent, 'read_scene', '{not json')).toMatchObject({ status: 'failed', outcome: 'the arguments weren’t valid JSON' })
+    // Without DRAFT, propose_draft isn't named.
+    expect(cutOffResult(false, false)).not.toMatch(/propose_draft/)
+    expect(cutOffResult(false, false)).toMatch(/^Not run\. /)
+  })
+
+  it(`turns down a rewrite or insert over ${MAX_ITEM_WORDS} words, steering to smaller changes or propose_draft`, () => {
+    const { agent } = setup()
+    const s = agent.run({
+      id: 'r',
+      name: 'propose_changes',
+      arguments: JSON.stringify({
+        changes: [
+          { kind: 'rewrite', replace_paragraphs: [1, 2], replace: longWords(MAX_ITEM_WORDS + 20), why: 'Longer.' },
+          { kind: 'insert', after_paragraph: 3, text: longWords(MAX_ITEM_WORDS + 1), why: 'More.' }
+        ]
+      })
+    })
+    expect(s.step).toMatchObject({ status: 'not-proposed' })
+    expect(s.result).toMatch(/1\. rewrite: Not proposed\. That rewrite is about 620 words: keep each change under about 600 words\. Split it into smaller changes, one passage each, or use propose_draft/)
+    expect(s.result).toMatch(/2\. insert: Not proposed\. That insert is about 601 words/)
+    // At the limit it goes through.
+    const ok = run(agent, 'propose_changes', { changes: [{ kind: 'rewrite', replace_paragraphs: [1, 2], replace: longWords(MAX_ITEM_WORDS), why: 'Longer.' }] })
+    expect(ok).toMatchObject({ status: 'done' })
+    // The size is said in the tool's description.
+    expect(agent.tools.find((t) => t.name === 'propose_changes')?.description).toContain(SIZE_LINE)
   })
 })
 

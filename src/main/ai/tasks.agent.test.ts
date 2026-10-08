@@ -9,7 +9,7 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { saveProposals } from '../db/ask'
 import { setSpendHooks } from '../usage/gate'
-import { fitToRoom, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
+import { failedKey, fitToRoom, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
 import { forgetParams } from './client'
 import { STEP_PREAMBLE_WORDS, stepPreamble } from '../ask/history'
 
@@ -499,5 +499,88 @@ describe('tool calls shown as they start (chat Phase 2b)', () => {
       [0, 'read_scene', 2]
     ])
     expect(ran).toEqual([1, 2])
+  })
+})
+
+describe('the runaway guard (chat Phase 3)', () => {
+  /** A run that fails each call with `say(call)`, its step marked as `status`. */
+  const failing =
+    (say: (c: ToolCall) => string, status = 'not-proposed', seen?: { cutOff: boolean }[]): NonNullable<TaskRequest['agent']>['run'] =>
+    async (calls, _step, info) => {
+      seen?.push({ cutOff: !!info?.cutOff })
+      return {
+        results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: say(c) })),
+        steps: calls.map((c) => ({ label: 'x', tool: c.name, arguments: c.arguments, result: say(c), status }))
+      }
+    }
+  const cutArgs = '{"changes": [{"kind": "rewrite", "replace": "The water moved under the gallery'
+
+  it('tells the run a call was cut off at the reply limit', async () => {
+    const seen: { cutOff: boolean }[] = []
+    const { fetchImpl } = scripted([
+      [call(0, 'a1', 'propose_changes', cutArgs), finish('length')],
+      [call(0, 'a2', 'read_scene'), finish('tool_calls')],
+      [text('Done.'), finish('stop')]
+    ])
+    await runTask(request(fetchImpl, { run: failing(() => 'cut', 'failed', seen) }, { maxSteps: 3 }))
+    expect(seen).toEqual([{ cutOff: true }, { cutOff: false }])
+  })
+
+  it('ends the tools after the same call fails the same way twice in a row: the next request has none, with the last words', async () => {
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'a1', 'propose_changes', cutArgs), finish('length')],
+      [call(0, 'a2', 'propose_changes', cutArgs), finish('length')],
+      [text('That rewrite was too long to send; I can do it in parts.'), finish('stop')]
+    ])
+    const done = await runTask(request(fetchImpl, { run: failing(() => 'Not proposed: your call was cut off.') }))
+    expect(sent).toHaveLength(3)
+    expect(sent[1].tools).toHaveLength(1)
+    expect(sent[2].tools).toBeUndefined()
+    expect(lastMessage(sent[2])).toEqual({ role: 'user', content: LAST })
+    expect(done.status).toBe('complete')
+    expect(done.text).toBe('That rewrite was too long to send; I can do it in parts.')
+  })
+
+  it('carries on when the failure changes, a call works, or the step doesn’t say how its calls went', async () => {
+    // Two different failures: not the same twice, so the tools stay.
+    let k = 0
+    const varied = scripted([
+      [call(0, 'a1', 'propose_changes', '{}'), finish('tool_calls')],
+      [call(0, 'a2', 'propose_changes', '{}'), finish('tool_calls')],
+      [call(0, 'a3', 'propose_changes', '{}'), finish('tool_calls')],
+      [text('Done.'), finish('stop')]
+    ])
+    await runTask(request(varied.fetchImpl, { run: failing(() => `Not proposed: mistake ${++k}`) }))
+    expect(varied.sent).toHaveLength(4)
+    expect(varied.sent[3].tools).toHaveLength(1)
+    // The same result each time from calls that worked: not a failure.
+    const worked = scripted([
+      [call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'a2', 'read_scene'), finish('tool_calls')],
+      [text('Done.'), finish('stop')]
+    ])
+    await runTask(request(worked.fetchImpl, { run: failing(() => 'the scene', 'done') }))
+    expect(worked.sent[2].tools).toHaveLength(1)
+    // Steps that don't say (the default run in these tests): never taken for failures.
+    const plain = scripted([
+      [call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [text('Done.'), finish('stop')]
+    ])
+    await runTask(request(plain.fetchImpl, { run: async (calls) => ({ results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'same' })), steps: [] }) }))
+    expect(plain.sent[2].tools).toHaveLength(1)
+  })
+
+  it('failedKey: a key only when every call of the step failed', () => {
+    const calls: ToolCall[] = [
+      { id: 'a', name: 'propose_changes', arguments: '{}' },
+      { id: 'b', name: 'read_scene', arguments: '{}' }
+    ]
+    const results: ChatMessage[] = calls.map((c) => ({ role: 'tool', toolCallId: c.id, content: `no ${c.id}` }))
+    const step = (status: string) => ({ label: 'x', tool: 't', arguments: '{}', result: '', status })
+    expect(failedKey(calls, { results, steps: [step('failed'), step('not-proposed')] })).toBe('propose_changes\u0001no a\u0002read_scene\u0001no b')
+    expect(failedKey(calls, { results, steps: [step('failed'), step('done')] })).toBeNull()
+    expect(failedKey(calls, { results, steps: [] })).toBeNull()
+    expect(failedKey([], { results: [], steps: [] })).toBeNull()
   })
 })

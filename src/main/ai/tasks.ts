@@ -75,8 +75,13 @@ export interface TaskRequest {
   agent?: {
     tools: ToolSpec[]
     maxSteps: number
-    /** Answers a request's calls; `step` is the request they came in (from 1). */
-    run(calls: ToolCall[], step: number): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
+    /**
+     * Answers a request's calls; `step` is the request they came in (from 1). `info.cutOff`: the request stopped at the
+     * reply limit, so a call whose arguments don't parse was cut off rather than written wrong (the runaway guard).
+     * A step may say how its call went (`status`, as ToolActivity does): when every call of two steps in a row failed
+     * with the same results, the next request is the last, without tools.
+     */
+    run(calls: ToolCall[], step: number, info?: { cutOff: boolean }): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
     /**
      * Told as the model starts asking for a tool, before its arguments have all come (chat Phase 2b: the call shows as
      * running): its place among the request's calls, its name, and the request (from 1).
@@ -241,6 +246,20 @@ export function messagesTokens(messages: ChatMessage[]): number {
   return sum
 }
 
+/**
+ * A step's calls as one key when every one of them failed (its step says `status` 'failed' or 'not-proposed', as
+ * ToolActivity does): each call's tool and what came back. Null when any call worked, or a step doesn't say.
+ */
+export function failedKey(calls: ToolCall[], answered: { results: ChatMessage[]; steps: AgentStep[] }): string | null {
+  if (!calls.length || answered.steps.length !== calls.length) return null
+  const failed = (s: AgentStep): boolean => {
+    const status = (s as AgentStep & { status?: unknown }).status
+    return status === 'failed' || status === 'not-proposed'
+  }
+  if (!answered.steps.every(failed)) return null
+  return calls.map((c, i) => `${c.name}\u0001${answered.results[i]?.content ?? ''}`).join('\u0002')
+}
+
 /** The tokens the tools' own description takes in a request, roughly. */
 export const toolsTokens = (tools: ToolSpec[]): number => (tools.length ? estimateTokens(JSON.stringify(tools)) : 0)
 
@@ -394,6 +413,8 @@ async function stream(
     }
     let corrected = correction(req.messages, firstTools, outcome.promptTokens) ?? 0
     let nudged = 0
+    /** The latest step's failed calls as one key (failedKey), to tell the same failure twice in a row. */
+    let failedBefore: string | null = null
     /** The monthly spending limit was reached partway (its amount): the answer stops there and says so. */
     let heldBy: number | null = null
     for (let step = 1; outcome.status === 'complete' && step < agent.maxSteps; step++) {
@@ -416,15 +437,17 @@ async function stream(
       if (heldBy != null) break
       let next: ChatMessage[]
       let results: ChatMessage[] = []
+      let repeated = false
       if (nudge) {
         nudged++
+        failedBefore = null
         next = [...messages, { role: 'assistant', content: outcome.text }]
         r.text = r.text.slice(0, stepFrom)
         progress()
       } else {
         let answered: Awaited<ReturnType<NonNullable<TaskRequest['agent']>['run']>>
         try {
-          answered = await agent.run(calls, step)
+          answered = await agent.run(calls, step, { cutOff: outcome.cutOff })
         } catch (e) {
           answered = {
             results: calls.map((c) => ({
@@ -437,6 +460,11 @@ async function stream(
         }
         steps.push(...answered.steps)
         results = answered.results
+        // The runaway guard: the same calls failing the same way twice in a row (a rewrite cut off at the reply limit,
+        // sent again and again) end the tools; the next request is the last, with the last words.
+        const failed = failedKey(calls, answered)
+        repeated = failed != null && failed === failedBefore
+        failedBefore = failed
         // The tools ended the answer (a question for the writer, ASKUSER): its words close the reply, nothing more is asked.
         const closing = agent.ended?.() ?? null
         if (closing) {
@@ -456,7 +484,7 @@ async function stream(
       next = [...next, ...results]
       // The last request goes without tools, with the last words, so the model answers in words: at the last step,
       // or sooner when the tool results no longer fit beside the briefing (the model would only ask for them again).
-      let last = step === agent.maxSteps - 1
+      let last = step === agent.maxSteps - 1 || repeated
       const lastWords = agent.lastWords?.() ?? ''
       const notes = estimateTokens(nudge ?? '') + estimateTokens(lastWords) + 8
       const fitted = fitToRoom(next, room - corrected - toolsSize - notes, keepFrom)
