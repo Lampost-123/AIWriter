@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import { checkout, countWords, git, openApp, standInDirections, whenEnded, type App, type TrapsConfig } from './app'
 import { paragraphsOf } from './page'
 import { findAcross, outsideQuotes, refersTo, sentences, type PatternCheck, type Referent, type SpreadPlace } from './patterns'
+import { promptText, proseMetrics, sampleLines, summariseProse, type BeatSign, type ProseEntry, type ProseMetrics, type ProseRubric, type ProseSummary } from './prose'
 import { quoteInPassage } from './score'
 import { repairLanded, storyFor, storyId, findSavedWorld, type SavedWorld } from './run'
 import {
@@ -98,6 +99,8 @@ export interface ChainSpec {
   plants: ChainPlant[]
   /** Facts from chapters back, checked from the first step. */
   far: ChainPlant[]
+  /** How each of the scene card's beats shows on the page, in order (the prose check: a beat done again). */
+  beatSigns?: BeatSign[]
 }
 
 // ---------- The chain's checks ----------
@@ -314,7 +317,21 @@ export const CHAINS: ChainSpec[] = [
       { kind: 'continue' }
     ],
     plants: CHAIN_PLANTS,
-    far: CHAIN_FAR
+    far: CHAIN_FAR,
+    beatSigns: [
+      {
+        // They reach the inn: the opening has done it, so any step that does it again starts the scene over.
+        beat: 'Wren and Ash stop for the night at a drovers’ inn on the coast road.',
+        sign: /\b(?:(?:saw|reached|sighted) the (?:inn|lamp)|(?:lamp|light) in the (?:inn['’]s )?window|stood dripping on the (?:flagstones|flags)|came (?:down )?(?:in sight of|up to) the inn|the inn (?:stood|showed|was low|on the coast road)|(?:rode|came|walked) into the (?:inn['’]s )?yard)\b/i
+      },
+      {
+        // They talk about what comes next: plans said aloud, two or more of them (one "in the morning" isn't the talk).
+        beat: 'They talk about what comes next.',
+        sign: /\b(?:the ferry|at dawn|first light|tomorrow|in the morning|the Assize|Carrow|Harrowgate|which way|the road (?:on|ahead)|what comes next|where we go|we['’]ll go|go round by)\b/i,
+        spoken: true,
+        min: 2
+      }
+    ]
   }
 ]
 
@@ -508,9 +525,15 @@ const byPlant = (rs: CheckResult[]): Map<string, CheckResult> => new Map(rs.map(
  * patterns. What would need a new judge call (a slip a pattern found where `endedAsk` would ask whether the change is
  * on the page) is listed, and the slip counted as it stands.
  */
-export function rescoreChain(chain: ChainResult, spec: ChainSpec): { result: ChainResult; needJudge: { sample: number; step: number; plant: string; quote: string }[] } {
+export function rescoreChain(
+  chain: ChainResult,
+  spec: ChainSpec,
+  prompt: (sample: number, generationId: string) => string | null = () => null
+): { result: ChainResult; needJudge: { sample: number; step: number; plant: string; quote: string }[] } {
   const needJudge: { sample: number; step: number; plant: string; quote: string }[] = []
   const samples = chain.samples.map((m) => {
+    let page = [...chain.opening]
+    const earlier: string[] = []
     const landedAt = new Map<string, number>()
     const ended = new Set<string>()
     let firstSlip: number | null = null
@@ -547,11 +570,38 @@ export function rescoreChain(chain: ChainResult, spec: ChainSpec): { result: Cha
       const resolved = endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly, st.planted)
       for (const id of resolved) ended.add(id)
       if (firstSlip == null && results.some((r) => r.verdict === 'broken')) firstSlip = st.step
-      return { ...st, results, resolved, ...(st.repair && after ? { repair: { ...st.repair, results: after } } : {}) }
+      const prose = chainStepProse(spec, st.kind, st.text, page, earlier, st.generationId ? prompt(m.index, st.generationId) : null, st.prose?.rubric)
+      page = [...page, ...paragraphsOf(text)]
+      earlier.push(st.text)
+      return { ...st, results, resolved, prose, ...(st.repair && after ? { repair: { ...st.repair, results: after } } : {}) }
     })
     return { ...m, steps, firstSlip }
   })
   return { result: { ...chain, samples }, needJudge }
+}
+
+// ---------- The prose check ----------
+
+/**
+ * A chain step's prose metrics: against the scene before it (the opening and the steps as they went into the page),
+ * the earlier steps' own words, the sample lines in the writer's prompt, and the scene card's beats. No model call.
+ */
+export function chainStepProse(spec: ChainSpec, kind: ChainStep['kind'], text: string, page: string[], earlier: string[], prompt: string | null, rubric?: ProseRubric | null): ProseMetrics {
+  return {
+    ...proseMetrics({ text, before: page.join('\n\n'), target: kind === 'addBelow' ? spec.addWords : null, samples: prompt ? sampleLinesOf(prompt) : [], earlier, beats: spec.beatSigns ?? [] }),
+    ...(rubric ? { rubric } : {})
+  }
+}
+
+const sampleLinesOf = (prompt: string): string[] => sampleLinesCache.get(prompt) ?? sampleLinesCache.set(prompt, sampleLines(prompt)).get(prompt)!
+const sampleLinesCache = new Map<string, string[]>()
+
+/** Every chain step's prose, for the report's Prose section. */
+export function chainProse(chains: ChainResult[]): ProseSummary {
+  const entries: ProseEntry[] = chains.flatMap((c) =>
+    c.samples.flatMap((m) => m.steps.filter((st) => st.status === 'complete' && st.prose).map((st) => ({ where: `${c.id} chain ${m.index + 1}, step ${st.step} (${st.kind})`, kind: st.kind, text: st.text, prose: st.prose! })))
+  )
+  return summariseProse(entries)
 }
 
 // ---------- Running chains ----------
@@ -631,7 +681,10 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
     // The checks in force as this step was asked for, scored on its words as written.
     const plants = inForce(spec, landedAt, ended, n)
     const sc = stepChecks(plants)
-    const j = await app.askJudge({ facts: sc.facts, checks: sc.checks }, got.text)
+    const j = await app.askJudge({ facts: sc.facts, checks: sc.checks }, got.text, { direction: step.kind === 'addBelow' ? (step.direction ?? '') : null })
+    const earlier = sample.steps.filter((x) => x.status === 'complete').map((x) => x.text)
+    const record = got.generationId ? app.record(got.generationId) : null
+    const prose = chainStepProse(spec, step.kind, got.text, page, earlier, record ? promptText(record.messages) : null, j.prose)
     const rename = (rs: CheckResult[]): CheckResult[] => rs.map((r) => ({ ...r, id: sc.judgeIds.get(r.id) ?? r.id, trap: sc.judgeIds.get(r.id) ?? r.trap }))
     const results = excusedByChange(plants, await confirmSlips(app, plants, rename(scorePassage(sc, got.text, j.answers)), got.text), got.text)
     // Lands in the page as the window puts it there; step 3 checks it and mends what it can, as the page does.
@@ -672,6 +725,7 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
       judge: { status: j.status, raw: j.raw, ...(j.asked ? { asked: j.asked } : {}) },
       ...(repair ? { repair } : {}),
       resolved,
+      prose,
       records: app.recordsSince(fromRow)
     })
     cfg.log(
@@ -794,6 +848,7 @@ export async function runChains(cfg: TrapsConfig): Promise<{ report: RunReport; 
       summary,
       chains: results,
       chainSummary: summariseChains(results),
+      prose: chainProse(results),
       ...(results.some((c) => c.samples.some((m) => m.recall))
         ? { recall: recallSummary(results.flatMap((c) => c.samples.map((m) => ({ id: c.id, scene: c.scene, kind: 'addBelow' as const, asks: '', samples: [], recall: m.recall })))) }
         : {}),

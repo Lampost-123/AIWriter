@@ -120,6 +120,48 @@ v3, which is why the chains were built. Their scores don't compare with chains.
 Story version 2 (`--story v2`, nine short hand-written scenes) is kept for checking the harness; every fact fitted in
 what the writer is shown, so it can't tell versions apart.
 
+## The prose check
+
+How the AI writes, not only what it keeps true (Adam, 2026-10-08, after an audit of 122 real writer calls from rounds 7
+and 8). Every passage of every probe version is measured with no extra model call (`prose.ts`), from the passage,
+the scene before it, the earlier steps of its chain and the writer's own saved prompt:
+
+- **Length**: words against the words asked (Add below, Generate, a beat; Continue sets its own), and how many ran over
+  1.5 times: Add below invents action to fill its length.
+- **Recap**: the share of the passage's 4-word runs already in the scene; and whether its first sentence echoes the
+  last paragraph before it.
+- **Echoes from earlier steps**: 6-word runs the chain's earlier AI steps already used (the writer repeating itself,
+  or starting the scene again).
+- **Sample lines copied**: the sample lines of dialogue the writer was sent (read from its saved prompt) that the
+  passage copies word for word ("That's the way of it.").
+- **Stock tics** ("the rain went on", "neither of them said", "unhurried"...), **closing the scene off** at the end
+  (sleep, silence, a summing-up line), and **"and" per 100 words**.
+- **A card beat done again**: each chain scene beat has a pattern for how it shows (K1: reaching the inn, which the
+  opening already did; plans for what comes next, said aloud, two or more); a step that shows a beat the scene had
+  already shown does it again.
+- **The judge's marks**, 1 to 5 with what 1, 3 and 5 look like: distinct voices, subtext, sticking to the direction
+  (no invented events), ending mid-motion. They are asked in the judge's usual call for a passage, never in a call of
+  their own, so a chain step with no judge question (the early steps) is not marked.
+
+The report has a Prose section (medians, counts and the worst examples) and `--compare` puts two runs' side by side.
+`--rescore` measures a saved run's passages and prompts with no cost (the judge's marks only where a run saved them),
+so older runs give the baseline. From rounds 7 and 8, re-scored (5 chains, 60 steps each):
+
+| | 0.6.24 | 0.6.30, step 2b | 0.6.30 as released |
+|---|---|---|---|
+| Add below over 1.5 times its length | 0 of 30 | 4 of 30 | 2 of 30 |
+| Recap (median) | 4% | 3% | 2% |
+| Opening echoes the last paragraph | 0 | 3 | 2 |
+| Steps echoing an earlier step's 6-word runs | 35 | 31 | 30 |
+| Sample lines copied | 4 | 9 ("That's the way of it." 8) | 5 ("That's the way of it." 5) |
+| Steps with a stock tic | 16 | 32 ("the rain went on" 14) | 26 ("the rain went on" 13) |
+| Closes the scene off | 7 | 6 | 4 |
+| "and" per 100 words (median) | 5.4 | 6.6 | 6.8 |
+| Does a card beat again | 31 (28 reach the inn again) | 7 | 8 |
+
+Limits: the metrics count words, not meaning, and the lists (tics, closing words, beat patterns) know only what the
+audit found; the judge's marks are one model's opinion, from a passage's own words only.
+
 ## Cost per run (from the real reports)
 
 DeepSeek reports tokens, not cost; the report estimates it at DeepSeek's prices ($0.28 per million tokens in, $0.028

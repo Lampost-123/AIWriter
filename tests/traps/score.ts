@@ -9,6 +9,7 @@
 
 import type { JudgeAnswer } from './judge'
 import { firstBreak, patternVerdict } from './patterns'
+import { proseMarkdown, proseRows, type ProseMetrics, type ProseSummary } from './prose'
 import { TRAPS, type Check, type Probe, type ProbeKind, type Tripwire } from './story'
 
 /** A story's traps, as the report lists them. */
@@ -121,6 +122,8 @@ export interface SampleResult {
   results: CheckResult[]
   /** Step 3's check and repair on this passage, when the checkout has it. */
   repair?: RepairResult
+  /** How it is written (the prose check), with the judge's marks when it gave them. */
+  prose?: ProseMetrics
   /**
    * The app's records for this sample, in order (ids in the world's database, saved beside the report as
    * evidence-world.db): the writer's draft, a plan, where things stand, the repair, any memory reads. The judge's calls
@@ -248,6 +251,8 @@ export interface RunReport {
   probes: ProbeResult[]
   usage: { byJob: Record<string, Usage>; judge: Usage; total: Usage }
   summary: Summary
+  /** How the AI writes, over every passage (the prose check); absent in reports from before it. */
+  prose?: ProseSummary
   /** The scores after check and repair (step 3), when the checkout has it; absent otherwise. */
   repaired?: Summary & { checked: number; fixes: number; made: number; questions: number }
 }
@@ -340,6 +345,8 @@ export interface ChainStepResult {
   repair?: RepairResult
   /** Plants a change shown in this step ended (she pulled her boots back on): not checked after it. */
   resolved: string[]
+  /** How it is written (the prose check), with the judge's marks when it gave them. */
+  prose?: ProseMetrics
   records?: { id: string; job: string; kind: string }[]
 }
 
@@ -507,6 +514,7 @@ export function reportMarkdown(r: RunReport): string {
   }
   out.push('')
   out.push(...chainsMarkdown(r))
+  out.push(...proseMarkdown(r.prose))
   out.push(r.chains ? '## By plant' : '## By trap')
   out.push('')
   out.push(`| Trap | Kept | Broken | Unverified | Not touched | Consistency |${rp ? ' Broken after repair | After repair |' : ''}`)
@@ -676,5 +684,13 @@ export function compareMarkdown(a: RunReport, b: RunReport): string {
   out.push(`| Cost reported | ${usd(a.usage.total.cost)} | ${usd(b.usage.total.cost)} |`)
   out.push(`| Tokens in / out | ${tokens(a)} | ${tokens(b)} |`)
   out.push('')
+  if (a.prose || b.prose) {
+    // The prose check, side by side (a report from before it has none).
+    const ra = a.prose ? proseRows(a.prose) : null
+    const rb = b.prose ? proseRows(b.prose) : null
+    out.push('## Prose', '', `| | ${name(a)} | ${name(b)} |`, '|---|---|---|')
+    for (const [i, [what]] of (ra ?? rb)!.entries()) out.push(`| ${what} | ${ra?.[i][1] ?? '–'} | ${rb?.[i][1] ?? '–'} |`)
+    out.push('')
+  }
   return out.join('\n')
 }

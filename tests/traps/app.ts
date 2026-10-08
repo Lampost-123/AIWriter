@@ -12,7 +12,8 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
 import { appEvents } from './fakeElectron'
 import { Budget, DEFAULT_BUDGET } from './budget'
-import { JUDGE_MARKER, judgeMessages, readJudgeReply, type ChatMessage, type JudgeAnswer } from './judge'
+import { JUDGE_MARKER, judgeMessages, readJudgeProse, readJudgeReply, type ChatMessage, type JudgeAnswer, type RubricAsk } from './judge'
+import type { ProseRubric } from './prose'
 import { DEEPSEEK_BASE_URL, KEY_VARIABLE, pickFlash, type TrapProvider } from './models'
 import type { Fix } from './page'
 import type { SampleResult, Usage } from './score'
@@ -225,7 +226,9 @@ function standInJudge(body: string): Response {
   const firstSentence = /[^.!?]+[.!?]/.exec(passage)?.[0]?.trim() ?? ''
   const ids = [...content.matchAll(/^([A-Z]\w*): /gm)].map((m) => m[1])
   const answers = ids.map((id, i) => ({ id, answer: ['no', 'yes', 'unclear'][i % 3], quote: i % 3 === 1 ? firstSentence : '' }))
-  return sse(JSON.stringify({ answers }), content.length)
+  // Asked to mark the writing too (the prose check): stand-in marks.
+  const prose = content.includes('"prose"') ? { voices: 3, subtext: 2, direction: 4, ending: 3 } : undefined
+  return sse(JSON.stringify({ answers, ...(prose ? { prose } : {}) }), content.length)
 }
 
 /**
@@ -463,7 +466,7 @@ export interface App {
   save(sceneKey: string, sceneId: string, paragraphs: string[]): void
   memoryIdle(): Promise<void>
   leave(sceneId: string): Promise<void>
-  askJudge(probe: { facts: string[]; checks: Check[] }, text: string): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null }>
+  askJudge(probe: { facts: string[]; checks: Check[] }, text: string, rubric?: RubricAsk): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null; prose?: ProseRubric | null }>
   usage(): { byJob: Record<string, Usage>; judge: Usage; total: Usage }
   /** The newest record's row so far, to find the records a step makes. */
   lastRow(): number
@@ -799,13 +802,17 @@ export async function openApp(
     }
 
     const judgeTarget = providers.providerTarget(provider)
-    /** The judge on a passage: the probe's facts and yes/no questions, nothing else. No questions, no call. */
+    /**
+     * The judge on a passage: the probe's facts and yes/no questions, nothing else; with `rubric`, it marks the writing
+     * too in the same call (the prose check). No questions, no call: a rubric never makes one of its own.
+     */
     const askJudge = async (
       probe: { facts: string[]; checks: Check[] },
-      text: string
-    ): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null }> => {
+      text: string,
+      rubric?: RubricAsk
+    ): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null; prose?: ProseRubric | null }> => {
       if (!probe.checks.length) return { status: 'skipped', raw: '', answers: [] }
-      const messages: ChatMessage[] = judgeMessages(probe, text)
+      const messages: ChatMessage[] = judgeMessages(probe, text, rubric)
       let raw = ''
       for (let attempt = 0; attempt < 2; attempt++) {
         if (budget.hit) break
@@ -823,7 +830,7 @@ export async function openApp(
         }
         raw = o.text
         const answers = readJudgeReply(o.text)
-        if (answers) return { status: 'ok', raw, answers, asked: messages[1].content }
+        if (answers) return { status: 'ok', raw, answers, asked: messages[1].content, ...(rubric ? { prose: readJudgeProse(o.text) } : {}) }
       }
       return { status: raw ? 'unreadable' : 'failed', raw, answers: null, asked: messages[1].content }
     }

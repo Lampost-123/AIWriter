@@ -25,6 +25,7 @@ import {
   type RunReport,
   type SampleResult
 } from './score'
+import { promptText, proseMetrics, sampleLines, summariseProse } from './prose'
 import type { Probe } from './story'
 import { loadFixture, storyV2, storyV3, type StoryData, type StoryScene } from './storyData'
 
@@ -276,9 +277,13 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
             result.samples.push({ ...result.samples.pop()!, records: app.recordsSince(fromRow) })
             continue
           }
-          const j = await app.askJudge(probe, written.text)
+          const j = await app.askJudge(probe, written.text, { direction: probe.direction ?? null })
           const results = scorePassage(probe, written.text, j.answers)
-          const sample: SampleResult = { ...written, index: i, judge: { status: j.status, raw: j.raw, ...(j.asked ? { asked: j.asked } : {}) }, results }
+          // The prose check: against the page before it and the writer's own prompt, with the judge's marks.
+          const record = written.generationId ? app.record(written.generationId) : null
+          const target = probe.kind === 'generate' ? cfg.words.generate : probe.kind === 'addBelow' ? cfg.words.addBelow : probe.kind === 'beat' ? cfg.words.beatScene : null
+          const prose = { ...proseMetrics({ text: written.text, before: soFar, target, samples: record ? sampleLines(promptText(record.messages)) : [] }), ...(j.prose ? { rubric: j.prose } : {}) }
+          const sample: SampleResult = { ...written, index: i, judge: { status: j.status, raw: j.raw, ...(j.asked ? { asked: j.asked } : {}) }, results, prose }
           cfg.log(`  ${written.words} words; ${results.map((r) => `${r.id} ${r.verdict}`).join(', ')}`)
           if (app.repairMod) {
             let landed: Omit<RepairResult, 'judge' | 'results'>
@@ -339,6 +344,7 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
       probes: probeResults,
       usage: app.usage(),
       summary: summarise(probeResults, 'written', data.traps),
+      prose: summariseProse(probeResults.flatMap((p) => p.samples.filter((s) => s.prose).map((s) => ({ where: `${p.id} sample ${s.index + 1} (${p.kind})`, kind: p.kind, text: s.text, prose: s.prose! })))),
       ...(probeResults.some((x) => x.recall) ? { recall: recallSummary(probeResults) } : {}),
       evidence: { world: join(outDir, 'evidence-world.db'), index: join(outDir, 'evidence-index.json') },
       ...(app.repairMod ? { repaired: summariseRepair(probeResults, data.traps) } : {})
