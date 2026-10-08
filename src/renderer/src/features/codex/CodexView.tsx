@@ -176,6 +176,7 @@ export function CodexView(): React.JSX.Element {
   } else if (!all.length) {
     body = (
       <EmptyState
+        art="codex"
         icon={<LayoutGrid size={20} />}
         title="Nothing in the codex yet"
         className="mt-[8vh] max-w-md"
@@ -206,6 +207,7 @@ export function CodexView(): React.JSX.Element {
           groups.map((g) => <Group key={g.kind} kind={g.kind} label={g.label} cards={g.cards} onOpen={open} />)
         ) : (
           <EmptyState
+            art="search"
             icon={<Search size={20} />}
             title="Nothing matches"
             className="mt-4"
