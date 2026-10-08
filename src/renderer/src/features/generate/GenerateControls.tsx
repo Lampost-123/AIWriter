@@ -29,7 +29,7 @@ import { withPolish } from './polish'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
 import { costLabel } from '@/features/variants/cost'
 import { PopoverPanel, Segmented, useDelayed } from './parts'
-import { useNewLook } from '@/features/look/look'
+import { useDesk, useNewLook } from '@/features/look/look'
 
 /** Where a draft goes in a scene that already has text: in place of it, or after it. */
 type DraftMode = 'replace' | 'fresh' | 'add'
@@ -122,6 +122,7 @@ const keyboardIdle = (t: EventTarget | null): boolean =>
   !t || t === document.body || t === document.documentElement || (t instanceof Element && !!t.closest('[data-generate-controls]'))
 
 export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Element {
+  const desk = useDesk()
   const writer = useApp((s) => s.settings?.models.writer ?? null)
   const defaultCreativity = useApp((s) => s.settings?.creativity ?? 'balanced')
   const navigate = useApp((s) => s.navigate)
@@ -457,7 +458,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
             ) : (
               <>
                 <Button
-                  variant="primary"
+                  // The desk: the AI's own amber (its other buttons are warm ink).
+                  variant={desk ? 'ai' : 'primary'}
                   className="flex-1 rounded-r-none"
                   icon={<Sparkles size={14} />}
                   onClick={() => void generate()}
@@ -471,8 +473,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   Generate
                 </Button>
                 <Button
-                  variant="primary"
-                  className="w-7 rounded-l-none border-l border-accent-fg/25 px-0!"
+                  variant={desk ? 'ai' : 'primary'}
+                  className="w-7 rounded-l-none border-l border-accent-fg/25 px-0! desk:border-ai-fg/25"
                   aria-label="Draft options"
                   title="Draft options: direction, length, creativity and polish"
                   onClick={() => {

@@ -62,7 +62,8 @@ function underline(state: EditorState, view: EditorView | null, from: number, to
       const a = pos + 1 + m.start
       const b = pos + 1 + m.end
       if (composingAt >= a && composingAt <= b) continue
-      out.push(Decoration.Inline(a, b, { class: NAME_CLASS, [NAME_ATTR]: m.entryId }))
+      // data-kind: the desk underlines a name in its kind's ink (layout/desk/desk.css); elsewhere it is unused.
+      out.push(Decoration.Inline(a, b, { class: NAME_CLASS, [NAME_ATTR]: m.entryId, 'data-kind': m.kind }))
     }
     return false
   })

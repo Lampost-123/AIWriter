@@ -22,7 +22,11 @@ import { onPutBackRequest, takePutBack } from './putBack'
 import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
 import { PageTitle } from './PageTitle'
-import { useNewLook } from '@/features/look/look'
+import { useDesk, useNewLook } from '@/features/look/look'
+import { useDeskFrame } from '@/layout/desk/deskFit'
+import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
+import { DeskPageTools } from '@/features/desk/page/DeskPageTools'
+import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
 import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
@@ -63,6 +67,10 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id ?? null)
   const prefs = useApp((s) => s.settings?.editor)
   const isNew = useNewLook()
+  // The New look's desk layout: the page is a sheet of paper lying in the middle of the lit desk, its tools floating at
+  // its foot (layout/desk/desk.css). The same elements as in the panels, so switching layout never remounts the editor.
+  const desk = useDesk()
+  const frame = useDeskFrame()
   const scrollerRef = useRef<HTMLDivElement>(null)
   const columnRef = useRef<HTMLDivElement>(null)
   const ctrlRef = useRef<SceneController | null>(null)
@@ -258,10 +266,20 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     }
   }
 
+  // The desk: the sheet sits in the middle of the window (clear of the spine, and of the story's flyout when it is
+  // pinned open), and narrows when the window is too small for it. The paddings are the room either side of it.
+  const sheetW = `${frame.sheetW}px`
+  const sideL = `max(${frame.leftMin}px, calc((100% - ${sheetW}) / 2))`
+  const sideR = `max(16px, min(calc((100% - ${sheetW}) / 2), calc(100% - ${sheetW} - ${frame.leftMin}px)))`
+  const deskSides = desk ? { paddingLeft: sideL, paddingRight: sideR } : undefined
+  // What lies over the sheet (its fade, its tools) also keeps the scrollbar's room, as the page does (desk.css).
+  const overSheet = desk ? { paddingLeft: sideL, paddingRight: `calc(${sideR} + 10px)` } : undefined
+
   return (
-    // The New look: the page is a sheet of paper lying on the window's frame (scene-sheet, styles.css).
+    // The New look: the page is a sheet of paper lying on the window's frame (scene-sheet, styles.css). On the desk it is
+    // the column itself that is the sheet (desk-sheet), lying on the desk.
     <div className="scene-sheet relative flex h-full min-h-0 flex-col bg-page look-new:mx-2 look-new:overflow-hidden look-new:rounded-t-[14px] look-new:shadow-sheet">
-      {shown && !error ? (
+      {desk ? null : shown && !error ? (
         <SceneHeader sceneId={shown.id} fallbackTitle={shown.title} fallbackStatus={shown.status} />
       ) : (
         <div className="h-12 shrink-0 border-b border-line/70" />
@@ -276,17 +294,28 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           if (draftBelow) ctrlRef.current?.updateDraftBelow()
         }}
         onMouseDown={onPageMouseDown}
-        className="relative min-h-0 flex-1 overflow-y-auto"
+        className="desk-scroller relative min-h-0 flex-1 overflow-y-auto"
+        style={deskSides}
       >
         <div
           ref={columnRef}
           data-paragraphs={prefs?.paragraphStyle ?? 'spaced'}
           data-typewriter={prefs?.typewriter ? 'on' : undefined}
-          className={cn('mx-auto pb-[38vh] pt-12 font-serif', wide ? 'px-10' : 'px-6', !(shown && !error) && 'invisible')}
-          style={{ fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + 5rem)` }}
+          className={cn('mx-auto pb-[38vh] pt-12 font-serif', wide ? 'px-10' : 'px-6', desk && 'desk-sheet', !(shown && !error) && 'invisible')}
+          style={
+            desk
+              ? { fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + ${2 * frame.padX}px)`, paddingLeft: frame.padX, paddingRight: frame.padX }
+              : { fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + 5rem)` }
+          }
         >
-          {isNew && shown && !error ? <PageTitle sceneId={shown.id} fallbackTitle={shown.title} /> : null}
+          {desk ? <Ribbon /> : null}
+          {desk && shown && !error ? (
+            <DeskPageHead sceneId={shown.id} fallbackTitle={shown.title} />
+          ) : isNew && shown && !error ? (
+            <PageTitle sceneId={shown.id} fallbackTitle={shown.title} />
+          ) : null}
           <EditorContent editor={editor} />
+          {desk ? <Endmark /> : null}
         </div>
         <NamesLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <SelectionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
@@ -319,7 +348,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <button
           type="button"
           onClick={() => ctrlRef.current?.revealDraft()}
-          className="absolute bottom-5 left-1/2 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-ai/40 bg-ai-soft px-3.5 text-[12.5px] font-medium text-ai shadow-pop transition-colors duration-150 hover:border-ai animate-fade-in"
+          className="absolute bottom-5 left-1/2 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-ai/40 bg-ai-soft px-3.5 text-[12.5px] font-medium text-ai shadow-pop transition-colors duration-150 hover:border-ai animate-fade-in desk:bottom-[92px] desk:z-20"
         >
           <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
           Writing the new draft below
@@ -327,6 +356,20 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </button>
       ) : null}
       {shown && !error ? <BeatBar sceneId={shown.id} /> : null}
+      {/* The desk: the page fades out at the foot of the window, under its tools, so the words never run into them. */}
+      {desk ? (
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[132px]" style={overSheet}>
+          <div className="desk-page-fade mx-auto h-full" style={{ maxWidth: frame.sheetW }} />
+        </div>
+      ) : null}
+      {/* The desk: the scene's tools float at the foot of the sheet (where the panels have them above the page). */}
+      {desk && shown && !error ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center" style={overSheet}>
+          <div className="flex w-full justify-center" style={{ maxWidth: Math.min(780, frame.sheetW - 24) }}>
+            <DeskPageTools sceneId={shown.id} fallbackStatus={shown.status} />
+          </div>
+        </div>
+      ) : null}
       {/* Writing by hand: find and replace in the scene (Ctrl+F), over the top of the page. */}
       <FindBar editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
     </div>
@@ -352,7 +395,7 @@ function NoScene(): React.JSX.Element {
   useEffect(() => useApp.getState().setSceneWords(0), [])
   const hasScenes = !!outline && outline.scenes.length > 0
   return (
-    <div className="flex h-full items-start justify-center bg-page pt-[16vh]">
+    <div className="flex h-full items-start justify-center bg-page pt-[16vh] desk:bg-transparent">
       <EmptyState
         icon={<Feather size={20} />}
         title={hasScenes ? 'No scene open' : 'Nothing written yet'}
