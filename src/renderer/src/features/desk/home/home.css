@@ -155,7 +155,10 @@
   transform-box: view-box;
   transform-origin: 106px 172px;
   mix-blend-mode: screen;
-  animation: home-breathe 4.5s var(--ease-in-out, cubic-bezier(0.65, 0, 0.35, 1)) infinite;
+  /* Three slow breaths as the home opens, then still: a drawing that blends can't be handed to the graphics card, so
+     breathing for ever redrew the cover on every frame (about a tenth of a core on a fast screen) for as long as the
+     home stayed open (Phase 6 speed pass). It ends on its middle, fully lit. */
+  animation: home-breathe 4.5s var(--ease-in-out, cubic-bezier(0.65, 0, 0.35, 1)) 3.5 both;
 }
 @keyframes home-breathe {
   0%,

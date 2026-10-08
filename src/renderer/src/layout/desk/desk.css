@@ -2721,3 +2721,12 @@
     --aw-beat-band-x: -17px;
   }
 }
+
+/* Loops only while they show (Phase 6 speed pass): the island's breathing dot, the dock's live dot and its shimmer sat in
+   layers faded out while nothing was being written, and kept animating there, so an idle desk redrew on every frame
+   (about a tenth of a core on a fast screen). Held still while hidden; the same animation runs once they show. */
+[data-arrangement='desk'] .desk-island .isl-label:not([data-on]) .isl-dot,
+[data-arrangement='desk'] .desk-dock-layer[inert] .desk-dock-dot.is-live,
+[data-arrangement='desk'] .desk-dock:not([data-desk-dock='busy']) .desk-dock-prog.is-shimmer {
+  animation: none;
+}
