@@ -68,8 +68,15 @@ describe('chat eval scores (Phase 1)', () => {
   it('records the switches in effect, defaults (on) included, and which were set', () => {
     const env = { AIWRITE_EXP_CHAT_ROUTE: 'off', AIWRITE_EXP_CHAT_TEMP: 'on', AIWRITE_EXP_OTHER: 'on', PATH: 'x' }
     const sw = effectiveSwitches(env)
-    expect(Object.keys(sw)).toHaveLength(10)
-    expect(sw).toMatchObject({ AIWRITE_EXP_CHAT_CONTRACT: 'on', AIWRITE_EXP_CHAT_FORMAT: 'on', AIWRITE_EXP_CHAT_ROUTE: 'off', AIWRITE_EXP_CHAT_TEMP: 'on', AIWRITE_EXP_OTHER: 'on' })
+    expect(Object.keys(sw)).toHaveLength(11)
+    expect(sw).toMatchObject({
+      AIWRITE_EXP_CHAT_CONTRACT: 'on',
+      AIWRITE_EXP_CHAT_FORMAT: 'on',
+      AIWRITE_EXP_CHAT_ACTFIRST: 'on',
+      AIWRITE_EXP_CHAT_ROUTE: 'off',
+      AIWRITE_EXP_CHAT_TEMP: 'on',
+      AIWRITE_EXP_OTHER: 'on'
+    })
     const cfg = configFromEnv(env)
     expect(cfg.switches).toEqual(sw)
     expect(cfg.switchesSet).toEqual({ AIWRITE_EXP_CHAT_ROUTE: 'off', AIWRITE_EXP_CHAT_TEMP: 'on', AIWRITE_EXP_OTHER: 'on' })
@@ -78,7 +85,7 @@ describe('chat eval scores (Phase 1)', () => {
     expect(md).toContain('AIWRITE_EXP_CHAT_ROUTE=off')
     expect(md).toContain('Set for this run: ROUTE=off, TEMP=on, AIWRITE_EXP_OTHER=on.')
     const r = { name: 'defaults', meta: { ...meta, switches: effectiveSwitches({}), switchesSet: {} }, turns: [turn({})], summary: summarise([turn({})], true) }
-    expect(compareMarkdown([r])).toMatch(/switches: CONTRACT=on, ROUTE=on, .*DRAFT=on, FORMAT=on \(set: none, the defaults\)/)
+    expect(compareMarkdown([r])).toMatch(/switches: CONTRACT=on, ROUTE=on, .*DRAFT=on, FORMAT=on, ACTFIRST=on \(set: none, the defaults\)/)
   })
 
   it('reads forced tool_choice and the preamble', () => {

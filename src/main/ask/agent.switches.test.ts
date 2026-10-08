@@ -16,11 +16,12 @@ afterEach(() => chatSwitches(null))
 describe('the defaults', () => {
   it('are all on, each turned off only by =off', () => {
     chatSwitches(null)
-    expect(toolSwitches()).toEqual({ anchor: true, toolChoice: true, askUser: true, draft: true })
+    expect(toolSwitches()).toEqual({ anchor: true, toolChoice: true, askUser: true, draft: true, actFirst: true })
     process.env.AIWRITE_EXP_CHAT_ANCHOR = 'off'
     process.env.AIWRITE_EXP_CHAT_DRAFT = ' OFF '
     process.env.AIWRITE_EXP_CHAT_ASKUSER = 'on'
-    expect(toolSwitches()).toEqual({ anchor: false, toolChoice: true, askUser: true, draft: false })
+    process.env.AIWRITE_EXP_CHAT_ACTFIRST = 'off'
+    expect(toolSwitches()).toEqual({ anchor: false, toolChoice: true, askUser: true, draft: false, actFirst: false })
     chatSwitches(null)
     const names = editorTools(toolSwitches()).map((t) => t.name)
     expect(names).toEqual(expect.arrayContaining(['propose_changes', 'ask_user', 'propose_draft']))
@@ -31,7 +32,7 @@ describe('the defaults', () => {
 const PARAS = ['Odile closed the tally book.', '“The tide’s late,” Bram said. He opened the tally book.', 'The gulls said nothing.', 'Mara waited.']
 
 /** A scene of paragraphs with ids p1, p2...; the agent is made after the switches are set. */
-function paragraphs(paras = PARAS, intent?: AgentPlace['intent']) {
+function paragraphs(paras = PARAS, intent?: AgentPlace['intent'], more: Partial<AgentPlace> = {}) {
   const db = memoryWorld()
   const story = repo.listStories(db)[0]
   const sceneId = repo.getOutline(db, story.id).scenes[0].id
@@ -40,7 +41,7 @@ function paragraphs(paras = PARAS, intent?: AgentPlace['intent']) {
   const choices: AskChoice[] = []
   const agent = new EditorAgent(
     db,
-    { storyId: story.id, sceneId, prefs: defaultWritingPrefs(), intent },
+    { storyId: story.id, sceneId, prefs: defaultWritingPrefs(), intent, ...more },
     () => undefined,
     () => undefined,
     (c) => choices.push(c)
@@ -293,5 +294,53 @@ describe('DRAFT: new prose proposed for the writer’s own drafting', () => {
     const { agent } = paragraphs([])
     expect(call(agent, 'propose_draft', { mode: 'continue', direction: 'x' })).toMatch(/no words yet.*use mode generate/)
     expect(call(agent, 'propose_draft', { mode: 'generate', direction: 'Odile counts the barrels.' })).toMatch(/^Proposed/)
+  })
+})
+
+describe('ACTFIRST: an edit reads before it asks, and new prose is made to draft', () => {
+  const ask = { question: 'Which shawl do you mean?', options: [{ label: 'This scene' }, { label: 'The vigil scene' }] }
+
+  it('sends back an edit’s question asked before any words are read, once; after reading it may ask', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER', 'ACTFIRST')
+    const { agent, choices } = paragraphs(PARAS, 'edit')
+    expect(agent.knowsWords()).toBe(false)
+    expect(call(agent, 'ask_user', ask)).toMatch(/^Not asked: the writer hasn't seen it\. Read the words first: read_scene gives the open scene/)
+    expect(call(agent, 'propose_changes', { changes: [{ kind: 'ask', ...ask }] })).toMatch(/^Asked the writer\./)
+    expect(choices).toHaveLength(1)
+    const read = paragraphs(PARAS, 'edit').agent
+    call(read, 'read_scene', {})
+    expect(read.knowsWords()).toBe(true)
+    expect(call(read, 'ask_user', ask)).toMatch(/^Asked the writer\./)
+  })
+
+  it('also through propose_changes, and never for a question that isn’t an edit, words quoted, or with the switch off', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER', 'ACTFIRST')
+    expect(call(paragraphs(PARAS, 'edit').agent, 'propose_changes', { changes: [{ kind: 'ask', ...ask }] })).toMatch(/^Not asked: .*Read the words first/)
+    expect(call(paragraphs(PARAS, 'unsure').agent, 'ask_user', ask)).toMatch(/^Asked the writer\./)
+    const quoted = paragraphs(PARAS, 'edit', { wordsInQuestion: true }).agent
+    expect(quoted.knowsWords()).toBe(true)
+    expect(call(quoted, 'ask_user', ask)).toMatch(/^Asked the writer\./)
+    switchOn('TOOLCHOICE', 'ASKUSER')
+    expect(call(paragraphs(PARAS, 'edit').agent, 'ask_user', ask)).toMatch(/^Asked the writer\./)
+  })
+
+  it('makes a request for new prose call propose_draft once the words are read (with DRAFT); other edits propose_changes', () => {
+    switchOn('TOOLCHOICE', 'DRAFT', 'ACTFIRST')
+    const draft = paragraphs(PARAS, 'edit', { newProse: true }).agent
+    expect(draft.forceTool()).toBeNull()
+    call(draft, 'read_scene', {})
+    expect(draft.forceTool()).toBe('propose_draft')
+    expect(draft.forceTool()).toBeNull()
+    const edit = paragraphs(PARAS, 'edit').agent
+    call(edit, 'read_scene', {})
+    expect(edit.forceTool()).toBe('propose_changes')
+    switchOn('TOOLCHOICE', 'DRAFT')
+    const before = paragraphs(PARAS, 'edit', { newProse: true }).agent
+    call(before, 'read_scene', {})
+    expect(before.forceTool()).toBe('propose_changes')
+    switchOn('TOOLCHOICE', 'ACTFIRST')
+    const noDraft = paragraphs(PARAS, 'edit', { newProse: true }).agent
+    call(noDraft, 'read_scene', {})
+    expect(noDraft.forceTool()).toBe('propose_changes')
   })
 })

@@ -2,7 +2,7 @@
 // and an answer that only asked a question is cut to the question. Invented text only.
 import { describe, expect, it } from 'vitest'
 import type { Proposal } from '@shared/contracts/ask'
-import { clipLine, compactBlocks, onlyAsks, pastAnswer, proposalLine, withoutPreambles } from './history'
+import { ASKED_KEEP_CHARS, clipLine, compactBlocks, keptQuestion, onlyAsks, pastAnswer, proposalLine, withoutPreambles } from './history'
 
 const edit: Proposal = {
   id: '2',
@@ -89,6 +89,17 @@ describe('pastAnswer', () => {
   })
   it('leaves a plain answer as it was', () => {
     expect(pastAnswer('Tobin is the ferryman.', [])).toBe('Tobin is the ferryman.')
+  })
+  it('with keepAsked (ACTFIRST): a short clarifying answer keeps what it offered, untagged', () => {
+    const offer = 'I’d end on Mara’s line and cut the narration before it (the bell, the door simile). Want me to?'
+    expect(pastAnswer(offer, [])).toBe('(Asked) Want me to?')
+    expect(pastAnswer(offer, [], true)).toBe(offer)
+    expect(keptQuestion(`I'll read the scene first.\n\n${offer}`)).toBe(`I'll read the scene first.\n\n${offer}`)
+    expect(pastAnswer(`I'll read the scene first.\n\n${offer}`, [], true)).toBe(offer)
+    const long = `${'The harbour scenes run long and each could carry it. '.repeat(7)}Which do you mean, the dawn one or the storm?`
+    expect(long.length).toBeGreaterThan(ASKED_KEEP_CHARS)
+    expect(pastAnswer(long, [], true)).toBe('Which do you mean, the dawn one or the storm?')
+    expect(pastAnswer('Tobin is the ferryman.', [], true)).toBe('Tobin is the ferryman.')
   })
 })
 

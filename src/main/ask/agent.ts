@@ -218,8 +218,10 @@ export interface ToolSwitches {
   toolChoice: boolean
   askUser: boolean
   draft: boolean
-  /** Phase 3's text tools: find_mentions, and propose_changes' kinds insert and cut (with ANCHOR) and beats. */
-  textTools: boolean
+  /** ACTFIRST: an edit's question before any words are read is sent back; "write the next bit" is made to draft. */
+  actFirst?: boolean
+  /** TEXTTOOLS (Phase 3): find_mentions, and propose_changes' kinds insert and cut (with ANCHOR) and beats. */
+  textTools?: boolean
 }
 
 export const toolSwitches = (): ToolSwitches => ({
@@ -227,6 +229,7 @@ export const toolSwitches = (): ToolSwitches => ({
   toolChoice: chatExp('TOOLCHOICE'),
   askUser: chatExp('ASKUSER'),
   draft: chatExp('DRAFT'),
+  actFirst: chatExp('ACTFIRST'),
   textTools: chatExp('TEXTTOOLS')
 })
 
@@ -544,6 +547,12 @@ export interface AgentPlace {
    * first request may already be made to propose, without a read_scene first.
    */
   wordsInQuestion?: boolean
+  /**
+   * The question asks for new prose in the open scene ("write the next bit", "continue from here"; route.ts
+   * asksForNewProse): with DRAFT and ACTFIRST, the request made to call a tool asks for propose_draft, not
+   * propose_changes (made to call propose_changes, DeepSeek proposed a new scene instead).
+   */
+  newProse?: boolean
 }
 
 /** Something the model got wrong that it can put right (a scene it named that isn't there, words that aren't in it). */
@@ -851,12 +860,29 @@ export class EditorAgent {
    * The tool the next request must call (TOOLCHOICE), or null: propose_changes, once per answer, for a question routed
    * as an edit, once the scene's words are known (read, or quoted in the question), while nothing has been proposed
    * and no question asked. Asking marks it used. A forced call can still ask the writer (an item of kind ask, ASKUSER).
+   * With ACTFIRST and DRAFT, a request for new prose in the open scene (place.newProse) is made to call propose_draft.
    */
   forceTool(): string | null {
     if (!this.switches.toolChoice || this.forced || this.place.intent !== 'edit') return null
     if (this.proposals.length || this.choice || !(this.wordsRead || this.place.wordsInQuestion)) return null
     this.forced = true
-    return 'propose_changes'
+    return this.switches.actFirst && this.switches.draft && this.place.newProse ? 'propose_draft' : 'propose_changes'
+  }
+
+  /** The scene's words are known: read with read_scene this answer, or quoted in the question. */
+  knowsWords(): boolean {
+    return this.wordsRead || !!this.place.wordsInQuestion
+  }
+
+  /**
+   * ACTFIRST: an edit asking the writer which passage before any words are read, with a scene open, is sent back once
+   * (DeepSeek asked "which grey shawl?" and "which scene?" without reading the open scene). After reading it may ask.
+   */
+  private askedBeforeReading = false
+  private askTooSoon(): string | null {
+    if (!this.switches.actFirst || this.place.intent !== 'edit' || !this.place.sceneId || this.knowsWords() || this.askedBeforeReading) return null
+    this.askedBeforeReading = true
+    return 'Read the words first: read_scene gives the open scene (or another, by name) with its paragraphs numbered. The open scene is the one meant unless the writer names another. Then propose your best single version; ask only if, after reading, two readings would still give clearly different changes.'
   }
 
   /**
@@ -1605,6 +1631,8 @@ export class EditorAgent {
 
   private askUser(a: Record<string, unknown>): [string, string] {
     if (this.choice) throw new Mistake('You have asked the writer a question already; the answer ends with it.')
+    const tooSoon = this.askTooSoon()
+    if (tooSoon) throw new Mistake(tooSoon)
     const question = squash(typeof a.question === 'string' ? a.question : '')
     if (!question) throw new Mistake('Give the `question`.')
     if (question.length > 400) throw new Mistake('Keep the question short: under 400 characters.')

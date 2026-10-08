@@ -24,7 +24,19 @@ export interface NudgeInput {
   contract: boolean
   /** The chat asked the writer a question with options (ask_user, ASKUSER), which ends the answer: never nudged. */
   asked?: boolean
+  /**
+   * ACTFIRST: whether the scene's words are known yet (read, or quoted in the question). False: an edit answered with
+   * one short question is nudged to read first (DeepSeek asked for the paragraph to be pasted, R05). Left out: not checked.
+   */
+  read?: boolean
 }
+
+/**
+ * ACTFIRST's note to an edit answered with a question before any words were read. It starts as PROPOSE_NOW does
+ * ("Your answer gives"), so the eval and the fake provider know it for a nudge.
+ */
+export const READ_FIRST =
+  '[AI Write, not the writer] Your answer gives no proposal: it asks the writer before reading the words. You can read them yourself: read_scene gives the open scene (or another, by name) with its paragraphs numbered, and the open scene is the one meant unless the writer names another. Read it, then propose your best single version with the propose_ tools and answer in one line, starting with how many changes are ready. Ask only if, after reading, two readings would still give clearly different changes.'
 
 /**
  * The note sent back to an answer given without tools, or null to keep it. Routing off: today's rule (no proposals,
@@ -36,7 +48,11 @@ export interface NudgeInput {
 export function editorNudge(n: NudgeInput): string | null {
   if (n.proposed > 0 || n.asked) return null
   if (n.route) {
-    if (n.intent === 'edit') return asksOneQuestion(n.answer) ? null : n.contract ? proposeNow('edit', n.attempt) : PROPOSE_NOW
+    if (n.intent === 'edit') {
+      if (!asksOneQuestion(n.answer)) return n.contract ? proposeNow('edit', n.attempt) : PROPOSE_NOW
+      // One short question is allowed, but not before the words are read (ACTFIRST): read first, then ask if still unclear.
+      return n.read === false ? READ_FIRST : null
+    }
     if (n.intent === 'unsure' && n.attempt === 1 && claimsChanges(n.answer)) return n.contract ? proposeNow(null) : PROPOSE_NOW
     return null
   }
@@ -169,6 +185,23 @@ export function routeIntent(input: RouteInput): AskIntent {
     return 'edit'
   if (/\?\s*$/.test(q) || /^(why|how|what|explain|tell me|remind me|check|summari[sz]e|list)\b/.test(q)) return 'answer'
   return 'unsure'
+}
+
+/**
+ * New prose for the open scene, asked in words ("write the next bit", "continue from here", "draft the scene from the
+ * card", "keep going"): with DRAFT and ACTFIRST the request made to call a tool asks for propose_draft (agent.ts
+ * forceTool). Not "the next scene" (that scene may not exist yet: propose_changes' new_scene), nor "continue to…".
+ */
+const NEW_PROSE = [
+  /\b(continue|carry on|keep going|keep writing|write on)\b(?! to\b)/,
+  /\b(write|draft) (the|a|an|my|some) (next|rest)\b(?! scene)/,
+  /\b(the next bit|the next few (lines|paragraphs)|next paragraphs?|the rest of (the|this) scene)\b/,
+  /\bdraft (the|this) scene\b|\b(write|draft)\b.{0,30}\bfrom (the|its) (scene )?card\b/
+]
+
+export function asksForNewProse(question: string): boolean {
+  const q = norm(question)
+  return !HANDS_OFF.test(q) && NEW_PROSE.some((re) => re.test(q))
 }
 
 /** The sampling temperature for an intent (AIWRITE_EXP_CHAT_TEMP, plan E10): exact for edits, freer for ideas. */
