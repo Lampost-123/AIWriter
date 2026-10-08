@@ -5,8 +5,10 @@
 // bar's Scene details button shows and hides it.
 // A full-height panel down the right edge with the spine's insets, so the two read as a pair: its head on the spine's
 // leather, its tabs and their pages on paper. While the spine, the sheet and the drawer all fit, it lies beside the
-// page (the sheet glides to the middle of the room between them); in a smaller window it lies over the page's edge,
-// stopping above the page's tools. Each tab's page scrolls inside it, with room after its last field and a soft fade
+// page (the sheet glides to the middle of the room between them, narrowing if it must, and the full spine shows slim
+// for now if even that isn't enough: layout/desk/deskFit.ts). Only in a window too small for that does it lie over the
+// page: then the page dims under it and can't be read through it, and Esc or a click on the dimmed page closes it.
+// Each tab's page scrolls inside it, with room after its last field and a soft fade
 // at an edge only while there is more that way. It slides in 220ms and out 140ms; Esc inside it closes it and puts the
 // caret back in the page.
 import { useEffect, useRef } from 'react'
@@ -66,18 +68,21 @@ export function SceneDrawer({ open, sceneId }: { open: boolean; sceneId: ID | nu
   const closeRef = useRef(close)
   closeRef.current = close
 
+  // Over the dimmed page, Esc closes it from anywhere (but a pop-up's or a text box's own Esc inside it comes first).
+  const over = open && frame.drawerOver
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       const target = e.target instanceof Element ? e.target : null
-      if (!target || !ref.current?.contains(target) || target.closest(OWN_ESC)) return
+      const inside = !!target && !!ref.current?.contains(target)
+      if (inside ? target.closest(OWN_ESC) : !over || target?.closest('[data-radix-popper-content-wrapper], [role="dialog"], [role="menu"], [role="listbox"]')) return
       e.preventDefault()
       closeRef.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+  }, [open, over])
 
   // The fades at a tab page's edges follow its scrolling, its size and the tab showing.
   useEffect(() => {
@@ -107,6 +112,9 @@ export function SceneDrawer({ open, sceneId }: { open: boolean; sceneId: ID | nu
 
   if (!has) return null
   return (
+    <>
+      {/* Over the page (a small window): the page dims under the drawer, and a click on it closes the drawer. */}
+      <div aria-hidden data-state={over ? 'open' : 'closed'} data-instant={instant.current || undefined} className="desk-drawer-scrim absolute inset-0 z-[29]" onMouseDown={over ? close : undefined} />
     <aside
       ref={ref}
       aria-label={sceneId ? 'Scene panel' : 'Ask the world'}
@@ -115,8 +123,8 @@ export function SceneDrawer({ open, sceneId }: { open: boolean; sceneId: ID | nu
       data-docked={docked.current || undefined}
       data-instant={instant.current || undefined}
       className="desk-drawer absolute z-30 flex flex-col overflow-hidden"
-      // Docked, it runs the window's height as the spine does; over the page, it stops above the page's tools.
-      style={{ top: DRAWER.top, right: DRAWER.right, bottom: docked.current ? DRAWER.bottom : 92, width: frame.drawerW }}
+      // It runs the window's height, as the spine does.
+      style={{ top: DRAWER.top, right: DRAWER.right, bottom: DRAWER.bottom, width: frame.drawerW }}
     >
       {sceneId && !askOpen ? (
         <div className="desk-drawer-head desk-leather flex h-[52px] shrink-0 items-center gap-2.5 pl-5 pr-2.5">
@@ -129,5 +137,6 @@ export function SceneDrawer({ open, sceneId }: { open: boolean; sceneId: ID | nu
       ) : null}
       <div className="desk-drawer-body min-h-0 flex-1">{sceneId ? <Inspector sceneId={sceneId} /> : <AskPanel sceneId={null} onClose={closeAsk} />}</div>
     </aside>
+    </>
   )
 }

@@ -54,20 +54,32 @@ export interface DeskFrame {
   windowW: number
   /** The paper either side of the text column. */
   padX: number
-  /** The sheet's full width at Adam's page width (it narrows if the window is smaller). */
+  /** The sheet's width: Adam's page width, or narrower while the docked drawer needs the room (sheetNarrowed). */
   sheetW: number
   /** The window is wide enough for the full spine beside the page. */
   fullRoom: boolean
-  /** The full spine shows: Adam hasn't collapsed it, and there is room. */
+  /** The full spine shows: Adam hasn't collapsed it, there is room, and the open drawer doesn't need its room. */
   full: boolean
+  /**
+   * The open drawer needs the full spine's room, so the spine shows slim for now (Adam's choice, layout.deskStory, is
+   * kept: the full spine comes back when the drawer closes or the window grows).
+   */
+  spineYields: boolean
   /** Where the room for the sheet starts: right of the full spine, or 0 (the whole window, clear of the slim spine). */
   roomLeft: number
   /** The least room left of the sheet, clear of the spine. */
   leftMin: number
   /** The scene drawer's width. */
   drawerW: number
-  /** The drawer is open beside the page (the sheet keeps clear of it); open but not docked, it lies over the page. */
+  /** The drawer is open beside the page (the sheet keeps clear of it). */
   drawerDocked: boolean
+  /**
+   * The drawer is open but even a narrowed sheet and the slim spine leave no room beside the page (a small window):
+   * it lies over a dimmed page as a sheet of its own, closing on Esc or a click on the page.
+   */
+  drawerOver: boolean
+  /** The sheet is narrower than Adam's page width to keep clear of the docked drawer (never under SHEET_MIN). */
+  sheetNarrowed: boolean
   /** How much of the window's right the docked drawer takes (0 when it isn't docked). */
   roomRight: number
   /**
@@ -80,28 +92,67 @@ export interface DeskFrame {
 }
 
 /**
+ * The narrowest the sheet goes to keep clear of the docked drawer: about 50 characters of text at the default size, with
+ * the page's head still at home. Narrower than this, the spine shows slim; then the drawer lies over.
+ */
+export const SHEET_MIN = 640
+
+/**
  * The desk for a window `windowW` wide whose text column is `columnW` px (Adam's page width), with the spine full or
  * slim as Adam last left it (`wantsFull`: it only shows full when there is room for it), and the drawer open or not.
+ * The open drawer never lies over the page's words while it can be made room for: first the sheet narrows (to
+ * SHEET_MIN at most), then the full spine shows slim for now, and only in a window too small even for that does the
+ * drawer lie over the (dimmed) page.
  */
 export function deskFit(windowW: number, columnW: number, wantsFull: boolean, drawerOpen = false): DeskFrame {
   const padX = sheetPadding(windowW)
-  const sheetW = Math.round(columnW + 2 * padX)
+  const pageW = Math.round(columnW + 2 * padX)
   const fullRoom = windowW >= FULL_FROM
-  const full = wantsFull && fullRoom
-  const leftMin = full ? STORY_RIGHT + GUTTER : SHEET_LEFT_MIN
   const drawerW = drawerWidth(windowW)
   const drawerSpace = drawerW + DRAWER.right
-  // Docked only while the sheet still fits at its full width between the spine and the drawer.
-  const drawerDocked = drawerOpen && windowW - leftMin - drawerSpace - GUTTER >= sheetW
+  // The room for the sheet between the spine (full or slim) and the docked drawer.
+  const besideDrawer = (full: boolean): number => windowW - (full ? STORY_RIGHT + GUTTER : SHEET_LEFT_MIN) - drawerSpace - GUTTER
+  let full = wantsFull && fullRoom
+  let spineYields = false
+  let drawerDocked = false
+  let sheetW = pageW
+  if (drawerOpen) {
+    if (besideDrawer(full) >= Math.min(pageW, SHEET_MIN)) drawerDocked = true
+    else if (full && besideDrawer(false) >= Math.min(pageW, SHEET_MIN)) {
+      full = false
+      spineYields = true
+      drawerDocked = true
+    }
+    if (drawerDocked) sheetW = Math.min(pageW, besideDrawer(full))
+  }
+  const sheetNarrowed = sheetW < pageW
+  const drawerOver = drawerOpen && !drawerDocked
+  const leftMin = full ? STORY_RIGHT + GUTTER : SHEET_LEFT_MIN
   const roomLeft = full ? STORY_RIGHT : 0
   const roomRight = drawerDocked ? drawerSpace : 0
   // The column needs its room, and the page stays the middle of the desk: it moves left of its centre for the column
   // by MARGIN_SHIFT at most (the mockup's 20px or so).
   const centre = Math.max(leftMin, roomLeft + Math.max(0, (windowW - roomLeft - sheetW) / 2))
   const shift = centre - Math.min(centre, windowW - sheetW - MARGIN_RESERVE)
-  const column = !drawerDocked && windowW - SCROLLBAR >= leftMin + sheetW + MARGIN_RESERVE && shift <= MARGIN_SHIFT
+  const column = !drawerOpen && windowW - SCROLLBAR >= leftMin + sheetW + MARGIN_RESERVE && shift <= MARGIN_SHIFT
   const rightMin = column ? MARGIN_RESERVE : roomRight + GUTTER
-  return { windowW, padX, sheetW, fullRoom, full, roomLeft, leftMin, drawerW, drawerDocked, roomRight, margin: column ? 'column' : 'tabs', rightMin }
+  return {
+    windowW,
+    padX,
+    sheetW,
+    fullRoom,
+    full,
+    spineYields,
+    roomLeft,
+    leftMin,
+    drawerW,
+    drawerDocked,
+    drawerOver,
+    sheetNarrowed,
+    roomRight,
+    margin: column ? 'column' : 'tabs',
+    rightMin
+  }
 }
 
 /**
@@ -171,26 +222,30 @@ export function useDeskFrame(): DeskFrame {
 const GLIDE_FOR = 340
 
 /**
- * The sheet's glide as the spine opens out or collapses, or the drawer docks or goes: a CSS transition for its sides,
- * given in the very render that moves them (so nothing measured meanwhile can make it jump), and kept until it ends.
- * The spine goes out in 280ms and back in 140ms, the drawer in 220ms and out in 140ms, on the drawer's curve. A change
- * from the keyboard, or a window being resized, moves the sheet at once (and less motion makes every speed 0).
+ * The sheet's glide as the spine opens out or collapses, or the drawer docks or goes (and the sheet narrows for it or
+ * widens again): a CSS transition for its sides, given in the very render that moves them (so nothing measured meanwhile
+ * can make it jump), and kept until it ends. The spine goes out in 280ms and back in 140ms, the drawer in 220ms and out
+ * in 140ms, on the drawer's curve. A change from the keyboard, or a window being resized, moves the sheet at once (and
+ * less motion makes every speed 0).
  */
 export function useSheetGlide(frame: DeskFrame): string | undefined {
-  const prev = useRef({ full: frame.full, drawer: frame.drawerDocked })
+  const prev = useRef({ full: frame.full, drawer: frame.drawerDocked, sheetW: frame.sheetW, windowW: frame.windowW })
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [glide, setGlide] = useState<string | undefined>(undefined)
   const spine = prev.current.full !== frame.full
-  const drawer = prev.current.drawer !== frame.drawerDocked
-  const speed = spine ? (frame.full ? 'var(--dur-view)' : 'var(--dur-exit)') : frame.drawerDocked ? 'var(--dur-base)' : 'var(--dur-exit)'
-  const now = (spine || drawer) && !keyboardDriven() ? `padding ${speed} var(--motion-drawer)` : undefined
+  const drawer = prev.current.drawer !== frame.drawerDocked || prev.current.sheetW !== frame.sheetW
+  const resized = prev.current.windowW !== frame.windowW
+  const moved = spine || drawer || resized
+  const opening = spine ? frame.full : frame.drawerDocked
+  const speed = spine && !frame.spineYields ? (frame.full ? 'var(--dur-view)' : 'var(--dur-exit)') : opening || frame.spineYields ? 'var(--dur-base)' : 'var(--dur-exit)'
+  const now = (spine || drawer) && !resized && !keyboardDriven() ? `padding ${speed} var(--motion-drawer)` : undefined
   useLayoutEffect(() => {
-    if (!spine && !drawer) return
-    prev.current = { full: frame.full, drawer: frame.drawerDocked }
+    if (!moved) return
+    prev.current = { full: frame.full, drawer: frame.drawerDocked, sheetW: frame.sheetW, windowW: frame.windowW }
     setGlide(now)
     clearTimeout(timer.current)
     timer.current = setTimeout(() => setGlide(undefined), GLIDE_FOR)
   })
   useEffect(() => () => clearTimeout(timer.current), [])
-  return spine || drawer ? now : glide
+  return moved ? now : glide
 }

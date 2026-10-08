@@ -290,6 +290,8 @@ function FullSpine({ shown }: { shown: boolean }): React.JSX.Element {
 export function Spine(): React.JSX.Element {
   const frame = useDeskFrame()
   const full = frame.full
+  // While the open drawer needs the full spine's room, the spine shows slim and can't open out (Adam's choice is kept).
+  const room = frame.fullRoom && !frame.spineYields
   const instant = useDeskStore((s) => s.spineInstant)
 
   return (
@@ -303,9 +305,9 @@ export function Spine(): React.JSX.Element {
       >
         <div aria-hidden className="spine-capsule absolute inset-0" />
         <FullSpine shown={full} />
-        <SlimSpine shown={!full} fullRoom={frame.fullRoom} />
+        <SlimSpine shown={!full} fullRoom={room} />
       </div>
-      <Flyout full={full} fullRoom={frame.fullRoom} />
+      <Flyout full={full} fullRoom={room} />
     </>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deskFit, GUTTER, MARGIN, MARGIN_RESERVE, MARGIN_SHIFT, SHEET_LEFT_MIN, sheetPadding, sheetSides, STORY_RIGHT } from './deskFit'
+import { DRAWER, deskFit, drawerWidth, GUTTER, MARGIN, MARGIN_RESERVE, MARGIN_SHIFT, SHEET_LEFT_MIN, SHEET_MIN, sheetPadding, sheetSides, STORY_RIGHT } from './deskFit'
 
 /** The default page: 70 characters of 19px Literata, about 660px (Adam's machine measures nearer 760). */
 const COLUMN = 660
@@ -83,5 +83,56 @@ describe('where the desk’s pieces go for a window size', () => {
     const s = sheetSides(f)
     expect(s.left + 776 + s.right).toBe(1920)
     expect(s.right).toBeGreaterThanOrEqual(f.roomRight + GUTTER)
+  })
+
+  it('makes room for the open drawer instead of lying over the words: the sheet narrows first', () => {
+    // 1440 with the whole story beside the page (Adam's maximised window): the sheet narrows, the spine stays full.
+    const f = deskFit(1440, 760, true, true)
+    expect(f.drawerDocked).toBe(true)
+    expect(f.drawerOver).toBe(false)
+    expect(f.full).toBe(true)
+    expect(f.spineYields).toBe(false)
+    expect(f.sheetNarrowed).toBe(true)
+    expect(f.sheetW).toBeGreaterThanOrEqual(SHEET_MIN)
+    const s = sheetSides(f)
+    expect(s.left).toBeGreaterThanOrEqual(STORY_RIGHT + GUTTER)
+    // The sheet's right edge keeps a gutter from the drawer's left edge.
+    expect(s.left + f.sheetW).toBeLessThanOrEqual(1440 - DRAWER.right - drawerWidth(1440) - GUTTER)
+  })
+
+  it('then shows the full spine slim for now (Adam’s choice kept), and only then lies over a dimmed page', () => {
+    // 1366: no room even for the narrowest sheet beside the full spine: the spine yields, the sheet fits beside the drawer.
+    const f = deskFit(1366, 760, true, true)
+    expect(f.full).toBe(false)
+    expect(f.spineYields).toBe(true)
+    expect(f.fullRoom).toBe(true)
+    expect(f.drawerDocked).toBe(true)
+    const s = sheetSides(f)
+    expect(s.left).toBeGreaterThanOrEqual(SHEET_LEFT_MIN)
+    expect(s.left + f.sheetW).toBeLessThanOrEqual(1366 - DRAWER.right - drawerWidth(1366) - GUTTER)
+    // Closing the drawer gives the full spine back.
+    expect(deskFit(1366, 760, true, false).full).toBe(true)
+    // 1280 too.
+    expect(deskFit(1280, 760, true, true).spineYields).toBe(true)
+    // A small window: even the slim spine and the narrowest sheet don't fit beside the drawer, so it lies over the page.
+    const small = deskFit(1100, 760, true, true)
+    expect(small.drawerDocked).toBe(false)
+    expect(small.drawerOver).toBe(true)
+    expect(small.sheetNarrowed).toBe(false)
+    expect(deskFit(1100, 760, true, false).drawerOver).toBe(false)
+  })
+
+  it('leaves a large window as it was: the full sheet beside the full spine and the drawer', () => {
+    const f = deskFit(1920, 760, true, true)
+    expect(f.full).toBe(true)
+    expect(f.drawerDocked).toBe(true)
+    expect(f.sheetNarrowed).toBe(false)
+    expect(f.spineYields).toBe(false)
+  })
+
+  it('docks beside a page narrower than SHEET_MIN (small text) without narrowing it', () => {
+    const f = deskFit(1140, 480, false, true)
+    expect(f.drawerDocked).toBe(true)
+    expect(f.sheetNarrowed).toBe(false)
   })
 })

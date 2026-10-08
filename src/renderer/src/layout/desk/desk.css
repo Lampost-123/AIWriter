@@ -1470,6 +1470,30 @@
     var(--sh-pop),
     0 0 0 1px var(--desk-line);
 }
+/* Over the page (a window too small to dock it): the page dims under it, so its words never show through or beside the
+   drawer's edge half-covered. The dimming comes and goes with the drawer. */
+[data-arrangement='desk'] .desk-drawer-scrim {
+  background: rgb(36 24 14 / 0.42);
+  backdrop-filter: blur(3px);
+  opacity: 1;
+  transition:
+    opacity var(--dur-base) var(--motion-drawer),
+    visibility 0s;
+}
+[data-arrangement='desk'][data-theme='dark'] .desk-drawer-scrim {
+  background: rgb(0 0 0 / 0.58);
+}
+[data-arrangement='desk'] .desk-drawer-scrim[data-state='closed'] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    visibility 0s linear var(--dur-exit);
+}
+[data-arrangement='desk'] .desk-drawer-scrim[data-instant] {
+  transition: none !important;
+}
 /* The five tabs share the drawer's width. */
 [data-arrangement='desk'] .desk-drawer [role='tablist'] > [role='tab'] {
   flex: 1 1 auto;

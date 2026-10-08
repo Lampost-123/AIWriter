@@ -399,6 +399,89 @@ test('the drawer: full height beside the page in a large window, the sheet betwe
   }
 })
 
+test('the drawer in a smaller window makes room rather than covering the words: the sheet narrows, then the spine shows slim for now; a small window dims the page under it', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  const text = win.locator('.desk-sheet .scene-prose')
+  /** The open drawer, the page's words, the spine and the dock: nothing overlaps the words, the dock on the sheet. */
+  const clear = async (label: string): Promise<'full' | 'slim'> => {
+    await win.waitForTimeout(500)
+    const shape = (await spine(win).getAttribute('data-shape')) as 'full' | 'slim'
+    const words = (await text.boundingBox())!
+    const sheet = (await win.locator('.desk-sheet').boundingBox())!
+    const side = (await drawer(win).boundingBox())!
+    const spineRight = shape === 'full' ? (await story(win).boundingBox())!.x + (await story(win).boundingBox())!.width : 20 + 48
+    expect(words.x, `${label}: words clear of the spine`).toBeGreaterThanOrEqual(spineRight + 8)
+    expect(words.x + words.width, `${label}: words clear of the drawer`).toBeLessThanOrEqual(side.x - 8)
+    expect(sheet.x + sheet.width, `${label}: sheet clear of the drawer`).toBeLessThanOrEqual(side.x)
+    const bar = (await dock(win).boundingBox())!
+    expect(bar.x, `${label}: dock on the sheet`).toBeGreaterThanOrEqual(sheet.x)
+    expect(bar.x + bar.width, `${label}: dock on the sheet`).toBeLessThanOrEqual(sheet.x + sheet.width)
+    expect(bar.x + bar.width, `${label}: dock clear of the drawer`).toBeLessThanOrEqual(side.x)
+    return shape
+  }
+  const fullKept = async (): Promise<void> => {
+    await expect.poll(async () => (await invoke(win, 'getSettings')).layout.deskStory ?? 'full').toBe('full')
+  }
+
+  // 1440×900, the whole story beside the page (Adam's maximised window): the sheet narrows, the spine stays full.
+  await size(app, win, 1440, 900)
+  await expect(spine(win)).toHaveAttribute('data-shape', 'full')
+  await press(win, topToggle(win))
+  await expect(drawer(win)).toHaveAttribute('data-docked')
+  await clear('1440')
+  await press(win, topToggle(win))
+  await expect(drawer(win)).toHaveAttribute('data-state', 'closed')
+  await expect(spine(win)).toHaveAttribute('data-shape', 'full')
+  await fullKept()
+
+  // 1366×768 and 1280×800: the spine shows slim while the drawer is open, and comes back full when it closes; the saved
+  // choice never changes.
+  for (const [w, h] of [
+    [1366, 768],
+    [1280, 800]
+  ] as const) {
+    await size(app, win, w, h)
+    await expect(spine(win)).toHaveAttribute('data-shape', 'full')
+    await press(win, topToggle(win))
+    await expect(drawer(win)).toHaveAttribute('data-docked')
+    expect(await clear(`${w}`)).toBe('slim')
+    await fullKept()
+    await press(win, topToggle(win))
+    await expect(drawer(win)).toHaveAttribute('data-state', 'closed')
+    await expect(spine(win)).toHaveAttribute('data-shape', 'full')
+    await fullKept()
+  }
+
+  // 1100×800: no room beside the page at all. The drawer lies over a dimmed page; Esc closes it, and so does a click on
+  // the dimmed page.
+  await size(app, win, 1100, 800)
+  await press(win, topToggle(win))
+  await expect(drawer(win)).toHaveAttribute('data-state', 'open')
+  await expect(drawer(win)).not.toHaveAttribute('data-docked')
+  const scrim = win.locator('.desk-drawer-scrim')
+  await expect(scrim).toHaveAttribute('data-state', 'open')
+  await expect(scrim).toBeVisible()
+  await win.keyboard.press('Escape')
+  await expect(drawer(win)).toHaveAttribute('data-state', 'closed')
+  await expect(scrim).toBeHidden()
+  await press(win, topToggle(win))
+  await expect(scrim).toBeVisible()
+  await scrim.click({ position: { x: 300, y: 300 } })
+  await expect(drawer(win)).toHaveAttribute('data-state', 'closed')
+  await fullKept()
+
+  // 1920×1080 (when the screen holds it): the whole sheet beside the full spine and the drawer, as before.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1920, 1080))
+  await win.waitForTimeout(500)
+  if (((await win.evaluate('innerWidth')) as number) >= 1919) {
+    const before = (await win.locator('.desk-sheet').boundingBox())!.width
+    await press(win, topToggle(win))
+    await expect(drawer(win)).toHaveAttribute('data-docked')
+    expect(await clear('1920')).toBe('full')
+    expect(Math.abs((await win.locator('.desk-sheet').boundingBox())!.width - before)).toBeLessThanOrEqual(1)
+  }
+})
+
 test('the page: its head, typing at the scene’s very start, and every shortcut the page’s tools carry', async ({ launch }) => {
   const { win } = await sampleWorld(launch)
   const head = win.locator('[data-page-title]')

@@ -41,6 +41,9 @@ import { TypewriterLayer } from '@/features/typing/TypewriterLayer'
 import { FindBar } from '@/features/find/FindBar'
 import './editor.css'
 
+/** The page's scrollbar (styles.css), whose room the desk's scroller always keeps. */
+const SCROLLBAR_W = 10
+
 /** The centre of the window when writing: the open scene, or a way to start one. */
 export function SceneView(): React.JSX.Element {
   const sceneId = useApp((s) => s.sceneId)
@@ -279,6 +282,12 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // With room for the margin notes' column, the sheet keeps clear of it too.
   const sides = sheetSides(frame)
   const glide = useSheetGlide(frame)
+  // Narrowed for the docked drawer, the sheet takes its new width at once (its words re-wrap once, as it starts to move),
+  // and widening again it keeps the narrow width until its glide ends: the words never re-wrap on every frame.
+  const narrowW = useRef<number | null>(null)
+  if (frame.sheetNarrowed) narrowW.current = frame.sheetW - SCROLLBAR_W
+  else if (!glide) narrowW.current = null
+  const heldW = desk && narrowW.current !== null ? narrowW.current : undefined
   const deskSides = desk ? { paddingLeft: sides.left, paddingRight: sides.right, transition: glide } : undefined
   // What lies over the sheet (its fade, its tools) also keeps the scrollbar's room, as the page does (desk.css).
   const overSheet = desk ? { paddingLeft: sides.left, paddingRight: sides.right + 10, transition: glide } : undefined
@@ -312,7 +321,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           className={cn('mx-auto pb-[38vh] pt-12 font-serif', wide ? 'px-10' : 'px-6', desk && 'desk-sheet', !(shown && !error) && 'invisible')}
           style={
             desk
-              ? { fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + ${2 * frame.padX}px)`, paddingLeft: frame.padX, paddingRight: frame.padX }
+              ? { fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + ${2 * frame.padX}px)`, width: heldW, paddingLeft: frame.padX, paddingRight: frame.padX }
               : { fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + 5rem)` }
           }
         >
