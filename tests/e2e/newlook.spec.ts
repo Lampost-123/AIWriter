@@ -125,7 +125,9 @@ test('the New look while writing: the page as a sheet, its title, the save tick,
     const markDone = header.getByRole('button', { name: /^Mark scene done/ })
     for (const [w, h] of [[1600, 1000], [1440, 900], [1280, 800], [1024, 700], [960, 640]] as const) {
       await app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, h] as [number, number])
-      await expect.poll(() => win.evaluate('innerWidth')).toBe(w)
+      // Within a pixel: on CI's 1440×900 virtual screen (Linux, xvfb) a window as wide as the screen comes out 1439 wide,
+      // as in desk.spec. The header's fit is still measured against the window's real width.
+      await expect.poll(async () => Math.abs(((await win.evaluate('innerWidth')) as number) - w)).toBeLessThanOrEqual(1)
       await expect(markDone).toHaveText('Mark done')
       await expect
         .poll(() =>
