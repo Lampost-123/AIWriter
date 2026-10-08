@@ -107,6 +107,8 @@
   --roll-d: #aea795;
   --plank-a: #b7c2d2;
   --plank-b: #8a98ae;
+  --spine-mark: #bcd7ff;
+  --spine-mark-rgb: 150 195 255;
 }
 /* The theme's own accent (an accent Adam picked keeps its colours: styles.css). */
 [data-arrangement='desk'][data-look='new'][data-theme='light']:not([data-accent]) {
@@ -213,6 +215,8 @@
   --roll-d: #363e52;
   --plank-a: #3b4660;
   --plank-b: #273047;
+  --spine-mark: #a9cbff;
+  --spine-mark-rgb: 120 175 255;
 }
 [data-arrangement='desk'][data-look='new'][data-theme='dark']:not([data-accent]) {
   --accent: #8fb4d8;
@@ -311,6 +315,8 @@
   --roll-d: #bfa67c;
   --plank-a: #d3be9c;
   --plank-b: #a58b69;
+  --spine-mark: #f4e3bf;
+  --spine-mark-rgb: 255 226 170;
 }
 [data-arrangement='desk'][data-look='new'][data-theme='sepia']:not([data-accent]) {
   --accent: #7d4426;
@@ -337,6 +343,8 @@
   --roll-d: #bfa67c;
   --plank-a: #d3be9c;
   --plank-b: #a58b69;
+  --spine-mark: #f4e3bf;
+  --spine-mark-rgb: 255 226 170;
 }
 
 /* ---------- Shared: shape and motion, the same in every theme ---------- */
@@ -736,10 +744,8 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: color-mix(in oklab, var(--lamp-2) 16%, transparent);
-  box-shadow:
-    inset 0 0 0 1.75px var(--lamp-2),
-    0 0 12px 1px var(--lamp-glow);
+  background: rgb(var(--spine-mark-rgb) / 0.14);
+  box-shadow: inset 0 0 0 1.5px var(--spine-mark);
   opacity: 0;
   scale: 0.6;
   transition:
@@ -750,8 +756,27 @@
   opacity: 1;
   scale: 1;
   transition:
-    opacity 200ms var(--desk-ease),
-    scale 200ms var(--desk-ease);
+    opacity var(--dur-base) var(--desk-ease),
+    scale var(--dur-base) var(--desk-ease);
+}
+/* The open scene's ring, as the list's bar: lamp light with a glow that breathes slowly (still with less motion). */
+[data-arrangement='desk'] .spine-halo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 12px 2px rgb(var(--spine-mark-rgb) / 0.7);
+  opacity: 0.35;
+  will-change: opacity;
+}
+[data-arrangement='desk'] .spine-ring.is-current .spine-halo::after {
+  animation: spine-mark-breathe 3.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-arrangement='desk'] .spine-ring.is-current .spine-halo::after {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 /* The rings: planned hollow, drafted half, revised three quarters (in a light accent), done full with a tick. */
 [data-arrangement='desk'] .spine-glyph .r-bg {
@@ -904,16 +929,70 @@
   letter-spacing: 0.04em;
   color: var(--lamp-2);
 }
-/* The open scene: a ribbon hangs at its row's edge, as one hangs over the page's sheet. */
-[data-arrangement='desk'] .spine-binder [data-row='scene'][aria-selected='true']::before {
+/* The open scene ("you are here"), in the spine's list and its flyout: a slim bar of lamp light down the left of the
+   lifted row (the list's gliding pill, GlidePill), centred on the row, with a soft glow that breathes slowly. Opening
+   another scene, it glides there on the drawer's curve (the view speed) and glints as it lands; from the keyboard, and
+   with less motion, it is there at once and still. While the AI writes into the open scene the bar is the AI's amber.
+   (Phase 6: Adam found the ribbon that hung here off centre; the big ribbon over the page's sheet stays.) */
+[data-arrangement='desk'] .desk-binder .glide-pill {
+  transition-duration: var(--dur-view);
+  transition-timing-function: var(--motion-drawer, var(--desk-ease));
+}
+[data-arrangement='desk'] .desk-binder .glide-pill::before,
+[data-arrangement='desk'] .desk-binder .glide-pill::after {
   content: '';
   position: absolute;
-  left: 11px;
-  top: 0;
-  width: 8px;
-  height: 22px;
-  background: var(--ribbon);
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+  left: 4px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--spine-mark);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-binder .glide-pill::after {
+  box-shadow: 0 0 10px 2px rgb(var(--spine-mark-rgb) / 0.7);
+  opacity: 0.35;
+  will-change: opacity;
+  animation: spine-mark-breathe 3.2s ease-in-out infinite;
+}
+@keyframes spine-mark-breathe {
+  50% {
+    opacity: 0.95;
+  }
+}
+[data-arrangement='desk'] .desk-binder .glide-pill[data-landed]::before {
+  animation: spine-mark-glint 520ms var(--desk-ease);
+}
+@keyframes spine-mark-glint {
+  0% {
+    scale: 1 0.55;
+    filter: brightness(1.9);
+  }
+  40% {
+    scale: 1 1.1;
+    filter: brightness(1.6);
+  }
+  100% {
+    scale: 1 1;
+    filter: none;
+  }
+}
+/* The AI writing into the open scene (the row's drafting dot): the bar in the AI's amber, breathing quicker. */
+[data-arrangement='desk'] .desk-binder:has([aria-selected='true'] .bg-ai) .glide-pill::before,
+[data-arrangement='desk'] .desk-binder:has([aria-selected='true'] .bg-ai) .glide-pill::after {
+  background: var(--lamp-2);
+}
+[data-arrangement='desk'] .desk-binder:has([aria-selected='true'] .bg-ai) .glide-pill::after {
+  box-shadow: 0 0 10px 2px var(--lamp-glow);
+  animation-duration: 1.4s;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-arrangement='desk'] .desk-binder .glide-pill::after,
+  [data-arrangement='desk'] .desk-binder .glide-pill[data-landed]::before {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 [data-arrangement='desk'] .spine-new {
   color: rgb(var(--hi-rgb));
