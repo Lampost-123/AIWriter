@@ -8,9 +8,27 @@ Everything here is in **Settings › Models** (Ctrl+, opens it).
 
 <p align="center"><img src="../images/settings-ai.png" alt="Settings, Models: connect OpenRouter or another provider, and pick the writer model" width="800"></p>
 
-## Connect OpenRouter (recommended)
+## Our pick: DeepSeek
+
+We recommend **DeepSeek** models, and **DeepSeek Flash** in particular (look for a DeepSeek model with "Flash" in
+its name). It writes good, natural prose, keeps up with long stories, and costs a fraction of most big models, so
+you can draft, continue and rewrite freely without watching the bill. It works well for every job below, not only
+the writer.
+
+There are two ways to reach it:
+
+- **Straight from DeepSeek** (usually the cheapest). Make an account and a key at
+  [platform.deepseek.com](https://platform.deepseek.com) and add a little credit. Then follow
+  [Connect another service](#connect-another-service) and pick the **DeepSeek** choice.
+- **Through OpenRouter.** If you've connected OpenRouter, search the model list for "DeepSeek".
+
+Then pick it as your **Writer model** (see [Choose your models](#choose-your-models)). AI Write's setup may
+suggest a different model at first; you can choose DeepSeek instead, then or any time later.
+
+## Connect OpenRouter
 
 OpenRouter gives you hundreds of models from different makers with one key, each with its price shown up front.
+AI Write marks it **Recommended** because one key reaches almost everything, DeepSeek included.
 
 1. Sign up at [openrouter.ai](https://openrouter.ai) and add a little credit.
 2. Make a key at [openrouter.ai/keys](https://openrouter.ai/keys) and copy it.

@@ -211,9 +211,10 @@ beside the words, so that doesn't happen.
    Click **More info**, then **Run anyway**. There's no admin prompt, and AI Write opens as soon as it's installed.
 3. **Look round first, if you like.** Choose **Explore a sample world first** to open Gullhaven, a short finished story
    with its characters, places and memory filled in. Nothing in it costs anything.
-4. **Connect an AI service.** Make a key at [openrouter.ai/keys](https://openrouter.ai/keys), add a little credit,
-   and paste the key in. (Or choose **Skip for now**.)
-5. **Pick a writer model**, choose how your stories should read, and start writing.
+4. **Connect an AI service.** We recommend **DeepSeek**: make a key at [platform.deepseek.com](https://platform.deepseek.com)
+   and choose **Use another provider** › **DeepSeek**, or use an [OpenRouter](https://openrouter.ai/keys) key, which
+   reaches DeepSeek and hundreds of other models. (Or choose **Skip for now**.)
+5. **Pick a writer model.** We recommend **DeepSeek Flash**. Choose how your stories should read, and start writing.
 
 The [Getting started guide](docs/guide/getting-started.md) walks through every step.
 
@@ -222,7 +223,7 @@ The [Getting started guide](docs/guide/getting-started.md) walks through every s
 | | |
 |---|---|
 | **A computer** | Windows 10 or 11, 64-bit. There is no Mac or Linux version. |
-| **An AI service** | A key from [OpenRouter](https://openrouter.ai) is the easiest. OpenAI, DeepSeek, Mistral, Groq or any other OpenAI-compatible service works too, as do LM Studio and Ollama on your own PC. |
+| **An AI service** | We recommend [DeepSeek](https://platform.deepseek.com): good prose for long stories at a very low price. You can connect it directly or through [OpenRouter](https://openrouter.ai). OpenAI, Mistral, Groq or any other OpenAI-compatible service works too, as do LM Studio and Ollama on your own PC. |
 | **Optional: a graphics card** | Only for the read-aloud voices: an NVIDIA RTX 20-series or newer with 8 GB of memory. Dictation runs on any PC. |
 
 **What costs money:** only the AI service you connect. You pay them for what you use. AI Write shows each
@@ -265,8 +266,9 @@ Yes, the app is free. The AI service you connect charges for what you use. You c
 your own PC with LM Studio or Ollama, which costs nothing per use.
 
 **Which AI model should I use?**
-Any model your service offers. The **Writer model** matters most, so pick one whose prose you like. The other
-jobs, like keeping the memory up to date, are fine with a fast, cheaper model. See
+We recommend **DeepSeek** models, especially **DeepSeek Flash**. It writes natural prose, copes well with long
+stories, and is cheap enough to draft and redraft freely, for every job, not only the writer. Any other model
+works too: the **Writer model** matters most, so pick one whose prose you like. See
 [AI services and models](docs/guide/ai-providers.md).
 
 **Will the AI change my writing without asking?**

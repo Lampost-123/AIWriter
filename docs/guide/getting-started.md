@@ -34,22 +34,32 @@ anything. You can come back to set up your own world whenever you're ready.
 
 ### 2. Connect an AI service
 
-AI Write doesn't include an AI of its own. You connect one, and pay that service for what you use. The
-easiest is OpenRouter: one key gives you hundreds of models, each with its price shown.
+AI Write doesn't include an AI of its own. You connect one, and pay that service for what you use.
+**We recommend DeepSeek**: it writes good prose for long stories and costs very little. There are two easy ways in.
 
-1. Sign up at [openrouter.ai](https://openrouter.ai).
-2. Add a little credit. A few dollars goes a long way.
-3. Under **Keys**, create a key and copy it.
-4. Back in AI Write, paste the key under **API key** and click **Connect**. AI Write tests it straight away.
+**DeepSeek directly** (usually the cheapest):
 
-Would you rather use OpenAI, DeepSeek, a model on your own PC, or another service? Click **Use another provider**.
-See [AI services and models](ai-providers.md) for the details. You can also click **Skip for now** and connect later
+1. Sign up at [platform.deepseek.com](https://platform.deepseek.com) and add a little credit. A few dollars goes a
+   long way.
+2. Create an API key and copy it.
+3. Back in AI Write, click **Use another provider**, pick **DeepSeek**, paste the key and add it.
+
+**Or OpenRouter**, where one key reaches DeepSeek and hundreds of other models:
+
+1. Sign up at [openrouter.ai](https://openrouter.ai) and add a little credit.
+2. Under **Keys**, create a key and copy it.
+3. Back in AI Write, paste the key under **API key** and click **Connect**. AI Write tests it straight away.
+
+**Use another provider** also works for OpenAI, a model on your own PC, or any other service. See
+[AI services and models](ai-providers.md) for the details. You can also click **Skip for now** and connect later
 in **Settings › Models**.
 
 ### 3. Pick a writer model
 
 The writer model is the AI that drafts your scenes. AI Write lists the models your service offers, with what each
-costs. Click **Use this** beside the one you want. You can switch any time, so don't worry about choosing perfectly.
+costs. We recommend **DeepSeek Flash** (search for "DeepSeek"). AI Write may mark a different model as
+**Recommended**; you can still pick DeepSeek. Click **Use this** beside the one you want. You can switch any time, so
+don't worry about choosing perfectly.
 
 ### 4. How should your stories read?
 
