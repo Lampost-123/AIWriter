@@ -888,3 +888,12 @@
 :root[data-vt~='flip-fade']::view-transition-new(page) {
   animation: dz-vt-in 150ms ease-out both !important;
 }
+
+/* A character's read-aloud voice, under who they are (empty while read aloud is off: no gap for it). The facts row's
+   Read-aloud voice scrolls it to the top with a little room above. */
+[data-arrangement='desk'] .dz-voice-box {
+  scroll-margin-top: 24px;
+}
+[data-arrangement='desk'] .dz-voice-box:empty {
+  display: none;
+}

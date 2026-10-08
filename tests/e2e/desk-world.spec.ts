@@ -579,3 +579,34 @@ test('the cards and the dossier show each entry’s drawing, none twice side by 
   await expect(win.locator('.scene-prose')).toBeVisible()
   await expect(win.locator('[data-motif-picker]')).toHaveCount(0)
 })
+
+test('a character’s read-aloud voice is in the dossier’s facts, and its section sits right under who they are', async ({ launch }) => {
+  // Adam couldn't find where to give a character a voice: it was at the foot of the dossier, after the private notes.
+  const { win } = await sampleWorld(launch)
+  await room(win, 'World').click()
+  await card(win, 'Wren Halloway').click()
+  const d = dossier(win)
+  await expect(d).toBeVisible()
+  const fact = d.locator('.dz-fact', { hasText: 'Read-aloud voice' })
+  await expect(fact).toContainText('Not set')
+  // Read aloud off: the fact says so on hover and goes to Settings, where it is turned on.
+  await expect(fact.getByRole('button')).toHaveAttribute('title', /^Read aloud is off\./)
+  await fact.getByRole('button').click()
+  await expect(win.getByRole('heading', { level: 1, name: 'Read aloud and dictation' })).toBeVisible()
+
+  // Read aloud on: the voice's section comes straight after "Who they are", and the fact goes to it.
+  await invoke(win, 'updateSettings', { speech: { readAloud: true } })
+  await win.reload()
+  await expect(rooms(win)).toBeVisible()
+  await room(win, 'World').click()
+  await card(win, 'Wren Halloway').click()
+  await expect(d).toBeVisible()
+  const titles = await d.locator('.dz-col').first().locator(':scope > .dz-sec .dz-sec-h, :scope > .dz-voice-box').evaluateAll((els) =>
+    els.map((e) => (e.classList.contains('dz-voice-box') ? 'VOICE' : (e.textContent ?? '').trim()))
+  )
+  expect(titles[0]).toMatch(/^Who they are/)
+  expect(titles[1]).toBe('VOICE')
+  await expect(d.locator('.dz-voice-box')).toContainText('Read-aloud voice')
+  await d.locator('.dz-fact', { hasText: 'Read-aloud voice' }).getByRole('button').click()
+  await expect(d.locator('.dz-voice-box')).toBeInViewport()
+})
