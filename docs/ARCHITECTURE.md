@@ -1650,6 +1650,13 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   `features/look/motion.ts` keeps track of whether Adam is on the keyboard or the pointer (`keyboardDriven()`, and
   `<html data-input>`): what he does from the keyboard happens at once. The generic enters (`animate-fade-in`,
   `animate-pop-in`, `animate-slide-up`) take the look's timing from one zero-weight rule in `styles.css`.
+  - *Changing page*: `navigate()` (`lib/store.ts`) runs a page change from the pointer inside a View Transition
+    (`features/look/viewTransition.ts`: the DOM API with `flushSync`, not React's `<ViewTransition>`, which never runs
+    for zustand state). Only `<main data-page>` (and the side list, `[data-area-list]`, when the rail's area changes)
+    takes part, named only while `<html data-vt>` is up; the document itself is left out, so the rest of the window
+    stays live, and toasts (`[data-toaster]`) stay above it. The change itself lands on the next frame (the old page is
+    pictured first): a later change of page or scene in between wins. Never for `write`, the same page (`pageKey`),
+    the start screen, the keyboard, less motion or Classic.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
@@ -1661,7 +1668,8 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   (`layout/Trail.tsx`) and the sample world as a chip. **Which area a screen belongs to is one table**,
   `AREA_OF` in `layout/areas.ts` (TypeScript asks for every view), so a screen opened from anywhere lights its
   area. The selection glides (`components/ui/GlidePill.tsx`: one pill behind a list, moved by transform), and a
-  new page fades in with a small rise (`.view-in`, styles.css).
+  new page crossfades in with a View Transition (`features/look/viewTransition.ts`; instant from the keyboard and
+  when coming back to the writing page).
 - **Classic can't drift**: `tests/e2e/classic.spec.ts` compares the main screens in Classic, Light and Dark, on the
   sample world, with screenshots taken before the New look began (one set per platform).
 - Contrast: `tests/unit/contrast.test.ts` checks the New look's colours and kind inks in every theme and accent.

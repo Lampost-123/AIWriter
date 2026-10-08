@@ -218,11 +218,6 @@ function Workspace(): React.JSX.Element {
   const overPage = focus && (!focusMoving || focusPanel)
   const { layout } = settings
   const writing = view.kind === 'write'
-  // The New look: each time the writing page comes back, it fades in again (see .view-in in styles.css).
-  const returns = useRef(0)
-  const wasWriting = useRef(writing)
-  if (writing && !wasWriting.current) returns.current++
-  wasWriting.current = writing
   // Ask the world (milestone 4) shows in this panel too, even with no scene open.
   const scenePanel = writing && (!!sceneId || askOpen)
   // In a small window the open panels give up some width, so the page keeps room to write in.
@@ -282,18 +277,17 @@ function Workspace(): React.JSX.Element {
             {isNew ? <AreaList /> : <Binder />}
           </ResizablePane>
         </div>
-        <main className="relative min-w-0 flex-1 bg-bg">
+        {/* data-page: in the New look, a new page crossfades in here (features/look/viewTransition.ts); coming back
+            to the writing page is instant. */}
+        <main data-page className="relative min-w-0 flex-1 bg-bg">
           {/* The writing view stays in place under the other pages, so a draft keeps writing into the scene
               while Adam looks at something else, and the page and caret are where he left them. Hidden with
               visibility (not display), which keeps its scroll position. */}
-          <div
-            className={cn('h-full', !writing && 'invisible pointer-events-none', writing && returns.current > 0 && (returns.current % 2 ? 'view-in' : 'view-in-again'))}
-            inert={!writing}
-          >
+          <div className={cn('h-full', !writing && 'invisible pointer-events-none')} inert={!writing}>
             <SceneView />
           </div>
           {!writing ? (
-            <div key={view.kind} className="view-in absolute inset-0 bg-bg">
+            <div key={view.kind} className="absolute inset-0 bg-bg">
               {view.kind === 'entries' && <EntriesView kind={view.entryKind} entryId={view.entryId} from={view.from} />}
               {view.kind === 'style' && <StyleView />}
               {view.kind === 'settings' && <SettingsView tab={view.tab} />}

@@ -4,6 +4,8 @@ import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'
 import { useToasts } from '@/components/ui/Toast'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
+import { pageTransition } from '@/features/look/viewTransition'
+import { areaOf } from '@/layout/areas'
 import { api } from './api'
 
 export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'editor' | 'backups' | 'trash' | 'usage' | 'about'
@@ -202,6 +204,16 @@ let askedAtLaunch = false
 const leaveHomePatch = (): Partial<AppState> => (homeHolds > 0 ? {} : { home: false })
 
 /**
+ * The page a view shows: another entry of the same kind, another chapter's plan or another Settings page is still the
+ * same page (it changes in place, at once).
+ */
+const pageKey = (v: View): string =>
+  v.kind === 'entries' || v.kind === 'builder' ? `${v.kind}:${v.entryKind}` : v.kind === 'outline' ? `outline:${v.chapterId ? 'chapter' : 'helper'}` : v.kind
+
+/** Counts calls to navigate, so a page change still waiting for its crossfade gives way to a later one. */
+let navTurn = 0
+
+/**
  * Runs something from the start screen that opens a world, story or page underneath it (to delete a story in
  * another world, say) while the start screen stays up.
  */
@@ -308,7 +320,24 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   navigate(view) {
-    set({ view, ...leaveHomePatch() })
+    const before = get().view
+    const turn = ++navTurn
+    // The New look: a new page crossfades in (features/look/viewTransition.ts). The writing page coming back, the same
+    // page, the start screen, and anything done from the keyboard never animate.
+    if (view.kind === 'write' || pageKey(view) === pageKey(before) || get().home) {
+      set({ view, ...leaveHomePatch() })
+      return
+    }
+    const from = areaOf(before)
+    const to = areaOf(view)
+    pageTransition(
+      () => {
+        // The crossfade starts on the next frame: if another page was opened meanwhile (a scene, another page), that wins.
+        if (turn !== navTurn || get().view !== before) return false
+        set({ view, ...leaveHomePatch() })
+      },
+      { areaChanges: from !== to && from !== null && to !== null }
+    )
   },
 
   setSaveState: (saveState) => set({ saveState }),

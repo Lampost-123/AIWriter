@@ -487,35 +487,73 @@
   }
 }
 /*
-  The New look: switching views, the page that opens fades in with a 6px rise (the main pane only; nothing else
-  moves). Two copies of the same keyframes, so returning to the writing page (which stays mounted) can start it
-  again by switching between them.
+  The New look: changing page (features/look/viewTransition.ts) crossfades the centre of the window: the old page goes
+  in 140ms while the new one fades up 4px over 280ms. The side list crossfades too when the rail's area changes. Nothing
+  else takes part (the document itself is left out), so the rest of the window stays live and clicks go straight
+  through. The page keeps its new size at once and its pictures are never stretched (text in them would blur). From the
+  keyboard, coming back to the writing page, in Classic and with less motion, the page just changes.
 */
-@keyframes view-in {
+:root[data-look='new'] {
+  view-transition-name: none;
+}
+:root[data-vt] [data-page] {
+  view-transition-name: page;
+}
+:root[data-vt~='area'] [data-area-list] {
+  view-transition-name: side-list;
+}
+/* Toasts over the page stay as they are, live (else the page's pictures, drawn over everything, would hide them). */
+:root[data-vt] [data-toaster] {
+  view-transition-name: toasts;
+}
+::view-transition-group(toasts),
+::view-transition-new(toasts) {
+  animation: none;
+}
+::view-transition-old(toasts) {
+  display: none;
+}
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-group(page),
+::view-transition-group(side-list) {
+  animation: none;
+}
+::view-transition-old(page),
+::view-transition-new(page),
+::view-transition-old(side-list),
+::view-transition-new(side-list) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+::view-transition-old(page),
+::view-transition-old(side-list) {
+  animation: vt-out var(--dur-exit) var(--motion-glide) both;
+}
+::view-transition-new(page) {
+  animation: vt-in var(--dur-view) var(--motion-glide) both;
+}
+::view-transition-new(side-list) {
+  animation: vt-fade-in var(--dur-quick) var(--motion-glide) both;
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
+    transform: translateY(4px);
   }
 }
-@keyframes view-in-again {
+@keyframes vt-fade-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-[data-look='new'] .view-in {
-  animation: view-in var(--dur-view) var(--motion-glide) both;
-}
-[data-look='new'] .view-in-again {
-  animation: view-in-again var(--dur-view) var(--motion-glide) both;
 }
 /* The New look's tick that draws itself (components/ui/DrawnTick.tsx), and a ring that pulses once round a scene's
    dot as it is marked done (features/binder/StatusDot.tsx). */
@@ -812,6 +850,12 @@ body {
     transition-duration: 0.01ms !important;
     transition-delay: 0s !important;
     scroll-behavior: auto !important;
+  }
+  /* A page change's crossfade (which the rule above doesn't reach); features/look/viewTransition.ts skips it too. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
   /* The start screen's opening is a plain fade instead, and its texture stays still. */
   [data-opening] .start-mark path,
