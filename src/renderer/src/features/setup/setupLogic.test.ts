@@ -20,13 +20,47 @@ describe('steps', () => {
 })
 
 describe('recommendWriter', () => {
-  it('suggests the newest of the best maker on the list', () => {
+  const DEEPSEEK = 'https://api.deepseek.com/v1'
+  const OPENROUTER = 'https://openrouter.ai/api/v1'
+
+  it('suggests DeepSeek Flash first on OpenRouter, the newest, never a variant', () => {
+    const list = [
+      'anthropic/claude-sonnet-4.5',
+      'deepseek/deepseek-chat-v3.1',
+      'deepseek/deepseek-v3.2-flash',
+      'deepseek/deepseek-v4-flash:free',
+      'deepseek/deepseek-v4-flash',
+      'google/gemini-2.5-flash'
+    ].map(model)
+    expect(recommendWriter(list, OPENROUTER)?.model.id).toBe('deepseek/deepseek-v4-flash')
+    expect(recommendWriter(list)?.model.id).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  it('suggests DeepSeek Flash on DeepSeek’s own API, whatever it is called there', () => {
+    const list = ['deepseek-chat', 'deepseek-reasoner', 'v4-flash'].map(model)
+    expect(recommendWriter(list, DEEPSEEK)?.model.id).toBe('v4-flash')
+    expect(recommendWriter(['deepseek-chat', 'deepseek-v4-flash'].map(model))?.model.id).toBe('deepseek-v4-flash')
+  })
+
+  it('suggests another DeepSeek chat model when there is no Flash, never a reasoner', () => {
+    const list = ['anthropic/claude-sonnet-4.5', 'deepseek/deepseek-r1', 'deepseek/deepseek-chat-v3.1', 'deepseek/deepseek-v3.2-exp'].map(model)
+    expect(recommendWriter(list, OPENROUTER)?.model.id).toBe('deepseek/deepseek-chat-v3.1')
+    expect(recommendWriter(['deepseek-reasoner', 'deepseek-chat'].map(model), DEEPSEEK)?.model.id).toBe('deepseek-chat')
+  })
+
+  it('leaves out other makers’ Flash and names a DeepSeek-looking model only on DeepSeek’s API', () => {
+    const list = ['google/gemini-2.5-flash', 'openai/gpt-4.1'].map(model)
+    expect(recommendWriter(list, OPENROUTER)?.model.id).toBe('openai/gpt-4.1')
+    expect(recommendWriter(['v4-flash'].map(model), OPENROUTER)).toBeNull()
+  })
+
+  it('suggests the newest of the best maker on the list when there is no DeepSeek', () => {
     const list = ['openai/gpt-5', 'anthropic/claude-3.7-sonnet', 'anthropic/claude-sonnet-4.5', 'anthropic/claude-sonnet-4'].map(model)
     expect(recommendWriter(list)?.model.id).toBe('anthropic/claude-sonnet-4.5')
   })
 
   it('leaves out special editions', () => {
-    const list = ['anthropic/claude-sonnet-4.5:thinking', 'openai/gpt-5-mini', 'openai/gpt-4.1'].map(model)
+    const list = ['anthropic/claude-sonnet-4.5:thinking', 'openai/gpt-5-mini', 'google/gemini-2.5-pro-preview', 'openai/gpt-4.1'].map(model)
     expect(recommendWriter(list)?.model.id).toBe('openai/gpt-4.1')
   })
 
