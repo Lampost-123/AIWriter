@@ -413,6 +413,11 @@ export async function startFakeProvider(options = {}) {
     if (memory === null && lastUser.includes('put who says it and how it is said in curly braces')) {
       full = full.replaceAll('"You came,"', '{Tobin|dry, a little amused}"You came,"').replaceAll('"I said I would."', '{Mara|flat and certain}"I said I would."')
     }
+    // Beat by beat writing an earlier beat again (src/main/beats/instructions.ts, afterBlock): it opens otherwise, so a
+    // test can tell the new version from the old.
+    if (memory === null && lastUser.includes('## What comes after this beat')) {
+      full = full.replace('The rain had not let up since noon', 'By evening the rain had eased to a drizzle')
+    }
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4
     // A reply that runs into the limit stops mid-sentence.

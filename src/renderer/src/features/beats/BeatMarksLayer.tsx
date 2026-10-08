@@ -230,6 +230,9 @@ function BeatLabel({
   const stale = beat.staleBy
   const showBeats = useApp((s) => !!s.settings?.editor?.showBeats)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  /** Change and redo was picked: the note box opens once the menu has closed. */
+  const noteNext = useRef(false)
   const [note, setNote] = useState('')
   const style: React.CSSProperties = inside ? { top, left } : { top, right }
   return (
@@ -263,6 +266,13 @@ function BeatLabel({
               side={inside ? 'bottom' : 'left'}
               sideOffset={6}
               collisionPadding={8}
+              onCloseAutoFocus={(e) => {
+                if (!noteNext.current) return
+                // Change and redo: the keyboard goes to the note box rather than back to the label.
+                noteNext.current = false
+                e.preventDefault()
+                onNote(true)
+              }}
               className="z-50 min-w-[220px] rounded-lg border border-line bg-surface p-1 font-sans shadow-pop data-[state=open]:animate-pop-in"
             >
               <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => void redoBeat(sceneId, n)}>
@@ -273,8 +283,8 @@ function BeatLabel({
                 className={cn(ITEM, 'text-fg')}
                 onSelect={() => {
                   setNote('')
-                  // Once the menu has gone, the note box opens beside the label.
-                  requestAnimationFrame(() => onNote(true))
+                  // Once the menu has gone, the note box opens beside the label (see onCloseAutoFocus).
+                  noteNext.current = true
                 }}
               >
                 <SquarePen size={14} className="text-muted" aria-hidden />
@@ -330,7 +340,7 @@ function BeatLabel({
             collisionPadding={8}
             onOpenAutoFocus={(e) => {
               e.preventDefault()
-              ;(e.currentTarget as HTMLElement | null)?.querySelector('input')?.focus()
+              inputRef.current?.focus()
             }}
             className="z-50 w-[300px] rounded-lg border border-line bg-surface p-2.5 font-sans shadow-pop data-[state=open]:animate-pop-in"
             aria-label={`Change and redo beat ${n}`}
@@ -344,6 +354,7 @@ function BeatLabel({
               }}
             >
               <Input
+                ref={inputRef}
                 value={note}
                 maxLength={MAX_NOTE_CHARS}
                 onChange={(e) => setNote(e.target.value)}

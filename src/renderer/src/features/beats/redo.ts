@@ -257,8 +257,9 @@ function accepted(r: Redo, at: { from: number; to: number }): void {
   if (queue?.sceneId === r.sceneId) return void next(r.sceneId)
   const later = writtenBefore(beatsShown(doc, marksOf(r.sceneId)), r.index)
   if (!later.length) return
-  const which = later.length === 1 ? `Beat ${later[0]} was` : `Beats ${listed(later)} were`
-  toast(`${which} written before beat ${r.index} changed. You can keep them, or write them again.`, {
+  const one = later.length === 1
+  const which = one ? `Beat ${later[0]} was` : `Beats ${listed(later)} were`
+  toast(`${which} written before beat ${r.index} changed. You can keep ${one ? 'it' : 'them'}, or write ${one ? 'it' : 'them'} again.`, {
     action: { label: later.length === 1 ? 'Redo it' : 'Redo them in order', run: () => void redoAfter(r.sceneId, r.index, 'all') }
   })
 }
