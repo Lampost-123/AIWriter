@@ -281,9 +281,11 @@ describe('Continue', () => {
     const cont = ok(editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '' }), { ...marked, stand, must }))
     expect(cont.blocks.map((x) => x.id).slice(-3)).toEqual(['stand', 'must', 'ask'])
     const text = cont.blocks.find((x) => x.id === 'must')!.text
-    expect(text).toContain('- Mara: soaked through (since Ch 2, Sc 1)')
+    // Where things stand is right above it, at this same moment: the list doesn't say it again (Adam, 2026-10-08).
+    expect(cont.blocks.find((x) => x.id === 'stand')!.text).toContain('condition: soaked through')
+    expect(text).not.toContain('soaked through')
+    expect(text).not.toContain('Where Mara is')
     expect(text).toContain('- Mara: no left hand')
-    expect(text).toContain('- Where Mara is: by the hearth')
     expect(text).toContain('- Kept from Tobin: The ledger is forged (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so')
     // Another tool, where things stand not known there: the codex's facts still go in.
     const rewrite = ok(editBriefing(input('rewrite', { direction: 'Sadder' }), { ...marked, must }))
@@ -363,7 +365,7 @@ describe('Fix voice', () => {
     // Turn-taking gives the third line back to Mara.
     expect(who).toContain('3. Mara: “Who goes there?”')
     expect(user(b)).toContain('The speakers and their voices')
-    expect(user(b)).toContain('Sample lines of dialogue:\n    Doors are for people with nothing to hide.\n    Move.')
+    expect(user(b)).toContain('Sample lines of dialogue:\n    "Doors are for people with nothing to hide."\n    "Move."')
     expect(b.note).toBe('Matching the voice of Mara. Tobin has no voice profile yet, so those lines stay as they are.')
   })
 
@@ -384,5 +386,63 @@ describe('Fix voice', () => {
     })
     const noLines = editBriefing(input('voice', { selection: 'She waited.', before: '', after: '' }), world())
     expect(noLines.ok).toBe(false)
+  })
+})
+
+describe("Continue's memory core (Adam, 2026-10-08)", () => {
+  const said = [
+    { kind: 'promise' as const, by: 'Mara', heard: ['Tobin'], words: '“I’ll pay you at the turn of the tide.”', fact: 'Mara will pay Tobin', where: 'Ch 2, Sc 1', here: true, found: false },
+    ...Array.from({ length: 6 }, (_, i) => ({ kind: 'threat' as const, by: 'Rose', heard: [], words: `Line ${i}`, fact: '', where: 'Ch 1, Sc 1', here: false, found: true }))
+  ]
+  const recalled = [
+    { id: 'r1', name: 'The ledger', kind: 'item' as const, summary: 'Proof of the forgery.' },
+    { id: 'r2', name: 'The night bell', kind: 'lore' as const, summary: 'No boats after it.' },
+    { id: 'r3', name: 'Lowtown', kind: 'place' as const, summary: 'The docks.' },
+    { id: 'r4', name: 'The weir', kind: 'place' as const, summary: 'Below the mill.' }
+  ]
+  const marked = { ...MARA, fields: { ...MARA.fields, marks: 'no left hand' } }
+  const core = { timeline: 'Canon: what has already happened.\n- Ch 1, Sc 1: Mara crossed the river.', recalled, said }
+  const go = (o: Partial<EditInput> = {}, w: Partial<EditWorld> = {}) =>
+    ok(editBriefing(input('continue', { selection: '', before: `${BEFORE.trim()} The rain went on. The rain went on.`, after: '', ...o }), world({ entries: [marked, TOBIN, OLD_ROSE, TAVERN], core, ...w })))
+
+  it('sends the timeline first (the same from one Continue to the next), then a few entries recalled and what was said, capped', () => {
+    const b = go()
+    const ids = b.blocks.map((x) => x.id)
+    expect(ids[1]).toBe('timeline')
+    expect(ids.indexOf('recalled')).toBeLessThan(ids.indexOf('before'))
+    expect(ids.indexOf('said')).toBeLessThan(ids.indexOf('before'))
+    const text = user(b)
+    expect(text).toContain('- Ch 1, Sc 1: Mara crossed the river.')
+    expect(text).toContain('- The ledger: Proof of the forgery.')
+    expect(text).not.toContain('The weir')
+    expect(text).toContain('Mara’s promise to Tobin (Ch 2, Sc 1)')
+    expect(text.match(/^- .*Line \d/gm) ?? []).toHaveLength(3)
+    // The point of view's facts to keep: the marks anyone would notice.
+    expect(text).toContain('- Distinguishing marks: no left hand')
+    // The other tools get none of it.
+    const rewrite = ok(editBriefing(input('rewrite', { direction: 'Sadder' }), world({ core })))
+    expect(rewrite.blocks.some((x) => x.id === 'timeline' || x.id === 'said' || x.id === 'recalled')).toBe(false)
+  })
+
+  it("says Adam's \"what happens next\" last, and the phrases the scene has used already", () => {
+    const b = go({ direction: 'Tobin admits he lied' })
+    const text = user(b)
+    expect(text.trimEnd().endsWith('What happens next, as the author asks:\nTobin admits he lied')).toBe(true)
+    expect(system(b)).toContain('The author says what happens next')
+    expect(text).toContain('“the rain went on”')
+    // Without one: the scene card's next beat, as before.
+    expect(system(go())).toContain('move towards its next beat')
+  })
+
+  it('stays compact: the core adds at most a few thousand tokens, and goes before the edit is refused', () => {
+    const big = { ...core, timeline: Array.from({ length: 120 }, (_, i) => `- Ch ${i}, Sc 1: Something happened at the ford.`).join('\n') }
+    const without = go({}, { core: undefined })
+    const withCore = go({}, { core: big })
+    const extra = withCore.blocks.reduce((n, x) => n + x.tokens, 0) - without.blocks.reduce((n, x) => n + x.tokens, 0)
+    expect(extra).toBeGreaterThan(0)
+    expect(extra).toBeLessThan(4000)
+    // A small model: the core goes first.
+    const small = go({}, { core: big, contextLength: 3000 })
+    expect(small.blocks.some((x) => x.id === 'timeline')).toBe(false)
   })
 })

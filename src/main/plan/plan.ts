@@ -126,9 +126,16 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
     .filter((e): e is EntryState => !!e && e.kind === 'character')
   const reach = stageReach(input)
   const stand = reach === 'none' ? null : block('continuity')
+  // Add below's scene card leaves Adam's direction out (it is the closing instruction's last words): the planner gets it
+  // with the card, and an event it calls for answers to it.
+  const direction = clean(input.options.direction)
+  const cardText =
+    input.options.addBelow && direction
+      ? [text('scene-card'), `The author's direction for this stretch:\n${direction}`].filter(Boolean).join('\n\n')
+      : text('scene-card')
   return {
     ask,
-    card: text('scene-card'),
+    card: cardText,
     focus: clean(focus),
     must: text(MUST_BLOCK),
     reach,
@@ -140,7 +147,7 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
     others,
     people: people.map((e) => e.name),
     secrets: secretsAmong(people, input.memory.facts),
-    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : text('scene-card')
+    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : cardText
   }
 }
 

@@ -80,10 +80,13 @@ import { sameWhen, stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
-import { MUST_TITLE, mustStayTrue, mustText, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { MUST_TITLE, mustStayTrue, mustText, realSecrets, shortPlace, stageInScene, type StageReach, type StageScope } from './mustStay'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
+import { beatsOnPage, repeatedPhrases, speechSamples } from './repetition'
+import { cleanKnows, happenedOf, pastDeathNote } from './knows'
+import { TIMELINE_LEVELS, timelineText, type TimelineContext } from './timeline'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -358,6 +361,13 @@ export function fieldSections(e: Entry, onlyGroups?: string[], short = false, on
       if (onlyKeys && !onlyKeys.has(f.key)) continue
       const v = clean(e.fields?.[f.key])
       if (!v) continue
+      if (f.key === 'sampleLines') {
+        // Only real speech, never narration (Adam, 2026-10-08: some "sample lines" were narration). The instructions say
+        // never to reuse one word for word (a sample line came back verbatim in 14 of 122 writer calls).
+        const said = speechSamples(v)
+        if (said.length) lines.push(`- ${f.label}:\n${said.map((l) => `    "${l}"`).join('\n')}`)
+        continue
+      }
       if (v.includes('\n')) {
         lines.push(
           `- ${f.label}:\n${v
@@ -455,11 +465,13 @@ export function oneLine(e: Entry, note = ''): string {
  * from what has happened to them (deaths.ts): the latest note that says they died, unless a later one says they live.
  * Each with that note ("presumed dead in the Archive fire").
  */
-export function deadBy(entries: Pick<EntryState, 'kind' | 'name' | 'happened'>[]): { name: string; note: string }[] {
-  const out: { name: string; note: string }[] = []
+export function deadBy(entries: Pick<EntryState, 'kind' | 'name' | 'happened'>[]): { name: string; note: string; where: string }[] {
+  const out: { name: string; note: string; where: string }[] = []
   for (const e of entries) {
     const died = deathOf(e)
-    if (died?.note) out.push({ name: e.name, note: died.note })
+    // Told later, a note's "this afternoon" is wrong (Adam, 2026-10-08: "died this afternoon" days on).
+    const note = died ? pastDeathNote(died.note) : ''
+    if (note) out.push({ name: e.name, note, where: clean(died?.where) })
   }
   return out
 }
@@ -916,7 +928,13 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   if (gap) lines.push(gap)
   // Who is dead by now, so nobody dead walks or talks in the scene (except as a ghost, a memory or a vision).
   const dead = deadBy(input.memory.entries)
-  if (dead.length) lines.push(`Dead by this point (only ever a memory, a ghost or a vision here): ${dead.map((d) => `${d.name} (${d.note})`).join('; ')}`)
+  if (dead.length) {
+    const told = (d: (typeof dead)[number]): string => {
+      const at = d.where ? shortPlace(d.where, input.story.title) : ''
+      return `${d.name} (${d.note}${at ? `; ${at}` : ''})`
+    }
+    lines.push(`Dead by this point (only ever a memory, a ghost or a vision here): ${dead.map(told).join('; ')}`)
+  }
   const pov = card.povId ? name(card.povId) : null
   if (pov) lines.push(`Point of view: ${pov}`)
   const others = names(card.presentIds.filter((id) => id !== card.povId))
@@ -949,7 +967,8 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
     parts.push(`${lead}:\n${aims.map((a) => `- ${indentMore(a)}`).join('\n')}`)
   }
   if (clean(card.notes)) parts.push(`Notes from the author:\n${clean(card.notes)}`)
-  if (clean(input.options.direction)) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
+  // Add below says Adam's direction last of all, right before the writer starts (finalInstruction), not here.
+  if (clean(input.options.direction) && !input.options.addBelow) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
   return parts.join('\n\n')
 }
 
@@ -1016,12 +1035,15 @@ export function stageScope(
 ): StageScope {
   const byId = new Map<ID, EntryState>([...memory.elsewhere.map((x) => [x.entry.id, x.entry] as const), ...memory.entries.map((e) => [e.id, e] as const)])
   const onCard = [...new Set([card.povId, ...card.presentIds])].map((id) => (id ? byId.get(id) : undefined)).filter((e): e is EntryState => !!e)
+  const cast = [...byId.values()].filter((e) => e.kind === 'character')
   return {
     sceneId: memory.sceneId,
     timeCarries: timeCarries(card, memory.previous),
     onCard,
-    cast: [...byId.values()].filter((e) => e.kind === 'character'),
-    words: [...card.beats, card.notes, card.goal, card.conflict, card.outcome, card.mood, ...words].map(clean).filter(Boolean).join('\n')
+    cast,
+    words: [...card.beats, card.notes, card.goal, card.conflict, card.outcome, card.mood, ...words].map(clean).filter(Boolean).join('\n'),
+    previousSceneId: memory.previous && !memory.previous.otherStory ? memory.previous.sceneId : null,
+    dead: memory.entries.filter((e) => e.kind === 'character' && deathOf(e)).flatMap((e) => [e.name, ...(e.aliases ?? [])])
   }
 }
 
@@ -1054,7 +1076,11 @@ function bringAboutLines(input: ContextInput, sel: Selection): string[] {
  * says what they know.
  */
 function povText(e: EntryState, input: ContextInput, sel: Selection, level: 0 | 1 | 2 | 3): string {
-  const known = input.memory.facts.filter((f) => f.knownBy.includes(e.id) && clean(f.fact))
+  // One of each, and no plan that has happened or whose time has passed (Adam, 2026-10-08: 70 lines, with duplicates).
+  const known = cleanKnows(
+    input.memory.facts.filter((f) => f.knownBy.includes(e.id) && clean(f.fact)),
+    { happened: happenedOf(input.memory.entries) }
+  )
   // In the smaller forms a long list of what they know (a long series) is cut to what matters here.
   const { kept, left } = level >= 2 ? someFacts(known, sel, level === 2 ? 12 : 6) : { kept: known, left: 0 }
   const knows = kept.map((f) => `- ${indentMore(sentence(clean(f.fact)))}`)
@@ -1098,21 +1124,19 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
       used.add(r.bId)
       return `- ${relationshipLine(r, name)}`
     })
-  const facts: { fact: string; line: string }[] = []
-  if (people.length > 1) {
-    for (const f of input.memory.facts) {
-      if (!clean(f.fact)) continue
-      const knowers = people.filter((p) => f.knownBy.includes(p.id))
-      if (!knowers.length || knowers.length === people.length) continue
-      const not = people.filter((p) => !f.knownBy.includes(p.id))
-      ;[...knowers, ...not].forEach((p) => used.add(p.id))
-      const knowersText = knowers.length === 1 ? `${knowers[0].name} knows it` : `${joinAnd(knowers.map((p) => p.name))} know it`
-      facts.push({
-        fact: f.fact,
-        line: `- ${joinAnd(not.map((p) => p.name))} ${not.length === 1 ? 'does' : 'do'} not know: ${sentence(clean(f.fact))} (${knowersText}.)`
-      })
+  // Only real secrets (Adam, 2026-10-08: 37 "does not know" lines, many false, one "Wren does not know" a plan of
+  // Wren's own): what one of them knows that another here doesn't, never kept from someone it is about, at most
+  // RELATIONSHIP_SECRETS (mustStay.ts realSecrets).
+  const facts: { fact: string; line: string }[] = realSecrets(people, input.memory.facts, { happened: happenedOf(input.memory.entries) }, RELATIONSHIP_SECRETS).map(
+    (s) => {
+      for (const n of [...s.knownBy, ...s.keptFrom]) for (const p of people) if (p.name === n) used.add(p.id)
+      const knowersText = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
+      return {
+        fact: s.fact,
+        line: `- ${joinAnd(s.keptFrom)} ${s.keptFrom.length === 1 ? 'does' : 'do'} not know: ${sentence(s.fact)} (${knowersText}.)`
+      }
     }
-  }
+  )
   const write = (list: string[]): string => {
     const parts: string[] = []
     if (rels.length) parts.push(rels.join('\n'))
@@ -1129,6 +1153,8 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
 
 /** Facts some of those present don't know, kept in block 6's short form. */
 const RELATIONSHIP_FACTS_SHORT = 10
+/** The most secrets block 6 gives. */
+export const RELATIONSHIP_SECRETS = 3
 
 /** How a tie stands: the relationship, and in full how each of them feels ("Brother, estranged. Mara feels: Guilt."). */
 function tieStanding(t: Tie, person: EntryState, short: boolean): string {
@@ -1306,6 +1332,16 @@ function themesLine(input: ContextInput): string {
 
 const kindWord = (e: Entry): string => KIND_LABELS[e.kind]?.one.toLowerCase() ?? 'entry'
 
+/** The title of block 9's entries named in the card, the direction or the scene, or pinned: always the same. */
+export const MENTIONED_TITLE = 'Also relevant'
+
+const KIND_ORDER = ['character', 'place', 'item', 'group', 'event', 'thread', 'lore']
+/** Entries in an order that doesn't change from step to step: by kind, then name, then id. */
+export function steadyOrder<T extends Pick<Entry, 'kind' | 'name' | 'id'>>(list: T[]): T[] {
+  const rank = (k: string): number => (KIND_ORDER.includes(k) ? KIND_ORDER.indexOf(k) : KIND_ORDER.length)
+  return [...list].sort((a, b) => rank(a.kind) - rank(b.kind) || a.name.localeCompare(b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
 /** Builds every block that has something in it, in the order they are sent. */
 export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(input)): BlockDraft[] {
   const blocks: BlockDraft[] = []
@@ -1330,7 +1366,15 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
 
   // 1 Instructions and style guide (short: the sample passage trimmed, one genre, the rules without the phrase
   // list). `add` keeps the short form only when it is actually shorter.
-  add('instructions', 1, 'Instructions and style guide', instructionsText(input.style), instructionsText(input.style, { trimSample: true }), [])
+  const addBelow = !!input.options.addBelow
+  add(
+    'instructions',
+    1,
+    'Instructions and style guide',
+    instructionsText(input.style, { addBelow }),
+    instructionsText(input.style, { trimSample: true, addBelow }),
+    []
+  )
 
   // 2 Scene card and direction (no short form).
   add('scene-card', 2, 'Scene card', sceneCardText(input, sel), null, [])
@@ -1392,7 +1436,10 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     about: [card.goal, card.conflict, card.outcome, card.mood, card.notes, ...card.beats, input.options.direction, input.soFar]
       .map(clean)
       .filter(Boolean)
-      .join('\n')
+      .join('\n'),
+    // The stage block right above says where things stand at this same moment: the list doesn't say it again.
+    stageShown: !!full,
+    happened: happenedOf(input.memory.entries)
   }
   const must = mustStayTrue(mustFrom)
   if (must.length) {
@@ -1506,9 +1553,12 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   }
 
   // 8 The story so far (short: fewer scenes, chapter summaries, series roll-ups; smaller: only the most recent parts).
+  // Since 2026-10-08 (Adam: "a clear outline of what has happened so far, when, and involving who"): a timeline of
+  // canon, one line a scene for the recent part and a chapter or story for the rest, with deaths, departures and things
+  // given away marked (timeline.ts), in place of the prose summaries; capped, oldest detail going first.
   const sofar = input.memory.storySoFar
   if (sofar) {
-    const level = (n: number): string => storySoFarText(sofar, input.story.title, n)
+    const level = (n: number): string => timelineText(sofar, timelineFrom(input), n)
     add(
       'story-so-far',
       8,
@@ -1516,7 +1566,7 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
       level(0),
       level(1),
       [],
-      Array.from({ length: STORY_LEVELS - 2 }, (_, i) => level(i + 2))
+      Array.from({ length: TIMELINE_LEVELS - 2 }, (_, i) => level(i + 2))
     )
   }
 
@@ -1538,29 +1588,30 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
         return [profile, happenedText(e, 3)].filter(Boolean).join('\n\n')
       })
       .join('\n\n')
+  // Both in a steady order (by kind, then name) under a fixed title, so the same entries read the same from one step to
+  // the next and a provider can reuse what comes before what changed (Adam, 2026-10-08: the title swapped between
+  // "Also mentioned" and "Also relevant", and the recalled entries' order flipped, between steps).
   if (sel.others.length) {
-    const mentionedOnly = sel.others.every((e) => {
-      const why = sel.chosen.get(e.id)?.why
-      return why === WHY.beats || why === WHY.notes || why === WHY.direction || why === WHY.cardWords || why === WHY.previous
-    })
+    const others = steadyOrder(sel.others)
     add(
       'mentioned',
       9,
-      mentionedOnly ? 'Also mentioned' : 'Also relevant',
-      entriesText(sel.others),
-      sel.others.map((e) => `- ${oneLine(e, note(e))}`).join('\n'),
-      sel.others.map((e) => e.id)
+      MENTIONED_TITLE,
+      entriesText(others),
+      others.map((e) => `- ${oneLine(e, note(e))}`).join('\n'),
+      others.map((e) => e.id)
     )
   }
   if (sel.recalled.length) {
     const why = (e: Entry): string => recalledWhy(sel.chosen.get(e.id)?.why)
+    const recalled = steadyOrder(sel.recalled)
     add(
       RECALL_ENTRIES.id,
       RECALL_ENTRIES.priority,
       RECALL_ENTRIES.title,
-      entriesText(sel.recalled, why),
-      sel.recalled.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n'),
-      sel.recalled.map((e) => e.id)
+      entriesText(recalled, why),
+      recalled.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n'),
+      recalled.map((e) => e.id)
     )
   }
 
@@ -1589,30 +1640,36 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
 }
 
 /**
- * The order blocks are sent in. What stays the same across a story comes first,
- * so a provider can reuse it from one draft to the next; the story so far, the
- * end of the previous scene, the scene card (with Adam's direction) and where
- * things stand come last, right above the closing instruction, where the model
- * attends to them most. Blocks a part adds (the scene so far) go after the scene
- * card, and where things stand and what must stay true after them (prepareContext).
- * The plan, when there is one, comes after the closing instruction (finishContext).
+ * The order blocks are sent in (Adam, 2026-10-08, for the cache): what stays the same from one step of a scene to the
+ * next comes first, so a provider that reuses the start of a prompt it has seen (DeepSeek, OpenAI, Claude when asked)
+ * reuses as much as it can: the instructions, the setting, the story so far (the timeline) and the previous scene's end
+ * (the same for every step of a scene), then the people (the same unless the memory learns something), then what a step
+ * brings in (entries named, recalled, what was said, earlier passages), and last, right above the closing instruction
+ * where the model attends most, the scene card, the scene so far, where things stand and what must stay true. An audit
+ * of 122 real calls found only 40% of Add below's prompt reused, since the 8.8k-token story so far came after blocks
+ * that changed at every step. Blocks a part adds (the scene so far) go after the scene card, and where things stand
+ * and what must stay true after them (prepareContext). Adam's direction for Add below is the closing instruction's last
+ * words; the plan, when there is one, comes after the closing instruction (finishContext).
  */
 export const SEND_ORDER = [
+  // The same for every step of a scene, and mostly for every scene of a story.
   'instructions',
   'world-rules',
   'themes',
   'setting',
+  'story-so-far',
+  'previous-scene',
+  'threads',
+  // The same within a scene unless the memory learns something new.
   'pov',
   'present',
   'relationships',
   'ties',
+  // What the scene so far, the direction or a search brings in: may change at every step.
   'mentioned',
   RECALL_ENTRIES.id,
   'said',
   'recalled',
-  'threads',
-  'story-so-far',
-  'previous-scene',
   'scene-card',
   'continuity',
   MUST_BLOCK
@@ -1623,12 +1680,12 @@ const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
 }
 
 /**
- * The blocks sent before this one stay the same while Adam redrafts a scene, so a model that caches only
- * where asked (Claude) is asked to keep them (sentMessages in client.ts). The entries named in the card or
- * Adam's direction, and everything after them, can change from one redraft to the next; a cached part is
- * reused only when it is sent again exactly, so they are left out of it.
+ * The blocks sent before this one stay the same while Adam redrafts a scene or adds to it, so a model that caches only
+ * where asked (Claude) is asked to keep them (sentMessages in client.ts). The people (the memory may learn something
+ * after a step), the entries named in the card or Adam's direction, and everything after them, can change from one
+ * step to the next; a cached part is reused only when it is sent again exactly, so they are left out of it.
  */
-const STEADY_UNTIL = SEND_ORDER.indexOf('mentioned')
+const STEADY_UNTIL = SEND_ORDER.indexOf('pov')
 
 /**
  * Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). Step 5's blocks
@@ -1716,7 +1773,13 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     addBelow: !!input.options.addBelow,
     hasStand: !!input.continuityAtSoFar && blocks.some((b) => b.id === 'continuity'),
     previousStory: previousStory(input),
-    tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? ''
+    tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? '',
+    // Add below: Adam's direction last of all, and the beats already on the page (repetition.ts beatsOnPage).
+    direction: clean(input.options.direction),
+    beats: card.beats.map((b) => b.trim()).filter(Boolean),
+    beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0,
+    // What the scene so far has said already, not to be said again (repetition.ts).
+    repeated: repeatedPhrases({ text: clean(input.soFar), samples: samplesOf([sel.pov, ...sel.present]) })
   }
   const closing = extras.final ?? finalInstruction
   const tagLines = extras.speakerTags ? [SPEAKER_TAG_LINE] : []
@@ -1738,6 +1801,10 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     entries: contextEntries(sel, blocks)
   }
 }
+
+/** The sample lines of these characters that are speech (repetition.ts speechSamples). */
+export const samplesOf = (people: (Pick<Entry, 'kind' | 'fields'> | null | undefined)[]): string[] =>
+  people.filter((e): e is Pick<Entry, 'kind' | 'fields'> => !!e && e.kind === 'character').flatMap((e) => speechSamples(e.fields?.sampleLines))
 
 const asMode = (m: unknown): BlockMode => (m === 'full' || m === 'short' ? m : 'auto')
 
@@ -1961,4 +2028,13 @@ export function sentEntryVersions(memory: Pick<SceneMemory, 'entries' | 'elsewhe
     if (e) out.set(id, e.updatedAt)
   }
   return out
+}
+
+/** What the canon timeline (timeline.ts) needs from a briefing's input: names as of this scene, and what has happened. */
+export function timelineFrom(input: { memory: Pick<SceneMemory, 'entries' | 'elsewhere'>; story: { title: string } }): TimelineContext {
+  const byId = new Map<ID, EntryState>([
+    ...input.memory.elsewhere.map((x) => [x.entry.id, x.entry] as const),
+    ...input.memory.entries.map((e) => [e.id, e] as const)
+  ])
+  return { storyTitle: input.story.title, name: (id) => byId.get(id)?.name ?? null, entries: input.memory.entries }
 }

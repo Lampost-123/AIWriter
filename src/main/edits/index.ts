@@ -17,10 +17,13 @@ import { startTask } from '../ai/tasks'
 import type { WriterSpeaker } from '../ai/speakerTags'
 import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
-import { editBriefing } from './briefing'
+import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
-import { stageWhere, standAtText, standKept } from '../ai/gather'
-import { stageScope } from '../ai/context'
+import { gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
+import { sceneTail, stageScope, timelineFrom } from '../ai/context'
+import { timelineText } from '../ai/timeline'
+import { recallForBriefing } from '../retrieval'
+import type { SceneMemory } from '../memory/types'
 import { stageInScene } from '../ai/mustStay'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { noteStage } from '../repair'
@@ -36,6 +39,39 @@ async function continueStand(db: ReturnType<typeof world.db>, sceneId: string, b
 
 /** How long Continue waits for where things stand at the cursor before carrying on without it (it is kept for next time). */
 export const CONTINUE_STAND_MS = 20_000
+
+/** The timeline's level Continue gets: the short one, about 800 tokens (ai/timeline.ts). */
+export const CONTINUE_TIMELINE_LEVEL = 2
+
+/**
+ * Continue's memory core (Adam, 2026-10-08): the timeline's short form, and what step 5 recalls for the words near the
+ * cursor (entries found by searching first, then those of the last two scenes; what was said word for word). Recall is
+ * skipped when it is off or fails; it never holds Continue up for long (its own wait, recall.ts MEANING_WAIT_MS).
+ */
+async function continueCore(db: ReturnType<typeof world.db>, input: EditInput, memory: SceneMemory, storyTitle: string): Promise<EditWorld['core']> {
+  const timeline = timelineText(memory.storySoFar, timelineFrom({ memory, story: { title: storyTitle } }), CONTINUE_TIMELINE_LEVEL)
+  let recalled: NonNullable<EditWorld['core']>['recalled'] = []
+  let said: NonNullable<EditWorld['core']>['said'] = []
+  try {
+    const settings = getSettings()
+    const ci = gatherContextInput(db, input.sceneId, { direction: input.direction }, {
+      prefs: getWritingPrefs(),
+      contextLength: null,
+      creativity: settings.creativity
+    })
+    const near = sceneTail(input.before, { min: 300, target: 500, max: 600 })
+    const recall = await recallForBriefing(db, input.sceneId, ci, near)
+    if (recall) {
+      const byId = new Map(memory.entries.map((e) => [e.id, e]))
+      const ids = [...new Set([...recall.found, ...recall.sticky])]
+      recalled = ids.map((id) => byId.get(id)).filter((e): e is NonNullable<typeof e> => !!e)
+      said = recall.said
+    }
+  } catch (e) {
+    console.warn('Continue goes without recall this time', e instanceof Error ? e.message : e)
+  }
+  return { timeline, recalled, said }
+}
 
 /**
  * Starts an AI edit. Throws (plain words) when there's no writer model or the scene is gone. Continue first works out
@@ -53,6 +89,7 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const memory = sceneMemory(db, input.sceneId)
   // The other tools don't wait for where things stand: only what is already kept at exactly that point (step 4).
   const kept = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
+  const core = tool === 'continue' ? await continueCore(db, input, memory, story.title) : undefined
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
   // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07).
   const stand = stageInScene(kept, stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after]))
@@ -66,7 +103,8 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     contextLength: model.choice.contextLength ?? null,
     speakerTags,
     stand,
-    must: { facts: memory.facts, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships }
+    must: { facts: memory.facts, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships },
+    ...(core ? { core } : {})
   })
   if (!briefing.ok) return briefing
 

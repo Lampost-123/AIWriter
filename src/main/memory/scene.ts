@@ -90,7 +90,10 @@ export function sceneMemory(db: DB, sceneId: ID): SceneMemory {
     relationships: state.relationships,
     facts: state.facts,
     threads: state.threads,
-    storySoFar: storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries)),
+    storySoFar: withCards(
+      db,
+      storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries))
+    ),
     bringAbout: changes.byScene.get(sceneId) ?? []
   }
 }
@@ -117,6 +120,33 @@ function previousScene(db: DB, shape: WorldShape, storyId: ID, line: Line): Scen
       step.storyId === storyId
         ? null
         : { ended: scenes.length > 0 && scenes[scenes.length - 1].id === step.sceneId, timeGap: repo.getStory(db, storyId).timeGap.trim() }
+  }
+}
+
+/**
+ * What each earlier scene's card says of when, where and who, for the writer's timeline (ai/timeline.ts): its When, its
+ * place and the people on it (point of view first). One query for all of them, without their text.
+ */
+function withCards(db: DB, s: StorySoFar): StorySoFar {
+  if (!s.scenes.length) return s
+  let cards: Map<ID, ReturnType<typeof repo.getScene>['card']>
+  try {
+    cards = repo.sceneCards(
+      db,
+      s.scenes.map((x) => x.sceneId)
+    )
+  } catch (e) {
+    console.warn('Could not read the earlier scene cards for the timeline', e)
+    return s
+  }
+  return {
+    ...s,
+    scenes: s.scenes.map((x) => {
+      const c = cards.get(x.sceneId)
+      if (!c) return x
+      const who = [...new Set([c.povId, ...(c.presentIds ?? [])].filter((id): id is ID => !!id))]
+      return { ...x, when: (c.when ?? '').trim(), whereId: c.locationId ?? null, whoIds: who }
+    })
   }
 }
 

@@ -2,7 +2,11 @@
 // The style guide with Adam's preferences, the point of view and tense, the characters in the scene (for
 // Fix voice, each speaker's voice and who says which line), the words around the selection, the selection
 // itself, and the job once more at the end. For Continue, the scene so far, the scene card's beats and where things
-// stand at the point it carries on from (where each person is, what they wear, how they are placed).
+// stand at the point it carries on from (where each person is, what they wear, how they are placed); and since
+// 2026-10-08 (Adam: Continue, his most used tool, got none of the story memory) a compact memory core: the canon
+// timeline's short form (ai/timeline.ts), a few entries recalled near the cursor, what was said word for word, the
+// point-of-view character's facts to keep, an optional "what happens next" from Adam, and the phrases the scene has
+// used already (ai/repetition.ts). What stays the same from one Continue to the next comes first (the cache).
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
@@ -15,6 +19,9 @@ import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
 import { MUST_TITLE, mustStayTrue, mustText, stageFor } from '../ai/mustStay'
 import { holdingsOf } from '../memory/items'
+import { repeatedPhrases, speechSamples } from '../ai/repetition'
+import { saidText } from '../retrieval/said'
+import type { SaidLine } from '../retrieval/types'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
 
@@ -40,7 +47,16 @@ export interface EditWorld {
    * what those in the briefing gave away, lost or got: memory/items.ts). Left out: no list.
    */
   must?: { facts: FactState[]; sceneId: ID; storyTitle: string; places: Record<ID, string>; relationships?: RelationshipState[] }
+  /**
+   * Continue's memory core (Adam, 2026-10-08), each part capped (CORE_MOST): the canon timeline's short form, entries
+   * recalled for the words near the cursor (those found by searching first), and what was said word for word. Left out:
+   * none of it (the other tools, a test).
+   */
+  core?: { timeline?: string; recalled?: Pick<EntryState, 'id' | 'name' | 'kind' | 'summary'>[]; said?: SaidLine[] }
 }
+
+/** The most of each part of Continue's memory core. */
+export const CORE_MOST = { recalled: 3, said: 4 }
 
 export type EditBriefing =
   | {
@@ -124,7 +140,9 @@ function profile(e: EntryState, keys: ReadonlySet<string>): string {
 const KEYS = {
   other: new Set(['pronouns', 'age', 'role', 'speech', 'tics', 'sampleLines']),
   voice: new Set(['pronouns', 'age', 'role', 'traits', ...VOICE_KEYS]),
-  continue: new Set(['pronouns', 'age', 'role', 'traits', 'wants', 'motivation', ...VOICE_KEYS])
+  continue: new Set(['pronouns', 'age', 'role', 'traits', 'wants', 'motivation', ...VOICE_KEYS]),
+  /** Continue's point-of-view character: the facts to keep too (the marks anyone would notice). */
+  continuePov: new Set(['pronouns', 'age', 'role', 'marks', 'traits', 'wants', 'motivation', ...VOICE_KEYS])
 }
 
 const fence = (text: string): string => `"""\n${text}\n"""`
@@ -257,18 +275,32 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   const away = people.filter((e) => !here.includes(e))
   const holdings = world.must ? holdingsOf({ entries: world.entries, relationships: world.must.relationships ?? [], people: here.map((e) => e.id) }) : []
   const about = [near, card.goal, card.conflict, card.outcome, card.notes, ...(card.beats ?? []), direction].filter((t) => t?.trim()).join('\n')
+  // Continue sends where things stand at this same moment right above the list: the list doesn't say it again.
   const mustOf = (short: boolean): string[] =>
     world.must
-      ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people: here, named: away, ...world.must, holdings, about, short })
+      ? mustStayTrue({
+          stand: world.stand,
+          reach: world.stand ? 'here' : 'none',
+          people: here,
+          named: away,
+          ...world.must,
+          holdings,
+          about,
+          short,
+          stageShown: isContinue && !!world.stand
+        })
       : []
   const must = { full: mustOf(false), short: mustOf(true) }
 
+  // Continue: what the scene has said already, not to be said again (sample lines on the page, stock tics, repeated runs).
+  const repeated = isContinue ? repeatedPhrases({ text: input.before, samples: people.flatMap((e) => speechSamples(e.fields?.sampleLines)) }) : []
   const o: PromptOptions = {
     direction,
     continueAs: input.continueAs ?? 'paragraph',
     hasAfter: !!input.after.trim(),
     lineBreaks: keepsLineBreaks(input),
-    ...(world.speakerTags ? { speakerTags: true } : {})
+    ...(world.speakerTags ? { speakerTags: true } : {}),
+    ...(repeated.length ? { repeated } : {})
   }
   const system = systemPrompt(tool, world.style, o)
   const reply = Math.ceil(replyRoom(tool, words) * (world.speakerTags ? 1 + TAG_ALLOWANCE : 1))
@@ -278,6 +310,10 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   /** The parts, as big as `scale` allows (1 is full size; smaller sends less of the text around and fewer people). */
   const build = (scale: number, withPeople: boolean, withAfter: boolean): Part[] => {
     const parts: Part[] = []
+    // Continue's memory core, what stays the same from one Continue to the next first (the timeline).
+    const core = isContinue && withPeople && scale >= 0.5 ? world.core : undefined
+    const timeline = core?.timeline?.trim()
+    if (timeline) parts.push({ id: 'timeline', priority: 3, title: 'The story so far', text: `The story so far\n${timeline}`, entryIds: [] })
     const scene = sceneText(world, byId, isContinue)
     if (scene.text) parts.push({ id: 'scene', priority: 2, title: 'The scene', text: scene.text, entryIds: scene.entryIds })
     const shown = withPeople ? people.slice(0, Math.max(tool === 'voice' ? people.length : 1, Math.round(people.length * scale))) : []
@@ -289,7 +325,7 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
         id: 'characters',
         priority: 3,
         title,
-        text: `${title}\n\n${describe.map((e) => profile(e, keys)).join('\n\n')}`,
+        text: `${title}\n\n${describe.map((e) => profile(e, isContinue && e.id === card.povId ? KEYS.continuePov : keys)).join('\n\n')}`,
         entryIds: describe.map((e) => e.id)
       })
     }
@@ -308,6 +344,26 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
         priority: 1,
         title: 'Who says each line',
         text: `Who says each line, worked out from the speech tags and names:\n${list.join('\n')}`,
+        entryIds: []
+      })
+    }
+    const recalled = (core?.recalled ?? []).filter((e) => !describe.some((d) => d.id === e.id)).slice(0, CORE_MOST.recalled)
+    if (recalled.length) {
+      parts.push({
+        id: 'recalled',
+        priority: 3,
+        title: 'Also in mind',
+        text: `Also in mind (from earlier in the story, for reference)\n${recalled.map((e) => `- ${e.name}${e.summary?.trim() ? `: ${e.summary.trim()}` : ''}`).join('\n')}`,
+        entryIds: recalled.map((e) => e.id)
+      })
+    }
+    const said = (core?.said ?? []).slice(0, CORE_MOST.said)
+    if (said.length) {
+      parts.push({
+        id: 'said',
+        priority: 3,
+        title: 'What was said, word for word',
+        text: `What was said earlier, word for word (keep to it: what was said, by whom, and who heard it)\n${said.map(saidText).join('\n')}`,
         entryIds: []
       })
     }

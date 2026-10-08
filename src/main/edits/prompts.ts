@@ -5,7 +5,7 @@
 // and how to reply, then gives the style guide with Adam's preferences.
 
 import type { EditTool, StyleGuide } from '@shared/types'
-import { instructionsText } from '../ai/prompts'
+import { instructionsText, repeatedLine } from '../ai/prompts'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 
 export const EDIT_MARKER = '[AIWRITE-EDIT v1]'
@@ -27,6 +27,8 @@ export interface PromptOptions {
   lineBreaks: boolean
   /** Tag who says each line and how (ai/speakerTags.ts). */
   speakerTags?: boolean
+  /** Continue: phrases the scene has used already (ai/repetition.ts), not to be used again. */
+  repeated?: string[]
 }
 
 const ROLE = `You are a skilled fiction editor working on a novel with its author. The author has selected some words in a scene and asked for one change to them.`
@@ -68,7 +70,11 @@ function continueTask(o: PromptOptions): string {
       ? "The text stops part-way through a paragraph: carry it on from exactly where it stops, starting mid-sentence if it stops mid-sentence. Don't repeat any of its words."
       : 'Start a new paragraph after the last one.'
   const after = o.hasAfter ? " The scene already has text after this point: lead into it, and don't repeat or contradict it." : ''
-  return `The author wants the scene to carry on from where the text stops. Write the next part of the scene: about ${CONTINUE_WORDS.min} to ${CONTINUE_WORDS.max} words, a paragraph or two, following on naturally from the last words. ${where}${after} The scene card says where the scene is going; move towards its next beat at the scene's own pace rather than rushing through the rest of it.`
+  // Adam's optional "what happens next" (Adam, 2026-10-08): given, it is what the words are about.
+  const next = o.direction.trim()
+    ? ' The author says what happens next (at the end of the briefing): write that, and nothing beyond it.'
+    : " The scene card says where the scene is going; move towards its next beat at the scene's own pace rather than rushing through the rest of it."
+  return `The author wants the scene to carry on from where the text stops. Write the next part of the scene: about ${CONTINUE_WORDS.min} to ${CONTINUE_WORDS.max} words, a paragraph or two, following on naturally from the last words. ${where}${after}${next} Invent no new events beyond that, and don't wrap the scene up.`
 }
 
 const CONTINUE_REPLY = `How to reply
@@ -99,7 +105,15 @@ export function systemPrompt(tool: EditTool, style: StyleGuide, o: PromptOptions
 /** The closing instruction, last in the briefing, so the model reads the job again just before it writes. */
 export function finalAsk(tool: EditTool, o: PromptOptions): string {
   const ask = jobAsk(tool, o)
-  return o.speakerTags ? `${ask}\n${SPEAKER_TAG_LINE}` : ask
+  const lines = [ask]
+  if (tool === 'continue') {
+    const repeated = repeatedLine(o.repeated)
+    if (repeated) lines.push(repeated.replace(/^- /, ''))
+  }
+  if (o.speakerTags) lines.push(SPEAKER_TAG_LINE)
+  // Continue's "what happens next" comes last of all, right before the writer starts.
+  if (tool === 'continue' && o.direction.trim()) lines.push(`What happens next, as the author asks:\n${o.direction.trim()}`)
+  return lines.join('\n')
 }
 
 function jobAsk(tool: EditTool, o: PromptOptions): string {
