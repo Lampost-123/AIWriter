@@ -4,12 +4,13 @@
 import type { Handlers } from './index'
 import type { WorldViewsApi } from '@shared/contracts/worldViews'
 import * as world from '../world'
-import { timelineOf, threadsBoardOf, relationshipMapOf } from '../worldViews'
+import { timelineOf, threadsBoardOf, relationshipMapOf, moveMapCharacter } from '../worldViews'
 import { markAiIdea, readBoardMarks, storySceneCards } from '../db/worldViews'
 
 export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
   getTimeline: (storyId) => timelineOf(world.db(), storyId),
   getRelationshipMap: (storyId, at, sceneId) => relationshipMapOf(world.db(), storyId, at, sceneId ?? null),
+  moveMapCharacter: (id, x, y) => moveMapCharacter(world.db(), id, x, y),
   getThreadsBoard: (storyId) => threadsBoardOf(world.db(), storyId),
   // The desk's story board (UI overhaul, D5.2).
   listSceneCards: (storyId) => storySceneCards(world.db(), storyId),
