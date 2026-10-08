@@ -200,6 +200,12 @@ export interface StreamOutcome {
   effort: string | null
   /** The tools the model asked to use, in order (the editor chat); empty when none. */
   toolCalls?: ToolCall[]
+  /**
+   * The thinking the model sent as `reasoning_content` alongside tool calls (DeepSeek-style providers), so it can be
+   * sent back on that turn (ChatMessage.reasoning). Never shown. Left out when the reply asked for no tools, or the
+   * model sent none.
+   */
+  reasoning?: string
 }
 
 type Attempt =
@@ -231,6 +237,23 @@ function visibleText(content: unknown): string {
       return typeof part.text === 'string' && /text$/.test(String(part.type ?? 'text')) ? part.text : ''
     })
     .join('')
+}
+
+/** Made-up tool call ids so far (for servers that send none), so each one is unique in the session. */
+let madeUpIds = 0
+
+/**
+ * Where a piece of a tool call goes when the server leaves out its index (some send each call whole, or in pieces,
+ * without one): a piece with an id already seen goes on that call, and a new id starts a new call; a piece with no id
+ * carries on the call the pieces before it went to (`base`, the k-th after it for the k-th in the same list), or is
+ * the k-th call when none has come yet.
+ */
+function slotWithoutIndex(calls: Map<number, ToolCall>, id: string, k: number, base: number | null): number {
+  if (id) {
+    for (const [at, c] of calls) if (c.id === id) return at
+    return calls.size ? Math.max(...calls.keys()) + 1 : 0
+  }
+  return (base ?? 0) + k
 }
 
 /** Whether a delta or message carries the model's thinking (which is never shown). */
@@ -266,13 +289,16 @@ export const marksCache = (t: Pick<ChatTarget, 'kind'>, model: string): boolean 
  */
 export function sentMessages(t: Pick<ChatTarget, 'kind'>, model: string, messages: ChatMessage[], cache = true): unknown[] {
   const mark = cache && marksCache(t, model)
-  return messages.map(({ cacheUpTo, toolCalls, toolCallId, ...m }) => {
+  return messages.map(({ cacheUpTo, toolCalls, toolCallId, reasoning, ...m }) => {
     // The editor chat's tool turns, in the shape every OpenAI-compatible server takes.
     if (m.role === 'tool') return { role: 'tool', tool_call_id: toolCallId ?? '', content: m.content }
     if (toolCalls?.length) {
       return {
         role: 'assistant',
         content: m.content || null,
+        // The thinking that came with the calls goes back with them, only when the model sent it (DeepSeek-style
+        // providers turn the next request down without it while thinking is on). Other turns never carry it.
+        ...(reasoning ? { reasoning_content: reasoning } : {}),
         tool_calls: toolCalls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } }))
       }
     }
@@ -299,8 +325,12 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     finishReason: null as string | null,
     /** The model sent thinking (never shown). */
     thought: false,
+    /** What the model sent as `reasoning_content` (never shown; sent back with its tool calls). */
+    reasoning: '',
     /** The tools asked for, by their index in the stream (their parts arrive piece by piece). */
-    calls: new Map<number, ToolCall>()
+    calls: new Map<number, ToolCall>(),
+    /** The call the latest piece went to (for servers that leave out each piece's index). */
+    lastSlot: null as number | null
   }
   /** What an earlier try that came back empty already cost (a model that used up its limit thinking is still billed). */
   const spent = { completionTokens: 0, cost: 0, any: false }
@@ -330,6 +360,10 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       s.text += rest
       o.onText(rest)
     }
+    const toolCalls = [...s.calls.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, c]) => c)
+      .filter((c) => c.name)
     let error = failure ? describeFailure(failure, ref, { during: 'draft', modelId: o.body.model }) : null
     // Whatever went wrong, the text that already arrived stays in the scene; say so.
     if (error && s.text.trim() && failure?.type !== 'dropped') error += ' The text that arrived is kept.'
@@ -348,10 +382,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       cutOff: status === 'complete' && (s.finishReason === 'length' || s.finishReason === 'max_tokens'),
       sentParams: { ...sent },
       effort,
-      toolCalls: [...s.calls.entries()]
-        .sort((a, b) => a[0] - b[0])
-        .map(([, c]) => c)
-        .filter((c) => c.name)
+      toolCalls,
+      ...(toolCalls.length && s.reasoning ? { reasoning: s.reasoning } : {})
     }
   }
 
@@ -375,17 +407,22 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         const text = visibleText(part.content)
         if (text) emit(text)
         if (hasThinking(part)) s.thought = true
+        if (typeof part.reasoning_content === 'string') s.reasoning += part.reasoning_content
         // Tools asked for (the editor chat): each call's id and name come first, its arguments in pieces after.
         if (Array.isArray(part.tool_calls)) {
+          const base = s.lastSlot
           for (const [k, raw] of (part.tool_calls as unknown[]).entries()) {
             const c = (raw ?? {}) as { index?: unknown; id?: unknown; function?: { name?: unknown; arguments?: unknown } }
-            const at = typeof c.index === 'number' ? c.index : k
+            const id = typeof c.id === 'string' ? c.id : ''
+            const at = typeof c.index === 'number' ? c.index : slotWithoutIndex(s.calls, id, k, base)
             const call = s.calls.get(at) ?? { id: '', name: '', arguments: '' }
-            if (typeof c.id === 'string' && c.id) call.id = c.id
+            if (id) call.id = id
             if (typeof c.function?.name === 'string' && c.function.name) call.name += c.function.name
             if (typeof c.function?.arguments === 'string') call.arguments += c.function.arguments
-            if (!call.id) call.id = `call_${at}`
+            // A server that sends no id: one made up, unique in the chat, so each answer still matches its call.
+            if (!call.id) call.id = `call_${(++madeUpIds).toString(36)}_${at}`
             s.calls.set(at, call)
+            s.lastSlot = at
           }
         }
       }
@@ -410,7 +447,9 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     // How the last try ended says nothing about this one.
     s.finishReason = null
     s.thought = false
+    s.reasoning = ''
     s.calls = new Map()
+    s.lastSlot = null
     const ctl = new AbortController()
     let timedOut = false
     const onAbort = (): void => ctl.abort()
