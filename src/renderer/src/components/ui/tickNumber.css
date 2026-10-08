@@ -1,0 +1,41 @@
+/* The counter's wheel (TickNumber.tsx): the old number slides out, the new one in. */
+.tick-num {
+  display: inline-grid;
+  overflow: hidden;
+  vertical-align: bottom;
+  font-variant-numeric: tabular-nums;
+}
+.tick-num > span {
+  grid-area: 1 / 1;
+}
+.tick-num .tick-in {
+  animation: tick-in var(--dur-base) cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tick-num .tick-out {
+  animation: tick-out var(--dur-base) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.tick-num[data-dir='down'] .tick-in {
+  --from: -70%;
+}
+.tick-num[data-dir='down'] .tick-out {
+  --to: 70%;
+}
+.tick-num[data-dir='up'] .tick-in {
+  --from: 70%;
+}
+.tick-num[data-dir='up'] .tick-out {
+  --to: -70%;
+}
+@keyframes tick-in {
+  from {
+    opacity: 0;
+    translate: 0 var(--from, -70%);
+  }
+}
+@keyframes tick-out {
+  to {
+    opacity: 0;
+    translate: 0 var(--to, 70%);
+  }
+}
+
