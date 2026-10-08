@@ -57,8 +57,8 @@ in **Settings › Models**.
 ### 3. Pick a writer model
 
 The writer model is the AI that drafts your scenes. AI Write lists the models your service offers, with what each
-costs. We recommend **DeepSeek Flash** (search for "DeepSeek"). AI Write may mark a different model as
-**Recommended**; you can still pick DeepSeek. Click **Use this** beside the one you want. You can switch any time, so
+costs. We recommend **DeepSeek Flash**: when your service offers it, AI Write marks it **Recommended**. Click
+**Use this** beside the one you want. You can switch any time, so
 don't worry about choosing perfectly.
 
 ### 4. How should your stories read?

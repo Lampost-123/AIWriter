@@ -22,8 +22,8 @@ There are two ways to reach it:
   [Connect another service](#connect-another-service) and pick the **DeepSeek** choice.
 - **Through OpenRouter.** If you've connected OpenRouter, search the model list for "DeepSeek".
 
-Then pick it as your **Writer model** (see [Choose your models](#choose-your-models)). AI Write's setup may
-suggest a different model at first; you can choose DeepSeek instead, then or any time later.
+Then pick it as your **Writer model** (see [Choose your models](#choose-your-models)). When you first set up
+AI Write, it suggests DeepSeek Flash for you if your service offers it.
 
 ## Connect OpenRouter
 
