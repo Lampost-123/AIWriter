@@ -53,6 +53,8 @@ export interface PlanMaterial {
   /** What the writer is asked: the closing instruction. */
   ask: string
   card: string
+  /** Add below's direction ("The author's direction for this stretch: …"), sent after what the writer is asked; '' for none. */
+  direction: string
   /** For Beat by beat: the one beat to plan ("beat 2 of 5: …", with Adam's note for it); '' plans the scene. */
   focus: string
   /** What must stay true (ai/mustStay.ts), as the writer gets it; '' for none. */
@@ -127,15 +129,14 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
   const reach = stageReach(input)
   const stand = reach === 'none' ? null : block('continuity')
   // Add below's scene card leaves Adam's direction out (it is the closing instruction's last words): the planner gets it
-  // with the card, and an event it calls for answers to it.
+  // after what the writer is asked, and an event it calls for answers to it (with the card).
   const direction = clean(input.options.direction)
-  const cardText =
-    input.options.addBelow && direction
-      ? [text('scene-card'), `The author's direction for this stretch:\n${direction}`].filter(Boolean).join('\n\n')
-      : text('scene-card')
+  const directionText = input.options.addBelow && direction ? `The author's direction for this stretch:\n${direction}` : ''
+  const cardText = [text('scene-card'), directionText].filter(Boolean).join('\n\n')
   return {
     ask,
-    card: cardText,
+    card: text('scene-card'),
+    direction: directionText,
     focus: clean(focus),
     must: text(MUST_BLOCK),
     reach,
@@ -168,18 +169,27 @@ Reply with only a JSON object:
 - What is kept from someone stays kept: never have them learn, guess or be told it, unless the scene card says so.
 - At most ${PLAN_MOST.relies} relies and ${PLAN_MOST.changes} changes, the ones that matter most. Keep each short.`
 
-/** What the memory model is asked. */
+/**
+ * What the memory model is asked. In an order a provider that reuses the start of a prompt it has seen (DeepSeek,
+ * OpenAI) can use (the cache audit of 8 October 2026: plan prompts matched for only their first ~1,000 characters, as
+ * what the writer is asked came first, with the beats done so far): the scene card, what must stay true and the codex
+ * first, then where things stand and the words just before, and last what the writer is asked and Add below's
+ * direction, which change at every step.
+ */
 export function planMessages(m: PlanMaterial): ChatMessage[] {
   const part = (title: string, body: string): string => (body.trim() ? `## ${title}\n${body.trim()}` : '')
+  // With no scene card to go with, the direction stands as the card, as it always has.
+  const direction = m.card.trim() ? m.direction.trim() : ''
   const user = [
-    part('What the writer is asked', m.ask),
-    part('The scene card', m.card),
+    part('The scene card', m.card.trim() ? m.card : m.direction),
     part('Plan only this beat', m.focus ? `${m.focus}\nThe beats after it are written later: plan nothing from them.` : ''),
     part('Must stay true', m.must),
-    part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
-    m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
     part('In the briefing', m.inBriefing.map((l) => `- ${l}`).join('\n')),
     part('Also in the world (not in the briefing)', m.others.join('; ')),
+    part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
+    m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
+    part('What the writer is asked', m.ask),
+    direction,
     `Plan the ${m.focus ? 'beat' : 'scene'} now, as one JSON object.`
   ]
     .filter(Boolean)
