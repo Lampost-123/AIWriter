@@ -77,6 +77,7 @@ for (const theme of ['light', 'dark'] as const) {
     // (Settings › Appearance isn't here: the Style switch between the looks is added to it in both.)
     await binder(win).getByRole('button', { name: 'Plot threads board', exact: true }).click()
     await expect(main(win).locator('section[aria-labelledby^="board-"]').first()).toBeVisible()
-    await shot(win, `threads-${theme}`)
+    // app is Windows only; Linux baselines not kept for the Threads board
+    if (process.platform === 'win32') await shot(win, `threads-${theme}`)
   })
 }
