@@ -211,9 +211,30 @@
   left: -28px;
 }
 
+/* Continue's words (a tracked change, drawn as a widget): the same line beside the paragraph it is writing, placed from
+   that paragraph's own lines (an inline box's first and last line hold it), never moving the words. */
+[data-look='new'] .scene-prose .aw-sugg-words.has-lamp {
+  position: relative;
+}
+[data-look='new'] .scene-prose .aw-sugg-lamp {
+  position: absolute;
+  left: -16px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--ai);
+  box-shadow: 0 0 10px 1px color-mix(in oklab, var(--ai) 45%, transparent);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-sheet .scene-prose .aw-sugg-lamp {
+  left: -28px;
+}
+
 /* A window under 800 px wide gives the sheet a 24 px margin (layout/desk/deskFit.ts, sheetPadding): the line keeps inside it. */
 @media (max-width: 799px) {
-  [data-arrangement='desk'] .desk-sheet .scene-prose p.aw-writing::before {
+  [data-arrangement='desk'] .desk-sheet .scene-prose p.aw-writing::before,
+  [data-arrangement='desk'] .desk-sheet .scene-prose .aw-sugg-lamp {
     left: -16px;
   }
 }

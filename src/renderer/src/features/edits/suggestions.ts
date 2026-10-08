@@ -398,6 +398,7 @@ function renderNew(s: Suggestion, paras: string[], firstInline: boolean): HTMLEl
     return el
   }
   let last: HTMLElement | null = null
+  let lastOnNewLine = false
   // The New look: the words that have just arrived fade in, each fade carrying on from where it had got to when the
   // words were drawn again (arrivalSpans.ts).
   const parsed = paras.map((p) => (p === BREAK ? [] : parseEmphasis(p)))
@@ -414,6 +415,7 @@ function renderNew(s: Suggestion, paras: string[], firstInline: boolean): HTMLEl
     const newLine = !(i === 0 && firstInline)
     if (newLine && !(i === 0 && own) && paras[i - 1] !== BREAK) add('aw-sugg-gap')
     const words = add('aw-sugg-words')
+    lastOnNewLine = newLine
     for (const piece of parsed[i]) {
       let node: Node = spans.length ? withFades(piece.text, offset, spans) : withBreaks(piece.text)
       offset += piece.text.length
@@ -431,6 +433,17 @@ function renderNew(s: Suggestion, paras: string[], firstInline: boolean): HTMLEl
     }
     last = words
   })
+  // The New look: while it writes, the lamp line stands in the margin beside the paragraph being written (as it does
+  // for a draft, features/editor/arrival.ts), when that paragraph starts a line of its own. No fade of its own: the
+  // widget is drawn again with every few words.
+  if (writing && last && lastOnNewLine && document.documentElement.dataset.look === 'new') {
+    const words = last as HTMLElement
+    words.classList.add('has-lamp')
+    const lamp = document.createElement('span')
+    lamp.className = 'aw-sugg-lamp'
+    lamp.setAttribute('aria-hidden', 'true')
+    words.appendChild(lamp)
+  }
   if (writing) {
     const caret = document.createElement('span')
     caret.className = 'aw-sugg-caret'

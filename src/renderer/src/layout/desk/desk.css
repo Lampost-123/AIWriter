@@ -2481,11 +2481,6 @@
   transform-origin: 56px 24px;
   animation: desk-ecard-in 240ms var(--desk-ease) both;
 }
-[data-arrangement='desk'] .desk-ecard[data-up] {
-  top: auto;
-  bottom: -12px;
-  transform-origin: 56px calc(100% - 24px);
-}
 [data-arrangement='desk'] .desk-ecard[data-state='closed'] {
   pointer-events: none;
   animation: desk-ecard-out 180ms var(--desk-ease) forwards;

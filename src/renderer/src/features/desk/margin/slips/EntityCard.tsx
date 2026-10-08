@@ -45,14 +45,21 @@ export function EntityCard({
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
-  // It grows downwards from the slip, or upwards when there isn't room for it above the page's tools (the AI dock).
-  const [up, setUp] = useState(false)
+  // It grows downwards from the slip. Without room for it above the page's tools (the AI dock) it rises as far as it
+  // must (never above the top of the page's view), and if it still doesn't fit the page scrolls the rest at once.
+  const [lift, setLift] = useState(0)
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el || inline) return
-    const page = el.closest('.desk-scroller')?.getBoundingClientRect()
-    const box = el.getBoundingClientRect()
-    if (page && box.bottom > page.bottom - DOCK_ROOM && box.height < box.top - page.top) setUp(true)
+    const scroller = el?.closest<HTMLElement>('.desk-scroller')
+    if (!el || !scroller || inline) return
+    const page = scroller.getBoundingClientRect()
+    // Measured from its slip and its own height (it is mid-grow, scaled, as this runs).
+    const top = (el.parentElement?.getBoundingClientRect().top ?? 0) - 12
+    const over = top + el.offsetHeight - (page.bottom - DOCK_ROOM)
+    if (over <= 0) return
+    const up = Math.max(0, Math.min(over, top - page.top - 12))
+    setLift(up)
+    if (over > up) scroller.scrollTop += over - up
   }, [inline])
 
   useEffect(() => {
@@ -96,7 +103,7 @@ export function EntityCard({
       data-entity-card={entry.id}
       data-state={closing ? 'closed' : 'open'}
       data-instant={instant.current || undefined}
-      data-up={up || undefined}
+      style={lift ? { top: -12 - lift, transformOrigin: `56px ${24 + lift}px` } : undefined}
       className={cn('desk-ecard', `k-${entry.kind}`, inline && 'is-inline')}
     >
       <div className="ec-band">
