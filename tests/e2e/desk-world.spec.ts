@@ -589,24 +589,79 @@ test('a character’s read-aloud voice is in the dossier’s facts, and its sect
   await expect(d).toBeVisible()
   const fact = d.locator('.dz-fact', { hasText: 'Read-aloud voice' })
   await expect(fact).toContainText('Not set')
-  // Read aloud off: the fact says so on hover and goes to Settings, where it is turned on.
-  await expect(fact.getByRole('button')).toHaveAttribute('title', /^Read aloud is off\./)
-  await fact.getByRole('button').click()
-  await expect(win.getByRole('heading', { level: 1, name: 'Read aloud and dictation' })).toBeVisible()
-
-  // Read aloud on: the voice's section comes straight after "Who they are", and the fact goes to it.
-  await invoke(win, 'updateSettings', { speech: { readAloud: true } })
-  await win.reload()
-  await expect(rooms(win)).toBeVisible()
-  await room(win, 'World').click()
-  await card(win, 'Wren Halloway').click()
-  await expect(d).toBeVisible()
+  // The voice's section comes straight after "Who they are", a dossier section (no box of its own), and says read aloud
+  // is off, with the way to turn it on.
   const titles = await d.locator('.dz-col').first().locator(':scope > .dz-sec .dz-sec-h, :scope > .dz-voice-box').evaluateAll((els) =>
     els.map((e) => (e.classList.contains('dz-voice-box') ? 'VOICE' : (e.textContent ?? '').trim()))
   )
   expect(titles[0]).toMatch(/^Who they are/)
   expect(titles[1]).toBe('VOICE')
-  await expect(d.locator('.dz-voice-box')).toContainText('Read-aloud voice')
-  await d.locator('.dz-fact', { hasText: 'Read-aloud voice' }).getByRole('button').click()
-  await expect(d.locator('.dz-voice-box')).toBeInViewport()
+  const voice = d.getByRole('region', { name: 'Read-aloud voice' })
+  await expect(voice).toContainText('Read aloud is off')
+  await expect(voice.getByRole('button', { name: 'Turn on read aloud' })).toBeVisible()
+  expect(await voice.evaluate((el) => (globalThis as unknown as { getComputedStyle(e: unknown): { borderTopColor: string; backgroundColor: string } }).getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+  // The fact goes to it, with the caret in How they sound; what is written there shows in the fact.
+  await d.locator('.dz-body').evaluate((el) => (el.scrollTop = el.scrollHeight))
+  await fact.getByRole('button').click()
+  await expect(voice).toBeInViewport()
+  await expect(voice.getByLabel('How they sound')).toBeFocused()
+  await win.keyboard.type('Low and quick, with a laugh held back.')
+  await d.getByRole('heading', { level: 2 }).click()
+  await expect(fact).toContainText('Made from their description')
+})
+
+test('on the desk, the Cast list’s Open page and a speaker’s name open the character’s dossier at their voice', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const { pathToFileURL } = await import('node:url')
+  const { join } = await import('node:path')
+  const { startFakeSpeech } = (await import(pathToFileURL(join(__dirname, '../fake-speech/server.mjs')).href)) as {
+    startFakeSpeech(o: object): Promise<{ url: string; close(): Promise<void> }>
+  }
+  const speech = await startFakeSpeech({})
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 2 })
+  try {
+    const { win } = await launch({ env: { ...DESK, AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+    await invoke(win, 'createWorld', 'Harbour')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the harbour ferry.' })
+    const tobin = await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true, markSpeakers: true, showSpeakers: true } })
+    const p = await invoke(win, 'saveProvider', { name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: '' })
+    await invoke(win, 'updateSettings', {
+      models: { writer: { providerId: p.id, modelId: 'fake/writer', label: 'fake/writer', contextLength: 32000, promptPrice: null, completionPrice: null } }
+    })
+    await win.reload()
+    await expect(win.locator('.scene-prose')).toBeVisible()
+    const voice = win.locator('[data-dossier]').getByRole('region', { name: 'Read-aloud voice' })
+
+    // Settings › Read aloud and dictation › Cast: Open page goes to Tobin's dossier, at his voice.
+    await win.keyboard.press('Control+,')
+    await win.getByRole('navigation').getByRole('button', { name: 'Read aloud and dictation' }).click()
+    const row = win.locator('[data-cast]', { hasText: 'Tobin' })
+    await row.getByRole('button', { name: 'Open page' }).click()
+    await expect(win.locator('[data-dossier]')).toBeVisible()
+    await expect(win.locator('[data-dossier]').getByRole('textbox', { name: 'Name' })).toHaveValue('Tobin')
+    await expect(voice).toBeInViewport()
+    await expect(voice.getByLabel('How they sound')).toBeFocused()
+    await win.keyboard.press('Escape')
+    await win.keyboard.press('Escape')
+
+    // A speaker's name above his line on the sheet: the same.
+    await rooms(win).getByRole('button', { name: /^Write/ }).click()
+    await win.getByRole('toolbar', { name: 'AI dock' }).getByRole('button', { name: /^Draft the scene/ }).click()
+    await expect(win.locator('.scene-prose')).toContainText('"You came," he said', { timeout: 30_000 })
+    const his = win.locator('.scene-prose p[data-speaker-name="Tobin"]').first()
+    await expect(his).toBeVisible({ timeout: 30_000 })
+    await expect(his).toHaveAttribute('data-speaker-entry', tobin.id)
+    await expect(win.getByRole('toolbar', { name: 'AI dock' })).toHaveAttribute('data-desk-dock', 'idle', { timeout: 30_000 })
+    const box = (await his.boundingBox())!
+    await win.mouse.click(box.x + 8, box.y - 6)
+    await expect(win.locator('[data-dossier]')).toBeVisible()
+    await expect(win.locator('[data-dossier]').getByRole('textbox', { name: 'Name' })).toHaveValue('Tobin')
+    await expect(voice).toBeInViewport()
+  } finally {
+    await fake.close()
+    await speech.close()
+  }
 })

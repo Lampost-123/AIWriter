@@ -69,6 +69,8 @@
   width: 100px;
   height: 100px;
   animation: bld-idle 7s ease-in-out infinite;
+  /* Its own layer, so the idle costs the graphics card a transform, not a redraw. */
+  will-change: transform;
 }
 .bld-medal-halo {
   position: absolute;
@@ -77,6 +79,7 @@
   background: radial-gradient(closest-side, rgb(255 236 200 / 0.42), transparent);
   animation: bld-halo 7s ease-in-out infinite;
   pointer-events: none;
+  will-change: transform, opacity;
 }
 .bld-medal-in {
   position: relative;

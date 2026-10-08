@@ -20,6 +20,9 @@
   padding: 20px 0 28px;
   display: flex;
   flex-direction: column;
+  /* Shorter than the window (a big screen, or a short story): the page sits in the middle of its height rather than
+     leaving the bottom of the window empty. On a big screen the whole column is drawn larger too (StoryHome, homeScale). */
+  justify-content: center;
   gap: 26px;
 }
 
@@ -152,7 +155,10 @@
   transform-box: view-box;
   transform-origin: 106px 172px;
   mix-blend-mode: screen;
-  animation: home-breathe 4.5s var(--ease-in-out, cubic-bezier(0.65, 0, 0.35, 1)) infinite;
+  /* Three slow breaths as the home opens, then still: a drawing that blends can't be handed to the graphics card, so
+     breathing for ever redrew the cover on every frame (about a tenth of a core on a fast screen) for as long as the
+     home stayed open (Phase 6 speed pass). It ends on its middle, fully lit. */
+  animation: home-breathe 4.5s var(--ease-in-out, cubic-bezier(0.65, 0, 0.35, 1)) 3.5 both;
 }
 @keyframes home-breathe {
   0%,
@@ -489,7 +495,7 @@
     0 0 0 1px color-mix(in oklab, var(--lamp) 18%, transparent),
     0 18px 40px -26px rgb(236 163 70 / 0.6);
   transform-origin: 40px 0;
-  animation: home-pop-in 200ms var(--motion-glide) both;
+  animation: home-pop-in var(--dur-base) var(--motion-glide) both;
 }
 [data-arrangement='desk'] .home-ideas.is-out {
   animation: home-pop-out var(--dur-exit, 140ms) var(--motion-glide) both;

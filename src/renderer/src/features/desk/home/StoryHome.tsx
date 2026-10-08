@@ -36,6 +36,7 @@ import { useStoryCover } from './cover'
 import {
   bookKicker,
   castOf,
+  homeScale,
   chapterAria,
   chapterShelf,
   checkLine,
@@ -107,6 +108,23 @@ export function StoryHome(): React.JSX.Element {
   const kicker = story ? bookKicker(story.id, inShelfOrder(stories, order)) : 'Book One'
   const title = story?.title.trim() || 'Untitled story'
 
+  // A big screen: the whole home drawn larger, filling the room beside the spine (homeScale), and centred in its height.
+  const homeRef = useRef<HTMLDivElement>(null)
+  const [room, setRoom] = useState({ w: 0, h: 0 })
+  useLayoutEffect(() => {
+    const el = homeRef.current
+    if (!el) return
+    const measure = (): void => {
+      const pad = parseFloat(getComputedStyle(el).paddingLeft) || 0
+      setRoom((r) => (r.w === el.clientWidth - pad && r.h === el.clientHeight ? r : { w: el.clientWidth - pad, h: el.clientHeight }))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const scale = homeScale(room.w, room.h)
+
   const continueWriting = (): void => {
     if (sceneId) useApp.getState().selectScene(sceneId)
     else useApp.getState().navigate({ kind: 'write' })
@@ -114,12 +132,19 @@ export function StoryHome(): React.JSX.Element {
 
   return (
     <div
+      ref={homeRef}
       data-desk-home
       data-arrive={arriving || undefined}
+      data-scale={scale > 1 ? scale : undefined}
       className="desk-home absolute inset-0 overflow-y-auto overflow-x-hidden"
       style={{ paddingLeft: frame.leftMin - GUTTER, transition: glide }}
     >
-      <div className="home-col" aria-label={`Story home: ${title}`} role="region">
+      <div
+        className="home-col"
+        aria-label={`Story home: ${title}`}
+        role="region"
+        style={room.h ? { zoom: scale, minHeight: Math.floor(room.h / scale) } : undefined}
+      >
         <section className="home-hero" aria-label="The book">
           <div className="home-book-col">
             <button
