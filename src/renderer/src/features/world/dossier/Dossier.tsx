@@ -375,7 +375,7 @@ export function Dossier({
         <Sec
           id={id}
           title={title}
-          note={meta ? String(meta) : undefined}
+          note={meta || undefined}
           read={
             <>
               {id === 'appears' && bands.length ? (
