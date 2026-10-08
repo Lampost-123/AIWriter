@@ -380,6 +380,14 @@ describe('chain K2: outdoors, on the move, who knows what', () => {
     expect(endedBy('"The fog lifted by noon yesterday," Hale said.', before)).toEqual([])
     expect(endedBy('Ash climbed back into the saddle.', before)).toEqual(['on-foot'])
   })
+  it('a foot put in the stirrup is getting back on (round G K2-2/12); a foot put anywhere else is not', () => {
+    expect(drift2('on-foot', 'Ash put his foot in the stirrup. A little later they rode on towards the ford.')).not.toBe('broken')
+    expect(drift2('on-foot', 'Wren put her foot into the stirrup, and then they rode on.')).not.toBe('broken')
+    expect(endedBy('Ash put his foot in the stirrup.', [p2('on-foot')])).toEqual(['on-foot'])
+    expect(drift2('on-foot', 'Ash put his foot in the stream. A little later they rode on towards the ford.')).toBe('broken')
+    expect(drift2('on-foot', 'Wren put her foot on the stirrup leather to buckle it. Then they rode on.')).toBe('broken')
+    expect(endedBy('Ash put his foot in the mud.', [p2('on-foot')])).toEqual([])
+  })
 })
 
 describe('combo run (2026-10-08): end-of-plant and drift gaps, each with what must still be a slip', () => {

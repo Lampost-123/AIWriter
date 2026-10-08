@@ -353,9 +353,9 @@ export const CHAIN_FAR: ChainPlant[] = [
 
 /** The fog lifting or thinning, in the narration: it ends the fog. */
 const FOG_LIFTS = /\b(?:fog|mist|murk)\b[^.!?\n]{0,30}\b(?:lifted|lifting|cleared|clearing|thinned|thinning|burned off|burnt off|rolled back|parted|broke|tore apart|drew off|was gone|had gone)\b|\b(?:out of|clear of|above|below) the (?:fog|mist)\b/i
-/** Getting back on a horse, or up on a cart: it ends being on foot. */
+/** Getting back on a horse, or up on a cart: it ends being on foot (round G K2-2/12: "put his foot in the stirrup"). */
 const REMOUNTED =
-  /\b(?:mounted|remounted|swung (?:herself |himself |themselves )?(?:up )?(?:into|back into) the saddle|climbed (?:back )?(?:into the saddle|up on(?:to)? (?:the|her|his) (?:horse|mare|gelding|cart))|got back (?:on|up)|back in the saddle|(?:climbed|got|was helped|lifted her|helped her) (?:up )?(?:on ?to|onto|into|on) the cart)\b/i
+  /\b(?:mounted|remounted|put (?:his|her|their|a) foot (?:in|into) the stirrups?|swung (?:herself |himself |themselves )?(?:up )?(?:into|back into) the saddle|climbed (?:back )?(?:into the saddle|up on(?:to)? (?:the|her|his) (?:horse|mare|gelding|cart))|got back (?:on|up)|back in the saddle|(?:climbed|got|was helped|lifted her|helped her) (?:up )?(?:on ?to|onto|into|on) the cart)\b/i
 /** A twisted or hurt RIGHT ankle or foot (the twisted one is the left). */
 export const RIGHT_ANKLE =
   /\bright (?:ankle|foot)\b(?:(?!\bleft\b)[^,.!?;\n]){0,40}\b(?:twist\w*|sprain\w*|swoll\w*|swell\w*|throb\w*|hurt\w*|ach\w*|pain\w*|bandag\w*|turned|wrench\w*|gave)\b|\b(?:twisted|sprained|swollen|throbbing|hurt|injured|bad|wrenched|aching|turned)\s+right (?:ankle|foot)\b/i
