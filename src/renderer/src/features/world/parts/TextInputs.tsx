@@ -74,8 +74,8 @@ export function PresetInput({
                 title={sample}
                 onClick={() => onChange(active ? '' : p)}
                 className={cn(
-                  'relative rounded-card bg-page p-3 text-left transition-[transform,box-shadow] duration-(--dur-quick) ease-glide',
-                  'hover:-translate-y-px active:scale-[0.97]',
+                  'relative rounded-card bg-page p-3 text-left transition-[transform,translate,scale,box-shadow] duration-(--dur-quick) ease-glide',
+                  'hover:-translate-y-px active:duration-(--dur-press) active:scale-[0.97]',
                   active ? 'shadow-[var(--elev-2),inset_0_0_0_2px_var(--accent)]' : 'shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line)]'
                 )}
               >

@@ -60,8 +60,10 @@ export function LookPicker(): React.JSX.Element | null {
               tabIndex={on ? 0 : -1}
               onClick={() => chooseLook(c.look)}
               className={cn(
-                'group flex flex-col overflow-hidden rounded-card bg-page text-left transition-[box-shadow,transform] duration-(--dur-quick) ease-glide',
-                'shadow-e1 hover:-translate-y-0.5 hover:shadow-e2 active:scale-[0.98]',
+                // In both looks: it lifts on hover and presses in quickly (90ms), coming back softly (150ms). (translate-* and
+                // scale-* are the CSS translate and scale properties, so they are listed.)
+                'group flex flex-col overflow-hidden rounded-card bg-page text-left transition-[box-shadow,transform,translate,scale] duration-(--dur-quick) ease-press',
+                'shadow-e1 hover:-translate-y-0.5 hover:shadow-e2 active:duration-(--dur-press) active:scale-[0.98]',
                 on ? 'ring-2 ring-accent' : 'ring-1 ring-line'
               )}
             >

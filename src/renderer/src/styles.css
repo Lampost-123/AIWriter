@@ -214,7 +214,9 @@
   --serif-font: 'Literata', Georgia, 'Times New Roman', serif;
   --r-card: 12px;
   /* Motion: a press, a hover or a menu, a panel or dialog, a change of view. Never on the words of a story. */
-  --dur-press: 150ms;
+  /* A press is the same in both looks: in at 90ms on the press curve (it comes back at the thing's own speed). */
+  --dur-press: 90ms;
+  --motion-press: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-quick: 150ms;
   --dur-base: 200ms;
   --dur-view: 0ms;
@@ -466,6 +468,7 @@
   --ease-glide: var(--motion-glide);
   --ease-spring: var(--motion-spring);
   --ease-drawer: var(--motion-drawer);
+  --ease-press: var(--motion-press);
   --radius-card: var(--r-card);
   --color-bg: var(--bg);
   --color-surface: var(--surface);

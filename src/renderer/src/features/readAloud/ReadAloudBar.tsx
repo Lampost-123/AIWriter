@@ -223,7 +223,8 @@ function Transport({ bar }: { bar: ReadingBar }): React.JSX.Element {
         onClick={() => (stopped ? listenAgain() : paused ? resumeReading() : pauseReading())}
         className={cn(
           'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg shadow-soft outline-none',
-          'transition-[background-color,transform] duration-150 hover:bg-accent-hover active:scale-95',
+          // A press, in both looks: in quickly (90ms), back softly (150ms). (scale-* is the CSS scale property, so it is listed.)
+          'transition-[background-color,transform,scale] duration-150 ease-press hover:bg-accent-hover active:duration-(--dur-press) active:scale-95',
           'focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-page'
         )}
       >
