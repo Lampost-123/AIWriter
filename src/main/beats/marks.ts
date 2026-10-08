@@ -51,7 +51,9 @@ export function cleanMarks(sceneId: ID, v: unknown): SceneBeatMarks | null {
     .sort((a, b) => a.index - b.index)
   if (!beats.length) return null
   const of = Math.max(1, Math.min(MAX_BEATS, Math.floor(Number(x.of)) || beats[beats.length - 1].index))
-  return { sceneId, sessionId: x.sessionId, of, mode: x.mode === 'below' ? 'below' : 'whole', beats }
+  const out: SceneBeatMarks = { sceneId, sessionId: x.sessionId, of, mode: x.mode === 'below' ? 'below' : 'whole', beats }
+  if (x.open === true) out.open = true
+  return out
 }
 
 export function getBeatMarks(db: DB, sceneId: ID): SceneBeatMarks | null {

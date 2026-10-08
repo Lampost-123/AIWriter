@@ -14,7 +14,7 @@
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { BeatMark, BeatVersion, SceneBeatMarks } from '@shared/contracts/beats'
 import type { ID } from '@shared/types'
-import { filledParagraphs, type BeatMode, type BeatParagraphs } from './sessionLogic'
+import { beatsOnPage, filledParagraphs, type BeatMode, type BeatParagraphs } from './sessionLogic'
 
 export type { BeatMark, BeatVersion, SceneBeatMarks }
 
@@ -184,3 +184,36 @@ export function adoptSplits(before: PMNode, doc: PMNode, marks: SceneBeatMarks):
 /** The beats after `index` written before a beat before them changed (their notes say so), in order. */
 export const writtenBefore = (shown: readonly BeatOnPage[], index: number): number[] =>
   shown.filter((b) => b.index > index && b.staleBy != null).map((b) => b.index)
+
+/** Where a beat by beat session left off, as its kept marks and the page say: what carrying it on starts from. */
+export interface ResumePoint {
+  /** How many beats are on the page (the highest with any of its words there). */
+  written: number
+  /** How many beats the scene card has now. */
+  of: number
+  paragraphs: BeatParagraphs
+  /** Which record wrote each paragraph: each beat's version showing. */
+  owners: Record<string, ID>
+  /** The record of the last beat on the page (the version showing), or null with none kept. */
+  last: ID | null
+}
+
+/**
+ * Where the scene's kept beat by beat session can carry on from: null unless at least one of its beats is on the
+ * page and fewer than the `of` beats on the scene card are (so there is a next beat to write).
+ */
+export function resumePoint(doc: PMNode, marks: SceneBeatMarks | null, of: number): ResumePoint | null {
+  if (!marks?.beats.length || of < 1) return null
+  const paragraphs = paragraphsOf(marks)
+  const written = beatsOnPage(doc, paragraphs)
+  if (written < 1 || written >= of) return null
+  const owners: Record<string, ID> = {}
+  let last: ID | null = null
+  for (const b of marks.beats) {
+    const v = currentVersion(doc, b)
+    if (!v) continue
+    for (const pid of b.pids) owners[pid] = v.recordId
+    if (b.index === written) last = v.recordId
+  }
+  return { written, of, paragraphs, owners, last }
+}

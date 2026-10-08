@@ -80,6 +80,11 @@ export interface SceneBeatMarks {
   /** Whether the beats were the whole scene, or went below a scene break under older text. */
   mode: 'whole' | 'below'
   beats: BeatMark[]
+  /**
+   * The session was still on when these were last kept: it didn't Finish (the app closed, another world or another
+   * scene's session came first...), so opening the scene again carries it on (features/beats/flow.ts, resume).
+   */
+  open?: boolean
 }
 
 export interface BeatsApi {
