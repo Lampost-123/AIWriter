@@ -1587,8 +1587,13 @@
 }
 
 /* ---------- Every other page: its room's frame, the page on a sheet ---------- */
+/* The sheet's widest: 1280px up to a 1920 window, then growing with a big screen (1600px at 2560, at most 2000px), so the
+   gallery, the board and the Check pages use the room there rather than sitting small in the middle of it. */
+[data-arrangement='desk'] {
+  --room-max: clamp(1280px, calc(100vw - 960px), 2000px);
+}
 [data-arrangement='desk'] .desk-room-head {
-  padding-inline: max(40px, calc((100% - 1280px) / 2));
+  padding-inline: max(40px, calc((100% - var(--room-max)) / 2));
 }
 /* The first time a room shows this session (layout/desk/arrival.ts), its sheet rises into place under its heading. */
 [data-arrangement='desk'] .desk-room[data-arrive] .desk-room-sheet {
@@ -1643,7 +1648,7 @@
 [data-arrangement='desk'] .desk-room-sheet {
   /* On the sheet, the pages' own deepest background (a sticky filter bar, a sunken box) is the paper. */
   --bg: var(--page);
-  width: min(1280px, calc(100% - 80px));
+  width: min(var(--room-max), calc(100% - 80px));
   margin-inline: auto;
   border-radius: 16px 16px 0 0;
   background: var(--page);
