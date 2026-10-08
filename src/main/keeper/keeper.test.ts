@@ -17,6 +17,7 @@ import { runScene, type RunOutcome } from './run'
 import { answerItem, undoItem } from './undo'
 import { nextRollUp, sceneSummaryDue, writeRollUp, writeSceneSummary } from './summaries'
 import { Keeper } from './engine'
+import { sameOneWords } from './facts'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -519,6 +520,7 @@ describe('first seen elsewhere', () => {
     const line = lines(w.db).find((l) => l.question?.text === 'Is this the same one?')!
     expect(line.question!.options.map((o) => o.id)).toEqual(['link', 'new'])
     expect(line.question!.answer).toBe('link')
+    expect(line.text).toMatch(/^Same person as Kell in your world\. They /)
 
     // "Make a new character": a separate Kell for this scene.
     answerItem(w.db, line.id, 'new')
@@ -528,6 +530,23 @@ describe('first seen elsewhere', () => {
     answerItem(w.db, line.id, 'link')
     expect(repo.listEntries(w.db).filter((e) => e.name === 'Kell')).toHaveLength(1)
     expect(mem.listExistsPoints(w.db, kell.id).some((p) => p.sceneId === w.sceneId)).toBe(true)
+  })
+})
+
+describe('the "Is this the same one?" line', () => {
+  it('says in plain words that it is the same one as in the world, and why it is asked', () => {
+    expect(sameOneWords('character', 'Ash Penrose', 'not in the story yet at this point')).toBe(
+      'Same person as Ash Penrose in your world. They haven’t appeared in the story yet at this point.'
+    )
+    expect(sameOneWords('character', 'Ash', "from Kell's Road, not in this story so far")).toBe(
+      "Same person as Ash in your world. They are from Kell's Road and haven’t been in this story so far."
+    )
+    expect(sameOneWords('place', 'Haldon Bridge', 'not in this story so far')).toBe(
+      'Same place as Haldon Bridge in your world. It hasn’t been in this story so far.'
+    )
+    expect(sameOneWords('item', 'the seal', 'not in the story yet at this point')).toBe(
+      'Same item as the seal in your world. It hasn’t appeared in the story yet at this point.'
+    )
   })
 })
 

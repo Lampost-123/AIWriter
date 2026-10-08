@@ -159,6 +159,29 @@ export function removedWords(c: ChangeData, nameOf: (id: ID) => string): string 
 
 export const kindWord = (kind: Entry['kind']): string => KIND_LABELS[kind].one.toLowerCase()
 
+/**
+ * What Is this the same one? says, in plain words, when the memory takes a name in a scene to be an entry already in the
+ * world that doesn't exist at this point yet: "Same person as Ash in your world. They haven't appeared in the story yet
+ * at this point." `label` is where the entry is otherwise (memory/scene.ts sceneElsewhere).
+ */
+export function sameOneWords(kind: Entry['kind'], name: string, label: string): string {
+  const person = kind === 'character'
+  const noun = person ? 'person' : kindWord(kind)
+  const [they, are, have] = person ? ['They', 'are', 'haven’t'] : ['It', 'is', 'hasn’t']
+  const from = label.match(/^from (.+), not in this story so far$/)
+  const where =
+    label === 'not in the story yet at this point'
+      ? `${they} ${have} appeared in the story yet at this point.`
+      : from
+        ? `${they} ${are} from ${from[1]} and ${have} been in this story so far.`
+        : label === 'not in this story so far'
+          ? `${they} ${have} been in this story so far.`
+          : label.trim()
+            ? `(${label.trim()})`
+            : ''
+  return `Same ${noun} as ${name.trim() || `the ${noun}`} in your world.${where ? ` ${where}` : ''}`
+}
+
 // ---------- Fingerprints ----------
 
 /**

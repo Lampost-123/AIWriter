@@ -51,6 +51,7 @@ import {
   fingerprint,
   kindWord,
   removedWords,
+  sameOneWords,
   type SceneFact
 } from './facts'
 import { findQuote, likeness, locateQuote, plain, sameFact, sceneParagraphs, type Para } from './text'
@@ -452,7 +453,7 @@ class Run {
       what: 'entry',
       entryId: e.id,
       entryName: e.name,
-      text: `Linked to the ${kindWord(e.kind)} already in the world (${label})`,
+      text: sameOneWords(e.kind, e.name, label),
       before: '',
       after: '',
       quote: s.quote,
