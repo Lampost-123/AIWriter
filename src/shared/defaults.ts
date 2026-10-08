@@ -99,7 +99,8 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   look: 'new',
   lookNote: false,
   checkNewWords: true,
-  findByMeaning: true
+  findByMeaning: true,
+  searchModelAuto: true
 })
 
 /** The speech server's own address: port 8766, so it never clashes with MCreader or Poor Man's Holodeck (8765). */

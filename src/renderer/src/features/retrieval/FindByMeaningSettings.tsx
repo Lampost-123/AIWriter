@@ -1,7 +1,8 @@
 // Settings › Models: finding earlier passages by meaning (story memory step 5, Adam, 2026-10-07). Before each draft
 // the briefing searches the story so far for what the scene is about: by its words always, and by meaning once the
 // search model is downloaded (about 133 MB, once, like the speech models). The switch turns the search model off;
-// the download, its progress and Stop, and Remove are here too.
+// the download, its progress and Stop, and Remove are here too. The model downloads by itself while the switch is on
+// (Adam, 2026-10-08), until Adam presses Stop or Remove; Download lets it again.
 import { useEffect, useId, useState } from 'react'
 import type { SearchModelStatus } from '@shared/contracts/searchModel'
 import { Badge, Button, SettingsSection } from '@/components/ui'
@@ -91,6 +92,7 @@ function ModelLine({ status }: { status: SearchModelStatus }): React.JSX.Element
         >
           <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.max(2, percent ?? 0)}%` }} />
         </div>
+        <p className="mt-1 text-[12px] text-faint">It downloads by itself in the background. After Stop, it waits for you to download it.</p>
       </div>
     )
   }
@@ -101,7 +103,10 @@ function ModelLine({ status }: { status: SearchModelStatus }): React.JSX.Element
         <Button size="sm" icon={<Download size={13} />} onClick={() => void act(() => api.downloadSearchModel(), setShown)}>
           {s.problem ? 'Try again' : `Download the search model (${s.sizeMb} MB)`}
         </Button>
-        <p className="mt-1 text-[12px] text-faint">Until then, passages are found by their words.</p>
+        <p className="mt-1 text-[12px] text-faint">
+          {s.auto ? (s.problem ? 'It will try again by itself later. ' : 'It downloads by itself in a moment. ') : ''}Until then, passages are found by
+          their words.
+        </p>
       </div>
     )
   }

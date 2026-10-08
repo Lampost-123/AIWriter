@@ -3,6 +3,8 @@
 // search model) by meaning. Here the search model is a stand-in (AIWRITE_SEARCH_MODEL=stub): nothing is downloaded.
 // Every word of this story is made up for the test.
 import { existsSync, readdirSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
 
@@ -74,4 +76,35 @@ test('Find by meaning is on by default, offers the search model, and can be turn
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
   await expect.poll(async () => (await invoke(win, 'getSettings')).findByMeaning).toBe(false)
   await expect(win.getByRole('button', { name: /Download the search model/ })).toHaveCount(0)
+})
+
+test('the search model downloads by itself a little after start-up, says when it failed, and Remove keeps it from coming back', async ({ launch }) => {
+  // A local server that is "down": nothing goes near Hugging Face.
+  const asked: string[] = []
+  const server = createServer((req, res) => {
+    asked.push(req.url ?? '')
+    res.writeHead(503).end()
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  try {
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const { win } = await launch({ env: { AIWRITE_RECALL: 'on', AIWRITE_SEARCH_MODEL_AUTO: 'on', AIWRITE_SEARCH_MODEL_AUTO_MS: '1000', AIWRITE_SEARCH_MODEL_URL: url } })
+    await createWorldFromWelcome(win, 'Harbour')
+    await expect.poll(() => asked.length).toBeGreaterThan(0)
+    expect(asked[0]).toContain('/resolve/')
+    await openSettings(win, 'Models')
+    await expect(win.getByText(/server said 503/)).toBeVisible()
+    await expect(win.getByText('It will try again by itself later. Until then, passages are found by their words.')).toBeVisible()
+    // Not again straight away: the next try is an hour off.
+    const tries = asked.length
+    await win.waitForTimeout(1500)
+    expect(asked.length).toBe(tries)
+    expect((await invoke(win, 'getSearchModel')).auto).toBe(true)
+    // Remove (or Stop) is Adam saying no: it no longer downloads by itself until he presses Download.
+    await invoke(win, 'removeSearchModel')
+    expect((await invoke(win, 'getSettings')).searchModelAuto).toBe(false)
+    expect((await invoke(win, 'getSearchModel')).auto).toBe(false)
+  } finally {
+    server.close()
+  }
 })
