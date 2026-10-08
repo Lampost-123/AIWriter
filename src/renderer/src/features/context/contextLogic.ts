@@ -53,6 +53,15 @@ export function orderBlocks(blocks: ContextBlock[]): ContextBlock[] {
     .map((x) => x.b)
 }
 
+/**
+ * What the briefing holds besides its parts, so the list adds up to the size at the top: the closing instruction
+ * (what to write now, sent after the parts) and the little each message takes. 0 when the parts are all of it.
+ */
+export function closingTokens(preview: Pick<ContextPreview, 'blocks' | 'budget'>): number {
+  const parts = preview.blocks.filter((b) => !b.dropped).reduce((n, b) => n + b.tokens, 0)
+  return Math.max(0, preview.budget.used - parts)
+}
+
 /** The part with Adam's new choice, shown straight away while the briefing is worked out again. */
 export const withMode = (blocks: ContextBlock[], blockId: string, mode: BlockMode): ContextBlock[] =>
   blocks.map((b) => (b.id === blockId ? { ...b, mode } : b))
