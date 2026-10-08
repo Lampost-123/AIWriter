@@ -12,7 +12,9 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { createEntry } from '@/features/world/entryActions'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from '@/features/timeline/viewParts'
+import { useDesk } from '@/features/look/look'
 import { columnsOf, openFor, paidOffWords, setUpWords, type PlaceWords } from './boardLogic'
+import { DeskThreads } from './DeskThreads'
 
 const loadBoard = (storyId: ID): Promise<Board> => api.getThreadsBoard(storyId)
 
@@ -33,6 +35,40 @@ export function ThreadsBoard(): React.JSX.Element {
     } finally {
       setCreating(false)
     }
+  }
+
+  // The desk: the threads as a loom and cards (DeskThreads.tsx), with the same data and actions.
+  const desk = useDesk()
+  if (desk) {
+    return (
+      <DeskThreads
+        storyId={storyId}
+        setStoryId={setStoryId}
+        data={data}
+        creating={creating}
+        create={() => void create()}
+        fallback={
+          error ? (
+            <ViewError what="The plot threads board" error={error} onRetry={retry} />
+          ) : !storyId ? (
+            <EmptyState
+              icon={<Spool size={20} />}
+              title="No story yet"
+              className="mt-[10vh]"
+              actions={
+                <Button variant="primary" icon={<Plus size={15} />} onClick={() => useApp.getState().setNewStoryOpen(true)}>
+                  New story…
+                </Button>
+              }
+            >
+              Add a story, and its plot threads appear here.
+            </EmptyState>
+          ) : (
+            <ViewLoading />
+          )
+        }
+      />
+    )
   }
 
   return (
