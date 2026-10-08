@@ -15,6 +15,8 @@ import { Button, Notice, Select, SettingsSection, Spinner, toast } from '@/compo
 import { api, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { Portrait } from '@/features/views/Portrait'
+import { useDesk } from '@/features/look/look'
+import { useEntryMotifs } from '@/features/world/art/artStore'
 import { useSpeechStatus } from '@/features/speech/useSpeechStatus'
 import { castVoiceText, givenText, voiceless } from './castText'
 import { clearSampleError, playSample, useSample } from './useSample'
@@ -136,7 +138,10 @@ function Cast(): React.JSX.Element {
               No characters in this world yet. Each one you add shows here with their voice.
             </p>
           ) : (
-            <ul aria-label="Cast" className="flex flex-col overflow-hidden rounded-lg border border-line bg-surface">
+            <ul
+              aria-label="Cast"
+              className="flex flex-col overflow-hidden rounded-lg border border-line bg-surface desk:rounded-xl desk:border-transparent desk:bg-raise desk:shadow-[var(--sh-card)]"
+            >
               {rows.map((row) => (
                 <CastRow
                   key={row.id}
@@ -212,6 +217,9 @@ function CastRow({
   onPick: (voice: string) => void
 }): React.JSX.Element {
   const selectId = useId()
+  // The desk: the character's drawing (as on their card and dossier) where the panels show their initial.
+  const desk = useDesk()
+  const motif = useEntryMotifs().get(row.id)
   const v = row.value.voice
   const own = !!(v.voice || v.design.trim())
   const listed = voices ?? []
@@ -222,7 +230,7 @@ function CastRow({
   const label = `cast:${row.id}`
   return (
     <li data-cast={row.id} className="flex items-center gap-3 border-b border-line px-3 py-2.5 last:border-b-0">
-      <Portrait entry={{ name: row.name, kind: 'character', image: row.image }} size={34} />
+      <Portrait entry={{ name: row.name, kind: 'character', image: row.image }} size={desk ? 38 : 34} motif={desk ? motif : undefined} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13.5px] font-medium text-fg">{row.name}</p>
         <p className="truncate text-[12px] text-muted" data-cast-voice>
@@ -258,7 +266,7 @@ function CastRow({
           size="sm"
           variant="ghost"
           icon={<ArrowUpRight size={14} />}
-          title={`Open ${row.name}’s page at their voice`}
+          title={desk ? `Open ${row.name}’s dossier at their voice` : `Open ${row.name}’s page at their voice`}
           onClick={() => openEntryVoice(row.id)}
         >
           Open page
