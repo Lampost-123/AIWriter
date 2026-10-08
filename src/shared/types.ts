@@ -669,7 +669,10 @@ export interface ChatMessage {
   cacheUpTo?: number
 }
 
-/** One tool the editor chat's model used: what it did in plain words, the call, and (shortened) what came back. */
+/**
+ * One tool the editor chat's model used: what it did in plain words, the call, and (shortened) what came back. Since
+ * chat Phase 2b each is kept as a ToolActivity (shared/toolActivity.ts: these four and how the call went).
+ */
 export interface AgentStep {
   label: string
   tool: string

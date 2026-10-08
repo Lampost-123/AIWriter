@@ -75,7 +75,13 @@ export interface TaskRequest {
   agent?: {
     tools: ToolSpec[]
     maxSteps: number
-    run(calls: ToolCall[]): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
+    /** Answers a request's calls; `step` is the request they came in (from 1). */
+    run(calls: ToolCall[], step: number): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
+    /**
+     * Told as the model starts asking for a tool, before its arguments have all come (chat Phase 2b: the call shows as
+     * running): its place among the request's calls, its name, and the request (from 1).
+     */
+    onCallStart?: (slot: number, name: string, step: number) => void
     /** Said to the model before the last request (the one without tools). */
     lastWords?: () => string
     /**
@@ -298,8 +304,11 @@ async function stream(
     }
   }
 
-  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined, force: string | null = null): Promise<StreamOutcome> =>
-    streamChat({
+  /** One request: `request` counts the answer's requests from 1 (for the tool calls it asks for). */
+  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined, force: string | null = null, request = 1): Promise<StreamOutcome> => {
+    const onCallStart = tools?.length ? req.agent?.onCallStart : undefined
+    return streamChat({
+      ...(onCallStart ? { onToolCall: (slot: number, name: string) => onCallStart(slot, name, request) } : {}),
       target: model.target,
       body: {
         model: model.choice.modelId,
@@ -344,6 +353,7 @@ async function stream(
       sentParams: o.start,
       effort: thinkingEffort(model.target, model.choice.modelId, model.thinking)
     }))
+  }
   // The editor chat: ask, answer the tools the model asks for, and ask again, until it answers without tools (or
   // the last request, always asked without them). Tokens and cost add up over the steps; the words written along the
   // way are the reply.
@@ -365,7 +375,7 @@ async function stream(
     canForce = false
     if (o.params.toolChoice && !o.params.toolChoice.dropped) o.params.toolChoice = { ...o.params.toolChoice, dropped: true }
   }
-  let outcome = await once(req.messages, firstTools, firstTools ? forceFor(1) : null)
+  let outcome = await once(req.messages, firstTools, firstTools ? forceFor(1) : null, 1)
   forcedTurnedDown(outcome)
   if (agent) {
     let messages = req.messages
@@ -414,7 +424,7 @@ async function stream(
       } else {
         let answered: Awaited<ReturnType<NonNullable<TaskRequest['agent']>['run']>>
         try {
-          answered = await agent.run(calls)
+          answered = await agent.run(calls, step)
         } catch (e) {
           answered = {
             results: calls.map((c) => ({
@@ -461,7 +471,7 @@ async function stream(
       }
       stepFrom = r.text.length
       const tools = last ? undefined : agent.tools
-      outcome = await once(messages, tools, tools ? forceFor(step + 1) : null)
+      outcome = await once(messages, tools, tools ? forceFor(step + 1) : null, step + 1)
       forcedTurnedDown(outcome)
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)

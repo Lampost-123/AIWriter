@@ -132,7 +132,9 @@ export const askHandlers: Handlers<keyof AskApi> = {
         if (generationId && db.open) saveProposals(db, generationId, proposals)
         emit('ask:proposals', { taskId: input.taskId, generationId, proposals })
       },
-      (choice) => emit('ask:choice', { taskId: input.taskId, generationId, choice })
+      (choice) => emit('ask:choice', { taskId: input.taskId, generationId, choice }),
+      // Each tool call as it starts and ends (the Ask panel's tool rows).
+      (phase, call) => emit('ask:tool', { taskId: input.taskId, generationId, phase, call })
     )
     ;({ generationId } = startTask({
       db,
@@ -158,7 +160,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
         forceTool: () => agent.forceTool(),
         // With the contract on, a short "I'll read the scene first" written before tool calls is left out of the reply.
         ...(contract ? { dropBeforeTools: stepPreamble } : {}),
-        run: (calls) => agent.runAll(calls),
+        run: (calls, step) => agent.runAll(calls, step),
+        onCallStart: (slot, name, step) => agent.callStarted(slot, name, step),
         // With the contract on, the last words say what was proposed or what blocked it (never "ask again").
         lastWords: () => (contract ? contractLastWords(agent.proposals.map((x) => x.id), intent) : agent.lastWords()),
         // An answer with no proposals is asked once more when it claims changes or the writer asked for edits; with

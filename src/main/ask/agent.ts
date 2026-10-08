@@ -9,7 +9,8 @@ import type { AskChoice, CardProposal, DraftMode, EntryProposal, ParaAnchor, Pro
 import type { AskIntent } from '@shared/askIntent'
 import { effectiveStyle } from '@shared/style'
 import { ENTRY_KINDS, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
-import type { AgentStep, ChatMessage, EntryKind, EntryState, ID, Outline, Pin, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
+import type { ChatMessage, EntryKind, EntryState, ID, Outline, Pin, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
+import { argSummary, changesSummary, counted, shortReason, toolKind, type ToolActivity, type ToolKind, type ToolStatus } from '@shared/toolActivity'
 import type { SearchHit } from '@shared/contracts/search'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
@@ -737,6 +738,12 @@ export class EditorAgent {
   private wordsRead = false
   /** The one request of the answer made to propose was asked for already (TOOLCHOICE). */
   private forced = false
+  /** What the call being answered was for and how it went, said by its tool where it knows better than the defaults. */
+  private mark: { summary?: string; outcome?: string; status?: ToolStatus; kind?: ToolKind } = {}
+  /** Calls the model has started asking for in the request being written (by their place in it), not answered yet. */
+  private started = new Map<number, ToolActivity>()
+  /** Calls made so far in this answer (for their ids). */
+  private callCount = 0
 
   constructor(
     private readonly db: DB,
@@ -745,7 +752,9 @@ export class EditorAgent {
     private readonly onStep: (label: string) => void,
     private readonly onProposals: (all: Proposal[]) => void,
     /** Told when the chat asks the writer a question with options (ask_user, ASKUSER). */
-    private readonly onChoice?: (choice: AskChoice) => void
+    private readonly onChoice?: (choice: AskChoice) => void,
+    /** Told when a tool call starts (the model began asking for it) and when it ends (chat Phase 2b's tool rows). */
+    private readonly onTool?: (phase: 'start' | 'end', call: ToolActivity) => void
   ) {
     this.switches = toolSwitches()
     this.tools = editorTools(this.switches)
@@ -911,35 +920,108 @@ export class EditorAgent {
       : "[AI Write, not the writer] No more tools can be used for this answer, and no changes were proposed, so there is nothing for the writer to apply: don't tell them to apply or accept anything. Answer now; if you meant to propose changes, say what they would be and that the writer can ask again."
   }
 
-  /** Answers one call: what it found, or a plain line on what went wrong. Never throws. */
-  run(call: ToolCall): { result: string; step: AgentStep } {
+  /**
+   * The model has started asking for a tool (its name has arrived, its arguments are still coming): the call shows as
+   * running from now. `slot` is its place among the request's calls; told again of the same slot (the request tried
+   * again), it is the same call. `step`: the request of the answer (from 1).
+   */
+  callStarted(slot: number, name: string, step: number): void {
+    if (this.started.has(slot)) return
+    this.started.set(slot, this.begin(name, step))
+  }
+
+  /** A new call, running from now (said to the window). */
+  private begin(name: string, step: number | null): ToolActivity {
+    const call: ToolActivity = {
+      id: `t${++this.callCount}`,
+      tool: name,
+      kind: toolKind(name),
+      label: '',
+      summary: '',
+      status: 'running',
+      outcome: '',
+      startedAt: Date.now(),
+      endedAt: null,
+      step,
+      arguments: '',
+      result: ''
+    }
+    this.onTool?.('start', call)
+    return call
+  }
+
+  /**
+   * Answers one call: what it found, or a plain line on what went wrong. Never throws. `begun`: the call as it was
+   * shown starting (callStarted); without it, it starts now.
+   */
+  run(call: ToolCall, begun?: ToolActivity): { result: string; step: ToolActivity } {
     this.notes = []
+    this.mark = {}
+    const started = begun ?? this.begin(call.name, null)
     let args: Record<string, unknown> = {}
     try {
       args = call.arguments.trim() ? (JSON.parse(call.arguments) as Record<string, unknown>) : {}
     } catch {
-      return this.done(call, 'Something went wrong', 'The arguments were not valid JSON. Call the tool again with valid JSON.')
+      return this.done(call, started, {}, 'Something went wrong', 'The arguments were not valid JSON. Call the tool again with valid JSON.', {
+        status: 'failed',
+        outcome: 'the arguments weren’t valid JSON'
+      })
     }
     try {
       const [label, result] = this.answer(call.name, args)
-      return this.done(call, label, result)
+      return this.done(call, started, args, label, result)
     } catch (e) {
       const message = e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`
+      const why = shortReason(message)
       // A proposal that didn't go through says so, so the model doesn't tell the writer it is waiting for them.
-      if (call.name.startsWith('propose_')) return this.done(call, 'A change that didn’t fit', `Not proposed: nothing is waiting for the writer. ${message}`)
-      if (call.name === 'ask_user' && this.switches.askUser) return this.done(call, 'A question that didn’t fit', `Not asked: the writer hasn't seen it. ${message}`)
-      return this.done(call, 'Looking something up', message)
+      if (call.name.startsWith('propose_'))
+        return this.done(call, started, args, 'A change that didn’t fit', `Not proposed: nothing is waiting for the writer. ${message}`, {
+          status: 'not-proposed',
+          outcome: `not proposed: ${why}`
+        })
+      if (call.name === 'ask_user' && this.switches.askUser)
+        return this.done(call, started, args, 'A question that didn’t fit', `Not asked: the writer hasn't seen it. ${message}`, {
+          status: 'failed',
+          outcome: `not asked: ${why}`
+        })
+      return this.done(call, started, args, 'Looking something up', message, { status: 'failed', outcome: why })
     }
   }
 
-  private done(call: ToolCall, label: string, said: string): { result: string; step: AgentStep } {
+  private done(
+    call: ToolCall,
+    started: ToolActivity,
+    args: Record<string, unknown>,
+    label: string,
+    said: string,
+    how: { status?: ToolStatus; outcome?: string } = {}
+  ): { result: string; step: ToolActivity } {
     // What a partial name was taken to mean, so the model can tell if it wasn't the one meant: first, except after a
     // proposal's "Proposed to the writer" / "Not proposed", which always opens its answer (prompts.ts).
     const note = this.notes.join(' ')
     const result = !note ? said : call.name.startsWith('propose_') ? `${said}\n(${note})` : `${note}\n\n${said}`
     this.notes = []
+    const kind = this.mark.kind ?? toolKind(call.name)
+    // A single change's own words say what it is ("Proposing a rewrite of Ch 1, Sc 2" → "a rewrite of Ch 1, Sc 2").
+    const proposing = /^Proposing (.+)$/.exec(label)?.[1]
+    const revising = /^Revising change (\S+)$/.exec(label)?.[1]
+    const fromLabel = proposing ? proposing.charAt(0).toLowerCase() + proposing.slice(1) : revising ? `a new version of change ${revising}` : ''
+    const step: ToolActivity = {
+      ...started,
+      tool: call.name,
+      kind,
+      label,
+      arguments: call.arguments.slice(0, 2000),
+      result: clip(result, 1500),
+      summary: this.mark.summary ?? (fromLabel || argSummary(call.name, args)),
+      status: how.status ?? this.mark.status ?? 'done',
+      outcome: how.outcome ?? this.mark.outcome ?? (kind === 'propose' || kind === 'draft' ? 'proposed' : ''),
+      endedAt: Date.now()
+    }
+    this.mark = {}
     this.onStep(label)
-    return { result, step: { label, tool: call.name, arguments: call.arguments.slice(0, 2000), result: clip(result, 1500) } }
+    this.onTool?.('end', step)
+    return { result, step }
   }
 
   /**
@@ -972,6 +1054,7 @@ export class EditorAgent {
       if (hits.length) note = `Nothing matched all ${terms.length} words; these match ${k} of ${terms.length}.`
     }
     hits = hits.slice(0, SEARCH_HITS)
+    this.mark.outcome = hits.length ? counted(hits.length, 'hit') : 'nothing found'
     if (!hits.length) return `Nothing found. ${scope}`
     return [scope, note, hits.map((h) => h.line).join('\n')].filter(Boolean).join('\n')
   }
@@ -1355,15 +1438,22 @@ export class EditorAgent {
     // Beside changes it is not asked (the changes are the answer, checked as usual).
     const asks = this.switches.askUser ? items.filter((x) => kindOf(x) === ASK_KIND).length : 0
     if (asks && asks === items.length) {
-      if (asks > 1) return ['A question that didn’t fit', 'Not asked: the writer hasn’t seen it. Ask one question only: a single item of kind ask.']
+      // Shown as asking the writer, as ask_user is.
+      this.mark = { kind: 'ask', summary: '' }
+      if (asks > 1) {
+        this.mark = { kind: 'ask', status: 'failed', outcome: 'not asked: one question at a time' }
+        return ['A question that didn’t fit', 'Not asked: the writer hasn’t seen it. Ask one question only: a single item of kind ask.']
+      }
       const { kind: _kind, why: _why, ...q } = items[0] as Record<string, unknown>
       try {
         return this.askUser(q)
       } catch (e) {
         if (!(e instanceof Mistake)) throw e
+        this.mark = { kind: 'ask', status: 'failed', outcome: `not asked: ${shortReason(e.message)}` }
         return ['A question that didn’t fit', `Not asked: the writer hasn’t seen it. ${e.message}`]
       }
     }
+    const reasons: string[] = []
     const lines: string[] = []
     const labels: string[] = []
     let proposed = 0
@@ -1378,6 +1468,7 @@ export class EditorAgent {
       const tool = (CHANGE_KINDS as Record<string, string>)[kind]
       if (!item || !tool) {
         lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${Object.keys(CHANGE_KINDS).join(', ')}.`)
+        reasons.push('no kind given')
         return
       }
       const { kind: _kind, entry_kind: entryKind, ...rest } = item
@@ -1391,13 +1482,22 @@ export class EditorAgent {
         const revised = /^Change (\d+) now/.exec(result)
         said = revised ? `change ${revised[1]} now proposes this instead.` : `proposed as change ${/change (\d+)/.exec(result)?.[1] ?? '?'}.`
       } catch (e) {
-        said = `Not proposed. ${e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`}`
+        const message = e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`
+        said = `Not proposed. ${message}`
+        reasons.push(shortReason(message, 50))
       }
       const note = this.notes.join(' ')
       lines.push(`${n}. ${kind}: ${said}${note ? ` (${note})` : ''}`)
     })
     this.notes = []
     const failed = items.length - asks - proposed
+    // "2 proposed, 1 not proposed: those words aren't in the scene".
+    const why = reasons[0] ? `: ${reasons[0]}` : ''
+    this.mark = {
+      summary: changesSummary(items),
+      status: proposed ? 'done' : 'not-proposed',
+      outcome: proposed ? `${proposed} proposed${failed ? `, ${failed} not proposed${why}` : ''}` : `not proposed${why}`
+    }
     const head = proposed
       ? `Proposed to the writer: ${proposed} of ${items.length - asks}. Nothing has changed yet: it happens only if they apply it.${failed ? ' Fix the ones not proposed and call again with only those.' : ''}`
       : 'Not proposed: nothing is waiting for the writer.'
@@ -1430,6 +1530,7 @@ export class EditorAgent {
     }
     this.choice = { question, options, ...(rec ? { recommended: rec - 1 } : {}), ...(a.multi === true ? { multi: true } : {}) }
     this.onChoice?.(this.choice)
+    this.mark = { kind: 'ask', summary: question, outcome: `asked, ${counted(options.length, 'option')}` }
     return ['Asking you a question', 'Asked the writer. Your answer ends here: their pick comes back as their next message.']
   }
 
@@ -1513,6 +1614,8 @@ export class EditorAgent {
           .filter(Boolean)
           .join('\n')
         this.wordsRead = true
+        const wordCount = s.plain.split(/\s+/).filter(Boolean).length
+        this.mark = { summary: label, outcome: wordCount ? counted(wordCount, 'word') : 'no words yet' }
         if (this.switches.anchor && s.marked.trim()) {
           // Each paragraph numbered, as propose_edit's `paragraph` and propose_rewrite's `replace_paragraphs` name them.
           const body = s.paras.map((p) => `${p.n ? `[${p.n}] ` : ''}${markedSlice(s, p.from, p.to)}`).join('\n\n')
@@ -1542,15 +1645,21 @@ export class EditorAgent {
           return [`Ch ${ci + 1}: ${c.title.trim() || 'Untitled'}`, ...(scenes.length ? scenes : ['  (no scenes)'])].join('\n')
         })
         const key = open >= 0 && open < o.scenes.length - 1 ? `\n\nScenes marked (later) come after the open scene: the characters don't know their events yet.` : ''
+        this.mark = { outcome: `${counted(o.chapters.length, 'chapter')}, ${counted(o.scenes.length, 'scene')}` }
         return ['Looking at the outline', clip(`${o.story.title}\n${lines.join('\n') || '(No chapters yet.)'}${key}`, RESULT_CHARS)]
       }
       case 'search': {
         const q = text('query').trim()
         if (!q) throw new Mistake('Give the words to search for.')
+        this.mark.summary = argSummary('search', { query: q })
         return [`Searching for “${q}”`, clip(this.search(q), SHORT_CHARS)]
       }
       case 'get_entry': {
         const found = this.entry(a.name)
+        this.mark = {
+          summary: found.e.name,
+          outcome: found.nameOnly ? 'only its name is known here' : `${KIND_LABELS[found.e.kind].one.toLowerCase()}${found.label ? `, ${found.label}` : ''}`
+        }
         return [`Looking up ${found.e.name}`, clip(this.entryText(found), RESULT_CHARS)]
       }
       case 'style_guide': {
@@ -1567,12 +1676,14 @@ export class EditorAgent {
         ]
           .filter(Boolean)
           .join('\n')
+        this.mark = { outcome: out ? counted(out.split('\n').length, 'rule') : 'empty' }
         return ['Reading the style guide', clip(out || 'The style guide is empty.', SHORT_CHARS)]
       }
       case 'scene_issues': {
         const id = this.scene(a.scene)
         const rows = cdb.sceneIssueRows(this.db, id).filter((r) => r.status === 'open')
         const out = rows.map((r) => `- ${r.message as string}${r.quote ? ` (“${r.quote as string}”)` : ''}`).join('\n')
+        this.mark = { summary: this.place.storyId ? sceneLabelIn(this.outline(), id) : '', outcome: rows.length ? counted(rows.length, 'open issue') : 'none open' }
         return ['Checking the scene’s issues', clip(out || 'No open issues in this scene.', SHORT_CHARS)]
       }
       case 'propose_edit': {
@@ -1747,14 +1858,19 @@ export class EditorAgent {
   }
 
   /** Answers a model turn's calls, in order: the tool messages to send back, and the steps for "What the AI saw". */
-  async runAll(calls: ToolCall[]): Promise<{ results: ChatMessage[]; steps: AgentStep[] }> {
+  async runAll(calls: ToolCall[], step?: number): Promise<{ results: ChatMessage[]; steps: ToolActivity[] }> {
+    // The calls as they were shown starting, in their order in the request (a call's id may only come later, so each
+    // is matched by its place); one that never came whole ends as not run.
+    const begun = [...this.started.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c)
+    this.started = new Map()
     const results: ChatMessage[] = []
-    const steps: AgentStep[] = []
-    for (const c of calls) {
-      const { result, step } = this.run(c)
+    const steps: ToolActivity[] = []
+    for (const [i, c] of calls.entries()) {
+      const { result, step: done } = this.run(c, begun[i] ?? this.begin(c.name, step ?? null))
       results.push({ role: 'tool', toolCallId: c.id, content: result })
-      steps.push(step)
+      steps.push(done)
     }
+    for (const left of begun.slice(calls.length)) this.onTool?.('end', { ...left, status: 'stopped', endedAt: Date.now() })
     return { results, steps }
   }
 }

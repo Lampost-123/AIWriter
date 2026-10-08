@@ -4,7 +4,8 @@
 
 import type Database from 'better-sqlite3'
 import type { AskChoice, Proposal, SavedNote } from '@shared/contracts/ask'
-import type { ID } from '@shared/types'
+import type { AgentStep, ID } from '@shared/types'
+import { activityOf, type ToolActivity } from '@shared/toolActivity'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -54,6 +55,8 @@ export interface TurnRow {
   createdAt: string
   /** The editor chat's steps (their labels) and proposals, as kept in the record's params. */
   steps: string[]
+  /** The same steps as tool calls with how each went (an older record's worked out from its four fields). */
+  tools: ToolActivity[]
   proposals: Proposal[]
   /** The question with options the answer ended with (ask_user), if it did. */
   choice: AskChoice | null
@@ -93,6 +96,9 @@ const toTurn = (r: Row): TurnRow => ({
   cutOff: r.cut_off === 1 || r.cut_off === true,
   createdAt: r.created_at as string,
   steps: jsonList<{ label?: string }>(r.steps).map((s) => s.label ?? '').filter(Boolean),
+  tools: jsonList<AgentStep>(r.steps)
+    .filter((s) => s && typeof s === 'object')
+    .map(activityOf),
   proposals: jsonList<Proposal>(r.proposals),
   choice: jsonObject<AskChoice>(r.choice),
   savedNote: jsonObject<SavedNote>(r.saved_note)

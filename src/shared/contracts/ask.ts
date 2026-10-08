@@ -15,6 +15,7 @@
 // as a draft's briefing: an own version of events (a what-if) never reaches another story's chat, and
 // a chat never carries on in another story. Answers name the entries they used as [[Entry name]].
 import type { EntryKind, ID, Origin, SceneCard } from '../types'
+import type { ToolActivity } from '../toolActivity'
 
 export interface AskApi {
   /**
@@ -49,6 +50,11 @@ export interface AskApi {
 export interface AskEvents {
   /** The editor chat looked something up or noted a change: a short line for the answer being written ("Reading Ch 2, Sc 1"). */
   'ask:step': { taskId: ID; generationId: ID; label: string }
+  /**
+   * The editor chat called a tool (chat Phase 2b): 'start' as soon as the model starts asking for it (the call
+   * running), 'end' once its answer is back (done, failed or not proposed), with the whole call. Matched by `call.id`.
+   */
+  'ask:tool': { taskId: ID; generationId: ID; phase: 'start' | 'end'; call: ToolActivity }
   /** The editor chat proposed changes (all of this turn's, so far). */
   'ask:proposals': { taskId: ID; generationId: ID; proposals: Proposal[] }
   /**
@@ -211,6 +217,8 @@ export interface AskTurn {
   createdAt: string
   /** The editor chat: what it looked up on the way, in plain words. */
   steps?: string[]
+  /** The editor chat: each tool it called, in order, with how it went (an older record's are worked out from its steps). */
+  tools?: ToolActivity[]
   /** The editor chat: the changes it proposes, and what Adam made of each. */
   proposals?: Proposal[]
   /** The editor chat ended its answer with a question with options (ask_user, lab switch ASKUSER). */

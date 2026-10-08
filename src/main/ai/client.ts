@@ -103,6 +103,11 @@ export interface StreamChatOptions {
   signal: AbortSignal
   /** Called with each piece of scene text (thinking already removed). */
   onText: (text: string) => void
+  /**
+   * Called once for each tool the model starts asking for, as soon as its name arrives (its arguments still to come):
+   * its place among the reply's calls and its name. A try made again tells of the same places again.
+   */
+  onToolCall?: (slot: number, name: string) => void
   onRetry?: (info: { attempt: number; waitMs: number; reason: string }) => void
   fetchImpl?: typeof fetch
   /** Waits before each retry (tests make these short). */
@@ -436,8 +441,11 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
             const at = typeof c.index === 'number' ? c.index : slotWithoutIndex(s.calls, id, k, base)
             const call = s.calls.get(at) ?? { id: '', name: '', arguments: '' }
             if (id) call.id = id
+            const named = !!call.name
             if (typeof c.function?.name === 'string' && c.function.name) call.name += c.function.name
             if (typeof c.function?.arguments === 'string') call.arguments += c.function.arguments
+            // The call has begun (its name is here): told once, before its arguments have all come.
+            if (!named && call.name) o.onToolCall?.(at, call.name)
             // A server that sends no id: one made up, unique in the chat, so each answer still matches its call.
             if (!call.id) call.id = `call_${(++madeUpIds).toString(36)}_${at}`
             s.calls.set(at, call)

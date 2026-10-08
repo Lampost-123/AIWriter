@@ -473,3 +473,31 @@ describe('fitToRoom', () => {
     expect(roomy.messages.slice(1).map((x) => x.content)).toEqual([RESULT_REMOVED, RESULT_REMOVED, 'c'.repeat(3500)])
   })
 })
+
+describe('tool calls shown as they start (chat Phase 2b)', () => {
+  it('tells of each call as its name arrives, with its place and request, and runs each request’s calls with its number', async () => {
+    const started: [number, string, number][] = []
+    const ran: number[] = []
+    const { fetchImpl } = scripted([
+      [call(0, 'a1', 'read_scene'), call(1, 'a2', 'read_scene'), finish('tool_calls')],
+      [call(0, 'b1', 'read_scene'), finish('tool_calls')],
+      [text('Done.'), finish('stop')]
+    ])
+    const done = await runTask(
+      request(fetchImpl, {
+        onCallStart: (slot, name, step) => started.push([slot, name, step]),
+        run: async (calls, step) => {
+          ran.push(step)
+          return { results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'ok' })), steps: [] }
+        }
+      })
+    )
+    expect(done.status).toBe('complete')
+    expect(started).toEqual([
+      [0, 'read_scene', 1],
+      [1, 'read_scene', 1],
+      [0, 'read_scene', 2]
+    ])
+    expect(ran).toEqual([1, 2])
+  })
+})
