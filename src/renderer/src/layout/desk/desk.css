@@ -949,6 +949,42 @@
 [data-arrangement='desk'] .desk-scene-title:hover {
   background: color-mix(in oklab, var(--surface-2) 70%, transparent);
 }
+/* The quiet line under the title opens the scene's card; Scene details at its end opens the drawer. */
+[data-arrangement='desk'] .desk-meta-line {
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-meta-line:hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+}
+[data-arrangement='desk'] :is(.desk-details, .desk-details-count) {
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] :is(.desk-details, .desk-details-count):hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+[data-arrangement='desk'] :is(.desk-details, .desk-details-count):active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .desk-details.is-open {
+  color: var(--fg);
+  background: var(--surface-2);
+}
+[data-arrangement='desk'] .desk-details-count.is-must {
+  color: var(--danger);
+  background: var(--danger-soft);
+  box-shadow: none;
+}
 /* The prose: old-style figures, a drop cap three lines tall on the scene's first letter, names in their kind's ink. */
 [data-arrangement='desk'] .desk-sheet .scene-prose {
   font-variant-numeric: oldstyle-nums;

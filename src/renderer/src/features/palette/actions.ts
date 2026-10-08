@@ -9,7 +9,8 @@ import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
 import { pressShortcut } from '@/lib/shortcuts'
-import { useApp, type SettingsTab } from '@/lib/store'
+import { useApp, type InspectorTab, type SettingsTab } from '@/lib/store'
+import { openSceneTab } from '@/layout/areaLinks'
 import * as binder from '@/features/binder/actions'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { useOutlineStore } from '@/features/binder/outlineStore'
@@ -215,6 +216,13 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'toggle-panel':
         if (layout) await a.updateSettings({ layout: { inspectorOpen: !layout.inspectorOpen } })
+        return
+      case 'tab-card':
+      case 'tab-context':
+      case 'tab-cast':
+      case 'tab-issues':
+      case 'tab-drafts':
+        openSceneTab(fixed.slice('tab-'.length) as InspectorTab)
         return
       case 'backup-now':
         await flushAll()

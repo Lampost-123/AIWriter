@@ -301,6 +301,49 @@ test('the spine in a narrower window: slim, its chevron opens the story over the
   await expect(story(win)).toBeVisible()
 })
 
+test('the drawer’s ways in: Scene details by the scene’s head, its line, the tools’ Details, the palette for each tab; each tab at one click', async ({ launch }) => {
+  const { win } = await sampleWorld(launch)
+  const head = win.locator('[data-page-title]')
+  const tab = (name: RegExp) => drawer(win).getByRole('tab', { name })
+  // Scene details, at the end of the line under the title: the drawer, on the scene's card.
+  await press(win, head.getByRole('button', { name: 'Scene details' }))
+  await expect(drawer(win)).toBeVisible(AT_ONCE)
+  await expect(tab(/Scene card|Card/)).toHaveAttribute('aria-selected', 'true')
+  // Each tab answers the first click.
+  for (const name of [/^Context/, /^Cast/, /^Issues/, /^Drafts/, /Scene card|Card/]) {
+    await press(win, tab(name))
+    await expect(tab(name)).toHaveAttribute('aria-selected', 'true', AT_ONCE)
+  }
+  // Pressed again, Scene details closes it.
+  await press(win, head.getByRole('button', { name: 'Scene details' }))
+  await expect(drawer(win)).toBeHidden()
+  // The line itself ("Scene 1 of 2 · Told through …") opens the card.
+  await press(win, head.getByRole('button', { name: /Scene 1 of 2/ }))
+  await expect(tab(/Scene card|Card/)).toHaveAttribute('aria-selected', 'true', AT_ONCE)
+  await press(win, drawer(win).getByRole('button', { name: 'Close the scene panel' }))
+  await expect(drawer(win)).toBeHidden()
+  // The tools' Details button says what it is.
+  await expect(tools(win).getByRole('button', { name: 'Scene details' })).toContainText('Details')
+  await press(win, tools(win).getByRole('button', { name: 'Scene details' }))
+  await expect(drawer(win)).toBeVisible(AT_ONCE)
+  await press(win, tools(win).getByRole('button', { name: 'Scene details' }))
+  await expect(drawer(win)).toBeHidden()
+  // The palette opens it on any tab.
+  for (const [query, name] of [
+    ['scene issues', /^Issues/],
+    ['scene cast', /^Cast/],
+    ['scene context', /^Context/],
+    ['scene drafts', /^Drafts/],
+    ['scene card', /Scene card|Card/]
+  ] as const) {
+    await win.keyboard.press('Control+K')
+    await win.keyboard.type(query)
+    await win.keyboard.press('Enter')
+    await expect(drawer(win)).toBeVisible()
+    await expect(tab(name)).toHaveAttribute('aria-selected', 'true')
+  }
+})
+
 test('the page: its head, a drop cap that types like any letter, and every shortcut the page’s tools carry', async ({ launch }) => {
   const { win } = await sampleWorld(launch)
   const head = win.locator('[data-page-title]')
