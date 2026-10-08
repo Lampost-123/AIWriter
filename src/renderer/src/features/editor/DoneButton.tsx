@@ -77,12 +77,13 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
       aria-busy={pending || undefined}
       onClick={() => void run(() => (done ? reopenScene(sceneId) : markSceneDone(sceneId)))}
       className={cn(
-        'group flex h-8 w-8 shrink-0 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium outline-none',
+        'group flex h-8 w-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border text-[13px] font-medium outline-none',
         'transition-[background-color,border-color,color] duration-150 focus-visible:ring-2 focus-visible:ring-accent/40',
         // Room for the words only when the header is wide enough (see SceneHeader); the width then stays put in either state.
         '@min-[860px]:w-[112px] @min-[860px]:px-2.5',
-        // The New look: its words show whenever there is room for them beside the tools.
-        'look-new:@min-[540px]:w-[104px] look-new:@min-[540px]:px-3',
+        // The New look: its words show whenever there is room for them beside the tools, on one line. Both labels
+        // fit the least width, so it stays put; a wider fallback font makes it grow rather than wrap.
+        'look-new:@min-[540px]:w-auto look-new:@min-[540px]:min-w-[112px] look-new:@min-[540px]:px-3',
         // The New look: a raised pill that presses in.
         'look-new:h-[30px] look-new:rounded-full look-new:transition-[background-color,border-color,color,transform] look-new:duration-(--dur-base) look-new:active:scale-[0.96]',
         done

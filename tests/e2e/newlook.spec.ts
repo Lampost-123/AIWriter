@@ -104,10 +104,25 @@ test('the New look while writing: the page as a sheet, its title, the save tick,
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
   const fake = await startFakeProvider({ delayMs: 10, slowDelayMs: 40 })
   try {
-    const { win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
+    const { app, win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
     await createWorldFromWelcome(win, 'Harbour')
     await useFakeModel(win, fake, 'fake/slow')
     const header = win.locator('main header')
+
+    // At a typical window size, Mark done says so on one line (it once wrapped onto two), and the header fits.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1600, 1000))
+    const markDone = header.getByRole('button', { name: /^Mark scene done/ })
+    await expect(markDone).toHaveText('Mark done')
+    await expect
+      .poll(() =>
+        markDone.locator('span').evaluate((s) => {
+          // (Run in the window: the tests' own types have no DOM.)
+          const style = (globalThis as unknown as { getComputedStyle(e: unknown): { lineHeight: string } }).getComputedStyle
+          return s.getBoundingClientRect().height / parseFloat(style(s).lineHeight)
+        })
+      )
+      .toBeCloseTo(1, 1)
+    expect(await header.evaluate((h) => h.scrollWidth - h.clientWidth)).toBe(0)
 
     // The page is a sheet of paper on the frame, with the scene's title at its head.
     const sheet = win.locator('.scene-sheet')
