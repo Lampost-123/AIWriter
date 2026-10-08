@@ -22,7 +22,9 @@ const variants: Record<Variant, string> = {
 
 const newLook: Record<Variant, string> = {
   primary:
-    'look-new:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_88%,white),var(--accent))] look-new:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--elev-2)] look-new:hover:brightness-[1.06]',
+    'look-new:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_88%,white),var(--accent))] look-new:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--elev-2)] look-new:hover:brightness-[1.06]' +
+    // The desk: warm ink, not the accent (the accent is for the selection, links and focus).
+    ' desk:bg-none desk:bg-primary desk:text-primary-fg desk:hover:bg-primary-hover desk:hover:brightness-100',
   secondary: 'look-new:bg-raise look-new:shadow-e1 look-new:hover:bg-raise look-new:hover:border-line-strong',
   ghost: '',
   danger: 'look-new:bg-raise look-new:shadow-e1',
