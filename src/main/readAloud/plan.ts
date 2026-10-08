@@ -26,13 +26,15 @@ import {
   type Utterance
 } from './segment'
 import { clipKey } from './speak'
-import type { LineDelivery, ParagraphMarks } from './types'
+import type { AutoCaster } from './autocast'
+import type { LineDelivery, LineKind, ParagraphMarks } from './types'
+import type { VoicedRange } from './segment'
 
 export type PlanSettings = Pick<
   SpeechSettings,
   'engine' | 'narratorVoice' | 'narratorDescription' | 'dialogueVoice' | 'style' | 'castVoices' | 'steadyNarrator' | 'sounds'
 > &
-  Partial<Pick<SpeechSettings, 'actFeelings' | 'checkWords'>>
+  Partial<Pick<SpeechSettings, 'actFeelings' | 'checkWords' | 'voicedLines'>>
 
 export interface PlanInput {
   /** The paragraphs to read, the first from `offset`. */
@@ -53,6 +55,8 @@ export interface PlanInput {
   labelling?: Set<string>
   /** Redo this line: which take each clip is read as, by its key as first planned (0 or none for the first). */
   takes?: (key: string) => number
+  /** A voice for someone with none of their own, given as they speak (autocast.ts: the people the marks name). */
+  autocast?: AutoCaster
 }
 
 /** How a speaker the AI named, or nobody, shows in the bar. */
@@ -89,7 +93,8 @@ export function narratorPace(how: LineDelivery | undefined): LineDelivery | unde
  */
 function narrationNotes(para: string, marks: ParagraphMarks | undefined, cast?: SceneCast): NarrationNote[] {
   return spansIn(para)
-    .filter((x) => !x.quote)
+    // A sentence a character owns (a thought, a message) is theirs: its note is how they say it, not the narrator's mood.
+    .filter((x) => !x.quote && !(marks?.voiced && x.key in marks.voiced))
     .map((x) => {
       const how = savedFor(marks?.delivery, para.slice(x.at, x.end), true)
       return { at: x.at, end: x.end, how: cast && startsWithSpeaker(how?.tone, cast.all, cast.pov?.name) ? undefined : narratorPace(how) }
@@ -141,13 +146,23 @@ function arcNote(para: string, arc: { at: number; how: LineDelivery }[]): string
     .join(' ')
 }
 
-/** The voice for a clip: the narrator's; for a quote, its speaker's own, else the dialogue voice, else the narrator's. */
-function voiceFor(quote: boolean, who: CastMember | null, s: PlanSettings): Pick<ClipRequest, 'voice' | 'voiceDesign' | 'instruct'> {
+/**
+ * The voice for a clip: the narrator's; for a quote, its speaker's own, else one cast for them as they speak
+ * on the fly, else the dialogue voice, else the narrator's.
+ */
+function voiceFor(
+  quote: boolean,
+  who: CastMember | null,
+  s: PlanSettings,
+  cast?: { autocast?: AutoCaster; label?: string }
+): Pick<ClipRequest, 'voice' | 'voiceDesign' | 'instruct'> {
   if (!quote) return { voice: s.narratorVoice, voiceDesign: s.narratorDescription.trim(), instruct: s.style.trim() }
   // A line of dialogue drops the narrator's standing note, which describes a narrator, not the character.
   const own = s.castVoices ? who?.voice : undefined
   if (own?.voice) return { voice: own.voice, voiceDesign: '', instruct: '' }
   if (own?.design.trim()) return { voice: s.narratorVoice, voiceDesign: own.design.trim(), instruct: '' }
+  const given = s.castVoices && cast?.autocast ? cast.autocast.voiceFor(who, who ? undefined : cast.label) : null
+  if (given) return { voice: given, voiceDesign: '', instruct: '' }
   if (s.dialogueVoice) return { voice: s.dialogueVoice, voiceDesign: '', instruct: '' }
   return { voice: s.narratorVoice, voiceDesign: s.narratorDescription.trim(), instruct: '' }
 }
@@ -167,11 +182,14 @@ function prepare(
   const marks = input.marks.get(u.pid)
   const quote = u.role === 'other' && !!u.quote
   const quoteText = u.quote ? u.para.slice(u.quote.at, u.quote.at + u.quote.len) : ''
+  // A sentence a character owns (a thought, a message, a letter): its marks are kept under the sentence's key.
+  const own = u.own
   // A speaker that is really a mood ("hushed, dread building") slipped there when the scene was marked: not kept.
-  const marked = u.quote ? savedFor(marks?.speakers, quoteText) : undefined
+  const marked = own ? marks?.voiced?.[own] : u.quote ? savedFor(marks?.speakers, quoteText) : undefined
   const slipped = !!marked && looksLikeNote(marked, input.cast.all)
   const label = slipped ? undefined : marked
-  const how = quote && !slipped ? savedFor(marks?.delivery, quoteText) : undefined
+  const how = own ? marks?.delivery?.[own] : quote && !slipped ? savedFor(marks?.delivery, quoteText) : undefined
+  const kind: LineKind | undefined = own ? marks?.kinds?.[own] : quote ? savedFor(marks?.kinds, quoteText) : undefined
   const notes = quote ? [] : narrationNotes(u.para, marks, input.cast)
   const told = quote || u.quote ? undefined : savedNarration(u, notes)
 
@@ -191,7 +209,7 @@ function prepare(
     if (how.tone) direction = { delivery: how.tone, pace: how.pace ?? '' }
     else if (how.pace) direction = { delivery: '', pace: how.pace }
   }
-  if (quote && !how?.tone) {
+  if (quote && !own && !how?.tone) {
     // The dialogue tag, read without an AI call: "Mom snapped" is the line's tone, and "she sighed" a (sigh) at its start.
     const cue = cueFor(u.para, u.quote!.at, u.quote!.len)
     if (s.sounds && cue.tag && u.from === u.quote!.at && !how?.sound) text = withTag(text, cue.tag)
@@ -210,19 +228,38 @@ function prepare(
     direction = { ...direction, delivery: kept.tone, pace: kept.pace }
   }
 
-  const who = quote ? (found?.who ?? null) : null
-  let voice = voiceFor(quote, who, s)
-  // A character with a studio voice reads the line from their own acted clip of its feeling (Act out feelings).
-  const mood = quote && s.actFeelings !== false && isStudioVoice(voice.voice) && !voice.voiceDesign ? moodFor(direction?.delivery) : undefined
+  const who = own ? (label ? memberNamed(input.cast.all, label) : null) : quote ? (found?.who ?? null) : null
+  let voice = voiceFor(quote, who, s, { autocast: input.autocast, label })
+  // A thought is read soft and inward; a message or chat line plainly, as written; a letter with its note, unacted.
+  const written = kind === 'text_message' || kind === 'chat'
+  if (quote && kind === 'thought') {
+    const inward = 'soft and inward, a private thought'
+    direction = { delivery: direction?.delivery ? `${inward}, ${direction.delivery}` : inward, pace: direction?.pace ?? '' }
+  } else if (quote && written) direction = null
+  // A character with a studio voice reads the line from their own acted clip of its feeling (Act out feelings): the
+  // director's feeling when it is clear (strength 2 or more), else the one its note names. A thought is read from
+  // their whisper; a message, chat line or letter from their calm clip.
+  const acted = (): string | undefined => {
+    if (kind === 'thought') return 'whisper'
+    if (written || kind === 'letter') return undefined
+    const fromNote = moodFor(direction?.delivery)
+    if (fromNote === 'whisper' || fromNote === 'loud') return fromNote
+    const felt = how?.feeling && how.feeling !== 'neutral' && (how.intensity ?? 2) >= 2 ? how.feeling : undefined
+    return felt ?? fromNote
+  }
+  const mood = quote && s.actFeelings !== false && isStudioVoice(voice.voice) && !voice.voiceDesign ? acted() : undefined
   // A steady narrator keeps one voice through the narration: no standing note, and a mark's note read gently.
   const steady = s.steadyNarrator && !quote
   if (steady) {
     direction = told && direction ? { ...direction, gentle: true } : null
     voice = { ...voice, instruct: '' }
   }
-  const tone = direction ? shown || paced({ tone: direction.delivery, pace: direction.pace || undefined }) : ''
+  const kindWord = kind === 'thought' ? 'thought' : kind === 'text_message' ? 'message' : kind === 'chat' ? 'chat' : kind === 'letter' ? 'letter' : ''
+  const toneWords = direction ? shown || paced({ tone: direction.delivery, pace: direction.pace || undefined }) : ''
+  const tone = quote && kindWord ? [kindWord, kind === 'thought' ? (how?.tone ?? '') : toneWords].filter(Boolean).join(' · ') : toneWords
   // Words in italics get clear emphasis (Breeze's guide directs emphasis this way).
-  const stress = stressed(u.para, italics, u.from, u.to)
+  // A thought or a message a character owns is often set in italics: that marks what it is, not words to stress.
+  const stress = own ? [] : stressed(u.para, italics, u.from, u.to)
   if (stress.length) {
     const on = `Put clear emphasis on ${stress.map((w) => `'${w}'`).join(' and ')}.`
     direction = direction
@@ -257,7 +294,7 @@ function prepare(
     how: tone,
     clip,
     // Known when a tag says who it is, or the AI has been asked: a guess from a name nearby or from turns is checked.
-    known: !quote || found?.how === 'tagged' || found?.how === 'label' || label !== undefined
+    known: !quote || !!own || found?.how === 'tagged' || found?.how === 'label' || label !== undefined
   }
 }
 
@@ -271,6 +308,51 @@ function withSoundsAt(u: Utterance, italics: [number, number][] | undefined, at:
     out += `${tag ? ` ${tag} ` : ''}${withItalics(u.para, italics, cuts[i], cuts[i + 1])}`
   }
   return out.trim()
+}
+
+/** "Mara: on my way" in a chat or a run of messages: the name and colon before the words. */
+const NAME_COLON = /^\s*(?:[\p{Lu}][\p{L}'’-]*)(?:\s+[\p{Lu}][\p{L}'’-]*){0,2}\s*:\s+/u
+
+/**
+ * The stretches of a paragraph's narration its marks give a character (the director's thoughts, messages,
+ * letters), read in their voice: the words in italics in that sentence when it has some ("*Not again,* she
+ * thought": only the thought), else the sentence without a "Name:" before it, else the whole sentence.
+ */
+export function voicedRanges(p: ReadParagraph, marks: ParagraphMarks | undefined): VoicedRange[] {
+  const voiced = marks?.voiced
+  if (!voiced || !Object.keys(voiced).length) return []
+  const out: VoicedRange[] = []
+  for (const x of spansIn(p.text)) {
+    if (x.quote || !(x.key in voiced)) continue
+    const inside = (p.italics ?? [])
+      .map(([a, b]): [number, number] => [Math.max(a, x.at), Math.min(b, x.end)])
+      .filter(([a, b]) => b > a && /[\p{L}\p{N}]/u.test(p.text.slice(a, b)))
+    if (inside.length) {
+      let at = Math.min(...inside.map((r) => r[0]))
+      let end = Math.max(...inside.map((r) => r[1]))
+      while (at < end && /\s/.test(p.text[at])) at++
+      while (end > at && /\s/.test(p.text[end - 1])) end--
+      out.push({ at, end, key: x.key })
+      continue
+    }
+    const named = NAME_COLON.exec(p.text.slice(x.at, x.end))
+    const at = named && x.at + named[0].length < x.end ? x.at + named[0].length : x.at
+    out.push({ at, end: x.end, key: x.key })
+  }
+  // Sentences side by side with one owner, of one kind, are one line of theirs ("Forgot to say. You did well."): read
+  // in one clip, with the first one's marks.
+  const merged: VoicedRange[] = []
+  for (const r of out) {
+    const last = merged.at(-1)
+    const joined =
+      last &&
+      voiced[last.key] === voiced[r.key] &&
+      (marks?.kinds?.[last.key] ?? '') === (marks?.kinds?.[r.key] ?? '') &&
+      !/\S/.test(p.text.slice(last.end, r.at))
+    if (joined) last.end = r.end
+    else merged.push({ ...r })
+  }
+  return merged
 }
 
 /** A paragraph's marked speaker for a quote, as the run's rules take it: a cast member, null for someone else, undefined for none. */
@@ -290,7 +372,10 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   const italicsOf = new Map<string, [number, number][] | undefined>()
   const split = (p: ReadParagraph, start: number): Utterance[] => {
     italicsOf.set(p.pid, p.italics)
-    return segmentParagraph(p.pid, p.text, start, narrationNotes(p.text, input.marks.get(p.pid), input.cast))
+    const marks = input.marks.get(p.pid)
+    // Read thoughts, messages and letters in the character's voice: off, the narrator reads them, as before.
+    const own = input.settings.voicedLines === false && marks ? { ...marks, voiced: undefined } : marks
+    return segmentParagraph(p.pid, p.text, start, narrationNotes(p.text, own, input.cast), voicedRanges(p, own))
   }
   const context = (input.before ?? []).flatMap((p) => split(p, 0))
   let run = input.paragraphs.flatMap((p, i) => split(p, i === 0 ? Math.max(0, input.offset ?? 0) : 0))
@@ -300,6 +385,7 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   const all = [...context, ...run]
   // A speaker that is really a mood ("hushed, dread building") slipped there when it was marked: asked about again.
   const labels = all.map((u) => {
+    if (u.own) return undefined
     const kept = u.quote ? savedFor(input.marks.get(u.pid)?.speakers, u.para.slice(u.quote.at, u.quote.at + u.quote.len)) : undefined
     return kept && looksLikeNote(kept, input.cast.all) ? undefined : kept
   })
@@ -312,7 +398,8 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
       para: u.para,
       at: u.quote?.at ?? u.from,
       len: u.quote?.len ?? u.to - u.from,
-      quote: u.role === 'other',
+      // A thought or a message a character owns is theirs by its mark: not a turn in the conversation.
+      quote: u.role === 'other' && !u.own,
       label: labelled(input.cast, labels[k])
     })),
     input.cast
@@ -321,7 +408,7 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   all.forEach((u, k) => {
     // A quote the AI was asked about already (even when it couldn't tell) isn't asked about again, nor one a tag
     // names the speaker of. A guess from a name nearby or from turns is checked.
-    if (u.role !== 'other' || !u.quote || attributed[k]?.how === 'tagged' || labels[k] !== undefined) return
+    if (u.role !== 'other' || !u.quote || u.own || attributed[k]?.how === 'tagged' || labels[k] !== undefined) return
     const key = quoteKey(u.para.slice(u.quote.at, u.quote.at + u.quote.len))
     if (key) (unplaced.get(u.pid) ?? unplaced.set(u.pid, new Set()).get(u.pid)!).add(key)
   })

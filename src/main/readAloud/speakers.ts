@@ -17,6 +17,10 @@ export const MARKER = '[AIWRITE-READ-ALOUD v1]'
 export interface Para extends ParagraphMarks {
   id: string
   text: string
+  /** Set apart on the page (a blockquote: a letter, a sign, a passage read out). */
+  block?: 'quote'
+  /** The stretches in italics, [from, to) in `text`: shown to the lab's director. */
+  italics?: [number, number][]
 }
 
 /** A quoted line: straight or curly doubles. One left open runs to the end of its paragraph. */

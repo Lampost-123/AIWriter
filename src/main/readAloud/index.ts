@@ -32,7 +32,7 @@ import { isDrafting, type DraftActivity } from '../ai/drafts'
 import { studioVoicesDir, voicesInstalled } from '../speech'
 import { speechFetch } from '../speech/client'
 import { AudioCache, GB } from './audioCache'
-import { everyone, type CastMember } from './cast'
+import { everyone, type CastMember, type SceneCast } from './cast'
 import { DraftMarks } from './draftMarks'
 import { asSpoken } from './italicSpeech'
 import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
@@ -46,9 +46,13 @@ import type { WriterSpeaker } from '../ai/speakerTags'
 import { linesSpokenBy, paragraphsOfDoc } from './suggest'
 import { askVoice, voiceLater as queueVoices } from './autoVoice'
 import { listVoices } from './voices'
-import { castableCharacters, castFromStudio, readStudioVoices } from './studio'
+import { castableCharacters, castFromStudio, castVoiceless, readStudioVoices } from './studio'
 import { writerBlocks } from './writerBlocks'
 import { soundsForReading, soundsInBackground, soundsWorldClosing, stopSoundMarks } from '../sounds'
+import { autoCaster, CastingStore, type AutoCaster } from './autocast'
+import { withoutDirectorTone } from './director'
+import { ruleKinds, withRuleKinds } from './kinds'
+import type { ParagraphMarks } from './types'
 
 /** Where reading aloud keeps its caches. */
 export const speechCacheDir = (): string => join(userDataDir(), 'speech-cache')
@@ -133,6 +137,61 @@ export function readAloudWorldClosing(): void {
 }
 
 const speech = (): SpeechSettings => ({ ...defaultSpeechSettings(), ...getSettings().speech })
+
+// ---------- Voices for everyone, and what each line is ----------
+
+let castingFile: CastingStore | null = null
+const castingStore = (): CastingStore => (castingFile ??= new CastingStore(join(speechCacheDir(), 'autocast.json')))
+
+/**
+ * With "Give characters their own voices" on and the studio voices downloaded: a caster for the people the marks name
+ * who aren't in the world ("the guard"), the same voice each time, and a way to keep what it gave out. Null otherwise.
+ */
+function castingFor(worldId: ID, cast: CastMember[], s: SpeechSettings): { caster: AutoCaster; keep: () => void } | null {
+  if (!s.castVoices || s.studioVoices === false) return null
+  const voices = readStudioVoices(studioVoicesDir())
+  if (!voices.length) return null
+  const caster = autoCaster({ voices, narrator: s.narratorVoice, cast, kept: castingStore().load(worldId) })
+  return {
+    caster,
+    keep: () => {
+      const given = caster.given()
+      if (!given) return
+      try {
+        castingStore().save(worldId, given)
+      } catch (e) {
+        console.warn('[read aloud] could not keep the voices cast', e)
+      }
+    }
+  }
+}
+
+/**
+ * The world's characters who speak in these clips (their lines, thoughts or messages) with no voice at all are given a
+ * studio voice that fits them, saved on their page (studio.ts castVoiceless), so Adam sees it there and can change it.
+ * True when anyone was given one: the cast is read again before planning.
+ */
+function castWhoSpeaks(db: Parameters<typeof castVoiceless>[0], s: SpeechSettings, cast: CastMember[], clips: readonly PlannedClip[]): boolean {
+  if (!s.castVoices || s.studioVoices === false) return false
+  const speaking = new Set(clips.map((c) => c.who))
+  const voiceless = cast.filter((c) => speaking.has(c.name) && !c.voice?.voice?.trim() && !c.voice?.design?.trim()).map((c) => c.id)
+  if (!voiceless.length) return false
+  const voices = readStudioVoices(studioVoicesDir())
+  const given = castVoiceless(db, voices, s.narratorVoice, voiceless)
+  if (!given.length) return false
+  emit('memory:changed', { sceneId: null, entryIds: given })
+  return true
+}
+
+/**
+ * The marks a plan reads: what is kept (the writer's tags first, then the director's), with what the rules can tell of
+ * each line's kind filling the rest. With Emotion and tone off, the director's notes on how lines are said are left
+ * unread (the writer's own stay, as before), so lines are read evenly; who says them and what they are stay.
+ */
+function forPlan(kept: Map<string, ParagraphMarks>, paragraphs: ReadParagraph[], cast: SceneCast, s: SpeechSettings): Map<string, ParagraphMarks> {
+  const marks = withRuleKinds(kept, ruleKinds(paragraphs, cast))
+  return s.markSpeakers ? marks : new Map([...marks].map(([pid, m]) => [pid, withoutDirectorTone(m)]))
+}
 
 // ---------- Who says each line, from the writer ----------
 
@@ -229,9 +288,9 @@ function marksWanted(): boolean {
 }
 
 /**
- * Starts the AI marking these paragraphs of a scene in the background, with the Read aloud model: with Mark who says
- * what, who says each line and how; otherwise who says the quotes the rules can't place. Paragraphs already being
- * marked for the same words are left to that call (a reading's, or an earlier draft's). Failures are only logged.
+ * Starts the AI marking these paragraphs of a scene in the background (the director: what each line is, whose it is
+ * and how it is said). Paragraphs already being marked for the same words are left to that call (a reading's, or an
+ * earlier draft's). Failures are only logged.
  */
 function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[], o: { sounds?: boolean } = {}): void {
   const w = world.maybeCurrentWorld()
@@ -249,7 +308,7 @@ function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[], 
   const marking: MarkingScene = {
     worldId: w.id,
     sceneId,
-    blocks: paragraphs.map((p) => ({ id: p.pid, text: p.text, ...kept.get(p.pid) })),
+    blocks: paragraphs.map((p) => ({ id: p.pid, text: p.text, ...(p.block ? { block: p.block } : {}), ...(p.italics ? { italics: p.italics } : {}), ...kept.get(p.pid) })),
     run: paragraphs.map((p) => p.pid),
     cast: rc.forAi(sceneText),
     pov: rc.narrator,
@@ -258,13 +317,7 @@ function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[], 
   const want = new Set(pids)
   // Sound effects: the new paragraphs' sounds are marked too, quietly (src/main/sounds).
   if (o.sounds !== false) soundsInBackground(w.id, w.db, sceneId, paragraphs, pids)
-  if (s.markSpeakers) {
-    theMarker().noteAll(marking, want)
-    return
-  }
-  const { unplaced } = planClips({ paragraphs, settings: s, cast: rc.cast, lexicon: rc.lexicon, marks: kept })
-  const mine = new Map([...unplaced].filter(([pid]) => want.has(pid)))
-  if (mine.size) theMarker().label(marking, mine, { quiet: true })
+  theMarker().noteAll(marking, want)
 }
 
 let draftMarks: DraftMarks | null = null
@@ -317,16 +370,29 @@ export function speakerLabels(req: SpeakerLabelsRequest): SpeakerLabel[] {
   const paragraphs = onPage.map((p) => asSpoken(p).para)
   if (!paragraphs.length) return []
   const sceneText = paragraphs.map((p) => p.text).join('\n\n')
-  const rc = readingCast(w.db, req.sceneId, sceneText)
+  let rc = readingCast(w.db, req.sceneId, sceneText)
   const kept = markStore().current(w.id, req.sceneId, paragraphs)
-  const { clips, unplaced } = planClips({ paragraphs, settings: s, cast: rc.cast, lexicon: rc.lexicon, marks: kept })
+  const marks = forPlan(kept, paragraphs, rc.cast, s)
+  const planned = () => {
+    const casting = castingFor(w.id, rc.cast.all, s)
+    const got = planClips({ paragraphs, settings: s, cast: rc.cast, lexicon: rc.lexicon, marks, ...(casting ? { autocast: casting.caster } : {}) })
+    casting?.keep()
+    return got
+  }
+  let plan = planned()
+  // A character speaking with no voice yet is given one on their page, and the labels say so at once.
+  if (castWhoSpeaks(w.db, s, rc.cast.all, plan.clips)) {
+    rc = readingCast(w.db, req.sceneId, sceneText)
+    plan = planned()
+  }
+  const { clips, unplaced } = plan
   const busy = marker?.busyIn(w.id, req.sceneId) ?? new Set<string>()
   const byPid = new Map<string, PlannedClip[]>()
   for (const c of clips) (byPid.get(c.pid) ?? byPid.set(c.pid, []).get(c.pid)!).push(c)
   const missing: string[] = []
   const labels = paragraphs.flatMap((p) => {
     if (busy.has(p.pid)) return []
-    if (!markedEnough(p.text, kept.get(p.pid), { tone: s.markSpeakers, unplaced: unplaced.has(p.pid) })) {
+    if (!markedEnough(p.text, kept.get(p.pid), { tone: true, unplaced: unplaced.has(p.pid) })) {
       missing.push(p.pid)
       return []
     }
@@ -363,7 +429,12 @@ function paragraphOf(p: ReadParagraph): ReadParagraph {
         .filter((r): r is [number, number] => Array.isArray(r) && Number.isFinite(r[0]) && Number.isFinite(r[1]) && r[1] > r[0])
         .slice(0, 200)
     : undefined
-  return { pid: typeof p?.pid === 'string' ? p.pid.slice(0, 40) : '', text, ...(italics?.length ? { italics } : {}) }
+  return {
+    pid: typeof p?.pid === 'string' ? p.pid.slice(0, 40) : '',
+    text,
+    ...(italics?.length ? { italics } : {}),
+    ...(p?.block === 'quote' ? { block: 'quote' as const } : {})
+  }
 }
 
 /** Every paragraph id the scene has, from the window, when it is a list it could be. */
@@ -402,9 +473,11 @@ export function planReading(req: ReadingRequest): ReadingPlan {
   })
   const startAt = req.offset ?? 0
   const sceneText = scene.map((p) => p.text).join('\n\n')
-  const rc = readingCast(w.db, req.sceneId, sceneText)
+  let rc = readingCast(w.db, req.sceneId, sceneText)
   const kept = writerMarks(w.id, req.sceneId, scene, rc.cast.all, s.markSpeakers)
-  const base = {
+  const marks = forPlan(kept, scene, rc.cast, s)
+  let casting = castingFor(w.id, rc.cast.all, s)
+  let base = {
     paragraphs,
     before,
     offset: pageParagraphs[0] ? spoken.get(pageParagraphs[0].pid)!.forward(startAt) : startAt,
@@ -412,10 +485,20 @@ export function planReading(req: ReadingRequest): ReadingPlan {
     settings: s,
     cast: rc.cast,
     lexicon: rc.lexicon,
-    marks: kept,
-    takes: (key: string) => theTakes().get(key)
+    marks,
+    takes: (key: string) => theTakes().get(key),
+    ...(casting ? { autocast: casting.caster } : {})
   }
-  const first = planClips(base)
+  let first = planClips(base)
+  casting?.keep()
+  // A character speaking with no voice yet is given one on their page, and is read in it from the first line.
+  if (castWhoSpeaks(w.db, s, rc.cast.all, first.clips)) {
+    rc = readingCast(w.db, req.sceneId, sceneText)
+    casting = castingFor(w.id, rc.cast.all, s)
+    base = { ...base, cast: rc.cast, ...(casting ? { autocast: casting.caster } : {}) }
+    first = planClips(base)
+    casting?.keep()
+  }
   // Sound effects (src/main/sounds): their marking starts beside the speakers', and each clip gets its sounds. They
   // never make a clip wait.
   const sfx = soundsForReading({
@@ -432,23 +515,23 @@ export function planReading(req: ReadingRequest): ReadingPlan {
   const marking: MarkingScene = {
     worldId: w.id,
     sceneId: req.sceneId,
-    blocks: scene.map((p) => ({ id: p.pid, text: p.text, ...kept.get(p.pid) })),
+    blocks: scene.map((p) => ({ id: p.pid, text: p.text, ...(p.block ? { block: p.block } : {}), ...(p.italics ? { italics: p.italics } : {}), ...kept.get(p.pid) })),
     run: paragraphs.map((p) => p.pid),
     offset: base.offset,
     cast: rc.forAi(sceneText),
     pov: rc.narrator,
     pids: pidsOf(req.pids)
   }
-  let markAhead: ReadingPlan['markAhead']
-  if (s.markSpeakers) markAhead = m.note(marking).again
-  // Where the rules can't tell who says a line, the AI marks the speakers for the scene.
-  else if (first.unplaced.size) m.label(marking, first.unplaced)
+  // The director marks the scene a little ahead of the reading: what each line is, whose it is and how it is said.
+  const markAhead: ReadingPlan['markAhead'] = m.note(marking).again
   const ahead = markAhead ? { markAhead } : {}
   const busy = m.busyIn(w.id, req.sceneId)
   if (!busy.size) return done({ clips: first.clips, marking: [], ...ahead })
-  // A line waits for its speaker only when that changes its voice: with nobody's own voice, only the bar's name does.
-  if (!s.markSpeakers && !rc.cast.scene.some((c) => hasOwnVoice(c, s))) return done({ clips: first.clips, marking: [...busy], ...ahead })
-  const again = planClips({ ...base, ...(s.markSpeakers ? { marking: busy } : { labelling: busy }) })
+  // A line waits for its marks only when they can change its voice: with nobody's own voice and no casting, and
+  // Emotion and tone off, only the bar's name would.
+  if (!s.markSpeakers && !casting && !rc.cast.scene.some((c) => hasOwnVoice(c, s))) return done({ clips: first.clips, marking: [...busy], ...ahead })
+  const again = planClips({ ...base, marking: busy })
+  casting?.keep()
   return done({ clips: again.clips, marking: [...busy], ...ahead })
 }
 

@@ -53,6 +53,8 @@ export interface ReadParagraph {
   text: string
   /** The stretches in italics, [from, to) in `text`. */
   italics?: [number, number][]
+  /** Set apart on the page: in a blockquote (a letter, a sign, a passage read out). Sent for the lab's director. */
+  block?: 'quote'
 }
 
 export interface ReadingRequest {

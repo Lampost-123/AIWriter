@@ -124,7 +124,9 @@ function harness(replies: ((call: Parameters<Ask>[0]) => Promise<{ text: string 
     (sceneId, pids, error) => {
       told.push({ sceneId, pids, error })
       waiting?.()
-    }
+    },
+    // The older marker prompts (kept for comparing them): the director's own calls are tested in director.test.ts.
+    { director: false }
   )
   const told1 = (): Promise<void> => new Promise((resolve) => (waiting = resolve))
   return { store, marker, asked, told, told1, stops: () => stopped }

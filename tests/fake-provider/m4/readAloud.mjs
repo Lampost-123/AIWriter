@@ -13,6 +13,14 @@
 //             numbers); a number before narration gets "hushed and steady | slow".
 //             e.g. {"1": "Mara | quiet and wary", "2": "hushed and steady | slow"}
 //
+//   director  The director (src/main/readAloud/director.ts): an entry for each numbered line. The k-th quote (in order)
+//             is "speech" by the first two characters the system prompt lists under "Characters (write their names
+//             exactly as here):" taking turns (odd k the first, even k the second; "new:a stranger" after "someone"),
+//             with the note "quiet and wary" (odd k) or "bright and quick" (even k). A line that starts with an
+//             asterisk (*italics*) is the first character's "thought" ("small and inward"). The first sentence of
+//             narration in each paragraph gets {"kind": "narration", "emotion": "tense", "note": "hushed and steady"}.
+//             e.g. {"lines": {"1": {"kind": "speech", "who": "Mara", "emotion": "tense", "intensity": 2, "note": "quiet and wary"}}}
+//
 //   voice     Suggest (a character's voice): always
 //             "A woman in her thirties with a low, steady voice, a slight northern lilt and a dry, unhurried delivery."
 //             When the system prompt also asks how the name is said ("SAY IT AS:", the AI filling in a voice by
@@ -71,10 +79,10 @@ function soundsReply(user) {
 
 /** The names under "Characters in this story:" in the system prompt. */
 function castNames(system) {
-  const block = system.split('Characters in this story:')[1] ?? ''
+  const block = system.split('Characters in this story:')[1] ?? system.split('Characters (write their names exactly as here):')[1] ?? ''
   const names = []
   for (const line of block.split('\n').slice(1)) {
-    const m = /^- (.+?)(?: \(also [^)]*\))?(?::|$)/.exec(line.trim())
+    const m = /^- (.+?)(?: \(also [^)]*\))?(?: \[in this scene\])?(?::|$)/.exec(line.trim())
     if (!m) {
       if (line.trim() && !line.startsWith('-')) break
       continue
@@ -118,6 +126,30 @@ export function readAloudReply(system, messages, _model) {
         ])
       )
     )
+  }
+
+  if (job === 'director') {
+    const text = userText(messages).split('\n---\n').at(-1) ?? ''
+    const out = {}
+    let k = 0
+    for (const para of text.split(/\n\n+/)) {
+      let told = false
+      for (const l of numberedLines(para)) {
+        const at = para.indexOf(`[${l.n}]`) + `[${l.n}]`.length
+        if (l.quote) {
+          k++
+          out[l.n] = l.someone
+            ? { kind: 'speech', who: 'new:a stranger', emotion: 'neutral', intensity: 1, note: 'flat' }
+            : { kind: 'speech', who: names.length ? names[(k - 1) % Math.min(2, names.length)] : 'new:someone', emotion: 'tense', intensity: 2, note: k % 2 ? 'quiet and wary' : 'bright and quick' }
+        } else if (para[at] === '*' && names.length) {
+          out[l.n] = { kind: 'thought', who: names[0], emotion: 'anxious', intensity: 1, note: 'small and inward' }
+        } else if (!told) {
+          out[l.n] = { kind: 'narration', emotion: 'tense', note: 'hushed and steady' }
+          told = true
+        }
+      }
+    }
+    return JSON.stringify({ lines: out, state: { present: names.slice(0, 2), lastSpeakers: [], newPeople: [] } })
   }
 
   if (job === 'sounds') return soundsReply(userText(messages))
