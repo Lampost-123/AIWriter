@@ -40,21 +40,24 @@ const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map
  * title stays whole beside the scene's tools (Variants, Beat by beat, History, Listen).
  */
 const COMPACT_BELOW = 640
+/** The New look's Mark done keeps its words down to a narrower header, so the model name needs more room there. */
+const COMPACT_BELOW_NEW = 680
 
 /** True when the header around `ref` is too narrow for the model name next to Generate. */
 function useNarrowHeader(ref: RefObject<HTMLElement | null>): boolean {
   const [narrow, setNarrow] = useState(false)
+  const below = useNewLook() ? COMPACT_BELOW_NEW : COMPACT_BELOW
   // Measured before paint, so the header never shows one layout and then jumps to the other.
   useLayoutEffect(() => {
     const el = ref.current
     const host = el?.closest('header') ?? el?.parentElement
     if (!host) return
-    const measure = (): void => setNarrow(host.getBoundingClientRect().width < COMPACT_BELOW)
+    const measure = (): void => setNarrow(host.getBoundingClientRect().width < below)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(host)
     return () => ro.disconnect()
-  }, [ref])
+  }, [ref, below])
   return narrow
 }
 
