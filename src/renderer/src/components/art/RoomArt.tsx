@@ -10,11 +10,11 @@
 //  - Echo: repetition (a bell, its rings going out). Loom: plot threads (three threads weaving, knotted).
 //  - Briefing: what the AI saw (the lamp over an open briefing; the lamp's light is the AI's amber).
 // Every loop is slow (seconds), moves by transform, opacity or a line's dashes only, keeps still while the window is
-// away or Adam is typing (stillWatch.ts), rests after a while on an open page (the pointer wakes it), and with less
+// away or Adam is typing (living.ts, the living art's one watcher), rests after a while on an open page (the pointer wakes it), and with less
 // motion each drawing rests on its first frame.
 import { useEffect, useId, useState } from 'react'
 import { cn } from '@/lib/cn'
-import { watchArtStill } from './stillWatch'
+import { watchWindowForArt as watchArtStill } from './living'
 import './roomArt.css'
 
 interface ArtProps {

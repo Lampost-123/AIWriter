@@ -2,7 +2,7 @@
   The desk's room drawings (components/art/RoomArt.tsx): their colours in each theme, and their slow movements.
   Rules every drawing keeps: loops are seconds long and small, move by transform, opacity or dashes only; .la is a
   drawing's root and .lp each part that loops. They pause while the window is away or Adam is typing
-  (<html data-art-still>, <html data-art-typing>: stillWatch.ts), and with less motion each rests on its first frame.
+  (<html data-art-still>, <html data-art-typing>: living.ts, the living art's one watcher), and with less motion each rests on its first frame.
   Amber (--lamp) only where the AI is: the lamp over the briefing, the lanterns' flames, a lighthouse while a check runs.
 */
 
