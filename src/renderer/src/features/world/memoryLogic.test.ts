@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChangeInput, ChangeView, Entry, Outline, SourceLink } from '@shared/types'
 import {
   allAdams,
+  changeSourceNote,
   changeWhere,
   createKindsFor,
   describeChange,
@@ -148,6 +149,15 @@ describe('sourceNote', () => {
   it('marks AI drafts and Adam’s own facts', () => {
     expect(sourceNote('ai', [link('ok')])).toEqual({ kind: 'ai' })
     expect(sourceNote('adam', [link('ok')])).toEqual({ kind: 'adam' })
+  })
+
+  it('says "Kept by you" for a change brought back by Undo, which rests on no words any more', () => {
+    expect(changeSourceNote({ origin: 'text', links: [] })).toEqual({ kind: 'kept' })
+    // Otherwise as sourceNote: its words, words removed, the AI's or Adam's.
+    expect(changeSourceNote({ origin: 'text', links: [link('ok')] })?.kind).toBe('words')
+    expect(changeSourceNote({ origin: 'text', links: [link('gone')] })).toEqual({ kind: 'gone', sceneId: 's1' })
+    expect(changeSourceNote({ origin: 'ai', links: [] })).toEqual({ kind: 'ai' })
+    expect(changeSourceNote({ origin: 'adam', links: [] })).toEqual({ kind: 'adam' })
   })
 })
 

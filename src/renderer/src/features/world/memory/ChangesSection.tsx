@@ -5,7 +5,7 @@ import { IconButton, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { announceDelete } from '@/lib/undoDelete'
-import { changeUntil, changeWhere, shortQuote, sourceNote, type ChangeWords } from '../memoryLogic'
+import { changeSourceNote, changeUntil, changeWhere, shortQuote, type ChangeWords } from '../memoryLogic'
 import type { ScenePlace } from '../useSceneLabels'
 import { QuietError } from './QuietError'
 import { EditedSince, PlaceLink } from './SourceLine'
@@ -25,7 +25,8 @@ const howTheyAre = (kind: EntryKind): string => (kind === 'character' || kind ==
 /**
  * How the entry changes as the story goes on: each change with where it happens (a link to the
  * scene), what changed in plain words, and where it came from (the words in the scene, "Drafted by
- * AI" or "Added by you"). Read-only; each can be removed, with Undo.
+ * AI", "Added by you", or "Kept by you" once an Undo brought it back). Read-only; each can be removed,
+ * with Undo.
  */
 export function ChangesSection({
   name,
@@ -71,7 +72,7 @@ const ChangeRow = memo(function ChangeRow({
   const { change: c, words } = item
   const where = changeWhere(c)
   const until = changeUntil(c)
-  const note = sourceNote(c.origin, c.links)
+  const note = changeSourceNote(c)
   // Another entry's fresh description sets this relationship: removing it would remove all of that, so it isn't offered here.
   const removable = !(c.kind === 'full' && !item.mine)
 
@@ -136,6 +137,11 @@ const ChangeRow = memo(function ChangeRow({
           <>
             <span aria-hidden>·</span>
             <span>Added by you</span>
+          </>
+        ) : note?.kind === 'kept' ? (
+          <>
+            <span aria-hidden>·</span>
+            <span title="You brought this back, so it no longer depends on the scene's words">Kept by you</span>
           </>
         ) : null}
         <div className="flex-1" />

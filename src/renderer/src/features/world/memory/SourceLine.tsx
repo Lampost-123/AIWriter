@@ -166,11 +166,11 @@ export function SourceLine({
       </span>
     )
   }
-  if (note.kind === 'edited') {
+  if (note.kind === 'edited' || note.kind === 'kept') {
     return (
-      <span className={base}>
+      <span className={base} title={note.kind === 'kept' ? "You brought this back, so it no longer depends on the scene's words" : undefined}>
         <Check size={11} className="shrink-0 self-center" aria-hidden />
-        Changed by you
+        {note.kind === 'kept' ? 'Kept by you' : 'Changed by you'}
       </span>
     )
   }

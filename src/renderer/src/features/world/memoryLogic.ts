@@ -81,6 +81,17 @@ export type SourceNote =
   | { kind: 'gone'; sceneId: ID | null }
   | { kind: 'ai' }
   | { kind: 'adam' }
+  /** Read from the text, then kept by Adam: brought back by Undo after its words changed, it rests on no words now. */
+  | { kind: 'kept' }
+
+/**
+ * Where a change came from: as sourceNote, and "Kept by you" for one read from the text that has no words behind it any
+ * more. The memory links every change it reads to its words; only an Undo that brings a removed change back unlinks it
+ * (it is Adam's to keep from then on, keeper/undo.ts).
+ */
+export function changeSourceNote(c: Pick<ChangeView, 'origin' | 'links'>): SourceNote | null {
+  return sourceNote(c.origin, c.links) ?? (c.origin === 'text' ? { kind: 'kept' } : null)
+}
 
 /** Where a fact came from, for a quiet line under it. Null when there is nothing to say. */
 export function sourceNote(origin: Origin, links: SourceLink[]): SourceNote | null {
