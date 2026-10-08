@@ -46,7 +46,8 @@ import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { useArrival } from '@/layout/desk/arrival'
 import { GalleryCard, type OpenHow } from './GalleryCard'
-import { gallerySections, galleryTabs, staggerDelay, tabClip, worldLine } from './galleryLogic'
+import { KindBannerView, NewKindCard } from './KindBanner'
+import { CARD_SIZE, SHAPE_OF, gallerySections, galleryTabs, heroLayout, kindBanner, staggerDelay, tabClip, worldLine } from './galleryLogic'
 import type { WorldData } from './worldData'
 
 /** How long the cards take to fade out before a new tab's come in (the desk's exits). */
@@ -183,6 +184,29 @@ export function WorldGallery({
     }, LEAVE_MS)
   }
 
+  // The room the cards have (the pane, less its padding, and less the kind's banner): a kind's few cards grow into it.
+  const [room, setRoom] = useState({ width: 0, height: 0 })
+  const bannerEl = useRef<HTMLDivElement | null>(null)
+  const measureRoom = useCallback(() => {
+    const el = scroller.current
+    if (!el) return
+    const pad = parseFloat(getComputedStyle(el.querySelector('.g-gal') ?? el).paddingLeft) || 44
+    const banner = bannerEl.current ? bannerEl.current.offsetHeight + 34 : 0
+    const width = Math.max(0, el.clientWidth - 2 * pad)
+    // The section's label (30px) and the gallery's own top and bottom room.
+    const height = Math.max(0, el.clientHeight - banner - 30 - 24 - 40)
+    setRoom((r) => (r.width === width && r.height === height ? r : { width, height }))
+  }, [])
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    measureRoom()
+    const ro = new ResizeObserver(measureRoom)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [measureRoom])
+  useLayoutEffect(measureRoom)
+
   const shown = useMemo(() => shownCards(all, filters, sort, GALLERY_KINDS), [all, filters, sort])
   const sections = useMemo(() => gallerySections(shown, sort), [shown, sort])
   const total = shown.length
@@ -265,6 +289,36 @@ export function WorldGallery({
     .filter(Boolean)
     .join(' · ')
   const extra = filtersOn({ ...filters, query: '', kind: null })
+  // A kind's own page: its banner, its few cards grown to fill the room, and a New card at the end.
+  const banner = useMemo(
+    () =>
+      chosen
+        ? kindBanner(chosen, all, name, {
+            threads,
+            parentOf: (id) => {
+              const p = byId.get(id)?.parentId
+              return p ? byId.get(p)?.name.trim() || null : null
+            }
+          })
+        : null,
+    [chosen, all, name, threads, byId]
+  )
+  const newCard = !!chosen && !filters.query.trim() && !extra
+  const hero =
+    chosen && sections.length === 1
+      ? heroLayout(
+          SHAPE_OF[chosen],
+          sections[0].cards.length + (newCard ? 1 : 0),
+          // The story's lead is drawn 30 wider and 40 taller.
+          sections[0].featured ? { width: room.width, height: room.height - 40 } : room,
+          28,
+          sections[0].featured ? 30 : 0
+        )
+      : { zoom: 1, cols: null }
+  const zoom = hero.zoom
+  // Wrapping at the columns chosen: the cards' width at life size (the zoom scales it with them).
+  const heroWidth =
+    chosen && hero.cols ? hero.cols * CARD_SIZE[SHAPE_OF[chosen]].w + (hero.cols - 1) * 28 + (sections[0]?.featured ? 30 : 0) + 2 : null
   // The stagger's order: each section's heading with its first card, then its cards, across the sections.
   let order = 0
 
@@ -344,14 +398,30 @@ export function WorldGallery({
           const headAt = order
           const id = `g-sec-${s.kind}`
           return (
-            <section key={s.kind} aria-labelledby={id} className="g-sec" data-kind={s.kind} data-shape={s.shape}>
+            <section
+              key={s.kind}
+              aria-labelledby={id}
+              className="g-sec"
+              data-kind={s.kind}
+              data-shape={s.shape}
+              data-alone={chosen ? true : undefined}
+            >
               <h2 id={id} className="g-lbl g-in" style={gen ? ({ '--d': `${staggerDelay(headAt)}ms` } as React.CSSProperties) : undefined}>
                 <span>{s.label}</span>
                 <span className="g-n">{s.cards.length.toLocaleString('en-GB')}</span>
                 <span aria-hidden className="g-rule" />
                 <span className="g-hint">{s.hint}</span>
               </h2>
-              <ul className="g-cards" data-shape={s.shape}>
+              <ul
+                className="g-cards"
+                data-shape={s.shape}
+                data-zoomed={zoom > 1 || undefined}
+                style={
+                  zoom > 1 || heroWidth
+                    ? ({ zoom, maxWidth: heroWidth ?? undefined, marginInline: heroWidth ? 'auto' : undefined } as React.CSSProperties)
+                    : undefined
+                }
+              >
                 {s.cards.map((c) => {
                   const entry = byId.get(c.id) ?? null
                   const parent = entry?.parentId ? byId.get(entry.parentId) : null
@@ -379,6 +449,16 @@ export function WorldGallery({
                     </li>
                   )
                 })}
+                {newCard && chosen === s.kind ? (
+                  <li className="g-item" data-shape={s.shape}>
+                    <NewKindCard
+                      kind={s.kind}
+                      shape={s.shape}
+                      style={gen ? ({ '--d': `${staggerDelay(order)}ms` } as React.CSSProperties) : undefined}
+                      onBlank={() => void newEntry(s.kind, onCreated)}
+                    />
+                  </li>
+                ) : null}
               </ul>
             </section>
           )
@@ -612,6 +692,11 @@ export function WorldGallery({
           </p>
         ) : null}
         <div className="g-gal" data-gen={gen ?? undefined} data-leaving={leaving || undefined} data-arrive={arriving || undefined}>
+          {banner && chosen && all.length ? (
+            <div ref={bannerEl} className="g-kband-wrap">
+              <KindBannerView key={chosen} kind={chosen} banner={banner} motifs={motifs} arriving={!!gen} />
+            </div>
+          ) : null}
           {body}
         </div>
       </div>

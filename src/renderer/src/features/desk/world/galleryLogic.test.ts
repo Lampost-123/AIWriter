@@ -6,6 +6,10 @@ import {
   artHue,
   gallerySections,
   galleryTabs,
+  heroLayout,
+  heroZoom,
+  kindBanner,
+  placeName,
   roleLabel,
   shortPlace,
   staggerDelay,
@@ -127,5 +131,69 @@ describe('the World room’s gallery', () => {
       'Opened Ch 1, Sc 2 · resolved Ch 2, Sc 1'
     )
     expect(threadLine({ column: 'planned', setUp: null, paidOff: null, openChapters: null })).toBe('Not on a scene card or in a scene yet')
+  })
+})
+
+describe("a kind's own page", () => {
+  it('grows a few cards to fill the room, in the rows that let them grow most, and brings more back towards life size', () => {
+    const room = { width: 1400, height: 760 }
+    const one = heroZoom('portrait', 2, room)
+    const seven = heroZoom('portrait', 7, room)
+    const many = heroZoom('portrait', 40, room)
+    expect(one).toBe(1.6)
+    expect(seven).toBeLessThan(one)
+    expect(seven).toBeGreaterThan(1)
+    expect(many).toBeGreaterThanOrEqual(1)
+    expect(many).toBeLessThanOrEqual(1.25)
+    // Never under life size, however narrow; never past the shape's most.
+    expect(heroZoom('landscape', 3, { width: 600, height: 400 })).toBe(1)
+    expect(heroZoom('scroll', 1, room)).toBe(1.15)
+    // Five in a row on a wide page beat two short rows; the rows always fit the height left under the banner.
+    expect(heroZoom('portrait', 5, { width: 1240, height: 530 })).toBeGreaterThan(1.1)
+    const short = heroZoom('portrait', 8, { width: 2400, height: 560 })
+    expect(262 * short).toBeLessThanOrEqual(560)
+    expect(heroZoom('portrait', 0, room)).toBe(1)
+    // Four places on a wide, tall page: two rows of two, as large as they go; never three and one left over.
+    expect(heroLayout('landscape', 4, { width: 1570, height: 800 })).toEqual({ zoom: 1.5, cols: 2 })
+    // On a short page they keep to one row.
+    expect(heroLayout('landscape', 4, { width: 1570, height: 300 }).cols).toBeNull()
+    for (const n of [3, 4, 5, 6, 7, 8, 9, 10]) {
+      const { cols } = heroLayout('portrait', n, { width: 1600, height: 1000 })
+      if (cols) expect((n - (Math.ceil(n / cols) - 1) * cols) * 2, `${n} in ${cols} columns`).toBeGreaterThanOrEqual(cols)
+    }
+  })
+
+  it("titles a kind's banner from the world's name and states facts from its entries", () => {
+    expect(placeName('Sample world: Gullhaven')).toBe('Gullhaven')
+    expect(placeName('  ')).toBe('your world')
+    const people = [
+      card({ name: 'Wren', role: 'protagonist', scenes: 4, importance: 9 }),
+      card({ name: 'Edric', role: 'supporting', scenes: 2, importance: 4 }),
+      card({ name: 'Iska', role: 'Supporting', scenes: 3, importance: 5 }),
+      card({ name: 'Ansel', role: 'minor', scenes: 0, importance: 1 })
+    ]
+    const b = kindBanner('character', people, 'Sample world: Gullhaven')
+    expect(b.title).toBe('The people of Gullhaven')
+    expect(b.facts).toEqual(['4 characters', '1 protagonist', '2 supporting', '1 minor', '1 not in a scene yet'])
+    expect(b.most).toBe('Wren is in the most scenes (4)')
+    expect(b.lead.map((c) => c.name)).toEqual(['Wren', 'Iska', 'Edric'])
+    expect(b.appearances).toBe(9)
+
+    const places = [card({ name: 'Town', kind: 'place', scenes: 3 }), card({ name: 'Light', kind: 'place', scenes: 2 })]
+    const inside = kindBanner('place', places, 'Gullhaven', { parentOf: (id) => (id === places[1].id ? 'Town' : null) })
+    expect(inside.facts).toEqual(['2 places', '1 inside Town'])
+
+    const threads = [card({ name: 'Q1', kind: 'thread' }), card({ name: 'Q2', kind: 'thread' })]
+    const t = kindBanner('thread', threads, 'Gullhaven', {
+      threads: new Map([
+        [threads[0].id, { column: 'open' as const }],
+        [threads[1].id, { column: 'resolved' as const }]
+      ])
+    })
+    expect(t.title).toBe('The questions the story has asked')
+    expect(t.facts).toEqual(['2 plot threads', '1 open', '1 resolved'])
+    expect(t.most).toBe('')
+    expect(inside.most).toBe('Most often in a scene: Town (3)')
+    expect(kindBanner('lore', [card({ name: 'Rule', kind: 'lore', hardRule: true })], 'Gullhaven').facts).toEqual(['1 lore', '1 hard rule'])
   })
 })

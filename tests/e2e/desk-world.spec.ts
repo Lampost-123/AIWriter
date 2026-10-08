@@ -472,7 +472,9 @@ test('the gallery orders by first appearance too, and the dossier says where it 
   expect((await invoke(win, 'getSettings')).lastSceneId).toBe(lead.first!.sceneId)
 })
 
-test('the story’s spine in every room: Plan, World, Check and the story’s home beside it, each clear of it and centred', async ({ launch }) => {
+test('the story’s spine in every room: Plan, World, Check and the story’s home beside it, each clear of it and centred', async ({
+  launch
+}) => {
   const { app, win } = await sampleWorld(launch)
   const spine = win.locator('[data-desk-spine]')
   const sheet = win.locator('.desk-room-sheet')
@@ -541,13 +543,18 @@ test('the cards and the dossier show each entry’s drawing, none twice side by 
   const { win } = await sampleWorld(launch)
   await room(win, 'World').click()
   await expect(gallery(win)).toBeVisible()
-  const named = (name: string) => cards(win).filter({ has: win.locator('.g-name, .g-title', { hasText: name }) }).first()
+  const named = (name: string) =>
+    cards(win)
+      .filter({ has: win.locator('.g-name, .g-title', { hasText: name }) })
+      .first()
   // No portraits in the sample world: each card has its drawing (Wren the lantern, Edric his boat, the steps their stairs).
   await expect(named('Wren Halloway').locator('[data-motif="lantern"]')).toHaveCount(1)
   await expect(named('Edric Halloway').locator('[data-motif="boat"]')).toHaveCount(1)
   await expect(named('The Drowned Steps').locator('[data-motif="stairs"]')).toHaveCount(1)
   await expect(named('The Harbour Board').locator('[data-motif]')).toHaveCount(1)
-  const shown = await cards(win).locator('[data-motif]').evaluateAll((els) => els.map((e) => e.getAttribute('data-motif')))
+  const shown = await cards(win)
+    .locator('[data-motif]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-motif')))
   expect(new Set(shown).size).toBe(shown.length)
 
   // Edric's dossier: the same drawing on its portrait, and the picker right under his name, beside the portrait.
@@ -591,15 +598,24 @@ test('a character’s read-aloud voice is in the dossier’s facts, and its sect
   await expect(fact).toContainText('Not set')
   // The voice's section comes straight after "Who they are", a dossier section (no box of its own), and says read aloud
   // is off, with the way to turn it on.
-  const titles = await d.locator('.dz-col').first().locator(':scope > .dz-sec .dz-sec-h, :scope > .dz-voice-box').evaluateAll((els) =>
-    els.map((e) => (e.classList.contains('dz-voice-box') ? 'VOICE' : (e.textContent ?? '').trim()))
-  )
+  const titles = await d
+    .locator('.dz-col')
+    .first()
+    .locator(':scope > .dz-sec .dz-sec-h, :scope > .dz-voice-box')
+    .evaluateAll((els) => els.map((e) => (e.classList.contains('dz-voice-box') ? 'VOICE' : (e.textContent ?? '').trim())))
   expect(titles[0]).toMatch(/^Who they are/)
   expect(titles[1]).toBe('VOICE')
   const voice = d.getByRole('region', { name: 'Read-aloud voice' })
   await expect(voice).toContainText('Read aloud is off')
   await expect(voice.getByRole('button', { name: 'Turn on read aloud' })).toBeVisible()
-  expect(await voice.evaluate((el) => (globalThis as unknown as { getComputedStyle(e: unknown): { borderTopColor: string; backgroundColor: string } }).getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+  expect(
+    await voice.evaluate(
+      (el) =>
+        (globalThis as unknown as { getComputedStyle(e: unknown): { borderTopColor: string; backgroundColor: string } }).getComputedStyle(
+          el
+        ).backgroundColor
+    )
+  ).toBe('rgba(0, 0, 0, 0)')
   // The fact goes to it, with the caret in How they sound; what is written there shows in the fact.
   await d.locator('.dz-body').evaluate((el) => (el.scrollTop = el.scrollHeight))
   await fact.getByRole('button').click()
@@ -629,7 +645,16 @@ test('on the desk, the Cast list’s Open page and a speaker’s name open the c
     await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true, markSpeakers: true, showSpeakers: true } })
     const p = await invoke(win, 'saveProvider', { name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: '' })
     await invoke(win, 'updateSettings', {
-      models: { writer: { providerId: p.id, modelId: 'fake/writer', label: 'fake/writer', contextLength: 32000, promptPrice: null, completionPrice: null } }
+      models: {
+        writer: {
+          providerId: p.id,
+          modelId: 'fake/writer',
+          label: 'fake/writer',
+          contextLength: 32000,
+          promptPrice: null,
+          completionPrice: null
+        }
+      }
     })
     await win.reload()
     await expect(win.locator('.scene-prose')).toBeVisible()
@@ -648,8 +673,13 @@ test('on the desk, the Cast list’s Open page and a speaker’s name open the c
     await win.keyboard.press('Escape')
 
     // A speaker's name above his line on the sheet: the same.
-    await rooms(win).getByRole('button', { name: /^Write/ }).click()
-    await win.getByRole('toolbar', { name: 'AI dock' }).getByRole('button', { name: /^Draft the scene/ }).click()
+    await rooms(win)
+      .getByRole('button', { name: /^Write/ })
+      .click()
+    await win
+      .getByRole('toolbar', { name: 'AI dock' })
+      .getByRole('button', { name: /^Draft the scene/ })
+      .click()
     await expect(win.locator('.scene-prose')).toContainText('"You came," he said', { timeout: 30_000 })
     const his = win.locator('.scene-prose p[data-speaker-name="Tobin"]').first()
     await expect(his).toBeVisible({ timeout: 30_000 })
@@ -664,4 +694,63 @@ test('on the desk, the Cast list’s Open page and a speaker’s name open the c
     await fake.close()
     await speech.close()
   }
+})
+
+test('a kind’s own page: a banner from its entries, its few cards grown to fill the room, and a New card with Build with AI', async ({
+  launch
+}) => {
+  const { app, win } = await sampleWorld(launch)
+  await size(app, win, 1920, 1080)
+  await room(win, 'World').click()
+  const links = win.locator('[data-desk-room] [data-desk-sublinks]')
+  await links.getByRole('button', { name: /^By kind/ }).click()
+  await win.getByRole('menuitem', { name: /^Characters/ }).click()
+  await expect(tab(win, 'Characters')).toHaveAttribute('aria-selected', 'true')
+  // The banner: the world's name, and facts from the characters themselves.
+  const banner = gallery(win).getByRole('region', { name: 'About the characters' })
+  await expect(banner.getByRole('heading', { level: 2 })).toHaveText('The people of Gullhaven')
+  await expect(banner).toContainText('Characters · 4')
+  await expect(banner).toContainText('1 protagonist')
+  await expect(banner).toContainText('Wren Halloway is in the most scenes (4)')
+  await expect(banner.locator('.g-kfan-tile')).toHaveCount(3)
+  // Four characters and the New card grow to fill the row, every one whole on the page and none past its edge.
+  const list = gallery(win).locator('.g-cards')
+  expect(Number(await list.evaluate((e) => e.ownerDocument.defaultView!.getComputedStyle(e).zoom))).toBeGreaterThanOrEqual(1)
+  await expect(cards(win)).toHaveCount(4)
+  const box = (await pane(win).boundingBox())!
+  for (const c of await cards(win).all()) {
+    const b = (await c.boundingBox())!
+    expect(b.x + b.width).toBeLessThanOrEqual(box.x + box.width)
+  }
+  // The row reaches across the page: the New card ends near its right edge.
+  const end = (await gallery(win).locator('.g-knew').boundingBox())!
+  expect(box.x + box.width - (end.x + end.width)).toBeLessThan(box.width * 0.15)
+  // The New card: a blank character, or the builder (Build with AI step by step, or Quick start), in the AI's amber.
+  const add = gallery(win).locator('.g-knew')
+  await expect(add.getByRole('button', { name: /^New character/ })).toBeVisible()
+  await expect(add.getByRole('button', { name: 'Build with AI' })).toBeVisible()
+  await add.getByRole('button', { name: 'Quick start' }).click()
+  await expect(win.getByRole('heading', { level: 1, name: 'Build a character from a few notes' })).toBeVisible()
+
+  // Plot threads: no builder, so only the blank New card; the banner counts open and resolved.
+  await room(win, 'World').click()
+  await links.getByRole('button', { name: /^(By kind|Characters)/ }).click()
+  await win.getByRole('menuitem', { name: /^Plot threads/ }).click()
+  const threads = gallery(win).getByRole('region', { name: 'About the plot threads' })
+  await expect(threads.getByRole('heading', { level: 2 })).toHaveText('The questions the story has asked')
+  await expect(threads).toContainText('1 open · 1 resolved')
+  await expect(gallery(win).locator('.g-knew').getByRole('button')).toHaveCount(1)
+  // A blank one opens in its dossier.
+  await gallery(win)
+    .locator('.g-knew')
+    .getByRole('button', { name: /^New plot thread/ })
+    .click()
+  await expect(win.getByRole('dialog').filter({ has: win.locator('.dz') })).toBeVisible()
+
+  // Everything has no banner and keeps its own Add to the world card.
+  await win.keyboard.press('Escape')
+  await links.getByRole('button', { name: /^Everything/ }).click()
+  await expect(gallery(win).locator('.g-kband')).toHaveCount(0)
+  await expect(gallery(win).locator('.g-ghost')).toHaveCount(1)
+  await expect(gallery(win).locator('.g-knew')).toHaveCount(0)
 })

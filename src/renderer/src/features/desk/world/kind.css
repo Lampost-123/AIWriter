@@ -1,0 +1,375 @@
+/*
+  A kind's own page in the desk's World room (World › By kind; KindBanner.tsx): the kind's banner over its cards, its
+  few cards grown into the room (WorldGallery sets the zoom), and the New card at the end. In the kind's ink, on the
+  desk's paper; the AI's amber only on Build with AI and Quick start. Motion: the fan opens once as the page arrives
+  and its glow breathes three times, then rests; hover spreads the fan at the base speed; with less motion, at once.
+*/
+
+[data-arrangement='desk'] .g-kband-wrap [data-kind='character'],
+[data-arrangement='desk'] .g-knew[data-kind='character'] {
+  --ki: var(--k-char);
+  --ki-soft: var(--k-char-soft);
+}
+[data-arrangement='desk'] .g-kband-wrap [data-kind='place'],
+[data-arrangement='desk'] .g-knew[data-kind='place'] {
+  --ki: var(--k-place);
+  --ki-soft: var(--k-place-soft);
+}
+[data-arrangement='desk'] .g-kband-wrap [data-kind='group'],
+[data-arrangement='desk'] .g-knew[data-kind='group'] {
+  --ki: var(--k-group);
+  --ki-soft: var(--k-group-soft);
+}
+[data-arrangement='desk'] .g-kband-wrap [data-kind='item'],
+[data-arrangement='desk'] .g-knew[data-kind='item'] {
+  --ki: var(--k-item);
+  --ki-soft: var(--k-item-soft);
+}
+[data-arrangement='desk'] .g-kband-wrap [data-kind='lore'],
+[data-arrangement='desk'] .g-knew[data-kind='lore'] {
+  --ki: var(--k-lore);
+  --ki-soft: var(--k-lore-soft);
+}
+[data-arrangement='desk'] .g-kband-wrap [data-kind='event'],
+[data-arrangement='desk'] .g-knew[data-kind='event'] {
+  --ki: var(--k-event);
+  --ki-soft: var(--k-event-soft);
+}
+[data-arrangement='desk'] .g-kband-wrap [data-kind='thread'],
+[data-arrangement='desk'] .g-knew[data-kind='thread'] {
+  --ki: var(--k-thread);
+  --ki-soft: var(--k-thread-soft);
+}
+[data-arrangement='desk'] .g-kband-wrap [data-kind='glossary'],
+[data-arrangement='desk'] .g-knew[data-kind='glossary'] {
+  --ki: var(--k-gloss);
+  --ki-soft: var(--k-gloss-soft);
+}
+
+[data-arrangement='desk'] .g-kband-wrap {
+  margin-bottom: 34px;
+  container-type: inline-size;
+}
+[data-arrangement='desk'] .g-kband {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 40px;
+  min-height: 188px;
+  padding: 22px 36px 22px 28px;
+  overflow: hidden;
+  border-radius: 20px;
+  background:
+    radial-gradient(520px 260px at 12% 50%, color-mix(in oklab, var(--ki) 16%, transparent), transparent 70%),
+    linear-gradient(100deg, color-mix(in oklab, var(--ki-soft) 55%, var(--card)), var(--card) 58%);
+  box-shadow:
+    var(--sh-card),
+    inset 0 0 0 1px color-mix(in oklab, var(--ki) 14%, transparent);
+}
+[data-arrangement='desk'][data-theme='dark'] .g-kband {
+  background:
+    radial-gradient(520px 260px at 12% 50%, color-mix(in oklab, var(--ki) 20%, transparent), transparent 70%),
+    linear-gradient(100deg, color-mix(in oklab, var(--ki-soft) 70%, var(--card)), var(--card) 60%);
+}
+
+/* The fan: the kind's most important entries, their pictures fanned like cards in a hand. */
+[data-arrangement='desk'] .g-kfan {
+  position: relative;
+  width: 236px;
+  height: 150px;
+}
+[data-arrangement='desk'] .g-kfan-glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 240px;
+  height: 170px;
+  margin: -85px 0 0 -120px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--ki) 28%, transparent), transparent);
+  animation: g-kglow 3.4s ease-in-out 3;
+}
+[data-arrangement='desk'] .g-kfan-tile {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 104px;
+  height: 136px;
+  margin: -68px 0 0 -52px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 3px var(--card),
+    var(--sh-2);
+  transition:
+    translate var(--dur-base) var(--desk-ease),
+    rotate var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .g-kfan-tile .g-art {
+  height: 100%;
+  border-radius: 14px;
+}
+[data-arrangement='desk'] .g-kfan-tile .g-art::after {
+  display: none;
+}
+[data-arrangement='desk'] .g-kfan-tile[data-kind='place'] {
+  width: 150px;
+  height: 104px;
+  margin: -52px 0 0 -75px;
+}
+[data-arrangement='desk'] .g-kfan-seal,
+[data-arrangement='desk'] .g-kfan-empty {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: var(--ki);
+  background:
+    repeating-linear-gradient(180deg, transparent 0 17px, var(--rule-blue) 17px 18px), color-mix(in oklab, var(--ki-soft) 50%, var(--card));
+}
+[data-arrangement='desk'] .g-kfan-tile[data-k='0'] {
+  z-index: 3;
+}
+[data-arrangement='desk'] .g-kfan-tile[data-k='1'] {
+  z-index: 2;
+  translate: -62px 8px;
+  rotate: -9deg;
+}
+[data-arrangement='desk'] .g-kfan-tile[data-k='2'] {
+  z-index: 1;
+  translate: 62px 8px;
+  rotate: 9deg;
+}
+[data-arrangement='desk'] .g-kband:hover .g-kfan-tile[data-k='1'] {
+  translate: -70px 4px;
+  rotate: -12deg;
+}
+[data-arrangement='desk'] .g-kband:hover .g-kfan-tile[data-k='2'] {
+  translate: 70px 4px;
+  rotate: 12deg;
+}
+[data-arrangement='desk'] .g-kband:hover .g-kfan-tile[data-k='0'] {
+  translate: 0 -4px;
+}
+/* Arriving: the fan opens from a stack, then the words come in. */
+[data-arrangement='desk'] .g-kband.is-arriving .g-kfan-tile {
+  animation: g-kfan-open 560ms var(--motion-glide) backwards;
+}
+[data-arrangement='desk'] .g-kband.is-arriving .g-kfan-tile[data-k='0'] {
+  animation-name: g-kfan-rise;
+}
+[data-arrangement='desk'] .g-kband.is-arriving .g-kband-text,
+[data-arrangement='desk'] .g-kband.is-arriving .g-kband-figs {
+  animation: g-kfan-rise 320ms var(--desk-ease) 120ms backwards;
+}
+@keyframes g-kfan-open {
+  from {
+    translate: 0 6px;
+    rotate: 0deg;
+    opacity: 0.6;
+  }
+}
+@keyframes g-kfan-rise {
+  from {
+    translate: 0 8px;
+    opacity: 0;
+  }
+}
+@keyframes g-kglow {
+  50% {
+    opacity: 0.55;
+    scale: 1.08;
+  }
+}
+
+[data-arrangement='desk'] .g-kband-text {
+  min-width: 0;
+}
+[data-arrangement='desk'] .g-kband-k {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ki);
+}
+[data-arrangement='desk'] .g-kband-title {
+  margin-top: 4px;
+  font: 600 30px/36px var(--font-serif);
+  letter-spacing: -0.012em;
+  color: var(--fg);
+  font-variation-settings: 'opsz' 48;
+  text-wrap: balance;
+}
+[data-arrangement='desk'] .g-kband-facts {
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-kband-facts.is-empty {
+  display: none;
+}
+[data-arrangement='desk'] .g-kband-dot {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .g-kband-most {
+  margin-top: 4px;
+  font: italic 400 14px/20px var(--font-serif);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .g-kband-figs {
+  display: flex;
+  gap: 30px;
+  margin: 0;
+  padding-left: 30px;
+  border-left: 1px solid var(--desk-line);
+}
+[data-arrangement='desk'] .g-kband-figs > div {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+}
+[data-arrangement='desk'] .g-kband-figs dd {
+  margin: 0;
+  font: 600 40px/44px var(--font-serif);
+  color: var(--ki);
+  font-variant-numeric: oldstyle-nums;
+}
+[data-arrangement='desk'] .g-kband-figs dt {
+  max-width: 110px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+/* Narrower: the figures go, and the fan and title get smaller. */
+@container (max-width: 1060px) {
+  [data-arrangement='desk'] .g-kband {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 26px;
+    min-height: 156px;
+    padding: 16px 26px 16px 18px;
+  }
+  [data-arrangement='desk'] .g-kband-figs {
+    display: none;
+  }
+  [data-arrangement='desk'] .g-kfan {
+    width: 196px;
+    height: 124px;
+    zoom: 0.82;
+  }
+  [data-arrangement='desk'] .g-kband-title {
+    font-size: 25px;
+    line-height: 31px;
+  }
+}
+
+/* A kind's own page: its one section takes the whole width, so its grown cards lay out across it. */
+[data-arrangement='desk'] .g-sec[data-alone] {
+  flex-basis: 100%;
+}
+
+/* The New card: the size of the kind's own cards, a dashed outline of one. */
+[data-arrangement='desk'] .g-knew {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1.5px dashed color-mix(in oklab, var(--ki) 34%, transparent);
+  border-radius: var(--r-card);
+  background: color-mix(in oklab, var(--ki-soft) 22%, transparent);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    border-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .g-knew:hover,
+[data-arrangement='desk'] .g-knew:focus-within {
+  background: color-mix(in oklab, var(--ki-soft) 40%, transparent);
+  border-color: color-mix(in oklab, var(--ki) 55%, transparent);
+}
+[data-arrangement='desk'] .g-knew[data-shape='portrait'] {
+  width: 190px;
+  height: 262px;
+  border-radius: 16px;
+}
+[data-arrangement='desk'] .g-knew[data-shape='landscape'] {
+  width: 300px;
+  height: 172px;
+}
+[data-arrangement='desk'] .g-knew[data-shape='parchment'],
+[data-arrangement='desk'] .g-knew[data-shape='plain'] {
+  width: 332px;
+  min-height: 172px;
+}
+[data-arrangement='desk'] .g-knew[data-shape='scroll'],
+[data-arrangement='desk'] .g-knew[data-shape='index'] {
+  width: 100%;
+  min-height: 150px;
+}
+[data-arrangement='desk'] .g-cards[data-shape='scroll'] .g-item:has(.g-knew),
+[data-arrangement='desk'] .g-cards[data-shape='index'] .g-item:has(.g-knew) {
+  flex: 0 1 320px;
+}
+[data-arrangement='desk'] .g-knew-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: inherit;
+  text-align: center;
+  color: var(--muted);
+  outline: none;
+  transition: scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .g-knew-main:active {
+  scale: 0.985;
+}
+[data-arrangement='desk'] .g-knew-main:focus-visible,
+[data-arrangement='desk'] .g-knew-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .g-knew .g-ghost-ic {
+  color: var(--ki);
+}
+[data-arrangement='desk'] .g-knew-ai {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px 14px;
+}
+/* Build with AI and Quick start: the AI's amber. */
+[data-arrangement='desk'] .g-knew-btn {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font: 600 12px/1 var(--font-sans);
+  white-space: nowrap;
+  color: var(--ai);
+  background: color-mix(in oklab, var(--ai-soft) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ai) 30%, transparent);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .g-knew-btn:hover {
+  background: var(--ai-soft);
+}
+[data-arrangement='desk'] .g-knew-btn:active {
+  scale: 0.97;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-arrangement='desk'] .g-kfan-glow {
+    animation: none;
+  }
+}
