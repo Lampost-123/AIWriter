@@ -47,7 +47,10 @@ test('the story board: cards in chapter columns with pins, threads as strings wi
   await room(win, 'Plan').click()
   await expect(board(win)).toBeVisible()
   await expect(win.locator('[data-desk-room]').getByRole('button', { name: 'Story board' })).toHaveAttribute('aria-current', 'page')
-  await expect(board(win).getByRole('heading', { name: 'Story board' })).toBeVisible()
+  // One heading: the room's Plan (the board has none of its own), with the counts and buttons under it.
+  await expect(win.getByRole('region', { name: 'Story board' })).toBeVisible()
+  await expect(board(win).getByRole('heading')).toHaveCount(0)
+  await expect(win.locator('[data-desk-room]').getByText('Story board', { exact: true })).toHaveCount(1)
   await expect(board(win)).toContainText('2 chapters · 4 scenes · 1,105 words')
 
   // A column for each chapter, its cards in order, and one for the next chapter.

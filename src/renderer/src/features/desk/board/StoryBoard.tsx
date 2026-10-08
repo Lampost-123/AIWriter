@@ -123,10 +123,10 @@ export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chap
   }, [ideasFor])
 
   return (
-    <div data-desk-board data-arrive={arriving || undefined} className="desk-board">
+    // (No heading of its own: the room's "Plan" above it is the page's name, and the room's links say Story board.)
+    <div data-desk-board data-arrive={arriving || undefined} role="region" aria-label="Story board" className="desk-board">
       <div className="board-head">
         <div className="min-w-0">
-          <h1 className="board-title">Story board</h1>
           {stats ? (
             <p className="board-meta tabular-nums">
               {fmt(stats.chapters)} {stats.chapters === 1 ? 'chapter' : 'chapters'} · {fmt(stats.scenes)} {stats.scenes === 1 ? 'scene' : 'scenes'} ·{' '}
