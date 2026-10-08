@@ -1093,7 +1093,8 @@
   border-radius: 999px;
   background: var(--k-thread);
   box-shadow: 0 0 0 0 color-mix(in oklab, var(--k-thread) 50%, transparent);
-  animation: ck-loose 3.2s ease-out infinite;
+  /* A few pulses as the report shows, then the loose end rests lit (nothing redraws for ever). */
+  animation: ck-loose 3.2s ease-out 4;
 }
 @keyframes ck-loose {
   0% {
@@ -1200,4 +1201,22 @@
   box-shadow:
     var(--sh-1),
     0 0 0 1px var(--desk-line);
+}
+
+/* ---------- A big screen (the sheet grows to 1600px at 2560): a wider column, and a scene's issues side by side ---------- */
+@container (min-width: 1360px) {
+  [data-arrangement='desk'] .ck-frame {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+  [data-arrangement='desk'] .ck-issues {
+    max-width: 1180px;
+  }
+  [data-arrangement='desk'] .ck-issues .ck-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+    align-items: start;
+  }
+  [data-arrangement='desk'] .ck-report {
+    max-width: 1180px;
+  }
 }

@@ -10,8 +10,9 @@
 //  - Echo: repetition (a bell, its rings going out). Loom: plot threads (three threads weaving, knotted).
 //  - Briefing: what the AI saw (the lamp over an open briefing; the lamp's light is the AI's amber).
 // Every loop is slow (seconds), moves by transform, opacity or a line's dashes only, keeps still while the window is
-// away or Adam is typing (stillWatch.ts), and with less motion each drawing rests on its first frame.
-import { useEffect, useId } from 'react'
+// away or Adam is typing (stillWatch.ts), rests after a while on an open page (the pointer wakes it), and with less
+// motion each drawing rests on its first frame.
+import { useEffect, useId, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { watchArtStill } from './stillWatch'
 import './roomArt.css'
@@ -22,9 +23,37 @@ interface ArtProps {
   state?: 'idle' | 'busy'
 }
 
+/** How long a drawing moves after it shows (or after the pointer last came onto it) before it rests. */
+const MOVES_FOR_MS = 24_000
+
 function useWatch(): string {
   useEffect(watchArtStill, [])
   return useId().replace(/:/g, '')
+}
+
+/**
+ * A drawing's movement, for a while: once it has shown for MOVES_FOR_MS it rests where it is (data-rest), so an open
+ * page doesn't redraw for ever; the pointer coming onto it wakes it for as long again. While the AI is at work
+ * (`busy`) it never rests.
+ */
+function useRest(busy = false): { ref: React.RefCallback<SVGSVGElement> } {
+  const [el, setEl] = useState<SVGSVGElement | null>(null)
+  useEffect(() => {
+    if (!el) return
+    let timer = 0
+    const wake = (): void => {
+      el.removeAttribute('data-rest')
+      clearTimeout(timer)
+      if (!busy) timer = window.setTimeout(() => el.setAttribute('data-rest', ''), MOVES_FOR_MS)
+    }
+    wake()
+    el.addEventListener('pointerenter', wake)
+    return () => {
+      clearTimeout(timer)
+      el.removeEventListener('pointerenter', wake)
+    }
+  }, [el, busy])
+  return { ref: setEl }
 }
 
 /** The plate every scene is drawn in: a soft sky (or desk) and a fine border. */
@@ -124,12 +153,14 @@ function Waves({ y, w, className }: { y: number; w: number; className?: string }
 
 export function LighthouseArt({ className, state = 'idle', clear = false }: ArtProps & { clear?: boolean }): React.JSX.Element {
   const id = useWatch()
+  const rest = useRest(state === 'busy')
   const w = clear ? 360 : 240
   const h = clear ? 200 : 150
   const sea = clear ? 146 : 112
   const tx = clear ? 252 : 174
   return (
     <svg
+      {...rest}
       viewBox={`0 0 ${w} ${h}`}
       className={cn('ra la ra-lighthouse', clear && 'is-clear', className)}
       data-state={state}
@@ -178,8 +209,9 @@ export function LighthouseArt({ className, state = 'idle', clear = false }: ArtP
 
 export function LedgerArt({ className }: ArtProps): React.JSX.Element {
   const id = useWatch()
+  const rest = useRest()
   return (
-    <svg viewBox="0 0 240 150" className={cn('ra la ra-ledger', className)} aria-hidden data-room-art="ledger">
+    <svg {...rest} viewBox="0 0 240 150" className={cn('ra la ra-ledger', className)} aria-hidden data-room-art="ledger">
       <Plate id={id} w={240} h={150} tone="desk">
         {/* The desk's light. */}
         <ellipse className="ra-pool" cx="120" cy="86" rx="110" ry="54" />
@@ -207,8 +239,8 @@ export function LedgerArt({ className }: ArtProps): React.JSX.Element {
           </g>
         </g>
         {/* The ink pot, a ribbon. */}
-        <path className="ra-ribbon" d="M150 37 L 150 132 L 154 126 L 158 132 L 158 36 Z" />
-        <g transform="translate(206 112)">
+        <path className="ra-ribbon" d="M188 36 L 188 130 L 191 125 L 194 130 L 194 35 Z" />
+        <g transform="translate(224 116)">
           <path className="ra-pot" d="M-10 0 h 20 l -2 14 h -16 z" />
           <rect className="ra-pot-neck" x="-6" y="-5" width="12" height="5" rx="1.5" />
           <path className="ra-glint-ink" d="M-6 3 v 7" />
@@ -236,8 +268,9 @@ export function LanternArt({ className, state = 'idle', small = false }: ArtProp
   )
   const w = small ? 120 : 240
   const h = small ? 64 : 150
+  const rest = useRest(state === 'busy')
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className={cn('ra la ra-lanterns', small && 'is-small', className)} data-state={state} aria-hidden data-room-art="lanterns">
+    <svg {...rest} viewBox={`0 0 ${w} ${h}`} className={cn('ra la ra-lanterns', small && 'is-small', className)} data-state={state} aria-hidden data-room-art="lanterns">
       <defs>
         <radialGradient id={`${id}-lg`}>
           <stop offset="0" className="ra-lamp-0" />
@@ -276,10 +309,11 @@ export function LanternArt({ className, state = 'idle', small = false }: ArtProp
 
 export function PagesArt({ className }: ArtProps): React.JSX.Element {
   const id = useWatch()
+  const rest = useRest()
   const lines = (x: number, y: number, n: number, w: number) =>
     Array.from({ length: n }, (_, i) => <path key={i} className="ra-script" d={`M${x} ${y + i * 9} h ${i === n - 1 ? w * 0.55 : w - (i % 3) * 6}`} />)
   return (
-    <svg viewBox="0 0 240 150" className={cn('ra la ra-pages', className)} aria-hidden data-room-art="pages">
+    <svg {...rest} viewBox="0 0 240 150" className={cn('ra la ra-pages', className)} aria-hidden data-room-art="pages">
       <Plate id={id} w={240} h={150} tone="desk">
         <ellipse className="ra-pool" cx="120" cy="84" rx="104" ry="52" />
         <g transform="translate(120 80)">
@@ -311,8 +345,9 @@ export function PagesArt({ className }: ArtProps): React.JSX.Element {
 
 export function EchoArt({ className }: ArtProps): React.JSX.Element {
   useWatch()
+  const rest = useRest()
   return (
-    <svg viewBox="0 0 64 64" className={cn('ra la ra-echo', className)} aria-hidden data-room-art="echo">
+    <svg {...rest} viewBox="0 0 64 64" className={cn('ra la ra-echo', className)} aria-hidden data-room-art="echo">
       <circle className="ra-ring lp" cx="32" cy="30" r="14" />
       <circle className="ra-ring ra-ring-2 lp" cx="32" cy="30" r="14" />
       <path className="ra-bell" d="M22 38 C 22 26 24 18 32 18 C 40 18 42 26 42 38 L 45 41 H 19 Z" />
@@ -323,8 +358,9 @@ export function EchoArt({ className }: ArtProps): React.JSX.Element {
 
 export function LoomArt({ className }: ArtProps): React.JSX.Element {
   useWatch()
+  const rest = useRest()
   return (
-    <svg viewBox="0 0 96 64" className={cn('ra la ra-loom', className)} aria-hidden data-room-art="loom">
+    <svg {...rest} viewBox="0 0 96 64" className={cn('ra la ra-loom', className)} aria-hidden data-room-art="loom">
       <path className="ra-thread ra-t1 lp" d="M4 20 C 24 8 36 40 52 28 S 80 12 92 22" />
       <path className="ra-thread ra-t2 lp" d="M4 34 C 22 46 40 18 56 34 S 80 48 92 36" />
       <path className="ra-thread ra-t3 lp" d="M4 48 C 26 40 38 56 58 46 S 82 40 92 50" />
@@ -336,8 +372,9 @@ export function LoomArt({ className }: ArtProps): React.JSX.Element {
 
 export function BriefingArt({ className }: ArtProps): React.JSX.Element {
   const id = useWatch()
+  const rest = useRest()
   return (
-    <svg viewBox="0 0 240 150" className={cn('ra la ra-briefing', className)} aria-hidden data-room-art="briefing">
+    <svg {...rest} viewBox="0 0 240 150" className={cn('ra la ra-briefing', className)} aria-hidden data-room-art="briefing">
       <defs>
         <linearGradient id={`${id}-cone`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" className="ra-lamp-0" />

@@ -201,7 +201,7 @@ function KeeperCard(): React.JSX.Element {
       'Up to date with every scene.'
     )
   return (
-    <div className="lg-keeper" data-state={state} title={state === 'reading' && status ? readingNote(status) : undefined}>
+    <div className="lg-keeper" data-state={state === 'idle' && status && status.behind > 0 ? 'waiting' : state} title={state === 'reading' && status ? readingNote(status) : undefined}>
       <span className="lg-keeper-dot" aria-hidden />
       <div className="min-w-0">
         <p className="lg-keeper-words" role="status">

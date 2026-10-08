@@ -746,3 +746,8 @@
 .ra .ra-num {
   fill: var(--accent);
 }
+
+/* A drawing that has moved for a while rests where it is (RoomArt's useRest); the pointer wakes it. */
+.ra[data-rest] :is(.lp, .lp *) {
+  animation-play-state: paused !important;
+}

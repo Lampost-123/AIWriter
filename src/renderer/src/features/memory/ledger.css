@@ -442,3 +442,13 @@
     padding-inline: 26px;
   }
 }
+[data-arrangement='desk'] .lg-keeper[data-state='waiting'] .lg-keeper-dot {
+  background: var(--faint);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--faint) 18%, transparent);
+}
+
+@container (min-width: 1360px) {
+  [data-arrangement='desk'] .lg-list {
+    max-width: 1080px;
+  }
+}
