@@ -229,11 +229,12 @@ const GLIDE_FOR = 340
  * less motion makes every speed 0).
  */
 export function useSheetGlide(frame: DeskFrame): string | undefined {
-  const prev = useRef({ full: frame.full, drawer: frame.drawerDocked, sheetW: frame.sheetW, windowW: frame.windowW })
+  const prev = useRef({ full: frame.full, drawer: frame.drawerDocked, windowW: frame.windowW })
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [glide, setGlide] = useState<string | undefined>(undefined)
   const spine = prev.current.full !== frame.full
-  const drawer = prev.current.drawer !== frame.drawerDocked || prev.current.sheetW !== frame.sheetW
+  // (The sheet narrowing or widening for the drawer comes with the drawer docking or going, or the spine yielding.)
+  const drawer = prev.current.drawer !== frame.drawerDocked
   const resized = prev.current.windowW !== frame.windowW
   const moved = spine || drawer || resized
   const opening = spine ? frame.full : frame.drawerDocked
@@ -241,7 +242,7 @@ export function useSheetGlide(frame: DeskFrame): string | undefined {
   const now = (spine || drawer) && !resized && !keyboardDriven() ? `padding ${speed} var(--motion-drawer)` : undefined
   useLayoutEffect(() => {
     if (!moved) return
-    prev.current = { full: frame.full, drawer: frame.drawerDocked, sheetW: frame.sheetW, windowW: frame.windowW }
+    prev.current = { full: frame.full, drawer: frame.drawerDocked, windowW: frame.windowW }
     setGlide(now)
     clearTimeout(timer.current)
     timer.current = setTimeout(() => setGlide(undefined), GLIDE_FOR)
