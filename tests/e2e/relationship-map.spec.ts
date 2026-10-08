@@ -85,10 +85,17 @@ test('pointing at a character lights its ties and shows how both sides feel; a c
   await expect(daughter).toContainText('Fiercely protective')
   await expect(daughter).toContainText('Edric →')
   await expect(daughter).toContainText('Proud of her, and ashamed to need her')
-  await expect.poll(() => opacity(node(win, 'Ansel Crane'))).toBeLessThan(0.5)
-  await expect.poll(() => opacity(node(win, 'Wren Halloway'))).toBeGreaterThan(0.9)
+  // The veil comes over the map: Wren and Edric rise above it, Ansel stays under it.
+  await expect(win.locator('.dm-stage')).toHaveAttribute('data-quiet')
+  await expect.poll(() => opacity(win.locator('.dm-scrim'))).toBeGreaterThan(0.9)
+  await expect(node(win, 'Wren Halloway')).toHaveClass(/is-lit/)
+  await expect(node(win, 'Ansel Crane')).not.toHaveClass(/is-lit/)
+  const z = (l: ReturnType<Page['locator']>) => l.evaluate((el) => Number(el.ownerDocument.defaultView!.getComputedStyle(el).zIndex))
+  const veil = await z(win.locator('.dm-scrim'))
+  expect(await z(node(win, 'Wren Halloway'))).toBeGreaterThan(veil)
+  expect(await z(node(win, 'Ansel Crane'))).toBeLessThan(veil)
   await win.mouse.move(2, 2)
-  await expect.poll(() => opacity(node(win, 'Ansel Crane'))).toBeGreaterThan(0.9)
+  await expect.poll(() => opacity(win.locator('.dm-scrim'))).toBeLessThan(0.1)
 
   // A click: Wren's card, each tie with both feelings and since when.
   await node(win, 'Wren Halloway').click()

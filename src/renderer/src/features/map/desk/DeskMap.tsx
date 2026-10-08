@@ -14,7 +14,7 @@ import { AsSeenIn } from '@/features/views/AsSeenIn'
 import { hasOtherKinds, inSentence, stopIndex } from '@/features/views/asOfLogic'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { MapStage } from './MapStage'
-import { coinFace } from './Medal'
+import { artHue } from '@/features/desk/world/galleryLogic'
 
 export function DeskMap(): React.JSX.Element {
   const [storyId, setStoryId] = useViewStory()
@@ -140,8 +140,8 @@ function EmptyMap(): React.JSX.Element {
           <defs>
             {coins.map((c) => (
               <linearGradient key={c.id} id={`dm-${c.id}`} x1="0" y1="0" x2="0.4" y2="1">
-                <stop offset="0" stopColor={coinFace(c.id).match(/hsl\([^)]+\)/g)![0]} />
-                <stop offset="1" stopColor={coinFace(c.id).match(/hsl\([^)]+\)/g)![2]} />
+                <stop offset="0" stopColor={`hsl(${artHue('character', c.id)} 46% 68%)`} />
+                <stop offset="1" stopColor={`hsl(${artHue('character', c.id)} 46% 32%)`} />
               </linearGradient>
             ))}
           </defs>

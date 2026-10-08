@@ -395,7 +395,9 @@ export function MapStage({
   }, [ties, byId, k, centre])
   // Pointing at a tie's line is found here, from points along each curve in a grid, not by the browser: hit-testing
   // hundreds of curved strokes on every move of the mouse (and after every change) is what made a big cast slow.
-  const lineGrid = useMemo(() => {
+  // Built when first needed after the map changes (not on every step of a drag or the strip).
+  const gridOf = useRef<{ arcs: typeof arcs; grid: Map<string, { key: string; x: number; y: number }[]> } | null>(null)
+  const buildGrid = useCallback(() => {
     const grid = new Map<string, { key: string; x: number; y: number }[]>()
     for (const t of ties) {
       const a = byId.get(t.a)!
@@ -404,7 +406,7 @@ export function MapStage({
       const pb = { x: b.x * k, y: b.y * k }
       const { c } = arcs.get(t.key)!
       const len = Math.hypot(pb.x - pa.x, pb.y - pa.y)
-      const n = Math.max(6, Math.min(80, Math.round(len / 10)))
+      const n = Math.max(6, Math.min(80, Math.round(len / 14)))
       for (let i = 1; i < n; i++) {
         const p = onCurve(pa, c, pb, i / n)
         const cell = `${Math.floor(p.x / LINE_CELL)},${Math.floor(p.y / LINE_CELL)}`
@@ -415,22 +417,24 @@ export function MapStage({
     }
     return grid
   }, [ties, byId, arcs, k])
-  const tieAt = useCallback(
-    (x: number, y: number): string | null => {
-      let best: string | null = null
-      let bestD = LINE_HIT * LINE_HIT
-      const gx = Math.floor(x / LINE_CELL)
-      const gy = Math.floor(y / LINE_CELL)
-      for (let i = gx - 1; i <= gx + 1; i++)
-        for (let j = gy - 1; j <= gy + 1; j++)
-          for (const p of lineGrid.get(`${i},${j}`) ?? []) {
-            const d = (p.x - x) ** 2 + (p.y - y) ** 2
-            if (d < bestD) [best, bestD] = [p.key, d]
-          }
-      return best
-    },
-    [lineGrid]
-  )
+  const lineGrid = (): Map<string, { key: string; x: number; y: number }[]> => {
+    if (gridOf.current?.arcs !== arcs) gridOf.current = { arcs, grid: buildGrid() }
+    return gridOf.current.grid
+  }
+  const tieAt = (x: number, y: number): string | null => {
+    const grid = lineGrid()
+    let best: string | null = null
+    let bestD = LINE_HIT * LINE_HIT
+    const gx = Math.floor(x / LINE_CELL)
+    const gy = Math.floor(y / LINE_CELL)
+    for (let i = gx - 1; i <= gx + 1; i++)
+      for (let j = gy - 1; j <= gy + 1; j++)
+        for (const p of grid.get(`${i},${j}`) ?? []) {
+          const d = (p.x - x) ** 2 + (p.y - y) ** 2
+          if (d < bestD) [best, bestD] = [p.key, d]
+        }
+    return best
+  }
 
   // Which names and pills have room: the leads' names first, then the best-connected ties' words.
   const dragging = useRef(false)
@@ -756,6 +760,9 @@ export function MapStage({
                 return <TieLine key={`gone:${t.key}`} tie={t} d={d} lit={false} out={false} isKind={false} fresh={false} here={false} leaving />
               })}
             </svg>
+            {/* Pointing at someone: one veil over the map steps everything back at once, and what is lit rises above it
+                (cheap with a big cast: nothing else changes). */}
+            <div className="dm-scrim" aria-hidden />
             {litNodes || hotKind ? (
               <svg className="dm-lines dm-lines-top" width={1} height={1} aria-hidden>
                 {ties
@@ -1051,6 +1058,7 @@ const Pill = memo(function Pill({
   const [a, b] = t.sides
   const label = `${aName} and ${bName}: ${t.words || 'tied'}. ${aName} feels ${a.feels || 'nothing noted'}. ${bName} feels ${b.feels || 'nothing noted'}.`
   return (
+    <span className="dm-pill-at" data-up={open ? 'open' : lit || isKind ? '' : undefined} style={{ left: x, top: y }}>
     <button
       type="button"
       data-map-tie={t.key}
@@ -1059,7 +1067,6 @@ const Pill = memo(function Pill({
       className={['dm-pill', !show && 'is-hidden', lit && 'is-lit', open && 'is-open', out && 'is-out', isKind && 'is-kind', fresh && 'is-new']
         .filter(Boolean)
         .join(' ')}
-      style={{ left: x, top: y }}
       onPointerEnter={() => onHot(t.key)}
       onPointerLeave={() => onHot(null)}
       onFocus={() => onHot(t.key)}
@@ -1067,7 +1074,7 @@ const Pill = memo(function Pill({
       onClick={() => onClick(t.key)}
     >
       {/* The same words element open or not, so a click that opens it on the way in still lands. */}
-      <span key={t.words} className="dm-pill-words">
+      <span key={t.words} className="dm-pill-words" data-long={t.words.length > 24 || undefined}>
         {t.words || 'Tied'}
       </span>
       {open ? (
@@ -1082,6 +1089,7 @@ const Pill = memo(function Pill({
         </span>
       ) : null}
     </button>
+    </span>
   )
 })
 
@@ -1140,7 +1148,7 @@ const Node = memo(function Node({
       className={['dm-node', lit && 'is-lit', hot && 'is-hot', sel && 'is-sel', out && 'is-out', isKind && 'is-kind', fresh && 'is-new', leaving && 'is-leaving']
         .filter(Boolean)
         .join(' ')}
-      style={{ transform: `translate3d(${x}px, ${y}px, 0)`, '--s': `${size}px`, '--dm-delay': `${delay}ms` } as React.CSSProperties}
+      style={{ left: x, top: y, '--s': `${size}px`, '--dm-delay': `${delay}ms` } as React.CSSProperties}
       onPointerEnter={() => onHot?.(n.id)}
       onPointerLeave={() => onHot?.(null)}
       onFocus={() => onFocusNode?.(n.id)}
@@ -1157,8 +1165,12 @@ const Node = memo(function Node({
         ) : null}
       </Medal>
       <span className={['dm-label', !showName && 'is-hidden'].filter(Boolean).join(' ')}>
-        <span className="dm-name">{n.name}</span>
-        {role ? <span className="dm-role">{role}</span> : null}
+        <span className="dm-label-box">
+          <span className="dm-name" data-long={n.name.length > 20 || undefined}>
+            {n.name}
+          </span>
+          {role ? <span className="dm-role">{role}</span> : null}
+        </span>
       </span>
     </button>
   )

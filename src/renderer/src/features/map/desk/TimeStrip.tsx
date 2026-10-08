@@ -121,8 +121,11 @@ export function TimeStrip({
             </span>
           </button>
         ))}
-        <span className="dm-thumb" style={{ left: `${pos(index) * 100}%` }}>
-          <i />
+        {/* The thumb rides a rail as wide as the track, moved by a transform (the compositor's work, no repaint). */}
+        <span className="dm-thumb-rail" style={{ translate: `${pos(index) * 100}% 0` }}>
+          <span className="dm-thumb">
+            <i />
+          </span>
         </span>
         {spans.map((c) => {
           const from = pos(c.from)

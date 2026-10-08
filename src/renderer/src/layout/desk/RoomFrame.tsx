@@ -166,7 +166,9 @@ export function RoomFrame({ view, children }: { view: View; children: ReactNode 
   return (
     <div
       data-desk-room={room ?? 'settings'}
-      data-page={view.kind}
+      // The relationship map's wider sheet (features/map/desk/deskMap.css). Only the map is marked: a mark changing as
+      // the World room's gallery flips a card into its dossier would spoil the flip.
+      data-page={view.kind === 'map' ? 'map' : undefined}
       data-arrive={arriving || undefined}
       data-spine={spine ? (frame.full ? 'full' : 'slim') : undefined}
       className="desk-room absolute inset-0 flex flex-col"

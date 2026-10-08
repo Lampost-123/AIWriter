@@ -9,7 +9,8 @@ import { artHue } from '@/features/desk/world/galleryLogic'
 /** The coin's face, in the gallery's colours for this character. */
 export const coinFace = (id: ID): string => {
   const h = artHue('character', id)
-  return `linear-gradient(162deg, hsl(${h} 46% 70%), hsl(${h} 40% 47%) 56%, hsl(${h} 46% 29%))`
+  // The lightness and saturation are the theme's (deskMap.css: deeper on the dark desk), with the gallery's as the default.
+  return `linear-gradient(162deg, hsl(${h} var(--dm-s1, 46%) var(--dm-l1, 70%)), hsl(${h} var(--dm-s2, 40%) var(--dm-l2, 47%)) 56%, hsl(${h} var(--dm-s1, 46%) var(--dm-l3, 29%)))`
 }
 
 export function Medal({
@@ -32,7 +33,7 @@ export function Medal({
   const src = image && failed !== image ? image : null
   return (
     <span aria-hidden className="dm-medal" style={{ '--s': `${size}px` } as React.CSSProperties}>
-      <span className="dm-disc" style={{ background: coinFace(id) }}>
+      <span className={src ? 'dm-disc has-img' : 'dm-disc'} style={{ background: coinFace(id) }}>
         {src ? (
           <img src={src} alt="" draggable={false} decoding="async" onError={() => setFailed(src)} />
         ) : motif ? (

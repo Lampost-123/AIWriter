@@ -223,17 +223,25 @@
 [data-arrangement='desk'] .dm-tie.is-lit:not([data-kind='family']) .dm-tie-line {
   stroke-width: 3.2;
 }
-/* Pointing at one character or tie: the rest step back, the whole layer at once (it has a layer of its own, so this
-   is the compositor's work: a big cast stays smooth), and the lit ties are drawn again over it. */
-[data-arrangement='desk'] .dm-lines-base {
-  will-change: opacity;
+/* Pointing at one character or tie: a veil over the whole map steps the rest back, and the lit characters, ties and
+   words rise above it (the lit ties drawn again on top). One element changes, however big the cast. */
+[data-arrangement='desk'] .dm-scrim {
+  position: absolute;
+  left: -40000px;
+  top: -40000px;
+  width: 80000px;
+  height: 80000px;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  background: color-mix(in oklab, var(--page) 76%, transparent);
   transition: opacity var(--dm-base) var(--dm-ease);
 }
-[data-arrangement='desk'] .dm-stage:is([data-quiet], [data-hot-kind]) .dm-lines-base {
-  opacity: 0.18;
+[data-arrangement='desk'] .dm-stage:is([data-quiet], [data-hot-kind]) .dm-scrim {
+  opacity: 1;
 }
 [data-arrangement='desk'] .dm-lines-top {
-  pointer-events: none;
+  z-index: 5;
   animation: dm-fade-in var(--dm-quick) var(--dm-ease);
 }
 [data-arrangement='desk'] .dm-tie.is-out {
@@ -269,11 +277,28 @@
 }
 
 /* ---------- Pills on the ties ---------- */
-[data-arrangement='desk'] .dm-pill {
+/* Where a pill sits: a point at the middle of its tie, the pill centred on it (no transform for each of hundreds of
+   pills: with a big cast, every one of them was something more for the browser to put together on every frame). */
+[data-arrangement='desk'] .dm-pill-at {
   position: absolute;
-  left: 0;
-  top: 0;
   z-index: 3;
+  display: flex;
+  width: 0;
+  height: 0;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .dm-pill-at[data-up] {
+  z-index: 6;
+}
+/* An open pill (both feelings) is read over everything, the name of the one pointed at included. */
+[data-arrangement='desk'] .dm-pill-at[data-up='open'] {
+  z-index: 8;
+}
+[data-arrangement='desk'] .dm-pill {
+  flex: none;
+  pointer-events: auto;
   display: inline-flex;
   max-width: 190px;
   align-items: center;
@@ -281,7 +306,6 @@
   height: 24px;
   padding: 0 9px 0 8px;
   border-radius: 999px;
-  translate: -50% -50%;
   white-space: nowrap;
   font-size: 12px;
   font-weight: 600;
@@ -308,9 +332,12 @@
     0 0 0 4px var(--accent);
 }
 [data-arrangement='desk'] .dm-pill-words {
+  animation: dm-fade-in var(--dm-base) var(--dm-ease);
+}
+/* Only long words are cut short (a clip for every pill costs too). */
+[data-arrangement='desk'] .dm-pill-words[data-long] {
   overflow: hidden;
   text-overflow: ellipsis;
-  animation: dm-fade-in var(--dm-base) var(--dm-ease);
 }
 [data-arrangement='desk'] .dm-pill.is-hidden,
 [data-arrangement='desk'] .dm-stage[data-quiet] .dm-pill.is-hidden {
@@ -320,13 +347,10 @@
 [data-arrangement='desk'] .dm-pill.is-hidden:focus-visible {
   opacity: 1;
 }
-[data-arrangement='desk'] .dm-stage[data-quiet] .dm-pill:not(.is-lit),
 [data-arrangement='desk'] .dm-pill.is-out {
   opacity: 0.12;
 }
-[data-arrangement='desk'] .dm-stage[data-hot-kind] .dm-pill:not(.is-kind) {
-  opacity: 0.12;
-}
+
 [data-arrangement='desk'] .dm-pill.is-leaving {
   opacity: 0 !important;
   transition: opacity var(--dm-exit) var(--dm-ease);
@@ -427,8 +451,7 @@
 /* ---------- Medallions ---------- */
 [data-arrangement='desk'] .dm-node {
   position: absolute;
-  left: calc(var(--s) / -2);
-  top: calc(var(--s) / -2);
+  margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
   z-index: 2;
   width: var(--s);
   height: var(--s);
@@ -481,7 +504,6 @@
   inset: 0;
   display: grid;
   place-items: center;
-  overflow: hidden;
   border-radius: 50%;
   color: rgb(255 251 246 / 0.95);
   font: 600 calc(var(--s) * 0.38) / 1 var(--heading-font);
@@ -491,8 +513,16 @@
     0 2px 3px rgb(var(--shade-rgb) / 0.14),
     0 14px 26px -12px rgb(var(--shade-deep-rgb) / 0.55);
 }
-[data-arrangement='desk'][data-theme='dark'] .dm-disc {
-  filter: saturate(0.84) brightness(0.86);
+/* The coin's colours (Medal.coinFace), deeper on the dark desk, as the gallery's cards are there. */
+[data-arrangement='desk'][data-theme='dark'] {
+  --dm-s1: 38%;
+  --dm-s2: 33%;
+  --dm-l1: 57%;
+  --dm-l2: 39%;
+  --dm-l3: 24%;
+}
+[data-arrangement='desk'] .dm-disc.has-img {
+  overflow: hidden;
 }
 /* The coin's engraved inner ring and its light from above. */
 [data-arrangement='desk'] .dm-disc::after {
@@ -514,7 +544,6 @@
 [data-arrangement='desk'] .dm-disc .aw-motif {
   position: relative;
   z-index: 1;
-  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.18));
   transform-origin: 50% 70%;
 }
 /* The lead: a second ring round the coin. */
@@ -588,7 +617,10 @@
   border-radius: 50%;
   border: 1.5px dashed color-mix(in oklab, var(--accent) 70%, transparent);
   pointer-events: none;
-  animation: dm-orbit 40s linear infinite;
+}
+/* The orbit turns only while the character is pointed at: nothing runs while nothing is happening. */
+[data-arrangement='desk'] .dm-node:hover .dm-pov-orbit {
+  animation: dm-orbit 12s linear infinite;
 }
 [data-arrangement='desk'] .dm-node[data-rank='lead'] .dm-pov-orbit {
   inset: -16px;
@@ -622,27 +654,35 @@
   left: 50%;
   top: calc(100% + 10px);
   display: flex;
+  width: 0;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  translate: -50% 0;
-  padding: 2px 8px 4px;
-  border-radius: 9px;
-  background: color-mix(in oklab, var(--page) 84%, transparent);
   pointer-events: none;
   white-space: nowrap;
   transition: opacity var(--dm-quick) var(--dm-ease);
+}
+[data-arrangement='desk'] .dm-label-box {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 4px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--page) 84%, transparent);
 }
 [data-arrangement='desk'] .dm-node[data-rank='lead'] .dm-label {
   top: calc(100% + 16px);
 }
 [data-arrangement='desk'] .dm-name {
   max-width: 170px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font: 600 14px/18px var(--heading-font);
   letter-spacing: -0.005em;
   color: var(--fg);
+}
+[data-arrangement='desk'] .dm-name[data-long] {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 [data-arrangement='desk'] .dm-node[data-rank='lead'] .dm-name {
   font-size: 16px;
@@ -673,12 +713,6 @@
 [data-arrangement='desk'] .dm-stage[data-crowd] :is(.dm-node, .dm-pill, .dm-label, .dm-tie) {
   transition: none;
 }
-/* A crowd: while some are lit, the others' names and words step out of the way. */
-[data-arrangement='desk'] .dm-stage[data-quiet][data-crowd] .dm-node:not(.is-lit) .dm-label,
-[data-arrangement='desk'] .dm-stage[data-quiet][data-crowd] .dm-pill:not(.is-lit) {
-  opacity: 0;
-  pointer-events: none;
-}
 /* Ties that changed at the stop just reached glow once. */
 [data-arrangement='desk'] .dm-tie.is-here .dm-tie-glow {
   animation: dm-here 1200ms var(--dm-ease) 200ms backwards;
@@ -700,12 +734,16 @@
 [data-arrangement='desk'] .dm-node:is(:hover, :focus-visible, .is-hot, .is-sel) {
   z-index: 7;
 }
-[data-arrangement='desk'] .dm-stage[data-quiet] .dm-node:not(.is-lit),
 [data-arrangement='desk'] .dm-node.is-out {
   opacity: 0.26;
 }
-[data-arrangement='desk'] .dm-stage[data-hot-kind] .dm-node:not(.is-kind) {
-  opacity: 0.3;
+/* Lit: above the veil. */
+[data-arrangement='desk'] .dm-node.is-lit,
+[data-arrangement='desk'] .dm-stage[data-hot-kind] .dm-node.is-kind {
+  z-index: 6;
+}
+[data-arrangement='desk'] .dm-node:is(.is-lit, .is-kind):is(:hover, :focus-visible, .is-hot, .is-sel) {
+  z-index: 7;
 }
 
 /* A group's soft region. */
@@ -907,6 +945,14 @@
   opacity: 1;
   translate: -50% 0;
 }
+[data-arrangement='desk'] .dm-thumb-rail {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0;
+  z-index: 3;
+  pointer-events: none;
+  transition: translate var(--dm-t) var(--dm-ease);
+}
 [data-arrangement='desk'] .dm-thumb {
   position: absolute;
   left: 0;
@@ -923,9 +969,8 @@
   box-shadow:
     inset 0 0 0 1px var(--desk-line),
     0 4px 10px -3px rgb(var(--shade-deep-rgb) / 0.4);
-  transition: left var(--dm-t) var(--dm-ease);
 }
-[data-arrangement='desk'] .dm-track[data-dragging] .dm-thumb,
+[data-arrangement='desk'] .dm-track[data-dragging] .dm-thumb-rail,
 [data-arrangement='desk'] .dm-track[data-dragging] .dm-fill {
   transition: none;
 }
@@ -1526,32 +1571,24 @@
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: dm-art-draw 5.4s var(--dm-ease) infinite;
+  stroke-dashoffset: 0;
+  /* The threads draw themselves in once, one after another, and stay. */
+  animation: dm-art-draw 1400ms var(--dm-ease) 300ms backwards;
 }
 [data-arrangement='desk'] .dm-art .dm-art-line:nth-of-type(2) {
-  animation-delay: 0.6s;
+  animation-delay: 800ms;
 }
 [data-arrangement='desk'] .dm-art .dm-art-line:nth-of-type(3) {
-  animation-delay: 1.2s;
+  animation-delay: 1300ms;
 }
 @keyframes dm-art-draw {
-  0% {
+  from {
     stroke-dashoffset: 1;
   }
-  30%,
-  78% {
-    stroke-dashoffset: 0;
-    opacity: 1;
-  }
-  92%,
-  100% {
-    stroke-dashoffset: 0;
-    opacity: 0;
-  }
 }
+/* The coins bob a few times as the page opens, then rest. */
 [data-arrangement='desk'] .dm-art .dm-art-coin {
-  animation: dm-art-bob 4.8s ease-in-out infinite;
+  animation: dm-art-bob 4.8s ease-in-out 3;
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -1569,9 +1606,4 @@
 [data-arrangement='desk'] .dm-stage[data-paused] .dm-art * {
   animation-play-state: paused;
 }
-@media (prefers-reduced-motion: reduce) {
-  [data-arrangement='desk'] .dm-art .dm-art-line {
-    stroke-dashoffset: 0;
-    opacity: 1;
-  }
-}
+
