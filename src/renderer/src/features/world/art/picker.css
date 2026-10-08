@@ -171,3 +171,11 @@
   color: var(--fg);
   background: var(--surface);
 }
+/* On a page's head the line keeps together: the drawing, what it is, Change. */
+.motif-picker.is-compact {
+  display: inline-flex;
+  max-width: 100%;
+}
+.motif-picker.is-compact .motif-text {
+  flex: 0 1 auto;
+}
