@@ -107,7 +107,7 @@ test('the New look: a page change from the pointer crossfades; from the keyboard
   const win = await sampleWorld(launch)
   await watchPageChanges(win)
 
-  // The rail: the page and the side list crossfade (the old page goes quicker than the new one comes).
+  // The rail: the page and the side list fade through (the old page is nearly gone before the new one shows).
   await area(win, 'World').click()
   await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
   await expect.poll(async () => (await pageChanges(win)).length).toBe(1)
@@ -115,10 +115,10 @@ test('the New look: a page change from the pointer crossfades; from the keyboard
   const first = (await pageChanges(win))[0].parts
   expect(first).toEqual(
     expect.arrayContaining([
-      { part: '::view-transition-old(page)', ms: 140 },
+      { part: '::view-transition-old(page)', ms: 100 },
       { part: '::view-transition-new(page)', ms: 280 },
-      { part: '::view-transition-old(side-list)', ms: 140 },
-      { part: '::view-transition-new(side-list)', ms: 150 }
+      { part: '::view-transition-old(side-list)', ms: 100 },
+      { part: '::view-transition-new(side-list)', ms: 280 }
     ])
   )
   // Nothing else in the window takes part (it stays live), and the mark comes off once it is over.

@@ -1652,7 +1652,8 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   `animate-pop-in`, `animate-slide-up`) take the look's timing from one zero-weight rule in `styles.css`.
   - *Changing page*: `navigate()` (`lib/store.ts`) runs a page change from the pointer inside a View Transition
     (`features/look/viewTransition.ts`: the DOM API with `flushSync`, not React's `<ViewTransition>`, which never runs
-    for zustand state). Only `<main data-page>` (and the side list, `[data-area-list]`, when the rail's area changes)
+    for zustand state). It fades through: the old page goes in 100 ms, then the new one fades up 4 px (280 ms in
+    all), so the two pages' words never overlap. Only `<main data-page>` (and the side list, `[data-area-list]`, when the rail's area changes)
     takes part, named only while `<html data-vt>` is up; the document itself is left out, so the rest of the window
     stays live, and toasts (`[data-toaster]`) stay above it. The change itself lands on the next frame (the old page is
     pictured first): a later change of page or scene in between wins. Never for `write`, the same page (`pageKey`),

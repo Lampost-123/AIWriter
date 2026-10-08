@@ -517,8 +517,8 @@
   }
 }
 /*
-  The New look: changing page (features/look/viewTransition.ts) crossfades the centre of the window: the old page goes
-  in 140ms while the new one fades up 4px over 280ms. The side list crossfades too when the rail's area changes. Nothing
+  The New look: changing page (features/look/viewTransition.ts) fades the centre of the window through: the old page
+  goes in 100ms, then the new one fades up 4px, 280ms in all. The side list crossfades too when the rail's area changes. Nothing
   else takes part (the document itself is left out), so the rest of the window stays live and clicks go straight
   through. The page keeps its new size at once and its pictures are never stretched (text in them would blur). From the
   keyboard, coming back to the writing page, in Classic and with less motion, the page just changes.
@@ -559,15 +559,19 @@
   object-fit: none;
   object-position: left top;
 }
+/*
+  A fade through, not a plain crossfade: the old page is nearly gone (100ms) before the new one shows, so the two pages'
+  words never sit on top of each other; the new one's 4px rise runs the whole 280ms.
+*/
 ::view-transition-old(page),
 ::view-transition-old(side-list) {
-  animation: vt-out var(--dur-exit) var(--motion-glide) both;
+  animation: vt-out 100ms var(--motion-glide) both;
 }
 ::view-transition-new(page) {
   animation: vt-in var(--dur-view) var(--motion-glide) both;
 }
 ::view-transition-new(side-list) {
-  animation: vt-fade-in var(--dur-quick) var(--motion-glide) both;
+  animation: vt-fade-in var(--dur-view) var(--motion-glide) both;
 }
 @keyframes vt-out {
   to {
@@ -575,13 +579,17 @@
   }
 }
 @keyframes vt-in {
-  from {
+  0% {
     opacity: 0;
     transform: translateY(4px);
   }
+  20% {
+    opacity: 0;
+  }
 }
 @keyframes vt-fade-in {
-  from {
+  0%,
+  20% {
     opacity: 0;
   }
 }
