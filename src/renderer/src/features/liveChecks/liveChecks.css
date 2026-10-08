@@ -82,3 +82,40 @@
   text-decoration-thickness: 2px;
   text-decoration-color: var(--ai);
 }
+
+/* The desk (UI overhaul): the card is a slip of paper with an edge in its check's ink (the accent; the lamp's amber
+   for a common AI phrase, which the AI can fix; quiet for a repeat), and it pops up from its word in the quick time. */
+[data-arrangement='desk'] [data-live-card] {
+  --live: var(--accent);
+  border: 0;
+  border-radius: 14px;
+  background: var(--page);
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px var(--desk-line);
+  padding-left: 18px;
+  transform-origin: 12px 0;
+  animation: live-pop var(--dur-quick) var(--desk-ease, ease-out) backwards;
+}
+[data-arrangement='desk'] [data-live-card='ai'] {
+  --live: var(--lamp-2);
+}
+[data-arrangement='desk'] [data-live-card='repetition'] {
+  --live: var(--faint);
+}
+[data-arrangement='desk'] [data-live-card]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--live);
+}
+@keyframes live-pop {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
