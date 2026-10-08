@@ -972,7 +972,9 @@ body {
     background-color var(--dur-quick) ease-out,
     border-color var(--dur-quick) ease-out,
     box-shadow var(--dur-quick) ease-out,
-    transform var(--dur-quick) var(--motion-glide);
+    transform var(--dur-quick) var(--motion-glide),
+    translate var(--dur-quick) var(--motion-glide),
+    scale var(--dur-press) var(--motion-glide);
 }
 .genre-tile:hover {
   background-color: oklch(var(--genre-hover-l) var(--genre-hover-c) var(--hue));

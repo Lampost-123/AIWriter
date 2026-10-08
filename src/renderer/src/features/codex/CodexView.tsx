@@ -523,7 +523,7 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
         'flex h-full min-h-[104px] w-full items-start gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-[border-color,background-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
         // The New look: a card of paper with its kind's ink along the top; it lifts on hover and presses in.
         'look-new:relative look-new:overflow-hidden look-new:rounded-card look-new:border-transparent look-new:bg-page look-new:p-3.5 look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]',
-        'look-new:transition-[transform,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:hover:-translate-y-0.5 look-new:hover:bg-page look-new:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line)] look-new:active:translate-y-0 look-new:active:scale-[0.985] look-new:active:duration-(--dur-press)'
+        'look-new:transition-[transform,translate,scale,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:hover:-translate-y-0.5 look-new:hover:bg-page look-new:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line)] look-new:active:translate-y-0 look-new:active:scale-[0.985] look-new:active:duration-(--dur-press)'
       )}
     >
       {isNew ? <span aria-hidden className={cn('absolute inset-x-0 top-0 h-[3px] opacity-70', ink.edge)} /> : null}

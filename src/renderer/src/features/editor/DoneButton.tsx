@@ -82,8 +82,8 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
         // The New look: its words show whenever there is room for them beside the tools, on one line. Both labels
         // fit the least width, so it stays put; a wider fallback font makes it grow rather than wrap.
         'look-new:@min-[540px]:w-auto look-new:@min-[540px]:min-w-[112px] look-new:@min-[540px]:px-3',
-        // The New look: a raised pill that presses in.
-        'look-new:h-[30px] look-new:rounded-full look-new:transition-[background-color,border-color,color,transform] look-new:duration-(--dur-base) look-new:active:scale-[0.96]',
+        // The New look: a raised pill that presses in quickly (90ms) and comes back up softly (220ms, with its colour).
+        'look-new:h-[30px] look-new:rounded-full look-new:transition-[background-color,border-color,color,transform,scale] look-new:duration-(--dur-base) look-new:ease-glide look-new:active:duration-(--dur-press) look-new:active:scale-[0.96]',
         done
           ? 'border-success/35 bg-success-soft text-success hover:border-success/70 look-new:border-transparent look-new:bg-raise look-new:text-fg look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:hover:bg-raise'
           : 'border-line bg-surface text-fg hover:border-line-strong hover:bg-surface-2 look-new:border-transparent look-new:bg-raise look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:hover:bg-raise'

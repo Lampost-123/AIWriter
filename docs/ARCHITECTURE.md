@@ -1675,6 +1675,10 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
     140 ms); the others glide into their new places (FLIP with WAAPI, 220 ms, carrying on from where an unfinished
     glide has got to), and the stack lifts over a bar with a transform. All in `Toaster` (`components/ui/Toast.tsx`):
     the store and its queue rules are untouched. Classic and less motion: as before.
+  - *Presses* go in at `--dur-press` (90 ms, `active:duration-(--dur-press)`) and come back at the element's own
+    speed (150 ms; Mark done 220 ms), on `ease-glide`; buttons 0.97, icon buttons 0.95. Tailwind 4's `scale-*` and
+    `translate-*` are the CSS `scale` and `translate` properties, not `transform`: a transition list must name them
+    (`transition-[transform,scale]`), or the press or hover lift snaps.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.

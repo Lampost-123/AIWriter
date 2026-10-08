@@ -434,3 +434,23 @@ test('the New look: a toast leaves the way it came, and the others glide into pl
   await expect(plain).toHaveCount(0)
   expect((await log()).leaving.length).toBe(1)
 })
+
+test('the New look: a press goes in quickly and comes back softly', async ({ launch }) => {
+  const win = await sampleWorld(launch)
+  const button = win.getByRole('button', { name: 'Start screen' })
+  await expect(button).toHaveCSS('transition-duration', '0.15s')
+  await expect(button).toHaveCSS('transition-timing-function', 'cubic-bezier(0.2, 0.8, 0.2, 1)')
+  const box = (await button.boundingBox())!
+  await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await win.mouse.down()
+  // (Tailwind's scale-* is the CSS scale property, so it has to be among what the button transitions.)
+  await expect(button).toHaveCSS('transition-property', 'background-color, color, transform, scale')
+  // Held: in at 90 ms, to 0.95 (an icon button; text buttons go to 0.97).
+  await expect(button).toHaveCSS('transition-duration', '0.09s')
+  await expect(button).toHaveCSS('scale', '0.95')
+  // Let go somewhere else (so nothing is pressed): back over 150 ms.
+  await win.mouse.move(5, 500)
+  await win.mouse.up()
+  await expect(button).toHaveCSS('transition-duration', '0.15s')
+  await expect(button).toHaveCSS('scale', 'none')
+})
