@@ -52,10 +52,48 @@ export interface DossierGroup {
   filled: { def: FieldDef; value: string }[]
 }
 
+/**
+ * A place's, a group's and an item's one long group of fields, in the parts their builder walks through (its steps), so
+ * each is edited on its own and reads under its own heading: by kind, [id, heading, keys]. Display only: the fields are
+ * the same ones, saved the same way.
+ */
+const PARTS: Partial<Record<EntryKind, [string, string, string[]][]>> = {
+  place: [
+    ['place-look', 'Look and feel', ['atmosphere', 'geography']],
+    ['place-senses', 'Sights, sounds and smells', ['senses']],
+    ['place-people', 'Who is there', ['people']],
+    ['place-history', 'Its history', ['history']]
+  ],
+  group: [
+    ['group-goals', 'Goals and ranks', ['goals', 'ranks']],
+    ['group-ways', 'Allies, customs and history', ['rivals', 'customs', 'history']]
+  ],
+  item: [
+    ['item-powers', 'Powers and limits', ['powers', 'limits']],
+    ['item-origin', 'Where it came from', ['origin']]
+  ]
+}
+
+/** The kind's groups of fields as the dossier shows them: its own, or its builder's parts (any field they leave out last). */
+function shownGroups(kind: EntryKind): FieldGroup[] {
+  const groups = FIELD_GROUPS[kind] ?? []
+  const parts = PARTS[kind]
+  if (!parts) return groups
+  const defs = new Map(groups.flatMap((g) => g.fields.map((f) => [f.key, f] as const)))
+  const used = new Set<string>()
+  const out: FieldGroup[] = parts.map(([id, label, keys]) => {
+    for (const k of keys) used.add(k)
+    return { ...groups[0], id, label, fields: keys.map((k) => defs.get(k)).filter((f): f is FieldDef => !!f) }
+  })
+  const rest = [...defs.values()].filter((f) => !used.has(f.key))
+  if (rest.length) out.push({ ...groups[0], fields: rest })
+  return out
+}
+
 /** The kind's field groups under the facts: each with its fields (less the facts) and the ones filled in. Groups left with no fields are dropped. */
 export function dossierGroups(e: Pick<Entry, 'kind' | 'fields'>): DossierGroup[] {
   const facts = new Set(factDefs(e.kind).map((f) => f.key))
-  return (FIELD_GROUPS[e.kind] ?? [])
+  return shownGroups(e.kind)
     .map((group) => {
       const fields = group.fields.filter((f) => !facts.has(f.key))
       const filled = fields.map((def) => ({ def, value: (e.fields[def.key] ?? '').trim() })).filter((x) => x.value)

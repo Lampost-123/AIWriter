@@ -1,4 +1,26 @@
-import { AlertTriangle, History, Info, Lock, Trash2, WandSparkles, X } from '@/components/ui/icons'
+import {
+  AlertTriangle,
+  BookA,
+  CalendarDays,
+  Compass,
+  Drama,
+  Eye,
+  Flag,
+  Gem,
+  History,
+  IdCard,
+  Info,
+  KeyRound,
+  Lock,
+  MapPin,
+  MessageSquareQuote,
+  ScrollText,
+  Spool,
+  Trash2,
+  WandSparkles,
+  X,
+  type IconType
+} from '@/components/ui/icons'
 import { forwardRef, memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS, type FieldDef, type FieldGroup } from '@shared/fields'
 import type { Entry, EntryKind, ID, Origin } from '@shared/types'
@@ -274,7 +296,13 @@ export const EntryForm = memo(function EntryForm({
 
   return (
     // Leaving any field writes straight away, so nothing waits on the timer.
-    <div data-entry-page className="@container mx-auto w-full max-w-[700px] px-8 pb-24 pt-5" onBlur={() => void autosave.flush()}>
+    <div
+      data-entry-page
+      className="@container mx-auto w-full max-w-[700px] px-8 pb-24 pt-5"
+      // The New look: the sections' icons take the kind's ink (parts/Section.tsx).
+      style={isNew ? ({ '--sec-ink': `var(--k-${KIND_VAR[kind]})`, '--sec-soft': `var(--k-${KIND_VAR[kind]}-soft)` } as React.CSSProperties) : undefined}
+      onBlur={() => void autosave.flush()}
+    >
       {/* Where it first exists sits beside its kind; on a narrow page, where it would be cut short, on a
           line of its own (kept free while it loads). */}
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] grid-rows-[2rem] items-center gap-x-2 @max-[34rem]:grid-rows-[2rem_1.25rem]">
@@ -323,8 +351,14 @@ export const EntryForm = memo(function EntryForm({
               View as of a scene
             </Button>
             {isPictured(kind) ? (
-              <Button variant="ghost" size="sm" icon={<WandSparkles size={14} />} onClick={() => void openBuilder()}>
-                Open in the builder
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<WandSparkles size={14} />}
+                title={isNew ? 'Open the builder: walk through it step by step; the AI can suggest each part' : undefined}
+                onClick={() => void openBuilder()}
+              >
+                {isNew ? 'Build with AI' : 'Open in the builder'}
               </Button>
             ) : null}
           </div>
@@ -592,6 +626,23 @@ export function DuplicateHint({
   )
 }
 
+/** The New look: each group of fields' icon beside its heading. */
+const GROUP_ICONS: Record<string, IconType> = {
+  basics: IdCard,
+  looks: Eye,
+  personality: Drama,
+  backstory: KeyRound,
+  arc: Compass,
+  voice: MessageSquareQuote,
+  place: MapPin,
+  lore: ScrollText,
+  group: Flag,
+  item: Gem,
+  event: CalendarDays,
+  thread: Spool,
+  glossary: BookA
+}
+
 const GroupSection = memo(function GroupSection({
   group,
   fields,
@@ -613,7 +664,13 @@ const GroupSection = memo(function GroupSection({
   const keys = group.fields.map((f) => f.key)
   const filled = filledCount(fields, keys)
   return (
-    <Section title={group.label} meta={sectionMeta(filled, 'filled', 'filled', keys.length)} open={open} onToggle={() => onToggle(group.id)}>
+    <Section
+      title={group.label}
+      icon={GROUP_ICONS[group.id]}
+      meta={sectionMeta(filled, 'filled', 'filled', keys.length)}
+      open={open}
+      onToggle={() => onToggle(group.id)}
+    >
       <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 @lg:grid-cols-2">
         {group.fields.map((f) => (
           <FieldInput key={f.key} def={f} value={fields[f.key] ?? ''} onField={onField} note={notes.get(f.key) ?? null} places={places} />
