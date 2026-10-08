@@ -158,18 +158,22 @@ function askUserCall(tools) {
 
 /** propose_draft: a hand-off to the writer's own drafting, with a short direction. */
 function draftCall(tools, direction) {
-  const hints = { direction, brief: direction, instructions: direction, prompt: direction, beat: direction, where: 'end', mode: 'continue', why: 'You asked for new prose.' }
+  const mode = /draft the scene/.test(direction) ? 'generate' : 'continue'
+  const hints = { direction, mode, why: 'You asked for new prose.' }
   return { name: 'propose_draft', arguments: fill(paramsOf(tools, 'propose_draft'), hints) }
 }
 
+/** The scene's words as read_scene gave them: after "Text:" (or, with numbered paragraphs, "Text ([n] …):"), numbers taken out. */
+const sceneText = (content) => {
+  const parts = String(content ?? '').split(/\nText(?: \([^)\n]*\))?:\n/)
+  return (parts[1] ?? '').replace(/^\[\d+\] /gm, '')
+}
+
 /** The sentences of the scene as read_scene gave it. */
-const sentences = (content) => (String(content ?? '').split('\nText:\n')[1] ?? '').trim().match(/[^.!?]+[.!?]/g)?.map((x) => x.trim()) ?? []
+const sentences = (content) => sceneText(content).trim().match(/[^.!?]+[.!?]/g)?.map((x) => x.trim()) ?? []
 
 /** The first sentence of the scene as read_scene gave it, or ''. */
-const firstSentence = (content) => {
-  const text = String(content ?? '').split('\nText:\n')[1] ?? ''
-  return (/^[^.!?]+[.!?]/.exec(text.trim()) ?? [''])[0]
-}
+const firstSentence = (content) => (/^[^.!?]+[.!?]/.exec(sceneText(content).trim()) ?? [''])[0]
 
 function scriptedCalls(system, messages, tools) {
   const users = messages.filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
@@ -208,24 +212,29 @@ function legacyCalls(question, nudged, last, toolResults, tools) {
     if (!nudged || /\bstubborn/.test(question)) return null
     if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
     if (last?.role === 'tool' && toolResults.length === 1) {
-      const text = String(last.content).split('\nText:\n')[1] ?? ''
-      const first = (/^[^.!?]+[.!?]/.exec(text.trim()) ?? [''])[0]
-      return first ? [{ name: 'propose_edit', arguments: { find: first, replace: first.toUpperCase(), why: 'Tidied, as claimed.' } }] : null
+      const first = firstSentence(last.content)
+      if (!first) return null
+      const change = { find: first, replace: first.toUpperCase(), why: 'Tidied, as claimed.' }
+      return [offered(tools, 'propose_edit') || !offered(tools, 'propose_changes') ? { name: 'propose_edit', arguments: change } : changesCall(tools, [{ kind: 'edit', ...change }])]
     }
     return null
   }
   if (/\bnew place\b/.test(question)) {
     if (toolResults.length) return null
-    return [{ name: 'propose_new_entry', arguments: { kind: 'place', name: 'The Salt Stair', summary: 'Worn steps cut into the harbour wall.', why: 'You asked for a new place.' } }]
+    const place = { name: 'The Salt Stair', summary: 'Worn steps cut into the harbour wall.', why: 'You asked for a new place.' }
+    if (!offered(tools, 'propose_new_entry') && offered(tools, 'propose_changes')) return [changesCall(tools, [{ kind: 'new_entry', entry_kind: 'place', ...place }])]
+    return [{ name: 'propose_new_entry', arguments: { kind: 'place', ...place } }]
   }
   // Asked to push a passage harder: it reads the scene, then rewrites the whole of it (every paragraph) as two new ones.
   if (/\bpush\b/.test(question)) {
     if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
     if (last?.role === 'tool' && toolResults.length === 1) {
-      const words = (String(last.content).split('\nText:\n')[1] ?? '').trim().split(/\s+/)
+      const words = sceneText(last.content).trim().split(/\s+/)
       if (words.length < 6) return null
       const replace = 'The tide *roared* in over the flats.\n\nThe gulls screamed once, then nothing.'
-      return [{ name: 'propose_rewrite', arguments: { start: words.slice(0, 3).join(' '), end: words.slice(-3).join(' '), replace, why: 'Pushed harder, as asked.' } }]
+      const rewrite = { start: words.slice(0, 3).join(' '), end: words.slice(-3).join(' '), replace, why: 'Pushed harder, as asked.' }
+      if (!offered(tools, 'propose_rewrite') && offered(tools, 'propose_changes')) return [changesCall(tools, [{ kind: 'rewrite', ...rewrite }])]
+      return [{ name: 'propose_rewrite', arguments: rewrite }]
     }
     return null
   }
