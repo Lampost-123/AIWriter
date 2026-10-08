@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Issue } from '@shared/contracts/checks'
-import { fieldWords, foundWords, memoryFixWords, occurrencesIn, openCount, pickOccurrence, runFor, sentenceAround, splitIssues } from './issuesLogic'
+import { disagreesWith, fieldWords, fixAgainNote, fixDirection, foundWords, memoryFixWords, occurrencesIn, openCount, pickOccurrence, runFor, sentenceAround, splitIssues, usableFix } from './issuesLogic'
 
 const issue = (over: Partial<Issue> = {}): Issue => ({
   id: 'i',
@@ -81,3 +81,54 @@ describe('the Issues tab’s words', () => {
   })
 })
 
+
+describe('Fix the text', () => {
+  // Invented: a line that goes against the story's premise and Mara's eyes.
+  const premise = issue({
+    quote: 'Mara had never left the city.',
+    message: 'This says Mara never left the city, but the premise has her raised on a farm.',
+    sources: [
+      { kind: 'entry', entryId: 'e1', name: 'The premise', field: null },
+      { kind: 'entry', entryId: 'e2', name: 'Mara', field: 'eyes' }
+    ]
+  })
+
+  it('tells the writer the words must change, and what they disagree with', () => {
+    const d = fixDirection(premise)
+    expect(d).toContain('These words are wrong as they stand and must change: This says Mara never left the city')
+    expect(d).toContain('They disagree with The premise and Mara’s eyes.')
+    expect(d).toContain('your reply must not be the same words')
+    // With nothing named, no "disagree with" sentence.
+    expect(fixDirection(issue({ message: 'Wrong tense.' }))).not.toContain('disagree with')
+  })
+
+  it('asks again, saying the last answer was identical', () => {
+    expect(fixAgainNote(premise)).toBe(
+      'Your last answer was identical to the selected words, so nothing was fixed. Change the line so it no longer disagrees with The premise and Mara’s eyes.'
+    )
+    expect(fixAgainNote(issue())).toContain('so it no longer has this problem.')
+  })
+
+  it('names what the words disagree with', () => {
+    expect(disagreesWith(issue({ sources: [{ kind: 'story', storyId: 'b2', title: 'The Long Road' }] }))).toBe('The Long Road')
+    expect(
+      disagreesWith(
+        issue({
+          sources: [
+            { kind: 'scene', sceneId: 's2', label: 'Ch 2, Sc 1' },
+            { kind: 'thread', entryId: 't1', name: 'The lost key' },
+            { kind: 'thread', entryId: 't1', name: 'The lost key' }
+          ]
+        })
+      )
+    ).toBe('Ch 2, Sc 1 and The lost key')
+    expect(disagreesWith(issue())).toBe('')
+  })
+
+  it('never offers a suggested rewrite that is the quoted words again', () => {
+    expect(usableFix(premise)).toBeNull()
+    expect(usableFix({ ...premise, fix: 'Mara had never left the city.' })).toBeNull()
+    expect(usableFix({ ...premise, fix: '  mara had never  left the city. ' })).toBeNull()
+    expect(usableFix({ ...premise, fix: 'Mara had left the farm only once.' })).toBe('Mara had left the farm only once.')
+  })
+})

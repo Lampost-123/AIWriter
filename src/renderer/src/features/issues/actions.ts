@@ -17,7 +17,7 @@ import { showReplacement, startTool } from '@/features/edits/session'
 import { wordsIn } from '@/features/edits/text'
 import { openScene } from '@/features/memory/openScene'
 import { openStorySettings } from '@/features/stories/storyActions'
-import { fieldWords, fixDirection, occurrencesIn, pickOccurrence, sentenceAround } from './issuesLogic'
+import { fieldWords, fixAgainNote, fixDirection, NO_FIX_FOUND, occurrencesIn, pickOccurrence, sentenceAround, usableFix } from './issuesLogic'
 import { loadIssues, patchIssue, useIssuesStore } from './issuesStore'
 
 const WORDS_GONE = 'Those words aren’t in the scene any more.'
@@ -76,8 +76,10 @@ export function fixTheText(issue: Issue): void {
     void loadIssues(issue.sceneId)
     return
   }
-  if (issue.fix && exact) {
-    showReplacement({ ...exact, text: issue.fix, note: 'The consistency check’s suggested rewrite.', onAccepted: markFixed(issue) })
+  // A suggested rewrite that is the words again would change nothing: the writer model is asked instead.
+  const fix = usableFix(issue)
+  if (fix && exact) {
+    showReplacement({ ...exact, text: fix, note: 'The consistency check’s suggested rewrite.', onAccepted: markFixed(issue) })
     return
   }
   // The whole sentence the words are in, within their paragraph.
@@ -87,7 +89,13 @@ export function fixTheText(issue: Issue): void {
   const text = para.textBetween(0, para.content.size, undefined, ' ')
   const s = sentenceAround(text, range.from - start, Math.min(range.to, $from.end()) - start)
   const target = wordsIn(doc, start + s.from, start + s.to) ?? range
-  void startTool('rewrite', { direction: fixDirection(issue), range: target, onAccepted: markFixed(issue) })
+  // The words must change: a reply that sends them back as they were is asked for again, once, then said plainly.
+  void startTool('rewrite', {
+    direction: fixDirection(issue),
+    range: target,
+    onAccepted: markFixed(issue),
+    mustChange: { again: fixAgainNote(issue), giveUp: NO_FIX_FOUND }
+  })
 }
 
 /** A field's value on an entry. */

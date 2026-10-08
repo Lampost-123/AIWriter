@@ -196,6 +196,24 @@ const mightBeLeadIn = (line: string): boolean => LEAD_IN.test(line.trim()) || /^
 
 const QUOTES = /["“”]/g
 
+/** Text compared for sameness: straight quotes and dashes, no italics marks, one space, lower case, trimmed. */
+const forSameness = (s: string): string =>
+  s
+    .replace(/[‘’‛′]/g, "'")
+    .replace(/[“”„″]/g, '"')
+    .replace(/[–—‒−]/g, '-')
+    .replace(/…/g, '...')
+    .replace(/[*_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+
+/**
+ * True when a change's new words are the old ones again, but for spacing, quotation-mark style, italics marks or
+ * case: showing it would change nothing (Fix the text asks again, or says it couldn't, rather than show it).
+ */
+export const sameWords = (a: string, b: string): boolean => forSameness(a) === forSameness(b)
+
 /**
  * The reply as it should show in the page: without a lead-in line ("Here's the rewrite:"), a heading, or
  * fences around it, and (for words that weren't in quotation marks) without quotation marks around the

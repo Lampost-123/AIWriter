@@ -37,6 +37,7 @@
 //   fake/no-thinking-option 400 for any thinking setting (reasoning / reasoning_effort), else a normal stream
 //   fake/content-parts     sends its reply as lists of content parts (with a thinking part that isn't text)
 //   fake/finish-error-once stops with finish_reason "error" and no text on the first request, then a normal stream
+//   fake/stubborn          asked to fix an issue's words (Fix the text), sends them back unchanged every time (m4/edits.mjs)
 //
 // Prompt caching, as Claude does it through OpenRouter: a message sent as content parts, some marked with
 // cache_control, keeps everything up to its last mark; sent again unchanged, that part is reported as

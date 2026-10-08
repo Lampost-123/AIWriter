@@ -10,7 +10,10 @@
 //   vivid         the words, then " The lamplight shivered on the wet stones."
 //   tone          the words, then " The room seemed to hold its breath."
 //   rewrite       the sentences of each paragraph in reverse order; a single sentence becomes
-//                 "In the end, <the sentence, lower-cased first letter>".
+//                 "In the end, <the sentence, lower-cased first letter>". Asked to fix an issue (Fix the text: the
+//                 direction says the words "must change"), the first answer is the words unchanged, as real models
+//                 often sent them (Adam, 2026-10-08); asked again ("Your last answer was identical"), the rewrite
+//                 above. With the model fake/stubborn, the words unchanged every time.
 //   voice         each line of dialogue whose speaker the briefing names and gives sample lines for is
 //                 replaced by “<that speaker's first sample line>”; other lines stay as they are.
 //   alternatives  "=== Version 1 ===" "Quietly, <words>", "=== Version 2 ===" "<words without the last full
@@ -67,8 +70,13 @@ function fixVoice(user, words) {
   return out
 }
 
-function reply(tool, user) {
+/** Fix the text's asking (issues/issuesLogic.ts fixDirection), and its second asking (fixAgainNote). */
+const FIX_ASK = 'These words are wrong as they stand and must change'
+const FIX_AGAIN = 'Your last answer was identical to the selected words'
+
+function reply(tool, user, system = '', model = '') {
   const words = selectedWords(user)
+  if (tool === 'rewrite' && system.includes(FIX_ASK) && (model === 'fake/stubborn' || !system.includes(FIX_AGAIN))) return words
   switch (tool) {
     case 'condense':
       return `Here's the condensed version:\n\n${paragraphs(words)
@@ -118,7 +126,7 @@ export function editsReply(system, messages, model) {
   if (!system.startsWith(MARKER)) return null
   const tool = system.slice(MARKER.length).split('\n')[0].trim()
   const user = String(messages.find((m) => m.role === 'user')?.content ?? '')
-  const out = reply(tool, user)
+  const out = reply(tool, user, system, model)
   if (out == null) return null
   if (model !== 'fake/slow') return out
   // Long enough to stop part-way.

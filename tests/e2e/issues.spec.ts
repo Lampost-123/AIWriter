@@ -135,6 +135,44 @@ test('marking a scene done catches a planted contradiction; Ignore keeps it igno
   }
 })
 
+test('Fix the text never shows the words unchanged as a fix: it asks again, then says it couldn’t', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    await setUp(win, fake)
+    await writeAndMarkDone(win)
+    const found = toasts(win).filter({ hasText: 'Found 2 things to look at in this scene.' })
+    await expect(found).toBeVisible({ timeout: 30_000 })
+    await found.getByRole('button', { name: 'Show' }).click()
+    const line = '"You took your time," said Tobin.'
+
+    // The dead man's line has no suggested rewrite: Fix the text asks the writer model. The fake sends the words back
+    // unchanged the first time (as real models did); that is never shown as a change, and it is asked again.
+    await issue(win, DEAD).getByRole('button', { name: 'Fix the text' }).click()
+    await expect(change(win)).toBeVisible()
+    await expect(prose(win).locator('.aw-sugg-words')).toHaveText(`In the end, ${line}`)
+    await expect(change(win)).toContainText('The first answer changed nothing, so the AI was asked again.')
+    const sent = fake.lastRequest()!.body as { messages: { role: string; content: string }[] }
+    expect(sent.messages[0].content).toContain('These words are wrong as they stand and must change: Tobin is dead')
+    expect(sent.messages[0].content).toContain('Your last answer was identical to the selected words, so nothing was fixed.')
+    await change(win).getByRole('button', { name: /^Reject/ }).click()
+    await expect(change(win)).toHaveCount(0)
+    await expect(prose(win)).toContainText(TEXT)
+
+    // A model that sends the words back every time: a plain word, and nothing waits in the page.
+    await useFakeModel(win, fake, 'fake/stubborn')
+    await issuesTab(win).click()
+    await issue(win, DEAD).getByRole('button', { name: 'Fix the text' }).click()
+    await expect(toasts(win).getByText('Couldn’t find a fix. Edit the words by hand, or Ignore the issue.')).toBeVisible({ timeout: 15_000 })
+    await expect(change(win)).toHaveCount(0)
+    await expect(prose(win).locator('.aw-sugg-words')).toHaveCount(0)
+    await expect(prose(win)).toContainText(TEXT)
+    await expect(issue(win, DEAD)).toBeVisible()
+  } finally {
+    await fake.close()
+  }
+})
+
 test('Update the memory makes the text’s value Adam’s, and Undo puts it back', async ({ launch }) => {
   const fake = await startFake()
   try {
