@@ -12,6 +12,7 @@ import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
 import {
   AlertTriangle,
+  ArrowLeftRight,
   BetweenHorizontalStart,
   BookA,
   CheckCircle2,
@@ -72,6 +73,8 @@ function headOf(p: Proposal): string {
       return `Chapter card · ${p.chapterLabel}`
     case 'thread':
       return `${p.threadId ? 'Plot thread' : 'New plot thread'} · ${p.name}`
+    case 'replaceAll':
+      return `Replace all · ${p.sceneLabel || 'the whole story'}`
   }
 }
 
@@ -240,6 +243,60 @@ function BeatsBody({ p }: { p: Extract<Proposal, { kind: 'beats' }> }): React.JS
   )
 }
 
+// ---------- EXTRATOOLS (chat Phase 4): replace all ----------
+
+/** The writer's pick of a replace-all card's "rename the entry too", by change (kept while the app runs). */
+const useRenamePick = create<Record<string, boolean>>(() => ({}))
+
+/**
+ * Replace all: the words and what they become, how many times in how many scenes, a few of the places with the words
+ * around them, and (when the words are an entry's name) a box to rename the entry too, picked before Apply.
+ */
+function ReplaceAllBody({ p, pickKey, locked }: { p: Extract<Proposal, { kind: 'replaceAll' }>; pickKey: string; locked: boolean }): React.JSX.Element {
+  const picked = useRenamePick((s) => s[pickKey]) ?? false
+  const boxId = useId()
+  const how = [p.wholeWord ? 'whole words' : 'inside words too', p.matchCase ? 'exact case' : 'any case'].join(', ')
+  return (
+    <div className="flex flex-col gap-1.5" data-replace-all>
+      <div className="break-words font-serif text-[13.5px] leading-[1.6] text-fg">
+        <del className="rounded-sm bg-danger-soft px-0.5 text-danger decoration-danger/60">{p.find}</del> →{' '}
+        {p.replace ? <ins className="rounded-sm bg-success-soft px-0.5 text-success no-underline">{p.replace}</ins> : <span className="font-sans text-[12px] text-muted">(taken out)</span>}
+      </div>
+      <div className="text-[11.5px] tabular-nums text-faint" data-replace-count={p.count}>
+        {p.count === 1 ? 'Once' : `${p.count.toLocaleString()} times`} in {p.scenes === 1 ? 'one scene' : `${p.scenes.toLocaleString()} scenes`} · {how}
+      </div>
+      {p.examples.length ? (
+        <ul className="flex flex-col gap-1" data-replace-examples>
+          {p.examples.map((x, i) => (
+            <li key={i} className="break-words text-[12.5px] leading-relaxed">
+              <span className="mr-1 font-sans text-[11px] text-faint">{x.sceneLabel}</span>
+              <span className="font-serif text-muted">
+                {x.before}
+                <mark className="rounded-sm bg-accent-soft px-0.5 text-fg">{x.text}</mark>
+                {x.after}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {p.rename && p.replace ? (
+        <label htmlFor={boxId} className="flex items-center gap-1.5 text-[12.5px] text-fg">
+          <input
+            id={boxId}
+            type="checkbox"
+            data-replace-rename
+            checked={picked}
+            disabled={locked || p.status === 'applied'}
+            onChange={(e) => useRenamePick.setState({ [pickKey]: e.target.checked })}
+            className="h-3.5 w-3.5 shrink-0 accent-accent"
+          />
+          Also rename {p.rename.name} to {p.replace} in memory (keeping the old name as another name)
+        </label>
+      ) : null}
+    </div>
+  )
+}
+
 /** A proposed draft's way of writing, in the writer's own words for it (propose_draft, lab switch DRAFT). */
 export function draftModeLabel(p: Extract<Proposal, { kind: 'draft' }>): string {
   switch (p.mode) {
@@ -326,7 +383,7 @@ function Diff({ before, after }: { before: string; after: string }): React.JSX.E
   )
 }
 
-function Body({ p }: { p: Proposal }): React.JSX.Element {
+function Body({ p, pickKey = '', locked = false }: { p: Proposal; pickKey?: string; locked?: boolean }): React.JSX.Element {
   switch (p.kind) {
     case 'text':
       return <Diff before={p.find} after={p.replace} />
@@ -441,6 +498,8 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
       return <CutBody p={p} />
     case 'beats':
       return <BeatsBody p={p} />
+    case 'replaceAll':
+      return <ReplaceAllBody p={p} pickKey={pickKey} locked={locked} />
   }
 }
 
@@ -493,8 +552,11 @@ const setLocal = (key: string, patch: Local): void => useLocal.setState((s) => (
 /** Applies changes, each card showing it is being applied, then its own Undo (or why it couldn't go in). */
 async function apply(generationId: ID, list: Proposal[]): Promise<void> {
   for (const p of list) setLocal(localKey(generationId, p.id), { applying: true, stale: undefined })
+  // A replace all takes the writer's pick of renaming the entry too (EXTRATOOLS).
+  const picks = useRenamePick.getState()
+  const withPicks = list.map((p) => (p.kind === 'replaceAll' ? { ...p, renameEntry: !!picks[localKey(generationId, p.id)] } : p))
   try {
-    const { undoOf, failedOf } = await applyChanges(generationId, list)
+    const { undoOf, failedOf } = await applyChanges(generationId, withPicks)
     for (const p of list) setLocal(localKey(generationId, p.id), { applying: false, undo: undoOf[p.id], stale: failedOf[p.id] })
   } catch {
     for (const p of list) setLocal(localKey(generationId, p.id), { applying: false })
@@ -513,7 +575,8 @@ const KIND_ICON: Record<Exclude<Proposal['kind'], 'entry' | 'newEntry' | 'thread
   cut: Scissors,
   beats: ListOrdered,
   issueFix: Wrench,
-  chapterCard: BookA
+  chapterCard: BookA,
+  replaceAll: ArrowLeftRight
 }
 
 /** A change's icon and its tile's ink: an entry's kind in its own ink; a cut, scissors; the rest by what they change. */
@@ -575,7 +638,7 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
         ) : null}
       </div>
       <div className={cn(p.status === 'applied' && 'opacity-80')}>
-        <Body p={p} />
+        <Body p={p} pickKey={key} locked={locked || !!local.applying} />
       </div>
       {p.why ? <div className="mt-1.5 break-words text-[12px] italic leading-relaxed text-muted">{p.why}</div> : null}
       {stale ? <div className="mt-1.5 break-words text-[12px] leading-relaxed text-danger">{local.stale}</div> : null}

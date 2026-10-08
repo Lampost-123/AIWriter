@@ -50,6 +50,16 @@ describe('tool calls as records', () => {
     expect(shortReason('Those words aren’t in the scene. Copy them exactly.')).toBe('those words aren’t in the scene')
   })
 
+  it('knows the Phase 4 tools (EXTRATOOLS) and the replace_all kind', () => {
+    expect([toolKind('scene_state'), toolKind('story_so_far'), toolKind('compare_version'), toolKind('propose_replace_all')]).toEqual(['state', 'sofar', 'compare', 'propose'])
+    expect(argSummary('scene_state', { at_paragraph: 12 })).toBe('[12]')
+    expect(argSummary('scene_state', { scene: 'Ch 2, Sc 1' })).toBe('the end of Ch 2, Sc 1')
+    expect(argSummary('story_so_far', {})).toBe('')
+    expect(argSummary('story_so_far', { to_scene: 'Ch 3, Sc 1' })).toBe('the start to Ch 3, Sc 1')
+    expect(argSummary('compare_version', {})).toBe('the open scene')
+    expect(changesSummary([{ kind: 'replace_all' }, { kind: 'edit' }])).toBe('1 replace all, 1 edit')
+  })
+
   it('reads a record made since Phase 2b as it was kept', () => {
     const kept = {
       label: 'Reading Ch 1, Sc 1',

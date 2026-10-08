@@ -41,6 +41,16 @@ import {
   type StoryCtx
 } from './storyTools'
 import {
+  EXTRA_CHANGE_KINDS,
+  EXTRA_ITEM_PROPERTIES,
+  EXTRA_KIND_LINES,
+  extraAnswer,
+  extraProposeTools,
+  extraReadTools,
+  type ExtraCtx,
+  type SnapshotSource
+} from './extraTools'
+import {
   anchorAt,
   findWords,
   locate,
@@ -287,6 +297,8 @@ export interface ToolSwitches {
   textTools?: boolean
   /** STORYTOOLS (chat Phase 3): list_issues, chapter_card, list_threads and the issue_fix, chapter_card, thread changes. */
   storyTools?: boolean
+  /** EXTRATOOLS (chat Phase 4): scene_state, story_so_far, compare_version and the replace_all change. */
+  extraTools?: boolean
 }
 
 export const toolSwitches = (): ToolSwitches => ({
@@ -296,7 +308,8 @@ export const toolSwitches = (): ToolSwitches => ({
   draft: chatExp('DRAFT'),
   actFirst: chatExp('ACTFIRST'),
   textTools: chatExp('TEXTTOOLS'),
-  storyTools: chatExp('STORYTOOLS')
+  storyTools: chatExp('STORYTOOLS'),
+  extraTools: chatExp('EXTRATOOLS')
 })
 
 const num = { type: 'number' } as const
@@ -388,7 +401,7 @@ export const ASK_KIND = 'ask'
  * an item can be a question for the writer instead, as ask_user asks it, so a request made to propose can still ask
  * when the request could mean clearly different things. An ask goes alone: given with changes, it isn't asked.
  */
-function proposeChangesTool(anchor: boolean, ask = false, text = false, story = false): ToolSpec {
+function proposeChangesTool(anchor: boolean, ask = false, text = false, story = false, extra = false): ToolSpec {
   const words = anchor
     ? "edit: `paragraph` (its [n] from read_scene), `find` (the words there; quotes and spacing needn't match exactly), `occurrence` if they occur more than once in it, `replace` ('' cuts). One paragraph only, and it can't add or remove italics.\n- rewrite: `replace_paragraphs: [from, to]` for whole paragraphs, or `start` + `paragraph` and `end` for a passage that starts or ends inside one; `replace` is the whole new passage, a blank line between paragraphs and *asterisks* for italics."
     : "edit: `find` (copied exactly from the scene, inside one paragraph, long enough to occur once) and `replace` ('' cuts). It can't add or remove italics.\n- rewrite: `start` and `end` (the passage's first and last few words, copied exactly; `start` must occur once) and `replace`, the whole new passage, a blank line between paragraphs and *asterisks* for italics."
@@ -407,6 +420,7 @@ function proposeChangesTool(anchor: boolean, ask = false, text = false, story = 
       '- rename: a `scene` or a `chapter`, and its new title as `to`.',
       ...(text ? textKindLines(anchor) : []),
       ...(story ? STORY_KIND_LINES : []),
+      ...(extra ? EXTRA_KIND_LINES : []),
       ...(ask
         ? [
             "- ask: instead of proposing, ask the writer one short question, only when you can't tell which passage is meant or two readings would give clearly different changes (never to ask permission). Give `question` and 2 to 4 `options`, each with a short `label` (and `detail` if it needs one); `recommended` is the number of the option you would pick (1 = the first); `multi` is true when more than one may be picked. No `why`. It ends your answer: their pick comes back as their next message. An ask goes alone, as the only item: given with changes, it is not asked and the changes are checked as usual."
@@ -423,7 +437,13 @@ function proposeChangesTool(anchor: boolean, ask = false, text = false, story = 
             properties: {
               kind: {
                 type: 'string',
-                enum: [...Object.keys(CHANGE_KINDS), ...(text ? textKinds(anchor) : []), ...(story ? Object.keys(STORY_CHANGE_KINDS) : []), ...(ask ? [ASK_KIND] : [])]
+                enum: [
+                  ...Object.keys(CHANGE_KINDS),
+                  ...(text ? textKinds(anchor) : []),
+                  ...(story ? Object.keys(STORY_CHANGE_KINDS) : []),
+                  ...(extra ? Object.keys(EXTRA_CHANGE_KINDS) : []),
+                  ...(ask ? [ASK_KIND] : [])
+                ]
               },
               ...(text ? textItemProps(anchor) : {}),
               ...(ask
@@ -462,6 +482,7 @@ function proposeChangesTool(anchor: boolean, ask = false, text = false, story = 
               title: str,
               to: str,
               ...(story ? STORY_ITEM_PROPERTIES : {}),
+              ...(extra ? EXTRA_ITEM_PROPERTIES : {}),
               why: str
             },
             // An ask has no `why`: only `kind` is required of every item then (a change without `why` is still told so).
@@ -538,10 +559,13 @@ export function editorTools(s: ToolSwitches): ToolSpec[] {
   }
   // STORYTOOLS without TOOLCHOICE: the story kinds as their own propose_ tools.
   if (s.storyTools && !s.toolChoice) out.push(...storyProposeTools())
-  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser, s.textTools, !!s.storyTools))
+  // EXTRATOOLS (Phase 4) without TOOLCHOICE: replace_all as its own propose_ tool.
+  if (s.extraTools && !s.toolChoice) out.push(...extraProposeTools())
+  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser, s.textTools, !!s.storyTools, !!s.extraTools))
   if (s.draft) out.push(PROPOSE_DRAFT)
   if (s.askUser) out.push(ASK_USER)
   if (s.textTools) out.push(FIND_MENTIONS)
+  if (s.extraTools) out.push(...extraReadTools())
   return out
 }
 
@@ -649,6 +673,8 @@ export interface AgentPlace {
    * whose item of kind ask carries the question; asking before the words are known is sent back (ACTFIRST).
    */
   unclear?: boolean
+  /** The open world's History (compare_version, EXTRATOOLS); left out or null, there are no earlier versions to read. */
+  history?: SnapshotSource | null
 }
 
 /** Something the model got wrong that it can put right (a scene it named that isn't there, words that aren't in it). */
@@ -1730,9 +1756,10 @@ export class EditorAgent {
         return
       }
       const story: Record<string, string> = this.switches.storyTools ? STORY_CHANGE_KINDS : {}
-      const tool = (CHANGE_KINDS as Record<string, string>)[kind] ?? this.textKindTool(kind) ?? story[kind]
+      const extra: Record<string, string> = this.switches.extraTools ? EXTRA_CHANGE_KINDS : {}
+      const tool = (CHANGE_KINDS as Record<string, string>)[kind] ?? this.textKindTool(kind) ?? story[kind] ?? extra[kind]
       if (!item || !tool) {
-        lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${[...Object.keys(CHANGE_KINDS), ...this.textKindsOn(), ...Object.keys(story)].join(', ')}.`)
+        lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${[...Object.keys(CHANGE_KINDS), ...this.textKindsOn(), ...Object.keys(story), ...Object.keys(extra)].join(', ')}.`)
         reasons.push('no kind given')
         return
       }
@@ -1869,6 +1896,37 @@ export class EditorAgent {
       sceneHeading: (id) => this.sceneHeading(id),
       proposals: () => this.proposals,
       propose: (p) => this.propose(p),
+      mark: (m) => {
+        this.mark = { ...this.mark, ...m }
+      },
+      note: (line) => {
+        this.notes.push(line)
+      },
+      fail: (message) => {
+        throw new Mistake(message)
+      }
+    }
+  }
+
+  // ---------- EXTRATOOLS (chat Phase 4): scene_state, story_so_far, compare_version, replace_all (extraTools.ts) ----------
+
+  /** What the Phase 4 tools may use of this answer: the story's point, its names, History, and proposing. */
+  private extraCtx(): ExtraCtx {
+    return {
+      db: this.db,
+      storyId: this.place.storyId,
+      sceneId: this.place.sceneId,
+      later: LATER,
+      view: () => this.view(),
+      outline: () => this.outline(),
+      scene: (n) => this.scene(n),
+      words: (id) => sceneWords(this.db, id),
+      sceneLabel: (id) => sceneLabelIn(this.outline(), id),
+      sceneHeading: (id) => this.sceneHeading(id),
+      history: this.place.history ?? null,
+      proposals: () => this.proposals,
+      propose: (p) => this.propose(p),
+      checkSize: (words, what) => checkItemSize(words, what, this.switches.draft),
       mark: (m) => {
         this.mark = { ...this.mark, ...m }
       },
@@ -2165,6 +2223,10 @@ export class EditorAgent {
     if (this.switches.storyTools) {
       const story = storyAnswer(this.storyCtx(), name, a)
       if (story) return story
+    }
+    if (this.switches.extraTools) {
+      const extra = extraAnswer(this.extraCtx(), name, a)
+      if (extra) return extra
     }
     const list = (k: string): string[] | undefined =>
       Array.isArray(a[k]) ? (a[k] as unknown[]).filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean) : undefined

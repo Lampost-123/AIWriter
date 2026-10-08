@@ -19,7 +19,8 @@ export type AskIntent = 'edit' | 'brainstorm' | 'answer' | 'unsure'
  * changes); off, none of them. Phase 3 (cost and speed): SCENE puts the open scene's numbered words in the briefing
  * for an edit (or a selection), so the first request can propose without read_scene; CACHE keeps the briefing's front
  * the same from question to question (provider prefix caching); CAP fits an edit's briefing into EDIT_BRIEFING_CAP
- * tokens. Off, each as Phase 2 left it.
+ * tokens. Off, each as Phase 2 left it. EXTRATOOLS (Phase 4): scene_state, story_so_far, compare_version and
+ * propose_changes' kind replace_all (ask/extraTools.ts); off, none of them.
  */
 export const CHAT_SWITCHES = [
   'CONTRACT',
@@ -36,7 +37,8 @@ export const CHAT_SWITCHES = [
   'STORYTOOLS',
   'SCENE',
   'CACHE',
-  'CAP'
+  'CAP',
+  'EXTRATOOLS'
 ] as const
 export type ChatSwitch = (typeof CHAT_SWITCHES)[number]
 

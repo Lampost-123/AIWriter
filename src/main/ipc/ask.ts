@@ -42,6 +42,7 @@ import { chatInStory, chatTurns, listChats, newChatId, toTurn } from '../ask/cha
 import { saveNote, undoNote } from '../ask/note'
 import { EditorAgent, MAX_STEPS } from '../ask/agent'
 import { proposalsOf, saveProposals, setSavedNote } from '../db/ask'
+import { currentHistory } from '../history'
 
 /** Questions in a chat are asked again and again with the same briefing: only what changed is counted again. */
 const countCached = cachedCounter(countTokens)
@@ -159,7 +160,9 @@ export const askHandlers: Handlers<keyof AskApi> = {
         ...(quoted ? { wordsInQuestion: true } : {}),
         ...(newProse ? { newProse: true } : {}),
         ...(wordsOnPage ? { wordsOnPage: true } : {}),
-        ...(unclear ? { unclear: true } : {})
+        ...(unclear ? { unclear: true } : {}),
+        // compare_version (EXTRATOOLS) reads the world's History.
+        history: currentHistory()
       },
       (label) => emit('ask:step', { taskId: input.taskId, generationId, label }),
       (proposals) => {
