@@ -145,7 +145,8 @@ test('the story home fits the window without spilling, and the panels never show
     const people = await home(win).locator('.home-pt').evaluateAll((els) =>
       els.map((el) => {
         const face = el.querySelector('.home-pt-face')!.getBoundingClientRect()
-        const name = el.querySelector('.home-pt-name') as HTMLElement
+        // (Run in the window: the tests' own types have no DOM, so an Element's own fields are enough.)
+        const name = el.querySelector('.home-pt-name')!
         return { face: { x: face.x, y: face.y, w: face.width, h: face.height }, name: name.textContent ?? '', shown: name.getBoundingClientRect().width > 8, cut: name.scrollWidth > name.clientWidth, title: el.getAttribute('title') ?? '' }
       })
     )

@@ -1066,7 +1066,9 @@ test('beat markers on the sheet: each beat’s label lies on the sheet above its
       expect(tag.x, `label inside the sheet at ${w}`).toBeGreaterThanOrEqual(sheet.x)
       expect(tag.y + tag.height, `label above the beat at ${w}`).toBeLessThanOrEqual(first.y + 1)
       // The band stands where the lamp line does (-28px, 2px wide, inside the band's 3px).
-      expect(await second.evaluate((p) => getComputedStyle(p, '::before').left)).toBe('-29px')
+      // (Run in the window: the tests' own types have no DOM.)
+      const bandLeft = (p: unknown): string => (globalThis as unknown as { getComputedStyle(e: unknown, pseudo: string): { left: string } }).getComputedStyle(p, '::before').left
+      expect(await second.evaluate(bandLeft)).toBe('-29px')
     }
   } finally {
     await fake.close()
