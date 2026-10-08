@@ -374,6 +374,31 @@ describe('describeChange', () => {
     expect(say(rel('r', 'mara', 'gone', { type: 'enemies' }, 'scene'))).toBeNull()
   })
 
+  it('shows something said once: not again under it when its source words are the same words', () => {
+    const said = (links: SourceLink[], there?: string[]): ChangeView => ({
+      ...base,
+      id: 's',
+      entryId: 'tobin',
+      anchor: 'scene',
+      kind: 'knowledge',
+      links,
+      payload: { factId: 'f', fact: 'the vault is empty', said: { kind: 'secret', by: 'mara', words: 'The vault is empty.' }, ...(there ? { there } : {}) }
+    })
+    const link = (quote: string, state: SourceLink['state'] = 'ok'): SourceLink =>
+      ({ id: 'l', factKind: 'change', factId: 's', field: null, sceneId: 'sc', sceneVersion: 1, paragraphId: 'p1', start: 0, end: 20, quote, state }) as SourceLink
+    const detail = (c: ChangeView): string | null | undefined => describeChange(c, 'tobin', nameOf, label)?.detail
+    expect(say(said([link('“The vault is empty.”')]), 'tobin')).toBe('A secret told: the vault is empty')
+    // An older world (no one named as there): the line is shown by its source words only.
+    expect(detail(said([link('“The vault is empty.”')]))).toBeNull()
+    expect(detail(said([link('The  vault is empty.')]))).toBeNull()
+    // No source words to show it, or words that are gone or say something else: the line is shown under it.
+    expect(detail(said([]))).toBe('“The vault is empty.”')
+    expect(detail(said([link('The vault is empty.', 'gone')]))).toBe('“The vault is empty.”')
+    expect(detail(said([link('She said nothing more.')]))).toBe('“The vault is empty.”')
+    // Who was there takes its place when known.
+    expect(detail(said([link('The vault is empty.')], ['tobin', 'mara']))).toBe('Was there with Mara')
+  })
+
   it('phrases knowledge and plot threads', () => {
     expect(say(knows('k', 'tobin', 'Mara is the heir', 'scene'), 'tobin')).toBe('Learns: Mara is the heir')
     expect(say(knows('k', 'tobin', 'Mara is the heir', 'scene', true), 'tobin')).toBe('Forgets: Mara is the heir')

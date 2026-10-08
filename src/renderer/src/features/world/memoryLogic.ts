@@ -392,6 +392,17 @@ const excerpt = (s: string, max = 90): string => {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
 }
 
+/** The same words, quote marks around them and spacing aside. */
+const sameWords = (a: string, b: string): boolean => {
+  const bare = (s: string): string =>
+    s
+      .trim()
+      .replace(/^["“'‘]+|["”'’]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  return bare(a) !== '' && bare(a) === bare(b)
+}
+
 /** "Ash", "Ash and Tobin", "Ash, Tobin and Wren"; more than four: "Ash, Tobin, Wren and 3 others". */
 function joinNames(names: string[]): string {
   const shown = names.length > 4 ? [...names.slice(0, 3), `${names.length - 3} others`] : names
@@ -469,8 +480,11 @@ export function describeChange(
       // Who was there (World Memory Overhaul B5): the others on stage at those words know it too.
       const others = (c.payload.there ?? []).filter((id) => id !== selfId).flatMap((id) => nameOf(id) ?? [])
       const there = others.length ? `Was there with ${joinNames(others)}` : null
-      // The line itself shows as the change's source words already, so who was there takes its place when known.
-      const detail = there ?? words
+      // The line itself shows as the change's source words already, so who was there takes its place when known. A
+      // world read before who-was-there was kept has no names: the line is left out then too, when the source words
+      // shown under it are the same words (it showed twice otherwise).
+      const quoted = !!line && (c.links ?? []).some((l) => l.state === 'ok' && sameWords(l.quote, line))
+      const detail = there ?? (quoted ? null : words)
       return { text: `${what}: ${c.payload.fact.trim()}`, detail }
     }
     case 'thread': {
