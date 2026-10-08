@@ -1,7 +1,7 @@
 // The New look's desk layout (UI overhaul, phase 2: the frame), walked through on the sample world: the Layout choice in
 // Settings, the top bar (rooms, the command bar, the status island), every page in its room's frame, the story's spine
 // (full with the whole story, or slim with its rings and their flyout) and a single click on each of its controls, the
-// page as a sheet (its head, the drop cap, typing at the scene's start), the shortcuts the page's tools carry, and the
+// page as a sheet (its head, no drop cap, typing at the scene's start), the shortcuts the page's tools carry, and the
 // scene drawer (the scene panel over the page's edge) with every way into it.
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { expect, invoke, test, useFakeModel, type LaunchOptions } from './helpers'
@@ -399,17 +399,17 @@ test('the drawer: full height beside the page in a large window, the sheet betwe
   }
 })
 
-test('the page: its head, a drop cap that types like any letter, and every shortcut the page’s tools carry', async ({ launch }) => {
+test('the page: its head, typing at the scene’s very start, and every shortcut the page’s tools carry', async ({ launch }) => {
   const { win } = await sampleWorld(launch)
   const head = win.locator('[data-page-title]')
   await expect(head).toContainText('Chapter One · The Night Ferry')
   await expect(head.getByRole('heading', { level: 1 })).toHaveText('Lighting the Lamp')
   await expect(head).toContainText('Scene 1 of 2')
   await expect(head).toContainText('Told through Wren Halloway')
-  // The drop cap: the first paragraph's first letter, three lines tall.
+  // No drop cap (Adam's wish): the first paragraph's first letter is the size of every other.
   const cap = await win.evaluate<string>("getComputedStyle(document.querySelector('.desk-sheet .scene-prose > p'), '::first-letter').initialLetter ?? ''")
-  expect(cap).toMatch(/^3/)
-  // Typing at the very start of the scene goes in front of the drop cap's letter, as anywhere else.
+  expect(cap === '' || cap === 'normal').toBe(true)
+  // Typing at the very start of the scene goes in front of its first letter, as anywhere else.
   await win.locator('.scene-prose').click()
   await win.keyboard.press('Control+Home')
   await win.keyboard.type('So. ')

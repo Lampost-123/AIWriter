@@ -1021,16 +1021,9 @@
   background: var(--danger-soft);
   box-shadow: none;
 }
-/* The prose: old-style figures, a drop cap three lines tall on the scene's first letter, names in their kind's ink. */
+/* The prose: old-style figures, names in their kind's ink. (No drop cap: the first paragraph starts as every other.) */
 [data-arrangement='desk'] .desk-sheet .scene-prose {
   font-variant-numeric: oldstyle-nums;
-}
-[data-arrangement='desk'] .desk-sheet .scene-prose > p:first-child:not(.is-editor-empty)::first-letter {
-  initial-letter: 3;
-  font-weight: 600;
-  font-variation-settings: 'opsz' 72;
-  color: var(--fg);
-  margin-right: 0.12em;
 }
 [data-arrangement='desk'] .desk-sheet .scene-prose .aw-name {
   border-radius: 3px;
