@@ -69,7 +69,7 @@ describe('which notes the margin shows', () => {
     expect(ids(input({ names: names(e, { presentIds: ['onCard'] }), firstMentions: m }))).toEqual(['card', 'entity:named', 'entity:onCard'])
   })
 
-  it('scores the point of view highest, then the card, then a fact from this chapter, and lore rules', () => {
+  it('never gives the point-of-view character a note (the scene card names them); scores the card, a fact from this chapter, and lore rules', () => {
     const e = [
       entry('pov'),
       entry('present'),
@@ -81,7 +81,8 @@ describe('which notes the margin shows', () => {
     const m = new Map(e.map((x, i) => [x.id, at(i)]))
     const slips = pickSlips(input({ names: names(e, { povId: 'pov', presentIds: ['present'], locationId: 'place' }), firstMentions: m }))
     const score = Object.fromEntries(slips.filter((s) => s.entity).map((s) => [s.entity!.entry.id, s.entity!.score]))
-    expect(score).toEqual({ pov: 3, present: 2, named: 1, recent: 2, rule: 3, place: 2 })
+    expect(score).toEqual({ present: 2, named: 1, recent: 2, rule: 3, place: 2 })
+    expect(slips.map((s) => s.id)).not.toContain('entity:pov')
     // The tags: when the fact happened, and "In memory" for lore.
     const tags = Object.fromEntries(slips.filter((s) => s.entity).map((s) => [s.entity!.entry.id, s.entity!.tag]))
     expect(tags.recent).toBe('Since Ch 2')
@@ -93,13 +94,13 @@ describe('which notes the margin shows', () => {
 
   it('keeps two notes to a paragraph at most (the lower score goes) and six in all, shown in the order first named', () => {
     // Three in paragraph 0: the one only named goes.
-    const crowd = [entry('a'), entry('b'), entry('c')]
+    const crowd = [entry('a'), entry('b'), entry('c', { state: [line('Lost her hand', 'Book 1, Ch 2, Sc 0')] })]
     const m1 = new Map([
       ['a', at(0, 5)],
       ['b', at(0, 20)],
       ['c', at(0, 40)]
     ])
-    expect(ids(input({ names: names(crowd, { povId: 'c', presentIds: ['b'] }), firstMentions: m1 }))).toEqual(['card', 'entity:b', 'entity:c'])
+    expect(ids(input({ names: names(crowd, { presentIds: ['b', 'c'] }), firstMentions: m1 }))).toEqual(['card', 'entity:b', 'entity:c'])
     // Ten in ten paragraphs: six, the highest scores, in reading order.
     const many = Array.from({ length: 10 }, (_, i) => entry(`e${i}`))
     const m2 = new Map(many.map((x, i) => [x.id, at(9 - i)]))

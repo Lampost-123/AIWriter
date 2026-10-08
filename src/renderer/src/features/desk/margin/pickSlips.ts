@@ -5,9 +5,9 @@
 // - The scene card, always, pinned beside the title.
 // - Entities (characters, places, items, groups, lore and events; never plot threads or glossary terms) named in the
 //   text and in the story at this point, that are on the scene card or carry something worth a note: a one-liner,
-//   something that has happened to them, or (for a character) how they speak. Each scores by why it is here (the point
-//   of view 3, present or where the scene happens 2, only named 1), plus 1 when its fact line is from this chapter and
-//   2 for a lore rule never to break. At most two to a paragraph and six in all (the lower scores go), shown in the
+//   something that has happened to them, or (for a character) how they speak. Never the point-of-view character: the
+//   scene card already names them (Adam, 2026-10-08). Each scores by why it is here (present or where the scene happens
+//   2, only named 1), plus 1 when its fact line is from this chapter and 2 for a lore rule never to break. At most two to a paragraph and six in all (the lower scores go), shown in the
 //   order they are first named.
 // - Checks: the scene's open issues whose words are in the text, must-fix first, three at most; the last one says how
 //   many more there are in the Issues tab.
@@ -81,15 +81,14 @@ export function factLine(state: readonly StateLine[]): StateLine | null {
 
 /** The note for an entry named in the page, or null when it doesn't get one. */
 export function entityFor(e: NamedEntry, cast: SceneNames['cast'], chapter: string): EntitySlipData | null {
-  if (!ENTITY_KINDS.includes(e.kind) || e.absent) return null
-  const role: EntitySlipData['role'] =
-    cast.povId === e.id ? 'pov' : cast.presentIds.includes(e.id) ? 'present' : cast.locationId === e.id ? 'location' : 'named'
+  if (!ENTITY_KINDS.includes(e.kind) || e.absent || cast.povId === e.id) return null
+  const role: EntitySlipData['role'] = cast.presentIds.includes(e.id) ? 'present' : cast.locationId === e.id ? 'location' : 'named'
   const fact = factLine(e.state)
   const worth = role !== 'named' || !!e.summary.trim() || !!fact || !!e.voice || (e.kind === 'lore' && !!e.hardRule)
   if (!worth) return null
   const fromChapter = !!fact && !!chapter && (fact.where === chapter || fact.where.startsWith(`${chapter},`))
   const rule = e.kind === 'lore' && !!e.hardRule
-  const score = (role === 'pov' ? 3 : role === 'named' ? 1 : 2) + (fromChapter ? 1 : 0) + (rule ? 2 : 0)
+  const score = (role === 'named' ? 1 : 2) + (fromChapter ? 1 : 0) + (rule ? 2 : 0)
   const since = fact ? chapterTag(fact.where) : ''
   const tag = e.kind === 'lore' ? 'In memory' : since ? `Since ${since}` : null
   return { entry: e, role, tag, fact, score }

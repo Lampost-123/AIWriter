@@ -17,7 +17,6 @@ import type { EntitySlipData } from '../anchors'
 const DOCK_ROOM = 120
 
 const ROLE_WORDS: Record<EntitySlipData['role'], string> = {
-  pov: 'Point of view',
   present: 'In this scene',
   location: 'Where it happens',
   named: 'Named here'

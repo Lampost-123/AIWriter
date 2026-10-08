@@ -863,7 +863,8 @@ test('entity notes: Edric’s beside his paragraph, the lore rule with In memory
   await expect(lore).toBeVisible()
   await expect(lore).toContainText('Lore')
   await expect(lore).toContainText('In memory')
-  // Plot threads never get a note.
+  // The point-of-view character never gets a note (the scene card names her); plot threads never do either.
+  await expect(note('Wren Halloway')).toHaveCount(0)
   await expect(note('What is in the sealed letter?')).toHaveCount(0)
 
   // Two notes about the same paragraph push apart (the place, then the lore rule below it), never overlapping.
@@ -1001,6 +1002,8 @@ test('arrival: a room’s pieces arrive the first time it shows, never again; th
   await expect(guide).toBeVisible()
   await expect(win.locator('.desk-sheet [data-desk-guide]')).toHaveCount(1)
   await expect(guide).toContainText('Fill in the scene card')
+  // The empty page's placeholder points at the dock (the desk has no Generate button).
+  await expect(win.locator('.scene-prose p.is-editor-empty').first()).toHaveAttribute('data-placeholder', 'Start writing, or use Draft the scene below.')
   await expect(guide.getByRole('button', { name: 'Open the scene card' })).toBeVisible()
   const [g, head, prose] = [(await guide.boundingBox())!, (await win.locator('[data-page-title]').boundingBox())!, (await win.locator('.scene-prose').boundingBox())!]
   expect(g.y + g.height).toBeLessThanOrEqual(head.y + 1)
