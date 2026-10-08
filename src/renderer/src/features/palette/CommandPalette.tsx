@@ -50,6 +50,7 @@ import { Kbd, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { flushAll } from '@/lib/flush'
+import { OPEN_DIALOG, OPEN_MENU } from '@/lib/layers'
 import { isShortcut, shortcutKeys } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
@@ -327,7 +328,7 @@ function useOpenShortcut(input: React.RefObject<HTMLInputElement | null>): void 
         return
       }
       // Not over another dialog or an open menu (Esc closes that first), nor while a backup is being restored.
-      const covered = document.querySelector(`[role="dialog"][data-state="open"]:not([${PALETTE_LAYER}]), [role="menu"]`)
+      const covered = document.querySelector(`${OPEN_DIALOG}:not([${PALETTE_LAYER}]), ${OPEN_MENU}`)
       if (useApp.getState().restoring || covered) return
       openPalette()
     }

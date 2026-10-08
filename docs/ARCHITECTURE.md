@@ -1647,8 +1647,8 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   `ease-drawer`). The New look sets its own per theme under `[data-look='new']`. Where a shape differs, a class says so
   with the `look-new:` variant (or `look-classic:`). Less motion sets every duration to 0.
 - **Motion in the New look** (the speeds are in Rules, Motion; Classic keeps exactly the motion it had, with no exits).
-  `features/look/motion.ts` keeps track of whether Adam is on the keyboard or the pointer (`keyboardDriven()`, and
-  `<html data-input>`): what he does from the keyboard happens at once. The generic enters (`animate-fade-in`,
+  `features/look/motion.ts` keeps track of whether Adam is on the keyboard or the pointer (`keyboardDriven()`): what
+  he does from the keyboard happens at once. The generic enters (`animate-fade-in`,
   `animate-pop-in`, `animate-slide-up`) take the look's timing from one zero-weight rule in `styles.css`.
   - *Changing page*: `navigate()` (`lib/store.ts`) runs a page change from the pointer inside a View Transition
     (`features/look/viewTransition.ts`: the DOM API with `flushSync`, not React's `<ViewTransition>`, which never runs
@@ -1657,6 +1657,12 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
     stays live, and toasts (`[data-toaster]`) stay above it. The change itself lands on the next frame (the old page is
     pictured first): a later change of page or scene in between wins. Never for `write`, the same page (`pageKey`),
     the start screen, the keyboard, less motion or Classic.
+  - *Keyboard surfaces* (the palette, story find, the shortcuts list, the find bar) appear and go at once.
+  - *Exits*: Radix still removes a closing menu, popover or dialog at once (so focus goes back, shortcuts work and
+    nothing stale can be pressed, as in Classic); `features/look/exitGhosts.ts` then puts that element back, inert and
+    hidden from screen readers (`[data-exit-ghost]`), for `styles.css` to play out in 140 ms (menus shrink back toward
+    where they opened, dialogs and their dim fade), and removes it. Not when a key closed it, with less motion or
+    during a page change. Every "is a layer open?" check uses `lib/layers.ts`, which never counts one on its way out.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.

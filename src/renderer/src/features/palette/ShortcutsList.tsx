@@ -6,6 +6,7 @@ import * as D from '@radix-ui/react-dialog'
 import { X } from '@/components/ui/icons'
 import { Fragment, useEffect } from 'react'
 import { IconButton, Kbd } from '@/components/ui'
+import { OPEN_DIALOG, OPEN_MENU, OPEN_POPPER } from '@/lib/layers'
 import { watchMoreBelow } from '@/lib/moreBelow'
 import { isShortcut, isTyping, SHORTCUT_GROUPS, SHORTCUTS, shortcutKeys, shortcutText, type Shortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
@@ -32,7 +33,7 @@ function useOpenShortcut(): void {
     const onKey = (e: KeyboardEvent): void => {
       if (e.defaultPrevented || e.repeat || !isShortcut(e, 'shortcuts') || isTyping(e.target)) return
       if (useApp.getState().restoring || usePalette.getState().shortcuts) return
-      if (document.querySelector('[role="dialog"][data-state="open"], [role="menu"], [data-radix-popper-content-wrapper]')) return
+      if (document.querySelector(`${OPEN_DIALOG}, ${OPEN_MENU}, ${OPEN_POPPER}`)) return
       e.preventDefault()
       openShortcuts()
     }

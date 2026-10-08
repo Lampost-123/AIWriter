@@ -17,6 +17,7 @@ import { Button, Field, Textarea, toast } from '@/components/ui'
 import { api, modKey } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { escapeTaken } from '@/lib/escape'
+import { layerOpen } from '@/lib/layers'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { isWriting, setOf, useVariants } from '@/features/variants/store'
@@ -112,8 +113,6 @@ function ModeChoice({
   )
 }
 
-/** Something else (a menu, a dialog, a popover) is open and should get Esc first. */
-const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
 
 /** The key was pressed in the manuscript page. */
 const inPage = (t: EventTarget | null): boolean => t instanceof Element && !!t.closest('.ProseMirror')

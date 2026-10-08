@@ -392,6 +392,36 @@
   animation: pop-in var(--dur-base) var(--motion-spring);
 }
 /*
+  The New look: menus and popovers close the way they opened, shrinking back toward where they came from, and quicker;
+  a dialog (components/ui/Dialog.tsx) and its dim fade out from the centre. What plays out is a lifeless copy of the
+  layer's last frame (features/look/exitGhosts.ts): the layer itself has gone at once, as in Classic. Closed from the
+  keyboard, nothing plays.
+*/
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+[data-look='new'] [data-exit-ghost][data-radix-popper-content-wrapper] > [data-state='closed'] {
+  transform-origin: var(--radix-popper-transform-origin);
+  animation: pop-out var(--dur-exit) var(--motion-glide) both;
+}
+[data-look='new'] [data-exit-ghost][data-dialog] {
+  animation: pop-out var(--dur-exit) var(--motion-glide) both;
+}
+[data-look='new'] [data-exit-ghost][data-dialog-overlay] {
+  animation: fade-out var(--dur-exit) var(--motion-glide) both;
+}
+[data-exit-ghost] {
+  pointer-events: none;
+}
+/*
   The New look: the generic enter animations (animate-fade-in, animate-pop-in, animate-slide-up, also behind a variant
   such as data-[state=open]:) take the look's own timing. Anything that sets its own New-look animation ([animation:…])
   keeps it, and so does every other plain rule: these selectors are all inside :where(), so they weigh nothing (the

@@ -217,3 +217,105 @@ test('the New look: an amber caret stands where a streaming draft’s words arri
     await fake.close()
   }
 })
+
+interface Exit {
+  what: 'menu' | 'popover' | 'dialog' | 'overlay'
+  anims: Running[]
+  /** How long it played (ms), or null while it still does. */
+  stayed: number | null
+  /** Open menus and dialogs left the moment it began (the real one has gone at once). */
+  stillOpen: number
+  /** A key went down while it played. */
+  keyWhile: boolean
+}
+
+/** Notes each menu, popover, dialog and dialog dim that plays its way out (features/look/exitGhosts.ts). */
+const watchExits = (win: Page): Promise<void> =>
+  win.evaluate(`(() => {
+    const log = []
+    window.exitLog = log
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const n of r.addedNodes) {
+          if (n.nodeType !== 1 || !n.hasAttribute('data-exit-ghost')) continue
+          const part = n.matches('[data-radix-popper-content-wrapper]') ? n.firstElementChild : n
+          const what = part.matches('[role="menu"]') ? 'menu' : n.matches('[data-dialog]') ? 'dialog' : n.matches('[data-dialog-overlay]') ? 'overlay' : 'popover'
+          const stillOpen = document.querySelectorAll('[role="menu"]:not([data-state="closed"]), [role="dialog"][data-state="open"]').length
+          log.push({ what, el: n, at: performance.now(), gone: null, stillOpen, keyWhile: false, anims: part.getAnimations().map((a) => ({ name: a.animationName ?? '', ms: Number(a.effect.getTiming().duration) })) })
+        }
+        for (const n of r.removedNodes) for (const x of log) if (x.el === n && x.gone === null) x.gone = performance.now()
+      }
+    }).observe(document.body, { childList: true })
+    window.addEventListener('keydown', () => {
+      for (const x of log) if (x.gone === null) x.keyWhile = true
+    }, true)
+  })()`)
+const exits = (win: Page): Promise<Exit[]> =>
+  win.evaluate<Exit[]>(
+    `window.exitLog.map((x) => ({ what: x.what, anims: x.anims, stayed: x.gone === null ? null : Math.round(x.gone - x.at), stillOpen: x.stillOpen, keyWhile: x.keyWhile }))`
+  )
+
+test('the New look: menus and dialogs closed with the pointer leave the way they came; from the keyboard at once; shortcuts work straight after', async ({
+  launch
+}) => {
+  const win = await sampleWorld(launch)
+  await watchExits(win)
+  const row = list(win).getByRole('treeitem', { name: /Lighting the Lamp/ })
+  const menu = win.getByRole('menu')
+
+  // A click away: the menu itself goes at once; its picture shrinks back toward where it opened, quicker than it came.
+  await row.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await win.locator('.scene-prose').click()
+  await expect(menu).toHaveCount(0)
+  await expect.poll(async () => (await exits(win))[0]?.stayed ?? null).not.toBeNull()
+  expect((await exits(win))[0]).toMatchObject({ what: 'menu', anims: [{ name: 'pop-out', ms: 140 }], stillOpen: 0 })
+  expect((await exits(win))[0].stayed).toBeGreaterThanOrEqual(100)
+  // It is lifeless while it plays: hidden from screen readers, and no layer is counted open.
+  expect(await win.evaluate<number>(`document.querySelectorAll('[data-exit-ghost]:not([inert])').length`)).toBe(0)
+
+  // Esc: it goes at once, with nothing played.
+  await row.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await win.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  expect((await exits(win)).length).toBe(1)
+
+  // Ctrl+Enter while a menu closed with a click still plays its way out (made slow here, so the test can't miss it;
+  // the keyboard nowhere in particular): Mark done answers (the sample's scene is done already, so it says so).
+  await win.evaluate(`document.documentElement.style.setProperty('--dur-exit', '1000ms')`)
+  await row.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  const blank = { position: { x: 600, y: 5 } }
+  await win.locator('body').click(blank)
+  // (The menu puts the keyboard back on its row; this takes it off again.)
+  await win.locator('body').click(blank)
+  await win.keyboard.press('Control+Enter')
+  await expect(win.getByText('This scene is already marked done.')).toBeVisible()
+  expect((await exits(win))[1]).toMatchObject({ what: 'menu', keyWhile: true })
+  await win.evaluate(`document.documentElement.style.removeProperty('--dur-exit')`)
+
+  // A dialog (New story) closed with the pointer: it and its dim fade out together.
+  await win.keyboard.press('Control+K')
+  await win.keyboard.type('New story')
+  await win.keyboard.press('Enter')
+  const dialog = win.getByRole('dialog', { name: 'New story' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(async () => (await exits(win)).length).toBe(4)
+  expect((await exits(win)).slice(2)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ what: 'dialog', anims: [{ name: 'pop-out', ms: 140 }] }),
+      expect.objectContaining({ what: 'overlay', anims: [{ name: 'fade-out', ms: 140 }] })
+    ])
+  )
+
+  // With less motion, a click away closes the menu at once, with nothing played.
+  await win.emulateMedia({ reducedMotion: 'reduce' })
+  await row.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await win.locator('.scene-prose').click()
+  await expect(menu).toHaveCount(0)
+  expect((await exits(win)).length).toBe(4)
+})

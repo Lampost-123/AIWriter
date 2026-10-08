@@ -8,13 +8,11 @@ import { DrawnTick } from '@/components/ui/DrawnTick'
 import { useNewLook } from '@/features/look/look'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { layerOpen } from '@/lib/layers'
 import { useApp } from '@/lib/store'
 import { useDelayed } from '@/features/generate/parts'
 import { markSceneDone, reopenScene } from './markDone'
 import { onMarkDoneRequest, requestMarkDone } from './doneShortcut'
-
-/** Something else (a menu, a dialog, a popover) is open and keeps its own keys. */
-const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
 
 export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   const done = status === 'done'

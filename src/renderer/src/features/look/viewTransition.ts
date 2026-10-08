@@ -5,6 +5,7 @@
 // would never run. This calls the browser directly and flushes React inside it. styles.css says which parts take part
 // (:root[data-vt]) and how they move.
 import { flushSync } from 'react-dom'
+import { clearExitGhosts } from './exitGhosts'
 import { keyboardDriven, reducedMotion } from './motion'
 
 interface Transition {
@@ -17,9 +18,6 @@ type Start = (update: () => void) => Transition
 
 /** Which transition is the latest, so an older one finishing doesn't clear the newer one's marks. */
 let latest = 0
-
-/** Menus and dialogs still playing their way out: a page change ends that at once (styles.css). */
-const CLOSING = '[data-radix-popper-content-wrapper] > [data-state="closed"], [role="dialog"][data-state="closed"], [data-dialog-overlay][data-state="closed"]'
 
 /** True when a change of page shows its crossfade (else it is instant). */
 export function pageMotion(): boolean {
@@ -56,8 +54,8 @@ export function pageTransition(update: () => boolean | void, opts: { areaChanges
   const start = (document as unknown as { startViewTransition: Start }).startViewTransition
   let changed = true
   const vt = start.call(document, () => {
-    // A menu whose item changed the page is gone at once: the page's change is what Adam watches now.
-    for (const el of document.querySelectorAll<HTMLElement>(CLOSING)) for (const a of el.getAnimations()) a.finish()
+    // A menu whose item changed the page is gone at once (features/look/exitGhosts.ts): the page is what Adam watches now.
+    clearExitGhosts()
     flushSync(() => {
       changed = update() !== false
     })

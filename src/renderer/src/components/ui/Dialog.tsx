@@ -29,8 +29,10 @@ export function Dialog({
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
+        {/* data-dialog-overlay, data-dialog: in the New look they fade out when closed with the pointer (styles.css). */}
+        <D.Overlay data-dialog-overlay="" className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
         <D.Content
+          data-dialog=""
           // Start in the first text box, never on the close button (typing a space there would close the dialog).
           onOpenAutoFocus={(e) => {
             e.preventDefault()

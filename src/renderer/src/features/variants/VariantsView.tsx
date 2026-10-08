@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ID } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
 import { Button, EmptyState } from '@/components/ui'
+import { layerOpen } from '@/lib/layers'
 import { isTyping } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { useOutline } from '@/features/binder/outlineStore'
@@ -22,9 +23,6 @@ import { StartPanel } from './StartPanel'
 import { clearPicks, isWriting, loadVariants, setOf, stopAll, useVariants, type LiveSet } from './store'
 import { UseButton } from './UseButton'
 import { VariantColumn } from './VariantColumn'
-
-/** Something else (a menu, a dialog, a popover) is open and should get Esc first. */
-const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
 
 export function VariantsView({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const entry = useVariants((s) => s.scenes[sceneId])

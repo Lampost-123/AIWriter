@@ -5,12 +5,10 @@ import { Headphones } from '@/components/ui/icons'
 import { useEffect } from 'react'
 import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'
+import { layerOpen } from '@/lib/layers'
 import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { ToolButton } from '@/features/editor/ToolButton'
 import { toggleListen, useReading } from './control'
-
-/** A menu, list or dialog is open over the page: its own keys come first. */
-const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
 
 export function ListenButton({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
   const on = useApp((s) => !!s.settings?.speech.readAloud)
