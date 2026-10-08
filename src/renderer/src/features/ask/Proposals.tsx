@@ -268,7 +268,7 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
             <Change key={l.label} {...l} />
           ))}
           <div className="mt-0.5 text-[12px] text-muted" data-chapter-scenes={p.scenes}>
-            {p.scenes ? `Updates ${p.scenes} ${p.scenes === 1 ? 'scene' : 'scenes'} that follow this chapter card` : 'No scene follows these parts yet'}
+            {p.scenes ? `Updates ${p.scenes} ${p.scenes === 1 ? 'scene that follows' : 'scenes that follow'} this chapter card` : 'No scene follows these parts yet'}
           </div>
         </div>
       )

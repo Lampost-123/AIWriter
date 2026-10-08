@@ -3,7 +3,7 @@
 // it back; a new place it proposes is made only on Apply; Ask about this quotes the selected words in the box; a model
 // that can't use tools is said so in plain words. The fake provider works as tests/fake-provider/m4/ask.mjs says.
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
 
 const panel = (win: Page) => win.getByRole('region', { name: 'Ask the world' })
 const box = (win: Page) => panel(win).getByRole('textbox', { name: 'Ask about your world' })
@@ -336,6 +336,88 @@ test('Ask about this quotes the selected words; a model that can’t use tools i
     await win.keyboard.type('Is this too plain?')
     await box(win).press('Enter')
     await expect(panel(win)).toContainText('can’t use the tools the editor chat needs')
+  } finally {
+    await fake.close()
+  }
+})
+
+// The chat overhaul's story tools (Phase 3, STORYTOOLS; on by default, named here so these tests keep them).
+const STORY = { env: { AIWRITE_EXP_CHAT_STORYTOOLS: 'on', AIWRITE_KEEPER_QUIET_MS: '600000' } }
+
+test('the chat lists the scene’s open issues and fixes one with the check’s rewrite: Apply marks it fixed, Undo reopens it', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(STORY)
+    await createWorldFromWelcome(win, 'Lowtown')
+    await useFakeModel(win, fake)
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', fields: { eyes: 'blue' } })
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+    const sceneId = await firstScene(win)
+    // A planted contradiction, caught when the scene is marked done (the fake check: tests/fake-provider/m5/check.mjs).
+    await prose(win).click()
+    await win.keyboard.type('Mara pushed the door open. Mara’s eyes were green in the firelight.')
+    await win.keyboard.press('Control+Enter')
+    const open = async (): Promise<string[]> => (await invoke(win, 'listIssues', sceneId)).filter((i) => i.status === 'open').map((i) => i.id)
+    await expect.poll(open, { timeout: 30_000 }).toHaveLength(1)
+    const [issueId] = await open()
+
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await ask(win, 'Fix the open continuity issue in this scene')
+    const card = changes(win).locator('[data-proposal]').first()
+    await expect(card).toContainText('Issue fix · Ch 1, Sc 1')
+    await expect(card.locator('[data-issue-fix="text"]')).toContainText('eyes are blue in the memory')
+    await expect(card.locator('ins')).toHaveText('blue')
+    await expect(card.locator('del')).toHaveText('green')
+    await expect(panel(win).getByRole('list', { name: 'Tool calls' }).locator('[data-tool="list_issues"]')).toHaveCount(1)
+    await expect(panel(win).locator('[data-tools-toggle]')).toContainText('2 tool calls')
+    // Nothing changes until Apply.
+    await expect(prose(win)).toContainText('eyes were green')
+
+    await card.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(prose(win)).toContainText('Mara’s eyes were blue in the firelight.')
+    await expect(card).toHaveAttribute('data-status', 'applied')
+    await expect.poll(async () => (await invoke(win, 'listIssues', sceneId)).find((i) => i.id === issueId)?.status).toBe('fixed')
+    await card.getByRole('button', { name: /^Undo this change/ }).click()
+    await expect(prose(win)).toContainText('Mara’s eyes were green in the firelight.')
+    await expect(card).toHaveAttribute('data-status', 'pending')
+    await expect.poll(async () => (await invoke(win, 'listIssues', sceneId)).find((i) => i.id === issueId)?.status).toBe('open')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('the chat reads a chapter card and proposes its point of view by name: Apply writes it into the scenes, Undo puts them back', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(STORY)
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    const ilse = await invoke(win, 'createEntry', 'character', { name: 'Ilse Marrow', aliases: ['Ilse'] })
+    const [story] = await invoke(win, 'listStories')
+    const outline = await invoke(win, 'getOutline', story.id)
+    const chapterId = outline.chapters[0].id
+    const sceneId = outline.scenes[0].id
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await ask(win, "Set chapter 1's POV to Ilse")
+    const card = changes(win).locator('[data-proposal]').first()
+    await expect(card).toContainText(/Chapter card · Ch 1/)
+    await expect(card).toContainText('Point of view: Ilse Marrow')
+    await expect(card.locator('[data-chapter-scenes]')).toHaveText('Updates 1 scene that follows this chapter card')
+    await expect(panel(win).getByRole('list', { name: 'Tool calls' }).locator('[data-tool="chapter_card"]')).toHaveCount(1)
+    expect((await invoke(win, 'getChapterCard', chapterId)).povId).toBeNull()
+
+    await card.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(card).toHaveAttribute('data-status', 'applied')
+    await expect.poll(async () => (await invoke(win, 'getChapterCard', chapterId)).povId).toBe(ilse.id)
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).card.povId).toBe(ilse.id)
+    await card.getByRole('button', { name: /^Undo this change/ }).click()
+    await expect(card).toHaveAttribute('data-status', 'pending')
+    await expect.poll(async () => (await invoke(win, 'getChapterCard', chapterId)).povId).toBeNull()
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).card.povId).toBeNull()
   } finally {
     await fake.close()
   }

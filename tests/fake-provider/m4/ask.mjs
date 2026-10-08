@@ -230,6 +230,9 @@ function scriptedCalls(system, messages, tools) {
   const last = messages[messages.length - 1]
   const toolResults = messages.filter((m) => m.role === 'tool')
   const called = (name) => messages.some((m) => (m.tool_calls ?? []).some((c) => c.function?.name === name))
+  // The story tools (chat Phase 3, STORYTOOLS), when offered: issues, chapter cards and plot threads.
+  const story = storyCalls(typed, messages, tools, called, last)
+  if (story !== undefined) return story
   // The overhaul's tools, when offered: a draft hand-off for new prose, one question for a truly vague ask, and
   // propose_changes for a novelist's vague edit ("this drags", "punch this up"), after reading the scene.
   if (offered(tools, 'propose_draft') && /\b(next bit|continue from here|draft the scene)\b/.test(typed)) {
@@ -250,6 +253,62 @@ function scriptedCalls(system, messages, tools) {
     return [changesCall(tools, changes)]
   }
   return legacyCalls(question, nudged, last, toolResults, tools)
+}
+
+/** One story change: an item of propose_changes where it is offered, else its own propose_ tool. */
+function storyChange(tools, kind, tool, args) {
+  if (offered(tools, 'propose_changes')) return changesCall(tools, [{ kind, ...args }])
+  return { name: tool, arguments: args }
+}
+
+/** The result of the last call to a tool, or ''. */
+function resultOf(messages, name) {
+  const ids = new Set(messages.flatMap((m) => (m.tool_calls ?? []).filter((c) => c.function?.name === name).map((c) => c.id)))
+  return String([...messages].reverse().find((m) => m.role === 'tool' && ids.has(m.tool_call_id))?.content ?? '')
+}
+
+/**
+ * The story tools (chat Phase 3), only when the app offers them (plumbing only, never a score):
+ *   "open issue" / "continuity issue" / "the issue"   list_issues, then one issue_fix: the issue with a memory fix (how:
+ *                     memory) when the question says "memory", else the first with a suggested rewrite (how: text), else
+ *                     the first listed
+ *   "chapter N's POV to Name" / "chapter N's point of view to Name"   chapter_card, then a chapter_card change setting
+ *                     the point of view
+ *   "mark the X thread as paid off"   list_threads, then a thread change resolving X in the open scene
+ *   "threads"         list_threads (open ones when the question says "open"), then an answer in words
+ * Returns the calls to send, null to answer in words, or undefined when none of these fits.
+ */
+function storyCalls(typed, messages, tools, called, last) {
+  if (!offered(tools, 'list_issues')) return undefined
+  if (/\b(open issue|continuity issue|the issue)\b/.test(typed)) {
+    if (!called('list_issues')) return [{ name: 'list_issues', arguments: {} }]
+    if (called('propose_changes') || called('propose_issue_fix') || last?.role !== 'tool') return null
+    const blocks = resultOf(messages, 'list_issues').split(/\n(?=- id )/).filter((b) => b.startsWith('- id '))
+    const memory = /\bmemory\b/.test(typed)
+    const pick = (memory ? blocks.find((b) => b.includes('Memory fix')) : blocks.find((b) => b.includes('Suggested rewrite'))) ?? blocks[0]
+    const id = pick ? /^- id (\S+)/.exec(pick)?.[1] : null
+    if (!id) return null
+    return [storyChange(tools, 'issue_fix', 'propose_issue_fix', { issue_id: id, how: memory ? 'memory' : 'text', why: 'As the check suggests.' })]
+  }
+  const pov = /\bchapter (\d+)(?:['’]s)? (?:pov|point of view) to ([\p{L}'’-]+)/u.exec(typed)
+  if (pov) {
+    const chapter = `Ch ${pov[1]}`
+    if (!called('chapter_card')) return [{ name: 'chapter_card', arguments: { chapter } }]
+    if (called('propose_changes') || called('propose_chapter_card') || last?.role !== 'tool') return null
+    const name = pov[2].charAt(0).toUpperCase() + pov[2].slice(1)
+    return [storyChange(tools, 'chapter_card', 'propose_chapter_card', { chapter, pov: name, why: 'As asked.' })]
+  }
+  const paid = /\bmark the (.+?) thread as paid off\b/.exec(typed)
+  if (paid) {
+    if (!called('list_threads')) return [{ name: 'list_threads', arguments: {} }]
+    if (called('propose_changes') || called('propose_thread') || last?.role !== 'tool') return null
+    return [storyChange(tools, 'thread', 'propose_thread', { thread: paid[1].replace(/-/g, ' '), action: 'resolve', why: 'It pays off here.' })]
+  }
+  if (/\bthreads?\b/.test(typed)) {
+    if (called('list_threads')) return null
+    return [{ name: 'list_threads', arguments: /\bopen\b/.test(typed) ? { status: 'open' } : {} }]
+  }
+  return undefined
 }
 
 function legacyCalls(question, nudged, last, toolResults, tools) {
