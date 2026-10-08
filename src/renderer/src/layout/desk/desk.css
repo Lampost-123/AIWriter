@@ -1587,8 +1587,13 @@
 }
 
 /* ---------- Every other page: its room's frame, the page on a sheet ---------- */
+/* The sheet's widest: 1280px up to a 1920 window, then growing with a big screen (1600px at 2560, at most 2000px), so the
+   gallery, the board and the Check pages use the room there rather than sitting small in the middle of it. */
+[data-arrangement='desk'] {
+  --room-max: clamp(1280px, calc(100vw - 960px), 2000px);
+}
 [data-arrangement='desk'] .desk-room-head {
-  padding-inline: max(40px, calc((100% - 1280px) / 2));
+  padding-inline: max(40px, calc((100% - var(--room-max)) / 2));
 }
 /* The first time a room shows this session (layout/desk/arrival.ts), its sheet rises into place under its heading. */
 [data-arrangement='desk'] .desk-room[data-arrive] .desk-room-sheet {
@@ -1643,7 +1648,7 @@
 [data-arrangement='desk'] .desk-room-sheet {
   /* On the sheet, the pages' own deepest background (a sticky filter bar, a sunken box) is the paper. */
   --bg: var(--page);
-  width: min(1280px, calc(100% - 80px));
+  width: min(var(--room-max), calc(100% - 80px));
   margin-inline: auto;
   border-radius: 16px 16px 0 0;
   background: var(--page);
@@ -1937,7 +1942,7 @@
   fill: none;
   stroke: var(--faint);
   stroke-width: 1.5;
-  transition: stroke 200ms ease-out;
+  transition: stroke var(--dur-quick) ease-out;
 }
 [data-arrangement='desk'] .desk-icard .ic-ring-fill {
   fill: var(--success);
@@ -2465,7 +2470,7 @@
 }
 [data-arrangement='desk'] .desk-entity[data-card='open'] > .desk-paper {
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--dur-quick) ease-out;
 }
 
 /* The first scene's guide on the desk: a slip tucked at the top of the sheet, above the scene's head (never over the
@@ -2715,4 +2720,13 @@
   [data-arrangement='desk'] .desk-sheet .scene-prose {
     --aw-beat-band-x: -17px;
   }
+}
+
+/* Loops only while they show (Phase 6 speed pass): the island's breathing dot, the dock's live dot and its shimmer sat in
+   layers faded out while nothing was being written, and kept animating there, so an idle desk redrew on every frame
+   (about a tenth of a core on a fast screen). Held still while hidden; the same animation runs once they show. */
+[data-arrangement='desk'] .desk-island .isl-label:not([data-on]) .isl-dot,
+[data-arrangement='desk'] .desk-dock-layer[inert] .desk-dock-dot.is-live,
+[data-arrangement='desk'] .desk-dock:not([data-desk-dock='busy']) .desk-dock-prog.is-shimmer {
+  animation: none;
 }

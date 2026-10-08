@@ -42,7 +42,7 @@ test('typing goes straight into the page after creating a world and after openin
   await expect.poll(async () => (await invoke(win, 'getScene', scenes[1].id)).text).toBe('xyz')
 })
 
-test('the caret moved by a key stays where it went when the page redraws before the app has heard of the move', async ({ launch }) => {
+test('the caret moved by a key stays where it went when the page redraws or takes the keyboard before the app has heard of the move', async ({ launch }) => {
   // The arrow keys move the caret in the page first; the editor hears of it a moment later. The live checks' underlines
   // (or beat marks, find marks, the reading's highlight) redrawing in that moment once put the caret back, so arrow
   // presses on a busy computer were lost (features/editor/pageCaret.ts). Here a key moves the page's caret and a redraw
@@ -64,6 +64,19 @@ test('the caret moved by a key stays where it went when the page redraws before 
   await expect.poll(() => win.evaluate('String(getSelection())')).toBe('Mara')
   await win.keyboard.type('Nell')
   await expect(prose(win)).toContainText('The ferry was late again. Nell counted the lamps.')
+
+  // The key let go, and then the page takes the keyboard (which puts the editor's caret on the page): the caret stays
+  // where the key took it, not where the editor last heard of it.
+  const kept = await win.evaluate<string>(`(() => {
+    const view = document.querySelector('.scene-prose').editor.view
+    const text = view.dom.querySelector('p').firstChild
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
+    getSelection().setBaseAndExtent(text, 4, text, 4)
+    view.dom.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }))
+    view.focus()
+    return view.state.doc.textBetween(view.state.selection.from, view.state.selection.from + 5)
+  })()`)
+  expect(kept).toBe('ferry')
 })
 
 test('leaving the page and coming back keeps the place in a long scene', async ({ launch }) => {
