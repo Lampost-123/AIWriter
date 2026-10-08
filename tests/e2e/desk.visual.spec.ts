@@ -39,8 +39,9 @@ async function size(app: ElectronApplication, win: Page, w: number, h: number): 
 
 for (const theme of ['light', 'dark', 'sepia'] as const) {
   test(`the desk looks as it should: the writing room, the flyout and the drawer in ${theme}`, async ({ launch }) => {
+    const updating = ['all', 'changed'].includes(String(test.info().config.updateSnapshots))
     test.skip(
-      !existsSync(join(SNAPSHOTS, `write-${theme}-${process.platform}.png`)) && !process.argv.includes('--update-snapshots'),
+      !existsSync(join(SNAPSHOTS, `write-${theme}-${process.platform}.png`)) && !updating,
       `No ${process.platform} baselines for the desk yet (take them with --update-snapshots).`
     )
     const { app, win } = await launch({ env: DESK })
