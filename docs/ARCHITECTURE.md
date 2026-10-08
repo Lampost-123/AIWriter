@@ -1713,8 +1713,11 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
 - **The New look's two layouts** (UI overhaul, phase 2; spec notes/ui-overhaul-v2/desk-build-spec.md): Settings ›
   Appearance › Layout chooses the **desk** or the **panels** (the rail and side list above), kept as `arrangement` and
   painted as `<html data-arrangement>` (`features/look/look.ts`: `useDesk()`, the `desk:` variant; Classic ignores it).
-  Until the desk is ready for everyone (`DESK_READY` in `src/shared/defaults.ts`, step D3.7) the choice only shows in
-  try-out builds (`AIWRITE_DESK_READY=1`) and app tests pick a layout with `AIWRITE_ARRANGEMENT` (helpers: the panels).
+  The desk is the New look's default (`DESK_READY` true in `src/shared/defaults.ts`, step D3.7, Adam 2026-10-08): the
+  Layout choice shows for everyone in the New look, and `src/main/settings.ts` moves anyone on the New look who never
+  chose a layout to the desk, with a one-time note offering the panels (`features/look/LookNote.tsx`; not for a fresh
+  install). App tests pick a layout with `AIWRITE_ARRANGEMENT` (helpers: the panels) and a theme with `AIWRITE_THEME`
+  (helpers: Match the system, as before Dark became the default).
   The desk places other pieces around the same `<main>` and `SceneView` (App.tsx's Workspace keeps the slots in the same
   order, so switching never remounts the editor): its top bar (`layout/desk/DeskTopBar.tsx`: rooms = the areas, the
   command bar, the status island), the story's spine (`features/desk/spine/`): full by default, the real binder on the
@@ -1731,8 +1734,9 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
 
 ## The desk (UI overhaul, phases 2 and 3)
 
-The New look's desk layout (`arrangement: 'desk'`). It is still reached only in try-out builds and app tests
-(`DESK_READY` false, the default arrangement the panels) until Adam says it becomes the default.
+The New look's desk layout (`arrangement: 'desk'`), the New look's default since Phase 6 (`DESK_READY` true), in Dark
+by default (`theme: 'dark'` for anyone who never chose a theme; a theme already chosen is kept). The panels stay a
+choice in Settings › Appearance › Layout; Classic is unchanged.
 
 - **Where things go** is one pure function, `deskFit` (`layout/desk/deskFit.ts`, unit-tested), from the window's width,
   the page's measured column (Adam's page width) and whether the spine is full and the drawer open. The sheet is

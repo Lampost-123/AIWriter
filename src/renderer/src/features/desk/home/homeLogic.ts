@@ -263,3 +263,20 @@ export function coverHue(storyId: ID, genres: readonly string[], chosen?: number
   }
   return hueOfId(storyId)
 }
+
+/** The width and height the home is drawn for at its natural size (its column, with room either side; its usual height). */
+export const HOME_BASE = { w: 1600, h: 1060 }
+/** The most the home grows on a big screen. */
+export const HOME_MAX_SCALE = 1.32
+
+/**
+ * How much larger the home is drawn in a room of w×h (beside the spine): 1 up to about 1920×1080, growing with the room
+ * on a large screen (Adam's 2560×1440: its cover, title, shelf and the row under it all larger together, the whole page
+ * using the window rather than a small block in the middle of it), never more than HOME_MAX_SCALE. Whichever runs out
+ * first, the width or the height, sets it, so it never needs scrolling where it didn't before.
+ */
+export function homeScale(w: number, h: number): number {
+  if (!(w > 0) || !(h > 0)) return 1
+  const s = Math.min(w / HOME_BASE.w, h / HOME_BASE.h, HOME_MAX_SCALE)
+  return s <= 1 ? 1 : Math.round(s * 100) / 100
+}

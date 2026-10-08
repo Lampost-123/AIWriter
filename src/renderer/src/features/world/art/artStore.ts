@@ -117,5 +117,19 @@ export function useEntryMotifs(): Map<ID, string> {
       )
       .catch(() => undefined)
   }, [worldId, rev, listed.key])
-  return useMemo(() => entryMotifs(listed.entries, choices), [listed, choices])
+  return useMemo(() => sharedMotifs(listed, choices), [listed, choices])
+}
+
+/**
+ * The drawings worked out once for everyone: every card, portrait and row that shows a drawing asks for them, and in a
+ * world of 150 entries working them out takes tens of milliseconds, so each new room, the home, a dossier and every row
+ * of the Cast list doing it again made opening them slow (Phase 6 speed pass). Kept until the entries or the choices
+ * change (both are new objects then).
+ */
+let lastMotifs: { listed: unknown; choices: ArtChoices; motifs: Map<ID, string> } | null = null
+function sharedMotifs(listed: { entries: MotifEntry[] }, choices: ArtChoices): Map<ID, string> {
+  if (lastMotifs && lastMotifs.listed === listed && lastMotifs.choices === choices) return lastMotifs.motifs
+  const motifs = entryMotifs(listed.entries, choices)
+  lastMotifs = { listed, choices, motifs }
+  return motifs
 }
