@@ -58,6 +58,7 @@ import {
   oneLine,
   sentEntryIds,
   STORY_LEVELS,
+  toolRoomFor,
   storySoFarText,
   WHY,
   type BlockDraft,
@@ -98,6 +99,11 @@ export interface AskContextInput {
   prefs: WritingPrefs
   /** The chat model's context length; null when unknown. */
   contextLength: number | null
+  /**
+   * The answer may use the editor chat's tools: room is kept free beside the reply for what they bring back
+   * (toolRoomFor in ai/context.ts), so the briefing is fitted into less.
+   */
+  withTools?: boolean
 }
 
 /** The point the question is asked from, and the memory there. */
@@ -719,7 +725,8 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
       contextLength: computeBudget(input.contextLength, targetWords).contextLength,
       targetWords,
       knows: point.knows,
-      entries: []
+      entries: [],
+      ...(input.withTools ? { toolRoom: toolRoomFor(input.contextLength) } : {})
     },
     question,
     conversation,

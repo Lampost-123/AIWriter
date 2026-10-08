@@ -10,6 +10,7 @@ import {
   buildBlocks,
   cachedCounter,
   computeBudget,
+  toolRoomFor,
   DEFAULT_CONTEXT_LENGTH,
   effectivePins,
   finishContext,
@@ -281,6 +282,17 @@ describe('budget', () => {
   it('with Auto, keeps room for the longest scene Auto allows plus 40%', () => {
     expect(replyTokens(null)).toBe(Math.ceil(AUTO_LENGTH.max * 1.35 * 1.4))
     expect(computeBudget(32000, null).reserved).toBe(replyTokens(AUTO_LENGTH.max))
+  })
+
+  it("keeps room for the editor chat's tool results beside the reply: a fifth of the context, at most 12,000", () => {
+    expect(toolRoomFor(16_000)).toBe(3200)
+    expect(toolRoomFor(32_000)).toBe(6400)
+    expect(toolRoomFor(200_000)).toBe(12_000)
+    expect(toolRoomFor(null)).toBe(3200)
+    const plain = computeBudget(32000, 800)
+    const tools = computeBudget(32000, 800, toolRoomFor(32000))
+    expect(tools.reserved).toBe(plain.reserved + 6400)
+    expect(tools.available).toBe(plain.available - 6400)
   })
 })
 

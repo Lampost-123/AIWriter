@@ -657,6 +657,12 @@ export interface ChatMessage {
   /** A tool's answer: the call it answers. */
   toolCallId?: string
   /**
+   * An assistant turn that asked for tools: the thinking the model sent with it as `reasoning_content` (DeepSeek-style
+   * providers want it back on that turn while their thinking is on, or turn the next request down). Sent back only on
+   * that turn, as it came; never shown, and never kept in a record.
+   */
+  reasoning?: string
+  /**
    * Where the part of `content` that stays the same from one request to the next ends (a character
    * index), so a model that caches only where asked (Claude) can reuse it. Never sent as it is.
    */

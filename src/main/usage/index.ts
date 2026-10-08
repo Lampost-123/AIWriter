@@ -298,9 +298,12 @@ function afterCall(db: DB): void {
 }
 
 setSpendHooks({
-  held: () => {
+  held: (extra = 0) => {
     const s = spendState()
-    return s.paused ? s.limit : null
+    if (s.paused) return s.limit
+    // What a running answer has spent so far, not in a finished record yet, counts as if it were.
+    if (!(extra > 0) || s.limit == null || s.carryOn) return null
+    return spendStateOf(s.spent + extra, s.limit, getSettings().usage?.notice, s.month).paused ? s.limit : null
   },
   finished: afterCall
 })

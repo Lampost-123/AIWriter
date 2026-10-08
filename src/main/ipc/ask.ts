@@ -93,7 +93,9 @@ export const askHandlers: Handlers<keyof AskApi> = {
       sceneId: input.sceneId ?? null,
       turns: earlier.map((t) => ({ question: t.question, answer: withProposals(t.answer, t.proposals ?? []) })),
       prefs: getWritingPrefs(),
-      contextLength: model.choice.contextLength ?? null
+      contextLength: model.choice.contextLength ?? null,
+      // The answer may use tools: room is kept for what they bring back (ai/tasks.ts keeps them within it).
+      withTools: true
     })
     const counts = await countCached(p.prepared.texts)
     if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the question could be asked.')
