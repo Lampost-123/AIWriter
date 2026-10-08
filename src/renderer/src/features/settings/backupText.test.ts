@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBackupDate, formatSize, inSentence, reasonLabel, timeAgo } from './backupText'
+import { clockTime, dayLabel, daysLeft, formatBackupDate, formatSize, inSentence, reasonLabel, timeAgo } from './backupText'
 
 describe('backup words', () => {
   it('names every reason in plain words', () => {
@@ -43,5 +43,17 @@ describe('backup words', () => {
     expect(timeAgo('2026-10-01T11:15:00Z', now)).toBe('45 minutes ago')
     expect(timeAgo('2026-10-01T09:00:00Z', now)).toBe('3 hours ago')
     expect(timeAgo('2026-09-29T12:00:00Z', now)).toBe('2 days ago')
+  })
+
+  it('groups by day, says the time alone, and counts the days left in Recently deleted', () => {
+    const now = new Date(2026, 9, 8, 21, 0)
+    expect(dayLabel(new Date(2026, 9, 8, 9, 5).toISOString(), now, 'en-GB')).toBe('Today')
+    expect(dayLabel(new Date(2026, 9, 7, 23, 0).toISOString(), now, 'en-GB')).toBe('Yesterday')
+    expect(dayLabel(new Date(2026, 9, 1, 12, 0).toISOString(), now, 'en-GB')).toMatch(/^Thursday,? 1 October$/)
+    expect(dayLabel(new Date(2025, 9, 1, 12, 0).toISOString(), now, 'en-GB')).toMatch(/^Wednesday,? 1 October 2025$/)
+    expect(clockTime(new Date(2026, 9, 8, 9, 5).toISOString(), 'en-GB')).toBe('09:05')
+    expect(daysLeft(new Date(2026, 9, 8, 20, 0).toISOString(), now)).toBe(30)
+    expect(daysLeft(new Date(2026, 8, 20, 21, 0).toISOString(), now)).toBe(12)
+    expect(daysLeft(new Date(2026, 7, 1).toISOString(), now)).toBe(0)
   })
 })

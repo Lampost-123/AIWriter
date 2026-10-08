@@ -3,12 +3,12 @@
 // last 20 plus one a day for 30 days; restore any one, saving the current state first; back up
 // before any database layout change; optionally copy every backup to a second folder.
 // Backups hold world.db only. API keys live in the app's own data folder, never in a world.
-import type Database from 'better-sqlite3'
 import { BrowserWindow, dialog } from 'electron'
 import { copyFileSync, rmSync } from 'node:fs'
 import { copyFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import type { BackupFolderStatus, BackupInfo, World } from '@shared/types'
+import Database from 'better-sqlite3'
+import type { BackupFolderStatus, BackupInfo, BackupPreview, World, WorldCounts } from '@shared/types'
 import * as repo from '../db/repo'
 import { purgeTrash } from '../db/trash'
 import { emit } from '../events'
@@ -380,4 +380,61 @@ export async function getBackupFolderStatus(): Promise<BackupFolderStatus> {
   // The drive or cloud folder is back: the next backup is copied there again.
   if (!extra.ok && extra.message === MISSING_FOLDER) return { folder, ok: true, message: null, lastCopyAt: extra.lastCopyAt }
   return { folder, ...extra }
+}
+
+// ---------- Previewing a backup ----------
+
+/** What a world's database holds (nothing in Recently deleted). Null when it can't be read. */
+export function countWorld(db: Database.Database): WorldCounts | null {
+  try {
+    const one = (sql: string): number => (db.prepare(sql).get() as { n: number | null }).n ?? 0
+    const storyList = db
+      .prepare(
+        `SELECT st.title AS title, coalesce(sum(CASE WHEN c.id IS NOT NULL THEN s.word_count END), 0) AS words
+         FROM stories st
+         LEFT JOIN chapters c ON c.story_id = st.id AND c.deleted_at IS NULL
+         LEFT JOIN scenes s ON s.chapter_id = c.id AND s.deleted_at IS NULL
+         WHERE st.deleted_at IS NULL
+         GROUP BY st.id ORDER BY st.position, st.rowid`
+      )
+      .all() as { title: string; words: number }[]
+    return {
+      stories: storyList.length,
+      chapters: one(
+        'SELECT count(*) AS n FROM chapters c JOIN stories st ON st.id = c.story_id WHERE c.deleted_at IS NULL AND st.deleted_at IS NULL'
+      ),
+      scenes: one(
+        `SELECT count(*) AS n FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id
+         WHERE s.deleted_at IS NULL AND c.deleted_at IS NULL AND st.deleted_at IS NULL`
+      ),
+      words: storyList.reduce((a, s) => a + s.words, 0),
+      entries: one('SELECT count(*) AS n FROM entries WHERE deleted_at IS NULL'),
+      storyList: storyList.map((s) => ({ title: s.title?.trim() || 'Untitled story', words: s.words }))
+    }
+  } catch (e) {
+    console.warn('Could not count a world for a backup preview:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+/** What a backup of the open world holds, beside the world as it is now. Read only. */
+export function previewBackup(id: string): BackupPreview {
+  const w = currentWorld()
+  const target = backupsOf(w).find((b) => b.id === id)
+  if (!target) throw new UserError('That backup could not be found. It may have been tidied away; pick another one from the list.')
+  let d: Database.Database | null = null
+  let backup: WorldCounts | null = null
+  try {
+    d = new Database(target.file, { readonly: true, fileMustExist: true })
+    backup = countWorld(d)
+  } catch (e) {
+    console.warn('Could not open a backup to preview it:', e instanceof Error ? e.message : e)
+  } finally {
+    try {
+      d?.close()
+    } catch {
+      /* a read-only handle */
+    }
+  }
+  return { backup, now: countWorld(w.db) }
 }

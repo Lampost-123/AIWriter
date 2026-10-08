@@ -878,6 +878,23 @@ export interface BackupInfo {
   reason: 'launch' | 'timer' | 'manual' | 'before-restore' | 'before-migration'
 }
 
+/** What a world holds, counted for a backup's preview (nothing in Recently deleted). Null where it couldn't be read. */
+export interface WorldCounts {
+  stories: number
+  chapters: number
+  scenes: number
+  words: number
+  entries: number
+  /** Each story's title and words, in the binder's order. */
+  storyList: { title: string; words: number }[]
+}
+
+/** A backup set beside the world as it is now, before restoring it. */
+export interface BackupPreview {
+  backup: WorldCounts | null
+  now: WorldCounts | null
+}
+
 /** The optional second backup folder and whether the last copy to it worked. */
 export interface BackupFolderStatus {
   folder: string | null

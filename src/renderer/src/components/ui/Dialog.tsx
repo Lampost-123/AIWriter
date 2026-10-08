@@ -30,7 +30,7 @@ export function Dialog({
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
         {/* data-dialog-overlay, data-dialog: in the New look they fade out when closed with the pointer (styles.css). */}
-        <D.Overlay data-dialog-overlay="" className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
+        <D.Overlay data-dialog-overlay="" className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in look-new:backdrop-blur-[2px]" />
         <D.Content
           data-dialog=""
           // Start in the first text box, never on the close button (typing a space there would close the dialog).

@@ -7,6 +7,8 @@ export interface ToastItem {
   action?: { label: string; run: () => void }
   /** A second button before the action ("Open" beside "Undo"). It leaves the toast showing, so Undo stays at hand. */
   secondary?: { label: string; run: () => void }
+  /** A long job's progress (0 to 1) shown along the toast's foot in the New look; null while it can't say. */
+  progress?: number | null
   /** Bumped when the toast is changed in place, which gives it its full time again. */
   rev: number
 }

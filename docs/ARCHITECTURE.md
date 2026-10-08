@@ -1777,6 +1777,27 @@ choice in Settings › Appearance › Layout; Classic is unchanged.
   `desk-perf.spec.ts`, and `desk.visual.spec.ts` (screenshots of the write room, flyout and drawer per theme; baselines
   per platform, taken where they exist).
 
+### The first run, Settings and moving work in and out (UI overhaul)
+
+The New look draws these its own way (both layouts); Classic keeps the pages it always had (a `look === 'classic'`
+branch in each, never a change to Classic's markup).
+- **First run**: `features/setup/SetupDesk.tsx` (the rail of steps, the step on a sheet, the finishing moment:
+  `setupStore.finishing`, 900 ms, skipped with less motion) and `SetupScene.tsx` (the lighthouse picture, lit by `stage`;
+  layers like the start screen's harbour, its colours `--sx-*` in `setupScene.css`). `ProviderMark.tsx` draws a service
+  as a plain shape, never its logo.
+- **Settings**: `settingsIndex.ts` (groups, one-line blurbs, what "Find a setting" finds; unit-tested), each page's
+  picture in `settings/art/SectionArt.tsx`. Appearance's preview is `AppearancePreview.tsx`. The living pictures share the
+  living art's watcher (`components/art/living.ts`: still while hidden or typing).
+- **Usage**: `UsageReport` adds, without changing anything there, each bar's split by model (`UsageBar.models`) and each
+  world's share (`byWorld`, from `buildReport`'s `named`); the charts are `features/usage/UsageCharts.tsx` (logic in
+  `chartLogic.ts`), drawn with theme tokens, no chart library.
+- **Backups**: `previewBackup(id)` reads a backup read-only and counts it beside the open world (`countWorld` in
+  `services/backups.ts`); Restore works exactly as before.
+- **Import**: a file dropped on the import page is read by `readDroppedManuscript(path)` (the preload's
+  `pathForFile`, Electron's `webUtils`), as Choose a file reads a picked one.
+- **Toasts** take an optional `progress` (0–1, or null while unknown) that `withProgress` fills for world files.
+- **Tests**: `tests/e2e/settings-desk.spec.ts`.
+
 ## The editor chat (Ask the world, October 2026)
 
 Ask the world is also an editor: it talks and brainstorms, looks things up for itself, and proposes changes that

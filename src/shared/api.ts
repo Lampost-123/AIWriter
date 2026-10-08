@@ -22,6 +22,7 @@ import type {
   SummaryLevel,
   BackupFolderStatus,
   BackupInfo,
+  BackupPreview,
   Chapter,
   ContextPreview,
   DeepPartial,
@@ -298,6 +299,8 @@ export interface AppApi
   backupNow(): Promise<BackupInfo>
   /** Restores a backup of the open world, backing up the current state first. */
   restoreBackup(id: string): Promise<World>
+  /** What a backup of the open world holds, beside the world as it is now (read only; nothing is changed). */
+  previewBackup(id: string): Promise<BackupPreview>
   /** Opens a folder picker for the optional second backup folder (e.g. inside Dropbox). Returns the folder, or null if cancelled. */
   chooseBackupFolder(): Promise<string | null>
   /** Stops copying backups to the second backup folder (copies already there are left alone). */
@@ -408,4 +411,6 @@ export interface Bridge {
   initialLook?: 'new' | 'classic'
   /** The New look's desk layout can be chosen in Settings › Appearance (a try-out build, or once it is ready for everyone). */
   deskReady?: boolean
+  /** Where a file dropped on the window is on this computer (the import page's drop zone); '' when it has none. */
+  pathForFile?: (file: File) => string
 }

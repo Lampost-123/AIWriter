@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { Bridge, PaintedTheme } from '@shared/api'
 import { accentIdOf, lookOf } from '@shared/contracts/look'
 
@@ -29,7 +29,14 @@ const bridge: Bridge = {
   initialTheme: initialTheme(),
   initialAccent: initialAccent(),
   initialLook: initialLook(),
-  deskReady
+  deskReady,
+  pathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('aiwrite', bridge)

@@ -24,12 +24,13 @@ export async function withProgress<T>(
   const jobId = crypto.randomUUID()
   let toastId: number | null = null
   let latest = ''
+  let fraction: number | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
   // Shows the latest words (again, if the toast has timed out while a slow step ran).
   const show = (): void => {
     const toasts = useToasts.getState()
-    if (toastId !== null && toasts.items.some((t) => t.id === toastId)) toasts.update(toastId, { message: latest })
-    else toastId = toast(latest)
+    if (toastId !== null && toasts.items.some((t) => t.id === toastId)) toasts.update(toastId, { message: latest, progress: fraction })
+    else toastId = toast(latest, { progress: fraction })
   }
   // The first progress comes once the work starts (after any file dialog), so nothing shows while Adam picks a file.
   const off = onEvent('transfer:progress', (p) => {
@@ -37,6 +38,7 @@ export async function withProgress<T>(
     opts.onProgress?.(p)
     if (!opts.toastWhat) return
     latest = `${opts.toastWhat}: ${progressText(p.step.charAt(0).toLowerCase() + p.step.slice(1), p.fraction)}`
+    fraction = p.fraction
     if (toastId !== null) show()
     else timer ??= setTimeout(show, SHOW_AFTER_MS)
   })

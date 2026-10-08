@@ -44,6 +44,8 @@ import {
   type Role
 } from './split'
 import { catchUpWords, costWords } from './importLogic'
+import { useNewLook } from '@/features/look/look'
+import { DropZone, Imported, InkProgress } from './ImportArt'
 
 export function ImportView(): React.JSX.Element {
   const page = useImport((s) => s.page)
@@ -117,6 +119,9 @@ function FilePage(): React.JSX.Element {
 }
 
 function Choose({ reading }: { reading: boolean }): React.JSX.Element {
+  const isNew = useNewLook()
+  // The New look: a drop zone with a manuscript drawn on it (a file can be dropped there too).
+  if (isNew) return <DropZone reading={reading} onChoose={() => void chooseFile()} onDrop={(path) => void chooseFile(path)} />
   return (
     <Card className="mt-6 flex flex-col items-center px-6 py-10 text-center">
       <div className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-muted">
@@ -506,6 +511,7 @@ function MemoryPage(): React.JSX.Element {
   const storyId = useImport((s) => s.memoryStoryId)
   const story = useApp((s) => s.stories.find((x) => x.id === storyId) ?? null)
   const title = story?.title ?? result?.title ?? ''
+  const isNew = useNewLook()
   return (
     <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
       <div className="mx-auto w-full max-w-[680px] px-8 pb-16 pt-10">
@@ -514,7 +520,24 @@ function MemoryPage(): React.JSX.Element {
             Back to writing
           </Button>
         </div>
-        {page === 'done' && result ? (
+        {page === 'done' && result && isNew ? (
+          // The New look: what came in, as cards, and the way to it.
+          <>
+            <Heading>Imported</Heading>
+            <Imported title={title} result={result} />
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p className="flex min-w-0 flex-1 items-start gap-2 text-[13px] text-muted">
+                <CircleCheck size={16} className="mt-0.5 shrink-0 text-success" />
+                <span>
+                  “{title}” is in your world: {countsText(result.acts, result.chapters, result.scenes)}, {wordsText(result.words)}.
+                </span>
+              </p>
+              <Button size="sm" onClick={() => void openImported(result.storyId)}>
+                Open the story
+              </Button>
+            </div>
+          </>
+        ) : page === 'done' && result ? (
           <>
             <Heading>Imported</Heading>
             <div className="mt-4">
@@ -621,6 +644,7 @@ function CatchUpProgressBlock({ storyId }: { storyId: ID }): React.JSX.Element |
   const run = useImport((s) => (s.catchUp.running?.storyId === storyId ? s.catchUp.running : null))
   if (!run) return null
   const share = run.scenes ? Math.min(1, run.read / run.scenes) : 0
+  const isNew = useNewLook()
   if (run.status === 'paused') {
     return (
       <div className="mt-4">
@@ -636,9 +660,15 @@ function CatchUpProgressBlock({ storyId }: { storyId: ID }): React.JSX.Element |
           Stop
         </Button>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3" aria-hidden>
-        <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round(share * 100)}%` }} />
-      </div>
+      {isNew ? (
+        <div className="mt-3">
+          <InkProgress run={run} />
+        </div>
+      ) : (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3" aria-hidden>
+          <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round(share * 100)}%` }} />
+        </div>
+      )}
       <p className="mt-1.5 text-[12px] tabular-nums text-faint">
         {run.read.toLocaleString('en-US')} of {run.scenes.toLocaleString('en-US')} scenes read
       </p>

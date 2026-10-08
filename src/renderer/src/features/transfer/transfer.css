@@ -1,0 +1,115 @@
+/*
+  The export dialogs in the New look (FormatCards.tsx, ExportDialogs.tsx): the formats as small file cards, and an
+  export under way as ink filling a line (the base speed between steps; a short stroke going across while it can't say
+  how far it has got, still with less motion).
+*/
+.ex-formats {
+  display: grid;
+  gap: 8px;
+}
+.ex-format {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 6px 9px;
+  border-radius: 12px;
+  color: var(--muted);
+  background: var(--raise);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line);
+  transition:
+    box-shadow var(--dur-quick) var(--motion-glide),
+    color var(--dur-quick) var(--motion-glide),
+    translate var(--dur-quick) var(--motion-glide),
+    scale var(--dur-quick) var(--motion-glide);
+}
+.ex-format:hover {
+  color: var(--fg);
+  translate: 0 -1px;
+}
+.ex-format:active {
+  scale: 0.97;
+  transition-duration: var(--dur-press);
+}
+.ex-format.is-on {
+  color: var(--fg);
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 2px var(--accent);
+}
+.ex-format:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}
+/* A page with its corner folded and the format on a band. */
+.ex-file {
+  position: relative;
+  width: 30px;
+  height: 38px;
+  border-radius: 3px 9px 3px 3px;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 5px, var(--line) 5px 6px) 6px 8px / 14px 12px no-repeat,
+    var(--page);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.ex-file::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 0 9px 0 3px;
+  background: linear-gradient(225deg, var(--surface-2) 50%, var(--line-strong) 50%);
+}
+.ex-file b {
+  position: absolute;
+  left: -5px;
+  bottom: 5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font: 700 8.5px/12px var(--font-sans);
+  letter-spacing: 0.04em;
+  color: var(--accent-fg);
+  background: var(--k-group);
+}
+.ex-format.is-on .ex-file b {
+  background: var(--accent);
+}
+.ex-progress {
+  position: relative;
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 14%, var(--surface-2));
+}
+.ex-progress i {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform-origin: left;
+  background: var(--accent);
+  transition: transform var(--dur-base) var(--motion-glide);
+}
+.ex-progress:not([data-known]) i {
+  width: 30%;
+  animation: ex-run 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes ex-run {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ex-progress:not([data-known]) i {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}

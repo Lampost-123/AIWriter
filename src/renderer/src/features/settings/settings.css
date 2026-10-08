@@ -1,0 +1,710 @@
+/*
+  Settings in the New look (SettingsView.tsx), in the panels and on the desk: the list of pages down the side (grouped,
+  with "Find a setting" and a gliding pill under the open page), and the page with its small picture and heading.
+  Classic draws its own list and never reaches these classes. Speeds are the New look's (styles.css, --dur-*).
+*/
+
+/* ---------- the list ---------- */
+.st-nav {
+  padding-top: 26px;
+}
+.st-nav-title {
+  padding: 0 22px 12px;
+  font: 600 22px/28px var(--heading-font);
+  font-variation-settings: 'opsz' 48;
+  letter-spacing: -0.012em;
+  color: var(--fg);
+}
+.st-find input {
+  background: color-mix(in oklab, var(--surface-2) 80%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition:
+    box-shadow var(--dur-quick) var(--motion-glide),
+    background-color var(--dur-quick) var(--motion-glide);
+}
+.st-find input:focus {
+  background: var(--raise);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--accent) 60%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+.st-group {
+  padding: 8px 10px 4px;
+  font: 600 10.5px/14px var(--font-sans);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.st-row {
+  color: var(--muted);
+  transition: color var(--dur-quick) var(--motion-glide);
+}
+.st-row:hover {
+  color: var(--fg);
+}
+.st-row::before {
+  /* The hover's own quiet ground, under the pill. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--surface-2);
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--motion-glide);
+}
+.st-row:hover:not(.is-on)::before {
+  opacity: 0.7;
+}
+.st-row.is-on {
+  color: var(--fg);
+  font-weight: 500;
+}
+.st-row:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  outline-offset: 1px;
+}
+.st-row-icon {
+  color: var(--muted);
+  background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+  transition:
+    color var(--dur-base) var(--motion-glide),
+    background-color var(--dur-base) var(--motion-glide);
+}
+.st-row.is-on .st-row-icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.st-pill {
+  border-radius: 10px;
+}
+
+/* ---------- the page's head ---------- */
+.st-head {
+  animation: st-head-in var(--dur-view) var(--motion-glide) both;
+}
+.st-head-art {
+  padding: 6px 8px;
+  border-radius: 16px;
+  background:
+    radial-gradient(80% 70% at 50% 40%, color-mix(in oklab, var(--accent-soft) 70%, transparent), transparent 75%),
+    color-mix(in oklab, var(--surface-2) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+@keyframes st-head-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.st-caps {
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.st-title {
+  margin-top: 2px;
+  font: 600 32px/38px var(--heading-font);
+  font-variation-settings: 'opsz' 60;
+  letter-spacing: -0.016em;
+  color: var(--fg);
+}
+
+/* ---------- in the panels: the page is a sheet beside the list ---------- */
+[data-arrangement='panels'] .st-page {
+  margin: 4px 8px 0 0;
+  border-radius: 14px 14px 0 0;
+  background: var(--page);
+  box-shadow: var(--elev-page);
+}
+
+/* ---------- on the desk: the list lies on the sheet's left, a step down from the paper ---------- */
+[data-arrangement='desk'][data-look='new'] .st-nav {
+  margin: 10px 0 0 10px;
+  border-radius: 12px 12px 0 0;
+  background: color-mix(in oklab, var(--surface) 60%, var(--page));
+  box-shadow: inset -1px 0 0 var(--desk-line-2);
+}
+/* Settings' sheet uses more of a big window (the charts and lists want it). */
+[data-arrangement='desk'][data-look='new'] [data-desk-room='settings'] .desk-room-sheet {
+  width: min(1560px, calc(100% - 80px));
+}
+
+/* ---------- Appearance: the preview (AppearancePreview.tsx) ---------- */
+.ap-window {
+  margin: 0;
+}
+.ap-frame {
+  position: relative;
+  height: 300px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--glow, none), var(--bg);
+  background-color: var(--bg);
+  box-shadow:
+    var(--elev-2),
+    0 0 0 1px var(--line);
+  transition: background-color var(--dur-base) var(--motion-glide);
+}
+.ap-frame * {
+  transition:
+    background-color var(--dur-base) var(--motion-glide),
+    width var(--dur-base) var(--motion-glide),
+    left var(--dur-base) var(--motion-glide),
+    transform var(--dur-base) var(--motion-glide),
+    font-size var(--dur-base) var(--motion-glide),
+    line-height var(--dur-base) var(--motion-glide),
+    text-indent var(--dur-base) var(--motion-glide),
+    margin var(--dur-base) var(--motion-glide);
+}
+.ap-top {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ap-dot {
+  position: absolute;
+  left: 10px;
+  top: 7px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--raise);
+  box-shadow: var(--elev-1);
+}
+.ap-rooms {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--surface-3) 70%, transparent);
+}
+.ap-rooms i {
+  display: block;
+  width: 18px;
+  height: 7px;
+  border-radius: 3px;
+}
+.ap-rooms i.is-on {
+  background: var(--raise);
+  box-shadow: var(--elev-1);
+}
+.ap-spine {
+  position: absolute;
+  left: 10px;
+  top: 34px;
+  bottom: 12px;
+  width: 14px;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 6px;
+  padding-top: 10px;
+  border-radius: 999px;
+  background: var(--spine, color-mix(in oklab, var(--fg) 85%, var(--bg)));
+  box-shadow: var(--elev-2);
+}
+.ap-spine i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.4px var(--spine-ink, rgb(255 255 255 / 0.7));
+}
+.ap-spine i:nth-child(2) {
+  background: var(--lamp-2, var(--ai));
+  box-shadow: 0 0 6px var(--lamp-glow, transparent);
+}
+.ap-spine b {
+  height: 4px;
+}
+.ap-rail {
+  position: absolute;
+  left: 0;
+  top: 24px;
+  bottom: 0;
+  width: 22px;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 7px;
+  padding-top: 8px;
+}
+.ap-rail i,
+.ap-list i,
+.ap-binder i {
+  display: block;
+  height: 7px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.ap-rail i {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+}
+.ap-rail i.is-on,
+.ap-list i.is-on,
+.ap-binder i.is-on {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 40%, transparent);
+}
+.ap-list {
+  position: absolute;
+  left: 26px;
+  top: 32px;
+  width: 22%;
+  display: grid;
+  gap: 7px;
+}
+.ap-binder {
+  position: absolute;
+  left: 0;
+  top: 24px;
+  bottom: 0;
+  width: 26%;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 10px 8px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+.ap-sheet {
+  position: absolute;
+  top: 32px;
+  bottom: 0;
+  overflow: hidden;
+  border-radius: 9px 9px 0 0;
+  background: var(--page);
+  box-shadow: var(--elev-page);
+}
+.ap-desk .ap-sheet {
+  left: 40px;
+  right: 22px;
+}
+.ap-panels .ap-sheet {
+  left: calc(22% + 34px);
+  right: 8px;
+}
+.ap-classic .ap-sheet {
+  top: 24px;
+  left: 26%;
+  right: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.ap-words {
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  margin-left: calc(var(--w, 0px) / -2);
+  transform-origin: top center;
+  translate: -50% 0;
+  font-family: var(--serif-font);
+  color: var(--fg);
+}
+.ap-eyebrow {
+  font: 600 11px/16px var(--font-sans);
+  font-size: 0.6em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ap-title {
+  margin: 0.2em 0 0.7em;
+  font-family: var(--heading-font);
+  font-weight: 600;
+  font-size: 1.9em;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+.ap-dock {
+  position: absolute;
+  left: calc(40px + 18%);
+  right: calc(22px + 18%);
+  bottom: 12px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  border-radius: 7px;
+  background: var(--raise);
+  box-shadow:
+    var(--elev-3),
+    0 0 0 1px color-mix(in oklab, var(--ai) 30%, transparent);
+}
+.ap-dock i {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.ap-dock b {
+  width: 34px;
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ai) 85%, white), var(--ai));
+}
+.ap-caption {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Appearance: the theme as four small pictures, and the sliders ---------- */
+.ap-theme {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.ap-theme button {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 8px 10px;
+  border-radius: 12px;
+  background: var(--raise);
+  text-align: left;
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line);
+  transition:
+    box-shadow var(--dur-quick) var(--motion-glide),
+    translate var(--dur-quick) var(--motion-glide),
+    scale var(--dur-quick) var(--motion-glide);
+}
+.ap-theme button:hover {
+  translate: 0 -1px;
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1px var(--line-strong);
+}
+.ap-theme button:active {
+  scale: 0.98;
+  transition-duration: var(--dur-press);
+}
+.ap-theme button[aria-checked='true'] {
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 2px var(--accent);
+}
+.ap-theme button:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}
+.ap-swatch {
+  position: relative;
+  display: block;
+  height: 46px;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+.ap-swatch i {
+  position: absolute;
+  left: 22%;
+  right: 12%;
+  top: 9px;
+  bottom: 0;
+  border-radius: 5px 5px 0 0;
+}
+.ap-swatch b {
+  position: absolute;
+  height: 3px;
+  border-radius: 2px;
+  left: 30%;
+}
+.st-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  background: transparent;
+}
+.st-range::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) var(--fill, 50%), var(--surface-3) var(--fill, 50%));
+}
+.st-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6.5px;
+  border-radius: 50%;
+  background: var(--raise);
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1.5px color-mix(in oklab, var(--accent) 70%, var(--line-strong));
+  transition: scale var(--dur-quick) var(--motion-glide);
+}
+.st-range:active::-webkit-slider-thumb {
+  scale: 1.12;
+}
+.st-range:focus-visible {
+  outline: none;
+}
+.st-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1.5px var(--accent),
+    0 0 0 4px color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+/* ---------- Backups (BackupCards.tsx): cards down a timeline, by day ---------- */
+.bk-list {
+  position: relative;
+}
+.bk-list::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 30px;
+  bottom: 30px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: linear-gradient(180deg, var(--line-strong), color-mix(in oklab, var(--line-strong) 30%, transparent));
+}
+.bk-day {
+  margin: 10px 0 8px -36px;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bk-item:first-child .bk-day {
+  margin-top: 0;
+}
+.bk-knot {
+  position: absolute;
+  left: -29.25px;
+  top: 27px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 3px var(--page),
+    0 0 0 4px var(--line);
+}
+.bk-card {
+  border-radius: 14px;
+  background: var(--raise);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line);
+  transition:
+    box-shadow var(--dur-base) var(--motion-glide),
+    translate var(--dur-quick) var(--motion-glide),
+    background-color 700ms var(--motion-glide);
+}
+.bk-card:hover:not(.is-open) {
+  translate: 0 -1px;
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1px var(--line-strong);
+}
+.bk-card.is-open {
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1.5px color-mix(in oklab, var(--accent) 55%, var(--line));
+}
+.bk-card.is-fresh {
+  background: color-mix(in oklab, var(--accent-soft) 60%, var(--raise));
+  transition-duration: var(--dur-quick);
+}
+.bk-copy {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, currentColor 18%, transparent);
+}
+/* The copy is a little stack of paper: two sheets behind it. */
+.bk-copy::before,
+.bk-copy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: inherit;
+  opacity: 0.55;
+  transform: rotate(-7deg) translate(-2px, 2px);
+}
+.bk-copy::after {
+  opacity: 0.3;
+  transform: rotate(6deg) translate(3px, 3px);
+}
+.bk-copy {
+  isolation: isolate;
+}
+.bk-newest {
+  border-radius: 999px;
+  padding: 1px 7px;
+  font: 600 10.5px/16px var(--font-sans);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.bk-preview {
+  animation: bk-open var(--dur-base) var(--motion-glide) both;
+}
+@keyframes bk-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.bk-stat {
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* ---------- Recently deleted (DeletedCards.tsx) ---------- */
+.dl-day {
+  margin: 14px 0 8px;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dl-item.is-first:first-child .dl-day {
+  margin-top: 0;
+}
+.dl-item + .dl-item:not(.is-first) {
+  margin-top: 8px;
+}
+.dl-card {
+  border-radius: 14px;
+  background: var(--raise);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line);
+  transition:
+    box-shadow var(--dur-quick) var(--motion-glide),
+    translate var(--dur-quick) var(--motion-glide);
+}
+.dl-card:hover {
+  translate: 0 -1px;
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1px var(--line-strong);
+}
+.dl-item.is-leaving .dl-card {
+  animation: dl-leave var(--dur-exit) var(--motion-glide) both;
+}
+@keyframes dl-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+.dl-tile {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 11px;
+}
+/* A page (a scene), or pages fanned (a chapter, an act). */
+.dl-page {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+.dl-page i {
+  position: absolute;
+  left: 9px;
+  top: 3px;
+  width: 24px;
+  height: 32px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 6px, var(--line-strong) 6px 7px) 4px 8px / 15px 20px no-repeat,
+    color-mix(in oklab, var(--fg) 10%, var(--raise));
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line-strong);
+}
+.dl-page i:nth-child(1),
+.dl-page i:nth-child(2) {
+  display: none;
+}
+.dl-page.is-stack i:nth-child(1),
+.dl-page.is-stack i:nth-child(2) {
+  display: block;
+}
+.dl-page.is-stack i:nth-child(1) {
+  transform: rotate(-10deg) translate(-3px, 1px);
+}
+.dl-page.is-stack i:nth-child(2) {
+  transform: rotate(7deg) translate(3px, 1px);
+}
+/* A book (a story). */
+.dl-book {
+  position: relative;
+  display: block;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+.dl-book i {
+  position: absolute;
+  left: 9px;
+  top: 3px;
+  width: 24px;
+  height: 33px;
+  border-radius: 2px 5px 5px 2px;
+  background:
+    linear-gradient(90deg, rgb(0 0 0 / 0.22), transparent 18%),
+    linear-gradient(180deg, color-mix(in oklab, var(--accent) 80%, var(--fg)), var(--accent));
+  box-shadow: var(--elev-1);
+}
+
+/* ---------- About (AboutSettings.tsx, the New look) ---------- */
+.ab-version {
+  border-radius: var(--r-card);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--accent-soft) 75%, transparent), transparent 60%),
+    var(--raise);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line);
+}
+.ab-mark {
+  color: var(--accent);
+  background: linear-gradient(180deg, var(--raise), color-mix(in oklab, var(--raise) 78%, var(--accent-soft)));
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1px var(--line);
+}
+.ab-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.ab-notes > li {
+  animation: ab-note-in var(--dur-view) var(--motion-glide) both;
+}
+@keyframes ab-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}

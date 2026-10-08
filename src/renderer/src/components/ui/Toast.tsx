@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { create } from 'zustand'
-import { X } from '@/components/ui/icons'
+import { CircleAlert, X } from '@/components/ui/icons'
+import { DrawnTick } from './DrawnTick'
+import { Spinner } from './Spinner'
+import './toast.css'
 import { cn } from '@/lib/cn'
 import { useNewLook } from '@/features/look/look'
 import { reducedMotion } from '@/features/look/motion'
@@ -72,8 +75,11 @@ export function useToastsAbove(ref: RefObject<HTMLElement | null>): void {
 /** Shows a short message in the corner and returns its id. Use for undoable actions ("Scene deleted · Undo") and errors. */
 export const toast = (
   message: string,
-  opts: { tone?: ToastItem['tone']; action?: ToastItem['action']; secondary?: ToastItem['secondary'] } = {}
-): number => useToasts.getState().push({ message, tone: opts.tone ?? 'neutral', action: opts.action, secondary: opts.secondary })
+  opts: { tone?: ToastItem['tone']; action?: ToastItem['action']; secondary?: ToastItem['secondary']; progress?: number | null } = {}
+): number =>
+  useToasts
+    .getState()
+    .push({ message, tone: opts.tone ?? 'neutral', action: opts.action, secondary: opts.secondary, ...(opts.progress !== undefined ? { progress: opts.progress } : {}) })
 
 /** The New look's glide (styles.css: --motion-glide), for the stack moving into place. */
 const GLIDE = 'cubic-bezier(0.2, 0.8, 0.2, 1)'
@@ -155,6 +161,7 @@ export function Toaster(): React.JSX.Element {
  */
 function Toast({ t, leaving = false, onGone }: { t: ToastItem; leaving?: boolean; onGone?: (id: number) => void }): React.JSX.Element {
   const dismiss = useToasts((s) => s.dismiss)
+  const isNew = useNewLook()
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const paused = hovered || focused
@@ -204,12 +211,14 @@ function Toast({ t, leaving = false, onGone }: { t: ToastItem; leaving?: boolean
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false)
       }}
       className={cn(
-        'pointer-events-auto flex items-start gap-3 rounded-lg border bg-surface px-3.5 py-2.5 text-[13px] shadow-pop animate-slide-up',
+        'pointer-events-auto relative flex items-start gap-3 rounded-lg look-new:overflow-hidden border bg-surface px-3.5 py-2.5 text-[13px] shadow-pop animate-slide-up',
         // The New look: a raised card that springs up into place.
         'look-new:rounded-xl look-new:bg-raise look-new:shadow-e3 look-new:[animation:toast-in_var(--dur-base)_var(--motion-spring)_both]',
         t.tone === 'danger' ? 'border-danger/40' : t.tone === 'success' ? 'border-success/40' : 'border-line look-new:border-transparent look-new:ring-1 look-new:ring-line'
       )}
     >
+      {/* The New look: a mark for how it went (a tick drawing itself, or a warning), or a long job under way. */}
+      {isNew && (t.tone !== 'neutral' || t.progress !== undefined) ? <ToneMark t={t} /> : null}
       {/* A long file path or web address wraps inside the toast rather than running off the window. */}
       <p className="min-w-0 flex-1 leading-relaxed text-fg [overflow-wrap:anywhere]">{t.message}</p>
       {t.secondary ? (
@@ -231,6 +240,28 @@ function Toast({ t, leaving = false, onGone }: { t: ToastItem; leaving?: boolean
       <button className="text-faint hover:text-fg" onClick={() => dismiss(t.id)} aria-label="Dismiss">
         <X size={14} />
       </button>
+      {/* The New look: a long job's progress, as ink filling along the toast's foot. */}
+      {isNew && t.progress !== undefined ? (
+        <span aria-hidden className="toast-progress" data-known={t.progress != null || undefined}>
+          <i style={t.progress != null ? { transform: `scaleX(${Math.max(0.02, Math.min(1, t.progress))})` } : undefined} />
+        </span>
+      ) : null}
     </div>
+  )
+}
+
+/** The New look's mark at a toast's start: a tick that draws itself, a warning, or a page filling for a job under way. */
+function ToneMark({ t }: { t: ToastItem }): React.JSX.Element {
+  if (t.progress !== undefined && t.tone === 'neutral') {
+    return (
+      <span aria-hidden className="toast-mark is-busy">
+        <Spinner size={13} />
+      </span>
+    )
+  }
+  return (
+    <span aria-hidden className={cn('toast-mark', t.tone === 'danger' ? 'is-danger' : 'is-success')}>
+      {t.tone === 'danger' ? <CircleAlert size={14} /> : <DrawnTick size={13} draw />}
+    </span>
   )
 }
