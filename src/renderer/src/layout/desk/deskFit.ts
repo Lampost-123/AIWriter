@@ -2,8 +2,8 @@
 // column is Adam's page width (Settings › Appearance › Page width, in characters of his text size) with paper either
 // side of it. The story's spine runs down the left edge: full (every chapter and scene, the default) while the window
 // is wide enough for it, slim (the rings) when Adam collapses it or the window is narrower. The scene drawer runs down
-// the right edge when open: beside the page while the spine, the sheet and the drawer all fit, else over the page's
-// edge. The sheet is centred in the room between them, never nearer the spine than leftMin. The margin notes (phase 3)
+// the right edge when open, beside the page: the sheet narrows for it (to SHEET_MIN), then the full spine shows slim
+// for now, and only in a window too small for both does it lie over the (dimmed) page. The sheet is centred in the room between them, never nearer the spine than leftMin. The margin notes (phase 3)
 // take a column right of the sheet when the window has room for one with the page still about in the middle (it moves
 // left of its centre by MARGIN_SHIFT at most); without that room they fold into tabs on the sheet's edge.
 // Pure, so it is unit-tested; useDeskFrame measures the column and follows the window.
@@ -34,7 +34,11 @@ export const FULL_FROM = 1280
  */
 export const MARGIN = { width: 300, overlap: 16 } as const
 export const MARGIN_RESERVE = MARGIN.width - MARGIN.overlap + GUTTER
-/** The furthest the sheet moves left of its centre to make room for the margin column. */
+/**
+ * The furthest the sheet moves left of its centre to make room for the margin column (px). The one place this is
+ * decided: larger, and the column shows in narrower windows with the page further off centre; smaller, and the notes
+ * fold into tabs sooner. 32 is the mockup's "about in the middle" (Adam is fine with the tabs below that).
+ */
 export const MARGIN_SHIFT = 32
 /** The page's scrollbar room inside the desk's scroll area (kept whether it scrolls or not). */
 const SCROLLBAR = 12
