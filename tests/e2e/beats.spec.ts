@@ -591,6 +591,35 @@ const beatParas = (win: Page, n: number) => prose(win).locator(`p[data-beat="${n
 const beatLabel = (win: Page, n: number) => win.locator(`[data-beat-label="${n}"]`)
 const beatTag = (win: Page, n: number) => beatLabel(win, n).getByRole('button', { name: new RegExp(`^Beat ${n}(,| :|:)`) })
 const beatMenu = (win: Page, n: number) => win.getByRole('menu', { name: `Beat ${n}` })
+
+type Editor = {
+  state: { selection: { empty: boolean; head: number }; doc: { resolve(pos: number): { parent: { content: { size: number } } } } }
+  view: { posAtDOM(node: unknown, offset: number): number }
+  commands: { focus(pos: number): boolean }
+}
+type Doc = { document: { querySelector(sel: string): { editor: Editor } | null } }
+
+/**
+ * Puts the caret at the end of beat `n`'s first paragraph through the editor itself (where a click lands
+ * depends on the window: a beat's label or a wrapped line), and waits until the editor has it there.
+ */
+async function caretAtEndOfBeat(win: Page, n: number): Promise<void> {
+  const end = await win.evaluate((n) => {
+    const { document } = globalThis as unknown as Doc
+    const { editor } = document.querySelector('.scene-prose')!
+    const start = editor.view.posAtDOM(document.querySelector(`.scene-prose p[data-beat="${n}"]`), 0)
+    const end = start + editor.state.doc.resolve(start).parent.content.size
+    editor.commands.focus(end)
+    return end
+  }, n)
+  const head = (): Promise<number> =>
+    win.evaluate(() => {
+      const { empty, head } = (globalThis as unknown as Doc).document.querySelector('.scene-prose')!.editor.state.selection
+      return empty ? head : -1
+    })
+  await expect.poll(head).toBe(end)
+  await expect(prose(win)).toBeFocused()
+}
 const change = (win: Page) => win.getByRole('group', { name: 'The AI’s change' })
 const changeButton = (win: Page, name: RegExp) => change(win).getByRole('button', { name })
 /** The fake writer opens a beat written again otherwise than the first time (tests/fake-provider/server.mjs). */
@@ -773,19 +802,21 @@ test('Redoing a beat with paragraphs Adam wrote between its own says the change 
     expect(await beatParas(win, 2).count()).toBeGreaterThan(1)
 
     // A paragraph of Adam's own after beat 2's first: it isn't the beat's (no marker), but it lies inside it.
-    // (Clicked on its last line, then End: the caret is at the end of its words, so Enter splits nothing.)
+    // (The caret is put at the end of its words, so Enter splits nothing: a new empty paragraph comes after it.)
     const first = beatParas(win, 2).first()
     const words = (await first.textContent())!.trim()
-    const box = (await first.boundingBox())!
-    await first.click({ position: { x: box.width - 4, y: box.height - 6 } })
-    await win.keyboard.press('End')
+    const count = await prose(win).locator('p').count()
+    await caretAtEndOfBeat(win, 2)
     await win.keyboard.press('Enter')
+    await expect(prose(win).locator('p')).toHaveCount(count + 1)
+    await expect(first.locator('xpath=following-sibling::p[1]')).not.toHaveAttribute('data-beat', /.*/)
     await win.keyboard.type(MINE)
     await expect(first).toHaveText(words)
     const mine = prose(win).locator('p', { hasText: MINE })
     await expect(mine).toHaveCount(1)
     await expect(mine).toHaveText(MINE)
     await expect(mine).not.toHaveAttribute('data-beat', /.*/)
+    await expect(first.locator('xpath=following-sibling::p[1]')).toHaveText(MINE)
     const before = await paragraphs(win)
 
     // Redo this beat: the tracked change says it replaces that paragraph too, from the start and once written.
