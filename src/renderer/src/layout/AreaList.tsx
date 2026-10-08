@@ -29,6 +29,7 @@ import { useApp, type View } from '@/lib/store'
 import { Binder } from '@/features/binder/Binder'
 import { useOutline } from '@/features/binder/outlineStore'
 import { useEntryCounts } from '@/features/binder/WorldSection'
+import { CODEX_KINDS } from '@/features/codex/codexLogic'
 import { openConsistency } from '@/features/consistency/checkStore'
 import { openOutlineHelper } from '@/features/outline/open'
 import { openRecipes } from '@/features/recipes/recipeStore'
@@ -203,7 +204,8 @@ function WorldList({ view }: { view: View }): React.JSX.Element {
           icon={LayoutGrid}
           label="Everything"
           hint="The codex: every character, place and more, as cards"
-          count={counts ? Object.values(counts).reduce((a, b) => a + (b ?? 0), 0) : null}
+          // What the codex shows: plot threads live on their own board, so they aren't counted here (Plot threads below has them).
+          count={counts ? CODEX_KINDS.reduce((n, k) => n + (counts[k] ?? 0), 0) : null}
           active={is(view, 'codex')}
           onClick={() => navigate({ kind: 'codex' })}
         />
