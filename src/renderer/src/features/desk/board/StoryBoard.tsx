@@ -318,7 +318,18 @@ function Cards({
       void moveCard(d.id, t.chapterId, t.index)
     }
     const cancel = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setDrag(null)
+      if (e.key !== 'Escape') return
+      const d = dragRef.current
+      setDrag(null)
+      // Let go after Esc, the card isn't clicked open.
+      if (d?.moving) {
+        const swallow = (ev: Event): void => {
+          ev.stopPropagation()
+          ev.preventDefault()
+        }
+        window.addEventListener('click', swallow, { capture: true, once: true })
+        setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 2000)
+      }
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', end)

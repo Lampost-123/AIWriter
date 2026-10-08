@@ -128,6 +128,19 @@ test('the story board: dragging a card moves its scene (the others make room); A
   // Dropped, it is still on the board (a drag never opens the scene).
   await expect(room(win, 'Plan')).toHaveAttribute('aria-current', 'page')
 
+  // Esc while dragging puts it back, and letting go then doesn't open the scene.
+  await reachable(win, 'Low Tide')
+  const lt = (await card(win, 'Low Tide').boundingBox())!
+  await win.mouse.move(lt.x + 60, lt.y + 70)
+  await win.mouse.down()
+  await win.mouse.move(lt.x + 90, lt.y + 40, { steps: 6 })
+  await expect(card(win, 'Low Tide')).toHaveClass(/is-dragging/)
+  await win.keyboard.press('Escape')
+  await expect(card(win, 'Low Tide')).not.toHaveClass(/is-dragging/)
+  await win.mouse.up()
+  await expect(room(win, 'Plan')).toHaveAttribute('aria-current', 'page')
+  expect(await order(win)).toEqual([['Lighting the Lamp'], ['A Letter for the Keeper', 'What the Letter Said', 'Low Tide']])
+
   // From the keyboard: Alt+↓ one place down, Alt+← to the chapter before.
   await card(win, 'A Letter for the Keeper').getByRole('button', { name: /^A Letter for the Keeper,/ }).focus()
   await win.keyboard.press('Alt+ArrowDown')
