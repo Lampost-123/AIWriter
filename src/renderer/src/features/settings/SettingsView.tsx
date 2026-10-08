@@ -34,7 +34,7 @@ const TABS: { id: SettingsTab; label: string; blurb: string }[] = [
   {
     id: 'speech',
     label: 'Read aloud and dictation',
-    blurb: 'Hear your scenes read aloud, and speak instead of typing. Both run on this computer, with nothing sent anywhere.'
+    blurb: 'Hear your scenes read aloud, and speak instead of typing. The voices and dictation run on this computer. Your AI model helps with who says what, and a few extras.'
   },
   { id: 'editor', label: 'Editor', blurb: 'Spelling, punctuation as you type, typewriter scrolling and a daily word target.' },
   { id: 'backups', label: 'Backups', blurb: 'Automatic copies of the open world, and restoring one.' },
