@@ -19,6 +19,7 @@ import { READING_MARKER, SUMMARY_MARKER } from './prompts'
 import { sceneSummaryDue, writeSceneSummary, type SummaryOptions } from './summaries'
 import { Keeper } from './engine'
 import { undoItem } from './undo'
+import { tidyMemory } from './tidy'
 import { gatherContextInput } from '../ai/gather'
 import { mustStayTrue } from '../ai/mustStay'
 
@@ -266,5 +267,40 @@ describe('before a draft', () => {
     await k.whenIdle()
     k.stop()
     expect(order).toContain('summary')
+  })
+})
+
+describe('an edited fact whose paragraph was then joined to another', () => {
+  it('isn’t removed by the tidy-up while words much like it are still in the scene', async () => {
+    const w = testWorld(1)
+    const [s1] = w.scenes
+    saveParas(w.db, s1, [
+      ['p1', MARA_RIVER],
+      ['p3', TIDE]
+    ])
+    await readScene(w.db, fake, s1)
+    const [c] = changesOf(w.db, 'Mara')
+    const [l] = hist.linksForFact(w.db, 'change', c.id)
+    hist.updateLink(w.db, l.id, { state: 'changed', quote: MARA_RIVER })
+    // p1 joined into p3, its words a little edited (an older version let this go unnoticed).
+    saveParas(w.db, s1, [['p3', `Mara lost her old knife in the river. ${TIDE}`]], false)
+    w.db.transaction(() => tidyMemory(w.db))()
+    expect(changesOf(w.db, 'Mara').map((x) => x.id)).toEqual([c.id])
+  })
+
+  it('still goes when no words like it are left', async () => {
+    const w = testWorld(1)
+    const [s1] = w.scenes
+    saveParas(w.db, s1, [
+      ['p1', MARA_RIVER],
+      ['p3', TIDE]
+    ])
+    await readScene(w.db, fake, s1)
+    const [c] = changesOf(w.db, 'Mara')
+    const [l] = hist.linksForFact(w.db, 'change', c.id)
+    hist.updateLink(w.db, l.id, { state: 'changed', quote: MARA_RIVER })
+    saveParas(w.db, s1, [['p3', TIDE]], false)
+    w.db.transaction(() => tidyMemory(w.db))()
+    expect(changesOf(w.db, 'Mara')).toEqual([])
   })
 })

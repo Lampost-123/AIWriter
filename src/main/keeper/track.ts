@@ -97,10 +97,11 @@ function wasEdited(link: SourceLink, paras: Para[], changed: Para[]): boolean {
 
 /**
  * For a link already marked changed at an earlier read: true while its words still look edited rather than deleted
- * (its paragraph is still there, or some sentence in the scene is much like them).
+ * (its paragraph is still there, or some sentence in the scene is much like them: its paragraph may have been joined to
+ * another).
  */
 function stillEdited(link: SourceLink, paras: Para[]): boolean {
-  if (link.paragraphId) return paras.some((p) => p.pid === link.paragraphId)
+  if (link.paragraphId && paras.some((p) => p.pid === link.paragraphId)) return true
   const best = closestSentence(paras.map((p) => p.text).join('\n'), link.quote)
   return !!best && best.score >= 0.5
 }
