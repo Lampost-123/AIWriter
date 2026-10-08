@@ -10,6 +10,7 @@ import * as P from '@radix-ui/react-popover'
 import { ArrowDown, ArrowDownToLine, Check, Sparkles, Square, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
+import { useToastsAbove } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { layerOpen } from '@/lib/layers'
 import { isShortcut, shortcutKeys, withShortcut } from '@/lib/shortcuts'
@@ -99,6 +100,9 @@ export function Dock({
   const { activity, changeId } = useActivity(editor, sceneId, g)
   const busy = isBusy(activity)
   const hasWords = useApp((s) => (s.sceneId === sceneId ? s.sceneWords > 0 : false))
+  // Messages show above the dock, never over it.
+  const dockRef = useRef<HTMLDivElement>(null)
+  useToastsAbove(dockRef)
   const question = useBeats((s) => (s.question?.sceneId === sceneId && s.question.from === 'button' ? s.question : null))
 
   // A state change asked from the keyboard (Ctrl+Shift+Enter, Tab, Esc) shows at once; from a click, it crossfades.
@@ -161,6 +165,7 @@ export function Dock({
     <P.Root open={g.popover !== null} onOpenChange={(o) => !o && g.setPopover(null)}>
       <P.Anchor asChild>
         <div
+          ref={dockRef}
           role="toolbar"
           aria-label="AI dock"
           data-desk-dock={kind}
