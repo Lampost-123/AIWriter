@@ -1942,7 +1942,7 @@
   fill: none;
   stroke: var(--faint);
   stroke-width: 1.5;
-  transition: stroke 200ms ease-out;
+  transition: stroke var(--dur-quick) ease-out;
 }
 [data-arrangement='desk'] .desk-icard .ic-ring-fill {
   fill: var(--success);
@@ -2470,7 +2470,7 @@
 }
 [data-arrangement='desk'] .desk-entity[data-card='open'] > .desk-paper {
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--dur-quick) ease-out;
 }
 
 /* The first scene's guide on the desk: a slip tucked at the top of the sheet, above the scene's head (never over the

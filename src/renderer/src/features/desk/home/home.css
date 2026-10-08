@@ -495,7 +495,7 @@
     0 0 0 1px color-mix(in oklab, var(--lamp) 18%, transparent),
     0 18px 40px -26px rgb(236 163 70 / 0.6);
   transform-origin: 40px 0;
-  animation: home-pop-in 200ms var(--motion-glide) both;
+  animation: home-pop-in var(--dur-base) var(--motion-glide) both;
 }
 [data-arrangement='desk'] .home-ideas.is-out {
   animation: home-pop-out var(--dur-exit, 140ms) var(--motion-glide) both;
