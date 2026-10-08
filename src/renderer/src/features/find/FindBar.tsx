@@ -258,7 +258,8 @@ export function FindBar({
       onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={onBarKey}
       tabIndex={-1}
-      className="absolute right-4 z-20 w-[420px] outline-none max-w-[calc(100%-32px)] rounded-lg border border-line bg-surface p-2 shadow-pop animate-fade-in"
+      // The New look: it appears at once (opened from the keyboard, Ctrl+F).
+      className="absolute right-4 z-20 w-[420px] outline-none max-w-[calc(100%-32px)] rounded-lg border border-line bg-surface p-2 shadow-pop animate-fade-in look-new:animate-none"
     >
       <div className="flex items-center gap-1.5">
         <Input

@@ -540,8 +540,9 @@ export function CommandPalette(): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ open: o })}>
       <D.Portal>
-        {/* The New look: the palette is a raised pane with a hint of blur behind it (only it: small, so it costs little). */}
-        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
+        {/* The New look: the palette is a raised pane with a hint of blur behind it (only it: small, so it costs little).
+            It appears and goes at once, dim and all: it is opened from the keyboard all day. */}
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in look-new:data-[state=open]:animate-none" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
           aria-describedby={undefined}
@@ -558,7 +559,7 @@ export function CommandPalette(): React.JSX.Element {
           }}
           // Keys pressed here stay here: the app's shortcuts underneath (Ctrl+G, Ctrl+Enter...) wait until it closes.
           onKeyDown={(e) => e.stopPropagation()}
-          className="fixed left-1/2 top-[12vh] z-50 flex w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise/90 look-new:backdrop-blur-md look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:[animation:pop-in_var(--dur-base)_var(--motion-spring)]"
+          className="fixed left-1/2 top-[12vh] z-50 flex w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise/90 look-new:backdrop-blur-md look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:animate-none"
         >
           <D.Title className="sr-only">Search</D.Title>
           <div className="flex h-12 shrink-0 items-center gap-3 border-b border-line px-4">

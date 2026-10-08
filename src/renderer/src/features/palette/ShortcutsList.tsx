@@ -48,7 +48,8 @@ export function ShortcutsList(): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ shortcuts: o })}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
+        {/* The New look: it appears at once (opened from the keyboard, ?). */}
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in look-new:data-[state=open]:animate-none" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
           onOpenAutoFocus={(e) => {
@@ -64,7 +65,7 @@ export function ShortcutsList(): React.JSX.Element {
           }}
           // Pressing a shortcut to try it while reading the list does nothing underneath (Ctrl+G doesn't start a draft).
           onKeyDown={(e) => e.stopPropagation()}
-          className="fixed left-1/2 top-[12vh] z-50 flex max-h-[76vh] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
+          className="fixed left-1/2 top-[12vh] z-50 flex max-h-[76vh] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:data-[state=open]:animate-none"
         >
           {/* It scrolls inside its frame, so its bottom edge can fade while more of the list is below. */}
           <div data-shortcuts ref={watchMoreBelow} tabIndex={-1} className="fade-more-below min-h-0 overflow-y-auto p-5 focus:outline-none">
