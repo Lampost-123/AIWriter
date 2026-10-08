@@ -10,12 +10,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
 import { defaultWritingPrefs } from '@shared/defaults'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { entryNamed, fakeModel, readScene, saveParas, testWorld } from '../../../tests/unit/keeperRead'
+import { entryNamed, fakeModel, readScene, saveParas, shapedFetch, testWorld, textOf } from '../../../tests/unit/keeperRead'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
+import { READING_MARKER, SUMMARY_MARKER } from './prompts'
 import { sceneSummaryDue, writeSceneSummary, type SummaryOptions } from './summaries'
+import { Keeper } from './engine'
 import { undoItem } from './undo'
 import { gatherContextInput } from '../ai/gather'
 import { mustStayTrue } from '../ai/mustStay'
@@ -180,6 +182,8 @@ const HARBOUR =
   'The harbour lay grey under a low sky, and the fishing boats rocked at their moorings while the gulls quarrelled over scraps on the stones. Nobody hurried; the tide would not turn for hours, and the nets still hung drying on the rails.'
 const MARKET =
   'Up the hill the market was setting out its stalls, apples and rope and lamp oil, the traders calling to one another across the square. A cart with a broken wheel stood abandoned by the fountain, its load of turnips spilling slowly.'
+const CHAPEL_EDITED =
+  'Night fell quickly over Kestrel Point; lanterns flickered along every quay while sailors argued loudly about wages, storms, debts owed and whose turn it was to buy rum tonight. Two boys raced barrels downhill, shrieking, until somebody shouted from a window above. Somewhere distant, dogs barked twice, then went silent until dawn broke cold.'
 
 const summaryOptions = (db: DB): SummaryOptions => ({
   db,
@@ -224,5 +228,43 @@ describe('a scene summary', () => {
       ['p3', MARKET]
     ])
     expect(sceneSummaryDue(w.db, s1, false)).toBe(true)
+  })
+})
+
+describe('before a draft', () => {
+  it('the scene’s own fresh read goes before summary jobs for earlier scenes', async () => {
+    const w = testWorld(1)
+    const [s1, s2] = w.scenes
+    saveParas(w.db, s1, [
+      ['p1', HARBOUR],
+      ['p2', MARKET]
+    ])
+    await readScene(w.db, fake, s1)
+    expect(await writeSceneSummary(summaryOptions(w.db), s1, null, 'Ch 1, Sc 1')).toBe(true)
+    // An earlier scene whose summary is now due (its words read), and unread words in this one.
+    saveParas(w.db, s1, [
+      ['p1', HARBOUR],
+      ['p2', CHAPEL_EDITED]
+    ])
+    await readScene(w.db, fake, s1)
+    expect(kdb.needsReading(w.db, s1)).toBe(false)
+    expect(sceneSummaryDue(w.db, s1, false)).toBe(true)
+    const order: string[] = []
+    const shaped = shapedFetch({})
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: unknown }[] }
+      const system = textOf(body.messages?.find((m) => m.role === 'system')?.content)
+      order.push(system.includes(READING_MARKER) ? 'read' : system.includes(SUMMARY_MARKER) ? 'summary' : 'other')
+      return shaped(input, init)
+    }
+    const k = new Keeper({ db: w.db, model: () => fakeModel(fake), emitStatus: () => {}, emitChanged: () => {}, quietMs: 60_000, retryDelays: [0], fetchImpl })
+    saveParas(w.db, s2, [['q1', 'Bryn lost her map.']], false)
+    k.sceneSaved(s2)
+    await k.beforeDraft(s2)
+    expect(entryNamed(w.db, 'Bryn')).not.toBeNull()
+    expect(order[0]).toBe('read')
+    await k.whenIdle()
+    k.stop()
+    expect(order).toContain('summary')
   })
 })

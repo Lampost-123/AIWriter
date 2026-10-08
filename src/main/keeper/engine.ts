@@ -191,12 +191,18 @@ export class Keeper {
    * the writer is told the old one is being updated until then.
    */
   async catchUpBefore(sceneId: ID): Promise<void> {
-    if (this.closed) return
+    const before = await this.catchUpEarlier(sceneId)
+    if (before) this.queueDueSummaries(before)
+  }
+
+  /** Runs queued or failed runs for earlier scenes on the line; the earlier scenes, or null when nothing more is to be done. */
+  private async catchUpEarlier(sceneId: ID): Promise<ID[] | null> {
+    if (this.closed) return null
     // One query for the scenes left behind, not one per earlier scene (a long series has thousands).
     const behind = new Set(kdb.scenesToRead(this.db))
     const before = scenesBefore(this.db, sceneId)
     const ids = behind.size ? before.filter((id) => behind.has(id)) : []
-    if ('error' in this.deps.model()) return
+    if ('error' in this.deps.model()) return null
     if (ids.length) {
       for (const id of ids) this.clearTimer(id)
       this.urgent = [...ids, ...this.urgent.filter((x) => !ids.includes(x))]
@@ -205,7 +211,7 @@ export class Keeper {
       this.kick()
       await wait
     }
-    this.queueDueSummaries(before)
+    return before
   }
 
   /**
@@ -237,11 +243,16 @@ export class Keeper {
 
   /**
    * Before the AI writes in a scene (Generate, Add below, Continue, a beat): earlier scenes first (catchUpBefore), then
-   * the scene's own unread words (readNow, up to `readMs`).
+   * the scene's own unread words (readNow, up to `readMs`). Summaries of earlier scenes that are due are queued only
+   * after that, so a summary job never holds up the scene's own fresh read.
    */
   async beforeDraft(sceneId: ID, readMs = FRESH_READ_MS): Promise<void> {
-    await this.catchUpBefore(sceneId)
-    await this.readNow(sceneId, readMs)
+    const before = await this.catchUpEarlier(sceneId)
+    try {
+      await this.readNow(sceneId, readMs)
+    } finally {
+      if (before) this.queueDueSummaries(before)
+    }
   }
 
   /** Earlier scenes (the most recent few) whose summary is due: written once nothing is waiting to be read. */
