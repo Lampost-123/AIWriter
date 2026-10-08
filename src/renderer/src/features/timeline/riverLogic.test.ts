@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { Timeline, TimelinePoint } from '@shared/contracts/worldViews'
 import {
+  ALL_CHAPTERS,
   byFirstAppearance,
+  centredChapter,
+  chapterCast,
   cardWidth,
   gapRoom,
   gapWords,
@@ -301,5 +304,33 @@ describe('the rest', () => {
     expect(wordsLabel(0)).toBe('No words yet')
     expect(wordsLabel(1)).toBe('1 word')
     expect(wordsLabel(1204)).toBe('1,204 words')
+  })
+})
+
+describe('the chapter in view', () => {
+  const pts = [
+    point('0', { chapterId: 'c1', povId: 'mara', presentIds: ['mara', 'tobin'] }),
+    point('1', { chapterId: 'c1', presentIds: ['kell', 'tobin'] }),
+    point('2', { kind: 'event', chapterId: null, presentIds: ['ann'] }),
+    point('3', { chapterId: 'c2', povId: 'tobin', presentIds: ['tobin', 'kell'] }),
+    point('4', { chapterId: 'c2', povId: 'kell', presentIds: ['kell'] }),
+    point('5', { chapterId: 'c2', povId: 'kell', presentIds: ['kell', 'mara'] })
+  ]
+  const items = pts.map((_, i) => ({ i, x: i * 100, w: 80 }))
+
+  it('casts a chapter: its point-of-view characters first (most scenes first), then the rest by how often they are there', () => {
+    expect(chapterCast(pts, 'c1')).toEqual(['mara', 'tobin', 'kell'])
+    expect(chapterCast(pts, 'c2')).toEqual(['kell', 'tobin', 'mara'])
+    expect(chapterCast(pts, null)).toEqual([])
+    // The whole story at once.
+    expect(chapterCast(pts, ALL_CHAPTERS)).toEqual(['kell', 'tobin', 'mara'])
+  })
+
+  it('finds the chapter of the card in the middle of the screen, an event taking its neighbour’s', () => {
+    expect(centredChapter(pts, items, 40)).toBe('c1')
+    expect(centredChapter(pts, items, 240)).toBe('c1')
+    expect(centredChapter(pts, items, 350)).toBe('c2')
+    expect(centredChapter(pts, items, 9999)).toBe('c2')
+    expect(centredChapter(pts, [], 0)).toBeNull()
   })
 })

@@ -14,8 +14,8 @@ import { Segmented } from '@/features/generate/parts'
 import { useEntryMotifs } from '@/features/world/art/artStore'
 import { openSceneTab } from '@/layout/areaLinks'
 import { useLanes } from './laneStore'
-import { shownLanes, type LaneMode } from './timelineLogic'
-import { byFirstAppearance, toldOrder, type Zoom } from './riverLogic'
+import { laneChoices, shownLanes, type LaneMode } from './timelineLogic'
+import { byFirstAppearance, chapterCast, toldOrder, type Zoom } from './riverLogic'
 import { RiverArt } from './RiverArt'
 import { RiverBody, type RiverActions } from './RiverBody'
 import { ClashList, FilterPicker, LanePicker } from './RiverControls'
@@ -73,13 +73,27 @@ export function TimelineRiver(): React.JSX.Element {
   const [jump, setJump] = useState(0)
   const [clash, setClash] = useState<{ c: number; rev: number } | null>(null)
   const dated = !!data?.points.some((p) => p.dated)
-  // Which lanes: Adam's pick, or the busiest dozen; in the order each first comes along the river, so the lanes step down
-  // from the top left as the story goes on.
-  const lanes = useMemo(
-    () => (data ? byFirstAppearance(data, shownLanes(data, mode, chosen, RIVER_LANES), mode, zoom) : []),
-    [data, mode, chosen, zoom]
+  // Which lanes: Adam's pick (in the order each first comes along the river, so they step down from the top left), or
+  // until he picks, the main cast of the chapter in the middle of the screen, changing as he scrolls to another chapter.
+  // Plot threads, until picked: the busiest dozen.
+  const [inView, setInView] = useState<ID | null>(null)
+  const lanes = useMemo(() => {
+    if (!data) return []
+    if (!chosen && mode === 'characters') {
+      const byId = new Map(data.entries.map((e) => [e.id, e]))
+      const cast = chapterCast(data.points, inView ?? data.points.find((p) => p.chapterId)?.chapterId ?? null)
+        .slice(0, RIVER_LANES)
+        .flatMap((id) => (byId.get(id) ? [byId.get(id)!] : []))
+      if (cast.length) return cast
+    }
+    return byFirstAppearance(data, shownLanes(data, mode, chosen, RIVER_LANES), mode, zoom)
+  }, [data, mode, chosen, zoom, inView])
+  const following = !chosen && mode === 'characters'
+  // Each lane keeps its ink however the lanes change: by its place among everyone on the timeline.
+  const inks = useMemo(
+    () => new Map((data ? laneChoices(data, mode) : []).map((c, k) => [c.entry.id, `var(--tl-ink-${k % 8})`])),
+    [data, mode]
   )
-  const inks = useMemo(() => new Map(lanes.map((l, k) => [l.id, `var(--tl-ink-${k % 8})`])), [lanes])
   const hereOn = !!data && !!here && data.points.some((p) => p.id === here)
   const onChoose = useCallback((ids: ID[] | null) => choose(worldKey(mode), ids), [choose, mode])
 
@@ -105,7 +119,15 @@ export function TimelineRiver(): React.JSX.Element {
                 ]}
               />
               <ClashList timeline={data} onShow={(c) => setClash((was) => ({ c, rev: (was?.rev ?? 0) + 1 }))} />
-              <LanePicker timeline={data} mode={mode} shown={lanes.map((l) => l.id)} motifs={motifs} inks={inks} onChoose={onChoose} />
+              <LanePicker
+                timeline={data}
+                mode={mode}
+                shown={lanes.map((l) => l.id)}
+                following={following}
+                motifs={motifs}
+                inks={inks}
+                onChoose={onChoose}
+              />
               <FilterPicker timeline={data} picked={filter} motifs={motifs} onChange={setFilter} />
               <Segmented<Zoom>
                 label="Lay out"
@@ -137,6 +159,8 @@ export function TimelineRiver(): React.JSX.Element {
             mode={mode}
             zoom={zoom}
             lanes={lanes}
+            inks={inks}
+            onChapterInView={following ? setInView : undefined}
             filter={filter}
             here={here}
             motifs={motifs}

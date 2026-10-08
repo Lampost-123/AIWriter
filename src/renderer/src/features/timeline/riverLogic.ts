@@ -438,3 +438,47 @@ export function byFirstAppearance<T extends { id: ID }>(t: Timeline, lanes: T[],
     .sort((a, b) => a.at - b.at || a.k - b.k)
     .map((x) => x.l)
 }
+
+/** Every chapter at once: the whole river is on screen, so the lanes show the whole story's main cast. */
+export const ALL_CHAPTERS = '*'
+
+/**
+ * The main cast of a chapter (or of every chapter, ALL_CHAPTERS), for the lanes before Adam picks his own: the characters in its scenes, those it is told
+ * through first (by how many of its scenes), then by how many of its scenes they are in, then by who comes first.
+ */
+export function chapterCast(points: TimelinePoint[], chapterId: ID | null): ID[] {
+  if (!chapterId) return []
+  const seen = new Map<ID, { pov: number; present: number; first: number }>()
+  points.forEach((p, i) => {
+    if (p.kind !== 'scene' || (chapterId !== ALL_CHAPTERS && p.chapterId !== chapterId)) return
+    const ids = new Set([...(p.povId ? [p.povId] : []), ...p.presentIds])
+    for (const id of ids) {
+      const s = seen.get(id) ?? { pov: 0, present: 0, first: i }
+      if (p.povId === id) s.pov++
+      s.present++
+      seen.set(id, s)
+    }
+  })
+  return [...seen.entries()]
+    .sort(([, a], [, b]) => (b.pov > 0 ? 1 : 0) - (a.pov > 0 ? 1 : 0) || b.pov - a.pov || b.present - a.present || a.first - b.first)
+    .map(([id]) => id)
+}
+
+/** The chapter of the card at the middle of the stretch on screen (an event takes the nearest scene's); null for none. */
+export function centredChapter(points: TimelinePoint[], items: RiverItem[], centre: number): ID | null {
+  if (!items.length) return null
+  let lo = 0
+  let hi = items.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (items[mid].x + items[mid].w < centre) lo = mid + 1
+    else hi = mid
+  }
+  for (let d = 0; d < items.length; d++) {
+    for (const n of [lo - d, lo + d]) {
+      const p = points[items[n]?.i]
+      if (p?.chapterId) return p.chapterId
+    }
+  }
+  return null
+}

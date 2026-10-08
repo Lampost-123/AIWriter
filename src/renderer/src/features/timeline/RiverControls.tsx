@@ -48,6 +48,7 @@ export function LanePicker({
   timeline,
   mode,
   shown,
+  following = false,
   motifs,
   inks,
   onChoose
@@ -55,6 +56,8 @@ export function LanePicker({
   timeline: Timeline
   mode: LaneMode
   shown: ID[]
+  /** The lanes follow the chapter in view (Adam hasn't picked his own). */
+  following?: boolean
   motifs: Map<ID, string>
   inks: Map<ID, string>
   onChoose: (ids: ID[] | null) => void
@@ -81,7 +84,11 @@ export function LanePicker({
       <PopoverPanel align="end" className="tl-pop w-[340px] p-0">
         <div className="tl-pop-head">
           <p className="tl-pop-title">A lane for each of these {noun}</p>
-          <p className="tl-pop-sub">Busiest first. Each lane shows where they are along the river.</p>
+          <p className="tl-pop-sub">
+            {following
+              ? 'Showing the main cast of the chapter in view, changing as you scroll. Pick your own to keep them.'
+              : 'Busiest first. Each lane shows where they are along the river.'}
+          </p>
           {choices.length > 8 ? (
             <div className="relative mt-2">
               <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" aria-hidden />
@@ -111,7 +118,7 @@ export function LanePicker({
         </div>
         <div className="tl-pop-foot">
           <Button variant="ghost" size="sm" onClick={() => onChoose(null)}>
-            Show the busiest
+            {mode === 'characters' ? 'Follow the chapter' : 'Show the busiest'}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => onChoose(choices.map((c) => c.entry.id))}>
             Show all

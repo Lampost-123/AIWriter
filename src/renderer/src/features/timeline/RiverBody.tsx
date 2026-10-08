@@ -11,7 +11,9 @@ import { cn } from '@/lib/cn'
 import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 import { rowLabel, type LaneMode } from './timelineLogic'
 import {
+  ALL_CHAPTERS,
   cardWidth,
+  centredChapter,
   lanePath,
   laneHeight,
   layoutRiver,
@@ -73,6 +75,8 @@ export function RiverBody({
   mode,
   zoom,
   lanes,
+  inks,
+  onChapterInView,
   filter,
   here,
   motifs,
@@ -84,6 +88,10 @@ export function RiverBody({
   mode: LaneMode
   zoom: Zoom
   lanes: TimelineEntry[]
+  /** Each lane's ink, by entry id (kept as the lanes change). */
+  inks: Map<ID, string>
+  /** Told the chapter in the middle of the screen as it changes (the lanes follow its cast until Adam picks his own). */
+  onChapterInView?: (chapterId: ID | null) => void
   filter: ReadonlySet<ID>
   here: ID | null
   motifs: Map<ID, string>
@@ -125,7 +133,15 @@ export function RiverBody({
   const chapters = useMemo(() => new Map(timeline.chapters.map((c) => [c.id, c])), [timeline])
   const many = useMemo(() => new Set(timeline.chapters.map((c) => c.storyId)).size > 1, [timeline])
   const laneIds = useMemo(() => lanes.map((l) => l.id), [lanes])
-  const inks = useMemo(() => new Map(lanes.map((l, k) => [l.id, `var(--tl-ink-${k % 8})`])), [lanes])
+  // Lanes that join as the lanes change (a new chapter's cast) fade in; the rest glide to their new places.
+  const lastLanes = useRef<Set<ID> | null>(null)
+  const entering = useMemo(() => {
+    const was = lastLanes.current
+    return was ? new Set(laneIds.filter((id) => !was.has(id))) : new Set<ID>()
+  }, [laneIds])
+  useEffect(() => {
+    lastLanes.current = new Set(laneIds)
+  }, [laneIds])
   const paths = useMemo(() => laneIds.map((id) => lanePath(points, items, id, mode)), [points, items, laneIds, mode])
   const out = useMemo(() => new Set(items.flatMap((it, n) => (matchesFilter(points[it.i], filter) ? [] : [n]))), [items, points, filter])
   const laneH = laneHeight(viewH - headH, lanes.length, 56, 196)
@@ -157,12 +173,24 @@ export function RiverBody({
   // ----- Scrolling: what's on screen, in steps of CHUNK -----
   const [view, setView] = useState({ left: 0, top: 0 })
   const frame = useRef(0)
+  const lastChapter = useRef<ID | null | undefined>(undefined)
+  const tellChapter = useCallback(() => {
+    const el = scroller.current
+    if (!el || !onChapterInView) return
+    // The whole river on screen: every chapter's cast; otherwise the chapter at the middle of the screen.
+    const ch = layout.width <= riverView + 1 ? ALL_CHAPTERS : centredChapter(points, items, el.scrollLeft + riverView / 2)
+    if (ch === lastChapter.current) return
+    lastChapter.current = ch
+    onChapterInView(ch)
+  }, [onChapterInView, points, items, riverView, layout.width])
+  useEffect(() => tellChapter(), [tellChapter])
   const onScroll = (): void => {
     if (frame.current) return
     frame.current = requestAnimationFrame(() => {
       frame.current = 0
       const el = scroller.current
       if (!el) return
+      tellChapter()
       const left = Math.floor(el.scrollLeft / CHUNK) * CHUNK
       const top = Math.floor(el.scrollTop / CHUNK) * CHUNK
       setView((v) => (v.left === left && v.top === top ? v : { left, top }))
@@ -238,6 +266,13 @@ export function RiverBody({
       setPicked((was) => (was === p.id ? null : p.id))
     },
     [points, items]
+  )
+  const openN = useCallback(
+    (n: number) => {
+      const p = points[items[n]?.i]
+      if (p) actions.openPoint(p)
+    },
+    [points, items, actions]
   )
   const onKey = useCallback(
     (e: React.KeyboardEvent, n: number) => {
@@ -478,6 +513,7 @@ export function RiverBody({
                     tabbable={n === act}
                     arriving={arriving}
                     onPick={pick}
+                    onOpen={openN}
                     onKey={onKey}
                   />
                 ))}
@@ -536,7 +572,7 @@ export function RiverBody({
                   key={lane.id}
                   role="listitem"
                   data-lane-row={lane.id}
-                  className={cn('tl-lane-row', k % 2 === 1 && 'is-alt')}
+                  className={cn('tl-lane-row', k % 2 === 1 && 'is-alt', entering.has(lane.id) && 'is-entering')}
                   style={{ top: headH + k * laneH, height: laneH, width: canvasW, '--ink': inks.get(lane.id) } as CSSProperties}
                 >
                   <LaneHead

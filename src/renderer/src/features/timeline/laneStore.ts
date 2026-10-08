@@ -33,7 +33,10 @@ function write(saved: Saved): void {
   try {
     // Keep the list from growing forever as worlds come and go.
     const keys = Object.keys(saved.chosen).slice(-100)
-    localStorage.setItem(KEY, JSON.stringify({ mode: saved.mode, zoom: saved.zoom, chosen: Object.fromEntries(keys.map((k) => [k, saved.chosen[k]])) }))
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ mode: saved.mode, zoom: saved.zoom, chosen: Object.fromEntries(keys.map((k) => [k, saved.chosen[k]])) })
+    )
   } catch {
     // Not remembered this time; nothing else to do.
   }

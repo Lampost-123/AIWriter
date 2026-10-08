@@ -73,10 +73,11 @@ test('the river: scene cards along the days, the gap between them in words, a la
   expect(xs[1] - xs[0]).toBeLessThan(xs[2] - xs[1])
   expect(xs[2] - xs[1]).toBeLessThan(xs[3] - xs[2])
 
-  // A lane for each character, under their whole name (never cut short), and "Lanes 4 of 4".
+  // A lane for each character, under their whole name (never cut short), and "Lanes 4 of 4". The whole river is on
+  // screen, so the lanes are the story's main cast: whose eyes it's told through first, then who's there most.
   await expect(lanes(win).getByRole('listitem')).toHaveCount(4)
   const names = river(win).locator('.tl-lh-name')
-  await expect(names).toHaveText(['Wren Halloway', 'Edric Halloway', 'Iska Vey', 'Ansel Crane'])
+  await expect(names).toHaveText(['Wren Halloway', 'Iska Vey', 'Edric Halloway', 'Ansel Crane'])
   for (const n of await names.all()) expect(await n.evaluate((e) => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(0)
   await expect(river(win).getByRole('button', { name: /^Lanes/ })).toContainText('4 of 4')
   // Wren tells every scene: four point-of-view marks; Edric is in two, apart: two runs and a thin line between.
@@ -282,7 +283,69 @@ test('the panels show the river too', async ({ launch }) => {
   await win.keyboard.press('Enter')
   await expect(river(win)).toBeVisible()
   await expect(cards(win).getByRole('listitem')).toHaveCount(4)
-  await expect(river(win).locator('.tl-lh-name')).toHaveText(['Wren Halloway', 'Edric Halloway', 'Iska Vey', 'Ansel Crane'])
+  // The window is narrower than the river: the cast of the chapter in view, Chapter One.
+  await expect(river(win).locator('.tl-lh-name')).toHaveText(['Wren Halloway', 'Edric Halloway', 'Ansel Crane', 'Iska Vey'])
+})
+
+test('Classic shows the river too, in its own look: lanes, the side card, and a double-click into the scene', async ({ launch }) => {
+  const { win } = await sampleWorld(launch, { AIWRITE_KEEPER_QUIET_MS: '600000' })
+  await expect(win.locator('html')).toHaveAttribute('data-look', 'classic')
+  await win.getByRole('complementary', { name: 'Binder' }).getByRole('button', { name: 'Timeline', exact: true }).click()
+  await expect(river(win)).toBeVisible()
+  await expect(cards(win).getByRole('listitem')).toHaveCount(4)
+  await expect(river(win).locator('.tl-lh-name')).toHaveText(['Wren Halloway', 'Edric Halloway', 'Ansel Crane', 'Iska Vey'])
+  // Classic's own type (not the New look's serif) and lane inks of its own, not all one grey.
+  const font = await river(win)
+    .locator('.tl-h1')
+    .evaluate((e) => e.ownerDocument.defaultView!.getComputedStyle(e).fontFamily)
+  expect(font).not.toContain('Literata')
+  const inks = await river(win)
+    .locator('.tl-run')
+    .evaluateAll((els) => [...new Set(els.map((e) => e.ownerDocument.defaultView!.getComputedStyle(e).stroke))])
+  expect(inks.length).toBeGreaterThanOrEqual(3)
+  await card(win, 'Low Tide').click()
+  await expect(side(win).getByRole('heading', { level: 2 })).toHaveText('Low Tide')
+  await card(win, 'What the Letter Said').dblclick()
+  await expect(win.getByRole('complementary', { name: 'Binder' }).getByRole('treeitem', { name: 'What the Letter Said' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+})
+
+test('until Adam picks, the lanes are the main cast of the chapter in view, following him chapter by chapter; his pick then stays', async ({
+  launch
+}) => {
+  const { app, win } = await sampleWorld(launch)
+  // Narrow enough that the river scrolls, so one chapter at a time is in the middle.
+  await size(app, win, 1200, 800)
+  await openTimeline(win)
+  const scroller = river(win).locator('.tl-scroller')
+  await scroller.evaluate((e) => (e.scrollLeft = 0))
+  // Chapter One: Wren tells it; Edric is in its first scene, Ansel and Iska in its second.
+  await expect(river(win).locator('.tl-lh-name')).toHaveText(['Wren Halloway', 'Edric Halloway', 'Ansel Crane', 'Iska Vey'])
+  // Chapter Two: Wren, then Iska (in both its scenes), then Edric; Ansel's lane goes.
+  await scroller.evaluate((e) => (e.scrollLeft = e.scrollWidth))
+  await expect(river(win).locator('.tl-lh-name')).toHaveText(['Wren Halloway', 'Iska Vey', 'Edric Halloway'])
+  await expect(river(win).getByRole('button', { name: /^Lanes/ })).toContainText('3 of 4')
+  // Picking his own: they stay, wherever he scrolls.
+  await river(win)
+    .getByRole('button', { name: /^Lanes/ })
+    .click()
+  await win.getByRole('group', { name: 'Lanes' }).getByText('Ansel Crane').click()
+  await win.keyboard.press('Escape')
+  await scroller.evaluate((e) => (e.scrollLeft = 0))
+  await win.waitForTimeout(300)
+  await expect(river(win).locator('.tl-lh-name')).toHaveCount(4)
+  await scroller.evaluate((e) => (e.scrollLeft = e.scrollWidth))
+  await win.waitForTimeout(300)
+  await expect(river(win).locator('.tl-lh-name')).toHaveCount(4)
+  // Follow the chapter again.
+  await river(win)
+    .getByRole('button', { name: /^Lanes/ })
+    .click()
+  await win.getByRole('button', { name: 'Follow the chapter' }).click()
+  await win.keyboard.press('Escape')
+  await expect(river(win).locator('.tl-lh-name')).toHaveText(['Wren Halloway', 'Iska Vey', 'Edric Halloway'])
 })
 
 /** 40 chapters of 5 scenes, 60 characters, 12 places and 8 plot threads, all invented, added to the sample world's story. */
@@ -349,7 +412,8 @@ test('a big world (200 scenes, 40 chapters, 60 characters) draws only what is on
   await expect(win.locator('.scene-prose')).toBeVisible()
   await size(app, win, 1600, 1000)
   await openTimeline(win)
-  await expect(river(win).getByRole('button', { name: /^Lanes/ })).toContainText('12 of 64')
+  // Until he picks, the cast of the chapter in view: a few of the 64.
+  await expect(river(win).getByRole('button', { name: /^Lanes/ })).toContainText(/\d+ of 64/)
   // Show every lane: the river still draws only the cards and lanes on screen.
   await river(win)
     .getByRole('button', { name: /^Lanes/ })

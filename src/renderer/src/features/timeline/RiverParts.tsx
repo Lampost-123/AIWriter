@@ -53,6 +53,7 @@ export const RiverCard = memo(function RiverCard({
   tabbable,
   arriving,
   onPick,
+  onOpen,
   onKey
 }: {
   item: RiverItem
@@ -67,6 +68,8 @@ export const RiverCard = memo(function RiverCard({
   tabbable: boolean
   arriving: boolean
   onPick: (n: number) => void
+  /** A double-click: straight into the scene (or the event's page). */
+  onOpen: (n: number) => void
   onKey: (e: React.KeyboardEvent, n: number) => void
 }): React.JSX.Element {
   const p = data.point
@@ -82,6 +85,7 @@ export const RiverCard = memo(function RiverCard({
           aria-pressed={picked}
           tabIndex={tabbable ? 0 : -1}
           onClick={() => onPick(n)}
+          onDoubleClick={() => onOpen(n)}
           onKeyDown={(e) => onKey(e, n)}
           className={cn('tl-event', picked && 'is-picked', out && 'is-out')}
         >
@@ -108,6 +112,7 @@ export const RiverCard = memo(function RiverCard({
         aria-current={here ? 'location' : undefined}
         tabIndex={tabbable ? 0 : -1}
         onClick={() => onPick(n)}
+        onDoubleClick={() => onOpen(n)}
         onKeyDown={(e) => onKey(e, n)}
         className={cn('tl-card', here && 'is-here', picked && 'is-picked', out && 'is-out', data.told && `is-${data.told}`)}
       >
