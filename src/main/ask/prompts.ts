@@ -148,6 +148,23 @@ export const ACT_FIRST_LINE: Pick<Record<AskIntent, string>, 'edit' | 'unsure'> 
 }
 
 /**
+ * The answer's shape, said again at the end (Phase 3): with the open scene's words in the briefing (SCENE) the format
+ * rules sat ~7,600 characters from the end, and DeepSeek's leads grew ("lead within 25 words" 74% → 68%) while edit
+ * answers dropped their blocks (50% → 35%). Line 1 in under 25 words; the rest in blocks.
+ */
+export const SHAPE_RULE = 'Line 1 answers in under 25 words ("2 changes ready: both typos fixed.", "Yes.", or the result); anything more goes in blocks after it.'
+
+/**
+ * What a proposal's tool result asks of the answer: with the answer format, the short first line and blocks (the result
+ * is the last thing the model reads before it answers); without it, as before.
+ */
+export function proposedTail(): string {
+  return chatExp('FORMAT')
+    ? 'Answer the writer: line 1, under 25 words, says what you proposed ("1 change ready: …"); the card shows the change, so don\'t write it out. Anything more goes in a block after it (::more for why, ::next for up to 3 follow-ups).'
+    : 'Tell them briefly what you proposed and why.'
+}
+
+/**
  * The contract's three-line reminder, at the very end of the system message (just before the conversation), so the
  * rules sit next to the question however long the briefing is. With the routed intent stated, when there is one. With
  * the answer format on, its second line and the ideas and question lines name the blocks.
@@ -160,7 +177,7 @@ export function contractReminder(intent?: AskIntent | null): string {
     'Reminder:',
     '- An edit is proposed at once as your best single version (the writer can decline it); ideas stay in words until the writer picks; facts lead with the verdict.',
     format
-      ? `- The first line answers; ${actFirst ? 'ideas (only ideas) go in ::options' : 'ideas go in ::options'}, facts in ::facts, each block closed by "::". No preambles, no changes written out in words, and never say a change has been made.`
+      ? `- ${SHAPE_RULE} ${actFirst ? 'Ideas (only ideas) go in ::options' : 'Ideas go in ::options'}, facts in ::facts, why in ::more, up to 3 follow-ups in ::next, each block closed by "::". No preambles, no changes written out in words, and never say a change has been made.`
       : '- The first line answers. No preambles, no changes written out in words, and never say a change has been made.',
     `- ${intent ? lines[intent] : 'Ask one short question only when you truly cannot tell what is meant; otherwise act.'}`
   ].join('\n')

@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { defaultStyleGuide } from '@shared/defaults'
 import { parseAnswer } from '@shared/answerBlocks'
-import { ACT_FIRST_LINE, askInstructions, askMessages, contractReminder, FORMAT_RULES, formatRules, READ_BEFORE_ASKING } from './prompts'
+import { ACT_FIRST_LINE, askInstructions, askMessages, contractReminder, FORMAT_RULES, formatRules, proposedTail, READ_BEFORE_ASKING, SHAPE_RULE } from './prompts'
 
 const style = defaultStyleGuide()
 /** The default: on. */
@@ -55,6 +55,30 @@ describe('the answer format switch (FORMAT)', () => {
     expect(contractReminder('answer')).toMatch(/then ::facts with \[\[Name\]\] and where/)
     expect(contractReminder(null)).toMatch(/each block closed by "::"/)
     expect(contractReminder('edit').split('\n').slice(1)).toHaveLength(3)
+  })
+
+  it('on: the reminder says the shape again at the end: line 1 under 25 words, the rest in blocks (Phase 3)', () => {
+    for (const intent of ['edit', 'answer', 'brainstorm', 'unsure', null] as const) {
+      const lines = contractReminder(intent).split('\n')
+      expect(lines[2]).toContain(SHAPE_RULE)
+      expect(lines[2]).toMatch(/why in ::more, up to 3 follow-ups in ::next, each block closed by "::"/)
+    }
+    expect(SHAPE_RULE).toMatch(/^Line 1 answers in under 25 words/)
+    expect(SHAPE_RULE).toMatch(/anything more goes in blocks after it/)
+    // The example line 1 is itself short.
+    expect(/"([^"]+)"/.exec(SHAPE_RULE)?.[1].split(' ').length).toBeLessThan(25)
+    // The reminder is the end of the system message, so the shape sits beside the question however long the page is.
+    const [system] = askMessages('BRIEFING\n\n## The open scene’s words\n[1] Long words.', [], 'Tighten this', 'edit')
+    expect(system.content.slice(system.content.lastIndexOf('Reminder:'))).toContain(SHAPE_RULE)
+  })
+
+  it('on: a proposal’s tool result asks for a short line 1 and blocks; off, as before', () => {
+    expect(proposedTail()).toMatch(/^Answer the writer: line 1, under 25 words, says what you proposed/)
+    expect(proposedTail()).toMatch(/don't write it out/)
+    expect(proposedTail()).toMatch(/::more for why, ::next for up to 3 follow-ups/)
+    process.env.AIWRITE_EXP_CHAT_FORMAT = 'off'
+    expect(proposedTail()).toBe('Tell them briefly what you proposed and why.')
+    expect(contractReminder('edit')).not.toContain(SHAPE_RULE)
   })
 
   it('off: today’s plain-text rules exactly', () => {
@@ -130,7 +154,7 @@ describe('ACTFIRST: an edit reads, then proposes; ::options only for ideas, ::ne
     expect(contractReminder('edit')).not.toMatch(/Only if you can't tell which passage/)
     expect(contractReminder('edit')).toMatch(/ask only if, after reading, two readings would give clearly different changes/)
     expect(contractReminder('unsure')).toMatch(/with ask_user when you have it, never in ::next/)
-    expect(contractReminder('edit')).toMatch(/ideas \(only ideas\) go in ::options/)
+    expect(contractReminder('edit')).toMatch(/Ideas \(only ideas\) go in ::options/)
     expect(contractReminder('brainstorm')).toMatch(/in an ::options block/)
     expect(contractReminder('edit').split('\n').slice(1)).toHaveLength(3)
   })
@@ -141,6 +165,6 @@ describe('ACTFIRST: an edit reads, then proposes; ::options only for ideas, ::ne
     expect(text).toMatch(/Ask one short question only when you can't tell which passage is meant/)
     expect(text).not.toContain(READ_BEFORE_ASKING)
     expect(contractReminder('edit')).toMatch(/Only if you can't tell which passage is meant, ask one question \(as an item of kind ask/)
-    expect(contractReminder('edit')).toMatch(/ideas go in ::options/)
+    expect(contractReminder('edit')).toMatch(/Ideas go in ::options/)
   })
 })

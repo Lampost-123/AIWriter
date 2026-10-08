@@ -29,6 +29,7 @@ import { loadMemoryData, loadShape } from '../memory/scene'
 import type { WorldShape } from '../memory/types'
 import { askedFrom, askPoint, NOT_YET, type AskPoint } from './context'
 import { chatExp } from './exp'
+import { proposedTail } from './prompts'
 import {
   SCENE_CARD_WITH_NAMES,
   STORY_CHANGE_KINDS,
@@ -1102,7 +1103,7 @@ export class EditorAgent {
     const proposal = { ...p, id: String(this.proposals.length + 1), status: 'pending', why } as Proposal
     this.proposals.push(proposal)
     this.onProposals([...this.proposals])
-    return `Proposed to the writer as change ${proposal.id}. Nothing has changed yet: it happens only if they apply it. Tell them briefly what you proposed and why.`
+    return `Proposed to the writer as change ${proposal.id}. Nothing has changed yet: it happens only if they apply it. ${proposedTail()}`
   }
 
   /**
@@ -1717,7 +1718,7 @@ export class EditorAgent {
     const head = proposed
       ? `Proposed to the writer: ${proposed} of ${items.length - asks}. Nothing has changed yet: it happens only if they apply it.${failed ? ' Fix the ones not proposed and call again with only those.' : ''}`
       : 'Not proposed: nothing is waiting for the writer.'
-    const tail = proposed ? '\nTell them briefly what you proposed and why.' : ''
+    const tail = proposed ? `\n${proposedTail()}` : ''
     const label = labels.length === 1 ? labels[0] : labels.length ? `Proposing ${labels.length} changes` : 'A change that didn’t fit'
     return [label, `${head}\n${lines.join('\n')}${tail}`]
   }
