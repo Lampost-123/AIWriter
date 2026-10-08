@@ -18,6 +18,8 @@ export interface FloatingPane {
   onClose: () => void
   /** The accessible name of the button that shows and hides the pane (a click on it isn't "outside"). */
   toggle: string
+  /** Room left above it, in px: on the writing page it opens below the scene's toolbar, so it never covers those controls. */
+  top?: number
 }
 
 /**
@@ -157,7 +159,7 @@ export function ResizablePane({
           floating && (side === 'left' ? 'left-0 border-r border-line' : 'right-0 border-l border-line'),
           floating && (open ? 'animate-fade-in' : 'hidden')
         )}
-        style={{ width: floating ? width : width - BORDER }}
+        style={{ width: floating ? width : width - BORDER, top: floating?.top }}
       >
         {children}
       </div>
