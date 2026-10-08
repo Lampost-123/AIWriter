@@ -145,10 +145,12 @@ function Updates(): React.JSX.Element {
 
   const busy = status?.state === 'checking' || status?.state === 'downloading'
   const isNew = useNewLook()
+  // The New look: the section is the card already, so the status sits straight on it.
+  const Box = isNew ? 'div' : Card
 
   return (
     <SettingsSection title="Updates" className={isNew ? 'ab-updates' : undefined}>
-      <Card className="p-4 look-new:bg-transparent look-new:p-0 look-new:shadow-none">
+      <Box className={isNew ? undefined : 'p-4'}>
         <div className="flex min-h-[40px] items-center gap-3">
           <StatusIcon status={status} />
           <div className="min-w-0 flex-1">
@@ -186,7 +188,7 @@ function Updates(): React.JSX.Element {
             <p className="max-h-40 overflow-auto whitespace-pre-line text-[13px] leading-relaxed text-fg">{status.notes}</p>
           </div>
         ) : null}
-      </Card>
+      </Box>
     </SettingsSection>
   )
 }
@@ -217,7 +219,7 @@ function StatusIcon({ status }: { status: UpdateStatus | null }): React.JSX.Elem
       </div>
     )
   }
-  const base = cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-full', isNew && 'h-9 w-9')
+  const base = cn('flex shrink-0 items-center justify-center rounded-full', isNew ? 'h-9 w-9' : 'h-8 w-8')
   if (!status || status.state === 'checking') {
     return (
       <div className={cn(base, 'bg-surface-2 text-muted')}>

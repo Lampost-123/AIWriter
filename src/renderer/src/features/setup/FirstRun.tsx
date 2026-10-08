@@ -286,8 +286,10 @@ function Choice({
         primary ? 'border-accent/50 hover:border-accent' : 'border-line hover:border-line-strong',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
         // The New look: a raised card that lifts on hover and presses in, a little taller.
-        'look-new:min-h-[150px] look-new:rounded-[16px] look-new:border-transparent look-new:bg-raise look-new:p-5 look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:transition-[box-shadow,translate,scale] look-new:duration-(--dur-quick) look-new:ease-glide look-new:enabled:hover:-translate-y-0.5 look-new:enabled:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line-strong)] look-new:enabled:active:scale-[0.98] look-new:enabled:active:duration-(--dur-press)',
-        primary && 'look-new:shadow-[var(--elev-2),inset_0_0_0_1.5px_var(--accent)] look-new:enabled:hover:shadow-[var(--elev-2),inset_0_0_0_1.5px_var(--accent)]'
+        'look-new:min-h-[150px] look-new:rounded-[16px] look-new:border-transparent look-new:bg-raise look-new:p-5 look-new:transition-[box-shadow,translate,scale] look-new:duration-(--dur-quick) look-new:ease-glide look-new:enabled:hover:-translate-y-0.5 look-new:enabled:active:scale-[0.98] look-new:enabled:active:duration-(--dur-press)',
+        primary
+          ? 'look-new:shadow-[var(--elev-2),inset_0_0_0_1.5px_var(--accent)]'
+          : 'look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:enabled:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line-strong)]'
       )}
     >
       <span

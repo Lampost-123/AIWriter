@@ -120,6 +120,7 @@ function ClassicSettings({ tab }: { tab: SettingsTab }): React.JSX.Element {
 
 /** How wide a page's column may grow in a big window (charts and lists use the room; forms stay readable). */
 const WIDE: Partial<Record<SettingsTab, string>> = {
+  models: 'max-w-[1160px]',
   usage: 'max-w-[1160px]',
   backups: 'max-w-[1160px]',
   trash: 'max-w-[1040px]',

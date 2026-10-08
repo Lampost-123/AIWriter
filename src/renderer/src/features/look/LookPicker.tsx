@@ -3,7 +3,7 @@
 // group: the arrow keys move between them and pick.
 // Under it, in the New look (and only in a build where the desk can be chosen): Layout, the desk or the panels, picked
 // the same way. It waits while a draft or an AI change is being written, so nothing is pulled from under it.
-import { useId, useRef } from 'react'
+import { useId, useLayoutEffect, useRef } from 'react'
 import type { PaintedTheme } from '@shared/api'
 import { arrangementOf, lookOf, type Arrangement, type Look } from '@shared/contracts/look'
 import { cn } from '@/lib/cn'
@@ -52,6 +52,12 @@ export function chooseArrangement(arrangement: Arrangement): void {
   void app.updateSettings({ arrangement, arrangementNote: false })
 }
 
+/**
+ * A choice picked from the keyboard whose page is drawn afresh by it (Settings draws each look its own way): the
+ * radio to give the keyboard back to once it is there again ("Style:new").
+ */
+let refocus: string | null = null
+
 /** A small radio group of pictured choices (Style, Layout): the arrow keys move between them and pick. */
 function PictureChoices<T extends string>({
   label,
@@ -76,11 +82,21 @@ function PictureChoices<T extends string>({
   const refs = useRef<(HTMLButtonElement | null)[]>([])
   const index = choices.findIndex((c) => c.id === value)
 
+  // Drawn afresh after a pick from the keyboard (another look's Settings): the keyboard comes back to the radio picked.
+  useLayoutEffect(() => {
+    if (!refocus) return
+    const at = choices.findIndex((c) => `${label}:${c.id}` === refocus)
+    if (at < 0) return
+    refocus = null
+    if (!document.activeElement || document.activeElement === document.body) refs.current[at]?.focus()
+  })
+
   const onKeyDown = (e: React.KeyboardEvent): void => {
     const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
     if (!step || disabled) return
     e.preventDefault()
     const next = (index + step + choices.length) % choices.length
+    refocus = `${label}:${choices[next].id}`
     onChoose(choices[next].id)
     refs.current[next]?.focus()
   }

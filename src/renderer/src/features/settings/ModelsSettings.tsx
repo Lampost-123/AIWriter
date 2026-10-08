@@ -92,6 +92,8 @@ export function useConnectionTests(): {
 export function ModelsSettings(): React.JSX.Element {
   const { providers, loadError, reload, results, test, clearResult } = useConnectionTests()
   const readAloud = useApp((s) => !!s.settings?.speech?.readAloud)
+  // The New look: in a wide page the services sit side by side, and the other jobs' models two to a row.
+  const isNew = useNewLook()
 
   if (loadError && !providers) {
     return (
@@ -106,9 +108,11 @@ export function ModelsSettings(): React.JSX.Element {
   const custom = providers.filter((p) => p.kind === 'custom')
 
   return (
-    <div className="flex flex-col gap-9 animate-fade-in">
-      <OpenRouterCard provider={openrouter} result={openrouter ? results[openrouter.id] : undefined} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
-      <OtherProviders providers={custom} results={results} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
+    <div className={isNew ? '@container flex flex-col gap-7 animate-fade-in' : 'flex flex-col gap-9 animate-fade-in'}>
+      <div className={isNew ? 'grid items-start gap-7 @[1000px]:grid-cols-2' : 'contents'}>
+        <OpenRouterCard provider={openrouter} result={openrouter ? results[openrouter.id] : undefined} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
+        <OtherProviders providers={custom} results={results} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
+      </div>
       <WriterModel
         providers={providers}
         result={results.writer}
@@ -116,6 +120,7 @@ export function ModelsSettings(): React.JSX.Element {
         onTest={(pid, mid) => void test('writer', pid, mid)}
         onClearResult={() => clearResult('writer')}
       />
+      <div className={isNew ? 'grid items-start gap-7 @[1000px]:grid-cols-2' : 'contents'}>
       <HelperModel
         job="memory"
         providers={providers}
@@ -175,6 +180,7 @@ export function ModelsSettings(): React.JSX.Element {
           onClearResult={() => clearResult('speech')}
         />
       ) : null}
+      </div>
       <DefaultCreativity />
       {/* Before writing and straight after: the plan, then the check of the new words. */}
       <PlanSettings />

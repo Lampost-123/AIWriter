@@ -191,6 +191,8 @@ test('Usage and cost: the day’s bars by model, the split by model and by world
 test('Backups and Recently deleted on the desk: a preview before a restore, and cards brought back', async ({ launch }) => {
   const { win, app } = await sampleWorld(launch)
   await size(app, win, 1440, 900)
+  // The backup made at launch first, so the one made by hand below is the newest.
+  await expect.poll(async () => (await invoke(win, 'listBackups')).length).toBeGreaterThan(0)
   await openPage(win, 'Backups')
   await win.getByRole('button', { name: 'Back up now' }).first().click()
   const rows = win.getByRole('list', { name: 'Backups' }).getByRole('listitem')
