@@ -80,6 +80,8 @@ export class Keeper {
   private current: { sceneId: ID; controller: AbortController; records: Set<ID> } | null = null
   private reading: MemoryStatus['reading'] = null
   private pumping: Promise<void> | null = null
+  /** A big world's first tidy-up (tidy.ts) is going on, a few scenes at a time: nothing is read until it is done. */
+  private tidying: Promise<void> | null = null
   private closed = false
   private noModel: string | null = null
   private waiters: { ids: Set<ID>; resolve: () => void }[] = []
@@ -98,17 +100,44 @@ export class Keeper {
     try {
       kdb.stopUnfinishedRuns(this.db)
       // Once per world (World Memory Overhaul A7): every link checked against the text as it is now, no model asked.
+      // A big world is tidied a few scenes at a time (so opening it doesn't freeze); scenes are read once it is done.
+      let tidy: boolean | Promise<boolean> = false
       try {
-        if (tidyOnce(this.db)) this.deps.emitChanged({ sceneId: null, entryIds: [] })
+        tidy = tidyOnce(this.db, { closed: () => this.closed })
       } catch (e) {
         console.warn('Could not tidy the memory', e)
       }
-      for (const s of repo.listStories(this.db)) this.dirtyStories.add(s.id)
-      for (const id of kdb.scenesToRead(this.db)) this.enqueue(id)
+      if (typeof tidy === 'boolean') {
+        if (tidy) this.deps.emitChanged({ sceneId: null, entryIds: [] })
+        this.queueLeftBehind()
+      } else {
+        this.tidying = tidy
+          .then((changed) => {
+            if (changed && !this.closed) this.deps.emitChanged({ sceneId: null, entryIds: [] })
+          })
+          .catch((e) => console.warn('Could not tidy the memory', e))
+          .finally(() => {
+            this.tidying = null
+            if (this.closed) return
+            try {
+              this.queueLeftBehind()
+            } catch (e) {
+              console.error('The memory keeper could not start', e)
+            }
+            this.kick()
+            this.emitStatus()
+          })
+      }
     } catch (e) {
       console.error('The memory keeper could not start', e)
     }
     this.emitStatus()
+  }
+
+  /** At start: every story's roll-ups are looked at, and scenes left behind are queued. */
+  private queueLeftBehind(): void {
+    for (const s of repo.listStories(this.db)) this.dirtyStories.add(s.id)
+    for (const id of kdb.scenesToRead(this.db)) this.enqueue(id)
   }
 
   /** A save: the scene is read once there has been no save for a while. */
@@ -327,7 +356,7 @@ export class Keeper {
 
   /** Resolves when nothing is queued or running (for tests and for quitting). */
   async whenIdle(): Promise<void> {
-    while (this.pumping) await this.pumping
+    while (this.tidying || this.pumping) await (this.tidying ?? this.pumping)
   }
 
   get isClosed(): boolean {
@@ -377,7 +406,7 @@ export class Keeper {
   }
 
   private kick(): void {
-    if (this.closed || this.pumping) return
+    if (this.closed || this.pumping || this.tidying) return
     // Starts after the caller's own (synchronous) work, so it never runs inside the caller's transaction.
     this.pumping = Promise.resolve()
       .then(() => this.loop())

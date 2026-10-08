@@ -19,7 +19,7 @@ import { READING_MARKER, SUMMARY_MARKER } from './prompts'
 import { sceneSummaryDue, writeSceneSummary, type SummaryOptions } from './summaries'
 import { Keeper } from './engine'
 import { undoItem } from './undo'
-import { tidyMemory } from './tidy'
+import { tidyMemory, tidyOnce, TIDY_BATCH, TIDY_KEY } from './tidy'
 import { gatherContextInput } from '../ai/gather'
 import { mustStayTrue } from '../ai/mustStay'
 
@@ -327,5 +327,58 @@ describe('an earlier scene summary', () => {
     expect(one.excerpt).toBeFalsy()
     // Within the ten, it is marked.
     expect(writerMemory(w.db, w.scenes[3]).storySoFar.scenes.find((x) => x.sceneId === s1)!.updating).toBe(true)
+  })
+})
+
+describe('the tidy-up of a big world', () => {
+  it('goes a few scenes at a time, letting other work in between, and finishes the same', async () => {
+    const w = testWorld(3)
+    for (const s of w.scenes) {
+      saveParas(w.db, s, [
+        ['p1', MARA_RIVER],
+        ['p2', TIDE]
+      ])
+      await readScene(w.db, fake, s)
+    }
+    expect(new Set(mem.listAllChanges(w.db).flatMap((c) => hist.linksForFact(w.db, 'change', c.id).map((l) => l.sceneId))).size).toBe(4)
+    // Older words changed under the memory: every scene's first paragraph deleted.
+    for (const s of w.scenes) saveParas(w.db, s, [['p2', TIDE]], false)
+    w.db.prepare('DELETE FROM meta WHERE key = ?').run(TIDY_KEY)
+    let ticks = 0
+    const ticker = setInterval(() => ticks++, 0)
+    const r = tidyOnce(w.db, { batch: 1 })
+    expect(r).toBeInstanceOf(Promise)
+    expect(await r).toBe(true)
+    clearInterval(ticker)
+    expect(ticks).toBeGreaterThan(0)
+    expect(repo.getMeta(w.db, TIDY_KEY)).toBeTruthy()
+    expect(kdb.listLog(w.db).filter((l) => l.text.startsWith('Memory tidy-up'))).toHaveLength(1)
+    expect(changesOf(w.db, 'Mara')).toEqual([])
+    // A small world is still tidied at once.
+    w.db.prepare('DELETE FROM meta WHERE key = ?').run(TIDY_KEY)
+    expect(typeof tidyOnce(w.db)).toBe('boolean')
+  })
+
+  it('a keeper opening a big world tidies it in the background, then gets on as before', async () => {
+    const w = testWorld(TIDY_BATCH)
+    for (const s of w.scenes) {
+      saveParas(w.db, s, [
+        ['p1', MARA_RIVER],
+        ['p2', TIDE]
+      ])
+      await readScene(w.db, fake, s)
+    }
+    for (const s of w.scenes) saveParas(w.db, s, [['p2', TIDE]], false)
+    w.db.prepare('DELETE FROM meta WHERE key = ?').run(TIDY_KEY)
+    let changed = 0
+    const k = new Keeper({ db: w.db, model: () => ({ error: 'none' }), emitStatus: () => {}, emitChanged: () => changed++, quietMs: 60_000, summaries: false })
+    k.start()
+    // Not done yet: start came back at once.
+    expect(repo.getMeta(w.db, TIDY_KEY)).toBeNull()
+    await k.whenIdle()
+    expect(repo.getMeta(w.db, TIDY_KEY)).toBeTruthy()
+    expect(changed).toBe(1)
+    expect(changesOf(w.db, 'Mara')).toEqual([])
+    k.stop()
   })
 })
