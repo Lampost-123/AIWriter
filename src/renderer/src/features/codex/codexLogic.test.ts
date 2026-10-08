@@ -29,6 +29,7 @@ const card = (c: Partial<CodexCard> & Pick<CodexCard, 'name'>): CodexCard => ({
   scenes: 0,
   importance: 0,
   last: null,
+  first: null,
   storyIds: [],
   ...c
 })
@@ -80,6 +81,15 @@ describe('the codex', () => {
     expect(filterCards(all, { ...NO_FILTERS, query: 'ferry' })).toEqual([mara])
     expect(filterCards(all, { ...NO_FILTERS, query: 'toll' })).toEqual([tobin])
     expect(filterCards(all, { ...NO_FILTERS, query: 'zzz' })).toEqual([])
+  })
+
+  it('sorts by first appearance (the desk’s World room): earliest first, never seen last, ties by name', () => {
+    const at = (order: number) => ({ sceneId: `s${order}`, storyId: 'b1', label: `Book 1, Ch 1, Sc ${order + 1}`, order })
+    const a = card({ name: 'Ada', first: at(3) })
+    const b = card({ name: 'Bryn', first: at(0) })
+    const c = card({ name: 'Cass', first: at(3) })
+    const d = card({ name: 'Dee' })
+    expect(sortCards([d, c, a, b], 'first').map((x) => x.name)).toEqual(['Bryn', 'Ada', 'Cass', 'Dee'])
   })
 
   it('sorts by name, importance or last appearance, ties by name', () => {

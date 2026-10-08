@@ -37,6 +37,9 @@ export function DossierLayer({
   const entry = data.byId.get(id) ?? null
   const others = useMemo(() => (data.entries ?? []).filter((e) => e.id !== id), [data.entries, id])
   const places = useMemo(() => (data.entries ?? []).filter((e) => e.kind === 'place'), [data.entries])
+  // Where it first appears, from its codex card (unknown until the cards have loaded).
+  const card = data.cards?.find((c) => c.id === id)
+  const firstSeen = data.cards ? (card?.first ?? null) : undefined
 
   // The keyboard goes to the dossier's heading as it opens (a new entry's own page then puts it in its name).
   const shown = !!entry
@@ -117,6 +120,7 @@ export function DossierLayer({
           onDeleted={onDeleted}
           onOpen={onOpen}
           titleId={titleId}
+          firstSeen={firstSeen}
         />
       </div>
     </div>

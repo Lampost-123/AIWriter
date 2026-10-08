@@ -53,6 +53,7 @@ export interface GallerySection {
 }
 
 const SORT_HINT: Record<CodexSort, string> = {
+  first: 'in order of first appearance',
   name: 'by name',
   importance: 'most important first',
   last: 'latest in the story first'

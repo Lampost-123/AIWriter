@@ -22,7 +22,7 @@ import {
 import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import type { Appearance } from '@shared/contracts/entryViews'
-import type { Entry, EntryKind } from '@shared/types'
+import type { Entry, EntryKind, ID } from '@shared/types'
 import { Field, Input, Select } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -35,7 +35,7 @@ import { EntryVoice } from '@/features/readAloud/EntryVoice'
 import { Portrait } from '@/features/views/Portrait'
 import { PortraitDrop } from '@/features/views/PortraitDrop'
 import { useEntryAsOf } from '@/features/views/useAsOf'
-import { artHue } from '@/features/desk/world/galleryLogic'
+import { artHue, shortPlace } from '@/features/desk/world/galleryLogic'
 import { setAsOfMode, useAsOfMode } from '../asOfMode'
 import { EntryAsOfView } from '../AsOfView'
 import { DuplicateHint, FieldInput, ReachNote } from '../EntryForm'
@@ -77,6 +77,8 @@ export interface DossierProps {
   onOpen: (e: Pick<Entry, 'id' | 'kind'>) => void
   /** The heading's id, for the dialog around it. */
   titleId: string
+  /** Where it first appears in the story (the codex card's earliest scene), or null when in no scene yet; undefined when not known. */
+  firstSeen?: { sceneId: ID; storyId: ID; label: string } | null
 }
 
 /**
@@ -194,7 +196,17 @@ function openScene(a: Pick<Appearance, 'sceneId' | 'storyId' | 'quote'>): void {
   useApp.getState().selectScene(a.sceneId, a.storyId)
 }
 
-export function Dossier({ entry, others, places, back, onLiveChange, onDeleted, onOpen, titleId }: DossierProps): React.JSX.Element {
+export function Dossier({
+  entry,
+  others,
+  places,
+  back,
+  onLiveChange,
+  onDeleted,
+  onOpen,
+  titleId,
+  firstSeen
+}: DossierProps): React.JSX.Element {
   const kind = entry.kind
   const groupsAll = FIELD_GROUPS[kind] ?? []
   const noteKeys = useMemo(
@@ -735,6 +747,24 @@ export function Dossier({ entry, others, places, back, onLiveChange, onDeleted, 
             </div>
           ))
         )}
+        {firstSeen !== undefined ? (
+          // The first scene it is in, by story order (it opens there); where it first exists in the world is beside it.
+          <div className="dz-fact">
+            <span className="dz-caps">First seen</span>
+            {firstSeen ? (
+              <button
+                type="button"
+                className="dz-fact-v dz-fact-link"
+                title={`Open ${firstSeen.label}`}
+                onClick={() => openScene({ sceneId: firstSeen.sceneId, storyId: firstSeen.storyId, quote: '' })}
+              >
+                {shortPlace(firstSeen.label)}
+              </button>
+            ) : (
+              <span className="dz-fact-v is-empty">Not in a scene yet</span>
+            )}
+          </div>
+        ) : null}
         <div className="dz-fact is-first">
           <FirstAppears name={draft.name} kind={kind} points={firsts} className="dz-first" />
         </div>

@@ -313,6 +313,19 @@
   font-weight: 400;
   color: var(--faint);
 }
+[data-arrangement='desk'] .dz-fact-link {
+  border-radius: 4px;
+  text-align: left;
+  text-decoration: underline dotted color-mix(in oklab, var(--fg) 35%, transparent);
+  text-underline-offset: 4px;
+}
+[data-arrangement='desk'] .dz-fact-link:hover {
+  color: var(--accent);
+}
+[data-arrangement='desk'] .dz-fact-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 [data-arrangement='desk'] .dz-first {
   max-width: 100%;
 }

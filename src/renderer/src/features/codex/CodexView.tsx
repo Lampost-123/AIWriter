@@ -61,7 +61,8 @@ const quickStart = (): void =>
 export function CodexView(): React.JSX.Element {
   const { cards, error, retry } = useCodexCards()
   const filters = useCodex((s) => s.filters)
-  const sort = useCodex((s) => s.sort)
+  // (The desk's World room can also order by first appearance; the codex keeps its three, by name for that one.)
+  const sort = useCodex((s) => (s.sort === 'first' ? 'name' : s.sort))
   const setFilters = useCodex((s) => s.setFilters)
   const setSort = useCodex((s) => s.setSort)
   const stories = useApp((s) => s.stories)

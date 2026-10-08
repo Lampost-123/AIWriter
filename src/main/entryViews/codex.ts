@@ -1,5 +1,5 @@
 // The codex's cards (milestone 3): every entry with its portrait address, one-liner and tags, how
-// important it is and where it last appears (from where it appears), and the stories it belongs to.
+// important it is and where it first and last appears (from where it appears), and the stories it belongs to.
 // No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -53,6 +53,7 @@ export function codexCards(db: DB): CodexCard[] {
     const where = w.byEntry.get(e.id)
     let importance = 0
     let last: CodexCard['last'] = null
+    let firstSeen: CodexCard['first'] = null
     const stories = new Set(homes.get(e.id) ?? [])
     for (const [sceneId, how] of where ?? []) {
       const s = w.sceneById.get(sceneId)
@@ -60,6 +61,7 @@ export function codexCards(db: DB): CodexCard[] {
       importance += sceneWeight(how)
       stories.add(s.storyId)
       if (!last || s.order > last.order) last = { sceneId, storyId: s.storyId, label: s.label, order: s.order }
+      if (!firstSeen || s.order < firstSeen.order) firstSeen = { sceneId, storyId: s.storyId, label: s.label, order: s.order }
     }
     return {
       id: e.id,
@@ -74,6 +76,7 @@ export function codexCards(db: DB): CodexCard[] {
       scenes: where?.size ?? 0,
       importance,
       last,
+      first: firstSeen,
       storyIds: [...stories]
     }
   })

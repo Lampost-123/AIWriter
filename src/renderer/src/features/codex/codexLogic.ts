@@ -15,13 +15,16 @@ export const CODEX_KINDS: EntryKind[] = ENTRY_KINDS.filter((k) => k !== 'thread'
  */
 export const GALLERY_KINDS: EntryKind[] = [...CODEX_KINDS, 'thread']
 
-export type CodexSort = 'name' | 'importance' | 'last'
+export type CodexSort = 'name' | 'importance' | 'last' | 'first'
 
 export const SORTS: { value: CodexSort; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'importance', label: 'Importance' },
   { value: 'last', label: 'Last appearance' }
 ]
+
+/** The desk's World room orders by first appearance too (the panels' codex keeps its three). */
+export const GALLERY_SORTS: { value: CodexSort; label: string }[] = [{ value: 'first', label: 'First appearance' }, ...SORTS]
 
 export interface CodexFilters {
   /** Words to look for in names, other names and one-liners. */
@@ -65,13 +68,15 @@ const byName = (a: CodexCard, b: CodexCard): number =>
   displayName(a).localeCompare(displayName(b), undefined, { sensitivity: 'base', numeric: true }) || a.id.localeCompare(b.id)
 
 /**
- * Sorted by name (A to Z), importance (most first) or last appearance (latest in the story first,
- * then those that haven't appeared yet). Ties go by name, so the order never shuffles.
+ * Sorted by name (A to Z), importance (most first), last appearance (latest in the story first,
+ * then those that haven't appeared yet) or first appearance (earliest in the story first, then those that haven't
+ * appeared yet). Ties go by name, so the order never shuffles.
  */
 export function sortCards(cards: CodexCard[], sort: CodexSort): CodexCard[] {
   const list = [...cards]
   if (sort === 'importance') return list.sort((a, b) => b.importance - a.importance || byName(a, b))
   if (sort === 'last') return list.sort((a, b) => (b.last?.order ?? -1) - (a.last?.order ?? -1) || byName(a, b))
+  if (sort === 'first') return list.sort((a, b) => (a.first?.order ?? Infinity) - (b.first?.order ?? Infinity) || byName(a, b))
   return list.sort(byName)
 }
 

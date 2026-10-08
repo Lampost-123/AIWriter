@@ -30,8 +30,8 @@ import { firstInView, itemOf, putBack } from '@/features/codex/codexPlace'
 import { useCodex } from '@/features/codex/codexStore'
 import {
   GALLERY_KINDS,
+  GALLERY_SORTS,
   NO_FILTERS,
-  SORTS,
   filtersOn,
   nothingMatches,
   roleChoices,
@@ -555,10 +555,10 @@ export function WorldGallery({
               </M.Root>
             ) : null}
             <M.Root modal={false}>
-              <M.Trigger className="g-quiet" aria-label={`Order: ${SORTS.find((s) => s.value === sort)?.label ?? ''}`}>
+              <M.Trigger className="g-quiet" aria-label={`Order: ${GALLERY_SORTS.find((s) => s.value === sort)?.label ?? ''}`}>
                 <ListOrdered size={15} aria-hidden />
                 <span>
-                  Order: <b>{(SORTS.find((s) => s.value === sort)?.label ?? '').toLowerCase()}</b>
+                  Order: <b>{(GALLERY_SORTS.find((s) => s.value === sort)?.label ?? '').toLowerCase()}</b>
                 </span>
                 <ChevronDown size={12} aria-hidden className="text-faint" />
               </M.Trigger>
@@ -566,7 +566,7 @@ export function WorldGallery({
                 <M.Content align="end" sideOffset={6} collisionPadding={8} className={MENU}>
                   <M.Label className={LABEL}>Order</M.Label>
                   <M.RadioGroup value={sort} onValueChange={(v) => setSort(v as typeof sort)}>
-                    {SORTS.map((s) => (
+                    {GALLERY_SORTS.map((s) => (
                       <M.RadioItem key={s.value} value={s.value} className={ITEM}>
                         <span className="w-4">{sort === s.value ? <Check size={14} /> : null}</span>
                         {s.label}

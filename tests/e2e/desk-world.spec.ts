@@ -431,3 +431,68 @@ test('Classic and the panels have no flip: the codex opens an entry’s page as 
   await expect.poll(async () => (await transitions(win)).length).toBe(1)
   expect((await transitions(win))[0].mark).toBe('page')
 })
+
+test('the gallery orders by first appearance too, and the dossier says where it is first seen', async ({ launch }) => {
+  const { win } = await sampleWorld(launch)
+  await room(win, 'World').click()
+  await expect(cards(win)).toHaveCount(11)
+  await gallery(win)
+    .getByRole('button', { name: /^Order: / })
+    .click()
+  await win.getByRole('menuitemradio', { name: 'First appearance' }).click()
+  await expect(gallery(win).getByRole('button', { name: /^Order: / })).toHaveAccessibleName('Order: First appearance')
+  await expect(gallery(win).locator('.g-sec[data-kind="character"] .g-hint')).toHaveText('in order of first appearance')
+  // The order is the cards' first scenes in story order (those in no scene last, by name).
+  const codex = await invoke(win, 'listCodex')
+  const people = codex
+    .filter((c) => c.kind === 'character')
+    .sort((a, b) => (a.first?.order ?? Infinity) - (b.first?.order ?? Infinity) || a.name.localeCompare(b.name))
+  const shown = await gallery(win)
+    .locator('.g-sec[data-kind="character"] [data-gallery-card]')
+    .evaluateAll((els) => els.map((e) => e.querySelector('.g-name')?.textContent ?? ''))
+  expect(shown).toEqual(people.map((c) => c.name))
+  // The dossier: "First seen" is that scene, and opens it.
+  const lead = people[0]
+  await card(win, lead.name).click()
+  const fact = dossier(win).locator('.dz-fact', { hasText: 'First seen' })
+  await expect(fact).toContainText(lead.first!.label.replace(/^.*?(?=Ch \d)/, ''))
+  await fact.getByRole('button').click()
+  await expect(dossier(win)).toHaveCount(0)
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  expect((await invoke(win, 'getSettings')).lastSceneId).toBe(lead.first!.sceneId)
+})
+
+test('the story’s spine in every room: Plan, World and Check beside it, each room’s sheet clear of it and centred', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  const spine = win.locator('[data-desk-spine]')
+  const sheet = win.locator('.desk-room-sheet')
+  for (const [w, h] of [
+    [1440, 900],
+    [1920, 1080]
+  ] as const) {
+    await size(app, win, w, h)
+    for (const name of ['Plan', 'World', 'Check']) {
+      await room(win, name).click()
+      await expect(win.locator('[data-desk-room]')).toHaveAttribute('data-spine', 'full')
+      await win.waitForTimeout(400)
+      await expect(spine).toHaveAttribute('data-shape', 'full')
+      const s = (await spine.locator('.spine-capsule').boundingBox())!
+      const p = (await sheet.boundingBox())!
+      expect(p.x, `${name} at ${w}`).toBeGreaterThanOrEqual(s.x + s.width + 16)
+      expect(Math.abs(p.x - (s.x + s.width) - (w - (p.x + p.width))), `${name} at ${w}: centred`).toBeLessThanOrEqual(24)
+      expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
+    }
+  }
+  // Collapsed, it is the slim spine in every room, and the choice is kept.
+  await room(win, 'Plan').click()
+  await spine.getByRole('button', { name: 'Collapse to the spine' }).click()
+  await expect(spine).toHaveAttribute('data-shape', 'slim')
+  await room(win, 'Check').click()
+  await expect(spine).toHaveAttribute('data-shape', 'slim')
+  await expect(win.locator('[data-desk-room]')).toHaveAttribute('data-spine', 'slim')
+  await expect.poll(async () => (await invoke(win, 'getSettings')).layout.deskStory).toBe('slim')
+  // Settings belongs to no room: no spine.
+  await win.keyboard.press('Control+,')
+  await expect(win.locator('[data-desk-room="settings"]')).toBeVisible()
+  await expect(spine).toHaveCount(0)
+})

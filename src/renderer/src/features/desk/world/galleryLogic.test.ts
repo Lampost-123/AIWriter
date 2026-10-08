@@ -29,6 +29,7 @@ const card = (c: Partial<CodexCard> & Pick<CodexCard, 'name'>): CodexCard => ({
   scenes: 0,
   importance: 0,
   last: null,
+  first: null,
   storyIds: [],
   ...c
 })
