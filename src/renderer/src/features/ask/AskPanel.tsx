@@ -835,7 +835,7 @@ function AskBox({
             <span className="flex min-w-0 flex-1 animate-fade-in items-center gap-1 px-1 text-[11.5px] text-accent" data-edit-mode>
               <PenLine size={12} className="shrink-0" aria-hidden />
               <span className="min-w-0 truncate" title="Say what to change in the quoted words. The chat proposes the change for you to apply.">
-                Edit: say what to change
+                Say what to change
               </span>
               <button
                 type="button"

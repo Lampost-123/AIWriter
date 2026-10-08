@@ -240,7 +240,7 @@ test('Edit this quotes the selected words with the box set to ask for a change',
     await win.getByRole('button', { name: 'Edit this' }).click()
     await expect(box(win)).toHaveValue(/^About this passage: “The tide came in over the flats\.”/)
     await expect(box(win)).toBeFocused()
-    await expect(panel(win).locator('[data-edit-mode]')).toContainText('Edit: say what to change')
+    await expect(panel(win).locator('[data-edit-mode]')).toContainText('Say what to change')
     await expect(panel(win).getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
     await win.keyboard.type('Make it slower')
     await box(win).press('Enter')
