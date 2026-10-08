@@ -87,6 +87,7 @@
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 [data-look='new'] .tl-canvas {
   position: relative;

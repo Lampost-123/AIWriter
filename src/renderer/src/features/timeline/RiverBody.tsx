@@ -26,7 +26,33 @@ import {
 import { Legend, LaneHead, LaneStrip, RiverCard, type CardData } from './RiverParts'
 import { useHidden } from './RiverArt'
 import { SideCard } from './SideCard'
-import { useSize } from './viewParts'
+
+/**
+ * The room inside the river's scroller, without its scroll bars. The side bar's room is always kept (scrollbar-gutter in
+ * timeline.css), so the width never swings as it comes and goes; the bottom bar comes only when the river is wider than
+ * that, and the lanes then share the height left above it (measured again each time the river is drawn).
+ */
+function useScrollerSize(ref: React.RefObject<HTMLDivElement | null>): { width: number; height: number } {
+  const [box, setBox] = useState({ width: 0, height: 0 })
+  const measure = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    const width = el.clientWidth
+    const height = el.clientHeight
+    setBox((b) => (b.width === width && b.height === height ? b : { width, height }))
+  }, [ref])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref, measure])
+  // Each time the river is drawn: a bottom bar that came or went changes the height left for the lanes.
+  useLayoutEffect(measure)
+  return box
+}
 
 /** The band labels over the cards, and the axis under them. */
 const BAND_H = 44
@@ -66,7 +92,7 @@ export function RiverBody({
 }): React.JSX.Element {
   const scroller = useRef<HTMLDivElement>(null)
   const hidden = useHidden()
-  const { width: viewW, height: viewH } = useSize(scroller)
+  const { width: viewW, height: viewH } = useScrollerSize(scroller)
   const points = timeline.points
 
   // Sizes from the window: wider lane heads, cards and lanes on a big screen.

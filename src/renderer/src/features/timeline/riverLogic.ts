@@ -149,7 +149,16 @@ export function shownOrder(points: Pick<TimelinePoint, 'order'>[], zoom: Zoom): 
   return zoom === 'day' ? idx : idx.sort((a, b) => points[a].order - points[b].order)
 }
 
-function place(t: Timeline, order: number[], zoom: Zoom, s: RiverSize, cardW: number, spread: number): Omit<RiverLayout, 'cardW'> {
+function place(
+  t: Timeline,
+  order: number[],
+  zoom: Zoom,
+  s: RiverSize,
+  cardW: number,
+  spread: number,
+  squeeze = 1
+): Omit<RiverLayout, 'cardW'> & { timeRoom: number } {
+  let timeRoom = 0
   const items: RiverItem[] = []
   const gaps: { x: number; label: string }[] = []
   let x = s.pad
@@ -164,7 +173,9 @@ function place(t: Timeline, order: number[], zoom: Zoom, s: RiverSize, cardW: nu
       let room = s.gap + spread
       if (zoom === 'day') {
         const mins = minutesBetween(prevTime, time)
-        room += gapRoom(mins, s.unit)
+        const g = Math.floor(gapRoom(mins, s.unit) * squeeze)
+        room += g
+        timeRoom += g
         // A new calendar (a book that counts its days afresh): a clear break.
         if (prevTime && time && prevTime.cal !== time.cal) room += s.unit * 3
         const words = gapWords(mins)
@@ -178,7 +189,7 @@ function place(t: Timeline, order: number[], zoom: Zoom, s: RiverSize, cardW: nu
   })
   const last = items[items.length - 1]
   const width = last ? last.x + last.w + s.pad : s.pad * 2
-  return { items, width, gaps, bands: bandsOf(t, items, zoom, s.gap) }
+  return { items, width, gaps, bands: bandsOf(t, items, zoom, s.gap), timeRoom }
 }
 
 /** The day (or chapter) bands over a laid-out river. */
@@ -244,16 +255,23 @@ export function layoutRiver(t: Timeline, zoom: Zoom, s: RiverSize): RiverLayout 
   const order = shownOrder(t.points, zoom)
   let cardW = s.cardW
   let laid = place(t, order, zoom, s, cardW, 0)
+  // A little too long for the window: the time gaps give a little (keeping their proportions) rather than make it scroll.
+  let squeeze = 1
+  if (laid.width > s.minWidth && laid.timeRoom > 0 && 1 - (laid.width - s.minWidth) / laid.timeRoom >= 0.4) {
+    squeeze = 1 - (laid.width - s.minWidth) / laid.timeRoom
+    laid = place(t, order, zoom, s, cardW, 0, squeeze)
+  }
   const scenes = t.points.filter((p) => p.kind === 'scene').length
   if (laid.width < s.minWidth && scenes) {
     cardW = Math.min(s.cardMax, cardW + Math.floor((s.minWidth - laid.width) / scenes))
-    laid = place(t, order, zoom, s, cardW, 0)
+    laid = place(t, order, zoom, s, cardW, 0, squeeze)
   }
   if (laid.width < s.minWidth && order.length > 1) {
     const spread = Math.min(s.unit * 8, Math.floor((s.minWidth - laid.width) / (order.length - 1)))
-    laid = place(t, order, zoom, s, cardW, spread)
+    laid = place(t, order, zoom, s, cardW, spread, squeeze)
   }
-  return { ...laid, width: Math.max(laid.width, s.minWidth), cardW }
+  const { timeRoom: _room, ...out } = laid
+  return { ...out, width: Math.max(out.width, s.minWidth), cardW }
 }
 
 /** The cards in a stretch of the river (plus `over` pixels either side), as a range of item indexes [from, to). */

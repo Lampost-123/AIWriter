@@ -184,6 +184,17 @@ describe('laying out the river', () => {
     expect(small.cardW).toBeLessThan(260)
   })
 
+  it('squeezes the time gaps a little rather than run just past the window, keeping their order of size', () => {
+    const loose = layoutRiver(t, 'day', SIZE)
+    const tight = layoutRiver(t, 'day', { ...SIZE, minWidth: loose.width - 40 })
+    expect(tight.width).toBe(loose.width - 40)
+    const gaps = tight.items.slice(1).map((it, n) => it.x - (tight.items[n].x + tight.items[n].w))
+    expect(gaps[0]).toBeLessThan(gaps[1])
+    expect(gaps[1]).toBeLessThan(gaps[2])
+    // Far too long: it scrolls, gaps as they are.
+    expect(layoutRiver(t, 'day', { ...SIZE, minWidth: 300 }).width).toBe(loose.width)
+  })
+
   it('makes an event a narrower card', () => {
     const r = layoutRiver(timeline([point('0'), point('1', { kind: 'event' })]), 'day', SIZE)
     expect(r.items[1].w).toBe(120)
