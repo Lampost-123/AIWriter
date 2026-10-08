@@ -319,3 +319,32 @@ test('the New look: menus and dialogs closed with the pointer leave the way they
   await expect(menu).toHaveCount(0)
   expect((await exits(win)).length).toBe(4)
 })
+
+test('the New look: a side panel slides on the drawer curve while the page holds its width, so the words re-wrap once', async ({ launch }) => {
+  const { app, win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await invoke(win, 'openSampleWorld')
+  await invoke(win, 'updateSettings', { layout: { binderOpen: true, inspectorOpen: true } })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 800))
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  const panel = win.locator('aside[aria-label="Scene panel"]')
+  await expect(panel).toHaveCSS('transition-duration', '0.22s')
+  await expect(panel).toHaveCSS('transition-timing-function', 'cubic-bezier(0.32, 0.72, 0, 1)')
+  // The widths the page's column is held at while the panel slides (and that it lets go after).
+  await win.evaluate(`(() => {
+    const col = document.querySelector('.scene-prose').parentElement.parentElement
+    window.held = []
+    new MutationObserver(() => window.held.push(col.style.width)).observe(col, { attributes: true, attributeFilter: ['style'] })
+  })()`)
+  const toggle = win.getByRole('button', { name: 'Show or hide the scene panel' })
+  for (const step of ['shut', 'open']) {
+    await win.evaluate('window.held = []')
+    await toggle.click()
+    await expect.poll(() => win.evaluate<string[]>('window.held')).toContain('')
+    const held = (await win.evaluate<string[]>('window.held')).filter((w) => w)
+    // Held once, at the narrower of where it starts and ends, then let go.
+    expect(held.length, step).toBe(1)
+    expect(held[0]).toMatch(/^\d+px$/)
+  }
+})

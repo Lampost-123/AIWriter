@@ -12,6 +12,7 @@ import { useApp } from '@/lib/store'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
 import { widePageFrom } from '@/layout/fitPanels'
+import type { PanesMove } from '@/layout/ResizablePane'
 import { SceneController } from './controller'
 import { sceneExtensions } from './extensions'
 import { onFocusRequest, requestEditorFocus, takeFocusRequest } from './focusRequest'
@@ -201,6 +202,48 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     ro.observe(el)
     return () => ro.disconnect()
   }, [wideFrom])
+
+  // The New look: while a side panel slides, the column holds the narrower of its two widths, so the words re-wrap once
+  // (at the start when the page narrows, at the end when it widens) rather than on every frame of the slide
+  // (layout/ResizablePane.tsx announces each move).
+  useEffect(() => {
+    let pending = 0
+    let queued = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const pin = (ms: number): void => {
+      queued = false
+      const column = columnRef.current
+      const scroller = scrollerRef.current
+      const delta = pending
+      pending = 0
+      if (!column || !scroller || !delta) return
+      const max = parseFloat(getComputedStyle(column).maxWidth)
+      // The room the column has now, and will have once the panes have moved.
+      const room = scroller.clientWidth
+      const held = Math.min(max, room, room - delta)
+      // At its widest both before and after, it just moves to the middle, which costs nothing.
+      if (!Number.isFinite(max) || (held >= max - 1 && !column.style.width)) return
+      column.style.width = `${Math.round(held)}px`
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (columnRef.current) columnRef.current.style.width = ''
+      }, ms + 60)
+    }
+    const onMove = (e: Event): void => {
+      const { delta, ms } = (e as CustomEvent<PanesMove>).detail
+      pending += delta
+      if (queued) return
+      queued = true
+      // Both panes move together in focus mode: add them up, then hold the column once, before this frame is drawn.
+      queueMicrotask(() => pin(ms))
+    }
+    window.addEventListener('aiwrite:panes-move', onMove)
+    return () => {
+      window.removeEventListener('aiwrite:panes-move', onMove)
+      clearTimeout(timer)
+      if (columnRef.current) columnRef.current.style.width = ''
+    }
+  }, [])
 
   /**
    * Clicking the empty page below the text puts the cursor at the end. Only presses on the page itself:

@@ -1663,6 +1663,11 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
     hidden from screen readers (`[data-exit-ghost]`), for `styles.css` to play out in 140 ms (menus shrink back toward
     where they opened, dialogs and their dim fade), and removes it. Not when a key closed it, with less motion or
     during a page change. Every "is a layer open?" check uses `lib/layers.ts`, which never counts one on its way out.
+  - *Panels* slide in 220 ms on the drawer curve (`ease-drawer`). Before a slide, `ResizablePane` sends
+    `aiwrite:panes-move` (how much narrower or wider the page gets) and `SceneView` holds the page's column at the
+    narrower of its two widths for the slide, so a long scene re-wraps once instead of on every frame (measured on an
+    8,000-word scene: layout work during six slides went from about 255 ms to about 105 ms, and the layouts of 1 ms or
+    more from about 115 to 15). Classic keeps its 200 ms `ease-out` and never holds the column.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
