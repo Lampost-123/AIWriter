@@ -265,6 +265,28 @@ const WITH_WORDS = new Set('obsessed infatuated besotted friendly angry furious 
 // Words that already say which one ("the leader", "her sister", "Tobin's rival"), so no "a" goes before them.
 const DETERMINERS = new Set('a an the his her their its my our your one some no this that'.split(' '))
 
+// Words that start extra detail after a relationship: "companions on the drove road", "rivals at court", "friends since
+// childhood".
+const DETAIL_WORDS = new Set('on at in from since during across along through near among after before until'.split(' '))
+
+/**
+ * A relationship type's extra detail, split from the relationship itself: "travelling companions on the drove road" is
+ * "travelling companions" + "on the drove road". Null when there is none, or when the words belong together: a type
+ * ending in its own linking word ("involved in"), one that starts with a verb or "in"/"at" ("lives in the hills",
+ * "in love"), or a word like "stationed" whose link is the detail itself.
+ */
+function trailingDetail(core: string): { head: string; detail: string } | null {
+  const words = core.split(' ')
+  const lower = words.map((w) => w.toLocaleLowerCase())
+  const first = lower[0]
+  if (VERBS.has(first) || first === 'married' || first === 'owes' || first === 'in' || first === 'at') return null
+  const at = lower.findIndex((w, i) => i > 0 && i < lower.length - 1 && DETAIL_WORDS.has(w))
+  if (at < 0) return null
+  const last = lower[at - 1]
+  if (last === 'born' || (/ed$/.test(last) && !TO_WORDS.has(last) && !FROM_WORDS.has(last) && !WITH_WORDS.has(last))) return null
+  return { head: words.slice(0, at).join(' '), detail: words.slice(at).join(' ') }
+}
+
 /** "a rival", "an enemy", "an heir", "a one-time ally". */
 function withArticle(phrase: string): string {
   const w = phrase.toLocaleLowerCase()
@@ -280,8 +302,13 @@ function withArticle(phrase: string): string {
 export function relationPhrase(type: string, other: string, opts: { article?: boolean } = {}): string {
   const raw = type.trim().replace(/\s+/g, ' ')
   const aside = raw.match(/\s*\(([^)]*)\)\s*/)
-  const core = lowerFirst((aside ? raw.replace(aside[0], ' ') : raw).trim())
-  const tail = aside ? ` (${aside[1].trim()})` : ''
+  let core = lowerFirst((aside ? raw.replace(aside[0], ' ') : raw).trim())
+  // Extra detail after the relationship itself ("travelling companions on the drove road") goes in brackets after the
+  // other one's name, like an aside: "travelling companions with Ash (on the drove road)".
+  const extra = trailingDetail(core)
+  if (extra) core = extra.head
+  const asides = [extra?.detail, aside?.[1].trim()].filter((s): s is string => !!s)
+  const tail = asides.length ? ` (${asides.join(', ')})` : ''
   if (!core) return `linked to ${other}${tail}`
   const words = core.toLocaleLowerCase().split(' ')
   const first = words[0]
