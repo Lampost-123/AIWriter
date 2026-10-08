@@ -936,6 +936,18 @@
 [data-arrangement='desk'] .desk-board[data-arrive] .board-str :is(.s-knot, .s-end) {
   animation: board-fade 240ms ease-out calc(var(--d, 0ms) + 650ms) backwards;
 }
+/* A resolved thread's knot is tied as its string arrives: it pops on (living art, after the DeskPlan board's knotIn). */
+@keyframes board-knot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}
+[data-arrangement='desk'] .desk-board[data-arrive] .board-str .s-knot {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: board-knot-in 320ms var(--motion-spring) calc(var(--d, 0ms) + 650ms) backwards;
+}
 [data-arrangement='desk'] .desk-board[data-arrive] .board-legend {
   animation: board-col-in 360ms var(--motion-glide) 700ms backwards;
 }
