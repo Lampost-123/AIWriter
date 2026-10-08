@@ -59,7 +59,7 @@ export function judgeCheck(check: Check, answer: JudgeAnswer | undefined, passag
   const base = { id: check.id, trap: check.trap, ask: check.ask }
   for (const t of tripwires) {
     if (t.check !== check.id) continue
-    const hit = firstBreak({ broken: t.pattern, not: t.not, unlessBefore: t.unlessBefore }, passage)
+    const hit = firstBreak({ broken: t.pattern, not: t.not, unlessBefore: t.unlessBefore, outsideQuotes: t.outsideQuotes }, passage)
     if (hit) return { ...base, verdict: 'broken', by: 'tripwire', answer: answer?.answer ?? '', quote: hit.text }
   }
   if (!answer || answer.answer === 'unclear') return { ...base, verdict: 'silent', by: answer ? 'judge' : 'none', answer: answer?.answer ?? '', quote: answer?.quote ?? '' }
@@ -232,6 +232,8 @@ export interface RunReport {
   /** Probes v4: chains of AI steps in one scene, with drift checked at every step (absent for probes v1 to v3). */
   chains?: ChainResult[]
   chainSummary?: ChainSummary
+  /** K3's plot threads (summariseThreads), when a chain with threads ran. */
+  threads?: ThreadSummary
   /** Re-scored offline (npm run traps -- --rescore): from which report, and what would have needed the judge. */
   rescored?: { from: string; at: string; needJudge: { chain: string; sample: number; step: number; plant: string; quote: string }[] }
   /** The token budget and what was used of it. */
@@ -348,6 +350,27 @@ export interface ChainStepResult {
   /** How it is written (the prose check), with the judge's marks when it gave them. */
   prose?: ProseMetrics
   records?: { id: string; job: string; kind: string }[]
+  /** K3's plot threads at this step (left out for chains without threads). */
+  threads?: ThreadStepNote
+}
+
+/** What K3's thread checks measure: (a) premature, (b) payoff, (c) alive, (d) invented (README "K3"). */
+export type ThreadCheck = 'premature' | 'payoff' | 'alive' | 'invented'
+export const THREAD_CHECKS: ThreadCheck[] = ['premature', 'payoff', 'alive', 'invented']
+
+/** A chain step's plot threads (K3): which were open, which the writer's prompt carried, which it touched unasked. */
+export interface ThreadStepNote {
+  /** Threads planted and not yet paid off (nor resolved on the page). */
+  open: string[]
+  /** Of those, the ones the step's direction doesn't name (all of them on a Continue). */
+  dormant: string[]
+  /** Of the dormant ones, those the step's words touch anyway (a soft measure, never a slip). */
+  touched: string[]
+  /**
+   * The writer's prompt: the heading of a threads block in it ("Open threads", "Plot threads in this scene"; null when it
+   * has none, as on main for a card with no threads) and the threads that block names. Null when no prompt was saved.
+   */
+  carried: { block: string | null; ids: string[] } | null
 }
 
 export interface ChainSample {
@@ -366,9 +389,92 @@ export interface ChainResult {
   scene: string
   title: string
   opening: string[]
-  plants: { id: string; name: string; step: number | null }[]
+  plants: { id: string; name: string; step: number | null; thread?: { id: string; check: ThreadCheck } }[]
+  /** K3's plot threads, by id and name (left out for chains without threads). */
+  threads?: { id: string; name: string }[]
   steps: number
   samples: ChainSample[]
+}
+
+/** K3's plot threads over every chain that has them: the four checks, dormant threads touched, what the prompt carried. */
+export interface ThreadSummary {
+  threads: { id: string; name: string }[]
+  byCheck: Record<ThreadCheck, Tally>
+  dormant: { thread: string; name: string; steps: number; touched: number; samples: number; samplesTouched: number }[]
+  carried: { steps: number; withPrompt: number; withBlock: number; blocks: Record<string, number>; byThread: Record<string, number> }
+}
+
+/** The thread checks' tallies and the soft measures, or null when no chain has threads. */
+export function summariseThreads(chains: ChainResult[]): ThreadSummary | null {
+  const withThreads = chains.filter((c) => c.threads?.length)
+  if (!withThreads.length) return null
+  const results: Record<ThreadCheck, CheckResult[]> = { premature: [], payoff: [], alive: [], invented: [] }
+  const names = new Map<string, string>()
+  const dormant = new Map<string, { steps: number; touched: number; samples: number; samplesTouched: number }>()
+  const carried: ThreadSummary['carried'] = { steps: 0, withPrompt: 0, withBlock: 0, blocks: {}, byThread: {} }
+  for (const c of withThreads) {
+    for (const t of c.threads!) names.set(t.id, t.name)
+    const checkOf = new Map(c.plants.filter((p) => p.thread).map((p) => [p.id, p.thread!.check]))
+    for (const m of c.samples) {
+      const seen = new Map<string, boolean>()
+      for (const st of m.steps.filter((x) => x.status === 'complete')) {
+        for (const r of st.results) {
+          const k = checkOf.get(r.trap)
+          if (k) results[k].push(r)
+        }
+        const n = st.threads
+        if (!n) continue
+        carried.steps++
+        if (n.carried) {
+          carried.withPrompt++
+          if (n.carried.block) {
+            carried.withBlock++
+            carried.blocks[n.carried.block] = (carried.blocks[n.carried.block] ?? 0) + 1
+          }
+          for (const id of n.carried.ids) carried.byThread[id] = (carried.byThread[id] ?? 0) + 1
+        }
+        for (const id of n.dormant) {
+          const d = dormant.get(id) ?? { steps: 0, touched: 0, samples: 0, samplesTouched: 0 }
+          d.steps++
+          if (n.touched.includes(id)) d.touched++
+          dormant.set(id, d)
+          seen.set(id, (seen.get(id) ?? false) || n.touched.includes(id))
+        }
+      }
+      for (const [id, touched] of seen) {
+        const d = dormant.get(id)!
+        d.samples++
+        if (touched) d.samplesTouched++
+      }
+    }
+  }
+  const byCheck = Object.fromEntries(THREAD_CHECKS.map((k) => [k, tally(results[k])])) as Record<ThreadCheck, Tally>
+  return { threads: [...names].map(([id, name]) => ({ id, name })), byCheck, dormant: [...dormant].map(([thread, d]) => ({ thread, name: names.get(thread) ?? thread, ...d })), carried }
+}
+
+const THREAD_CHECK_NAMES: Record<ThreadCheck, string> = {
+  premature: '(a) Not paid off before the step that asks for it',
+  payoff: '(b) Paid off at the step that asks for it',
+  alive: '(c) Kept alive on Continue (not contradicted or forgotten)',
+  invented: '(d) No payoff that no direction asked for'
+}
+
+/** The report's plot-thread section (K3). */
+export function threadsMarkdown(t: ThreadSummary | null | undefined): string[] {
+  if (!t) return []
+  const out = ['### Plot threads (K3)', '', '| Check | Kept | Broken | Unverified | Not touched | Consistency |', '|---|---:|---:|---:|---:|---:|']
+  for (const k of THREAD_CHECKS) {
+    const x = t.byCheck[k]
+    out.push(`| ${THREAD_CHECK_NAMES[k]} | ${x.kept} | ${x.broken} | ${x.unverified} | ${x.silent} | ${pct(x.consistency)} |`)
+  }
+  out.push('', 'Dormant threads touched unasked (a soft measure, not a score): a thread is dormant at a step whose direction doesn’t name it.', '')
+  out.push('| Thread | Steps dormant | Touched | Chains touching it at least once |', '|---|---:|---:|---:|')
+  for (const d of t.dormant) out.push(`| ${d.name} | ${d.steps} | ${d.touched} | ${d.samplesTouched} of ${d.samples} |`)
+  const c = t.carried
+  const blocks = Object.entries(c.blocks).map(([b, n]) => `“${b}” ${n}`).join(', ')
+  const by = Object.entries(c.byThread).map(([id, n]) => `${t.threads.find((x) => x.id === id)?.name ?? id} ${n}`).join(', ')
+  out.push('', `Writer prompts with a threads block: ${c.withBlock} of ${c.withPrompt} steps with a saved prompt (${c.steps} steps)${blocks ? `: ${blocks}` : ''}${by ? `; threads named there: ${by}` : ''}.`, '')
+  return out
 }
 
 export interface ChainSummary {
@@ -455,7 +561,7 @@ function chainsMarkdown(r: RunReport): string[] {
     for (const pl of c.plants) {
       const x = cs.byPlant[pl.id]
       if (!x) continue
-      out.push(`| ${pl.name} | ${pl.step ?? 'from the story'} | ${x.kept} | ${x.broken} | ${x.silent} | ${x.resolved} | ${pct(x.consistency)} |`)
+      out.push(`| ${pl.name} | ${pl.step ?? (pl.thread ? 'not in this run' : 'from the story')} | ${x.kept} | ${x.broken} | ${x.silent} | ${x.resolved} | ${pct(x.consistency)} |`)
     }
     out.push('')
   }
@@ -466,6 +572,7 @@ function chainsMarkdown(r: RunReport): string[] {
     out.push(`| ${f.step} | ${t ? t.kept + t.broken + t.silent + t.unverified : 0} | ${t?.broken ?? 0} | ${pct(t?.consistency ?? null)} | ${f.slipped} of ${f.of} |`)
   }
   out.push('')
+  out.push(...threadsMarkdown(r.threads))
   const broken = r.chains.flatMap((c) => c.samples.flatMap((m) => m.steps.flatMap((st) => st.results.filter((x) => x.verdict === 'broken' || x.verdict === 'unverified').map((x) => ({ c, m, st, x })))))
   if (broken.length) {
     out.push('### What drifted', '')

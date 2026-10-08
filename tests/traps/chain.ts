@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { checkout, countWords, git, openApp, standInDirections, whenEnded, type App, type TrapsConfig } from './app'
 import { paragraphsOf } from './page'
-import { findAcross, outsideQuotes, refersTo, sentences, type PatternCheck, type Referent, type SpreadPlace } from './patterns'
+import { findAcross, firstBreak, outsideQuotes, refersTo, sentences, type PatternCheck, type Referent, type SpreadPlace } from './patterns'
 import { promptText, proseMetrics, sampleLines, summariseProse, type BeatSign, type ProseEntry, type ProseMetrics, type ProseRubric, type ProseSummary } from './prose'
 import { quoteInPassage } from './score'
 import { repairLanded, storyFor, storyId, storyMatches, findSavedWorld, type SavedWorld } from './run'
@@ -30,11 +30,14 @@ import {
   reportMarkdown,
   scorePassage,
   summariseChains,
+  summariseThreads,
   type ChainResult,
   type ChainSample,
   type ChainStepResult,
   type CheckResult,
-  type RunReport
+  type RunReport,
+  type ThreadCheck,
+  type ThreadStepNote
 } from './score'
 import type { Check, Tripwire } from './story'
 import { PATTERNS, type Card3 } from './story3'
@@ -72,8 +75,19 @@ export interface ChainPlant {
   changeBy?: Referent
   /** A deterministic check of each later step (the narration only). */
   drift?: Omit<PatternCheck, 'id' | 'trap'>
-  /** The judge's question for each later step, where a pattern can't decide, with a pattern as its tripwire. */
-  judge?: { ask: string; tripwire?: RegExp }
+  /**
+   * The judge's question for each later step, where a pattern can't decide, with a pattern as its tripwire (`tripwireNot`
+   * and `narration`: the tripwire's exceptions, and only the narration counting). `bad` is the answer that breaks it
+   * ("yes" unless said; K3's payoff asks "does it happen?", bad "no"), and `shows` (with `showsNot`) is a pattern that
+   * keeps such a check whatever the judge said (the payoff on the page, in the narration).
+   */
+  judge?: { ask: string; tripwire?: RegExp; tripwireNot?: RegExp; narration?: boolean; bad?: 'yes' | 'no'; shows?: RegExp; showsNot?: RegExp }
+  /** K3: the plot thread this check is about, and which of the four thread checks it is. */
+  thread?: { id: string; check: ThreadCheck }
+  /** In force once this other plant landed rather than itself (K3's payoff check, planted with its thread). */
+  after?: string
+  /** Checked only at steps of this kind (K3's kept-alive checks: Continue steps). */
+  onlyOn?: ChainStep['kind']
   /**
    * When the deterministic check finds a slip but no pattern saw the change that would excuse it, the judge is asked
    * this (good answer "yes": the change is on the page before the slip); a yes ends the plant and the slip is none.
@@ -87,6 +101,22 @@ export interface ChainStep {
   direction?: string
   /** The plants this step's direction asks for. */
   plants?: string[]
+  /** K3: the plot threads this step's direction pays off (their premature and kept-alive checks stop before it). */
+  payoffs?: string[]
+  /** K3: the plot threads this step's direction moves on with a clue, without paying them off (for the reader). */
+  advances?: string[]
+}
+
+/**
+ * A plot thread (K3): set up early, left open, maybe paid off later. `mention` finds it touched in a step's words (the
+ * soft "dormant thread touched" measure, and whether a direction names it); `named` finds it in a threads block of the
+ * writer's prompt, which may name it otherwise ("the debt to the ferryman").
+ */
+export interface ChainThread {
+  id: string
+  name: string
+  mention: RegExp
+  named: RegExp
 }
 
 export interface ChainSpec {
@@ -102,6 +132,8 @@ export interface ChainSpec {
   far: ChainPlant[]
   /** How each of the scene card's beats shows on the page, in order (the prose check: a beat done again). */
   beatSigns?: BeatSign[]
+  /** K3: the plot threads its plants check (README "K3"). */
+  threads?: ChainThread[]
 }
 
 // ---------- The chain's checks ----------
@@ -456,8 +488,167 @@ export const K2_PLANTS: ChainPlant[] = [
   }
 ]
 
+// ---------- Chain K3 (2026-10-08): plot threads ----------
+//
+// K1 and K2 test facts that hold (where people are, what they wear, a side). K3 tests threads: set up early, left
+// open, one moved on by a clue and one paid off near the end when a direction asks. A ferry-house two days after K2,
+// all of it invented (story-v3.json is unchanged): a sealed letter from Bryn, not to be opened until Wren is across the
+// water (never paid off here); three shillings Ash owes the ferryman Jory Pask, who will collect before the tide turns
+// (paid off at step 11); a stranger's question Wren never answers (a clue at step 7, never paid off). The checks:
+//   (a) premature  a thread paid off before the step whose direction pays it off (the debt paid at step 6);
+//   (b) payoff     at that step, the thread really resolves on the page;
+//   (c) alive      on Continue steps, an open thread isn't contradicted or forgotten (the debt "already settled");
+//   (d) invented   a thread no direction pays off is resolved anyway (the letter opened, the question answered).
+// A thread broken by (a) or (d) has been resolved on the page: its checks end there. Per step the harness also notes
+// which open threads the step's words touch unasked (a count, never a slip) and which a threads block in the writer's
+// prompt carried ("Open threads", if the app under test sends one; main sends "Plot threads in this scene" only for
+// threads on the scene card, which K3's card has none of).
+
+/** The letter's seal broken, the letter opened or read, in the narration. */
+export const LETTER_OPENED =
+  /\b(?:broke|breaks|breaking|cracked|cracks|split|slit|prised|pried|thumbed|picked|peeled) (?:open )?(?:the |its |Bryn['’]s )?(?:red )?(?:wax|seal)\b|\b(?:opened|opens|unfolded|unfolds|unsealed|tore open|tears open|ripped open|slit open) (?:the|Bryn['’]s) letter\b|\b(?:tore|tears|ripped|rips|slit|slits) (?:the|Bryn['’]s) letter open\b|\b(?:opened|unfolded|unsealed) it\b(?=[^.!?\n]{0,60}\bletter\b)|\b(?:read|reads|was reading) (?:the|Bryn['’]s) letter\b|\bthe letter (?:lay |was )?open (?:in|on) (?:her|his)\b|\bthe (?:wax|seal) (?:broke|gave|cracked|split|came away)\b/i
+/**
+ * Not opening it: a negation, a wish, a temptation; or told as done before ("she had read it"), which is the kept-alive
+ * check's (said, not shown), so one sentence is never two slips.
+ */
+const LETTER_NOT =
+  /\b(?:not|never|didn['’]t|did not|wouldn['’]t|won['’]t|without|unopened|would|could|might|if|wanted to|want to|tempted|itch\w*|longed|almost|nearly|wondered)\b|\bhad (?:already |once )?(?:opened|read|broken|unsealed|unfolded)\b/i
+/** The debt paid, in the narration (also the payoff's sign). */
+export const DEBT_PAID =
+  /\b(?:Ash|he|Wren|she) (?:paid|pays|counted out|counts out|handed over|hands over|pressed|presses|put|puts|dropped|drops|tipped|tips|slid|slides|gave|gives)\b[^.!?\n]{0,60}\b(?:shillings?|coins?|money|silver)\b|\b(?:Ash|he|Wren|she) (?:paid|pays)\b[^.!?\n]{0,30}\b(?:what he owed|the debt)\b|\b(?:paid|pays|settled|settles|cleared|clears) (?:the|his|Ash['’]s) debt\b|\bpaid (?:Jory|Pask|the ferryman)\b|\b(?:Jory|Pask|the ferryman) (?:pocketed|pockets|took|takes|counted|counts|bit|weighed)\b[^.!?\n]{0,40}\b(?:shillings?|coins?|money)\b|\b(?:they|we) (?:are|were)(?: all)? square\b/i
+/** Not paying: a promise, a plan, a negation; or told as done before ("he had paid"), the kept-alive check's. */
+const DEBT_NOT = /\b(?:would|will|could|might|if|until|later|tomorrow|promised|meant to|going to|no|hadn['’]t|not|never|didn['’]t|wished|empty)\b|\bhad (?:already )?(?:paid|settled|cleared)\b/i
+/** The stranger's question answered, or who she is told, in the narration (the judge catches it said aloud). */
+export const QUESTION_ANSWERED =
+  /\bthe (?:stranger|woman in (?:the )?grey(?: hood)?|hooded woman) (?:gave|said|told (?:Wren|her)) her (?:own )?name\b|\bthe (?:stranger|hooded woman)['’]s name was\b|\b(?:Wren|she) (?:answered|told) the (?:stranger|woman in (?:the )?grey|hooded woman)\b/i
+const QUESTION_NOT = /\b(?:not|never|didn['’]t|did not|wouldn['’]t|without|nothing|no answer|would|could|might|if)\b/i
+
+export const K3_THREADS: ChainThread[] = [
+  // `named` leaves out what the story's own threads may hold (Bryn, Oskar the ferryman, Pell's promise).
+  { id: 'letter', name: 'Bryn’s sealed letter', mention: /\b(?:letter|wax|seal(?:ed)?)\b/i, named: /\b(?:letter|wax|seal(?:ed)?)\b/i },
+  { id: 'debt', name: 'Ash’s debt to the ferryman', mention: /\b(?:debt|owe[ds]?|owing|shillings?)\b/i, named: /\b(?:debt|owe[ds]?|owing|shillings?|Jory|Pask)\b/i },
+  { id: 'question', name: 'The stranger’s question', mention: /\b(?:stranger|grey hood|hooded|her question|the question|surveyor['’]s girl)\b/i, named: /\b(?:stranger|grey hood|hooded|her question|surveyor['’]s girl)\b/i }
+]
+
+const LETTER_FACT = "Bryn's letter, sealed with red wax, is inside Wren's jacket, unopened; on the outside it says not to be opened until she is across the water."
+const DEBT_FACT = 'Ash owes Jory Pask, the ferryman, three shillings from last spring; Jory will collect before the tide turns. It is not paid yet.'
+const QUESTION_FACT = "A stranger in a grey hood asked Wren whether she is the surveyor's girl from Linmouth. Wren has not answered, and no one has said who the stranger is or why she asked."
+const LETTER_FIND = [/\bletter\b/i, /\b(?:seal\w*|wax|unopened|across the water)\b/i]
+const DEBT_FIND = [/\b(?:Jory|Pask|ferryman)\b/i, /\b(?:owe\w*|owing|debt|shillings?)\b/i]
+const QUESTION_FIND = [/\b(?:stranger|grey hood|hooded)\b/i, /\b(?:surveyor|Linmouth|asks?|asked)\b/i]
+/** Each kept-alive question ends so: an event in the passage is the other check's, not this one's. */
+const ELSEWHERE = 'answer no for that'
+
+export const K3_PLANTS: ChainPlant[] = [
+  {
+    id: 'letter-open',
+    name: 'Letter not opened (no direction opens it)',
+    fact: LETTER_FACT,
+    find: LETTER_FIND,
+    happens: 'Does someone bring Wren a sealed letter from Bryn, marked not to be opened until she is across the water, and does she put it away unopened?',
+    thread: { id: 'letter', check: 'invented' },
+    judge: {
+      ask: "Bryn's letter is sealed and must not be opened until Wren is across the water. In this passage, does anyone break its seal, open it or read what is inside? Holding it, feeling it through her jacket, wondering what it says or being tempted doesn't count.",
+      tripwire: LETTER_OPENED,
+      tripwireNot: LETTER_NOT,
+      narration: true
+    }
+  },
+  {
+    id: 'letter-alive',
+    name: 'Letter kept alive (Continue)',
+    fact: LETTER_FACT,
+    find: LETTER_FIND,
+    happens: 'Does someone bring Wren a sealed letter from Bryn, marked not to be opened until she is across the water?',
+    thread: { id: 'letter', check: 'alive' },
+    onlyOn: 'continue',
+    judge: {
+      ask: `Is Bryn's letter spoken of as lost, given away, already opened or read before this passage, from someone other than Bryn, or to be opened at another time than once Wren is across the water; or does the passage say or show that Wren has no letter? The letter being opened in this passage is asked separately: ${ELSEWHERE}.`,
+      tripwire: /\b(?:she|Wren) had (?:already )?(?:opened|read) (?:the|Bryn['’]s) letter\b|\bthe letter (?:she|Wren) had (?:already )?(?:opened|read)\b|\b(?:lost|dropped|left behind|burned|burnt) (?:the|Bryn['’]s) letter\b/i,
+      tripwireNot: /\b(?:not|never|would|could|if|almost|nearly|afraid|feared|wondered)\b/i,
+      narration: true
+    }
+  },
+  {
+    id: 'debt-early',
+    name: 'Debt not paid before step 11 asks',
+    fact: DEBT_FACT,
+    find: DEBT_FIND,
+    happens: 'Does Jory Pask, the ferryman, remind Ash that he owes him three shillings, and say he will collect before the tide turns?',
+    thread: { id: 'debt', check: 'premature' },
+    judge: {
+      ask: 'Ash owes Jory Pask three shillings, which Jory will collect before the tide turns. In this passage, is the debt paid, settled or let off (money handed over, Jory saying they are square, or Jory forgiving it)? Ash saying he will pay, looking for the money or worrying about it doesn’t count.',
+      tripwire: DEBT_PAID,
+      tripwireNot: DEBT_NOT,
+      narration: true
+    }
+  },
+  {
+    id: 'debt-alive',
+    name: 'Debt kept alive (Continue)',
+    fact: DEBT_FACT,
+    find: DEBT_FIND,
+    happens: 'Does Jory Pask, the ferryman, remind Ash that he owes him three shillings?',
+    thread: { id: 'debt', check: 'alive' },
+    onlyOn: 'continue',
+    judge: {
+      ask: `Is Ash's debt to Jory spoken of as already paid, settled, forgiven or never owed, or changed (another sum than three shillings, another time than before the tide turns, owed by or to someone else), without the passage showing it being paid? Ash paying it in this passage is asked separately: ${ELSEWHERE}.`,
+      tripwire:
+        /\b(?:the |his |Ash['’]s )?debt\b[^.!?\n]{0,30}\b(?:was|had been|were) (?:settled|paid|cleared|forgiven|forgotten|squared)\b|\b(?:owed|owes|owing) (?:him |Jory |Pask |the ferryman )?nothing\b|\b(?:Ash|he) had (?:already )?paid (?:Jory|Pask|the ferryman|him|the debt)\b/i,
+      tripwireNot: /\b(?:not|never|would|could|if|until|unless|wished)\b/i,
+      narration: true
+    },
+    // Paid on the page first in this passage: that is the premature check's slip, not a contradiction too.
+    change: DEBT_PAID
+  },
+  {
+    id: 'debt-paid',
+    name: 'Debt paid when asked (step 11)',
+    fact: DEBT_FACT,
+    find: [],
+    after: 'debt-early',
+    happens: '',
+    thread: { id: 'debt', check: 'payoff' },
+    judge: {
+      ask: 'Ash owes Jory Pask three shillings. In this passage, does Ash (or anyone for him) pay Jory, so the debt is settled? Quote the words that show it.',
+      bad: 'no',
+      shows: DEBT_PAID,
+      showsNot: DEBT_NOT
+    }
+  },
+  {
+    id: 'question-open',
+    name: 'Question left unanswered (no direction answers it)',
+    fact: QUESTION_FACT,
+    find: QUESTION_FIND,
+    happens: "Does a stranger in a grey hood ask Wren whether she is the surveyor's girl from Linmouth, and does Wren leave it unanswered?",
+    thread: { id: 'question', check: 'invented' },
+    judge: {
+      ask: "In this passage, does Wren answer the stranger's question (whether she is the surveyor's girl from Linmouth: yes or no, in words or a plain nod), or does the stranger say who she is or why she asked? Wren thinking about it, avoiding it, or the stranger watching her doesn't count.",
+      tripwire: QUESTION_ANSWERED,
+      tripwireNot: QUESTION_NOT,
+      narration: true
+    }
+  },
+  {
+    id: 'question-alive',
+    name: 'Question kept alive (Continue)',
+    fact: QUESTION_FACT,
+    find: QUESTION_FIND,
+    happens: "Does a stranger in a grey hood ask Wren whether she is the surveyor's girl from Linmouth?",
+    thread: { id: 'question', check: 'alive' },
+    onlyOn: 'continue',
+    judge: {
+      ask: `Is the stranger's question spoken of as already answered, or the stranger as someone whose name or errand Wren already knows, when no passage has shown it; or is the question changed (she asked something else)? The question being answered in this passage is asked separately: ${ELSEWHERE}.`,
+      tripwire: /\b(?:the|her) (?:stranger['’]s )?question (?:had been|was) answered\b|\bWren (?:already )?knew (?:who|the stranger|her name)\b/i,
+      tripwireNot: /\b(?:not|never|would|could|if|wished)\b/i,
+      narration: true
+    }
+  }
+]
+
 /** Every chain's plants, for the checks and the reports (K1's first). */
-export const ALL_PLANTS: ChainPlant[] = [...CHAIN_PLANTS, ...K2_PLANTS]
+export const ALL_PLANTS: ChainPlant[] = [...CHAIN_PLANTS, ...K2_PLANTS, ...K3_PLANTS]
 
 export const CHAINS: ChainSpec[] = [
   {
@@ -561,6 +752,70 @@ export const CHAINS: ChainSpec[] = [
         min: 2
       }
     ]
+  },
+  {
+    id: 'K3',
+    scene: {
+      key: 'k3',
+      chapter: 6,
+      title: 'The ferry-house at Gull Sound',
+      card: {
+        pov: 'wren',
+        present: ['wren', 'ash'],
+        location: 'droveroad',
+        when: 'Day 26, evening, rain, the tide coming in',
+        beats: ['Wren and Ash wait in the ferry-house at Gull Sound for the night boat.', 'They talk about what waits across the water.'],
+        mood: 'Watchful, waiting.'
+      }
+    },
+    opening: [
+      'The ferry-house at Gull Sound was a single room of tarred boards at the end of a stone jetty, with a stove, two benches and a slate on the wall that gave the tides. The night boat would not cross until the water was deep enough over the bar, and the ferryman’s lad had told them to wait inside, out of the wind.',
+      'Wren sat on the bench nearest the stove with her hands round a tin mug. Ash stood at the window, watching the lights of the far shore come and go behind the rain. The horses were stabled at the inn up the lane; they would come over on the morning boat.'
+    ],
+    addWords: 350,
+    steps: [
+      {
+        kind: 'addBelow',
+        direction: 'A carrier’s boy runs in out of the rain with a letter for Wren from Bryn, sealed with red wax; on the outside Bryn has written that it is not to be opened until she is across the water. Wren puts it, unopened, inside her jacket.',
+        plants: ['letter-open', 'letter-alive']
+      },
+      { kind: 'continue' },
+      {
+        kind: 'addBelow',
+        direction: 'The ferryman, Jory Pask, comes in and knows Ash at once: Ash still owes him three shillings from last spring. Jory says he will collect before the tide turns, and Ash says he will have it for him by then.',
+        plants: ['debt-early', 'debt-alive']
+      },
+      { kind: 'continue' },
+      {
+        kind: 'addBelow',
+        direction: 'A stranger in a grey hood comes in to wait for the same boat. She asks Wren whether she is the surveyor’s girl from Linmouth, then turns to the window without waiting, and Wren does not answer.',
+        plants: ['question-open', 'question-alive']
+      },
+      { kind: 'continue' },
+      { kind: 'addBelow', direction: 'Wren notices that the stranger’s fingers are stained with ink, like a clerk’s, and that she keeps glancing at the front of Wren’s jacket.', advances: ['question'] },
+      { kind: 'continue' },
+      { kind: 'addBelow', direction: 'Ash asks Wren, low, what she thinks Bryn has written in the letter.' },
+      { kind: 'continue' },
+      { kind: 'addBelow', direction: 'The tide turns. Jory Pask comes in for his money, and Ash pays him the three shillings; Jory says they are square.', payoffs: ['debt'] },
+      { kind: 'continue' }
+    ],
+    plants: K3_PLANTS,
+    far: CHAIN_FAR,
+    threads: K3_THREADS,
+    beatSigns: [
+      {
+        // They wait in the ferry-house: the opening has done it, so a step that arrives again starts the scene over.
+        beat: 'Wren and Ash wait in the ferry-house at Gull Sound for the night boat.',
+        sign: /\b(?:(?:came|walked|rode) (?:down|out) (?:to|onto|along) the (?:stone )?jetty|reached the ferry-house|the ferry-house (?:at Gull Sound )?(?:was|stood) a single room)\b/i
+      },
+      {
+        // They talk about what waits across the water: plans said aloud, two or more of them.
+        beat: 'They talk about what waits across the water.',
+        sign: /\b(?:across the water|the far shore|the other side|over the water|tomorrow|in the morning|what comes next|where we go|we['’]ll go)\b/i,
+        spoken: true,
+        min: 2
+      }
+    ]
   }
 ]
 
@@ -570,10 +825,28 @@ export const DEFAULT_CHAINS = ['K1']
 /** How many times one step is drafted at most when its planted events don't land. */
 export const STEP_TRIES = 3
 
-/** The plants in force at a step: landed earlier and not ended by a change shown since, then the far facts. */
-export function inForce(spec: ChainSpec, landedAt: Map<string, number>, ended: Set<string>, step: number): ChainPlant[] {
-  const near = spec.plants.filter((p) => (landedAt.get(p.id) ?? Infinity) < step && !ended.has(p.id))
+/**
+ * The plants in force at a step: landed earlier (or, with `after`, that plant landed) and not ended by a change shown
+ * since, then the far facts. K3's thread checks also go by the step: a kept-alive check only at a step of its kind (so
+ * with `kind` given), a payoff check only at the step whose direction pays its thread off, and the thread's other
+ * checks only before that step.
+ */
+export function inForce(spec: ChainSpec, landedAt: Map<string, number>, ended: Set<string>, step: number, kind?: ChainStep['kind']): ChainPlant[] {
+  const near = spec.plants.filter((p) => (landedAt.get(p.after ?? p.id) ?? Infinity) < step && !ended.has(p.id) && threadDue(spec, p, step, kind))
   return [...near, ...spec.far]
+}
+
+/** The step whose direction pays a thread off (1-based), or null when none in the chain (as run) does. */
+export function payoffStep(spec: ChainSpec, thread: string): number | null {
+  const i = spec.steps.findIndex((s) => s.payoffs?.includes(thread))
+  return i >= 0 ? i + 1 : null
+}
+
+function threadDue(spec: ChainSpec, p: ChainPlant, step: number, kind?: ChainStep['kind']): boolean {
+  if (p.onlyOn && p.onlyOn !== kind) return false
+  if (!p.thread) return true
+  const paid = payoffStep(spec, p.thread.id)
+  return p.thread.check === 'payoff' ? paid === step : paid == null || step < paid
 }
 
 /** The checks for one step: deterministic ones, and the judge's questions (ids Q1...) with their tripwires. */
@@ -587,11 +860,99 @@ export function stepChecks(plants: ChainPlant[]): { facts: string[]; checks: Che
     if (p.judge) {
       const id = `Q${checks.length + 1}`
       judgeIds.set(id, p.id)
-      checks.push({ id, trap: p.id, ask: p.judge.ask, bad: 'yes' })
-      if (p.judge.tripwire) tripwires.push({ check: id, what: p.name, pattern: p.judge.tripwire, ...(p.change ? { unlessBefore: p.change } : {}) })
+      checks.push({ id, trap: p.id, ask: p.judge.ask, bad: p.judge.bad ?? 'yes' })
+      if (p.judge.tripwire)
+        tripwires.push({
+          check: id,
+          what: p.name,
+          pattern: p.judge.tripwire,
+          ...(p.change ? { unlessBefore: p.change } : {}),
+          ...(p.judge.tripwireNot ? { not: p.judge.tripwireNot } : {}),
+          ...(p.judge.narration ? { outsideQuotes: true } : {})
+        })
     }
   }
-  return { facts: plants.map((p) => p.fact), checks, tripwires, patterns, judgeIds }
+  // One line a fact (K3's thread checks share theirs).
+  return { facts: [...new Set(plants.map((p) => p.fact))], checks, tripwires, patterns, judgeIds }
+}
+
+// ---------- K3: plot threads ----------
+
+/**
+ * K3's payoff check (b): kept by its pattern when the narration shows the payoff, whatever the judge said; a judge's
+ * yes needs its words in the passage (else unverified); its "no" is broken (nothing to quote), its "unclear" not touched.
+ */
+export function payoffShown(plants: ChainPlant[], results: CheckResult[], text: string): CheckResult[] {
+  return results.map((r) => {
+    const p = plants.find((x) => x.id === r.trap)
+    if (p?.thread?.check !== 'payoff') return r
+    const hit = p.judge?.shows ? firstBreak({ broken: p.judge.shows, not: p.judge.showsNot, outsideQuotes: true }, text) : null
+    if (hit) return { ...r, verdict: 'kept', by: 'pattern', quote: hit.text }
+    if (r.verdict === 'kept' && r.by === 'judge' && !(r.quote && quoteInPassage(text, r.quote))) return { ...r, verdict: 'unverified' }
+    return r
+  })
+}
+
+/**
+ * The thread checks a step ends: every check of a thread it resolved where no direction had asked yet (a premature or
+ * invented payoff broken: the thread is resolved on the page, so its later steps aren't new slips), and of a thread
+ * whose payoff it showed when asked.
+ */
+export function threadEnds(spec: ChainSpec, results: CheckResult[]): string[] {
+  const threadOf = (r: CheckResult) => spec.plants.find((p) => p.id === r.trap)?.thread
+  const gone = new Set(
+    results
+      .filter((r) => {
+        const t = threadOf(r)
+        return t && ((r.verdict === 'broken' && (t.check === 'premature' || t.check === 'invented')) || (r.verdict === 'kept' && t.check === 'payoff'))
+      })
+      .map((r) => threadOf(r)!.id)
+  )
+  return spec.plants.filter((p) => p.thread && gone.has(p.thread.id)).map((p) => p.id)
+}
+
+/** A heading of a threads block in the writer's prompt: "Open threads", "Plot threads in this scene", and the like. */
+const THREADS_HEADING = /^[ \t]*(#{1,6}[ \t]*)?((?:Open|Unresolved|Unpaid|Live) (?:plot )?threads\b[^\n]*|Plot threads\b[^\n]*|Threads (?:still )?(?:open|unresolved|in play)\b[^\n]*)$/gim
+/**
+ * Where such a block ends: under a Markdown heading ("## Plot threads in this scene", as the app's briefing writes its
+ * blocks), the next heading of its level or above (its own "### thread" headings stay in it); under a plain line
+ * ("Open threads:"), any heading, or a blank line followed by a line that isn't a list item.
+ */
+const blockEnd = (level: number): RegExp =>
+  level ? new RegExp(`\\n[ \\t]*#{1,${level}}[ \\t]`) : /\n[ \t]*#{1,6}[ \t]|\n[ \t]*\n(?![ \t]*(?:[-*•]|\d+[.)])[ \t])/
+
+/**
+ * Which of a chain's threads the writer's prompt carried in a threads block (the first such block; its heading as
+ * found, trailing colon dropped). Null with no prompt; `block` null when the prompt has no threads block.
+ */
+export function threadsCarried(prompt: string | null, threads: ChainThread[]): ThreadStepNote['carried'] {
+  if (prompt == null) return null
+  const re = new RegExp(THREADS_HEADING.source, THREADS_HEADING.flags)
+  const m = re.exec(prompt)
+  if (!m) return { block: null, ids: [] }
+  const rest = prompt.slice(m.index + m[0].length)
+  const end = rest.search(blockEnd((m[1] ?? '').replace(/\s/g, '').length))
+  const body = (end >= 0 ? rest.slice(0, end) : rest).slice(0, 4000)
+  const once = (r: RegExp) => new RegExp(r.source, r.flags.replace('g', ''))
+  return { block: m[2].trim().replace(/[:.]$/, ''), ids: threads.filter((t) => once(t.named).test(body)).map((t) => t.id) }
+}
+
+/**
+ * A step's plot threads (K3; undefined for a chain without threads): those open (a premature or invented check in
+ * force), those dormant (open, and the step's direction doesn't name them), those of the dormant the step's words touch
+ * anyway, and what the writer's prompt carried.
+ */
+export function threadNotes(spec: ChainSpec, plants: ChainPlant[], step: ChainStep, text: string, prompt: string | null): ThreadStepNote | undefined {
+  if (!spec.threads?.length) return undefined
+  const once = (r: RegExp) => new RegExp(r.source, r.flags.replace('g', ''))
+  const open = spec.threads.filter((t) => plants.some((p) => p.thread?.id === t.id && (p.thread.check === 'premature' || p.thread.check === 'invented')))
+  const dormant = open.filter((t) => !once(t.named).test(step.direction ?? ''))
+  return {
+    open: open.map((t) => t.id),
+    dormant: dormant.map((t) => t.id),
+    touched: dormant.filter((t) => once(t.mention).test(text)).map((t) => t.id),
+    carried: threadsCarried(prompt, spec.threads)
+  }
 }
 
 /** The plants a step's words end by a change shown in the narration (not in what someone says). */
@@ -899,7 +1260,7 @@ export function rescoreChain(
     const built: ChainStepResult[] = []
     const steps = m.steps.map((st) => {
       if (st.status !== 'complete') return st
-      const plants = inForce(spec, landedAt, ended, st.step)
+      const plants = inForce(spec, landedAt, ended, st.step, st.kind)
       const sc = stepChecks(plants)
       const before = pageSteps(built)
       // Where each confirmed change is, by plant (the written words' pass), to end the plant at its step.
@@ -926,7 +1287,7 @@ export function rescoreChain(
             const answers = was && was.by !== 'none' && was.answer ? [{ id, answer: was.answer as 'yes' | 'no' | 'unclear', quote: was.quote }] : null
             const v = scorePassage({ checks: [check], tripwires: sc.tripwires.filter((t) => t.check === id), patterns: [] }, text, answers)[0]
             if (listNeeds && !was) needJudge.push({ sample: m.index + 1, step: st.step, plant: p.id, quote: '' })
-            out.push(excusedByChange([p], [{ ...v, id: p.id, trap: p.id }], text)[0])
+            out.push(payoffShown([p], excusedByChange([p], [{ ...v, id: p.id, trap: p.id }], text), text)[0])
           }
         }
         return out
@@ -942,7 +1303,7 @@ export function rescoreChain(
       // As the live run does: a slip the judge confirmed was excused (the change on the page before it) ends the plant,
       // at the step its words are in.
       const ends = confirmedEnds(results, endedAt, st.step)
-      const resolved = [...new Set([...endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly, st.planted), ...ends.here])]
+      const resolved = [...new Set([...endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly, st.planted), ...ends.here, ...threadEnds(spec, results)])]
       for (const id of resolved) ended.add(id)
       for (const [at, ids] of ends.earlier) {
         const prior = built.find((x) => x.step === at)
@@ -1064,7 +1425,7 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
       break
     }
     // The checks in force as this step was asked for, scored on its words as written.
-    const plants = inForce(spec, landedAt, ended, n)
+    const plants = inForce(spec, landedAt, ended, n, step.kind)
     const sc = stepChecks(plants)
     // The judge's 1-5 marks (the prose rubric) are asked with the checks; when check and repair changes the words, they
     // are asked again on the mended words, so the marks are of the same final text the prose metrics measure.
@@ -1076,7 +1437,7 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
     // A slip a pattern found is asked about once more over the scene's words since its plant landed.
     const look: LookBack = { steps: pageSteps(sample.steps), landedAt, planted: plantedWords, step: n }
     const confirmed = await confirmSlips(app, plants, rename(scorePassage(sc, got.text, j.answers)), got.text, look)
-    const results = excusedByChange(plants, confirmed.results, got.text)
+    const results = payoffShown(plants, excusedByChange(plants, confirmed.results, got.text), got.text)
     // Lands in the page as the window puts it there; step 3 checks it and mends what it can, as the page does.
     const added = paragraphsOf(got.text)
     let text = got.text
@@ -1087,7 +1448,11 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
       if (r.text !== got.text) {
         const again = await app.askJudge({ facts: sc.facts, checks: sc.checks }, r.text, rubricAsk)
         rubric = again.prose
-        repair = { ...r, judge: { status: again.status, raw: again.raw }, results: excusedByChange(plants, (await confirmSlips(app, plants, rename(scorePassage(sc, r.text, again.answers)), r.text, look)).results, r.text) }
+        repair = {
+          ...r,
+          judge: { status: again.status, raw: again.raw },
+          results: payoffShown(plants, excusedByChange(plants, (await confirmSlips(app, plants, rename(scorePassage(sc, r.text, again.answers)), r.text, look)).results, r.text), r.text)
+        }
         text = r.text
       } else repair = { ...r, judge: { status: j.status, raw: j.raw }, results }
     }
@@ -1103,7 +1468,9 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
     }
     // A change the judge found in an earlier step's words ends the plant at that step.
     const ends = confirmedEnds(results, confirmed.endedAt, n)
-    const resolved = [...new Set([...endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly, land.planted), ...ends.here])]
+    // K3: a thread resolved on the page (asked for or not) ends its checks here.
+    const resolved = [...new Set([...endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly, land.planted), ...ends.here, ...threadEnds(spec, results)])]
+    const threads = threadNotes(spec, plants, step, got.text, record ? promptText(record.messages) : null)
     for (const id of resolved) ended.add(id)
     for (const [at, ids] of ends.earlier) {
       const st = sample.steps.find((x) => x.step === at)
@@ -1128,13 +1495,32 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
       ...(repair ? { repair } : {}),
       resolved,
       prose,
-      records: app.recordsSince(fromRow)
+      records: app.recordsSince(fromRow),
+      ...(threads ? { threads } : {})
     })
     cfg.log(
-      `  ${spec.id} chain ${index + 1} step ${n} (${step.kind}): ${countWords(got.text)} words${land.planted.length ? `; planted ${land.planted.map((x) => x.id).join(', ')}` : ''}; ${results.map((r) => `${r.id} ${r.verdict}`).join(', ')}${resolved.length ? `; ended ${resolved.join(', ')}` : ''}`
+      `  ${spec.id} chain ${index + 1} step ${n} (${step.kind}): ${countWords(got.text)} words${land.planted.length ? `; planted ${land.planted.map((x) => x.id).join(', ')}` : ''}; ${results.map((r) => `${r.id} ${r.verdict}`).join(', ')}${resolved.length ? `; ended ${resolved.join(', ')}` : ''}${
+        threads ? `; threads open ${threads.open.join(', ') || 'none'}, touched ${threads.touched.join(', ') || 'none'}, prompt block ${threads.carried ? (threads.carried.block ? `"${threads.carried.block}" (${threads.carried.ids.join(', ') || 'none of them'})` : 'none') : 'not saved'}` : ''
+      }`
     )
   }
   return sample
+}
+
+/**
+ * A chain's plants as its report lists them: the step that plants each (a payoff check: the step that pays its thread
+ * off), and K3's thread and check.
+ */
+export function chainPlantsListed(spec: ChainSpec): ChainResult['plants'] {
+  return [
+    ...spec.plants.map((p) => ({
+      id: p.id,
+      name: p.name,
+      step: (p.thread?.check === 'payoff' ? payoffStep(spec, p.thread.id) : spec.steps.findIndex((s) => s.plants?.includes(p.id)) + 1) || null,
+      ...(p.thread ? { thread: p.thread } : {})
+    })),
+    ...spec.far.map((p) => ({ id: p.id, name: p.name, step: null }))
+  ]
 }
 
 /** Probes v4: the chains, after the whole written story, each sample from a fresh copy of the same world. */
@@ -1211,10 +1597,8 @@ export async function runChains(cfg: TrapsConfig): Promise<{ report: RunReport; 
         scene: spec.scene.key,
         title: spec.scene.title,
         opening: spec.opening,
-        plants: [
-          ...spec.plants.map((p) => ({ id: p.id, name: p.name, step: spec.steps.findIndex((s) => s.plants?.includes(p.id)) + 1 || null })),
-          ...spec.far.map((p) => ({ id: p.id, name: p.name, step: null }))
-        ],
+        plants: chainPlantsListed(spec),
+        ...(spec.threads?.length ? { threads: spec.threads.map((t) => ({ id: t.id, name: t.name })) } : {}),
         steps: spec.steps.length,
         samples: []
       }
@@ -1255,6 +1639,7 @@ export async function runChains(cfg: TrapsConfig): Promise<{ report: RunReport; 
       summary,
       chains: results,
       chainSummary: summariseChains(results),
+      ...(summariseThreads(results) ? { threads: summariseThreads(results)! } : {}),
       prose: chainProse(results),
       ...(results.some((c) => c.samples.some((m) => m.recall))
         ? { recall: recallSummary(results.flatMap((c) => c.samples.map((m) => ({ id: c.id, scene: c.scene, kind: 'addBelow' as const, asks: '', samples: [], recall: m.recall })))) }

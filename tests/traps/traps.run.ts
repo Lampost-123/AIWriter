@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { configFromEnv, runTraps } from './run'
 import { CHAINS, chainProse, rescoreChain, runChains } from './chain'
 import { promptText, proseMarkdown } from './prose'
-import { chainsAsSummary, passagesMarkdown, reportMarkdown, summariseChains } from './score'
+import { chainsAsSummary, passagesMarkdown, reportMarkdown, summariseChains, summariseThreads } from './score'
 import { mkdirSync } from 'node:fs'
 import { runWrite } from './write'
 import { compareMarkdown, type ChainResult, type RunReport } from './score'
@@ -80,6 +80,7 @@ describe.runIf(!!process.env.TRAPS_RESCORE)('trap scores re-scored offline', () 
       ...old,
       chains,
       chainSummary: summariseChains(chains),
+      ...(summariseThreads(chains) ? { threads: summariseThreads(chains)! } : {}),
       summary: chainsAsSummary(chains),
       prose: chainProse(chains),
       rescored: { from, at: new Date().toISOString(), needJudge: need }

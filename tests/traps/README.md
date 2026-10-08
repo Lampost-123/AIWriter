@@ -80,7 +80,8 @@ harness never downloads them: it copies them from `--search-model <folder>` (def
 committed). Without them the run uses keyword search, sticky entries and what was said only, and the report says so.
 
 Other flags: `--probes-version 4|3` (4, chains, is the default), `--story v2` or `--story-file <file>`, `--samples N`
-(default 3), `--probes G1,C1` (probes v3), `--words N`, `--add-words N`, `--beat-scene-words N`, `--price-in X
+(default 3), `--probes G1,C1` (probes v3), `--chain K1|K2|K3|both|all` or a list (`--chain K1,K3`; the chains to
+run, K1 alone by default; "both" is K1 and K2; instead of `--probes`), `--words N`, `--add-words N`, `--beat-scene-words N`, `--price-in X
 --price-cached Y --price-out Z` (USD per million tokens for the estimated cost; default DeepSeek's prices, 0.28, 0.028
 for input read from its cache, and 0.42), `--keep` (keep the throwaway world, with "What the AI saw" for every call),
 `--base-url <url>` (only to check the harness against a local fake server). The comment at the top of
@@ -300,6 +301,44 @@ a scene and across scenes. A chain does what he does (`chain.ts`):
   and, by the judge, running or striding with no limp), the sealed claim handed to Wren (Ash with it again), and Ash
   telling only Wren he won't go back to Linmouth (the carter knowing it, by the judge).
 
+## Chain K3: plot threads
+
+K1 and K2 test facts that hold; K3 (`--chain K3`, or `--chain all` for all three) tests threads set up early, left open, and
+paid off only when a direction asks. "The ferry-house at Gull Sound", after the same story (`story-v3.json` unchanged,
+so saved worlds fit), all invented:
+
+| Step | Kind | Direction (Add below) | Thread |
+|---:|---|---|---|
+| 1 | Add below | A carrier's boy brings a letter from Bryn, sealed, not to be opened until Wren is across the water; she puts it away unopened | letter planted (never paid off) |
+| 3 | Add below | The ferryman Jory Pask: Ash owes him three shillings, to be collected before the tide turns | debt planted |
+| 5 | Add below | A stranger in a grey hood asks Wren if she is the surveyor's girl from Linmouth; Wren doesn't answer | question planted (never paid off) |
+| 7 | Add below | The stranger's ink-stained fingers, her eyes on Wren's jacket | question: a clue, not an answer |
+| 9 | Add below | Ash asks what Bryn has written in the letter | bait for the letter |
+| 11 | Add below | The tide turns; Ash pays Jory the three shillings | debt paid off |
+| even | Continue | none | |
+
+The checks (each a judge question with a narration-only tripwire, one check a plant, as K1's; `K3_PLANTS`):
+
+- **(a) premature** (`debt-early`): the debt paid, settled or let off before step 11, at any step. Broken.
+- **(b) payoff** (`debt-paid`, step 11 only): the payment on the page. A pattern finding it in the narration keeps it
+  whatever the judge said; else the judge's yes needs its words in the passage (else unverified), its no is broken.
+- **(c) alive** (`letter-alive`, `debt-alive`, `question-alive`, Continue steps only): an open thread said to be resolved
+  without it being shown (the debt "settled long ago", the letter "already read" or lost), or changed (another sum or
+  time). The payment shown first in the passage is (a)'s, not this.
+- **(d) invented** (`letter-open`, `question-open`, every step): a thread no direction pays off resolved anyway (the
+  seal broken, the letter read, Wren answering the stranger or the stranger naming herself).
+
+A thread broken by (a) or (d), or paid at (b), ends there (all its checks; the report's "Ended on the page"). Each step
+also notes (`threads` in report.json) the threads open, those dormant (open and not named by the step's direction), those
+of the dormant the words touch anyway (a soft count, never a slip), and what the writer's prompt carried: the heading of
+a threads block ("Open threads", "Plot threads in this scene", ...) and which threads it names; null when no prompt was
+saved. Main sends "Plot threads in this scene" only for threads on the scene card, and K3's card has none, so main's
+prompts show no block. The report's "Plot threads (K3)" section tallies the four checks, the touches and the blocks.
+
+Limits: a payoff inside the step that plants the thread (Jory asks and Ash pays at once, step 3) isn't checked (checks
+start at the step after a plant, as K1's); "dormant" and "touched" go by words (`ChainThread.mention`), not meaning; the
+threads block is found by its heading only.
+
 ## Check and repair (step 3)
 
 When the checkout has step 3 (`src/main/ipc/repair.ts`), each passage goes through it the way the page sends it as
@@ -367,4 +406,4 @@ passage.
 Version 2 lives in `story.ts` (bump `STORY_VERSION`). Version 3's outline, probes and checks live in `story3.ts` (bump
 `OUTLINE_VERSION`: a story written from another outline won't load, so write it again). The chain and its checks live
 in `chain.ts`. The checks' own tests are in `tests/unit/traps.test.ts`, `tests/unit/traps3.test.ts` and
-`tests/unit/trapsChain.test.ts`; add the exact lines a real run got wrong when you change a check.
+`tests/unit/trapsChain.test.ts` (K3's threads: `tests/unit/trapsThreads.test.ts`); add the exact lines a real run got wrong when you change a check.
