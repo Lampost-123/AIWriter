@@ -606,6 +606,12 @@ test('the dock’s Continue writes on from the end of the scene as a change; Tab
     await expect(dock(win)).toHaveAttribute('data-desk-dock', 'review')
     await expect(dock(win).getByRole('button', { name: /^Accept/ })).toBeVisible()
     await expect(dock(win)).toContainText(/Continue · \d+ words/)
+    // One clear Accept and Reject, in the dock: the row under the change keeps What the AI saw.
+    const row = win.getByRole('group', { name: 'The AI’s change' })
+    await expect(row).toContainText('Tab accepts, Esc rejects')
+    await expect(row.getByRole('button', { name: /^(Accept|Reject)/ })).toHaveCount(0)
+    await expect(row.getByRole('button', { name: 'What the AI saw' })).toBeVisible()
+    await expect(win.getByRole('button', { name: /^Accept/ })).toHaveCount(1)
     await expect(paras.last().locator('.aw-sugg-new')).toHaveCount(1)
     // The steer box's words went to the AI as the direction (the record keeps them; edit records aren't listed per scene).
     const sent = JSON.stringify(fake.lastRequest()?.body.messages ?? [])

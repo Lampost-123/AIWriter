@@ -11,7 +11,7 @@ import type { ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
-import { deskOn } from '@/features/look/look'
+import { deskOn, useDesk } from '@/features/look/look'
 import { parseEmphasis } from '@/features/editor/streamText'
 import { TOOL_NAMES, TOOL_WORKING } from './names'
 import { picking, suggestionsOf, type Suggestion, type SuggestionsState } from './suggestions'
@@ -272,9 +272,14 @@ const BUTTON =
 
 const KEY = 'text-[11px] font-normal opacity-70'
 
-/** One row: what it's doing and Stop, or Accept and Reject; a note below when there is one. */
+/**
+ * One row: what it's doing and Stop, or Accept and Reject; a note below when there is one. On the desk the AI dock
+ * carries Stop, Accept and Reject (one clear place for them), so the row under the change keeps only what the dock
+ * doesn't: what it is doing or what it is, Other versions, and What the AI saw.
+ */
 function Bar({ s }: { s: Suggestion }): React.JSX.Element {
   const busy = s.status === 'starting' || s.status === 'writing' || s.status === 'stopping'
+  const desk = useDesk()
   const label =
     s.status === 'starting'
       ? 'Getting ready…'
@@ -292,15 +297,34 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ai animate-pulse" aria-hidden />
               <span className="truncate">{label}</span>
             </span>
-            <button
-              type="button"
-              className={cn(BUTTON, 'text-muted hover:bg-surface-2 hover:text-fg')}
-              onClick={() => stop(s.id)}
-              disabled={s.status === 'stopping'}
-            >
-              <Square size={11} fill="currentColor" aria-hidden />
-              Stop <span className={KEY}>Esc</span>
-            </button>
+            {desk ? null : (
+              <button
+                type="button"
+                className={cn(BUTTON, 'text-muted hover:bg-surface-2 hover:text-fg')}
+                onClick={() => stop(s.id)}
+                disabled={s.status === 'stopping'}
+              >
+                <Square size={11} fill="currentColor" aria-hidden />
+                Stop <span className={KEY}>Esc</span>
+              </button>
+            )}
+          </>
+        ) : desk ? (
+          <>
+            <span className="flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-[12.5px] text-muted">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ai" aria-hidden />
+              <span className="truncate">
+                {s.versions && s.chosen !== null && s.versions.length > 1
+                  ? `Version ${s.chosen + 1} of ${s.versions.length}`
+                  : `${s.label ?? TOOL_NAMES[s.tool]} · Tab accepts, Esc rejects`}
+              </span>
+            </span>
+            {s.versions && s.versions.length > 1 ? (
+              <button type="button" className={cn(BUTTON, 'text-muted hover:bg-surface-2 hover:text-fg')} onClick={unpick}>
+                <Layers size={13} aria-hidden />
+                Other versions
+              </button>
+            ) : null}
           </>
         ) : (
           <>
