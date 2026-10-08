@@ -24,6 +24,7 @@ import {
   History,
   Keyboard,
   LayoutGrid,
+  MessagesSquare,
   Monitor,
   Moon,
   Network,
@@ -56,7 +57,9 @@ import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { useDelayed } from '@/features/generate/parts'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
-import { useNewLook } from '@/features/look/look'
+import { useDesk, useNewLook } from '@/features/look/look'
+import { openAsk } from '@/features/ask/open'
+import { setDraft } from '@/features/ask/askStore'
 import { openResult, runAction } from './actions'
 import {
   entryAction,
@@ -233,6 +236,17 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
     )
   }
 
+  if (row.type === 'ask') {
+    return (
+      <div {...props} className={cn(base, 'h-9 items-center')}>
+        <MessagesSquare size={15} className={cn('shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
+          Ask the world: <span className="font-medium">“{row.query}”</span>
+        </span>
+      </div>
+    )
+  }
+
   if (row.type === 'more') {
     const all = `${row.total.toLocaleString('en-GB')} in all`
     return (
@@ -342,6 +356,8 @@ export function CommandPalette(): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id ?? null)
   const storyId = useApp((s) => s.storyId)
   const ctx = useActionContext()
+  // The desk's command bar: what is typed can be asked of the world as well.
+  const desk = useDesk()
 
   const [text, setText] = useState('')
   // The groups Adam asked to see more of, for what is in the box now.
@@ -431,8 +447,8 @@ export function CommandPalette(): React.JSX.Element {
   const actions = useMemo(() => matchActions(shown.query, ctx), [shown.query, ctx])
   const suggested = useMemo(() => suggestedActions(ctx), [ctx])
   const rows = useMemo(
-    () => paletteRows({ query: shown.query, actions, results: shown.results, recent: recent ?? [], suggested, expanded: shown.expanded }),
-    [shown, actions, recent, suggested]
+    () => paletteRows({ query: shown.query, actions, results: shown.results, recent: recent ?? [], suggested, expanded: shown.expanded, ask: desk }),
+    [shown, actions, recent, suggested, desk]
   )
   const options = useMemo(() => rows.filter(isOption), [rows])
   const optionIndex = useMemo(() => new Map(options.map((o, i) => [o.key, i])), [options])
@@ -477,7 +493,16 @@ export function CommandPalette(): React.JSX.Element {
     pending.current =
       o.type === 'action'
         ? { run: () => runAction(o.action.id), away: goesAway(o.action, ctx) }
-        : { run: () => openResult(o.hit.open), away: true }
+        : o.type === 'ask'
+          ? {
+              // Ask the world opens beside the page with the question in its box, ready to send.
+              run: async () => {
+                setDraft(o.query)
+                openAsk()
+              },
+              away: true
+            }
+          : { run: () => openResult(o.hit.open), away: true }
     usePalette.setState({ open: false })
     // Runs even if the closing focus step never comes (it always should).
     setTimeout(runPending, 100)

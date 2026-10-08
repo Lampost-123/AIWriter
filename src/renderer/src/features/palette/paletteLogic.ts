@@ -480,10 +480,12 @@ export type Row =
   | { type: 'hit'; key: string; hit: SearchHit }
   | { type: 'more'; key: string; group: string; label: string; total: number }
   | { type: 'note'; key: string; text: string }
+  /** The desk's command bar: ask the world what was typed (Ask the world opens with it in its box). */
+  | { type: 'ask'; key: string; query: string }
 
-export type Option = Extract<Row, { type: 'action' | 'hit' | 'more' }>
+export type Option = Extract<Row, { type: 'action' | 'hit' | 'more' | 'ask' }>
 
-export const isOption = (r: Row): r is Option => r.type === 'action' || r.type === 'hit' || r.type === 'more'
+export const isOption = (r: Row): r is Option => r.type === 'action' || r.type === 'hit' || r.type === 'more' || r.type === 'ask'
 
 /**
  * The row a move of `by` lands on in a list of `n` options, from `index` (-1: none yet). Single steps
@@ -506,6 +508,8 @@ export interface ListInput {
   suggested: ActionDef[]
   /** Groups Adam asked to see more of ('actions' or a search group's id). */
   expanded: ReadonlySet<string>
+  /** The desk: what is typed can be asked of the world too ("Ask the world: …", after the actions). */
+  ask?: boolean
 }
 
 /**
@@ -535,6 +539,10 @@ export function paletteRows(input: ListInput): Row[] {
     if (!all && input.actions.length > ACTION_LIMIT) {
       rows.push({ type: 'more', key: 'more:actions', group: 'actions', label: 'Show more actions', total: input.actions.length })
     }
+  }
+  if (input.ask) {
+    rows.push({ type: 'heading', key: 'h:ask', label: 'Ask the world' })
+    rows.push({ type: 'ask', key: 'ask', query: input.query.trim() })
   }
   for (const g of input.results?.groups ?? []) {
     rows.push({ type: 'heading', key: `h:${g.id}`, label: g.label })

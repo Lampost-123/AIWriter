@@ -8,7 +8,7 @@ import { IconButton, Kbd } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
-import { enterFocus, installFocusMode, leaveFocus, useFocusMode } from './focusMode'
+import { installFocusMode, leaveFocus, toggleFocus, useFocusMode } from './focusMode'
 
 /** How near the top edge the mouse has to come for the way out to show, and how far it goes before it fades again. */
 const SHOW_WITHIN = 28
@@ -56,6 +56,8 @@ export function FocusLayer(): React.JSX.Element {
         aria-hidden={!showWayOut}
         className={cn(
           'fixed left-1/2 top-3 z-40 -translate-x-1/2 transition-[opacity,visibility] duration-200 ease-out',
+          // The desk keeps its top bar in focus mode, dimmed, with focus mode's own button to leave by.
+          'desk:hidden',
           showWayOut ? 'visible opacity-100' : 'invisible opacity-0'
         )}
       >
@@ -86,11 +88,23 @@ export function FocusLayer(): React.JSX.Element {
   )
 }
 
-/** The top bar's way into focus mode. It rests (but keeps its place, so the bar never moves) away from a scene's page. */
+/**
+ * The top bar's way into focus mode (and, in the desk, whose dimmed top bar stays, the way out). It rests (but keeps its
+ * place, so the bar never moves) away from a scene's page.
+ */
 export function FocusButton(): React.JSX.Element {
   const can = useApp((s) => s.view.kind === 'write' && !!s.sceneId)
+  const on = useFocusMode((s) => s.on)
   return (
-    <IconButton label="Focus mode" title={withShortcut('Focus mode', 'focusMode')} aria-keyshortcuts="F11" disabled={!can} onClick={enterFocus}>
+    <IconButton
+      label="Focus mode"
+      title={withShortcut(on ? 'Leave focus mode' : 'Focus mode', on ? 'leaveFocusMode' : 'focusMode')}
+      aria-keyshortcuts="F11"
+      aria-pressed={on}
+      active={on}
+      disabled={!can}
+      onClick={toggleFocus}
+    >
       <Focus size={16} />
     </IconButton>
   )

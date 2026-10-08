@@ -22,7 +22,8 @@ export function SampleWorldChip(): React.JSX.Element | null {
       className="flex h-7 shrink-0 items-center gap-2 rounded-full bg-k-place-soft pl-2.5 pr-1 text-[12px] font-medium text-k-place"
     >
       <BookOpen size={13} aria-hidden />
-      <span className="whitespace-nowrap max-[1360px]:hidden">Sample world</span>
+      {/* (The desk's world name already says it is the sample.) */}
+      <span className="whitespace-nowrap max-[1360px]:hidden desk:hidden">Sample world</span>
       <button
         type="button"
         disabled={busy}

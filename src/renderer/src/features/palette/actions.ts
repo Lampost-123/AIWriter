@@ -24,6 +24,8 @@ import { openVariants } from '@/features/variants/open'
 import { startBeatByBeat } from '@/features/beats/start'
 import { continueFromCursor } from '@/features/edits/continue'
 import { openAsk } from '@/features/ask/open'
+import { setFlyout, toggleFlyout } from '@/features/desk/deskStore'
+import { deskOn } from '@/features/look/look'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
 import { stopReading, toggleListen } from '@/features/readAloud/control'
@@ -68,6 +70,9 @@ async function newScene(): Promise<void> {
   const id = await binder.addScene(chapterId, open?.id ?? null)
   if (id) requestEditorFocus(id)
 }
+
+/** A new scene after the open one (the desk's spine and flyout use it too). */
+export const newSceneAfterOpen = (): Promise<void> => newScene().catch(failed)
 
 /** A new chapter after the open scene's (else at the end), with a first scene to write in. */
 async function newChapter(): Promise<void> {
@@ -195,6 +200,17 @@ export async function runAction(id: ActionId): Promise<void> {
         await a.updateSettings({ theme: fixed.slice('theme-'.length) as 'light' | 'dark' | 'sepia' | 'system' })
         return
       case 'toggle-binder':
+        // The desk: the story's flyout beside the spine (unpinned if it was pinned open).
+        if (deskOn()) {
+          if (document.querySelector('.desk-flyout[data-pinned]')) {
+            setFlyout(false)
+            if (layout) await a.updateSettings({ layout: { binderOpen: false } })
+            return
+          }
+          if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+          toggleFlyout()
+          return
+        }
         // In a small window the binder floats over the page: this shows or hides it and leaves the saved layout alone.
         if (useFloatingBinder.getState().floating) toggleFloatingBinder()
         else if (layout) await a.updateSettings({ layout: { binderOpen: !layout.binderOpen } })

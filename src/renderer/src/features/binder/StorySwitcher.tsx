@@ -1,5 +1,5 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookOpen, Brain, Check, ChevronsUpDown, FileDown, FileUp, LibraryBig, ListTree, PenLine, Plus, Settings2 } from '@/components/ui/icons'
+import { BookOpen, Brain, Check, ChevronDown, ChevronsUpDown, FileDown, FileUp, LibraryBig, ListTree, PenLine, Plus, Settings2 } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -22,7 +22,7 @@ const item = 'flex h-8 items-center gap-2 rounded-md px-2 text-[13.5px] text-fg 
  * The open story's title, with a menu to switch stories (in reading order, each with its grey line when
  * it doesn't simply continue, and its settings), start a new one (the New story dialog) or rename this one.
  */
-export function StorySwitcher(): React.JSX.Element {
+export function StorySwitcher({ bar = false }: { bar?: boolean }): React.JSX.Element {
   const stories = useApp((s) => s.stories)
   const storyId = useApp((s) => s.storyId)
   const story = stories.find((s) => s.id === storyId) ?? null
@@ -30,7 +30,8 @@ export function StorySwitcher(): React.JSX.Element {
   const order = useStoryLabels((s) => s.order)
   const shelf = useMemo(() => inShelfOrder(stories, order), [stories, order])
   const [renaming, setRenaming] = useState(false)
-  const isNew = useNewLook()
+  // `bar`: the desk's top bar, where the story is its name in the serif beside the world's, with a chevron.
+  const isNew = useNewLook() && !bar
   const { outline } = useOutline()
   const holds = outline && outline.story.id === storyId ? holdsLine(outline.chapters.length, outline.scenes.length) : ''
   // Milestone 6: the story has scenes the memory hasn't read since they were imported.
@@ -47,7 +48,12 @@ export function StorySwitcher(): React.JSX.Element {
 
   return (
     // The New look: the story is a raised card, its cover beside its title and how much it holds.
-    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 look-new:h-auto look-new:border-transparent look-new:px-1.5 look-new:pb-2 look-new:pt-1">
+    <div
+      className={cn(
+        'flex items-center gap-1',
+        bar ? 'h-8 min-w-0 shrink' : 'h-12 shrink-0 border-b border-line px-2 look-new:h-auto look-new:border-transparent look-new:px-1.5 look-new:pb-2 look-new:pt-1'
+      )}
+    >
       {renaming && story ? (
         <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2">
           <BookOpen size={14} className="shrink-0 text-muted" />
@@ -63,9 +69,14 @@ export function StorySwitcher(): React.JSX.Element {
         <M.Root modal={false}>
           <M.Trigger
             data-story-menu
-            className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 data-[state=open]:bg-surface-2 look-new:h-auto look-new:gap-2.5 look-new:rounded-[10px] look-new:bg-surface look-new:p-2 look-new:shadow-e1 look-new:hover:bg-raise look-new:data-[state=open]:bg-raise"
+            title={bar ? 'Switch story, or this story’s settings' : undefined}
+            className={
+              bar
+                ? 'desk-bar-link flex h-8 min-w-0 items-center gap-1.5 rounded-[9px] px-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60'
+                : 'flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 data-[state=open]:bg-surface-2 look-new:h-auto look-new:gap-2.5 look-new:rounded-[10px] look-new:bg-surface look-new:p-2 look-new:shadow-e1 look-new:hover:bg-raise look-new:data-[state=open]:bg-raise'
+            }
           >
-            <BookOpen size={14} className="shrink-0 text-muted look-new:hidden" />
+            {bar ? null : <BookOpen size={14} className="shrink-0 text-muted look-new:hidden" />}
             {isNew ? (
               <span
                 aria-hidden
@@ -77,15 +88,17 @@ export function StorySwitcher(): React.JSX.Element {
             <span className="min-w-0 flex-1">
               <span
                 className={cn(
-                  'block truncate text-[13.5px] font-semibold look-new:font-heading look-new:text-[14.5px]',
-                  story ? 'text-fg' : 'text-faint'
+                  bar
+                    ? 'block max-w-[300px] truncate font-heading text-[15px] leading-5 text-muted'
+                    : 'block truncate text-[13.5px] font-semibold look-new:font-heading look-new:text-[14.5px]',
+                  story ? (bar ? '' : 'text-fg') : 'text-faint'
                 )}
               >
                 {story?.title ?? 'No story yet'}
               </span>
               {isNew && holds ? <span className="block truncate text-[11.5px] text-faint">{holds}</span> : null}
             </span>
-            <ChevronsUpDown size={13} className="shrink-0 text-faint" />
+            {bar ? <ChevronDown size={12} className="shrink-0 text-faint" /> : <ChevronsUpDown size={13} className="shrink-0 text-faint" />}
           </M.Trigger>
           <M.Portal>
             {/* The stories scroll between the heading and the actions, so "New story…" is always in view. */}
