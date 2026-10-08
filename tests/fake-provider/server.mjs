@@ -140,14 +140,42 @@ function continuityReply(system, user) {
   return JSON.stringify({ time: { value: 'evening', quote: opening }, things, characters })
 }
 
-/** Deterministic prose of about `words` words, in paragraphs. */
-export function fakeProse(words) {
+/**
+ * With `varyBeats` (beat markers' app tests), Beat by beat's beats 2 and 3 (and 5 and 6...) are written from these
+ * instead, so the beats read differently (and the live checks don't mark the words a copy of beat 1 repeats).
+ */
+const BEAT_SENTENCES = [
+  SENTENCES,
+  [
+    'Tobin leaned forward and asked, quietly, for the ledger.',
+    'Mara felt its weight against her ribs, wrapped in oilcloth beneath her coat.',
+    '"Not here," she answered, glancing toward the crowded bar.',
+    'He smiled without warmth and slid a coin across the scarred wood.',
+    'Behind them a dice game erupted into shouting and spilled ale.',
+    'The fire popped, and a log settled into embers.',
+    'A serving girl hurried past with a tray of empty mugs.',
+    'Tobin waited, fingers drumming once, then stilled.'
+  ],
+  [
+    'Three slow knocks sounded from the side entrance.',
+    'Every conversation in the room stopped at once.',
+    "Tobin's hand drifted toward his belt, toward the knife he pretended not to carry.",
+    'Mara stepped back until her shoulders found the cold plaster wall.',
+    'Whoever waited outside knocked again, patient and certain.',
+    'Somewhere a dog began barking in the alley.',
+    'Nobody moved to answer it.',
+    'Even the fiddler lowered his bow.'
+  ]
+]
+
+/** Deterministic prose of about `words` words, in paragraphs (from `sentences`, SENTENCES unless said). */
+export function fakeProse(words, sentences = SENTENCES) {
   const out = []
   let count = 0
   let i = 0
   let para = []
   while (count < words) {
-    const s = SENTENCES[i % SENTENCES.length]
+    const s = sentences[i % sentences.length]
     para.push(s)
     count += s.split(/\s+/).length
     i++
@@ -413,10 +441,15 @@ export async function startFakeProvider(options = {}) {
     if (memory === null && lastUser.includes('put who says it and how it is said in curly braces')) {
       full = full.replaceAll('"You came,"', '{Tobin|dry, a little amused}"You came,"').replaceAll('"I said I would."', '{Mara|flat and certain}"I said I would."')
     }
+    // With varyBeats, each beat of Beat by beat reads differently (its number picks the sentences).
+    const beat = memory === null && opts.varyBeats ? /\bbeat (\d+) of the \d+ on the scene card/.exec(lastUser) : null
+    if (beat && full) full = fakeProse(words, BEAT_SENTENCES[(Number(beat[1]) - 1) % BEAT_SENTENCES.length])
     // Beat by beat writing an earlier beat again (src/main/beats/instructions.ts, afterBlock): it opens otherwise, so a
     // test can tell the new version from the old.
     if (memory === null && lastUser.includes('## What comes after this beat')) {
-      full = full.replace('The rain had not let up since noon', 'By evening the rain had eased to a drizzle')
+      const was = 'The rain had not let up since noon'
+      const now = 'By evening the rain had eased to a drizzle'
+      full = full.includes(was) ? full.replace(was, now) : `${now}. ${full}`
     }
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4

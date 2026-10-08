@@ -595,12 +595,27 @@ const change = (win: Page) => win.getByRole('group', { name: 'The AI’s change'
 const changeButton = (win: Page, name: RegExp) => change(win).getByRole('button', { name })
 /** The fake writer opens a beat written again otherwise than the first time (tests/fake-provider/server.mjs). */
 const REDONE = 'By evening the rain had eased to a drizzle'
-const FIRST_WORDS = 'The rain had not let up'
+/** How each beat opens with the fake writer's varyBeats (tests/fake-provider/server.mjs). */
+const OPENS = ['The rain had not let up', 'Tobin leaned forward', 'Three slow knocks']
 
-/** With AIWRITE_SHOTS set to a folder, a picture of the window there (invented test data only). */
+/**
+ * With AIWRITE_SHOTS set to a folder, a picture of the window there (invented test data only), once every animation
+ * that ends (a menu opening, say) has ended.
+ */
 async function shot(win: Page, name: string): Promise<void> {
   const dir = process.env.AIWRITE_SHOTS
-  if (dir) await win.screenshot({ path: `${dir}/${name}.png` })
+  if (!dir) return
+  type Anim = { finished: Promise<unknown>; effect: { getComputedTiming(): { iterations?: number } } | null }
+  await win.evaluate(() =>
+    Promise.all(
+      (globalThis as unknown as { document: { getAnimations(): Anim[] } }).document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => undefined))
+    )
+  )
+  await win.waitForTimeout(100)
+  await win.screenshot({ path: `${dir}/${name}.png` })
 }
 
 /** The part of what was sent under one heading ("## The scene so far"), up to the next heading. */
@@ -632,7 +647,7 @@ async function writeThreeBeats(win: Page): Promise<void> {
 test('Beat markers show while writing beat by beat; an earlier beat is written again as a tracked change (Reject keeps it, Accept is one undo step), and the beats after it say so', async ({
   launch
 }) => {
-  const fake = await fakeProvider({ words: 60 })
+  const fake = await fakeProvider({ words: 60, varyBeats: true })
   try {
     const { win, app } = await launch()
     await createWorldFromWelcome(win, 'Alpha')
@@ -675,14 +690,20 @@ test('Beat markers show while writing beat by beat; an earlier beat is written a
     await expect(changeButton(win, /^Accept/)).toBeVisible()
     await expect(prose(win).locator('.aw-sugg-new')).toContainText(REDONE)
     await expect(beatParas(win, 2).first().locator('.aw-sugg-old')).toHaveCount(1)
+    // Accept and Reject are in view, not under the beat bar.
+    await expect.poll(() => changeButton(win, /^Accept/).evaluate(onTop)).toBe(true)
+    expect(await changeButton(win, /^Reject/).evaluate(onTop)).toBe(true)
     await shot(win, '3-tracked-change')
     expect(await sentCount(win, sceneId)).toBe(sentBefore + 1)
     const sent = await lastSent(win, sceneId)
     expect(sent).toContain('Write beat 2 of the 3 on the scene card again now, in place of the version on the page.')
     expect(sent).toContain(`- Beat 3 (already written: it comes after this one): ${BEATS[2]}`)
-    // The scene so far is beat 1 alone (beat 3 isn't in it), and beat 3's start is quoted as what comes after.
-    expect(section(sent, 'The scene so far').split(FIRST_WORDS).length - 1).toBe(1)
-    expect(section(sent, 'What comes after this beat')).toContain(FIRST_WORDS)
+    // The scene so far is beat 1 alone (neither beat 2 nor beat 3 is in it), and beat 3's start is quoted as what comes after.
+    const soFar = section(sent, 'The scene so far')
+    expect(soFar).toContain(OPENS[0])
+    expect(soFar).not.toContain(OPENS[1])
+    expect(soFar).not.toContain(OPENS[2])
+    expect(section(sent, 'What comes after this beat')).toContain(OPENS[2])
     const redone = (await lastRecord(win))!
     expect(redone.params.beat).toMatchObject({ index: 2, of: 3 })
 
@@ -742,7 +763,7 @@ test('Beat markers show while writing beat by beat; an earlier beat is written a
 test('Remove this beat keeps the scene in History and Ctrl+Z puts it back; after Finish the markers go unless Show beats is on, and they come back after a restart', async ({
   launch
 }) => {
-  const fake = await fakeProvider({ words: 60 })
+  const fake = await fakeProvider({ words: 60, varyBeats: true })
   try {
     const { win, app } = await launch()
     await createWorldFromWelcome(win, 'Alpha')

@@ -342,7 +342,7 @@ function BeatLabel({
               e.preventDefault()
               inputRef.current?.focus()
             }}
-            className="z-50 w-[300px] rounded-lg border border-line bg-surface p-2.5 font-sans shadow-pop data-[state=open]:animate-pop-in"
+            className="z-50 w-[min(380px,calc(100vw-32px))] rounded-lg border border-line bg-surface p-2.5 font-sans shadow-pop data-[state=open]:animate-pop-in"
             aria-label={`Change and redo beat ${n}`}
           >
             <form
