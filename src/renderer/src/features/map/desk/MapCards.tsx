@@ -20,9 +20,7 @@ export function Feel({ side, name, short = false }: { side: Side; name: string; 
   return (
     <span className="dm-feel">
       <i className="dm-mood" data-mood={side.mood ?? undefined} />
-      <b>
-        {short ? name.split(/\s+/)[0] : name} →
-      </b>
+      <b>{short ? name.split(/\s+/)[0] : name} →</b>{' '}
       <span>{side.feels || <em className="dm-feel-none">no feelings noted</em>}</span>
     </span>
   )
