@@ -115,6 +115,8 @@ export interface AskContextInput {
   withTools?: boolean
   /** The intent routing gave the question (chat overhaul, AIWRITE_EXP_CHAT_ROUTE): stated in the contract's reminder. */
   intent?: AskIntent | null
+  /** A bare request (route.ts bareRequest, routed unsure): the reminder says to ask rather than guess. */
+  unclear?: boolean
   /** SCENE: the open scene's words (ask/page.ts pageText), sent as the page block; its forms, longest first. */
   page?: { forms: string[] } | null
   /** CACHE: the same front of the briefing from question to question (see the top of this file). */
@@ -678,6 +680,8 @@ export interface PreparedAsk {
   sceneId: ID | null
   /** The routed intent, when routing gave one. */
   intent?: AskIntent | null
+  /** A bare request (AskContextInput.unclear). */
+  unclear?: boolean
   /** CAP: the most tokens the briefing may take, before finishAsk makes room for how to answer, where and the page. */
   cap?: number
 }
@@ -811,6 +815,7 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
     storyId: point.story?.id ?? null,
     sceneId: point.sceneId,
     ...(input.intent ? { intent: input.intent } : {}),
+    ...(input.unclear ? { unclear: true } : {}),
     ...(input.briefingCap && input.briefingCap > 0 ? { cap: input.briefingCap } : {})
   }
 }
@@ -853,7 +858,7 @@ export function finishAsk(p: PreparedAsk, rawCounts: number[]): AskBriefing {
     return version ? [{ entryId: id, version }] : []
   })
   return {
-    messages: askMessages(system, turns, p.question, p.intent),
+    messages: askMessages(system, turns, p.question, p.intent, !!p.unclear),
     blocks: preview.blocks,
     entries,
     budget: preview.budget,

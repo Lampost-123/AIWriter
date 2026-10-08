@@ -160,9 +160,45 @@ const FACT_START =
   /^(?:(?:ok(?:ay)?|so|and|wait|hm+|quick question)[, ]+)?(?:who|whom|whose|when|where|which|did|does|do (?:i|you|we|they|any|all|both)|has|have|had|is|are|was|were|am|how (?:old|many|much|long|far|tall|did|does|do|is|are|was|were)|what(?:'s| is| are| was| were| did| does| do| happened| happens| colou?r| year| day| time| age))\b/
 
 /**
+ * A pronoun standing for the thing to change ("it", "this", "his name"), with nothing else to say what it is. Not "her",
+ * "him" or "them" alone: "make her angrier" names a character the open scene usually makes plain.
+ */
+const BARE_OBJECT = '(?:it|this|that|these|those|(?:his|her|their|its) (?:name|line|lines|bit|part|words|dialogue|speech|scene|description))'
+
+/**
+ * A bare request: an edit whose only object is a pronoun ("Make it better.", "Shorten it.", "Change his name.", "can
+ * you tighten this?"), with nothing more to say what or how much: a few words, an edit verb or "make", the pronoun, and
+ * at most a word or two of how ("better", "shorter", "a bit", "up"). "this drags", "the ending's flat" or "she'd be
+ * angrier" are not bare (they say what is wrong), nor is anything naming a passage.
+ */
+/** The verbs of a bare request: changes to words already there (never new prose: "continue it", "write it", "finish it"). */
+const BARE_VERB =
+  'rewrite|re-write|redo|rework|revise|edit|fix|correct|tighten|trim|cut|shorten|lengthen|expand|change|rename|rephrase|reword|polish|punch|spice|liven|tidy|jazz|sharpen|strengthen|soften|intensify|tone|smooth|simplify|clean|clarify|improve|adjust|condense|streamline|heighten'
+
+const BARE = new RegExp(
+  `^(?:(?:ok(?:ay)?|so|now|just|then)[, ]+)?(?:please |pls )?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|'d like|would like) you to |help me )?` +
+    `(?:(?:${BARE_VERB}) ${BARE_OBJECT}(?: (?:up|down|out|back|over|again|a bit|a little|some|more|less|please|for me))*` +
+    `|make ${BARE_OBJECT} (?:(?:a (?:bit|little|lot) |much |more |less |even )?(?:better|\\w+er|\\w+ier|good|nicer|work|pop|sing|land|flow|shine|right))(?: please| for me)?)` +
+    `(?: please)?[.!?]*$`
+)
+
+/**
+ * True for a bare request (BARE) with nothing selected and no earlier answer it could point back to (a new chat, or
+ * a chat with no answer yet): "it" can only be guessed, so the request is unclear (Phase 3: A01 "Make it better" and
+ * A03 "Shorten it" got guesses every time). Routed as unsure; the agent then reads, and is made to call propose_changes,
+ * which can carry its question as an item of kind ask.
+ */
+export function bareRequest(input: Pick<RouteInput, 'question' | 'selection' | 'lastAnswer' | 'lastHadOptionsOrQuestion'>): boolean {
+  if (input.selection?.trim() || input.lastAnswer?.trim() || input.lastHadOptionsOrQuestion) return false
+  const q = norm(input.question)
+  return wordCount(q) <= 8 && BARE.test(q)
+}
+
+/**
  * The intent of one question. Order: Edit mode; "don't change anything" (answer); a short pick of what the last answer
- * offered (edit); an edit instruction (edit, or brainstorm when it asks for options); ideas (brainstorm); a question of
- * fact (answer); an edit cue anywhere (edit); any other question (answer); else unsure (the model decides).
+ * offered (edit); a bare request with nothing to point to (unsure, bareRequest); an edit instruction (edit, or
+ * brainstorm when it asks for options); ideas (brainstorm); a question of fact (answer); an edit cue anywhere (edit);
+ * any other question (answer); else unsure (the model decides).
  */
 export function routeIntent(input: RouteInput): AskIntent {
   if (input.mode === 'edit') return 'edit'
@@ -171,6 +207,7 @@ export function routeIntent(input: RouteInput): AskIntent {
   if (HANDS_OFF.test(q)) return 'answer'
   const offered = input.lastHadOptionsOrQuestion ?? offersChoice(input.lastAnswer)
   if (offered && wordCount(q) <= 12 && PICK.test(q)) return 'edit'
+  if (bareRequest(input)) return 'unsure'
   const ideas = IDEAS.test(q)
   if (IMPERATIVE.test(q)) return ideas ? 'brainstorm' : 'edit'
   if (ideas) return 'brainstorm'

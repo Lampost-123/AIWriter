@@ -7,7 +7,7 @@ import type { AskIntent } from '@shared/askIntent'
 import type { Proposal } from '@shared/contracts/ask'
 import { chatExp } from '../ask/exp'
 import { compactBlocks, pastAnswer, stepPreamble } from '../ask/history'
-import { asksForNewProse, editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../ask/route'
+import { asksForNewProse, bareRequest, editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../ask/route'
 
 /**
  * An earlier answer as the model is shown it again: with the changes it proposed through its tools, so it sees itself
@@ -99,11 +99,14 @@ export const askHandlers: Handlers<keyof AskApi> = {
     // The chat overhaul's switches, each read once per question.
     const route = chatExp('ROUTE')
     const contract = chatExp('CONTRACT')
-    // What the question asks for, told from its words (no model call; ask/route.ts): used only by the switches on.
-    const routed = routeIntent({ question, mode: input.mode, lastAnswer: earlier.at(-1)?.answer ?? null })
-    const intent: AskIntent | null = route ? routed : null
     // A question quoting words selected in the page ("Ask about this", "Edit this") already has the words to change.
     const quoted = typeof input.selection?.text === 'string' && !!input.selection.text.trim()
+    // What the question asks for, told from its words (no model call; ask/route.ts): used only by the switches on.
+    const routeInput = { question, mode: input.mode, lastAnswer: earlier.at(-1)?.answer ?? null, selection: quoted ? input.selection?.text : null }
+    const routed = routeIntent(routeInput)
+    const intent: AskIntent | null = route ? routed : null
+    // A bare request ("Shorten it." with nothing selected and nothing said before): unsure, and asked rather than guessed.
+    const unclear = intent === 'unsure' && bareRequest(routeInput)
     // ACTFIRST (the Phase 2 fix): an edit reads before it asks, and "write the next bit" is made to draft.
     const actFirst = chatExp('ACTFIRST')
     const newProse = actFirst && intent === 'edit' && asksForNewProse(question)
@@ -128,6 +131,7 @@ export const askHandlers: Handlers<keyof AskApi> = {
       // The answer may use tools: room is kept for what they bring back (ai/tasks.ts keeps them within it).
       withTools: true,
       ...(intent ? { intent } : {}),
+      ...(unclear ? { unclear: true } : {}),
       ...(page ? { page } : {}),
       ...(chatExp('CACHE') ? { cache: true } : {}),
       ...(chatExp('CAP') && routed === 'edit' ? { briefingCap: EDIT_BRIEFING_CAP } : {})
@@ -154,7 +158,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
         ...(intent ? { intent } : {}),
         ...(quoted ? { wordsInQuestion: true } : {}),
         ...(newProse ? { newProse: true } : {}),
-        ...(wordsOnPage ? { wordsOnPage: true } : {})
+        ...(wordsOnPage ? { wordsOnPage: true } : {}),
+        ...(unclear ? { unclear: true } : {})
       },
       (label) => emit('ask:step', { taskId: input.taskId, generationId, label }),
       (proposals) => {

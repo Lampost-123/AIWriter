@@ -165,11 +165,20 @@ export function proposedTail(): string {
 }
 
 /**
+ * The intent line for a bare request (route.ts bareRequest: "Make it better.", "Shorten it." with nothing selected and
+ * nothing said before), in place of the unsure line: read, then ask with options rather than guess (Phase 3: the
+ * DeepSeek runs guessed on A01 and A03 every time). The agent makes the request after reading call propose_changes,
+ * which carries the question as an item of kind ask.
+ */
+export const UNCLEAR_LINE =
+  'This request doesn\'t say what to change: "it" with nothing selected and nothing said before. Use the open scene\'s words (read them if they aren\'t above), then ask the writer instead of guessing: one item of kind ask in propose_changes (or ask_user), with 2 to 4 options naming the likeliest passages or readings (which part, how much), your best guess as `recommended`.'
+
+/**
  * The contract's three-line reminder, at the very end of the system message (just before the conversation), so the
  * rules sit next to the question however long the briefing is. With the routed intent stated, when there is one. With
  * the answer format on, its second line and the ideas and question lines name the blocks.
  */
-export function contractReminder(intent?: AskIntent | null): string {
+export function contractReminder(intent?: AskIntent | null, unclear = false): string {
   const format = chatExp('FORMAT')
   const actFirst = chatExp('ACTFIRST')
   const lines = { ...(format ? FORMAT_INTENT_LINE : INTENT_LINE), ...(actFirst ? ACT_FIRST_LINE : {}) }
@@ -179,7 +188,7 @@ export function contractReminder(intent?: AskIntent | null): string {
     format
       ? `- ${SHAPE_RULE} ${actFirst ? 'Ideas (only ideas) go in ::options' : 'Ideas go in ::options'}, facts in ::facts, why in ::more, up to 3 follow-ups in ::next, each block closed by "::". No preambles, no changes written out in words, and never say a change has been made.`
       : '- The first line answers. No preambles, no changes written out in words, and never say a change has been made.',
-    `- ${intent ? lines[intent] : 'Ask one short question only when you truly cannot tell what is meant; otherwise act.'}`
+    `- ${unclear && intent === 'unsure' ? UNCLEAR_LINE : intent ? lines[intent] : 'Ask one short question only when you truly cannot tell what is meant; otherwise act.'}`
   ].join('\n')
 }
 
@@ -208,10 +217,11 @@ export function conversationText(turns: PastTurn[]): string {
 /**
  * The messages: the marker, the instructions and the briefing as the system message, then the earlier
  * turns as they happened (a turn with no answer is left out), then the question. With the contract switch on, the
- * system message ends with the contract's reminder (stating the routed intent, when there is one).
+ * system message ends with the contract's reminder (stating the routed intent, when there is one; `unclear`: a bare
+ * request, route.ts bareRequest).
  */
-export function askMessages(system: string, turns: PastTurn[], question: string, intent?: AskIntent | null): ChatMessage[] {
-  const tail = chatExp('CONTRACT') ? `\n\n${contractReminder(intent)}` : ''
+export function askMessages(system: string, turns: PastTurn[], question: string, intent?: AskIntent | null, unclear = false): ChatMessage[] {
+  const tail = chatExp('CONTRACT') ? `\n\n${contractReminder(intent, unclear)}` : ''
   const messages: ChatMessage[] = [{ role: 'system', content: `${ASK_MARKER} ${ASK_JOB}\n${system}${tail}` }]
   for (const t of turns) {
     if (!t.question.trim() || !t.answer.trim()) continue

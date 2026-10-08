@@ -643,6 +643,12 @@ export interface AgentPlace {
    * count as read, so with TOOLCHOICE an edit's first request may already be made to propose.
    */
   wordsOnPage?: boolean
+  /**
+   * A bare request ("Make it better.", "Shorten it." with nothing selected and nothing said before; route.ts
+   * bareRequest), routed unsure: once the words are known, the request is made to call propose_changes (with ASKUSER),
+   * whose item of kind ask carries the question; asking before the words are known is sent back (ACTFIRST).
+   */
+  unclear?: boolean
 }
 
 /** Something the model got wrong that it can put right (a scene it named that isn't there, words that aren't in it). */
@@ -978,10 +984,18 @@ export class EditorAgent {
    * With ACTFIRST and DRAFT, a request for new prose in the open scene (place.newProse) is made to call propose_draft.
    */
   forceTool(): string | null {
-    if (!this.switches.toolChoice || this.forced || this.place.intent !== 'edit') return null
+    if (!this.switches.toolChoice || this.forced || !(this.place.intent === 'edit' || this.unclearAsk())) return null
     if (this.proposals.length || this.choice || !this.knowsWords()) return null
     this.forced = true
     return this.switches.actFirst && this.switches.draft && this.place.newProse ? 'propose_draft' : 'propose_changes'
+  }
+
+  /**
+   * A bare request (place.unclear) routed unsure, with ASKUSER: made to call propose_changes like an edit, so its
+   * question goes as an item of kind ask (the Phase 3 runs guessed at "Shorten it." every time).
+   */
+  private unclearAsk(): boolean {
+    return !!this.place.unclear && this.place.intent === 'unsure' && this.switches.askUser
   }
 
   /** The scene's words are known: read with read_scene this answer, quoted in the question, or sent in the briefing (SCENE). */
@@ -995,8 +1009,11 @@ export class EditorAgent {
    */
   private askedBeforeReading = false
   private askTooSoon(): string | null {
-    if (!this.switches.actFirst || this.place.intent !== 'edit' || !this.place.sceneId || this.knowsWords() || this.askedBeforeReading) return null
+    if (!this.switches.actFirst || !(this.place.intent === 'edit' || this.unclearAsk()) || !this.place.sceneId || this.knowsWords() || this.askedBeforeReading) return null
     this.askedBeforeReading = true
+    if (this.place.intent !== 'edit') {
+      return 'Read the words first: read_scene gives the open scene with its paragraphs numbered. Then ask, with options that name the likeliest passages or readings by what the words say.'
+    }
     return 'Read the words first: read_scene gives the open scene (or another, by name) with its paragraphs numbered. The open scene is the one meant unless the writer names another. Then propose your best single version; ask only if, after reading, two readings would still give clearly different changes.'
   }
 

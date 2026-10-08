@@ -361,3 +361,36 @@ describe('ACTFIRST: an edit reads before it asks, and new prose is made to draft
     expect(noDraft.forceTool()).toBe('propose_changes')
   })
 })
+
+describe('a bare request ("Shorten it." with nothing to point to): read, then asked through propose_changes (Phase 3)', () => {
+  const ask = { question: 'Which part should be shorter?', options: [{ label: 'The opening' }, { label: 'Bram’s line' }], recommended: 1 }
+
+  it('is made to call propose_changes once the words are known, like an edit, so its question goes as an item of kind ask', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER', 'ACTFIRST')
+    const { agent, choices } = paragraphs(PARAS, 'unsure', { unclear: true })
+    expect(agent.forceTool()).toBeNull()
+    call(agent, 'read_scene', {})
+    expect(agent.forceTool()).toBe('propose_changes')
+    expect(agent.forceTool()).toBeNull()
+    expect(call(agent, 'propose_changes', { changes: [{ kind: 'ask', ...ask }] })).toMatch(/^Asked the writer\./)
+    expect(choices).toHaveLength(1)
+    // With the scene's words in the briefing (SCENE), the first request already.
+    expect(paragraphs(PARAS, 'unsure', { unclear: true, wordsOnPage: true }).agent.forceTool()).toBe('propose_changes')
+  })
+
+  it('reads before it asks (ACTFIRST): a question before the words are known is sent back once, saying to read and then ask', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER', 'ACTFIRST')
+    const { agent } = paragraphs(PARAS, 'unsure', { unclear: true })
+    expect(call(agent, 'ask_user', ask)).toMatch(/^Not asked: the writer hasn't seen it\. Read the words first: .*Then ask, with options/)
+    expect(call(agent, 'ask_user', ask)).toMatch(/^Asked the writer\./)
+  })
+
+  it('leaves other unsure requests, and a bare one without ASKUSER (nothing to ask with), as they were', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER', 'ACTFIRST')
+    const other = paragraphs(PARAS, 'unsure', { wordsOnPage: true }).agent
+    expect(other.forceTool()).toBeNull()
+    expect(call(paragraphs(PARAS, 'unsure').agent, 'ask_user', ask)).toMatch(/^Asked the writer\./)
+    switchOn('TOOLCHOICE', 'ACTFIRST')
+    expect(paragraphs(PARAS, 'unsure', { unclear: true, wordsOnPage: true }).agent.forceTool()).toBeNull()
+  })
+})

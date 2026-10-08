@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { defaultStyleGuide } from '@shared/defaults'
 import { parseAnswer } from '@shared/answerBlocks'
-import { ACT_FIRST_LINE, askInstructions, askMessages, contractReminder, FORMAT_RULES, formatRules, proposedTail, READ_BEFORE_ASKING, SHAPE_RULE } from './prompts'
+import { ACT_FIRST_LINE, askInstructions, askMessages, contractReminder, FORMAT_RULES, formatRules, proposedTail, READ_BEFORE_ASKING, SHAPE_RULE, UNCLEAR_LINE } from './prompts'
 
 const style = defaultStyleGuide()
 /** The default: on. */
@@ -157,6 +157,19 @@ describe('ACTFIRST: an edit reads, then proposes; ::options only for ideas, ::ne
     expect(contractReminder('edit')).toMatch(/Ideas \(only ideas\) go in ::options/)
     expect(contractReminder('brainstorm')).toMatch(/in an ::options block/)
     expect(contractReminder('edit').split('\n').slice(1)).toHaveLength(3)
+  })
+
+  it('a bare request (unclear): the unsure line gives way to asking through propose_changes, with options (Phase 3)', () => {
+    const r = contractReminder('unsure', true)
+    expect(r.split('\n').at(-1)).toBe(`- ${UNCLEAR_LINE}`)
+    expect(UNCLEAR_LINE).toMatch(/ask the writer instead of guessing: one item of kind ask in propose_changes \(or ask_user\)/)
+    expect(UNCLEAR_LINE).toMatch(/read them if they aren't above/)
+    expect(r.split('\n').slice(1)).toHaveLength(3)
+    // Only for unsure: an edit, or unclear left out, as before.
+    expect(contractReminder('edit', true)).toBe(contractReminder('edit'))
+    expect(contractReminder('unsure')).not.toContain(UNCLEAR_LINE)
+    const [system] = askMessages('BRIEFING', [], 'Shorten it.', 'unsure', true)
+    expect(system.content.endsWith(r)).toBe(true)
   })
 
   it('off: Phase 2 as it was', () => {

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AskIntent } from '@shared/askIntent'
 import { PROPOSE_NOW, proposeNow } from '@shared/askChanges'
-import { asksForNewProse, editorNudge, MAX_EDIT_NUDGES, offersChoice, READ_FIRST, routeIntent, temperatureFor } from './route'
+import { asksForNewProse, bareRequest, editorNudge, MAX_EDIT_NUDGES, offersChoice, READ_FIRST, routeIntent, temperatureFor } from './route'
 
 const OPTIONS = 'Three ways it could go:\n1. Wren bolts for the ferry.\n2. Wren hides in the chandlery.\n3. Wren gives himself up.'
 const QUESTION = 'I can tighten the opening or the ending. Which one do you mean?'
@@ -44,7 +44,8 @@ const table: [string, AskIntent][] = [
   ['Tobin is fifty, not forty. Update his entry.', 'edit'],
   ['Near the end Mara rings the second bell. Make it the third bell.', 'edit'],
   ['Can this be more ominous?', 'edit'],
-  ['punch this up', 'edit'],
+  // Phase 3: "this" with nothing selected and nothing before is a bare request (bareRequest below): unsure.
+  ['punch this up', 'unsure'],
   ['In the letter, join the first two lines into one sentence.', 'edit'],
   ['Make this whole chapter darker', 'edit'],
   ['About this passage: “The gulls went quiet.” fix this', 'edit'],
@@ -219,4 +220,48 @@ describe('asksForNewProse', () => {
     "Don't change anything, just tell me how to continue",
     'Fix the tenses in the last paragraph'
   ])('not new prose: %s', (q) => expect(asksForNewProse(q)).toBe(false))
+})
+
+describe('bareRequest: "it" with nothing to point to is unclear (Phase 3)', () => {
+  it.each(['Make it better.', 'Shorten it.', 'Change his name.', 'tighten it', 'Can you tighten this?', 'punch it up', 'Fix it.', 'please improve it', 'make it a bit shorter', 'Rewrite that.'])(
+    'unsure with nothing selected and nothing before: %s',
+    (q) => {
+      expect(bareRequest({ question: q })).toBe(true)
+      expect(routeIntent({ question: q })).toBe('unsure')
+    }
+  )
+  it.each(['Make it better.', 'Shorten it.', 'Change his name.'])('an edit again with a selection, or an earlier answer to point back to: %s', (q) => {
+    expect(bareRequest({ question: q, selection: 'The gulls went quiet over the flats.' })).toBe(false)
+    expect(routeIntent({ question: q, selection: 'The gulls went quiet over the flats.' })).toBe('edit')
+    expect(bareRequest({ question: q, lastAnswer: PLAIN })).toBe(false)
+    expect(routeIntent({ question: q, lastAnswer: PLAIN })).toBe('edit')
+    // Edit this: always an edit.
+    expect(routeIntent({ question: q, mode: 'edit' })).toBe('edit')
+  })
+  it.each([
+    // Vague but clear: they say what is wrong, name a passage or a character, or ask for new prose (as the real set's do).
+    'this drags',
+    'the ending’s flat',
+    'she’d be angrier',
+    'make it hit harder',
+    'Make her angrier',
+    'make them argue',
+    'shorten the opening',
+    'Tighten this paragraph',
+    'Rewrite it so Mara is angrier.',
+    'punch up the bit where Bram brings the ferry in',
+    'continue it',
+    'finish it',
+    'continue from here',
+    'Do the thing we talked about.',
+    'Make it better: cut the adverbs in the opening and give Mara the last line.'
+  ])('not bare: %s', (q) => expect(bareRequest({ question: q })).toBe(false))
+  it('leaves the routing of the vague-but-clear real-set requests as it was', () => {
+    expect(routeIntent({ question: 'this drags', selection: 'She went down the steps slowly.' })).toBe('edit')
+    expect(routeIntent({ question: 'make it hit harder', selection: 'She did see it.' })).toBe('edit')
+    // Unsure before Phase 3 too (the model decides; R07 proposes), and not made to ask.
+    expect(routeIntent({ question: 'the ending’s flat' })).toBe('unsure')
+    expect(routeIntent({ question: 'Make her angrier' })).toBe('edit')
+    expect(routeIntent({ question: 'punch this up', selection: 'The gulls went quiet.' })).toBe('edit')
+  })
 })
