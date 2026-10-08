@@ -134,6 +134,12 @@ describe('offersChoice', () => {
     expect(offersChoice(PLAIN)).toBe(false)
     expect(offersChoice('')).toBe(false)
   })
+
+  it('in the block format, only ::options or a question in the words offer a choice', () => {
+    expect(offersChoice('Three ways.\n::options\n- **Bolt**: a\n- **Hide**: b\n::')).toBe(true)
+    expect(offersChoice('Yes.\n::facts yes\n- one (Ch 1)\n- two (Ch 2)\n::\n::next\n- Ask about the ferry\n- Ask about the bell\n::')).toBe(false)
+    expect(offersChoice('Which one do you mean?\n::next\n- The opening\n::')).toBe(true)
+  })
 })
 
 describe('temperatureFor', () => {

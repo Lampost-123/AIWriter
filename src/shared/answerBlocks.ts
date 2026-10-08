@@ -380,21 +380,26 @@ export function wordsOutsideBlocks(blocks: AnswerBlock[]): number {
 
 /** Blocks written back in the format the model writes (for the history the model is shown again). */
 export function answerText(blocks: AnswerBlock[]): string {
+  const words = (b: AnswerBlock | undefined): boolean => b?.kind === 'lead' || b?.kind === 'text'
+  // Paragraphs of text keep a blank line between them (so they read back as separate paragraphs); blocks need none.
   return blocks
-    .map((b) => {
-      switch (b.kind) {
-        case 'lead':
-        case 'text':
-          return b.text
-        case 'options':
-          return ['::options', ...b.items.map((o) => (o.why ? `- **${o.title}**: ${o.why}` : `- **${o.title}**`)), '::'].join('\n')
-        case 'facts':
-          return [`::facts${b.verdict ? ` ${b.verdict}` : ''}`, ...b.items.map((x) => `- ${x}`), '::'].join('\n')
-        case 'next':
-          return ['::next', ...b.items.map((x) => `- ${x}`), '::'].join('\n')
-        case 'more':
-          return ['::more', b.text, '::'].join('\n')
-      }
-    })
+    .map((b, i) => (i > 0 && words(b) && words(blocks[i - 1]) ? '\n' : '') + blockText(b))
     .join('\n')
+}
+
+/** One block in the format the model writes. */
+function blockText(b: AnswerBlock): string {
+  switch (b.kind) {
+    case 'lead':
+    case 'text':
+      return b.text
+    case 'options':
+      return ['::options', ...b.items.map((o) => (o.why ? `- **${o.title}**: ${o.why}` : `- **${o.title}**`)), '::'].join('\n')
+    case 'facts':
+      return [`::facts${b.verdict ? ` ${b.verdict}` : ''}`, ...b.items.map((x) => `- ${x}`), '::'].join('\n')
+    case 'next':
+      return ['::next', ...b.items.map((x) => `- ${x}`), '::'].join('\n')
+    case 'more':
+      return ['::more', b.text, '::'].join('\n')
+  }
 }

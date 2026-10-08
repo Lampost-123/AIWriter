@@ -63,6 +63,33 @@ Tools: looking things up, and proposing changes
 - Only a tool's answer "Proposed to the writer as change N" means a change is waiting. If it answered "Not proposed", fix the call and try again in this turn. If you still can't, say in one line what stopped you.
 - You can't delete scenes, chapters or entries; say so if asked.`
 
+/** The plain-text answer rule (both intros), which the answer format replaces. */
+const PLAIN_RULE = '- Write plain text. For a list, use a simple numbered or dashed list. No headings, no bold, no tables.'
+
+/** The contract's length rule, which the answer format's own replaces. */
+const LENGTH_RULE = "- Keep it under about 60 words outside lists unless the writer asks for more. After proposing, don't repeat the change in words: the card shows it."
+
+/**
+ * The answer format (AIWRITE_EXP_CHAT_FORMAT, plan A1-A4): a first line that answers, then fenced blocks the app shows
+ * as cards (shared/answerBlocks.ts reads them). Short and concrete, with one tiny example: DeepSeek follows that best.
+ */
+export const FORMAT_RULES = `- Lay the answer out like this. Line 1 answers on its own: the verdict ("Yes." / "No." / "Not in memory yet."), the result, or "2 changes ready". Then blocks, each opened by its marker line and closed by a line "::":
+  ::options (ideas: 3 to 5 lines "- **Title of a few words**: one line on why it fits")
+  ::facts yes, ::facts no or ::facts unknown (what the memory says: "- the fact ([[Name]], where)")
+  ::more (longer reasoning, only when it is needed)
+  ::next (at most 3 short follow-up requests, only when really useful)
+- At most about 60 words outside blocks unless the writer asks for more. No headings, no tables, bold only for option titles. After proposing, don't repeat the change in words: the card shows it.
+- Example:
+Three ways to open on the quay.
+::options
+- **Start on the bell**: the noise pulls [[Mara Venn]] out of her count.
+- **Start on the catch**: a cold, close image that sets the mood.
+- **Start mid-row**: two traders already shouting.
+::`
+
+/** An intro with the answer format in place of the plain-text rule (and of the contract's length rule), switch on. */
+const withFormat = (intro: string): string => (chatExp('FORMAT') ? intro.replace(`${LENGTH_RULE}\n`, '').replace(PLAIN_RULE, FORMAT_RULES) : intro)
+
 /** One line per intent for the reminder at the end of the system message (when routing tells the intent). */
 const INTENT_LINE: Record<AskIntent, string> = {
   edit: "This request is an edit: propose your best single version now with the propose_ tools; don't offer options or ask permission. Only if you can't tell which passage is meant, ask one question (as an item of kind ask, when propose_changes takes one).",
@@ -71,16 +98,27 @@ const INTENT_LINE: Record<AskIntent, string> = {
   unsure: "This request may be unclear: if you can't tell which passage is meant, or two readings would give opposite changes, ask one short question; otherwise act."
 }
 
+/** The intent lines with the answer format on: where ideas and facts go. */
+const FORMAT_INTENT_LINE: Record<AskIntent, string> = {
+  ...INTENT_LINE,
+  brainstorm: 'This request asks for ideas: give 3 to 5 options in an ::options block and propose nothing until the writer picks one.',
+  answer: 'This request is a question: the first line is the verdict, then ::facts with [[Name]] and where; propose nothing unless asked.'
+}
+
 /**
  * The contract's three-line reminder, at the very end of the system message (just before the conversation), so the
- * rules sit next to the question however long the briefing is. With the routed intent stated, when there is one.
+ * rules sit next to the question however long the briefing is. With the routed intent stated, when there is one. With
+ * the answer format on, its second line and the ideas and question lines name the blocks.
  */
 export function contractReminder(intent?: AskIntent | null): string {
+  const format = chatExp('FORMAT')
   return [
     'Reminder:',
     '- An edit is proposed at once as your best single version (the writer can decline it); ideas stay in words until the writer picks; facts lead with the verdict.',
-    '- The first line answers. No preambles, no changes written out in words, and never say a change has been made.',
-    `- ${intent ? INTENT_LINE[intent] : 'Ask one short question only when you truly cannot tell what is meant; otherwise act.'}`
+    format
+      ? '- The first line answers; ideas go in ::options, facts in ::facts, each block closed by "::". No preambles, no changes written out in words, and never say a change has been made.'
+      : '- The first line answers. No preambles, no changes written out in words, and never say a change has been made.',
+    `- ${intent ? (format ? FORMAT_INTENT_LINE : INTENT_LINE)[intent] : 'Ask one short question only when you truly cannot tell what is meant; otherwise act.'}`
   ].join('\n')
 }
 
@@ -90,7 +128,7 @@ export function contractReminder(intent?: AskIntent | null): string {
  */
 export function askInstructions(style: StyleGuide, short = false): string {
   const shown = short ? { ...style, samplePassage: '' } : style
-  return instructionsText(shown, { intro: chatExp('CONTRACT') ? CONTRACT_INTRO : INTRO, trimSample: true, proseRules: false })
+  return instructionsText(shown, { intro: withFormat(chatExp('CONTRACT') ? CONTRACT_INTRO : INTRO), trimSample: true, proseRules: false })
 }
 
 /** One earlier question and the answer that came back. */

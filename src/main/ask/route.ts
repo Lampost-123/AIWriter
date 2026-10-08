@@ -2,6 +2,7 @@
 // from its words before the model runs, with no model call. Edit wins whenever the writer pressed "Edit this" or picks
 // one of the options the last answer offered ("yes", "2", "go ahead"); otherwise the wording decides. Pure.
 
+import { hasBlockMarkers, parseAnswer } from '@shared/answerBlocks'
 import type { AskIntent } from '@shared/askIntent'
 import { asksForChanges, asksOneQuestion, claimsChanges, PROPOSE_NOW, proposeNow } from '@shared/askChanges'
 
@@ -60,10 +61,20 @@ const norm = (s: string): string => s.replace(/[’‘]/g, "'").replace(/\s+/g, 
 
 const wordCount = (s: string): number => (s.match(/[\p{L}\p{N}']+/gu) ?? []).length
 
-/** True when an answer offered options (a list of two or more) or ends by asking the writer something. */
+/**
+ * True when an answer offered options (a list of two or more) or ends by asking the writer something. An answer in
+ * blocks (the answer format) offers a choice only through ::options (facts and follow-ups are lists too, but not
+ * choices), or a question in its words.
+ */
 export function offersChoice(answer: string | null | undefined): boolean {
   const a = (answer ?? '').trim()
   if (!a) return false
+  if (hasBlockMarkers(a)) {
+    const blocks = parseAnswer(a)
+    if (blocks.some((b) => b.kind === 'options' && b.items.length >= 2)) return true
+    const words = blocks.filter((b) => b.kind === 'lead' || b.kind === 'text').flatMap((b) => b.text.split('\n').map((l) => l.trim()).filter(Boolean))
+    return words.slice(-2).some((l) => /\?["”')\]*_]*$/.test(l))
+  }
   const items = a.split('\n').filter((l) => /^\s*(\d+[.)]|[-*•]|\(?[a-e]\))\s+\S/i.test(l)).length
   if (items >= 2) return true
   // A question among its last two lines ("Which do you prefer?", "Shall I tighten the second one?").

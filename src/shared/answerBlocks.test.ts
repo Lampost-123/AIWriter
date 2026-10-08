@@ -174,6 +174,8 @@ describe('parseAnswer: the block format', () => {
   it('writes blocks back in the same format', () => {
     expect(parseAnswer(answerText(parseAnswer(IDEAS)))).toEqual(parseAnswer(IDEAS))
     expect(parseAnswer(answerText(parseAnswer(FACT)))).toEqual(parseAnswer(FACT))
+    const paras = '2 changes ready.\n\nI kept your spelling.\n\nAnd the dashes.\n::next\n- Tighten the ending\n::\nTell me.\n\nOr ask again.'
+    expect(parseAnswer(answerText(parseAnswer(paras)))).toEqual(parseAnswer(paras))
   })
 
   it('empty answers are no blocks', () => {

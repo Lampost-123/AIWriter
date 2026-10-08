@@ -6,15 +6,17 @@ import { contractLastWords } from '@shared/askChanges'
 import type { AskIntent } from '@shared/askIntent'
 import type { Proposal } from '@shared/contracts/ask'
 import { chatExp } from '../ask/exp'
-import { pastAnswer, stepPreamble } from '../ask/history'
+import { compactBlocks, pastAnswer, stepPreamble } from '../ask/history'
 import { editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../ask/route'
 
 /**
  * An earlier answer as the model is shown it again: with the changes it proposed through its tools, so it sees itself
  * proposing (a chat whose past answers read as words alone teaches the model to write changes out, not propose them).
  * With AIWRITE_EXP_CHAT_HISTORY on, each proposal says what it changed and the answer is trimmed (ask/history.ts).
+ * With AIWRITE_EXP_CHAT_FORMAT on, an answer in blocks is made compact first (option titles kept, ::more left out).
  */
-function withProposals(answer: string, proposals: Proposal[]): string {
+function withProposals(full: string, proposals: Proposal[]): string {
+  const answer = chatExp('FORMAT') ? compactBlocks(full) : full
   if (chatExp('HISTORY')) return pastAnswer(answer, proposals)
   if (!proposals.length) return answer
   const what = proposals.map((p) => `change ${p.id} (${p.kind === 'text' ? 'an edit' : p.kind === 'passage' ? 'a rewrite' : p.kind}, ${p.status})`).join(', ')

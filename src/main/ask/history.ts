@@ -1,8 +1,10 @@
 // The chat overhaul's history hygiene (AIWRITE_EXP_CHAT_HISTORY, plan E9): an earlier answer as the model is shown it
 // again. Its proposals become compact lines saying what each changed (so "make change 2 shorter" needs no re-read);
 // "I'll read the scene first" preambles are taken out; an answer that only asked a question is cut to the question.
-// (Text an earlier nudge replaced never reaches the record: ai/tasks.ts takes it out of the reply.) Pure.
+// (Text an earlier nudge replaced never reaches the record: ai/tasks.ts takes it out of the reply.) With the answer
+// format (AIWRITE_EXP_CHAT_FORMAT), an answer in blocks is shown again compact: compactBlocks. Pure.
 
+import { answerText, hasBlockMarkers, parseAnswer, type AnswerBlock } from '@shared/answerBlocks'
 import type { Proposal } from '@shared/contracts/ask'
 
 /** The most of either side of a change shown again. */
@@ -102,6 +104,26 @@ export function shortQuestion(answer: string): string {
     .match(/[^.!?]+[.!?]+["”')\]]*/g) ?? [answer]
   const asked = sentences.filter((s) => /\?["”')\]]*$/.test(s.trim()))
   return `(Asked) ${clipLine(asked.join(' ').trim() || answer, 240)}`
+}
+
+/** The most of an option's why, and of a fact, kept when an answer in blocks is shown again. */
+export const OPTION_WHY_CLIP = 60
+export const FACT_CLIP = 120
+
+/**
+ * An earlier answer in the block format, made compact for the model to see again: still in blocks, so it sees what it
+ * offered ("the second one" needs the option titles in order), but each option's why and each fact cut short and
+ * ::more left out. An answer without blocks is returned as it was.
+ */
+export function compactBlocks(answer: string): string {
+  if (!hasBlockMarkers(answer)) return answer
+  const blocks = parseAnswer(answer).flatMap((b): AnswerBlock[] => {
+    if (b.kind === 'more') return []
+    if (b.kind === 'options') return [{ kind: 'options', items: b.items.map((o) => ({ title: clipLine(o.title, 80), why: o.why ? clipLine(o.why, OPTION_WHY_CLIP) : '' })) }]
+    if (b.kind === 'facts') return [{ ...b, items: b.items.map((x) => clipLine(x, FACT_CLIP)) }]
+    return [b]
+  })
+  return answerText(blocks)
 }
 
 /** An earlier answer as the model sees it again (switch on): trimmed, with what its proposals changed. */

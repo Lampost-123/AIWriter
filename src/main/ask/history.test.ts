@@ -2,7 +2,7 @@
 // and an answer that only asked a question is cut to the question. Invented text only.
 import { describe, expect, it } from 'vitest'
 import type { Proposal } from '@shared/contracts/ask'
-import { clipLine, onlyAsks, pastAnswer, proposalLine, withoutPreambles } from './history'
+import { clipLine, compactBlocks, onlyAsks, pastAnswer, proposalLine, withoutPreambles } from './history'
 
 const edit: Proposal = {
   id: '2',
@@ -89,5 +89,57 @@ describe('pastAnswer', () => {
   })
   it('leaves a plain answer as it was', () => {
     expect(pastAnswer('Tobin is the ferryman.', [])).toBe('Tobin is the ferryman.')
+  })
+})
+
+describe('compactBlocks (the answer format)', () => {
+  const long = 'the toll pulls [[Mara Venn]] out of her count, and the noise of it carries the whole opening on its back'
+  const answer = [
+    'Three ways to open on the quay.',
+    '::options',
+    `- **Start on the bell**: ${long}`,
+    '- **Start on the catch**: cold and close.',
+    '- **Start mid-row**: two traders shouting.',
+    '::',
+    '::more',
+    'A long reason the model gave, which the model need not see again.',
+    '::',
+    '::next',
+    '- Make the second one darker',
+    '::'
+  ].join('\n')
+
+  it('keeps the option titles in order and the follow-ups, cuts the whys short and leaves ::more out', () => {
+    const c = compactBlocks(answer)
+    expect(c).toBe(
+      [
+        'Three ways to open on the quay.',
+        '::options',
+        `- **Start on the bell**: ${clipLine(long, 60)}`,
+        '- **Start on the catch**: cold and close.',
+        '- **Start mid-row**: two traders shouting.',
+        '::',
+        '::next',
+        '- Make the second one darker',
+        '::'
+      ].join('\n')
+    )
+    expect(c).not.toMatch(/long reason/)
+    expect(c.length).toBeLessThan(answer.length)
+  })
+
+  it('cuts each fact to about 120 characters and keeps the verdict', () => {
+    const c = compactBlocks(`Yes.\n::facts yes\n- ${'[[Mara Venn]] is 34 '.repeat(10)}\n::`)
+    expect(c).toMatch(/^Yes\.\n::facts yes\n- \[\[Mara Venn\]\] is 34/)
+    expect(c.split('\n')[2].length).toBeLessThanOrEqual(122)
+  })
+
+  it('leaves an answer without blocks as it was', () => {
+    expect(compactBlocks('Tobin is the ferryman.\n\n1. One\n2. Two\n3. Three')).toBe('Tobin is the ferryman.\n\n1. One\n2. Two\n3. Three')
+  })
+
+  it('still goes through pastAnswer: a preamble goes, proposals are added', () => {
+    const c = pastAnswer(compactBlocks('Let me read the scene first. 1 change ready.\n::next\n- Tighten the ending\n::'), [edit])
+    expect(c).toMatch(/^1 change ready\.\n::next\n- Tighten the ending\n::\n\n\[Proposed with the tools:\nchange 2:/)
   })
 })
