@@ -221,10 +221,10 @@ export class SceneController {
   private keyboardWanted = false
   /** The draft that ended last, and whether it took the place of the scene's text (for messages about it that come later). */
   private lastEnded: { generationId: ID; replaced: boolean } | null = null
-  /** The top bar's word count: after a pause, and every couple of seconds while a draft streams in. */
+  /** The top bar's word count (and the binder's for this scene): after a pause, and every couple of seconds while a draft streams in. */
   private readonly words = debounce(
     () => {
-      if (this.session && !this.destroyed) app().setSceneWords(countWords(streamDoc.sceneText(this.editor.state.doc)))
+      if (this.session && !this.destroyed) app().setSceneWords(countWords(streamDoc.sceneText(this.editor.state.doc)), this.session.id)
     },
     300,
     2000
@@ -397,7 +397,7 @@ export class SceneController {
       (gone) => this.sessionGone(gone)
     )
     this.words.cancel()
-    app().setSceneWords(scene.wordCount)
+    app().setSceneWords(scene.wordCount, scene.id)
 
     // Header and page change in the same frame, and the scroll position comes back before paint.
     this.events.onShow(scene)
@@ -407,7 +407,7 @@ export class SceneController {
     if (el) el.scrollTop = mem?.scrollTop ?? 0
     if (unsaved) {
       this.session.changed()
-      app().setSceneWords(countWords(streamDoc.sceneText(doc)))
+      app().setSceneWords(countWords(streamDoc.sceneText(doc)), scene.id)
     } else if (filled && doc.textContent.trim()) {
       // Only a scene with words in it: an empty one gets its ids saved with the first thing typed,
       // so merely opening it never writes over the stored copy.
@@ -748,7 +748,7 @@ export class SceneController {
     this.expecting = kept.stream ? null : scene.id
     this.keyboardWanted = false
     this.words.cancel()
-    app().setSceneWords(countWords(streamDoc.sceneText(kept.state.doc)))
+    app().setSceneWords(countWords(streamDoc.sceneText(kept.state.doc)), scene.id)
     this.events.onShow(scene)
     this.events.onError(null)
     view.updateState(kept.state)
