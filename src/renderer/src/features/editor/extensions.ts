@@ -17,6 +17,7 @@ import { KnownWords } from '@/features/spelling/knownWords'
 import { WordTally } from '@/features/goals/wordTally'
 import { SoundMarks } from '@/features/sounds/soundMarks'
 import { RepairMarks } from '@/features/repair/marks'
+import { BeatMarks } from '@/features/beats/beatMarks'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -92,6 +93,9 @@ export function sceneExtensions(): AnyExtension[] {
     // Sound effects: the words each sound plays on, while the Sounds view shows.
     SoundMarks,
     // Check and repair: slips mended as new AI words landed, in amber (features/repair/marks.ts).
-    RepairMarks
+    RepairMarks,
+    // Beat by beat: a band down the edge of each beat's paragraphs, while writing beat by beat or with
+    // "Show beats" on (features/beats/beatMarks.ts).
+    BeatMarks
   ]
 }

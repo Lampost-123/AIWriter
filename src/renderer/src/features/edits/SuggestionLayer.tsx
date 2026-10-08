@@ -278,7 +278,7 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
         ? 'Stopping…'
         : s.retrying
           ? 'The AI service is busy. Trying again…'
-          : `${TOOL_WORKING[s.tool]}…`
+          : `${s.working ?? TOOL_WORKING[s.tool]}…`
   return (
     <div className="rounded-lg border border-ai/30 bg-surface shadow-soft animate-fade-in">
       <div className="flex h-10 items-center gap-1.5 px-1.5">

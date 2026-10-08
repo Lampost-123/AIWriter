@@ -76,13 +76,14 @@ export function endsPage(doc: PMNode, pids: string[]): boolean {
 
 /**
  * True when the scene so far that beat `index` carries on from ends with the beat before it, and not
- * with other words after that beat (Adam's own). `leaveOut`: a beat being written again, whose
- * paragraphs are about to go.
+ * with other words after that beat (Adam's own). `leaveOut`: a beat being written again (the last one, or
+ * an earlier one in the middle of the scene): the scene so far stops where it begins.
  */
 export function endsWithBeat(doc: PMNode, beats: BeatParagraphs, index: number, leaveOut?: number): boolean {
   const skip = new Set(leaveOut ? (beats[leaveOut] ?? []) : [])
+  const end = leaveOut ? startOf(doc, beats[leaveOut] ?? []) : null
   const last = filledParagraphs(doc)
-    .filter((p) => !skip.has(p.pid))
+    .filter((p) => !skip.has(p.pid) && (end == null || p.pos < end))
     .at(-1)
   return !!last && (beats[index - 1] ?? []).includes(last.pid)
 }
@@ -121,21 +122,51 @@ export const nextBeat = (written: number, of: number): number | null => (written
 /**
  * The scene so far that a beat carries on from, as plain text: all the scene's text (mode 'whole'), or
  * what is below the scene break the first beat went under, from the first paragraph a beat wrote
- * ('below'). `leaveOut`: a beat being written again, whose paragraphs are about to go.
+ * ('below'). `leaveOut`: a beat being written again (the last one, or an earlier one in the middle of
+ * the scene): only what comes before it, so neither it nor the beats after it are "so far".
  */
 export function soFarText(doc: PMNode, mode: BeatMode, beats: BeatParagraphs, leaveOut?: number): string {
   const mine = new Set(Object.values(beats).flat())
   const start = mode === 'whole' ? 0 : (filledParagraphs(doc).find((p) => mine.has(p.pid))?.pos ?? null)
   if (start == null) return ''
   const skip = new Set(leaveOut ? (beats[leaveOut] ?? []) : [])
+  const end = (leaveOut ? startOf(doc, beats[leaveOut] ?? []) : null) ?? doc.content.size
   const kept: PMNode[] = []
   doc.forEach((node, pos) => {
-    if (pos + node.nodeSize <= start) return
+    if (pos + node.nodeSize <= start || pos >= end) return
     if (skip.has(pidOf(node) ?? '')) return
     kept.push(node)
   })
   return kept.length ? sceneText(doc.type.create(null, kept)) : ''
 }
+
+/**
+ * What follows a beat on the page, as plain text (the next beat's words first): for writing an earlier beat
+ * again in the middle of the scene. '' when the beat ends the page, or isn't on it.
+ */
+export function afterText(doc: PMNode, pids: string[]): string {
+  const range = beatRange(doc, pids)
+  if (!range) return ''
+  const end = range.to + 1
+  return end < doc.content.size ? sceneText(doc.cut(end)) : ''
+}
+
+/**
+ * Where a beat's words are on the page, for a tracked change in their place: from the start of the words of
+ * its first paragraph to the end of those of its last (any paragraphs between them go with it). Null when
+ * none of its paragraphs are on the page.
+ */
+export function beatRange(doc: PMNode, pids: string[]): { from: number; to: number } | null {
+  const mine = new Set(pids)
+  const on = filledParagraphs(doc).filter((p) => mine.has(p.pid))
+  if (!on.length) return null
+  const last = on[on.length - 1]
+  return { from: on[0].pos + 1, to: last.pos + last.node.nodeSize - 1 }
+}
+
+/** The ids of the paragraphs with words between two places on the page (the new words of an accepted change). */
+export const pidsBetween = (doc: PMNode, from: number, to: number): string[] =>
+  filledParagraphs(doc).flatMap((p) => (p.pos + p.node.nodeSize > from && p.pos < to ? [p.pid] : []))
 
 /** True when a beat's paragraphs are all the words on the page, so writing it again takes the page's place (as Replace it does). */
 export function isWholePage(doc: PMNode, pids: string[]): boolean {

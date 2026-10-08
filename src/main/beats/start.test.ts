@@ -230,6 +230,26 @@ describe('starting a beat', () => {
     expect(user).not.toContain("author's note")
   })
 
+  it('writes an earlier beat again in the middle: the scene so far before it, and the start of what comes after it, quoted once', async () => {
+    const { db, sceneId } = setup()
+    const r = recorder()
+    const AFTER = 'Tobin set the ledger on the table.\n\nSomeone knocked at the door, twice.'
+    const { generationId } = await startBeat(input(sceneId, { steer: '', after: AFTER }), { emit: r.emit })
+    expect((await r.done(generationId)).status).toBe('complete')
+    const user = fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content
+    expect(user).toContain('Write beat 2 of the 3 on the scene card again now, in place of the version on the page.')
+    expect(user).toContain('- Beat 3 (already written: it comes after this one): Someone knocks at the door.')
+    expect(count(user, 'Someone knocked at the door, twice.')).toBe(1)
+    // What comes after sits between the scene so far and the closing instruction.
+    const soFar = user.indexOf('## The scene so far')
+    const after = user.indexOf('## What comes after this beat')
+    expect(after).toBeGreaterThan(soFar)
+    expect(user.indexOf('Write beat 2 of the 3')).toBeGreaterThan(after)
+    const rec = gens.getGeneration(db, generationId)
+    expect(rec.params.beat).toEqual({ sessionId: 'session-1', index: 2, of: 3 })
+    expect(rec.blocks.find((b) => b.id === 'scene-after')?.text).toBe(AFTER)
+  })
+
   it('says plainly when the scene card has no beats, or not that one', async () => {
     const r = recorder()
     const empty = setup(['', '  '])

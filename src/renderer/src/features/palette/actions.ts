@@ -22,6 +22,7 @@ import { toggleFloatingBinder, useFloatingBinder } from '@/layout/ResizablePane'
 import { openHistory } from '@/features/history/open'
 import { openVariants } from '@/features/variants/open'
 import { startBeatByBeat } from '@/features/beats/start'
+import { setShowBeats } from '@/features/beats/BeatSettings'
 import { continueFromCursor } from '@/features/edits/continue'
 import { openAsk } from '@/features/ask/open'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
@@ -238,6 +239,10 @@ export async function runAction(id: ActionId): Promise<void> {
         if (!a.sceneId) return
         backToWriting()
         startBeatByBeat(a.sceneId)
+        return
+      case 'show-beats':
+      case 'hide-beats':
+        await setShowBeats(fixed === 'show-beats')
         return
       case 'history':
         if (a.sceneId) await openHistory(a.sceneId)
