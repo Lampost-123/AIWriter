@@ -2,24 +2,23 @@
 // its progress and Stop; every open issue grouped by chapter and scene; the repetition report; and plot
 // threads left open too long or paid off with no setup. Reached from the binder's World section, the
 // palette and the "Show" on a finished check's toast.
-import * as M from '@radix-ui/react-dropdown-menu'
-import { ChevronDown, SearchCheck, Square } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ALL_CHECKS, DONE_CHECKS, type Issue, type RepetitionReport, type ThreadsReport } from '@shared/contracts/checks'
+import type { Issue, RepetitionReport, ThreadsReport } from '@shared/contracts/checks'
 import type { ID, Outline } from '@shared/types'
 import { Button, Notice, Tabs, TabsContent, TabsList } from '@/components/ui'
 import { api } from '@/lib/api'
-import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { outlineOrder } from '@/features/editor/names/outlineOrder'
 import { StoryFilter } from '@/features/timeline/viewParts'
-import { runWords } from './CheckLine'
-import { checkStory, dismissFailure, openConsistency, stopCheck, useChecks } from './checkStore'
+import { CheckControls, Count, RunBar } from './CheckControls'
+import { dismissFailure, openConsistency, useChecks } from './checkStore'
 import { groupIssues } from './consistencyLogic'
 import { IssuesTab } from './IssuesTab'
 import { RepetitionTab, ThreadsTab } from './ReportTabs'
 import { useLoad } from './useLoad'
+import { DeskConsistency } from './desk/DeskConsistency'
+import { useDesk } from '@/features/look/look'
 
 type Tab = 'issues' | 'repetition' | 'threads'
 
@@ -76,6 +75,8 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
   const [tab, setTab] = useState<Tab>(lastTab)
   const [seen, setSeen] = useState<Set<Tab>>(() => new Set([lastTab]))
   const [showIgnored, setShowIgnored] = useState(false)
+  // The desk shows every report's count beside its name, so it reads all three at once.
+  const desk = useDesk()
   // Issues ignored or reopened here, shown at once while the change is saved. Each reload of the issues
   // starts afresh from what the main process says.
   const [changed, setChanged] = useState<Map<ID, Issue>>(new Map())
@@ -85,13 +86,13 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
   const repetition = useLoad(
     () => api.getRepetitionReport(storyId),
     [storyId, worldId, memoryRev, entriesRev, order],
-    seen.has('repetition'),
+    desk || seen.has('repetition'),
     k.repetition ?? null
   )
   const threads = useLoad(
     () => api.getThreadsReport(storyId),
     [storyId, worldId, memoryRev, entriesRev, briefingRev, order],
-    seen.has('threads'),
+    desk || seen.has('threads'),
     k.threads ?? null
   )
   useKeep(k, 'issues', issues.data)
@@ -123,6 +124,36 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
   const repeatCount = repetition.data
     ? repetition.data.petPhrases.length + repetition.data.chapters.reduce((n, c) => n + c.items.length, 0)
     : null
+
+  // The desk's Check room lays the same page out for its sheet (desk/DeskConsistency.tsx).
+  if (desk) {
+    return (
+      <DeskConsistency
+        storyId={storyId}
+        storyTitle={story?.title ?? ''}
+        tab={tab}
+        onTab={pick}
+        groups={groups}
+        issuesError={issues.error ?? outlineError}
+        onRetryIssues={issues.retry}
+        storyScenes={storyScenes}
+        showIgnored={showIgnored}
+        onShowIgnored={setShowIgnored}
+        onChanged={note}
+        outline={outline}
+        repetition={repetition}
+        threads={threads}
+        repeatCount={repeatCount}
+        threadCount={threadCount}
+        failure={failure}
+        scroller={(t, children) => (
+          <KeptScroll k={k} tab={t}>
+            {children}
+          </KeptScroll>
+        )}
+      />
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -208,97 +239,9 @@ function KeptScroll({ k, tab, children }: { k: Kept; tab: Tab; children: ReactNo
     if (ref.current) ref.current.scrollTop = k.scroll[tab] ?? 0
   }, [k, tab])
   return (
-    <div ref={ref} onScroll={(e) => (k.scroll[tab] = e.currentTarget.scrollTop)} className="min-h-0 flex-1 overflow-y-auto">
+    <div ref={ref} data-ck-scroll onScroll={(e) => (k.scroll[tab] = e.currentTarget.scrollTop)} className="min-h-0 flex-1 overflow-y-auto">
       {children}
     </div>
   )
 }
 
-/** A tab's count. Room is kept for it, so the tabs don't move when it arrives; nothing shows for none. */
-function Count({ n, danger }: { n: number | null; danger?: boolean }): React.JSX.Element {
-  return (
-    <span
-      className={cn(
-        'min-w-[18px] rounded-full px-1.5 text-center text-[11px] font-semibold leading-[18px] tabular-nums',
-        n ? (danger ? 'bg-danger-soft text-danger' : 'bg-surface-2 text-muted') : 'invisible'
-      )}
-    >
-      {n || 0}
-    </span>
-  )
-}
-
-/**
- * Check this story (facts, knowledge and timeline), with a small menu to take in voice and style too; or,
- * while a check runs, its progress and Stop. Both take the same width, so nothing beside them moves.
- */
-function CheckControls({ storyId }: { storyId: ID }): React.JSX.Element {
-  const run = useChecks((s) => s.run)
-  if (run) {
-    return (
-      <div className="flex h-8 w-[320px] items-center justify-end gap-2.5" role="status">
-        <span className="min-w-0 truncate text-[13px] text-muted" title={runWords(run)}>
-          {run.storyId === storyId ? runWords(run) : `${runWords(run, true)}, in another story`}
-        </span>
-        <Button icon={<Square size={12} />} loading={run.stopping} onClick={() => void stopCheck()}>
-          Stop
-        </Button>
-      </div>
-    )
-  }
-  return (
-    <div className="flex h-8 w-[320px] items-center justify-end">
-      <Button variant="primary" className="rounded-r-none" icon={<SearchCheck size={15} />} onClick={() => void checkStory(storyId, DONE_CHECKS)}>
-        Check this story
-      </Button>
-      <M.Root modal={false}>
-        <M.Trigger asChild>
-          <Button variant="primary" aria-label="More ways to check this story" className="rounded-l-none border-l border-accent-fg/25 px-2">
-            <ChevronDown size={15} />
-          </Button>
-        </M.Trigger>
-        <M.Portal>
-          <M.Content
-            align="end"
-            sideOffset={4}
-            collisionPadding={8}
-            className="z-50 w-[300px] rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
-          >
-            <CheckItem
-              title="Facts, knowledge and timeline"
-              hint="What each scene is checked for when you mark it done."
-              onSelect={() => void checkStory(storyId, DONE_CHECKS)}
-            />
-            <CheckItem
-              title="Voice and style too"
-              hint="Also each character’s voice, point of view, tense and tone. Slower, and costs more."
-              onSelect={() => void checkStory(storyId, ALL_CHECKS)}
-            />
-          </M.Content>
-        </M.Portal>
-      </M.Root>
-    </div>
-  )
-}
-
-function CheckItem({ title, hint, onSelect }: { title: string; hint: string; onSelect: () => void }): React.JSX.Element {
-  return (
-    <M.Item onSelect={onSelect} className="flex flex-col rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-surface-2">
-      <span className="text-[13.5px] font-medium text-fg">{title}</span>
-      <span className="mt-0.5 text-[12px] leading-snug text-muted">{hint}</span>
-    </M.Item>
-  )
-}
-
-/** A thin bar along the foot of the header while this story is being checked: how far it has got. */
-function RunBar({ storyId }: { storyId: ID }): React.JSX.Element | null {
-  const run = useChecks((s) => (s.run?.storyId === storyId ? s.run : null))
-  if (!run) return null
-  // Until the first scene starts there is nothing to measure: the bar starts from the left, never shrinks back.
-  const share = run.total && run.done !== null ? Math.min(1, run.done / run.total) : 0
-  return (
-    <div aria-hidden className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
-      <div className="h-full bg-accent transition-[width] duration-200" style={{ width: `${Math.max(2, share * 100)}%` }} />
-    </div>
-  )
-}

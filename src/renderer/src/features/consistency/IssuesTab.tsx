@@ -122,18 +122,18 @@ function IssueList({ issues, ...rest }: ListProps & { issues: Issue[] }): React.
 }
 
 /** Marks an issue as intended, with Undo in its toast. */
-async function ignore(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
+export async function ignoreIssue(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
   onChanged({ ...issue, status: 'ignored' })
   try {
     onChanged(await api.ignoreIssue(issue.id))
-    toast('Issue ignored. It won’t be raised again.', { action: { label: 'Undo', run: () => void reopen(issue, onChanged) } })
+    toast('Issue ignored. It won’t be raised again.', { action: { label: 'Undo', run: () => void reopenIssue(issue, onChanged) } })
   } catch (e) {
     onChanged(issue)
     toast(`Couldn’t ignore that issue. ${plainReason(e)}`, { tone: 'danger' })
   }
 }
 
-async function reopen(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
+export async function reopenIssue(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
   onChanged({ ...issue, status: 'open' })
   try {
     onChanged(await api.reopenIssue(issue.id))
@@ -194,11 +194,11 @@ function IssueCard({ issue: i, storyId, storyScenes, onChanged }: ListProps & { 
           {i.sources.length ? <Sources sources={i.sources} storyId={storyId} storyScenes={storyScenes} /> : null}
         </div>
         {ignored ? (
-          <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} loading={busy} onClick={() => act(() => reopen(i, onChanged))}>
+          <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} loading={busy} onClick={() => act(() => reopenIssue(i, onChanged))}>
             Reopen
           </Button>
         ) : (
-          <Button size="sm" variant="ghost" icon={<EyeOff size={13} />} loading={busy} onClick={() => act(() => ignore(i, onChanged))}>
+          <Button size="sm" variant="ghost" icon={<EyeOff size={13} />} loading={busy} onClick={() => act(() => ignoreIssue(i, onChanged))}>
             Ignore
           </Button>
         )}

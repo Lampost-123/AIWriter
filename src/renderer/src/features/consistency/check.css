@@ -1,0 +1,1203 @@
+/*
+  The desk's Check room (UI overhaul): the consistency page laid out for the sheet (desk/DeskConsistency.tsx), its issue
+  cards (desk/DeskIssues.tsx) and reports (desk/DeskReports.tsx), and the marks they share (desk/marks.tsx). Only on the
+  desk: every rule sits under [data-arrangement='desk'].
+
+  Severity in form, never by colour alone: a stripe down the card, a pill with an icon and a word. Must fix is the
+  only red; worth a look is the accent; minor is quiet. Amber is the AI's: here only Check this story and a running
+  check (the lighthouse's beam, the meter).
+  Motion: cards rise into place once (staggered 40ms), fold away when ignored (180ms, clip and fade), and the rest close
+  the gap by transform (lib/useFlip.ts); counts tick (components/ui/TickNumber.tsx); the filter's pill glides 220ms.
+  With less motion all of it is instant.
+*/
+
+[data-arrangement='desk'] [data-severity='must-fix'] {
+  --sev: var(--danger);
+  --sev-soft: var(--danger-soft);
+}
+[data-arrangement='desk'] [data-severity='warning'] {
+  --sev: var(--accent);
+  --sev-soft: var(--accent-soft);
+}
+[data-arrangement='desk'] [data-severity='minor'] {
+  --sev: var(--faint);
+  --sev-soft: var(--surface-2);
+}
+
+/* ---------- The frame: the left column and the report ---------- */
+[data-arrangement='desk'] .ck-desk {
+  height: 100%;
+  container-type: inline-size;
+}
+[data-arrangement='desk'] .ck-frame {
+  display: grid;
+  grid-template-columns: 312px minmax(0, 1fr);
+  height: 100%;
+}
+[data-arrangement='desk'] .ck-side {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  padding: 26px 22px 28px 26px;
+  border-right: 1px solid var(--desk-line-2);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 5%, var(--page)), var(--page) 70%);
+  scrollbar-width: thin;
+}
+[data-arrangement='desk'] .ck-art {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 240 / 150;
+  filter: drop-shadow(0 10px 18px rgb(var(--shade-rgb) / 0.16));
+  animation: ck-art-in 520ms var(--desk-ease) backwards;
+}
+@keyframes ck-art-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+    scale: 0.98;
+  }
+}
+[data-arrangement='desk'] .ck-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+[data-arrangement='desk'] .ck-title {
+  font: 600 28px/34px var(--heading-font);
+  font-variation-settings: 'opsz' 60;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-story {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+[data-arrangement='desk'] .ck-story-name {
+  font-family: var(--heading-font);
+  font-weight: 600;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-story-pick {
+  width: 100%;
+}
+[data-arrangement='desk'] .ck-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+[data-arrangement='desk'] .ck-controls-row {
+  width: 100%;
+  height: auto;
+  justify-content: stretch;
+}
+[data-arrangement='desk'] .ck-controls-row:not([role='status']) > button:first-child {
+  flex: 1 1 auto;
+  height: 38px;
+  border-radius: 11px 0 0 11px;
+  font-size: 14px;
+}
+[data-arrangement='desk'] .ck-controls-row:not([role='status']) > button:last-child {
+  height: 38px;
+  border-radius: 0 11px 11px 0;
+  border-left: 1px solid rgb(255 255 255 / 0.25);
+}
+/* Checking is the AI's work: the lamp's amber. */
+[data-arrangement='desk'] .ck-controls-row:not([role='status']) > button {
+  background: linear-gradient(180deg, var(--lamp-2), var(--lamp));
+  color: #fff;
+  text-shadow: 0 1px 0 rgb(110 55 0 / 0.3);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 6px 16px -7px var(--lamp-glow);
+}
+[data-arrangement='desk'][data-theme='dark'] .ck-controls-row:not([role='status']) > button {
+  color: #241606;
+  text-shadow: none;
+}
+[data-arrangement='desk'] .ck-controls-row:not([role='status']) > button:hover {
+  filter: brightness(1.05);
+  background: linear-gradient(180deg, var(--lamp-2), var(--lamp));
+}
+[data-arrangement='desk'] .ck-controls-row[role='status'] {
+  justify-content: space-between;
+}
+[data-arrangement='desk'] .ck-meter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+[data-arrangement='desk'] .ck-meter::before {
+  content: '';
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-3);
+}
+[data-arrangement='desk'] .ck-meter-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--lamp), var(--lamp-2));
+  box-shadow: 0 0 10px var(--lamp-glow);
+  transform-origin: 0 50%;
+  transition: transform var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .ck-meter-words {
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The three reports, as cards to choose between; the chosen one raised on paper. */
+[data-arrangement='desk'] .ck-reports {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 15px;
+  background: color-mix(in oklab, var(--surface-3) 50%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'] .ck-reports > .ck-report-pill {
+  border-radius: 11px;
+  background: var(--page);
+  box-shadow:
+    var(--sh-1),
+    0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'] .ck-report-tab {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 8px;
+  border-radius: 11px;
+  text-align: left;
+  color: var(--muted);
+  outline: none;
+  transition:
+    color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .ck-report-tab:hover:not([data-state='active']) {
+  background: color-mix(in oklab, var(--page) 45%, transparent);
+}
+[data-arrangement='desk'] .ck-report-tab:active {
+  scale: 0.985;
+}
+[data-arrangement='desk'] .ck-report-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+[data-arrangement='desk'] .ck-report-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--accent) 10%, var(--page));
+  color: var(--accent);
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .ck-report-tab[data-state='active'] .ck-report-icon {
+  background: var(--accent-soft);
+}
+[data-arrangement='desk'] .ck-report-words {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+[data-arrangement='desk'] .ck-report-label {
+  font: 600 14px/19px var(--font-sans);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-report-sub {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .ck-report-n {
+  display: inline-flex;
+  min-width: 26px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font: 600 12px/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  transition: opacity var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .ck-report-n[data-danger] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+[data-arrangement='desk'] .ck-report-n[data-none] {
+  opacity: 0.45;
+}
+
+/* Where the issues are. */
+[data-arrangement='desk'] .ck-where ul {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+[data-arrangement='desk'] .ck-where-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--muted);
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .ck-where-row:hover {
+  background: color-mix(in oklab, var(--surface-3) 45%, transparent);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-where-row:focus-visible {
+  outline: 2px solid var(--focus);
+}
+[data-arrangement='desk'] .ck-where-name {
+  overflow: hidden;
+  font-family: var(--heading-font);
+  font-weight: 600;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .ck-num {
+  font: 600 12.5px/1 var(--heading-font);
+  font-variant-numeric: oldstyle-nums;
+  color: var(--accent);
+  text-align: center;
+}
+[data-arrangement='desk'] .ck-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+[data-arrangement='desk'] .ck-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--sev, var(--faint));
+}
+[data-arrangement='desk'] .ck-dots-more {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+[data-arrangement='desk'] .ck-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+[data-arrangement='desk'] .ck-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+[data-arrangement='desk'] .ck-panel[hidden] {
+  display: none;
+}
+[data-arrangement='desk'] .ck-panel:focus-visible {
+  outline: none;
+}
+[data-arrangement='desk'] .ck-failure {
+  padding: 20px 40px 0;
+}
+
+/* ---------- Issues ---------- */
+[data-arrangement='desk'] .ck-issues {
+  max-width: 940px;
+  padding: 6px 44px 72px;
+}
+[data-arrangement='desk'] .ck-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 0 -12px 8px;
+  padding: 16px 12px 12px;
+  background: linear-gradient(180deg, var(--page) 78%, color-mix(in oklab, var(--page) 0%, transparent));
+}
+[data-arrangement='desk'] .ck-summary {
+  flex: 1 1 auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .ck-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .ck-toggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+[data-arrangement='desk'] .ck-filters {
+  position: relative;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--surface-3) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'] .ck-filter-pill {
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 9px;
+  background: var(--page);
+  box-shadow:
+    var(--sh-1),
+    0 0 0 1px var(--desk-line-2);
+  transition:
+    transform var(--dur-base) var(--desk-ease),
+    width var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .ck-filter {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border-radius: 9px;
+  font: 500 12.5px/1 var(--font-sans);
+  color: var(--muted);
+  white-space: nowrap;
+  transition:
+    color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .ck-filter:hover:not(:disabled) {
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-filter:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .ck-filter[aria-pressed='true'] {
+  color: var(--fg);
+  font-weight: 600;
+}
+[data-arrangement='desk'] .ck-filter:disabled {
+  opacity: 0.45;
+}
+[data-arrangement='desk'] .ck-filter:focus-visible {
+  outline: 2px solid var(--focus);
+}
+[data-arrangement='desk'] .ck-filter-n {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .ck-none {
+  padding: 18px 20px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  text-align: center;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+[data-arrangement='desk'] .ck-group {
+  margin-top: 26px;
+  scroll-margin-top: 64px;
+}
+[data-arrangement='desk'] .ck-group:first-of-type {
+  margin-top: 8px;
+}
+[data-arrangement='desk'] .ck-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+[data-arrangement='desk'] .ck-group-head .ck-num {
+  min-width: 18px;
+  font-size: 15px;
+}
+[data-arrangement='desk'] .ck-group-title {
+  font: 600 21px/27px var(--heading-font);
+  font-variation-settings: 'opsz' 36;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-group-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  align-self: center;
+  background: var(--desk-line);
+}
+[data-arrangement='desk'] .ck-scene + .ck-scene {
+  margin-top: 18px;
+}
+[data-arrangement='desk'] .ck-scene-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 8px 2px;
+}
+[data-arrangement='desk'] .ck-scene-title {
+  font: italic 400 14.5px/20px var(--serif-font);
+  color: var(--muted);
+}
+[data-arrangement='desk'] .ck-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+[data-arrangement='desk'] .ck-cards > li {
+  animation: ck-rise 340ms var(--desk-ease) backwards;
+  animation-delay: calc(min(var(--i, 0), 10) * 40ms);
+}
+@keyframes ck-rise {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+/* The card. */
+[data-arrangement='desk'] .ck-card {
+  position: relative;
+  padding: 14px 16px 16px 22px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--sh-card);
+  transition:
+    box-shadow var(--dur-base) var(--desk-ease),
+    translate var(--dur-base) var(--desk-ease),
+    opacity var(--dur-base) ease-out;
+}
+[data-arrangement='desk'] .ck-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 14px 0 0 14px;
+  background: var(--sev);
+}
+[data-arrangement='desk'] .ck-card[data-severity='must-fix'] {
+  background: linear-gradient(90deg, color-mix(in oklab, var(--danger-soft) 55%, var(--card)), var(--card) 220px);
+}
+[data-arrangement='desk'] .ck-card.is-opens {
+  cursor: pointer;
+}
+[data-arrangement='desk'] .ck-card.is-opens:hover {
+  box-shadow: var(--sh-card-up);
+  translate: 0 -1px;
+}
+[data-arrangement='desk'] .ck-card[data-ignored] {
+  opacity: 0.66;
+}
+[data-arrangement='desk'] .ck-card[data-ignored]::before {
+  background: repeating-linear-gradient(180deg, var(--faint) 0 4px, transparent 4px 8px);
+}
+/* Ignored: the card folds up and away; the ones below close the gap (useFlip). */
+[data-arrangement='desk'] .ck-card[data-leaving] {
+  pointer-events: none;
+  animation: ck-fold 180ms var(--desk-ease) forwards;
+}
+@keyframes ck-fold {
+  to {
+    opacity: 0;
+    scale: 0.985;
+    clip-path: inset(0 0 100% 0 round 14px);
+  }
+}
+[data-arrangement='desk'] .ck-card-head {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+[data-arrangement='desk'] .ck-sev {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+  border-radius: 999px;
+  background: var(--sev-soft);
+  font: 600 11.5px/1 var(--font-sans);
+  letter-spacing: 0.01em;
+  color: var(--sev);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .ck-sev[data-severity='minor'] {
+  color: var(--muted);
+}
+[data-arrangement='desk'] .ck-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .ck-act {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font: 500 12.5px/1 var(--font-sans);
+  color: var(--muted);
+  opacity: 0.8;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    opacity var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .ck-card:hover .ck-act,
+[data-arrangement='desk'] .ck-act:focus-visible {
+  opacity: 1;
+}
+[data-arrangement='desk'] .ck-act:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-act:active {
+  scale: 0.96;
+}
+[data-arrangement='desk'] .ck-act:focus-visible,
+[data-arrangement='desk'] .ck-msg:focus-visible,
+[data-arrangement='desk'] .ck-jump:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .ck-msg {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+  text-align: left;
+  font: 500 15px/22px var(--font-sans);
+  color: var(--fg);
+  text-wrap: pretty;
+  transition: color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .ck-card.is-opens:hover .ck-msg {
+  color: color-mix(in oklab, var(--accent) 70%, var(--fg));
+}
+[data-arrangement='desk'] .ck-quote {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 10px 14px 11px 16px;
+  border-left: 2px solid color-mix(in oklab, var(--sev) 55%, transparent);
+  border-radius: 2px 10px 10px 2px;
+  background: color-mix(in oklab, var(--surface-2) 55%, var(--card));
+}
+[data-arrangement='desk'] .ck-quote blockquote {
+  min-width: 0;
+  flex: 1 1 auto;
+  font: italic 400 16px/1.55 var(--serif-font);
+  font-variant-numeric: oldstyle-nums;
+  color: color-mix(in oklab, var(--fg) 88%, var(--muted));
+}
+[data-arrangement='desk'] .ck-jump {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  border-radius: 6px;
+  font: 500 12px/18px var(--font-sans);
+  color: var(--accent);
+  opacity: 0;
+  translate: -3px 0;
+  transition:
+    opacity var(--dur-quick) ease-out,
+    translate var(--dur-quick) var(--desk-ease);
+}
+[data-arrangement='desk'] .ck-card:hover .ck-jump,
+[data-arrangement='desk'] .ck-jump:focus-visible {
+  opacity: 1;
+  translate: 0 0;
+}
+[data-arrangement='desk'] .ck-advice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .ck-fix {
+  font-family: var(--serif-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 12px;
+}
+[data-arrangement='desk'] .ck-sources-label {
+  font-size: 12px;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .ck-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 4px;
+  font-weight: 500;
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+[data-arrangement='desk'] .ck-link:hover {
+  text-decoration: underline;
+}
+[data-arrangement='desk'] .ck-sources .ck-link,
+[data-arrangement='desk'] .ck-plain {
+  font-size: 12.5px;
+}
+[data-arrangement='desk'] .ck-plain {
+  color: var(--muted);
+}
+
+/* An entry as a small card: its drawing on its kind's tint, then its name. */
+[data-arrangement='desk'] .entry-mark {
+  --em: var(--faint);
+  --em-soft: var(--surface-2);
+  display: inline-flex;
+  max-width: 100%;
+  height: 28px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px 0 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--em-soft) 70%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--em) 20%, transparent);
+  font: 500 12.5px/1 var(--font-sans);
+  color: var(--fg);
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] button.entry-mark:hover {
+  background: var(--em-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--em) 40%, transparent);
+}
+[data-arrangement='desk'] button.entry-mark:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] button.entry-mark:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .em-tile {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--em);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--em) 18%, transparent);
+}
+[data-arrangement='desk'] .em-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .em-detail {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .em-detail::before {
+  content: '· ';
+}
+[data-arrangement='desk'] .em-char {
+  --em: var(--k-char);
+  --em-soft: var(--k-char-soft);
+}
+[data-arrangement='desk'] .em-place {
+  --em: var(--k-place);
+  --em-soft: var(--k-place-soft);
+}
+[data-arrangement='desk'] .em-group {
+  --em: var(--k-group);
+  --em-soft: var(--k-group-soft);
+}
+[data-arrangement='desk'] .em-item {
+  --em: var(--k-item);
+  --em-soft: var(--k-item-soft);
+}
+[data-arrangement='desk'] .em-lore {
+  --em: var(--k-lore);
+  --em-soft: var(--k-lore-soft);
+}
+[data-arrangement='desk'] .em-event {
+  --em: var(--k-event);
+  --em-soft: var(--k-event-soft);
+}
+[data-arrangement='desk'] .em-thread {
+  --em: var(--k-thread);
+  --em-soft: var(--k-thread-soft);
+}
+[data-arrangement='desk'] .em-gloss {
+  --em: var(--k-gloss);
+  --em-soft: var(--k-gloss-soft);
+}
+
+/* ---------- All clear ---------- */
+[data-arrangement='desk'] .ck-clear {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  padding: 40px 44px 64px;
+  text-align: center;
+}
+[data-arrangement='desk'] .ck-clear-art {
+  width: min(560px, 100%);
+  height: auto;
+  aspect-ratio: 360 / 200;
+  filter: drop-shadow(0 18px 30px rgb(var(--shade-rgb) / 0.2));
+  animation: ck-art-in 600ms var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .ck-clear[data-moment] .ck-clear-art {
+  animation: ck-clear-moment 900ms var(--desk-ease) backwards;
+}
+@keyframes ck-clear-moment {
+  from {
+    opacity: 0;
+    scale: 0.94;
+    filter: blur(6px) drop-shadow(0 18px 30px rgb(var(--shade-rgb) / 0.2));
+  }
+}
+[data-arrangement='desk'] .ck-clear-words {
+  display: flex;
+  max-width: 520px;
+  flex-direction: column;
+  align-items: center;
+  animation: ck-rise 420ms var(--desk-ease) 160ms backwards;
+}
+[data-arrangement='desk'] .ck-clear-tick {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  margin-bottom: 12px;
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--success);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--success-soft) 45%, transparent);
+}
+[data-arrangement='desk'] .ck-clear-title {
+  font: 600 30px/36px var(--heading-font);
+  font-variation-settings: 'opsz' 60;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-clear-sub {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+[data-arrangement='desk'] .ck-clear-acts {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+/* ---------- The reports ---------- */
+[data-arrangement='desk'] .ck-report {
+  max-width: 1000px;
+  padding: 26px 44px 72px;
+}
+[data-arrangement='desk'] .ck-report-intro {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--accent) 6%, var(--page));
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .ck-report-art {
+  width: 72px;
+  height: auto;
+  flex: none;
+}
+[data-arrangement='desk'] .ck-report-section {
+  margin-top: 30px;
+}
+[data-arrangement='desk'] .ck-report-head {
+  margin-bottom: 14px;
+}
+[data-arrangement='desk'] .ck-report-title {
+  font: 600 21px/27px var(--heading-font);
+  font-variation-settings: 'opsz' 36;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-report-hint {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] :is(.ck-pet, .ck-chapter-card, .ck-thread) {
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--sh-card);
+  animation: ck-rise 340ms var(--desk-ease) backwards;
+  animation-delay: calc(min(var(--i, 0), 10) * 40ms);
+}
+[data-arrangement='desk'] .ck-pets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+[data-arrangement='desk'] .ck-pet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+}
+[data-arrangement='desk'] .ck-pet-phrase {
+  align-self: flex-start;
+  border-radius: 4px;
+  text-align: left;
+  font: italic 400 20px/27px var(--serif-font);
+  color: var(--fg);
+  transition: color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .ck-pet-phrase:hover:not(:disabled) {
+  color: var(--accent);
+}
+[data-arrangement='desk'] .ck-pet-meta {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .ck-strip {
+  display: flex;
+  gap: 3px;
+}
+[data-arrangement='desk'] .ck-strip-cell {
+  height: 6px;
+  flex: 1 1 0;
+  border-radius: 3px;
+  background: var(--surface-3);
+}
+[data-arrangement='desk'] .ck-strip-cell[data-on] {
+  background: var(--accent);
+}
+[data-arrangement='desk'] .ck-chapters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+[data-arrangement='desk'] .ck-chapter-card {
+  padding: 14px 16px 16px;
+}
+[data-arrangement='desk'] .ck-chapter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+[data-arrangement='desk'] .ck-chapter-title {
+  overflow: hidden;
+  font: 600 16px/22px var(--heading-font);
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .ck-words {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+[data-arrangement='desk'] .ck-word {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 10px 5px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) calc(6% + var(--w, 0) * 16%), var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) calc(10% + var(--w, 0) * 20%), transparent);
+  color: var(--fg);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .ck-word:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+[data-arrangement='desk'] .ck-word:active {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .ck-word-text {
+  font-family: var(--serif-font);
+  font-size: calc(13px + var(--w, 0) * 5px);
+}
+[data-arrangement='desk'] .ck-word-n {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .ck-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+[data-arrangement='desk'] .ck-thread {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 44%);
+  align-items: center;
+  gap: 28px;
+  padding: 16px 22px 16px 18px;
+}
+[data-arrangement='desk'] .ck-thread-name {
+  border-radius: 4px;
+  text-align: left;
+  font: 600 17px/23px var(--heading-font);
+  color: var(--fg);
+  transition: color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .ck-thread-name:hover {
+  color: var(--accent);
+}
+[data-arrangement='desk'] .ck-thread-meta {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--muted);
+}
+/* A thread's string across the chapters (numbered under their ticks). */
+[data-arrangement='desk'] .ck-string {
+  position: relative;
+  height: 36px;
+  margin: 0 8px;
+}
+[data-arrangement='desk'] .ck-string > span {
+  position: absolute;
+}
+[data-arrangement='desk'] .ck-string-track {
+  left: 0;
+  right: 0;
+  top: 13px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--desk-line);
+}
+[data-arrangement='desk'] .ck-string-tick {
+  top: 9px;
+  width: 1px;
+  height: 10px;
+  translate: -0.5px 0;
+  background: var(--line-strong);
+}
+[data-arrangement='desk'] .ck-string-label {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  translate: -50% 0;
+  font: 500 10.5px/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .ck-string-line {
+  top: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--k-thread);
+  transform-origin: 0 50%;
+  animation: ck-string-in 700ms var(--desk-ease) 200ms backwards;
+}
+@keyframes ck-string-in {
+  from {
+    transform: scaleX(0);
+  }
+}
+[data-arrangement='desk'] .ck-string-missing {
+  top: 13px;
+  height: 0;
+  border-top: 2px dashed color-mix(in oklab, var(--danger) 55%, transparent);
+}
+[data-arrangement='desk'] .ck-string-knot {
+  top: 14px;
+  width: 12px;
+  height: 12px;
+  translate: -50% -50%;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 3px var(--k-thread);
+}
+[data-arrangement='desk'] .ck-string[data-open] .ck-string-end {
+  top: 14px;
+  width: 10px;
+  height: 10px;
+  translate: -50% -50%;
+  border-radius: 999px;
+  background: var(--k-thread);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--k-thread) 50%, transparent);
+  animation: ck-loose 3.2s ease-out infinite;
+}
+@keyframes ck-loose {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--k-thread) 50%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 9px color-mix(in oklab, var(--k-thread) 0%, transparent);
+  }
+}
+[data-arrangement='desk'] .ck-calm {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 44px 72px;
+  text-align: center;
+}
+[data-arrangement='desk'] .ck-calm-art {
+  width: 132px;
+  height: auto;
+  margin-bottom: 18px;
+}
+[data-arrangement='desk'] .ck-calm-title {
+  font: 600 24px/30px var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ck-calm-sub {
+  max-width: 480px;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--muted);
+}
+
+/* ---------- A narrower sheet: the left column becomes a band across the top ---------- */
+@container (max-width: 900px) {
+  [data-arrangement='desk'] .ck-frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  [data-arrangement='desk'] .ck-side {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 10px 20px;
+    overflow: visible;
+    padding: 18px 26px 14px;
+    border-right: 0;
+    border-bottom: 1px solid var(--desk-line-2);
+  }
+  [data-arrangement='desk'] .ck-art {
+    grid-row: span 3;
+    align-self: start;
+  }
+  [data-arrangement='desk'] .ck-title {
+    font-size: 24px;
+    line-height: 30px;
+  }
+  [data-arrangement='desk'] .ck-story {
+    display: none;
+  }
+  [data-arrangement='desk'] .ck-controls-row {
+    width: 260px;
+  }
+  [data-arrangement='desk'] .ck-reports {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+  [data-arrangement='desk'] .ck-report-tab {
+    flex: 1 1 0;
+  }
+  [data-arrangement='desk'] .ck-report-sub,
+  [data-arrangement='desk'] .ck-where,
+  [data-arrangement='desk'] .ck-story-pick {
+    display: none;
+  }
+  [data-arrangement='desk'] :is(.ck-issues, .ck-report) {
+    padding-inline: 26px;
+  }
+  [data-arrangement='desk'] .ck-thread {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+}
+@container (max-width: 620px) {
+  [data-arrangement='desk'] .ck-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  [data-arrangement='desk'] .ck-art {
+    display: none;
+  }
+  [data-arrangement='desk'] .ck-report-icon {
+    display: none;
+  }
+  [data-arrangement='desk'] .ck-report-tab {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+/* Dark: the raised pills on the lifted paper, so the chosen one shows. */
+[data-arrangement='desk'][data-theme='dark'] :is(.ck-reports > .ck-report-pill, .ck-filter-pill) {
+  background: var(--raise);
+  box-shadow:
+    var(--sh-1),
+    0 0 0 1px var(--desk-line);
+}
