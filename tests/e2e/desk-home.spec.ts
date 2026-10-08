@@ -145,3 +145,54 @@ test('the story home fits the window without spilling, and the panels never show
   await expect(win.locator('.scene-prose')).toBeVisible()
   await expect(home(win)).toHaveCount(0)
 })
+
+test('drawings: the cast and the places show drawings picked from their words; the entry page and the cover change them', async ({ launch }) => {
+  const { win } = await sampleWorld(launch)
+  await win.getByRole('button', { name: 'Story home' }).click()
+  // The cover: the story's drawing (a lantern, from "keeper" and "light").
+  await expect(home(win).locator('[data-book-cover] [data-motif="lantern"]')).toBeVisible()
+  // The cast, with no portraits: Edric a lantern, Iska a letter.
+  const cast = home(win).getByRole('button', { name: /^Cast:/ })
+  await expect(cast.locator('[data-motif]')).toHaveCount(4)
+  await expect(cast.locator('[data-motif="letter"]')).toHaveCount(1)
+
+  // On the story board, a scene's place shows its drawing on its tile.
+  await rooms(win).getByRole('button', { name: /^Plan/ }).click()
+  await expect(win.locator('[data-board-card]', { hasText: 'Low Tide' }).locator('[data-motif="stairs"]')).toBeVisible()
+
+  // Edric's page: his drawing, picked from his words, and Change.
+  await rooms(win).getByRole('button', { name: /^World/ }).click()
+  await win.locator('[data-desk-room]').getByText(/^Keeper of the Gullhaven Light for forty years/).first().click()
+  const picker = win.locator('[data-motif-picker]')
+  await expect(picker).toContainText('Drawing: lantern')
+  await expect(picker).toContainText('Picked from its words')
+  await picker.getByRole('button', { name: 'Change' }).click()
+  const grid = win.getByRole('radiogroup', { name: 'Drawings for Edric Halloway' })
+  // The ones his words suit come first.
+  await expect(grid.getByRole('radio').first()).toHaveAccessibleName('A lantern')
+  await expect(grid.getByRole('radio', { name: 'A lantern' })).toHaveAttribute('aria-checked', 'true')
+  await grid.getByRole('radio', { name: 'A bell' }).click()
+  await expect(picker).toContainText('Drawing: bell')
+  await expect(picker).toContainText('You chose it')
+  const edric = (await invoke(win, 'listEntries', 'character')).find((e) => e.name === 'Edric Halloway')!
+  expect((await invoke(win, 'getArtChoices')).entries[edric.id]).toEqual({ motif: 'bell', by: 'adam' })
+  // Nothing of the entry itself changed (its words, its history).
+  expect((await invoke(win, 'getEntry', edric.id)).fields.motif).toBeUndefined()
+
+  // Back home: Edric's face is a bell now. The cover: a colour and a drawing of Adam's own.
+  await win.getByRole('button', { name: 'Story home' }).click()
+  await expect(cast.locator('[data-motif="bell"]')).toHaveCount(1)
+  await home(win).getByRole('button', { name: 'Change the cover' }).click()
+  await win.getByRole('radiogroup', { name: 'Cover drawing' }).getByRole('radio', { name: 'A sailing ship' }).click()
+  await expect(home(win).locator('[data-book-cover] [data-motif="ship"]')).toBeVisible()
+  const [story] = await invoke(win, 'listStories')
+  expect((await invoke(win, 'getArtChoices')).stories[story.id]).toEqual({ motif: 'ship' })
+  await win.getByRole('button', { name: 'Use its own cover' }).click()
+  await expect(home(win).locator('[data-book-cover] [data-motif="lantern"]')).toBeVisible()
+
+  // The panels: the entry page has no drawing picker.
+  await invoke(win, 'updateSettings', { arrangement: 'panels' })
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  await expect(win.locator('[data-motif-picker]')).toHaveCount(0)
+})

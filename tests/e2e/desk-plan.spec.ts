@@ -25,13 +25,13 @@ async function sampleWorld(
 
 /** Waits until the pointer would reach the card itself (not a page crossfading in over it). */
 async function reachable(win: Page, title: string): Promise<void> {
-  const el = card(win, title)
+  const sel = JSON.stringify(`[data-board-card]`)
+  const text = JSON.stringify(title)
   await expect
     .poll(() =>
-      el.evaluate((c) => {
-        const r = c.getBoundingClientRect()
-        return c.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
-      })
+      win.evaluate<boolean>(
+        `(() => { const c = [...document.querySelectorAll(${sel})].find((e) => e.textContent.includes(${text})); const r = c.getBoundingClientRect(); return c.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) })()`
+      )
     )
     .toBe(true)
 }
@@ -122,7 +122,7 @@ test('the story board: dragging a card moves its scene (the others make room); A
   await win.mouse.move(to.x + 60, to.y + 20, { steps: 12 })
   // While it is held, the cards below it in Chapter Two make room.
   await expect(card(win, 'A Letter for the Keeper')).toHaveClass(/is-dragging/)
-  await expect.poll(() => card(win, 'What the Letter Said').evaluate((e) => getComputedStyle(e).transform)).not.toBe('none')
+  await expect.poll(() => card(win, 'What the Letter Said').getAttribute('style')).toMatch(/translateY/)
   await win.mouse.up()
   await expect.poll(() => order(win)).toEqual([['Lighting the Lamp'], ['A Letter for the Keeper', 'What the Letter Said', 'Low Tide']])
   // Dropped, it is still on the board (a drag never opens the scene).
@@ -158,7 +158,7 @@ test('the story board fits beside the spine at 1920, 1440, 1366 and 1280, scroll
     await expect.poll(async () => Math.abs(((await win.evaluate('innerWidth')) as number) - w)).toBeLessThanOrEqual(1)
     await win.waitForTimeout(150)
     // Nothing spills past the window; the board scrolls inside the room instead.
-    const spill = await win.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth)
+    const spill = await win.evaluate<number>('Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth')
     expect(spill, `at ${w}x${h}`).toBeLessThanOrEqual(0)
     const box = (await win.locator('[data-board-scroller]').boundingBox())!
     expect(box.x + box.width, `at ${w}x${h}`).toBeLessThanOrEqual(w)

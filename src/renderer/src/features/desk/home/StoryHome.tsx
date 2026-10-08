@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID } from '@shared/types'
-import { ArrowRight, ChevronDown, Plus, RotateCcw, X } from '@/components/ui/icons'
+import { ArrowRight, ChevronDown, Palette, Plus, RotateCcw, X } from '@/components/ui/icons'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -26,6 +26,8 @@ import { inShelfOrder } from '@/features/stories/storiesLogic'
 import { Portrait } from '@/features/views/Portrait'
 import { editedText } from '@/features/start/startLogic'
 import { useArrival } from '@/layout/desk/arrival'
+import { useEntryMotifs } from '@/features/world/art/artStore'
+import { CoverPicker } from '@/features/world/art/MotifPicker'
 import { BookCover } from './BookCover'
 import { useStoryCover } from './cover'
 import {
@@ -88,6 +90,7 @@ export function StoryHome(): React.JSX.Element {
   const issues = useLoad(() => (storyId ? api.issueCounts(storyId) : null), [storyId, outlineRev, memoryRev])
   const last = useLoad(() => (sceneId ? api.getScene(sceneId) : null), [sceneId, outlineRev])
   const cover = useStoryCover(story, world)
+  const motifs = useEntryMotifs()
 
   const stats = outline ? storyStats(outline) : null
   const shelf = useMemo(() => (outline ? chapterShelf(outline, sceneId) : []), [outline, sceneId])
@@ -106,15 +109,25 @@ export function StoryHome(): React.JSX.Element {
     <div data-desk-home data-arrive={arriving || undefined} className="desk-home absolute inset-0 overflow-y-auto overflow-x-hidden">
       <div className="home-col" aria-label={`Story home: ${title}`} role="region">
         <section className="home-hero" aria-label="The book">
-          <button
-            type="button"
-            className="home-book a-book"
-            style={at(40)}
-            onClick={continueWriting}
-            aria-label={lastScene ? `Open the book where you left off, at ${lastScene.title}` : 'Open the book'}
-          >
-            <BookCover title={title} kicker={kicker} foot={world ? `A ${world.name.replace(/^Sample world:\s*/i, '')} story` : ''} hue={cover.hue} art={cover.art} />
-          </button>
+          <div className="home-book-col">
+            <button
+              type="button"
+              className="home-book a-book"
+              style={at(40)}
+              onClick={continueWriting}
+              aria-label={lastScene ? `Open the book where you left off, at ${lastScene.title}` : 'Open the book'}
+            >
+              <BookCover title={title} kicker={kicker} foot={world ? `A ${world.name.replace(/^Sample world:\s*/i, '')} story` : ''} hue={cover.hue} art={cover.art} />
+            </button>
+            {story ? (
+              <CoverPicker story={story} motif={cover.motif} hue={cover.hue}>
+                <button type="button" className="home-cover-btn a-rise" style={at(420)}>
+                  <Palette size={13} />
+                  Change the cover
+                </button>
+              </CoverPicker>
+            ) : null}
+          </div>
           <div className="home-hb">
             <p className="home-eyebrow a-rise" style={at(140)}>
               <span className="desk-caps">{[world?.name.replace(/^Sample world:\s*/i, ''), kicker].filter(Boolean).join(' · ')}</span>
@@ -208,7 +221,7 @@ export function StoryHome(): React.JSX.Element {
                     {cast.people.map((p, i) => (
                       <span key={p.id} className="home-pt" style={{ left: i * 46, zIndex: 4 - i, ...at(740 + i * 50) }} title={p.name}>
                         <span className="home-pt-face a-pop">
-                          <Portrait entry={p} size={60} />
+                          <Portrait entry={p} size={60} motif={motifs.get(p.id)} />
                         </span>
                         {i < 2 ? <span className="home-pt-name">{p.name.split(' ')[0]}</span> : null}
                       </span>

@@ -21,6 +21,7 @@ import { chapterShelf, scenesOf, storyStats } from '@/features/desk/home/homeLog
 import { chapterNumeral } from '@/features/desk/spine/spineLayout'
 import { numberWords } from '@shared/numberWords'
 import { useBoardStore } from './boardStore'
+import { useEntryMotifs } from '@/features/world/art/artStore'
 import { addSceneTo } from './boardActions'
 import { IdeasDrawer, ideasForWhatComesNext, openIdeasFor } from './IdeasDrawer'
 import { BoardOutline } from './BoardOutline'
@@ -224,6 +225,7 @@ function Cards({
   const justDragged = useRef(false)
   const shelf = useMemo(() => chapterShelf(outline, sceneId), [outline, sceneId])
   const scenes = useMemo(() => new Map(outline.scenes.map((s) => [s.id, s])), [outline])
+  const motifs = useEntryMotifs()
   const lit = hover ?? focus
   const litScenes = new Set(lit ? (layout.strings.find((s) => s.id === lit)?.sceneIds ?? []) : [])
 
@@ -413,6 +415,7 @@ function Cards({
                   useApp.getState().selectScene(box.id)
                 }}
                 onKeyDown={(e) => keyMove(e, box.id)}
+                placeMotif={cards?.[box.id]?.locationId ? motifs.get(cards[box.id].locationId!) : undefined}
                 onIdeas={scene.status === 'planned' && scene.wordCount === 0 && (cards?.[box.id]?.empty ?? false) ? () => openIdeasFor(box.id) : undefined}
               />
             )

@@ -32,6 +32,31 @@
   column-gap: 56px;
   align-items: start;
 }
+[data-arrangement='desk'] .home-book-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+[data-arrangement='desk'] .home-cover-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  transition:
+    background-color var(--dur-quick, 150ms) ease-out,
+    color var(--dur-quick, 150ms) ease-out;
+}
+[data-arrangement='desk'] .home-cover-btn:hover,
+[data-arrangement='desk'] .home-cover-btn[data-state='open'] {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--raise) 55%, transparent);
+}
 [data-arrangement='desk'] .home-book {
   display: block;
   width: 220px;
@@ -1370,7 +1395,7 @@
     grid-template-columns: 170px minmax(0, 1fr);
     column-gap: 36px;
   }
-  [data-arrangement='desk'] .home-book {
+  [data-arrangement='desk'] .home-book-col .home-book {
     width: 170px;
     height: 232px;
   }

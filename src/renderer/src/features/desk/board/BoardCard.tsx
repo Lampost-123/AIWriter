@@ -50,7 +50,8 @@ export function BoardCard({
   onPointerDown,
   onOpen,
   onKeyDown,
-  onIdeas
+  onIdeas,
+  placeMotif
 }: {
   box: PlacedCard
   scene: SceneMeta
@@ -70,6 +71,8 @@ export function BoardCard({
   onKeyDown: (e: KeyboardEvent) => void
   /** A planned scene with nothing on its card: its ideas, in the board's drawer. */
   onIdeas?: () => void
+  /** The place's drawing (the drawing library), shown on its tile when it has no portrait. */
+  placeMotif?: string
 }): React.JSX.Element {
   const pov = card?.povId ? people.get(card.povId) : undefined
   const place = card?.locationId ? people.get(card.locationId) : undefined
@@ -106,7 +109,7 @@ export function BoardCard({
         ) : null}
         {place ? (
           <span className="board-c-mono" title={place.name}>
-            <Portrait entry={place} size={20} />
+            <Portrait entry={place} size={20} motif={placeMotif} />
           </span>
         ) : null}
         {card?.when.trim() ? <span className="board-c-when">{card.when.trim()}</span> : null}
