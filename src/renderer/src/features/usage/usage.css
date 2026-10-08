@@ -1,0 +1,175 @@
+/*
+  Settings › Usage and cost in the New look (UsageSettings.tsx, UsageCharts.tsx): the tiles, the cards and the charts,
+  in theme tokens (the models' colours are the kind inks, contrast-tested in every theme). Bars grow up from the
+  baseline and the ring's parts sweep round when the numbers change (the base speed and a little more, staggered by a
+  few ms); with less motion they are simply there.
+*/
+.uc-card,
+.uc-tile {
+  border-radius: var(--r-card);
+  background: var(--raise);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line);
+}
+.uc-tile {
+  padding: 14px 16px 13px;
+}
+.uc-tile.is-main {
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in oklab, var(--accent-soft) 70%, transparent), transparent 60%),
+    var(--raise);
+}
+.uc-h3 {
+  margin-bottom: 14px;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---------- the bars ---------- */
+.uc-tick-label {
+  position: absolute;
+  right: 8px;
+  translate: 0 50%;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.uc-grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed color-mix(in oklab, var(--line-strong) 55%, transparent);
+}
+.uc-grid.is-base {
+  border-top: 1px solid var(--line-strong);
+}
+.uc-col {
+  transition: opacity var(--dur-quick) var(--motion-glide);
+}
+.uc-col.is-dim {
+  opacity: 0.45;
+}
+.uc-bar {
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
+  max-width: 22px;
+  overflow: hidden;
+  border-radius: 4px 4px 1px 1px;
+  transform-origin: bottom;
+  animation: uc-grow 420ms var(--motion-glide) both;
+  transition: height var(--dur-base) var(--motion-glide);
+}
+.uc-bar > span {
+  display: block;
+  min-height: 0;
+  flex-basis: 0;
+}
+.uc-bar > span + span {
+  box-shadow: 0 1px 0 var(--raise);
+}
+.uc-ahead {
+  width: 100%;
+  max-width: 22px;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--line) 70%, transparent);
+}
+@keyframes uc-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+.uc-tip {
+  background: var(--raise);
+  box-shadow:
+    var(--elev-3),
+    0 0 0 1px var(--line);
+  animation: uc-tip-in var(--dur-quick) var(--motion-glide) both;
+}
+@keyframes uc-tip-in {
+  from {
+    opacity: 0;
+    translate: 0 3px;
+  }
+}
+
+/* ---------- the ring ---------- */
+.uc-ring-track {
+  fill: none;
+  stroke: var(--surface-3);
+  stroke-width: 12;
+}
+.uc-ring-part {
+  fill: none;
+  stroke-width: 12;
+  animation: uc-sweep 700ms var(--motion-glide) both;
+}
+@keyframes uc-sweep {
+  from {
+    opacity: 0;
+    stroke-dasharray: 0 400;
+  }
+}
+.uc-ring-total {
+  font: 600 16px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  fill: var(--fg);
+}
+.uc-ring-sub {
+  font: 500 10px var(--font-sans);
+  fill: var(--faint);
+}
+
+/* ---------- rows on one scale ---------- */
+.uc-row-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.uc-row-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transform-origin: left;
+  animation: uc-fill 520ms var(--motion-glide) both;
+}
+.uc-row-fill.is-place {
+  background: var(--k-place);
+}
+@keyframes uc-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* ---------- the limit's ring ---------- */
+.uc-limit .uc-ring-track {
+  stroke-width: 5;
+}
+.uc-limit-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--dur-base) var(--motion-glide);
+}
+.uc-limit-fill.is-near {
+  stroke: var(--k-item);
+}
+.uc-limit-fill.is-full {
+  stroke: var(--danger);
+}
+.uc-limit-text {
+  font: 600 11px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  fill: var(--fg);
+}

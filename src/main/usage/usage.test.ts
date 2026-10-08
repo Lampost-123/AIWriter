@@ -217,6 +217,42 @@ describe('the usage page', () => {
     expect(r.total.cost).toBe(3)
   })
 
+  it('splits each bar by model, and the stretch of time by world (the New look’s charts)', () => {
+    const a = worldWith([
+      { cost: 1, model: 'maker/a', at: local(2026, 10, 1) },
+      { cost: 3, model: 'maker/b', at: local(2026, 10, 1) },
+      { cost: 2, model: 'maker/a', at: local(2026, 9, 30) }
+    ])
+    const b = worldWith([{ cost: 5, model: 'maker/a', at: local(2026, 10, 2) }])
+    const r = buildReport({
+      period: 'this-month',
+      scope: 'library',
+      tallies: [a, b],
+      everyTally: [a, b],
+      today,
+      worldName: 'Alpha',
+      unreadable: 0,
+      named: [
+        { name: 'Alpha', open: true, tally: a },
+        { name: 'Beta', open: false, tally: b },
+        { name: 'Empty', open: false, tally: worldWith([]) }
+      ]
+    })
+    expect(r.bars[0].models?.map((m) => [m.modelId, m.cost])).toEqual([
+      ['maker/b', 3],
+      ['maker/a', 1]
+    ])
+    expect(r.bars[1].models?.map((m) => m.modelId)).toEqual(['maker/a'])
+    expect(r.bars[2].models).toEqual([])
+    // Each world's share of this month only (Alpha's September call is left out); a world with none isn't listed.
+    expect(r.byWorld?.map((w) => [w.name, w.cost, w.open])).toEqual([
+      ['Beta', 5, false],
+      ['Alpha', 4, true]
+    ])
+    // Without names, no breakdown by world (as before).
+    expect(buildReport({ period: 'this-month', scope: 'library', tallies: [a], everyTally: [a], today, worldName: null, unreadable: 0 }).byWorld).toBeUndefined()
+  })
+
   it('switches to last month, the last 30 days and all time (by month)', () => {
     const t = worldWith([
       { cost: 1, at: local(2026, 10, 1) },

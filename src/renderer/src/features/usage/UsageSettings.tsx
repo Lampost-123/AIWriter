@@ -24,8 +24,12 @@ import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { Segmented } from '@/features/generate/parts'
 import { SpendChart } from './SpendChart'
+import { useNewLook } from '@/features/look/look'
+import { ModelSplit, RowBars, SpendBars, jobRows, worldRows, type Measure } from './UsageCharts'
+import { modelColours, modelKey, modelName } from './chartLogic'
+import './usage.css'
 import { carryOn, setSpend, useSpend } from './spendStore'
-import { PERIODS, callsAndTokens, costNotes, shareOf, tokensWithCache } from './usageWords'
+import { PERIODS, callWords, callsAndTokens, costNotes, shareOf, tokenWords, tokensWithCache } from './usageWords'
 
 /** True once `on` has stayed true for `ms`, so quick loads never flash a placeholder. */
 function useDelayed(on: boolean, ms = 200): boolean {
@@ -50,6 +54,9 @@ export function UsageSettings(): React.JSX.Element {
   const [loading, setLoading] = useState(false)
   const spend = useSpend((s) => s.state)
   const ask = useRef(0)
+  const isNew = useNewLook()
+  // The New look: the charts in dollars or in tokens.
+  const [measure, setMeasure] = useState<Measure>('cost')
 
   const load = useCallback(async (): Promise<void> => {
     const mine = ++ask.current
@@ -98,6 +105,23 @@ export function UsageSettings(): React.JSX.Element {
   }
 
   const limit = spend?.limit ?? null
+  if (isNew) {
+    return (
+      <NewUsage
+        month={month}
+        report={report}
+        limit={limit}
+        loading={loading}
+        worldOpen={worldOpen}
+        period={period}
+        setPeriod={setPeriod}
+        scope={scope}
+        setScope={setScope}
+        measure={measure}
+        setMeasure={setMeasure}
+      />
+    )
+  }
   return (
     <div className="flex flex-col gap-9 animate-fade-in">
       <Headline month={month} limit={limit} />
@@ -359,6 +383,197 @@ function Notes({ report }: { report: UsageReport }): React.JSX.Element | null {
       {notes.map((n) => (
         <p key={n}>{n}</p>
       ))}
+    </div>
+  )
+}
+
+// ---------- The New look ----------
+
+const MEASURES: { value: Measure; label: string }[] = [
+  { value: 'cost', label: 'Dollars' },
+  { value: 'tokens', label: 'Tokens' }
+]
+
+/**
+ * The New look: the month at a glance in four tiles, the limit, then the spending as charts: a bar a day stacked by
+ * model (in dollars or tokens), the split by model as a ring, and the spending by world and by kind of work.
+ */
+function NewUsage(p: {
+  month: UsageReport
+  report: UsageReport
+  limit: number | null
+  loading: boolean
+  worldOpen: boolean
+  period: UsagePeriod
+  setPeriod: (v: UsagePeriod) => void
+  scope: UsageScope
+  setScope: (v: UsageScope) => void
+  measure: Measure
+  setMeasure: (v: Measure) => void
+}): React.JSX.Element {
+  const { month, report, limit } = p
+  const any = month.anyEver || report.anyEver
+  const colours = modelColours(report.models)
+  const worlds = report.byWorld ?? []
+  return (
+    <div className="@container flex flex-col gap-7 animate-fade-in">
+      <Tiles month={month} limit={limit} />
+      <LimitSection />
+      {any ? (
+        <SettingsSection
+          title="Spending"
+          description={
+            p.scope === 'world' && p.worldOpen && report.worldName
+              ? `Only ${report.worldName}.`
+              : `Every world in your library${report.worlds > 1 ? ` (${report.worlds} worlds)` : ''}.`
+          }
+          actions={p.loading ? <Spinner size={14} /> : null}
+        >
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Segmented label="Which stretch of time" value={p.period} onChange={p.setPeriod} options={PERIODS} className="shrink-0 whitespace-nowrap" />
+            {p.worldOpen ? (
+              <Segmented
+                className="shrink-0 whitespace-nowrap"
+                label="Which worlds"
+                value={p.scope}
+                onChange={p.setScope}
+                options={[
+                  { value: 'library', label: 'All worlds' },
+                  { value: 'world', label: 'This world' }
+                ]}
+              />
+            ) : null}
+            <span className="flex-1" />
+            <Segmented label="Show the charts in" value={p.measure} onChange={p.setMeasure} options={MEASURES} className="shrink-0 whitespace-nowrap" />
+          </div>
+          <div className="uc-card p-5">
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+              <div>
+                <p className="st-caps">{report.unit === 'day' ? 'By day' : 'By month'}</p>
+                <div className="mt-0.5 text-[26px] font-semibold leading-tight tabular-nums text-fg">
+                  {p.measure === 'cost' ? dollars(report.total.cost) : tokenWords(report.total.promptTokens + report.total.completionTokens)}
+                </div>
+                <div className="mt-0.5 text-[12.5px] tabular-nums text-muted">
+                  {p.measure === 'cost' ? callsAndTokens(report.total) : `${dollars(report.total.cost)} · ${callWords(report.total.calls)}`}
+                </div>
+              </div>
+              {report.models.length ? (
+                <ul aria-label="Colours" className="flex max-w-[560px] flex-wrap justify-end gap-x-4 gap-y-1.5">
+                  {report.models.slice(0, 7).map((m) => (
+                    <li key={modelKey(m)} className="flex items-center gap-1.5 text-[12px] text-muted">
+                      <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: colours.get(modelKey(m)) }} />
+                      {modelName(m.modelId).name}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+            {report.bars.length ? (
+              <div className="relative">
+                <SpendBars bars={report.bars} unit={report.unit} models={report.models} measure={p.measure} />
+                {report.total.calls === 0 ? (
+                  <p className="pointer-events-none absolute inset-x-0 top-[40%] text-center text-[13px] text-muted">No AI use in this stretch of time.</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="py-6 text-center text-[13px] text-muted">No AI use in this stretch of time.</p>
+            )}
+          </div>
+          {report.total.calls > 0 ? (
+            <div className="mt-4 grid gap-4 @[880px]:grid-cols-2">
+              <div className="uc-card @container p-5 @[880px]:row-span-2">
+                <h3 className="uc-h3">By model</h3>
+                <ModelSplit models={report.models} measure={p.measure} />
+              </div>
+              {worlds.length ? (
+                <div className="uc-card p-5">
+                  <h3 className="uc-h3">By world</h3>
+                  <RowBars label="By world" rows={worldRows(worlds)} tone="place" />
+                </div>
+              ) : null}
+              <div className="uc-card p-5">
+                <h3 className="uc-h3">By job</h3>
+                <RowBars label="By job" rows={jobRows(report.jobs)} />
+              </div>
+            </div>
+          ) : null}
+          <Notes report={report} />
+        </SettingsSection>
+      ) : (
+        <div className="uc-card">
+          <EmptyState icon={<ChartColumn size={20} />} title="No AI use yet">
+            Once you generate a draft, or the memory reads a scene, what each AI call cost shows here, day by day, by model, by world
+            and by job.
+          </EmptyState>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** This month at a glance: the spending (with the limit as a ring), the calls, the tokens and the busiest day. */
+function Tiles({ month, limit }: { month: UsageReport; limit: number | null }): React.JSX.Element {
+  const spent = month.total.cost
+  const share = shareOf(spent, limit)
+  const days = month.bars.filter((b) => !b.ahead)
+  const busiest = days.reduce<(typeof days)[number] | null>((best, b) => (!best || b.cost > best.cost ? b : best), null)
+  const tokens = month.total.promptTokens + month.total.completionTokens
+  const R = 21
+  const C = 2 * Math.PI * R
+  return (
+    <div className="grid grid-cols-2 gap-3 @[760px]:grid-cols-4">
+      <div className="uc-tile is-main">
+        <p className="st-caps">This month</p>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[28px] font-semibold leading-tight tabular-nums text-fg">{dollars(spent)}</div>
+            <div className="text-[12px] text-muted">
+              {limit != null ? `of your ${limitDollars(limit)} limit` : month.worlds > 1 ? `across ${month.worlds} worlds` : 'across your library'}
+            </div>
+          </div>
+          {limit != null ? (
+            <svg
+              viewBox="0 0 52 52"
+              className="uc-limit h-[52px] w-[52px] shrink-0"
+              role="progressbar"
+              aria-label="This month's spending against your limit"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(share * 100)}
+            >
+              <circle cx="26" cy="26" r={R} className="uc-ring-track" />
+              <circle
+                cx="26"
+                cy="26"
+                r={R}
+                className={cn('uc-limit-fill', share >= 1 ? 'is-full' : share >= 0.8 && 'is-near')}
+                strokeDasharray={`${share * C} ${C}`}
+                transform="rotate(-90 26 26)"
+              />
+              <text x="26" y="30" textAnchor="middle" className="uc-limit-text">
+                {Math.round(share * 100)}%
+              </text>
+            </svg>
+          ) : null}
+        </div>
+      </div>
+      <div className="uc-tile">
+        <p className="st-caps">AI calls</p>
+        <div className="mt-1 text-[24px] font-semibold leading-tight tabular-nums text-fg">{month.total.calls.toLocaleString('en-US')}</div>
+        <div className="text-[12px] text-muted">this month</div>
+      </div>
+      <div className="uc-tile">
+        <p className="st-caps">Tokens</p>
+        <div className="mt-1 text-[24px] font-semibold leading-tight tabular-nums text-fg">{tokenWords(tokens).replace(/ tokens?$/, '')}</div>
+        <div className="text-[12px] text-muted">
+          {month.total.cachedTokens > 0 ? `${tokenWords(month.total.cachedTokens).replace(/ tokens?$/, '')} from the cache` : 'read and written'}
+        </div>
+      </div>
+      <div className="uc-tile">
+        <p className="st-caps">Busiest day</p>
+        <div className="mt-1 text-[24px] font-semibold leading-tight tabular-nums text-fg">{busiest && busiest.cost > 0 ? dollars(busiest.cost) : '—'}</div>
+        <div className="text-[12px] text-muted">{busiest && busiest.cost > 0 ? busiest.label : 'Nothing yet this month'}</div>
+      </div>
     </div>
   )
 }
