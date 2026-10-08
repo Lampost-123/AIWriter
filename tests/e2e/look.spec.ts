@@ -198,15 +198,20 @@ async function asAdam(launch: (o?: { dataDir?: string; env?: Record<string, stri
     mkdirSync(join(dataDir, 'app'), { recursive: true })
     writeFileSync(join(dataDir, 'app', 'settings.json'), JSON.stringify({ theme: 'light' }))
   }
-  return launch({ dataDir, env: { AIWRITE_LOOK: '' } })
+  return launch({ dataDir, env: ADAM })
 }
+
+/** What Adam gets: no look, layout or theme chosen for the test. */
+const ADAM = { AIWRITE_LOOK: '', AIWRITE_ARRANGEMENT: '', AIWRITE_THEME: '' }
+/** The page's sheet, in either layout (the desk's spine has no "Binder" landmark of its own). */
+const ready = (win: Page) => win.locator('.scene-prose')
 
 test('the New look: the default after updating, offered Classic once; Style switches at once and is kept', async ({ launch }) => {
   const note = (win: Page) => win.getByRole('region', { name: 'The new look' })
 
   // Updating from before the New look: it shows, with the note.
   const first = await asAdam(launch, true)
-  await createWorldFromWelcome(first.win, 'Harbour')
+  await createWorldFromWelcomeAnywhere(first.win)
   expect(await lookAttr(first.win)).toBe('new')
   await expect(note(first.win)).toContainText('AI Write has a new look')
   await note(first.win).getByRole('button', { name: 'Keep the new look' }).click()
@@ -215,8 +220,8 @@ test('the New look: the default after updating, offered Classic once; Style swit
   await first.close()
 
   // Never again.
-  const second = await launch({ dataDir: first.dataDir, env: { AIWRITE_LOOK: '' } })
-  await expect(binder(second.win)).toBeVisible()
+  const second = await launch({ dataDir: first.dataDir, env: ADAM })
+  await expect(ready(second.win)).toBeVisible()
   expect(await second.win.evaluate<string | null>('window.aiwrite.initialLook ?? null')).toBe('new')
   await expect(note(second.win)).toBeHidden()
 
@@ -242,30 +247,70 @@ test('the New look: the default after updating, offered Classic once; Style swit
   await second.close()
 
   // Restarted: the window opens in Classic, before the settings have even been read.
-  const third = await launch({ dataDir: first.dataDir, env: { AIWRITE_LOOK: '' } })
-  await expect(binder(third.win)).toBeVisible()
+  const third = await launch({ dataDir: first.dataDir, env: ADAM })
+  await expect(ready(third.win)).toBeVisible()
   expect(await third.win.evaluate<string | null>('window.aiwrite.initialLook ?? null')).toBe('classic')
   expect(await lookAttr(third.win)).toBe('classic')
 })
 
 test('the New look: "Switch to Classic" in the note switches for good; a fresh install gets no note', async ({ launch }) => {
   const { win, dataDir, close } = await asAdam(launch, true)
-  await createWorldFromWelcome(win, 'Harbour')
+  await createWorldFromWelcomeAnywhere(win)
   const note = win.getByRole('region', { name: 'The new look' })
   await note.getByRole('button', { name: 'Switch to Classic' }).click()
   await expect(note).toBeHidden()
   expect(await lookAttr(win)).toBe('classic')
   await expect.poll(async () => await invoke(win, 'getSettings')).toMatchObject({ look: 'classic', lookNote: false })
   await close()
-  const again = await launch({ dataDir, env: { AIWRITE_LOOK: '' } })
-  await expect(binder(again.win)).toBeVisible()
+  const again = await launch({ dataDir, env: ADAM })
+  await expect(ready(again.win)).toBeVisible()
   expect(await lookAttr(again.win)).toBe('classic')
   await expect(again.win.getByRole('region', { name: 'The new look' })).toBeHidden()
 
-  // A fresh install: the New look, with nothing to compare it with, so no note.
+  // A fresh install: the New look on the desk, in Dark, with nothing to compare it with, so no note.
   const fresh = await asAdam(launch, false)
   await expect(fresh.win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   expect(await lookAttr(fresh.win)).toBe('new')
+  expect(await painted(fresh.win)).toBe('dark')
+  expect(await fresh.win.evaluate<string>("document.documentElement.dataset.arrangement ?? ''")).toBe('desk')
   await expect(fresh.win.getByRole('region', { name: 'The new look' })).toBeHidden()
-  expect((await invoke(fresh.win, 'getSettings')).lookNote).toBe(false)
+  await expect(fresh.win.getByRole('region', { name: 'The desk' })).toBeHidden()
+  expect(await invoke(fresh.win, 'getSettings')).toMatchObject({ lookNote: false, arrangementNote: false, theme: 'dark', arrangement: 'desk' })
 })
+
+test('the desk is the New look’s layout: someone on the panels is moved to it once, told so, and can go back; their theme is kept', async ({
+  launch
+}) => {
+  // Settings from a version with the New look on the panels, Light chosen.
+  const dataDir = newDataDir()
+  mkdirSync(join(dataDir, 'app'), { recursive: true })
+  writeFileSync(join(dataDir, 'app', 'settings.json'), JSON.stringify({ theme: 'light', look: 'new' }))
+  const first = await launch({ dataDir, env: ADAM })
+  await createWorldFromWelcomeAnywhere(first.win)
+  expect(await first.win.evaluate<string>("document.documentElement.dataset.arrangement ?? ''")).toBe('desk')
+  expect(await painted(first.win)).toBe('light')
+  const note = first.win.getByRole('region', { name: 'The desk' })
+  await expect(note).toContainText('The new desk')
+  await expect(note).toContainText('Settings › Appearance')
+  // Clear of the spine: at the bottom right.
+  const box = (await note.boundingBox())!
+  expect(box.x).toBeGreaterThan(((await first.win.evaluate('innerWidth')) as number) / 2)
+  await note.getByRole('button', { name: 'Use the panels' }).click()
+  await expect(note).toBeHidden()
+  expect(await first.win.evaluate<string>("document.documentElement.dataset.arrangement ?? ''")).toBe('panels')
+  await expect.poll(async () => await invoke(first.win, 'getSettings')).toMatchObject({ arrangement: 'panels', arrangementNote: false, theme: 'light' })
+  await first.close()
+  // Kept, and never told again.
+  const again = await launch({ dataDir, env: ADAM })
+  await expect(ready(again.win)).toBeVisible()
+  expect(await again.win.evaluate<string>("document.documentElement.dataset.arrangement ?? ''")).toBe('panels')
+  await expect(again.win.getByRole('region', { name: 'The desk' })).toBeHidden()
+})
+
+/** Creates a world from the start screen in whichever layout shows. */
+async function createWorldFromWelcomeAnywhere(win: Page): Promise<void> {
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await win.getByLabel('World name').fill('Harbour')
+  await win.getByRole('button', { name: 'Create world' }).click()
+  await expect(ready(win)).toBeVisible()
+}

@@ -58,6 +58,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // { env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk' } }.
   // Run on Adam's PC, the window is see-through and never takes focus (main/index.ts), so he can use his PC
   // meanwhile; AIWRITE_BACKGROUND=off shows it. CI has no one to disturb.
+  // The theme: Dark is the default now (src/shared/defaults.ts); app tests start in "Match the system", as they always
+  // did, so their pictures stay as taken, unless a test asks for a theme with { env: { AIWRITE_THEME: 'dark' } } (or ''
+  // for what Adam gets).
   // Plan before writing (one more AI call before each draft or beat, src/main/plan/) is left out of app tests that
   // aren't about it, so the calls they count stay as they were; they ask for it with { env: { AIWRITE_PLAN: 'on' } }.
   const background = process.env.AIWRITE_BACKGROUND ?? (process.env.CI ? 'off' : 'on')
@@ -69,6 +72,7 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
       AIWRITE_START: 'off',
       AIWRITE_LOOK: 'classic',
       AIWRITE_ARRANGEMENT: 'panels',
+      AIWRITE_THEME: 'system',
       AIWRITE_BACKGROUND: background,
       AIWRITE_PLAN: 'off'
     },
