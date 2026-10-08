@@ -127,6 +127,42 @@ describe('reading what moved', () => {
     expect(got.map((x) => holdingLine(x))).toEqual(['Wren Hollis: has Cinder (now riding Cinder, a grey gelding lent by Ash; since Fell Road, Ch 2, Sc 5)'])
   })
 
+  it('reads "finds X has …" as finding out about X, not getting it; a real find still counts', () => {
+    // The lab's bridge review: "Wren finds Cinder has cast a shoe" was read as a getting, so Cinder went from Ash to Wren.
+    const tam = entry('character', 'Tamsin Vell')
+    const rook = entry('character', 'Rook Abery')
+    const mare = entry('item', 'Bramble', { aliases: ['the bay mare'] })
+    const key = entry('item', 'The cellar key')
+    const h = itemHeads([tam, rook, mare, key])
+    const people = [
+      { id: tam.id, names: ['Tamsin Vell', 'Tamsin'] },
+      { id: rook.id, names: ['Rook Abery', 'Rook'] }
+    ]
+    const items = [mare, key].map((e) => ({ id: e.id, names: namesOf(e, h) }))
+    const event = { self: null, itemSelf: null, items, people }
+    const tams = { self: tam.id, itemSelf: null, items, people }
+    for (const text of [
+      'Tamsin finds Bramble has cast a shoe',
+      'Tamsin finds that Bramble has cast a shoe',
+      'Tamsin found the bay mare was lame in the off fore',
+      'Tamsin finds Bramble lame',
+      'Tamsin found the cellar key had been moved'
+    ]) {
+      expect(movesIn(text, event), text).toEqual([])
+      expect(movesIn(text.replace(/^Tamsin /, ''), tams), text).toEqual([])
+    }
+    // Real finds and gettings still count.
+    expect(movesIn('Tamsin finds the cellar key under the step', event)).toEqual([{ item: key.id, to: tam.id, from: [] }])
+    expect(movesIn('found the cellar key in the grass', tams)).toEqual([{ item: key.id, to: tam.id, from: [] }])
+    expect(movesIn('has Bramble now', tams)).toEqual([{ item: mare.id, to: tam.id, from: [] }])
+    expect(movesIn('Rook took Bramble from Tamsin', event)).toEqual([{ item: mare.id, to: rook.id, from: [tam.id] }])
+    // Who has the mare: Rook rode in on her and still does, though Tamsin finds she has cast a shoe.
+    rook.happened = [note('now has Bramble, the bay mare', 3)]
+    tam.happened = [note('finds Bramble has cast a shoe', 5)]
+    const got = holdingsOf({ entries: [tam, rook, mare, key], relationships: [], people: [tam.id, rook.id] })
+    expect(got.map((x) => holdingLine(x))).toEqual(['Rook Abery: has Bramble (now has Bramble, the bay mare; since Fell Road, Ch 1, Sc 3)'])
+  })
+
   it('reads nothing into what did not happen, or what is no item', () => {
     for (const text of [
       'did not give her compass to Mother Agate',

@@ -178,6 +178,21 @@ const PAYS = new Set(['paid', 'pays', 'bought', 'buys', 'purchased', 'bribed', '
 const LENT = new Set(['lent', 'loaned', 'given', 'handed', 'sent', 'passed', 'entrusted', 'bequeathed', 'delivered', 'returned'])
 /** Verbs of having, not getting: "kept it hidden from Bryn" takes nothing from Bryn. */
 const HAVING = new Set(['kept', 'keeps', 'carries', 'carried', 'holds', 'held', 'wears', 'wore', 'worn', 'wields', 'wielded', 'owns', 'owned', 'has', 'now'])
+/**
+ * Words that, straight after a thing, make it the subject of a clause of its own: "finds Cinder has cast a shoe", "found
+ * the gate was locked". What the clause says is about the thing; nobody got it.
+ */
+const STARTS_CLAUSE = new Set(
+  'has had have is was were are am can could would will must might may should shall lay lies stood stands seems seemed needs needed'.split(' ')
+)
+/** Finding words, which also say what someone found out: "finds Cinder lame" is about Cinder, not a getting. */
+const FINDS = new Set(['found', 'finds'])
+/** How someone may find a thing, straight after it: "finds Cinder lame", "found the key missing". */
+const FOUND_HOW = new Set(
+  'lame lamed limping gone missing dead dying broken cracked injured hurt sick ill unshod shoeless loose empty open shut locked unlocked barred stolen'.split(' ')
+)
+/** Having words that, after a thing, have the thing do it ("Cinder has cast a shoe"): not "the compass, now kept". */
+const SUBJECT_HAS = new Set(['has', 'holds', 'keeps', 'carries', 'wears', 'owns', 'wields', 'gets', 'takes', 'finds', 'wins', 'took'])
 /** Titles, never a first name to know someone by ("Mother Agate" isn't "Mother"). */
 const TITLES = new Set(
   'mother father sister brother aunt uncle old young lady lord sir dame master mistress captain king queen prince princess doctor dr mr mrs miss ms saint st abbot abbess the'.split(' ')
@@ -347,6 +362,14 @@ function movesInClause(clause: string, r: Reading, last: ID | null): { moves: Mo
         else if (stops.length === 1 && stops[0] === 'for' && TRADES.has(before.w)) v = { ...before, kind: 'get' }
         else if (stops.length === 1 && stops[0] === 'with' && PAYS.has(before.w)) v = { ...before, kind: 'give' }
         if (v) mode = 'pre'
+        // "Wren finds Cinder has cast a shoe": Cinder starts a clause of its own, and what it says is about Cinder.
+        const next = tokens[tokenAt(m.end)]
+        if (v && next && !clause.slice(m.end, next.start).trim()) {
+          if (STARTS_CLAUSE.has(next.w) || (FINDS.has(v.w) && FOUND_HOW.has(next.w))) {
+            seen.add(m.id)
+            continue
+          }
+        }
       }
       // Or the verb just after it ("her compass was taken", "the compass, stolen by Bryn").
       if (!v) {
@@ -397,6 +420,8 @@ function movesInClause(clause: string, r: Reading, last: ID | null): { moves: Mo
         else move = { to: by, from: ids(mode === 'post' ? [who, source] : [source]) }
         break
       case 'get':
+        // "Cinder has cast a shoe", "the compass holds true": the thing does it, so nobody got it.
+        if (mode === 'post' && !passive && !by && SUBJECT_HAS.has(v.w)) break
         // "held by Ash", "was found by Ash": Ash has it. Not "found the compass, guarded by Ash": she has it.
         if (by && (passive || mode !== 'pre')) move = { to: by, from: ids([source]) }
         else if (who) move = { to: who, from: ids([source, named && r.self && named !== r.self ? r.self : null]) }
