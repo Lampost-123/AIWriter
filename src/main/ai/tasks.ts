@@ -12,8 +12,11 @@ import type { AppEvents } from '@shared/api'
 import type { TaskDone } from '@shared/contracts/tasks'
 import type { AgentStep, ChatMessage, ContextBlock, GenerationJob, GenerationRecord, ID, ToolCall, ToolSpec } from '@shared/types'
 import * as gens from '../db/generations'
+import { reachedWords } from '@shared/contracts/usage'
 import { estimateTokens } from '../keeper/text'
 import { memoryReplyLimits, sentAs } from '../keeper/model'
+import { heldAt } from '../usage/gate'
+import { toolRoomFor } from './toolRoom'
 import { newId, now, UserError } from '../util'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type SentParams, type StreamOutcome } from './client'
 import { isKeyFailure } from './errors'
@@ -144,8 +147,11 @@ function begin(req: TaskRequest): Running {
   const contextLength = model.choice.contextLength && model.choice.contextLength > 0 ? model.choice.contextLength : DEFAULT_TASK_CONTEXT
   const promptTokens = estimateTokens(req.messages.map((m) => m.content).join('\n'))
   const reply = Math.max(64, Math.min(req.reply, model.choice.maxOutput ?? Infinity))
+  // The editor chat: the reply limit also leaves free the tools' own description and the room kept for what they bring
+  // back over the steps (ai/toolRoom.ts, as its briefing did), so a small model's answer isn't turned down halfway.
+  const agentRoom = req.agent ? toolsTokens(req.agent.tools) + toolRoomFor(contextLength) : 0
   // Thinking counts against the reply limit, so the limit leaves room for it (as the memory keeper's does).
-  const { limit, thinkingRoom } = memoryReplyLimits({ ...model.choice, contextLength }, promptTokens, reply, model.thinking)
+  const { limit, thinkingRoom } = memoryReplyLimits({ ...model.choice, contextLength }, promptTokens + agentRoom, reply, model.thinking)
   const known = knownParams(model.target, model.choice.modelId)
   const start: SentParams = model.choice.sampling === false ? { ...known, sampling: false } : known
   const topP = req.topP ?? 0.95
@@ -187,14 +193,73 @@ function begin(req: TaskRequest): Running {
     done: Promise.resolve(null as unknown as TaskResult)
   }
   running.set(req.taskId, r)
-  r.done = stream(r, req, { params, limit, reply, thinkingRoom, start, topP, promptTokens })
+  r.done = stream(r, req, { params, limit, reply, thinkingRoom, start, topP, promptTokens, contextLength })
   return r
+}
+
+/** Said in place of a tool result taken out to keep the editor chat within the model's context (fitToRoom). */
+export const RESULT_REMOVED = '[result removed to save room — call the tool again if you need it]'
+/** Of the context, the share kept spare when the editor chat's messages are measured (estimates are rough). */
+export const CONTEXT_SPARE = 0.05
+
+/**
+ * A fast, cautious estimate of the tokens messages take as sent (characters, as estimateTokens counts them): the
+ * words, each tool call's name and arguments, any thinking sent back, and a little for each message's format.
+ */
+export function messagesTokens(messages: ChatMessage[]): number {
+  let sum = 0
+  for (const m of messages) {
+    sum += estimateTokens(m.content) + 4
+    if (m.reasoning) sum += estimateTokens(m.reasoning)
+    for (const c of m.toolCalls ?? []) sum += estimateTokens(c.name) + estimateTokens(c.arguments) + 8
+  }
+  return sum
+}
+
+/** The tokens the tools' own description takes in a request, roughly. */
+export const toolsTokens = (tools: ToolSpec[]): number => (tools.length ? estimateTokens(JSON.stringify(tools)) : 0)
+
+/**
+ * Keeps the editor chat's messages within `room` tokens (messagesTokens) by taking tool results out, oldest first
+ * (each replaced by RESULT_REMOVED, so its call still has an answer): first those from earlier steps (before
+ * `keepFrom`), then, only if that isn't enough, the newest. `fits` is false when the earlier ones weren't enough: the
+ * model would only ask for the newest again, so the next request should be the last, without tools. Messages that
+ * still don't fit with every result taken out are sent as they are (the provider says if they are too long).
+ */
+export function fitToRoom(messages: ChatMessage[], room: number, keepFrom: number): { messages: ChatMessage[]; removed: number; fits: boolean } {
+  let size = messagesTokens(messages)
+  if (size <= room) return { messages, removed: 0, fits: true }
+  const out = [...messages]
+  let removed = 0
+  const takeOut = (from: number, to: number): void => {
+    for (let i = from; i < to && size > room; i++) {
+      const m = out[i]
+      // A result no longer than the note saves nothing; one already taken out stays as it is.
+      if (m.role !== 'tool' || m.content.length <= RESULT_REMOVED.length) continue
+      size -= estimateTokens(m.content) - estimateTokens(RESULT_REMOVED)
+      out[i] = { ...m, content: RESULT_REMOVED }
+      removed++
+    }
+  }
+  takeOut(0, Math.min(keepFrom, out.length))
+  const fits = size <= room
+  if (!fits) takeOut(keepFrom, out.length)
+  return { messages: out, removed, fits }
 }
 
 async function stream(
   r: Running,
   req: TaskRequest,
-  o: { params: GenerationParams; limit: number; reply: number; thinkingRoom: number; start: SentParams; topP: number; promptTokens: number }
+  o: {
+    params: GenerationParams
+    limit: number
+    reply: number
+    thinkingRoom: number
+    start: SentParams
+    topP: number
+    promptTokens: number
+    contextLength: number
+  }
 ): Promise<TaskResult> {
   const { db, model, emit } = req
   const tags = req.onSpeakers ? new SpeakerTagFilter() : null
@@ -260,65 +325,104 @@ async function stream(
       effort: thinkingEffort(model.target, model.choice.modelId, model.thinking)
     }))
   // The editor chat: ask, answer the tools the model asks for, and ask again, until it answers without tools (or
-  // the last step, asked without them). Tokens and cost add up over the steps; the words written along the way are
-  // the reply.
+  // the last request, always asked without them). Tokens and cost add up over the steps; the words written along the
+  // way are the reply.
   const steps: AgentStep[] = []
+  const agent = req.agent
   // Where the latest request's words start in the reply, so an answer sent back by `nudge` can be taken out.
   let stepFrom = r.text.length
-  let outcome = await once(req.messages, req.agent?.tools)
-  if (req.agent) {
+  // With a single step, the first request is the last: it goes without tools.
+  const firstTools = agent && agent.maxSteps > 1 ? agent.tools : undefined
+  let outcome = await once(req.messages, firstTools)
+  if (agent) {
     let messages = req.messages
     const total = { prompt: outcome.promptTokens, cached: outcome.cachedTokens, completion: outcome.completionTokens, cost: outcome.cost }
     const add = (a: number | null, b: number | null): number | null => (a == null && b == null ? null : (a ?? 0) + (b ?? 0))
+    const toolsSize = toolsTokens(agent.tools)
+    // What the answer has cost so far (not in a finished record yet), counted when the monthly limit is checked.
+    let spent = costOf(outcome, model, o.promptTokens) ?? 0
+    // The room the messages have: the context, less the reply limit and a little spare. The estimate is corrected by
+    // what the provider counted for the latest request, when it says (estimates run high for English prose).
+    const room = o.contextLength - o.limit - Math.ceil(o.contextLength * CONTEXT_SPARE)
+    const correction = (sent: ChatMessage[], tools: ToolSpec[] | undefined, counted: number | null): number | null => {
+      if (counted == null || counted <= 0) return null
+      const guess = messagesTokens(sent) + (tools?.length ? toolsSize : 0)
+      return Math.max(counted - guess, -Math.round(guess * 0.3))
+    }
+    let corrected = correction(req.messages, firstTools, outcome.promptTokens) ?? 0
     let nudged = false
-    for (let step = 1; outcome.status === 'complete' && step < req.agent.maxSteps; step++) {
+    /** The monthly spending limit was reached partway (its amount): the answer stops there and says so. */
+    let heldBy: number | null = null
+    for (let step = 1; outcome.status === 'complete' && step < agent.maxSteps; step++) {
       if (r.controller.signal.aborted) break
-      if (!outcome.toolCalls?.length) {
-        // An answer without tools: kept, unless it says it changed things it never proposed (asked once more).
-        const nudge = nudged ? null : (req.agent.nudge?.(outcome.text) ?? null)
+      const calls = outcome.toolCalls ?? []
+      let nudge: string | null = null
+      // An answer without tools: kept, unless it says it changed things it never proposed (asked once more).
+      if (!calls.length) {
+        nudge = nudged ? null : (agent.nudge?.(outcome.text) ?? null)
         if (!nudge) break
+      }
+      // Another request is coming, and every request costs: the monthly limit is asked again before each (before any
+      // tool runs or any words are taken back), with what this answer has spent so far.
+      heldBy = heldAt(spent)
+      if (heldBy != null) break
+      let next: ChatMessage[]
+      let results: ChatMessage[] = []
+      if (nudge) {
         nudged = true
-        messages = [...messages, { role: 'assistant', content: outcome.text }, { role: 'user', content: nudge }]
+        next = [...messages, { role: 'assistant', content: outcome.text }]
         r.text = r.text.slice(0, stepFrom)
         progress()
-        stepFrom = r.text.length
-        outcome = await once(messages, req.agent.tools)
-        total.prompt = add(total.prompt, outcome.promptTokens)
-        total.cached = add(total.cached, outcome.cachedTokens)
-        total.completion = add(total.completion, outcome.completionTokens)
-        total.cost = add(total.cost, outcome.cost)
-        continue
-      }
-      const calls = outcome.toolCalls
-      let answered: Awaited<ReturnType<NonNullable<TaskRequest['agent']>['run']>>
-      try {
-        answered = await req.agent.run(calls)
-      } catch (e) {
-        answered = {
-          results: calls.map((c) => ({
-            role: 'tool' as const,
-            toolCallId: c.id,
-            content: `That didn't work: ${(e as Error)?.message ?? e}`
-          })),
-          steps: []
+      } else {
+        let answered: Awaited<ReturnType<NonNullable<TaskRequest['agent']>['run']>>
+        try {
+          answered = await agent.run(calls)
+        } catch (e) {
+          answered = {
+            results: calls.map((c) => ({
+              role: 'tool' as const,
+              toolCallId: c.id,
+              content: `That didn't work: ${(e as Error)?.message ?? e}`
+            })),
+            steps: []
+          }
         }
+        steps.push(...answered.steps)
+        results = answered.results
+        // The thinking that came with the calls goes back with them (ai/client.ts sentMessages); never shown.
+        next = [
+          ...messages,
+          { role: 'assistant', content: outcome.text, toolCalls: calls, ...(outcome.reasoning ? { reasoning: outcome.reasoning } : {}) }
+        ]
       }
-      steps.push(...answered.steps)
-      messages = [...messages, { role: 'assistant', content: outcome.text, toolCalls: calls }, ...answered.results]
+      // Tool results from this step are the newest: taken out only when the older ones aren't enough.
+      const keepFrom = next.length
+      next = [...next, ...results]
+      // The last request goes without tools, with the last words, so the model answers in words: at the last step,
+      // or sooner when the tool results no longer fit beside the briefing (the model would only ask for them again).
+      let last = step === agent.maxSteps - 1
+      const lastWords = agent.lastWords?.() ?? ''
+      const notes = estimateTokens(nudge ?? '') + estimateTokens(lastWords) + 8
+      const fitted = fitToRoom(next, room - corrected - toolsSize - notes, keepFrom)
+      if (!fitted.fits) last = true
+      messages = fitted.messages
+      // A nudge asks for tools; on the last request, which has none, the last words go instead.
+      const note = last ? lastWords || nudge : nudge
+      if (note) messages = [...messages, { role: 'user', content: note }]
       if (r.text && !/\n\n$/.test(r.text)) {
         r.text += '\n\n'
         progressTimer ??= setTimeout(progress, PROGRESS_MS)
       }
-      // The last step is asked without tools, so the model answers in words.
-      const last = step === req.agent.maxSteps - 1
-      const note = last ? req.agent.lastWords?.() : undefined
-      if (note) messages = [...messages, { role: 'user', content: note }]
       stepFrom = r.text.length
-      outcome = await once(messages, last ? undefined : req.agent.tools)
+      const tools = last ? undefined : agent.tools
+      outcome = await once(messages, tools)
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)
       total.completion = add(total.completion, outcome.completionTokens)
       total.cost = add(total.cost, outcome.cost)
+      spent += costOf(outcome, model, messagesTokens(messages)) ?? 0
+      corrected = correction(messages, tools, outcome.promptTokens) ?? corrected
+      if (last) break
     }
     outcome = {
       ...outcome,
@@ -328,8 +432,18 @@ async function stream(
       completionTokens: total.completion,
       cost: total.cost
     }
+    if (heldBy != null && !r.controller.signal.aborted) {
+      // Stopped cleanly at the limit: what was written is kept, and the chat says why it stopped (as a refused call does).
+      outcome = {
+        ...outcome,
+        status: 'error',
+        failure: null,
+        cutOff: false,
+        error: `${reachedWords(heldBy)}${r.text.trim() ? ' The text that arrived is kept.' : ''}`
+      }
+    }
     if (steps.length) o.params.steps = steps
-    Object.assign(o.params, req.agent.extraParams?.() ?? {})
+    Object.assign(o.params, agent.extraParams?.() ?? {})
   }
   if (progressTimer) clearTimeout(progressTimer)
   if (saveTimer) clearTimeout(saveTimer)

@@ -202,6 +202,8 @@ export interface PreparedContext {
   autoFinals?: (maxWords: number) => { withPrevious: string; withoutPrevious: string }
   knows: string
   entries: ContextEntry[]
+  /** Tokens kept free beside the reply for the editor chat's tool results (toolRoomFor); left out: none. */
+  toolRoom?: number
 }
 
 // ---------- Budget ----------
@@ -223,9 +225,13 @@ export function autoCeiling(maxOutput?: number | null): number {
   return Math.max(AUTO_LENGTH.min, Math.min(AUTO_LENGTH.max, words))
 }
 
-export function computeBudget(contextLength: number | null, targetWords: number | null): Omit<ContextBudget, 'used'> {
+/** The editor chat's room for its tool results (ai/toolRoom.ts), kept free beside the reply's when its briefing is fitted. */
+export { toolRoomFor } from './toolRoom'
+
+/** `toolRoom`: tokens kept free for tool results (toolRoomFor), counted in `reserved` with the reply's room. */
+export function computeBudget(contextLength: number | null, targetWords: number | null, toolRoom = 0): Omit<ContextBudget, 'used'> {
   const length = contextLength && contextLength > 0 ? contextLength : DEFAULT_CONTEXT_LENGTH
-  const reserved = replyTokens(targetWords)
+  const reserved = replyTokens(targetWords) + Math.max(0, toolRoom)
   const available = Math.max(0, length - reserved - Math.ceil(length * SAFETY_MARGIN))
   return { contextLength: length, reserved, available }
 }
@@ -1891,7 +1897,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     withoutPrevious: withAllowance(rawCounts[at + 1] ?? 0)
   }
   // With Auto, room is kept for the longest scene Auto allows (autoMax).
-  let budget = computeBudget(prepared.contextLength, prepared.targetWords ?? prepared.autoMax ?? null)
+  let budget = computeBudget(prepared.contextLength, prepared.targetWords ?? prepared.autoMax ?? null, prepared.toolRoom)
   const fits = (): boolean => measure() <= budget.available
   const auto = prepared.targetWords == null && prepared.autoMax != null
   let ceiling = prepared.autoMax ?? AUTO_LENGTH.max
@@ -2003,7 +2009,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     const over = lengthTooLong({ ...budget, used: measure() })
     if (over) {
       ceiling = Math.max(Math.min(AUTO_LENGTH.typical, ceiling), Math.min(ceiling, over.maxWords))
-      budget = computeBudget(prepared.contextLength, ceiling)
+      budget = computeBudget(prepared.contextLength, ceiling, prepared.toolRoom)
     }
   }
   fit()
@@ -2017,7 +2023,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     const over = lengthTooLong({ ...budget, used: measure() })
     if (over) {
       ceiling = Math.max(AUTO_LENGTH.min, Math.min(ceiling, over.maxWords))
-      budget = computeBudget(prepared.contextLength, ceiling)
+      budget = computeBudget(prepared.contextLength, ceiling, prepared.toolRoom)
       fit()
     }
     if (ceiling !== prepared.autoMax && prepared.autoFinals) finals = prepared.autoFinals(ceiling)

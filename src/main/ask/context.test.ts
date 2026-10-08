@@ -259,6 +259,18 @@ describe('what Adam keeps out', () => {
   })
 })
 
+describe('the briefing for an answer that may use tools', () => {
+  it("is fitted into less, keeping room for the tools' results", () => {
+    const db = memoryWorld()
+    const [story] = repo.listStories(db)
+    const input = { question: 'Who keeps the inn?', storyId: story.id, sceneId: null, turns: [], prefs: defaultWritingPrefs(), contextLength: 32000 }
+    const plain = assembleAsk(db, input, countRaw)
+    const tools = assembleAsk(db, { ...input, withTools: true }, countRaw)
+    expect(tools.budget.reserved).toBe(plain.budget.reserved + 6400)
+    expect(tools.budget.available).toBe(plain.budget.available - 6400)
+  })
+})
+
 describe('a hard rule of the world', () => {
   it('is always sent', () => {
     const db = memoryWorld()
