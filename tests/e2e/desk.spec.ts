@@ -501,3 +501,74 @@ test('the next-beat chip: the card’s next beat; it ticks as its words land, th
   await win.keyboard.press('Control+Enter')
   await expect(chip).toHaveAttribute('data-desk-chip', 'done')
 })
+
+test('the margin: the scene card pinned beside the title, tethered to it, kept there through resizing; tabs on the sheet’s edge in a smaller window', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  const [story] = await invoke(win, 'listStories')
+  const { scenes } = await invoke(win, 'getOutline', story.id)
+  const { card } = await invoke(win, 'getScene', scenes[0].id)
+  await invoke(win, 'updateSceneCard', scenes[0].id, { ...card, beats: ['Wren climbs the hundred and twelve steps', 'Ansel rings the hand bell on the quay'] })
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  const note = win.locator('[data-slip="card"]')
+  const title = win.locator('.desk-scene-title')
+  const sheet = win.locator('.desk-sheet')
+
+  /** The card beside the title (its top 28px above the title's), over the sheet's right edge by 16px. */
+  const aligned = async (): Promise<void> => {
+    await expect
+      .poll(async () => {
+        const [n, t, s] = [await note.boundingBox(), await title.boundingBox(), await sheet.boundingBox()]
+        if (!n || !t || !s) return 'missing'
+        return Math.abs(n.y - (t.y - 28)) <= 4 && Math.abs(n.x - (s.x + s.width - 16)) <= 4 ? 'aligned' : `${n.x},${n.y} vs ${s.x + s.width - 16},${t.y - 28}`
+      })
+      .toBe('aligned')
+  }
+
+  for (const [w, h] of [
+    [1440, 900],
+    [1920, 1080]
+  ] as const) {
+    await size(app, win, w, h)
+    await expect(win.locator('[data-desk-margin="column"]')).toBeAttached()
+    await expect(note).toBeVisible()
+    await expect(note).toContainText('Scene card')
+    await expect(note).toContainText('The Gullhaven Light')
+    await expect(note).toContainText('Told through Wren Halloway')
+    // Its beats: the first is on the page (ticked), the second is next.
+    await expect(note.getByRole('listitem', { name: /hundred and twelve steps, written/ })).toBeVisible()
+    await expect(note.getByRole('listitem', { name: /hand bell on the quay, next/ })).toBeVisible()
+    await expect(note.locator('.desk-tether path')).toHaveCount(1)
+    await aligned()
+    // Nothing spills past the window.
+    expect(await win.evaluate<number>('document.querySelector(".desk-scroller").scrollWidth - document.querySelector(".desk-scroller").clientWidth')).toBeLessThanOrEqual(0)
+  }
+
+  // Bigger text: the page re-wraps and the card stays beside the title.
+  await invoke(win, 'updateSettings', { editor: { fontSize: 22 } })
+  await aligned()
+
+  // Hovered, the slip straightens.
+  await note.hover()
+  await expect.poll(() => win.evaluate<string>("getComputedStyle(document.querySelector('[data-slip=card] .desk-slip')).rotate")).toMatch(/^(0deg|none)$/)
+
+  // Edit opens the whole card in the scene drawer; the margin steps away while it is open.
+  await note.getByRole('button', { name: 'Edit' }).click()
+  await expect(drawer(win)).toBeVisible()
+  await expect(drawer(win).getByRole('tab', { name: /Scene card|Card/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(win.locator('[data-desk-margin]')).toHaveAttribute('data-away', 'true')
+  await drawer(win).getByRole('button', { name: 'Close the scene panel' }).click()
+  await expect(win.locator('[data-desk-margin]')).not.toHaveAttribute('data-away', 'true')
+
+  // A smaller window: the card folds into a tab on the sheet's edge that opens it.
+  await size(app, win, 1100, 800)
+  await expect(win.locator('[data-desk-margin="tabs"]')).toBeAttached()
+  await expect(note).toHaveCount(0)
+  const tab = win.locator('[data-slip-tab="card"]')
+  await expect(tab).toBeVisible()
+  const [t, s] = [(await tab.boundingBox())!, (await sheet.boundingBox())!]
+  expect(Math.abs(t.x + t.width / 2 - (s.x + s.width))).toBeLessThanOrEqual(4)
+  await tab.click()
+  await expect(win.getByRole('dialog').getByText('Scene card')).toBeVisible()
+  await expect(win.getByRole('dialog')).toContainText('The Gullhaven Light')
+})

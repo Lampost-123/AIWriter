@@ -29,6 +29,7 @@ import { Dock } from '@/features/desk/dock/Dock'
 import { DeskSceneKeys } from '@/features/desk/keys/DeskSceneKeys'
 import { NextBeatChip } from '@/features/desk/dock/NextBeatChip'
 import { useSceneCardWatch } from '@/features/desk/sceneCard'
+import { MarginLayer } from '@/features/desk/margin/MarginLayer'
 import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
@@ -275,8 +276,9 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // The desk: the sheet sits in the middle of the window (clear of the spine, and of the story's flyout when it is
   // pinned open), and narrows when the window is too small for it. The paddings are the room either side of it.
   const sheetW = `${frame.sheetW}px`
-  const sideL = `max(${frame.leftMin}px, calc((100% - ${sheetW}) / 2))`
-  const sideR = `max(16px, min(calc((100% - ${sheetW}) / 2), calc(100% - ${sheetW} - ${frame.leftMin}px)))`
+  // With room for the margin notes' column, the sheet keeps clear of it too (it moves left of the middle only when it must).
+  const sideL = `max(${frame.leftMin}px, min(calc((100% - ${sheetW}) / 2), calc(100% - ${sheetW} - ${frame.rightMin}px)))`
+  const sideR = `max(${frame.rightMin}px, min(calc((100% - ${sheetW}) / 2), calc(100% - ${sheetW} - ${frame.leftMin}px)))`
   const deskSides = desk ? { paddingLeft: sideL, paddingRight: sideR } : undefined
   // What lies over the sheet (its fade, its tools) also keeps the scrollbar's room, as the page does (desk.css).
   const overSheet = desk ? { paddingLeft: sideL, paddingRight: `calc(${sideR} + 10px)` } : undefined
@@ -329,6 +331,10 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <SpeakerLabelsLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <LiveChecksLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <TypewriterLayer editor={editor} scrollerRef={scrollerRef} />
+        {/* The desk: notes in the margin beside the sheet (or tabs on its edge in a smaller window), scrolling with it. */}
+        {desk && shown && !error ? (
+          <MarginLayer editor={editor} sceneId={shown.id} scrollerRef={scrollerRef} sheetRef={columnRef} mode={frame.margin} />
+        ) : null}
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
             <EmptyState

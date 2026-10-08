@@ -1668,3 +1668,122 @@
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+
+/* ---------- The margin: notes like slips of paper at the page's right edge (phase 3) ---------- */
+[data-arrangement='desk'] .desk-margin {
+  z-index: 3;
+  transition:
+    opacity var(--dur-base) var(--desk-ease),
+    visibility 0s linear 0s;
+}
+/* The scene drawer covers the margin: the notes step away while it is open. */
+[data-arrangement='desk'] .desk-margin[data-away] {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    visibility 0s linear var(--dur-exit);
+}
+[data-arrangement='desk'] .desk-margin[data-away] * {
+  pointer-events: none !important;
+}
+[data-arrangement='desk'] .desk-note {
+  font-size: 13px;
+  line-height: 1.4;
+  font-variant-numeric: normal;
+  animation: desk-note-in 260ms var(--desk-ease) 200ms backwards;
+}
+@keyframes desk-note-in {
+  from {
+    opacity: 0;
+    translate: 6px 0;
+  }
+}
+[data-arrangement='desk'] .desk-slip {
+  position: relative;
+  rotate: var(--slip-tilt, 0deg);
+  transition:
+    rotate var(--dur-base) var(--desk-ease),
+    translate var(--dur-base) var(--desk-ease),
+    box-shadow var(--dur-base) var(--desk-ease),
+    scale var(--dur-base) var(--desk-ease);
+}
+/* Hovered, a slip straightens and lifts a pixel, and its tether brightens. */
+[data-arrangement='desk'] .desk-note:hover .desk-slip,
+[data-arrangement='desk'] .desk-note:focus-within .desk-slip {
+  rotate: 0deg;
+  translate: 0 -1px;
+}
+[data-arrangement='desk'] .desk-note:hover .desk-icard {
+  box-shadow: var(--sh-card-up);
+}
+[data-arrangement='desk'] .desk-tether {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+  color: var(--faint);
+  opacity: 0.4;
+  transition: opacity var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-tether path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+[data-arrangement='desk'] .desk-tether circle {
+  fill: currentColor;
+}
+[data-arrangement='desk'] .desk-note:hover .desk-tether {
+  opacity: 0.85;
+}
+[data-arrangement='desk'] .desk-note[data-kind='character'] .desk-tether {
+  color: var(--k-char);
+}
+[data-arrangement='desk'] .desk-note[data-kind='lore'] .desk-tether {
+  color: var(--k-lore);
+}
+[data-arrangement='desk'] .desk-note[data-kind='issue'] .desk-tether {
+  color: var(--danger);
+}
+[data-arrangement='desk'] .desk-note[data-kind='memory'] .desk-tether {
+  color: var(--lamp-2);
+}
+/* A smaller window: each note is a small tab on the sheet's edge, in its kind's ink, opening the note as a pop-up. */
+[data-arrangement='desk'] .desk-slip-tab {
+  width: 6px;
+  height: 24px;
+  border-radius: 3px;
+  background: var(--faint);
+  box-shadow: 0 0 0 2px var(--page);
+  outline: none;
+  transition:
+    width var(--dur-quick) var(--desk-ease),
+    background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-slip-tab:hover,
+[data-arrangement='desk'] .desk-slip-tab[data-state='open'] {
+  width: 9px;
+  background: var(--muted);
+}
+[data-arrangement='desk'] .desk-slip-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .desk-slip-tab[data-kind='character'] {
+  background: var(--k-char);
+}
+[data-arrangement='desk'] .desk-slip-tab[data-kind='lore'] {
+  background: var(--k-lore);
+}
+[data-arrangement='desk'] .desk-slip-tab[data-kind='issue'] {
+  background: var(--danger);
+}
+[data-arrangement='desk'] .desk-slip-tab[data-kind='memory'] {
+  background: var(--lamp-2);
+}
+[data-arrangement='desk'] .desk-slip-pop {
+  border-radius: 8px;
+  box-shadow: var(--sh-pop);
+}

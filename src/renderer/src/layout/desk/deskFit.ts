@@ -1,6 +1,8 @@
 // Where the desk's pieces go for a window size (the New look's desk layout). The page is a sheet of paper whose text
 // column is Adam's page width (Settings › Appearance › Page width, in characters of his text size) with paper either
-// side of it; the story's spine runs down the left edge, and its flyout, when pinned open, takes the room beside it.
+// side of it; the story's spine runs down the left edge, and its flyout, when pinned open, takes the room beside it; the
+// margin notes take a column on the right when the window has room for one, and fold into tabs on the sheet's edge when
+// it hasn't.
 // Pure, so it is unit-tested; useDeskFrame measures the column and follows the window.
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { useApp } from '@/lib/store'
@@ -14,6 +16,14 @@ export const SHEET_LEFT_MIN = SPINE.left + SPINE.width + 16
 export const GUTTER = 16
 /** With the flyout pinned, the sheet starts after it. */
 export const PINNED_LEFT_MIN = FLYOUT.left + FLYOUT.width + 16
+/**
+ * The margin notes' column (phase 3): 300px slips overlapping the sheet's right edge by 16px, with the gutter after them.
+ * The room the page keeps on its right for them is RESERVE; without it the notes fold into tabs on the sheet's edge.
+ */
+export const MARGIN = { width: 300, overlap: 16 } as const
+export const MARGIN_RESERVE = MARGIN.width - MARGIN.overlap + GUTTER
+/** The window's own scrollbar room inside the desk's scroll area (kept whether it scrolls or not). */
+const SCROLLBAR = 12
 
 /** The paper either side of the text: 58px on a large window, less on a small one (as the panels' page does). */
 export function sheetPadding(windowW: number): number {
@@ -29,6 +39,13 @@ export interface DeskFrame {
   pinRoom: boolean
   /** The least room left of the sheet, clear of the spine (and of the pinned flyout). */
   leftMin: number
+  /**
+   * Where the margin notes go: a column beside the sheet when there is room for it (about 1180px and up), else tabs on
+   * the sheet's right edge that open each note as a pop-up.
+   */
+  margin: 'column' | 'tabs'
+  /** The least room right of the sheet: the margin column's, or the gutter's. */
+  rightMin: number
 }
 
 /**
@@ -39,7 +56,9 @@ export function deskFit(windowW: number, columnW: number, pinned: boolean): Desk
   const padX = sheetPadding(windowW)
   const sheetW = Math.round(columnW + 2 * padX)
   const pinRoom = windowW - PINNED_LEFT_MIN - GUTTER >= sheetW
-  return { padX, sheetW, pinRoom, leftMin: pinned && pinRoom ? PINNED_LEFT_MIN : SHEET_LEFT_MIN }
+  const leftMin = pinned && pinRoom ? PINNED_LEFT_MIN : SHEET_LEFT_MIN
+  const margin = windowW - SCROLLBAR >= leftMin + sheetW + MARGIN_RESERVE ? 'column' : 'tabs'
+  return { padX, sheetW, pinRoom, leftMin, margin, rightMin: margin === 'column' ? MARGIN_RESERVE : GUTTER }
 }
 
 /** How wide `chars` characters of the page's text are at `fontSize` (Literata, as the page draws it). */
