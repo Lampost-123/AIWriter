@@ -15,7 +15,8 @@
 //              - from the second question in a chat on, it starts "Answer N in this chat." (N counts the
 //                earlier answers sent with it, so tests can see the conversation was sent);
 //            A question with "pretend" in it gets an answer that tells the writer to apply changes it never
-//            proposed. Otherwise two short paragraphs; with model fake/slow, a list of twenty ideas after them, one a line, so
+//            proposed. Otherwise two short paragraphs (then three numbered options when it asks for ideas, options,
+//            any thoughts or titles); with model fake/slow, a list of twenty ideas after them, one a line, so
 //            there is time to Stop.
 const MARKER = '[AIWRITE-ASK v1]'
 
@@ -61,6 +62,10 @@ export function askReply(system, messages, model) {
     `${lead}From the memory: ${who}. You asked: “${question.replace(/\s+/g, ' ').slice(0, 120)}”.`,
     `One idea that fits: they meet at [[The Grey Ferry]] at dusk, where *nobody* is watching.`
   ]
+  // Asked for ideas, options, thoughts or titles, it ends with three numbered options, as a real model does, so a
+  // follow-up pick ("option 2", "the second one", "yes, do that") has something to pick.
+  if (/\b(ideas|options|any thoughts|titles)\b/i.test(question))
+    paragraphs.push(['1. Cut it back to the one strong image.', '2. End on the line of dialogue instead.', '3. Keep it, but move it earlier.'].join('\n'))
   if (model === 'fake/slow') {
     const more = []
     for (let i = 1; i <= 20; i++) more.push(`Idea ${i}: something quiet happens by the water, and it changes what they want.`)
@@ -80,6 +85,7 @@ export function askReply(system, messages, model) {
  *   ask_user         "make it better" / "shorten it" / "change his name" / "thing we talked about" / "which one":
  *                    one question with three options
  *   propose_changes  "drags" / "punch" / "sort" / "angrier" / "harder" / "flat" / "both" / "second one" / "go ahead" /
+ *                    "do that" / "option 2" / a reply starting "yes" /
  *                    "do it": reads the scene, then one edit item on its first sentence (on the first two for "both"); also used for
  *                    "fix" / "tighten" when propose_edit isn't offered
  * Only the words he typed count for these (not a selection quoted above them). A forced tool_choice is obeyed.
@@ -193,7 +199,7 @@ function scriptedCalls(system, messages, tools) {
   if (offered(tools, 'ask_user') && /\b(make it better|shorten it|change his name|thing we talked about|which one)\b/.test(typed)) {
     return called('ask_user') ? null : [askUserCall(tools)]
   }
-  if (offered(tools, 'propose_changes') && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it)\b/.test(typed)) {
+  if (offered(tools, 'propose_changes') && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it|do that|option \d)\b|^yes\b/.test(typed.trim())) {
     if (called('propose_changes')) return null
     if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
     const first = last?.role === 'tool' ? firstSentence(last.content) : ''
