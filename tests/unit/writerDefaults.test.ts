@@ -129,7 +129,7 @@ const LOCKED: StageItem[] = [
   { name: 'the lamp', state: 'on the table' }
 ]
 const millStage = (things: StageItem[], characters: CharacterState[]): SceneState => ({ time: '', weather: 'sleet', light: '', things, characters })
-const LINE = 'Tam Rudd is outside; the mill door is locked from inside and Nell Garrow has the key. If Tam comes back in, someone unlocks it on the page first.'
+const LINE = 'Tam Rudd is outside; the mill door is locked from inside and Nell Garrow has the key. If Tam comes back in, by any door, someone unlocks it on the page first.'
 
 describe('a door locked with someone outside, said in one line', () => {
   it('one line, with who has the key', () => {
@@ -149,6 +149,20 @@ describe('a door locked with someone outside, said in one line', () => {
     expect(lockLines(millStage(LOCKED, [NELL, who('Tam Rudd', { where: 'came back in from the yard; at the table' })]))).toEqual([])
     expect(lockLines(millStage(LOCKED, [NELL, who('Tam Rudd', { where: 'at the table, across from Nell' })]))).toEqual([])
     expect(lockLines(millStage(LOCKED, [NELL, who('Old Wenna', { where: 'gone out of the kitchen' })]))).toEqual([])
+    // A place in the room wins over a going out in what they last did.
+    expect(lockLines(millStage(LOCKED, [NELL, who('Tam Rudd', { where: 'by the fire, boots steaming', lastAction: 'went out across the yard for logs' })]))).toEqual([])
+    expect(lockLines(millStage(LOCKED, [NELL, who('Tam Rudd', { where: 'gone out of the kitchen', lastAction: 'came back in with the logs' })]))).toEqual([])
+  })
+
+  it('out by the words of the place and of what they last did (round G: "across the yard to the stall")', () => {
+    const line = 'Tam Rudd is outside; the mill door is locked from inside and Nell Garrow has the key. If Tam comes back in, by any door, someone unlocks it on the page first.'
+    for (const where of ['gone out of the back kitchen, across the yard to the stall', 'out of the mill and off up the lane', 'in the stall with the grey mare', 'at the byre, forking hay'])
+      expect(lockLines(millStage(LOCKED, [NELL, who('Tam Rudd', { where, lastAction: '' })])), where).toEqual([line])
+    // No place that says out, but what he last did does.
+    expect(lockLines(millStage(LOCKED, [NELL, who('Tam Rudd', { where: 'gone out of the back kitchen', lastAction: 'went out across the yard' })]))).toEqual([line])
+    expect(lockLines(millStage(LOCKED, [NELL, who('Tam Rudd', { where: '', lastAction: 'crossed the yard to the cart' })]))).toEqual([line])
+    // Neither says out: no line.
+    expect(lockLines(millStage(LOCKED, [NELL, who('Tam Rudd', { where: 'gone out of the back kitchen', lastAction: 'shut the dresser drawer' })]))).toEqual([])
   })
 
   it('two doors: the one their place names; none named, every door held shut', () => {
@@ -158,16 +172,16 @@ describe('a door locked with someone outside, said in one line', () => {
       { name: 'the key', state: "in Nell's pocket" }
     ]
     expect(lockLines(millStage(things, [NELL, who('Tam Rudd', { where: 'in the yard, gone out through the back door' })]))).toEqual([
-      'Tam Rudd is outside; the back door is locked from inside and Nell Garrow has the key. If Tam comes back in, someone unlocks it on the page first.'
+      'Tam Rudd is outside; the back door is locked from inside and Nell Garrow has the key. If Tam comes back in, by any door, someone unlocks it on the page first.'
     ])
     expect(lockLines(millStage(things, [NELL, who('Tam Rudd', { where: 'out in the sleet' })]))).toEqual([
-      'Tam Rudd is outside; the front door and the back door are barred and locked from inside and Nell Garrow has the key. If Tam comes back in, someone unbars and unlocks them on the page first.'
+      'Tam Rudd is outside; the front door and the back door are barred and locked from inside and Nell Garrow has the key. If Tam comes back in, by any door, someone unbars and unlocks them on the page first.'
     ])
   })
 
   it('a key in the lock has no holder; the one with the key gets no line; only the people asked for', () => {
     expect(lockLines(millStage([LOCKED[0], { name: 'the key', state: 'in the lock, turned' }], [NELL, TAM_OUT]))).toEqual([
-      'Tam Rudd is outside; the mill door is locked from inside. If Tam comes back in, someone unlocks it on the page first.'
+      'Tam Rudd is outside; the mill door is locked from inside. If Tam comes back in, by any door, someone unlocks it on the page first.'
     ])
     expect(lockLines(millStage([LOCKED[0]], [NELL, { ...TAM_OUT, holding: 'the mill key' }]))).toEqual([])
     expect(lockLines(millStage(LOCKED, [NELL, TAM_OUT]), ['Nell Garrow'])).toEqual([])
@@ -199,7 +213,7 @@ describe('a door locked with someone outside, said in one line', () => {
         { ...blank, name: 'Tobin', where: 'out in the alley, gone out through the cellar door' }
       ]
     }
-    const line = 'Tobin is outside; the cellar door is bolted from inside. If Tobin comes back in, someone unbolts it on the page first.'
+    const line = 'Tobin is outside; the cellar door is bolted from inside. If Tobin comes back in, by any door, someone unbolts it on the page first.'
     expect(buildBlocks(inp).find((b) => b.id === 'continuity')!.text.endsWith(line)).toBe(true)
     inp.continuity.characters[1] = { ...blank, name: 'Tobin', where: 'back in the back room, by the fire' }
     expect(buildBlocks(inp).find((b) => b.id === 'continuity')!.text).not.toContain('comes back in')
