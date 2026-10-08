@@ -40,7 +40,8 @@ vi.mock('@/lib/api', () => ({
 }))
 vi.mock('@/lib/flush', () => ({ registerDiscarder: () => () => undefined }))
 
-import { ask, newChat, openChat, showStory, stopAnswer, useAsk, type AskPlace } from './askStore'
+import { setEditorBridge, type EditorBridge } from '@/lib/editorBridge'
+import { ask, newChat, openChat, showStory, stopAnswer, storyOfChat, useAsk, type AskPlace } from './askStore'
 
 const place: AskPlace = { worldId: 'w', storyId: 's1', sceneId: null }
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
@@ -210,5 +211,40 @@ describe('a chat opened again while its answer is still finishing', () => {
     main.listeners.get('task:done')?.(done)
     expect(useAsk.getState().turns).toHaveLength(1)
     expect(useAsk.getState().turns[0]).toMatchObject({ answer: 'Mara is a smith’s daughter', status: 'stopped', cost: 0.0004 })
+  })
+})
+
+describe('asking with a scene open', () => {
+  it('saves the page first, so the chat reads what the page shows; the question shows meanwhile', async () => {
+    let saved: () => void = () => undefined
+    setEditorBridge({
+      flush: () =>
+        new Promise<void>((resolve) => {
+          main.log.push('flush')
+          saved = resolve
+        })
+    } as unknown as EditorBridge)
+    try {
+      const asking = ask('Is the tide too slow?', place)
+      expect(useAsk.getState().turns.map((t) => t.question)).toEqual(['Is the tide too slow?'])
+      await settle()
+      expect(main.log).toEqual(['flush'])
+      saved()
+      await settle()
+      expect(main.log[1]).toMatch(/^asked:/)
+      await started()
+      expect(await asking).toBe(true)
+    } finally {
+      setEditorBridge(null)
+    }
+  })
+})
+
+describe('the story a chat was asked in', () => {
+  it('is read from the chat id', () => {
+    expect(storyOfChat('s2:abc')).toBe('s2')
+    expect(storyOfChat('world:abc')).toBe(null)
+    expect(storyOfChat('')).toBeUndefined()
+    expect(storyOfChat(undefined)).toBeUndefined()
   })
 })

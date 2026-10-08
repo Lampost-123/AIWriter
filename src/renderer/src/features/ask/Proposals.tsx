@@ -11,8 +11,8 @@ import { Check } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
-import { findTextRange, findTextRangeAfter } from '@/features/editor/findText'
 import { applyChanges, declineChange } from './applyProposal'
+import { findPassage, findQuote } from './askEdits'
 
 const CARD_LABELS: Record<string, string> = { goal: 'Goal', conflict: 'Conflict', outcome: 'Outcome', mood: 'Mood', when: 'When', notes: 'Notes' }
 
@@ -135,9 +135,7 @@ function showInPage(p: Extract<Proposal, { kind: 'text' | 'passage' }>): void {
     const b = editorBridge()
     if (b?.sceneId === p.sceneId && b.editor && !b.editor.isDestroyed) {
       const doc = b.editor.state.doc
-      const start = findTextRange(doc, p.kind === 'text' ? p.find : p.start)
-      const end = start && p.kind === 'passage' ? findTextRangeAfter(doc, p.end, start.from) : null
-      const r = start && p.kind === 'passage' ? (end ? { from: start.from, to: end.to } : start) : start
+      const r = p.kind === 'text' ? findQuote(doc, p.find) : (findPassage(doc, p.start, p.end) ?? findQuote(doc, p.start))
       if (r) b.editor.chain().focus().setTextSelection(r).scrollIntoView().run()
       return
     }

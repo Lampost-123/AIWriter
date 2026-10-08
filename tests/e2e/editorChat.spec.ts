@@ -3,7 +3,7 @@
 // it back; a new place it proposes is made only on Apply; Ask about this quotes the selected words in the box; a model
 // that can't use tools is said so in plain words. The fake provider works as tests/fake-provider/m4/ask.mjs says.
 import type { Page } from '@playwright/test'
-import { createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
 
 const panel = (win: Page) => win.getByRole('region', { name: 'Ask the world' })
 const box = (win: Page) => panel(win).getByRole('textbox', { name: 'Ask about your world' })
@@ -118,6 +118,23 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
     await expect(paragraphs.nth(0)).toHaveText('The tide came in over the flats.')
     await expect(paragraphs.nth(1)).toHaveText('The gulls went quiet.')
     await expect(card).toHaveAttribute('data-status', 'pending')
+
+    // Applied again, then Undo with the scene closed: the saved scene gets its words back.
+    await card.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(paragraphs.nth(1)).toHaveText('The gulls screamed once, then nothing.')
+    // Another scene opens in the page (a new one, added from the binder).
+    const chapter = binder(win).locator('[data-row="chapter"]').first()
+    await chapter.hover()
+    await chapter.getByRole('button', { name: 'Add a scene to this chapter' }).click()
+    await win.getByRole('textbox', { name: 'Scene title' }).press('Enter')
+    await expect(paragraphs).toHaveCount(1)
+    await expect(prose(win)).not.toContainText('gulls')
+    await win.getByRole('button', { name: 'Undo' }).last().click()
+    await expect(card).toHaveAttribute('data-status', 'pending')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toBe('The tide came in over the flats.\n\nThe gulls went quiet.')
+    await binder(win).locator('[data-row]', { hasText: 'Scene 1' }).first().click()
+    await expect(paragraphs.nth(0)).toHaveText('The tide came in over the flats.')
+    await expect(paragraphs.nth(1)).toHaveText('The gulls went quiet.')
   } finally {
     await fake.close()
   }
