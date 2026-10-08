@@ -6,12 +6,19 @@ import { getSchema } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { Transform } from '@tiptap/pm/transform'
 import { sceneExtensions } from '@/features/editor/extensions'
+import { withParagraphIds } from '@/features/editor/paragraphIds'
 import {
+  CUT_ALL,
+  CUT_CHANGED,
+  CUT_PLAIN,
+  INSERT_GONE,
   NOT_FOUND,
   NOT_PLAIN,
   beatNumber,
   changeOf,
   continueAt,
+  planCut,
+  planInsert,
   findEditAt,
   findPassageAt,
   findQuote,
@@ -252,5 +259,84 @@ describe('a proposed draft', () => {
     // Reworded: its place on the card.
     expect(beatNumber(beats, { index: 4, text: 'Climb the stairs slowly' })).toBe(3)
     expect(beatNumber(beats, { index: 2, text: 'Gone' })).toBeNull()
+  })
+})
+
+describe('inserts and cuts (TEXTTOOLS)', () => {
+  const at = (paragraph: number, pid: string | null) => ({ paragraph, pid, offset: 0 })
+  /** As the page's paragraph-id plugin does after each step: new paragraphs get ids. */
+  const ids = (doc: PMNode): PMNode => withParagraphIds(doc).doc
+  /** Adam typing words at a place. */
+  const typeAt = (doc: PMNode, pos: number, words: string): PMNode => new Transform(doc).insert(pos, schema.text(words)).doc
+  const scene = (): PMNode => page(para('a', 'The tide came in.'), para('b', 'The gulls went quiet.'), brk(), para('c', 'Mara waited.'))
+
+  it('puts new paragraphs after or before the one named, with their italics, each with no id of its own yet', () => {
+    const doc = scene()
+    const after = planned(planInsert(doc, { where: 'after', at: at(1, 'a'), near: 'The tide came in.', text: 'She *almost* spoke.\n\nShe did not.' }))
+    const done = apply(doc, after)
+    expect(texts(done)).toEqual(['The tide came in.', 'She almost spoke.', 'She did not.', 'The gulls went quiet.', '* * *', 'Mara waited.'])
+    expect(done.child(1).child(1).marks.map((m) => m.type.name)).toEqual(['italic'])
+    expect(done.child(1).attrs.pid).toBeNull()
+    const before = planned(planInsert(doc, { where: 'before', at: at(3, 'c'), near: 'Mara waited.', text: 'Dawn.' }))
+    expect(texts(apply(doc, before))).toEqual(['The tide came in.', 'The gulls went quiet.', '* * *', 'Dawn.', 'Mara waited.'])
+  })
+
+  it('finds the paragraph by its id though its number changed; with no id, by its words; gone, says so', () => {
+    const moved = page(para('z', 'New first.'), ...scene().content.content)
+    const p = planned(planInsert(moved, { where: 'after', at: at(1, 'a'), near: 'The tide came in.', text: 'X.' }))
+    expect(texts(apply(moved, p)).slice(0, 3)).toEqual(['New first.', 'The tide came in.', 'X.'])
+    const noIds = page(para('', 'Other.'), para('', 'The tide came in.'))
+    expect(texts(apply(noIds, planned(planInsert(noIds, { where: 'after', at: at(1, null), near: 'The tide came in.', text: 'X.' }))))).toEqual([
+      'Other.',
+      'The tide came in.',
+      'X.'
+    ])
+    expect(planInsert(page(para('q', 'Something else.')), { where: 'after', at: at(1, 'a'), near: 'The tide came in.', text: 'X.' })).toEqual({ why: INSERT_GONE })
+  })
+
+  it('cuts whole paragraphs only while they read as the chat read them, never across a break nor all of them', () => {
+    const doc = scene()
+    const cut = planned(planCut(doc, { from: at(1, 'a'), to: at(2, 'b'), paragraphs: ['The tide came in.', 'The gulls went quiet.'] }))
+    expect(texts(apply(doc, cut))).toEqual(['* * *', 'Mara waited.'])
+    expect(planCut(doc, { from: at(2, 'b'), to: at(2, 'b'), paragraphs: ['The gulls went *quite* quiet.'] })).toEqual({ why: CUT_CHANGED })
+    expect(planCut(doc, { from: at(2, 'b'), to: at(3, 'c'), paragraphs: ['The gulls went quiet.', 'Mara waited.'] })).toEqual({ why: CUT_PLAIN })
+    const two = page(para('a', 'One.'), para('b', 'Two.'))
+    expect(planCut(two, { from: at(1, 'a'), to: at(2, 'b'), paragraphs: ['One.', 'Two.'] })).toEqual({ why: CUT_ALL })
+  })
+
+  it('undoes an insert: only its paragraphs go, Adam’s typing elsewhere stays; changed since, it stays', () => {
+    const doc = scene()
+    const plan = planned(planInsert(doc, { where: 'after', at: at(1, 'a'), near: 'The tide came in.', text: 'She paused.\n\nThen spoke.' }))
+    const after = ids(apply(doc, plan))
+    const change = changeOf(doc, after, plan)
+    expect(change.before).toEqual([])
+    expect(change.after.map((n) => n.textContent)).toEqual(['She paused.', 'Then spoke.'])
+    // Adam types in the paragraph before it: Undo takes out only the new paragraphs.
+    const typed = typeAt(after, 1, 'Slowly, ')
+    const back = revertDoc(typed, change)
+    expect('why' in back ? back : texts(back)).toEqual(['Slowly, The tide came in.', 'The gulls went quiet.', '* * *', 'Mara waited.'])
+    // Undone already (Ctrl+Z): nothing to do. One of its paragraphs changed since: left as it is.
+    expect(revertDoc(doc, change)).toEqual({ why: 'already' })
+    const pos = after.child(0).nodeSize + 1
+    expect(revertDoc(typeAt(after, pos, 'Oh. '), change)).toEqual({ why: 'changed' })
+  })
+
+  it('undoes a cut: its paragraphs go back after the one before them, whatever Adam typed there since', () => {
+    const doc = scene()
+    const plan = planned(planCut(doc, { from: at(2, 'b'), to: at(2, 'b'), paragraphs: ['The gulls went quiet.'] }))
+    const after = apply(doc, plan)
+    const change = changeOf(doc, after, plan)
+    expect(change.after).toEqual([])
+    expect(change.prev?.attrs.pid).toBe('a')
+    const typed = typeAt(after, 1, 'Slowly, ')
+    const back = revertDoc(typed, change)
+    expect('why' in back ? back : texts(back)).toEqual(['Slowly, The tide came in.', 'The gulls went quiet.', '* * *', 'Mara waited.'])
+    if (!('why' in back)) expect(back.child(1).attrs.pid).toBe('b')
+    expect(revertDoc(doc, change)).toEqual({ why: 'already' })
+    // The paragraph before it gone: back before the one after it. Both gone: left as it is.
+    const noPrev = new Transform(after).delete(0, after.child(0).nodeSize).doc
+    const back2 = revertDoc(noPrev, change)
+    expect('why' in back2 ? back2 : texts(back2)).toEqual(['The gulls went quiet.', '* * *', 'Mara waited.'])
+    expect(revertDoc(page(para('q', 'Elsewhere.')), change)).toEqual({ why: 'changed' })
   })
 })

@@ -20,7 +20,7 @@ import { withParagraphIds } from '@/features/editor/paragraphIds'
 import { docFromStored, sceneText } from '@/features/editor/streamDoc'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { openHistory } from '@/features/history/open'
-import { changeOf, planPassage, planRevert, planText, revertDoc, type BlockChange, type Plan } from './askEdits'
+import { changeOf, planCut, planInsert, planPassage, planRevert, planText, revertDoc, type BlockChange, type Plan } from './askEdits'
 import { chatOfTurn, setProposalStatus, storyOfChat } from './askStore'
 import { startProposedDraft } from './applyDraft'
 import { sceneInPage } from './sceneInPage'
@@ -237,6 +237,49 @@ const kept = async (r: Promise<Kept>): Promise<Applied> => {
   }
 }
 
+// ---------- TEXTTOOLS (chat Phase 3): inserts, cuts and beats ----------
+
+/**
+ * New paragraphs next to the one the chat named, in one step (a snapshot first; Ctrl+Z or Undo takes them back, and
+ * Undo leaves them alone once Adam has changed them).
+ */
+const applyInsert = (p: Extract<Proposal, { kind: 'insert' }>, place: ApplyPlace): Promise<Applied> =>
+  applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planInsert(doc, p))
+
+/** Whole paragraphs out, only while they read as the chat read them; Undo puts them back between their neighbours. */
+const applyCut = (p: Extract<Proposal, { kind: 'cut' }>, place: ApplyPlace): Promise<Applied> =>
+  applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planCut(doc, p))
+
+const filledBeats = (beats: readonly string[]): string[] => beats.map((b) => b.trim()).filter(Boolean)
+const sameList = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
+
+export const BEATS_CHANGED = 'The scene’s beats were changed since this was proposed, so they were left as they are. Ask again for a fresh change.'
+export const BEATS_UNDO_CHANGED = 'The scene’s beats were changed since, so Undo left them as they are.'
+
+/**
+ * A scene card's beats, through the usual card update, only while the card has the beats the chat saw. Undo puts the
+ * old beats back (the card's other parts as they are by then), unless the beats were changed since.
+ */
+async function applyBeats(p: Extract<Proposal, { kind: 'beats' }>): Promise<Applied> {
+  const card: SceneCard = (await api.getScene(p.sceneId)).card
+  if (!sameList(filledBeats(card.beats), p.before)) return { ok: false, why: BEATS_CHANGED }
+  const old = card.beats
+  await api.updateSceneCard(p.sceneId, { ...card, beats: p.beats })
+  useApp.getState().bumpBriefing()
+  return {
+    ok: true,
+    undo: async (): Promise<Undone> => {
+      const now: SceneCard = (await api.getScene(p.sceneId)).card
+      const beats = filledBeats(now.beats)
+      if (sameList(beats, p.before)) return { ok: true }
+      if (!sameList(beats, p.beats)) return { ok: false, why: BEATS_UNDO_CHANGED }
+      await api.updateSceneCard(p.sceneId, { ...now, beats: old })
+      useApp.getState().bumpBriefing()
+      return { ok: true }
+    }
+  }
+}
+
 /** Carries out one proposed change. Never throws: a problem comes back in plain words. */
 export async function applyProposal(p: Proposal, place: ApplyPlace = {}): Promise<Applied> {
   try {
@@ -260,6 +303,12 @@ export async function applyProposal(p: Proposal, place: ApplyPlace = {}): Promis
       case 'draft':
         // A proposed draft starts the writer's own job (applyDraft.ts): applyAndKeep starts it, with no Undo of its own.
         return { ok: false, why: 'A proposed draft is started from its own card.' }
+      case 'insert':
+        return await applyInsert(p, place)
+      case 'cut':
+        return await applyCut(p, place)
+      case 'beats':
+        return await applyBeats(p)
     }
   } catch (e) {
     return { ok: false, why: (e as Error)?.message || 'That change couldn’t be applied.' }

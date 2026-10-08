@@ -24,6 +24,7 @@ import {
   Palette,
   PenLine,
   Search,
+  SearchCheck,
   UserRound,
   Wrench,
   type IconType
@@ -41,6 +42,8 @@ export const TOOL_ICONS: Record<ToolKind, IconType> = {
   read: BookOpenText,
   outline: ListTree,
   search: Search,
+  // find_mentions (TEXTTOOLS): a list under a magnifying glass (Phosphor's ListMagnifyingGlass).
+  mentions: SearchCheck,
   entry: UserRound,
   style: Palette,
   issues: MessageSquareWarning,

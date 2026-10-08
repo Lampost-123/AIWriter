@@ -1,7 +1,27 @@
 // The editor chat's tolerant matching (lab switch ANCHOR): words a model copies loosely are found at the scene's exact
 // words, several matches are never guessed between, and nothing found comes back with the closest words. Invented text.
 import { describe, expect, it } from 'vitest'
-import { evenOut, findWords, pageFinds, parasOfPlain, type MatchWords } from './anchor'
+import { evenOut, findWords, pageFinds, paraRef, parasOfPlain, type MatchWords, type Para } from './anchor'
+
+describe('paraRef (TEXTTOOLS): a paragraph named by its [n] or its id', () => {
+  const ps: Para[] = [
+    { n: 1, pid: 'ab12', from: 0, to: 5 },
+    { n: 0, pid: null, from: 7, to: 12 },
+    { n: 2, pid: 'cd34', from: 14, to: 20 }
+  ]
+  it('takes a number, digits, "[n]" or an id; never a scene break or a paragraph that isn’t there', () => {
+    expect(paraRef(ps, 2)?.pid).toBe('cd34')
+    expect(paraRef(ps, 1.2)?.pid).toBe('ab12')
+    expect(paraRef(ps, '2')?.pid).toBe('cd34')
+    expect(paraRef(ps, ' [1] ')?.pid).toBe('ab12')
+    expect(paraRef(ps, 'cd34')?.n).toBe(2)
+    expect(paraRef(ps, 'id: ab12')?.n).toBe(1)
+    expect(paraRef(ps, 0)).toBeNull()
+    expect(paraRef(ps, 3)).toBeNull()
+    expect(paraRef(ps, 'zz99')).toBeNull()
+    expect(paraRef(ps, null)).toBeNull()
+  })
+})
 
 const PARAS = [
   'The tide came in over the flats—slow, then sudden—and took the nets.',
