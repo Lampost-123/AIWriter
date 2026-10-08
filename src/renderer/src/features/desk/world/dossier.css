@@ -233,6 +233,14 @@
 [data-arrangement='desk'][data-theme='dark'] .dz-mono {
   color: hsl(var(--dz-hue) 50% 76%);
 }
+/* Its drawing (features/world/art/MotifPicker.tsx, compact): right under the name, beside the portrait. */
+[data-arrangement='desk'] .dz-art {
+  flex: none;
+  padding: 8px 40px 0 144px;
+}
+[data-arrangement='desk'] .dz-art + .dz-portrait + .dz-sumrow {
+  padding-top: 4px;
+}
 [data-arrangement='desk'] .dz-sumrow {
   display: flex;
   min-height: 52px;

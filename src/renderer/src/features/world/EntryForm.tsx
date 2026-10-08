@@ -10,9 +10,7 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { PortraitDrop } from '@/features/views/PortraitDrop'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
-import { useDesk, useNewLook } from '@/features/look/look'
-// The desk's drawing for the entry (UI overhaul, D5.4): self-contained, so the dossier (phase 4) can take it as it is.
-import { MotifPicker } from '@/features/world/art/MotifPicker'
+import { useNewLook } from '@/features/look/look'
 import { setAsOfMode, useAsOfMode } from './asOfMode'
 import { EntryAsOfView } from './AsOfView'
 import { takeFresh } from './entryDrafts'
@@ -254,7 +252,6 @@ export const EntryForm = memo(function EntryForm({
     )
   }
 
-  const desk = useDesk()
   const isNew = useNewLook()
   const asOfButton = useRef<HTMLButtonElement>(null)
   // Only a click on "View as of a scene" moves focus into the slider; opening another entry while
@@ -331,8 +328,6 @@ export const EntryForm = memo(function EntryForm({
               </Button>
             ) : null}
           </div>
-          {/* The desk: the entry's drawing from the drawing library, and the way to change it. */}
-          {desk && !asOf ? <MotifPicker entry={draft} compact className="-ml-1 mt-1" /> : null}
         </div>
       </div>
 

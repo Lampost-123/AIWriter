@@ -35,6 +35,7 @@ import { EntryVoice } from '@/features/readAloud/EntryVoice'
 import { Portrait } from '@/features/views/Portrait'
 import { PortraitDrop } from '@/features/views/PortraitDrop'
 import { useEntryAsOf } from '@/features/views/useAsOf'
+import { MotifPicker } from '@/features/world/art/MotifPicker'
 import { artHue, shortPlace } from '@/features/desk/world/galleryLogic'
 import { setAsOfMode, useAsOfMode } from '../asOfMode'
 import { EntryAsOfView } from '../AsOfView'
@@ -665,6 +666,13 @@ export function Dossier({
           )}
         </div>
       </div>
+
+      {/* Its drawing from the drawing library, right under the name and beside the portrait, and the way to change it. */}
+      {asOf ? null : (
+        <div className="dz-art">
+          <MotifPicker entry={draft} compact />
+        </div>
+      )}
 
       <div className="dz-portrait">
         {PICTURED.includes(kind) ? (
