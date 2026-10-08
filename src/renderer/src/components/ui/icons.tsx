@@ -81,7 +81,6 @@ const ICONS = {
   Flame: [L.Flame, 'Fire'],
   Focus: [L.Focus, 'FrameCorners'],
   FoldVertical: [L.FoldVertical, 'ArrowsInLineVertical'],
-  Footprints: [L.Footprints, 'Footprints'],
   Folder: [L.Folder, 'Folder'],
   FolderInput: [L.FolderInput, 'FolderSimple'],
   FolderOpen: [L.FolderOpen, 'FolderOpen'],
@@ -297,7 +296,6 @@ export const Flag = BY_NAME.Flag
 export const Flame = BY_NAME.Flame
 export const Focus = BY_NAME.Focus
 export const FoldVertical = BY_NAME.FoldVertical
-export const Footprints = BY_NAME.Footprints
 export const Folder = BY_NAME.Folder
 export const FolderInput = BY_NAME.FolderInput
 export const FolderOpen = BY_NAME.FolderOpen

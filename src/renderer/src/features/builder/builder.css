@@ -441,6 +441,20 @@
 .bld-col {
   min-width: 0;
 }
+/* A big monitor: a wider step and a larger card beside it. */
+@container (min-width: 1480px) {
+  .bld-wrap {
+    grid-template-columns: minmax(0, 860px);
+    padding-top: 32px;
+  }
+  .bld-wrap.has-card {
+    grid-template-columns: minmax(0, 880px) 340px;
+    gap: 56px;
+  }
+  .bld-wrap.has-card .bld-pc-art {
+    height: 230px;
+  }
+}
 
 /* The one line the first time. */
 .bld-intro {
@@ -715,21 +729,20 @@
   font: 600 11.5px/1 var(--font-sans);
   color: var(--ai);
 }
-/* The copy of an idea's words that flies up into its field (fly.ts). */
+/* The copy of an idea's words that flies up into its field (fly.ts): the field's size and type, in the AI's amber. */
 .bld-fly {
   position: fixed;
   z-index: 200;
+  box-sizing: border-box;
   overflow: hidden;
-  border-radius: 8px;
-  padding: 0 4px;
+  border-radius: 6px;
   background: var(--ai-soft);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--ai) 40%, transparent),
-    0 10px 24px -8px color-mix(in srgb, var(--ai) 45%, transparent);
-  font: 400 13.5px/1.55 var(--font-sans);
+    0 0 0 1px color-mix(in srgb, var(--ai) 45%, transparent),
+    0 12px 28px -10px color-mix(in srgb, var(--ai) 55%, transparent);
   color: var(--fg);
+  white-space: pre-wrap;
   pointer-events: none;
-  transform-origin: 0 0;
   will-change: transform, opacity;
 }
 .bld-empty {
@@ -1051,6 +1064,38 @@
     0 0 0 1px color-mix(in srgb, var(--ai) 28%, var(--line)),
     0 10px 28px -14px color-mix(in srgb, var(--ai) 40%, transparent),
     var(--elev-1);
+}
+
+/* Quick start's title, with its drawing. */
+.bld-qs-head {
+  --bld-ink: var(--k-char);
+  --bld-soft: var(--k-char-soft);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.bld-qs-head[data-kind='place'] {
+  --bld-ink: var(--k-place);
+  --bld-soft: var(--k-place-soft);
+}
+.bld-qs-head[data-kind='group'] {
+  --bld-ink: var(--k-group);
+  --bld-soft: var(--k-group-soft);
+}
+.bld-qs-head[data-kind='item'] {
+  --bld-ink: var(--k-item);
+  --bld-soft: var(--k-item-soft);
+}
+.bld-qs-art {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  flex: none;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--bld-soft);
+  color: var(--bld-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bld-ink) 18%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

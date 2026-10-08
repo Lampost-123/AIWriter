@@ -26,8 +26,9 @@ export function glowField(key: string): void {
 }
 
 /**
- * Flies the words of an idea from where it was offered (`from`, measured before the list closed) into the field's
- * box, then glows the box. Waits two frames, so the field shows its new words first.
+ * Flies the words of an idea from where it was offered (`from`, measured before the list closed) up into the field's
+ * box, then glows the box. Waits two frames, so the field has its new words first; the copy flies at the field's own
+ * width and padding, so its lines land exactly on the field's, and the field's words show again as it lands.
  */
 export function flyInto(key: string, from: DOMRect, text: string): void {
   if (!mayFly()) return
@@ -36,30 +37,48 @@ export function flyInto(key: string, from: DOMRect, text: string): void {
       const box = fieldBox(key)
       if (!box) return
       const to = box.getBoundingClientRect()
+      const look = getComputedStyle(box)
       const chip = document.createElement('div')
       chip.className = 'bld-fly'
       chip.setAttribute('aria-hidden', 'true')
       chip.textContent = text
-      Object.assign(chip.style, { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px` })
+      Object.assign(chip.style, {
+        left: `${to.left}px`,
+        top: `${to.top}px`,
+        width: `${to.width}px`,
+        minHeight: `${to.height}px`,
+        padding: look.padding,
+        font: look.font,
+        lineHeight: look.lineHeight
+      })
       document.body.appendChild(chip)
-      const dx = to.left - from.left
-      const dy = to.top - from.top
-      const sx = Math.max(0.2, to.width / Math.max(1, from.width))
-      const sy = Math.max(0.2, to.height / Math.max(1, from.height))
+      // The field's own words wait under the copy until it lands.
+      const was = box.style.color
+      box.style.color = 'transparent'
+      const dx = from.left - to.left
+      const dy = from.top - to.top
+      const land = (): void => {
+        box.style.color = was
+      }
       const run = chip.animate(
         [
-          { transform: 'translate(0, 0) scale(1, 1)', opacity: 1 },
-          { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0.85, offset: 0.8 },
-          { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0 }
+          { transform: `translate(${dx}px, ${dy}px)`, opacity: 0.9 },
+          { transform: 'translate(0, 0)', opacity: 1, offset: 0.82 },
+          { transform: 'translate(0, 0)', opacity: 0 }
         ],
-        { duration: 300, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+        { duration: 320, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
       )
-      const done = (): void => chip.remove()
+      const t = window.setTimeout(land, 320 * 0.82)
       run.onfinish = () => {
-        done()
+        chip.remove()
+        land()
         glowField(key)
       }
-      run.oncancel = done
+      run.oncancel = () => {
+        clearTimeout(t)
+        chip.remove()
+        land()
+      }
     })
   )
 }

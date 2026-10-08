@@ -13,6 +13,7 @@ import { Button, Kbd, toast } from '@/components/ui'
 import { api, modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { Motif } from '@/components/art/Motif'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { labelOf, shownValue } from './builderLogic'
@@ -28,7 +29,11 @@ import {
   type QuickSession
 } from './quickStartStore'
 import { MicButton } from '@/features/dictation/MicButton'
+import './builder.css'
 import { insertIntoBox } from '@/features/dictation/insertText'
+
+/** Quick start's drawing beside its title. */
+const QS_ART: Record<BuilderKind, string> = { character: 'quill', place: 'map', group: 'shield', item: 'key' }
 
 const COPY: Record<BuilderKind, { title: string; about: string; placeholder: string; build: string }> = {
   character: {
@@ -143,11 +148,18 @@ function Screen({
   return (
     <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
       <div className="mx-auto w-full max-w-[680px] px-8 pb-16 pt-10">
-        <div className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
-          <Sparkles size={12} className="text-ai" aria-hidden />
-          Quick start
+        <div className="bld-qs-head" data-kind={kind}>
+          <span aria-hidden className="bld-qs-art">
+            <Motif id={QS_ART[kind]} size={40} />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+              <Sparkles size={12} className="text-ai" aria-hidden />
+              Quick start
+            </div>
+            <h1 className="mt-1 font-serif text-[26px] font-semibold leading-tight text-fg">{copy.title}</h1>
+          </div>
         </div>
-        <h1 className="mt-1 font-serif text-[26px] font-semibold leading-tight text-fg">{copy.title}</h1>
         <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
           {s.sceneId
             ? `The passage you selected is below; add anything else you know. AI Write builds the whole ${noun} to fit your world and saves it.`
@@ -231,10 +243,15 @@ function Screen({
             </>
           ) : (
             <>
-              <Button variant="primary" size="lg" icon={<Sparkles size={15} />} onClick={() => build()}>
+              <Button variant="ai" size="lg" icon={<Sparkles size={15} />} onClick={() => build()}>
                 {done && done.status === 'error' ? 'Try again' : copy.build}
               </Button>
-              <Button variant="ghost" size="lg" onClick={onGuided}>
+              <Button
+                variant="ghost"
+                size="lg"
+                onClick={onGuided}
+                title={`Walk through the ${noun} yourself, a step at a time; the AI can suggest each part`}
+              >
                 Go step by step instead
               </Button>
               <div className="flex-1" />
