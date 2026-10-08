@@ -4,7 +4,7 @@
 // question the AI was asked stays in the chat even when no answer came, as it does in the chat's record;
 // and a chat opened again while its answer is still finishing shows how it ended.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AskInput, AskTurn } from '@shared/contracts/ask'
+import type { AskInput, AskTurn, SavedNote } from '@shared/contracts/ask'
 import type { TaskDone, TaskProgress } from '@shared/contracts/tasks'
 
 const main = vi.hoisted(() => ({
@@ -246,5 +246,35 @@ describe('the story a chat was asked in', () => {
     expect(storyOfChat('world:abc')).toBe(null)
     expect(storyOfChat('')).toBeUndefined()
     expect(storyOfChat(undefined)).toBeUndefined()
+  })
+})
+
+describe('saved notes', () => {
+  it('show "Saved" for an answer whose record keeps its note (saved before a restart)', async () => {
+    const note: SavedNote = {
+      entryId: 'e1',
+      kind: 'character',
+      name: 'Tobin',
+      created: false,
+      onlyIn: null,
+      asOf: null,
+      undo: { kind: 'added', entryId: 'e1', text: 'The ferryman.', before: '', origin: null, byHand: false }
+    }
+    const turn = (generationId: string, saved?: SavedNote): AskTurn => ({
+      generationId,
+      chatId: 'chat-2',
+      question: 'Who is Tobin?',
+      answer: 'The ferryman.',
+      status: 'complete',
+      error: null,
+      cost: null,
+      costEstimated: false,
+      cutOff: false,
+      createdAt: '2026-10-02T15:00:00.000Z',
+      ...(saved ? { saved } : {})
+    })
+    main.chats.set('chat-2', [turn('g-a', note), turn('g-b')])
+    await openChat('chat-2')
+    expect(useAsk.getState().saved).toEqual({ 'g-a': note })
   })
 })

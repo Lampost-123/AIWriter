@@ -3,7 +3,7 @@
 // over a better-sqlite3 handle, no Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { AskChoice, Proposal } from '@shared/contracts/ask'
+import type { AskChoice, Proposal, SavedNote } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 
 type DB = Database.Database
@@ -57,6 +57,8 @@ export interface TurnRow {
   proposals: Proposal[]
   /** The question with options the answer ended with (ask_user), if it did. */
   choice: AskChoice | null
+  /** The note saved from this answer (so it shows "Saved" after a restart too); null when none is. */
+  savedNote: SavedNote | null
 }
 
 const jsonList = <T>(v: unknown): T[] => {
@@ -92,14 +94,16 @@ const toTurn = (r: Row): TurnRow => ({
   createdAt: r.created_at as string,
   steps: jsonList<{ label?: string }>(r.steps).map((s) => s.label ?? '').filter(Boolean),
   proposals: jsonList<Proposal>(r.proposals),
-  choice: jsonObject<AskChoice>(r.choice)
+  choice: jsonObject<AskChoice>(r.choice),
+  savedNote: jsonObject<SavedNote>(r.saved_note)
 })
 
 const TURN_COLUMNS = `id, ${CHAT_ID} AS chat_id, status, error, direction, response, cost, prompt_tokens, created_at,
   CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cutOff') END AS cut_off,
   CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.steps') END AS steps,
   CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.proposals') END AS proposals,
-  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.choice') END AS choice`
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.choice') END AS choice,
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.savedNote') END AS saved_note`
 
 /** A chat's turns, oldest first. */
 export function chatTurnRows(db: DB, chatId: ID): TurnRow[] {
@@ -121,6 +125,22 @@ export function saveProposals(db: DB, generationId: ID, proposals: Proposal[]): 
     JSON.stringify(proposals),
     generationId
   )
+}
+
+/**
+ * Keeps (or, with null, forgets) the note saved from a turn's answer with its record, so the answer still shows
+ * "Saved" after a restart and the same note isn't saved twice. A record that isn't a chat turn is left alone.
+ */
+export function setSavedNote(db: DB, generationId: ID, note: SavedNote | null): void {
+  if (note) {
+    db.prepare(
+      "UPDATE generations SET params_json = json_set(params_json, '$.savedNote', json(?)) WHERE id = ? AND job = 'chat' AND json_valid(params_json)"
+    ).run(JSON.stringify(note), generationId)
+  } else {
+    db.prepare("UPDATE generations SET params_json = json_remove(params_json, '$.savedNote') WHERE id = ? AND job = 'chat' AND json_valid(params_json)").run(
+      generationId
+    )
+  }
 }
 
 /** The editor chat: a turn's proposals as kept. */

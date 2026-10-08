@@ -2,14 +2,20 @@
 // docs/ARCHITECTURE.md, "Milestone 4". The work is done in src/main/ask/*; this file connects it to
 // the open world, the settings, the chat and brainstorm model and the window.
 import type { Handlers } from './index'
-import { asksForChanges, claimsChanges, PROPOSE_NOW } from '@shared/askChanges'
+import { contractLastWords } from '@shared/askChanges'
+import type { AskIntent } from '@shared/askIntent'
 import type { Proposal } from '@shared/contracts/ask'
+import { chatExp } from '../ask/exp'
+import { pastAnswer } from '../ask/history'
+import { editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../ask/route'
 
 /**
  * An earlier answer as the model is shown it again: with the changes it proposed through its tools, so it sees itself
  * proposing (a chat whose past answers read as words alone teaches the model to write changes out, not propose them).
+ * With AIWRITE_EXP_CHAT_HISTORY on, each proposal says what it changed and the answer is trimmed (ask/history.ts).
  */
 function withProposals(answer: string, proposals: Proposal[]): string {
+  if (chatExp('HISTORY')) return pastAnswer(answer, proposals)
   if (!proposals.length) return answer
   const what = proposals.map((p) => `change ${p.id} (${p.kind === 'text' ? 'an edit' : p.kind === 'passage' ? 'a rewrite' : p.kind}, ${p.status})`).join(', ')
   return `${answer}\n\n[Proposed with the tools: ${what}]`
@@ -32,7 +38,7 @@ import { finishAsk, prepareAsk } from '../ask/context'
 import { chatInStory, chatTurns, listChats, newChatId, toTurn } from '../ask/chats'
 import { saveNote, undoNote } from '../ask/note'
 import { EditorAgent, MAX_STEPS } from '../ask/agent'
-import { proposalsOf, saveProposals } from '../db/ask'
+import { proposalsOf, saveProposals, setSavedNote } from '../db/ask'
 
 /** Questions in a chat are asked again and again with the same briefing: only what changed is counted again. */
 const countCached = cachedCounter(countTokens)
@@ -87,6 +93,12 @@ export const askHandlers: Handlers<keyof AskApi> = {
     }
     const chatId = input.chatId ?? newChatId(storyId)
     const earlier = input.chatId ? chatTurns(db, chatId) : []
+    // The chat overhaul's switches, each read once per question.
+    const route = chatExp('ROUTE')
+    const contract = chatExp('CONTRACT')
+    // What the question asks for, told from its words (no model call; ask/route.ts): used only by the switches on.
+    const routed = routeIntent({ question, mode: input.mode, lastAnswer: earlier.at(-1)?.answer ?? null })
+    const intent: AskIntent | null = route ? routed : null
     const p = prepareAsk(db, {
       question,
       storyId,
@@ -95,7 +107,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
       prefs: getWritingPrefs(),
       contextLength: model.choice.contextLength ?? null,
       // The answer may use tools: room is kept for what they bring back (ai/tasks.ts keeps them within it).
-      withTools: true
+      withTools: true,
+      ...(intent ? { intent } : {})
     })
     const counts = await countCached(p.prepared.texts)
     if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the question could be asked.')
@@ -109,7 +122,7 @@ export const askHandlers: Handlers<keyof AskApi> = {
     let generationId = ''
     const agent = new EditorAgent(
       db,
-      { storyId, sceneId: input.sceneId ?? null, prefs: getWritingPrefs() },
+      { storyId, sceneId: input.sceneId ?? null, prefs: getWritingPrefs(), ...(intent ? { intent } : {}) },
       (label) => emit('ask:step', { taskId: input.taskId, generationId, label }),
       (proposals) => {
         if (generationId && db.open) saveProposals(db, generationId, proposals)
@@ -126,7 +139,7 @@ export const askHandlers: Handlers<keyof AskApi> = {
       model,
       messages: b.messages,
       reply: REPLY_TOKENS,
-      temperature: TEMPERATURE,
+      temperature: chatExp('TEMP') ? temperatureFor(routed) : TEMPERATURE,
       direction: question,
       blocks: b.blocks,
       entries: b.entries,
@@ -140,11 +153,16 @@ export const askHandlers: Handlers<keyof AskApi> = {
         ended: () => agent.ended(),
         forceTool: () => agent.forceTool(),
         run: (calls) => agent.runAll(calls),
-        lastWords: () => agent.lastWords(),
-        // An answer that claims changes it never proposed is asked once more to propose them.
-        // An answer with no proposals is asked once more when it claims changes, or when the writer asked for edits.
-        nudge: (answer) => (agent.proposals.length === 0 && (claimsChanges(answer) || asksForChanges(question)) ? PROPOSE_NOW : null),
-        extraParams: () => agent.extraParams()
+        // With the contract on, the last words say what was proposed or what blocked it (never "ask again").
+        lastWords: () => (contract ? contractLastWords(agent.proposals.map((x) => x.id), intent) : agent.lastWords()),
+        // An answer with no proposals is asked once more when it claims changes or the writer asked for edits; with
+        // routing on, an edit is asked again whatever its wording, twice at most, and an answer or ideas never are.
+        // Never once the chat has asked the writer a question with options (ask_user ends the answer).
+        maxNudges: route ? MAX_EDIT_NUDGES : 1,
+        nudge: (answer, attempt) =>
+          editorNudge({ answer, attempt, question, proposed: agent.proposals.length, intent, route, contract, asked: !!agent.choice }),
+        // The proposals and the question it ended with (agent.extraParams), and the routed intent.
+        extraParams: () => ({ ...agent.extraParams(), ...(intent ? { intent } : {}) })
       }
     }))
     const row = chatTurnRow(db, generationId)
@@ -169,7 +187,13 @@ export const askHandlers: Handlers<keyof AskApi> = {
   saveAskNote: (input) =>
     memoryWrite(
       (r) => r.entryId,
-      () => saveNote(world.db(), input)
+      () => {
+        const db = world.db()
+        const note = saveNote(db, input)
+        // Kept with the answer's record, so it still shows "Saved" after a restart (and isn't saved twice).
+        if (input.generationId) setSavedNote(db, input.generationId, note)
+        return note
+      }
     ),
   setProposalStatus: (generationId, proposalId, status) => {
     const db = world.db()
@@ -182,10 +206,14 @@ export const askHandlers: Handlers<keyof AskApi> = {
       all.map((p) => (p.id === proposalId ? { ...p, status } : p))
     )
   },
-  undoAskNote: (undo) => {
+  undoAskNote: (undo, generationId) => {
     memoryWrite(
       () => undo.entryId,
-      () => undoNote(world.db(), undo)
+      () => {
+        const db = world.db()
+        undoNote(db, undo)
+        if (generationId) setSavedNote(db, generationId, null)
+      }
     )
   }
 }

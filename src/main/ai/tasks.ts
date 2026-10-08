@@ -80,9 +80,11 @@ export interface TaskRequest {
     /**
      * Looks at an answer given without tools: a note to send back once, asking for the tools after all (an answer
      * that says it made changes it never proposed), or null to keep the answer. The answer it replaces is taken out
-     * of the reply.
+     * of the reply. `attempt` counts the notes sent back so far, from 1.
      */
-    nudge?: (answer: string) => string | null
+    nudge?: (answer: string, attempt: number) => string | null
+    /** How many times `nudge` may send a note back in one answer (1 when left out). */
+    maxNudges?: number
     /** Kept with the record when it finishes (the editor chat's proposals). */
     extraParams?: () => Partial<GenerationParams>
     /**
@@ -374,7 +376,7 @@ async function stream(
       return Math.max(counted - guess, -Math.round(guess * 0.3))
     }
     let corrected = correction(req.messages, firstTools, outcome.promptTokens) ?? 0
-    let nudged = false
+    let nudged = 0
     /** The monthly spending limit was reached partway (its amount): the answer stops there and says so. */
     let heldBy: number | null = null
     for (let step = 1; outcome.status === 'complete' && step < agent.maxSteps; step++) {
@@ -383,7 +385,7 @@ async function stream(
       let nudge: string | null = null
       // An answer without tools: kept, unless it says it changed things it never proposed (asked once more).
       if (!calls.length) {
-        nudge = nudged ? null : (agent.nudge?.(outcome.text) ?? null)
+        nudge = nudged >= (agent.maxNudges ?? 1) ? null : (agent.nudge?.(outcome.text, nudged + 1) ?? null)
         if (!nudge) break
       }
       // Another request is coming, and every request costs: the monthly limit is asked again before each (before any
@@ -393,7 +395,7 @@ async function stream(
       let next: ChatMessage[]
       let results: ChatMessage[] = []
       if (nudge) {
-        nudged = true
+        nudged++
         next = [...messages, { role: 'assistant', content: outcome.text }]
         r.text = r.text.slice(0, stepFrom)
         progress()

@@ -271,6 +271,24 @@ describe('the briefing for an answer that may use tools', () => {
   })
 })
 
+describe('the contract switch (AIWRITE_EXP_CHAT_CONTRACT)', () => {
+  it('ends the system message with the reminder naming the routed intent, only when on', () => {
+    const db = memoryWorld()
+    const [story] = repo.listStories(db)
+    const input = { question: 'Tighten the opening', storyId: story.id, sceneId: null, turns: [], prefs: defaultWritingPrefs(), contextLength: 32000, intent: 'edit' as const }
+    expect(systemOf(assembleAsk(db, input, countRaw))).not.toMatch(/Reminder:/)
+    process.env.AIWRITE_EXP_CHAT_CONTRACT = 'on'
+    try {
+      const system = systemOf(assembleAsk(db, input, countRaw))
+      expect(system).toMatch(/\n\nReminder:\n.*\n.*\n- This request is an edit: [^\n]*$/)
+      expect(system).toMatch(/propose your best single version at once/)
+      expect(systemOf(assembleAsk(db, { ...input, intent: null }, countRaw))).not.toMatch(/This request is/)
+    } finally {
+      delete process.env.AIWRITE_EXP_CHAT_CONTRACT
+    }
+  })
+})
+
 describe('a hard rule of the world', () => {
   it('is always sent', () => {
     const db = memoryWorld()

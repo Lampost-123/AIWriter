@@ -301,7 +301,7 @@ function proposeChangesTool(anchor: boolean): ToolSpec {
   return {
     name: 'propose_changes',
     description: [
-      'Propose changes for the writer to apply: one or several, each in `changes` with its `kind` and that kind’s fields. The writer sees each and decides; nothing changes unless they apply it. Each change is checked on its own: the result says which were proposed and why any were not. Changes to words must not overlap: all the fixes in one sentence go in one change. Every change needs `why`, a short reason in plain words; `scene` names a scene ("Ch 2, Sc 1" or its title), left out for the open one.',
+      'Propose changes for the writer to apply: one or several, each in `changes` with its `kind` and that kind’s fields. This is the tool for every propose_ change: where your instructions say propose_edit, propose_rewrite, propose_scene_card, propose_entry_change, propose_new_entry, propose_new_scene, propose_new_chapter or propose_rename, give a change of kind edit, rewrite, card, entry, new_entry, new_scene, new_chapter or rename here. The writer sees each and decides; nothing changes unless they apply it. Each change is checked on its own: the result says which were proposed and why any were not. Changes to words must not overlap: all the fixes in one sentence go in one change. Every change needs `why`, a short reason in plain words; `scene` names a scene ("Ch 2, Sc 1" or its title), left out for the open one.',
       `- ${words}`,
       '  Either may give `revises`: the number of an earlier change in this answer it takes the place of.',
       "- card: new values for parts of a scene's card (`goal`, `conflict`, `outcome`, `mood`, `when`, `notes`, `beats` as the whole list).",

@@ -822,6 +822,10 @@ export interface GenerationRecord extends GenerationSummary {
      * request (from 1), and whether the provider turned tool_choice down (so it was asked again without it).
      */
     toolChoice?: { tool: string; step: number; dropped?: boolean }
+    /** The editor chat: the intent routing gave the question (chat overhaul, AIWRITE_EXP_CHAT_ROUTE). */
+    intent?: import('./askIntent').AskIntent
+    /** The editor chat: the note saved from the answer, so it shows "Saved" after a restart too. */
+    savedNote?: import('./contracts/ask').SavedNote
     // ----- The style guide's helpers -----
     /** min_p as sent (OpenRouter only, with the Balanced and Adventurous creativity); left out when it wasn't sent. */
     min_p?: number
