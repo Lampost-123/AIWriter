@@ -223,6 +223,7 @@ const deskPageKey = (view: View): string => (deskGallery(view) ? 'world-gallery'
 
 /** Every page but the writing page, by the view showing (the same in both layouts and Classic, but the desk's World room). */
 function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JSX.Element {
+  const isNew = useNewLook()
   if (desk && deskGallery(view)) return <WorldRoom />
   return (
     <>
@@ -234,7 +235,8 @@ function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JS
       {view.kind === 'codex' && <CodexView />}
       {view.kind === 'builder' && <BuilderView kind={view.entryKind} entryId={view.entryId} start={view.start} />}
       {view.kind === 'timeline' && <TimelineView />}
-      {view.kind === 'map' && (desk ? <DeskMap /> : <RelationshipMap />)}
+      {/* The New look's map (on the desk and in the panels); Classic keeps its own. */}
+      {view.kind === 'map' && (isNew ? <DeskMap /> : <RelationshipMap />)}
       {view.kind === 'threads' && <ThreadsBoard />}
       {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
       {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}

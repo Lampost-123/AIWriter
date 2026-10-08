@@ -243,18 +243,60 @@ test('with less motion the map changes at once: nothing draws, glides or fades',
   await win.emulateMedia({ reducedMotion: 'no-preference' })
 })
 
-test('the panels keep their own map', async ({ launch }) => {
-  const { win } = await launch({ env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'panels' } })
+test('the panels’ New look has the same map; Classic keeps its own', async ({ launch }) => {
+  const { win } = await launch({ env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'panels', AIWRITE_KEEPER_QUIET_MS: '600000' } })
   await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   await invoke(win, 'openSampleWorld')
   await win.reload()
   await expect(win.locator('.scene-prose')).toBeVisible()
-  await win.keyboard.press('Control+K')
-  await win.keyboard.type('Relationship map')
-  await win.getByRole('option', { name: /^Relationship map/ }).first().click()
-  await expect(win.getByRole('group', { name: 'Relationship map' })).toBeVisible()
-  await expect(win.locator('[data-desk-map]')).toHaveCount(0)
-  await expect(win.getByRole('slider', { name: 'As of' })).toBeVisible()
+  const openByPalette = async () => {
+    await win.keyboard.press('Control+K')
+    await win.keyboard.type('Relationship map')
+    await win.getByRole('option', { name: /^Relationship map/ }).first().click()
+  }
+  await openByPalette()
+  await expect(win.locator('[data-desk-map]')).toBeVisible()
+  await expect(node(win, 'Wren Halloway')).toBeVisible()
+  await expect(win.locator('[data-map-timeline]')).toContainText('Lighting the Lamp')
+  // It fits the panels' page: the map's canvas is inside the window, beside the area's list.
+  const c = (await canvas(win).boundingBox())!
+  expect(c.x).toBeGreaterThan(100)
+  expect(c.x + c.width).toBeLessThanOrEqual((await win.evaluate<number>('innerWidth')) + 1)
+  await node(win, 'Wren Halloway').click()
+  await expect(win.locator('[data-map-card="character"]')).toContainText('Fiercely protective')
+
+  // Classic (a window of its own): the old map.
+  const classic = (await launch()).win
+  await expect(classic.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await invoke(classic, 'openSampleWorld')
+  await classic.reload()
+  await expect(classic.locator('.scene-prose')).toBeVisible()
+  await classic.keyboard.press('Control+K')
+  await classic.keyboard.type('Relationship map')
+  await classic.getByRole('option', { name: /^Relationship map/ }).first().click()
+  await expect(classic.getByRole('group', { name: 'Relationship map' })).toBeVisible()
+  await expect(classic.locator('[data-desk-map]')).toHaveCount(0)
+})
+
+test('Reset layout puts dragged characters back, and Undo moves them again', async ({ launch }) => {
+  const { win } = await sampleMap(launch)
+  const reset = win.getByRole('button', { name: 'Reset layout' })
+  await expect(reset).toBeDisabled()
+  const ansel = node(win, 'Ansel Crane')
+  const b = (await ansel.boundingBox())!
+  const [cx, cy] = [b.x + b.width / 2, b.y + b.height / 2]
+  await win.mouse.move(cx, cy)
+  await win.mouse.down()
+  for (let i = 1; i <= 8; i++) await win.mouse.move(cx - i * 12, cy)
+  await win.mouse.up()
+  await expect(reset).toBeEnabled()
+  const dragged = (await ansel.boundingBox())!.x
+  await reset.click()
+  await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - b.x)).toBeLessThan(2)
+  await expect(reset).toBeDisabled()
+  await win.getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - dragged)).toBeLessThan(2)
+  await expect(reset).toBeEnabled()
 })
 
 /** Invented: 150 characters over three chapters of four scenes, about 400 ties, some changing at scenes. */

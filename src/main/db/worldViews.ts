@@ -97,6 +97,31 @@ export function readMapLayout(db: DB): Map<ID, { x: number; y: number }> | null 
   return out
 }
 
+/** The `meta` key holding where each character Adam dragged on the map sat before he first moved it: JSON of id to [x, y]. */
+export const MAP_MOVED_KEY = 'map_moved'
+
+/** Where each dragged character sat before it was first dragged (since the last reset). */
+export function readMapMoved(db: DB): Map<ID, { x: number; y: number }> {
+  let saved: unknown
+  try {
+    saved = JSON.parse(getMeta(db, MAP_MOVED_KEY) ?? 'null')
+  } catch {
+    saved = null
+  }
+  const out = new Map<ID, { x: number; y: number }>()
+  if (!saved || typeof saved !== 'object') return out
+  for (const [id, p] of Object.entries(saved as Record<string, unknown>)) {
+    if (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) out.set(id, { x: p[0] as number, y: p[1] as number })
+  }
+  return out
+}
+
+export function writeMapMoved(db: DB, moved: Map<ID, { x: number; y: number }>): void {
+  const out: Record<string, [number, number]> = {}
+  for (const [id, p] of moved) out[id] = [p.x, p.y]
+  setMeta(db, MAP_MOVED_KEY, JSON.stringify(out))
+}
+
 /** Keeps where each character sits on the relationship map, so it looks the same after a restart. */
 export function writeMapLayout(db: DB, positions: Map<ID, { x: number; y: number }>): void {
   const out: Record<string, [number, number]> = {}

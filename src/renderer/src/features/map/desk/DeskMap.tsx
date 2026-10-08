@@ -85,7 +85,7 @@ export function DeskMap(): React.JSX.Element {
           </div>
         ) : (
           <>
-            <MapStage key={data.storyId} map={data} groupId={groupId} index={index} quick={quick} onPick={pickAt} />
+            <MapStage key={data.storyId} map={data} groupId={groupId} index={index} quick={quick} onPick={pickAt} onReload={retry} />
             {groupId && group && !group.memberIds.length ? (
               <NobodyInGroup name={groupName.current || group.name} group={group} label={data.label} onShowEveryone={() => pickGroup(null)} />
             ) : null}

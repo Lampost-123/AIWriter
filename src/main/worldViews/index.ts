@@ -14,7 +14,7 @@ import { asOfStops, memoryAt, type MemoryAt } from '../memory/asOf'
 import { buildLine } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import type { MemoryData, WorldShape } from '../memory/types'
-import { changesMade, readMapLayout, sceneCards, storyGaps, writeMapLayout, type CardInfo } from '../db/worldViews'
+import { changesMade, readMapLayout, readMapMoved, sceneCards, storyGaps, writeMapLayout, writeMapMoved, type CardInfo } from '../db/worldViews'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
 import { UserError } from '../util'
@@ -143,7 +143,8 @@ export function relationshipMapOf(db: DB, storyId: ID, at: AsOf | null, sceneId:
       stops: arc.info,
       povId: povId && map.nodes.some((n) => n.id === povId) ? povId : null,
       history: arc.history,
-      here: atStop > 0 ? changesAt(arc.history, atStop) : []
+      here: atStop > 0 ? changesAt(arc.history, atStop) : [],
+      moved: [...readMapMoved(db).keys()]
     }
   }
 }
@@ -153,7 +154,33 @@ export function moveMapCharacter(db: DB, id: ID, x: number, y: number): void {
   if (!Number.isFinite(x) || !Number.isFinite(y)) throw new UserError('That place is not on the map.')
   const positions = layoutFor(db, worldGraph(loadMemoryData(db)))
   if (!positions.has(id)) throw new UserError('That character is not on the map.')
+  // Where it sat before Adam first moved it, for Reset layout.
+  const moved = readMapMoved(db)
+  if (!moved.has(id)) {
+    moved.set(id, { ...positions.get(id)! })
+    writeMapMoved(db, moved)
+  }
   // The layout kept for the world is this same map, so the next map (and any newcomers fitted in) has it there.
   positions.set(id, { x: Math.round(x) + 0, y: Math.round(y) + 0 })
   writeMapLayout(db, positions)
+}
+
+/**
+ * The desk's map: every dragged character back where the layout had put it. Returns where they were (map units), so the
+ * reset can be undone by moving them there again.
+ */
+export function resetMapLayout(db: DB): { id: ID; x: number; y: number }[] {
+  const moved = readMapMoved(db)
+  if (!moved.size) return []
+  const positions = layoutFor(db, worldGraph(loadMemoryData(db)))
+  const undo: { id: ID; x: number; y: number }[] = []
+  for (const [id, p] of moved) {
+    const now = positions.get(id)
+    if (!now) continue
+    undo.push({ id, x: now.x, y: now.y })
+    positions.set(id, { ...p })
+  }
+  writeMapLayout(db, positions)
+  writeMapMoved(db, new Map())
+  return undo
 }

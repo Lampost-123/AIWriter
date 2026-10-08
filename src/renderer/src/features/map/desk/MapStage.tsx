@@ -6,7 +6,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AsOf, ID } from '@shared/types'
 import type { MapLink, MapTieHistory, RelationshipMap } from '@shared/contracts/worldViews'
-import { Eye, Maximize, Minus, Plus } from '@/components/ui/icons'
+import { Eye, Maximize, Minus, Plus, RotateCcw } from '@/components/ui/icons'
+import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useSize } from '@/features/timeline/viewParts'
 import { useEntryMotifs } from '@/features/world/art/artStore'
@@ -83,7 +84,8 @@ export function MapStage({
   groupId,
   index,
   quick,
-  onPick
+  onPick,
+  onReload
 }: {
   map: RelationshipMap
   groupId: ID | null
@@ -91,6 +93,8 @@ export function MapStage({
   index: number
   quick: boolean
   onPick: (at: AsOf, how: 'key' | 'pointer') => void
+  /** Reads the map again (after Reset layout, or its Undo). */
+  onReload: () => void
 }): React.JSX.Element {
   const detail = map.detail
   const motifs = useEntryMotifs()
@@ -612,6 +616,27 @@ export function MapStage({
     return () => document.removeEventListener('visibilitychange', on)
   }, [])
 
+  // ----- Reset layout -----
+  const canReset = moved.size > 0 || (detail?.moved.length ?? 0) > 0
+  const resetLayout = async (): Promise<void> => {
+    try {
+      const undo = await api.resetMapLayout()
+      setMoved(new Map())
+      onReload()
+      toast('Layout reset: the characters you dragged are back where the map placed them.', {
+        action: {
+          label: 'Undo',
+          run: () =>
+            void Promise.all(undo.map((u) => api.moveMapCharacter(u.id, u.x, u.y)))
+              .then(onReload)
+              .catch((e: Error) => toast(e.message, { tone: 'danger' }))
+        }
+      })
+    } catch (e) {
+      toast((e as Error).message, { tone: 'danger' })
+    }
+  }
+
   // ----- The keyboard -----
   const reveal = useCallback(
     (n: DNode) => {
@@ -937,8 +962,18 @@ export function MapStage({
             <Plus size={16} />
           </button>
           <span className="dm-zoom-sep" />
-          <button type="button" className="dm-icon-btn" aria-label="Fit everyone on screen" onClick={() => fitNow(true)}>
+          <button type="button" className="dm-icon-btn" aria-label="Fit everyone on screen" title="Fit everyone on screen (0)" onClick={() => fitNow(true)}>
             <Maximize size={15} />
+          </button>
+          <button
+            type="button"
+            className="dm-icon-btn"
+            aria-label="Reset layout"
+            title={canReset ? 'Reset layout: put the characters you dragged back where the map placed them' : 'Reset layout (drag a character to move it first)'}
+            disabled={!canReset}
+            onClick={() => void resetLayout()}
+          >
+            <RotateCcw size={15} />
           </button>
         </div>
       ) : null}

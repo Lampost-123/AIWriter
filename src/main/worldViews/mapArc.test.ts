@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { AsOf } from '@shared/types'
 import * as mem from '../db/memory'
 import { dbWorld } from '../../../tests/unit/testWorld'
-import { moveMapCharacter, relationshipMapOf } from './index'
+import { moveMapCharacter, relationshipMapOf, resetMapLayout } from './index'
 import { changesAt } from './mapArc'
 import type { MapTieHistory } from '@shared/contracts/worldViews'
 
@@ -105,5 +105,19 @@ describe('the desk map’s arc of each relationship', () => {
     const tobin = before.nodes.find((n) => n.id === w.id('tobin'))!
     expect(after.nodes.find((n) => n.id === tobin.id)).toMatchObject({ x: tobin.x, y: tobin.y })
     expect(() => moveMapCharacter(w.db, 'nobody', 0, 0)).toThrow()
+  })
+
+  it('resets dragged characters to where the layout put them, and says where they were for an undo', () => {
+    const start = map('b2')
+    const tobin = start.nodes.find((n) => n.id === w.id('tobin'))!
+    moveMapCharacter(w.db, tobin.id, tobin.x + 200, tobin.y)
+    moveMapCharacter(w.db, tobin.id, tobin.x + 300, tobin.y)
+    expect(map('b2').detail!.moved).toContain(tobin.id)
+    const undo = resetMapLayout(w.db)
+    expect(undo).toContainEqual({ id: tobin.id, x: tobin.x + 300, y: tobin.y })
+    const after = map('b2')
+    expect(after.nodes.find((n) => n.id === tobin.id)).toMatchObject({ x: tobin.x, y: tobin.y })
+    expect(after.detail!.moved).toEqual([])
+    expect(resetMapLayout(w.db)).toEqual([])
   })
 })

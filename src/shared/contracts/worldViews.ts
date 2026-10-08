@@ -25,6 +25,8 @@ export interface WorldViewsApi {
    * layout, so the map shows it there from now on; newcomers are fitted in around it.
    */
   moveMapCharacter(id: ID, x: number, y: number): Promise<void>
+  /** Puts every dragged character back where the layout had put it; returns where they were, to undo it. */
+  resetMapLayout(): Promise<{ id: ID; x: number; y: number }[]>
   /** The plot threads board as seen in a story, at its end: open, resolved and planned threads, with where each was set up and paid off. */
   getThreadsBoard(storyId: ID): Promise<ThreadsBoard>
   /**
@@ -192,6 +194,8 @@ export interface MapDetail {
   history: MapTieHistory[]
   /** What changed between the stop before and this one. */
   here: MapChangeNote[]
+  /** The characters Adam has dragged since the layout was last reset (Reset layout is offered while there are any). */
+  moved: ID[]
 }
 
 export interface MapStopInfo {
