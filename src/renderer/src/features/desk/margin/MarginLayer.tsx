@@ -7,9 +7,9 @@
 // (layoutNotes.ts) and glide there (220ms); notes that move with their words move at once. The words never move.
 // Below about 1180px (deskFit.ts) the notes fold into small tabs on the sheet's edge that open each note as a pop-up.
 // With the scene drawer open (it covers the margin) the notes step away; in focus mode they fade with the rest.
-// The notes are the scene card (pinned beside the title) and the entities named in the text (pickSlips.ts decides
-// which); where each entity is first named is found again a moment after typing stops (mentions.ts), so its note follows
-// its word.
+// The notes are the scene card (pinned beside the title), the entities named in the text, the scene's open issues
+// whose words are in it, and the memory's note after it has read the scene (pickSlips.ts decides which). Where each
+// is in the page is found again a moment after typing stops (mentions.ts), so its note follows its words.
 import type { Editor } from '@tiptap/core'
 import * as P from '@radix-ui/react-popover'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
@@ -25,9 +25,14 @@ import { nameIndex } from '@/features/editor/names/underlines'
 import { changesBlocks, posOfAnchor, type PlacedSlip } from './anchors'
 import { layoutNotes } from './layoutNotes'
 import { dismissedIn, useMarginStore } from './marginStore'
-import { firstMentions } from './mentions'
+import type { Issue } from '@shared/contracts/checks'
+import { useSceneIssues } from '@/features/issues/issuesStore'
+import { firstMentions, placeOfQuote } from './mentions'
+import { useMemoryRun } from './memoryRun'
 import { pickSlips, type Placed } from './pickSlips'
+import { CheckSlip } from './slips/CheckSlip'
 import { EntitySlip } from './slips/EntitySlip'
+import { MemorySlip } from './slips/MemorySlip'
 import { SceneCardSlip } from './slips/SceneCardSlip'
 import { Tether } from './Tethers'
 
@@ -68,6 +73,8 @@ interface Geo {
 function SlipBody({ slip, sceneId, inline }: { slip: PlacedSlip; sceneId: ID; inline?: boolean }): React.JSX.Element | null {
   if (slip.kind === 'card') return <SceneCardSlip sceneId={sceneId} />
   if (slip.entity) return <EntitySlip id={slip.id} data={slip.entity} sceneId={sceneId} inline={inline} />
+  if (slip.check) return <CheckSlip id={slip.id} data={slip.check} sceneId={sceneId} />
+  if (slip.memory) return <MemorySlip id={slip.id} data={slip.memory} sceneId={sceneId} />
   return null
 }
 
@@ -75,11 +82,30 @@ function SlipBody({ slip, sceneId, inline }: { slip: PlacedSlip; sceneId: ID; in
 function labelOf(slip: PlacedSlip): string {
   if (slip.kind === 'card') return 'Scene card'
   if (slip.entity) return `${KIND_LABELS[slip.entity.entry.kind]?.one ?? 'Entry'}: ${slip.entity.entry.name}`
+  if (slip.check) return `Check: ${slip.check.issue.message}`
+  if (slip.memory) return 'Memory updated'
   return 'Note'
 }
 
-/** Where each entry is first named, as a key that changes only when one of them moves. */
-const mentionsKey = (m: Map<ID, Placed>): string => [...m].map(([id, p]) => `${id}@${p.anchor.pid}:${p.anchor.offset}`).join(' ')
+/** The live checks' kinds (the avoid list, repetition, AI phrases, name spelling): underlines in the page, never notes. */
+const LIVE_KINDS = new Set<Issue['kind']>(['phrase', 'repetition', 'spelling'])
+const noteworthy = (i: Issue, sceneId: ID): boolean => i.status === 'open' && i.sceneId === sceneId && !LIVE_KINDS.has(i.kind) && !i.aiPhrase
+
+/** Where things are in the page for the notes. */
+interface Found {
+  mentions: Map<ID, Placed>
+  issues: (Placed & { issue: Issue })[]
+  memory: Placed | null
+}
+
+const keyOf = (p: Placed | null): string => (p ? `${p.anchor.pid}:${p.anchor.offset}` : '-')
+/** A key that changes only when something moves. */
+const foundKey = (f: Found): string =>
+  [
+    [...f.mentions].map(([id, p]) => `${id}@${keyOf(p)}`).join(' '),
+    f.issues.map((i) => `${i.issue.id}@${keyOf(i)}:${i.issue.status}`).join(' '),
+    keyOf(f.memory)
+  ].join('|')
 
 export function MarginLayer({
   editor,
@@ -107,19 +133,34 @@ export function MarginLayer({
   const pageWidth = useApp((s) => s.settings?.editor.pageWidth)
   const writing = useApp((s) => s.view.kind === 'write')
   const { data: names } = useSceneNames(sceneId, writing)
+  const { issues: allIssues } = useSceneIssues(sceneId)
+  const memoryRun = useMemoryRun(sceneId)
+  const issues = useMemo(() => (allIssues ?? []).filter((i) => noteworthy(i, sceneId)), [allIssues, sceneId])
 
-  // Where each entry is first named: when the scene or its names change, and a moment after typing stops.
-  const [mentions, setMentions] = useState<Map<ID, Placed>>(() => new Map())
-  const mentionsRef = useRef('')
+  // Where each entry is first named, each issue's words are and the memory's first fact came from: when the scene, its
+  // names, its issues or the memory's note change, and a moment after typing stops.
+  const [found, setFound] = useState<Found>(() => ({ mentions: new Map(), issues: [], memory: null }))
+  const foundRef = useRef('')
   const indexKey = nameIndex().key
   useEffect(() => {
     const read = (): void => {
       if (editor.isDestroyed) return
-      const next = firstMentions(editor.state.doc, nameIndex())
-      const key = mentionsKey(next)
-      if (key === mentionsRef.current) return
-      mentionsRef.current = key
-      setMentions(next)
+      const doc = editor.state.doc
+      const located: Found['issues'] = []
+      for (const issue of issues) {
+        const at = placeOfQuote(doc, issue.quote, issue.occurrence)
+        if (at) located.push({ ...at, issue })
+      }
+      let memory: Placed | null = null
+      for (const q of memoryRun?.quotes ?? []) {
+        memory = placeOfQuote(doc, q)
+        if (memory) break
+      }
+      const next: Found = { mentions: firstMentions(doc, nameIndex()), issues: located, memory }
+      const key = foundKey(next)
+      if (key === foundRef.current) return
+      foundRef.current = key
+      setFound(next)
     }
     // After this frame, so a scene being swapped in is read, not the last one.
     let timer = setTimeout(read, 0)
@@ -132,20 +173,20 @@ export function MarginLayer({
       clearTimeout(timer)
       editor.off('update', onUpdate)
     }
-  }, [editor, sceneId, names, indexKey])
+  }, [editor, sceneId, names, indexKey, issues, memoryRun])
 
-  // The notes to show (pickSlips.ts): the scene card, then the entities named in the text.
+  // The notes to show (pickSlips.ts): the scene card, the entities named in the text, the checks, the memory.
   const slips = useMemo<PlacedSlip[]>(
     () =>
       pickSlips({
         names: names && names.sceneId === sceneId ? names : null,
-        firstMentions: mentions,
-        issues: [],
-        openIssues: 0,
-        memory: null,
+        firstMentions: found.mentions,
+        issues: found.issues,
+        openIssues: issues.length,
+        memory: memoryRun ? { runId: memoryRun.runId, count: memoryRun.count, lines: memoryRun.lines, at: found.memory } : null,
         dismissed
       }),
-    [names, sceneId, mentions, dismissed]
+    [names, sceneId, found, issues.length, memoryRun, dismissed]
   )
   const slipKey = slips.map((s) => (s.anchor === 'top' ? s.id : `${s.id}@${s.anchor.pid}:${s.anchor.offset}`)).join(' ')
   const modeRef = useRef(mode)

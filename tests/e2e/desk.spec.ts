@@ -4,7 +4,7 @@
 // page as a sheet (its head, no drop cap, typing at the scene's start), the shortcuts the page's tools carry, and the
 // scene drawer (the scene panel over the page's edge) with every way into it.
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
-import { expect, invoke, test, useFakeModel, type LaunchOptions } from './helpers'
+import { expect, invoke, startFake, test, useFakeModel, type LaunchOptions } from './helpers'
 
 const DESK = { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk' }
 const rooms = (win: Page) => win.getByRole('navigation', { name: 'Rooms' })
@@ -905,4 +905,58 @@ test('entity notes: Edric’s beside his paragraph, the lore rule with In memory
   await card.getByRole('button', { name: 'Show beside the page' }).click()
   await expect(drawer(win)).toBeVisible()
   await expect(drawer(win)).toContainText('Edric Halloway')
+})
+
+test('check and memory notes: an issue’s note beside its words with Rewrite and Keep; Keep ignores it; the memory’s note after it reads the scene', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { app, win } = await sampleWorld(launch, { env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    await useFakeModel(win, fake)
+    await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps')
+    await size(app, win, 1920, 1080)
+    const [story] = await invoke(win, 'listStories')
+    const { scenes } = await invoke(win, 'getOutline', story.id)
+    const sceneId = scenes[0].id
+    // A planted contradiction (the memory says Wren's eyes are grey), and something for the memory to learn.
+    await win.locator('.scene-prose').click()
+    await win.keyboard.press('Control+End')
+    await win.keyboard.press('Enter')
+    await win.keyboard.type('Wren’s eyes were green in the lamplight. Wren learned that the ferry was a day early.')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('lamplight')
+
+    // The check: its note beside the paragraph with its words, Rewrite and Keep.
+    await invoke(win, 'startCheck', { runId: 'desk-check', target: { scope: 'scene', id: sceneId }, checks: ['facts'] })
+    const check = win.locator('[data-slip^="issue:"]')
+    await expect(check).toBeVisible({ timeout: 30_000 })
+    await expect(check).toContainText('“Wren’s eyes were green')
+    await expect(check.locator('.desk-tether path')).toHaveCount(1)
+    const last = win.locator('.desk-sheet .scene-prose > p').last()
+    await expect
+      .poll(async () => {
+        const [a, b] = [(await check.boundingBox())!, (await last.boundingBox())!]
+        return Math.round(a.y - b.y)
+      })
+      .toBeGreaterThanOrEqual(-4)
+    // Rewrite: the check's suggested words as a tracked change in the page (rejected again here).
+    await check.getByRole('button', { name: 'Rewrite' }).click()
+    await expect(win.getByRole('group', { name: 'The AI’s change' })).toBeVisible()
+    await win.keyboard.press('Escape')
+    await expect(win.getByRole('group', { name: 'The AI’s change' })).toHaveCount(0)
+    // Keep: the note goes and the issue is ignored.
+    await check.getByRole('button', { name: 'Keep' }).click()
+    await expect(check).toHaveCount(0)
+    await expect.poll(async () => (await invoke(win, 'listIssues', sceneId)).map((i) => i.status)).toContain('ignored')
+
+    // The memory reads the scene: one note, "Memory · N facts updated", beside the words it learned from.
+    await invoke(win, 'updateMemoryNow', sceneId)
+    const memory = win.locator('[data-slip^="memory:"]')
+    await expect(memory).toBeVisible({ timeout: 30_000 })
+    await expect(memory).toContainText(/Memory · \d+ facts? updated/)
+    await expect(memory).toContainText('Wren Halloway')
+    // A click opens What changed for the scene.
+    await memory.getByRole('button', { name: /Open What changed/ }).click()
+    await expect(win.getByRole('heading', { name: /What changed/ }).first()).toBeVisible()
+  } finally {
+    await fake.close()
+  }
 })
