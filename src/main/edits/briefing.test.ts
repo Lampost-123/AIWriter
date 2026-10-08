@@ -217,8 +217,9 @@ describe('Continue', () => {
     expect(user(b)).toContain('Beats, in order:\n1. Mara arrives\n2. Tobin lies\n3. The knock')
     expect(user(b)).not.toContain('The selected words')
     expect(system(b)).toContain('Start a new paragraph after the last one.')
+    // With no "what happens next", the ask ends on the last paragraph (CARRY_ON_LAST).
     expect(b.blocks.at(-1)!.text).toBe(
-      'Write the next paragraph or two of the scene, about 120 to 250 words. Reply with only the new words.'
+      'Write the next paragraph or two of the scene, about 180 to 280 words. Reply with only the new words.\nCarry on from the last paragraph: what is happening there is what happens next.'
     )
   })
 
@@ -424,14 +425,16 @@ describe("Continue's memory core (Adam, 2026-10-08)", () => {
     expect(rewrite.blocks.some((x) => x.id === 'timeline' || x.id === 'said' || x.id === 'recalled')).toBe(false)
   })
 
-  it("says Adam's \"what happens next\" last, and the phrases the scene has used already", () => {
+  it("says Adam's \"what happens next\" last, and names no phrase not to use", () => {
     const b = go({ direction: 'Tobin admits he lied' })
     const text = user(b)
     expect(text.trimEnd().endsWith('What happens next, as the author asks:\nTobin admits he lied')).toBe(true)
     expect(system(b)).toContain('The author says what happens next')
-    expect(text).toContain('“the rain went on”')
-    // Without one: the scene card's next beat, as before.
-    expect(system(go())).toContain('move towards its next beat')
+    expect(text).not.toContain('“the rain went on”')
+    expect(text).not.toContain('This scene has used these already')
+    // Without one: what is under way plays out first, then the card's next beat; the last paragraph is said last.
+    expect(system(go())).toContain("Whatever is under way in the last paragraphs plays out first, at the scene's own pace; only once it has, move towards the card's next beat.")
+    expect(user(go()).trimEnd().endsWith('Carry on from the last paragraph: what is happening there is what happens next.')).toBe(true)
   })
 
   it('stays compact: the core adds at most a few thousand tokens, and goes before the edit is refused', () => {

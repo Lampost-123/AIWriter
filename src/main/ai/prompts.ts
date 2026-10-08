@@ -8,7 +8,7 @@ import type { StyleGuide } from '@shared/types'
 import { AUTO_LENGTH } from '@shared/defaults'
 import { genresOf } from '@shared/genres'
 import { intensityLines } from '@shared/intensity'
-import { PROMPT_SLOP, SLOP_RULES } from '@shared/slop'
+import { SLOP_RULES } from '@shared/slop'
 
 const INTRO = `You are a skilled novelist drafting one scene of a longer work of fiction. The author plans each scene on a scene card and will edit your draft afterwards, so write a complete, polished scene that follows the plan closely and reads like a finished page of the book.
 
@@ -32,7 +32,7 @@ const REST = (end: string): string => `- Be specific and concrete. Ground each m
 - Let the characters want things and push against each other. Keep subtext in dialogue: people rarely say exactly what they mean.
 - Give each character their own voice, as their profile describes. Their sample lines show how they sound: never reuse a sample line word for word, or a line already said in the story.
 - Vary sentence length and paragraph rhythm. Trust the reader: don't explain feelings the scene already shows, and don't close on a summary or a moral.${end}
-- Avoid clichés and stock phrases, such as a breath someone didn't know they were holding, a shiver running down a spine, eyes that sparkle, a heart hammering against ribs, or anything described as "a testament to" something.
+- Say each thing freshly, in the terms of this place and these people: show feeling through what someone does or says, not through the body reactions any story would use.
 - The briefing gives the characters, places and world as they stand at this point in the story. Anything marked as an aim or a target (what this scene should bring about, what the story leads into) is where the story is heading, not something that has already happened.
 - Never contradict the facts you are given about the characters, places and world, or break the world's rules. Where the briefing is silent, stay consistent with what it implies, and don't invent major new facts (new powers, deaths, family ties, revelations) that the scene card doesn't call for.
 - Keep every name, title and spelling exactly as given.`
@@ -130,7 +130,7 @@ export function instructionsText(
   if (style.avoidPhrases.length) {
     parts.push(`Words and phrases to avoid\nNever use any of these:\n${style.avoidPhrases.map((p) => `- ${p}`).join('\n')}`)
   }
-  if (opts.proseRules !== false && style.avoidAiPhrases !== false) parts.push(aiPhrasesText(short))
+  if (opts.proseRules !== false && style.avoidAiPhrases !== false) parts.push(aiPhrasesText())
   return parts.join('\n\n')
 }
 
@@ -192,11 +192,12 @@ export function contentText(style: Pick<StyleGuide, 'intensity' | 'contentLimits
   return `Content\n${lines.map((l) => `- ${l}`).join('\n')}${after ? `\n${after}` : ''}`
 }
 
-/** The rules against common AI phrasing, with the worst offenders named (left out of the short form). */
-export function aiPhrasesText(short = false): string {
-  const rules = SLOP_RULES.map((r) => `- ${r}`)
-  if (!short) rules.push(`- Never use stock phrases like these, or variants: ${PROMPT_SLOP.map((p) => `"${p}"`).join(', ')}.`)
-  return `Write like a person, not like an AI\n${rules.join('\n')}`
+/**
+ * The rules against common AI phrasing. No stock phrase is named (the writer lab, 2026-10-08: naming a phrase can prime
+ * it); the stock phrases that still get through are found after writing and said afresh (repair/slop.ts).
+ */
+export function aiPhrasesText(): string {
+  return `Write like a person, not like an AI\n${SLOP_RULES.map((r) => `- ${r}`).join('\n')}`
 }
 
 const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
@@ -253,8 +254,6 @@ export function finalInstruction(o: {
   /** Add below: the scene card's beats (blank ones left out), and how many of them, from the first, are on the page already. */
   beats?: string[]
   beatsDone?: number
-  /** Phrases the scene has used already (ai/repetition.ts), not to be used again; empty or left out: none. */
-  repeated?: string[]
 }): string {
   if (o.addBelow) return addBelowFinal(o)
   const lines: string[] = [
@@ -271,8 +270,6 @@ export function finalInstruction(o: {
   }
   const avoid = avoidLine(o.style)
   if (avoid) lines.push(avoid)
-  const repeated = repeatedLine(o.repeated)
-  if (repeated) lines.push(repeated)
   if (o.hasStand) lines.push(STAND_LINE)
   const other = o.previousStory
   if (o.hasPrevious && other) {
@@ -300,13 +297,6 @@ function keepLine(style: StyleGuide): string {
   return keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.'
 }
 
-/** The closing line listing phrases the scene has used already (ai/repetition.ts); null when there are none. */
-export function repeatedLine(phrases: string[] | undefined): string | null {
-  const list = (phrases ?? []).map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean)
-  if (!list.length) return null
-  return `- This scene has used these already, so don't use them again, or close variations: ${list.map((p) => `“${p}”`).join(', ')}.`
-}
-
 /**
  * Add below's closing (Adam, 2026-10-08): carry on from the very end; the beats already on the page are done; the
  * length is a ceiling; stop once what is asked has happened, mid-motion, without closing the scene; no events of its
@@ -332,8 +322,6 @@ function addBelowFinal(o: FinalOptions): string {
   }
   const avoid = avoidLine(o.style)
   if (avoid) lines.push(avoid)
-  const repeated = repeatedLine(o.repeated)
-  if (repeated) lines.push(repeated)
   if (o.hasStand) lines.push(STAND_LINE)
   if (o.hasBringAbout) lines.push('- Bring about what the scene card says it should only where what happens now calls for it.')
   lines.push('- Never contradict the facts given above.')

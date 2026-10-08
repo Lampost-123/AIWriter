@@ -12,14 +12,15 @@
 
 import type { ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, RelationshipState, SceneCard, StyleGuide } from '@shared/types'
 import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
-import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
+import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defaults'
 import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
 import { MUST_TITLE, mustStayTrue, mustText, stageFor } from '../ai/mustStay'
 import { holdingsOf } from '../memory/items'
-import { repeatedPhrases, speechSamples } from '../ai/repetition'
+import { freshLooks, pastProfile } from '../ai/briefingFixes'
+import { withLockLines } from '../ai/lockRule'
 import { saidText } from '../retrieval/said'
 import type { SaidLine } from '../retrieval/types'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
@@ -281,7 +282,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       ? mustStayTrue({
           stand: world.stand,
           reach: world.stand ? 'here' : 'none',
-          people: here,
+          // Their usual looks put right for this moment, and their profiles' relative times made past (ai/briefingFixes.ts).
+          people: here.map((e) => pastProfile(freshLooks(e, stageFor(e, world.stand)))),
           named: away,
           ...world.must,
           holdings,
@@ -292,15 +294,12 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       : []
   const must = { full: mustOf(false), short: mustOf(true) }
 
-  // Continue: what the scene has said already, not to be said again (sample lines on the page, stock tics, repeated runs).
-  const repeated = isContinue ? repeatedPhrases({ text: input.before, samples: people.flatMap((e) => speechSamples(e.fields?.sampleLines)) }) : []
   const o: PromptOptions = {
     direction,
     continueAs: input.continueAs ?? 'paragraph',
     hasAfter: !!input.after.trim(),
     lineBreaks: keepsLineBreaks(input),
-    ...(world.speakerTags ? { speakerTags: true } : {}),
-    ...(repeated.length ? { repeated } : {})
+    ...(world.speakerTags ? { speakerTags: true } : {})
   }
   const system = systemPrompt(tool, world.style, o)
   const reply = Math.ceil(replyRoom(tool, words) * (world.speakerTags ? 1 + TAG_ALLOWANCE : 1))
@@ -399,7 +398,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       const lead = isContinue ? "The text that comes after (lead into it; don't repeat it):" : 'The text just after the selected words:'
       parts.push({ id: 'after', priority: 4, title, text: `${lead}\n${fence(after)}`, entryIds: [] })
     }
-    const stand = isContinue && world.stand ? stateText(world.stand) : ''
+    // A door locked from inside with someone outside is said in one line after the stage (ai/lockRule.ts).
+    const stand = isContinue && world.stand ? withLockLines(stateText(world.stand), world.stand) : ''
     if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
     const mustLines = scale === 0 ? [] : withPeople ? must.full : must.short
     if (mustLines.length) parts.push({ id: 'must', priority: 2, title: MUST_TITLE, text: mustText(mustLines, withPeople ? 'here' : null), entryIds: [] })
@@ -466,7 +466,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     blocks,
     entries: [...sent].map((id) => ({ entryId: id, version: byId.get(id)?.updatedAt ?? '' })),
     reply,
-    temperature: preset.temperature,
+    // Continue is the writer carrying the scene on: the writer's temperature (writerTemperature). The edit tools: their own.
+    temperature: tool === 'continue' ? writerTemperature(CREATIVITY[tool]) : preset.temperature,
     topP: preset.top_p,
     note
   }

@@ -1,5 +1,6 @@
 // The AI writer's use of the story memory (Adam, 2026-10-08): Add below's own instructions, the order blocks are sent
-// in (the cache), a cleaner briefing, and the phrases not to say again. On an invented scene (writerWorld.ts).
+// in (the cache), a cleaner briefing, and (since 0.6.35) no list of phrases not to say again. On an invented scene
+// (writerWorld.ts).
 import { describe, expect, it } from 'vitest'
 import { finishContext, MENTIONED_TITLE, MUST_BLOCK, prepareContext, SEND_ORDER, type ContextInput } from '../../src/main/ai/context'
 import { RECALL_ENTRIES } from '../../src/main/retrieval/briefing'
@@ -56,7 +57,7 @@ describe('Add below gets its own instructions', () => {
     expect(none.trimEnd().endsWith('What happens now: the next beat on the scene card, beat 2 of 2 (write this one only, and nothing beyond it):\nThey talk about what comes next')).toBe(true)
   })
 
-  it('the closing lists phrases the scene has used already, not to be used again', () => {
+  it('names no phrase not to use (since 0.6.35: naming one can prime it; stock phrases are said afresh after writing)', () => {
     const final = finalInstruction({
       targetWords: 300,
       style: defaultStyleGuide(),
@@ -64,14 +65,13 @@ describe('Add below gets its own instructions', () => {
       hasPrevious: false,
       hasDirection: true,
       addBelow: true,
-      direction: 'Ash comes back',
-      repeated: ['the rain went on']
+      direction: 'Ash comes back'
     })
-    expect(final).toContain('- This scene has used these already, so don\'t use them again, or close variations: “the rain went on”.')
+    expect(final).not.toContain('This scene has used these already')
     const step = whole(addBelowStep(1))
-    expect(step).toContain('“That’s the way of it”')
-    expect(step).toContain('“the rain went on”')
-    expect(step).toContain('“neither of them said”')
+    expect(step).not.toContain('This scene has used these already')
+    expect(step).not.toContain('“the rain went on”')
+    expect(step).not.toContain('“neither of them said”')
   })
 })
 

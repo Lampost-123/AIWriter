@@ -29,6 +29,7 @@ import { isOff, namesItem as namesStageItem, pieceText, thingText, type StageIte
 import { holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
 import { deathOf } from './deaths'
 import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './knows'
+import { clearStalePlacing } from './briefingFixes'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
 export const MUST_MOST = 12
@@ -299,8 +300,11 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
       characters.push({ name: c.name, where: whereFrom === scope.sceneId ? c.where : '', posture: '', holding: '', condition: 'dead', mood: '', lastAction: '', clothes: [] })
       continue
     }
+    // How they are placed, who they touch and who they see no longer hold once they have moved since those were said
+    // (ai/briefingFixes.ts).
+    const placed = (x: CharacterState): CharacterState => clearStalePlacing(x, stand.said, scope.sceneId, scope.words)
     if (!ruled) {
-      characters.push(c)
+      characters.push(placed(c))
       continue
     }
     // Words from an older scene no longer hold, except how they are (injuries) and what they hold.
@@ -315,7 +319,7 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
       ...(c.sees !== undefined ? { sees: field('sees') } : {})
     }
     if (c.clothes) kept.clothes = c.clothes.filter((p) => fresh(pieceSource(stand.said, c.name, p.name)?.sceneId))
-    characters.push(kept)
+    characters.push(placed(kept))
   }
   const out: SceneState = { ...stand, characters }
   for (const f of ['time', 'weather', 'light'] as const) {

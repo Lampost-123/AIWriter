@@ -6,7 +6,7 @@
 import type Database from 'better-sqlite3'
 import type { AppEvents } from '@shared/api'
 import type { ContentIntensity, ContextPreview, DraftOptions, GenerationRecord, ID, ModelChoice, ThinkingLevel } from '@shared/types'
-import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
+import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defaults'
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
 import { asksForTags, SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
@@ -154,7 +154,7 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
   const minP = req.provider.kind === 'openrouter' ? preset.min_p : null
   const params: GenerationParams = withSent(
     {
-      temperature: preset.temperature,
+      temperature: writerTemperature(req.options.creativity),
       top_p: preset.top_p,
       ...(minP != null ? { min_p: minP } : {}),
       max_tokens: reply.limit,

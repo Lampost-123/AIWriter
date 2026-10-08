@@ -80,13 +80,15 @@ import { sameWhen, stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
-import { MUST_TITLE, mustStayTrue, mustText, realSecrets, shortPlace, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { MUST_TITLE, mustStayTrue, mustText, realSecrets, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
-import { beatsOnPage, repeatedPhrases, speechSamples } from './repetition'
+import { beatsOnPage, speechSamples } from './repetition'
 import { cleanKnows, happenedOf, pastDeathNote } from './knows'
 import { TIMELINE_LEVELS, timelineText, type TimelineContext } from './timeline'
+import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from './briefingFixes'
+import { withLockLines } from './lockRule'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -1343,7 +1345,12 @@ export function steadyOrder<T extends Pick<Entry, 'kind' | 'name' | 'id'>>(list:
 }
 
 /** Builds every block that has something in it, in the order they are sent. */
-export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(input)): BlockDraft[] {
+export function buildBlocks(input: ContextInput, chosen: Selection = selectEntries(input)): BlockDraft[] {
+  // The people in the scene with their usual looks put right for this moment, and the relative times in their profiles
+  // made past (briefingFixes.ts). The entries as kept are unchanged.
+  const stage = toldStage(input)
+  const fresh = (e: EntryState): EntryState => pastProfile(freshLooks(e, stageFor(e, stage)))
+  const sel: Selection = { ...chosen, pov: chosen.pov ? fresh(chosen.pov) : chosen.pov, present: chosen.present.map(fresh) }
   const blocks: BlockDraft[] = []
   const label = (e: Entry): string | null => sel.chosen.get(e.id)?.label ?? null
   const add = (
@@ -1398,18 +1405,19 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   //    beat), at the end of it. Short: only the characters on the scene card. Sent last, right above the closing
   //    instruction (prepareContext), where the model attends to it most. Only the people in this scene, and the time,
   //    light and weather only where they still hold (toldStage, Adam 2026-10-07).
-  const stand = toldStage(input)
+  const stand = stage
   const full = stand ? stateText(stand) : ''
   if (full) {
     const onCard = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e).flatMap((e) => [e.name, ...(e.aliases ?? [])])
     const short = onCard.length ? stateText(stand!, onCard) : ''
     const lead = input.continuityAtSoFar ? STAND_LEAD_SO_FAR : STAND_LEAD
+    // A door locked from inside with someone outside, said in one line after the stage (lockRule.ts).
     add(
       'continuity',
       3,
       input.continuityAtSoFar ? 'Where things stand at the end of the scene so far' : 'Where things stand as the previous scene ended',
-      `${lead}\n${full}`,
-      short && short !== full ? `${lead}\n${short}` : null,
+      `${lead}\n${withLockLines(full, stand)}`,
+      short && short !== full ? `${lead}\n${withLockLines(short, stand, onCard)}` : null,
       []
     )
   }
@@ -1591,28 +1599,44 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   // Both in a steady order (by kind, then name) under a fixed title, so the same entries read the same from one step to
   // the next and a provider can reuse what comes before what changed (Adam, 2026-10-08: the title swapped between
   // "Also mentioned" and "Also relevant", and the recalled entries' order flipped, between steps).
+  // Off the scene (briefingFixes.ts offScene, after Adam's Holodeck): a person the scene's own words (the card, the
+  // direction, the scene so far) don't name, nor Adam pinned, nor the plan asked for, gets one line, not a card; a place not linked to where the
+  // scene happens, nor named in those words, is left out (the writer lab found Oskar, Thistle, Fallow Cross and the Wheatsheaf in an
+  // inn scene's briefing).
+  const sceneOwn = [card.goal, card.conflict, card.outcome, card.mood, card.notes, ...card.beats, input.options.direction, input.soFar].map(clean).filter(Boolean).join('\n')
+  const linked = linkedPlaces(card.locationId, [...sel.known.values()])
+  // An entry Adam pinned, or the plan asked for, stays whole, wherever it is named.
+  const wanted = (e: Entry): boolean => !!sel.chosen.get(e.id)?.pinned || sel.chosen.get(e.id)?.why === WHY.plan
+  const named = (e: Entry): boolean => wanted(e) || [e.name, ...(e.aliases ?? [])].some((n) => clean(n) && mentions(sceneOwn, n))
+  const split = (list: EntryState[]): { full: EntryState[]; offstage: EntryState[] } => offScene(list, { named, linked })
+  const offstageText = (list: EntryState[], why: (e: Entry) => string = () => ''): string =>
+    list.length ? `${OFFSTAGE_LEAD}\n${list.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n')}` : ''
   if (sel.others.length) {
-    const others = steadyOrder(sel.others)
-    add(
-      'mentioned',
-      9,
-      MENTIONED_TITLE,
-      entriesText(others),
-      others.map((e) => `- ${oneLine(e, note(e))}`).join('\n'),
-      others.map((e) => e.id)
-    )
+    const { full: others, offstage } = split(steadyOrder(sel.others))
+    const all = [...others, ...offstage]
+    if (all.length)
+      add(
+        'mentioned',
+        9,
+        MENTIONED_TITLE,
+        [entriesText(others), offstageText(offstage)].filter(Boolean).join('\n\n'),
+        all.map((e) => `- ${oneLine(e, note(e))}`).join('\n'),
+        all.map((e) => e.id)
+      )
   }
   if (sel.recalled.length) {
     const why = (e: Entry): string => recalledWhy(sel.chosen.get(e.id)?.why)
-    const recalled = steadyOrder(sel.recalled)
-    add(
-      RECALL_ENTRIES.id,
-      RECALL_ENTRIES.priority,
-      RECALL_ENTRIES.title,
-      entriesText(recalled, why),
-      recalled.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n'),
-      recalled.map((e) => e.id)
-    )
+    const { full: recalled, offstage } = split(steadyOrder(sel.recalled))
+    const all = [...recalled, ...offstage]
+    if (all.length)
+      add(
+        RECALL_ENTRIES.id,
+        RECALL_ENTRIES.priority,
+        RECALL_ENTRIES.title,
+        [entriesText(recalled, why), offstageText(offstage, why)].filter(Boolean).join('\n\n'),
+        all.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n'),
+        all.map((e) => e.id)
+      )
   }
 
   // 10 Themes, tone and premise (short: one line).
@@ -1777,9 +1801,7 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     // Add below: Adam's direction last of all, and the beats already on the page (repetition.ts beatsOnPage).
     direction: clean(input.options.direction),
     beats: card.beats.map((b) => b.trim()).filter(Boolean),
-    beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0,
-    // What the scene so far has said already, not to be said again (repetition.ts).
-    repeated: repeatedPhrases({ text: clean(input.soFar), samples: samplesOf([sel.pov, ...sel.present]) })
+    beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0
   }
   const closing = extras.final ?? finalInstruction
   const tagLines = extras.speakerTags ? [SPEAKER_TAG_LINE] : []
@@ -1801,10 +1823,6 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     entries: contextEntries(sel, blocks)
   }
 }
-
-/** The sample lines of these characters that are speech (repetition.ts speechSamples). */
-export const samplesOf = (people: (Pick<Entry, 'kind' | 'fields'> | null | undefined)[]): string[] =>
-  people.filter((e): e is Pick<Entry, 'kind' | 'fields'> => !!e && e.kind === 'character').flatMap((e) => speechSamples(e.fields?.sampleLines))
 
 const asMode = (m: unknown): BlockMode => (m === 'full' || m === 'short' ? m : 'auto')
 

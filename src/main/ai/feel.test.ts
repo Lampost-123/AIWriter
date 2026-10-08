@@ -114,13 +114,15 @@ describe('the genre and feel in the writer instructions', () => {
     expect(text).toContain('follow the content limits')
   })
 
-  it('gives the rules against AI phrasing, naming the worst phrases only in full', () => {
+  it('gives the rules against AI phrasing, naming no stock phrase (naming one can prime it)', () => {
     const full = aiPhrasesText()
     for (const r of SLOP_RULES) expect(full).toContain(r)
-    expect(full).toContain(`"${PROMPT_SLOP[0]}"`)
-    expect(PROMPT_SLOP.length).toBeGreaterThanOrEqual(12)
-    expect(PROMPT_SLOP.length).toBeLessThanOrEqual(18)
-    expect(aiPhrasesText(true)).not.toContain(PROMPT_SLOP[0])
+    for (const p of PROMPT_SLOP) expect(full).not.toContain(p)
+    expect(full).not.toContain('Never use stock phrases like these')
+    // Nor does the craft rule list clichés by example: it says what to do instead.
+    const prompt = instructionsText(guide())
+    expect(prompt).not.toContain("a breath someone didn't know they were holding")
+    expect(prompt).toContain('show feeling through what someone does or says')
   })
 
   it('leaves the AI phrasing rules out when I turn them off, or for jobs that write no prose', () => {

@@ -5,7 +5,7 @@
 // and how to reply, then gives the style guide with Adam's preferences.
 
 import type { EditTool, StyleGuide } from '@shared/types'
-import { instructionsText, repeatedLine } from '../ai/prompts'
+import { instructionsText } from '../ai/prompts'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 
 export const EDIT_MARKER = '[AIWRITE-EDIT v1]'
@@ -13,8 +13,17 @@ export const EDIT_MARKER = '[AIWRITE-EDIT v1]'
 /** How each version of Alternatives starts, on a line of its own. */
 export const versionLine = (n: number): string => `=== Version ${n} ===`
 
-/** About how many words Continue writes: a paragraph or two. */
-export const CONTINUE_WORDS = { min: 120, max: 250 }
+/**
+ * About how many words Continue writes: a paragraph or two. 180 to 280 since 0.6.35 (was 120 to 250): DeepSeek Flash
+ * wrote past 250 in about half its Continue steps anyway (the writer lab, 2026-10-08).
+ */
+export const CONTINUE_WORDS = { min: 180, max: 280 }
+
+/**
+ * The last line of Continue's ask with no "what happens next", so the last paragraph is what it carries on (the writer
+ * lab's continue-drift investigation, 2026-10-08: a knock at the door was left for talk of the road ahead).
+ */
+export const CARRY_ON_LAST = 'Carry on from the last paragraph: what is happening there is what happens next.'
 
 export interface PromptOptions {
   /** Rewrite: Adam's instruction. Change tone: the tone. */
@@ -27,8 +36,6 @@ export interface PromptOptions {
   lineBreaks: boolean
   /** Tag who says each line and how (ai/speakerTags.ts). */
   speakerTags?: boolean
-  /** Continue: phrases the scene has used already (ai/repetition.ts), not to be used again. */
-  repeated?: string[]
 }
 
 const ROLE = `You are a skilled fiction editor working on a novel with its author. The author has selected some words in a scene and asked for one change to them.`
@@ -70,11 +77,14 @@ function continueTask(o: PromptOptions): string {
       ? "The text stops part-way through a paragraph: carry it on from exactly where it stops, starting mid-sentence if it stops mid-sentence. Don't repeat any of its words."
       : 'Start a new paragraph after the last one.'
   const after = o.hasAfter ? " The scene already has text after this point: lead into it, and don't repeat or contradict it." : ''
-  // Adam's optional "what happens next" (Adam, 2026-10-08): given, it is what the words are about.
-  const next = o.direction.trim()
+  // Adam's optional "what happens next" (Adam, 2026-10-08): given, it is what the words are about. Without it, what is
+  // under way at the end plays out first, and nothing new is brought in (CARRY_ON_LAST).
+  const told = !!o.direction.trim()
+  const next = told
     ? ' The author says what happens next (at the end of the briefing): write that, and nothing beyond it.'
-    : " The scene card says where the scene is going; move towards its next beat at the scene's own pace rather than rushing through the rest of it."
-  return `The author wants the scene to carry on from where the text stops. Write the next part of the scene: about ${CONTINUE_WORDS.min} to ${CONTINUE_WORDS.max} words, a paragraph or two, following on naturally from the last words. ${where}${after}${next} Invent no new events beyond that, and don't wrap the scene up.`
+    : " The scene card says where the scene is going. Whatever is under way in the last paragraphs plays out first, at the scene's own pace; only once it has, move towards the card's next beat."
+  const none = told ? 'Invent no new events beyond that' : 'Bring in no new arrivals, news or turns of your own'
+  return `The author wants the scene to carry on from where the text stops. Write the next part of the scene: about ${CONTINUE_WORDS.min} to ${CONTINUE_WORDS.max} words, a paragraph or two, following on naturally from the last words. ${where}${after}${next} ${none}, and don't wrap the scene up.`
 }
 
 const CONTINUE_REPLY = `How to reply
@@ -106,13 +116,10 @@ export function systemPrompt(tool: EditTool, style: StyleGuide, o: PromptOptions
 export function finalAsk(tool: EditTool, o: PromptOptions): string {
   const ask = jobAsk(tool, o)
   const lines = [ask]
-  if (tool === 'continue') {
-    const repeated = repeatedLine(o.repeated)
-    if (repeated) lines.push(repeated.replace(/^- /, ''))
-  }
   if (o.speakerTags) lines.push(SPEAKER_TAG_LINE)
-  // Continue's "what happens next" comes last of all, right before the writer starts.
+  // Continue's "what happens next" comes last of all, right before the writer starts; without one, the last paragraph.
   if (tool === 'continue' && o.direction.trim()) lines.push(`What happens next, as the author asks:\n${o.direction.trim()}`)
+  else if (tool === 'continue') lines.push(CARRY_ON_LAST)
   return lines.join('\n')
 }
 

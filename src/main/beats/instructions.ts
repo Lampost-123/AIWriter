@@ -9,7 +9,7 @@
 
 import type { SoFarEnd } from '@shared/contracts/beats'
 import type { FinalOptions } from '../ai/prompts'
-import { indentMore, lengthLine, repeatedLine } from '../ai/prompts'
+import { indentMore, lengthLine } from '../ai/prompts'
 import { DEFAULT_CONTEXT_LENGTH, sceneTail, TOKENS_PER_WORD } from '../ai/context'
 import { MIN_TARGET_WORDS } from '../ai/gather'
 
@@ -153,8 +153,6 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
   lines.push(keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.')
   if (o.hasBringAbout && last)
     lines.push('- By the end of this beat, the scene should have brought about what the scene card says it should.')
-  const repeated = repeatedLine(o.repeated)
-  if (repeated) lines.push(repeated)
   if (o.hasDirection) lines.push("- Follow the author's direction for this draft.")
   lines.push('- Never contradict the facts given above.')
   parts.push(lines.join('\n'))

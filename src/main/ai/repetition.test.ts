@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beatsOnPage, REPEATED_MOST, repeatedPhrases, speechSamples } from './repetition'
+import { beatsOnPage, speechSamples, STOCK_TICS } from './repetition'
 
 describe('speech samples', () => {
   it('keeps only what is said: the words in quote marks, or a bare line that is not narration', () => {
@@ -14,33 +14,13 @@ describe('speech samples', () => {
   })
 })
 
-describe('phrases the scene has used already', () => {
-  it('lists sample lines on the page, stock tics and runs of words said twice, each once, at most eight', () => {
-    const text = [
-      'The rain went on over the roof. Neither of them said anything.',
-      'Ash set the lantern on the table by the window and sat.',
-      'Later he set the lantern on the table by the window again. ‘That’s the way of it,’ he said.',
-      'The rain went on over the roof.'
-    ].join('\n\n')
-    const got = repeatedPhrases({ text, samples: ['That’s the way of it.', 'Bearings first, then talk.'] })
-    expect(got[0]).toBe('That’s the way of it')
-    expect(got).toContain('the rain went on')
-    expect(got).toContain('neither of them said')
-    expect(got.some((p) => p.includes('lantern on the table'))).toBe(true)
-    // Not again in other words: "rain went on over the roof" is the rain line already listed.
-    expect(got.some((p) => p.startsWith('rain went on over'))).toBe(false)
-    expect(got).not.toContain('Bearings first, then talk')
-    expect(got.length).toBeLessThanOrEqual(REPEATED_MOST)
-  })
-
-  it('says nothing for a scene with nothing on the page, or nothing said twice', () => {
-    expect(repeatedPhrases({ text: '' })).toEqual([])
-    expect(repeatedPhrases({ text: 'She opened the door and went down to the harbour.' })).toEqual([])
-  })
-
-  it('caps the list', () => {
-    const text = Array.from({ length: 20 }, (_, i) => `alpha${i} bravo${i} charlie${i} delta${i} echo${i}. alpha${i} bravo${i} charlie${i} delta${i} echo${i}.`).join(' ')
-    expect(repeatedPhrases({ text, most: 3 })).toHaveLength(3)
+describe('stock tics', () => {
+  it('each finds its tic in its usual wordings, and not in plain words', () => {
+    const tic = (label: string): RegExp => STOCK_TICS.find((t) => t.label === label)!.re
+    expect(tic('the rain went on').test('The rain kept on over the roof.')).toBe(true)
+    expect(tic('neither of them said').test('Neither of them spoke.')).toBe(true)
+    expect(tic('let out a breath').test('She let out a slow breath.')).toBe(true)
+    expect(STOCK_TICS.some((t) => t.re.test('She opened the door and went down to the harbour.'))).toBe(false)
   })
 })
 

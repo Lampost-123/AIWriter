@@ -1,17 +1,12 @@
-// What the writer is told not to say again, found by the app with no model call (Adam, 2026-10-08). An audit of 122
-// real writer calls found the same lines coming back step after step: a character's sample line word for word ("That's
-// the way of it" in 14 of 122), stock tics ("the rain went on…" in 27, "neither of them said…" in 11), and the writer
-// echoing its own earlier steps. So the closing instruction lists up to REPEATED_MOST phrases the scene has used
-// already: sample lines that are on the page, stock tics that are, and runs of 4 to 6 words said more than once in the
-// recent part of the scene. Also: which beats of the scene card are on the page already (Add below), and which sample
-// lines are speech at all (a sample line that is narration is no voice). Pure.
+// What the scene has on the page already, found by the app with no model call (Adam, 2026-10-08). An audit of 122 real
+// writer calls found the same lines coming back step after step: a character's sample line word for word ("That's the
+// way of it" in 14 of 122), stock tics ("the rain went on…" in 27, "neither of them said…" in 11). The writer round
+// listed them in the closing instruction; since 0.6.35 the writer prompt names no phrase (naming one can prime it), and
+// the stock tics are found after writing and said afresh instead (repair/slop.ts). Also: which beats of the scene card
+// are on the page already (Add below), and which sample lines are speech at all (a sample line that is narration is no
+// voice). Pure.
 
-/** The most phrases listed. */
-export const REPEATED_MOST = 8
-/** How much of the end of the scene is searched for repeated runs of words. */
-export const RECENT_WORDS = 2500
-
-/** Stock tics a writer model falls back on, as found in the audit; listed once the scene has used one. */
+/** Stock tics a writer model falls back on, as found in the audit; said afresh after writing (repair/slop.ts). */
 export const STOCK_TICS: { label: string; re: RegExp }[] = [
   { label: 'the rain went on', re: /\bthe rain (?:went|kept) on\b/i },
   { label: 'neither of them said', re: /\bneither of them (?:said|spoke)\b/i },
@@ -61,57 +56,6 @@ export function speechSamples(text: string | null | undefined): string[] {
     out.push(line)
   }
   return [...new Set(out)]
-}
-
-/**
- * Up to `most` phrases the scene has used already, to list in the closing: first the sample lines on the page (word
- * for word), then the stock tics on it, then runs of 4 to 6 words said at least twice in its last RECENT_WORDS words
- * (the longest runs, each listed once; runs of little words and names alone don't count).
- */
-export function repeatedPhrases(o: { text: string; samples?: string[]; most?: number }): string[] {
-  const most = o.most ?? REPEATED_MOST
-  const text = norm(o.text ?? '')
-  if (!text.trim()) return []
-  const out: string[] = []
-  const flat = ` ${wordsOf(text).join(' ')} `
-  /** Already listed: the same words, or three words in a row of one listed ("rain went on over the roof" after "the rain went on"). */
-  const has = (p: string): boolean => {
-    const w = wordsOf(p)
-    const k = ` ${w.join(' ')} `
-    return out.some((x) => {
-      const y = ` ${wordsOf(x).join(' ')} `
-      if (y.includes(k) || k.includes(y)) return true
-      for (let i = 0; i + 3 <= w.length; i++) if (y.includes(` ${w.slice(i, i + 3).join(' ')} `)) return true
-      return false
-    })
-  }
-  const push = (p: string): void => {
-    if (out.length < most && p && !has(p)) out.push(p)
-  }
-
-  for (const s of o.samples ?? []) {
-    const k = wordsOf(s)
-    if (k.length >= 3 && flat.includes(` ${k.join(' ')} `)) push(s.trim().replace(/[.,!?;:]+$/, ''))
-  }
-  for (const t of STOCK_TICS) if (t.re.test(text)) push(t.label)
-
-  const words = wordsOf(text).slice(-RECENT_WORDS)
-  const runs: { k: string; n: number; count: number; first: number }[] = []
-  for (const n of [6, 5, 4]) {
-    const seen = new Map<string, { count: number; first: number }>()
-    for (let i = 0; i + n <= words.length; i++) {
-      const gram = words.slice(i, i + n)
-      if (gram.filter((w) => !STOP.has(w)).length < 2) continue
-      const k = gram.join(' ')
-      const got = seen.get(k)
-      if (got) got.count++
-      else seen.set(k, { count: 1, first: i })
-    }
-    for (const [k, v] of seen) if (v.count >= 2) runs.push({ k, n, count: v.count, first: v.first })
-  }
-  runs.sort((a, b) => b.n - a.n || b.count - a.count || a.first - b.first)
-  for (const r of runs) push(r.k)
-  return out
 }
 
 const stem = (w: string): string => (w.length > 4 ? w.slice(0, 4) : w)
