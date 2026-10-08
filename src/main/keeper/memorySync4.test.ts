@@ -45,3 +45,34 @@ describe('Undo of "True again"', () => {
     expect(trueAgain()).toHaveLength(1)
   })
 })
+
+describe('what the world builder or a story flow made', () => {
+  const builderMara = (w: ReturnType<typeof testWorld>) => {
+    const mara = repo.createEntry(w.db, 'character', { name: 'Mara' })
+    // The world builder (and a story flow) store their changes as drafted by the AI, on an entry Adam made.
+    const c = mem.insertChange(w.db, { kind: 'update', payload: { note: 'lost her knife' }, entryId: mara.id, anchor: 'baseline', origin: 'ai' })
+    return { mara, c }
+  }
+  const note = (w: ReturnType<typeof testWorld>, id: string) =>
+    kdb.listLog(w.db, { limit: 100 }).filter((l) => l.factId === id && l.text.endsWith('the scene says this is no longer true (yours is kept as it is)'))
+
+  it('is never ended by the memory: a quiet note instead', async () => {
+    const w = testWorld(2)
+    const [, s2] = w.scenes
+    const { c } = builderMara(w)
+    saveParas(w.db, s2, [['p2', FOUND]])
+    await readScene(w.db, fake, s2)
+    expect(mem.getChange(w.db, c.id).until).toBeUndefined()
+    expect(note(w, c.id)).toHaveLength(1)
+  })
+
+  it('stays Adam’s after he edits it', async () => {
+    const w = testWorld(2)
+    const [, s2] = w.scenes
+    const { c } = builderMara(w)
+    mem.replaceChange(w.db, c.id, { kind: 'update', payload: { note: 'lost her knife in the river' }, entryId: c.entryId, anchor: 'baseline', origin: 'adam' })
+    saveParas(w.db, s2, [['p2', FOUND]])
+    await readScene(w.db, fake, s2)
+    expect(mem.getChange(w.db, c.id).until).toBeUndefined()
+  })
+})

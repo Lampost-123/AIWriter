@@ -1963,8 +1963,16 @@ function clearGuesses(run: Run, e: Entry): void {
   }
 }
 
-/** A change Adam made himself (not one read from the text that he edited). */
-const adamMadeChange = (db: DB, c: Change): boolean => c.origin === 'adam' && (hist.firstOrigin(db, 'change', c.id) ?? 'adam') === 'adam'
+/**
+ * A change Adam made himself (not one read from the text that he edited). What the world builder or a story flow made
+ * (worldBuilder/save.ts, storyFlows/apply.ts) counts as his too, though stored as drafted by the AI (Adam, 2026-10-08):
+ * the memory keeper itself only ever writes changes read from the text, so an AI-made change is always one of those.
+ */
+const adamMadeChange = (db: DB, c: Change): boolean => {
+  if (c.origin === 'text') return false
+  const first = hist.firstOrigin(db, 'change', c.id) ?? c.origin
+  return first === 'adam' || first === 'ai'
+}
 
 /**
  * Text entries (people, things, places, events alike) whose last mention is gone move to Trash, with their own text
