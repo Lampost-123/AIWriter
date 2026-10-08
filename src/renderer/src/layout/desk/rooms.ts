@@ -10,7 +10,8 @@ export function openRoom(room: Area): void {
 }
 
 /**
- * Where the story's spine shows on the desk: beside the writing page, and beside the World room's pages (UI overhaul phase
- * 4), so the story stays a click away from its world. The room's frame then keeps clear of it.
+ * Where the story's spine shows on the desk: in every room (Write, Plan, World and Check), full unless Adam collapsed it,
+ * so the story is always a click away (Adam, phase 4). The room's frame then keeps clear of it, its sheet centred in the
+ * room the spine leaves (RoomFrame). Settings, in no room, has none.
  */
-export const spineShowsIn = (view: View): boolean => view.kind === 'write' || areaOf(view) === 'world'
+export const spineShowsIn = (view: View): boolean => view.kind === 'write' || areaOf(view) !== null
