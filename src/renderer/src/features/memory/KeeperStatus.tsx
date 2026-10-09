@@ -100,8 +100,9 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
 
   return (
     // The slot keeps its room while empty and grows to fit its words (up to a limit, the rest in the tooltip): the free
-    // middle of the bar gives way, so nothing to its right moves.
-    <div className="flex min-w-[176px] max-w-[220px] shrink-0 justify-end look-new:min-w-[128px]" role="status" aria-live="polite">
+    // middle of the bar gives way, so nothing to its right moves. Quiet (the desk's top bar, where the status island says
+    // the rest): no room kept while empty.
+    <div className={cn('flex max-w-[220px] shrink-0 justify-end', quiet ? 'min-w-0' : 'min-w-[176px] look-new:min-w-[128px]')} role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger

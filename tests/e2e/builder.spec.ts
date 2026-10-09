@@ -305,7 +305,8 @@ test('Interview: the character answers in character, and a reply becomes a sampl
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 600))
     const rail = (await steps(win).boundingBox())!
     await expect.poll(async () => Math.round((await panel.boundingBox())!.x)).toBe(Math.round(rail.x + rail.width))
-    expect((await panel.boundingBox())!.width).toBeGreaterThan(420)
+    // (At least its narrowest, 420 px: a window just big enough shows it at exactly that.)
+    expect((await panel.boundingBox())!.width).toBeGreaterThanOrEqual(420)
     await panel.getByRole('textbox', { name: 'Ask Brann Holt something' }).focus()
     await win.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)

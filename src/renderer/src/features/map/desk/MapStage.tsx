@@ -582,7 +582,7 @@ export function MapStage({
       requestAnimationFrame(() =>
         setMoved((m) => {
           const at = m.get(id)
-          if (at) void api.moveMapCharacter(id, at.x, at.y).catch(() => undefined)
+          if (at) saving.current = api.moveMapCharacter(id, at.x, at.y).catch(() => undefined)
           return new Map(m)
         })
       )
@@ -617,9 +617,13 @@ export function MapStage({
   }, [])
 
   // ----- Reset layout -----
+  /** The last dragged place being kept with the world (Reset waits for it). */
+  const saving = useRef<Promise<unknown> | null>(null)
   const canReset = moved.size > 0 || (detail?.moved.length ?? 0) > 0
   const resetLayout = async (): Promise<void> => {
     try {
+      // A drag's place still being kept is kept first, so Reset (and its Undo) knows about it.
+      await saving.current
       const undo = await api.resetMapLayout()
       setMoved(new Map())
       onReload()

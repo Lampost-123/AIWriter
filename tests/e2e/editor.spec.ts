@@ -49,13 +49,16 @@ test('the caret moved by a key stays where it went when the page redraws or take
   // is sent in the same moment, every time.
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Harbour')
+  await expect(prose(win)).toBeFocused()
   await win.keyboard.type('The ferry was late again. Mara counted the lamps.')
+  await expect(prose(win)).toContainText('The ferry was late again. Mara counted the lamps.')
   const moved = await win.evaluate<{ from: number; to: number; text: string }>(`(() => {
     const view = document.querySelector('.scene-prose').editor.view
     const text = view.dom.querySelector('p').firstChild
     // Shift+Right as the browser carries it out: the key reaches the editor, then the page's selection moves.
     view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true, cancelable: true }))
-    getSelection().setBaseAndExtent(text, 26, text, 30)
+    const at = text.data.indexOf('Mara')
+    getSelection().setBaseAndExtent(text, at, text, at + 4)
     view.dispatch(view.state.tr.setMeta('aiwriteTestRedraw', true).setMeta('addToHistory', false))
     const { from, to } = view.state.selection
     return { from, to, text: view.state.doc.textBetween(from, to) }
@@ -71,7 +74,8 @@ test('the caret moved by a key stays where it went when the page redraws or take
     const view = document.querySelector('.scene-prose').editor.view
     const text = view.dom.querySelector('p').firstChild
     view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
-    getSelection().setBaseAndExtent(text, 4, text, 4)
+    const ferry = text.data.indexOf('ferry')
+    getSelection().setBaseAndExtent(text, ferry, text, ferry)
     view.dom.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }))
     view.focus()
     return view.state.doc.textBetween(view.state.selection.from, view.state.selection.from + 5)

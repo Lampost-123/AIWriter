@@ -63,7 +63,7 @@ import {
   type ShownTurn
 } from './askStore'
 import { citedTargets, nameIndex, type LinkTarget } from './citations'
-import { EXAMPLES, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, speaksOfChanges } from './askWords'
+import { EXAMPLES, examples, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, speaksOfChanges } from './askWords'
 import { withoutChoice } from './askChoice'
 import { ActionBar } from './ActionBar'
 import { AnswerBlocks } from './AnswerBlocks'
@@ -527,7 +527,20 @@ const STARTER_TEXT: Record<StarterCard['kind'], string> = { brainstorm: 'text-ai
  * to change or ask as it is.
  */
 function EmptyState({ onPick, cast, density }: { onPick: (question: string) => void; cast: string[]; density: Density }): React.JSX.Element {
-  const cards = starterCards(cast, EXAMPLES)
+  // With no one in the open scene, the examples name the world's own characters (Phase 0), never invented ones.
+  const rev = useApp((s) => `${s.world?.id ?? ''}:${s.entriesRev}`)
+  const [people, setPeople] = useState<string[] | null>(null)
+  useEffect(() => {
+    let live = true
+    api
+      .listEntries()
+      .then((all) => live && setPeople(all.filter((e) => e.kind === 'character').map((e) => e.name)))
+      .catch(() => live && setPeople([]))
+    return () => {
+      live = false
+    }
+  }, [rev])
+  const cards = starterCards(cast, people?.length ? examples(people) : EXAMPLES)
   const compact = density === 'compact'
   return (
     <div className="px-1 pt-1" data-empty>
