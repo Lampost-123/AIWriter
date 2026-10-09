@@ -19,6 +19,8 @@ import { openConsistency } from '@/features/consistency/checkStore'
 import { useGoals } from '@/features/goals/goalStore'
 import { streakOf, weekOf } from '@/features/goals/goalLogic'
 import { askIdeas, ideasKey, useSceneIdeas } from '@/features/outline/ideasStore'
+import { FreshText } from '@/features/planning/FreshText'
+import { LampStatus } from '@/features/planning/LampThinking'
 import { cardIsEmpty } from '@/features/outline/ideasLogic'
 import { parseIdeas } from '@/features/outline/parse'
 import { useStoryLabels, useStoryLabelsLoader } from '@/features/stories/labels'
@@ -362,11 +364,8 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
             {target.title || 'Untitled scene'} · {sceneWhere(outline, target.id)} · planned
           </div>
           {thinking ? (
-            <div className="home-ideas-wait" role="status">
-              <span>Reading the last scenes and your plan…</span>
-              <i />
-              <i />
-              <i />
+            <div className="home-ideas-wait">
+              <LampStatus size={24} text="Reading the last scenes and your plan…" />
             </div>
           ) : session?.problem && !ideas.length ? (
             <p className="home-ideas-problem" role="alert">
@@ -378,8 +377,12 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
                 <li key={i} className="home-idea" style={at(i * 60)}>
                   <span className="home-idea-n">{['i.', 'ii.', 'iii.', 'iv.', 'v.'][i] ?? `${i + 1}.`}</span>
                   <span className="home-idea-t">
-                    {idea.title ? <b>{idea.title}. </b> : null}
-                    {idea.summary}
+                    {idea.title ? (
+                      <b>
+                        <FreshText text={idea.title} live={session?.status === 'running'} />.{' '}
+                      </b>
+                    ) : null}
+                    <FreshText text={idea.summary} live={session?.status === 'running'} />
                   </span>
                 </li>
               ))}

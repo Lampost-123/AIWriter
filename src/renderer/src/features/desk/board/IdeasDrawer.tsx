@@ -16,9 +16,12 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { buildNameIndex, entriesNamedIn } from '@/features/editor/names/nameMatch'
 import { keyboardDriven, reducedMotion } from '@/features/look/motion'
-import { applyIdea, askIdeas, ideasKey, stopIdeas, useSceneIdeas } from '@/features/outline/ideasStore'
+import { applyIdea, askIdeas, ideasKey, setWish, stopIdeas, useSceneIdeas } from '@/features/outline/ideasStore'
 import { parseIdeas, type SceneIdea } from '@/features/outline/parse'
 import { Portrait } from '@/features/views/Portrait'
+import { FreshText } from '@/features/planning/FreshText'
+import { LampStatus, WaitingCards } from '@/features/planning/LampThinking'
+import { useDealDelay } from '@/features/planning/deal'
 import { readingOrder, sceneWhere } from '@/features/desk/home/homeLogic'
 import { addSceneTo } from './boardActions'
 import { bumpMarks, useBoardStore } from './boardStore'
@@ -36,6 +39,13 @@ export const openIdeasFor = (sceneId: ID): void => {
 }
 
 async function askIfNeeded(sceneId: ID): Promise<void> {
+  // "Plan its pay-off" (the plot threads board): what to aim the ideas at, asked for afresh.
+  const wish = useBoardStore.getState().ideasWish
+  if (wish) {
+    useBoardStore.setState({ ideasWish: null })
+    setWish(sceneId, wish)
+    return void (await askIdeas(sceneId))
+  }
   const key = ideasKey(useApp.getState().world?.id, sceneId)
   const s = useSceneIdeas.getState().sessions[key]
   if (!s || s.hidden || s.status === 'error') await askIdeas(sceneId)
@@ -153,18 +163,23 @@ export function IdeasDrawer({ outline, people }: { outline: Outline; people: Cod
               .map((id) => people.find((p) => p.id === id))
               .filter((p): p is CodexCard => !!p && p.kind === 'character')
               .slice(0, 3)}
+            live={!!running}
             onUse={(el) => void use(idea, el)}
             onDismiss={() => dismiss(i)}
           />
         ))}
-        {running && !ideas.some((x) => x.complete) ? (
-          <div className="board-dr-wait" role="status">
-            <span>Reading the scenes before it, your plan and the open threads…</span>
-            <i />
-            <i />
-            <i />
+        {running ? (
+          <div className="board-dr-wait">
+            <LampStatus
+              size={24}
+              text={
+                session?.retrying ??
+                (ideas.length ? `Writing idea ${Math.min(ideas.length, 3)} of 3…` : 'Reading the scenes before it, your plan and the open threads…')
+              }
+            />
           </div>
         ) : null}
+        {running && ideas.length < 3 ? <WaitingCards count={3 - ideas.length} className="board-dr-waiting" /> : null}
         {!running && session?.problem && !ideas.length ? (
           <p className="board-dr-problem" role="alert">
             {session.problem.message}
@@ -203,6 +218,7 @@ function IdeaCard({
   delay,
   leaving,
   cast,
+  live,
   onUse,
   onDismiss
 }: {
@@ -211,18 +227,26 @@ function IdeaCard({
   delay: number
   leaving: boolean
   cast: CodexCard[]
+  /** The answer is still arriving: its words fade in. */
+  live: boolean
   onUse: (el: HTMLElement | null) => void
   onDismiss: () => void
 }): React.JSX.Element {
   const ref = useRef<HTMLElement>(null)
+  // Ideas that show together are dealt in one after another; one arriving while the AI writes lands at once.
+  const deal = useDealDelay()
   const title = idea.title.trim() || `Idea ${n + 1}`
   return (
-    <article ref={ref} className={cn('board-idea', leaving && 'is-leaving', !idea.complete && 'is-arriving')} style={{ '--d': `${delay}ms` } as CSSProperties} data-idea>
+    <article ref={ref} className={cn('board-idea', leaving && 'is-leaving', !idea.complete && 'is-arriving')} style={{ '--d': live ? (deal as Record<string, string>)['--deal'] : `${delay}ms` } as CSSProperties} data-idea>
       <span className="board-c-rules" aria-hidden />
       <span className="board-c-margin" aria-hidden />
       <span className="board-i-kind">Idea {['one', 'two', 'three', 'four', 'five'][n] ?? n + 1}</span>
-      <h3 className="board-i-title">{title}</h3>
-      <p className="board-i-hook">{idea.summary}</p>
+      <h3 className="board-i-title">
+        <FreshText text={title} live={live} />
+      </h3>
+      <p className="board-i-hook">
+        <FreshText text={idea.summary} live={live} />
+      </p>
       {idea.beats.length ? (
         <p className="board-i-beats">
           {idea.beats.length} {idea.beats.length === 1 ? 'beat' : 'beats'}: {idea.beats[0]}

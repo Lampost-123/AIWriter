@@ -16,6 +16,11 @@ import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { settingsAction, SuggestionButton, WritingStatus } from '@/features/builder/parts'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
+import { useDesk } from '@/features/look/look'
+import { FreshText } from '@/features/planning/FreshText'
+import { LampStatus } from '@/features/planning/LampThinking'
+import { useDealDelay } from '@/features/planning/deal'
+import { flyCard, mayFly } from '@/features/planning/fly'
 import { cardIsEmpty } from './ideasLogic'
 import {
   applyIdea,
@@ -136,6 +141,21 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
   const nothing = !running && !ideas.length && !s.problem
   // On a card Adam has started, Use this adds to what he wrote rather than replacing it.
   const adds = !!card.goal.trim() || card.beats.some((b) => b.trim())
+  const desk = useDesk()
+  const list = useRef<HTMLElement>(null)
+  // The desk: a copy of the idea used flies down into the card's What happens, which it fills.
+  const use = (idea: SceneIdea, el: HTMLElement | null): void => {
+    const from = el?.getBoundingClientRect() ?? null
+    const ghost = el && from && mayFly() ? (el.cloneNode(true) as HTMLElement) : null
+    const panel = list.current?.parentElement?.parentElement ?? null
+    applyIdea(sceneId, idea, card)
+    if (!ghost || !from || !panel) return
+    requestAnimationFrame(() => {
+      const target = [...panel.querySelectorAll<HTMLElement>('section h3')].find((h) => h.textContent?.trim() === 'What happens')?.closest('section')
+      const to = target?.getBoundingClientRect()
+      if (to) void flyCard(ghost, from, new DOMRect(to.left, to.top, to.width, Math.min(to.height, 120)))
+    })
+  }
 
   // A problem, or a word on why nothing new came, is brought into view if Adam has scrolled away from it.
   const said = useRef<HTMLDivElement>(null)
@@ -154,7 +174,7 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
   }
 
   return (
-    <section aria-label="Ideas for this scene" aria-busy={running} className="flex flex-col gap-2.5">
+    <section ref={list} aria-label="Ideas for this scene" aria-busy={running} className="flex flex-col gap-2.5">
       <div className="flex h-6 items-center gap-2">
         <h3 className="flex min-w-0 items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
           <Lightbulb size={12} className="shrink-0 text-ai" aria-hidden />
@@ -176,10 +196,18 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
       {running ? <WishLine sceneId={sceneId} /> : <Wish sceneId={sceneId} onAsk={onAsk} />}
 
       {running ? (
-        <WritingStatus
-          text={s.retrying ?? (ideas.length ? `Writing idea ${Math.min(ideas.length, 3)} of 3…` : 'Thinking of three directions…')}
-          title={s.retrying ?? undefined}
-        />
+        desk ? (
+          <LampStatus
+            text={s.retrying ?? (ideas.length ? `Writing idea ${Math.min(ideas.length, 3)} of 3…` : 'Thinking of three directions…')}
+            title={s.retrying ?? undefined}
+            size={24}
+          />
+        ) : (
+          <WritingStatus
+            text={s.retrying ?? (ideas.length ? `Writing idea ${Math.min(ideas.length, 3)} of 3…` : 'Thinking of three directions…')}
+            title={s.retrying ?? undefined}
+          />
+        )
       ) : null}
 
       {saying !== null ? (
@@ -205,9 +233,16 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
             key={i}
             idea={ideas[i]}
             writing={running && !ideas[i].complete}
+            live={running}
             adds={adds}
-            onUse={() => applyIdea(sceneId, ideas[i], card)}
+            onUse={(el) => use(ideas[i], el)}
           />
+        ) : desk ? (
+          <span key={i} aria-hidden className={cn('plan-waiting-card plan-idea-wait transition-opacity duration-200', waiting ? 'opacity-100' : 'opacity-0')}>
+            <i />
+            <i />
+            <i />
+          </span>
         ) : (
           <Skeleton
             key={i}
@@ -268,23 +303,28 @@ function Problem({ problem, onRetry }: { problem: IdeasProblem; onRetry: () => v
 function IdeaCard({
   idea,
   writing,
+  live,
   adds,
   onUse
 }: {
   idea: SceneIdea
   writing: boolean
+  /** The answer is still arriving: new words fade in (on the desk). */
+  live: boolean
   adds: boolean
-  onUse: () => void
+  onUse: (el: HTMLElement | null) => void
 }): React.JSX.Element {
+  const box = useRef<HTMLDivElement>(null)
+  const deal = useDealDelay()
   return (
-    <div className="rounded-lg border border-ai/25 bg-ai-soft px-3 py-2.5" data-idea>
-      <p className="break-words font-serif text-[14px] font-semibold leading-snug text-fg">
-        {idea.title}
+    <div ref={box} className={cn('plan-idea plan-deal rounded-lg border border-ai/25 bg-ai-soft px-3 py-2.5', writing && 'is-writing')} style={deal} data-idea>
+      <p className="plan-idea-t break-words font-serif text-[14px] font-semibold leading-snug text-fg">
+        <FreshText text={idea.title} live={live} />
         {writing && !idea.summary && !idea.beats.length ? <Caret /> : null}
       </p>
       {idea.summary ? (
         <p className="mt-1 break-words text-[13px] leading-relaxed text-fg">
-          {idea.summary}
+          <FreshText text={idea.summary} live={live} />
           {writing && !idea.beats.length ? <Caret /> : null}
         </p>
       ) : null}
@@ -292,7 +332,7 @@ function IdeaCard({
         <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 text-[12.5px] leading-relaxed text-muted marker:text-faint">
           {idea.beats.map((b, i) => (
             <li key={i} className="break-words pl-0.5">
-              {b}
+              <FreshText text={b} live={live} />
               {writing && i === idea.beats.length - 1 ? <Caret /> : null}
             </li>
           ))}
@@ -302,7 +342,8 @@ function IdeaCard({
       <div className={cn('mt-2 flex', writing && 'invisible')} aria-hidden={writing || undefined}>
         <SuggestionButton
           primary
-          onClick={onUse}
+          className="plan-use"
+          onClick={() => onUse(box.current)}
           aria-label={`Use “${idea.title}” for this scene`}
           title={adds ? 'Add this idea to the scene card, after what is already on it' : 'Fill the scene card with this idea'}
         >
@@ -348,4 +389,4 @@ function WishLine({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
   return <p className="line-clamp-3 break-words text-[12.5px] italic leading-relaxed text-muted">Going by: {wish}</p>
 }
 
-const Caret = (): React.JSX.Element => <span aria-hidden className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-ai" />
+const Caret = (): React.JSX.Element => <span aria-hidden className="plan-caret ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-ai" />

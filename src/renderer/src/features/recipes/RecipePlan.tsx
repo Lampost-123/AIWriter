@@ -4,13 +4,18 @@
 // they behave exactly as there; the premise is kept as the story's premise. Nothing is added without a click.
 // Owned by the Story recipes part.
 
-import { Check, CookingPot, Sparkles, Square } from '@/components/ui/icons'
+import { Check, CookingPot, Feather, SlidersHorizontal, Sparkles, Square } from '@/components/ui/icons'
 import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react'
 import type { OutlineSize } from '@shared/contracts/outline'
 import { Button, EmptyState, Notice, Select } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { ProblemNotice, SuggestionButton, WritingStatus } from '@/features/builder/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
+import { useDesk } from '@/features/look/look'
+import { FreshText } from '@/features/planning/FreshText'
+import { LampStatus } from '@/features/planning/LampThinking'
+import { PlanPage, ResultsEmpty } from '@/features/planning/PlanShell'
+import { suggestSteps } from '@/features/planning/planLogic'
 import { checkKept, dismissProblem, helperKey, openHelper, stopOutline, treeOf, useOutlineHelper } from '@/features/outline/helperStore'
 import { Suggestions } from '@/features/outline/Suggestions'
 import { SIZE_CHOICES, fitSize } from '@/features/outline/size'
@@ -62,6 +67,7 @@ function Plan({ storyId, recipeId, storyTitle }: { storyId: string; recipeId: st
   const tree = useMemo(() => (run ? treeOf(run) : []), [run])
   const arrived = countNodes(tree, {}, 'all')
   const open = shown ? totalOf(countNodes(tree, shown.decisions, 'open')) : 0
+  const desk = useDesk()
 
   useEffect(() => {
     void checkKept(storyId)
@@ -79,6 +85,130 @@ function Plan({ storyId, recipeId, storyTitle }: { storyId: string; recipeId: st
         ? `Here is the plan: ${countLine(arrived)}. Keep what you like.`
         : `It stopped part way. What had arrived is below: ${countLine(arrived)}.`
       : null
+
+  if (desk) {
+    const scenes = size.chapters * size.scenes
+    return (
+      <PlanPage
+        art="recipes"
+        kicker="New story from a recipe"
+        kickerIcon={CookingPot}
+        back={<BackButton to="writing" />}
+        title={`Plan “${storyTitle.trim() || 'the new story'}”`}
+        line={
+          <>
+            The AI lays out a premise, chapters and scene cards with the shape of <em className="font-serif">“{summary ? recipeName(summary) : 'the recipe'}”</em>, told
+            through your ideas. Keep, change or put aside each one: nothing is added to the story until you keep it.
+          </>
+        }
+        steps={{
+          steps: suggestSteps({
+            from: { label: 'Your ideas', written: !!plan.guidance.trim(), sub: plan.guidance.trim() ? 'Written' : 'Optional' },
+            size: `About ${plural(scenes, 'scene')}`,
+            running,
+            arrived: totalOf(arrived),
+            open,
+            kept: shown ? totalOf(countNodes(tree, shown.decisions, 'kept')) : 0
+          }),
+          icons: { from: Feather, size: SlidersHorizontal, suggest: Sparkles, keep: Check }
+        }}
+        left={
+          <>
+            <div className="plan-group">
+              <label htmlFor={guidanceId} className="plan-field-l">
+                Your own ideas for it
+              </label>
+              <AutoTextarea
+                id={guidanceId}
+                value={plan.guidance}
+                minRows={4}
+                maxRows={12}
+                placeholder="Such as: set it on a space station, and make the mentor the villain."
+                className="plan-paper font-serif text-[15px] placeholder:font-sans placeholder:text-[13.5px]"
+                onChange={(e) => patchPlan(storyId, { guidance: e.target.value })}
+              />
+              <p className="plan-hint">Where your ideas differ from the recipe, yours win.</p>
+            </div>
+            <fieldset className="plan-group">
+              <legend className="plan-field-l mb-1.5">How much to lay out</legend>
+              <div className="plan-sizes">
+                <SizeSelect
+                  label="Acts"
+                  value={size.acts}
+                  options={SIZE_CHOICES.acts.map((n) => ({ value: n, label: n === 0 ? 'No acts' : plural(n, 'act') }))}
+                  onChange={(acts) => setSize((z) => fitSize(z, { acts }))}
+                />
+                <SizeSelect
+                  label="Chapters"
+                  value={size.chapters}
+                  options={SIZE_CHOICES.chapters.map((n) => ({ value: n, label: plural(n, 'chapter') }))}
+                  onChange={(chapters) => setSize((z) => fitSize(z, { chapters }))}
+                />
+                <SizeSelect
+                  label="Scenes in each chapter"
+                  value={size.scenes}
+                  options={SIZE_CHOICES.scenes.map((n) => ({ value: n, label: `${plural(n, 'scene')} in each` }))}
+                  onChange={(scenes) => setSize((z) => fitSize(z, { scenes }))}
+                />
+              </div>
+              <p className="plan-sizes-sum">About {plural(scenes, 'scene')}.</p>
+            </fieldset>
+            {running ? (
+              <div className="plan-working">
+                <LampStatus text={status ?? ''} title={run.retrying ?? undefined} />
+                <Button icon={<Square size={11} fill="currentColor" />} onClick={() => stopOutline(storyId)} title="Stop. What has arrived stays, to keep or discard.">
+                  Stop
+                </Button>
+              </div>
+            ) : (
+              <button type="button" className="plan-ai-btn" onClick={suggest}>
+                <Sparkles size={17} aria-hidden />
+                <span>{run ? 'Lay it out again' : 'Lay out the story'}</span>
+              </button>
+            )}
+            {doneLine ? (
+              <p role="status" className="plan-done-line animate-fade-in">
+                {run?.status === 'complete' ? <Check size={14} className="mt-[2px] shrink-0 text-success" aria-hidden /> : null}
+                <span className="min-w-0">{doneLine}</span>
+              </p>
+            ) : null}
+            {s.problem ? <ProblemNotice message={s.problem.message} code={s.problem.code} onRetry={s.run ? undefined : suggest} /> : null}
+            {ended && !tree.length && run.status !== 'error' ? (
+              <Notice
+                action={
+                  <Button size="sm" onClick={suggest}>
+                    Try again
+                  </Button>
+                }
+              >
+                {run.text.trim() ? 'The AI’s answer didn’t come as a plan, so there is nothing to keep. Please try again.' : 'Nothing arrived before it stopped.'}
+              </Notice>
+            ) : null}
+          </>
+        }
+        right={
+          run ? (
+            <>
+              {plan.premise.taskId === run.taskId ? <PremiseCard storyId={storyId} text={run.text} ended={ended} desk /> : null}
+              {shown && (tree.length || running) ? <Suggestions storyId={storyId} run={shown} tree={tree} open={open} starter={null} /> : null}
+            </>
+          ) : (
+            <ResultsEmpty
+              title="The new story’s plan will lie here"
+              example={
+                <>
+                  With your idea <em>“set it in a lighthouse town in winter”</em>, a recipe’s shape becomes a premise of your own, then acts, chapters and
+                  scene cards, each a card to keep, change or put aside.
+                </>
+              }
+            >
+              Add your own ideas if you like, choose how much to lay out, then Lay out the story.
+            </ResultsEmpty>
+          )
+        }
+      />
+    )
+  }
 
   return (
     <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
@@ -183,7 +313,7 @@ function Plan({ storyId, recipeId, storyTitle }: { storyId: string; recipeId: st
 }
 
 /** The suggested premise: Keep (as the story's premise), Edit, Discard. */
-function PremiseCard({ storyId, text, ended }: { storyId: string; text: string; ended: boolean }): React.JSX.Element | null {
+function PremiseCard({ storyId, text, ended, desk = false }: { storyId: string; text: string; ended: boolean; desk?: boolean }): React.JSX.Element | null {
   const premise = usePlans((st) => st.plans[planKey(storyId)]?.premise)
   const [editing, setEditing] = useState(false)
   const id = useId()
@@ -192,7 +322,16 @@ function PremiseCard({ storyId, text, ended }: { storyId: string; text: string; 
   const words = premise.text ?? arrived.text
   const kept = premise.status === 'kept'
   return (
-    <section aria-label="Suggested premise" className={kept ? 'mt-5 rounded-xl border border-line bg-surface p-4' : 'mt-5 rounded-xl border border-ai/40 bg-ai-soft p-4'}>
+    <section
+      aria-label="Suggested premise"
+      className={
+        desk
+          ? `plan-premise plan-deal${kept ? ' is-kept' : ''}`
+          : kept
+            ? 'mt-5 rounded-xl border border-line bg-surface p-4'
+            : 'mt-5 rounded-xl border border-ai/40 bg-ai-soft p-4'
+      }
+    >
       <div className="flex items-center gap-2">
         <h2 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">Premise</h2>
         {kept ? (
@@ -213,13 +352,16 @@ function PremiseCard({ storyId, text, ended }: { storyId: string; text: string; 
           onChange={(e) => editPremise(storyId, e.target.value)}
         />
       ) : (
-        <p className="mt-1 font-serif text-[15px] leading-[1.6] text-fg">{words}</p>
+        <p className="mt-1 font-serif text-[15px] leading-[1.6] text-fg">
+          <FreshText text={words} live={!ended} />
+        </p>
       )}
       {!kept ? (
         // The same buttons as the suggestions below, so the premise reads as one of them.
         <div className="mt-2.5 flex gap-0.5">
           <SuggestionButton
             primary
+            className={desk ? 'plan-use' : undefined}
             disabled={!arrived.complete}
             onClick={() => {
               setEditing(false)

@@ -3,20 +3,24 @@
 // outline around it don't say yet; then it gives the chapter a goal (if it has none) and suggests scene
 // cards that Adam keeps, edits or discards one by one, as on the outline helper's page (the same
 // suggestions, in a session of their own: helperStore.suggestChapter). Nothing is added without a click.
-import { Check, ListTree, MessageCircleQuestion, Sparkles, Square } from '@/components/ui/icons'
+import { Check, ListTree, MessageCircleQuestion, NotebookText, Sparkles, Square, Target } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import type { Chapter } from '@shared/types'
 import { Button, EmptyState, Notice } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { useOutline } from '@/features/binder/outlineStore'
+import { useDesk } from '@/features/look/look'
+import { LampStatus } from '@/features/planning/LampThinking'
+import { PlanPage, ResultsEmpty } from '@/features/planning/PlanShell'
+import { chapterSteps } from '@/features/planning/planLogic'
 import { ProblemNotice, WritingStatus } from '@/features/builder/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { chapterHelperKey, checkKept, stopOutline, treeOf, useOutlineHelper } from './helperStore'
 import { PlanInterview, usePlanSession } from './PlanInterview'
-import { lastChapterAnswers, noteChapterStory, planChapter, startPlanInterview } from './planInterviewStore'
+import { answeredOf, lastChapterAnswers, noteChapterStory, planChapter, startPlanInterview } from './planInterviewStore'
 import { Suggestions } from './Suggestions'
 import { countNodes, totalOf, withoutGone } from './tree'
 
@@ -58,6 +62,7 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
   const open = shown ? totalOf(countNodes(scenes, shown.decisions, 'open')) : 0
   const ended = !!run && !running
   const nothingRead = ended && arrived === 0
+  const desk = useDesk()
 
   // What was kept is looked for again each time the page opens.
   useEffect(() => {
@@ -102,6 +107,144 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
           back: { view: { kind: 'outline', storyId, chapterId: chapter.id }, label: 'Back to planning the chapter', what: 'this plan' }
         })
     : null
+
+  // What went wrong, or why there is nothing to keep (the same on the desk and in the panels).
+  const notices = (
+      <div className="flex flex-col gap-2 empty:hidden">
+        {session?.problem ? (
+          <div className="mt-2">
+            <ProblemNotice message={session.problem.message} code={session.problem.code} onRetry={run ? undefined : suggest} />
+          </div>
+        ) : null}
+        {ended && run.cutOff && !nothingRead ? (
+          <div className="mt-2">
+            <Notice>The answer reached its length limit, so the scene cards stop early. Keep what is here, or suggest again.</Notice>
+          </div>
+        ) : null}
+        {nothingRead && run.status !== 'error' ? (
+          <div className="mt-2">
+            <Notice
+              action={
+                <Button size="sm" onClick={suggest}>
+                  Try again
+                </Button>
+              }
+            >
+              {run.text.trim()
+                ? 'The AI’s answer didn’t come as scene cards, so there is nothing to keep. Please try again.'
+                : 'Nothing arrived before it stopped, so there is nothing to keep.'}
+            </Notice>
+          </div>
+        ) : null}
+      </div>
+  )
+
+  if (desk) {
+    const kept = shown ? totalOf(countNodes(scenes, shown.decisions, 'kept')) : 0
+    const answered = interview ? answeredOf(interview) : lastChapterAnswers(chapter.id).length
+    return (
+      <PlanPage
+        art="chapter"
+        kicker="Plan a chapter"
+        kickerIcon={NotebookText}
+        title={title}
+        line="Answer a few short questions about this chapter, in your own words. AI Write gives it a goal, if it has none, and suggests scene cards to keep, change or put aside."
+        steps={{
+          steps: chapterSteps({ goal: !!goal.trim(), interview: interview ? 'open' : 'none', answered, running, arrived, open, kept }),
+          icons: { goal: Target, interview: MessageCircleQuestion, suggest: Sparkles, keep: Check }
+        }}
+        left={
+          <>
+            <div className="plan-group">
+              <div className="plan-field-l">
+                <label htmlFor="chapter-goal">Goal</label>
+                <SaveNote status={autosave.status} error={autosave.error} />
+              </div>
+              <AutoTextarea
+                id="chapter-goal"
+                value={goal}
+                minRows={3}
+                maxRows={10}
+                placeholder="What this chapter achieves"
+                className="plan-paper font-serif text-[15px] placeholder:font-sans placeholder:text-[13.5px]"
+                onChange={(e) => {
+                  setGoal(e.target.value)
+                  autosave.schedule(e.target.value)
+                }}
+                onBlur={() => void autosave.flush()}
+              />
+            </div>
+
+            <PlanInterview target={target} />
+
+            {running ? (
+              <div className="plan-working">
+                <LampStatus text={status ?? ''} title={run.retrying ?? undefined} />
+                <Button icon={<Square size={11} fill="currentColor" />} onClick={() => stopOutline(storyId, chapter.id)} title="Stop. What has arrived stays, to keep or discard.">
+                  Stop
+                </Button>
+              </div>
+            ) : interview ? null : (
+              <div className="flex flex-col gap-2">
+                <button type="button" className="plan-ai-btn" onClick={() => startPlanInterview(target)}>
+                  <MessageCircleQuestion size={17} aria-hidden />
+                  <span>{run ? 'Interview me again' : 'Interview me'}</span>
+                </button>
+                <Button
+                  size="lg"
+                  variant="secondary"
+                  icon={<Sparkles size={15} className="text-ai" />}
+                  onClick={suggest}
+                  title="Suggest scene cards from the chapter and the outline around it"
+                >
+                  {run ? 'Suggest again' : 'Just suggest scenes'}
+                </Button>
+              </div>
+            )}
+
+            {doneLine || (whatTheAISaw && run) ? (
+              <div className="flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1">
+                {doneLine ? (
+                  <p role="status" className="plan-done-line animate-fade-in">
+                    {run?.status === 'complete' ? <Check size={14} className="mt-[2px] shrink-0 text-success" aria-hidden /> : null}
+                    <span className="min-w-0">{doneLine}</span>
+                  </p>
+                ) : null}
+                {whatTheAISaw && run ? (
+                  <button
+                    type="button"
+                    onClick={whatTheAISaw}
+                    className="shrink-0 rounded text-[12.5px] font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+                  >
+                    What the AI saw
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {notices}
+          </>
+        }
+        right={
+          shown && (arrived || running) ? (
+            <Suggestions storyId={storyId} chapterId={chapter.id} run={shown} tree={tree} open={open} starter={null} landing={`They go into “${title}”, after its scenes.`} />
+          ) : (
+            <ResultsEmpty
+              title="This chapter’s scene cards will lie here"
+              example={
+                <>
+                  Asked <em>“What has to change by the end of the chapter?”</em>, you might answer <em>“Iska stops trusting the Board”</em>, and get
+                  scene cards such as <em>The clerk’s second letter</em> and <em>A lamp left unlit</em>, each with its beats.
+                </>
+              }
+            >
+              Start with Interview me: a few short questions about what the chapter and the outline around it don’t say yet. Or just suggest scenes from
+              what is there.
+            </ResultsEmpty>
+          )
+        }
+      />
+    )
+  }
 
   return (
     <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
@@ -188,33 +331,7 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-2 empty:hidden">
-          {session?.problem ? (
-            <div className="mt-2">
-              <ProblemNotice message={session.problem.message} code={session.problem.code} onRetry={run ? undefined : suggest} />
-            </div>
-          ) : null}
-          {ended && run.cutOff && !nothingRead ? (
-            <div className="mt-2">
-              <Notice>The answer reached its length limit, so the scene cards stop early. Keep what is here, or suggest again.</Notice>
-            </div>
-          ) : null}
-          {nothingRead && run.status !== 'error' ? (
-            <div className="mt-2">
-              <Notice
-                action={
-                  <Button size="sm" onClick={suggest}>
-                    Try again
-                  </Button>
-                }
-              >
-                {run.text.trim()
-                  ? 'The AI’s answer didn’t come as scene cards, so there is nothing to keep. Please try again.'
-                  : 'Nothing arrived before it stopped, so there is nothing to keep.'}
-              </Notice>
-            </div>
-          ) : null}
-        </div>
+        {notices}
 
         {shown && (arrived || running) ? (
           <Suggestions storyId={storyId} chapterId={chapter.id} run={shown} tree={tree} open={open} starter={null} />

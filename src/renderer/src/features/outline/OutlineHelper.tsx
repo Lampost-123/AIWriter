@@ -3,7 +3,7 @@
 // streams: suggestions appear in order as they arrive, and Stop keeps what has come. What Adam kept
 // goes after what the story has, with each scene's card filled, and shows in the binder at once.
 // The suggestions and a request still running are kept in helperStore, so leaving the page loses neither.
-import { Check, ListTree, Sparkles, Square } from '@/components/ui/icons'
+import { Check, Feather, ListTree, SlidersHorizontal, Sparkles, Square } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { OutlineSize } from '@shared/contracts/outline'
 import { emptySceneCard } from '@shared/defaults'
@@ -13,6 +13,10 @@ import { api, modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useOutline } from '@/features/binder/outlineStore'
+import { useDesk } from '@/features/look/look'
+import { LampStatus } from '@/features/planning/LampThinking'
+import { PlanPage, ResultsEmpty } from '@/features/planning/PlanShell'
+import { suggestSteps } from '@/features/planning/planLogic'
 import { ProblemNotice, WritingStatus } from '@/features/builder/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { SaveNote } from '@/features/world/parts/SaveNote'
@@ -79,6 +83,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   const shown = useMemo(() => (run && s.gone.length ? { ...run, decisions: withoutGone(run.decisions, s.gone) } : run), [run, s.gone])
   const running = run?.status === 'running'
   const premiseBox = useRef<HTMLTextAreaElement>(null)
+  const desk = useDesk()
 
   // What was kept is looked for again each time the page opens (and whenever the binder changes, see helperStore).
   useEffect(() => {
@@ -149,6 +154,187 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
         : chapterCount && !fresh
           ? `New acts go after the story’s ${chapterCount === 1 ? 'chapter' : `${chapterCount} chapters`}.`
           : null
+
+  // What went wrong, or why there is nothing to keep (the same on the desk and in the panels).
+  const notices = (
+      <div className="flex flex-col gap-2 empty:hidden">
+        {s.problem ? (
+          <div className="mt-2">
+            {s.problem.code === 'no-premise' ? (
+              // Nothing went wrong: the premise box just needs a word or two first.
+              <Notice>{s.problem.message}</Notice>
+            ) : (
+              <ProblemNotice message={s.problem.message} code={s.problem.code} onRetry={s.run ? undefined : suggest} />
+            )}
+          </div>
+        ) : null}
+        {ended && run.cutOff && !nothingRead ? (
+          <div className="mt-2">
+            <Notice>
+              The answer reached its length limit, so the outline stops early. Keep what is here, or ask for fewer chapters at a time.
+            </Notice>
+          </div>
+        ) : null}
+        {nothingRead && run.status !== 'error' ? (
+          <div className="mt-2">
+            <Notice
+              action={
+                <Button size="sm" onClick={suggest}>
+                  Try again
+                </Button>
+              }
+            >
+              {run.text.trim()
+                ? 'The AI’s answer didn’t come as an outline, so there is nothing to keep. Please try again.'
+                : 'Nothing arrived before it stopped, so there is nothing to keep.'}
+            </Notice>
+          </div>
+        ) : null}
+      </div>
+  )
+
+  if (desk) {
+    const title = story.title.trim()
+    return (
+      <PlanPage
+        art="outline"
+        kicker="Outline helper"
+        kickerIcon={ListTree}
+        title={fresh ? 'Plan the story from its premise' : 'Plan what comes next'}
+        line={
+          <>
+            Acts, chapters and scene cards for {title ? <em className="font-serif">“{title}”</em> : 'this story'}
+            {fresh ? ', from its premise' : ', carrying on from what it has'}. Keep, change or discard each one: nothing goes into the story until you
+            keep it.
+          </>
+        }
+        steps={{
+          steps: suggestSteps({
+            from: { label: 'Premise', written: !!premise.trim(), sub: premise.trim() ? 'Written' : 'A line or two' },
+            size: `About ${plural(scenes, 'scene')}`,
+            running,
+            arrived: totalOf(arrived),
+            open,
+            kept: shown ? totalOf(countNodes(tree, shown.decisions, 'kept')) : 0
+          }),
+          icons: { from: Feather, size: SlidersHorizontal, suggest: Sparkles, keep: Check }
+        }}
+        left={
+          <>
+            <div className="plan-group">
+              <div className="plan-field-l">
+                <label htmlFor="outline-premise">Premise</label>
+                <SaveNote status={autosave.status} error={autosave.error} />
+              </div>
+              <AutoTextarea
+                ref={premiseBox}
+                id="outline-premise"
+                value={premise}
+                minRows={5}
+                maxRows={14}
+                placeholder="For example: a ferryman who owes the Duke money is paid to smuggle the heir out of Varn."
+                className="plan-paper font-serif text-[15px] placeholder:font-sans placeholder:text-[13.5px]"
+                onChange={(e) => changePremise(e.target.value)}
+                onBlur={() => void autosave.flush()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault()
+                    if (!running) suggest()
+                  }
+                }}
+              />
+              <p className="plan-hint">What the story is about, in a few sentences. It is the story’s premise, so changes here are saved to it.</p>
+            </div>
+
+            <fieldset className="plan-group">
+              <legend className="plan-field-l mb-1.5">How much to suggest</legend>
+              <div className="plan-sizes">
+                <SizeSelect
+                  label="Acts"
+                  value={size.acts}
+                  options={SIZE_CHOICES.acts.map((n) => ({ value: n, label: n === 0 ? (acts.length ? 'No new acts' : 'No acts') : plural(n, 'act') }))}
+                  onChange={(acts) => changeSize({ acts })}
+                />
+                <SizeSelect
+                  label="Chapters"
+                  value={size.chapters}
+                  options={SIZE_CHOICES.chapters.map((n) => ({ value: n, label: plural(n, 'chapter') }))}
+                  onChange={(chapters) => changeSize({ chapters })}
+                />
+                <SizeSelect
+                  label="Scenes in each chapter"
+                  value={size.scenes}
+                  options={SIZE_CHOICES.scenes.map((n) => ({ value: n, label: `${plural(n, 'scene')} in each` }))}
+                  onChange={(scenes) => changeSize({ scenes })}
+                />
+              </div>
+              <p className="plan-sizes-sum">
+                About {plural(scenes, 'scene')}.{where ? <span className="text-faint"> {where}</span> : null}
+              </p>
+            </fieldset>
+
+            {running ? (
+              <div className="plan-working">
+                <LampStatus text={status ?? ''} title={run.retrying ?? undefined} />
+                <Button icon={<Square size={11} fill="currentColor" />} onClick={() => stopOutline(story.id)} title="Stop. What has arrived stays, to keep or discard.">
+                  Stop
+                </Button>
+              </div>
+            ) : (
+              <button type="button" className="plan-ai-btn" onClick={suggest} title={`Press ${modKey()}+Enter in the premise to suggest`}>
+                <Sparkles size={17} aria-hidden />
+                <span>{run ? 'Suggest again' : 'Suggest an outline'}</span>
+                <span className="plan-keys" aria-hidden>
+                  <span>{modKey()}</span>
+                  <span>Enter</span>
+                </span>
+              </button>
+            )}
+
+            {doneLine || (whatTheAISaw && (ended || running)) ? (
+              <div className="flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1">
+                {doneLine ? (
+                  <p role="status" className="plan-done-line animate-fade-in">
+                    {run?.status === 'complete' ? <Check size={14} className="mt-[2px] shrink-0 text-success" aria-hidden /> : null}
+                    <span className="min-w-0">{doneLine}</span>
+                  </p>
+                ) : null}
+                {whatTheAISaw && (ended || running) ? (
+                  <button
+                    type="button"
+                    onClick={whatTheAISaw}
+                    className="shrink-0 rounded text-[12.5px] font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+                  >
+                    What the AI saw
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {notices}
+          </>
+        }
+        right={
+          shown && (tree.length || running) ? (
+            <Suggestions storyId={story.id} run={shown} tree={tree} open={open} starter={starter} landing={where} />
+          ) : (
+            <ResultsEmpty
+              title="Your outline will lie here"
+              example={
+                <>
+                  From a premise like <em>“A keeper’s daughter has one winter to prove the town still needs its light”</em>, it might suggest an act
+                  called <em>The Notice</em>, a chapter <em>A Letter from Cray</em>, and a scene card: <em>the Board’s clerk reads the notice aloud on
+                  the quay</em>, with its beats.
+                </>
+              }
+            >
+              Write the premise, choose how much to suggest, then Suggest an outline. Each act, chapter and scene card arrives here as a card to keep,
+              change or put aside.
+            </ResultsEmpty>
+          )
+        }
+      />
+    )
+  }
 
   return (
     <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
@@ -270,40 +456,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-2 empty:hidden">
-          {s.problem ? (
-            <div className="mt-2">
-              {s.problem.code === 'no-premise' ? (
-                // Nothing went wrong: the premise box just needs a word or two first.
-                <Notice>{s.problem.message}</Notice>
-              ) : (
-                <ProblemNotice message={s.problem.message} code={s.problem.code} onRetry={s.run ? undefined : suggest} />
-              )}
-            </div>
-          ) : null}
-          {ended && run.cutOff && !nothingRead ? (
-            <div className="mt-2">
-              <Notice>
-                The answer reached its length limit, so the outline stops early. Keep what is here, or ask for fewer chapters at a time.
-              </Notice>
-            </div>
-          ) : null}
-          {nothingRead && run.status !== 'error' ? (
-            <div className="mt-2">
-              <Notice
-                action={
-                  <Button size="sm" onClick={suggest}>
-                    Try again
-                  </Button>
-                }
-              >
-                {run.text.trim()
-                  ? 'The AI’s answer didn’t come as an outline, so there is nothing to keep. Please try again.'
-                  : 'Nothing arrived before it stopped, so there is nothing to keep.'}
-              </Notice>
-            </div>
-          ) : null}
-        </div>
+        {notices}
 
         {shown && (tree.length || running) ? (
           <Suggestions storyId={story.id} run={shown} tree={tree} open={open} starter={starter} />

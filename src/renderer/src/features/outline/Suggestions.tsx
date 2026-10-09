@@ -14,14 +14,16 @@ import { deleteChapter } from '@/features/binder/actions'
 import { MarkLine, SuggestionButton } from '@/features/builder/parts'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
+import { useDesk } from '@/features/look/look'
+import { DeskSuggestions } from './DeskSuggestions'
 import { discardSuggestion, keepSuggestions, saveEdit, type HelperRun } from './helperStore'
 import { countNodes, lastNodeKey, totalOf, type NodeEdit, type NodeKind, type TreeNode } from './tree'
 
-const KIND_LABELS: Record<NodeKind, string> = { act: 'Act', chapter: 'Chapter', scene: 'Scene' }
+export const KIND_LABELS: Record<NodeKind, string> = { act: 'Act', chapter: 'Chapter', scene: 'Scene' }
 const TEXT_LABELS: Record<NodeKind, string> = { act: 'Purpose', chapter: 'Goal', scene: 'What happens' }
 const TITLE_SIZES: Record<NodeKind, string> = { act: 'text-[18px]', chapter: 'text-[16px]', scene: 'text-[15px]' }
 
-interface TreeProps {
+export interface TreeProps {
   storyId: ID
   /** A chapter's plan: its session, and the chapter its scene cards go into. */
   chapterId?: ID | null
@@ -38,7 +40,8 @@ export function Suggestions({
   run,
   tree,
   open,
-  starter
+  starter,
+  landing = null
 }: {
   storyId: ID
   chapterId?: ID | null
@@ -47,6 +50,29 @@ export function Suggestions({
   /** How many suggestions are still waiting for a decision. */
   open: number
   /** The empty chapter the story was made with, still ahead of what was kept (see OutlineHelper). */
+  starter: Chapter | null
+  /** On the desk: where what is kept goes, in a sentence ("Just chapters, after the story’s 2 chapters."). */
+  landing?: string | null
+}): React.JSX.Element {
+  // The desk: the suggestions as cards on the desk (features/outline/DeskSuggestions.tsx); the same decisions.
+  const desk = useDesk()
+  if (desk) return <DeskSuggestions storyId={storyId} chapterId={chapterId} run={run} tree={tree} open={open} starter={starter} landing={landing} />
+  return <TreeSuggestions storyId={storyId} chapterId={chapterId} run={run} tree={tree} open={open} starter={starter} />
+}
+
+function TreeSuggestions({
+  storyId,
+  chapterId = null,
+  run,
+  tree,
+  open,
+  starter
+}: {
+  storyId: ID
+  chapterId?: ID | null
+  run: HelperRun
+  tree: TreeNode[]
+  open: number
   starter: Chapter | null
 }): React.JSX.Element {
   const running = run.status === 'running'
@@ -271,7 +297,7 @@ function NodeBox({ node, storyId, chapterId, run, current, setEditing }: TreePro
   )
 }
 
-const KEEP_TITLES: Record<NodeKind, string> = {
+export const KEEP_TITLES: Record<NodeKind, string> = {
   act: 'Add this act to the story, with the chapters and scenes in it',
   chapter: 'Add this chapter to the story, with its scenes (and its act, if that isn’t added yet)',
   scene: 'Add this scene to the story with its card filled in (and its chapter, if that isn’t added yet)'
@@ -281,7 +307,7 @@ const KEEP_TITLES: Record<NodeKind, string> = {
  * After Keep or Discard from the keyboard, it carries on at the next suggestion still waiting (or the one
  * before). `leaving`: the suggestion is about to go (Discard), so the next one is picked first.
  */
-function focusNext(from: HTMLElement | null, leaving = false): void {
+export function focusNext(from: HTMLElement | null, leaving = false): void {
   if (!from) return
   const list = from.closest('[data-suggestions]')
   const group = from.closest('[data-key]')
@@ -298,7 +324,7 @@ function focusNext(from: HTMLElement | null, leaving = false): void {
   } else requestAnimationFrame(() => pick()?.focus())
 }
 
-function EditForm({ node, storyId, chapterId, run, setEditing }: TreeProps & { node: TreeNode }): React.JSX.Element {
+export function EditForm({ node, storyId, chapterId, run, setEditing, className }: TreeProps & { node: TreeNode; className?: string }): React.JSX.Element {
   const words = run.edits[node.key] ?? node
   const [title, setTitle] = useState(words.title)
   const [text, setText] = useState(words.text)
@@ -336,7 +362,7 @@ function EditForm({ node, storyId, chapterId, run, setEditing }: TreeProps & { n
       ref={form}
       role="form"
       aria-label={`Edit the ${noun}`}
-      className="rounded-lg border border-accent/40 bg-surface px-3.5 py-3 shadow-soft"
+      className={cn('rounded-lg border border-accent/40 bg-surface px-3.5 py-3 shadow-soft', className)}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.preventDefault()
@@ -409,7 +435,7 @@ function EditForm({ node, storyId, chapterId, run, setEditing }: TreeProps & { n
 }
 
 /** Every suggestion is decided: what was kept is in the binder, and one click starts writing it. */
-function AllDecided({
+export function AllDecided({
   run,
   tree,
   storyId,

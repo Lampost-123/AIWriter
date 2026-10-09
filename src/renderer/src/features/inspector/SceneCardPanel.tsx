@@ -23,6 +23,7 @@ import { BringAbout, SceneSummary } from './SceneMemory'
 import { SceneIdeas } from '@/features/outline/SceneIdeas'
 import { InterviewButton, PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
 import { registerInterviewCard } from '@/features/outline/planInterviewStore'
+import { registerPayOffPanel, takePayOff, undoPayOff } from '@/features/threads/payOff'
 
 const LENGTH_PRESETS = [800, 1500, 2500, 4000]
 
@@ -271,6 +272,27 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
     paysOffHint: useId()
   }
   const slow = useSlow(!card && !error)
+
+  // "Mark paid off" (the desk's plot threads page): once the card is here, the thread goes under Pays off as typing its
+  // name there would, the field comes into view, and the toast's Undo takes it off again.
+  const loaded = !!card
+  useEffect(
+    () =>
+      registerPayOffPanel(sceneId, (threadId) => {
+        if (cardRef.current) setPaysOff(cardRef.current.paysOffIds.filter((id) => id !== threadId))
+      }),
+    [sceneId, setPaysOff]
+  )
+  useEffect(() => {
+    if (!loaded || !cardRef.current) return
+    const req = takePayOff(sceneId)
+    if (!req) return
+    if (!cardRef.current.paysOffIds.includes(req.threadId)) {
+      setPaysOff([...cardRef.current.paysOffIds, req.threadId])
+      toast(`Marked “${req.name}” as paid off in this scene.`, { action: { label: 'Undo', run: () => void undoPayOff(sceneId, req.threadId) } })
+    }
+    requestAnimationFrame(() => document.getElementById(ids.paysOff)?.scrollIntoView({ block: 'center' }))
+  }, [loaded, sceneId, setPaysOff, ids.paysOff])
 
   if (error && !card) {
     return (

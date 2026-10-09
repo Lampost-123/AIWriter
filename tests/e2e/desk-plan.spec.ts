@@ -23,8 +23,9 @@ async function sampleWorld(
   return a
 }
 
-/** Waits until the pointer would reach the card itself (not a page crossfading in over it). */
+/** Waits until the pointer would reach the card itself (not a page crossfading in over it), scrolled into view in the board. */
 async function reachable(win: Page, title: string): Promise<void> {
+  await card(win, title).scrollIntoViewIfNeeded()
   const sel = JSON.stringify(`[data-board-card]`)
   const text = JSON.stringify(title)
   await expect

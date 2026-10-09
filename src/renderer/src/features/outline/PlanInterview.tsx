@@ -12,6 +12,8 @@ import { MicButton } from '@/features/dictation/MicButton'
 import { insertIntoBox } from '@/features/dictation/insertText'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { useApp } from '@/lib/store'
+import { useDesk } from '@/features/look/look'
+import { LampStatus } from '@/features/planning/LampThinking'
 import { askingLine, planNote } from './planInterviewLogic'
 import {
   answeredOf,
@@ -62,6 +64,7 @@ export function PlanInterview({ target, className }: { target: PlanTarget; class
   const box = useRef<HTMLTextAreaElement>(null)
   const panel = useRef<HTMLElement>(null)
   const open = !!s
+  const desk = useDesk()
 
   // A new question: the answer box is ready for it.
   useEffect(() => {
@@ -88,7 +91,7 @@ export function PlanInterview({ target, className }: { target: PlanTarget; class
       ref={panel}
       aria-label="Interview"
       aria-busy={asking || filling}
-      className={`scroll-mt-4 rounded-xl border border-line bg-surface px-3.5 pb-3 pt-2.5 shadow-sm animate-fade-in ${className ?? ''}`}
+      className={`plan-interview scroll-mt-4 rounded-xl border border-line bg-surface px-3.5 pb-3 pt-2.5 shadow-sm animate-fade-in ${className ?? ''}`}
     >
       <div className="flex h-7 items-center gap-2">
         <MessageCircleQuestion size={14} className="shrink-0 text-ai" aria-hidden />
@@ -129,12 +132,16 @@ export function PlanInterview({ target, className }: { target: PlanTarget; class
           <Problem message={s.problem.message} code={s.problem.code} onRetry={() => retryPlan(target)} />
         ) : asking || filling ? (
           <div className="pt-1">
-            <WritingStatus text={filling ? 'Filling in the card from your answers…' : askingLine(kind, number)} />
+            {desk ? (
+              <LampStatus text={filling ? 'Filling in the card from your answers…' : askingLine(kind, number)} size={24} />
+            ) : (
+              <WritingStatus text={filling ? 'Filling in the card from your answers…' : askingLine(kind, number)} />
+            )}
           </div>
         ) : (
-          <div role="status" aria-live="polite" className="animate-fade-in">
-            <p className="text-[12px] font-medium text-ai">{s.topic}</p>
-            <p className="mt-0.5 text-[14.5px] font-medium leading-snug text-fg">{s.question}</p>
+          <div role="status" aria-live="polite" className="plan-q animate-fade-in">
+            <p className="plan-q-topic text-[12px] font-medium text-ai">{s.topic}</p>
+            <p className="plan-q-text mt-0.5 text-[14.5px] font-medium leading-snug text-fg">{s.question}</p>
           </div>
         )}
       </div>
@@ -161,7 +168,7 @@ export function PlanInterview({ target, className }: { target: PlanTarget; class
             minRows={2}
             maxRows={8}
             placeholder={asking ? '' : 'Type your answer, in your own words…'}
-            className="mt-1 text-[14px] leading-[1.55]"
+            className="plan-answer mt-1 text-[14px] leading-[1.55]"
             onChange={(e) => setPlanAnswer(target, e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

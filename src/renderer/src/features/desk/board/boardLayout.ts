@@ -1,8 +1,8 @@
 // Where everything sits on the desk's story board (UI overhaul, D5.2): a column for each chapter, the scenes' index
 // cards down it, each card's pin, a ghost slot under each column ("Add a scene") and one more column for the next
 // chapter; the plot threads as strings from pin to pin in reading order, with a knot where a thread is paid off and an
-// open end where it still runs on; and, while a card is dragged, where it would land. No React, so it is unit-tested
-// (boardLayout.test.ts).
+// arrow where it still runs on (into the next, unplanned chapter's column when it last showed in the last chapter); and,
+// while a card is dragged, where it would land. No React, so it is unit-tested (boardLayout.test.ts).
 import type { ID } from '@shared/types'
 
 export const CARD_W = 260
@@ -11,8 +11,8 @@ export const CARD_H = 150
 export const COL_GAP = 110
 /** Between cards in a column. */
 export const ROW_GAP = 34
-/** A column's head (numeral, chapter, its progress), above its first card. */
-export const HEAD_H = 76
+/** A column's head (numeral, chapter, its progress), above its first card, with room under it for a string's name tag. */
+export const HEAD_H = 98
 /** Around the whole board. */
 export const PAD_X = 40
 export const PAD_TOP = 8
@@ -73,8 +73,12 @@ export interface PlacedString {
   d: string
   /** The knot where it is paid off. */
   knot: { x: number; y: number } | null
-  /** The open end, where it still runs on. */
+  /** Where it still runs on: the tip of its arrow, pointing on (right). */
   end: { x: number; y: number } | null
+  /** Where it starts: the pin of the scene that opens it. */
+  start: { x: number; y: number }
+  /** The open end runs into the next chapter's column (not yet planned), rather than the gap after its last scene. */
+  intoNext: boolean
   /** The scenes it passes through, in reading order. */
   sceneIds: ID[]
 }
@@ -129,13 +133,20 @@ export function boardLayout(columns: BoardColumnIn[], threads: ThreadIn[] = []):
     const paid = t.paidOffSceneId && pins.get(t.paidOffSceneId)
     const knot = !t.open && paid ? { x: r1(paid.x - 14), y: r1(paid.y) } : null
     let end: { x: number; y: number } | null = null
+    let intoNext = false
     if (t.open) {
-      // It runs on past its last scene, into the gap after that column, and stops at an open end.
+      // It runs on past its last scene. From the last chapter it runs into the next chapter's column (not planned yet),
+      // ending in an arrow there; from an earlier one, into the gap after that column. The last stretch is level, so the
+      // arrow points on.
       const last = points[points.length - 1]
-      end = { x: r1(last.x + CARD_W / 2 + COL_GAP * 0.62), y: r1(last.y + CARD_H * 0.62 + (ti % 3) * 18) }
-      d += ` C${r1(last.x + CARD_W * 0.7)} ${r1(last.y - 4)} ${r1(end.x - 6)} ${r1(end.y - CARD_H * 0.5)} ${end.x} ${end.y}`
+      const lastCol = columns.findIndex((c) => c.sceneIds.includes(ids[ids.length - 1]))
+      intoNext = lastCol === columns.length - 1
+      end = intoNext
+        ? { x: r1(nextX + 34), y: r1(Math.max(top + 26, last.y + 30 + (ti % 3) * 26)) }
+        : { x: r1(last.x + CARD_W / 2 + COL_GAP * 0.5), y: r1(last.y + CARD_H * 0.62 + (ti % 3) * 18) }
+      d += ` C${r1(last.x + CARD_W * 0.62)} ${r1(last.y - 26)} ${r1(end.x - 64)} ${r1(end.y)} ${end.x} ${end.y}`
     }
-    strings.push({ id: t.id, ink: (ti % INKS) + 1, d, knot, end, sceneIds: ids })
+    strings.push({ id: t.id, ink: (ti % INKS) + 1, d, knot, end, sceneIds: ids, start: points[0], intoNext })
   })
 
   return {
