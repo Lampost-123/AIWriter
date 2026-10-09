@@ -1,8 +1,6 @@
-<!-- version: 0.6.42 -->
-What's new in 0.6.42:
+<!-- version: 0.6.45 -->
+What's new in 0.6.45:
 
-- A new desk layout is the default, in a calm blue Dark theme. Panels stay in Settings.
-- Drawings that move gently on the start screen and empty pages.
-- Rebuilt World room, timeline, relationship map, plan board and AI planning pages.
-- A character builder that asks you questions first.
-- A new Check room and Ask, and faster rooms in long books.
+- Beat by beat's box no longer goes missing. An unfinished session comes back as it was after a restart, even before its first beat's words arrive, or with every beat written.
+- Beat by beat on a scene with an unfinished session brings its box back, instead of asking where a new draft goes.
+- A beat cut short when the app closed says it stopped part-way, so you can write it again or carry on.

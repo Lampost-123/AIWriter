@@ -41,11 +41,24 @@ export function BeatBar({ sceneId }: { sceneId: ID }): React.JSX.Element | null 
   // Another scene shows: a page height held while a beat was written again goes with the last one.
   useLayoutEffect(() => () => clearHeight(), [sceneId])
   // The scene's last session didn't Finish (the app closed, say): with no session on, it carries on where it was,
-  // once the scene's page shows (resumeBeats checks its beats are still on it).
+  // once the scene's page shows. Tried again a little later while the page isn't ready for it (a long scene still
+  // coming in, a draft still ending), so the bar doesn't stay away.
   useEffect(() => {
     if (anyOn) return
-    const frame = requestAnimationFrame(() => void resumeBeats(sceneId, { auto: true }))
-    return () => cancelAnimationFrame(frame)
+    let gone = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const tries = [0, 400, 1500, 4000]
+    const attempt = (n: number): void => {
+      void resumeBeats(sceneId, { auto: true }).then((ok) => {
+        if (!ok && !gone && n + 1 < tries.length) timer = setTimeout(() => attempt(n + 1), tries[n + 1])
+      })
+    }
+    const frame = requestAnimationFrame(() => attempt(0))
+    return () => {
+      gone = true
+      cancelAnimationFrame(frame)
+      clearTimeout(timer)
+    }
   }, [sceneId, anyOn])
   return session ? <Bar session={session} /> : null
 }

@@ -953,7 +953,7 @@ test('A first beat that brings no words leaves the bar on beat 1 with a way on: 
   }
 })
 
-test('An unfinished session carries on: after a restart the bar comes back where it was, and after another scene’s session the scene offers "Carry on from beat N"; Finish closes it for good', async ({
+test('An unfinished session carries on: after a restart the bar comes back where it was, and after another scene’s session Beat by beat brings it back; a finished one offers "Carry on from beat N"', async ({
   launch
 }) => {
   const fake = await fakeProvider({ words: 40 })
@@ -1008,15 +1008,10 @@ test('An unfinished session carries on: after a restart the bar comes back where
     // One session at a time: it doesn't take over by itself while The knock's is on.
     await win.waitForTimeout(300)
     await expect(bar(win)).toHaveCount(0)
-    // Beat by beat offers to carry on first, then Replace it and Add below.
+    // Beat by beat brings its bar back where it was (it never finished), rather than asking where a new draft goes.
     await beatsButton(win).click()
-    await expect(choiceHeading(win)).toBeVisible()
-    const carry = win.getByRole('button', { name: /^Carry on from beat 4 of 4/ })
-    await expect(carry).toBeVisible()
-    await expect(win.locator('[data-choice]')).toHaveCount(3)
-    await shot(win, 'resume-3-carry-on-choice')
-    await carry.click()
     await expect(status(win)).toHaveText('Beat 4 of 4')
+    await expect(choiceHeading(win)).toHaveCount(0)
     await expect(box(win)).toBeFocused()
     await expect(box(win)).toHaveValue('')
     await barButton(win, 'Write the next beat').click()
@@ -1033,6 +1028,14 @@ test('An unfinished session carries on: after a restart the bar comes back where
     await expect(status(win)).toHaveText('Beat 2 of 3')
     await barButton(win, 'Finish').click()
     await expect(bar(win)).toBeHidden()
+    // Finished short of its last beat, Beat by beat offers to carry on first, then Replace it and Add below.
+    await beatsButton(win).click()
+    await expect(choiceHeading(win)).toBeVisible()
+    await expect(win.getByRole('button', { name: /^Carry on from beat 2 of 3/ })).toBeVisible()
+    await expect(win.locator('[data-choice]')).toHaveCount(3)
+    await shot(win, 'resume-3-carry-on-choice')
+    await win.keyboard.press('Escape')
+    await expect(choiceHeading(win)).toHaveCount(0)
     await row(win, 'Scene 1').click()
     await expect(header(win)).toContainText('Scene 1')
     await win.waitForTimeout(300)
