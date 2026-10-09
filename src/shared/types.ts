@@ -532,7 +532,7 @@ export interface UsageNotice {
  */
 export interface FirstRun {
   worldId: ID | null
-  step: 'world' | 'connect' | 'model' | 'style' | 'builder' | 'guide'
+  step: 'world' | 'connect' | 'model' | 'style' | 'voices' | 'builder' | 'guide'
   sceneId: ID | null
 }
 
@@ -581,6 +581,11 @@ export interface SpeechSettings {
    * a character owns is read in their voice (a thought softly), not the narrator's. On by default.
    */
   voicedLines: boolean
+  /**
+   * "Skip ‘he said’ after a voiced line": a dialogue tag beside a quote read in its speaker's own voice ("she said",
+   * "said Mara") isn't spoken; an action it carries still is. Only what is spoken: the page keeps its words. On by default.
+   */
+  skipSpeechTags: boolean
   /** "Mark who says what": the AI also notes each line's tone and pace, a little ahead of the reading. */
   markSpeakers: boolean
   /**

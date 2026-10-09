@@ -1,6 +1,6 @@
-// The first-run setup (milestone 6): shown in place of the Welcome screen on a fresh install. Five short steps,
+// The first-run setup (milestone 6): shown in place of the Welcome screen on a fresh install. Six short steps,
 // each saved as it goes: name the world (it is made there and then), connect an AI service and test it, pick the
-// writer model, the basic style, and optionally lay the world out from a summary. Then the world's first scene
+// writer model, the basic style, read aloud's one-time download (or later), and optionally lay the world out from a summary. Then the world's first scene
 // opens with a small guide (FirstSceneGuide.tsx). Back goes to the step before; quitting midway resumes at the
 // same step next time (setupStore.ts).
 
@@ -22,6 +22,7 @@ import { openSampleWorld, useSetup } from './setupStore'
 import { ConnectStep } from './ConnectStep'
 import { ModelStep } from './ModelStep'
 import { StyleStep, type StyleSaver } from './StyleStep'
+import { ReadAloudStep } from './ReadAloudStep'
 import { SetupDesk } from './SetupDesk'
 
 export function FirstRun(): React.JSX.Element | null {
@@ -35,6 +36,7 @@ export function FirstRun(): React.JSX.Element | null {
       {step === 'connect' && <ConnectStep />}
       {step === 'model' && <ModelStep />}
       {step === 'style' && <StyleStepFrame />}
+      {step === 'voices' && <ReadAloudStep />}
       {step === 'builder' && <BuilderStep />}
     </div>
   )
@@ -59,7 +61,7 @@ export function FirstRun(): React.JSX.Element | null {
   )
 }
 
-/** Where Adam is: a calm line of five segments, and the step in words. */
+/** Where Adam is: a calm line of six segments, and the step in words. */
 function Progress({ step }: { step: SetupStep }): React.JSX.Element {
   const n = stepNumber(step)
   const isNew = useNewLook()

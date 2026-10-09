@@ -1,12 +1,12 @@
-// The New look's frame for the first-run setup, a welcoming first chapter: on the left a rail of the five steps with
+// The New look's frame for the first-run setup, a welcoming first chapter: on the left a rail of the six steps with
 // their icons and a line that fills as Adam goes; in the middle the step itself on a sheet of paper; on the right the
 // headland at dusk with the lighthouse being lit step by step (SetupScene.tsx), a line under it saying what is
 // happening. Finishing lights the lamp fully and says so on the sheet for a moment (about 900 ms) before the first
-// scene opens. In a narrower window the rail folds into a line of five segments over the sheet, and below about
+// scene opens. In a narrower window the rail folds into a line of six segments over the sheet, and below about
 // 1100 px the picture steps aside. Classic keeps its single column (FirstRun.tsx).
 import type { ReactNode } from 'react'
 import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
-import { Compass, Cpu, Feather, Globe2, Network, type IconType } from '@/components/ui/icons'
+import { AudioLines, Compass, Cpu, Feather, Globe2, Network, type IconType } from '@/components/ui/icons'
 import { DrawnTick } from '@/components/ui/DrawnTick'
 import { cn } from '@/lib/cn'
 import { STEP_NAMES, stepNumber } from './setupLogic'
@@ -19,6 +19,7 @@ const STEP_ICONS: Record<SetupStep, IconType> = {
   connect: Network,
   model: Cpu,
   style: Feather,
+  voices: AudioLines,
   builder: Compass
 }
 
@@ -28,6 +29,7 @@ const STEP_HINTS: Record<SetupStep, string> = {
   connect: 'Your key stays on this computer',
   model: 'The voice that drafts your scenes',
   style: 'Point of view, tense, spelling',
+  voices: 'A one-time download, or later',
   builder: 'Optional: describe it in your words'
 }
 
@@ -37,6 +39,7 @@ const CAPTIONS: Record<SetupStep | 'done', string> = {
   connect: 'The keeper lights the lamp.',
   model: 'The beam begins to turn.',
   style: 'Lights in the cottage, and up the tower.',
+  voices: 'The stars come out.',
   builder: 'The stars are out. Nearly there.',
   done: 'The light is on. Your world is ready.'
 }
@@ -48,7 +51,7 @@ export function SetupDesk({ step, children }: { step: SetupStep; children: React
   return (
     <div className="setup-desk flex h-full min-h-0" data-setup-step={step}>
       <div className="flex min-w-0 flex-1 justify-center gap-10 pl-8 pr-6 min-[1500px]:gap-14 min-[1500px]:pl-12">
-        {/* The rail: the five steps, wide windows only. */}
+        {/* The rail: the six steps, wide windows only. */}
         <aside aria-label="Setup steps" className="setup-rail hidden w-[256px] shrink-0 flex-col pt-[7vh] min-[1280px]:flex">
           <Welcome />
           <ol className="relative mt-9 flex flex-col gap-1" style={{ '--setup-fill': (n - 1) / (SETUP_STEPS.length - 1) } as React.CSSProperties}>
@@ -122,7 +125,7 @@ function Welcome(): React.JSX.Element {
   )
 }
 
-/** In a narrower window: the five steps as a line of segments, with the step's icon and name. */
+/** In a narrower window: the six steps as a line of segments, with the step's icon and name. */
 function CompactProgress({ step }: { step: SetupStep }): React.JSX.Element {
   const n = stepNumber(step)
   return (

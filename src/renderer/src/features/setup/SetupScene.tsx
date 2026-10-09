@@ -1,13 +1,13 @@
 // The New look's picture beside the first-run setup (UI overhaul, "first run, Settings and moving work in and out"): the
 // headland at dusk in the start screen's harbour colours, and its lighthouse brought to life as the setup goes on.
 //
-// What each step adds (the step showing is `stage`, 1 to 5; each one done adds light):
+// What each step adds (the step showing is `stage`, 1 to 6; each one done adds light):
 //   1  dusk, the lamp dark and the sea dim; the town's windows across the water
 //   2  the lamp is lit: its flame flickers and its halo breathes
 //   3  the beam starts to turn: a cone of light sweeping round, bright as it faces us, brightening the sea where it falls
 //      and catching the boat's sail as it passes
 //   4  the keeper's cottage and the tower's windows light up
-//   5  the stars and the moon come out, and the sea is no longer dim
+//   5  the stars and the moon come out, and the sea is no longer dim (6, the last step, keeps it so)
 // Finishing (`finishing`): the beam makes one full, bright turn and two gulls go up off the headland (about 900 ms).
 //
 // Always: the swells roll and the foam breaks on the rocks, the boat bobs and drifts, a cloud drifts, the stars

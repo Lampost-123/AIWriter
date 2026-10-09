@@ -13,6 +13,7 @@ import { cleanForSpeech } from './cleanText'
 import { calmed, isStudioVoice, moodFor } from './emotion'
 import { cueFor, tagSounds, withTag } from './perform'
 import { sayAs, type SayRule } from './say'
+import { withoutSpeechTags } from './speechTags'
 import { looksLikeNote, NARRATOR, quoteKey, savedFor, spansIn, startsWithSpeaker, UNKNOWN } from './speakers'
 import {
   quickStart,
@@ -34,7 +35,7 @@ export type PlanSettings = Pick<
   SpeechSettings,
   'engine' | 'narratorVoice' | 'narratorDescription' | 'dialogueVoice' | 'style' | 'castVoices' | 'steadyNarrator' | 'sounds'
 > &
-  Partial<Pick<SpeechSettings, 'actFeelings' | 'checkWords' | 'voicedLines'>>
+  Partial<Pick<SpeechSettings, 'actFeelings' | 'checkWords' | 'voicedLines' | 'skipSpeechTags'>>
 
 export interface PlanInput {
   /** The paragraphs to read, the first from `offset`. */
@@ -176,7 +177,9 @@ function prepare(
   u: Utterance,
   found: Attribution | null,
   input: PlanInput,
-  italics: [number, number][] | undefined
+  italics: [number, number][] | undefined,
+  /** Narration beside a quote read in its speaker's own voice: its dialogue tag isn't spoken (speechTags.ts). */
+  tags?: { after?: boolean; before?: boolean }
 ): Omit<PlannedClip, 'restMs' | 'waits'> & { known: boolean } {
   const s = input.settings
   const marks = input.marks.get(u.pid)
@@ -199,7 +202,8 @@ function prepare(
     s.sounds && !quote
       ? notes.filter((x) => x.how?.sound && x.at >= u.from && x.at < u.to).map((x) => ({ at: x.at, tag: x.how!.sound! }))
       : []
-  const raw = sounds.length ? withSoundsAt(u, italics, sounds) : withItalics(u.para, italics, u.from, u.to)
+  const onPage = sounds.length ? withSoundsAt(u, italics, sounds) : withItalics(u.para, italics, u.from, u.to)
+  const raw = tags && !quote ? withoutSpeechTags(onPage, tags) : onPage
   let text = cleanForSpeech(s.sounds ? tagSounds(raw) : raw)
   let direction: { delivery: string; pace: '' | 'slow' | 'fast' | 'lively'; gentle?: boolean } | null = null
   let shown = ''
@@ -413,9 +417,23 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
     if (key) (unplaced.get(u.pid) ?? unplaced.set(u.pid, new Set()).get(u.pid)!).add(key)
   })
   const found = attributed.slice(context.length)
+  const prepared = run.map((u, i) => prepare(u, found[i], input, italicsOf.get(u.pid)))
+  // A quote in its speaker's own voice (not the dialogue voice or the narrator's, where the tag says who is talking).
+  const s = input.settings
+  const ownVoiced = (k: number, pid: string): boolean => {
+    const q = run[k]
+    if (!q || q.pid !== pid || q.role !== 'other' || !q.quote || q.own) return false
+    const c = prepared[k]!.clip
+    const narrators = c.voice === s.narratorVoice && c.voiceDesign === s.narratorDescription.trim()
+    return !narrators && !(s.dialogueVoice && c.voice === s.dialogueVoice && !c.voiceDesign)
+  }
   const clips: PlannedClip[] = []
   run.forEach((u, i) => {
-    const p = prepare(u, found[i], input, italicsOf.get(u.pid))
+    let p = prepared[i]!
+    if (s.skipSpeechTags !== false && u.role !== 'other' && !u.own) {
+      const tags = { after: ownVoiced(i - 1, u.pid), before: ownVoiced(i + 1, u.pid) }
+      if (tags.after || tags.before) p = prepare(u, found[i], input, italicsOf.get(u.pid), tags)
+    }
     const quote = u.role === 'other'
     // What the AI is marking: a clip waits for it, except a new reading's first narration (it starts straight away).
     const noting = marking.has(u.pid) && !(i === 0 && input.quick && !quote)

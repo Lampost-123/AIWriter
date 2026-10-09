@@ -1,4 +1,4 @@
-// Milestone 6: the first-run setup (world, key and test, writer model, basic style guide, optional World builder, a guided first scene) and the sample world.
+// Milestone 6: the first-run setup (world, key and test, writer model, basic style guide, the read-aloud download, optional World builder, a guided first scene) and the sample world.
 // Owned by the First run part (see docs/ARCHITECTURE.md, "Milestone 6"). Only this part changes this file.
 //
 // The setup shows in place of the Welcome screen when the library holds no world of Adam's own (the sample
@@ -14,9 +14,9 @@
 import type { ID, World } from '../types'
 
 /** The setup's screens, in order. The guided first scene follows them, in the workspace. */
-export type SetupStep = 'world' | 'connect' | 'model' | 'style' | 'builder'
+export type SetupStep = 'world' | 'connect' | 'model' | 'style' | 'voices' | 'builder'
 
-export const SETUP_STEPS: SetupStep[] = ['world', 'connect', 'model', 'style', 'builder']
+export const SETUP_STEPS: SetupStep[] = ['world', 'connect', 'model', 'style', 'voices', 'builder']
 
 export interface SetupState {
   /** The step to show now; null when the setup isn't showing. */

@@ -36,14 +36,19 @@ import { Segmented } from '@/features/generate/parts'
 import { setSpeechStatus, useKnownSpeechStatus, useSpeechStatus } from './useSpeechStatus'
 import { VOICES_NEEDS, voicesChecks } from './voiceNeeds'
 
-/** What each download is called in Settings, and its size. */
+/**
+ * What each download is called in Settings, and its size. The voices and the studio voices say what they download
+ * (measured: the voices fetch PyTorch, about 3.2 GB, the rest of their engine and their 7.2 GB of weights, and take
+ * about 12 GB on disk; the studio voices fetch about 3 GB of EARS recordings and the word check's 320 MB listener,
+ * and take about 1.1 GB on disk).
+ */
 export const KINDS: Record<SpeechDownloadKind, { name: string; size: string }> = {
   server: { name: 'the speech engine', size: 'about 150 MB' },
-  voices: { name: 'the voices', size: 'about 12 GB' },
+  voices: { name: 'the voices', size: 'about 11 GB to download' },
   parakeet: { name: 'Parakeet', size: 'about 1 GB' },
   whisper: { name: 'Whisper', size: 'about 300 MB' },
   sounds: { name: 'the sound effects', size: 'about 12 GB' },
-  studio: { name: 'the studio voices', size: 'about 4 GB' }
+  studio: { name: 'the studio voices', size: 'about 3.3 GB to download' }
 }
 
 const HF_KEYS_PAGE = 'https://huggingface.co/settings/tokens'
@@ -419,7 +424,7 @@ function StudioVoices({ status }: { status: SpeechStatus }): React.JSX.Element |
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
         96 real voices recorded in a studio, which characters are given instead of a voice made from a description. Each one also acted
         out feelings, whispers and shouts, so an angry or frightened line sounds it. Free for personal, non-commercial use (the EARS
-        recordings).
+        recordings). The download includes the word check that listens to each line; together they take about 1.1 GB on disk.
       </p>
       {!installed && !pending && !stopped ? (
         <div className="mt-3 flex flex-wrap gap-2">

@@ -1,7 +1,7 @@
 # From mcreader-v2, tts/app/engines/base.py (Adam's rule, 2 October 2026: only speech code is reused).
 """The shape every engine has, plus the lazy loading they all want.
 
-Loading a model is slow (Breeze takes a few seconds and about 8 GB of the graphics card) so it happens
+Loading a model is slow (Breeze takes a few seconds and about 9.5 GB of the graphics card) so it happens
 on the first request that needs it, never at import. An engine that cannot load reports why instead of
 taking the whole server down: dictation must keep working when the voices can't start.
 

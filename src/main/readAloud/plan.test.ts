@@ -13,7 +13,9 @@ const settings: PlanSettings = {
   style: '',
   castVoices: true,
   steadyNarrator: false,
-  sounds: true
+  sounds: true,
+  // Every word is read here, the tags too (speechTags.test.ts tests skipping them).
+  skipSpeechTags: false
 }
 
 const cast = everyone(

@@ -13,8 +13,8 @@ and each part downloads only when you ask for it. Everything here is in **Settin
 | Part | Download size | What it needs |
 |---|---|---|
 | **Speech engine** (needed for everything below) | about 150 MB | Python 3.10 to 3.13. If you don't have it, AI Write offers **Install Python**. |
-| **Voices** (Breeze TTS 2) | about 12 GB | An NVIDIA graphics card, RTX 20 series or newer, with at least 8 GB of memory, and about 15 GB free while it downloads. |
-| **Studio voices** (optional) | about 4 GB | Used together with the voices above. |
+| **Voices** (Breeze TTS 2) | about 11 GB download, 12 GB on disk | An NVIDIA graphics card, RTX 20 series or newer, with at least 10 GB of memory, and about 15 GB free while it downloads. |
+| **Studio voices** (optional) | about 3.3 GB download, 1.1 GB on disk | Used together with the voices above. |
 | **Dictation**: Parakeet or Whisper | about 1 GB or about 300 MB | Any PC. It runs on the processor. |
 | **Sound effects** (optional) | about 12 GB | An NVIDIA RTX 20 series or newer card, and a free Hugging Face account. |
 

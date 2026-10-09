@@ -6,7 +6,8 @@
 import type { Page } from '@playwright/test'
 import { binder, closeWindow, expect, invoke, startFake, test } from './helpers'
 
-const SETUP = { AIWRITE_SETUP: 'on' }
+// A graphics card that can run the voices, so the read-aloud step offers its download (never started here).
+const SETUP = { AIWRITE_SETUP: 'on', AIWRITE_FAKE_SPEECH_GPU: 'NVIDIA GeForce RTX 4090', AIWRITE_FAKE_SPEECH_GPU_MEMORY: '24564', AIWRITE_FAKE_SPEECH_GPU_CAP: '8.9' }
 
 const main = (win: Page) => win.locator('main')
 const heading = (win: Page, name: string) => win.getByRole('heading', { name, exact: true })
@@ -23,7 +24,7 @@ test('a fresh install walks through the setup, resumes after quitting, and lands
     // ----- 1. The world: made there and then -----
     await expect(heading(win, 'Name your world')).toBeVisible()
     await expect(win.getByRole('heading', { name: 'Create a world' })).toHaveCount(0)
-    await expect(win.getByText('Step 1 of 5')).toBeVisible()
+    await expect(win.getByText('Step 1 of 6')).toBeVisible()
     await expect(next(win)).toBeDisabled()
     await win.getByLabel('World name').fill('The Northern Reaches')
     await next(win).click()
@@ -78,7 +79,7 @@ test('a fresh install walks through the setup, resumes after quitting, and lands
     await win.getByRole('radio', { name: 'US (color)' }).click()
     await win.getByLabel('How should the prose sound?').fill('Plain and warm.')
     await next(win).click()
-    await expect(heading(win, 'Lay out your world (optional)')).toBeVisible()
+    await expect(heading(win, 'Hear your stories read aloud')).toBeVisible()
     const prefs = await invoke(win, 'getWritingPrefs')
     expect(prefs).toMatchObject({ pov: 'First person', spelling: 'US', voiceNotes: 'Plain and warm.' })
     // Back keeps what was chosen.
@@ -86,7 +87,15 @@ test('a fresh install walks through the setup, resumes after quitting, and lands
     await expect(win.getByLabel('Point of view')).toHaveValue('First person')
     await next(win).click()
 
-    // ----- 5. Skip the World builder: the first scene opens with its guide -----
+    // ----- 5. Read aloud: its one-time download offered, and Later says where to find it -----
+    await expect(heading(win, 'Hear your stories read aloud')).toBeVisible()
+    await expect(win.getByText('The studio voices', { exact: true })).toBeVisible()
+    await expect(win.getByRole('button', { name: 'Download now', exact: true })).toBeEnabled()
+    await win.getByRole('button', { name: 'Later', exact: true }).click()
+    await expect(win.getByText('Read aloud is in Settings › Read aloud and dictation whenever you want it.')).toBeVisible()
+    await expect(heading(win, 'Lay out your world (optional)')).toBeVisible()
+
+    // ----- 6. Skip the World builder: the first scene opens with its guide -----
     await win.getByRole('button', { name: /Start writing/ }).click()
     await expect(binder(win)).toBeVisible()
     await expect(prose(win)).toBeVisible()

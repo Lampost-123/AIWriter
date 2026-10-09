@@ -254,7 +254,7 @@ The [Getting started guide](docs/guide/getting-started.md) walks through every s
 |---|---|
 | **A computer** | Windows 10 or 11, 64-bit. There is no Mac or Linux version. |
 | **An AI service** | We recommend [DeepSeek](https://platform.deepseek.com): good prose for long stories at a very low price. You can connect it directly or through [OpenRouter](https://openrouter.ai). OpenAI, Mistral, Groq or any other OpenAI-compatible service works too, as do LM Studio and Ollama on your own PC. |
-| **Optional: a graphics card** | Only for the read-aloud voices: an NVIDIA RTX 20-series or newer with 8 GB of memory. Dictation runs on any PC. |
+| **Optional: a graphics card** | Only for the read-aloud voices: an NVIDIA RTX 20-series or newer with 10 GB of memory. Dictation runs on any PC. |
 
 **What costs money:** only the AI service you connect. You pay them for what you use. AI Write shows each
 model's price before you pick it, and keeps a running total.

@@ -98,7 +98,8 @@ export function keepVoice(db: DB, entryId: ID, got: { design: string; say: strin
   const design = voiceFree && got.design.trim() ? got.design.trim() : now.voice.design
   const say = !now.say.trim() && got.say.trim() ? got.say.trim() : now.say
   if (design === now.voice.design && say === now.say) return false
-  setEntryReadAloud(db, entryId, { voice: { design, voice: now.voice.voice }, say })
+  // A description written here is the AI's, so a studio voice may still be given over it (studio.ts).
+  setEntryReadAloud(db, entryId, { voice: { design, voice: now.voice.voice }, say }, { autoDesign: design !== now.voice.design })
   return true
 }
 

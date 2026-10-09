@@ -475,6 +475,12 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
             onChange={(voicedLines) => void save({ voicedLines })}
             description="A character’s thoughts are read softly in their voice, and the texts, chat messages and letters they write are read in their voice too. Signs and words nobody owns stay with the narrator. Off, the narrator reads all of these."
           />
+          <SwitchRow
+            label="Skip ‘he said’ after a voiced line"
+            checked={speech.skipSpeechTags}
+            onChange={(skipSpeechTags) => void save({ skipSpeechTags })}
+            description="When a line is read in the character’s own voice, “she said” or “said Mara” beside it isn’t read out; what else the sentence says is (“slamming the door”). Lines in the dialogue voice keep theirs, so you know who is talking. Your text isn’t changed."
+          />
           <StudioVoices speech={speech} />
         </div>
       </SettingsSection>

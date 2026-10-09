@@ -1,14 +1,16 @@
 // What the voices (Breeze TTS 2) need from this computer, said before they download, and whether this computer
 // has it. Owned by the Speech engine part. The needs come from the speech server: PyTorch's CUDA 12.8 build
 // (NVIDIA only, the RTX 20 series or newer: speech-server/tools/install.py, src/main/speech/status.ts), about
-// 8 GB of the graphics card while loaded (speech-server/app/config.py), the processor when there is no card
-// (far too slow: speech-server/app/workers/breeze.py), and about 12 GB on disk once downloaded, plus PyTorch's
+// 9.5 GB of the graphics card while loaded (needs_mb 9700 in speech-server/app/engines/breeze_engine.py; about
+// 9,470 MiB measured on an RTX 5070 Ti), so a 10 GB card, the processor when there is no card
+// (far too slow: speech-server/app/workers/breeze.py), and about 12 GB on disk once downloaded (measured: its
+// environment 4.9 GB and its weights 7.2 GB), plus PyTorch's
 // 3 GB download kept in the cache until the download finishes (src/main/speech/plan.ts). The sound effects need
 // much the same (about 4.5 GB of the graphics card at their most: speech-server/app/engines/sound_engine.py).
 import type { SpeechStatus } from '@shared/contracts/speech'
 
-/** The graphics card memory the voices hold while loaded, in GB. */
-export const CARD_GB = 8
+/** The graphics card memory the voices need, in GB: they hold about 9.5 GB while loaded, so a 10 GB card. */
+export const CARD_GB = 10
 /** The oldest cards PyTorch's CUDA 12.8 build runs on: compute capability 7.5, the RTX 20 series. */
 export const OLDEST_CARD = 7.5
 /** Free disk space the download needs while it runs, in GB (about 12 GB kept, plus the 3 GB cache it clears after). */
@@ -28,7 +30,7 @@ export interface NeedCheck {
 
 const GIB = 1024 ** 3
 
-/** "16 GB" from MiB (nvidia-smi's 8192 for an 8 GB card). */
+/** "16 GB" from MiB (nvidia-smi's 10240 for a 10 GB card). */
 const cardGb = (mb: number): string => `${Math.round(mb / 1024)} GB`
 
 

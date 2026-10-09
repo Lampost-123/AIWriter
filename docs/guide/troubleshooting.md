@@ -71,7 +71,7 @@ or change the limit in **Settings › Usage and cost**.
 ## Read aloud and dictation
 
 **The voices won't download.**
-They need an NVIDIA graphics card (RTX 20 series or newer) with at least 8 GB of memory, and about 15 GB of free
+They need an NVIDIA graphics card (RTX 20 series or newer) with at least 10 GB of memory, and about 15 GB of free
 disk space. AI Write checks before downloading and says what's missing.
 
 **The speech engine won't start.**

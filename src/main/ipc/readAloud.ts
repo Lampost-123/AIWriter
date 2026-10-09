@@ -2,12 +2,19 @@
 // docs/ARCHITECTURE.md, "Milestone 4". The work is done in src/main/readAloud/.
 import type { Handlers } from './index'
 import type { ReadAloudApi } from '@shared/contracts/readAloud'
-import { onWorldClosing } from '../world'
+import { onWorldClosing, onWorldOpened } from '../world'
+import { onSpeechDownloaded } from '../speech'
 import { onDraftActivity } from '../ai/drafts'
 import * as readAloud from '../readAloud'
 
 // Closing a world stops its marking (the task runner stops the calls and finishes their records).
 onWorldClosing(() => readAloud.readAloudWorldClosing())
+// With the studio voices here, the world's characters without a voice of Adam's own are given one by the rules: as a
+// world opens, and once the studio voices finish downloading.
+onWorldOpened(() => readAloud.castWorldByItself())
+onSpeechDownloaded((kind) => {
+  if (kind === 'studio') readAloud.castWorldByItself()
+})
 // A draft's text is marked as it lands (Generate, Beat by beat), so it is ready before Listen.
 onDraftActivity((e) => readAloud.draftActivity(e))
 

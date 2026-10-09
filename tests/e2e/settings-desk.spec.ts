@@ -35,12 +35,13 @@ async function size(app: ElectronApplication, win: Page, w: number, h: number): 
 test('the setup on the desk: a rail of steps, the lamp lit step by step, services as marks, and the lamp lit at the end', async ({ launch }) => {
   const fake = await startFake()
   try {
-    const { win, app } = await launch({ env: { ...DESK, AIWRITE_SETUP: 'on' } })
+    // No graphics card for the voices, so the read-aloud step says so and only goes on.
+    const { win, app } = await launch({ env: { ...DESK, AIWRITE_SETUP: 'on', AIWRITE_FAKE_SPEECH_GPU: '' } })
     await expect(win.getByRole('heading', { name: 'Name your world', exact: true })).toBeVisible()
     await size(app, win, 1440, 900)
     const rail = win.getByRole('complementary', { name: 'Setup steps' })
     const art = win.locator('[data-living-art="setup"]')
-    await expect(rail.getByRole('listitem')).toHaveCount(5)
+    await expect(rail.getByRole('listitem')).toHaveCount(6)
     await expect(rail.locator('[aria-current="step"]')).toContainText('Your world')
     await expect(art).toHaveAttribute('data-stage', '1')
     await expect(win.getByText('Explore the sample world')).toBeVisible()
@@ -68,7 +69,12 @@ test('the setup on the desk: a rail of steps, the lamp lit step by step, service
     await expect(art).toHaveAttribute('data-stage', '4')
     await win.getByRole('button', { name: 'Continue', exact: true }).click()
     await expect(art).toHaveAttribute('data-stage', '5')
-    await expect(rail.locator('[data-state="done"]')).toHaveCount(4)
+    await expect(rail.locator('[aria-current="step"]')).toContainText('Read aloud')
+    await expect(win.getByText(/^No NVIDIA graphics card was found on this computer/)).toBeVisible()
+    await expect(win.getByRole('button', { name: 'Download now' })).toHaveCount(0)
+    await win.getByRole('button', { name: 'Continue', exact: true }).click()
+    await expect(art).toHaveAttribute('data-stage', '6')
+    await expect(rail.locator('[data-state="done"]')).toHaveCount(5)
 
     // The end: the lamp is lit on the picture and the sheet says so, then the first scene opens.
     await win.getByRole('button', { name: /Start writing/ }).click()
