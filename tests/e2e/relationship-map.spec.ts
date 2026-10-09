@@ -340,39 +340,14 @@ async function bigWorld(win: Page): Promise<void> {
   const last = ['Marrow', 'Quill', 'Thorne', 'Vane', 'Ashby', 'Pell', 'Rusk', 'Sorrel', 'Tamsin', 'Wick']
   const ids: string[] = []
   for (let i = 0; i < 150; i++)
-    ids.push(
-      (
-        await invoke(win, 'createEntry', 'character', {
-          name: `${first[i % 15]} ${last[Math.floor(i / 15)]}`,
-          fields: { role: i === 0 ? 'protagonist' : 'minor' }
-        })
-      ).id
-    )
-  const kinds = [
-    'sister',
-    'old friend',
-    'rival',
-    'mentor',
-    'married',
-    'works for',
-    'sworn enemy',
-    'cousin',
-    'loyal to',
-    'owes money',
-    'in love',
-    'apprentice'
-  ]
+    ids.push((await invoke(win, 'createEntry', 'character', { name: `${first[i % 15]} ${last[Math.floor(i / 15)]}`, fields: { role: i === 0 ? 'protagonist' : 'minor' } })).id)
+  const kinds = ['sister', 'old friend', 'rival', 'mentor', 'married', 'works for', 'sworn enemy', 'cousin', 'loyal to', 'owes money', 'in love', 'apprentice']
   let n = 0
   const tie = (a: number, b: number, k: number, at: number | null) => {
     n++
     return invoke(win, 'createChange', {
       kind: 'relationship',
-      payload: {
-        otherId: ids[b],
-        type: kinds[k % kinds.length],
-        feels: k % 2 ? 'fond' : 'wary',
-        otherFeels: k % 3 ? 'trusting' : 'resentful'
-      },
+      payload: { otherId: ids[b], type: kinds[k % kinds.length], feels: k % 2 ? 'fond' : 'wary', otherFeels: k % 3 ? 'trusting' : 'resentful' },
       entryId: ids[a],
       ...(at === null ? { anchor: 'baseline' as const } : { anchor: 'scene' as const, sceneId: scenes[at] })
     })
@@ -395,10 +370,7 @@ test('150 characters and 400 ties stay smooth: no frame over 50 ms while draggin
   await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1920, 1080))
   await bigWorld(win)
-  await win
-    .getByRole('navigation', { name: 'Rooms' })
-    .getByRole('button', { name: /^World/ })
-    .click()
+  await win.getByRole('navigation', { name: 'Rooms' }).getByRole('button', { name: /^World/ }).click()
   await win.locator('[data-desk-room] [data-desk-sublinks]').getByRole('button', { name: 'Relationship map' }).click()
   await expect(canvas(win).locator('[data-map-node]').first()).toBeVisible()
   await expect(win.locator('[data-map-minimap]')).toBeVisible()
@@ -445,11 +417,9 @@ test('150 characters and 400 ties stay smooth: no frame over 50 ms while draggin
   await win.evaluate('window.__phase = "hover"')
   // Pointing at characters in the open middle of the map (clear of the strip, the legend and the mini-map).
   const c = (await canvas(win).boundingBox())!
-  const middle = (
-    await nodes.evaluateAll((els) =>
-      els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 }))
-    )
-  ).filter((p) => p.x > c.x + 300 && p.x < c.x + c.width - 300 && p.y > c.y + 220 && p.y < c.y + c.height - 160)
+  const middle = (await nodes.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 })))).filter(
+    (p) => p.x > c.x + 300 && p.x < c.x + c.width - 300 && p.y > c.y + 220 && p.y < c.y + c.height - 160
+  )
   expect(middle.length).toBeGreaterThan(8)
   for (const p of middle.filter((_, i) => i % Math.floor(middle.length / 5) === 0).slice(0, 5)) {
     await win.mouse.move(p.x, p.y, { steps: 4 })
@@ -458,9 +428,7 @@ test('150 characters and 400 ties stay smooth: no frame over 50 ms while draggin
   await win.waitForTimeout(400)
   const all = await win.evaluate<[string, number, string, string, string][]>('window.__frames')
   const frames = all.map((f) => f[1])
-  console.log(
-    `relationship-map perf: ${frames.length} long frames, worst ${Math.round(Math.max(0, ...frames))} ms: ${all.map((f) => f.join(' ')).join(', ')}`
-  )
+  console.log(`relationship-map perf: ${frames.length} long frames, worst ${Math.round(Math.max(0, ...frames))} ms: ${all.map((f) => f.join(' ')).join(', ')}`)
   // On this PC: not one frame over 50 ms. On CI (a slower, software-drawn screen, about five times slower here with the
   // CPU held back to match: PERF_THROTTLE=5) the frames are judged by their spread instead: most long frames well
   // under a tenth of a second, none stuck for long.
