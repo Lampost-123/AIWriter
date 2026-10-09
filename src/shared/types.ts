@@ -479,6 +479,8 @@ export interface Settings {
    * launch; 'last' goes straight to where Adam left off.
    */
   startWith: 'start' | 'last'
+  /** The guided tour of the desk has been seen or skipped (it shows once; Show the tour in the command bar brings it back). */
+  tourSeen?: boolean
   /** When Adam last had each world open (by world id, ISO), written as it closes: the start screen's "last opened". */
   worldsSeenAt: Record<ID, string>
   /** The New look: Settings › Appearance › Style, the New look ('new', the default) or Classic (see contracts/look.ts). */

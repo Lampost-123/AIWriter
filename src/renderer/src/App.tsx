@@ -28,6 +28,7 @@ import { DeskMap } from '@/features/map/desk/DeskMap'
 import { ThreadsBoard } from '@/features/threads/ThreadsBoard'
 import { StorySettings } from '@/features/stories/StorySettings'
 import { NewStoryDialog } from '@/features/stories/NewStoryDialog'
+import { Tour } from '@/features/tour/Tour'
 import { CommandPalette } from '@/features/palette/CommandPalette'
 import { ShortcutsList } from '@/features/palette/ShortcutsList'
 import { HistoryView } from '@/features/history/HistoryView'
@@ -424,6 +425,7 @@ function Workspace(): React.JSX.Element {
       </div>
       <CommandPalette />
       <ShortcutsList />
+      <Tour />
       <NewStoryDialog />
       <DictationLayer />
       <ExportDialogs />
