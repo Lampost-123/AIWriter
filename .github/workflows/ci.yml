@@ -13,11 +13,6 @@ on:
 permissions:
   contents: read
 
-# onnxruntime-node (the search model's engine) would fetch its GPU files from NuGet on Linux at install, hundreds of MB
-# the app never uses (it runs on the CPU): skipped.
-env:
-  ONNXRUNTIME_NODE_INSTALL: skip
-
 # A newer push to the same pull request stops the older run. Runs on main are never
 # stopped, so every merge gets checked.
 concurrency:
@@ -70,11 +65,17 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The runner's screen starts at 1024x768, smaller than the app's 1440x900 window, so Windows shrinks the window
+      # and the binder folds away (the narrow layout). Linux CI used a 1440x900 virtual screen; this matches it and more.
+      - name: Screen size 1920x1080
+        shell: pwsh
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+
       - name: App tests (Playwright driving the built app)
         run: npx playwright test --shard=${{ matrix.shard }}/4
 
       - name: Keep the test report
-        if: failure()
+        if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ matrix.shard }}-of-4

@@ -1086,8 +1086,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   - **Packaging**: `onnxruntime-node/bin/**` is unpacked from the asar (its binding loads onnxruntime.dll beside it), and
     each installer keeps only its own platform's engine, without DirectML's GPU files (they load only when asked for)
     or the install scripts (electron-builder.yml; `build/check-package.mjs` checks it). The Windows installer grows by
-    about 7 MB (113.9 to 120.7 MB). CI sets `ONNXRUNTIME_NODE_INSTALL=skip`, so `npm ci` on Linux doesn't fetch its
-    GPU files from NuGet.
+    about 7 MB (113.9 to 120.7 MB). Its install script fetches nothing on Windows (only Linux would fetch CUDA files),
+    so CI needs no setting for it.
   - **Settings** (Settings › Models, "Finding earlier passages", `features/retrieval/FindByMeaningSettings.tsx`): "Find
     by meaning" (`settings.findByMeaning`, on by default) with the download (133 MB, progress and Stop), Remove, and how
     far the open world's passages have been read. Off, or until it is downloaded, keyword search, sticky entries and

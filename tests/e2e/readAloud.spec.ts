@@ -384,6 +384,9 @@ test('Settings: Hear a voice, Sample, pick the narrator, clear saved audio; List
     await expect.poll(async () => (await seen(win)).lit[0] ?? '').toMatch(/^Mara counted the lamps/)
     await expect.poll(async () => (await spoken(speech)).find((s) => s.input.startsWith('Mara counted'))?.voice).toBe('narrator-bright')
     expect((await spoken(speech)).some((s) => s.input.startsWith('The ferry was late'))).toBe(false)
+    // The selected words' toolbar can float over the reading bar on a shorter window (CI): let go of the selection first.
+    await win.keyboard.press('End')
+    await expect(selected).toBeHidden()
     await readingBar(win).getByRole('button', { name: 'Close' }).click()
     await expect(readingBar(win)).toBeHidden()
   } finally {

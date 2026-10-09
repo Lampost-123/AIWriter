@@ -1,7 +1,6 @@
 import { defineConfig } from '@playwright/test'
 
 // App tests drive the built Electron app (run `npm run build` first; `npm run test:e2e` does).
-// On Linux they need a display: `xvfb-run -a npm run test:e2e`.
 export default defineConfig({
   testDir: 'tests/e2e',
   testMatch: '**/*.spec.ts',
