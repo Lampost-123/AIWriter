@@ -5,10 +5,11 @@ import { IconButton, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { announceDelete } from '@/lib/undoDelete'
-import { changeWhere, shortQuote, sourceNote, type ChangeWords } from '../memoryLogic'
+import { changeSourceNote, changeUntil, changeWhere, shortQuote, type ChangeWords } from '../memoryLogic'
 import type { ScenePlace } from '../useSceneLabels'
 import { QuietError } from './QuietError'
-import { PlaceLink } from './SourceLine'
+import { EditedSince, PlaceLink } from './SourceLine'
+import { showWords } from '@/features/memory/openScene'
 import type { EntryData } from './useEntryData'
 
 export interface ChangeItem {
@@ -24,7 +25,8 @@ const howTheyAre = (kind: EntryKind): string => (kind === 'character' || kind ==
 /**
  * How the entry changes as the story goes on: each change with where it happens (a link to the
  * scene), what changed in plain words, and where it came from (the words in the scene, "Drafted by
- * AI" or "Added by you"). Read-only; each can be removed, with Undo.
+ * AI", "Added by you", or "Kept by you" once an Undo brought it back). Read-only; each can be removed,
+ * with Undo.
  */
 export function ChangesSection({
   name,
@@ -69,7 +71,8 @@ const ChangeRow = memo(function ChangeRow({
 }): React.JSX.Element {
   const { change: c, words } = item
   const where = changeWhere(c)
-  const note = sourceNote(c.origin, c.links)
+  const until = changeUntil(c)
+  const note = changeSourceNote(c)
   // Another entry's fresh description sets this relationship: removing it would remove all of that, so it isn't offered here.
   const removable = !(c.kind === 'full' && !item.mine)
 
@@ -96,10 +99,34 @@ const ChangeRow = memo(function ChangeRow({
     <li className="group border-t border-line py-2.5 first:border-t-0 first:pt-0.5">
       <div className="flex h-6 items-center gap-1.5 text-[12px] text-faint">
         {c.anchor === 'scene' && c.sceneId ? (
-          <PlaceLink sceneId={c.sceneId} place={places?.get(c.sceneId)} storyId={c.storyId} label={where} className="text-[12px]" />
+          <PlaceLink
+            sceneId={c.sceneId}
+            place={places?.get(c.sceneId)}
+            storyId={c.storyId}
+            label={where}
+            words={note?.kind === 'words' && note.sceneId === c.sceneId ? { quote: note.quote, paragraphId: note.paragraphId } : null}
+            className="text-[12px]"
+          />
         ) : (
           <span className="font-medium text-muted">{where}</span>
         )}
+        {until ? (
+          <>
+            <span aria-hidden>·</span>
+            {c.until?.sceneId && c.until.quote ? (
+              <button
+                type="button"
+                title="Show the words that end it"
+                onClick={() => showWords(c.until!.sceneId, c.until!.quote, c.until!.paragraphId)}
+                className="min-w-0 truncate rounded-sm text-left transition-colors duration-150 hover:text-accent hover:underline"
+              >
+                {until}
+              </button>
+            ) : (
+              <span className="min-w-0 truncate">{until}</span>
+            )}
+          </>
+        ) : null}
         {note?.kind === 'ai' ? (
           <>
             <span aria-hidden>·</span>
@@ -110,6 +137,11 @@ const ChangeRow = memo(function ChangeRow({
           <>
             <span aria-hidden>·</span>
             <span>Added by you</span>
+          </>
+        ) : note?.kind === 'kept' ? (
+          <>
+            <span aria-hidden>·</span>
+            <span title="You brought this back, so it no longer depends on the scene's words">Kept by you</span>
           </>
         ) : null}
         <div className="flex-1" />
@@ -128,7 +160,17 @@ const ChangeRow = memo(function ChangeRow({
       {words.detail ? <p className="mt-0.5 text-[12.5px] leading-snug text-muted">{words.detail}</p> : null}
       {note?.kind === 'words' ? (
         <blockquote className="mt-1.5 border-l-2 border-line-strong pl-3 font-serif text-[13.5px] italic leading-relaxed text-muted">
-          “{note.quote}”{note.changed ? <span className="ml-1.5 font-sans text-[12px] not-italic text-faint">(since edited)</span> : null}
+          <button
+            type="button"
+            title="Show these words in the scene"
+            onClick={() => showWords(note.sceneId, note.quote, note.paragraphId)}
+            className="rounded-sm text-left italic underline-offset-2 transition-colors duration-150 hover:text-accent hover:underline"
+          >
+            “{note.quote}”
+          </button>
+          {note.changed ? (
+            <EditedSince sceneId={note.sceneId} words={{ quote: note.quote, paragraphId: note.paragraphId }} className="ml-1.5 text-[12px] text-faint" />
+          ) : null}
           {note.more ? <span className="ml-1.5 font-sans text-[12px] not-italic text-faint">and {note.more} more</span> : null}
         </blockquote>
       ) : note?.kind === 'gone' ? (

@@ -711,6 +711,8 @@ describe('deleting a scene, and bringing it back', () => {
   const note = (x: { payload: unknown }): string => (x.payload as { note?: string }).note ?? ''
   const linkStates = (db: Database.Database, sceneId: ID) => [...new Set(hist.linksInScene(db, sceneId).map((l) => l.state))]
 
+  // Until 2026-10-08 Tobin's change, read from the text and then edited by Adam, was kept with a question. Adam's rule
+  // since (World Memory Overhaul part A): a text fact he only edited goes with its words, and comes back with the scene.
   it('takes away what was read only there, keeps what other words support, and brings it all back', async () => {
     const w = world()
     const a = w.sceneId
@@ -738,17 +740,19 @@ describe('deleting a scene, and bringing it back', () => {
     expect(out.sceneIds).toEqual([a])
     expect(entryNamed(w.db, 'Mara')).toBeNull()
     expect(entryNamed(w.db, 'Kell')).not.toBeNull() // scene 2 still names him
-    expect(mem.listAllChanges(w.db).map(note).sort()).toEqual(['lost his boots in the mud', 'lost his map'])
+    expect(entryNamed(w.db, 'Tobin')).toBeNull()
+    expect(mem.listAllChanges(w.db).map(note).sort()).toEqual(['lost his map'])
     expect(scene.sceneMemory(w.db, c).entries.map((e) => e.name)).not.toContain('Mara')
     const lines = kdb.logForRun(w.db, kdb.removalRuns(w.db, [a])[0])
     expect(lines.map((l) => l.text)).toEqual(
       expect.arrayContaining([
         'Lost her left hand: those words were deleted with the scene',
         'Lost his hat: those words were deleted with the scene',
+        'Lost his boots in the mud: those words were deleted with the scene',
         'Moved to Trash: no scene mentions it any more'
       ])
     )
-    expect(lines.find((l) => l.question)?.question?.text).toBe('Keep your words?')
+    expect(lines.find((l) => l.question)).toBeUndefined()
     expect(linkStates(w.db, a)).toEqual(['gone'])
     // Nothing more happens the second time.
     expect(removed(w.db).sceneIds).toEqual([])

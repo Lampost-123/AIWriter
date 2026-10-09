@@ -42,7 +42,7 @@ export interface TimelineContext {
   /** A name for an entry id (as of this scene), or null when not known. */
   name: (id: ID) => string | null
   /** The entries as of this scene, for what has happened to them (deaths, departures, things changing hands). */
-  entries: Pick<EntryState, 'kind' | 'name' | 'happened'>[]
+  entries: (Pick<EntryState, 'kind' | 'name' | 'happened'> & Partial<Pick<EntryState, 'ended'>>)[]
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -73,9 +73,10 @@ const HANDS = /\b(gave|gives|given|handed|hands|sold|sells|lost|loses|stole|stea
 
 /**
  * What the timeline marks at each place (a scene's or a chapter's label as the memory writes it): deaths ("Edric
- * died: in his chair"), departures and things changing hands, characters' first, at most MOST_MARKS a place.
+ * died: in his chair"), departures and things changing hands, characters' first, at most MOST_MARKS a place. One that
+ * is no longer true (B1: it ended at a later scene) is history, and says so: "Mara: lost her knife (until Ch 4, Sc 2)".
  */
-export function timelineMarks(entries: TimelineContext['entries']): Map<string, string[]> {
+export function timelineMarks(entries: TimelineContext['entries'], storyTitle = ''): Map<string, string[]> {
   const out = new Map<string, string[]>()
   const put = (where: string, text: string): void => {
     const w = clean(where)
@@ -86,37 +87,56 @@ export function timelineMarks(entries: TimelineContext['entries']): Map<string, 
   }
   const people = entries.filter((e) => e.kind === 'character')
   const things = entries.filter((e) => e.kind === 'item')
+  const untilText = (h: { until?: string }): string => (h.until ? ` (until ${shortPlace(h.until, storyTitle)})` : '')
+  /** What has happened, then what has ended since, each in the order it happened. */
+  const all = (e: TimelineContext['entries'][number]): { note: string; where: string; until?: string }[] =>
+    [...(e.happened ?? []), ...(e.ended ?? [])].sort((a, b) => (a.at ?? -1) - (b.at ?? -1))
   for (const e of people) {
     const died = deathOf(e)
-    for (const h of e.happened ?? []) {
+    for (const h of all(e)) {
       const note = clean(h.note).replace(/\.$/, '')
       if (!note) continue
-      if (died && h.note.trim() === died.note) put(h.where, `${e.name} ${pastDeathNote(note).replace(/^(?:was|is)\s+/i, '')}`)
-      else if (LEAVES.test(note) || HANDS.test(note)) put(h.where, `${e.name}: ${note}`)
+      if (died && !h.until && h.note.trim() === died.note) put(h.where, `${e.name} ${pastDeathNote(note).replace(/^(?:was|is)\s+/i, '')}`)
+      else if (LEAVES.test(note) || HANDS.test(note)) put(h.where, `${e.name}: ${note}${untilText(h)}`)
     }
   }
   for (const e of things) {
-    for (const h of e.happened ?? []) {
+    for (const h of all(e)) {
       const note = clean(h.note).replace(/\.$/, '')
-      if (note && HANDS.test(note)) put(h.where, `${e.name}: ${note}`)
+      if (note && HANDS.test(note)) put(h.where, `${e.name}: ${note}${untilText(h)}`)
     }
   }
   for (const [k, v] of out) out.set(k, v.slice(0, MOST_MARKS))
   return out
 }
 
-/** One line of the timeline, with a fuller and a briefer form; `marks` are kept in both. */
+/**
+ * What follows an earlier scene's summary that is being brought up to date (World Memory Overhaul A3: the scene changed
+ * since it was written, and is among the most recent scenes a draft refreshes, memory/scene.ts markUpdating): said in
+ * full, with how the scene now ends when the memory gave it, or briefly. Empty for any other summary. The writer's story
+ * so far, in both its forms (this timeline and ai/context.ts storySoFarText), says it the same way.
+ */
+export function updatingNote(x: Pick<StorySoFar['scenes'][number], 'updating' | 'excerpt'>, brief = false): string {
+  if (!x.updating) return ''
+  if (brief) return ' (This summary is being brought up to date.)'
+  const ends = x.excerpt && clean(x.excerpt) ? ` The scene now ends: “…${clean(x.excerpt)}”` : ''
+  return ` (This summary is being brought up to date: the scene has changed since it was written.${ends})`
+}
+
+/** One line of the timeline, with a fuller and a briefer form; `marks` are kept in both, and `updating` in its own form. */
 interface Part {
   head: string
   detail: string
   brief: string
   marks: string[]
+  updating?: Pick<StorySoFar['scenes'][number], 'updating' | 'excerpt'>
 }
 
 const lineOf = (p: Part, brief: boolean): string => {
   const text = brief ? p.brief : p.detail
   const marks = p.marks.length ? ` [${p.marks.join('; ')}]` : ''
-  return `- ${p.head}${text ? `: ${text}` : ''}${marks}`
+  const note = p.updating ? updatingNote(p.updating, brief) : ''
+  return `- ${p.head}${text ? `: ${text}` : ''}${marks}${note}`
 }
 
 /** The order of this story's chapters (as the story so far gives them: by their summaries and their scenes'). */
@@ -146,7 +166,7 @@ function chapterOrder(s: StorySoFar): ID[] {
  */
 export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): string {
   const lv = Math.max(0, Math.min(TIMELINE_LEVELS - 1, level))
-  const marks = timelineMarks(ctx.entries)
+  const marks = timelineMarks(ctx.entries, ctx.storyTitle)
   const place = (w: string): string => shortPlace(w, ctx.storyTitle)
   const parts: Part[] = []
 
@@ -190,7 +210,8 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
         head,
         detail: firstWords(x.text, lastScenes.has(x.sceneId) ? WORDS.recent : WORDS.scene),
         brief: firstWords(x.text, WORDS.brief),
-        marks: sceneMarks(x.label)
+        marks: sceneMarks(x.label),
+        updating: x.updating ? { updating: true, excerpt: x.excerpt } : undefined
       })
     }
   }

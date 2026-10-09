@@ -382,6 +382,19 @@ export interface ChainSample {
   steps: ChainStepResult[]
   /** The first step with a broken check (as written), or null. */
   firstSlip: number | null
+  /** The edit chain (K2E): what Adam's edit changed and removed in the page, after which step. */
+  edit?: ChainEditDone
+}
+
+export interface ChainEditDone {
+  after: number
+  /** The paragraphs' words before and after, for each paragraph the edit touched. */
+  changed: { before: string; after: string }[]
+  /** Sentences taken out. */
+  removed: string[]
+  /** Plants ended by the edit, and those it starts (in force from the next step). */
+  ends: string[]
+  starts: string[]
 }
 
 export interface ChainResult {

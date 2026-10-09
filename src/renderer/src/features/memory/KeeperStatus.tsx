@@ -1,7 +1,8 @@
 // The memory, quietly, in the top bar: "Reading the scene…" while it reads, a short-lived "Memory
 // updated" note after it changed something (it opens What changed), nothing when idle, and a quiet
-// note when it can't run at all, with the reason and what to do. It sits in a slot of fixed width
-// that is always there, so nothing in the bar moves when it comes and goes. Nothing in it nags.
+// note when it can't run at all, with the reason and what to do. It sits in a slot that is always
+// there and grows into the bar's free middle to fit its words, so nothing in the bar moves when it
+// comes and goes. Nothing in it nags.
 import * as P from '@radix-ui/react-popover'
 import { Check, CircleAlert } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
@@ -12,6 +13,8 @@ import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { PopoverPanel } from '@/features/generate/parts'
 import { changesNote, freshUpdate, keeperState, pointsToSettings, readingNote } from './logic'
+import { rereadProgress } from './reread'
+import type { MemoryStatus } from '@shared/types'
 
 /** How long "Memory updated" stays (longer while the pointer or keyboard is on it). */
 const UPDATED_FOR = 30_000
@@ -91,7 +94,9 @@ export function KeeperStatus(): React.JSX.Element {
   }
 
   return (
-    <div className="flex w-[176px] shrink-0 justify-end look-new:w-[128px]" role="status" aria-live="polite">
+    // The slot keeps its room while empty and grows to fit its words (up to a limit, the rest in the tooltip): the free
+    // middle of the bar gives way, so nothing to its right moves.
+    <div className="flex min-w-[176px] max-w-[220px] shrink-0 justify-end look-new:min-w-[128px]" role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger
@@ -126,6 +131,8 @@ export function KeeperStatus(): React.JSX.Element {
             </div>
           </PopoverPanel>
         </P.Root>
+      ) : status?.rereading ? (
+        <RereadNote progress={status.rereading} onWhatChanged={openWhatChanged} />
       ) : reading && status ? (
         <button
           type="button"
@@ -152,5 +159,58 @@ export function KeeperStatus(): React.JSX.Element {
         </button>
       ) : null}
     </div>
+  )
+}
+
+/** A re-read Adam asked for (World Memory Overhaul B8): how far it has got, with Stop. */
+function RereadNote({ progress, onWhatChanged }: { progress: NonNullable<MemoryStatus['rereading']>; onWhatChanged: () => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const stop = async (): Promise<void> => {
+    setStopping(true)
+    try {
+      await api.stopReread()
+      setOpen(false)
+      toast('Stopped re-reading. What was read stays in the memory.')
+    } catch (e) {
+      toast(plainReason(e))
+    } finally {
+      setStopping(false)
+    }
+  }
+  return (
+    <P.Root open={open} onOpenChange={setOpen}>
+      <P.Trigger
+        className={cn(slotButton, 'text-faint hover:text-muted data-[state=open]:bg-surface-2')}
+        title="The memory is reading again. Click to see how far it has got, or stop it."
+      >
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
+        <span className="truncate">{rereadProgress(progress)}</span>
+      </P.Trigger>
+      <PopoverPanel className="w-[300px]">
+        <h3 className="text-[13.5px] font-semibold text-fg">Re-reading</h3>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+          {progress.total <= 1
+            ? 'The memory is reading the scene again from the start.'
+            : `The memory is reading ${progress.total} scenes again, one after another: ${progress.left} still to go.`}{' '}
+          What it finds shows in What changed.
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <Button size="sm" loading={stopping} onClick={() => void stop()}>
+            Stop
+          </Button>
+          <button
+            type="button"
+            className="ml-auto rounded text-[12px] font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+            onClick={() => {
+              setOpen(false)
+              onWhatChanged()
+            }}
+          >
+            What changed
+          </button>
+        </div>
+      </PopoverPanel>
+    </P.Root>
   )
 }

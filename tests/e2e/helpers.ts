@@ -157,10 +157,13 @@ export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<Laun
 
 export { expect }
 
-/** Starts the fake AI server (tests/fake-provider/server.mjs). Close it in `finally`. */
-export async function startFake(opts: { delayMs?: number } = {}): Promise<FakeProvider> {
+/**
+ * Starts the fake AI server (tests/fake-provider/server.mjs). Close it in `finally`. `slowDelayMs`: the pause between
+ * pieces of fake/slow's replies (40 ms unless given).
+ */
+export async function startFake(opts: { delayMs?: number; slowDelayMs?: number } = {}): Promise<FakeProvider> {
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
-  return startFakeProvider({ delayMs: opts.delayMs ?? 2 })
+  return startFakeProvider({ delayMs: opts.delayMs ?? 2, ...(opts.slowDelayMs !== undefined ? { slowDelayMs: opts.slowDelayMs } : {}) })
 }
 
 /**

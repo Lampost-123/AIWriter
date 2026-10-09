@@ -1,7 +1,7 @@
 // The Classic look guard (the New look, part 1): Classic keeps today's look and layout exactly. Screenshots of the
 // main screens in Classic, on the sample world, in Light and Dark, are compared with baselines taken from the app
-// before the New look began. Fonts render differently on each system, so each platform has its own baselines
-// (classic.spec.ts-snapshots/*-win32.png, *-linux.png).
+// before the New look began. The app is Windows only (CI too), so only Windows baselines are kept
+// (classic.spec.ts-snapshots/*-win32.png).
 //
 // To take new baselines on purpose (only when Classic is meant to change): npx playwright test classic --update-snapshots
 import { join } from 'node:path'

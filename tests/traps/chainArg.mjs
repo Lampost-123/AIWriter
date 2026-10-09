@@ -1,5 +1,6 @@
 // --chain for the trap harness (cli.mjs): which chains a run takes. Plain JavaScript so cli.mjs can use it before
-// vitest starts; chain.ts CHAINS is the list it must match (tests/unit/trapsThreads.test.ts checks that).
+// vitest starts; chain.ts CHAINS, less its opt-in chains (K2E, named with --probes), is the list it must match
+// (tests/unit/trapsThreads.test.ts checks that).
 
 /** The trap harness's chains (tests/traps/chain.ts CHAINS): K1 the inn, K2 the fog, K3 plot threads. */
 export const CHAIN_IDS = ['K1', 'K2', 'K3']

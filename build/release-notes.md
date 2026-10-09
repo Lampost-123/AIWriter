@@ -1,7 +1,9 @@
-<!-- version: 0.6.39 -->
-What's new in 0.6.39:
+<!-- version: 0.6.40 -->
+What's new in 0.6.40:
 
-- Setting a character's read-aloud voice is easy to find: it sits near the top of their page, even with read aloud off.
-- A Cast list in Settings > Read aloud shows every character's voice, with Hear, a voice picker and Open page.
-- Give everyone without a voice a voice in one click, with Undo.
-- Click a speaker's name in Show speakers and tone, or in the reading bar, to set their voice.
+- World memory follows your words: edit or delete text and the facts drawn from it change or go.
+- Worth a look lists memory items to check, with a jump to where each came from.
+- Plot threads have a Ledger view, and who knows what comes from who was there.
+- Facts can have an end, and AI guesses are labelled.
+
+Worlds opened in 0.6.40 no longer open in 0.6.39 or earlier.

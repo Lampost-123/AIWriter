@@ -335,7 +335,7 @@ describe('chain K3: the summary', () => {
 
 describe('the harness’s --chain', () => {
   it('takes K1, K2, K3, both, all, or a list of them, once each in the order given', () => {
-    expect(CHAIN_IDS).toEqual(CHAINS.map((c) => c.id))
+    expect(CHAIN_IDS).toEqual(CHAINS.filter((c) => !c.optIn).map((c) => c.id))
     expect(parseChains('K1')).toEqual(['K1'])
     expect(parseChains('k3')).toEqual(['K3'])
     expect(parseChains('both')).toEqual(['K1', 'K2'])

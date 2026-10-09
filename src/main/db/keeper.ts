@@ -9,7 +9,7 @@ import { newId, now } from '../util'
 import { getEntry, getSceneMeta } from './repo'
 import { getChange } from './memory'
 import { linksForEntry, linksForFact, recordVersion } from './history'
-import { fingerprint } from '../keeper/facts'
+import { fingerprint, logLineWords } from '../keeper/facts'
 import { plain } from '../keeper/text'
 import { issuesTouched, sameThing } from './checks'
 import type { IssueKind } from '@shared/contracts/checks'
@@ -146,6 +146,37 @@ export function scenesToRead(db: DB): ID[] {
   return (db.prepare(`${LIVE_IDS} AND ${BEHIND} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
 }
 
+/**
+ * Re-reading (World Memory Overhaul B8): one live scene, or every live scene of a story, that has words, in reading
+ * order, with their size (characters and words) for the cost estimate.
+ */
+export function scenesToReread(db: DB, target: { sceneId: ID } | { storyId: ID }): { id: ID; chars: number; words: number }[] {
+  const rows = (
+    'sceneId' in target
+      ? db.prepare(`SELECT s.id, length(s.text) AS chars, s.word_count ${LIVE} AND s.id = ? AND s.word_count > 0`).all(target.sceneId)
+      : db.prepare(`SELECT s.id, length(s.text) AS chars, s.word_count ${LIVE} AND c.story_id = ? AND s.word_count > 0 ${READING_ORDER}`).all(target.storyId)
+  ) as Row[]
+  return rows.map((r) => ({ id: r.id as string, chars: (r.chars as number) ?? 0, words: (r.word_count as number) ?? 0 }))
+}
+
+/**
+ * What the memory model has cost per token lately (B8), from its own runs' records with this model: the last 50 runs
+ * that reported both tokens and cost. Null when there are none.
+ */
+export function memoryCostPerToken(db: DB, modelId: string): number | null {
+  const r = db
+    .prepare(
+      `SELECT SUM(cost) AS cost, SUM(prompt_tokens + completion_tokens) AS tokens FROM (
+         SELECT cost, prompt_tokens, completion_tokens FROM memory_runs
+         WHERE model_id = ? AND cost IS NOT NULL AND prompt_tokens IS NOT NULL AND completion_tokens IS NOT NULL
+         ORDER BY created_at DESC LIMIT 50)`
+    )
+    .get(modelId) as Row | undefined
+  const cost = r?.cost as number | null
+  const tokens = r?.tokens as number | null
+  return cost != null && tokens ? cost / tokens : null
+}
+
 /** True when a live scene's latest text hasn't been read (or its last read failed). */
 export function needsReading(db: DB, sceneId: ID): boolean {
   return !!db.prepare(`${LIVE_IDS} AND s.id = ? AND ${BEHIND}`).get(sceneId)
@@ -173,6 +204,14 @@ export function noteSceneSaved(db: DB, sceneId: ID): void {
   db.prepare(
     "UPDATE scenes SET text_version = text_version + 1, memory_status = CASE WHEN memory_status = 'failed' THEN 'failed' ELSE 'pending' END WHERE id = ?"
   ).run(sceneId)
+}
+
+/**
+ * "Check again now" (World Memory Overhaul B2): the scene is to be read again though its text hasn't moved on, so facts
+ * whose words were edited and not confirmed since are asked about once more. Its text version stays as it is.
+ */
+export function markNeedsReading(db: DB, sceneId: ID): void {
+  db.prepare("UPDATE scenes SET memory_status = 'pending' WHERE id = ? AND memory_status = 'current'").run(sceneId)
 }
 
 /** Records that the keeper has read this version of the scene, and the paragraphs it read. */
@@ -309,12 +348,15 @@ export interface LogRow extends Omit<MemoryLogItem, 'where'> {
   undo: Record<string, unknown> | null
 }
 
-const toLog = (r: Row): LogRow => ({
+const toLog = (r: Row): LogRow => {
+  const undo = json<Record<string, unknown> | null>(r.undo_json, null)
+  return {
   id: r.id as string,
   runId: r.run_id as string,
   sceneId: (r.scene_id as string | null) ?? null,
   entryName: (r.entry_name as string) ?? '',
-  text: (r.text as string) ?? '',
+  // A line saved in older words shows as it is said now.
+  text: logLineWords((r.text as string) ?? '', (r.entry_name as string) ?? ''),
   before: (r.before as string) ?? '',
   after: (r.after as string) ?? '',
   action: r.action as LogRow['action'],
@@ -325,10 +367,13 @@ const toLog = (r: Row): LogRow => ({
   question: json<LogRow['question']>(r.question_json, null),
   createdAt: r.created_at as string,
   undone: r.undone_at != null,
-  undo: json<Record<string, unknown> | null>(r.undo_json, null)
-})
+  undo,
+  // A quiet note (World Memory Overhaul, 2026-10-08): the window offers Dismiss rather than Undo.
+  ...(undo?.op === 'note' ? { note: true } : {})
+  }
+}
 
-export type NewLog = Omit<LogRow, 'id' | 'createdAt' | 'undone'>
+export type NewLog = Omit<LogRow, 'id' | 'createdAt' | 'undone' | 'note'>
 
 export function insertLog(db: DB, l: NewLog): LogRow {
   const id = newId()
@@ -405,6 +450,59 @@ export function markUndone(db: DB, id: ID): void {
   db.prepare('UPDATE memory_log SET undone_at = ? WHERE id = ?').run(now(), id)
 }
 
+/** Brings back a line marked undone (a dismissed note, when its dismissal is undone from the memory check list). */
+export function markNotUndone(db: DB, id: ID): void {
+  db.prepare('UPDATE memory_log SET undone_at = NULL WHERE id = ?').run(id)
+}
+
+/**
+ * The quiet notes still showing that one of Adam's own facts is no longer what its scene says (World Memory Overhaul,
+ * 2026-10-08; for the memory check list, B3), newest first. The tidy-up's own summary line isn't one of them.
+ */
+export function openNoLongerNotes(db: DB, limit = 300): LogRow[] {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM memory_log WHERE undone_at IS NULL AND json_extract(undo_json, '$.op') = 'note'
+         AND json_extract(undo_json, '$.key') LIKE 'no-longer:%' ORDER BY rowid DESC LIMIT ?`
+      )
+      .all(limit) as Row[]
+  ).map(toLog)
+}
+
+/** A live scene and its summary, as far as telling whether the summary is due needs, without the scene's words. */
+export interface SceneSummaryState {
+  sceneId: ID
+  storyId: ID
+  words: number
+  /** Changes whenever the scene's words or its summary change (the version, save and summary times, the summary's source). */
+  version: string
+  /** The memory wrote its summary (not Adam), and it says something. */
+  textSummary: boolean
+}
+
+/** Every live scene in reading order, with what tells whether its summary changed (one query; no scene's words). */
+export function sceneSummaryStates(db: DB): SceneSummaryState[] {
+  return (
+    db
+      .prepare(
+        `SELECT s.id, c.story_id, s.word_count, s.text_version, s.updated_at, m.origin AS m_origin, m.stale AS m_stale,
+           m.updated_at AS m_at, length(m.source_hash) AS m_len, substr(m.source_hash, 1, 64) AS m_head,
+           (m.text IS NOT NULL AND trim(m.text) <> '') AS m_text
+         FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id
+         LEFT JOIN summaries m ON m.level = 'scene' AND m.target_id = s.id
+         WHERE s.deleted_at IS NULL AND c.deleted_at IS NULL AND st.deleted_at IS NULL ${READING_ORDER}`
+      )
+      .all() as Row[]
+  ).map((r) => ({
+    sceneId: r.id as string,
+    storyId: r.story_id as string,
+    words: (r.word_count as number) ?? 0,
+    version: [r.text_version, r.updated_at, r.word_count, r.m_origin, r.m_stale, r.m_at, r.m_len, r.m_head].join('|'),
+    textSummary: !!r.m_text && r.m_origin != null && r.m_origin !== 'adam'
+  }))
+}
+
 export function setLogQuestion(db: DB, id: ID, question: LogRow['question'], undo?: Record<string, unknown> | null): void {
   db.prepare('UPDATE memory_log SET question_json = ?, undo_json = COALESCE(?, undo_json) WHERE id = ?').run(
     question ? JSON.stringify(question) : null,
@@ -461,7 +559,7 @@ export function suppressFact(db: DB, factKind: 'change' | 'field', factId: ID, f
   if (!field) return
   const fp = fingerprint({ type: 'field', entryId: factId, field })
   for (const l of linksForEntry(db, factId))
-    if (l.factKind === 'field' && l.field === field) addSuppression(db, fp, l.sceneId, plain(l.quote))
+    if ((l.factKind === 'field' || l.factKind === 'summary') && l.field === field) addSuppression(db, fp, l.sceneId, plain(l.quote))
 }
 
 export function suppressionsInScene(db: DB, sceneId: ID): { fingerprint: string; words: string }[] {
@@ -576,7 +674,21 @@ export function questionAsked(db: DB, key: string): boolean {
   return rows.some((r) => json<{ key?: string }>(r.undo_json, {}).key === key)
 }
 
+/** True when a line with this key (a question or a quiet note) is already in What changed. */
+export function lineGiven(db: DB, key: string): boolean {
+  const rows = db.prepare('SELECT undo_json FROM memory_log WHERE undo_json LIKE ?').all(`%${key}%`) as Row[]
+  return rows.some((r) => json<{ key?: string }>(r.undo_json, {}).key === key)
+}
+
 // ---------- References ----------
+
+/** True when the id is one of the values in a card (at any depth), never only in a key. */
+function cardNames(v: unknown, id: ID): boolean {
+  if (typeof v === 'string') return v.includes(id)
+  if (Array.isArray(v)) return v.some((x) => cardNames(x, id))
+  if (v && typeof v === 'object') return Object.values(v as Record<string, unknown>).some((x) => cardNames(x, id))
+  return false
+}
 
 /**
  * True when something other than the keeper's own links refers to the entry: a live change on it
@@ -588,7 +700,10 @@ export function entryReferenced(db: DB, entryId: ID, ignoreChangeIds: ID[] = [])
     .prepare('SELECT id FROM changes WHERE deleted_at IS NULL AND (entry_id = ? OR payload_json LIKE ?)')
     .all(entryId, `%${entryId}%`) as Row[]
   if (changes.some((c) => !ignore.has(c.id as string))) return true
-  if (db.prepare('SELECT 1 FROM scenes WHERE deleted_at IS NULL AND card_json LIKE ? LIMIT 1').get(`%${entryId}%`)) return true
+  // A card names it only where the id is one of the card's values: the marks of plot thread links taken off are kept
+  // under keys holding the id ('setsUp:<id>': 'undone'), which name nothing (World Memory Overhaul A5, 2026-10-08).
+  const cards = db.prepare('SELECT card_json FROM scenes WHERE deleted_at IS NULL AND card_json LIKE ?').all(`%${entryId}%`) as Row[]
+  if (cards.some((r) => cardNames(json<unknown>(r.card_json, null), entryId))) return true
   if (db.prepare('SELECT 1 FROM pins WHERE entry_id = ? LIMIT 1').get(entryId)) return true
   return !!db.prepare('SELECT 1 FROM entries WHERE parent_id = ? AND deleted_at IS NULL LIMIT 1').get(entryId)
 }

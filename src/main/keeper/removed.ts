@@ -88,7 +88,7 @@ export function restoreScenes(db: DB): ScenesOutcome {
   for (const runId of kdb.removalRuns(db, back)) {
     for (const l of kdb.logForRun(db, runId).reverse()) {
       if (l.undone || overAdam(db, l.undo as Undo | null)) continue
-      out.entryIds.push(...undoItem(db, l.id).entryIds)
+      out.entryIds.push(...undoItem(db, l.id, { keepLinks: true }).entryIds)
     }
     kdb.setRunStatus(db, runId, 'restored')
   }
@@ -109,7 +109,7 @@ export function restoreScenes(db: DB): ScenesOutcome {
  */
 export function fieldsClearedByHand(db: DB, before: Entry, after: Entry): void {
   for (const l of hist.linksForEntry(db, before.id)) {
-    if ((l.factKind !== 'field' && l.factKind !== 'voice') || !l.field) continue
+    if ((l.factKind !== 'field' && l.factKind !== 'voice' && l.factKind !== 'summary') || !l.field) continue
     if (!fieldValue(before, l.field).trim() || fieldValue(after, l.field).trim()) continue
     if (fieldOrigin(before, l.field) === 'adam') continue
     const fp =

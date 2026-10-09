@@ -8,7 +8,7 @@
 import type { ChatMessage, ContextBlock, EntryState, ID, ModelChoice, SceneCard } from '@shared/types'
 import type { SceneMemory } from '../memory/types'
 import { READING_SYSTEM } from './prompts'
-import { changeWords, fieldValue, type SceneFact } from './facts'
+import { changeWords, fieldValue, guessFields, type SceneFact } from './facts'
 import { clip, estimateTokens, firstWords, lastWords, likeness, mentionAt, splitLong, words, type Para } from './text'
 import { DEFAULT_MEMORY_CONTEXT } from './model'
 import { lastClue } from './threads'
@@ -228,6 +228,8 @@ function describeFact(f: SceneFact, ids: Ids): string {
       return `change ${e}: ${changeWords(c, () => '').toLowerCase()}${fields ? ` (${fields})` : ''}`
     }
     case 'field':
+      // An entry's one-line summary (World Memory Overhaul A2): a "summary" item revises it.
+      if (f.field === 'summary') return `summary ${e}: ${clip(fieldValue(f.entry, f.field), 30)}`
       return `detail ${e} ${f.field}: ${clip(fieldValue(f.entry, f.field), 30)}`
     case 'voice':
       return `voice ${e}: ${q(f.line)}`
@@ -241,12 +243,15 @@ function entryLine(e: EntryState, id: string, full: boolean): string {
   const head = `- ${id} ${e.kind} ${q(e.name)}${e.aliases.length ? ` (also: ${e.aliases.join(', ')})` : ''}`
   if (!full) return head
   const parts: string[] = []
-  if (e.summary.trim()) parts.push(clip(e.summary, 30))
-  if (e.description.trim()) parts.push(clip(e.description, 40))
+  // The memory's own guesses (B7): marked, so a "guess" item can confirm or withdraw one.
+  const guesses = new Set(guessFields(e))
+  const guess = (k: string): string => (guesses.has(k) ? ' (guess)' : '')
+  if (e.summary.trim()) parts.push(`${clip(e.summary, 30)}${guess('summary')}`)
+  if (e.description.trim()) parts.push(`${clip(e.description, 40)}${guess('description')}`)
   const fields = Object.entries(e.fields ?? {})
     .filter(([k, v]) => k !== 'sampleLines' && v && v.trim())
     .slice(0, 14)
-    .map(([k, v]) => `${k}: ${clip(v, 15)}`)
+    .map(([k, v]) => `${k}: ${clip(v, 15)}${guess(k)}`)
   if (fields.length) parts.push(fields.join('; '))
   const happened = e.happened.slice(-5).map((h) => h.note)
   if (happened.length) parts.push(`So far: ${happened.join('; ')}`)
