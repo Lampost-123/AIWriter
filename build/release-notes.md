@@ -1,8 +1,8 @@
-<!-- version: 0.6.41 -->
-What's new in 0.6.41:
+<!-- version: 0.6.42 -->
+What's new in 0.6.42:
 
-- Ask the world makes the change you ask for on the first try, as a card you Apply or Undo.
-- Answers lead with the answer, then ideas, facts and changes in tidy cards.
-- See each tool the chat uses as it works.
-- New: add or cut paragraphs, find mentions, beats, plot threads, chapter cards, issue fixes, replace everywhere.
-- Edits are faster and cheaper.
+- A new desk layout is the default, in a calm blue Dark theme. Panels stay in Settings.
+- Drawings that move gently on the start screen and empty pages.
+- Rebuilt World room, timeline, relationship map, plan board and AI planning pages.
+- A character builder that asks you questions first.
+- A new Check room and Ask, and faster rooms in long books.
