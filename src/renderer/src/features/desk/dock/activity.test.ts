@@ -72,4 +72,8 @@ describe('what the AI dock shows', () => {
   it('gives way to Beat by beat, whatever else is going on', () => {
     expect(activityOf({ ...quiet, beats: true, draft: { ...quiet.draft, phase: 'streaming' } })).toEqual({ kind: 'beats' })
   })
+
+  it('keeps a change waiting in the page ahead of Beat by beat, so Accept and Reject are never under its bar', () => {
+    expect(activityOf({ ...quiet, beats: true, change: { tool: 'rewrite', status: 'ready', text: 'A b.' } })).toMatchObject({ kind: 'review' })
+  })
 })

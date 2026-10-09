@@ -54,6 +54,7 @@ export function cleanMarks(sceneId: ID, v: unknown): SceneBeatMarks | null {
   const of = Math.max(1, Math.min(MAX_BEATS, Math.floor(Number(x.of)) || (beats.at(-1)?.index ?? 1)))
   const out: SceneBeatMarks = { sceneId, sessionId: x.sessionId, of, mode: x.mode === 'below' ? 'below' : 'whole', beats }
   if (x.open === true) out.open = true
+  else if (x.left === true) out.left = true
   if (x.start === 'replace' || x.start === 'add') out.start = x.start
   return out
 }

@@ -86,6 +86,11 @@ export interface SceneBeatMarks {
    * session is kept from the moment it starts, before any beat has put words on the page (its `beats` empty then).
    */
   open?: boolean
+  /**
+   * Left for the AI bar with Back to the AI bar (not Finished, not open): Beat by beat from the AI bar's More menu carries
+   * on from the beat it got to, with no question. A Finished session isn't left, so it still asks "Carry on from beat N".
+   */
+  left?: boolean
   /** How "This scene already has text" was answered for the first beat (none: the page was empty), so carrying on goes there too. */
   start?: 'replace' | 'add'
 }
