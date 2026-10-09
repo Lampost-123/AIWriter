@@ -141,7 +141,9 @@ export function buildMap(input: MapInput): RelationshipMap {
   const nodes: MapNode[] = [...shown].flatMap((id) => {
     const e = state.entries.get(id)
     const p = positions.get(id)
-    return e && p ? [{ id, name: e.name.trim() || 'Unnamed', image: e.image ?? null, x: p.x, y: p.y }] : []
+    return e && p
+      ? [{ id, name: e.name.trim() || 'Unnamed', image: e.image ?? null, x: p.x, y: p.y, role: (e.fields?.role ?? '').trim(), summary: (e.summary ?? '').trim() }]
+      : []
   })
   nodes.sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
 
