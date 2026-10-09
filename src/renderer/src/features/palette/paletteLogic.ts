@@ -56,6 +56,7 @@ export type FixedActionId =
   | 'tab-context'
   | 'tab-cast'
   | 'tab-issues'
+  | 'tab-critique'
   | 'tab-drafts'
   | 'settings-models'
   | 'settings-preferences'
@@ -96,6 +97,9 @@ export type FixedActionId =
   | 'check-chapter'
   | 'check-story'
   | 'go-consistency'
+  // The scene and chapter critic
+  | 'critique-scene'
+  | 'critique-chapter'
   // Milestone 6
   | 'export-story'
   | 'export-bible'
@@ -268,6 +272,7 @@ export const ACTIONS: ActionDef[] = [
   { id: 'tab-context', label: 'Scene context', also: 'Scene panel › Context', keywords: 'briefing what the ai sees knows details drawer', away: toWriting, when: hasScene },
   { id: 'tab-cast', label: 'Scene cast', also: 'Scene panel › Cast', keywords: 'characters people who is in it details drawer', away: toWriting, when: hasScene },
   { id: 'tab-issues', label: 'Scene issues', also: 'Scene panel › Issues', keywords: 'problems mistakes consistency found details drawer', away: toWriting, when: hasScene },
+  { id: 'tab-critique', label: 'Scene critique', also: 'Scene panel › Critique', keywords: 'critic feedback notes craft editor details drawer', away: toWriting, when: hasScene },
   { id: 'tab-drafts', label: 'Scene drafts', also: 'Scene panel › Drafts', keywords: 'ai versions written generated details drawer', away: toWriting, when: hasScene },
   {
     id: 'settings-models',
@@ -426,6 +431,21 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'issues problems mistakes contradictions repetition repeated words pet phrases plot threads report',
     away: true,
     when: hasStory
+  },
+  // The scene and chapter critic: shown in the Critique tab, so these go to the page.
+  {
+    id: 'critique-scene',
+    label: 'Critique this scene',
+    keywords: 'critic feedback notes craft editor pacing tension dialogue prose review ai',
+    away: toWriting,
+    when: hasScene
+  },
+  {
+    id: 'critique-chapter',
+    label: 'Critique this chapter',
+    keywords: 'critic feedback notes craft editor shape flow pacing ending review ai',
+    away: toWriting,
+    when: hasScene
   },
   // ----- Milestone 6 -----
   { id: 'export-story', label: 'Export story', keywords: 'word docx epub ebook pdf markdown text manuscript chapter save print', when: hasStory },

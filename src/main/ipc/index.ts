@@ -44,6 +44,7 @@ import { repairHandlers } from './repair'
 import { searchModelHandlers } from './searchModel'
 import { chapterCardsHandlers } from './chapterCards'
 import { artHandlers } from './art'
+import { critiqueHandlers } from './critique'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -102,7 +103,9 @@ const all: Handlers<ApiMethod> = {
   // Story memory step 5: the search model for "Find by meaning"
   ...searchModelHandlers,
   // Chapter cards
-  ...chapterCardsHandlers
+  ...chapterCardsHandlers,
+  // The scene and chapter critic
+  ...critiqueHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

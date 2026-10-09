@@ -49,6 +49,7 @@ import { goToStartScreen } from '@/features/start/home'
 import { openStoryHome } from '@/features/desk/home/open'
 import { openRecipes, startMaking } from '@/features/recipes/recipeStore'
 import { showSounds } from '@/features/sounds/soundsStore'
+import { setScope, startCritique } from '@/features/critique/critiqueStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -231,6 +232,7 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'tab-context':
       case 'tab-cast':
       case 'tab-issues':
+      case 'tab-critique':
       case 'tab-drafts':
         openSceneTab(fixed.slice('tab-'.length) as InspectorTab)
         return
@@ -354,6 +356,22 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'go-consistency':
         if (a.storyId) openConsistency(a.storyId)
         return
+      // ----- The scene and chapter critic -----
+      case 'critique-scene':
+        if (!a.sceneId) return
+        setScope('scene')
+        openSceneTab('critique')
+        await startCritique({ scope: 'scene', id: a.sceneId })
+        return
+      case 'critique-chapter': {
+        if (!a.sceneId || !a.storyId) return
+        const chapterId = (await outlineOf(a.storyId)).scenes.find((s) => s.id === a.sceneId)?.chapterId
+        if (!chapterId) return
+        setScope('chapter')
+        openSceneTab('critique')
+        await startCritique({ scope: 'chapter', id: chapterId })
+        return
+      }
       // ----- Milestone 6 -----
       case 'export-story':
         if (a.storyId) openExportStory(a.storyId, currentChapterId())

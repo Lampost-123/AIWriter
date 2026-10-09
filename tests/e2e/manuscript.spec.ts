@@ -154,7 +154,7 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
   await win.keyboard.press('Escape')
   await expect(scenePanel(win).getByRole('tab', { name: 'Cast', selected: true })).toBeFocused()
 
-  // Five tabs (milestone 5 adds Issues) fit the panel at its narrowest, each label on one line.
+  // Six tabs (milestone 5 adds Issues, the critic adds Critique) fit the panel at its narrowest, each label on one line.
   await invoke(win, 'updateSettings', { layout: { inspectorWidth: 260 } })
   await win.reload()
   await expect(scenePanel(win)).toBeVisible()
@@ -164,7 +164,8 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
     const right = list.getBoundingClientRect().right
     return [...list.querySelectorAll('[role="tab"]')].map((t) => {
       // One line: every piece of its words that shows is on the same line (a label read out in full but
-      // shown short has a piece that is only read out).
+      // shown short has a piece that is only read out). A tab shown as its icon (Critique, when narrow) shows no words.
+      const icon = !!t.querySelector('svg')
       const tops = new Set()
       const walk = document.createTreeWalker(t, NodeFilter.SHOW_TEXT)
       for (let n = walk.nextNode(); n; n = walk.nextNode()) {
@@ -174,10 +175,10 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
         words.selectNodeContents(n)
         for (const r of words.getClientRects()) tops.add(Math.round(r.top))
       }
-      return t.getBoundingClientRect().right <= right + 0.5 && tops.size === 1
+      return t.getBoundingClientRect().right <= right + 0.5 && (tops.size === 1 || (icon && tops.size === 0))
     })
   })()`)
-  expect(fits).toEqual([true, true, true, true, true])
+  expect(fits).toEqual([true, true, true, true, true, true])
 })
 
 test('Add to memory and Quick start from selected words', async ({ launch }) => {
