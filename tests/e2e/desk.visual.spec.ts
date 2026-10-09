@@ -27,7 +27,8 @@ const shot = async (win: Page, name: string): Promise<void> => {
   await settle(win)
   // A tight colour threshold (Playwright's default, 0.2, let the whole desk turn from brown to blue unnoticed): a change
   // of palette fails, while a few pixels of text drawn differently still pass.
-  await expect(win).toHaveScreenshot(`${name}.png`, { maxDiffPixels: 200, threshold: 0.04, animations: 'disabled', caret: 'hide', stylePath: NO_SCROLL_BARS })
+  // Soft, so one run shows every view that changed (and writes each one's picture), not just the first.
+  await expect.soft(win).toHaveScreenshot(`${name}.png`, { maxDiffPixels: 200, threshold: 0.04, animations: 'disabled', caret: 'hide', stylePath: NO_SCROLL_BARS })
 }
 
 async function size(app: ElectronApplication, win: Page, w: number, h: number): Promise<void> {
