@@ -14,7 +14,14 @@ export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | '
 export type View =
   | { kind: 'write' }
   /** `from`: opened from a draft's "What the AI saw", so the page offers the way back. */
-  | { kind: 'entries'; entryKind: EntryKind; entryId: ID | null; from?: { generationId: ID } }
+  | {
+      kind: 'entries'
+      entryKind: EntryKind
+      entryId: ID | null
+      from?: { generationId: ID }
+      /** Opened from the New look's timeline: the desk's dossier goes back there. */
+      back?: 'timeline'
+    }
   | { kind: 'style' }
   | { kind: 'settings'; tab: SettingsTab }
   /** `back`: opened from somewhere other than the scene a draft was for (the outline helper, say). */

@@ -141,7 +141,7 @@ async function makeWorld(win: Page): Promise<void> {
   await expect(win.locator('.scene-prose')).toBeVisible()
 }
 
-test('the timeline: lanes, a clash in plain words, and a click opens the scene', async ({ launch }) => {
+test('the timeline: lanes, a clash in plain words, and a double-click opens the scene', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')
 
@@ -156,14 +156,12 @@ test('the timeline: lanes, a clash in plain words, and a click opens the scene',
   const timeline = main(win).getByRole('list', { name: 'Timeline' })
   await expect(timeline.getByRole('listitem').first()).toBeVisible()
 
-  // Mara can't be in Ashford and at the mill on the same day. Clicking the sentence lights up both scenes.
-  const clashes = main(win).getByRole('region', { name: 'Clashes' })
-  await expect(clashes).toContainText('1 clash on the timeline')
-  await clashes.getByRole('button', { name: 'Mara is in Ashford and Harrow Mill on Day 12.' }).click()
+  // Mara can't be in Ashford and at the mill on the same day. Picking the sentence brings her first scene to the keyboard.
+  await main(win).getByRole('button', { name: '1 clash' }).click()
+  await win.getByRole('list', { name: 'Clashes' }).getByRole('button', { name: 'Mara is in Ashford and Harrow Mill on Day 12.' }).click()
   const first = timeline.getByRole('button', { name: /^Book 1, Ch 1, Sc 1, Scene 1\. Day 12\. Mara is in Ashford/ })
   await expect(first).toBeFocused()
-  await expect(first).toHaveClass(/bg-accent-soft(?!\/)/)
-  await expect(timeline.getByRole('button', { name: /^Book 1, Ch 1, Sc 2, The mill burns/ })).toHaveClass(/bg-accent-soft(?!\/)/)
+  await expect(timeline.getByRole('button', { name: /^Book 1, Ch 1, Sc 2, The mill burns/ }).locator('.tl-c-clash')).toHaveCount(1)
 
   // Scenes keep the order they happen in; those with no date keep their reading order, marked so.
   const names = await timeline.getByRole('button').evaluateAll((els) => els.slice(0, 4).map((e) => e.getAttribute('aria-label') ?? ''))
@@ -175,23 +173,25 @@ test('the timeline: lanes, a clash in plain words, and a click opens the scene',
   ])
   await expect(timeline.getByRole('button', { name: /Scene in chapter 3\. No date\./ })).toBeVisible()
 
-  // The keyboard moves between rows.
+  // The keyboard moves between scenes.
   await first.press('ArrowDown')
   await expect(timeline.getByRole('button', { name: /The mill burns/ })).toBeFocused()
 
-  // Lanes follow characters, or plot threads.
-  await expect(main(win).getByRole('button', { name: /^Lanes/ })).toContainText('2 of 2')
+  // Lanes follow characters (the cast of the chapter in view until Adam picks), or plot threads.
+  await expect(main(win).getByRole('button', { name: /^Lanes/ })).toContainText(/\d of 2/)
   await main(win).getByRole('radio', { name: 'Plot threads' }).click()
-  await expect(main(win).getByTitle('Who burned the mill?')).toBeVisible()
-  // With room to spare, a thread's lane is wide enough for its whole name.
-  const laneName = main(win).getByTitle('Who burned the mill?').locator('span').last()
+  // A thread's lane shows its whole name.
+  const laneName = main(win).locator('.tl-lh-name', { hasText: 'Who burned the mill?' })
+  await expect(laneName).toBeVisible()
   expect(await laneName.evaluate((e) => e.scrollHeight <= e.clientHeight && e.scrollWidth <= e.clientWidth)).toBe(true)
 
   // A long When shows in full on hover.
   await expect(timeline.getByTitle('Day 12, at dusk', { exact: true })).toBeVisible()
 
-  // Clicking a scene opens it.
+  // A click opens the scene's side card; a double-click opens the scene.
   await timeline.getByRole('button', { name: /Tobin returns/ }).click()
+  await expect(main(win).getByRole('complementary', { name: 'About this scene' })).toBeVisible()
+  await timeline.getByRole('button', { name: /Tobin returns/ }).dblclick()
   await expect(win.locator('.scene-prose')).toBeVisible()
   await expect(sceneRow(win, 'Tobin returns')).toHaveAttribute('aria-selected', 'true')
 })
@@ -207,12 +207,14 @@ test('the timeline and the board at a small window: every scene title and column
   await open(win, 'Timeline')
   const timeline = main(win).getByRole('list', { name: 'Timeline' })
   await expect(timeline.getByRole('listitem').first()).toBeVisible()
-  // As many lanes as fit beside the scenes, and nothing to scroll sideways for.
   await expect(main(win).getByRole('button', { name: /^Lanes/ })).toContainText(/\d of 2/)
-  const scroller = timeline.locator('..')
-  expect(await scroller.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
-  expect(await inside(win, timeline.getByText('The mill burns'), scroller)).toBe(true)
-  expect(await inside(win, timeline.getByText('Book 1, Ch 1, Sc 2'), scroller)).toBe(true)
+  // The river scrolls inside itself; the page never does, and a card shows its whole title and place.
+  expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
+  const scroller = main(win).locator('.tl-scroller')
+  const burns = timeline.getByRole('button', { name: /The mill burns/ })
+  await burns.scrollIntoViewIfNeeded()
+  expect(await inside(win, burns.getByText('The mill burns'), scroller)).toBe(true)
+  expect(await inside(win, burns.getByText('Ch 1 · Sc 2'), scroller)).toBe(true)
 
   await open(win, 'Plot threads board')
   const planned = main(win).getByRole('region', { name: 'Planned', exact: true })

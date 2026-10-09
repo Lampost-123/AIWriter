@@ -20,6 +20,7 @@ export function WorldRoom(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const openId = view.kind === 'entries' ? view.entryId : null
   const from = view.kind === 'entries' ? view.from : undefined
+  const backTo = view.kind === 'entries' ? view.back : undefined
   const overlay = useContext(RoomOverlay)
   // Back from a dossier (at once, or once the flip has put the gallery back): the keyboard goes to the card it came from,
   // unless Adam has already put it somewhere.
@@ -40,9 +41,11 @@ export function WorldRoom(): React.JSX.Element {
       if (!openId) return
       // Opened from "What the AI saw": back there.
       if (from) return useApp.getState().navigate({ kind: 'generation', generationId: from.generationId })
+      // Opened from the timeline: back to it, as it was.
+      if (backTo === 'timeline') return useApp.getState().navigate({ kind: 'timeline' })
       closeDossier(openId, how)
     },
-    [openId, from]
+    [openId, from, backTo]
   )
   const deleted = useCallback((e: Entry) => closeDossier(e.id), [])
   const another = useCallback((e: Pick<Entry, 'id' | 'kind'>) => openDossier(e), [])
@@ -57,7 +60,7 @@ export function WorldRoom(): React.JSX.Element {
             <DossierLayer
               id={openId}
               data={data}
-              back={from ? 'Back to What the AI saw' : 'Back to the world'}
+              back={from ? 'Back to What the AI saw' : backTo === 'timeline' ? 'Back to the timeline' : 'Back to the world'}
               onClose={close}
               onDeleted={deleted}
               onOpen={another}

@@ -3,7 +3,7 @@
 // each character sits on the relationship map (in `meta`, so no table of their own).
 import type Database from 'better-sqlite3'
 import type { BoardMarks, BoardSceneCard } from '@shared/contracts/worldViews'
-import type { ID, SceneCard } from '@shared/types'
+import type { ID, SceneCard, SceneStatus } from '@shared/types'
 import { getMeta, setMeta } from './repo'
 
 type DB = Database.Database
@@ -24,6 +24,9 @@ export function storyGaps(db: DB): Map<ID, string> {
 /** The parts of a scene card the views use. */
 export type CardInfo = Pick<SceneCard, 'when' | 'povId' | 'presentIds' | 'locationId' | 'setsUpIds' | 'paysOffIds' | 'goal' | 'beats'> & {
   title: string
+  /** The scene's status and words (the timeline's cards show them; the story board reads them from the outline). */
+  status: SceneStatus
+  words: number
   /** Nothing yet on what happens (no beats, goal, conflict, outcome or notes). */
   empty: boolean
 }
@@ -31,7 +34,7 @@ export type CardInfo = Pick<SceneCard, 'when' | 'povId' | 'presentIds' | 'locati
 const ids = (v: unknown): ID[] => (Array.isArray(v) ? v.filter((x): x is ID => typeof x === 'string' && x !== '') : [])
 const id = (v: unknown): ID | null => (typeof v === 'string' && v ? v : null)
 
-type CardFields = Omit<CardInfo, 'title'>
+type CardFields = Omit<CardInfo, 'title' | 'status' | 'words'>
 
 // Cards read before, by scene, with the text each was read from: most cards are the same from one
 // visit to the next, so only the ones that changed are read again.
@@ -60,9 +63,11 @@ function fieldsOf(json: string): CardFields {
   }
 }
 
+const STATUSES = new Set<SceneStatus>(['planned', 'drafted', 'revised', 'done'])
+
 /** Every live scene's card, by scene id: one query however many scenes. */
 export function sceneCards(db: DB): Map<ID, CardInfo> {
-  const rows = db.prepare('SELECT id, title, card_json FROM scenes WHERE deleted_at IS NULL').all() as Row[]
+  const rows = db.prepare('SELECT id, title, status, word_count, card_json FROM scenes WHERE deleted_at IS NULL').all() as Row[]
   const before = read.get(db)
   const now = new Map<ID, { json: string; fields: CardFields }>()
   const out = new Map<ID, CardInfo>()
@@ -72,7 +77,8 @@ export function sceneCards(db: DB): Map<ID, CardInfo> {
     const last = before?.get(sceneId)
     const fields = last && last.json === json ? last.fields : fieldsOf(json)
     now.set(sceneId, { json, fields })
-    out.set(sceneId, { ...fields, title: (r.title as string) ?? '' })
+    const status = STATUSES.has(r.status as SceneStatus) ? (r.status as SceneStatus) : 'planned'
+    out.set(sceneId, { ...fields, title: (r.title as string) ?? '', status, words: Number(r.word_count) || 0 })
   }
   read.set(db, now)
   return out
@@ -118,7 +124,7 @@ export function storySceneCards(db: DB, storyId: ID): Record<ID, BoardSceneCard>
   for (const r of rows) {
     const c = cards.get(r.id as ID)
     if (!c) continue
-    const { title: _title, ...card } = c
+    const { title: _title, status: _status, words: _words, ...card } = c
     out[r.id as ID] = card
   }
   return out
