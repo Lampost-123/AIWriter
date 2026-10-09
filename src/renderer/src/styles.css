@@ -214,12 +214,18 @@
   --serif-font: 'Literata', Georgia, 'Times New Roman', serif;
   --r-card: 12px;
   /* Motion: a press, a hover or a menu, a panel or dialog, a change of view. Never on the words of a story. */
-  --dur-press: 150ms;
+  /* A press is the same in both looks: in at 90ms on the press curve (it comes back at the thing's own speed). */
+  --dur-press: 90ms;
+  --motion-press: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-quick: 150ms;
   --dur-base: 200ms;
   --dur-view: 0ms;
   --motion-glide: ease-out;
   --motion-spring: ease-out;
+  /* Something closing (a menu, a dialog, a toast): nothing animates out in Classic. */
+  --dur-exit: 0ms;
+  /* A side panel sliding open or shut. */
+  --motion-drawer: ease-out;
   /* The light falling on the window's frame behind the page. */
   --glow: none;
 }
@@ -230,13 +236,22 @@
   --heading-font: 'Literata Variable', Georgia, 'Times New Roman', serif;
   --serif-font: 'Literata Variable', Georgia, 'Times New Roman', serif;
   --r-card: 14px;
-  --dur-press: 100ms;
-  --dur-quick: 160ms;
+  /*
+    The New look's speeds, by how often a thing happens (docs/ARCHITECTURE.md, "Motion"): instant for typing and
+    anything opened from the keyboard; a press 90ms; a hover or a menu 150ms; the selection, tabs, dialogs and
+    panels 220ms; a change of screen 280ms; rare moments (a scene done) 500-900ms, set where they play.
+  */
+  --dur-press: 90ms;
+  --dur-quick: 150ms;
   --dur-base: 220ms;
-  --dur-view: 260ms;
+  --dur-view: 280ms;
   --motion-glide: cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* A spring with a small overshoot (the selection pill, toasts, the Done tick). */
+  /* A spring with a small overshoot (toasts, the Done tick, menus opening). */
   --motion-spring: linear(0, 0.157 4.8%, 0.523 10.9%, 0.896 17.9%, 1.05 23.4%, 1.085 27.6%, 1.074 32.4%, 1.015 42.5%, 0.994 52.5%, 1.001 72%, 1);
+  /* Closing is quicker than opening. */
+  --dur-exit: 140ms;
+  /* Panels slide like a drawer: quick to start, long soft landing. */
+  --motion-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /*
@@ -378,10 +393,56 @@
   transform-origin: var(--radix-popper-transform-origin);
   animation: pop-in var(--dur-base) var(--motion-spring);
 }
+/*
+  The New look: menus and popovers close the way they opened, shrinking back toward where they came from, and quicker;
+  a dialog (components/ui/Dialog.tsx) and its dim fade out from the centre. What plays out is a lifeless copy of the
+  layer's last frame (features/look/exitGhosts.ts): the layer itself has gone at once, as in Classic. Closed from the
+  keyboard, nothing plays.
+*/
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+[data-look='new'] [data-exit-ghost][data-radix-popper-content-wrapper] > [data-state='closed'] {
+  transform-origin: var(--radix-popper-transform-origin);
+  animation: pop-out var(--dur-exit) var(--motion-glide) both;
+}
+[data-look='new'] [data-exit-ghost][data-dialog] {
+  animation: pop-out var(--dur-exit) var(--motion-glide) both;
+}
+[data-look='new'] [data-exit-ghost][data-dialog-overlay] {
+  animation: fade-out var(--dur-exit) var(--motion-glide) both;
+}
+[data-exit-ghost] {
+  pointer-events: none;
+}
+/*
+  The New look: the generic enter animations (animate-fade-in, animate-pop-in, animate-slide-up, also behind a variant
+  such as data-[state=open]:) take the look's own timing. Anything that sets its own New-look animation ([animation:…])
+  keeps it, and so does every other plain rule: these selectors are all inside :where(), so they weigh nothing (the
+  menus' rule above, and the closing rules below, win over them). Classic keeps 160/180ms ease-out.
+*/
+:where([data-look='new']) :where([class*='animate-fade-in'], [class*='animate-pop-in']):where(:not([class*='[animation'])) {
+  animation-duration: var(--dur-quick);
+  animation-timing-function: var(--motion-glide);
+}
+:where([data-look='new']) :where([class*='animate-slide-up']):where(:not([class*='[animation'])) {
+  animation-duration: var(--dur-base);
+  animation-timing-function: var(--motion-glide);
+}
 
 /* look-new:… applies a class in the New look only; look-classic:… in Classic only. */
 @custom-variant look-new (&:where([data-look='new'], [data-look='new'] *));
 @custom-variant look-classic (&:where([data-look='classic'], [data-look='classic'] *));
+/* desk:… applies a class in the New look's desk layout only (<html data-arrangement='desk'>; layout/desk/desk.css). */
+@custom-variant desk (&:where([data-arrangement='desk'][data-look='new'], [data-arrangement='desk'][data-look='new'] *));
 
 @theme inline {
   --color-raise: var(--raise);
@@ -408,6 +469,8 @@
   --shadow-sheet: var(--elev-page);
   --ease-glide: var(--motion-glide);
   --ease-spring: var(--motion-spring);
+  --ease-drawer: var(--motion-drawer);
+  --ease-press: var(--motion-press);
   --radius-card: var(--r-card);
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -426,6 +489,10 @@
   --color-ai: var(--ai);
   --color-ai-soft: var(--ai-soft);
   --color-ai-fg: var(--ai-fg);
+  /* The desk's warm-ink buttons (layout/desk/desk.css sets them; nothing else uses them). */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
   --color-overlay: var(--overlay);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
@@ -459,35 +526,81 @@
   }
 }
 /*
-  The New look: switching views, the page that opens fades in with a 6px rise (the main pane only; nothing else
-  moves). Two copies of the same keyframes, so returning to the writing page (which stays mounted) can start it
-  again by switching between them.
+  The New look: changing page (features/look/viewTransition.ts) fades the centre of the window through: the old page
+  goes in 100ms, then the new one fades up 4px, 280ms in all. The side list crossfades too when the rail's area changes. Nothing
+  else takes part (the document itself is left out), so the rest of the window stays live and clicks go straight
+  through. The page keeps its new size at once and its pictures are never stretched (text in them would blur). From the
+  keyboard, coming back to the writing page, in Classic and with less motion, the page just changes.
 */
-@keyframes view-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
+:root[data-look='new'] {
+  view-transition-name: none;
+}
+:root[data-vt] [data-page] {
+  view-transition-name: page;
+}
+:root[data-vt~='area'] [data-area-list] {
+  view-transition-name: side-list;
+}
+/* Toasts over the page stay as they are, live (else the page's pictures, drawn over everything, would hide them). */
+:root[data-vt] [data-toaster] {
+  view-transition-name: toasts;
+}
+::view-transition-group(toasts),
+::view-transition-new(toasts) {
+  animation: none;
+}
+::view-transition-old(toasts) {
+  display: none;
+}
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-group(page),
+::view-transition-group(side-list) {
+  animation: none;
+}
+::view-transition-old(page),
+::view-transition-new(page),
+::view-transition-old(side-list),
+::view-transition-new(side-list) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+/*
+  A fade through, not a plain crossfade: the old page is nearly gone (100ms) before the new one shows, so the two pages'
+  words never sit on top of each other; the new one's 4px rise runs the whole 280ms.
+*/
+::view-transition-old(page),
+::view-transition-old(side-list) {
+  animation: vt-out 100ms var(--motion-glide) both;
+}
+::view-transition-new(page) {
+  animation: vt-in var(--dur-view) var(--motion-glide) both;
+}
+::view-transition-new(side-list) {
+  animation: vt-fade-in var(--dur-view) var(--motion-glide) both;
+}
+@keyframes vt-out {
   to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes view-in-again {
-  from {
     opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
   }
 }
-[data-look='new'] .view-in {
-  animation: view-in var(--dur-view) var(--motion-glide) both;
+@keyframes vt-in {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  20% {
+    opacity: 0;
+  }
 }
-[data-look='new'] .view-in-again {
-  animation: view-in-again var(--dur-view) var(--motion-glide) both;
+@keyframes vt-fade-in {
+  0%,
+  20% {
+    opacity: 0;
+  }
 }
 /* The New look's tick that draws itself (components/ui/DrawnTick.tsx), and a ring that pulses once round a scene's
    dot as it is marked done (features/binder/StatusDot.tsx). */
@@ -596,6 +709,17 @@
     transform: none;
   }
 }
+/* The New look's toasts leave the way they came, quicker (components/ui/Toast.tsx keeps each for it, lifeless). */
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+}
+[data-look='new'] [data-toast][data-leaving] {
+  animation: toast-out var(--dur-exit) var(--motion-glide) both;
+  pointer-events: none;
+}
 /* The New look's one-time note springs up from the corner. */
 @keyframes look-note-in {
   from {
@@ -667,6 +791,25 @@
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+}
+
+/*
+  While a dialog holds the window (Radix locks scrolling behind it: body[data-scroll-locked]), what is behind it shows
+  no scrollbar: it can't scroll then, and Chromium keeps the hover that showed one as the dialog opened (the start
+  screen's, say). The dialog itself, and any menu or list opened from it, keep theirs.
+*/
+body[data-scroll-locked]
+  :not(
+    :is([role='dialog'], [role='alertdialog'], [data-radix-popper-content-wrapper]),
+    :is([role='dialog'], [role='alertdialog'], [data-radix-popper-content-wrapper]) *
+  )::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+/* A list whose end is easily missed (the command palette's results, the keyboard shortcuts) shows its scrollbar
+   whenever it has more than fits, not only on hover. */
+.scrollbar-shown::-webkit-scrollbar-thumb {
+  background-color: var(--line-strong);
 }
 
 /* Since scrollbars only show on hover, a list with more below what shows fades at its bottom edge
@@ -791,6 +934,7 @@ body {
     --dur-quick: 0ms;
     --dur-base: 0ms;
     --dur-view: 0ms;
+    --dur-exit: 0ms;
   }
   *,
   *::before,
@@ -801,6 +945,12 @@ body {
     transition-duration: 0.01ms !important;
     transition-delay: 0s !important;
     scroll-behavior: auto !important;
+  }
+  /* A page change's crossfade (which the rule above doesn't reach); features/look/viewTransition.ts skips it too. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
   /* The start screen's opening is a plain fade instead, and its texture stays still. */
   [data-opening] .start-mark path,
@@ -876,7 +1026,9 @@ body {
     background-color var(--dur-quick) ease-out,
     border-color var(--dur-quick) ease-out,
     box-shadow var(--dur-quick) ease-out,
-    transform var(--dur-quick) var(--motion-glide);
+    transform var(--dur-quick) var(--motion-glide),
+    translate var(--dur-quick) var(--motion-glide),
+    scale var(--dur-press) var(--motion-glide);
 }
 .genre-tile:hover {
   background-color: oklch(var(--genre-hover-l) var(--genre-hover-c) var(--hue));

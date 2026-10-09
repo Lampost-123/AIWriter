@@ -1,15 +1,19 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { useNewLook } from '@/features/look/look'
+import { EmptyArt, type EmptyArtName } from '@/components/art/EmptyArt'
 
 export function EmptyState({
   icon,
+  art,
   title,
   children,
   actions,
   className
 }: {
   icon?: ReactNode
+  /** The New look's picture for this kind of empty page (components/art/EmptyArt), in place of the icon's. */
+  art?: EmptyArtName
   title: string
   children?: ReactNode
   actions?: ReactNode
@@ -18,7 +22,9 @@ export function EmptyState({
   const isNew = useNewLook()
   return (
     <div className={cn('mx-auto flex max-w-sm flex-col items-center px-6 py-12 text-center animate-fade-in', className)}>
-      {icon && isNew ? (
+      {art && isNew ? (
+        <EmptyArt name={art} className="mb-5" />
+      ) : icon && isNew ? (
         <SpotArt>{icon}</SpotArt>
       ) : icon ? (
         <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-muted">{icon}</div>

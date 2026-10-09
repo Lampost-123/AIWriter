@@ -1,0 +1,590 @@
+/*
+  The first-run setup's picture (SetupScene.tsx): the headland at dusk in the start screen's harbour colours, its
+  lighthouse brought to life step by step. The rules are the living art's (components/art/living.ts): loops only by
+  transform or opacity on whole layers, seconds long; still while the window is hidden or left and while Adam types
+  (data-art-still, data-art-typing); with less motion nothing moves and the picture shows the light reached so far.
+  The lamp's light is its own pale warm light, never the AI's amber.
+*/
+
+/* ---------- the rules (the same as the harbour's) ---------- */
+:root[data-art-still] :is(.sx, .sx *) {
+  animation-play-state: paused !important;
+}
+:root[data-art-typing] :is(.sx .lp, .sx .lp *) {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.sx, .sx *) {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ---------- colours: the harbour's, in every theme; the sky takes the accent ---------- */
+:root,
+[data-theme='light'] {
+  --sx-night: #121a33;
+  --sx-dusk: #7a5878;
+  --sx-horizon: #f1bd86;
+  --sx-sun: #ffe3ae;
+  --sx-cloud: #f6be93;
+  --sx-moon: #fff1d6;
+  --sx-land-far: #3f3a5e;
+  --sx-land: #2e2739;
+  --sx-land-near: #231d2e;
+  --sx-rock-face: #4a3f57;
+  --sx-roof: #2a2540;
+  --sx-cottage: #d9c6b0;
+  --sx-rim: #a0747e;
+  --sx-tower: #f8ecda;
+  --sx-tower-2: #e6d0b4;
+  --sx-tower-shade: #ae937f;
+  --sx-band: #a54b44;
+  --sx-band-shade: #7d3833;
+  --sx-door: #4b3640;
+  --sx-iron: #33272e;
+  --sx-glass: #5d5266;
+  --sx-hull: #1d1a2b;
+  --sx-sail: #eed8bc;
+  --sx-sail-2: #d6b99e;
+  --sx-gull: #f6ead8;
+  --sx-wave: #aeb8da;
+  --sx-foam: #f3ede4;
+  --sx-star: #fff3da;
+  --sx-window: #ffd48a;
+  --sx-lamp: #ffe9b8;
+  --sx-lamp-core: #fff8e2;
+  --sx-lamp-room: #ffe7b0;
+  --sx-glint: #ffdca6;
+}
+[data-theme='dark'] {
+  --sx-night: #060a17;
+  --sx-dusk: #353b66;
+  --sx-horizon: #8f9cc9;
+  --sx-sun: #d9e2ff;
+  --sx-cloud: #8e9acb;
+  --sx-moon: #eef1ff;
+  --sx-land-far: #1b2140;
+  --sx-land: #12172b;
+  --sx-land-near: #0c1022;
+  --sx-rock-face: #222a48;
+  --sx-roof: #141a33;
+  --sx-cottage: #9aa3bf;
+  --sx-rim: #56628f;
+  --sx-tower: #d9dfec;
+  --sx-tower-2: #b3bbd0;
+  --sx-tower-shade: #6f7896;
+  --sx-band: #8a4448;
+  --sx-band-shade: #5e2f33;
+  --sx-door: #2a2c45;
+  --sx-iron: #1b1f33;
+  --sx-glass: #343a58;
+  --sx-hull: #0b0e1d;
+  --sx-sail: #c9d0e4;
+  --sx-sail-2: #a3acc6;
+  --sx-gull: #e6ebf7;
+  --sx-wave: #8d9ccc;
+  --sx-foam: #dfe5f5;
+  --sx-star: #f4f1ff;
+  --sx-window: #f7d58f;
+  --sx-lamp: #fbe9bf;
+  --sx-lamp-core: #fffaea;
+  --sx-lamp-room: #f6e2b2;
+  --sx-glint: #e9dcc0;
+}
+[data-theme='sepia'] {
+  --sx-night: #2a1a14;
+  --sx-dusk: #8a5048;
+  --sx-horizon: #f0b070;
+  --sx-sun: #ffe1a6;
+  --sx-cloud: #f2b583;
+  --sx-moon: #fff1d6;
+  --sx-land-far: #4a3330;
+  --sx-land: #352420;
+  --sx-land-near: #281a17;
+  --sx-rock-face: #4d3530;
+  --sx-roof: #31211d;
+  --sx-cottage: #dcc3a2;
+  --sx-rim: #a56f5e;
+  --sx-tower: #f6e7cf;
+  --sx-tower-2: #e3caa6;
+  --sx-tower-shade: #a88a6c;
+  --sx-band: #9e4434;
+  --sx-band-shade: #6f2f24;
+  --sx-door: #4a3028;
+  --sx-iron: #33231d;
+  --sx-glass: #5a4238;
+  --sx-hull: #22150f;
+  --sx-sail: #f0d9b8;
+  --sx-sail-2: #d8b893;
+  --sx-gull: #fff1dc;
+  --sx-wave: #d2b49a;
+  --sx-foam: #fbefe0;
+  --sx-star: #fff1d6;
+  --sx-window: #ffd283;
+  --sx-lamp: #ffe6b0;
+  --sx-lamp-core: #fff6dc;
+  --sx-lamp-room: #ffe3a6;
+  --sx-glint: #ffd59c;
+}
+
+.sx {
+  --sx-sky-1: color-mix(in oklab, var(--accent) 20%, var(--sx-night));
+  --sx-sky-2: color-mix(in oklab, var(--accent) 42%, var(--sx-night));
+  --sx-sky-3: color-mix(in oklab, var(--sx-dusk) 78%, var(--accent));
+  --sx-sky-4: color-mix(in oklab, var(--sx-horizon) 70%, var(--sx-dusk));
+  --sx-sea-1: color-mix(in oklab, var(--sx-dusk) 72%, var(--sx-night));
+  --sx-sea-2: color-mix(in oklab, var(--sx-dusk) 40%, color-mix(in oklab, var(--accent) 30%, var(--sx-night)));
+  --sx-sea-3: color-mix(in oklab, var(--accent) 22%, var(--sx-night));
+  --sx-ease: cubic-bezier(0.65, 0, 0.35, 1);
+  --sx-moment: cubic-bezier(0.22, 1, 0.36, 1);
+  /* One turn of the beam: every layer that follows it shares this. */
+  --sx-turn: 12s;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  container-type: size;
+  background: var(--sx-night);
+}
+/* The drawing covers the panel like a picture cut to fit, kept to its foot and right edge (the box is 600 by 900). */
+.sx-stage {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: max(100cqw, 100cqh * 600 / 900);
+  aspect-ratio: 600 / 900;
+}
+.sx-layer,
+.sx-fade,
+.sx-drift,
+.sx-bob {
+  position: absolute;
+  inset: 0;
+}
+.sx-layer {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.sx-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(80% 70% at 60% 45%, transparent 55%, rgb(8 8 24 / 0.34));
+  pointer-events: none;
+}
+.sx-rim {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 240 215 / 0.1),
+    inset 0 1px 0 rgb(255 240 215 / 0.18);
+}
+.sx-wave path {
+  fill: none;
+  stroke: var(--sx-wave);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.sx-path rect {
+  fill: var(--sx-glint);
+}
+/* The sea and shore, dim before the lamp is lit. */
+.sx-dim {
+  position: absolute;
+  inset: 62% 0 0 0;
+  background: linear-gradient(180deg, transparent, var(--sx-night) 18%);
+  pointer-events: none;
+  transition: opacity 900ms var(--sx-moment);
+}
+
+/* ---------- step by step: what is lit (each comes up slowly, a moment of its own) ---------- */
+.sx-fade {
+  opacity: 0;
+  transition: opacity 900ms var(--sx-moment);
+}
+.sx-fade[data-on] {
+  opacity: 1;
+}
+.sx-fade.sx-slow {
+  transition-duration: 1600ms;
+}
+.sx-town rect {
+  opacity: var(--o, 1);
+  transition: opacity 700ms var(--sx-moment);
+}
+@starting-style {
+  .sx-town rect {
+    opacity: 0;
+  }
+}
+
+/* ---------- the loops ---------- */
+@keyframes sx-twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes sx-sea {
+  from {
+    transform: translateX(-1.6%);
+  }
+  to {
+    transform: translateX(1.6%);
+  }
+}
+@keyframes sx-cloud {
+  from {
+    transform: translateX(-6%);
+  }
+  to {
+    transform: translateX(8%);
+  }
+}
+/*
+  The beam turning round the lamp, seen from the side: pointing left at the start, narrowing to face us (bright),
+  pointing right (half of it hidden behind the tower's own light), then turning away (faint). Only scaleX and opacity.
+*/
+@keyframes sx-turn {
+  0% {
+    transform: scaleX(1);
+    opacity: 0.85;
+  }
+  22% {
+    transform: scaleX(0.08);
+    opacity: 1;
+  }
+  25% {
+    transform: scaleX(0.02);
+    opacity: 1;
+  }
+  28% {
+    transform: scaleX(-0.08);
+    opacity: 1;
+  }
+  50% {
+    transform: scaleX(-0.62);
+    opacity: 0.7;
+  }
+  72% {
+    transform: scaleX(-0.06);
+    opacity: 0.15;
+  }
+  75% {
+    transform: scaleX(0.02);
+    opacity: 0.1;
+  }
+  78% {
+    transform: scaleX(0.08);
+    opacity: 0.18;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0.85;
+  }
+}
+/* The lamp flares as the beam faces us. */
+@keyframes sx-flare {
+  0%,
+  16%,
+  34%,
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+/* The beam's patch of light on the sea, travelling with it. */
+@keyframes sx-seaglow {
+  0% {
+    transform: translateX(-24%);
+    opacity: 0.75;
+  }
+  25% {
+    transform: translateX(14%);
+    opacity: 1;
+  }
+  50% {
+    transform: translateX(34%);
+    opacity: 0.35;
+  }
+  62%,
+  88% {
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(-24%);
+    opacity: 0.75;
+  }
+}
+/* The sail catches the light as the beam crosses the boat (pointing left, near the end and start of a turn). */
+@keyframes sx-sailglint {
+  0%,
+  8%,
+  90%,
+  100% {
+    opacity: 0;
+  }
+  96% {
+    opacity: 0.85;
+  }
+  2% {
+    opacity: 0.55;
+  }
+}
+@keyframes sx-breathe {
+  0%,
+  100% {
+    transform: scale(0.95);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+@keyframes sx-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.82;
+  }
+  70% {
+    opacity: 0.93;
+  }
+}
+@keyframes sx-drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(9%);
+  }
+}
+@keyframes sx-bob {
+  from {
+    transform: translateY(0) rotate(-1.4deg);
+  }
+  to {
+    transform: translateY(0.4%) rotate(1.4deg);
+  }
+}
+@keyframes sx-foam {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateY(0.3%);
+  }
+  35% {
+    opacity: 0.85;
+  }
+  60% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+}
+/* A gull now and then: across the sky in the first part of a long while, then gone. */
+@keyframes sx-wander {
+  0% {
+    transform: translate(-12%, 0);
+    opacity: 0;
+  }
+  3% {
+    opacity: 0.9;
+  }
+  22% {
+    transform: translate(70%, -5%);
+    opacity: 0.9;
+  }
+  25%,
+  100% {
+    transform: translate(82%, -6%);
+    opacity: 0;
+  }
+}
+.sx-star {
+  animation: sx-twinkle 4s ease-in-out infinite;
+}
+.sx-st1 {
+  animation-duration: 3.4s;
+  animation-delay: -1.2s;
+}
+.sx-st2 {
+  animation-duration: 4.6s;
+  animation-delay: -2.4s;
+}
+.sx-st3 {
+  animation-duration: 5.1s;
+  animation-delay: -3.3s;
+}
+.sx-cloud {
+  animation: sx-cloud 70s var(--sx-ease) infinite alternate;
+}
+.sx-w1 {
+  opacity: 0.34;
+  animation: sx-sea 9s var(--sx-ease) infinite alternate;
+}
+.sx-w2 {
+  opacity: 0.28;
+  animation: sx-sea 7.5s var(--sx-ease) infinite alternate-reverse;
+}
+.sx-w3 {
+  opacity: 0.24;
+  animation: sx-sea 8.5s var(--sx-ease) infinite alternate;
+}
+.sx-w4 {
+  opacity: 0.2;
+  animation: sx-sea 10s var(--sx-ease) infinite alternate-reverse;
+}
+.sx-path {
+  animation: sx-sea 8s var(--sx-ease) infinite alternate;
+}
+/* The beam, its flare, its patch on the sea and the sail's glint keep one time: the beam's turn. */
+.sx-beam {
+  transform-origin: 77% 30.67%;
+  animation: sx-turn var(--sx-turn) linear infinite;
+}
+.sx-flare {
+  transform-origin: 77% 30.67%;
+  animation: sx-flare var(--sx-turn) linear infinite;
+}
+.sx-seaglow {
+  animation: sx-seaglow var(--sx-turn) var(--sx-ease) infinite;
+}
+.sx-sailglint {
+  animation: sx-sailglint var(--sx-turn) linear infinite;
+}
+.sx-glow {
+  transform-origin: 77% 30.67%;
+  animation: sx-breathe 4.5s var(--sx-ease) infinite;
+}
+.sx-flicker {
+  animation: sx-flicker 3.6s var(--sx-ease) infinite;
+}
+.sx-drift {
+  animation: sx-drift 30s var(--sx-ease) infinite alternate;
+}
+/* The boat rocks about its keel (176, 709). */
+.sx-bob {
+  transform-origin: 29.3% 78.8%;
+  animation: sx-bob 4.4s var(--sx-ease) infinite alternate;
+}
+.sx-foam {
+  animation: sx-foam 5.2s ease-in-out infinite;
+}
+.sx-foam-2 {
+  animation-duration: 6.4s;
+  animation-delay: -2.6s;
+}
+.sx-wander {
+  opacity: 0;
+  animation: sx-wander 26s linear 4s infinite;
+}
+/* With less motion: the beam rests pointing over the sea, the flare and the sail's glint out. */
+@media (prefers-reduced-motion: reduce) {
+  .sx-flare,
+  .sx-sailglint,
+  .sx-wander {
+    opacity: 0;
+  }
+}
+
+/* ---------- finishing: one full, bright turn of the beam, the sky lifting, two gulls going up (about 900 ms) ---------- */
+.sx-gulls {
+  opacity: 0;
+}
+.sx-gull {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes sx-fullturn {
+  0% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  25% {
+    transform: scaleX(0.02);
+    opacity: 1;
+  }
+  50% {
+    transform: scaleX(-1);
+    opacity: 1;
+  }
+  75% {
+    transform: scaleX(0.02);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+@keyframes sx-flash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes sx-gull-up {
+  from {
+    opacity: 0;
+    transform: translate(0, 18px) scale(0.8);
+  }
+  30% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translate(-80px, -90px) scale(1);
+  }
+}
+@keyframes sx-lift {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.sx[data-finishing] .sx-beam {
+  animation: sx-fullturn 900ms var(--sx-ease) both;
+}
+.sx[data-finishing] .sx-flare {
+  animation: sx-flash 900ms var(--sx-ease) both;
+}
+.sx[data-finishing] .sx-gulls {
+  opacity: 1;
+}
+.sx[data-finishing] .sx-gull-1 {
+  animation: sx-gull-up 1100ms var(--sx-moment) both;
+}
+.sx[data-finishing] .sx-gull-2 {
+  animation: sx-gull-up 1100ms var(--sx-moment) 120ms both;
+}
+.sx::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(70% 50% at 77% 32%, color-mix(in oklab, var(--sx-lamp) 40%, transparent), transparent 70%);
+}
+.sx[data-finishing]::after {
+  animation: sx-lift 900ms var(--sx-moment) both;
+}

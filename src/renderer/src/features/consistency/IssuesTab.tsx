@@ -11,7 +11,6 @@ import { cn } from '@/lib/cn'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
-import { checkStory, useChecks } from './checkStore'
 import { issueSummary, KIND_WORDS, SEVERITY_WORDS, type IssueGroups } from './consistencyLogic'
 import { openEntry, openIssue, openThread } from './open'
 
@@ -36,14 +35,14 @@ export function IssuesTab({
   /** An issue ignored or reopened here, to show at once. */
   onChanged: (issue: Issue) => void
 }): React.JSX.Element {
-  const running = useChecks((s) => !!s.run)
   if (!groups) return error ? <ViewError what="The issues" error={error} onRetry={onRetry} /> : <ViewLoading />
   const nothing = !groups.story.length && !groups.chapters.length
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 pb-12 pt-4">
-      <div className="mb-3 flex min-h-8 items-center gap-3">
-        <p className="flex-1 text-[13px] text-muted">{issueSummary(groups)}</p>
+      {/* With nothing open, the empty state below says so (once), and the page's own Check this story is the way to look. */}
+      <div className={cn('mb-3 flex min-h-8 items-center gap-3', nothing && !groups.ignored && 'hidden')}>
+        <p className="flex-1 text-[13px] text-muted">{nothing ? null : issueSummary(groups)}</p>
         {groups.ignored ? (
           <label className="flex cursor-default items-center gap-2 text-[12.5px] text-muted">
             <input
@@ -58,16 +57,10 @@ export function IssuesTab({
       </div>
       {nothing ? (
         <EmptyState
+          art="clear"
           icon={groups.ignored ? <CircleCheck size={20} /> : <SearchCheck size={20} />}
           title={groups.ignored ? 'Nothing left to look at' : 'No issues found'}
           className="mt-[4vh]"
-          actions={
-            running ? null : (
-              <Button icon={<SearchCheck size={15} />} onClick={() => void checkStory(storyId)}>
-                Check this story
-              </Button>
-            )
-          }
         >
           Scenes are checked against the memory when you mark them done. Check the whole story to look for facts, knowledge and
           timeline that disagree. Anything found shows here, by chapter and scene.
@@ -130,18 +123,18 @@ function IssueList({ issues, ...rest }: ListProps & { issues: Issue[] }): React.
 }
 
 /** Marks an issue as intended, with Undo in its toast. */
-async function ignore(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
+export async function ignoreIssue(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
   onChanged({ ...issue, status: 'ignored' })
   try {
     onChanged(await api.ignoreIssue(issue.id))
-    toast('Issue ignored. It won’t be raised again.', { action: { label: 'Undo', run: () => void reopen(issue, onChanged) } })
+    toast('Issue ignored. It won’t be raised again.', { action: { label: 'Undo', run: () => void reopenIssue(issue, onChanged) } })
   } catch (e) {
     onChanged(issue)
     toast(`Couldn’t ignore that issue. ${plainReason(e)}`, { tone: 'danger' })
   }
 }
 
-async function reopen(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
+export async function reopenIssue(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
   onChanged({ ...issue, status: 'open' })
   try {
     onChanged(await api.reopenIssue(issue.id))
@@ -202,11 +195,11 @@ function IssueCard({ issue: i, storyId, storyScenes, onChanged }: ListProps & { 
           {i.sources.length ? <Sources sources={i.sources} storyId={storyId} storyScenes={storyScenes} /> : null}
         </div>
         {ignored ? (
-          <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} loading={busy} onClick={() => act(() => reopen(i, onChanged))}>
+          <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} loading={busy} onClick={() => act(() => reopenIssue(i, onChanged))}>
             Reopen
           </Button>
         ) : (
-          <Button size="sm" variant="ghost" icon={<EyeOff size={13} />} loading={busy} onClick={() => act(() => ignore(i, onChanged))}>
+          <Button size="sm" variant="ghost" icon={<EyeOff size={13} />} loading={busy} onClick={() => act(() => ignoreIssue(i, onChanged))}>
             Ignore
           </Button>
         )}

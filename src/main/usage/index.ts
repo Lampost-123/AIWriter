@@ -12,7 +12,7 @@
 // All of it goes ahead again when Adam carries on, raises the limit, or the month turns.
 
 import type Database from 'better-sqlite3'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { ApiMethod } from '@shared/api'
 import type { SpendState, UsageQuery, UsageReport } from '@shared/contracts/usage'
 import { SPEND_LIMIT, reachedWords } from '@shared/contracts/usage'
@@ -53,6 +53,7 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'startFleshOut',
   'startOptions',
   'startInterview',
+  'startQuestions',
   'startWorldBuild',
   'askWorldQuestion',
   'startCheck',
@@ -270,7 +271,15 @@ export function usageReport(query: UsageQuery): UsageReport {
     worlds: scope === 'world' && own ? 1 : every.length,
     today: new Date(),
     worldName: open?.name ?? null,
-    unreadable: scope === 'world' ? 0 : l.unreadableCount
+    unreadable: scope === 'world' ? 0 : l.unreadableCount,
+    // The same, world by world (the recipes' spending belongs to no world).
+    named:
+      scope === 'world' && own
+        ? [{ name: open!.name, open: true, tally: own }]
+        : [
+            ...every.map((w) => ({ name: w.name, open: !!open && w.folder === resolve(open.folder), tally: w.tally })),
+            ...(r ? [{ name: 'Story recipes', open: false, recipes: true, tally: r }] : [])
+          ]
   })
 }
 

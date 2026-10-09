@@ -206,7 +206,7 @@ test('Flesh out fills only the empty fields, with Keep and Discard on each', asy
   }
 })
 
-test('Give me options offers three, and the one picked is kept', async ({ launch }) => {
+test('Ideas from the AI offers three, and the one picked is kept', async ({ launch }) => {
   const fake = await startFake()
   try {
     const { win } = await launch()
@@ -216,13 +216,13 @@ test('Give me options offers three, and the one picked is kept', async ({ launch
     await main(win).getByRole('textbox', { name: 'Name' }).fill('Mara Venn')
     await step(win, 'Backstory and secrets').click()
     await main(win).getByLabel('Origin', { exact: true }).fill('Born on a barge')
-    await main(win).getByRole('button', { name: 'Give me options for Origin' }).click()
+    await main(win).getByRole('button', { name: 'Ask the AI for ideas for Origin' }).click()
 
-    const options = main(win).getByRole('group', { name: 'Options for Origin' })
+    const options = main(win).getByRole('group', { name: 'Ideas for Origin' })
     const second = 'Origin, second option: something only Mara Venn would have.'
     await expect(options.getByRole('listitem')).toHaveCount(3)
     await expect(options).toContainText('Origin, third option: something only Mara Venn would have.')
-    await options.getByRole('button', { name: 'Use option 2 for Origin' }).click()
+    await options.getByRole('button', { name: 'Use idea 2 for Origin' }).click()
     await expect(options).toHaveCount(0)
     await expect(main(win).getByLabel('Origin', { exact: true })).toHaveValue(second)
 
@@ -230,7 +230,7 @@ test('Give me options offers three, and the one picked is kept', async ({ launch
     expect(origin(await entryNamed(win, 'Mara Venn'), 'origin')).toBe('ai')
     // It replaced his own words, so one click puts them back, as his. The toast sits above the buttons
     // along the foot of the step, and above the interview's question box, never over them.
-    const replaced = win.getByText('Replaced origin with the option you picked.')
+    const replaced = win.getByText('Replaced origin with the idea you picked.')
     await expect(replaced).toBeVisible()
     const clear = async (below: ReturnType<Page['locator']>): Promise<boolean> => {
       const [t, b] = [await replaced.locator('..').boundingBox(), await below.boundingBox()]
@@ -250,21 +250,21 @@ test('Give me options offers three, and the one picked is kept', async ({ launch
     expect(origin(await entryNamed(win, 'Mara Venn'), 'origin')).toBe('adam')
     // Closing a list of options leaves the field as it was.
     const secrets = main(win).getByLabel('Secrets they keep', { exact: true })
-    const secretOptions = main(win).getByRole('group', { name: 'Options for Secrets they keep' })
-    await main(win).getByRole('button', { name: 'Give me options for Secrets they keep' }).click()
+    const secretOptions = main(win).getByRole('group', { name: 'Ideas for Secrets they keep' })
+    await main(win).getByRole('button', { name: 'Ask the AI for ideas for Secrets they keep' }).click()
     await expect(secretOptions.getByRole('listitem')).toHaveCount(3)
-    await main(win).getByRole('button', { name: 'Close the options for Secrets they keep' }).click()
+    await main(win).getByRole('button', { name: 'Close the ideas for Secrets they keep' }).click()
     await expect(secrets).toHaveValue('')
 
     // Words the AI drafted that an option replaced go back as the AI's.
     const drafted = 'Secrets they keep, first option: something only Mara Venn would have.'
-    await main(win).getByRole('button', { name: 'Give me options for Secrets they keep' }).click()
-    await secretOptions.getByRole('button', { name: 'Use option 1 for Secrets they keep' }).click()
+    await main(win).getByRole('button', { name: 'Ask the AI for ideas for Secrets they keep' }).click()
+    await secretOptions.getByRole('button', { name: 'Use idea 1 for Secrets they keep' }).click()
     await expect(secrets).toHaveValue(drafted)
-    await main(win).getByRole('button', { name: 'Give me options for Secrets they keep' }).click()
-    await secretOptions.getByRole('button', { name: 'Use option 3 for Secrets they keep' }).click()
+    await main(win).getByRole('button', { name: 'Ask the AI for ideas for Secrets they keep' }).click()
+    await secretOptions.getByRole('button', { name: 'Use idea 3 for Secrets they keep' }).click()
     await expect(secrets).toHaveValue('Secrets they keep, third option: something only Mara Venn would have.')
-    await expect(win.getByText('Replaced secrets they keep with the option you picked.')).toBeVisible()
+    await expect(win.getByText('Replaced secrets they keep with the idea you picked.')).toBeVisible()
     await win.getByRole('button', { name: 'Undo' }).click()
     await expect(secrets).toHaveValue(drafted)
     await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.secrets).toBe(drafted)
@@ -305,7 +305,8 @@ test('Interview: the character answers in character, and a reply becomes a sampl
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 600))
     const rail = (await steps(win).boundingBox())!
     await expect.poll(async () => Math.round((await panel.boundingBox())!.x)).toBe(Math.round(rail.x + rail.width))
-    expect((await panel.boundingBox())!.width).toBeGreaterThan(420)
+    // (At least its narrowest, 420 px: a window just big enough shows it at exactly that.)
+    expect((await panel.boundingBox())!.width).toBeGreaterThanOrEqual(420)
     await panel.getByRole('textbox', { name: 'Ask Brann Holt something' }).focus()
     await win.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
@@ -391,8 +392,8 @@ test('the builder warns about a near-duplicate name, in full in the smallest win
     await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra')
     await expect(main(win).getByRole('status').filter({ hasText: 'Very close to Mara, another character. Same one?' })).toBeVisible()
     expect(await warning()).toEqual({ text: 'Very close to Mara, another character. Same one? Open Mara', cut: false })
-    // The name's Options stay where they were, on their own line.
-    await expect(main(win).getByRole('button', { name: 'Give me options for Name' })).toBeVisible()
+    // The name's Ideas button stays where it was.
+    await expect(main(win).getByRole('button', { name: 'Ask the AI for ideas for Name' })).toBeVisible()
     await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra Holt')
     await expect(main(win).getByText('Same one?')).toHaveCount(0)
 
@@ -637,13 +638,13 @@ test('one-line fields keep their hint on one line, and the heading over options 
     await fits()
     // The heading says what closing the options does, whole, over a field at half width.
     await main(win).getByLabel('Hair', { exact: true }).fill('Grey')
-    await main(win).getByRole('button', { name: 'Give me options for Hair' }).click()
-    const options = main(win).getByRole('group', { name: 'Options for Hair' })
+    await main(win).getByRole('button', { name: 'Ask the AI for ideas for Hair' }).click()
+    const options = main(win).getByRole('group', { name: 'Ideas for Hair' })
     await expect(options.getByRole('listitem')).toHaveCount(3)
     const heading = options.getByText('Pick one, or close this to keep yours')
     await expect(heading).toBeVisible()
     expect(await heading.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
-    await options.getByRole('button', { name: 'Close the options for Hair' }).click()
+    await options.getByRole('button', { name: 'Close the ideas for Hair' }).click()
 
     // The narrowest the window goes.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 700))

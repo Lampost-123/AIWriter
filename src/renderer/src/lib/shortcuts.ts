@@ -41,6 +41,8 @@ export type ShortcutId =
   | 'pastePlain'
   | 'findInScene'
   | 'findInStory'
+  // The desk (UI overhaul, phase 3)
+  | 'continue'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -57,6 +59,8 @@ export interface Shortcut {
   mac?: string[]
   /** The keys are each a way to do it (↑ or ↓), not pressed together. */
   either?: boolean
+  /** Only on the desk (the New look's desk layout): the list leaves it out elsewhere. */
+  desk?: boolean
 }
 
 export const SHORTCUTS: Shortcut[] = [
@@ -72,6 +76,14 @@ export const SHORTCUTS: Shortcut[] = [
     keys: ['Esc']
   },
   { id: 'markDone', name: 'Mark scene done', group: 'Writing', keys: ['Mod', 'Enter'] },
+  {
+    id: 'continue',
+    name: 'Continue: the AI writes on from the end of the scene',
+    where: 'on the desk',
+    group: 'Writing',
+    keys: ['Mod', 'Shift', 'Enter'],
+    desk: true
+  },
   { id: 'save', name: 'Save now (AI Write also saves as you type)', group: 'Writing', keys: ['Mod', 'S'] },
   { id: 'bold', name: 'Bold', group: 'Writing', keys: ['Mod', 'B'] },
   { id: 'italic', name: 'Italic', group: 'Writing', keys: ['Mod', 'I'] },

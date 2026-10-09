@@ -16,6 +16,11 @@ interface SetupStore {
   step: SetupStep | null
   worldId: ID | null
   sampleWorldId: ID | null
+  /**
+   * The New look: the setup is ending and its last moment is playing (the lamp lit, "The lamp is lit" on the sheet)
+   * before the first scene ('write') or the World builder ('build') opens.
+   */
+  finishing: false | 'write' | 'build'
   /** Where the first run stands at launch. Never throws: without it the app starts as it always did. */
   load(): Promise<void>
   apply(state: SetupState): void
@@ -30,6 +35,7 @@ export const useSetup = create<SetupStore>((set, get) => ({
   step: null,
   worldId: null,
   sampleWorldId: null,
+  finishing: false,
 
   async load() {
     try {
@@ -56,7 +62,7 @@ export const useSetup = create<SetupStore>((set, get) => ({
   },
 
   close() {
-    set({ step: null })
+    set({ step: null, finishing: false })
   }
 }))
 

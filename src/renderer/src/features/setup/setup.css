@@ -1,0 +1,195 @@
+/*
+  The New look's first-run setup (SetupDesk.tsx): the rail of steps, the step on its sheet, the picture beside it and
+  the moment the setup ends. Only the New look draws these (Classic keeps its single column), so the rules need no
+  look of their own. Speeds are the New look's (styles.css, --dur-*); the finishing moment is about 900 ms, once.
+*/
+
+/* ---------- the rail ---------- */
+.setup-mark {
+  color: var(--accent);
+  background: linear-gradient(180deg, var(--raise), color-mix(in oklab, var(--raise) 82%, var(--accent-soft)));
+  box-shadow: var(--elev-1), inset 0 0 0 1px var(--line);
+}
+.setup-rail-line {
+  position: absolute;
+  left: 17.5px;
+  top: 26px;
+  bottom: 26px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+.setup-rail-fill {
+  background: var(--accent);
+  transform-origin: top;
+  transform: scaleY(var(--setup-fill, 0));
+  transition: transform 600ms var(--motion-glide);
+}
+.setup-node {
+  position: relative;
+  z-index: 1;
+  color: var(--faint);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  transition:
+    background-color var(--dur-base) var(--motion-glide),
+    color var(--dur-base) var(--motion-glide),
+    box-shadow var(--dur-base) var(--motion-glide);
+}
+.setup-rail-step[data-state='later'] {
+  color: var(--muted);
+}
+.setup-rail-step[data-state='now'] {
+  color: var(--fg);
+}
+.setup-rail-step[data-state='now'] .setup-node {
+  color: var(--accent);
+  background: var(--raise);
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1.5px var(--accent),
+    0 0 0 5px color-mix(in oklab, var(--accent) 16%, transparent);
+}
+.setup-rail-step[data-state='done'] {
+  color: var(--fg);
+}
+.setup-rail-step[data-state='done'] .setup-node {
+  color: var(--accent-fg);
+  background: var(--accent);
+  box-shadow: var(--elev-1);
+}
+
+/* ---------- the sheet ---------- */
+.setup-sheet {
+  /* The step's own deepest background (its sticky foot) is the paper. */
+  --bg: var(--page);
+  margin-top: 22px;
+  border-radius: 20px 20px 0 0;
+  background: var(--page);
+  box-shadow: var(--elev-page);
+  animation: setup-sheet-in 380ms var(--motion-glide) both;
+}
+@keyframes setup-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+.setup-eyebrow {
+  margin-bottom: 10px;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* A step's foot keeps clear of the sheet's edges. */
+.setup-sheet [data-step-foot] {
+  margin-inline: -48px;
+  padding-inline: 48px;
+}
+@media (max-width: 1400px) {
+  .setup-sheet [data-step-foot] {
+    margin-inline: -36px;
+    padding-inline: 36px;
+  }
+}
+
+/* ---------- the picture ---------- */
+.setup-art {
+  width: clamp(380px, 36vw, 900px);
+}
+.setup-art .sx {
+  box-shadow: var(--elev-page);
+}
+.setup-caption {
+  position: absolute;
+  left: 40px;
+  right: 40px;
+  bottom: 38px;
+  font: italic 400 15px/1.5 var(--serif-font);
+  color: rgb(255 248 236 / 0.9);
+  text-shadow: 0 1px 12px rgb(4 6 18 / 0.6);
+  animation: setup-caption-in 600ms var(--motion-glide) both;
+}
+@keyframes setup-caption-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* ---------- the other services' marks (ConnectStep.tsx) ---------- */
+.setup-service:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+/* ---------- the end ---------- */
+.setup-finished {
+  background: color-mix(in oklab, var(--page) 86%, transparent);
+  backdrop-filter: blur(3px);
+  animation: setup-fade 280ms var(--motion-glide) both;
+}
+.setup-finished > div {
+  animation: setup-rise 520ms var(--motion-spring) 80ms both;
+}
+.setup-finished-tick {
+  color: var(--accent-fg);
+  background: var(--accent);
+  box-shadow:
+    var(--elev-2),
+    0 0 0 8px color-mix(in oklab, var(--accent) 16%, transparent);
+}
+@keyframes setup-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes setup-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+
+/* ---------- the sample world as a small book (FirstRun.tsx, SampleWorldCard) ---------- */
+.setup-book-pages,
+.setup-book-cover {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px 8px 8px 3px;
+}
+.setup-book-pages {
+  transform: translate(5px, 4px);
+  background: repeating-linear-gradient(0deg, var(--surface-2) 0 2px, var(--page) 2px 3px);
+  box-shadow: var(--elev-1);
+}
+.setup-book-cover {
+  overflow: hidden;
+  color: color-mix(in oklab, var(--accent) 30%, #0b1124);
+  background:
+    linear-gradient(90deg, rgb(0 0 0 / 0.22), transparent 10%),
+    linear-gradient(180deg, color-mix(in oklab, var(--accent) 55%, #121a33), color-mix(in oklab, #7a5878 60%, var(--accent)) 70%, #f1bd86);
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1px rgb(255 255 255 / 0.08);
+  transition: transform var(--dur-quick) var(--motion-glide);
+}
+.setup-book:hover .setup-book-cover {
+  transform: rotate(-2deg) translateY(-2px);
+}
+.setup-book-title {
+  position: absolute;
+  left: 10px;
+  right: 8px;
+  top: 12px;
+  font: 600 12px/1.15 var(--heading-font);
+  color: #fff6e6;
+}
+.setup-book-art {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+}

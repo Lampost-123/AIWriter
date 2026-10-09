@@ -4,6 +4,7 @@
 import { create } from 'zustand'
 import type { ID } from '@shared/types'
 import type { LaneMode } from './timelineLogic'
+import type { Zoom } from './riverLogic'
 
 const KEY = 'aiwrite.timeline.lanes'
 
@@ -11,6 +12,8 @@ interface Saved {
   /** By `${worldId}:${mode}`. */
   chosen: Record<string, ID[]>
   mode: LaneMode
+  /** The New look's river: laid out by day or by chapter. */
+  zoom: Zoom
 }
 
 function read(): Saved {
@@ -20,9 +23,9 @@ function read(): Saved {
     for (const [k, v] of Object.entries(raw?.chosen ?? {})) {
       if (Array.isArray(v)) chosen[k] = v.filter((x): x is ID => typeof x === 'string')
     }
-    return { chosen, mode: raw?.mode === 'threads' ? 'threads' : 'characters' }
+    return { chosen, mode: raw?.mode === 'threads' ? 'threads' : 'characters', zoom: raw?.zoom === 'chapter' ? 'chapter' : 'day' }
   } catch {
-    return { chosen: {}, mode: 'characters' }
+    return { chosen: {}, mode: 'characters', zoom: 'day' }
   }
 }
 
@@ -30,7 +33,10 @@ function write(saved: Saved): void {
   try {
     // Keep the list from growing forever as worlds come and go.
     const keys = Object.keys(saved.chosen).slice(-100)
-    localStorage.setItem(KEY, JSON.stringify({ mode: saved.mode, chosen: Object.fromEntries(keys.map((k) => [k, saved.chosen[k]])) }))
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ mode: saved.mode, zoom: saved.zoom, chosen: Object.fromEntries(keys.map((k) => [k, saved.chosen[k]])) })
+    )
   } catch {
     // Not remembered this time; nothing else to do.
   }
@@ -39,6 +45,7 @@ function write(saved: Saved): void {
 interface LaneState extends Saved {
   choose: (key: string, ids: ID[] | null) => void
   setMode: (mode: LaneMode) => void
+  setZoom: (zoom: Zoom) => void
 }
 
 export const useLanes = create<LaneState>((set, get) => ({
@@ -48,10 +55,14 @@ export const useLanes = create<LaneState>((set, get) => ({
     if (ids) chosen[key] = ids
     else delete chosen[key]
     set({ chosen })
-    write({ chosen, mode: get().mode })
+    write({ chosen, mode: get().mode, zoom: get().zoom })
   },
   setMode: (mode) => {
     set({ mode })
-    write({ chosen: get().chosen, mode })
+    write({ chosen: get().chosen, mode, zoom: get().zoom })
+  },
+  setZoom: (zoom) => {
+    set({ zoom })
+    write({ chosen: get().chosen, mode: get().mode, zoom })
   }
 }))

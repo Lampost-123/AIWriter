@@ -3,13 +3,14 @@ import * as backups from '../services/backups'
 import * as updater from '../services/updater'
 
 type MaintenanceMethods =
-  | 'listBackups' | 'backupNow' | 'restoreBackup' | 'chooseBackupFolder' | 'clearBackupFolder' | 'getBackupFolderStatus'
+  | 'listBackups' | 'backupNow' | 'restoreBackup' | 'previewBackup' | 'chooseBackupFolder' | 'clearBackupFolder' | 'getBackupFolderStatus'
   | 'getUpdateStatus' | 'checkForUpdates' | 'installUpdate'
 
 export const maintenanceHandlers: Handlers<MaintenanceMethods> = {
   listBackups: () => backups.listBackups(),
   backupNow: () => backups.backupNow(),
   restoreBackup: (id) => backups.restoreBackup(id),
+  previewBackup: (id) => backups.previewBackup(id),
   chooseBackupFolder: () => backups.chooseBackupFolder(),
   clearBackupFolder: () => backups.clearBackupFolder(),
   getBackupFolderStatus: () => backups.getBackupFolderStatus(),

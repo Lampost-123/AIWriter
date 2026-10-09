@@ -15,11 +15,14 @@ import { cn } from '@/lib/cn'
 import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
 import { RepairSettings } from '@/features/repair/RepairSettings'
+import { useNewLook } from '@/features/look/look'
+import { ProviderMark } from './ProviderMark'
 import { FindByMeaningSettings } from '@/features/retrieval/FindByMeaningSettings'
 
 export type TestResult = { state: 'testing' } | { state: 'done'; ok: boolean; message: string }
 
-const PRESETS: { name: string; baseUrl: string; needsKey: boolean }[] = [
+/** The services the Add a provider form can fill in for (the first run's Connect step shows them as marks too). */
+export const PRESETS: { name: string; baseUrl: string; needsKey: boolean }[] = [
   { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', needsKey: true },
   { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', needsKey: true },
   { name: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', needsKey: true },
@@ -89,6 +92,8 @@ export function useConnectionTests(): {
 export function ModelsSettings(): React.JSX.Element {
   const { providers, loadError, reload, results, test, clearResult } = useConnectionTests()
   const readAloud = useApp((s) => !!s.settings?.speech?.readAloud)
+  // The New look: in a wide page the services sit side by side, and the other jobs' models two to a row.
+  const isNew = useNewLook()
 
   if (loadError && !providers) {
     return (
@@ -103,9 +108,11 @@ export function ModelsSettings(): React.JSX.Element {
   const custom = providers.filter((p) => p.kind === 'custom')
 
   return (
-    <div className="flex flex-col gap-9 animate-fade-in">
-      <OpenRouterCard provider={openrouter} result={openrouter ? results[openrouter.id] : undefined} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
-      <OtherProviders providers={custom} results={results} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
+    <div className={isNew ? '@container flex flex-col gap-7 animate-fade-in' : 'flex flex-col gap-9 animate-fade-in'}>
+      <div className={isNew ? 'grid items-start gap-7 @[1000px]:grid-cols-2' : 'contents'}>
+        <OpenRouterCard provider={openrouter} result={openrouter ? results[openrouter.id] : undefined} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
+        <OtherProviders providers={custom} results={results} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
+      </div>
       <WriterModel
         providers={providers}
         result={results.writer}
@@ -113,6 +120,7 @@ export function ModelsSettings(): React.JSX.Element {
         onTest={(pid, mid) => void test('writer', pid, mid)}
         onClearResult={() => clearResult('writer')}
       />
+      <div className={isNew ? 'grid items-start gap-7 @[1000px]:grid-cols-2' : 'contents'}>
       <HelperModel
         job="memory"
         providers={providers}
@@ -172,6 +180,7 @@ export function ModelsSettings(): React.JSX.Element {
           onClearResult={() => clearResult('speech')}
         />
       ) : null}
+      </div>
       <DefaultCreativity />
       {/* Before writing and straight after: the plan, then the check of the new words. */}
       <PlanSettings />
@@ -232,6 +241,7 @@ export function OpenRouterCard({
   const [error, setError] = useState<string | null>(null)
   const connected = !!provider?.hasKey
   const showForm = !connected || replacing
+  const isNew = useNewLook()
   // "Connected" only once a test has shown it works; a key that was only saved says just that.
   const check = checkOf(provider, result)
 
@@ -281,9 +291,13 @@ export function OpenRouterCard({
   return (
     <Card className="p-5">
       <div className="flex items-start gap-3">
-        <IconTile>
-          <KeyRound size={17} />
-        </IconTile>
+        {isNew ? (
+          <ProviderMark kind="openrouter" name="OpenRouter" />
+        ) : (
+          <IconTile>
+            <KeyRound size={17} />
+          </IconTile>
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="text-[15px] font-semibold text-fg">OpenRouter</h2>
@@ -384,7 +398,8 @@ export function OtherProviders({
   onTest,
   onClearResult,
   onChanged,
-  startAdding = false
+  startAdding = false,
+  startPreset
 }: {
   providers: ProviderConfig[]
   results: Record<string, TestResult>
@@ -393,8 +408,11 @@ export function OtherProviders({
   onChanged: () => Promise<void>
   /** Opens with the Add a provider form showing (the first-run setup's "Use another provider"). */
   startAdding?: boolean
+  /** With startAdding: the form starts filled in for this service (a name from PRESETS). */
+  startPreset?: string
 }): React.JSX.Element {
   const [adding, setAdding] = useState(startAdding)
+  const isNew = useNewLook()
   const [editing, setEditing] = useState<ID | null>(null)
 
   const remove = async (p: ProviderConfig): Promise<void> => {
@@ -439,9 +457,13 @@ export function OtherProviders({
             <Card key={p.id} className="px-4 py-3">
               {/* In a narrow window the buttons move under the name rather than squeezing it. */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <IconTile tone="neutral">
-                  <Server size={16} />
-                </IconTile>
+                {isNew ? (
+                  <ProviderMark kind="custom" name={p.name} baseUrl={p.baseUrl} />
+                ) : (
+                  <IconTile tone="neutral">
+                    <Server size={16} />
+                  </IconTile>
+                )}
                 <div className="min-w-[200px] flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-[14px] font-medium text-fg" title={p.name}>
@@ -479,6 +501,7 @@ export function OtherProviders({
         )}
         {adding ? (
           <ProviderForm
+            start={PRESETS.find((x) => x.name === startPreset)}
             onCancel={() => setAdding(false)}
             onSaved={async (saved) => {
               setAdding(false)
@@ -500,15 +523,19 @@ export function OtherProviders({
 
 function ProviderForm({
   initial,
+  start,
   onSaved,
   onCancel
 }: {
   initial?: ProviderConfig
+  /** A new provider's form, filled in for one of the PRESETS to start with. */
+  start?: { name: string; baseUrl: string }
   onSaved: (p: ProviderConfig) => Promise<void>
   onCancel: () => void
 }): React.JSX.Element {
-  const [name, setName] = useState(initial?.name ?? '')
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? '')
+  const isNew = useNewLook()
+  const [name, setName] = useState(initial?.name ?? start?.name ?? '')
+  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? start?.baseUrl ?? '')
   const [key, setKey] = useState('')
   const [removeKey, setRemoveKey] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -565,9 +592,12 @@ function ProviderForm({
                 }}
                 className={cn(
                   'h-6 rounded-full border px-2.5 text-[12px] transition-colors duration-150',
+                  // The New look: each with its mark, a touch taller.
+                  'look-new:inline-flex look-new:h-7 look-new:items-center look-new:gap-1.5 look-new:pl-1 look-new:pr-2.5',
                   baseUrl === p.baseUrl ? 'border-accent bg-accent-soft text-accent' : 'border-line bg-page text-muted hover:border-line-strong hover:text-fg'
                 )}
               >
+                {isNew ? <ProviderMark kind="custom" name={p.name} baseUrl={p.baseUrl} size={20} className="rounded-full" /> : null}
                 {p.name}
               </button>
             ))}

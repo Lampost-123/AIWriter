@@ -10,8 +10,8 @@ import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
 import { Button, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { Lighthouse } from '@/components/ui/Lighthouse'
-import { useNewLook } from '@/features/look/look'
+import { useLookStore, useNewLook } from '@/features/look/look'
+import { reducedMotion } from '@/features/look/motion'
 import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
@@ -22,12 +22,25 @@ import { openSampleWorld, useSetup } from './setupStore'
 import { ConnectStep } from './ConnectStep'
 import { ModelStep } from './ModelStep'
 import { StyleStep, type StyleSaver } from './StyleStep'
+import { SetupDesk } from './SetupDesk'
 
 export function FirstRun(): React.JSX.Element | null {
   const step = useSetup((s) => s.step)
   const isNew = useNewLook()
   if (!step) return null
-  const steps = (
+  // The step itself: a new one fades in; the page never jumps sideways.
+  const content = (
+    <div key={step} className="animate-fade-in">
+      {step === 'world' && <WorldStep />}
+      {step === 'connect' && <ConnectStep />}
+      {step === 'model' && <ModelStep />}
+      {step === 'style' && <StyleStepFrame />}
+      {step === 'builder' && <BuilderStep />}
+    </div>
+  )
+  // The New look: the rail of steps, the step on a sheet, and the lighthouse being lit beside it (SetupDesk.tsx).
+  if (isNew) return <SetupDesk step={step}>{content}</SetupDesk>
+  return (
     <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh] [scrollbar-gutter:stable_both-edges] look-new:bg-transparent">
       <div className="w-full max-w-[600px]">
         <div className="mb-7 flex items-center gap-3">
@@ -40,24 +53,7 @@ export function FirstRun(): React.JSX.Element | null {
           </div>
         </div>
         <Progress step={step} />
-        {/* A new step fades in; the page never jumps sideways. */}
-        <div key={step} className="animate-fade-in">
-          {step === 'world' && <WorldStep />}
-          {step === 'connect' && <ConnectStep />}
-          {step === 'model' && <ModelStep />}
-          {step === 'style' && <StyleStepFrame />}
-          {step === 'builder' && <BuilderStep />}
-        </div>
-      </div>
-    </div>
-  )
-  if (!isNew) return steps
-  // The New look: the steps on the left, and a lighthouse over the sea beside them (in a wide enough window).
-  return (
-    <div className="flex h-full">
-      <div className="min-w-0 flex-1">{steps}</div>
-      <div aria-hidden className="hidden w-[42%] max-w-[760px] shrink-0 overflow-hidden min-[1000px]:block">
-        <Lighthouse />
+        {content}
       </div>
     </div>
   )
@@ -105,6 +101,7 @@ function WorldStep(): React.JSX.Element {
   const made = !!worldId && world?.id === worldId ? world : null
   const [name, setName] = useState(made?.name ?? '')
   const [busy, setBusy] = useState<false | 'create' | 'sample'>(false)
+  const isNew = useNewLook()
 
   const next = async (): Promise<void> => {
     const clean = name.trim()
@@ -156,7 +153,9 @@ function WorldStep(): React.JSX.Element {
           )}
         </Field>
       </form>
-      {made ? null : (
+      {made ? null : isNew ? (
+        <SampleWorldCard busy={busy} onExplore={() => void explore()} />
+      ) : (
         <div className="mt-6 rounded-xl border border-line bg-surface px-4 py-3.5">
           <p className="text-[13px] font-medium text-fg">Not sure yet?</p>
           <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
@@ -285,7 +284,12 @@ function Choice({
       className={cn(
         'flex flex-col items-start gap-2 rounded-xl border bg-surface p-4 text-left shadow-soft transition-colors duration-150 disabled:opacity-60',
         primary ? 'border-accent/50 hover:border-accent' : 'border-line hover:border-line-strong',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40'
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+        // The New look: a raised card that lifts on hover and presses in, a little taller.
+        'look-new:min-h-[150px] look-new:rounded-[16px] look-new:border-transparent look-new:bg-raise look-new:p-5 look-new:transition-[box-shadow,translate,scale] look-new:duration-(--dur-quick) look-new:ease-glide look-new:enabled:hover:-translate-y-0.5 look-new:enabled:active:scale-[0.98] look-new:enabled:active:duration-(--dur-press)',
+        primary
+          ? 'look-new:shadow-[var(--elev-2),inset_0_0_0_1.5px_var(--accent)]'
+          : 'look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:enabled:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line-strong)]'
       )}
     >
       <span
@@ -302,12 +306,26 @@ function Choice({
   )
 }
 
+/** How long the setup's last moment plays in the New look (a rare moment: 500-900 ms). */
+const FINISH_MS = 900
+
 /**
  * Ends the setup: the world's first story, chapter and scene (made if missing) open, with the guide on that scene.
  * With `build`, the World builder opens over it.
  */
 async function finishSetup(build: boolean): Promise<void> {
-  const { storyId, sceneId } = await api.finishSetup()
+  // The New look: the lamp is lit on the picture and the sheet says so for a moment (900 ms, while the first scene is
+  // made); at once with less motion, and never in Classic.
+  const moment = useLookStore.getState().look === 'new' && !reducedMotion()
+  if (moment) useSetup.setState({ finishing: build ? 'build' : 'write' })
+  let made: Awaited<ReturnType<typeof api.finishSetup>>
+  try {
+    ;[made] = await Promise.all([api.finishSetup(), new Promise((r) => setTimeout(r, moment ? FINISH_MS : 0))])
+  } catch (e) {
+    useSetup.setState({ finishing: false })
+    throw e
+  }
+  const { storyId, sceneId } = made
   const app = useApp.getState()
   useApp.setState({ settings: await api.getSettings() })
   await app.refreshStories()
@@ -315,4 +333,41 @@ async function finishSetup(build: boolean): Promise<void> {
   if (build) openWorldBuilder()
   else requestEditorFocus(sceneId)
   useSetup.getState().close()
+}
+
+/**
+ * The New look's "Not sure yet?": the sample world as a small book on the step, its cover in the harbour's colours,
+ * with Explore and the Welcome screen's other ways in.
+ */
+function SampleWorldCard({ busy, onExplore }: { busy: false | 'create' | 'sample'; onExplore: () => void }): React.JSX.Element {
+  return (
+    <div className="mt-8 flex gap-5 rounded-[16px] bg-raise p-4 pr-5 shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]">
+      <div aria-hidden className="setup-book relative h-[118px] w-[86px] shrink-0">
+        <span className="setup-book-pages" />
+        <span className="setup-book-cover">
+          <span className="setup-book-title">The Keeper’s Light</span>
+          <svg viewBox="0 0 60 44" className="setup-book-art">
+            <path d="M0 44 L0 34 C14 30 22 31 30 33 C40 35 48 32 60 30 L60 44 Z" fill="currentColor" opacity="0.5" />
+            <path d="M38 32 L42 32 L41 16 L39 16 Z" fill="currentColor" />
+            <rect x="37.6" y="13" width="4.8" height="3.4" rx="0.8" fill="var(--sx-lamp, #ffe9b8)" />
+            <path d="M40 14.6 L4 8 L4 20 Z" fill="var(--sx-lamp, #ffe9b8)" opacity="0.28" />
+          </svg>
+        </span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="setup-eyebrow !mb-1">Not sure yet?</p>
+        <p className="font-heading text-[17px] font-semibold text-fg">Explore the sample world</p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+          A small finished world to look round first: a short story set in Gullhaven, with its characters, places and memory filled in.
+          Nothing in it costs anything.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button icon={<BookOpen size={15} />} loading={busy === 'sample'} disabled={!!busy} onClick={onExplore}>
+            Explore a sample world first
+          </Button>
+          {WELCOME_ACTIONS.length ? <WelcomeActionButtons actions={FROM_SETUP} /> : null}
+        </div>
+      </div>
+    </div>
+  )
 }

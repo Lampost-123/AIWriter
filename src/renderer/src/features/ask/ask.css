@@ -1,0 +1,30 @@
+/*
+  Ask the world on the desk (UI overhaul, #94; AskPanel.tsx): the drawer's head on the spine's leather with two lanterns in
+  conversation, brighter while an answer comes. The rest of the chat is main's editor chat (0.6.41: its starter cards,
+  answer blocks fading in, sources and what to ask next), which took the place of #94's own versions of those.
+*/
+
+[data-arrangement='desk'] .ask-head.desk-leather {
+  height: 52px;
+  border-bottom: 0;
+  padding-left: 10px;
+}
+[data-arrangement='desk'] .ask-head.desk-leather h2 {
+  font: 600 16px/1 var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .ask-head.desk-leather .ask-head-icon {
+  display: none;
+}
+[data-arrangement='desk'] .ask-head-art {
+  width: 64px;
+  height: 34px;
+  flex: none;
+  margin-right: 4px;
+}
+/* On the leather, the lanterns' ink is the spine's light ink. */
+[data-arrangement='desk'] .desk-leather .ra {
+  --ra-ink: color-mix(in oklab, var(--spine-fg, #f1f4fa) 70%, transparent);
+  --ra-ink-2: color-mix(in oklab, var(--spine-fg, #f1f4fa) 40%, transparent);
+  --ra-paper: color-mix(in oklab, var(--spine-fg, #f1f4fa) 16%, transparent);
+}

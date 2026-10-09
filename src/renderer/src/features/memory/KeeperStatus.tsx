@@ -46,7 +46,11 @@ function useSteady(on: boolean, after = 600, atLeast = 1500): boolean {
 const slotButton =
   'flex h-7 max-w-full items-center gap-2 rounded-md px-2 text-[12px] outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 animate-fade-in'
 
-export function KeeperStatus(): React.JSX.Element {
+/**
+ * `quiet`: the desk's top bar, whose status island says "Memory · N changes" itself; this then shows only the reading
+ * and the trouble, at its own width (nothing cut short).
+ */
+export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.Element {
   const status = useApp((s) => s.memoryStatus)
   const worldId = useApp((s) => s.world?.id ?? null)
   const navigate = useApp((s) => s.navigate)
@@ -60,7 +64,8 @@ export function KeeperStatus(): React.JSX.Element {
   if (opened.current.worldId !== worldId) opened.current = { worldId, at: Date.now() - 2000 }
   const [seen, setSeen] = useState<string | null>(null)
   const [held, setHeld] = useState(false)
-  const update = freshUpdate(status, seen, opened.current.at)
+  const fresh = freshUpdate(status, seen, opened.current.at)
+  const update = quiet ? null : fresh
   useEffect(() => {
     if (!update || held) return
     const t = setTimeout(() => setSeen(update.runId), UPDATED_FOR)
@@ -95,8 +100,9 @@ export function KeeperStatus(): React.JSX.Element {
 
   return (
     // The slot keeps its room while empty and grows to fit its words (up to a limit, the rest in the tooltip): the free
-    // middle of the bar gives way, so nothing to its right moves.
-    <div className="flex min-w-[176px] max-w-[220px] shrink-0 justify-end look-new:min-w-[128px]" role="status" aria-live="polite">
+    // middle of the bar gives way, so nothing to its right moves. Quiet (the desk's top bar, where the status island says
+    // the rest): no room kept while empty.
+    <div className={cn('flex max-w-[220px] shrink-0 justify-end', quiet ? 'min-w-0' : 'min-w-[176px] look-new:min-w-[128px]')} role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger

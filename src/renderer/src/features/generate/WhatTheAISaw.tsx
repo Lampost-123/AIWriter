@@ -17,6 +17,9 @@ import { variantsBackTo } from '@/features/variants/back'
 import { editRecordWords, type EditRecordWords } from '@/features/edits/record'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
+import { BriefingArt } from '@/components/art/RoomArt'
+import { useDesk } from '@/features/look/look'
+import './aiSaw.css'
 import { laterMessageLabel, messageText, requestNote, requestsOf, requestTitle, toolOfResult } from './requestSteps'
 import { blockTagNote, recordTagNote, tagBadges, tagLabel, tagsInOrder } from './memoryTagsView'
 
@@ -115,8 +118,8 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
   }
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
+    <div className="aisaw h-full overflow-auto">
+      <div className="aisaw-page mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
           {from
             ? from.label
@@ -203,6 +206,7 @@ function DraftRecord({
         ? otherRecordWords(`this polish of a draft${sceneTitle ? ` of “${sceneTitle}”` : ''}`)
         : editRecordWords(rec, sceneTitle)
 
+  const desk = useDesk()
   const toggle = (id: string): void =>
     setOpen((s) => {
       const n = new Set(s)
@@ -213,8 +217,12 @@ function DraftRecord({
 
   return (
     <div className="animate-fade-in">
-      <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
-      <p className="mt-1 text-[13px] text-muted">
+      <div className="aisaw-head">
+        {desk ? <BriefingArt className="aisaw-art" /> : null}
+        <div className="aisaw-head-words">
+          {desk ? <p className="desk-caps">{answer ? 'An answer in Ask the world' : 'A record of the AI at work'}</p> : null}
+          <h1 className="aisaw-title text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
+          <p className="aisaw-intro mt-1 text-[13px] text-muted">
         {answer ? (
           <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
         ) : (
@@ -223,7 +231,9 @@ function DraftRecord({
             {fullDate(rec.createdAt)}.
           </>
         )}
-      </p>
+          </p>
+        </div>
+      </div>
 
       <div className="mt-4 flex flex-col gap-2">
         {rec.status === 'streaming' ? (
@@ -272,7 +282,9 @@ function DraftRecord({
 
       <ReplacedText rec={rec} sceneGone={sceneGone} />
 
-      <Card className="mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
+      <div className="aisaw-cols contents">
+        <div className="aisaw-side contents">
+      <Card className="aisaw-meta mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
         {/* How much it was asked to think goes with the model, so the grid keeps its two even rows. */}
         <Meta
           label="Model"
@@ -318,13 +330,15 @@ function DraftRecord({
       />
 
       {rec.direction ? (
-        <section className="mt-6">
+        <section className="aisaw-direction mt-6">
           <SectionTitle>{edit?.direction ?? (answer ? 'Your question' : 'Your direction for this draft')}</SectionTitle>
           <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
         </section>
       ) : null}
 
-      <section className="mt-7">
+        </div>
+        <div className="aisaw-main contents">
+      <section className="aisaw-briefing mt-7">
         <SectionTitle
           actions={
             <div className="flex items-center gap-4">
@@ -418,7 +432,7 @@ function DraftRecord({
         </section>
       ) : null}
 
-      <section className="mt-8">
+      <section className="aisaw-back mt-8">
         <SectionTitle actions={<span className="text-[12px] tabular-nums text-faint">{responseWords.toLocaleString()} words</span>}>What came back</SectionTitle>
         {rec.response ? (
           <Card className="px-6 py-5">
@@ -428,6 +442,8 @@ function DraftRecord({
           <p className="text-[13px] text-muted">{rec.status === 'streaming' ? 'Waiting for the first words…' : 'No text came back.'}</p>
         )}
       </section>
+        </div>
+      </div>
     </div>
   )
 }
@@ -596,7 +612,7 @@ function BudgetBar({
   const pct = Math.min(100, Math.round(share * 100))
   const tight = share > 0.9
   return (
-    <Card className="mt-3 px-5 py-4">
+    <Card className="aisaw-budget mt-3 px-5 py-4">
       <div className="flex items-baseline justify-between gap-4 text-[13px]">
         <span className="font-medium text-fg">Briefing size (AI Write's estimate)</span>
         <span className="tabular-nums text-muted">
@@ -660,7 +676,7 @@ function BlockRow({
   const navigate = useApp((s) => s.navigate)
   const linked = block.entryIds.map((id) => entries.get(id)).filter((e): e is Entry => !!e)
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-line bg-surface transition-colors duration-150', block.dropped && 'bg-surface-2/60')}>
+    <div className={cn('aisaw-block overflow-hidden rounded-xl border border-line bg-surface transition-colors duration-150', block.dropped && 'bg-surface-2/60')} data-dropped={block.dropped || undefined}>
       <button
         type="button"
         onClick={onToggle}

@@ -14,6 +14,7 @@ import { useApp } from '@/lib/store'
 import { createEntry } from '@/features/world/entryActions'
 import { Segmented } from '@/features/generate/parts'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from '@/features/timeline/viewParts'
+import { useDesk } from '@/features/look/look'
 import {
   columnsOf,
   isQuiet,
@@ -26,6 +27,7 @@ import {
   type LedgerSort,
   type PlaceWords
 } from './boardLogic'
+import { DeskThreads } from './DeskThreads'
 
 const loadBoard = (storyId: ID): Promise<Board> => api.getThreadsBoard(storyId)
 
@@ -71,6 +73,40 @@ export function ThreadsBoard(): React.JSX.Element {
     }
   }
 
+  // The desk: the threads as a loom and cards (DeskThreads.tsx), with the same data and actions.
+  const desk = useDesk()
+  if (desk) {
+    return (
+      <DeskThreads
+        storyId={storyId}
+        setStoryId={setStoryId}
+        data={data}
+        creating={creating}
+        create={() => void create()}
+        fallback={
+          error ? (
+            <ViewError what="The plot threads board" error={error} onRetry={retry} />
+          ) : !storyId ? (
+            <EmptyState
+              icon={<Spool size={20} />}
+              title="No story yet"
+              className="mt-[10vh]"
+              actions={
+                <Button variant="primary" icon={<Plus size={15} />} onClick={() => useApp.getState().setNewStoryOpen(true)}>
+                  New story…
+                </Button>
+              }
+            >
+              Add a story, and its plot threads appear here.
+            </EmptyState>
+          ) : (
+            <ViewLoading />
+          )
+        }
+      />
+    )
+  }
+
   return (
     <div className="flex h-full flex-col">
       <ViewHeader title="Plot threads board" subtitle="The questions and promises your story opens, and where each is paid off.">
@@ -94,6 +130,7 @@ export function ThreadsBoard(): React.JSX.Element {
         ) : (
           <div className="flex-1 overflow-auto">
             <EmptyState
+              art="threads"
               icon={<Spool size={20} />}
               title="No plot threads yet"
               className="mt-[8vh]"
@@ -103,7 +140,7 @@ export function ThreadsBoard(): React.JSX.Element {
                 </Button>
               }
             >
-              A plot thread is a question or promise your story opens and later pays off, like “Who burned the mill?”. Make one, then mark
+              A plot thread is a question or promise your story opens and later pays off, like “Who burned the mill?” Make one, then mark
               the scenes that set it up and pay it off on their scene cards. As you write, the memory notes when it opens and when it is
               resolved.
             </EmptyState>
@@ -193,7 +230,7 @@ function ThreadCard({ thread: t }: { thread: BoardThread }): React.JSX.Element {
       className={cn(
         'group cursor-pointer rounded-xl border bg-surface px-4 py-3 shadow-soft transition-colors duration-150 hover:border-line-strong',
         // The New look: a card of paper edged in the plot threads' moss ink, lifting a little on hover.
-        'look-new:rounded-card look-new:border-transparent look-new:bg-page look-new:shadow-[var(--elev-1),inset_3px_0_0_var(--k-thread),inset_0_0_0_1px_var(--line)] look-new:transition-[transform,box-shadow] look-new:duration-(--dur-quick) look-new:hover:-translate-y-0.5 look-new:hover:shadow-[var(--elev-2),inset_3px_0_0_var(--k-thread),inset_0_0_0_1px_var(--line)]',
+        'look-new:rounded-card look-new:border-transparent look-new:bg-page look-new:shadow-[var(--elev-1),inset_3px_0_0_var(--k-thread),inset_0_0_0_1px_var(--line)] look-new:transition-[transform,translate,box-shadow] look-new:duration-(--dur-quick) look-new:hover:-translate-y-0.5 look-new:hover:shadow-[var(--elev-2),inset_3px_0_0_var(--k-thread),inset_0_0_0_1px_var(--line)]',
         t.longOpen ? 'border-ai/40' : 'border-line'
       )}
     >

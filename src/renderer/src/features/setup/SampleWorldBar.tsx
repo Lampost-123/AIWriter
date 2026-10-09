@@ -22,7 +22,9 @@ export function SampleWorldChip(): React.JSX.Element | null {
       className="flex h-7 shrink-0 items-center gap-2 rounded-full bg-k-place-soft pl-2.5 pr-1 text-[12px] font-medium text-k-place"
     >
       <BookOpen size={13} aria-hidden />
-      <span className="whitespace-nowrap max-[1360px]:hidden">Sample world</span>
+      {/* The world's name beside the trail says "Sample world" already: below 1600 wide the chip leaves the words to it,
+          so the trail's names show whole. (The desk's world name already says it is the sample.) */}
+      <span className="whitespace-nowrap max-[1599px]:hidden desk:hidden">Sample world</span>
       <button
         type="button"
         disabled={busy}
@@ -30,7 +32,7 @@ export function SampleWorldChip(): React.JSX.Element | null {
           setBusy(true)
           void startOwnWorld(() => usePalette.setState({ newWorld: true })).finally(() => setBusy(false))
         }}
-        className="h-[22px] whitespace-nowrap rounded-full bg-page px-2.5 text-fg shadow-e1 transition-transform duration-(--dur-press) active:scale-[0.96] disabled:opacity-60"
+        className="h-[22px] whitespace-nowrap rounded-full bg-page px-2.5 text-fg shadow-e1 transition-transform duration-150 ease-press active:duration-(--dur-press) active:scale-[0.96] disabled:opacity-60"
       >
         Start my own
       </button>

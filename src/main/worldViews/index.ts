@@ -14,13 +14,17 @@ import { asOfStops, memoryAt, type MemoryAt } from '../memory/asOf'
 import { buildLine } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import type { MemoryData, WorldShape } from '../memory/types'
-import { changesMade, readMapLayout, sceneCards, storyGaps, writeMapLayout, writtenScenes, type CardInfo } from '../db/worldViews'
+import { changesMade, readMapLayout, readMapMoved, sceneCards, storyGaps, writeMapLayout, writeMapMoved, writtenScenes, type CardInfo } from '../db/worldViews'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
 import { UserError } from '../util'
 import { buildTimeline } from './timeline'
 import { buildBoard } from './threads'
 import { buildMap, countChanges, createLayoutCache, worldGraph } from './map'
+import { changesAt, stopTitles, tieHistory } from './mapArc'
+import { labeler } from '../memory/line'
+import type { AsOfStop } from '@shared/types'
+import type { MapStopInfo, MapTieHistory } from '@shared/contracts/worldViews'
 
 type DB = Database.Database
 
@@ -36,6 +40,8 @@ interface Read {
   ends: Map<ID, MemoryAt>
   timelines: Map<ID, Timeline>
   boards: Map<ID, ThreadsBoard>
+  /** The desk's map: each story's slider stops, their titles and the arc of every relationship along it. */
+  arcs: Map<ID, { stops: AsOfStop[]; info: MapStopInfo[]; history: MapTieHistory[] }>
 }
 
 const reads = new WeakMap<DB, Read>()
@@ -52,7 +58,8 @@ function readWorld(db: DB, storyId: ID): Read {
       gaps: null,
       ends: new Map(),
       timelines: new Map(),
-      boards: new Map()
+      boards: new Map(),
+      arcs: new Map()
     }
     reads.set(db, r)
   }
@@ -121,21 +128,72 @@ const layoutFor = createLayoutCache<DB>({ load: readMapLayout, save: writeMapLay
  * one that isn't on this story's slider), the stop for `sceneId` if it has one, otherwise the last.
  */
 export function relationshipMapOf(db: DB, storyId: ID, at: AsOf | null, sceneId: ID | null): RelationshipMap {
-  const { shape, data } = readWorld(db, storyId)
-  const stops = countChanges(asOfStops(db, storyId), data)
+  const r = readWorld(db, storyId)
+  const { shape, data } = r
+  const line = buildLine(shape, { storyId, through: 'end' })
+  // The slider's stops and the arc of every relationship along the story are the same at every stop: worked out once.
+  let arc = r.arcs.get(storyId)
+  if (!arc) {
+    const stops = countChanges(asOfStops(db, storyId), data)
+    arc = { stops, info: stopTitles(stops, shape), history: tieHistory(line, data, stops, labeler(shape)) }
+    r.arcs.set(storyId, arc)
+  }
+  const { stops } = arc
   const same = (a: AsOf): boolean =>
     !!at && a.kind === at.kind && a.storyId === at.storyId && (a.kind !== 'scene' || (at.kind === 'scene' && a.sceneId === at.sceneId))
-  const stop = stops.find((s) => same(s.at)) ?? (sceneId ? stops.find((s) => s.sceneId === sceneId) : undefined) ?? stops[stops.length - 1]
+  const found = stops.findIndex((s) => same(s.at))
+  const index = found >= 0 ? found : sceneId ? stops.findIndex((s) => s.sceneId === sceneId) : -1
+  const atStop = index >= 0 ? index : stops.length - 1
+  const stop = stops[atStop]
   const point: AsOf = stop ? { ...stop.at, seenIn: storyId } : { kind: 'end', storyId }
   const { state, label } = memoryAt(db, point, shape, data)
-  return buildMap({
-    storyId,
-    at: point,
-    label,
-    stops,
-    data,
-    state,
-    line: buildLine(shape, { storyId, through: 'end' }),
-    positions: layoutFor(db, worldGraph(data))
-  })
+  const map = buildMap({ storyId, at: point, label, stops, data, state, line, positions: layoutFor(db, worldGraph(data)) })
+  const povId = stop?.sceneId ? ((r.cards ??= sceneCards(db)).get(stop.sceneId)?.povId ?? null) : null
+  return {
+    ...map,
+    detail: {
+      atStop,
+      stops: arc.info,
+      povId: povId && map.nodes.some((n) => n.id === povId) ? povId : null,
+      history: arc.history,
+      here: atStop > 0 ? changesAt(arc.history, atStop) : [],
+      moved: [...readMapMoved(db).keys()]
+    }
+  }
+}
+
+/** The desk's map: a character dragged to a new place, kept with the world's layout from now on. */
+export function moveMapCharacter(db: DB, id: ID, x: number, y: number): void {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new UserError('That place is not on the map.')
+  const positions = layoutFor(db, worldGraph(loadMemoryData(db)))
+  if (!positions.has(id)) throw new UserError('That character is not on the map.')
+  // Where it sat before Adam first moved it, for Reset layout.
+  const moved = readMapMoved(db)
+  if (!moved.has(id)) {
+    moved.set(id, { ...positions.get(id)! })
+    writeMapMoved(db, moved)
+  }
+  // The layout kept for the world is this same map, so the next map (and any newcomers fitted in) has it there.
+  positions.set(id, { x: Math.round(x) + 0, y: Math.round(y) + 0 })
+  writeMapLayout(db, positions)
+}
+
+/**
+ * The desk's map: every dragged character back where the layout had put it. Returns where they were (map units), so the
+ * reset can be undone by moving them there again.
+ */
+export function resetMapLayout(db: DB): { id: ID; x: number; y: number }[] {
+  const moved = readMapMoved(db)
+  if (!moved.size) return []
+  const positions = layoutFor(db, worldGraph(loadMemoryData(db)))
+  const undo: { id: ID; x: number; y: number }[] = []
+  for (const [id, p] of moved) {
+    const now = positions.get(id)
+    if (!now) continue
+    undo.push({ id, x: now.x, y: now.y })
+    positions.set(id, { ...p })
+  }
+  writeMapLayout(db, positions)
+  writeMapMoved(db, new Map())
+  return undo
 }

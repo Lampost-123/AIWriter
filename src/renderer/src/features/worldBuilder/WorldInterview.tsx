@@ -10,6 +10,8 @@ import { ProblemNotice, WritingStatus } from '@/features/builder/parts'
 import { MicButton } from '@/features/dictation/MicButton'
 import { insertIntoBox } from '@/features/dictation/insertText'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
+import { useDesk } from '@/features/look/look'
+import { LampStatus } from '@/features/planning/LampThinking'
 import { interviewNote } from './interviewLogic'
 import {
   answerQuestion,
@@ -41,7 +43,10 @@ export function InterviewButton({ disabled }: { disabled?: boolean }): React.JSX
 
 /** Scrolls the page around the interview (never the window) just far enough to show all of it. */
 function showWhole(el: HTMLElement | null): void {
-  const page = el?.closest<HTMLElement>('.overflow-y-auto')
+  // (On the desk the page is in two columns, which stack in a narrow room: whichever box really scrolls.)
+  let page = el?.parentElement ?? null
+  while (page && !(page.scrollHeight > page.clientHeight && /auto|scroll/.test(getComputedStyle(page).overflowY))) page = page.parentElement
+  if (!page) page = el?.closest<HTMLElement>('.overflow-y-auto') ?? null
   if (!el || !page) return
   const box = el.getBoundingClientRect()
   const view = page.getBoundingClientRect()
@@ -61,6 +66,7 @@ export function WorldInterview({ running }: { running: boolean }): React.JSX.Ele
   const s = useInterview()
   const box = useRef<HTMLTextAreaElement>(null)
   const panel = useRef<HTMLElement>(null)
+  const desk = useDesk()
 
   // Leaving the page, or starting a build, ends the interview (an answer typed is added first).
   useEffect(() => () => stopInterview(), [])
@@ -95,7 +101,7 @@ export function WorldInterview({ running }: { running: boolean }): React.JSX.Ele
     <section
       ref={panel}
       aria-label="Interview"
-      className="mt-3 rounded-xl border border-line bg-surface px-4 pb-3 pt-3 shadow-sm animate-fade-in"
+      className="plan-interview mt-3 rounded-xl border border-line bg-surface px-4 pb-3 pt-3 shadow-sm animate-fade-in"
     >
       <div className="flex h-7 items-center gap-2">
         <MessageCircleQuestion size={14} className="shrink-0 text-ai" aria-hidden />
@@ -120,12 +126,16 @@ export function WorldInterview({ running }: { running: boolean }): React.JSX.Ele
           <ProblemNotice message={s.problem.message} code={s.problem.code} onRetry={retryQuestion} />
         ) : asking ? (
           <div className="pt-1">
-            <WritingStatus text={number === 1 ? 'Reading your summary…' : 'Thinking of the next question…'} />
+            {desk ? (
+              <LampStatus text={number === 1 ? 'Reading your summary…' : 'Thinking of the next question…'} size={24} />
+            ) : (
+              <WritingStatus text={number === 1 ? 'Reading your summary…' : 'Thinking of the next question…'} />
+            )}
           </div>
         ) : (
-          <div role="status" aria-live="polite" className="animate-fade-in">
-            <p className="text-[12px] font-medium text-ai">{s.topic}</p>
-            <p className="mt-0.5 text-[15px] font-medium leading-snug text-fg">{s.question}</p>
+          <div role="status" aria-live="polite" className="plan-q animate-fade-in">
+            <p className="plan-q-topic text-[12px] font-medium text-ai">{s.topic}</p>
+            <p className="plan-q-text mt-0.5 text-[15px] font-medium leading-snug text-fg">{s.question}</p>
           </div>
         )}
       </div>
@@ -152,7 +162,7 @@ export function WorldInterview({ running }: { running: boolean }): React.JSX.Ele
             minRows={2}
             maxRows={8}
             placeholder={asking ? '' : 'Type your answer, in your own words…'}
-            className="mt-1 text-[14px] leading-[1.55]"
+            className="plan-answer mt-1 text-[14px] leading-[1.55]"
             onChange={(e) => setInterviewAnswer(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

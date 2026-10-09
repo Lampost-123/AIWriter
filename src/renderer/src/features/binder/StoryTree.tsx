@@ -151,7 +151,14 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   const runs = useMemo(() => chapterRuns(outline, order.chapters), [outline, order.chapters])
   const hasActs = (outline.acts?.length ?? 0) > 0
   const chapterById = useMemo(() => new Map(groups.map((g) => [g.chapter.id, g])), [groups])
-  const sceneById = useMemo(() => new Map(outline.scenes.map((s) => [s.id, s])), [outline])
+  // The open scene's words as they are counted on the page (every couple of seconds while a draft comes in), not
+  // only as last saved, so its row and its chapter's and story's totals keep in step with the top bar.
+  const liveId = useApp((s) => s.sceneWordsOf)
+  const liveWords = useApp((s) => s.sceneWords)
+  const sceneById = useMemo(
+    () => new Map(outline.scenes.map((s) => [s.id, s.id === liveId && s.wordCount !== liveWords ? { ...s, wordCount: liveWords } : s])),
+    [outline, liveId, liveWords]
+  )
   /** Each chapter's act (in a story with acts). */
   const actOfChapter = useMemo(() => new Map(outline.chapters.map((c) => [c.id, actOf(outline, c.id)])), [outline])
 
@@ -493,7 +500,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   })()
   const activeScene = drag?.kind === 'scene' ? sceneById.get(drag.id) : undefined
   const activeChapter = drag?.kind === 'chapter' ? chapterById.get(drag.id) : undefined
-  const storyWords = outline.scenes.reduce((n, s) => n + s.wordCount, 0)
+  const storyWords = outline.scenes.reduce((n, s) => n + (sceneById.get(s.id) ?? s).wordCount, 0)
 
   if (order.chapters.length === 0 && !hasActs) {
     return (

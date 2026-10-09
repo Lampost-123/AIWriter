@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry } from '@shared/types'
+import { MOTIF_IDS } from '@shared/motifs'
 import {
   aiAfterSave,
   arrivalOrder,
+  cardsOf,
+  countWords,
+  EXAMPLES,
+  profileCounts,
+  stepArt,
+  stepCounts,
+  wideKeys,
   fleshOutKeys,
   hasSampleLine,
   labelOf,
@@ -205,5 +213,69 @@ describe('sample lines from the interview', () => {
   it('knows a reply that is already there', () => {
     expect(hasSampleLine('"One."\n"Pay first."', 'Pay first.')).toBe(true)
     expect(hasSampleLine('"One."', 'Pay first.')).toBe(false)
+  })
+})
+
+describe('the overhauled builder: cards, examples, drawings and progress', () => {
+  const kinds = ['character', 'place', 'group', 'item'] as const
+
+  it('puts every field of every step in exactly one card, in the step’s order', () => {
+    for (const kind of kinds) {
+      for (const s of stepsFor(kind)) {
+        const cards = cardsOf(kind, s)
+        const keys = cards.flatMap((c) => c.keys)
+        expect(keys.sort()).toEqual(s.fields.map((f) => f.key).sort())
+        for (const c of cards) expect(c.keys.length).toBeGreaterThan(0)
+      }
+    }
+    const basics = stepsFor('character')[0]
+    expect(cardsOf('character', basics).map((c) => c.title)).toEqual(['Name', 'The essentials', 'In your own words'])
+    // A step of one card needs no heading of its own.
+    const senses = stepsFor('place').find((s) => s.id === 'senses')!
+    expect(cardsOf('place', senses)).toEqual([{ id: 'rest', title: '', hint: '', keys: ['senses'] }])
+  })
+
+  it('shows an example in each box, marked as one, short enough for a one-line box', () => {
+    const looks = stepsFor('character').find((s) => s.id === 'looks')!
+    expect(looks.fields.find((f) => f.key === 'hair')!.placeholder).toBe('e.g. Cropped short, grey at the temples')
+    // Words that are instructions, not examples, stay as they were.
+    const voice = stepsFor('character').find((s) => s.id === 'voice')!
+    expect(voice.fields.find((f) => f.key === 'speech')!.placeholder).toBe('Sentence length, vocabulary, dialect')
+    for (const [kind, byKey] of Object.entries(EXAMPLES)) {
+      const keys = new Set(stepsFor(kind as 'character').flatMap((s) => s.fields.map((f) => f.key)))
+      for (const [key, text] of Object.entries(byKey!)) {
+        expect(keys.has(key), `${kind}.${key}`).toBe(true)
+        expect(text.length).toBeLessThanOrEqual(60)
+      }
+    }
+  })
+
+  it('gives every step a drawing from the library', () => {
+    for (const kind of kinds) for (const s of stepsFor(kind)) expect(MOTIF_IDS).toContain(stepArt(kind, s.id))
+  })
+
+  it('counts how far along a step and the whole profile are', () => {
+    const looks = stepsFor('character').find((s) => s.id === 'looks')!
+    expect(stepCounts('character', looks, { hair: 'Grey', eyes: ' ' }, 0)).toEqual({ filled: 1, total: 8 })
+    const rel = stepsFor('character').find((s) => s.id === 'relationships')!
+    expect(stepCounts('character', rel, {}, 2)).toEqual({ filled: 1, total: 1 })
+    const all = profileCounts('character', { name: 'Brann', hair: 'Grey' }, 1)
+    expect(all.filled).toBe(3)
+    expect(all.total).toBe(profileKeys('character').length + 1)
+    const review = stepsFor('character').find((s) => s.id === 'review')!
+    expect(stepCounts('character', review, { name: 'Brann', hair: 'Grey' }, 1)).toEqual(all)
+    expect(countWords({ filled: 0, total: 8 }, looks)).toBe('Not started')
+    expect(countWords({ filled: 3, total: 8 }, looks)).toBe('3 of 8')
+    expect(countWords({ filled: 8, total: 8 }, looks)).toBe('Done')
+    expect(countWords({ filled: 0, total: 1 }, rel)).toBe('Nobody yet')
+  })
+
+  it('lets paragraphs that would sit alone take the whole row, and keeps one-line boxes at half', () => {
+    const f = (key: string, type: 'line' | 'text' | 'list' | 'name') => ({ key, type })
+    expect([...wideKeys([f('traits', 'text'), f('values', 'text'), f('flaws', 'text')])]).toEqual(['flaws'])
+    expect([...wideKeys([f('fears', 'text'), f('desires', 'text')])]).toEqual([])
+    expect([...wideKeys([f('pronouns', 'line'), f('age', 'line'), f('role', 'line')])]).toEqual([])
+    expect([...wideKeys([f('name', 'name'), f('aliases', 'list')])].sort()).toEqual(['aliases', 'name'])
+    expect([...wideKeys([f('summary', 'line'), f('description', 'text')])].sort()).toEqual(['description', 'summary'])
   })
 })

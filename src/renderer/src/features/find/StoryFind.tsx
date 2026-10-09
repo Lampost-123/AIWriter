@@ -177,7 +177,8 @@ export function StoryFind(): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={(o) => set({ storyOpen: o })}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
+        {/* The New look: it appears at once (opened from the keyboard, Ctrl+Shift+F). */}
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in look-new:data-[state=open]:animate-none" />
         <D.Content
           data-find-story=""
           onOpenAutoFocus={(e) => {
@@ -185,7 +186,7 @@ export function StoryFind(): React.JSX.Element {
             findRef.current?.focus()
             findRef.current?.select()
           }}
-          className="fixed left-1/2 top-[10vh] z-50 flex w-[680px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
+          className="fixed left-1/2 top-[10vh] z-50 flex w-[680px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:data-[state=open]:animate-none"
         >
           <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-4">
             <div className="min-w-0">

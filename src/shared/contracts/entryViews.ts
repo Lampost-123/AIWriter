@@ -59,6 +59,8 @@ export interface CodexCard {
   importance: number
   /** Where it last appears in reading order (`order` sorts across stories); null when it appears in no scene yet. */
   last: { sceneId: ID; storyId: ID; label: string; order: number } | null
+  /** Where it first appears in reading order (the earliest scene it is in, by story order); null when in no scene yet. */
+  first: { sceneId: ID; storyId: ID; label: string; order: number } | null
   /** Stories it appears in or first exists in (the beginning of the world counts as the world's first story). */
   storyIds: ID[]
 }

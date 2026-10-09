@@ -24,6 +24,7 @@ import {
   History,
   Keyboard,
   LayoutGrid,
+  MessagesSquare,
   Monitor,
   Moon,
   Network,
@@ -44,18 +45,21 @@ import {
   WandSparkles,
   type IconType
 } from '@/components/ui/icons'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { SearchGroupId, SearchHit, SearchResults, TextPart } from '@shared/contracts/search'
 import { Kbd, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { flushAll } from '@/lib/flush'
+import { OPEN_DIALOG, OPEN_MENU } from '@/lib/layers'
 import { isShortcut, shortcutKeys } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { useDelayed } from '@/features/generate/parts'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
-import { useNewLook } from '@/features/look/look'
+import { useDesk, useNewLook } from '@/features/look/look'
+import { openAsk } from '@/features/ask/open'
+import { setDraft } from '@/features/ask/askStore'
 import { openResult, runAction } from './actions'
 import {
   entryAction,
@@ -78,6 +82,10 @@ import { useReading } from '@/features/readAloud/control'
 import { canBuildMemory, useImport } from '@/features/importing/importStore'
 import { useFocusMode } from '@/features/look/focusMode'
 import { getDraft } from '@/features/world/entryDrafts'
+import { Motif } from '@/components/art/Motif'
+import { GlidePill } from '@/components/ui/GlidePill'
+import { useEntryMotifs } from '@/features/world/art/artStore'
+import './palette.css'
 
 /** How many recent places show with nothing typed. */
 const RECENT = 5
@@ -138,6 +146,11 @@ const ACTION_ICONS: Partial<Record<ActionId, IconType>> = {
   'theme-system': Monitor,
   'toggle-binder': PanelLeft,
   'toggle-panel': PanelRight,
+  'tab-card': PanelRight,
+  'tab-context': PanelRight,
+  'tab-cast': PanelRight,
+  'tab-issues': PanelRight,
+  'tab-drafts': PanelRight,
   'backup-now': HardDriveDownload,
   'new-world': Globe2,
   'switch-world': Globe2,
@@ -207,9 +220,17 @@ interface OptionRowProps {
   onChoose: () => void
 }
 
+/** The desk: each entry's drawing (from the world's drawing library), for its kind's tile; read only on the desk. */
+const MotifsContext = createContext<Map<string, string> | null>(null)
+
+function DeskMotifs({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <MotifsContext.Provider value={useEntryMotifs()}>{children}</MotifsContext.Provider>
+}
+
 function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JSX.Element {
   const isNew = useNewLook()
-  const base = cn('flex cursor-default select-none gap-3 rounded-lg px-3', active && 'bg-surface-2')
+  const motifs = useContext(MotifsContext)
+  const base = cn('pal-row flex cursor-default select-none gap-3 rounded-lg px-3', active && 'bg-surface-2')
   const props = {
     id: domId('palette-option', row.key),
     role: 'option' as const,
@@ -225,10 +246,21 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
   if (row.type === 'action') {
     const Icon = actionIcon(row.action)
     return (
-      <div {...props} className={cn(base, 'h-9 items-center')}>
-        <Icon size={15} className={cn('shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
+      <div {...props} data-row="action" className={cn(base, 'h-9 items-center')}>
+        <Icon size={15} className={cn('pal-icon shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
         <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">{row.action.label}</span>
         {row.action.shortcut ? <Keys keys={shortcutKeys(row.action.shortcut)} /> : null}
+      </div>
+    )
+  }
+
+  if (row.type === 'ask') {
+    return (
+      <div {...props} data-row="ask" className={cn(base, 'h-9 items-center')}>
+        <MessagesSquare size={15} className={cn('pal-icon shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg">
+          Ask the world: <span className="font-medium">“{row.query}”</span>
+        </span>
       </div>
     )
   }
@@ -236,7 +268,7 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
   if (row.type === 'more') {
     const all = `${row.total.toLocaleString('en-GB')} in all`
     return (
-      <div {...props} aria-label={`${row.label}, ${all}`} className={cn(base, 'h-8 items-center text-[12.5px] text-muted')}>
+      <div {...props} data-row="more" aria-label={`${row.label}, ${all}`} className={cn(base, 'h-8 items-center text-[12.5px] text-muted')}>
         <ChevronDown size={14} className="shrink-0" aria-hidden />
         <span className="flex-1">{row.label}</span>
         <span className="tabular-nums text-faint">{all}</span>
@@ -248,14 +280,15 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
   const Icon = hitIcon(hit)
   // The New look: a world entry's icon sits on a tile in its kind's ink.
   const kind = isNew && hit.open.kind === 'entry' ? hit.open.entryKind : null
+  const motif = kind && motifs && hit.open.kind === 'entry' ? (motifs.get(hit.open.entryId) ?? null) : null
   return (
-    <div {...props} className={cn(base, 'items-start py-2')}>
+    <div {...props} data-row="hit" data-prose={hit.prose || undefined} className={cn(base, 'items-start py-2')}>
       {kind ? (
-        <span className={cn('grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[6px]', KIND_INK[kind].tile)} aria-hidden>
-          <Icon size={14} />
+        <span className={cn('pal-tile grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[6px]', KIND_INK[kind].tile)} aria-hidden>
+          {motif ? <Motif id={motif} size={22} /> : <Icon size={14} />}
         </span>
       ) : (
-        <Icon size={15} className={cn('mt-[3px] shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
+        <Icon size={15} className={cn('pal-icon mt-[3px] shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
       )}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
@@ -313,6 +346,7 @@ function useActionContext(): ActionContext {
   const focus = useFocusMode((s) => s.on)
   const soundEffects = useApp((s) => !!s.settings?.speech.readAloud && !!s.settings?.speech.soundEffects)
   const showBeats = useApp((s) => !!s.settings?.editor?.showBeats)
+  const desk = useDesk()
   const character = useOpenCharacter()
   return useMemo(
     () => ({
@@ -331,9 +365,10 @@ function useActionContext(): ActionContext {
       spellCheck,
       soundEffects,
       showBeats,
+      desk,
       character
     }),
-    [view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats, character]
+    [view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats, desk, character]
   )
 }
 
@@ -373,7 +408,7 @@ function useOpenShortcut(input: React.RefObject<HTMLInputElement | null>): void 
         return
       }
       // Not over another dialog or an open menu (Esc closes that first), nor while a backup is being restored.
-      const covered = document.querySelector(`[role="dialog"][data-state="open"]:not([${PALETTE_LAYER}]), [role="menu"]`)
+      const covered = document.querySelector(`${OPEN_DIALOG}:not([${PALETTE_LAYER}]), ${OPEN_MENU}`)
       if (useApp.getState().restoring || covered) return
       openPalette()
     }
@@ -387,6 +422,8 @@ export function CommandPalette(): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id ?? null)
   const storyId = useApp((s) => s.storyId)
   const ctx = useActionContext()
+  // The desk's command bar: what is typed can be asked of the world as well.
+  const desk = useDesk()
 
   const [text, setText] = useState('')
   // The groups Adam asked to see more of, for what is in the box now.
@@ -476,8 +513,8 @@ export function CommandPalette(): React.JSX.Element {
   const actions = useMemo(() => matchActions(shown.query, ctx), [shown.query, ctx])
   const suggested = useMemo(() => suggestedActions(ctx), [ctx])
   const rows = useMemo(
-    () => paletteRows({ query: shown.query, actions, results: shown.results, recent: recent ?? [], suggested, expanded: shown.expanded }),
-    [shown, actions, recent, suggested]
+    () => paletteRows({ query: shown.query, actions, results: shown.results, recent: recent ?? [], suggested, expanded: shown.expanded, ask: desk }),
+    [shown, actions, recent, suggested, desk]
   )
   const options = useMemo(() => rows.filter(isOption), [rows])
   const optionIndex = useMemo(() => new Map(options.map((o, i) => [o.key, i])), [options])
@@ -522,7 +559,16 @@ export function CommandPalette(): React.JSX.Element {
     pending.current =
       o.type === 'action'
         ? { run: () => runAction(o.action.id), away: goesAway(o.action, ctx) }
-        : { run: () => openResult(o.hit.open), away: true }
+        : o.type === 'ask'
+          ? {
+              // Ask the world opens beside the page with the question in its box, ready to send.
+              run: async () => {
+                setDraft(o.query)
+                openAsk()
+              },
+              away: true
+            }
+          : { run: () => openResult(o.hit.open), away: true }
     usePalette.setState({ open: false })
     // Runs even if the closing focus step never comes (it always should).
     setTimeout(runPending, 100)
@@ -583,11 +629,12 @@ export function CommandPalette(): React.JSX.Element {
 
   const nothing = ready && hasWords(shown.query) && !shown.failed && rows.length === 0
 
-  return (
+  const palette = (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ open: o })}>
       <D.Portal>
-        {/* The New look: the palette is a raised pane with a hint of blur behind it (only it: small, so it costs little). */}
-        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
+        {/* The New look: the palette is a raised pane with a hint of blur behind it (only it: small, so it costs little).
+            It appears and goes at once, dim and all: it is opened from the keyboard all day. */}
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in look-new:data-[state=open]:animate-none" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
           aria-describedby={undefined}
@@ -604,10 +651,11 @@ export function CommandPalette(): React.JSX.Element {
           }}
           // Keys pressed here stay here: the app's shortcuts underneath (Ctrl+G, Ctrl+Enter...) wait until it closes.
           onKeyDown={(e) => e.stopPropagation()}
-          className="fixed left-1/2 top-[12vh] z-50 flex w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise/90 look-new:backdrop-blur-md look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:[animation:pop-in_var(--dur-base)_var(--motion-spring)]"
+          data-palette
+          className="fixed left-1/2 top-[12vh] z-50 flex w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise/90 look-new:backdrop-blur-md look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:animate-none"
         >
           <D.Title className="sr-only">Search</D.Title>
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-line px-4">
+          <div className="pal-box flex h-12 shrink-0 items-center gap-3 border-b border-line px-4">
             <SearchIcon size={16} className="shrink-0 text-muted" aria-hidden />
             <input
               ref={inputRef}
@@ -634,21 +682,26 @@ export function CommandPalette(): React.JSX.Element {
             <span className="flex w-4 shrink-0 justify-center text-faint">{slow ? <Spinner size={14} /> : null}</span>
           </div>
 
-          {/* A fixed height, so the palette doesn't grow and shrink as the results change. */}
+          {/* Classic: a fixed height, so the palette doesn't grow and shrink as the results change. The New look: as tall as
+              its results up to that height (a short list left a tall empty box under it), never shorter than a few rows,
+              so typing doesn't make it jump about much. */}
           <div
             ref={listRef}
             id="palette-list"
             role="listbox"
             aria-label="Results"
-            className="h-[min(440px,58vh)] overflow-y-auto overscroll-contain p-1.5"
+            // Its scrollbar shows whenever there are more results than fit, so a row cut at the foot reads as "more below".
+            className="pal-list scrollbar-shown relative h-[min(440px,58vh)] overflow-y-auto overscroll-contain p-1.5 look-new:h-auto look-new:max-h-[min(440px,58vh)] look-new:min-h-[min(180px,40vh)]"
           >
+            {/* The desk: the highlight is one raised pill that glides between rows (the keyboard's moves are instant). */}
+            {desk ? <GlidePill className="pal-pill" /> : null}
             {ready
               ? sections(rows).map((s, i) =>
                   s.heading ? (
                     <div key={s.heading.key} role="group" aria-labelledby={domId('palette', s.heading.key)} className="pb-1">
                       <div
                         id={domId('palette', s.heading.key)}
-                        className="px-3 pb-1 pt-2.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint"
+                        className="pal-heading px-3 pb-1 pt-2.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint"
                       >
                         {s.heading.label}
                       </div>
@@ -670,7 +723,7 @@ export function CommandPalette(): React.JSX.Element {
             ) : null}
           </div>
 
-          <div className="flex h-9 shrink-0 items-center gap-4 border-t border-line px-4 text-[12px] text-faint" aria-hidden>
+          <div className="pal-foot flex h-9 shrink-0 items-center gap-4 border-t border-line px-4 text-[12px] text-faint" aria-hidden>
             <span className="flex items-center gap-1.5">
               <Keys keys={['↑', '↓']} /> to move
             </span>
@@ -685,4 +738,5 @@ export function CommandPalette(): React.JSX.Element {
       </D.Portal>
     </D.Root>
   )
+  return desk ? <DeskMotifs>{palette}</DeskMotifs> : palette
 }

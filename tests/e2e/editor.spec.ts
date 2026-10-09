@@ -42,6 +42,47 @@ test('typing goes straight into the page after creating a world and after openin
   await expect.poll(async () => (await invoke(win, 'getScene', scenes[1].id)).text).toBe('xyz')
 })
 
+test('the caret moved by a key stays where it went when the page redraws or takes the keyboard before the app has heard of the move', async ({ launch }) => {
+  // The arrow keys move the caret in the page first; the editor hears of it a moment later. The live checks' underlines
+  // (or beat marks, find marks, the reading's highlight) redrawing in that moment once put the caret back, so arrow
+  // presses on a busy computer were lost (features/editor/pageCaret.ts). Here a key moves the page's caret and a redraw
+  // is sent in the same moment, every time.
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Harbour')
+  await expect(prose(win)).toBeFocused()
+  await win.keyboard.type('The ferry was late again. Mara counted the lamps.')
+  await expect(prose(win)).toContainText('The ferry was late again. Mara counted the lamps.')
+  const moved = await win.evaluate<{ from: number; to: number; text: string }>(`(() => {
+    const view = document.querySelector('.scene-prose').editor.view
+    const text = view.dom.querySelector('p').firstChild
+    // Shift+Right as the browser carries it out: the key reaches the editor, then the page's selection moves.
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true, cancelable: true }))
+    const at = text.data.indexOf('Mara')
+    getSelection().setBaseAndExtent(text, at, text, at + 4)
+    view.dispatch(view.state.tr.setMeta('aiwriteTestRedraw', true).setMeta('addToHistory', false))
+    const { from, to } = view.state.selection
+    return { from, to, text: view.state.doc.textBetween(from, to) }
+  })()`)
+  expect(moved.text).toBe('Mara')
+  await expect.poll(() => win.evaluate('String(getSelection())')).toBe('Mara')
+  await win.keyboard.type('Nell')
+  await expect(prose(win)).toContainText('The ferry was late again. Nell counted the lamps.')
+
+  // The key let go, and then the page takes the keyboard (which puts the editor's caret on the page): the caret stays
+  // where the key took it, not where the editor last heard of it.
+  const kept = await win.evaluate<string>(`(() => {
+    const view = document.querySelector('.scene-prose').editor.view
+    const text = view.dom.querySelector('p').firstChild
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
+    const ferry = text.data.indexOf('ferry')
+    getSelection().setBaseAndExtent(text, ferry, text, ferry)
+    view.dom.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }))
+    view.focus()
+    return view.state.doc.textBetween(view.state.selection.from, view.state.selection.from + 5)
+  })()`)
+  expect(kept).toBe('ferry')
+})
+
 test('leaving the page and coming back keeps the place in a long scene', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')

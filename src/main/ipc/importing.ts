@@ -73,6 +73,10 @@ export const importingHandlers: Handlers<keyof ImportingApi> = {
     if (res.canceled || !res.filePaths[0]) return null
     return readManuscriptFile(res.filePaths[0])
   },
+  readDroppedManuscript: (path) => {
+    if (typeof path !== 'string' || !path.trim()) throw new UserError('That file couldn’t be found. Pick it with Choose a file instead.')
+    return readManuscriptFile(path)
+  },
   importManuscript: (plan) => {
     const db = world.db()
     const result = importPlan(db, plan)

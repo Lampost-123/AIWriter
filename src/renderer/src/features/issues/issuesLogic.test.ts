@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { Issue } from '@shared/contracts/checks'
-import { disagreesWith, fieldWords, fixAgainNote, fixDirection, foundWords, memoryFixWords, occurrencesIn, openCount, pickOccurrence, runFor, sentenceAround, splitIssues, usableFix } from './issuesLogic'
+import { disagreesWith, fieldWords, fixAgainNote, fixDirection, foundWords, memoryFixWords, occurrencesIn, openCount, pickOccurrence, reportHeadline, runFor, sentenceAround, splitIssues, usableFix } from './issuesLogic'
+
+describe('the check report’s line', () => {
+  it('says what the checks found, and never that all is well (the page may have words underlined)', () => {
+    const items = new Array(6).fill(null) as never[]
+    expect(reportHeadline({ after: 'draft', items, found: 0 })).toBe('Checked after the latest draft · 6 checks · no issues')
+    expect(reportHeadline({ after: 'done', items, found: 2 })).toBe('Checked when marked done · 6 checks · 2 issues')
+  })
+})
 
 const issue = (over: Partial<Issue> = {}): Issue => ({
   id: 'i',

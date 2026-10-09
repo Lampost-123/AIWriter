@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { useNewLook } from '@/features/look/look'
 import { GenerateControls } from '@/features/generate/GenerateControls'
 import * as actions from '@/features/binder/actions'
 import { InlineTitle } from '@/features/binder/InlineTitle'
@@ -14,7 +15,8 @@ import { DoneButton } from './DoneButton'
 import { MemoryNote } from './MemoryNote'
 import { SceneTools } from './SceneTools'
 
-function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
+export function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
+  const isNew = useNewLook()
   return (
     <M.Root modal={false}>
       <M.Trigger
@@ -29,8 +31,18 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
         )}
       >
         <StatusDot status={status} />
-        {/* In a narrow header (a small window) the status shows as its dot alone, leaving the room to the scene's title. */}
-        <span className="hidden w-[52px] text-left @min-[660px]:inline-block look-new:inline-block! look-new:w-auto">{STATUS_LABELS[status]}</span>
+        {/* In a narrow header (a small window) the status shows as its dot alone, leaving the room to the scene's title.
+            The New look: the word sits in the room of the longest one (every word is there, the others unseen), so
+            marking the scene done or reopening it moves nothing beside it. */}
+        <span className="hidden w-[52px] text-left @min-[660px]:inline-block look-new:inline-grid! look-new:w-auto look-new:justify-items-center">
+          {isNew
+            ? STATUSES.map((s) => (
+                <span key={s} aria-hidden={s === status ? undefined : true} className={cn('col-start-1 row-start-1', s !== status && 'invisible')}>
+                  {STATUS_LABELS[s]}
+                </span>
+              ))
+            : STATUS_LABELS[status]}
+        </span>
         <ChevronDown size={12} className="hidden text-faint @min-[660px]:block look-new:hidden!" />
       </M.Trigger>
       <M.Portal>
@@ -59,6 +71,9 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
     </M.Root>
   )
 }
+
+/** The bar's height in px (h-12; the New look's h-[54px]): the binder floating over the page opens below it. */
+export const sceneHeaderHeight = (isNew: boolean): number => (isNew ? 54 : 48)
 
 /**
  * The slim bar above the page: where the scene sits, its title and status, Mark done, and

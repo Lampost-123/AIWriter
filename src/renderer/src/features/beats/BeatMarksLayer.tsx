@@ -119,8 +119,12 @@ export function BeatMarksLayer({
     const box = scroller.getBoundingClientRect()
     const prose = editor.view.dom.getBoundingClientRect()
     const left = prose.left - box.left
+    // The desk's page is a sheet lying on the desk: its own margin is the room (a label past the sheet's edge would lie
+    // half on the desk), and it is narrower than a label needs, so there the labels sit above their beat's first line.
+    const sheet = editor.view.dom.closest('.desk-sheet')?.getBoundingClientRect()
+    const room = sheet ? prose.left - sheet.left : left
     setMargin((m) => {
-      const next = { right: Math.round(box.width - left + LABEL_GAP), inside: left - LABEL_GAP < MIN_MARGIN, left: Math.round(left) }
+      const next = { right: Math.round(box.width - left + LABEL_GAP), inside: room - LABEL_GAP < MIN_MARGIN, left: Math.round(left) }
       return m.right === next.right && m.inside === next.inside && m.left === next.left ? m : next
     })
     const out: Placed[] = []

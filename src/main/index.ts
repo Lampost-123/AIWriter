@@ -4,7 +4,7 @@ import type { PaintedTheme } from '@shared/api'
 import { accentIdOf, lookOf, type Look } from '@shared/contracts/look'
 import { registerIpc } from './ipc'
 import { closeWorld, openWorld } from './world'
-import { getSettings } from './settings'
+import { deskReady, getSettings } from './settings'
 import { waitForFlush } from './flush'
 import { initBackups } from './services/backups'
 import { initUpdater } from './services/updater'
@@ -116,7 +116,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: true,
-      additionalArguments: [`--aiwrite-theme=${theme}`, `--aiwrite-look=${look}`, ...startAccent()]
+      additionalArguments: [`--aiwrite-theme=${theme}`, `--aiwrite-look=${look}`, ...startAccent(), ...(deskReady() ? ['--aiwrite-desk-ready'] : [])]
     }
   })
   mainWindow = win

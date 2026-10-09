@@ -63,10 +63,13 @@ import {
   type ShownTurn
 } from './askStore'
 import { citedTargets, nameIndex, type LinkTarget } from './citations'
-import { EXAMPLES, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, speaksOfChanges } from './askWords'
+import { EXAMPLES, examples, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, speaksOfChanges } from './askWords'
 import { withoutChoice } from './askChoice'
 import { ActionBar } from './ActionBar'
 import { AnswerBlocks } from './AnswerBlocks'
+import { LanternArt } from '@/components/art/RoomArt'
+import { useDesk } from '@/features/look/look'
+import './ask.css'
 import { asksForIdeas, followUpsOf, QUICK_ACTIONS, readyWords, starterCards, type StarterCard } from './answerView'
 import { setDensity, setToolsView, useAskPrefs, type Density } from './askPrefs'
 import { Choice } from './Choice'
@@ -218,9 +221,13 @@ function useToastsBeside(ref: RefObject<HTMLElement | null>, shown: boolean): vo
 const menuItem = 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] outline-none data-[highlighted]:bg-surface-2'
 
 function Header({ storyTitle, onClose, density }: { storyTitle: string | null; onClose: () => void; density: Density }): React.JSX.Element {
+  // The desk (#94): the drawer's head on the spine's leather, two lanterns in conversation (brighter while an answer comes).
+  const desk = useDesk()
+  const answering = useAsk((s) => !!s.running)
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line pl-4 pr-2">
-      <MessagesSquare size={15} className="mr-1 shrink-0 text-muted" aria-hidden />
+    <div className={cn('ask-head flex h-12 shrink-0 items-center gap-1 border-b border-line pl-4 pr-2', desk && 'desk-drawer-head desk-leather')}>
+      {desk ? <LanternArt small state={answering ? 'busy' : 'idle'} className="ask-head-art" /> : null}
+      <MessagesSquare size={15} className="ask-head-icon mr-1 shrink-0 text-muted" aria-hidden />
       <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold text-fg">Ask the world</h2>
       <ChatsMenu storyTitle={storyTitle} />
       <IconButton label="New chat" size="sm" onClick={newChat}>
@@ -520,7 +527,20 @@ const STARTER_TEXT: Record<StarterCard['kind'], string> = { brainstorm: 'text-ai
  * to change or ask as it is.
  */
 function EmptyState({ onPick, cast, density }: { onPick: (question: string) => void; cast: string[]; density: Density }): React.JSX.Element {
-  const cards = starterCards(cast, EXAMPLES)
+  // With no one in the open scene, the examples name the world's own characters (Phase 0), never invented ones.
+  const rev = useApp((s) => `${s.world?.id ?? ''}:${s.entriesRev}`)
+  const [people, setPeople] = useState<string[] | null>(null)
+  useEffect(() => {
+    let live = true
+    api
+      .listEntries()
+      .then((all) => live && setPeople(all.filter((e) => e.kind === 'character').map((e) => e.name)))
+      .catch(() => live && setPeople([]))
+    return () => {
+      live = false
+    }
+  }, [rev])
+  const cards = starterCards(cast, people?.length ? examples(people) : EXAMPLES)
   const compact = density === 'compact'
   return (
     <div className="px-1 pt-1" data-empty>

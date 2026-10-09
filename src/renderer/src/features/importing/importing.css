@@ -1,0 +1,264 @@
+/*
+  The import page in the New look (ImportArt.tsx): the drop zone and its manuscript, pages turning while a file is read,
+  the memory's reading as pages filling with the AI's amber ink, and what came in as cards. Classic never draws these.
+  Loops (the pages turning, the page being read glowing) are only while something is under way, and stop with less
+  motion.
+*/
+
+/* ---------- the drop zone ---------- */
+.im-drop {
+  position: relative;
+  border-radius: 18px;
+  background:
+    radial-gradient(60% 70% at 50% 30%, color-mix(in oklab, var(--accent-soft) 55%, transparent), transparent 70%),
+    color-mix(in oklab, var(--surface-2) 45%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--line-strong) 80%, transparent);
+  transition:
+    box-shadow var(--dur-quick) var(--motion-glide),
+    background-color var(--dur-quick) var(--motion-glide);
+}
+.im-drop::before {
+  /* The dashed edge, drawn inside the card. */
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 12px;
+  border: 1.5px dashed color-mix(in oklab, var(--line-strong) 90%, transparent);
+  pointer-events: none;
+  transition: border-color var(--dur-quick) var(--motion-glide);
+}
+.im-drop[data-over]::before {
+  border-color: var(--accent);
+}
+.im-drop[data-over] {
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    0 0 0 4px color-mix(in oklab, var(--accent) 16%, transparent);
+}
+
+/* A manuscript: three sheets, the top one written on, a clip. */
+.im-ms {
+  position: relative;
+  display: block;
+  width: 120px;
+  height: 104px;
+}
+.im-ms-sheet {
+  position: absolute;
+  left: 26px;
+  top: 6px;
+  width: 68px;
+  height: 90px;
+  border-radius: 4px;
+  background: var(--page);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line-strong);
+  transition: transform var(--dur-base) var(--motion-glide);
+}
+.im-ms-sheet.is-3 {
+  transform: rotate(-9deg) translate(-8px, 4px);
+}
+.im-ms-sheet.is-2 {
+  transform: rotate(6deg) translate(7px, 2px);
+}
+.im-ms-sheet.is-1 {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 10px 0;
+}
+.im-ms-sheet b {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+.im-ms-sheet b.im-ms-title {
+  width: 60%;
+  height: 5px;
+  margin: 0 auto 4px;
+  background: color-mix(in oklab, var(--fg) 55%, var(--line-strong));
+}
+.im-ms-sheet b.is-short {
+  width: 55%;
+}
+.im-ms-clip {
+  position: absolute;
+  left: 72px;
+  top: 0;
+  width: 10px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--accent);
+  border-bottom-color: transparent;
+}
+/* A file held over the zone: the pages lift and fan. */
+.im-drop[data-over] .im-ms-sheet.is-1 {
+  transform: translateY(-6px) rotate(-2deg);
+}
+.im-drop[data-over] .im-ms-sheet.is-3 {
+  transform: rotate(-14deg) translate(-12px, 2px);
+}
+.im-drop[data-over] .im-ms-sheet.is-2 {
+  transform: rotate(11deg) translate(12px, 0);
+}
+
+/* ---------- pages turning while a file is read ---------- */
+.im-turn {
+  position: relative;
+  display: block;
+  width: 120px;
+  height: 104px;
+  perspective: 600px;
+}
+.im-turn-base,
+.im-turn-page {
+  position: absolute;
+  top: 10px;
+  width: 52px;
+  height: 80px;
+  border-radius: 3px 5px 5px 3px;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 9px, var(--line) 9px 10px) 8px 14px / 36px 54px no-repeat,
+    var(--page);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line-strong);
+}
+.im-turn-base {
+  left: 60px;
+}
+.im-turn-base::before {
+  /* The left-hand page under the turning ones. */
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 0;
+  width: 52px;
+  height: 80px;
+  border-radius: 5px 3px 3px 5px;
+  background: inherit;
+  box-shadow: inherit;
+}
+.im-turn-page {
+  left: 60px;
+  transform-origin: left center;
+  animation: im-turn 1.6s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+.im-turn-page:nth-child(3) {
+  animation-delay: 0.53s;
+}
+.im-turn-page:nth-child(4) {
+  animation-delay: 1.06s;
+}
+@keyframes im-turn {
+  0% {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+  55% {
+    transform: rotateY(-180deg);
+    opacity: 1;
+  }
+  56%,
+  100% {
+    transform: rotateY(-180deg);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .im-turn-page {
+    animation: none;
+  }
+}
+
+/* ---------- the memory reading: pages filling with amber ink ---------- */
+.im-ink-pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 20px);
+  gap: 6px;
+}
+.im-ink-page {
+  position: relative;
+  display: block;
+  height: 27px;
+  overflow: hidden;
+  border-radius: 2px 4px 4px 2px;
+  background: var(--page);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.im-ink-page i {
+  /* Filled from the bottom by height: a tiny box, and a step that should show even in a window kept behind others. */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: block;
+  background: linear-gradient(180deg, var(--ai), color-mix(in oklab, var(--ai) 70%, var(--fg)));
+  opacity: 0.85;
+  transition: height 500ms var(--motion-glide);
+}
+.im-ink-page.is-full {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ai) 60%, transparent);
+}
+.im-ink-page.is-now {
+  box-shadow:
+    inset 0 0 0 1px var(--ai),
+    0 0 8px color-mix(in oklab, var(--ai) 55%, transparent);
+  animation: im-now 1.8s ease-in-out infinite;
+}
+@keyframes im-now {
+  50% {
+    opacity: 0.7;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .im-ink-page.is-now {
+    animation: none;
+  }
+}
+
+/* ---------- what came in ---------- */
+.im-card {
+  border-radius: var(--r-card);
+  background: var(--raise);
+  box-shadow:
+    var(--elev-1),
+    inset 0 0 0 1px var(--line);
+  animation: im-card-in var(--dur-view) var(--motion-glide) both;
+}
+@keyframes im-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.im-book {
+  position: relative;
+  display: block;
+  width: 46px;
+  height: 62px;
+  flex-shrink: 0;
+}
+.im-book i {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px 6px 6px 2px;
+  background:
+    linear-gradient(90deg, rgb(0 0 0 / 0.24), transparent 14%),
+    linear-gradient(180deg, color-mix(in oklab, var(--accent) 80%, var(--fg)), var(--accent));
+  box-shadow: var(--elev-2);
+}
+.im-book b {
+  position: absolute;
+  left: 8px;
+  right: 5px;
+  top: 8px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  font: 600 7.5px/1.2 var(--heading-font);
+  color: var(--accent-fg);
+}

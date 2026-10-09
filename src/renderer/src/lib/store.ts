@@ -4,6 +4,8 @@ import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'
 import { useToasts } from '@/components/ui/Toast'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
+import { pageTransition, type Flip } from '@/features/look/viewTransition'
+import { areaOf } from '@/layout/areas'
 import { api } from './api'
 
 export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'editor' | 'backups' | 'trash' | 'usage' | 'about'
@@ -12,7 +14,14 @@ export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | '
 export type View =
   | { kind: 'write' }
   /** `from`: opened from a draft's "What the AI saw", so the page offers the way back. */
-  | { kind: 'entries'; entryKind: EntryKind; entryId: ID | null; from?: { generationId: ID } }
+  | {
+      kind: 'entries'
+      entryKind: EntryKind
+      entryId: ID | null
+      from?: { generationId: ID }
+      /** Opened from the New look's timeline: the desk's dossier goes back there. */
+      back?: 'timeline'
+    }
   | { kind: 'style' }
   | { kind: 'settings'; tab: SettingsTab }
   /** `back`: opened from somewhere other than the scene a draft was for (the outline helper, say). */
@@ -52,6 +61,14 @@ export type View =
   | { kind: 'recipes'; page?: 'list' | 'make' | 'recipe'; recipeId?: ID | null }
   /** A new story from a recipe: its premise, chapters and scene cards suggested, to keep, edit or discard. */
   | { kind: 'recipePlan'; storyId: ID; recipeId: ID }
+  // The desk (UI overhaul, phase 5)
+  /** A story's home: its book, where Adam left off, its chapters on a shelf, its threads, cast and this week's writing. */
+  | { kind: 'storyHome'; storyId: ID }
+  /**
+   * The story board: the story's scenes as index cards, a column for each chapter, with the plot threads as strings.
+   * `chapterId`: the chapter to bring into view; `ideasFor`: a planned scene whose ideas open in the board's drawer.
+   */
+  | { kind: 'board'; storyId: ID; chapterId?: ID; ideasFor?: ID }
 
 /**
  * "What the AI saw" opened from another page (milestone 4): the page to go back to, the Back button's words
@@ -78,6 +95,8 @@ interface AppState {
   saveState: SaveState
   /** Word count of the open scene, shown in the top bar. */
   sceneWords: number
+  /** The scene sceneWords was counted in (null when not known): the binder shows it for that scene while it changes. */
+  sceneWordsOf: ID | null
   /** Bumped whenever chapters or scenes change, so the binder reloads. */
   outlineRev: number
   /** Bumped whenever world bible entries change, so lists and pickers reload. */
@@ -127,9 +146,14 @@ interface AppState {
   refreshStories(): Promise<void>
   selectStory(id: ID | null): void
   selectScene(id: ID | null, storyId?: ID): void
-  navigate(view: View): void
+  /**
+   * Shows another page (a crossfade in the New look). `flip`: the desk's World room, a card flipping into its dossier or
+   * back (features/look/viewTransition.ts).
+   */
+  navigate(view: View, opts?: { flip?: Flip }): void
   setSaveState(s: SaveState): void
-  setSceneWords(n: number): void
+  /** The open scene's word count, and which scene it was counted in. */
+  setSceneWords(n: number, of?: ID | null): void
   bumpOutline(): void
   bumpEntries(): void
   setActiveGeneration(g: { id: ID; sceneId: ID } | null): void
@@ -181,6 +205,7 @@ async function loadWorldState(world: World, settings: Settings): Promise<Partial
     view: { kind: 'write' },
     outlineRev: 0,
     sceneWords: 0,
+    sceneWordsOf: null,
     saveState: 'idle',
     peekEntryId: null,
     chapterCardId: null
@@ -196,6 +221,7 @@ const NO_WORLD: Partial<AppState> = {
   view: { kind: 'write' },
   outlineRev: 0,
   sceneWords: 0,
+  sceneWordsOf: null,
   saveState: 'idle',
   activeGeneration: null,
   memoryStatus: null,
@@ -221,6 +247,32 @@ let askedAtLaunch = false
 const leaveHomePatch = (): Partial<AppState> => (homeHolds > 0 ? {} : { home: false })
 
 /**
+ * The page a view shows: another entry of the same kind, another chapter's plan or another Settings page is still the
+ * same page (it changes in place, at once).
+ */
+const pageKey = (v: View): string =>
+  deskWorld(v)
+    ? 'desk:world'
+    : v.kind === 'entries' || v.kind === 'builder'
+      ? `${v.kind}:${v.entryKind}`
+      : v.kind === 'outline'
+        ? `outline:${v.chapterId ? 'chapter' : 'helper'}`
+        : v.kind
+
+/**
+ * The desk's World room (UI overhaul phase 4): Everything, each kind's page and an entry's dossier over them are one page,
+ * the gallery, so moving between them never crossfades the page (a card flips into its dossier instead).
+ */
+function deskWorld(v: View): boolean {
+  if (v.kind !== 'codex' && v.kind !== 'entries') return false
+  const root = typeof document === 'undefined' ? null : document.documentElement
+  return !!root && root.dataset.arrangement === 'desk' && root.dataset.look === 'new'
+}
+
+/** Counts calls to navigate, so a page change still waiting for its crossfade gives way to a later one. */
+let navTurn = 0
+
+/**
  * Runs something from the start screen that opens a world, story or page underneath it (to delete a story in
  * another world, say) while the start screen stays up.
  */
@@ -243,6 +295,7 @@ export const useApp = create<AppState>((set, get) => ({
   view: { kind: 'write' },
   saveState: 'idle',
   sceneWords: 0,
+  sceneWordsOf: null,
   outlineRev: 0,
   entriesRev: 0,
   activeGeneration: null,
@@ -329,12 +382,40 @@ export const useApp = create<AppState>((set, get) => ({
     void api.updateSettings({ lastSceneId: id, ...(storyId ? { lastStoryId: storyId } : {}), ...placeIn(get().world, get().storyId, id) })
   },
 
-  navigate(view) {
-    set({ view, ...leaveHomePatch() })
+  navigate(view, opts) {
+    const before = get().view
+    const turn = ++navTurn
+    // The desk's World room: a card flips into its dossier, or the dossier back into its card.
+    if (opts?.flip && !get().home) {
+      pageTransition(
+        () => {
+          if (turn !== navTurn || get().view !== before) return false
+          set({ view, ...leaveHomePatch() })
+        },
+        { flip: opts.flip }
+      )
+      return
+    }
+    // The New look: a new page crossfades in (features/look/viewTransition.ts). The writing page coming back, the same
+    // page, the start screen, and anything done from the keyboard never animate.
+    if (view.kind === 'write' || pageKey(view) === pageKey(before) || get().home) {
+      set({ view, ...leaveHomePatch() })
+      return
+    }
+    const from = areaOf(before)
+    const to = areaOf(view)
+    pageTransition(
+      () => {
+        // The crossfade starts on the next frame: if another page was opened meanwhile (a scene, another page), that wins.
+        if (turn !== navTurn || get().view !== before) return false
+        set({ view, ...leaveHomePatch() })
+      },
+      { areaChanges: from !== to && from !== null && to !== null }
+    )
   },
 
   setSaveState: (saveState) => set({ saveState }),
-  setSceneWords: (sceneWords) => set({ sceneWords }),
+  setSceneWords: (sceneWords, of = null) => set({ sceneWords, sceneWordsOf: of }),
   bumpOutline: () => set({ outlineRev: get().outlineRev + 1 }),
   bumpEntries: () => set({ entriesRev: get().entriesRev + 1 }),
   setActiveGeneration: (activeGeneration) => set({ activeGeneration }),

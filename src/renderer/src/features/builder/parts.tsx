@@ -1,5 +1,5 @@
 // Small pieces the builder's screens share.
-import { AlertTriangle, Check, CircleDashed, Sparkles } from '@/components/ui/icons'
+import { AlertTriangle, Check, Sparkles } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode, type RefObject } from 'react'
 import type { BuilderKind } from '@shared/contracts/builder'
 import type { Entry, ID } from '@shared/types'
@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { findNearDuplicates, kindNoun, withArticle } from '@/features/world/entryLogic'
-import { splitAliases, type StepStatus } from './builderLogic'
+import { splitAliases } from './builderLogic'
 
 /** Every entry in the world, reloaded when entries change; null until first loaded. */
 export function useWorldEntries(): Entry[] | null {
@@ -135,25 +135,6 @@ export function ProblemNotice({ message, code, onRetry }: { message: string; cod
       </Notice>
     </div>
   )
-}
-
-/** A step's progress on the rail: an empty ring, a half-filled one, or a tick. */
-export function StatusIcon({ status, className }: { status: StepStatus; className?: string }): React.JSX.Element {
-  if (status === 'complete') {
-    return (
-      <span aria-hidden className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-success text-page', className)}>
-        <Check size={10} strokeWidth={3} />
-      </span>
-    )
-  }
-  if (status === 'partly') {
-    return (
-      <span aria-hidden className={cn('relative h-4 w-4 shrink-0 overflow-hidden rounded-full border-[1.5px] border-accent', className)}>
-        <span className="absolute inset-y-0 left-0 w-1/2 bg-accent" />
-      </span>
-    )
-  }
-  return <CircleDashed aria-hidden size={16} className={cn('shrink-0 text-faint', className)} />
 }
 
 /** The quiet line under a field saying its words are the AI's, or were until Adam changed them. */

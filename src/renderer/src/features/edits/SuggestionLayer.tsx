@@ -6,12 +6,14 @@
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import { Check, Layers, ListRestart, Square, X } from '@/components/ui/icons'
-import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { deskOn, useDesk } from '@/features/look/look'
 import { parseEmphasis } from '@/features/editor/streamText'
+import { ScrollGlide } from '@/features/editor/scrollGlide'
 import { TOOL_NAMES, TOOL_WORKING } from './names'
 import { picking, suggestionsOf, type Suggestion, type SuggestionsState } from './suggestions'
 import { accept, attachEditor, openRecord, pick, reject, sceneShown, setLayerHooks, stop, unpick } from './session'
@@ -22,6 +24,8 @@ import './suggestions.css'
 const ROOM_BELOW = 16
 /** How close to the window's edge the buttons may sit before the page scrolls to show them. */
 const VIEW_MARGIN = 16
+/** The desk: the room the AI dock (and the fade above it) takes at the foot of the page. */
+const DESK_DOCK_ROOM = 150
 /** Room kept above the start of the change when the page scrolls to show it. */
 const START_MARGIN = 24
 
@@ -77,6 +81,8 @@ export function SuggestionLayer({
   const was = useRef<Suggestion['status'] | null>(null)
   /** The message saying the change is ready out of sight, while it shows. */
   const readyToast = useRef<number | null>(null)
+  /** The page gliding along with the words while they arrive (time-based, as Add below's follow: scrollGlide.ts). */
+  const [glide] = useState(() => new ScrollGlide(() => scrollerRef.current))
 
   useEffect(() => attachEditor(editor), [editor])
   useEffect(() => sceneShown(), [sceneId])
@@ -104,7 +110,8 @@ export function SuggestionLayer({
     // The buttons in view, and the start of the change too when it all fits: above anything over the bottom of the page
     // (the beat bar while writing beat by beat).
     const view = scroller.clientHeight - coveredBelow(box)
-    const bottom = top + panel.offsetHeight + VIEW_MARGIN
+    // The desk: the AI dock floats over the foot of the page, so the buttons stay clear above it.
+    const bottom = top + panel.offsetHeight + (deskOn() ? DESK_DOCK_ROOM : VIEW_MARGIN)
     let start = top
     try {
       start = editor.view.coordsAtPos(s.from).top - box.top + scroller.scrollTop - START_MARGIN
@@ -114,21 +121,28 @@ export function SuggestionLayer({
     // New paragraphs ahead of a paragraph show above the place the change is at.
     const own = scroller.querySelector<HTMLElement>('.aw-sugg-new.on-its-own')
     if (own) start = Math.min(start, own.getBoundingClientRect().top - box.top + scroller.scrollTop - START_MARGIN)
-    let want = scroller.scrollTop
+    // While the words arrive the page glides along with them (on its way, from where it is going); otherwise it goes
+    // there at once, as when the change is first brought into view.
+    const streaming = s.status === 'writing' || s.status === 'stopping'
+    const from = glide.gliding ? glide.target : scroller.scrollTop
+    let want = from
     // Below the window's bottom edge, or above its top (the window was made smaller, say): just in view at the bottom.
     if (bottom > want + view || top < want) want = bottom - view
     if (start < want && bottom - start <= view) want = start
     want = Math.max(0, Math.round(want))
-    if (want !== scroller.scrollTop) scroller.scrollTop = want
+    if (streaming || glide.gliding) {
+      if (want !== from) glide.to(want)
+    } else if (want !== scroller.scrollTop) scroller.scrollTop = want
     // Once it's ready and in view, the page is Adam's again.
     if (s.status === 'ready' || s.status === 'accepting') follow.current = false
-  }, [editor, scrollerRef])
+  }, [editor, scrollerRef, glide])
 
   /** Shows the change: the writing page, scrolled to its buttons, with the caret in the page. */
   const reveal = useCallback(() => {
     if (useApp.getState().view.kind !== 'write') useApp.getState().navigate({ kind: 'write' })
     follow.current = true
     moved.current = false
+    glide.stop()
     requestAnimationFrame(() => {
       const panel = panelRef.current
       const scroller = scrollerRef.current
@@ -140,7 +154,7 @@ export function SuggestionLayer({
       }
       editor.view.focus()
     })
-  }, [editor, scrollerRef])
+  }, [editor, scrollerRef, glide])
 
   // A new change: follow it into view. Adam moving about the page or typing stops that.
   const id = s?.id ?? null
@@ -183,6 +197,7 @@ export function SuggestionLayer({
     const off = (): void => {
       follow.current = false
       moved.current = true
+      glide.stop()
     }
     const press = (e: MouseEvent): void => {
       if (!(e.target as Element | null)?.closest?.('[data-ai-change]')) off()
@@ -202,7 +217,9 @@ export function SuggestionLayer({
       scroller.removeEventListener('mousedown', press)
       scroller.removeEventListener('keydown', keys)
     }
-  }, [scrollerRef])
+  }, [scrollerRef, glide])
+  // Gone (another scene, or the writing view closing): the glide stops with it.
+  useEffect(() => () => glide.stop(), [glide])
 
   // Placed as the page changes (the words arrive, Adam types above), as it resizes, and as the buttons change.
   useLayoutEffect(() => {
@@ -213,6 +230,7 @@ export function SuggestionLayer({
       if (transaction.docChanged) {
         follow.current = false
         moved.current = true
+        glide.stop()
       }
       place()
     }
@@ -224,7 +242,7 @@ export function SuggestionLayer({
       editor.off('transaction', onTransaction)
       ro.disconnect()
     }
-  }, [id, editor, place, scrollerRef])
+  }, [id, editor, place, scrollerRef, glide])
   useLayoutEffect(() => {
     if (id && writing) place()
   })
@@ -283,9 +301,14 @@ const BUTTON =
 
 const KEY = 'text-[11px] font-normal opacity-70'
 
-/** One row: what it's doing and Stop, or Accept and Reject; a note below when there is one. */
+/**
+ * One row: what it's doing and Stop, or Accept and Reject; a note below when there is one. On the desk the AI dock
+ * carries Stop, Accept and Reject (one clear place for them), so the row under the change keeps only what the dock
+ * doesn't: what it is doing or what it is, Other versions, and What the AI saw.
+ */
 function Bar({ s }: { s: Suggestion }): React.JSX.Element {
   const busy = s.status === 'starting' || s.status === 'writing' || s.status === 'stopping'
+  const desk = useDesk()
   const label =
     s.status === 'starting'
       ? 'Getting ready…'
@@ -303,15 +326,34 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ai animate-pulse" aria-hidden />
               <span className="truncate">{label}</span>
             </span>
-            <button
-              type="button"
-              className={cn(BUTTON, 'text-muted hover:bg-surface-2 hover:text-fg')}
-              onClick={() => stop(s.id)}
-              disabled={s.status === 'stopping'}
-            >
-              <Square size={11} fill="currentColor" aria-hidden />
-              Stop <span className={KEY}>Esc</span>
-            </button>
+            {desk ? null : (
+              <button
+                type="button"
+                className={cn(BUTTON, 'text-muted hover:bg-surface-2 hover:text-fg')}
+                onClick={() => stop(s.id)}
+                disabled={s.status === 'stopping'}
+              >
+                <Square size={11} fill="currentColor" aria-hidden />
+                Stop <span className={KEY}>Esc</span>
+              </button>
+            )}
+          </>
+        ) : desk ? (
+          <>
+            <span className="flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-[12.5px] text-muted">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ai" aria-hidden />
+              <span className="truncate">
+                {s.versions && s.chosen !== null && s.versions.length > 1
+                  ? `Version ${s.chosen + 1} of ${s.versions.length}`
+                  : `${s.label ?? TOOL_NAMES[s.tool]} · Tab accepts, Esc rejects`}
+              </span>
+            </span>
+            {s.versions && s.versions.length > 1 ? (
+              <button type="button" className={cn(BUTTON, 'text-muted hover:bg-surface-2 hover:text-fg')} onClick={unpick}>
+                <Layers size={13} aria-hidden />
+                Other versions
+              </button>
+            ) : null}
           </>
         ) : (
           <>

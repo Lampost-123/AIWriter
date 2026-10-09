@@ -45,6 +45,8 @@ const want = (name: string): boolean => !wanted.length || wanted.includes(name)
 
 const ENV = {
   AIWRITE_LOOK: 'new',
+  // The README's pictures show the panels (the desk is the New look's default now; its own pictures are still to take).
+  AIWRITE_ARRANGEMENT: 'panels',
   // The memory doesn't read on its own while the shots are taken, and no check runs after a draft.
   AIWRITE_KEEPER_QUIET_MS: '600000',
   AIWRITE_AFTER_DRAFT_MS: '600000'

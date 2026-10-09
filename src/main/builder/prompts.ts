@@ -5,7 +5,7 @@
 
 import type { FieldDef } from '@shared/fields'
 import type { ChatMessage, ID, StyleGuide } from '@shared/types'
-import type { BuilderKind, BuilderValues, InterviewTurn } from '@shared/contracts/builder'
+import type { BuilderKind, BuilderValues, InterviewTurn, QuickAnswer } from '@shared/contracts/builder'
 import { estimateTokens } from '../keeper/text'
 import { profileFields } from './profile'
 
@@ -183,9 +183,17 @@ Put "name" first in whichever of the two holds it.`
 
 /**
  * `sofar`: finishing a profile an earlier reply stopped part way through, the fields it saved (as
- * profileText gives them), which the model leaves out.
+ * profileText gives them), which the model leaves out. `answers`: Adam's answers to the follow-up questions, which
+ * count as his notes too (a question he left to the AI, it decides).
  */
-export function quickStartUser(kind: BuilderKind, notes: string, world: string, passage: boolean, sofar = ''): string {
+export function quickStartUser(
+  kind: BuilderKind,
+  notes: string,
+  world: string,
+  passage: boolean,
+  sofar = '',
+  answers: QuickAnswer[] = []
+): string {
   const noun = NOUN[kind]
   const intro = passage
     ? `The author selected this passage from the story. It is about a ${noun} the world doesn't have yet: build the ${noun} from it. The passage counts as the author's notes.`
@@ -193,7 +201,46 @@ export function quickStartUser(kind: BuilderKind, notes: string, world: string, 
   const saved = sofar.trim()
     ? `\n\nAn earlier reply stopped part way. These fields are saved already: leave them out, write only the others, and fit them to these:\n${sofar.trim()}`
     : ''
-  return `${world}\n\n${intro}\n"""\n${notes.trim()}\n"""${saved}\n\nWrite the profile now, as one JSON object.`
+  const asked = answersText(answers)
+  const followUp = asked
+    ? `\n\nThe author's answers to a few follow-up questions. They count as the author's notes too: copy their words under "fromNotes" where they say something about the ${noun}. Where the author left a question to you, decide it yourself and write it under "drafted".\n"""\n${asked}\n"""`
+    : ''
+  return `${world}\n\n${intro}\n"""\n${notes.trim()}\n"""${followUp}${saved}\n\nWrite the profile now, as one JSON object.`
+}
+
+/** Adam's answers to the follow-up questions, a question and its answer to a pair ('' when there are none). */
+export function answersText(answers: QuickAnswer[]): string {
+  return answers
+    .filter((a) => a && typeof a.question === 'string' && a.question.trim())
+    .map((a) => {
+      const said = typeof a.answer === 'string' ? a.answer.trim().replace(/\s*\n\s*/g, ' ') : ''
+      return `Q: ${a.question.trim().replace(/\s+/g, ' ')}\nA: ${said || '(left to you: decide it)'}`
+    })
+    .join('\n')
+}
+
+// ---------- Follow-up questions ----------
+
+/** How many follow-up questions are asked, at most. */
+export const MAX_QUESTIONS = 5
+
+export function questionsSystem(kind: BuilderKind): string {
+  const noun = NOUN[kind]
+  return `${BUILDER_MARKER} questions
+You help an author build the ${noun}s of a novel's world. The author has jotted a few notes about one ${noun}. Before its profile is written, ask a short round of follow-up questions: the ones whose answers would help most, about what the notes leave open that matters to the story. Reply with one JSON object and nothing else.
+
+Rules
+- Ask 3 to ${MAX_QUESTIONS} questions, the most useful first. Each is one short, plain question the author can answer in a line.
+- Never ask about something the notes already say. One thing per question.
+- Ask the author, not the ${noun} ("What does she want most?", not "What do you want?").
+
+Reply with {"questions": ["first question?", "second question?", ...]}`
+}
+
+export function questionsUser(kind: BuilderKind, notes: string, world: string, passage: boolean): string {
+  const noun = NOUN[kind]
+  const intro = passage ? `The author selected this passage from the story, about a ${noun} the world doesn't have yet:` : `The author's notes on the ${noun}:`
+  return `${world}\n\n${intro}\n"""\n${notes.trim()}\n"""\n\nAsk your questions now, as one JSON object.`
 }
 
 // ---------- Flesh out ----------

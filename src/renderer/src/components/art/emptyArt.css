@@ -1,0 +1,403 @@
+/*
+  The empty pages' pictures (EmptyArt.tsx). Each plays its entrance once when it appears, then (.lp) a slow loop of
+  seconds; living.css stills them while the window is hidden or left, while a text box has the keyboard, and with less
+  motion (then each shows its resting frame: everything drawn, in place).
+*/
+.ea {
+  --ea-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --ea-out: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  width: 160px;
+  height: 120px;
+  flex: none;
+}
+.ea-glow {
+  position: absolute;
+  left: -54px;
+  right: -54px;
+  top: -24px;
+  bottom: -22px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.ea-glow.lp {
+  animation: ea-glow 6s var(--ea-io) infinite;
+}
+.ea-svg {
+  position: relative;
+  display: block;
+  overflow: visible;
+}
+.ea-shadow {
+  fill: color-mix(in oklab, var(--fg) 9%, transparent);
+}
+.ea-page,
+.ea-sheet {
+  fill: var(--page);
+  stroke: color-mix(in oklab, var(--fg) 16%, transparent);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.ea-rule {
+  fill: none;
+  stroke: color-mix(in oklab, var(--fg) 18%, transparent);
+}
+.ea-ink,
+.ea-ink path {
+  fill: none;
+  stroke: color-mix(in oklab, var(--fg) 22%, transparent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.ea-ink.ea-faint {
+  stroke: color-mix(in oklab, var(--fg) 11%, transparent);
+}
+.ea-lines rect {
+  fill: color-mix(in oklab, var(--fg) 12%, transparent);
+}
+.ea-lines .ea-l-strong {
+  fill: color-mix(in oklab, var(--fg) 20%, transparent);
+}
+.ea-lines-faint rect {
+  fill: color-mix(in oklab, var(--fg) 7%, transparent);
+}
+/* The ink pot: dark ink in every theme, its glass edge in the page's line colour. */
+.ea {
+  --ea-ink-dark: color-mix(in oklab, var(--k-lore) 22%, #120f18);
+}
+.ea-pot {
+  fill: var(--ea-ink-dark);
+  stroke: color-mix(in oklab, var(--fg) 30%, transparent);
+  stroke-width: 1;
+}
+.ea-mono {
+  font-family: var(--heading-font);
+  font-weight: 600;
+  text-anchor: middle;
+  fill: var(--k-char);
+}
+
+@keyframes ea-glow {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes ea-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+@keyframes ea-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes ea-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}
+@keyframes ea-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes ea-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+.ea-pop {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: ea-pop 560ms var(--motion-spring) var(--d, 0ms) backwards;
+}
+
+/* The codex: the quill dips once into the pot, a ripple spreads on the ink, and it comes to rest on the page. */
+@keyframes ea-dip {
+  0% {
+    transform: translate(48px, -6px) rotate(-8deg);
+  }
+  20% {
+    transform: translate(48px, 12px) rotate(-8deg);
+  }
+  34% {
+    transform: translate(48px, -6px) rotate(-8deg);
+  }
+  42% {
+    transform: translate(46px, -8px) rotate(-6deg);
+  }
+  82% {
+    transform: translate(0, -2px) rotate(0deg);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes ea-ripple {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  15% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+.ea-quill {
+  transform-box: fill-box;
+  transform-origin: 0% 100%;
+  animation: ea-dip 3.2s var(--ea-io) 0.5s backwards;
+}
+.ea-ripple {
+  fill: none;
+  stroke: var(--k-lore);
+  stroke-width: 1.1;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: ea-ripple 1s var(--ea-out) 1.08s backwards;
+}
+
+/* Characters: the monograms drift together, then float. */
+@keyframes ea-drift-a {
+  from {
+    opacity: 0;
+    transform: translate(-22px, 6px);
+  }
+}
+@keyframes ea-drift-b {
+  from {
+    opacity: 0;
+    transform: translate(0, -12px);
+  }
+}
+@keyframes ea-drift-c {
+  from {
+    opacity: 0;
+    transform: translate(22px, 6px);
+  }
+}
+@keyframes ea-float {
+  from {
+    transform: translateY(-1.6px);
+  }
+  to {
+    transform: translateY(1.6px);
+  }
+}
+.ea-drift-a {
+  animation: ea-drift-a 1.5s var(--ea-out) 0.3s backwards;
+}
+.ea-drift-b {
+  animation: ea-drift-b 1.5s var(--ea-out) 0.38s backwards;
+}
+.ea-drift-c {
+  animation: ea-drift-c 1.5s var(--ea-out) 0.46s backwards;
+}
+.ea-slot {
+  animation: ea-fade-up 600ms var(--ea-out) 1.5s backwards;
+}
+.ea-float {
+  animation: ea-float 5.6s var(--ea-io) infinite alternate;
+}
+.ea-f2 {
+  animation-duration: 6.4s;
+  animation-delay: -2.2s;
+}
+.ea-f3 {
+  animation-duration: 5s;
+  animation-delay: -1.2s;
+}
+
+/* Plot threads: they draw in, then weave slowly. */
+@keyframes ea-flow {
+  to {
+    stroke-dashoffset: -50;
+  }
+}
+@keyframes ea-draw-thread {
+  from {
+    stroke-dashoffset: 100;
+  }
+}
+.ea-thread {
+  fill: none;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+}
+.ea-base {
+  opacity: 0.2;
+  stroke-dasharray: 100 100;
+  animation: ea-draw-thread 900ms var(--ea-out) var(--d, 0ms) backwards;
+}
+.ea-flow {
+  stroke-dasharray: 38 12;
+  animation:
+    ea-flow 8s linear infinite,
+    ea-fade 600ms var(--ea-out) 700ms backwards;
+}
+.ea-flow.ea-fb {
+  animation:
+    ea-flow 10s linear infinite reverse,
+    ea-fade 600ms var(--ea-out) 820ms backwards;
+}
+.ea-flow.ea-fc {
+  animation:
+    ea-flow 9s linear infinite,
+    ea-fade 600ms var(--ea-out) 940ms backwards;
+}
+
+/* All clear: the tick draws itself, and a ring spreads from it every four seconds. */
+@keyframes ea-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  65%,
+  100% {
+    transform: scale(1.75);
+    opacity: 0;
+  }
+}
+.ea-pulse {
+  fill: none;
+  stroke: var(--success);
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: ea-pulse 4s var(--ea-out) 1.2s infinite;
+}
+.ea-tick {
+  fill: none;
+  stroke: var(--page);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1 2;
+  animation: ea-draw 600ms var(--ea-out) 0.5s backwards;
+}
+
+/* Nothing found: the lens and its light sweep slowly over the page. */
+@keyframes ea-sweep {
+  0% {
+    transform: translate(-18px, -6px);
+  }
+  50% {
+    transform: translate(2px, 6px);
+  }
+  100% {
+    transform: translate(22px, -4px);
+  }
+}
+.ea-sweep {
+  animation: ea-sweep 7s var(--ea-io) infinite alternate;
+}
+
+/* The map: the lines draw in one by one, and the middle one's halo breathes. */
+.ea-link {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-dasharray: 1 2;
+  opacity: 0.55;
+  animation: ea-draw 700ms var(--ea-out) var(--d, 0ms) backwards;
+}
+.ea-halo {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: ea-breathe 4.5s var(--ea-io) infinite;
+}
+
+/* The first scene: the pen writes a line and a half, once, then rests. */
+@keyframes ea-pen {
+  0% {
+    transform: translate(-28px, -10px);
+  }
+  58% {
+    transform: translate(20px, -11px);
+  }
+  64% {
+    transform: translate(-28px, 0);
+  }
+  100% {
+    transform: none;
+  }
+}
+.ea-write {
+  fill: none;
+  stroke: color-mix(in oklab, var(--fg) 42%, transparent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 1 2;
+  animation: ea-draw 1.05s linear 0.4s backwards;
+}
+.ea-write-2 {
+  animation-duration: 0.65s;
+  animation-delay: 1.55s;
+}
+.ea-pen {
+  animation: ea-pen 1.8s cubic-bezier(0.45, 0.05, 0.55, 0.95) 0.4s backwards;
+}
+
+/* The plan board: the cards fall into place, a thread draws between their pins, and one pin's light breathes. */
+@keyframes ea-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) rotate(-3deg);
+  }
+}
+@keyframes ea-pin {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(1.4);
+  }
+}
+.ea-drop {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: ea-drop 520ms var(--motion-spring) var(--d, 0ms) backwards;
+}
+.ea-string {
+  fill: none;
+  stroke: var(--k-thread);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 1 2;
+  animation: ea-draw 700ms var(--ea-io) 560ms backwards;
+}
+.ea-pin-glow {
+  fill: var(--k-event);
+  opacity: 0.2;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: ea-pin 3s ease-in-out 1s infinite;
+}
+
+/* The plan board's next column, for a story with nothing planned yet (desk/board/StoryBoard.tsx): a smaller picture. */
+[data-arrangement='desk'] .board-gh-art {
+  zoom: 0.72;
+  margin-bottom: 6px;
+}

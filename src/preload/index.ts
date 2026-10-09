@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { Bridge, PaintedTheme } from '@shared/api'
 import { accentIdOf, lookOf } from '@shared/contracts/look'
 
@@ -14,6 +14,9 @@ const initialAccent = (): string | null => accentIdOf(process.argv.find((a) => a
 /** The look main opened the window in (--aiwrite-look=...): the New look or Classic. */
 const initialLook = (): 'new' | 'classic' => lookOf(process.argv.find((a) => a.startsWith('--aiwrite-look='))?.split('=')[1])
 
+/** The desk layout can be chosen in this build (main passes --aiwrite-desk-ready; see deskReady in main/settings.ts). */
+const deskReady = process.argv.includes('--aiwrite-desk-ready')
+
 const bridge: Bridge = {
   invoke: (method, ...args) => ipcRenderer.invoke(`api:${method}`, ...args),
   on: (event, listener) => {
@@ -25,7 +28,15 @@ const bridge: Bridge = {
   platform: process.platform,
   initialTheme: initialTheme(),
   initialAccent: initialAccent(),
-  initialLook: initialLook()
+  initialLook: initialLook(),
+  deskReady,
+  pathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('aiwrite', bridge)

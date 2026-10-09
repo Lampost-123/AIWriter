@@ -7,6 +7,9 @@ import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { KIND_ICONS } from '@/features/world/kindIcons'
 import { formatBackupDate, inSentence } from './backupText'
+import { useNewLook } from '@/features/look/look'
+import { reducedMotion } from '@/features/look/motion'
+import { DeletedCards } from './DeletedCards'
 
 // The Trash: scenes, chapters and world entries deleted from the open world, kept for
 // 30 days (then purged when the world opens). Each can be brought back with one click.
@@ -86,6 +89,9 @@ export function RecentlyDeleted(): React.JSX.Element {
   const [items, setItems] = useState<DeletedItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [restoring, setRestoring] = useState<string | null>(null)
+  // The New look: the card brought back lifts away before the list closes up.
+  const [leaving, setLeaving] = useState<string | null>(null)
+  const isNew = useNewLook()
 
   const load = useCallback(async () => {
     try {
@@ -140,14 +146,34 @@ export function RecentlyDeleted(): React.JSX.Element {
 
   const onRestore = async (d: DeletedItem): Promise<void> => {
     setRestoring(d.id)
+    let back = false
     try {
       await restore(d)
+      back = true
     } catch (e) {
       toast((e as Error).message, { tone: 'danger' })
     } finally {
+      if (back && isNew && !reducedMotion()) {
+        setLeaving(d.id)
+        await new Promise((r) => setTimeout(r, 160))
+      }
       setRestoring(null)
+      setLeaving(null)
       void load()
     }
+  }
+
+  if (isNew) {
+    return (
+      <DeletedCards
+        items={items}
+        restoring={restoring}
+        leaving={leaving}
+        titleOf={(d) => d.title.trim() || fallbackTitle(d)}
+        whereOf={whereItWas}
+        onRestore={(d) => void onRestore(d)}
+      />
+    )
   }
 
   return (

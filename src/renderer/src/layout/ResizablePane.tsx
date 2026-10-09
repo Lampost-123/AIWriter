@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { cn } from '@/lib/cn'
 import { takeEscape } from '@/lib/escape'
 import { useApp } from '@/lib/store'
+import { reducedMotion } from '@/features/look/motion'
+
+/** How long a pane slides open or shut in the New look (styles.css: --dur-base). */
+const SLIDE_MS = 220
+
+/** The page is about to get wider or narrower by `delta` px (narrower when positive), over `ms`: see SceneView. */
+export interface PanesMove {
+  delta: number
+  ms: number
+}
 
 /** The panel's 1px edge line, which sits inside its width. */
 const BORDER = 1
@@ -18,6 +28,8 @@ export interface FloatingPane {
   onClose: () => void
   /** The accessible name of the button that shows and hides the pane (a click on it isn't "outside"). */
   toggle: string
+  /** Room left above it, in px: on the writing page it opens below the scene's toolbar, so it never covers those controls. */
+  top?: number
 }
 
 /**
@@ -127,17 +139,29 @@ export function ResizablePane({
     }
   }, [floatOpen])
 
+  // The New look: say the page is about to get wider or narrower before the slide starts, so the scene's column can
+  // hold its width while the pane slides (features/editor/SceneView.tsx) and its words re-wrap once, not every frame.
+  const shownWidth = floating || !open ? 0 : width
+  const lastShown = useRef(shownWidth)
+  useLayoutEffect(() => {
+    const delta = shownWidth - lastShown.current
+    lastShown.current = shownWidth
+    if (!delta || instant || floating || reducedMotion() || document.documentElement.dataset.look !== 'new') return
+    window.dispatchEvent(new CustomEvent<PanesMove>('aiwrite:panes-move', { detail: { delta, ms: SLIDE_MS } }))
+  }, [shownWidth, instant, floating])
+
   return (
     <aside
       ref={ref}
       // Floating, the panel over the page is the landmark (this takes no room and holds it in place).
       role={floating ? 'none' : undefined}
       aria-label={floating ? undefined : label}
-      style={{ width: floating || !open ? 0 : width }}
+      style={{ width: shownWidth }}
       className={cn(
         'relative flex shrink-0 flex-col',
         floating ? 'z-30 overflow-visible' : 'overflow-hidden bg-surface look-new:bg-transparent',
-        !instant && !floating && 'transition-[width] duration-200 ease-out',
+        // The New look: 220ms on the drawer's curve (quick to start, a long soft landing). Classic keeps 200ms ease-out.
+        !instant && !floating && 'transition-[width] duration-200 ease-out look-new:duration-(--dur-base) look-new:ease-drawer',
         !floating && (side === 'left' ? 'border-r border-line' : 'border-l border-line'),
         // The New look: the panes sit a step up from the window's frame, with no hairline.
         !floating && 'look-new:border-transparent',
@@ -157,7 +181,7 @@ export function ResizablePane({
           floating && (side === 'left' ? 'left-0 border-r border-line' : 'right-0 border-l border-line'),
           floating && (open ? 'animate-fade-in' : 'hidden')
         )}
-        style={{ width: floating ? width : width - BORDER }}
+        style={{ width: floating ? width : width - BORDER, top: floating?.top }}
       >
         {children}
       </div>

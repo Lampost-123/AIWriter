@@ -51,7 +51,7 @@ function RailButton({
       onClick={onClick}
       className={cn(
         'relative grid w-[54px] justify-items-center gap-[3px] rounded-xl pb-1.5 pt-[7px] text-[10.5px] font-medium',
-        'transition-[color,background-color,transform] duration-(--dur-quick) ease-glide active:scale-[0.94]',
+        'transition-[color,background-color,transform,scale] duration-(--dur-quick) ease-glide active:scale-[0.94]',
         on || pressed ? 'text-accent' : 'text-muted hover:bg-surface-2 hover:text-fg'
       )}
     >

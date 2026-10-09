@@ -5,7 +5,7 @@
 // and Ignore each act at once and can be undone. "Check this scene" runs every check, with progress and Stop.
 import { CircleCheck, ListChecks } from '@/components/ui/icons'
 import { CheckReportCard } from './CheckReportCard'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Issue, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { Badge, Button, EmptyState, Notice, Spinner } from '@/components/ui'
@@ -17,6 +17,13 @@ import { KIND_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIss
 import { useIssuesStore, useSceneIssues } from './issuesStore'
 import { revealLiveFlag, useLiveFlagCounts } from '@/features/liveChecks/liveFlags'
 import type { LiveFlagKind } from '@shared/liveChecks'
+import { LighthouseArt } from '@/components/art/RoomArt'
+import { useDesk } from '@/features/look/look'
+import { reducedMotion } from '@/features/look/motion'
+import { useFlip } from '@/lib/useFlip'
+import { SeverityPill } from '@/features/consistency/desk/marks'
+import '@/features/consistency/check.css'
+import './issuesPanel.css'
 
 export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const { issues, error, retry } = useSceneIssues(sceneId)
@@ -24,6 +31,27 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const failed = useIssuesStore((s) => s.failed[sceneId] ?? null)
   const [showIgnored, setShowIgnored] = useState(false)
   const { open, ignored } = splitIssues(issues ?? [])
+  // The desk: Ignore folds the card away first, and the cards below close up.
+  const desk = useDesk()
+  const [leaving, setLeaving] = useState<Set<string>>(new Set())
+  const listRef = useRef<HTMLUListElement>(null)
+  useFlip(listRef, open.map((i) => i.id).join())
+  const fold = (issue: Issue): void => {
+    if (!desk || reducedMotion()) {
+      void ignore(issue)
+      return
+    }
+    setLeaving((s) => new Set(s).add(issue.id))
+    setTimeout(() => {
+      void ignore(issue).finally(() =>
+        setLeaving((s) => {
+          const n = new Set(s)
+          n.delete(issue.id)
+          return n
+        })
+      )
+    }, 180)
+  }
 
   return (
     <div className="flex min-h-full flex-col">
@@ -54,18 +82,15 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
         ) : // Loading: nothing rather than a flash; the list takes its place when it comes.
         null
       ) : open.length ? (
-        <ul aria-label="Issues in this scene" className="flex flex-col gap-2 px-4 pb-4 pt-1 animate-fade-in">
+        <ul ref={listRef} aria-label="Issues in this scene" className="iss-list flex flex-col gap-2 px-4 pb-4 pt-1 animate-fade-in">
           {open.map((i) => (
-            <li key={i.id}>
-              <IssueCard issue={i} />
+            <li key={i.id} data-flip={i.id}>
+              <IssueCard issue={i} leaving={leaving.has(i.id)} onIgnore={fold} />
             </li>
           ))}
         </ul>
       ) : (
-        <EmptyState icon={<CircleCheck size={20} />} title="Nothing to look at" className="py-8">
-          Every draft is checked against the memory, where things stand and the story so far. Marking the scene done checks its facts,
-          who knows what, its timeline and continuity; Check this scene looks at voices, style and tone too.
-        </EmptyState>
+        <NothingFound />
       )}
       {ignored.length ? (
         <div className="mt-auto border-t border-line px-4 py-2.5">
@@ -127,6 +152,40 @@ function OnThisPage(): React.JSX.Element | null {
         </button>
       ))}
     </div>
+  )
+}
+
+/**
+ * No issues from the checks. While the page has words underlined (listed above it), it says the checks found nothing
+ * and points at those, rather than that there is nothing to look at.
+ */
+function NothingFound(): React.JSX.Element {
+  const counts = useLiveFlagCounts()
+  const underlined = LIVE_ORDER.reduce((n, k) => n + counts[k], 0)
+  const desk = useDesk()
+  if (desk) {
+    return (
+      <div className="iss-clear" role="status">
+        <LighthouseArt clear className="iss-clear-art" />
+        <h3 className="iss-clear-title">{underlined ? 'No issues from the checks' : 'Nothing to look at'}</h3>
+        <p className="iss-clear-text">
+          {underlined
+            ? `The checks found nothing to fix, but ${underlined === 1 ? 'one thing is' : `${underlined.toLocaleString()} things are`} underlined in the page (listed above) for a look. `
+            : 'All clear in this scene. '}
+          Every draft is checked against the memory, where things stand and the story so far. Marking the scene done checks its facts, who
+          knows what, its timeline and continuity; Check this scene looks at voices, style and tone too.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <EmptyState icon={<CircleCheck size={20} />} title={underlined ? 'No issues from the checks' : 'Nothing to look at'} className="py-8">
+      {underlined
+        ? `The checks found nothing to fix, but ${underlined === 1 ? 'one thing is' : `${underlined.toLocaleString()} things are`} underlined in the page (listed above) for a look. `
+        : null}
+      Every draft is checked against the memory, where things stand and the story so far. Marking the scene done checks its facts,
+      who knows what, its timeline and continuity; Check this scene looks at voices, style and tone too.
+    </EmptyState>
   )
 }
 
@@ -216,17 +275,20 @@ function SourceLink({ source }: { source: IssueSource }): React.JSX.Element {
   )
 }
 
-function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
+function IssueCard({ issue, leaving = false, onIgnore }: { issue: Issue; leaving?: boolean; onIgnore?: (issue: Issue) => void }): React.JSX.Element {
   const memoryWords = memoryFixWords(issue)
   const canFix = !!issue.quote.trim() && !!issue.sceneId
   const fix = usableFix(issue)
+  const desk = useDesk()
   return (
     <article
       aria-label={`${SEVERITY_WORDS[issue.severity]}: ${issue.message}`}
-      className={cn('rounded-lg border bg-surface px-3 py-2.5', issue.severity === 'must-fix' ? 'border-danger/35' : 'border-line')}
+      data-severity={issue.severity}
+      data-leaving={leaving || undefined}
+      className={cn('iss-card rounded-lg border bg-surface px-3 py-2.5', issue.severity === 'must-fix' ? 'border-danger/35' : 'border-line')}
     >
       <div className="flex items-center gap-2">
-        <SeverityMark issue={issue} />
+        {desk ? <SeverityPill severity={issue.severity}>{SEVERITY_WORDS[issue.severity]}</SeverityPill> : <SeverityMark issue={issue} />}
         <span className="min-w-0 truncate text-[11.5px] text-faint">{issue.aiPhrase ? 'Common AI phrase' : KIND_WORDS[issue.kind]}</span>
       </div>
       {issue.quote.trim() ? (
@@ -234,16 +296,16 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
           type="button"
           onClick={() => showWords(issue)}
           title="Show these words in the page"
-          className="-mx-1 mt-1.5 block w-[calc(100%+0.5rem)] rounded px-1 py-0.5 text-left font-serif text-[14px] leading-[21px] text-fg hover:bg-surface-2"
+          className="iss-quote -mx-1 mt-1.5 block w-[calc(100%+0.5rem)] rounded px-1 py-0.5 text-left font-serif text-[14px] leading-[21px] text-fg hover:bg-surface-2"
         >
           <span className="line-clamp-3">{quoted(issue.quote.trim())}</span>
         </button>
       ) : null}
-      <p className="mt-1 text-[12.5px] leading-[18px] text-muted">{issue.message}</p>
+      <p className="iss-msg mt-1 text-[12.5px] leading-[18px] text-muted">{issue.message}</p>
       {/* The critic's suggestion, shown before anything changes: Fix the text puts the rewrite in the page to accept
           or reject; advice is for Adam to act on. */}
       {fix || issue.advice ? (
-        <div className="mt-1.5 rounded-md bg-surface-2 px-2 py-1.5 text-[12.5px] leading-[18px]" data-suggested-fix>
+        <div className="iss-fix mt-1.5 rounded-md bg-surface-2 px-2 py-1.5 text-[12.5px] leading-[18px]" data-suggested-fix>
           <span className="font-medium text-fg">Suggested fix: </span>
           {fix ? <span className="font-serif text-fg">{quoted(fix.trim())}</span> : null}
           {fix && issue.advice ? ' ' : null}
@@ -261,10 +323,11 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
           ))}
         </p>
       ) : null}
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="iss-acts mt-2 flex flex-wrap gap-1.5">
         {canFix ? (
           <Button
             size="sm"
+            className="iss-ai"
             onClick={() => fixTheText(issue)}
             title={
               fix
@@ -280,7 +343,12 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
             Update the memory
           </Button>
         ) : null}
-        <Button size="sm" variant="ghost" onClick={() => void ignore(issue)} title="It’s meant to be like this: hide it, and don’t raise it again">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => (onIgnore ? onIgnore(issue) : void ignore(issue))}
+          title="It’s meant to be like this: hide it, and don’t raise it again"
+        >
           Ignore
         </Button>
       </div>

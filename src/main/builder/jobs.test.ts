@@ -20,6 +20,7 @@ import {
   startFleshOut,
   startInterview,
   startOptions,
+  startQuestions,
   startQuickStart,
   stopJob,
   stopJobsFor,
@@ -571,6 +572,53 @@ describe('Give me options', () => {
     const done = await w2.done('o3')
     expect(done.status).toBe('error')
     expect(done.error).toMatch(/three different options/)
+  })
+})
+
+describe('Follow-up questions', () => {
+  it('asks a short round of questions about the notes, saving nothing', async () => {
+    const w = setup()
+    startQuestions(w.ctx, { jobId: 'q1', kind: 'character', notes: NOTES, storyId: w.storyId }, w.brief())
+    const done = await w.done('q1')
+    expect(done.status).toBe('complete')
+    expect(done.options).toEqual(['What does Brann want most right now?', 'What is Brann afraid of?', 'What does Brann do without thinking?'])
+    expect(repo.listEntries(w.db, 'character').some((e) => e.name === 'Brann Holt')).toBe(false)
+    expect(builderRecords(w.db)[0].messages[0].content).toMatch(/^\[AIWRITE-BUILDER v1\] questions/)
+  })
+
+  it('asks again when no questions come back, reads a plain list, and keeps five at most', async () => {
+    const f = canned(['Happy to help!', '{"questions": ["A?", "a?", "B?", "C?", "D?", "E?", "F?"]}'])
+    const w = setup({ fetchImpl: f })
+    startQuestions(w.ctx, { jobId: 'q2', kind: 'place', notes: 'A port.' }, w.brief('place'))
+    expect((await w.done('q2')).options).toEqual(['A?', 'B?', 'C?', 'D?', 'E?'])
+    expect((f.bodies()[1].messages as { content: string }[]).at(-1)!.content).toMatch(/Reply again with only the JSON object/)
+
+    const w2 = setup({ fetchImpl: canned(['1. Who rules it?\n2. What does it smell of?']) })
+    startQuestions(w2.ctx, { jobId: 'q3', kind: 'place', notes: 'A port.' }, w2.brief('place'))
+    expect((await w2.done('q3')).options).toEqual(['Who rules it?', 'What does it smell of?'])
+  })
+
+  it('needs some notes first', () => {
+    const w = setup()
+    expect(() => startQuestions(w.ctx, { jobId: 'q4', kind: 'character', notes: '  ' }, w.brief())).toThrow(/One line is enough/)
+  })
+
+  it('builds with the answers as his words, and decides what he left to the AI', async () => {
+    const w = setup()
+    const answers = [
+      { question: 'What does Brann want most right now?', answer: 'To pay off the Duke before the ice comes.' },
+      { question: 'What is Brann afraid of?', answer: null }
+    ]
+    startQuickStart(w.ctx, { jobId: 'qa', kind: 'character', notes: NOTES, storyId: w.storyId, answers }, w.brief())
+    const done = await w.done('qa')
+    expect(done.status).toBe('complete')
+    const e = repo.getEntry(w.db, done.entryId!)!
+    expect(e.fields.wants).toBe('To pay off the Duke before the ice comes.')
+    expect(e.fieldOrigins.wants ?? e.origin).toBe('adam')
+    expect(e.fields.fears).toBe('Fears of Brann Holt, decided by the AI.')
+    expect(e.fieldOrigins.fears).toBe('ai')
+    const asked = builderRecords(w.db)[0].messages.at(-1)!.content
+    expect(asked).toContain('Q: What is Brann afraid of?\nA: (left to you: decide it)')
   })
 })
 

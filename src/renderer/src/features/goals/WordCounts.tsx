@@ -143,7 +143,25 @@ function GoalShare(): React.JSX.Element | null {
   const today = useGoals((s) => s.today)
   if (!daily) return null
   const share = Math.min(999, Math.round((Math.max(0, dayOf(days, today).typed) / daily) * 100))
-  return <span className="-ml-1 text-faint">· {share}%</span>
+  return (
+    <span className="-ml-1 text-faint">
+      · <Steady text={`${share}%`} room="min-w-[calc(3ch+0.85em)]" />
+    </span>
+  )
+}
+
+/**
+ * The room four digits and a thousands mark take ("8,888"): a scene's count rarely needs more. The New look only:
+ * Classic's bar is laid out to the pixel for the smallest window and stays as it was.
+ */
+const COUNT_ROOM = 'look-new:min-w-[calc(4ch+0.35em)]'
+
+/**
+ * A number that keeps the room of a longer one, right-aligned in it, so nothing beside it moves as it counts up (the
+ * figures are all one width: tabular-nums, each a `ch`).
+ */
+function Steady({ text, room }: { text: string; room: string }): React.JSX.Element {
+  return <span className={cn('inline-block text-right tabular-nums', room)}>{text}</span>
 }
 
 const openers = new Set<() => void>()
@@ -153,17 +171,19 @@ export function openWordCounts(): void {
   for (const open of openers) open()
 }
 
-/** The scene's word count in the top bar; click for the counts and today's writing. */
-export function WordCountButton(): React.JSX.Element {
+/**
+ * Opens the counts from wherever they show (the top bar's count, or the desk's status island): `show` is called when the
+ * palette asks for them. Returns the clean-up.
+ */
+export function onOpenWordCounts(show: () => void): () => void {
+  openers.add(show)
+  return () => void openers.delete(show)
+}
+
+/** What clicking the count shows: the selection's, scene's, chapter's and story's counts, then today's writing. */
+export function WordCountsBody({ open }: { open: boolean }): React.JSX.Element {
   const words = useApp((s) => s.sceneWords)
-  const isNew = useNewLook()
   const sceneId = useApp((s) => s.sceneId)
-  const [open, setOpen] = useState(false)
-  useEffect(() => {
-    const show = (): void => setOpen(true)
-    openers.add(show)
-    return () => void openers.delete(show)
-  }, [])
   const { outline } = useOutline()
   const selected = useSelectedWords(open)
   const scenes = outline?.scenes ?? []
@@ -171,6 +191,26 @@ export function WordCountButton(): React.JSX.Element {
   const live = (id: string, saved: number): number => (id === sceneId ? words : saved)
   const chapter = here ? scenes.filter((s) => s.chapterId === here.chapterId).reduce((n, s) => n + live(s.id, s.wordCount), 0) : null
   const story = outline ? scenes.reduce((n, s) => n + live(s.id, s.wordCount), 0) + (here || !sceneId ? 0 : words) : null
+  return (
+    <>
+      <div aria-label="Word counts" role="group">
+        {selected > 0 ? <CountRow label="Selection" words={selected} /> : null}
+        {sceneId ? <CountRow label="Scene" words={words} /> : null}
+        {chapter !== null ? <CountRow label="Chapter" words={chapter} /> : null}
+        {story !== null ? <CountRow label="Story" words={story} /> : null}
+      </div>
+      <div className="my-3 h-px bg-line" />
+      <Today />
+    </>
+  )
+}
+
+/** The scene's word count in the top bar; click for the counts and today's writing. */
+export function WordCountButton(): React.JSX.Element {
+  const words = useApp((s) => s.sceneWords)
+  const isNew = useNewLook()
+  const [open, setOpen] = useState(false)
+  useEffect(() => onOpenWordCounts(() => setOpen(true)), [])
 
   return (
     <P.Root open={open} onOpenChange={setOpen}>
@@ -181,7 +221,10 @@ export function WordCountButton(): React.JSX.Element {
         className="-ml-1 mr-2 shrink-0 whitespace-nowrap rounded px-1 text-[12px] tabular-nums text-faint outline-none transition-colors duration-150 hover:text-muted focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:text-fg look-new:flex look-new:h-8 look-new:items-center look-new:gap-2 look-new:rounded-full look-new:px-2 look-new:text-[12.5px] look-new:text-muted look-new:hover:bg-surface-2"
       >
         {isNew ? <GoalRing /> : null}
-        {words.toLocaleString()} words
+        {/* Counting up (a draft coming in, typing) moves nothing in the bar: the count keeps the room of four digits. */}
+        <span>
+          <Steady text={words.toLocaleString()} room={COUNT_ROOM} /> words
+        </span>
         {isNew ? <GoalShare /> : null}
       </P.Trigger>
       <PopoverPanel
@@ -190,14 +233,7 @@ export function WordCountButton(): React.JSX.Element {
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        <div aria-label="Word counts" role="group">
-          {selected > 0 ? <CountRow label="Selection" words={selected} /> : null}
-          {sceneId ? <CountRow label="Scene" words={words} /> : null}
-          {chapter !== null ? <CountRow label="Chapter" words={chapter} /> : null}
-          {story !== null ? <CountRow label="Story" words={story} /> : null}
-        </div>
-        <div className="my-3 h-px bg-line" />
-        <Today />
+        <WordCountsBody open={open} />
       </PopoverPanel>
     </P.Root>
   )

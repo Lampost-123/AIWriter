@@ -54,6 +54,25 @@ export interface UsageBar {
   cost: number
   calls: number
   tokens: number
+  /** The bar split by model (most spent first; the page stacks them in each model's colour). Absent from older reports. */
+  models?: UsageBarPart[]
+}
+
+/** One model's share of a bar. */
+export interface UsageBarPart {
+  modelId: string
+  provider: string
+  cost: number
+  tokens: number
+}
+
+/** Spending in one world of the library (or the story recipes, which belong to no world). */
+export interface UsageWorldRow extends UsageTotals {
+  name: string
+  /** True for the open world. */
+  open: boolean
+  /** The story recipes' own spending (no world). */
+  recipes?: boolean
 }
 
 /** Spending with one model. */
@@ -83,6 +102,8 @@ export interface UsageReport {
   /** Most spent first. */
   models: UsageModelRow[]
   jobs: UsageJobRow[]
+  /** Spending by world, most spent first (every world in the library; only the open one for 'world'). Absent from older reports. */
+  byWorld?: UsageWorldRow[]
   /** Worlds the numbers come from, and worlds that couldn't be read (a damaged or locked file). */
   worlds: number
   unreadable: number

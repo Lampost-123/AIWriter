@@ -1,0 +1,594 @@
+/*
+  The plot threads on the desk (features/threads/DeskThreads.tsx; UI overhaul, "the AI planning pages"): the header band
+  with the threads weaving and the counts, the tools, the loom (the chapters along a ruler, each thread a strand across
+  it in the story board's string inks) and the threads as cards. Only on the desk: the panels and Classic keep their
+  columns. Strands draw themselves in (900ms, 90ms apart), a pay-off knot ties itself after its strand, an open end's
+  glow breathes slowly (none with less motion).
+*/
+[data-arrangement='desk'][data-look='new'] .th-page {
+  --card-ink: var(--card);
+}
+[data-arrangement='desk'][data-look='new'] .th-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 18px 34px 160px;
+}
+
+/* The counts beside the band's words. */
+[data-arrangement='desk'][data-look='new'] .th-stats {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(92px, auto);
+  gap: 4px 10px;
+  margin: 0;
+}
+[data-arrangement='desk'][data-look='new'] .th-stats > div {
+  padding: 10px 14px 9px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--card) 80%, transparent);
+  box-shadow:
+    0 0 0 1px var(--desk-line),
+    var(--sh-1);
+}
+[data-arrangement='desk'][data-look='new'] .th-stats dt {
+  font: 600 10.5px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+[data-arrangement='desk'][data-look='new'] .th-stats dd {
+  margin: 0;
+  font: 600 30px/34px var(--heading-font);
+  font-variation-settings: 'opsz' 72;
+  font-variant-numeric: lining-nums tabular-nums;
+  color: var(--fg);
+}
+[data-arrangement='desk'][data-look='new'] .th-stats .is-open dd {
+  color: var(--k-thread);
+}
+[data-arrangement='desk'][data-look='new'] .th-stats-note {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* The tools. */
+[data-arrangement='desk'][data-look='new'] .th-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+}
+[data-arrangement='desk'][data-look='new'] .th-find {
+  width: min(320px, 100%);
+}
+[data-arrangement='desk'][data-look='new'] .th-find-box {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--faint);
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+[data-arrangement='desk'][data-look='new'] .th-find-box:focus-within {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--accent) 60%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--accent) 16%, transparent);
+}
+[data-arrangement='desk'][data-look='new'] .th-find-box input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+/* The loom. */
+[data-arrangement='desk'][data-look='new'] .th-loom {
+  margin-top: 18px;
+  overflow-x: auto;
+  border-radius: 16px;
+  background:
+    radial-gradient(900px 260px at 20% 0%, rgb(var(--hi-rgb) / 0.12), transparent 70%),
+    color-mix(in oklab, var(--bg) 70%, var(--surface-3));
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'][data-look='new'] .th-loom-in {
+  position: relative;
+  min-width: 640px;
+}
+[data-arrangement='desk'][data-look='new'] .th-chap {
+  position: absolute;
+  top: 0;
+  padding: 10px 12px 0;
+  border-left: 1px dashed var(--desk-line);
+  pointer-events: none;
+}
+[data-arrangement='desk'][data-look='new'] .th-chap.is-alt {
+  background: rgb(var(--hi-rgb) / 0.05);
+}
+[data-arrangement='desk'][data-look='new'] .th-chap.is-on {
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+}
+[data-arrangement='desk'][data-look='new'] .th-chap-n {
+  font: 600 16px/20px var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'][data-look='new'] .th-chap-t {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--muted);
+}
+[data-arrangement='desk'][data-look='new'] .th-strands {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+[data-arrangement='desk'][data-look='new'] .th-tick {
+  stroke: rgb(var(--shade-rgb) / 0.35);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+[data-arrangement='desk'][data-look='new'] .th-strand {
+  transition: opacity 180ms ease-out;
+}
+[data-arrangement='desk'][data-look='new'] .th-strand.is-dim {
+  opacity: 0.25;
+}
+[data-arrangement='desk'][data-look='new'] .th-strand path {
+  fill: none;
+  stroke-linecap: round;
+}
+[data-arrangement='desk'][data-look='new'] .th-s-main {
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-dasharray: 1;
+  animation: th-draw 900ms cubic-bezier(0.65, 0, 0.35, 1) var(--d, 0ms) backwards;
+}
+@keyframes th-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+[data-arrangement='desk'][data-look='new'] .th-s-twist {
+  stroke: color-mix(in oklab, currentColor 45%, white);
+  stroke-width: 1;
+  stroke-dasharray: 2.5 5.5;
+  opacity: 0.55;
+  animation: th-fade 300ms ease-out calc(var(--d, 0ms) + 700ms) backwards;
+}
+[data-arrangement='desk'][data-look='new'] .th-strand.is-planned .th-s-main {
+  stroke-dasharray: 6 5;
+  animation: th-fade 400ms ease-out var(--d, 0ms) backwards;
+  opacity: 0.8;
+}
+[data-arrangement='desk'][data-look='new'] .th-s-halo {
+  stroke: currentColor;
+  stroke-width: 12;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+[data-arrangement='desk'][data-look='new'] .th-strand.is-lit .th-s-halo {
+  opacity: 0.16;
+}
+[data-arrangement='desk'][data-look='new'] .th-k-set circle {
+  fill: currentColor;
+}
+[data-arrangement='desk'][data-look='new'] .th-k-set .th-k-hole {
+  fill: var(--card);
+}
+[data-arrangement='desk'][data-look='new'] .th-bead {
+  fill: var(--card);
+  stroke: currentColor;
+  stroke-width: 1.6;
+  animation: th-fade 240ms ease-out calc(var(--d, 0ms) + 500ms) backwards;
+}
+[data-arrangement='desk'][data-look='new'] .th-k-paid circle {
+  fill: var(--card);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+[data-arrangement='desk'][data-look='new'] .th-k-paid path {
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-dasharray: 1;
+}
+/* The pay-off knot ties itself once its strand has reached it. */
+[data-arrangement='desk'][data-look='new'] .th-k-paid {
+  animation: th-tie 520ms var(--motion-spring) calc(var(--d, 0ms) + 820ms) backwards;
+}
+[data-arrangement='desk'][data-look='new'] .th-k-paid path {
+  animation: th-loop 420ms ease-out calc(var(--d, 0ms) + 980ms) backwards;
+}
+@keyframes th-tie {
+  from {
+    transform: scale(0.3) rotate(-90deg);
+    opacity: 0;
+  }
+}
+@keyframes th-loop {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+[data-arrangement='desk'][data-look='new'] .th-fray path {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.8;
+  animation: th-fade 300ms ease-out calc(var(--d, 0ms) + 820ms) backwards;
+}
+[data-arrangement='desk'][data-look='new'] .th-fray-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: th-breathe 3.6s ease-in-out infinite;
+}
+@keyframes th-breathe {
+  0%,
+  100% {
+    scale: 0.82;
+  }
+  50% {
+    scale: 1.2;
+  }
+}
+@keyframes th-fade {
+  from {
+    opacity: 0;
+  }
+}
+[data-arrangement='desk'][data-look='new'] .th-row {
+  position: absolute;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 0 18px;
+  text-align: left;
+  border-radius: 10px;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    opacity 180ms ease-out;
+}
+[data-arrangement='desk'][data-look='new'] .th-row::before {
+  content: '';
+  width: 4px;
+  height: 18px;
+  flex: none;
+  border-radius: 3px;
+  background: var(--ink);
+}
+[data-arrangement='desk'][data-look='new'] .th-row:hover,
+[data-arrangement='desk'][data-look='new'] .th-row.is-lit {
+  background: color-mix(in oklab, var(--ink) 9%, transparent);
+}
+[data-arrangement='desk'][data-look='new'] .th-row.is-dim {
+  opacity: 0.55;
+}
+[data-arrangement='desk'][data-look='new'] .th-row-name {
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: italic 500 14px/20px var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'][data-look='new'] .th-row-state {
+  flex: none;
+  font: 600 10px/14px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--k-thread);
+}
+[data-arrangement='desk'][data-look='new'] .th-row-state:is(.is-resolved, .is-planned) {
+  color: var(--muted);
+}
+[data-arrangement='desk'][data-look='new'] .th-row-off {
+  margin-left: 70px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--faint);
+}
+
+/* The cards. */
+[data-arrangement='desk'][data-look='new'] .th-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  align-items: start;
+  gap: 26px 28px;
+  margin-top: 26px;
+}
+[data-arrangement='desk'][data-look='new'] .th-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--desk-line-2);
+}
+[data-arrangement='desk'][data-look='new'] .th-section-head h2 {
+  font: 600 19px/25px var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'][data-look='new'] .th-count {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+[data-arrangement='desk'][data-look='new'] .th-hint {
+  font-size: 12.5px;
+  color: var(--faint);
+}
+[data-arrangement='desk'][data-look='new'] .th-none {
+  padding: 18px;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--faint);
+  box-shadow: inset 0 0 0 1px var(--desk-line);
+  outline: 1px dashed var(--desk-line);
+}
+[data-arrangement='desk'][data-look='new'] .th-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-arrangement='desk'][data-look='new'] .th-card {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 14px 22px;
+  border-radius: 14px;
+  cursor: pointer;
+  background: var(--card);
+  box-shadow:
+    var(--sh-card),
+    inset 4px 0 0 var(--ink);
+  transition:
+    translate var(--dur-base) var(--motion-glide),
+    box-shadow var(--dur-quick) ease-out,
+    opacity 180ms ease-out;
+}
+[data-arrangement='desk'][data-look='new'] .th-card:hover,
+[data-arrangement='desk'][data-look='new'] .th-card.is-lit {
+  translate: 0 -2px;
+  box-shadow:
+    var(--sh-card-up),
+    inset 4px 0 0 var(--ink),
+    0 0 0 1px color-mix(in oklab, var(--ink) 40%, transparent);
+}
+[data-arrangement='desk'][data-look='new'] .th-card.is-dim {
+  opacity: 0.6;
+}
+[data-arrangement='desk'][data-look='new'] .th-card.is-long {
+  box-shadow:
+    var(--sh-card),
+    inset 4px 0 0 var(--ink),
+    0 0 0 1px color-mix(in oklab, var(--lamp-2) 40%, transparent);
+}
+[data-arrangement='desk'][data-look='new'] .th-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+[data-arrangement='desk'][data-look='new'] .th-seal {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink);
+  background: color-mix(in oklab, var(--ink) 13%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 30%, transparent);
+}
+[data-arrangement='desk'][data-look='new'] .th-name {
+  display: block;
+  max-width: 100%;
+  text-align: left;
+  font: 600 17px/23px var(--heading-font);
+  color: var(--fg);
+  border-radius: 4px;
+}
+[data-arrangement='desk'][data-look='new'] .th-card:hover .th-name {
+  color: var(--accent);
+}
+[data-arrangement='desk'][data-look='new'] .th-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+[data-arrangement='desk'][data-look='new'] .th-chip {
+  display: inline-flex;
+  height: 20px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'][data-look='new'] .th-chip.is-ai {
+  color: var(--ai);
+  background: color-mix(in oklab, var(--ai-soft) 70%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--lamp-2) 30%, transparent);
+}
+[data-arrangement='desk'][data-look='new'] .th-state {
+  flex: none;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border-radius: 999px;
+  font: 600 10.5px/1 var(--font-sans);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--k-thread);
+  background: var(--k-thread-soft);
+}
+[data-arrangement='desk'][data-look='new'] .th-state.is-resolved {
+  color: var(--success);
+  background: var(--success-soft);
+}
+[data-arrangement='desk'][data-look='new'] .th-state.is-planned {
+  color: var(--muted);
+  background: var(--surface);
+}
+[data-arrangement='desk'][data-look='new'] .th-promise {
+  font: italic 400 14px/21px var(--heading-font);
+  color: var(--muted);
+}
+[data-arrangement='desk'][data-look='new'] .th-places {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+[data-arrangement='desk'][data-look='new'] .th-place {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+[data-arrangement='desk'][data-look='new'] .th-place-k {
+  display: grid;
+  width: 14px;
+  flex: none;
+  place-items: center;
+}
+[data-arrangement='desk'][data-look='new'] .th-place-l {
+  width: 72px;
+  flex: none;
+}
+[data-arrangement='desk'][data-look='new'] .th-jump {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px 0 8px;
+  border-radius: 7px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 9%, transparent);
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'][data-look='new'] .th-jump:hover {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+}
+[data-arrangement='desk'][data-look='new'] .th-place-w {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--faint);
+}
+[data-arrangement='desk'][data-look='new'] .th-quote {
+  position: relative;
+  margin: 2px 0 0;
+  padding: 8px 12px 8px 30px;
+  border-radius: 10px;
+  font: italic 400 13.5px/20px var(--heading-font);
+  color: var(--fg);
+  background: color-mix(in oklab, var(--surface) 55%, var(--card));
+}
+[data-arrangement='desk'][data-look='new'] .th-quote::before {
+  content: '“';
+  position: absolute;
+  left: 9px;
+  top: 2px;
+  font: 600 28px/1 var(--heading-font);
+  color: var(--ink);
+}
+[data-arrangement='desk'][data-look='new'] .th-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+[data-arrangement='desk'][data-look='new'] .th-meter-marks {
+  display: flex;
+  gap: 3px;
+}
+[data-arrangement='desk'][data-look='new'] .th-meter-marks i {
+  width: 12px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--desk-line);
+}
+[data-arrangement='desk'][data-look='new'] .th-meter-marks i.is-on {
+  background: var(--ink);
+}
+[data-arrangement='desk'][data-look='new'] .th-meter.is-long .th-meter-marks i.is-on {
+  background: var(--lamp-2);
+}
+[data-arrangement='desk'][data-look='new'] .th-meter-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--faint);
+}
+[data-arrangement='desk'][data-look='new'] .th-meter.is-long .th-meter-l {
+  color: var(--ai);
+}
+[data-arrangement='desk'][data-look='new'] .th-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+[data-arrangement='desk'][data-look='new'] .th-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+[data-arrangement='desk'][data-look='new'] .th-empty {
+  display: flex;
+  max-width: 560px;
+  margin: clamp(20px, 8vh, 90px) auto 0;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+[data-arrangement='desk'][data-look='new'] .th-empty-art {
+  width: 320px;
+  height: 160px;
+  margin-bottom: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-arrangement='desk'][data-look='new'] :is(.th-s-main, .th-s-twist, .th-bead, .th-k-paid, .th-k-paid path, .th-fray path, .th-fray-glow) {
+    animation: none !important;
+  }
+}
+[data-arrangement='desk'][data-look='new']:is([data-art-still], [data-art-typing]) .th-fray-glow {
+  animation-play-state: paused;
+}

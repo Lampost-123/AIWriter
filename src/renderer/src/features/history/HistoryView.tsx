@@ -28,6 +28,10 @@ import {
 } from './historyLogic'
 import { compareTexts, type Piece, type Row } from './wordDiff'
 import { restoreSnapshot } from './restore'
+import { PagesArt } from '@/components/art/RoomArt'
+import { useDesk } from '@/features/look/look'
+import { reducedMotion } from '@/features/look/motion'
+import './history.css'
 
 const KIND_ICON: Record<SnapshotKind, ReactNode> = {
   ai: <Sparkles size={13} />,
@@ -156,15 +160,17 @@ export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?:
   const back = (): void => selectScene(sceneId)
   const slow = useDelayed(!history && !error)
   const snapshots = history?.snapshots ?? []
+  const desk = useDesk()
 
   return (
-    <div className="@container flex h-full flex-col">
-      <div className="shrink-0 px-5 pb-4 pt-5 @min-[900px]:px-8">
+    <div className="hist-page @container flex h-full flex-col">
+      <div className="hist-head shrink-0 px-5 pb-4 pt-5 @min-[900px]:px-8">
+        {desk ? <PagesArt className="hist-art" /> : null}
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-2">
           {title ? `Back to “${title}”` : 'Back to the scene'}
         </Button>
-        <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">History</h1>
-        <p className="mt-1 max-w-[720px] text-[13px] text-muted">
+        <h1 className="hist-title text-[22px] font-semibold tracking-[-0.01em] text-fg">History</h1>
+        <p className="hist-intro mt-1 max-w-[720px] text-[13px] text-muted">
           Earlier versions of {title ? `“${title}”` : 'this scene'}, newest first. Pick one to compare it with the scene now; Restore puts
           it back, and {modKey()}+Z takes it out again.
         </p>
@@ -226,7 +232,7 @@ export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?:
           is listed here, to compare with the scene now and restore in one click.
         </EmptyState>
       ) : (
-        <div className="flex min-h-0 flex-1 gap-4 px-5 pb-6 animate-fade-in @min-[900px]:px-8">
+        <div className="hist-body flex min-h-0 flex-1 gap-4 px-5 pb-6 animate-fade-in @min-[900px]:px-8">
           <VersionList snapshots={snapshots} sameAsNow={history.sameAsNow} selected={selected} onSelect={setSelected} nowMs={nowMs} />
           <Comparison key={sceneId} sceneId={sceneId} now={now} info={snapshots.find((s) => s.id === selected) ?? null} nowMs={nowMs} />
         </div>
@@ -277,14 +283,14 @@ function VersionList({
       ref={listRef}
       aria-label="Earlier versions"
       onKeyDown={onKeyDown}
-      className="w-[200px] shrink-0 overflow-y-auto rounded-xl border border-line bg-surface @min-[900px]:w-[260px]"
+      className="hist-list w-[200px] shrink-0 overflow-y-auto rounded-xl border border-line bg-surface @min-[900px]:w-[260px]"
     >
       {groups.map((g) => (
         <section key={g.title} aria-label={g.title}>
-          <h2 className="sticky top-0 z-[1] bg-surface px-3 pb-1 pt-3 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+          <h2 className="hist-day sticky top-0 z-[1] bg-surface px-3 pb-1 pt-3 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
             {g.title}
           </h2>
-          <ul className="flex flex-col gap-0.5 px-1.5 pb-1.5">
+          <ul className="hist-rail flex flex-col gap-0.5 px-1.5 pb-1.5">
             {g.snapshots.map((s) => {
               const on = s.id === selected
               return (
@@ -292,25 +298,27 @@ function VersionList({
                   <button
                     type="button"
                     data-snapshot={s.id}
+                    data-kind={s.kind}
+                    data-same={same.has(s.id) || undefined}
                     aria-current={on ? 'true' : undefined}
                     tabIndex={on || (!selected && s === snapshots[0]) ? 0 : -1}
                     onClick={() => onSelect(s.id)}
                     title={fullDate(s.createdAt)}
                     className={cn(
-                      'flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent/40',
+                      'hist-row flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent/40',
                       on ? 'bg-accent-soft' : 'hover:bg-surface-2'
                     )}
                   >
                     <span className="flex w-full items-center gap-1.5">
                       <span
-                        className={cn('flex shrink-0', s.kind === 'done' ? 'text-success' : on ? 'text-accent' : 'text-faint')}
+                        className={cn('hist-node flex shrink-0', s.kind === 'done' ? 'text-success' : on ? 'text-accent' : 'text-faint')}
                         aria-hidden
                       >
                         {KIND_ICON[s.kind]}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{s.label}</span>
+                      <span className="hist-label min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{s.label}</span>
                     </span>
-                    <span className="flex min-w-0 items-center gap-1 pl-[19px] text-[12px] tabular-nums text-muted">
+                    <span className="hist-meta flex min-w-0 items-center gap-1 pl-[19px] text-[12px] tabular-nums text-muted">
                       <span className="shrink-0">{timeOf(s.createdAt)} ·</span>
                       {same.has(s.id) ? (
                         // Its words are the scene's now, so they aren't said twice.
@@ -397,10 +405,13 @@ function Comparison({
   const nowWords = now ? countWords(now.text) : 0
   const when = current ? whenTaken(current.createdAt, nowMs) : ''
 
+  const desk = useDesk()
   const restore = async (): Promise<void> => {
     if (!current || restoring) return
     setRestoring(true)
     try {
+      // The desk: this version is lifted across onto the scene now (a moment), then goes back in the page.
+      if (desk && !reducedMotion()) await new Promise((r) => setTimeout(r, 280))
       // "Today at 14:05" reads "today at 14:05" in the middle of the message.
       const inSentence = when.replace(/^(Today|Yesterday)\b/, (w) => w.toLowerCase())
       await restoreSnapshot(current, inSentence)
@@ -433,12 +444,13 @@ function Comparison({
   return (
     <section
       aria-label="Comparison"
-      className="@container/compare flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface"
+      data-restoring={restoring || undefined}
+      className="hist-compare @container/compare flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface"
     >
       {/* Laid out by the comparison's width alone, never by what a version says (its date, a button only some
           have), so moving through the list never moves the text below: buttons beside the name when wide,
           under it when narrow, and the name and its details each on one line. */}
-      <div className="flex shrink-0 flex-col gap-2.5 border-b border-line px-4 py-3 @min-[900px]:px-5 @min-[760px]/compare:flex-row @min-[760px]/compare:items-center @min-[760px]/compare:justify-between @min-[760px]/compare:gap-4">
+      <div className="hist-compare-head flex shrink-0 flex-col gap-2.5 border-b border-line px-4 py-3 @min-[900px]:px-5 @min-[760px]/compare:flex-row @min-[760px]/compare:items-center @min-[760px]/compare:justify-between @min-[760px]/compare:gap-4">
         <div className="min-w-0">
           <h2 className="truncate text-[15px] font-semibold leading-[22px] text-fg">{info?.label ?? '\u00a0'}</h2>
           <p
@@ -499,15 +511,15 @@ function Comparison({
       </div>
 
       {/* The column titles leave room for the text's scrollbar, so the line between the columns runs straight. */}
-      <div className="grid shrink-0 grid-cols-2 overflow-hidden border-b border-line bg-surface-2/60 text-[11.5px] font-semibold uppercase tracking-wide text-faint [scrollbar-gutter:stable]">
-        <div className="truncate px-4 py-1.5 @min-[900px]:px-5">This version</div>
-        <div className="truncate border-l border-line px-4 py-1.5 @min-[900px]:px-5">The scene now</div>
+      <div className="hist-cols grid shrink-0 grid-cols-2 overflow-hidden border-b border-line bg-surface-2/60 text-[11.5px] font-semibold uppercase tracking-wide text-faint [scrollbar-gutter:stable]">
+        <div className="hist-col-then truncate px-4 py-1.5 @min-[900px]:px-5">This version</div>
+        <div className="hist-col-now truncate border-l border-line px-4 py-1.5 @min-[900px]:px-5">The scene now</div>
       </div>
 
       <div
         ref={scroller}
         className={cn(
-          'min-h-0 flex-1 overflow-y-auto bg-page transition-opacity duration-150 [scrollbar-gutter:stable]',
+          'hist-scroll min-h-0 flex-1 overflow-y-auto bg-page transition-opacity duration-150 [scrollbar-gutter:stable]',
           waiting && 'opacity-60'
         )}
       >
@@ -526,7 +538,7 @@ function Comparison({
           </div>
         ) : (
           <>
-            <p className="px-4 pb-1 pt-3 text-[12.5px] text-muted @min-[900px]:px-5">
+            <p className="hist-say px-4 pb-1 pt-3 text-[12.5px] text-muted @min-[900px]:px-5">
               {against?.kind === 'differ' ? (
                 <>
                   {against.paragraphs === 1 ? '1 paragraph differs' : `${against.paragraphs} paragraphs differ`}. The words that differ are{' '}
@@ -538,7 +550,7 @@ function Comparison({
                 'This version is the same as the scene now.'
               )}
             </p>
-            <div className="grid grid-cols-2 pb-6 pt-2">
+            <div className="hist-grid grid grid-cols-2 pb-6 pt-2">
               {shown.map((s) => (
                 <ShownRow key={s.key} item={s} open={opened.has(s.key)} onOpen={() => setOpened((o) => new Set(o).add(s.key))} />
               ))}
@@ -563,7 +575,7 @@ function Paragraph({ text, whole }: { text: string; whole?: boolean }): React.JS
   return (
     <mark
       className={cn(
-        '-mx-1.5 -my-0.5 block rounded-md bg-accent-soft px-1.5 py-0.5',
+        'hist-whole -mx-1.5 -my-0.5 block rounded-md bg-accent-soft px-1.5 py-0.5',
         sceneBreak ? 'text-center tracking-[0.4em] text-faint' : 'text-fg'
       )}
     >
@@ -575,7 +587,7 @@ function Paragraph({ text, whole }: { text: string; whole?: boolean }): React.JS
 /** Words the other side doesn't have. */
 function Marked({ children }: { children: ReactNode }): React.JSX.Element {
   return (
-    <mark className="rounded-[3px] bg-accent-soft text-fg shadow-[0_0_0_1.5px_var(--accent-soft)] [box-decoration-break:clone]">
+    <mark className="hist-mark rounded-[3px] bg-accent-soft text-fg shadow-[0_0_0_1.5px_var(--accent-soft)] [box-decoration-break:clone]">
       {children}
     </mark>
   )
@@ -601,7 +613,7 @@ function ShownRow({ item, open, onOpen }: { item: Shown; open: boolean; onOpen: 
       <button
         type="button"
         onClick={onOpen}
-        className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-line py-1 text-[12px] text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg"
+        className="hist-fold flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-line py-1 text-[12px] text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg"
       >
         {item.rows.length} paragraphs the same · Show them
       </button>

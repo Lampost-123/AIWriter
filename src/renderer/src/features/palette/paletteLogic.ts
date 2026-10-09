@@ -42,12 +42,21 @@ export type FixedActionId =
   | 'go-memory'
   | 'go-story'
   | 'quick-character'
+  | 'build-character'
+  | 'build-place'
+  | 'build-group'
+  | 'build-item'
   | 'theme-light'
   | 'theme-dark'
   | 'theme-sepia'
   | 'theme-system'
   | 'toggle-binder'
   | 'toggle-panel'
+  | 'tab-card'
+  | 'tab-context'
+  | 'tab-cast'
+  | 'tab-issues'
+  | 'tab-drafts'
   | 'settings-models'
   | 'settings-preferences'
   | 'settings-appearance'
@@ -66,6 +75,7 @@ export type FixedActionId =
   | 'hide-beats'
   | 'history'
   | 'continue'
+  | 'continue-end'
   | 'ask-world'
   | 'outline-helper'
   | 'scene-ideas'
@@ -102,6 +112,8 @@ export type FixedActionId =
   | 'sample-world'
   // The start screen
   | 'start-screen'
+  | 'story-home'
+  | 'story-board'
   | 'go-recipes'
   | 'make-recipe'
   // Writing by hand
@@ -150,6 +162,8 @@ export interface ActionContext {
   soundEffects?: boolean
   /** Beat by beat: "Show beats" is on (where each beat begins shows after Finish too). */
   showBeats?: boolean
+  /** The desk is on screen (the New look's desk layout): its AI dock's actions show. */
+  desk?: boolean
   /** The character whose page is open, if one is. */
   character?: { id: string; name: string } | null
 }
@@ -229,6 +243,10 @@ export const ACTIONS: ActionDef[] = [
   { id: 'go-story', label: 'Story settings', keywords: 'this story premise start kind time gap', away: true, when: hasStory },
   ...ENTRY_KINDS.map((kind): ActionDef => ({ id: `new-${kind}`, label: newLabel(kind), keywords: 'add create make', away: true })),
   { id: 'quick-character', label: 'Quick start a character', keywords: 'builder ai make create new character', away: true },
+  { id: 'build-character', label: 'Build a character with AI', keywords: 'character builder steps step by step ai make create new', away: true },
+  { id: 'build-place', label: 'Build a place with AI', keywords: 'builder steps step by step ai make create new place location', away: true },
+  { id: 'build-group', label: 'Build a group with AI', keywords: 'builder steps step by step ai make create new group faction', away: true },
+  { id: 'build-item', label: 'Build an item with AI', keywords: 'builder steps step by step ai make create new item object', away: true },
   { id: 'theme-light', label: 'Light theme', keywords: 'appearance colours colors mode', when: notTheme('light') },
   { id: 'theme-dark', label: 'Dark theme', keywords: 'appearance colours colors mode night', when: notTheme('dark') },
   { id: 'theme-sepia', label: 'Sepia theme', keywords: 'appearance colours colors mode paper', when: notTheme('sepia') },
@@ -245,6 +263,12 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'panel right side card context drafts',
     when: (c) => hasScene(c) && c.view === 'write'
   },
+  // The scene panel's tabs (on the desk, its drawer), each opened straight from here.
+  { id: 'tab-card', label: 'Scene card', also: 'Scene details', keywords: 'scene panel drawer goal summary point of view when beats', away: toWriting, when: hasScene },
+  { id: 'tab-context', label: 'Scene context', also: 'Scene panel › Context', keywords: 'briefing what the ai sees knows details drawer', away: toWriting, when: hasScene },
+  { id: 'tab-cast', label: 'Scene cast', also: 'Scene panel › Cast', keywords: 'characters people who is in it details drawer', away: toWriting, when: hasScene },
+  { id: 'tab-issues', label: 'Scene issues', also: 'Scene panel › Issues', keywords: 'problems mistakes consistency found details drawer', away: toWriting, when: hasScene },
+  { id: 'tab-drafts', label: 'Scene drafts', also: 'Scene panel › Drafts', keywords: 'ai versions written generated details drawer', away: toWriting, when: hasScene },
   {
     id: 'settings-models',
     label: 'Settings › Models',
@@ -309,6 +333,14 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'ai write on more carry',
     away: toWriting,
     when: (c) => hasScene(c) && !c.drafting
+  },
+  {
+    id: 'continue-end',
+    label: 'Continue at the end of the scene',
+    keywords: 'ai write on more carry dock next',
+    shortcut: 'continue',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.drafting && !!c.desk
   },
   { id: 'ask-world', label: 'Ask the world', keywords: 'chat brainstorm question ai ideas memory', away: toWriting },
   { id: 'outline-helper', label: 'Outline helper', keywords: 'ai plan premise acts chapters scenes suggest', away: true, when: hasStory },
@@ -435,6 +467,9 @@ export const ACTIONS: ActionDef[] = [
   { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true },
   // The start screen: every world and story, where Adam left off, and starting something new.
   { id: 'start-screen', label: 'Go to the start screen', also: 'Home', keywords: 'home welcome all worlds stories library list continue left off recently deleted', away: true },
+  // The desk's story home: the book, its chapters on a shelf, where Adam left off.
+  { id: 'story-board', label: 'Story board', keywords: 'plan cards index scenes chapters threads strings pins drag move outline', away: true, when: (c) => hasStory(c) && !!c.desk },
+  { id: 'story-home', label: 'Story home', keywords: 'book cover shelf chapters week threads cast overview left off', away: true, when: (c) => hasStory(c) && !!c.desk },
   // Story recipes
   { id: 'go-recipes', label: 'Story recipes', keywords: 'recipe library structure style shape beats template', away: true },
   { id: 'make-recipe', label: 'Make a recipe from a story', keywords: 'recipe import story book style structure distil', away: true },
@@ -533,10 +568,12 @@ export type Row =
   | { type: 'hit'; key: string; hit: SearchHit }
   | { type: 'more'; key: string; group: string; label: string; total: number }
   | { type: 'note'; key: string; text: string }
+  /** The desk's command bar: ask the world what was typed (Ask the world opens with it in its box). */
+  | { type: 'ask'; key: string; query: string }
 
-export type Option = Extract<Row, { type: 'action' | 'hit' | 'more' }>
+export type Option = Extract<Row, { type: 'action' | 'hit' | 'more' | 'ask' }>
 
-export const isOption = (r: Row): r is Option => r.type === 'action' || r.type === 'hit' || r.type === 'more'
+export const isOption = (r: Row): r is Option => r.type === 'action' || r.type === 'hit' || r.type === 'more' || r.type === 'ask'
 
 /**
  * The row a move of `by` lands on in a list of `n` options, from `index` (-1: none yet). Single steps
@@ -559,6 +596,8 @@ export interface ListInput {
   suggested: ActionDef[]
   /** Groups Adam asked to see more of ('actions' or a search group's id). */
   expanded: ReadonlySet<string>
+  /** The desk: what is typed can be asked of the world too ("Ask the world: …", after the actions). */
+  ask?: boolean
 }
 
 /**
@@ -588,6 +627,10 @@ export function paletteRows(input: ListInput): Row[] {
     if (!all && input.actions.length > ACTION_LIMIT) {
       rows.push({ type: 'more', key: 'more:actions', group: 'actions', label: 'Show more actions', total: input.actions.length })
     }
+  }
+  if (input.ask) {
+    rows.push({ type: 'heading', key: 'h:ask', label: 'Ask the world' })
+    rows.push({ type: 'ask', key: 'ask', query: input.query.trim() })
   }
   for (const g of input.results?.groups ?? []) {
     rows.push({ type: 'heading', key: `h:${g.id}`, label: g.label })

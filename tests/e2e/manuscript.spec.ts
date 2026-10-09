@@ -384,6 +384,11 @@ test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) 
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
     await expect(win.locator('main header').getByRole('button', { name: 'Stop' })).toBeVisible()
     await expect(prose(win).locator('hr')).toHaveCount(1)
+    // Adam scrolls up to the name, as he would: the page stops following the draft (since the overhaul it follows a draft
+    // below a scene break too), so the name stays under the pointer rather than gliding away from it.
+    await prose(win).hover()
+    await win.mouse.wheel(0, -5000)
+    await expect.poll(() => win.locator('main .overflow-y-auto').first().evaluate((el) => el.scrollTop)).toBe(0)
     await names(win, w.tobin).first().hover()
     await expect(card(win)).toBeVisible()
     await win.keyboard.press('Escape')
@@ -472,7 +477,10 @@ test('with a draft being written, Esc on the Selected words bar or the floating 
 async function resize(app: ElectronApplication, win: Page, width: number, height: number): Promise<void> {
   await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, height])
   // Within a pixel: Windows' display scaling can round the window's size either way.
-  await expect.poll(async () => Math.abs(((await win.evaluate('window.innerWidth')) as number) - width)).toBeLessThanOrEqual(1)
+  // (A reload under way while it is asked, as when a model was just set, is asked again.)
+  await expect
+    .poll(async () => Math.abs(((await win.evaluate('window.innerWidth').catch(() => -1e6)) as number) - width))
+    .toBeLessThanOrEqual(1)
   // The panels follow the window straight away while it is resized, then settle.
   await win.waitForTimeout(400)
 }

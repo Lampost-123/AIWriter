@@ -1,0 +1,232 @@
+/*
+  A scene's History on the desk (UI overhaul; HistoryView.tsx): a stack of pages beside the title, the earlier versions
+  as a timeline (a rail with a node for each, in its kind's ink: the AI's changes in the lamp's amber, a scene marked done
+  in green, writing in the accent, a restore quiet), the chosen one raised on paper. The comparison is two sheets side
+  by side: this version on an older, slightly tinted sheet, the scene now on fresh paper, the words only this version
+  has marked in rose and the words only the scene now has in green. Restore lifts this version across onto the scene now
+  (280ms) before it goes back in the page.
+*/
+
+[data-arrangement='desk'] .hist-head {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 22px;
+}
+[data-arrangement='desk'] .hist-head > :not(.hist-art) {
+  grid-column: 2;
+}
+[data-arrangement='desk'] .hist-art {
+  grid-row: 1 / span 4;
+  width: 150px;
+  height: auto;
+  filter: drop-shadow(0 8px 16px rgb(var(--shade-rgb) / 0.14));
+  animation: hist-in 480ms var(--desk-ease) backwards;
+}
+@keyframes hist-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+[data-arrangement='desk'] .hist-title {
+  font: 600 28px/34px var(--heading-font);
+  font-variation-settings: 'opsz' 60;
+  letter-spacing: -0.015em;
+}
+[data-arrangement='desk'] .hist-intro {
+  font-size: 13.5px;
+  line-height: 20px;
+}
+
+/* The timeline of versions. */
+[data-arrangement='desk'] .hist-list {
+  width: 290px;
+  border: 0;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--surface-3) 40%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'] .hist-day {
+  background: transparent;
+  backdrop-filter: blur(6px);
+  padding: 12px 14px 6px 44px;
+}
+[data-arrangement='desk'] .hist-rail {
+  position: relative;
+  gap: 4px;
+  padding: 2px 8px 10px;
+}
+[data-arrangement='desk'] .hist-rail::before {
+  content: '';
+  position: absolute;
+  left: 28px;
+  top: 0;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--desk-line);
+}
+[data-arrangement='desk'] .hist-row {
+  position: relative;
+  padding: 9px 12px 10px 9px;
+  border-radius: 11px;
+  transition:
+    background-color var(--dur-base) var(--desk-ease),
+    box-shadow var(--dur-base) var(--desk-ease),
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .hist-row:hover:not([aria-current]) {
+  background: color-mix(in oklab, var(--page) 50%, transparent);
+}
+[data-arrangement='desk'] .hist-row:active {
+  scale: 0.985;
+}
+[data-arrangement='desk'] .hist-row[aria-current] {
+  background: var(--page);
+  box-shadow:
+    var(--sh-1),
+    0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'][data-theme='dark'] .hist-row[aria-current] {
+  background: var(--raise);
+}
+[data-arrangement='desk'] .hist-row > span:first-child {
+  gap: 10px;
+}
+[data-arrangement='desk'] .hist-node {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 2px var(--node, var(--line-strong)),
+    0 0 0 5px color-mix(in oklab, var(--page) 70%, transparent);
+  color: var(--node, var(--faint)) !important;
+  transition: box-shadow var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .hist-row[data-kind='ai'] {
+  --node: var(--lamp-2);
+}
+[data-arrangement='desk'] .hist-row[data-kind='done'] {
+  --node: var(--success);
+}
+[data-arrangement='desk'] .hist-row[data-kind='editing'] {
+  --node: var(--accent);
+}
+[data-arrangement='desk'] .hist-row[data-kind='restore'] {
+  --node: var(--faint);
+}
+[data-arrangement='desk'] .hist-row[aria-current] .hist-node {
+  box-shadow:
+    0 0 0 2px var(--node, var(--line-strong)),
+    0 0 0 6px color-mix(in oklab, var(--node, var(--accent)) 18%, transparent);
+}
+[data-arrangement='desk'] .hist-label {
+  font-family: var(--heading-font);
+  font-size: 14px;
+  font-weight: 600;
+}
+[data-arrangement='desk'] .hist-meta {
+  padding-left: 34px;
+}
+[data-arrangement='desk'] .hist-row[data-same] .hist-label {
+  color: var(--muted);
+}
+
+/* The two sheets. */
+[data-arrangement='desk'] .hist-compare {
+  border: 0;
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: var(--sh-card);
+}
+[data-arrangement='desk'] .hist-compare-head {
+  border-bottom: 1px solid var(--desk-line-2);
+}
+[data-arrangement='desk'] .hist-compare-head h2 {
+  font: 600 18px/24px var(--heading-font);
+}
+[data-arrangement='desk'] .hist-cols {
+  border-bottom: 1px solid var(--desk-line-2);
+  background: transparent;
+  letter-spacing: 0.08em;
+}
+[data-arrangement='desk'] :is(.hist-col-then, .hist-col-now)::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  vertical-align: -0.5px;
+  border-radius: 3px;
+}
+[data-arrangement='desk'] .hist-col-then::before {
+  background: color-mix(in oklab, var(--danger) 30%, var(--danger-soft));
+}
+[data-arrangement='desk'] .hist-col-now::before {
+  background: color-mix(in oklab, var(--success) 30%, var(--success-soft));
+}
+[data-arrangement='desk'] .hist-col-then {
+  background: color-mix(in oklab, var(--surface-2) 45%, transparent);
+}
+[data-arrangement='desk'] .hist-scroll {
+  background: var(--card);
+}
+[data-arrangement='desk'] .hist-grid > [data-side='then'] {
+  background: color-mix(in oklab, var(--surface-2) 45%, var(--card));
+}
+[data-arrangement='desk'] .hist-grid > [data-side] {
+  font-size: 15px;
+  line-height: 1.75;
+  border-left-color: var(--desk-line);
+}
+[data-arrangement='desk'] [data-side='then'] :is(.hist-mark, .hist-whole) {
+  background: color-mix(in oklab, var(--danger-soft) 85%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--danger-soft) 85%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--danger) 45%, transparent);
+  text-decoration-thickness: 1px;
+}
+[data-arrangement='desk'] [data-side='then'] .hist-whole {
+  text-decoration: none;
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--danger) 55%, transparent);
+}
+[data-arrangement='desk'] [data-side='now'] :is(.hist-mark, .hist-whole) {
+  background: color-mix(in oklab, var(--success-soft) 90%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--success-soft) 90%, transparent);
+}
+[data-arrangement='desk'] [data-side='now'] .hist-whole {
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--success) 55%, transparent);
+}
+[data-arrangement='desk'] .hist-say .hist-mark {
+  background: linear-gradient(90deg, var(--danger-soft) 50%, var(--success-soft) 50%);
+  box-shadow: none;
+  padding: 0 3px;
+}
+[data-arrangement='desk'] .hist-fold {
+  border-radius: 10px;
+  border-color: var(--desk-line);
+}
+
+/* Restore: this version lifts across onto the scene now, and the scene now steps back. */
+[data-arrangement='desk'] .hist-compare[data-restoring] .hist-grid > [data-side='then'] {
+  animation: hist-lift 280ms var(--desk-ease) forwards;
+  position: relative;
+  z-index: 1;
+}
+[data-arrangement='desk'] .hist-compare[data-restoring] .hist-grid > [data-side='now'] {
+  opacity: 0.35;
+  transition: opacity 200ms ease-out;
+}
+@keyframes hist-lift {
+  to {
+    translate: 50% 0;
+    box-shadow: var(--sh-card-up);
+  }
+}
+[data-arrangement='desk'] .hist-head > button {
+  justify-self: start;
+}

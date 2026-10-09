@@ -1,0 +1,760 @@
+/*
+  The desk's room drawings (components/art/RoomArt.tsx): their colours in each theme, and their slow movements.
+  Rules every drawing keeps: loops are seconds long and small, move by transform, opacity or dashes only; .la is a
+  drawing's root and .lp each part that loops. They pause while the window is away or Adam is typing
+  (<html data-art-still>, <html data-art-typing>: living.ts, the living art's one watcher), and with less motion each rests on its first frame.
+  Amber (--lamp) only where the AI is: the lamp over the briefing, the lanterns' flames, a lighthouse while a check runs.
+*/
+
+:root[data-art-still] :is(.la, .la *) {
+  animation-play-state: paused !important;
+}
+:root[data-art-typing] :is(.lp, .lp *) {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.la, .la *) {
+    animation: none !important;
+  }
+}
+
+.ra {
+  display: block;
+  overflow: visible;
+  /* The plate: a cool sky (Light) over the paper. */
+  --ra-sky-top: color-mix(in oklab, var(--accent) 22%, var(--page));
+  --ra-sky-bot: color-mix(in oklab, var(--accent) 6%, var(--page));
+  --ra-desk-top: color-mix(in oklab, var(--accent) 9%, var(--page));
+  --ra-desk-bot: color-mix(in oklab, var(--accent) 3%, var(--page));
+  --ra-ink: color-mix(in oklab, var(--fg) 62%, transparent);
+  --ra-ink-2: color-mix(in oklab, var(--fg) 32%, transparent);
+  --ra-sea: color-mix(in oklab, var(--accent) 30%, var(--page));
+  --ra-sea-deep: color-mix(in oklab, var(--accent) 44%, var(--page));
+  --ra-wave: color-mix(in oklab, var(--page) 70%, transparent);
+  --ra-rock: color-mix(in oklab, var(--fg) 58%, var(--page));
+  --ra-tower: var(--page);
+  --ra-tower-shade: color-mix(in oklab, var(--fg) 10%, var(--page));
+  --ra-band: var(--ribbon, #9e3a42);
+  --ra-moon: color-mix(in oklab, var(--page) 85%, var(--accent));
+  --ra-star: color-mix(in oklab, var(--fg) 40%, transparent);
+  /* The lighthouse's own light: a pale, cool moonlit beam, never the AI's amber (until a check runs). */
+  --ra-light: color-mix(in oklab, var(--accent) 35%, white);
+  --ra-light-a: 0.75;
+  --ra-paper: var(--page);
+  --ra-paper-2: color-mix(in oklab, var(--fg) 5%, var(--page));
+  --ra-rule: color-mix(in oklab, var(--accent) 30%, transparent);
+  --ra-pool: color-mix(in oklab, var(--accent) 10%, transparent);
+  --ra-lamp: var(--lamp-2, #de9640);
+  --ra-frame: color-mix(in oklab, var(--fg) 12%, transparent);
+}
+[data-theme='light'] .ra {
+  /* Light: a clear evening, a deep blue sky over the sea, so the lamp's white beam shows. */
+  --ra-sky-top: #7f9bbf;
+  --ra-sky-bot: #dbe4ef;
+  --ra-sea: #6d8db2;
+  --ra-sea-deep: #52739b;
+  --ra-wave: rgb(255 255 255 / 0.42);
+  --ra-rock: #2f3d56;
+  --ra-tower: #ffffff;
+  --ra-tower-shade: #c9d3e1;
+  --ra-moon: #ffffff;
+  --ra-star: rgb(255 255 255 / 0.95);
+  --ra-light: #ffffff;
+  --ra-light-a: 0.9;
+}
+[data-theme='dark'] .ra {
+  --ra-sky-top: #0b1428;
+  --ra-sky-bot: #1a2742;
+  --ra-desk-top: #1b2439;
+  --ra-desk-bot: #151d30;
+  --ra-ink: rgb(220 230 248 / 0.66);
+  --ra-ink-2: rgb(220 230 248 / 0.3);
+  --ra-sea: #142540;
+  --ra-sea-deep: #0e1b31;
+  --ra-wave: rgb(150 180 230 / 0.35);
+  --ra-rock: #0a1222;
+  --ra-tower: #d9dfec;
+  --ra-tower-shade: #aeb7cc;
+  --ra-moon: #e6ecf8;
+  --ra-star: rgb(235 240 255 / 0.85);
+  --ra-light: #eaf0ff;
+  --ra-light-a: 0.55;
+  --ra-paper: #283350;
+  --ra-paper-2: #222c46;
+  --ra-rule: rgb(143 180 216 / 0.28);
+  --ra-pool: rgb(120 150 210 / 0.1);
+  --ra-frame: rgb(190 210 245 / 0.12);
+}
+[data-theme='sepia'] .ra {
+  --ra-sky-top: #9a8a74;
+  --ra-sky-bot: #e9dfcc;
+  --ra-sea: #8a8676;
+  --ra-sea-deep: #6f6b5d;
+  --ra-wave: rgb(255 250 240 / 0.4);
+  --ra-rock: #3e362c;
+  --ra-tower: #fffaf0;
+  --ra-moon: #fffaf0;
+  --ra-star: rgb(255 250 240 / 0.9);
+  --ra-light: #fffaf0;
+  --ra-light-a: 0.85;
+}
+
+.ra .ra-frame {
+  fill: none;
+  stroke: var(--ra-frame);
+}
+.ra .ra-sky-top {
+  stop-color: var(--ra-sky-top);
+}
+.ra .ra-sky-bot {
+  stop-color: var(--ra-sky-bot);
+}
+.ra .ra-desk-top {
+  stop-color: var(--ra-desk-top);
+}
+.ra .ra-desk-bot {
+  stop-color: var(--ra-desk-bot);
+}
+.ra :is(.ra-ink, .ra-ink path) {
+  fill: none;
+  stroke: var(--ra-ink);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ra .ra-fine {
+  stroke-width: 0.9;
+  stroke: var(--ra-ink-2);
+}
+
+/* ---------- The lighthouse ---------- */
+.ra .ra-moon {
+  fill: var(--ra-moon);
+  opacity: 0.9;
+}
+.ra .ra-star {
+  fill: var(--ra-star);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ra-twinkle 5.5s ease-in-out infinite;
+}
+@keyframes ra-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+}
+.ra .ra-sea {
+  fill: var(--ra-sea);
+}
+.ra .ra-sea-deep {
+  fill: var(--ra-sea-deep);
+}
+.ra .ra-wave {
+  fill: none;
+  stroke: var(--ra-wave);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+}
+.ra .ra-wave-2 {
+  opacity: 0.6;
+}
+.ra .ra-drift {
+  animation: ra-drift 9s linear infinite;
+}
+@keyframes ra-drift {
+  to {
+    transform: translateX(-24px);
+  }
+}
+.ra .ra-rock {
+  fill: var(--ra-rock);
+}
+.ra .ra-rock-line {
+  fill: none;
+  stroke: color-mix(in oklab, var(--ra-sea) 60%, transparent);
+  stroke-width: 0.8;
+}
+.ra .ra-tower-body,
+.ra .ra-lamp-room {
+  fill: var(--ra-tower);
+  stroke: var(--ra-ink);
+  stroke-width: 1;
+}
+.ra .ra-tower-shade {
+  fill: var(--ra-tower-shade);
+  opacity: 0.6;
+}
+.ra .ra-band {
+  fill: var(--ra-band);
+  opacity: 0.85;
+}
+.ra .ra-door,
+.ra .ra-cap {
+  fill: var(--ra-rock);
+}
+.ra .ra-lamp-core {
+  fill: var(--ra-light);
+}
+.ra .ra-beam-0 {
+  stop-color: var(--ra-light);
+  stop-opacity: var(--ra-light-a);
+}
+.ra .ra-beam-1 {
+  stop-color: var(--ra-light);
+  stop-opacity: 0;
+}
+.ra .ra-glow-0 {
+  stop-color: var(--ra-light);
+  stop-opacity: 0.8;
+}
+.ra .ra-glow-1 {
+  stop-color: var(--ra-light);
+  stop-opacity: 0;
+}
+.ra .ra-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ra-breathe-glow 6s ease-in-out infinite;
+}
+@keyframes ra-breathe-glow {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+/* The beam turns: it swings and narrows as it comes round toward us and goes away again. */
+.ra .ra-beam {
+  transform-origin: 0 -1px;
+  mix-blend-mode: normal;
+}
+.ra .ra-beam-left {
+  animation: ra-sweep-l 7s ease-in-out infinite;
+}
+.ra .ra-beam-right {
+  animation: ra-sweep-r 7s ease-in-out infinite;
+}
+@keyframes ra-sweep-l {
+  0%,
+  100% {
+    transform: rotate(-4deg) scaleX(1);
+    opacity: 1;
+  }
+  50% {
+    transform: rotate(7deg) scaleX(0.42);
+    opacity: 0.45;
+  }
+}
+@keyframes ra-sweep-r {
+  0%,
+  100% {
+    transform: rotate(6deg) scaleX(0.35);
+    opacity: 0.35;
+  }
+  50% {
+    transform: rotate(-6deg) scaleX(1);
+    opacity: 0.9;
+  }
+}
+/* A check running: the AI's lamp, turning faster. */
+.ra-lighthouse[data-state='busy'] {
+  --ra-light: var(--ra-lamp);
+  --ra-light-a: 0.85;
+}
+.ra-lighthouse[data-state='busy'] :is(.ra-beam-left, .ra-beam-right) {
+  animation-duration: 2.6s;
+}
+.ra-lighthouse[data-state='busy'] .ra-glow {
+  animation-duration: 2.6s;
+}
+.ra .ra-glint {
+  fill: none;
+  stroke: var(--ra-light);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-opacity: 0.55;
+}
+.ra .ra-path {
+  animation: ra-shimmer 4.5s ease-in-out infinite;
+}
+@keyframes ra-shimmer {
+  0%,
+  100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.35;
+    transform: translateX(6px);
+  }
+}
+.ra .ra-hull {
+  fill: var(--ra-rock);
+}
+.ra .ra-sail {
+  fill: var(--ra-tower);
+  stroke: var(--ra-ink);
+  stroke-width: 0.8;
+}
+.ra .ra-sail-2 {
+  fill: var(--ra-tower-shade);
+}
+.ra .ra-bob {
+  animation: ra-bob 4.8s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+@keyframes ra-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-1.5px) rotate(-2.5deg);
+  }
+}
+.ra .ra-gull {
+  animation: ra-glide 12s ease-in-out infinite;
+}
+@keyframes ra-glide {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(10px, -3px);
+  }
+}
+
+/* ---------- The ledger ---------- */
+.ra .ra-pool {
+  fill: var(--ra-pool);
+}
+.ra .ra-book-shadow {
+  fill: color-mix(in oklab, var(--fg) 14%, transparent);
+}
+.ra .ra-page {
+  fill: var(--ra-paper);
+  stroke: var(--ra-ink-2);
+  stroke-width: 1;
+}
+.ra .ra-page-r {
+  fill: var(--ra-paper-2);
+}
+.ra .ra-rule {
+  fill: none;
+  stroke: var(--ra-rule);
+  stroke-width: 0.7;
+}
+.ra .ra-margin {
+  stroke: var(--rule-red, rgb(176 65 58 / 0.28));
+  stroke-width: 0.8;
+}
+.ra .ra-script {
+  fill: none;
+  stroke: var(--ra-ink);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+.ra .ra-tick {
+  fill: none;
+  stroke: var(--success);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ra .ra-writing {
+  fill: none;
+  stroke: var(--ra-ink);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: ra-write 6s ease-in-out infinite;
+}
+@keyframes ra-write {
+  0%,
+  8% {
+    stroke-dashoffset: 100;
+    opacity: 1;
+  }
+  62%,
+  84% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  96%,
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ra .ra-writing {
+    stroke-dashoffset: 0;
+  }
+}
+.ra .ra-quill {
+  animation: ra-quill 6s ease-in-out infinite;
+}
+@keyframes ra-quill {
+  0%,
+  8% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  20% {
+    transform: translate(13px, 0.5px) rotate(-2deg);
+  }
+  34% {
+    transform: translate(24px, -0.5px) rotate(1deg);
+  }
+  48% {
+    transform: translate(36px, 0.5px) rotate(-2deg);
+  }
+  62%,
+  84% {
+    transform: translate(48px, 0) rotate(0deg);
+  }
+  92% {
+    transform: translate(26px, -8px) rotate(-6deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+}
+.ra .ra-feather {
+  fill: color-mix(in oklab, var(--ra-paper) 80%, var(--accent));
+  stroke: var(--ra-ink);
+  stroke-width: 1;
+}
+.ra .ra-ribbon {
+  fill: var(--ribbon, #9e3a42);
+  opacity: 0.9;
+}
+.ra .ra-pot {
+  fill: color-mix(in oklab, var(--fg) 70%, var(--page));
+}
+.ra .ra-pot-neck {
+  fill: color-mix(in oklab, var(--fg) 55%, var(--page));
+}
+.ra .ra-glint-ink {
+  stroke: var(--ra-light);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  opacity: 0.6;
+}
+
+/* ---------- The lanterns ---------- */
+.ra .ra-beamline {
+  fill: none;
+  stroke: var(--ra-ink);
+  stroke-width: 1.6;
+}
+.ra .ra-lantern-cap {
+  fill: color-mix(in oklab, var(--fg) 55%, var(--page));
+}
+.ra .ra-lantern-glass {
+  fill: color-mix(in oklab, var(--ra-lamp) 14%, var(--ra-paper));
+}
+.ra .ra-lamp-0 {
+  stop-color: var(--ra-lamp);
+  stop-opacity: 0.55;
+}
+.ra .ra-lamp-1 {
+  stop-color: var(--ra-lamp);
+  stop-opacity: 0;
+}
+.ra .ra-flame {
+  fill: var(--ra-lamp);
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: ra-flicker 2.8s ease-in-out infinite;
+}
+@keyframes ra-flicker {
+  0%,
+  100% {
+    transform: scale(1, 1);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(0.92, 1.08);
+  }
+  55% {
+    transform: scale(1.05, 0.94);
+    opacity: 0.85;
+  }
+}
+.ra .ra-flame-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0.6;
+  animation: ra-breathe-glow 4.2s ease-in-out infinite;
+}
+.ra .ra-swing {
+  transform-origin: 0 -30px;
+  animation: ra-swing 7s ease-in-out infinite;
+}
+@keyframes ra-swing {
+  0%,
+  100% {
+    transform: rotate(-1.6deg);
+  }
+  50% {
+    transform: rotate(1.6deg);
+  }
+}
+/* The conversation: a mote of light passing from one lantern to the other, and back. */
+.ra .ra-mote {
+  fill: var(--ra-lamp);
+  opacity: 0;
+  animation: ra-mote 6s ease-in-out infinite;
+}
+.ra .ra-mote-2 {
+  animation-name: ra-mote-back;
+  animation-delay: -3s;
+}
+.ra .ra-mote-3 {
+  animation-delay: -1.5s;
+}
+.ra-lanterns.is-small .ra-mote {
+  animation-name: ra-mote-s;
+}
+.ra-lanterns.is-small .ra-mote-2 {
+  animation-name: ra-mote-s-back;
+}
+@keyframes ra-mote {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  20% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(20px, -10px);
+  }
+  80% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(40px, 0);
+  }
+}
+@keyframes ra-mote-back {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  20% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-20px, -8px);
+  }
+  80% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-40px, 0);
+  }
+}
+@keyframes ra-mote-s {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  25% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(14px, -6px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(28px, 0);
+  }
+}
+@keyframes ra-mote-s-back {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  25% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-14px, -6px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-28px, 0);
+  }
+}
+/* Idle: the motes rest; an answer being written: they pass, and the flames burn brighter. */
+.ra-lanterns[data-state='idle'] .ra-mote {
+  animation-play-state: paused;
+  animation-delay: -10s;
+}
+.ra-lanterns[data-state='busy'] .ra-flame-glow {
+  opacity: 1;
+  animation-duration: 1.8s;
+}
+.ra-lanterns[data-state='busy'] .ra-flame {
+  animation-duration: 1.2s;
+}
+
+/* ---------- The pages ---------- */
+.ra .ra-sheet {
+  fill: var(--ra-paper);
+  stroke: var(--ra-ink-2);
+  stroke-width: 1;
+  filter: drop-shadow(0 2px 3px rgb(var(--shade-rgb, 25 40 70) / 0.18));
+}
+.ra .ra-sheet-2 {
+  fill: var(--ra-paper-2);
+}
+.ra .ra-sheet-3 {
+  fill: color-mix(in oklab, var(--fg) 9%, var(--ra-paper));
+}
+.ra .ra-mark-old {
+  fill: color-mix(in oklab, var(--danger) 26%, transparent);
+}
+.ra .ra-mark-new {
+  fill: color-mix(in oklab, var(--success) 30%, transparent);
+}
+.ra .ra-breathe {
+  animation: ra-lift 7s ease-in-out infinite;
+}
+@keyframes ra-lift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2.5px) rotate(-1.2deg);
+  }
+}
+.ra .ra-clock {
+  fill: var(--ra-paper);
+  stroke: var(--ra-ink);
+  stroke-width: 1.2;
+}
+.ra .ra-hand {
+  animation: ra-tick 12s steps(12) infinite;
+}
+@keyframes ra-tick {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- Echo and loom ---------- */
+.ra .ra-bell {
+  fill: color-mix(in oklab, var(--accent) 16%, var(--ra-paper));
+  stroke: var(--ra-ink);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+.ra .ra-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: ra-ring 4s ease-out infinite;
+}
+.ra .ra-ring-2 {
+  animation-delay: -2s;
+}
+@keyframes ra-ring {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ra .ra-ring {
+    opacity: 0.4;
+    transform: scale(1.4);
+  }
+}
+.ra .ra-thread {
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+.ra .ra-stitch {
+  fill: none;
+  stroke: var(--page) !important;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-dasharray: 1.5 7;
+  opacity: 0.8;
+  animation: ra-flow 5s linear infinite;
+}
+.ra .ra-t1 {
+  stroke: var(--thread-1, var(--k-thread));
+}
+.ra .ra-t2 {
+  stroke: var(--thread-3, var(--accent));
+  animation-duration: 6.5s;
+}
+.ra .ra-t3 {
+  stroke: var(--thread-4, var(--k-event));
+  animation-duration: 7.5s;
+}
+@keyframes ra-flow {
+  to {
+    stroke-dashoffset: -34;
+  }
+}
+.ra .ra-knot {
+  fill: var(--page);
+  stroke: var(--ra-ink);
+  stroke-width: 1.4;
+}
+.ra .ra-knot-open {
+  stroke: var(--accent);
+}
+
+/* ---------- The briefing ---------- */
+.ra .ra-cone {
+  opacity: 0.5;
+  animation: ra-breathe-cone 6s ease-in-out infinite;
+}
+@keyframes ra-breathe-cone {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+.ra .ra-folder {
+  fill: color-mix(in oklab, var(--k-item, #94641f) 22%, var(--ra-paper));
+  stroke: var(--ra-ink-2);
+}
+.ra .ra-num {
+  fill: var(--accent);
+}
+
+/* A drawing that has moved for a while rests where it is (RoomArt's useRest); the pointer wakes it. */
+.ra[data-rest] :is(.lp, .lp *) {
+  animation-play-state: paused !important;
+}

@@ -14,11 +14,32 @@ import {
   partsBegun,
   pickThree,
   profileKeys,
+  questionsFrom,
+  questionsFromText,
   quickStartView,
   toInput,
   valuesOf,
   writingField
 } from './profile'
+
+describe('the follow-up questions in a reply', () => {
+  it('reads them from JSON, one line each, without numbers, quotes or repeats, five at most', () => {
+    expect(questionsFrom({ questions: ['1. What does she want?', '"Who is her father?"', 'what does she WANT?', '  Where\n does she sleep?  '] })).toEqual([
+      'What does she want?',
+      'Who is her father?',
+      'Where does she sleep?'
+    ])
+    expect(questionsFrom({ list: ['A?', 'B?'] })).toEqual(['A?', 'B?'])
+    expect(questionsFrom({ questions: [{ question: 'Objects too?' }, 7, null, ''] })).toEqual(['Objects too?'])
+    expect(questionsFrom({ questions: ['A?', 'B?', 'C?', 'D?', 'E?', 'F?'] })).toHaveLength(5)
+    expect(questionsFrom(null)).toEqual([])
+    expect(questionsFrom({ questions: ['x'.repeat(300)] })[0]).toHaveLength(240)
+  })
+
+  it('reads a plain list too: each line that is a question', () => {
+    expect(questionsFromText('Here you go:\n1. Who raised her?\n2. Does she keep a weapon?\nThat is all.')).toEqual(['Who raised her?', 'Does she keep a weapon?'])
+  })
+})
 
 const NOTES = `Brann Holt runs the ferry across the Narrows.
 A grumpy ex-soldier who owes the Duke money.

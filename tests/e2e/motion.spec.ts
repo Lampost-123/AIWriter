@@ -1,0 +1,489 @@
+// The New look's motion (docs/ARCHITECTURE.md, "The two looks", Motion), on the sample world: what opens from the
+// keyboard appears at once, a page change from the pointer crossfades (and from the keyboard it doesn't), and less
+// motion makes every change instant. Timings are read from the animations the window really runs.
+// (Code run in the window is written as text: the tests' own types have no DOM.)
+import type { Page } from '@playwright/test'
+import { createWorldFromWelcome, expect, invoke, openSettings, test, useFakeModel } from './helpers'
+
+const rail = (win: Page) => win.getByRole('navigation', { name: 'Areas' })
+const area = (win: Page, name: string) => rail(win).getByRole('button', { name, exact: true })
+const list = (win: Page) => win.locator('[data-area-list]')
+const main = (win: Page) => win.locator('main')
+
+async function sampleWorld(launch: (o?: { env?: Record<string, string> }) => Promise<{ win: Page }>): Promise<Page> {
+  const { win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await invoke(win, 'openSampleWorld')
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps to the lamp room.')
+  return win
+}
+
+interface Running {
+  name: string
+  ms: number
+}
+
+/** The animations the first element matching `selector` runs right now (name and duration in ms), or null if none matches. */
+const animationsOf = (win: Page, selector: string): Promise<Running[] | null> =>
+  win.evaluate<Running[] | null>(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)})
+    if (!el) return null
+    return el.getAnimations().map((a) => ({ name: a.animationName ?? '', ms: Number(a.effect.getTiming().duration) }))
+  })()`)
+
+/** The CSS animation-name of the first element matching `selector`. */
+const animationName = (win: Page, selector: string): Promise<string> =>
+  win.evaluate<string>(`getComputedStyle(document.querySelector(${JSON.stringify(selector)})).animationName`)
+
+interface PageChange {
+  parts: { part: string; ms: number }[]
+}
+
+/**
+ * Counts the page changes that crossfade, and keeps the pseudo-element animations each one runs (which part, and how
+ * long) as soon as it starts.
+ */
+const watchPageChanges = (win: Page): Promise<void> =>
+  win.evaluate(`(() => {
+    window.vts = []
+    const start = document.startViewTransition.bind(document)
+    document.startViewTransition = (update) => {
+      const seen = { parts: [] }
+      window.vts.push(seen)
+      const vt = start(update)
+      vt.ready.then(() => {
+        seen.parts = document.getAnimations()
+          .filter((a) => a.effect && a.effect.pseudoElement)
+          .map((a) => ({ part: a.effect.pseudoElement, ms: Number(a.effect.getTiming().duration) }))
+      }, () => undefined)
+      return vt
+    }
+  })()`)
+const pageChanges = (win: Page): Promise<PageChange[]> => win.evaluate<PageChange[]>('window.vts')
+
+test('the New look: what opens from the keyboard appears at once', async ({ launch }) => {
+  const win = await sampleWorld(launch)
+  const open = '[role="dialog"][data-state="open"]'
+
+  // The command palette and its dim: no animation from the very first frame, and it goes at once too.
+  await win.keyboard.press('Control+K')
+  await expect(win.getByRole('dialog', { name: 'Search' })).toBeVisible()
+  expect(await animationsOf(win, open)).toEqual([])
+  expect(await animationName(win, open)).toBe('none')
+  expect(await animationName(win, '.bg-overlay[data-state="open"]')).toBe('none')
+  await win.keyboard.press('Escape')
+  await expect(win.getByRole('dialog', { name: 'Search' })).toHaveCount(0)
+
+  // The shortcuts list (?) and find in the story (Ctrl+Shift+F).
+  await win.locator('body').click({ position: { x: 600, y: 5 } })
+  await win.keyboard.press('?')
+  await expect(win.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
+  expect(await animationsOf(win, open)).toEqual([])
+  await win.keyboard.press('Escape')
+  await win.keyboard.press('Control+Shift+F')
+  await expect(win.getByRole('dialog', { name: 'Find and replace in the story' })).toBeVisible()
+  expect(await animationsOf(win, open)).toEqual([])
+  await win.keyboard.press('Escape')
+
+  // Find in the scene (Ctrl+F).
+  await win.locator('.scene-prose').click()
+  await win.keyboard.press('Control+F')
+  await expect(win.getByRole('search', { name: 'Find in this scene' })).toBeVisible()
+  expect(await animationsOf(win, '[role="search"]')).toEqual([])
+  await win.keyboard.press('Escape')
+
+  // Classic keeps its pop (the same rules, with the look switched under them).
+  await win.evaluate(`document.documentElement.dataset.look = 'classic'`)
+  await win.locator('body').click({ position: { x: 600, y: 5 } })
+  await win.keyboard.press('Control+K')
+  await expect(win.getByRole('dialog', { name: 'Search' })).toBeVisible()
+  expect(await animationName(win, open)).toBe('pop-in')
+})
+
+test('the New look: a page change from the pointer crossfades; from the keyboard, back to the page and with less motion it is instant', async ({
+  launch
+}) => {
+  const win = await sampleWorld(launch)
+  await watchPageChanges(win)
+
+  // The rail: the page and the side list fade through (the old page is nearly gone before the new one shows).
+  await area(win, 'World').click()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect.poll(async () => (await pageChanges(win)).length).toBe(1)
+  await expect.poll(async () => (await pageChanges(win))[0].parts.length).toBeGreaterThan(0)
+  const first = (await pageChanges(win))[0].parts
+  expect(first).toEqual(
+    expect.arrayContaining([
+      { part: '::view-transition-old(page)', ms: 100 },
+      { part: '::view-transition-new(page)', ms: 280 },
+      { part: '::view-transition-old(side-list)', ms: 100 },
+      { part: '::view-transition-new(side-list)', ms: 280 }
+    ])
+  )
+  // Nothing else in the window takes part (it stays live), and the mark comes off once it is over.
+  expect(first.every((p) => /\((page|side-list|toasts)\)$/.test(p.part))).toBe(true)
+  await expect.poll(() => win.evaluate<string | null>('document.documentElement.dataset.vt ?? null')).toBeNull()
+
+  // Another page in the same area: only the page.
+  await list(win).getByRole('button', { name: /^Characters/ }).click()
+  await expect(list(win).getByRole('button', { name: /^Characters/ })).toHaveAttribute('aria-current', 'page')
+  await expect.poll(async () => (await pageChanges(win)).length).toBe(2)
+  await expect.poll(async () => (await pageChanges(win))[1].parts.length).toBeGreaterThan(0)
+  expect((await pageChanges(win))[1].parts.some((p) => p.part.includes('side-list'))).toBe(false)
+
+  // Back to the writing page: at once.
+  await area(win, 'Write').click()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  expect((await pageChanges(win)).length).toBe(2)
+
+  // From the keyboard: the palette's Enter opens the codex at once.
+  await win.keyboard.press('Control+K')
+  await win.keyboard.type('codex')
+  await win.keyboard.press('Enter')
+  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  expect((await pageChanges(win)).length).toBe(2)
+
+  // With less motion (Windows' Animation effects off), the pointer changes pages at once too.
+  await area(win, 'Write').click()
+  await win.emulateMedia({ reducedMotion: 'reduce' })
+  await area(win, 'Plan').click()
+  await expect(list(win)).toHaveAttribute('data-area-list', 'plan')
+  expect((await pageChanges(win)).length).toBe(2)
+  // And should one start anyway, the stylesheet stops its pictures moving.
+  const moving = await win.evaluate<number>(`(async () => {
+    document.documentElement.dataset.vt = 'page'
+    const vt = document.startViewTransition(() => undefined)
+    await vt.ready
+    const parts = document.getAnimations().filter((a) => a.effect && a.effect.pseudoElement).length
+    await vt.finished
+    delete document.documentElement.dataset.vt
+    return parts
+  })()`)
+  expect(moving).toBe(0)
+})
+
+test('the New look: an amber caret stands where a streaming draft’s words arrive, and goes when it ends', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 10, slowDelayMs: 40 })
+  try {
+    const { win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake, 'fake/slow')
+    const header = win.locator('main header')
+    const caret = win.locator('.scene-prose .aw-stream-caret')
+    await win.locator('.scene-prose').click()
+    await win.keyboard.type('The tide was out. ')
+    await expect(caret).toHaveCount(0)
+
+    await header.getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.getByRole('button', { name: /^Add below/ }).click()
+    await expect(header.locator('.gen-running')).toBeVisible()
+    // Once words arrive: one caret, at the very end of the last paragraph, blinking.
+    await expect(caret).toHaveCount(1)
+    await expect(caret).toBeVisible()
+    expect(
+      await win.evaluate<boolean>(`(() => {
+        const c = document.querySelector('.scene-prose .aw-stream-caret')
+        const last = document.querySelector('.scene-prose').lastElementChild
+        // (ProseMirror may put an empty helper after it, for the cursor.)
+        let after = ''
+        for (let n = c.nextSibling; n; n = n.nextSibling) after += n.textContent
+        return c.parentElement === last && after === ''
+      })()`)
+    ).toBe(true)
+    expect(await animationsOf(win, '.scene-prose .aw-stream-caret')).toEqual([{ name: 'aw-sugg-blink', ms: 1100 }])
+    // The same caret stays while words keep coming into its paragraph (its blink doesn't restart with every word).
+    await win.evaluate(`window.streamCaret = document.querySelector('.scene-prose .aw-stream-caret')`)
+    const words = async () => (await win.locator('.scene-prose').innerText()).split(/\s+/).length
+    const before = await words()
+    await expect.poll(words).toBeGreaterThan(before + 3)
+    expect(await win.evaluate<boolean>(`(() => {
+      const c = document.querySelector('.scene-prose .aw-stream-caret')
+      return c === window.streamCaret || c.parentElement !== window.streamCaret.parentElement
+    })()`)).toBe(true)
+
+    // Classic never shows it.
+    await win.evaluate(`document.documentElement.dataset.look = 'classic'`)
+    await expect(caret).toHaveCount(0)
+    await win.evaluate(`document.documentElement.dataset.look = 'new'`)
+    await expect(caret).toHaveCount(1)
+
+    // Stopped: gone that moment.
+    await header.getByRole('button', { name: 'Stop' }).click()
+    await expect(header.locator('.gen-running')).toHaveCount(0)
+    await expect(caret).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+interface Exit {
+  what: 'menu' | 'popover' | 'dialog' | 'overlay'
+  anims: Running[]
+  /** How long it played (ms), or null while it still does. */
+  stayed: number | null
+  /** Open menus and dialogs left the moment it began (the real one has gone at once). */
+  stillOpen: number
+  /** A key went down while it played. */
+  keyWhile: boolean
+}
+
+/** Notes each menu, popover, dialog and dialog dim that plays its way out (features/look/exitGhosts.ts). */
+const watchExits = (win: Page): Promise<void> =>
+  win.evaluate(`(() => {
+    const log = []
+    window.exitLog = log
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const n of r.addedNodes) {
+          if (n.nodeType !== 1 || !n.hasAttribute('data-exit-ghost')) continue
+          const part = n.matches('[data-radix-popper-content-wrapper]') ? n.firstElementChild : n
+          const what = part.matches('[role="menu"]') ? 'menu' : n.matches('[data-dialog]') ? 'dialog' : n.matches('[data-dialog-overlay]') ? 'overlay' : 'popover'
+          const stillOpen = document.querySelectorAll('[role="menu"]:not([data-state="closed"]), [role="dialog"][data-state="open"]').length
+          log.push({ what, el: n, at: performance.now(), gone: null, stillOpen, keyWhile: false, anims: part.getAnimations().map((a) => ({ name: a.animationName ?? '', ms: Number(a.effect.getTiming().duration) })) })
+        }
+        for (const n of r.removedNodes) for (const x of log) if (x.el === n && x.gone === null) x.gone = performance.now()
+      }
+    }).observe(document.body, { childList: true })
+    window.addEventListener('keydown', () => {
+      for (const x of log) if (x.gone === null) x.keyWhile = true
+    }, true)
+  })()`)
+const exits = (win: Page): Promise<Exit[]> =>
+  win.evaluate<Exit[]>(
+    `window.exitLog.map((x) => ({ what: x.what, anims: x.anims, stayed: x.gone === null ? null : Math.round(x.gone - x.at), stillOpen: x.stillOpen, keyWhile: x.keyWhile }))`
+  )
+
+test('the New look: menus and dialogs closed with the pointer leave the way they came; from the keyboard at once; shortcuts work straight after', async ({
+  launch
+}) => {
+  const win = await sampleWorld(launch)
+  await watchExits(win)
+  const row = list(win).getByRole('treeitem', { name: /Lighting the Lamp/ })
+  const menu = win.getByRole('menu')
+
+  // A click away: the menu itself goes at once; its picture shrinks back toward where it opened, quicker than it came.
+  await row.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await win.locator('.scene-prose').click()
+  await expect(menu).toHaveCount(0)
+  await expect.poll(async () => (await exits(win))[0]?.stayed ?? null).not.toBeNull()
+  expect((await exits(win))[0]).toMatchObject({ what: 'menu', anims: [{ name: 'pop-out', ms: 140 }], stillOpen: 0 })
+  expect((await exits(win))[0].stayed).toBeGreaterThanOrEqual(100)
+  // It is lifeless while it plays: hidden from screen readers, and no layer is counted open.
+  expect(await win.evaluate<number>(`document.querySelectorAll('[data-exit-ghost]:not([inert])').length`)).toBe(0)
+
+  // Esc: it goes at once, with nothing played.
+  await row.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await win.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  expect((await exits(win)).length).toBe(1)
+
+  // Ctrl+Enter while a menu closed with a click still plays its way out (made slow here, so the test can't miss it;
+  // the keyboard nowhere in particular): Mark done answers (the sample's scene is done already, so it says so).
+  await win.evaluate(`document.documentElement.style.setProperty('--dur-exit', '1000ms')`)
+  await row.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  const blank = { position: { x: 600, y: 5 } }
+  await win.locator('body').click(blank)
+  // (The menu puts the keyboard back on its row; this takes it off again.)
+  await win.locator('body').click(blank)
+  await win.keyboard.press('Control+Enter')
+  await expect(win.getByText('This scene is already marked done.')).toBeVisible()
+  expect((await exits(win))[1]).toMatchObject({ what: 'menu', keyWhile: true })
+  await win.evaluate(`document.documentElement.style.removeProperty('--dur-exit')`)
+
+  // A dialog (New story) closed with the pointer: it and its dim fade out together.
+  await win.keyboard.press('Control+K')
+  await win.keyboard.type('New story')
+  await win.keyboard.press('Enter')
+  const dialog = win.getByRole('dialog', { name: 'New story' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(async () => (await exits(win)).length).toBe(4)
+  expect((await exits(win)).slice(2)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ what: 'dialog', anims: [{ name: 'pop-out', ms: 140 }] }),
+      expect.objectContaining({ what: 'overlay', anims: [{ name: 'fade-out', ms: 140 }] })
+    ])
+  )
+
+  // With less motion, a click away closes the menu at once, with nothing played.
+  await win.emulateMedia({ reducedMotion: 'reduce' })
+  await row.click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await win.locator('.scene-prose').click()
+  await expect(menu).toHaveCount(0)
+  expect((await exits(win)).length).toBe(4)
+})
+
+test('the New look: a side panel slides on the drawer curve while the page holds its width, so the words re-wrap once', async ({ launch }) => {
+  const { app, win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await invoke(win, 'openSampleWorld')
+  await invoke(win, 'updateSettings', { layout: { binderOpen: true, inspectorOpen: true } })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 800))
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  const panel = win.locator('aside[aria-label="Scene panel"]')
+  await expect(panel).toHaveCSS('transition-duration', '0.22s')
+  await expect(panel).toHaveCSS('transition-timing-function', 'cubic-bezier(0.32, 0.72, 0, 1)')
+  // The widths the page's column is held at while the panel slides (and that it lets go after).
+  await win.evaluate(`(() => {
+    const col = document.querySelector('.scene-prose').parentElement.parentElement
+    window.held = []
+    new MutationObserver(() => window.held.push(col.style.width)).observe(col, { attributes: true, attributeFilter: ['style'] })
+  })()`)
+  const toggle = win.getByRole('button', { name: 'Show or hide the scene panel' })
+  for (const step of ['shut', 'open']) {
+    await win.evaluate('window.held = []')
+    await toggle.click()
+    await expect.poll(() => win.evaluate<string[]>('window.held')).toContain('')
+    const held = (await win.evaluate<string[]>('window.held')).filter((w) => w)
+    // Held once, at the narrower of where it starts and ends, then let go.
+    expect(held.length, step).toBe(1)
+    expect(held[0]).toMatch(/^\d+px$/)
+  }
+})
+
+test('the New look: the selection pill glides its size too, with no overshoot, and jumps when the keyboard moves it', async ({ launch }) => {
+  const win = await sampleWorld(launch)
+  const tabs = win.getByRole('complementary', { name: 'Scene panel' }).getByRole('tablist')
+  await expect(tabs).toBeVisible()
+  const pill = tabs.locator('> div[aria-hidden]')
+  await expect(pill).toHaveCSS('transition-property', 'transform, width, height, opacity')
+  await expect(pill).toHaveCSS('transition-timing-function', 'cubic-bezier(0.2, 0.8, 0.2, 1)')
+  // Notes each time the pill jumps (its transition switched off for a moment, then back on).
+  await win.evaluate(`(() => {
+    const p = document.querySelector('aside[aria-label="Scene panel"] [role="tablist"] > div[aria-hidden]')
+    window.jumps = 0
+    new MutationObserver((records) => {
+      if (records.some((r) => (r.oldValue ?? '').includes('transition: none'))) window.jumps++
+    }).observe(p, { attributes: true, attributeFilter: ['style'], attributeOldValue: true })
+  })()`)
+  const tab = (i: number) => tabs.getByRole('tab').nth(i)
+  // A click: it glides, and ends exactly the size of the tab it went to.
+  await tab(1).click()
+  await expect(tab(1)).toHaveAttribute('aria-selected', 'true')
+  await expect
+    .poll(async () => Math.round(((await pill.boundingBox())?.width ?? 0) - ((await tab(1).boundingBox())?.width ?? 0)))
+    .toBe(0)
+  expect(await win.evaluate<number>('window.jumps')).toBe(0)
+  // The arrow keys: it jumps.
+  await tab(1).focus()
+  await win.keyboard.press('ArrowRight')
+  await expect(tab(2)).toHaveAttribute('aria-selected', 'true')
+  await expect.poll(() => win.evaluate<number>('window.jumps')).toBe(1)
+})
+
+test('the New look: a toast leaves the way it came, and the others glide into place', async ({ launch }) => {
+  const win = await sampleWorld(launch)
+  // Notes each toast that plays its way out, and each glide of the stack.
+  await win.evaluate(`(() => {
+    window.toastLog = { leaving: [], glides: [] }
+    const animate = Element.prototype.animate
+    Element.prototype.animate = function (frames, opts) {
+      if (this.matches('[data-toast]')) window.toastLog.glides.push({ id: this.dataset.toast, ms: opts.duration, easing: opts.easing, from: frames[0].transform })
+      return animate.call(this, frames, opts)
+    }
+    new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === 'attributes' && r.target.hasAttribute('data-leaving')) {
+          window.toastLog.leaving.push({ id: r.target.dataset.toast, at: performance.now(), gone: null, el: r.target, inert: r.target.inert,
+            anims: r.target.getAnimations().map((a) => ({ name: a.animationName ?? '', ms: Number(a.effect.getTiming().duration) })) })
+        }
+        for (const n of r.removedNodes) for (const x of window.toastLog.leaving) if (x.el === n && x.gone === null) x.gone = performance.now()
+      }
+    }).observe(document.querySelector('[data-toaster]'), { subtree: true, childList: true, attributes: true, attributeFilter: ['data-leaving'] })
+  })()`)
+  const log = () =>
+    win.evaluate<{ leaving: { id: string; inert: boolean; anims: Running[]; stayed: number | null }[]; glides: { id: string; ms: number; easing: string; from: string }[] }>(
+      `({ leaving: window.toastLog.leaving.map((x) => ({ id: x.id, inert: x.inert, anims: x.anims, stayed: x.gone === null ? null : Math.round(x.gone - x.at) })), glides: window.toastLog.glides })`
+    )
+
+  // Two toasts: a plain one, then an Undo below it (the first glides up out of its way).
+  await win.locator('body').click({ position: { x: 600, y: 5 } })
+  await win.keyboard.press('Control+Enter')
+  const plain = win.locator('[data-toast]').filter({ hasText: 'This scene is already marked done.' })
+  await expect(plain).toBeVisible()
+  await list(win).getByRole('treeitem', { name: /A Letter for the Keeper/ }).click({ button: 'right' })
+  await win.getByRole('menuitem', { name: /Delete scene/ }).click()
+  const undo = win.locator('[data-toast]').filter({ hasText: 'deleted' })
+  await expect(undo).toBeVisible()
+  const plainId = await plain.getAttribute('data-toast')
+  await expect.poll(async () => (await log()).glides.some((g) => g.id === plainId)).toBe(true)
+  expect((await log()).glides.find((g) => g.id === plainId)).toMatchObject({ ms: 220, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', from: expect.stringMatching(/^translateY\(\d/) })
+
+  // Dismissed with its X: the Undo sinks and fades where it is (lifeless meanwhile), then the one above glides down.
+  const undoId = await undo.getAttribute('data-toast')
+  const glidesBefore = (await log()).glides.length
+  await undo.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(win.locator(`[data-toast="${undoId}"]`)).toHaveCount(0)
+  const [left] = (await log()).leaving
+  expect(left).toMatchObject({ id: undoId, inert: true, anims: [{ name: 'toast-out', ms: 140 }] })
+  expect(left.stayed).toBeGreaterThanOrEqual(100)
+  await expect.poll(async () => (await log()).glides.slice(glidesBefore).some((g) => g.id === plainId)).toBe(true)
+  expect((await log()).glides.slice(glidesBefore).find((g) => g.id === plainId)!.from).toMatch(/^translateY\(-\d/)
+
+  // With less motion, a dismissed toast just goes.
+  await win.emulateMedia({ reducedMotion: 'reduce' })
+  await plain.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(plain).toHaveCount(0)
+  expect((await log()).leaving.length).toBe(1)
+})
+
+test('the New look: a press goes in quickly and comes back softly', async ({ launch }) => {
+  const win = await sampleWorld(launch)
+  const button = win.getByRole('button', { name: 'Start screen' })
+  await expect(button).toHaveCSS('transition-duration', '0.15s')
+  await expect(button).toHaveCSS('transition-timing-function', 'cubic-bezier(0.2, 0.8, 0.2, 1)')
+  const box = (await button.boundingBox())!
+  await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await win.mouse.down()
+  // (Tailwind's scale-* is the CSS scale property, so it has to be among what the button transitions.)
+  await expect(button).toHaveCSS('transition-property', 'background-color, color, transform, scale')
+  // Held: in at 90 ms, to 0.95 (an icon button; text buttons go to 0.97).
+  await expect(button).toHaveCSS('transition-duration', '0.09s')
+  await expect(button).toHaveCSS('scale', '0.95')
+  // Let go somewhere else (so nothing is pressed): back over 150 ms.
+  await win.mouse.move(5, 500)
+  await win.mouse.up()
+  await expect(button).toHaveCSS('transition-duration', '0.15s')
+  await expect(button).toHaveCSS('scale', 'none')
+})
+
+test('Classic: presses go in quickly and come back softly too', async ({ launch }) => {
+  // App tests start in Classic.
+  const { win } = await launch()
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await invoke(win, 'openSampleWorld')
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps to the lamp room.')
+  expect(await win.evaluate<string | undefined>('document.documentElement.dataset.look')).not.toBe('new')
+
+  /** Holds the pointer down on `button` (in over 90 ms), then lets go somewhere else, so nothing is chosen (back over `back`). */
+  const press = async (button: ReturnType<Page['getByRole']>, scale: string, back: string): Promise<void> => {
+    await expect(button).toHaveCSS('transition-duration', back)
+    await expect(button).toHaveCSS('transition-timing-function', 'cubic-bezier(0.2, 0.8, 0.2, 1)')
+    const box = (await button.boundingBox())!
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await win.mouse.down()
+    await expect(button).toHaveCSS('transition-duration', '0.09s')
+    await expect(button).toHaveCSS('scale', scale)
+    await win.mouse.move(5, 500)
+    await win.mouse.up()
+    await expect(button).toHaveCSS('transition-duration', back)
+    await expect(button).toHaveCSS('scale', 'none')
+  }
+
+  // Settings › Appearance › Style (the same cards in both looks): they list scale and translate, so the press and the
+  // hover lift ease rather than snap.
+  await openSettings(win, 'Appearance')
+  const card = win.getByRole('radio', { name: 'New look' })
+  await expect(card).toHaveCSS('transition-property', 'box-shadow, transform, translate, scale')
+  await press(card, '0.98', '0.15s')
+  await expect.poll(async () => (await invoke(win, 'getSettings')).look).not.toBe('new')
+})

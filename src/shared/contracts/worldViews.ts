@@ -5,7 +5,7 @@
 // (spec, Multi-story rules: "every as-of view uses it too"), and comes back in one call with everything
 // its screen needs. Places are in plain words ("Book 1, Ch 3, Sc 2").
 
-import type { AsOf, AsOfStop, EntryKind, ID } from '../types'
+import type { AsOf, AsOfStop, EntryKind, ID, SceneStatus } from '../types'
 
 export interface WorldViewsApi {
   /**
@@ -20,8 +20,24 @@ export interface WorldViewsApi {
    * `sceneId` (the one Adam is in) if it is on the slider, otherwise the story's end.
    */
   getRelationshipMap(storyId: ID, at: AsOf | null, sceneId?: ID | null): Promise<RelationshipMap>
+  /**
+   * The desk's relationship map: Adam dragged a character to a new place on the map (map units). Kept with the world's
+   * layout, so the map shows it there from now on; newcomers are fitted in around it.
+   */
+  moveMapCharacter(id: ID, x: number, y: number): Promise<void>
+  /** Puts every dragged character back where the layout had put it; returns where they were, to undo it. */
+  resetMapLayout(): Promise<{ id: ID; x: number; y: number }[]>
   /** The plot threads board as seen in a story, at its end: open, resolved and planned threads, with where each was set up and paid off. */
   getThreadsBoard(storyId: ID): Promise<ThreadsBoard>
+  /**
+   * The desk's story board (UI overhaul, D5.2): each live scene's card in the story, by scene id, in one call. Titles,
+   * status and words come from the outline; names and portraits from the timeline's entries.
+   */
+  listSceneCards(storyId: ID): Promise<Record<ID, BoardSceneCard>>
+  /** The story board's own marks, kept in the world (its `meta`): which scenes were planned from an AI idea. */
+  getBoardMarks(): Promise<BoardMarks>
+  /** Marks a scene as planned from an AI idea (or not); marks for scenes that are gone are dropped as it saves. */
+  markAiIdea(sceneId: ID, on: boolean): Promise<BoardMarks>
 }
 
 export interface WorldViewsEvents {}
@@ -58,6 +74,37 @@ export interface TimelinePoint {
   paysOffIds: ID[]
   /** The clashes this point is part of (indexes into Timeline.clashes). */
   clashes: number[]
+  /**
+   * The New look's timeline (UI overhaul). Where the point comes in reading order (0 first): it differs from its place
+   * on the timeline when a scene is told out of order (a flashback).
+   */
+  order: number
+  /**
+   * Its in-world time as when.ts sorts it, [year, calendar, month, day, minute], with null for a part not known; null
+   * for a point with no date that can be placed. The timeline spaces points by it where it can.
+   */
+  key: (number | null)[] | null
+  /** The day its When names, in plain words ("Day 12, Year 3" from "Day 12, Year 3, dusk"); '' when it names none. */
+  dayLabel: string
+  /** The chapter a scene is in; null for an event. */
+  chapterId: ID | null
+  /** A scene's status and words (planned and 0 for an event). */
+  status: SceneStatus
+  words: number
+  /** What the scene card says happens: its goal and its beats (empty for an event). */
+  goal: string
+  beats: string[]
+}
+
+/** A chapter on the timeline, in reading order. */
+export interface TimelineChapter {
+  id: ID
+  storyId: ID
+  /** The story's title. */
+  story: string
+  /** Its number in its story, from 1. */
+  no: number
+  title: string
 }
 
 /** A character in two places on the same in-world day. */
@@ -84,6 +131,8 @@ export interface Timeline {
   points: TimelinePoint[]
   entries: TimelineEntry[]
   clashes: TimelineClash[]
+  /** The chapters its scenes are in, in reading order (the New look's timeline groups scenes by them). */
+  chapters: TimelineChapter[]
 }
 
 // ---------- Relationship map ----------
@@ -102,6 +151,10 @@ export interface MapNode {
   image: string | null
   x: number
   y: number
+  /** The desk's map: the character's role in the story ('protagonist', 'minor', Adam's own words; '' when not set). */
+  role?: string
+  /** The desk's map: its one-line summary at the point. */
+  summary?: string
 }
 
 /** A relationship between two characters at the point. */
@@ -158,6 +211,62 @@ export interface RelationshipMap {
   everyone: MapPlace[]
   /** Whether characters have any relationship anywhere along the story (otherwise the map explains where they come from). */
   any: boolean
+  /** The desk's map: the story's arc of relationships (always filled in by the main process). */
+  detail?: MapDetail
+}
+
+/** The desk's map (UI overhaul): what the timeline strip, the cards and the "what changed" note need. */
+export interface MapDetail {
+  /** Which of `stops` is shown. */
+  atStop: number
+  /** Each stop's scene and chapter titles, in the order of `stops`. */
+  stops: MapStopInfo[]
+  /** The point of view character of the scene shown, if it has one. */
+  povId: ID | null
+  /** Every relationship between two characters along the story's line, each with every change to it, in order. */
+  history: MapTieHistory[]
+  /** What changed between the stop before and this one. */
+  here: MapChangeNote[]
+  /** The characters Adam has dragged since the layout was last reset (Reset layout is offered while there are any). */
+  moved: ID[]
+}
+
+export interface MapStopInfo {
+  /** The scene's title ('' for a story's start or end). */
+  title: string
+  /** Its chapter's id and title (null and '' for a story's start or end). */
+  chapterId: ID | null
+  chapter: string
+}
+
+/** One change to a relationship, from the pair's side: `aFeels` is how the history's `aId` feels about `bId`. */
+export interface MapTieEvent {
+  /** The first stop that shows it (-1: before the story's first stop, as set on the entry pages). */
+  stop: number
+  sceneId: ID | null
+  /** Where, in plain words ('' before any story). */
+  where: string
+  type: string
+  aFeels: string
+  bFeels: string
+  /** The relationship ends here. */
+  ended: boolean
+}
+
+export interface MapTieHistory {
+  /** The pair, `aId` < `bId`. */
+  aId: ID
+  bId: ID
+  events: MapTieEvent[]
+}
+
+export interface MapChangeNote {
+  aId: ID
+  bId: ID
+  what: 'new' | 'changed' | 'ended'
+  type: string
+  /** What it was before, for a change. */
+  before: string
 }
 
 // ---------- Plot threads board ----------
@@ -212,4 +321,27 @@ export interface ThreadsBoard {
   storyId: ID
   /** Ordered by where they were set up. */
   threads: BoardThread[]
+}
+
+// ---------- The desk's story board ----------
+
+/** What the story board shows of a scene's card. */
+export interface BoardSceneCard {
+  /** What happens: the card's goal. */
+  goal: string
+  beats: string[]
+  /** Adam's own words from the When box; '' when empty. */
+  when: string
+  povId: ID | null
+  locationId: ID | null
+  presentIds: ID[]
+  setsUpIds: ID[]
+  paysOffIds: ID[]
+  /** Nothing yet on what happens (no beats, goal, conflict, outcome or notes): ideas can fill it. */
+  empty: boolean
+}
+
+export interface BoardMarks {
+  /** Scenes planned from an AI idea ("Use this" in the board's ideas drawer); the tag shows until the scene has words. */
+  aiIdeas: ID[]
 }

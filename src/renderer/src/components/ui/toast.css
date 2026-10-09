@@ -1,0 +1,60 @@
+/*
+  The New look's toasts (Toast.tsx): a mark for how it went (a tick that draws itself in the done green, a warning in
+  the problem red, a turning ring for a job under way) and a long job's progress as ink filling along the foot.
+*/
+.toast-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: -1px 0 -1px -2px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.toast-mark.is-success {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.toast-mark.is-danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.toast-mark.is-busy {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.toast-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+.toast-progress i {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background: var(--accent);
+  transition: transform var(--dur-base) var(--motion-glide);
+}
+/* While the job can't say how far it has got: a short stroke going across. */
+.toast-progress:not([data-known]) i {
+  width: 30%;
+  animation: toast-progress-run 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes toast-progress-run {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-progress:not([data-known]) i {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}

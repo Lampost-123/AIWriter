@@ -47,6 +47,7 @@ export function PopoverPanel({
   children,
   className,
   align = 'end',
+  side,
   onOpenAutoFocus,
   onCloseAutoFocus,
   onEscapeKeyDown,
@@ -55,6 +56,8 @@ export function PopoverPanel({
   children: ReactNode
   className?: string
   align?: 'start' | 'center' | 'end'
+  /** Where it opens (below its anchor unless there is no room; the desk's dock opens it above). */
+  side?: 'top' | 'bottom'
   onOpenAutoFocus?: (e: Event) => void
   onCloseAutoFocus?: (e: Event) => void
   /** Esc in the panel; preventing it keeps the panel open. */
@@ -65,7 +68,8 @@ export function PopoverPanel({
     <P.Portal>
       <P.Content
         align={align}
-        sideOffset={6}
+        side={side}
+        sideOffset={side === 'top' ? 10 : 6}
         collisionPadding={12}
         onOpenAutoFocus={onOpenAutoFocus}
         onCloseAutoFocus={onCloseAutoFocus}

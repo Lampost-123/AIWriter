@@ -1,6 +1,21 @@
-import { ChevronRight } from '@/components/ui/icons'
+import { ChevronRight, type IconType } from '@/components/ui/icons'
 import { useId, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+
+/**
+ * What a section's heading says it holds. The New look says it as a number and a word, so the sections read alike:
+ * "3 of 5 filled" for fields, "2 relationships" for a list (Classic keeps its "3 of 5" and "2"). Nothing when it
+ * holds nothing.
+ */
+export function sectionMeta(n: number, one: string, many: string, of?: number): ReactNode {
+  if (!n) return null
+  return (
+    <>
+      {of === undefined ? n : `${n} of ${of}`}
+      <span className="hidden look-new:inline"> {n === 1 || of !== undefined ? one : many}</span>
+    </>
+  )
+}
 
 /** A collapsible group of fields. Closed sections don't render their fields, which keeps long forms quick. */
 export function Section({
@@ -8,9 +23,12 @@ export function Section({
   meta,
   open,
   onToggle,
+  icon: Icon,
   children
 }: {
   title: string
+  /** The New look: its icon in a small tile of the page's kind ink (--sec-ink, --sec-soft), beside the title. */
+  icon?: IconType
   meta?: ReactNode
   open: boolean
   onToggle: () => void
@@ -32,7 +50,17 @@ export function Section({
         className="group flex h-11 w-full items-center gap-2 rounded-md text-left focus-visible:outline-offset-0"
       >
         <ChevronRight size={15} className={cn('shrink-0 text-faint transition-transform duration-150 group-hover:text-muted', open && 'rotate-90')} />
-        <span className="flex-1 text-[13.5px] font-semibold text-fg">{title}</span>
+        {Icon ? (
+          <span
+            aria-hidden
+            className="hidden h-[22px] w-[22px] shrink-0 place-items-center rounded-[7px] bg-[var(--sec-soft,var(--surface-2))] text-[var(--sec-ink,var(--muted))] look-new:grid"
+          >
+            <Icon size={13} />
+          </span>
+        ) : null}
+        <span data-section-title className="flex-1 text-[13.5px] font-semibold text-fg">
+          {title}
+        </span>
         {meta ? <span className="text-[12px] tabular-nums text-faint">{meta}</span> : null}
       </button>
       {open ? (

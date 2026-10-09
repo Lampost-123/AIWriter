@@ -59,6 +59,21 @@ test('a fresh install walks through the setup, resumes after quitting, and lands
 
     // ----- 4. The basic style, kept as the writing preferences -----
     await expect(heading(win, 'How should your stories read?')).toBeVisible()
+    // A long step keeps Back and Continue in sight at the window's foot, in a 1440x900 window and a small one (then
+    // the window goes back to its own size).
+    const own = await second.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getContentSize())
+    const resize = (w: number, h: number) =>
+      second.app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, h] as [number, number])
+    for (const [w, h] of [[1440, 900], [1024, 700]] as const) {
+      await resize(w, h)
+      // Within a pixel: on CI's 1440×900 virtual screen (Linux, xvfb) a window as tall as the screen comes out 899 tall,
+      // as in desk.spec. Continue is then measured against the window's real height.
+      await expect.poll(async () => Math.abs(((await win.evaluate('innerHeight')) as number) - h)).toBeLessThanOrEqual(1)
+      const tall = (await win.evaluate('innerHeight')) as number
+      await expect.poll(async () => { const b = await next(win).boundingBox(); return b ? b.y + b.height : 9999 }).toBeLessThanOrEqual(tall)
+      await expect(win.getByRole('button', { name: 'Back', exact: true })).toBeInViewport()
+    }
+    await resize(own[0], own[1])
     await win.getByRole('button', { name: 'First person', exact: true }).click()
     await win.getByRole('radio', { name: 'US (color)' }).click()
     await win.getByLabel('How should the prose sound?').fill('Plain and warm.')

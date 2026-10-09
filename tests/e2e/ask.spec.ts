@@ -49,8 +49,10 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await expect(scenePanel(win).getByRole('region', { name: 'Ask the world' })).toBeVisible()
     await expect(box(win)).toBeFocused()
     await expect(panel(win).getByText('As of Book 1, Ch 1, Sc 1')).toBeVisible()
-    await panel(win).getByRole('button', { name: 'What would Mara do if Tobin lied to her?' }).click()
-    await expect(box(win)).toHaveValue('What would Mara do if Tobin lied to her?')
+    // The examples name this world's own characters.
+    await expect(panel(win).getByRole('button', { name: 'Did I already say how old Tobin is?' })).toBeVisible()
+    await panel(win).getByRole('button', { name: 'What would Mara Venn do if Tobin lied?' }).click()
+    await expect(box(win)).toHaveValue('What would Mara Venn do if Tobin lied?')
     await box(win).press('Enter')
     await expect(box(win)).toHaveValue('')
 
@@ -75,7 +77,7 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     expect(sent.messages[0].content.startsWith('[AIWRITE-ASK v1] answer\n')).toBe(true)
     expect(sent.messages[0].content).toContain('### Mara Venn (character)')
     expect(sent.messages[0].content).toContain('Quick to anger, slow to forgive.')
-    expect(sent.messages.at(-1)?.content).toBe('What would Mara do if Tobin lied to her?')
+    expect(sent.messages.at(-1)?.content).toBe('What would Mara Venn do if Tobin lied?')
 
     // A cited entry shows beside the page, inside Ask, with the keyboard; Back returns to the chat.
     await answer.getByRole('button', { name: 'Tobin' }).click()
@@ -158,7 +160,7 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await expect(conversation(win)).toHaveCount(0)
     await expect(panel(win).getByText('Try asking')).toBeVisible()
     await panel(win).getByRole('button', { name: 'Earlier chats' }).click()
-    await expect(win.getByRole('menuitem', { name: /What would Mara do if Tobin lied to her\?/ })).toBeVisible()
+    await expect(win.getByRole('menuitem', { name: /What would Mara Venn do if Tobin lied\?/ })).toBeVisible()
     await win.keyboard.press('Escape')
 
     // Closing returns to the scene panel's tabs.
@@ -172,7 +174,7 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await expect(again.win.locator('.scene-prose')).toBeVisible()
     await again.win.getByRole('button', { name: 'Ask the world', exact: true }).click()
     await expect(turns(again.win)).toHaveCount(4)
-    await expect(turns(again.win).first()).toContainText('What would Mara do if Tobin lied to her?')
+    await expect(turns(again.win).first()).toContainText('What would Mara Venn do if Tobin lied?')
     await expect(turns(again.win).first().locator('[data-answer]').getByRole('button', { name: 'Mara Venn' })).toBeVisible()
     await expect(turns(again.win).nth(1)).toContainText('Stopped')
     await expect(turns(again.win).nth(2)).toContainText('Didn’t get an answer')

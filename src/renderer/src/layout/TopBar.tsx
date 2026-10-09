@@ -91,7 +91,7 @@ async function renameWorld(name: string): Promise<void> {
 
 const menuItem = 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] outline-none data-[highlighted]:bg-surface-2'
 
-function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }): React.JSX.Element {
+export function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }): React.JSX.Element {
   const world = useApp((s) => s.world)
   const openWorld = useApp((s) => s.openWorld)
   const [worlds, setWorlds] = useState<WorldSummary[]>([])
@@ -155,6 +155,8 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
             'flex h-7 max-w-[184px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2',
             'look-new:h-8 look-new:gap-2 look-new:rounded-[10px] look-new:pl-1',
             'min-[1100px]:max-w-[260px] max-xl:group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:max-w-[120px]',
+            // The desk: the world's name alone, in the serif, with its chevron (no glyph tile).
+            'desk:max-w-[320px] desk:gap-1.5 desk:rounded-[9px] desk:pl-2 desk:pr-1.5 desk:hover:bg-[color-mix(in_oklab,var(--page)_55%,transparent)]',
             renaming && 'invisible'
           )}
         >
@@ -162,12 +164,12 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
           {/* The New look: the world's glyph, a small lit tile. */}
           <span
             aria-hidden
-            className="hidden h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[linear-gradient(140deg,#4a6fa0,#2c4466)] text-[#f3d9a4] shadow-[inset_0_1px_0_rgb(255_255_255/0.25),var(--elev-1)] look-new:grid"
+            className="hidden h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[linear-gradient(140deg,#4a6fa0,#2c4466)] text-[#f3d9a4] shadow-[inset_0_1px_0_rgb(255_255_255/0.25),var(--elev-1)] look-new:grid desk:hidden"
           >
             <Globe2 size={14} />
           </span>
-          <span className="truncate look-new:font-heading look-new:text-[15px] look-new:tracking-[-0.01em]">{world?.name ?? 'No world open'}</span>
-          <ChevronDown size={13} className="shrink-0 text-muted" />
+          <span className="truncate look-new:font-heading look-new:text-[15px] look-new:tracking-[-0.01em] desk:font-semibold">{world?.name ?? 'No world open'}</span>
+          <ChevronDown size={13} className="shrink-0 text-muted desk:text-faint" />
         </M.Trigger>
         <M.Portal>
           <M.Content
@@ -259,7 +261,7 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
  * is in, the keyboard goes back where it was: the world's button, or (renamed from the palette) the
  * page. Not if Adam has clicked somewhere else meanwhile.
  */
-function RenameWorld({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }): React.JSX.Element | null {
+export function RenameWorld({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }): React.JSX.Element | null {
   const world = useApp((s) => s.world)
   const renaming = usePalette((s) => s.renamingWorld)
   if (!renaming || !world) return null
@@ -306,6 +308,10 @@ function SearchBox(): React.JSX.Element {
         '@container ml-1 flex h-7 w-[180px] min-w-[36px] shrink items-center gap-2 rounded-md border border-line bg-page px-2.5 text-[12.5px] text-faint',
         // The New look: a soft pill.
         'look-new:h-8 look-new:w-[150px] look-new:rounded-full look-new:border-transparent look-new:bg-surface look-new:shadow-[inset_0_0_0_1px_var(--line)] look-new:hover:border-transparent look-new:min-[1100px]:w-[190px]',
+        // The New look: when the bar is short of room, this gives up its spare width before the trail's names are cut,
+        // down to the width that still shows its word (below that only while an update is offered).
+        // (Far more readily than any name: even a fraction of a pixel taken from one would cut it short with "…".)
+        'look-new:shrink-[1e15] look-new:min-w-[104px] look-new:group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:min-w-[36px]',
         'transition-colors duration-150 hover:border-line-strong hover:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
         'min-[1100px]:w-[220px]'
       )}
@@ -319,6 +325,22 @@ function SearchBox(): React.JSX.Element {
       </span>
     </button>
   )
+}
+
+/** Ctrl+, (Cmd+, on a Mac) opens Settings, from anywhere (both top bars install it). */
+export function useSettingsKey(): void {
+  const navigate = useApp((s) => s.navigate)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && e.key === ',') {
+        e.preventDefault()
+        navigate({ kind: 'settings', tab: 'models' })
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navigate])
 }
 
 export function TopBar(): React.JSX.Element {
@@ -340,17 +362,7 @@ export function TopBar(): React.JSX.Element {
   // one); elsewhere the button rests.
   const panelAvailable = view.kind === 'write' && (!!sceneId || askOpen)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const mod = e.ctrlKey || e.metaKey
-      if (mod && e.key === ',') {
-        e.preventDefault()
-        navigate({ kind: 'settings', tab: 'models' })
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [navigate])
+  useSettingsKey()
 
   return (
     // Focus mode (milestone 6) fades the bar away (data-focus-chrome, styles.css).
@@ -389,7 +401,9 @@ export function TopBar(): React.JSX.Element {
         data-update-slot
         className={cn(
           'flex min-w-0 flex-1 justify-center px-3',
-          'has-[>[role=status]:not([aria-hidden=true])]:min-w-[250px] lg:has-[>[role=status]:not([aria-hidden=true])]:min-w-[345px]'
+          'has-[>[role=status]:not([aria-hidden=true])]:min-w-[250px] lg:has-[>[role=status]:not([aria-hidden=true])]:min-w-[345px]',
+          // The New look: with no offer it keeps no room of its own, so the trail can use it.
+          'look-new:px-0 look-new:has-[>[role=status]:not([aria-hidden=true])]:px-3'
         )}
       >
         <UpdateBanner />

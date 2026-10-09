@@ -12,7 +12,7 @@ export const AREAS: { id: Area; label: string; hint: string }[] = [
   { id: 'check', label: 'Check', hint: 'Consistency, what the memory changed, and the issues in a scene' }
 ]
 
-/** Each screen's area (null: Settings, at the rail's foot). */
+/** Each screen's area (null: Settings, at the rail's foot, and the desk's story home). */
 export const AREA_OF: Record<View['kind'], Area | null> = {
   write: 'write',
   style: 'write',
@@ -25,6 +25,7 @@ export const AREA_OF: Record<View['kind'], Area | null> = {
   threads: 'plan',
   recipes: 'plan',
   recipePlan: 'plan',
+  board: 'plan',
   codex: 'world',
   entries: 'world',
   builder: 'world',
@@ -33,7 +34,9 @@ export const AREA_OF: Record<View['kind'], Area | null> = {
   worldBuilder: 'world',
   consistency: 'check',
   memory: 'check',
-  settings: null
+  settings: null,
+  // The desk's story home belongs to no room (the lamp mark and the story's name open it).
+  storyHome: null
 }
 
 /** The area a screen belongs to. */

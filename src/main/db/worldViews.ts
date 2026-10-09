@@ -2,7 +2,8 @@
 // in-world order themselves and never write it into the scene cards; the only thing they keep is where
 // each character sits on the relationship map (in `meta`, so no table of their own).
 import type Database from 'better-sqlite3'
-import type { ID, SceneCard } from '@shared/types'
+import type { BoardMarks, BoardSceneCard } from '@shared/contracts/worldViews'
+import type { ID, SceneCard, SceneStatus } from '@shared/types'
 import { getMeta, setMeta } from './repo'
 
 type DB = Database.Database
@@ -21,12 +22,19 @@ export function storyGaps(db: DB): Map<ID, string> {
 }
 
 /** The parts of a scene card the views use. */
-export type CardInfo = Pick<SceneCard, 'when' | 'povId' | 'presentIds' | 'locationId' | 'setsUpIds' | 'paysOffIds'> & { title: string }
+export type CardInfo = Pick<SceneCard, 'when' | 'povId' | 'presentIds' | 'locationId' | 'setsUpIds' | 'paysOffIds' | 'goal' | 'beats'> & {
+  title: string
+  /** The scene's status and words (the timeline's cards show them; the story board reads them from the outline). */
+  status: SceneStatus
+  words: number
+  /** Nothing yet on what happens (no beats, goal, conflict, outcome or notes). */
+  empty: boolean
+}
 
 const ids = (v: unknown): ID[] => (Array.isArray(v) ? v.filter((x): x is ID => typeof x === 'string' && x !== '') : [])
 const id = (v: unknown): ID | null => (typeof v === 'string' && v ? v : null)
 
-type CardFields = Omit<CardInfo, 'title'>
+type CardFields = Omit<CardInfo, 'title' | 'status' | 'words'>
 
 // Cards read before, by scene, with the text each was read from: most cards are the same from one
 // visit to the next, so only the ones that changed are read again.
@@ -39,7 +47,13 @@ function fieldsOf(json: string): CardFields {
   } catch {
     // A damaged card shows as an empty one rather than hiding the scene.
   }
+  const text = (v: unknown): string => (typeof v === 'string' ? v : '')
+  const beats = Array.isArray(card.beats) ? card.beats.filter((b): b is string => typeof b === 'string') : []
+  const goal = text(card.goal)
   return {
+    goal,
+    beats,
+    empty: !beats.some((b) => b.trim()) && ![goal, text(card.conflict), text(card.outcome), text(card.notes)].some((t) => t.trim()),
     when: typeof card.when === 'string' ? card.when : '',
     povId: id(card.povId),
     presentIds: ids(card.presentIds),
@@ -49,6 +63,7 @@ function fieldsOf(json: string): CardFields {
   }
 }
 
+const STATUSES = new Set<SceneStatus>(['planned', 'drafted', 'revised', 'done'])
 /** The live scenes with words in them (not only planned). */
 export function writtenScenes(db: DB): Set<ID> {
   const rows = db.prepare('SELECT id FROM scenes WHERE deleted_at IS NULL AND word_count > 0').all() as Row[]
@@ -57,7 +72,7 @@ export function writtenScenes(db: DB): Set<ID> {
 
 /** Every live scene's card, by scene id: one query however many scenes. */
 export function sceneCards(db: DB): Map<ID, CardInfo> {
-  const rows = db.prepare('SELECT id, title, card_json FROM scenes WHERE deleted_at IS NULL').all() as Row[]
+  const rows = db.prepare('SELECT id, title, status, word_count, card_json FROM scenes WHERE deleted_at IS NULL').all() as Row[]
   const before = read.get(db)
   const now = new Map<ID, { json: string; fields: CardFields }>()
   const out = new Map<ID, CardInfo>()
@@ -67,7 +82,8 @@ export function sceneCards(db: DB): Map<ID, CardInfo> {
     const last = before?.get(sceneId)
     const fields = last && last.json === json ? last.fields : fieldsOf(json)
     now.set(sceneId, { json, fields })
-    out.set(sceneId, { ...fields, title: (r.title as string) ?? '' })
+    const status = STATUSES.has(r.status as SceneStatus) ? (r.status as SceneStatus) : 'planned'
+    out.set(sceneId, { ...fields, title: (r.title as string) ?? '', status, words: Number(r.word_count) || 0 })
   }
   read.set(db, now)
   return out
@@ -92,9 +108,86 @@ export function readMapLayout(db: DB): Map<ID, { x: number; y: number }> | null 
   return out
 }
 
+/** The `meta` key holding where each character Adam dragged on the map sat before he first moved it: JSON of id to [x, y]. */
+export const MAP_MOVED_KEY = 'map_moved'
+
+/** Where each dragged character sat before it was first dragged (since the last reset). */
+export function readMapMoved(db: DB): Map<ID, { x: number; y: number }> {
+  let saved: unknown
+  try {
+    saved = JSON.parse(getMeta(db, MAP_MOVED_KEY) ?? 'null')
+  } catch {
+    saved = null
+  }
+  const out = new Map<ID, { x: number; y: number }>()
+  if (!saved || typeof saved !== 'object') return out
+  for (const [id, p] of Object.entries(saved as Record<string, unknown>)) {
+    if (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) out.set(id, { x: p[0] as number, y: p[1] as number })
+  }
+  return out
+}
+
+export function writeMapMoved(db: DB, moved: Map<ID, { x: number; y: number }>): void {
+  const out: Record<string, [number, number]> = {}
+  for (const [id, p] of moved) out[id] = [p.x, p.y]
+  setMeta(db, MAP_MOVED_KEY, JSON.stringify(out))
+}
+
 /** Keeps where each character sits on the relationship map, so it looks the same after a restart. */
 export function writeMapLayout(db: DB, positions: Map<ID, { x: number; y: number }>): void {
   const out: Record<string, [number, number]> = {}
   for (const [id, p] of positions) out[id] = [p.x, p.y]
   setMeta(db, MAP_LAYOUT_KEY, JSON.stringify(out))
+}
+
+// ---------- The desk's story board ----------
+
+/** Each live scene's card in a story (one query for the story's scenes; the cards as sceneCards reads them). */
+export function storySceneCards(db: DB, storyId: ID): Record<ID, BoardSceneCard> {
+  const rows = db
+    .prepare(
+      'SELECT s.id FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE c.story_id = ? AND s.deleted_at IS NULL AND c.deleted_at IS NULL'
+    )
+    .all(storyId) as Row[]
+  const cards = sceneCards(db)
+  const out: Record<ID, BoardSceneCard> = {}
+  for (const r of rows) {
+    const c = cards.get(r.id as ID)
+    if (!c) continue
+    const { title: _title, status: _status, words: _words, ...card } = c
+    out[r.id as ID] = card
+  }
+  return out
+}
+
+/** The `meta` key holding the story board's marks: JSON of { aiIdeas: scene ids }. */
+export const BOARD_KEY = 'desk_board'
+
+/** The story board's marks, with any for scenes that are gone left out. */
+export function readBoardMarks(db: DB): BoardMarks {
+  let saved: unknown
+  try {
+    saved = JSON.parse(getMeta(db, BOARD_KEY) ?? 'null')
+  } catch {
+    saved = null
+  }
+  const ids = saved && typeof saved === 'object' && Array.isArray((saved as BoardMarks).aiIdeas) ? (saved as BoardMarks).aiIdeas.filter((x) => typeof x === 'string') : []
+  return { aiIdeas: liveScenes(db, ids) }
+}
+
+/** Marks a scene as planned from an AI idea, or takes the mark off; marks for scenes that are gone are dropped. */
+export function markAiIdea(db: DB, sceneId: ID, on: boolean): BoardMarks {
+  const now = new Set(readBoardMarks(db).aiIdeas)
+  if (on) now.add(sceneId)
+  else now.delete(sceneId)
+  const marks = { aiIdeas: liveScenes(db, [...now]) }
+  setMeta(db, BOARD_KEY, JSON.stringify(marks))
+  return marks
+}
+
+/** The ids that are live scenes, in the order given. */
+function liveScenes(db: DB, ids: ID[]): ID[] {
+  if (!ids.length) return []
+  const live = new Set((db.prepare('SELECT id FROM scenes WHERE deleted_at IS NULL').all() as Row[]).map((r) => r.id as ID))
+  return ids.filter((x) => live.has(x))
 }

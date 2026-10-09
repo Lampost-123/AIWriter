@@ -2,7 +2,7 @@
 // total, a bar for each day (each month for "All time"), and the spending by model and by job, in Adam's
 // words. Pure, so it is unit-tested.
 
-import type { UsageBar, UsageJobRow, UsageModelRow, UsagePeriod, UsageReport, UsageScope, UsageTotals } from '@shared/contracts/usage'
+import type { UsageBar, UsageBarPart, UsageJobRow, UsageModelRow, UsagePeriod, UsageReport, UsageScope, UsageTotals, UsageWorldRow } from '@shared/contracts/usage'
 import { addUp, emptyBucket, splitKey, type Bucket, type WorldTally } from './aggregate'
 
 /** Each recorded job's group on the page, in Adam's words. Jobs recorded under another name show as they are. */
@@ -115,12 +115,17 @@ export interface ReportInput {
   unreadable: number
   /** How many worlds `tallies` covers, when it holds more than worlds (the recipe library's spending). */
   worlds?: number
+  /** The same tallies with their worlds' names, for the spending by world (the recipes' with `recipes`). */
+  named?: { name: string; open: boolean; recipes?: boolean; tally: WorldTally }[]
 }
+
+type ModelParts = Map<string, { modelId: string; provider: string; parts: Bucket[] }>
 
 export function buildReport(i: ReportInput): UsageReport {
   const range = periodDays(i.period, i.today)
   const inRange = (day: string): boolean => (range ? day >= range.from && day <= range.to : true)
   const days = new Map<string, Bucket[]>()
+  const dayModels = new Map<string, ModelParts>()
   const models = new Map<string, { modelId: string; provider: string; parts: Bucket[] }>()
   const jobs = new Map<string, { label: string; parts: Bucket[] }>()
   const all: Bucket[] = []
@@ -137,6 +142,11 @@ export function buildReport(i: ReportInput): UsageReport {
       const mm = models.get(mk) ?? { modelId: k.model, provider: k.provider, parts: [] }
       mm.parts.push(b)
       models.set(mk, mm)
+      const dm: ModelParts = dayModels.get(unit) ?? new Map()
+      const dmm = dm.get(mk) ?? { modelId: k.model, provider: k.provider, parts: [] }
+      dmm.parts.push(b)
+      dm.set(mk, dmm)
+      dayModels.set(unit, dm)
       const g = jobGroup(k.job)
       const jj = jobs.get(g.key) ?? { label: g.label, parts: [] }
       jj.parts.push(b)
@@ -147,7 +157,14 @@ export function buildReport(i: ReportInput): UsageReport {
   const today = dayKey(i.today)
   const bar = (key: string, label: string, ahead: boolean): UsageBar => {
     const s = addUp(days.get(key) ?? [])
-    return { key, label, ahead, cost: s.cost, calls: s.calls, tokens: s.promptTokens + s.completionTokens }
+    // The bar split by model, most spent first (the page stacks them in each model's colour).
+    const parts = [...(dayModels.get(key)?.values() ?? [])]
+      .map((m): UsageBarPart => {
+        const t = addUp(m.parts)
+        return { modelId: m.modelId, provider: m.provider, cost: t.cost, tokens: t.promptTokens + t.completionTokens }
+      })
+      .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens)
+    return { key, label, ahead, cost: s.cost, calls: s.calls, tokens: s.promptTokens + s.completionTokens, models: parts }
   }
   let bars: UsageBar[]
   let from: string | null = range?.from ?? null
@@ -175,6 +192,16 @@ export function buildReport(i: ReportInput): UsageReport {
       .map((m): UsageModelRow => ({ modelId: m.modelId, provider: m.provider, ...totalsOf(addUp(m.parts)) }))
       .sort(byCost),
     jobs: [...jobs.entries()].map(([key, j]): UsageJobRow => ({ key, label: j.label, ...totalsOf(addUp(j.parts)) })).sort(byCost),
+    // Each world's share of the same stretch of time, most spent first (worlds with no AI use in it left out).
+    byWorld: i.named
+      ?.map((w): UsageWorldRow => {
+        const parts = Object.entries(w.tally.buckets)
+          .filter(([key]) => inRange(splitKey(key).day))
+          .map(([, b]) => b)
+        return { name: w.name, open: w.open, ...(w.recipes ? { recipes: true } : {}), ...totalsOf(parts.length ? addUp(parts) : emptyBucket()) }
+      })
+      .filter((w) => w.calls > 0)
+      .sort(byCost),
     worlds: i.worlds ?? i.tallies.length,
     unreadable: i.unreadable,
     worldName: i.worldName,

@@ -1,0 +1,1262 @@
+/*
+  The desk's World room (UI overhaul phase 4; features/desk/world). Everything sits under [data-arrangement='desk'], so
+  nothing here reaches the panels or Classic.
+
+  - The room's frame beside the story's spine: the heading and the sheet keep clear of it (RoomFrame's --room-left) and
+    are centred in the room it leaves.
+  - The gallery (D4.1): the world's name, find and New entry; kind tabs with one underline that glides to the chosen tab
+    (a clip-path transition, 220ms); sections of cards, each kind its own material, lifting 3px on hover while their
+    pictures' two layers part; a new tab fades the cards out in 140ms and brings them back 30ms apart.
+  - The dossier (D4.2) and the flip (D4.3) are further down.
+  From the keyboard (no data-gen) and with less motion (styles.css's rule) nothing moves.
+*/
+
+/* ---------- The room's frame beside the spine ---------- */
+[data-arrangement='desk'] .desk-room[data-spine] {
+  padding-left: var(--room-left, 0px);
+  padding-right: 16px;
+}
+
+/* ---------- The gallery ---------- */
+[data-arrangement='desk'] .desk-gallery {
+  container-type: inline-size;
+  --g-pad: 44px;
+}
+[data-arrangement='desk'] .g-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 26px var(--g-pad) 14px;
+}
+[data-arrangement='desk'] .g-head > :first-child {
+  flex: 1 1 360px;
+}
+[data-arrangement='desk'] .g-title-world {
+  margin: 0;
+  font: 600 38px/44px var(--font-serif);
+  font-variation-settings: 'opsz' 72;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+[data-arrangement='desk'] .g-sub {
+  margin: 4px 0 0;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+[data-arrangement='desk'] .g-find {
+  position: relative;
+  width: 248px;
+  height: 36px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--surface) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .g-find:hover {
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
+}
+[data-arrangement='desk'] .g-find:focus-within {
+  background: var(--page);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+[data-arrangement='desk'] .g-find-ic {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  color: var(--faint);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .g-find input {
+  display: block;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  padding: 0 32px 0 36px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: 400 13.5px/36px var(--font-sans);
+  color: var(--fg);
+  appearance: none;
+}
+[data-arrangement='desk'] .g-find input::-webkit-search-cancel-button {
+  display: none;
+}
+[data-arrangement='desk'] .g-find input::placeholder {
+  color: var(--faint);
+  opacity: 1;
+}
+[data-arrangement='desk'] .g-find-clear {
+  position: absolute;
+  right: 6px;
+  top: 7px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-find-clear:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .g-new {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  gap: 7px;
+  border-radius: 10px;
+  padding: 0 15px 0 12px;
+  background: var(--primary);
+  color: var(--primary-fg);
+  font: 600 13.5px/1 var(--font-sans);
+  white-space: nowrap;
+  box-shadow:
+    var(--sh-1),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .g-new:hover,
+[data-arrangement='desk'] .g-new[data-state='open'] {
+  background: var(--primary-hover);
+}
+[data-arrangement='desk'] .g-new:active {
+  scale: 0.97;
+}
+
+/* The kind tabs, the order and the filters. */
+[data-arrangement='desk'] .g-tabbar {
+  display: flex;
+  /* Short of room, the order and filters go to a line of their own rather than hide a tab. */
+  flex-wrap: wrap-reverse;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin: 0 var(--g-pad);
+  border-bottom: 1px solid var(--desk-line);
+}
+[data-arrangement='desk'] .g-tabs {
+  position: relative;
+  display: flex;
+  flex: none;
+  max-width: 100%;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+[data-arrangement='desk'] .g-tab {
+  display: inline-flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  border-radius: 9px 9px 0 0;
+  padding: 0 12px;
+  font: 500 13.5px/1 var(--font-sans);
+  color: var(--muted);
+  white-space: nowrap;
+  transition:
+    color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .g-tab svg {
+  color: var(--faint);
+  transition: color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .g-tab:hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--surface) 55%, transparent);
+}
+[data-arrangement='desk'] .g-tab:active > span {
+  scale: 0.97;
+}
+[data-arrangement='desk'] .g-tab.is-on {
+  color: var(--fg);
+  font-weight: 600;
+}
+[data-arrangement='desk'] .g-tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+[data-arrangement='desk'] .g-count {
+  font: 600 14px/1 var(--font-serif);
+  font-variant-numeric: oldstyle-nums;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-tab[data-kind='character'] .g-count,
+[data-arrangement='desk'] .g-tab.is-on[data-kind='character'] svg {
+  color: var(--k-char);
+}
+[data-arrangement='desk'] .g-tab[data-kind='place'] .g-count,
+[data-arrangement='desk'] .g-tab.is-on[data-kind='place'] svg {
+  color: var(--k-place);
+}
+[data-arrangement='desk'] .g-tab[data-kind='group'] .g-count,
+[data-arrangement='desk'] .g-tab.is-on[data-kind='group'] svg {
+  color: var(--k-group);
+}
+[data-arrangement='desk'] .g-tab[data-kind='item'] .g-count,
+[data-arrangement='desk'] .g-tab.is-on[data-kind='item'] svg {
+  color: var(--k-item);
+}
+[data-arrangement='desk'] .g-tab[data-kind='lore'] .g-count,
+[data-arrangement='desk'] .g-tab.is-on[data-kind='lore'] svg {
+  color: var(--k-lore);
+}
+[data-arrangement='desk'] .g-tab[data-kind='event'] .g-count,
+[data-arrangement='desk'] .g-tab.is-on[data-kind='event'] svg {
+  color: var(--k-event);
+}
+[data-arrangement='desk'] .g-tab[data-kind='thread'] .g-count,
+[data-arrangement='desk'] .g-tab.is-on[data-kind='thread'] svg {
+  color: var(--k-thread);
+}
+[data-arrangement='desk'] .g-tab[data-kind='glossary'] .g-count,
+[data-arrangement='desk'] .g-tab.is-on[data-kind='glossary'] svg {
+  color: var(--k-gloss);
+}
+[data-arrangement='desk'] .g-tab.is-on[data-kind='all'] svg {
+  color: var(--fg);
+}
+/* One bar the row's width, clipped to the chosen tab: moving it is a clip-path transition, in the tab's kind ink. */
+[data-arrangement='desk'] .g-uline {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: none;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--fg);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .g-uline[data-ready] {
+  transition:
+    clip-path var(--dur-base) var(--desk-ease),
+    background-color var(--dur-base) ease-out;
+}
+[data-arrangement='desk'] .g-uline[data-kind='character'] {
+  background: var(--k-char);
+}
+[data-arrangement='desk'] .g-uline[data-kind='place'] {
+  background: var(--k-place);
+}
+[data-arrangement='desk'] .g-uline[data-kind='group'] {
+  background: var(--k-group);
+}
+[data-arrangement='desk'] .g-uline[data-kind='item'] {
+  background: var(--k-item);
+}
+[data-arrangement='desk'] .g-uline[data-kind='lore'] {
+  background: var(--k-lore);
+}
+[data-arrangement='desk'] .g-uline[data-kind='event'] {
+  background: var(--k-event);
+}
+[data-arrangement='desk'] .g-uline[data-kind='thread'] {
+  background: var(--k-thread);
+}
+[data-arrangement='desk'] .g-uline[data-kind='glossary'] {
+  background: var(--k-gloss);
+}
+[data-arrangement='desk'] .g-order {
+  display: flex;
+  flex: none;
+  margin-left: auto;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 5px;
+}
+[data-arrangement='desk'] .g-quiet {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 0 8px 0 9px;
+  font: 500 12.5px/1 var(--font-sans);
+  color: var(--muted);
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .g-quiet:hover,
+[data-arrangement='desk'] .g-quiet[data-state='open'] {
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .g-quiet:focus-visible {
+  outline: 2px solid var(--focus);
+}
+[data-arrangement='desk'] .g-quiet b,
+[data-arrangement='desk'] .g-quiet.is-on {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* The cards' scroll area, and the sections in it: small sections sit side by side when they fit. */
+[data-arrangement='desk'] .g-pane {
+  scrollbar-width: thin;
+}
+[data-arrangement='desk'] .g-gal {
+  padding: 24px var(--g-pad) 56px;
+}
+[data-arrangement='desk'] .g-error {
+  margin: 12px var(--g-pad) 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-sections {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 34px 40px;
+}
+[data-arrangement='desk'] .g-sec {
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+[data-arrangement='desk'] .g-sec[data-shape='portrait'],
+[data-arrangement='desk'] .g-sec[data-shape='scroll'],
+[data-arrangement='desk'] .g-sec[data-shape='index'] {
+  flex-basis: 100%;
+}
+[data-arrangement='desk'] .g-lbl {
+  display: flex;
+  height: 16px;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-sec[data-kind='character'] .g-lbl {
+  color: var(--k-char);
+}
+[data-arrangement='desk'] .g-sec[data-kind='place'] .g-lbl {
+  color: var(--k-place);
+}
+[data-arrangement='desk'] .g-sec[data-kind='group'] .g-lbl {
+  color: var(--k-group);
+}
+[data-arrangement='desk'] .g-sec[data-kind='item'] .g-lbl {
+  color: var(--k-item);
+}
+[data-arrangement='desk'] .g-sec[data-kind='lore'] .g-lbl {
+  color: var(--k-lore);
+}
+[data-arrangement='desk'] .g-sec[data-kind='event'] .g-lbl {
+  color: var(--k-event);
+}
+[data-arrangement='desk'] .g-sec[data-kind='thread'] .g-lbl {
+  color: var(--k-thread);
+}
+[data-arrangement='desk'] .g-sec[data-kind='glossary'] .g-lbl {
+  color: var(--k-gloss);
+}
+[data-arrangement='desk'] .g-n {
+  font: 600 14px/16px var(--font-serif);
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: oldstyle-nums;
+}
+[data-arrangement='desk'] .g-rule {
+  height: 1px;
+  min-width: 24px;
+  flex: 1 1 auto;
+  background: var(--desk-line);
+}
+[data-arrangement='desk'] .g-hint {
+  font: italic 400 13px/16px var(--font-serif);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-lbl-pad {
+  display: block;
+  height: 30px;
+}
+[data-arrangement='desk'] .g-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-arrangement='desk'] .g-cards[data-shape='scroll'],
+[data-arrangement='desk'] .g-cards[data-shape='index'] {
+  align-items: stretch;
+}
+[data-arrangement='desk'] .g-item {
+  display: flex;
+  max-width: 100%;
+}
+[data-arrangement='desk'] .g-cards[data-shape='scroll'] .g-item,
+[data-arrangement='desk'] .g-cards[data-shape='index'] .g-item {
+  flex: 1 1 400px;
+}
+[data-arrangement='desk'] .g-cards[data-shape='scroll'] .g-item {
+  flex-basis: 560px;
+}
+
+/* The stagger: each new tab's cards (and headings) come in 6px, 30ms apart; the keyframes' name flips to restart them. */
+@keyframes g-rise-a {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+@keyframes g-rise-b {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+[data-arrangement='desk'] .g-gal[data-gen='a'] .g-in,
+[data-arrangement='desk'] .g-gal[data-gen='a'] .g-in > .g-card {
+  animation: g-rise-a 220ms var(--desk-ease) backwards;
+  animation-delay: calc(var(--g-base, 0ms) + var(--d, 0ms));
+}
+[data-arrangement='desk'] .g-gal[data-gen='b'] .g-in,
+[data-arrangement='desk'] .g-gal[data-gen='b'] .g-in > .g-card {
+  animation: g-rise-b 220ms var(--desk-ease) backwards;
+  animation-delay: calc(var(--g-base, 0ms) + var(--d, 0ms));
+}
+/* (The list item carries no animation of its own: only the card in it, so the item's box never moves.) */
+[data-arrangement='desk'] .g-gal[data-gen] .g-item.g-in {
+  animation: none;
+}
+[data-arrangement='desk'] .g-gal[data-arrive] {
+  --g-base: 200ms;
+}
+[data-arrangement='desk'] .g-gal[data-leaving] {
+  opacity: 0;
+  transition: opacity var(--dur-exit) cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Every card: paper, lifting 3px on hover with a deeper shadow fading in; it presses in a touch. */
+[data-arrangement='desk'] .g-card {
+  position: relative;
+  /* A button centres what is in it: the cards' words start at their top. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  flex: none;
+  overflow: visible;
+  border-radius: var(--r-card);
+  background: var(--card);
+  box-shadow: var(--sh-card);
+  color: var(--fg);
+  text-align: left;
+  transition:
+    translate 300ms var(--desk-ease),
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .g-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 2px 4px rgb(var(--shade-deep-rgb) / 0.06),
+    0 28px 46px -18px rgb(var(--shade-rgb) / 0.44);
+  opacity: 0;
+  transition: opacity 300ms var(--desk-ease);
+}
+[data-arrangement='desk'][data-theme='dark'] .g-card::before {
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 0.3),
+    0 28px 46px -18px rgb(0 0 0 / 0.7);
+}
+[data-arrangement='desk'] .g-card:hover {
+  translate: 0 -3px;
+}
+[data-arrangement='desk'] .g-card:hover::before {
+  opacity: 1;
+}
+[data-arrangement='desk'] .g-card:active {
+  scale: 0.985;
+}
+[data-arrangement='desk'] .g-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+/* Its dossier is open over the gallery: the card became the dossier. */
+[data-arrangement='desk'] .g-card[data-opened] {
+  visibility: hidden;
+}
+[data-arrangement='desk'] .g-card .is-unnamed {
+  font-style: italic;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-card .is-empty {
+  font-style: italic;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .g-caps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 10.5px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .g-foot {
+  display: block;
+  overflow: hidden;
+  font: 500 11px/14px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The pictures: two layers that part a few pixels on hover (the art parallax). */
+[data-arrangement='desk'] .g-art {
+  position: absolute;
+  inset: 0 0 auto;
+  overflow: hidden;
+  border-radius: var(--r-card) var(--r-card) 0 0;
+}
+[data-arrangement='desk'][data-theme='dark'] .g-art:not(.g-art-photo) {
+  filter: saturate(0.82) brightness(0.8);
+}
+[data-arrangement='desk'] .g-art > svg,
+[data-arrangement='desk'] .g-art-photo > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+[data-arrangement='desk'] .g-art-photo > img {
+  object-fit: cover;
+  inset: -4px 0;
+  height: calc(100% + 8px);
+}
+[data-arrangement='desk'] .g-art-shade {
+  position: absolute;
+  inset: auto 0 0;
+  height: 40%;
+  background: linear-gradient(transparent, rgb(var(--shade-deep-rgb) / 0.28));
+}
+[data-arrangement='desk'] .g-art-far,
+[data-arrangement='desk'] .g-art-motif {
+  transition: translate 300ms var(--desk-ease);
+}
+[data-arrangement='desk'] span.g-art-motif {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-bottom: 14px;
+}
+[data-arrangement='desk'] .g-art-glow {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 124px;
+  height: 124px;
+  margin: -62px 0 0 -62px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 247 234 / 0.7), rgb(241 228 255 / 0.26) 45%, transparent);
+}
+[data-arrangement='desk'] .g-art-icon {
+  position: relative;
+  color: rgb(255 251 246 / 0.95);
+  filter: drop-shadow(0 4px 8px rgb(30 15 50 / 0.3));
+}
+/* An entry's drawing from the drawing library (phase 5) in place of the interim cameo, headland or icon. */
+[data-arrangement='desk'] .g-art-drawing {
+  filter: drop-shadow(0 3px 6px rgb(30 15 50 / 0.32));
+}
+[data-arrangement='desk'] span.g-art-land {
+  padding-bottom: 6px;
+}
+[data-arrangement='desk'] .g-art-land .g-art-glow {
+  top: 50%;
+  width: 92px;
+  height: 92px;
+  margin: -46px 0 0 -46px;
+}
+[data-arrangement='desk'] .g-portrait:hover .g-art-motif {
+  translate: 0 -4px;
+}
+[data-arrangement='desk'] .g-portrait:hover .g-art-far {
+  translate: 0 2px;
+}
+[data-arrangement='desk'] .g-landscape:hover .g-art-motif {
+  translate: -4px 0;
+}
+[data-arrangement='desk'] .g-landscape:hover .g-art-far {
+  translate: 2px 0;
+}
+
+/* Portrait cards (characters): 190 by 260, the story's lead 220 by 300. */
+[data-arrangement='desk'] .g-portrait {
+  width: 190px;
+  height: 262px;
+  border-radius: 16px;
+  text-align: center;
+}
+[data-arrangement='desk'] .g-portrait .g-art {
+  height: 156px;
+  border-radius: 16px 16px 0 0;
+}
+[data-arrangement='desk'] .g-portrait.is-featured {
+  width: 220px;
+  height: 302px;
+  border-radius: 18px;
+}
+[data-arrangement='desk'] .g-portrait.is-featured .g-art {
+  height: 180px;
+  border-radius: 18px 18px 0 0;
+}
+[data-arrangement='desk'] .g-portrait .g-art::after {
+  content: '';
+  position: absolute;
+  inset: 8px 8px -1px;
+  border: 1px solid rgb(255 255 255 / 0.3);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .g-role {
+  position: absolute;
+  right: 14px;
+  top: 13px;
+  display: inline-flex;
+  height: 20px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: rgb(255 253 248 / 0.92);
+  box-shadow: 0 1px 2px rgb(40 20 70 / 0.22);
+  font: 600 10px/1 var(--font-sans);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #4a2d80;
+}
+[data-arrangement='desk'] .g-mono {
+  position: absolute;
+  left: 50%;
+  top: 134px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin-left: -22px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--k-char);
+  font: 600 20px/1 var(--font-serif);
+  font-variation-settings: 'opsz' 48;
+  box-shadow:
+    0 0 0 3px var(--card),
+    inset 0 0 0 1px color-mix(in oklab, var(--k-char) 28%, transparent),
+    0 6px 14px -4px rgb(50 25 80 / 0.4);
+}
+[data-arrangement='desk'] .is-featured .g-mono {
+  top: 150px;
+  width: 60px;
+  height: 60px;
+  margin-left: -30px;
+  font-size: 28px;
+}
+[data-arrangement='desk'] .g-portrait .g-body {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 186px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+[data-arrangement='desk'] .g-portrait.is-featured .g-body {
+  top: 218px;
+}
+[data-arrangement='desk'] .g-portrait.g-photo .g-body,
+[data-arrangement='desk'] .g-portrait:has(.g-art-photo) .g-body {
+  top: 168px;
+}
+[data-arrangement='desk'] .g-portrait.is-featured:has(.g-art-photo) .g-body {
+  top: 194px;
+}
+[data-arrangement='desk'] .g-name {
+  max-width: 100%;
+  overflow: hidden;
+  font: 600 17px/22px var(--font-serif);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .is-featured .g-name {
+  font-size: 19px;
+  line-height: 24px;
+}
+[data-arrangement='desk'] .g-sum {
+  max-width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: italic 400 13px/18px var(--font-serif);
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-portrait .g-foot {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  text-align: center;
+}
+
+/* Landscape cards (places): 300 by 170. */
+[data-arrangement='desk'] .g-landscape {
+  width: 300px;
+  height: 172px;
+}
+[data-arrangement='desk'] .g-landscape .g-art {
+  height: 100px;
+}
+[data-arrangement='desk'] .g-ptag {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  display: inline-flex;
+  max-width: calc(100% - 20px);
+  height: 20px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: rgb(14 52 48 / 0.72);
+  color: #ecf8f5;
+  font: 600 10px/1 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgb(10 40 36 / 0.25);
+}
+[data-arrangement='desk'] .g-landscape .g-body {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 108px;
+  display: flex;
+  flex-direction: column;
+}
+[data-arrangement='desk'] .g-landscape .g-name {
+  font-size: 16px;
+}
+[data-arrangement='desk'] .g-line {
+  overflow: hidden;
+  margin-top: 1px;
+  font: 400 12.5px/18px var(--font-sans);
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .g-landscape .g-foot {
+  margin-top: 2px;
+}
+
+/* Parchment (groups), scrolls (lore), plain paper (items, events, terms) share a body. */
+[data-arrangement='desk'] .g-parchment,
+[data-arrangement='desk'] .g-plain {
+  width: 332px;
+  min-height: 172px;
+  border-radius: 12px;
+}
+[data-arrangement='desk'] .g-parchment {
+  background-color: color-mix(in oklab, var(--parch) 70%, var(--card));
+  background-image:
+    radial-gradient(130% 100% at 50% 35%, rgb(255 255 255 / 0.5), transparent 60%),
+    radial-gradient(160% 120% at 50% 50%, transparent 55%, rgb(var(--parch-edge-rgb) / 0.16));
+  box-shadow:
+    0 0 0 1px rgb(var(--parch-line-rgb) / 0.15),
+    var(--sh-2);
+}
+[data-arrangement='desk'][data-theme='dark'] .g-parchment {
+  background-color: color-mix(in oklab, var(--parch) 60%, var(--card));
+  background-image: radial-gradient(160% 120% at 50% 50%, transparent 55%, rgb(0 0 0 / 0.25));
+}
+[data-arrangement='desk'] .g-rules {
+  position: absolute;
+  inset: 62px 20px 14px;
+  background: repeating-linear-gradient(180deg, transparent 0 23px, var(--rule-blue) 23px 24px);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .g-parchment .g-body,
+[data-arrangement='desk'] .g-plain .g-body {
+  position: relative;
+  display: flex;
+  min-height: 172px;
+  flex-direction: column;
+  padding: 16px 20px 14px;
+}
+[data-arrangement='desk'] .g-plain .g-body {
+  padding-right: 56px;
+}
+[data-arrangement='desk'] .g-parchment .g-body {
+  padding-right: 64px;
+}
+[data-arrangement='desk'] .g-title {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  font: 600 19px/24px var(--font-serif);
+  letter-spacing: -0.01em;
+}
+[data-arrangement='desk'] .g-text {
+  display: -webkit-box;
+  margin-top: 6px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font: 400 14px/24px var(--font-serif);
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-parchment .g-foot,
+[data-arrangement='desk'] .g-plain .g-foot,
+[data-arrangement='desk'] .g-scroll .g-foot {
+  margin-top: auto;
+  padding-top: 8px;
+}
+[data-arrangement='desk'] .g-parchment .g-caps {
+  color: var(--k-group);
+}
+[data-arrangement='desk'] .g-seal {
+  position: absolute;
+  right: 16px;
+  top: 14px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fffaf2;
+  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--k-group) 70%, white), var(--k-group) 70%);
+  box-shadow:
+    0 3px 6px rgb(30 50 90 / 0.3),
+    inset 0 0 0 2px rgb(255 255 255 / 0.18);
+}
+[data-arrangement='desk'] .g-plain .g-seal {
+  right: 14px;
+  top: 14px;
+}
+[data-arrangement='desk'] .g-seal[data-kind='item'] {
+  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--k-item) 70%, white), var(--k-item) 70%);
+}
+[data-arrangement='desk'] .g-seal[data-kind='event'] {
+  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--k-event) 70%, white), var(--k-event) 70%);
+}
+[data-arrangement='desk'] .g-seal[data-kind='glossary'] {
+  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--k-gloss) 70%, white), var(--k-gloss) 70%);
+}
+[data-arrangement='desk'] .g-plain[data-shape] .g-caps {
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-plain:has(.g-seal[data-kind='item']) .g-caps {
+  color: var(--k-item);
+}
+[data-arrangement='desk'] .g-plain:has(.g-seal[data-kind='event']) .g-caps {
+  color: var(--k-event);
+}
+[data-arrangement='desk'] .g-plain:has(.g-seal[data-kind='glossary']) .g-caps {
+  color: var(--k-gloss);
+}
+
+/* A scroll (lore): rolled at each end. */
+[data-arrangement='desk'] .g-scroll {
+  width: 100%;
+  min-height: 150px;
+  border-radius: 6px;
+  margin: 0 8px;
+  background-color: color-mix(in oklab, var(--parch) 72%, var(--card));
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.5), transparent 40%),
+    radial-gradient(140% 160% at 50% 50%, transparent 50%, rgb(var(--parch-edge-rgb) / 0.18));
+  box-shadow:
+    0 0 0 1px rgb(var(--parch-line-rgb) / 0.14),
+    var(--sh-2);
+}
+[data-arrangement='desk'][data-theme='dark'] .g-scroll {
+  background-color: color-mix(in oklab, var(--parch) 60%, var(--card));
+  background-image: radial-gradient(140% 160% at 50% 50%, transparent 50%, rgb(0 0 0 / 0.25));
+}
+[data-arrangement='desk'] .g-roll {
+  position: absolute;
+  top: -7px;
+  bottom: -7px;
+  width: 20px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--roll-a), var(--roll-b) 38%, var(--roll-c) 64%, var(--roll-d));
+  box-shadow:
+    0 0 0 1px rgb(var(--parch-line-rgb) / 0.18),
+    0 4px 8px -3px rgb(var(--shade-rgb) / 0.35);
+}
+[data-arrangement='desk'] .g-roll.is-left {
+  left: -8px;
+}
+[data-arrangement='desk'] .g-roll.is-right {
+  right: -8px;
+}
+[data-arrangement='desk'] .g-scroll .g-body {
+  position: relative;
+  display: flex;
+  min-height: 150px;
+  flex-direction: column;
+  padding: 20px 40px 18px;
+}
+[data-arrangement='desk'] .g-scroll .g-caps {
+  color: var(--k-lore);
+}
+[data-arrangement='desk'] .g-scroll .g-title {
+  font-size: 24px;
+  line-height: 30px;
+  font-variation-settings: 'opsz' 48;
+}
+[data-arrangement='desk'] .g-lede {
+  margin-top: 4px;
+  font: italic 500 14.5px/22px var(--font-serif);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .g-scroll .g-text {
+  -webkit-line-clamp: 2;
+  font-size: 14.5px;
+  line-height: 22px;
+}
+[data-arrangement='desk'] .g-hardrule {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+}
+
+/* Index cards (plot threads): ruled, with a red margin rule. */
+[data-arrangement='desk'] .g-index {
+  width: 100%;
+  min-height: 172px;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px rgb(var(--shade-rgb) / 0.08),
+    var(--sh-2);
+}
+[data-arrangement='desk'] .g-ic-rules {
+  position: absolute;
+  inset: 73px 0 12px;
+  background: repeating-linear-gradient(180deg, transparent 0 23px, var(--rule-blue) 23px 24px);
+  pointer-events: none;
+}
+[data-arrangement='desk'] .g-ic-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 64px;
+  height: 1px;
+  background: var(--rule-red);
+}
+[data-arrangement='desk'] .g-ic-margin {
+  position: absolute;
+  left: 40px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule-red);
+}
+[data-arrangement='desk'] .g-index .g-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 22px 12px 56px;
+}
+[data-arrangement='desk'] .g-index .g-title {
+  font-size: 18px;
+  line-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .g-state {
+  color: var(--k-thread);
+}
+[data-arrangement='desk'] .g-index[data-state='done'] .g-state,
+[data-arrangement='desk'] .g-index[data-state='done'] .g-state-mark {
+  color: var(--success);
+}
+[data-arrangement='desk'] .g-index[data-state='planned'] .g-state,
+[data-arrangement='desk'] .g-index[data-state='planned'] .g-state-mark {
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-index[data-state='open'] .g-state-mark {
+  color: var(--k-thread);
+}
+[data-arrangement='desk'] .g-promise {
+  display: -webkit-box;
+  margin-top: 18px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font: italic 400 14px/24px var(--font-serif);
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-index .g-foot {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 0;
+  font-size: 12px;
+  line-height: 24px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .g-state-mark {
+  flex: none;
+}
+
+/* The empty slot at the end: a way to add to the world. */
+[data-arrangement='desk'] .g-ghost {
+  display: flex;
+  width: 332px;
+  height: 150px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1.5px dashed color-mix(in oklab, var(--fg) 24%, transparent);
+  border-radius: var(--r-card);
+  padding: 0 24px;
+  text-align: center;
+  color: var(--muted);
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    border-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .g-ghost:hover,
+[data-arrangement='desk'] .g-ghost[data-state='open'] {
+  background: color-mix(in oklab, var(--surface) 50%, transparent);
+  border-color: color-mix(in oklab, var(--fg) 36%, transparent);
+}
+[data-arrangement='desk'] .g-ghost:active {
+  scale: 0.985;
+}
+[data-arrangement='desk'] .g-ghost:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] .g-ghost-ic {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 6px;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--page) 60%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line);
+}
+[data-arrangement='desk'] .g-ghost-t {
+  font: 600 14px/19px var(--font-sans);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .g-ghost-d {
+  font: 400 12.5px/17px var(--font-sans);
+  color: var(--muted);
+}
+
+/* The empty portrait at the end of the characters: the way into the character builder (an AI thing, so its lamp). */
+[data-arrangement='desk'] .g-build {
+  width: 190px;
+  height: 262px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 16px;
+  padding: 0 18px;
+  background: color-mix(in oklab, var(--card) 40%, transparent);
+  box-shadow: none;
+  outline: 1.5px dashed color-mix(in oklab, var(--k-char) 45%, transparent);
+  outline-offset: -1.5px;
+  text-align: center;
+}
+[data-arrangement='desk'] .g-build:hover {
+  background: color-mix(in oklab, var(--card) 75%, transparent);
+  outline-color: color-mix(in oklab, var(--k-char) 70%, transparent);
+}
+[data-arrangement='desk'] .g-build:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+[data-arrangement='desk'] .g-build-face {
+  position: relative;
+  display: grid;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 8px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--k-char-soft);
+  color: var(--k-char);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--k-char) 25%, transparent);
+  transition:
+    scale var(--dur-base) var(--desk-ease),
+    rotate var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .g-build-face::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--lamp-2, var(--ai));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-2, var(--ai)) 25%, transparent), 0 0 10px 1px var(--lamp-glow, transparent);
+}
+[data-arrangement='desk'] .g-build:hover .g-build-face {
+  scale: 1.06;
+  rotate: -6deg;
+}
+[data-arrangement='desk'] .g-build-t {
+  font: 600 15px/20px var(--font-serif);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .g-build-d {
+  font: 400 12px/17px var(--font-sans);
+  color: var(--muted);
+}
+
+/* A narrow sheet (a window not full screen, beside the full spine): the cards a size smaller, the gaps closer. */
+@container (max-width: 980px) {
+  [data-arrangement='desk'] .g-head,
+  [data-arrangement='desk'] .g-gal {
+    --g-pad: 32px;
+  }
+  [data-arrangement='desk'] .g-cards {
+    gap: 22px;
+  }
+  [data-arrangement='desk'] .g-portrait,
+  [data-arrangement='desk'] .g-build {
+    width: 172px;
+    height: 250px;
+  }
+  [data-arrangement='desk'] .g-portrait .g-art {
+    height: 146px;
+  }
+  [data-arrangement='desk'] .g-mono {
+    top: 124px;
+  }
+  [data-arrangement='desk'] .g-portrait .g-body {
+    top: 176px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured {
+    width: 204px;
+    height: 290px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured .g-art {
+    height: 170px;
+  }
+  [data-arrangement='desk'] .is-featured .g-mono {
+    top: 140px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured .g-body {
+    top: 208px;
+  }
+  [data-arrangement='desk'] .g-landscape {
+    width: 272px;
+  }
+  [data-arrangement='desk'] .g-parchment,
+  [data-arrangement='desk'] .g-plain,
+  [data-arrangement='desk'] .g-ghost {
+    width: 300px;
+  }
+  [data-arrangement='desk'] .g-title-world {
+    font-size: 32px;
+    line-height: 38px;
+  }
+  [data-arrangement='desk'] .g-find {
+    width: 208px;
+  }
+}
+/* The tabs keep their room: the order says just which ("first appearance"), the tabs sit a little closer. */
+/* (Beside the full spine in a window that isn't full screen: the tabs without their icons, Filters as its icon alone.) */
+@container (max-width: 1060px) {
+  [data-arrangement='desk'] .g-order-k,
+  [data-arrangement='desk'] .g-tab > svg,
+  [data-arrangement='desk'] .g-filter-k {
+    display: none;
+  }
+  [data-arrangement='desk'] .g-tab {
+    padding: 0 10px;
+  }
+}
+/* Narrower still (beside the full spine in a 1280 window). */
+@container (max-width: 920px) {
+  /* The cast still in one row of four. */
+  [data-arrangement='desk'] .g-cards {
+    gap: 18px;
+  }
+  [data-arrangement='desk'] .g-portrait,
+  [data-arrangement='desk'] .g-build {
+    width: 160px;
+    height: 244px;
+  }
+  [data-arrangement='desk'] .g-portrait .g-art {
+    height: 138px;
+  }
+  [data-arrangement='desk'] .g-mono {
+    top: 116px;
+  }
+  [data-arrangement='desk'] .g-portrait .g-body {
+    top: 168px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured {
+    width: 192px;
+    height: 282px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured .g-art {
+    height: 164px;
+  }
+  [data-arrangement='desk'] .is-featured .g-mono {
+    top: 134px;
+  }
+  [data-arrangement='desk'] .g-portrait.is-featured .g-body {
+    top: 202px;
+  }
+}

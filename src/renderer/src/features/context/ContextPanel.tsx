@@ -24,6 +24,7 @@ import {
   blockStateNote,
   briefingEntries,
   budgetView,
+  closingTokens,
   entryDetail,
   hiddenScope,
   orderBlocks,
@@ -271,6 +272,7 @@ function Briefing({
               onMode={(m) => void setMode(b, m)}
             />
           ))}
+          <ClosingRow tokens={closingTokens(preview)} />
         </div>
       </Section>
 
@@ -467,6 +469,24 @@ function BlockRow({
           </div>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * The last of the briefing, after its parts: the closing instruction (what to write now) and what each message
+ * takes, so the parts listed add up to the size at the top. Always sent, never shortened, so nothing to open.
+ */
+function ClosingRow({ tokens }: { tokens: number }): React.JSX.Element | null {
+  if (!tokens) return null
+  return (
+    <div
+      className="flex h-9 items-center gap-2 rounded-lg border border-line bg-surface px-2.5"
+      title="Sent last, after the parts above: what to write now. It is always sent in full."
+    >
+      <span className="w-3.5 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-muted">Closing instruction</span>
+      <span className="w-[52px] shrink-0 text-right text-[12px] tabular-nums text-faint">{formatNumber(tokens)}</span>
     </div>
   )
 }

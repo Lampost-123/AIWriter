@@ -33,6 +33,7 @@ import { toast, useToasts } from '@/components/ui'
 import { api, ApiError, modKey, onEvent } from '@/lib/api'
 import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
+import { layerOpen } from '@/lib/layers'
 import { isShortcut, shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { activeStream, streamKey } from '@/features/editor/streamDoc'
@@ -122,9 +123,6 @@ let beatToast: number | null = null
 let opening: ID | null = null
 
 const openSettings = (): void => useApp.getState().navigate({ kind: 'settings', tab: 'models' })
-
-/** Something else (a menu, a dialog, a popover) is open and should get Esc first. */
-const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
 
 /** The key was pressed in the manuscript page. */
 const inPage = (t: EventTarget | null): boolean => t instanceof Element && !!t.closest('.ProseMirror')

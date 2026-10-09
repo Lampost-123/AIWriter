@@ -7,6 +7,10 @@ import { api, onEvent } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
+import { notesFor } from './releaseNotes'
+// The notes this build was made with (the release page's words).
+import releaseNotes from '../../../../../build/release-notes.md?raw'
 
 export function AboutSettings(): React.JSX.Element {
   const [info, setInfo] = useState<AppInfo | null>(null)
@@ -22,6 +26,8 @@ export function AboutSettings(): React.JSX.Element {
     }
   }, [])
 
+  const isNew = useNewLook()
+  if (isNew) return <NewAbout info={info} onChanged={setInfo} />
   return (
     <div className="flex flex-col gap-9">
       <Card className="flex items-center gap-4 p-5">
@@ -45,6 +51,57 @@ export function AboutSettings(): React.JSX.Element {
 
       <Updates />
       <LibraryFolder info={info} onChanged={setInfo} />
+    </div>
+  )
+}
+
+/**
+ * The New look: the version on a card of its own beside the updates, what's new in it, then the library folder. The
+ * update's state has its own picture: a check turning while it looks, a ring filling while it downloads.
+ */
+function NewAbout({ info, onChanged }: { info: AppInfo | null; onChanged: (i: AppInfo) => void }): React.JSX.Element {
+  const notes = notesFor(releaseNotes, info?.version ?? null)
+  return (
+    <div className="@container flex flex-col gap-6">
+      <div className="grid gap-4 @[760px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="ab-version flex items-center gap-4 p-5">
+          <span aria-hidden className="ab-mark grid h-14 w-14 shrink-0 place-items-center rounded-[16px]">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21h6M10 21l.6-9h2.8l.6 9" />
+              <path d="M8.5 12h7M9.5 12V8h5v4" />
+              <path d="M9 8l3-3 3 3" />
+              <circle cx="12" cy="10" r="0.9" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-heading text-[22px] font-semibold leading-tight text-fg">AI Write</p>
+            <p className="mt-0.5 h-[20px] text-[13.5px] tabular-nums text-muted">{info ? `Version ${info.version}` : ''}</p>
+            <a
+              href={RELEASES_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-medium text-accent hover:underline"
+            >
+              All versions on GitHub
+              <ExternalLink size={12} />
+            </a>
+          </div>
+        </div>
+        <Updates />
+      </div>
+      {notes ? (
+        <SettingsSection title={`What’s new in ${notes.version}`} description="The changes in the version you’re running.">
+          <ul className="ab-notes flex flex-col gap-2.5">
+            {notes.points.map((p, i) => (
+              <li key={i} className="flex gap-3 text-[13.5px] leading-relaxed text-fg" style={{ animationDelay: `${i * 40}ms` }}>
+                <span aria-hidden className="ab-dot" />
+                <span className="min-w-0">{p}</span>
+              </li>
+            ))}
+          </ul>
+        </SettingsSection>
+      ) : null}
+      <LibraryFolder info={info} onChanged={onChanged} />
     </div>
   )
 }
@@ -87,10 +144,13 @@ function Updates(): React.JSX.Element {
   }
 
   const busy = status?.state === 'checking' || status?.state === 'downloading'
+  const isNew = useNewLook()
+  // The New look: the section is the card already, so the status sits straight on it.
+  const Box = isNew ? 'div' : Card
 
   return (
-    <SettingsSection title="Updates">
-      <Card className="p-4">
+    <SettingsSection title="Updates" className={isNew ? 'ab-updates' : undefined}>
+      <Box className={isNew ? undefined : 'p-4'}>
         <div className="flex min-h-[40px] items-center gap-3">
           <StatusIcon status={status} />
           <div className="min-w-0 flex-1">
@@ -128,13 +188,38 @@ function Updates(): React.JSX.Element {
             <p className="max-h-40 overflow-auto whitespace-pre-line text-[13px] leading-relaxed text-fg">{status.notes}</p>
           </div>
         ) : null}
-      </Card>
+      </Box>
     </SettingsSection>
   )
 }
 
 function StatusIcon({ status }: { status: UpdateStatus | null }): React.JSX.Element {
-  const base = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-full'
+  const isNew = useNewLook()
+  // The New look: a ring that fills while the new version downloads.
+  if (isNew && status?.state === 'downloading') {
+    const C = 2 * Math.PI * 14
+    return (
+      <div className="relative grid h-9 w-9 shrink-0 place-items-center text-accent">
+        <svg aria-hidden viewBox="0 0 36 36" className="absolute inset-0">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="var(--surface-3)" strokeWidth="3" />
+          <circle
+            cx="18"
+            cy="18"
+            r="14"
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray={`${(status.percent / 100) * C} ${C}`}
+            transform="rotate(-90 18 18)"
+            className="transition-[stroke-dasharray] duration-(--dur-base)"
+          />
+        </svg>
+        <Download size={14} />
+      </div>
+    )
+  }
+  const base = cn('flex shrink-0 items-center justify-center rounded-full', isNew ? 'h-9 w-9' : 'h-8 w-8')
   if (!status || status.state === 'checking') {
     return (
       <div className={cn(base, 'bg-surface-2 text-muted')}>

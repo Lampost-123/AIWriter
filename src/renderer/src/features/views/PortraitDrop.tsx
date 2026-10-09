@@ -27,10 +27,16 @@ export function PortraitDrop({
   entry,
   size = 96,
   onChange,
-  className
+  className,
+  motif,
+  live = false
 }: {
   entry: Pick<Entry, 'id' | 'name' | 'kind' | 'image'>
   size?: number
+  /** The desk: the entry's drawing, shown while it has no portrait (see Portrait). */
+  motif?: string | null
+  /** The drawing's quiet idle loop (see Portrait). */
+  live?: boolean
   /** Called with the entry as saved, once the picture is in place (or removed). */
   onChange?: (entry: Entry) => void
   className?: string
@@ -95,7 +101,7 @@ export function PortraitDrop({
           entry.kind === 'character' ? 'rounded-full' : 'rounded-md'
         )}
       >
-        <Portrait entry={entry} size={size} className={cn('transition-opacity duration-150', busy && 'opacity-60')} />
+        <Portrait entry={entry} size={size} motif={motif} live={live} className={cn('transition-opacity duration-150', busy && 'opacity-60')} />
         <span
           aria-hidden
           className={cn(

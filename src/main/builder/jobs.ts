@@ -15,6 +15,7 @@ import type {
   FleshOutInput,
   InterviewInput,
   OptionsInput,
+  QuestionsInput,
   QuickStartInput
 } from '@shared/contracts/builder'
 import type { ChatMessage, Entry, ID } from '@shared/types'
@@ -39,6 +40,8 @@ import {
   partsBegun,
   pickThree,
   profileKeys,
+  questionsFrom,
+  questionsFromText,
   quickStartView,
   valuesOf,
   writingField,
@@ -51,7 +54,11 @@ import {
   interviewSystem,
   optionsSystem,
   optionsUser,
+  answersText,
+  MAX_QUESTIONS,
   profileText,
+  questionsSystem,
+  questionsUser,
   quickStartSystem,
   quickStartUser,
   retryMessage,
@@ -68,8 +75,8 @@ export const PROGRESS_MS = 40
 /** Context length assumed when the model's is unknown. */
 export const DEFAULT_CONTEXT = 16_000
 /** Room for each job's reply. Generous: a model that thinks first can spend much of it thinking. */
-export const REPLY_TOKENS: Record<BuilderJob, number> = { 'quick-start': 8000, 'flesh-out': 4000, options: 3000, interview: 2000 }
-const TEMPERATURE: Record<BuilderJob, number> = { 'quick-start': 0.8, 'flesh-out': 0.85, options: 1, interview: 0.9 }
+export const REPLY_TOKENS: Record<BuilderJob, number> = { 'quick-start': 8000, 'flesh-out': 4000, options: 3000, interview: 2000, questions: 2000 }
+const TEMPERATURE: Record<BuilderJob, number> = { 'quick-start': 0.8, 'flesh-out': 0.85, options: 1, interview: 0.9, questions: 0.7 }
 const TOP_P = 0.95
 
 export interface JobContext {
@@ -351,18 +358,24 @@ async function quickStart(
   const before = existing ? valuesOf(kind, existing) : {}
   const beforeHis = existing ? hisKeys(kind, existing) : []
   const sofar = existing ? profileText(kind, before) : ''
-  const space = room(ctx.model, 'quick-start', estimateTokens(system) + estimateTokens(notes) + estimateTokens(sofar) + 150)
+  // His answers to the follow-up questions are his words, as the notes are (one left to the AI is the AI's to decide).
+  const answers = (input.answers ?? [])
+    .filter((a) => a && typeof a.question === 'string' && a.question.trim())
+    .slice(0, MAX_QUESTIONS)
+    .map((a) => ({ question: a.question.slice(0, 400), answer: typeof a.answer === 'string' ? a.answer.slice(0, 2000) : null }))
+  const his = [notes, ...answers.map((a) => a.answer ?? '').filter((t) => t.trim())].join('\n')
+  const space = room(ctx.model, 'quick-start', estimateTokens(system) + estimateTokens(notes) + estimateTokens(answersText(answers)) + estimateTokens(sofar) + 150)
   const world = worldText(brief, kind, space.world)
   let messages: ChatMessage[] = [
     { role: 'system', content: system },
-    { role: 'user', content: quickStartUser(kind, notes, world.text, !!input.sceneId, sofar) }
+    { role: 'user', content: quickStartUser(kind, notes, world.text, !!input.sceneId, sofar, answers) }
   ]
   const entries = versionsOf(brief, world.entryIds)
   const state = { entryId: existing?.id ?? null, written: {} as Written, failed: null as string | null }
   let text = ''
   let view: QuickStartView = { values: { ...before }, fromNotes: beforeHis, writing: null }
   const viewOf = (parsed: Pick<PartialJson, 'value' | 'open'>): QuickStartView => {
-    const v = quickStartView(kind, notes, parsed)
+    const v = quickStartView(kind, his, parsed)
     if (!existing) return v
     const values: BuilderValues = { ...before }
     for (const [k, x] of Object.entries(v.values)) values[k] ??= x
@@ -443,6 +456,63 @@ async function quickStart(
     if (asked.status === 'stopped') return { ...done, status: 'stopped', error: null }
     if (!state.entryId || !arrived()) return { ...done, status: 'error', error: UNUSABLE }
     return { ...done, status: 'complete', error: null }
+  }
+}
+
+// ---------- Follow-up questions ----------
+
+export function startQuestions(ctx: JobContext, input: QuestionsInput, brief: WorldBrief): void {
+  const notes = (input.notes ?? '').trim()
+  if (!notes) throw new UserError('Type or paste something about them first. One line is enough.')
+  begin(ctx, input.jobId, 'questions', (run) => questions(ctx, run, input, notes.slice(0, 20_000), brief))
+}
+
+async function questions(ctx: JobContext, run: Run, input: QuestionsInput, notes: string, brief: WorldBrief): Promise<BuilderDone> {
+  const { kind } = input
+  const system = questionsSystem(kind)
+  const space = room(ctx.model, 'questions', estimateTokens(system) + estimateTokens(notes) + 150)
+  const world = worldText(brief, kind, space.world)
+  let messages: ChatMessage[] = [
+    { role: 'system', content: system },
+    { role: 'user', content: questionsUser(kind, notes, world.text, !!input.sceneId) }
+  ]
+  const entries = versionsOf(brief, world.entryIds)
+  for (let attempt = 0; ; attempt++) {
+    let text = ''
+    const tick = ticker(() => {
+      const p = parsePartial(text)
+      // Only whole questions show: the one still arriving waits until it is complete.
+      const list = questionsFrom(p.value, MAX_QUESTIONS)
+      const open = p.open && p.open.path.some((x) => typeof x === 'number') ? list.slice(0, -1) : list
+      ctx.emit('builder:progress', progressOf(run, { options: open }))
+    })
+    const asked = await ask(
+      ctx,
+      run,
+      messages,
+      space.reply,
+      (t) => {
+        text += t
+        tick.request()
+      },
+      { direction: notes, entries }
+    )
+    tick.cancel()
+    let list = questionsFrom(finalValue(text), MAX_QUESTIONS)
+    if (!list.length) list = questionsFromText(text, MAX_QUESTIONS)
+    if (asked.status === 'complete' && !list.length && attempt === 0) {
+      messages = [
+        ...messages,
+        { role: 'assistant', content: text },
+        { role: 'user', content: retryMessage(whyOf(text, 'it had no questions in it'), '{"questions": ["first question?", "second question?", "third question?"]}') }
+      ]
+      ctx.emit('builder:progress', progressOf(run))
+      continue
+    }
+    if (asked.status === 'error') return { ...progressOf(run, { options: list }), status: 'error', error: asked.error }
+    if (asked.status === 'stopped') return { ...progressOf(run, { options: list }), status: 'stopped', error: null }
+    if (!list.length) return { ...progressOf(run), status: 'error', error: UNUSABLE }
+    return { ...progressOf(run, { options: list }), status: 'complete', error: null }
   }
 }
 

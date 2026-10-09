@@ -27,10 +27,13 @@ export interface NameMatch {
   start: number
   end: number
   entryId: ID
+  /** The entry's kind (the desk underlines a name in its kind's ink). */
+  kind: EntryKind
 }
 
 interface Candidate {
   entryId: ID
+  kind: EntryKind
   /** Sticky: tried at the start of a word. */
   re: RegExp
   length: number
@@ -95,7 +98,7 @@ export function buildNameIndex(entries: NameSource[]): NameIndex {
     for (const n of namesToMatch(e)) {
       const [first, second] = WORDS(n)
       const re = new RegExp(`${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, ignoresCase(n) ? 'iuy' : 'uy')
-      const c = { entryId: e.id, re, length: n.length }
+      const c = { entryId: e.id, kind: e.kind, re, length: n.length }
       let slot = byFirst.get(first)
       if (!slot) byFirst.set(first, (slot = { one: [], bySecond: new Map() }))
       if (second === undefined) slot.one.push(c)
@@ -138,7 +141,7 @@ export function findNames(text: string, index: NameIndex): NameMatch[] {
       const hit = c.re.exec(text)
       if (!hit) continue
       after = at + hit[0].length
-      out.push({ start: at, end: after, entryId: c.entryId })
+      out.push({ start: at, end: after, entryId: c.entryId, kind: c.kind })
       return true
     }
     return false

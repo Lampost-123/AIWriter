@@ -13,8 +13,7 @@ import { flushBeforeWorldChange } from '@/lib/flush'
 import { isShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
-import { LitWindow } from '@/components/ui/LitWindow'
-import { useNewLook } from '@/features/look/look'
+import { Harbour } from '@/components/art/Harbour'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { createWorldAndBuild } from '@/features/worldBuilder/open'
 import { openSampleWorld } from '@/features/setup/setupStore'
@@ -30,10 +29,16 @@ import { WorldCard } from './WorldCard'
 import { listenForRecipes, useRecipes } from '@/features/recipes/recipeStore'
 import { recipeName } from '@/features/recipes/recipeLogic'
 
+/** Whether a key or the pointer has been pressed since the window opened. */
+let pressed = false
+for (const kind of ['keydown', 'pointerdown'] as const) window.addEventListener(kind, () => (pressed = true), { capture: true, once: true })
+
 /**
  * Puts the keyboard on an element of the start screen unless something on it has it already, now and once more on
  * the next frame: a menu that opened the start screen (the world menu, the palette) may still hold the keyboard as
- * it closes. Returns the clean-up.
+ * it closes. Returns the clean-up. At launch, before anything has been pressed, it shows no focus ring (the browser
+ * would draw one, as nothing says the pointer is in use); the first key shows it as usual. Later the browser decides,
+ * as everywhere: a ring when the start screen was opened from the keyboard, none from a click.
  */
 function takeKeyboard(el: () => HTMLElement | null): () => void {
   const take = (): void => {
@@ -41,7 +46,8 @@ function takeKeyboard(el: () => HTMLElement | null): () => void {
     const screen = target?.closest('.start-screen')
     const active = document.activeElement
     if (!target || (active && active !== screen && screen?.contains(active))) return
-    target.focus({ preventScroll: true })
+    // (focusVisible isn't in TypeScript's own list yet; Chromium has it.)
+    target.focus({ preventScroll: true, ...(pressed ? {} : { focusVisible: false }) } as FocusOptions)
   }
   take()
   const frame = requestAnimationFrame(take)
@@ -100,7 +106,6 @@ export function StartScreen(): React.JSX.Element {
   const [deleting, setDeleting] = useState<LibraryWorld | null>(null)
   const [newWorldOpen, setNewWorldOpen] = useState(false)
   const busy = useLibrary((s) => s.busy)
-  const isNew = useNewLook()
   useKeysStayHere(root)
 
   // Read afresh each time it shows; the last list stays meanwhile. The keyboard starts on Continue (see
@@ -138,12 +143,9 @@ export function StartScreen(): React.JSX.Element {
       <DriftingTexture />
       <div className="absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
         <div className="relative mx-auto w-full max-w-[800px] px-8 pb-20 pt-[9vh]">
-          {/* The New look: a lit window over the water above it all (still: nothing moves at launch but the opening). */}
-          {isNew ? (
-            <div className="start-rise -mx-2 mb-6 h-[140px] overflow-hidden rounded-card" style={rise(0)}>
-              <LitWindow />
-            </div>
-          ) : null}
+          {/* The harbour at dusk above it all, its lighthouse beam sweeping slowly (components/art/Harbour), in every look:
+              its colours are the theme's and the accent's, so it suits Classic as well as the New look. */}
+          <Harbour className="start-rise -mx-2 mb-6 h-[clamp(150px,23vh,208px)] rounded-card" style={rise(0)} />
           <header className="mb-8 flex items-center gap-3.5">
             <InkMark />
             <div className="min-w-0 flex-1">

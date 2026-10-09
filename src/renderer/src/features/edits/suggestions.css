@@ -80,6 +80,22 @@
   animation: aw-sugg-blink 1.1s ease-in-out infinite;
 }
 
+/* The New look: where a streaming draft's words are arriving (features/editor/streamCaret.ts). Never in Classic. */
+.aw-stream-caret {
+  display: none;
+}
+[data-look='new'] .scene-prose .aw-stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: var(--ai);
+  animation: aw-sugg-blink 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
 @keyframes aw-sugg-blink {
   0%,
   100% {
@@ -91,7 +107,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .aw-sugg-caret {
+  .aw-sugg-caret,
+  [data-look='new'] .scene-prose .aw-stream-caret {
     animation: none;
   }
 }
