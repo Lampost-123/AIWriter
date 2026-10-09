@@ -19,6 +19,7 @@ import {
   clearHeight,
   dismissQuestion,
   finish,
+  leave,
   reloadBeats,
   resumeBeats,
   revealBeat,
@@ -221,7 +222,17 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
               written, Finish is the big button below instead (the buttons here keep their places at the right). */}
           <div className={cn('-mr-1.5 flex shrink-0 items-center gap-0.5', busy && 'invisible')}>
             {next != null ? (
-              <Button variant="ghost" size="sm" onClick={finish} title="Close this bar. The beats stay as they are.">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={leave}
+                title={`Back to the AI bar. The beats stay; Beat by beat in its More menu carries on from beat ${next}.`}
+              >
+                <span className="@max-[600px]:sr-only">Back to the AI bar</span>
+              </Button>
+            ) : null}
+            {next != null ? (
+              <Button variant="ghost" size="sm" onClick={finish} title="Finish Beat by beat. The beats stay as they are.">
                 Finish
               </Button>
             ) : null}
