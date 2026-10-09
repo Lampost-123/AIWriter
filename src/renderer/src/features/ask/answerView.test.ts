@@ -90,6 +90,8 @@ describe('an option used', () => {
   it('is one line of words, names without brackets', () => {
     expect(optionWords('The lamp fails:', '[[Edric]] hides his *failing* hands.')).toBe('The lamp fails — Edric hides his failing hands.')
     expect(optionWords('**The Salt Stair**', '')).toBe('The Salt Stair')
+    // A plain list's idea, titled by its first words: its words once (the old answer format, FORMAT off).
+    expect(optionWords('End on the line of…', 'End on the line of dialogue instead.')).toBe('End on the line of dialogue instead.')
   })
 
   it('goes at the end of the beats, and comes out again only as it went in', () => {

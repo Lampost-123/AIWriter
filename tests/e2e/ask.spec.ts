@@ -195,6 +195,11 @@ test('Ask the world’s answers in blocks: quick actions, option cards and what 
 
     // A quick action over the empty box starts the question.
     await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    // All four fit on the row in the panel's own width (short words there), with no scrolling sideways.
+    const row = panel(win).locator('[data-context-row]')
+    await expect(row.locator('[data-quick]')).toHaveCount(4)
+    expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await expect(row.locator('[data-quick="check"]')).toHaveText('Check', { useInnerText: true })
     await panel(win).locator('[data-context-row]').getByRole('button', { name: 'Brainstorm' }).click()
     await expect(box(win)).toHaveValue('Brainstorm ideas for ')
     await expect(box(win)).toBeFocused()

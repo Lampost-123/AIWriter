@@ -756,8 +756,9 @@ function AskProblem({ message, code, onRetry }: { message: string; code?: string
 
 // ---------- The box ----------
 
-const chip =
-  'inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[11.5px] leading-none whitespace-nowrap transition-[background-color,border-color,color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus'
+const chipBase =
+  'inline-flex h-6 items-center gap-1 rounded-full border text-[11.5px] leading-none whitespace-nowrap transition-[background-color,border-color,color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus'
+const chip = `${chipBase} px-2`
 
 /**
  * The row over the box, always the same height so the box never jumps: quick actions while the box is empty (each
@@ -797,15 +798,16 @@ function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) =
               aria-label={q.label}
               title={`${q.label}: start a question, “${q.fill.trim()}…”`}
               data-quick={q.kind}
-              className={cn(chip, 'group/quick shrink-0 border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
+              className={cn(chipBase, 'group/quick shrink-0 border-line px-1.5 text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
             >
               <Icon size={11} aria-hidden className={cn('shrink-0', STARTER_TEXT[q.kind])} />
+              {/* The row's room (inside its padding), measured: the full words take about 24.5rem, the short ones 17rem. */}
               {compact ? null : (
-                <span aria-hidden className="hidden @[27rem]/ctx:inline">
+                <span aria-hidden className="hidden @[25rem]/ctx:inline">
                   {q.label}
                 </span>
               )}
-              <span aria-hidden className={cn('hidden @[19rem]/ctx:inline', !compact && '@[27rem]/ctx:hidden')}>
+              <span aria-hidden className={cn('hidden @[17.5rem]/ctx:inline', !compact && '@[25rem]/ctx:hidden')}>
                 {q.short}
               </span>
             </button>

@@ -9,6 +9,8 @@ import { plainAnswer } from './citations'
 export function optionWords(title: string, why: string): string {
   const t = plainAnswer(title).replace(/[.:]\s*$/, '')
   const w = plainAnswer(why)
+  // An idea with no title of its own (a plain list) is titled by its first words and "…": its words alone, not twice.
+  if (w && t.endsWith('…') && w.startsWith(t.slice(0, -1).trimEnd())) return w
   return w ? `${t} — ${w}` : t
 }
 
