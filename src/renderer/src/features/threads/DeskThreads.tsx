@@ -21,7 +21,7 @@ import { useApp } from '@/lib/store'
 import { useWidth } from '@/features/builder/parts'
 import { useBoardStore } from '@/features/desk/board/boardStore'
 import { threadsIn, useBoardData } from '@/features/desk/board/StoryBoard'
-import { PlanArt } from '@/features/planning/PlanArt'
+import { EmptyArt } from '@/components/art/EmptyArt'
 import { PlanBand } from '@/features/planning/PlanShell'
 import { useDealDelay } from '@/features/planning/deal'
 import { StoryFilter } from '@/features/timeline/viewParts'
@@ -91,7 +91,7 @@ export function DeskThreads({ storyId, setStoryId, data, fallback, creating, cre
         ) : (
           <div className="th-scroll">
             <div className="th-empty">
-              <PlanArt name="threads" className="th-empty-art" />
+              <EmptyArt name="threads" className="th-empty-art" />
               <p className="plan-empty-t">No plot threads yet</p>
               <p className="plan-empty-s">
                 A plot thread is a question or promise your story opens and later pays off, like “Who burned the mill?” Make one, then mark the scenes
