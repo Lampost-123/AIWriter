@@ -496,6 +496,79 @@ test('the bar names the chapter and scene being read, and the binder marks them 
   }
 })
 
+test('another scene opened while it reads: it reads on unseen, Ctrl+L and stop work there, the highlight is back in its scene, and its end stops there', async ({
+  launch
+}) => {
+  test.setTimeout(120_000)
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    const [story] = await invoke(win, 'listStories')
+    const { chapters, scenes } = await invoke(win, 'getOutline', story.id)
+    const morning = await invoke(win, 'createScene', chapters[0].id, { title: 'Morning' })
+    await invoke(win, 'saveSceneText', scenes[0].id, null, SCENE.join('\n\n'))
+    await invoke(win, 'saveSceneText', morning.id, null, 'Morning came grey over the water.')
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true } })
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+    const morningRow = binder(win).locator('[data-row="scene"]', { hasText: 'Morning' })
+    const place = readingBar(win).getByRole('button', { name: 'Chapter 1 · Scene 1' })
+
+    await sceneRow(win).click()
+    await expect(prose(win)).toContainText(SCENE[0])
+    await prose(win).click()
+    await win.keyboard.press('Control+Home')
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Narrator', { timeout: 30_000 })
+    await expect(highlight(win).first()).toBeVisible()
+
+    // Another scene: the reading goes on (its next lines are asked for), named in the bar, with nothing lit in that page.
+    const asked = (await spoken(speech)).length
+    await morningRow.click()
+    await expect(prose(win)).toContainText('Morning came grey over the water.')
+    await expect(place).toBeVisible()
+    await expect.poll(async () => (await spoken(speech)).length, { timeout: 30_000 }).toBeGreaterThan(asked)
+    await expect(highlight(win)).toHaveCount(0)
+
+    // Ctrl+L pauses and carries on from there.
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Paused')
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).not.toContainText('Paused')
+
+    // The scene's name in the bar goes back to it: the line being read is lit again, further on than the first.
+    await place.click()
+    await expect(prose(win)).toContainText(SCENE[0])
+    await expect(highlight(win).first()).toBeVisible()
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Paused')
+    expect(await lit(win)).not.toContain('The lamps along the harbour wall')
+
+    // Its end while Adam is in another scene: it stops there, and Keep reading doesn't open the next scene.
+    await morningRow.click()
+    await expect(prose(win)).toContainText('Morning came grey over the water.')
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Read to the end of the scene.', { timeout: 30_000 })
+    await expect(prose(win)).toContainText('Morning came grey over the water.')
+    expect((await spoken(speech)).some((s) => s.input.includes('Morning came grey'))).toBe(false)
+
+    // The stop shortcut works from another scene too.
+    await sceneRow(win).click()
+    await expect(prose(win)).toContainText(SCENE[0])
+    await prose(win).click()
+    await win.keyboard.press('Control+Home')
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Narrator', { timeout: 30_000 })
+    await morningRow.click()
+    await expect(prose(win)).toContainText('Morning came grey over the water.')
+    await win.keyboard.press('Control+Shift+Space')
+    await expect(readingBar(win)).toContainText('Stopped.')
+  } finally {
+    await speech.close()
+  }
+})
+
 test('Mark who says what: the AI notes who says each line and how, and the bar shows it', async ({ launch }) => {
   test.setTimeout(120_000)
   const fake = await startFake()

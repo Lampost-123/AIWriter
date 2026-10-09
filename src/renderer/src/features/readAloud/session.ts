@@ -6,7 +6,9 @@
 // also plans again where each plan asks (markAhead.ts), so the AI's notes keep ahead of it. Back one line and Next
 // line step through the clips (a clip is one line: one voice's words, a sentence or a few). With sound effects on, the
 // sounds play under it (features/sounds/readingSounds.ts): each clip sets the ambience and times its sounds to its words.
+// While the page shows another scene it reads on from a copy of its own scene, heard but not shown (leavePage).
 import type { Editor } from '@tiptap/core'
+import type { EditorState } from '@tiptap/pm/state'
 import type { PlannedClip, ReadingRequest } from '@shared/contracts/readAloud'
 import type { ID } from '@shared/types'
 import { toast } from '@/components/ui'
@@ -99,6 +101,8 @@ export class Session {
   private span: { paragraph: number; paragraphs: number; before: number; length: number; total: number } | null = null
   private bar: ReadingBar = { phase: 'starting', who: '', how: '', note: 'Getting the first lines ready…', fix: null }
   private readonly offs: (() => void)[] = []
+  /** The scene's editor state when the page went to another scene (see leavePage); null while the page shows it. */
+  private away: EditorState | null = null
 
   constructor(
     readonly editor: Editor,
@@ -132,9 +136,55 @@ export class Session {
     return this.paused
   }
 
+  /** The scene's words and the reading's place in them: the page's, or the copy kept while the page shows another scene. */
+  private state(): EditorState {
+    return this.away ?? this.editor.state
+  }
+
+  /** Reading on while the page shows another scene. */
+  get isAway(): boolean {
+    return !!this.away
+  }
+
+  /**
+   * The page is about to show another scene: reading goes on from a copy of this scene's words as they are now, heard
+   * but not shown (no highlight, no following) until the page shows its scene again (backOnPage).
+   */
+  leavePage(): void {
+    if (this.away || this.editor.isDestroyed) return
+    this.away = this.editor.state
+    this.follow.cancel()
+    // The page's own highlight goes: the scene may come back from its editor as it was (a draft writing into it).
+    this.editor.view.dispatch(setReadingPlace(this.editor.state.tr, { sentence: null, clip: null }))
+  }
+
+  /**
+   * The page shows the scene again: the highlight comes back on the line being read. If the scene's words changed
+   * meanwhile (a draft wrote into it), the line is found again by its paragraph; if it can't be, reading goes on
+   * unseen, as it was.
+   */
+  backOnPage(): void {
+    const was = this.away
+    if (!was || this.editor.isDestroyed) return
+    this.away = null
+    if (!this.alive) return
+    if (was.doc.eq(this.editor.state.doc)) {
+      this.setPlace(readingPlace(was))
+      return
+    }
+    const at = this.current ? this.onPage(this.current) : null
+    if (!at) {
+      this.away = was
+      return
+    }
+    this.sentence = -1
+    this.setPlace({ clip: at, sentence: null })
+    this.replanSoon()
+  }
+
   /** Where reading is on the page now (mapped through Adam's edits). */
   place(): ReadingPlace {
-    return readingPlace(this.editor.state)
+    return readingPlace(this.state())
   }
 
   /**
@@ -196,7 +246,7 @@ export class Session {
     if (at && !this.stale) this.queue.unshift(...clips)
     else {
       // Its words changed, or the page did since the plan: planned again from where it starts (or its paragraph's start).
-      const p = pageParagraphs(this.editor.state.doc).find((x) => x.pid === clips[0].pid)
+      const p = pageParagraphs(this.state().doc).find((x) => x.pid === clips[0].pid)
       const from = at?.from ?? (p ? posIn(p, 0) : this.place().clip?.from)
       if (from == null) return
       this.setPlace({ clip: { from, to: from }, sentence: null })
@@ -280,7 +330,7 @@ export class Session {
 
   /** The request for reading from the place reading is at now, with the paragraphs' words as they stand. */
   private request(quick: boolean): { req: ReadingRequest; texts: Map<string, string> } {
-    const all = pageParagraphs(this.editor.state.doc)
+    const all = pageParagraphs(this.state().doc)
     const texts = new Map(all.map((p) => [p.pid, p.text]))
     const from = this.place().clip?.to
     const at = from == null ? null : placeOf(all, from)
@@ -339,7 +389,8 @@ export class Session {
 
   /** Adam edited the page: plan again from the words as they now stand. */
   private edited(): void {
-    if (!this.alive) return
+    // Edits in another scene's page are none of this reading's business.
+    if (!this.alive || this.away) return
     this.follow.hold()
     this.replanSoon()
   }
@@ -503,7 +554,7 @@ export class Session {
 
   /** Where a clip is on the page now; null when its paragraph's words have changed. */
   private onPage(clip: PlannedClip): { from: number; to: number } | null {
-    const p = pageParagraphs(this.editor.state.doc).find((x) => x.pid === clip.pid)
+    const p = pageParagraphs(this.state().doc).find((x) => x.pid === clip.pid)
     if (!p || p.text !== this.texts.get(clip.pid)) return null
     return { from: posIn(p, clip.from), to: posIn(p, clip.to) }
   }
@@ -544,7 +595,7 @@ export class Session {
 
   /** Where a clip is in the scene's words: its paragraph's number (of those with words), and the words before it. */
   private measure(clip: PlannedClip): Session['span'] {
-    const all = pageParagraphs(this.editor.state.doc).filter((p) => hasWords(p))
+    const all = pageParagraphs(this.state().doc).filter((p) => hasWords(p))
     const i = all.findIndex((p) => p.pid === clip.pid)
     if (i < 0) return null
     const total = all.reduce((n, p) => n + p.text.length, 0)
@@ -586,7 +637,7 @@ export class Session {
   }
 
   private followTo(pos: number): void {
-    if (!useApp.getState().settings?.speech.followAlong || useApp.getState().view.kind !== 'write') return
+    if (this.away || !useApp.getState().settings?.speech.followAlong || useApp.getState().view.kind !== 'write') return
     try {
       this.follow.bring(this.editor.view.coordsAtPos(pos).top)
     } catch {
@@ -638,6 +689,11 @@ export class Session {
   }
 
   private setPlace(place: Partial<ReadingPlace>): void {
+    // Away: the place moves on in the kept copy, out of sight.
+    if (this.away) {
+      this.away = this.away.apply(setReadingPlace(this.away.tr, place))
+      return
+    }
     if (this.editor.isDestroyed) return
     this.editor.view.dispatch(setReadingPlace(this.editor.state.tr, place))
   }
