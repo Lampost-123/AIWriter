@@ -309,6 +309,44 @@ test('the player bar: Next line and Back one line, the speed, and Emotion and to
   }
 })
 
+test('on the desk, the AI dock sits above the player bar at the foot of the page, never over it, in a wide or a narrow window', async ({
+  launch
+}) => {
+  test.setTimeout(120_000)
+  const speech = await startSpeech()
+  try {
+    const { win, app } = await launch({ env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk' } })
+    // The sample world (the desk has no binder for createWorldFromWelcome to wait for).
+    await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+    await invoke(win, 'openSampleWorld')
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true } })
+    await win.reload()
+    await expect(prose(win)).toContainText('A hundred and twelve steps to the lamp room.')
+    await prose(win).click()
+    await win.keyboard.press('Control+Home')
+    await win.keyboard.press('Control+l')
+    const bar = readingBar(win)
+    const dock = win.getByRole('toolbar', { name: 'AI dock' })
+    await expect(bar).toContainText('Narrator', { timeout: 30_000 })
+    await expect(dock).toBeVisible()
+    // The dock's foot is above the bar's top (the lift glides in, so it is polled).
+    const clear = async (): Promise<number> => {
+      const [d, b] = [await dock.boundingBox(), await bar.boundingBox()]
+      return d && b ? b.y - (d.y + d.height) : -1
+    }
+    await expect.poll(clear).toBeGreaterThanOrEqual(8)
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(820, 640))
+    await expect.poll(clear).toBeGreaterThanOrEqual(8)
+    // Closed, the dock goes back down to the foot of the page.
+    const before = (await dock.boundingBox())!.y
+    await bar.getByRole('button', { name: 'Close' }).click()
+    await expect(bar).toHaveCount(0)
+    await expect.poll(async () => (await dock.boundingBox())!.y).toBeGreaterThan(before + 30)
+  } finally {
+    await speech.close()
+  }
+})
+
 test('Settings: Hear a voice, Sample, pick the narrator, clear saved audio; Listen from here reads in that voice', async ({ launch }) => {
   test.setTimeout(120_000)
   const speech = await startSpeech()

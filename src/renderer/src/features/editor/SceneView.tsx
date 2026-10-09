@@ -403,7 +403,12 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       {/* The desk: the AI dock floats at the foot of the sheet, where the AI is asked to write (the panels have Generate in
           the scene's toolbar above the page). The keys the panels' toolbar carries are heard by DeskSceneKeys. */}
       {desk && shown && !error ? (
-        <div className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center" style={overSheet}>
+        // While read aloud's bar floats at the foot of the page, the dock sits just above it (--read-aloud-lift, set by
+        // ReadAloudBar), never over it.
+        <div
+          className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-[calc(1rem+var(--read-aloud-lift,0px))] z-20 flex justify-center transition-[bottom] duration-150 ease-out motion-reduce:transition-none"
+          style={overSheet}
+        >
           <div className="flex w-full flex-col items-center gap-3" style={{ maxWidth: Math.min(640, frame.sheetW - 48) }}>
             <NextBeatChip sceneId={shown.id} fallbackStatus={shown.status} />
             <Dock

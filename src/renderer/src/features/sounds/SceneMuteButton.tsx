@@ -33,7 +33,7 @@ export function SceneMuteButton({ sceneId }: { sceneId: ID | null }): React.JSX.
       title={muted ? 'The sounds in this scene are muted. Press to hear them again.' : 'Mute sounds in this scene'}
       onClick={() => void setSceneMuted(sceneId, !muted)}
       className={cn(
-        'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border outline-none transition-colors duration-150',
+        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border outline-none transition-colors duration-150',
         'focus-visible:ring-2 focus-visible:ring-accent/50',
         muted
           ? 'border-line-strong bg-surface-2 text-muted hover:text-fg'

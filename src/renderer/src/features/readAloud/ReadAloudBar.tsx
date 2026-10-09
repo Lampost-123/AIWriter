@@ -120,16 +120,24 @@ export function ReadAloudBar({
     const el = box.current
     const page = scrollerRef.current
     if (!open || !el) return
+    // On the desk the AI dock also floats at the foot of the sheet: it is lifted clear of the bar (--read-aloud-lift,
+    // read by SceneView), and the room kept for the line being read takes in the dock too.
+    const sheet = el.closest<HTMLElement>('.scene-sheet')
+    const dock = atFoot ? sheet?.querySelector<HTMLElement>('[data-desk-dock]') : null
     const room = (): void => {
-      const px = el.offsetHeight + (atFoot ? 16 : 0)
+      const bar = el.offsetHeight
+      sheet?.style.setProperty('--read-aloud-lift', `${atFoot ? bar + 12 : 0}px`)
+      const px = bar + (atFoot ? 16 : 0) + (dock ? dock.offsetHeight + 12 : 0)
       setBarRoom(px, atFoot ? 'bottom' : 'top')
       if (page) page.style[atFoot ? 'scrollPaddingBottom' : 'scrollPaddingTop'] = `${px}px`
     }
     room()
     const ro = new ResizeObserver(room)
     ro.observe(el)
+    if (dock) ro.observe(dock)
     return () => {
       ro.disconnect()
+      sheet?.style.removeProperty('--read-aloud-lift')
       setBarRoom(0)
       if (page) {
         page.style.scrollPaddingTop = ''
@@ -155,7 +163,10 @@ export function ReadAloudBar({
       >
         <div className="flex min-h-12 items-center gap-2 pb-[3px] pl-2 pr-1.5 @min-[560px]:gap-3 @min-[560px]:pl-3">
           {player ? <Transport bar={shown} /> : null}
+          {/* Thin rules part the buttons, the words and the settings, when the bar has room for them. */}
+          {player ? <Rule /> : null}
           <Words bar={shown} />
+          {player ? <Rule /> : null}
           {player ? (
             <div className="flex shrink-0 items-center gap-1.5">
               {/* Sound effects: mute the scene being read (only while they are on). */}
@@ -173,6 +184,11 @@ export function ReadAloudBar({
 }
 
 // ---------- The buttons ----------
+
+/** A thin upright rule between the bar's groups; hidden in a narrow bar. */
+function Rule(): React.JSX.Element {
+  return <span aria-hidden className="hidden h-6 w-px shrink-0 bg-line @min-[560px]:block" />
+}
 
 /** A round button in the bar: coloured with the accent, its name as a tooltip. */
 function RoundButton({
@@ -394,8 +410,8 @@ function SpeedMenu(): React.JSX.Element {
         aria-label={`Speed: ${speedText(speed)}`}
         title="Reading speed"
         className={cn(
-          'flex h-7 shrink-0 items-center gap-0.5 rounded-full border border-accent/35 bg-page px-2 text-[12.5px] font-semibold tabular-nums text-accent',
-          'outline-none transition-colors duration-150 hover:border-accent/70 focus-visible:ring-2 focus-visible:ring-accent/50 data-[state=open]:border-accent'
+          'flex h-8 shrink-0 items-center gap-0.5 rounded-full border border-accent/35 bg-page px-2.5 text-[12.5px] font-semibold tabular-nums text-accent',
+          'outline-none transition-colors duration-150 hover:border-accent/70 hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-accent/50 data-[state=open]:border-accent'
         )}
       >
         {speedText(speed)}
@@ -447,7 +463,7 @@ function ToneChip(): React.JSX.Element | null {
         aria-label={`Emotion and tone: ${onOff(on)}`}
         title={toneTooltip(speech)}
         className={cn(
-          'flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[12px] font-medium outline-none transition-colors duration-150',
+          'flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium outline-none transition-colors duration-150',
           'focus-visible:ring-2 focus-visible:ring-accent/50',
           on
             ? 'border-ai/40 bg-ai-soft text-ai hover:border-ai/70 data-[state=open]:border-ai'
