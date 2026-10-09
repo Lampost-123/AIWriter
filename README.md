@@ -20,8 +20,9 @@ so chapter forty still agrees with chapter one.
 </div>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="AI Write with a scene open, the binder on the left and the scene card on the right" width="900">
+  <img src="docs/images/hero.png" alt="AI Write's desk: the story's spine on the left, the page in the middle and the AI dock at its foot" width="900">
 </p>
+<p align="center"><sub><b>The desk</b>: your chapters and scenes down the story's spine, the page in the middle, the AI dock at its foot, and four rooms in the top bar: <b>Write</b>, <b>Plan</b>, <b>World</b> and <b>Check</b>.</sub></p>
 
 ## Why AI Write
 
@@ -49,8 +50,8 @@ beside the words, so that doesn't happen.
 <tr>
 <td width="50%">
 
-- Press **Generate** and the AI drafts the scene from its scene card, in your style, from your world's memory.
-- **Continue from the cursor**, write **Beat by beat**, or compare two or three drafts with **Variants side by side**.
+- The **AI dock** under the page: **Draft the scene** from its card, **Continue** (Ctrl+Shift+Enter) from the end of the scene, or **Add below**. Type in **Steer the next bit…** to point it somewhere.
+- Under **More**: **Rewrite the scene**, **Fresh take**, **Draft three** to compare versions, and **Beat by beat**.
 - Select some words to **Rewrite**, **Expand**, **Condense**, make them **More vivid**, **Change tone** or **Fix voice**. Each change shows in the page for you to accept or reject.
 - **What the AI saw** shows exactly what was sent for any draft.
 
@@ -64,9 +65,9 @@ beside the words, so that doesn't happen.
 </table>
 
 <p align="center">
-  <img src="docs/images/variants.png" alt="Three variants of a scene side by side, each with Use this one" width="900">
+  <img src="docs/images/variants.png" alt="Three drafts of a scene side by side, each with Use this one" width="900">
 </p>
-<p align="center"><sub><b>Variants</b>: two or three drafts side by side. Use one whole, or click paragraphs to take the best of each.</sub></p>
+<p align="center"><sub><b>Draft three</b>: two or three drafts side by side. Use one whole, or click paragraphs to take the best of each.</sub></p>
 
 ### A world that remembers
 
@@ -74,14 +75,14 @@ beside the words, so that doesn't happen.
 <tr>
 <td width="50%">
 
-<img src="docs/images/world-entry.png" alt="A character's page in the world">
+<img src="docs/images/world-gallery.png" alt="The World room: every character as a portrait card, then places, groups, lore and plot threads">
 
 </td>
 <td width="50%">
 
-- Characters, places, groups, items, lore, events, plot threads and a glossary, each with its own page.
+- The **World** room shows characters, places, groups, items, lore, events, plot threads and a glossary as cards. Click one to open its page.
 - **View as of a scene** shows any page as it stood at that point in the story.
-- Build characters with **Quick start**, **Flesh out with AI**, or an **Interview** where they answer in their own voice.
+- **Build with AI** opens the character builder: **Quick start**, **Flesh out with AI**, or an **Interview** where they answer in their own voice.
 - Describe your world in a few paragraphs and **Build the world from a summary** lays it all out.
 - A **Timeline** and a **Relationship map** show how it fits together.
 
@@ -90,6 +91,18 @@ beside the words, so that doesn't happen.
 </table>
 
 <table>
+<tr>
+<td width="50%">
+
+<img src="docs/images/world-entry.png" alt="Wren Halloway's page, opened from her card">
+
+</td>
+<td width="50%">
+
+<img src="docs/images/builder.png" alt="The character builder, step by step">
+
+</td>
+</tr>
 <tr>
 <td width="50%">
 
@@ -118,7 +131,7 @@ beside the words, so that doesn't happen.
 </td>
 <td width="50%">
 
-<img src="docs/images/consistency.png" alt="The Consistency page with issues found in a story">
+<img src="docs/images/consistency.png" alt="The Check room: the story's issues, chapter by chapter">
 
 </td>
 </tr>
@@ -128,7 +141,7 @@ beside the words, so that doesn't happen.
 <tr>
 <td width="50%">
 
-<img src="docs/images/story-memory.png" alt="Recall in the Cast tab, showing where each character is">
+<img src="docs/images/story-memory.png" alt="Recall in the scene panel's Cast tab, showing where each character is">
 
 </td>
 <td width="50%">
@@ -145,15 +158,28 @@ beside the words, so that doesn't happen.
 <tr>
 <td width="50%">
 
-<img src="docs/images/outline.png" alt="The outline helper suggesting acts and chapters">
+<img src="docs/images/story-board.png" alt="The story board: every scene as an index card, a column for each chapter, plot threads as strings">
 
 </td>
 <td width="50%">
 
+- The **Plan** room opens on the **Story board**: every scene as an index card, a column for each chapter, with the plot threads as strings.
 - The **Outline helper** suggests acts, chapters and scenes from your premise.
 - **Ideas for this scene** offers three directions when you're stuck, and **Interview me about this scene** asks the questions that fill in its card.
-- **Ask the world** is a chat beside the page that answers from your story's memory, and can propose new entries for you to **Apply**.
+- **Ask the world** (in the dock's **More** menu) is a chat beside the page that answers from your story's memory, and can propose changes for you to **Apply**.
 - Start sequels, side stories and prequels that know what came before. **Story recipes** borrow the shape and style of a story you admire, without its words.
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+<img src="docs/images/outline.png" alt="The outline helper suggesting chapters and scenes">
+
+</td>
+<td width="50%">
+
+<img src="docs/images/story-home.png" alt="The story home: the book, its chapters, open threads, the cast and this week's writing">
 
 </td>
 </tr>
@@ -199,10 +225,13 @@ beside the words, so that doesn't happen.
 </table>
 
 <p align="center">
+  <img src="docs/images/setup.png" alt="The first-run setup: connect an AI service" width="49%">
   <img src="docs/images/start-screen.png" alt="The start screen with worlds and stories" width="49%">
+</p>
+<p align="center">
   <img src="docs/images/look-classic.png" alt="AI Write in the Classic look" width="49%">
 </p>
-<p align="center"><sub>The start screen, and the same app in the <b>Classic</b> look. Every picture here uses the Dark theme; there are Light and Sepia themes too.</sub></p>
+<p align="center"><sub>The first-run setup, the start screen, and the same app in the <b>Classic</b> look. If you prefer the areas down the side and the scene panel beside the page, choose <b>Panels</b> in <b>Settings › Appearance › Layout</b>. Every picture here uses the Dark theme, the default; there are Light and Sepia themes too.</sub></p>
 
 ## Quick start
 
@@ -212,7 +241,7 @@ beside the words, so that doesn't happen.
 3. **Look round first, if you like.** Choose **Explore a sample world first** to open Gullhaven, a short finished story
    with its characters, places and memory filled in. Nothing in it costs anything.
 4. **Connect an AI service.** We recommend **DeepSeek**: make a key at [platform.deepseek.com](https://platform.deepseek.com)
-   and choose **Use another provider** › **DeepSeek**, or use an [OpenRouter](https://openrouter.ai/keys) key, which
+   and choose **DeepSeek** under the other services, or use an [OpenRouter](https://openrouter.ai/keys) key, which
    reaches DeepSeek and hundreds of other models. (Or choose **Skip for now**.)
 5. **Pick a writer model.** We recommend **DeepSeek Flash**. Choose how your stories should read, and start writing.
 

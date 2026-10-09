@@ -43,7 +43,7 @@ connection at any time.
 | "This model refused the scene." or "turned the request down" | Some models refuse certain content. Try another model in **Settings › Models**. |
 | "The writer model used up its room thinking and wrote nothing." | Try again, or set the writer's **Thinking** lower (or **Off**) in **Settings › Models**. |
 | "The briefing and the length you asked for are too much for this model together." | Lower the **Length** in the draft options, shorten the scene card, or pick a model that can read more. |
-| "The connection … dropped before the draft was finished. The text that arrived is kept." | Click **Generate** again with **Add below** to carry on, or try again later. |
+| "The connection … dropped before the draft was finished. The text that arrived is kept." | Click **Continue** or **Add below** in the AI dock to carry on, or try again later. |
 | "This model can't use the tools the editor chat needs …" | Ask the world needs a model that can use tools. Choose another **Chat and brainstorm model**; most Claude, GPT, DeepSeek and Gemini models can. |
 
 **Drafts don't sound like me.**

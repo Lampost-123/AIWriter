@@ -4,9 +4,9 @@ Your world is everything the AI should remember: the people, the places, the his
 its own page, called an entry. The AI reads the entries that matter before every scene, and the memory keeps them
 up to date as you write.
 
-You'll find it all under **World** on the left (in the **Classic** look, in the binder's **World** section).
+You'll find it all in the **World** room, in the top bar (in the **Classic** look, in the binder's **World** section).
 
-<p align="center"><img src="../images/world-entry.png" alt="Wren Halloway's page in the sample world" width="800"></p>
+<p align="center"><img src="../images/world-gallery.png" alt="The World room: the characters as portrait cards, then the places" width="800"></p>
 
 ## What a world holds
 
@@ -21,15 +21,21 @@ You'll find it all under **World** on the left (in the **Classic** look, in the 
 | **Plot threads** | Open questions, like "What is in the sealed letter?" |
 | **Glossary** | Words and terms special to your world |
 
-## Browse everything in the Codex
+## Browse everything
 
-The **Codex** is "Everything the AI remembers about your world." Use **Search the codex** to find an entry, filter
-by kind, tag, story or role, and change the order with **Sort by**. Click any entry to open its page.
+The World room opens on **Everything**: a card for each entry, the characters as portraits. The tabs along the top
+show one kind at a time (**By kind** in the room's links does the same). Use **Find in the world** to find an entry,
+**Filters** for tag, role or story, and **Order** to sort them.
+
+Click a card to open its page over the room. Each part of the page has its own **Edit** button. **Back to the world**
+(or Esc) closes it.
+
+<p align="center"><img src="../images/world-entry.png" alt="Wren Halloway's page, opened from her card" width="800"></p>
 
 ## Add an entry by hand
 
-1. Open the kind you want under **World** (for example, Characters).
-2. Click **New character** (or **New place**, and so on).
+1. In the World room, click **New entry**.
+2. Choose the kind (for example, a character).
 3. Fill in what you know: the name, **Aliases** (other names the story uses), a **Short summary**, a
    **Description** and any tags. Leave the rest empty if you like.
 
@@ -47,8 +53,11 @@ Select a name in a scene and use the bar above it:
 
 ## Build a character with AI
 
-The character builder works for characters, places, groups and items. Open it from an entry with
-**Open in the builder**, or search (Ctrl+K) for **Quick start a character**.
+The character builder works for characters, places, groups and items. Open it from an entry's page with
+**Build with AI**, from **New entry** (**Build a character with AI**, and so on), from the empty card
+**Build a character with AI** after the characters, or search (Ctrl+K) for **Quick start a character**.
+
+<p align="center"><img src="../images/builder.png" alt="The character builder on its Basics step" width="800"></p>
 
 ### Quick start
 
@@ -79,7 +88,7 @@ On an entry's page, click the picture to choose an image, or drop one onto it.
 
 If you already know your world, describe it and let the AI lay it out.
 
-1. Under **World**, choose **Build from a summary**.
+1. In the World room, choose **Build from a summary** in the room's links.
 2. Type or paste your description into **Your summary**: a paragraph or a few pages.
 3. Click **Build the world** (Ctrl+Enter).
 
@@ -120,9 +129,9 @@ Every entry has **Private notes (never sent to the AI)**, for ideas you're not r
 - The **Relationship map** shows how your characters are tied to each other, and how each feels about it. Move the
   slider to see it at any point in the story.
 - The **Timeline** shows scenes and events in the order they happen in your world. Dates come from the **When** box
-  on each scene card. Choose **Lanes for** characters or plot threads. It warns you if a character is in two places
+  on each scene card. Show lanes for **Characters** or **Plot threads**, by day or by chapter. It warns you if a character is in two places
   at once.
-- The **Plot threads board** shows every thread as **Open**, **Resolved** or **Planned**.
+- The **Plot threads board** (in the **Plan** room) shows every thread as **Open**, **Resolved** or **Planned**.
 
 ## Names in your scenes
 

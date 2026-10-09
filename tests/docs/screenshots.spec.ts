@@ -4,8 +4,9 @@
 //   DOCS_SHOTS=hero,ask npm run docs:screenshots   only those (names without .png)
 //   DOCS_THEME=light npm run docs:screenshots      another theme (dark, light or sepia)
 //
-// Every shot is in the Dark theme by default (Settings › Appearance › Theme, set in the app's own settings), Classic
-// and the start screen included, and so is the social preview card (social-preview.png, 1280 x 640).
+// The shots show the New look's desk layout (its rooms Write, Plan, World and Check), except look-classic.png (Classic).
+// Every shot is in the Dark theme by default (Settings › Appearance › Theme, set in the app's own settings), Classic,
+// the start screen and the first-run setup included, and so is the social preview card (social-preview.png, 1280 x 640).
 //
 // Not part of the app tests or CI: it has its own config (tests/docs/playwright.config.ts) and the main
 // playwright.config.ts only looks in tests/e2e. Everything is invented and nothing costs anything:
@@ -45,19 +46,29 @@ const want = (name: string): boolean => !wanted.length || wanted.includes(name)
 
 const ENV = {
   AIWRITE_LOOK: 'new',
-  // The README's pictures show the panels (the desk is the New look's default now; its own pictures are still to take).
-  AIWRITE_ARRANGEMENT: 'panels',
+  // The README's pictures show the desk, the New look's default layout (0.6.42).
+  AIWRITE_ARRANGEMENT: 'desk',
   // The memory doesn't read on its own while the shots are taken, and no check runs after a draft.
   AIWRITE_KEEPER_QUIET_MS: '600000',
   AIWRITE_AFTER_DRAFT_MS: '600000'
 }
 
-const rail = (win: Page) => win.getByRole('navigation', { name: 'Areas' })
-const area = (win: Page, name: string) => rail(win).getByRole('button', { name, exact: true })
-const list = (win: Page) => win.locator('[data-area-list]')
+/** The desk's rooms (Write, Plan, World, Check), in the middle of the top bar. */
+const room = (win: Page, name: string) => win.getByRole('navigation', { name: 'Rooms' }).getByRole('button', { name: new RegExp(`^${name}`) })
+/** The room's frame: its name, its row of links and its sheet. */
+const roomFrame = (win: Page) => win.locator('[data-desk-room]')
+const roomLink = (win: Page, name: string | RegExp) => roomFrame(win).getByRole('button', { name }).first()
 const main = (win: Page) => win.locator('main')
 const prose = (win: Page) => win.locator('.scene-prose')
-const scenePanel = (win: Page) => win.getByRole('complementary', { name: 'Scene panel' })
+/** The story's spine (full): the binder's chapters and scenes. */
+const spine = (win: Page) => win.getByRole('complementary', { name: 'Chapters and scenes' })
+/** The scene drawer (the scene panel), down the right edge. */
+const drawer = (win: Page) => win.locator('aside.desk-drawer')
+const dock = (win: Page) => win.getByRole('toolbar', { name: 'AI dock' })
+const gallery = (win: Page) => win.locator('[data-world-gallery]')
+const card = (win: Page, name: string) =>
+  gallery(win).locator('[data-gallery-card]').filter({ has: win.locator('.g-name, .g-title', { hasText: name }) }).first()
+const dossier = (win: Page) => win.getByRole('dialog').filter({ has: win.locator('.dz') })
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
 
 async function sizeWindow(app: ElectronApplication, win: Page): Promise<void> {
@@ -155,12 +166,25 @@ const scene = async (win: Page, title: string): Promise<string> => {
   return s.id
 }
 
-/** Opens a scene in the Write area from its list. */
+/** Opens a scene in the Write room from the story's spine. */
 async function openScene(win: Page, title: string): Promise<void> {
-  if ((await area(win, 'Write').getAttribute('aria-current')) !== 'page') await area(win, 'Write').click()
-  await list(win).getByRole('treeitem', { name: new RegExp(title) }).click()
+  if (!(await spine(win).isVisible())) await room(win, 'Write').click()
+  await spine(win).getByRole('treeitem', { name: new RegExp(title) }).click()
   await expect(win.locator('[data-page-title]')).toContainText(title)
   await expect(prose(win)).toBeVisible()
+}
+
+/** Shows or hides the scene drawer (the top bar's Scene details). */
+async function showDrawer(win: Page, open: boolean): Promise<void> {
+  if ((await drawer(win).isVisible()) !== open) await win.locator('[data-desk-topbar]').getByRole('button', { name: /^Scene details/ }).click()
+  if (open) await expect(drawer(win)).toBeVisible()
+  else await expect(drawer(win)).toBeHidden()
+}
+
+/** Picks an item in the AI dock's More menu. */
+async function dockMenu(win: Page, item: string): Promise<void> {
+  await dock(win).getByRole('button', { name: /^More ways to write/ }).click()
+  await win.getByRole('menu').getByRole(/Ask/.test(item) ? 'menuitemcheckbox' : 'menuitem', { name: item }).click()
 }
 
 /** Scrolls the scroller holding the words `near` by `by` pixels (written as a script: this file is typed for Node). */
@@ -174,7 +198,8 @@ async function scrollMain(win: Page, near: string, by: number): Promise<void> {
 }
 
 async function panelTab(win: Page, name: string | RegExp): Promise<void> {
-  await scenePanel(win).getByRole('tab', { name }).click()
+  await showDrawer(win, true)
+  await drawer(win).getByRole('tab', { name }).click()
 }
 
 /** Invented beats for the sample's scene cards. */
@@ -323,93 +348,105 @@ test('docs screenshots', async () => {
     await expect(prose(win)).toContainText('A hundred and twelve steps to the lamp room.')
     await expect(win.getByRole('region', { name: 'Sample world' })).toHaveCount(0)
 
+    // The writing room: the spine, the page in the middle with its margin notes, the AI dock at its foot.
     await take('hero', async () => {
       await openScene(win, 'Lighting the Lamp')
-      await panelTab(win, 'Scene card')
+      await showDrawer(win, false)
+      await expect(dock(win)).toBeVisible()
       await shot(app, win, 'hero')
-    })
-
-    // GitHub's social preview card, drawn from a small page of its own in a hidden window, with part of hero.png.
-    await take('social', async () => {
-      const file = join(dataDir, 'social-preview.html')
-      writeFileSync(file, socialPage(ROOT, THEME))
-      const card = await app.evaluate(async ({ BrowserWindow }, path) => {
-        const w = new BrowserWindow({ show: false, width: 1280, height: 640, useContentSize: true, webPreferences: { offscreen: true } })
-        try {
-          await w.loadFile(path)
-          await w.webContents.executeJavaScript('document.fonts.ready.then(() => Promise.all([...document.images].map((i) => i.decode())))')
-          await new Promise((r) => setTimeout(r, 800))
-          let img = await w.webContents.capturePage()
-          if (img.getSize().width !== 1280 || img.getSize().height !== 640) img = img.resize({ width: 1280, height: 640, quality: 'best' })
-          return { bitmap: img.toBitmap().toString('base64'), width: img.getSize().width, height: img.getSize().height }
-        } finally {
-          w.destroy()
-        }
-      }, file)
-      const bitmap = Buffer.from(card.bitmap, 'base64')
-      let out = encodePng(bitmap, card.width, card.height)
-      if (out.length > 1000 * 1024) out = encodePng(bitmap, card.width, card.height, { colours: 256 })
-      writeFileSync(join(IMAGES, 'social-preview.png'), out)
-      console.log(`saved social-preview.png (${card.width}x${card.height}, ${Math.round(out.length / 1024)} KB)`)
     })
 
     await take('ai-writing', async () => {
       await openScene(win, 'Low Tide')
+      await showDrawer(win, false)
       holdContinue = true
-      await prose(win).locator('p').last().click()
-      await win.keyboard.press('Control+End')
-      await win.keyboard.press('Control+k')
-      await win.getByRole('combobox', { name: 'Search, or find an action' }).fill('Continue from the cursor')
-      await win.getByRole('option', { name: /Continue from the cursor/ }).click()
+      // Continue (Ctrl+Shift+Enter): the AI writes on from the end of the scene; the dock says it is writing.
+      await dock(win).getByRole('button', { name: /^Continue/ }).click()
       await expect(prose(win).locator('.aw-sugg-words').first()).toBeVisible()
       await expect(prose(win)).toContainText('Above them the tower stood white', { timeout: 30_000 })
-      await win.waitForTimeout(400)
-      // The new words in view, the end of the scene before them.
-      // The new words in view, with the bar that says it is still writing just under them.
-      await win.evaluate(`(() => {
-        const bar = [...document.querySelectorAll('[role="group"]')].find((g) => g.getAttribute('aria-label') === 'The AI’s change')
-        let box = document.querySelector('.scene-prose').parentElement
-        while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement
-        if (bar && box) box.scrollTop += bar.getBoundingClientRect().bottom - box.getBoundingClientRect().bottom + 70
-      })()`)
+      await win.waitForTimeout(1500)
       await shot(app, win, 'ai-writing')
       holdContinue = false
       ai.release()
-      const change = win.getByRole('group', { name: 'The AI’s change' })
-      await expect(change.getByRole('button', { name: /^Reject/ })).toBeVisible({ timeout: 30_000 })
-      await expect(change.getByRole('button', { name: /^Stop/ })).toHaveCount(0, { timeout: 30_000 })
-      await change.getByRole('button', { name: /^Reject/ }).click()
+      // Written: Reject on the dock (Esc).
+      await expect(dock(win).getByRole('button', { name: /^Reject/ })).toBeVisible({ timeout: 30_000 })
+      await dock(win).getByRole('button', { name: /^Reject/ }).click()
+      await expect(dock(win).getByRole('button', { name: /^Continue/ })).toBeVisible({ timeout: 30_000 })
     })
 
     await take('story-memory', async () => {
       await openScene(win, 'Lighting the Lamp')
       const sceneId = await scene(win, 'Lighting the Lamp')
       await invoke(win, 'refreshRecall', sceneId)
-      await panelTab(win, 'Cast')
-      const again = scenePanel(win).getByRole('region', { name: 'Recall' }).getByRole('button', { name: /Read again|Work it out/ })
+      await panelTab(win, /^Cast/)
+      const recall = drawer(win).getByRole('region', { name: 'Recall' })
+      const again = recall.getByRole('button', { name: /Read again|Work it out/ })
       if (await again.count()) await again.first().click()
-      const recall = scenePanel(win).getByRole('region', { name: 'Recall' })
       await expect(recall.locator('[data-recall-character="Edric Halloway"]')).toContainText('great glass', { timeout: 30_000 })
       await recall.scrollIntoViewIfNeeded()
       await shot(app, win, 'story-memory')
+      await showDrawer(win, false)
+    })
+
+    // The story's home: the lamp mark at the top left.
+    await take('story-home', async () => {
+      await win.getByRole('button', { name: 'Story home' }).click()
+      await expect(win.locator('[data-desk-home]')).toBeVisible()
+      await win.waitForTimeout(1500)
+      await shot(app, win, 'story-home')
+    })
+
+    // The Plan room's front page: the story board.
+    await take('story-board', async () => {
+      await room(win, 'Plan').click()
+      await expect(win.locator('[data-desk-board]')).toBeVisible()
+      await expect(win.locator('[data-board-card]').first()).toBeVisible()
+      await win.waitForTimeout(1500)
+      await shot(app, win, 'story-board')
     })
 
     await take('consistency', async () => {
-      await area(win, 'Check').click()
-      await list(win).getByRole('button', { name: 'Consistency' }).click()
-      await expect(main(win).getByRole('heading', { level: 1, name: 'Consistency' })).toBeVisible()
-      await expect(main(win).locator('[data-issue]').first()).toBeVisible()
+      await room(win, 'Check').click()
+      await roomLink(win, 'Consistency').click()
+      await expect(roomFrame(win).locator('[data-issue]').first()).toBeVisible()
+      await win.waitForTimeout(1000)
       await shot(app, win, 'consistency')
     })
 
+    // The World room: everything as cards, the characters as portraits.
+    await take('world-gallery', async () => {
+      await room(win, 'World').click()
+      await roomLink(win, /^Everything/).click()
+      await expect(gallery(win)).toBeVisible()
+      await expect(card(win, 'Wren Halloway')).toBeVisible()
+      await win.waitForTimeout(1500)
+      await shot(app, win, 'world-gallery')
+    })
+
+    // A card opened as its dossier.
     await take('world-entry', async () => {
-      await area(win, 'World').click()
-      await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
-      await main(win).getByRole('button', { name: 'Wren Halloway', exact: true }).first().click()
-      await expect(main(win).getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Wren Halloway')
-      const looks = main(win).getByRole('button', { name: /^Looks/ })
-      if ((await looks.getAttribute('aria-expanded')) === 'false') await looks.click()
+      await room(win, 'World').click()
+      await expect(gallery(win)).toBeVisible()
+      await card(win, 'Wren Halloway').click()
+      await expect(dossier(win)).toBeVisible()
+      await expect(dossier(win).getByRole('textbox', { name: 'Name' })).toHaveValue('Wren Halloway')
+      await win.waitForTimeout(1200)
       await shot(app, win, 'world-entry')
+      await win.keyboard.press('Escape')
+      await expect(dossier(win)).toHaveCount(0)
+    })
+
+    // The character builder, from a dossier's Build with AI.
+    await take('builder', async () => {
+      await room(win, 'World').click()
+      await expect(gallery(win)).toBeVisible()
+      await card(win, 'Iska Vey').click()
+      await expect(dossier(win)).toBeVisible()
+      await dossier(win).getByRole('button', { name: 'Build with AI' }).click()
+      await expect(win.locator('.bld').getByRole('heading', { level: 1 })).toHaveText('Basics')
+      await win.waitForTimeout(1000)
+      await shot(app, win, 'builder')
+      await room(win, 'Write').click()
     })
 
     // The start screen has its own data folder (the sample world kept as it comes).
@@ -431,22 +468,46 @@ test('docs screenshots', async () => {
       }
     })
 
+    // The first-run setup, on a fresh install: its second step, connecting an AI service.
+    await take('setup', async () => {
+      await open!.close()
+      const setupDir = newDataDir()
+      made.push(setupDir)
+      const s = await launchApp({ dataDir: setupDir, env: { ...ENV, AIWRITE_SETUP: 'on', AIWRITE_THEME: THEME } })
+      try {
+        await sizeWindow(s.app, s.win)
+        await expect(s.win.getByRole('heading', { name: 'Name your world', exact: true })).toBeVisible()
+        await s.win.getByLabel('World name').fill(SALT_ROAD.name)
+        await s.win.getByRole('button', { name: 'Continue', exact: true }).click()
+        await expect(s.win.getByRole('heading', { name: 'Connect an AI service', exact: true })).toBeVisible()
+        await s.win.waitForTimeout(1200)
+        await shot(s.app, s.win, 'setup')
+      } finally {
+        await s.close()
+        open = await reopen(dataDir)
+        ;({ app, win } = open)
+        await expect(prose(win)).toBeVisible()
+      }
+    })
+
+    // Ask the world, from the dock's More menu.
     await take('ask', async () => {
       await openScene(win, 'What the Letter Said')
-      await area(win, 'Ask').click()
+      await dockMenu(win, 'Ask the world')
       const panel = win.getByRole('region', { name: 'Ask the world' })
       const box = panel.getByRole('textbox', { name: 'Ask about your world' })
       await box.fill(ASK_QUESTION)
       await box.press('Enter')
       const answer = panel.getByRole('list', { name: 'Conversation' }).locator(':scope > li').first().locator('[data-answer]')
       await expect(answer).toContainText('not the Board', { timeout: 30_000 })
+      await win.waitForTimeout(1000)
       await shot(app, win, 'ask')
-      await area(win, 'Ask').click().catch(() => undefined)
+      await dockMenu(win, 'Ask the world').catch(() => undefined)
     })
 
     await take('outline', async () => {
-      await area(win, 'Plan').click()
-      await list(win).getByRole('button', { name: 'Outline helper' }).click()
+      await room(win, 'Plan').click()
+      await roomLink(win, 'Outline helper').click()
       await main(win).getByRole('button', { name: /^Suggest/ }).first().click()
       await expect(main(win).locator('[data-suggestion]').first()).toBeVisible({ timeout: 30_000 })
       await expect(main(win)).toContainText('The Light Holds', { timeout: 30_000 })
@@ -456,29 +517,26 @@ test('docs screenshots', async () => {
     })
 
     await take('world-map', async () => {
-      await area(win, 'World').click()
-      await list(win).getByRole('button', { name: 'Relationship map' }).click()
-      await expect(main(win).getByRole('group', { name: 'Relationship map' })).toBeVisible()
+      await room(win, 'World').click()
+      await roomLink(win, 'Relationship map').click()
+      await expect(win.getByRole('slider', { name: 'As of' })).toBeVisible()
       // As of the end of the story, so everyone with a tie shows, then fitted to the window.
-      await main(win).getByRole('slider', { name: 'As of' }).focus()
+      await win.getByRole('slider', { name: 'As of' }).focus()
       await win.keyboard.press('End')
-      await expect(main(win)).toContainText('4 characters', { timeout: 10_000 })
       await win.waitForTimeout(1500)
-      await main(win).getByRole('button', { name: 'Fit the map to the window' }).click()
-      await win.waitForTimeout(800)
-      // The four are a small group: brought closer.
-      for (let i = 0; i < 2; i++) {
-        await main(win).getByRole('button', { name: /^Zoom in/ }).click()
-        await win.waitForTimeout(400)
-      }
-      await win.waitForTimeout(1200)
+      await win.getByRole('button', { name: 'Fit everyone on screen' }).click()
+      await win.waitForTimeout(2000)
       await shot(app, win, 'world-map')
     })
 
     await take('timeline', async () => {
-      await area(win, 'World').click()
-      await list(win).getByRole('button', { name: 'Timeline' }).click()
-      await expect(main(win).getByRole('heading', { level: 1, name: 'Timeline' })).toBeVisible()
+      await room(win, 'World').click()
+      await roomLink(win, 'Timeline').click()
+      await expect(roomLink(win, 'Timeline')).toHaveAttribute('aria-current', 'page')
+      await win.waitForTimeout(1200)
+      // From the story's first scene (it opens scrolled to the open scene).
+      await win.evaluate(`[...document.querySelectorAll('main *')].filter((e) => e.scrollWidth > e.clientWidth + 4 && /auto|scroll/.test(getComputedStyle(e).overflowX)).forEach((e) => { e.scrollLeft = 0 })`)
+      await win.waitForTimeout(600)
       await shot(app, win, 'timeline')
     })
 
@@ -491,6 +549,7 @@ test('docs screenshots', async () => {
       await win.reload()
       await expect(prose(win)).toBeVisible()
       await openScene(win, 'Lighting the Lamp')
+      await showDrawer(win, false)
       await prose(win).locator('p').nth(1).click()
       await win.keyboard.press('Home')
       await win.keyboard.press('Control+l')
@@ -509,14 +568,16 @@ test('docs screenshots', async () => {
     })
 
     await take('settings-ai', async () => {
-      await area(win, 'Settings').click()
-      await expect(main(win).getByRole('heading', { level: 1, name: 'Models' })).toBeVisible()
+      await win.locator('[data-desk-topbar]').getByRole('button', { name: /^Settings/ }).click()
+      await expect(win.getByRole('heading', { level: 1, name: 'Models', exact: true })).toBeVisible()
+      await win.waitForTimeout(1000)
       await shot(app, win, 'settings-ai')
-      await area(win, 'Write').click()
+      await room(win, 'Write').click()
     })
 
     await take('look-classic', async () => {
-      await invoke(win, 'updateSettings', { look: 'classic' })
+      // Classic with its scene panel open beside the page.
+      await invoke(win, 'updateSettings', { look: 'classic', layout: { inspectorOpen: true } })
       await open!.close()
       open = await reopen(dataDir)
       ;({ app, win } = open)
@@ -533,13 +594,38 @@ test('docs screenshots', async () => {
     await take('variants', async () => {
       await openScene(win, 'Low Tide')
       drafts = 0
-      await win.getByRole('button', { name: 'Variants', exact: true }).click()
+      // Draft three, in the dock's More menu.
+      await dockMenu(win, 'Draft three')
       await win.getByRole('button', { name: 'Write three variants' }).click()
       for (const n of [1, 2, 3])
         await expect(win.getByRole('region', { name: `Variant ${n}`, exact: true }).getByRole('button', { name: 'Use this one' })).toBeVisible({ timeout: 60_000 })
       await expect(win.getByRole('button', { name: 'Stop all' })).toHaveCount(0, { timeout: 60_000 })
       await shot(app, win, 'variants')
       await openScene(win, 'Lighting the Lamp')
+    })
+
+    // GitHub's social preview card, drawn from a small page of its own in a hidden window, a collage of the shots above (taken last, from the saved pictures).
+    await take('social', async () => {
+      const file = join(dataDir, 'social-preview.html')
+      writeFileSync(file, socialPage(ROOT, THEME))
+      const card = await app.evaluate(async ({ BrowserWindow }, path) => {
+        const w = new BrowserWindow({ show: false, width: 1280, height: 640, useContentSize: true, webPreferences: { offscreen: true } })
+        try {
+          await w.loadFile(path)
+          await w.webContents.executeJavaScript('document.fonts.ready.then(() => Promise.all([...document.images].map((i) => i.decode())))')
+          await new Promise((r) => setTimeout(r, 800))
+          let img = await w.webContents.capturePage()
+          if (img.getSize().width !== 1280 || img.getSize().height !== 640) img = img.resize({ width: 1280, height: 640, quality: 'best' })
+          return { bitmap: img.toBitmap().toString('base64'), width: img.getSize().width, height: img.getSize().height }
+        } finally {
+          w.destroy()
+        }
+      }, file)
+      const bitmap = Buffer.from(card.bitmap, 'base64')
+      let out = encodePng(bitmap, card.width, card.height)
+      if (out.length > 1000 * 1024) out = encodePng(bitmap, card.width, card.height, { colours: 256 })
+      writeFileSync(join(IMAGES, 'social-preview.png'), out)
+      console.log(`saved social-preview.png (${card.width}x${card.height}, ${Math.round(out.length / 1024)} KB)`)
     })
 
   } finally {

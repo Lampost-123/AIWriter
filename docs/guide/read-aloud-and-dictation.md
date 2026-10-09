@@ -40,7 +40,8 @@ When it's running, the speech engine shows **Connected**.
 ### Listen
 
 1. Click in a scene where you want the reading to start.
-2. Click **Listen** in the toolbar, or press Ctrl+L. Press Ctrl+L again to pause and carry on.
+2. Press Ctrl+L, or choose **More** › **Listen from the cursor** in the AI dock (in the Panels layout and Classic,
+   **Listen** is in the toolbar). Press Ctrl+L again to pause and carry on.
 3. Press Ctrl+Shift+Space to stop.
 
 The sentence being read is highlighted. With **Follow along** on, the page scrolls to keep it in view. With
