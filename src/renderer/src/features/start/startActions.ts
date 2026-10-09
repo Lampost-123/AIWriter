@@ -30,6 +30,17 @@ async function openBehind(worldId: ID): Promise<void> {
 }
 
 /**
+ * Picking something on the start screen lands on the story's home (the book page) in the desk look, not on the
+ * writing page. The classic look has no story home, so it keeps the writing page.
+ */
+function landOnStoryHome(): void {
+  const { storyId } = app()
+  const root = document.documentElement
+  if (!storyId || root.dataset.arrangement !== 'desk' || root.dataset.look !== 'new') return
+  app().navigate({ kind: 'storyHome', storyId })
+}
+
+/**
  * Once the start screen has gone: the caret back in the page on the writing page, else the keyboard back where it
  * was before the start screen showed (if that is still there).
  */
@@ -47,6 +58,7 @@ export function continueWriting(last: Pick<LastPlace, 'worldId'>): Promise<void>
   if (app().world?.id === last.worldId) {
     if (useLibrary.getState().busy) return Promise.resolve()
     app().leaveHome()
+    landOnStoryHome()
     keyboardBack()
     return Promise.resolve()
   }
@@ -54,6 +66,7 @@ export function continueWriting(last: Pick<LastPlace, 'worldId'>): Promise<void>
     try {
       await flushBeforeWorldChange()
       await app().openWorld(last.worldId)
+      landOnStoryHome()
       keyboardBack()
     } catch (e) {
       failed(e)
@@ -73,6 +86,7 @@ export function openStoryFromStart(worldId: ID, storyId: ID): Promise<void> {
       await openBehind(worldId)
       await openStory(storyId)
       app().leaveHome()
+      landOnStoryHome()
       keyboardBack()
     } catch (e) {
       failed(e)
