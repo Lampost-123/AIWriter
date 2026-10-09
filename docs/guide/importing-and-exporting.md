@@ -7,7 +7,8 @@ moving a whole world to another computer, and keeping your work safe with backup
 
 You can bring in a book from Word (`.docx`), Markdown (`.md`) or plain text (`.txt`).
 
-1. Choose **Import a manuscript…** from the story menu in the binder, or from the start screen.
+1. Choose **Import a manuscript…** from the story menu (the arrow beside the story's name in the top bar), or from the start
+   screen.
 2. Click **Choose a file…** and pick your book.
 3. AI Write finds the chapter and scene breaks for you. Check them: each break can be changed to an **Act**, a
    **Chapter** or a **Scene**, or marked as not a break at all. **Undo my changes** puts the breaks back as they were found.
@@ -30,7 +31,7 @@ An imported book starts with an empty memory. To have AI Write read it and fill 
 
 ## Export your story
 
-1. Open the story menu in the binder and choose **Export story…**.
+1. Open the story menu (the arrow beside the story's name in the top bar) and choose **Export story…**.
 2. Under **What to export**, choose **Whole story**, **One chapter**, or **Choose…** to pick chapters and scenes.
 3. Choose a **Format**:
    - **Word**: a `.docx` to edit or send to an editor.

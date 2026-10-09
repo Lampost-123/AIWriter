@@ -186,4 +186,17 @@ describe('carrying on a session from its kept marks', () => {
     expect(resumePoint(stateFrom('Adam wrote all of this himself.').doc, marks, 4)).toBeNull()
     expect(resumePoint(s.doc, null, 4)).toBeNull()
   })
+
+  it('carries on a session that is still on wherever it got to: every beat written, or none yet', () => {
+    const { s, marks } = threeBeats()
+    const open = { ...marks, open: true }
+    // Every beat on the card written, but not finished: the bar comes back with Write it again and Finish.
+    expect(resumePoint(s.doc, open, 3)).toMatchObject({ written: 3, of: 3, last: 'g3' })
+    // Started, but its first beat hadn't put words on the page yet (the app closed while it got ready).
+    const fresh = { ...newMarks('s1', 'sess', 5, 'below'), open: true }
+    expect(resumePoint(stateFrom('Adam wrote all of this himself.').doc, fresh, 5)).toMatchObject({ written: 0, of: 5, last: null })
+    // Its words have all gone from the page (other text in their place), or the card has no beats: nothing to carry on.
+    expect(resumePoint(stateFrom('Adam wrote all of this himself.').doc, open, 4)).toBeNull()
+    expect(resumePoint(s.doc, open, 0)).toBeNull()
+  })
 })

@@ -14,7 +14,8 @@ You don't need to do anything. As you write, AI Write reads your scenes and upda
 - and when AI Write starts, for anything it missed.
 
 It uses the **Memory model** you chose in **Settings › Models**. The top bar shows what it's doing:
-**Reading the scene…**, then **Memory updated**. Click that to see what changed.
+**Reading the scene…**, then **Memory updated**. Click that to see what changed. A short note beside the page says
+what it changed in the scene too.
 
 The memory adds what your story says, such as a character's new scar, a place they've been, or something they've
 just found out. It never overwrites what you typed into an entry yourself.
@@ -28,14 +29,14 @@ just found out. It never overwrites what you typed into an entry yourself.
 - Sometimes the memory asks you a question, for example when your story seems to disagree with something you wrote
   in an entry. Answer it right there.
 
-Open it from **Check** on the left, or by clicking **Memory updated** in the top bar.
+Open it from **What changed** in the **Check** room, or by clicking **Memory updated** in the top bar.
 
 ## Recall: where things stand
 
 Recall answers the questions that trip up long stories: Is Wren still holding the lamp? Did she take her boots off?
 Is the door barred?
 
-1. Open a scene and click the **Cast** tab in the scene panel.
+1. Open a scene, click **Scene details**, and choose the **Cast** tab.
 2. Scroll to Recall at the bottom.
 3. Choose **Scene end** to see how things stand as the scene ends, or **At the cursor** and click anywhere in the
    scene's words to see how things stand at that point.
@@ -48,7 +49,7 @@ Click any value to correct it. If it's out of date, click **Read again** to have
 cursor, **Work it out here** reads the words up to that exact point. The AI is
 given these facts before it writes, so a character who took her boots off by the door doesn't walk out in them.
 
-<p align="center"><img src="../images/story-memory.png" alt="Recall in the Cast tab" width="700"></p>
+<p align="center"><img src="../images/story-memory.png" alt="Recall in the scene panel's Cast tab" width="800"></p>
 
 ## See and steer what the AI is given
 
@@ -86,31 +87,36 @@ Deeper checks compare a scene with the memory. They look at:
 - **Voice** and **Style and tone**: does everyone sound like themselves?
 
 They run by themselves shortly after a draft and when you mark a scene done. To check by hand, use
-**Check this scene**, **Check this chapter** or **Check this story** (from the binder, the Issues tab, or search with
-Ctrl+K). They use the **Consistency check model**.
+**Check this scene**, **Check this chapter** or **Check this story** (from the binder, the Issues tab, the Check room, or search
+with Ctrl+K). They use the **Consistency check model**.
 
 ### Fix what's found
 
 The **Issues** tab in the scene panel lists the scene's open issues. The binder shows a small badge on scenes that
-have them. For each issue:
+have them, and **Scene details** shows how many. Some also appear as a note beside the words they're about, with
+**Rewrite** and **Keep**. For each issue in the tab:
 
 - **Fix the text** asks the AI to rewrite the sentence, shown in the page for you to accept or reject. If a fix is
   already suggested, the button says **Review the fix**.
 - **Update the memory**, when it's the memory that's wrong, not the story.
 - **Ignore** hides it if it's meant to be like this. It won't be raised again.
 
-### The Consistency page
+### The Check room
 
-The **Consistency** page (under **Check** on the left) shows every issue in the story, chapter by chapter, marked
-**Must fix**, **Worth a look** or **Minor**. Its tabs are **Issues**, **Repetition** and **Plot threads**. Turn on
+The **Check** room opens on **Consistency**: every issue in the story, chapter by chapter, marked **Must fix**,
+**Worth a look** or **Minor**. **Check this story** runs the check (its arrow has the other choices). Beside it are
+**Issues**, **Repetition** and **Plot threads**. The room's links also have **What changed** and
+**This scene's issues**. Turn on
 **Voice and style too** for a fuller check; it's slower, and costs more.
 
-<p align="center"><img src="../images/consistency.png" alt="The Consistency page" width="800"></p>
+<p align="center"><img src="../images/consistency.png" alt="The Check room's Consistency page" width="800"></p>
 
 ## Ask the world
 
-**Ask the world** is a chat beside the page that answers from your story's memory. Open it with **Ask** on the left,
-the **Ask the world** button in the top bar, or select some words and click **Ask about this**.
+**Ask the world** is a chat beside the page that answers from your story's memory. Open it from the AI dock's
+**More** menu (**Ask the world**), with **Ask about…** on an entry's page, or select some words and click
+**Ask about this**. Type in "Ask, brainstorm, or ask for an edit…", or start from **Ideas**, **Check**, **Tighten** or
+**Spelling** above the box.
 
 Try questions like:
 
@@ -124,7 +130,7 @@ It can also suggest changes, such as a new entry or a fix to one. They're listed
 
 It uses the **Chat and brainstorm model**.
 
-<p align="center"><img src="../images/ask.png" alt="Ask the world beside the page" width="700"></p>
+<p align="center"><img src="../images/ask.png" alt="Ask the world beside the page" width="800"></p>
 
 ---
 

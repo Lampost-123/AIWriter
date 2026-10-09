@@ -4,12 +4,28 @@ Some writers plan every scene before they start. Others find the story as they g
 This page covers outlining a story, planning chapters and scenes, starting new stories in the same world, setting
 the style, and story recipes.
 
+## The story board
+
+The **Plan** room opens on the **Story board**: every scene as an index card, a column for each chapter, with the
+plot threads as strings from the scene that opens a question to the scene that answers it. **Cards** and **Outline**
+switch between the board and a list. Drag a card to move a scene. **New scene** adds one, and
+**Ideas for what comes next** suggests the next scenes. The column after the last chapter has **Add a chapter** and
+**Plan it with AI**.
+
+<p align="center"><img src="../images/story-board.png" alt="The story board for The Keeper's Light" width="800"></p>
+
+The **story home** (the lamp at the top left of the top bar, or the story's name) shows the book as a whole: its
+cover, **Continue writing**, the last lines you wrote, the chapters, open threads, the cast and this week's writing.
+
+<p align="center"><img src="../images/story-home.png" alt="The story home for The Keeper's Light" width="800"></p>
+
 ## Outline a story
 
 The **Outline helper** suggests acts, chapters and scenes from your premise.
 
-1. Open **Plan** on the left and choose **Outline helper** (or choose it from the story menu in the binder, or search
-   for it with Ctrl+K). In an empty story, **Plan it with the outline helper** at the foot of the binder does the same.
+1. Open the **Plan** room and choose **Outline helper** in its links (or choose it from the story menu, the arrow beside the
+   story's name in the top bar, or search for it with Ctrl+K). In an empty story, **Plan it with the outline helper**
+   at the foot of the binder does the same.
 2. In the **Premise** box, describe what the story is about. A few sentences are enough.
 3. Under **How much to suggest**, choose how many acts, chapters and scenes in each chapter you'd like.
 4. Click **Suggest an outline**. The suggestions arrive one by one.
@@ -25,7 +41,8 @@ What you keep becomes real chapters and scenes in the binder, each with a scene 
 
 ## Plan a chapter
 
-1. In the binder, open a chapter's menu and choose **Interview me about this chapter**.
+1. In the Plan room, choose the chapter under **Plan a chapter**, or open a chapter's menu in the binder and choose
+   **Interview me about this chapter**.
 2. Choose **Plan a chapter** to answer a few questions about it, or **Just suggest scenes** to go straight to scene
    cards suggested from the chapter and the outline around it.
 
@@ -43,7 +60,7 @@ Both are also in search (Ctrl+K).
 
 A world can hold many stories: a series, a prequel, a side story. Each one knows what it should about the others.
 
-1. Choose **New story…** on the start screen (or from the story menu in the binder).
+1. Choose **New story…** on the start screen (or from the story menu, the arrow beside the story's name in the top bar).
 2. Give it a title, and a **Series** if you like.
 3. Choose how it fits with your other stories:
    - **Continues after**: starts after that story ends and knows everything before it.
@@ -59,7 +76,7 @@ Each story has its own **Story settings** (in the story menu), for its premise a
 
 ## Set the style
 
-The **Style guide** tells the AI how your story should read. Open it from **Write** on the left, or search (Ctrl+K)
+The **Style guide** tells the AI how your story should read. Open it from the **Write** room's links, or search (Ctrl+K)
 for **Style guide**.
 
 At the top, **Applies to** shows the three levels:
@@ -93,7 +110,7 @@ shape and feel of one you admire.
 
 ### Make a recipe
 
-1. Open **Story recipes** from the start screen or search (Ctrl+K).
+1. Open **Story recipes** from the start screen, the **Plan** room's links, or search (Ctrl+K).
 2. Choose **Make a recipe from a story**.
 3. Bring the story in **From a file**, or **Paste the text**.
 4. The **Recipe maker** model reads it and writes the recipe: what it's about, how it's written and how it's built.

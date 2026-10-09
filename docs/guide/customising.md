@@ -7,10 +7,16 @@ your writing preferences, focus mode, and every keyboard shortcut.
 
 Open **Settings › Appearance**. Under **Style**:
 
-- **New look** (the default): depth, colour and motion, with the four areas (Write, Plan, World, Check) down the left.
+- **New look** (the default): depth, colour and motion.
 - **Classic**: flat and quiet, with everything in the binder.
 
-Both have the same features. Switch whenever you like.
+In the New look, **Layout** chooses how the window is laid out:
+
+- **Desk** (the default): the page in the middle, the story down a spine on the left, the rooms (Write, Plan, World,
+  Check) in the top bar and the AI dock under the page.
+- **Panels**: the areas down the left side, a list beside them, and the scene panel beside the page.
+
+They all have the same features. Switch whenever you like.
 
 <p align="center"><img src="../images/look-classic.png" alt="AI Write in the Classic look" width="800"></p>
 
@@ -18,7 +24,7 @@ Both have the same features. Switch whenever you like.
 
 In **Settings › Appearance**:
 
-- **Theme**: **Match my computer** (the default), **Light**, **Dark** or **Sepia**.
+- **Theme**: **Match my computer**, **Light**, **Dark** (the default) or **Sepia**.
 - **Accent colour**: **Theme colour**, **Teal**, **Indigo**, **Plum** or **Graphite**.
 
 You can also switch theme from search (Ctrl+K): type "dark", "light" or "sepia".
@@ -54,8 +60,9 @@ and story can change them in its style guide (see [Planning](planning.md#set-the
 
 Press **F11** (or click **Focus mode** in the top bar) and only the page shows. Press Esc or F11 to leave.
 
-You can also hide the side panels on their own: search (Ctrl+K) for **Show or hide the binder** or
-**Show or hide the scene panel**.
+You can also tidy the desk without leaving it: the arrow at the top of the story's spine folds it to a slim spine,
+and **Scene details** shows or hides the scene panel. Search (Ctrl+K) for **Show or hide the binder** or
+**Show or hide the scene panel** does the same.
 
 ## Find anything with search
 
@@ -71,6 +78,7 @@ Press **?** (when you're not typing in a box) to see this list in the app.
 | Action | Keys |
 |---|---|
 | Generate a draft of the scene | Ctrl+G |
+| Continue: the AI writes on from the end of the scene (on the desk) | Ctrl+Shift+Enter |
 | Stop the draft | Esc |
 | Accept the AI's change to the words | Tab |
 | Reject the AI's change, or stop it while it's being written | Esc |

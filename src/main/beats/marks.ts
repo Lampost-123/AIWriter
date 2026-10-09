@@ -40,7 +40,7 @@ function cleanBeat(v: unknown): BeatMark | null {
   return out
 }
 
-/** The marks as sent (or as read back), tidied: null when they aren't marks of this scene, or have no beats. */
+/** The marks as sent (or as read back), tidied: null when they aren't marks of this scene, or have no beats and aren't open. */
 export function cleanMarks(sceneId: ID, v: unknown): SceneBeatMarks | null {
   const x = v as Partial<SceneBeatMarks> | null
   if (!x || typeof x !== 'object' || !isId(x.sessionId)) return null
@@ -49,10 +49,12 @@ export function cleanMarks(sceneId: ID, v: unknown): SceneBeatMarks | null {
     .map(cleanBeat)
     .filter((b): b is BeatMark => !!b && !seen.has(b.index) && !!seen.add(b.index))
     .sort((a, b) => a.index - b.index)
-  if (!beats.length) return null
-  const of = Math.max(1, Math.min(MAX_BEATS, Math.floor(Number(x.of)) || beats[beats.length - 1].index))
+  // A session still on is kept with no beats too (its first beat hasn't put words on the page yet), so it can carry on.
+  if (!beats.length && x.open !== true) return null
+  const of = Math.max(1, Math.min(MAX_BEATS, Math.floor(Number(x.of)) || (beats.at(-1)?.index ?? 1)))
   const out: SceneBeatMarks = { sceneId, sessionId: x.sessionId, of, mode: x.mode === 'below' ? 'below' : 'whole', beats }
   if (x.open === true) out.open = true
+  if (x.start === 'replace' || x.start === 'add') out.start = x.start
   return out
 }
 
