@@ -14,7 +14,8 @@
 // it stands at the open scene, or at the story's end when no scene is open), chosen by the same rules
 // as a draft's briefing: an own version of events (a what-if) never reaches another story's chat, and
 // a chat never carries on in another story. Answers name the entries they used as [[Entry name]].
-import type { EntryKind, ID, Origin, SceneCard } from '../types'
+import type { ChapterCard, EntryKind, ID, Origin, SceneCard } from '../types'
+import type { ToolActivity } from '../toolActivity'
 
 export interface AskApi {
   /**
@@ -37,24 +38,89 @@ export interface AskApi {
    * first exists in that story.
    */
   saveAskNote(input: SaveNoteInput): Promise<SavedNote>
-  /** Takes a note saved with saveAskNote back out (the toast's Undo). */
-  undoAskNote(undo: NoteUndo): Promise<void>
+  /**
+   * Takes a note saved with saveAskNote back out (the toast's Undo). With the answer's record (`generationId`), that
+   * answer no longer counts as saved.
+   */
+  undoAskNote(undo: NoteUndo, generationId?: ID): Promise<void>
   /** The editor chat: records what Adam made of a proposed change (it is applied by the window, through the usual calls). */
   setProposalStatus(generationId: ID, proposalId: string, status: ProposalStatus): Promise<void>
+  /**
+   * Keeps what Adam made of an option card in an answer (kept ★, used as a beat, set aside) with the answer's record, by
+   * the card's number (from 1), so it shows again after a restart; null forgets it.
+   */
+  setOptionMark(generationId: ID, card: number, mark: OptionMark | null): Promise<void>
+}
+
+/** What Adam made of one option card in an answer (chat Phase 2's cards; kept with the record since Phase 4). */
+export interface OptionMark {
+  kept?: boolean
+  /** Used as beat N of the open scene's card (1 = the first). */
+  usedAsBeat?: number
+  aside?: boolean
 }
 
 export interface AskEvents {
-  /** The editor chat looked something up or noted a change: a short line for the answer being written ("Reading Ch 2, Sc 1"). */
-  'ask:step': { taskId: ID; generationId: ID; label: string }
+  /**
+   * The editor chat called a tool (chat Phase 2b): 'start' as soon as the model starts asking for it (the call
+   * running), 'end' once its answer is back (done, failed or not proposed), with the whole call. Matched by `call.id`.
+   */
+  'ask:tool': { taskId: ID; generationId: ID; phase: 'start' | 'end'; call: ToolActivity }
   /** The editor chat proposed changes (all of this turn's, so far). */
   'ask:proposals': { taskId: ID; generationId: ID; proposals: Proposal[] }
+  /**
+   * The editor chat asked the writer one question with options (ask_user, lab switch ASKUSER), which ends its answer.
+   * The question and numbered options are also at the end of the answer's text, for a window that doesn't show these.
+   */
+  'ask:choice': { taskId: ID; generationId: ID; choice: AskChoice }
 }
+
+/**
+ * A question the editor chat asks the writer instead of guessing (ask_user): 2 to 4 options to pick from. The writer's
+ * pick is meant to come back as the next question in the chat (the window's part).
+ */
+export interface AskChoice {
+  question: string
+  options: { label: string; detail?: string }[]
+  /** The option the chat recommends: an index into `options` (0 = the first). */
+  recommended?: number
+  /** More than one option may be picked. */
+  multi?: boolean
+}
+
+/**
+ * Where words a proposal changes stand in the scene (lab switch ANCHOR), so they are found there even when the same
+ * words occur elsewhere: the paragraph as read_scene numbered it ([12] → 12), its stable paragraph id (attrs.pid; null
+ * for a scene saved without ids) and the offset in that paragraph's plain text (characters; a line break counts one,
+ * as in the page, so it is also the ProseMirror offset inside the paragraph).
+ */
+export interface ParaAnchor {
+  paragraph: number
+  pid: string | null
+  offset: number
+}
+
+/** How a proposed draft is written (propose_draft, lab switch DRAFT): the writer's own jobs. */
+export type DraftMode = 'generate' | 'add_below' | 'continue' | 'redo_beat'
 
 /** What Adam made of a proposed change. */
 export type ProposalStatus = 'pending' | 'applied' | 'declined'
 
-/** The parts of a scene card the editor chat may propose. */
-export type CardProposal = Partial<Pick<SceneCard, 'goal' | 'conflict' | 'outcome' | 'mood' | 'when' | 'notes' | 'beats'>>
+/**
+ * The parts of a scene card the editor chat may propose. The point of view, the characters present and the location
+ * (chat Phase 3, lab switch STORYTOOLS) come as the entries' ids, matched from the names the chat gave.
+ */
+export type CardProposal = Partial<Pick<SceneCard, 'goal' | 'conflict' | 'outcome' | 'mood' | 'when' | 'notes' | 'beats' | 'povId' | 'presentIds' | 'locationId'>>
+
+/** One part of a card a change sets, as the change card shows it: what it says now and what it would say. */
+export interface PartChange {
+  label: string
+  from: string
+  to: string
+}
+
+/** Which list of a scene card a plot thread link goes on: the threads it sets up, or those it pays off. */
+export type ThreadLinkList = 'setsUp' | 'paysOff'
 
 /** The parts of an entry the editor chat may propose (new values; `fields` by the kind's field keys). */
 export interface EntryProposal {
@@ -76,6 +142,12 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       sceneLabel: string
       find: string
       replace: string
+      /**
+       * Where `find` starts (lab switch ANCHOR). `find` is always the scene's exact words, widened when it can be so the
+       * page finds them there first; when it couldn't be (the same words, as the page matches them, come earlier),
+       * Apply should use this place, not the first one.
+       */
+      at?: ParaAnchor
     }
   | {
       /**
@@ -90,8 +162,69 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       end: string
       original: string
       replace: string
+      /**
+       * Where the passage stands (lab switch ANCHOR): `start` at its first character, `end` just after its last (an
+       * exclusive offset in that paragraph). `start` and `end` are widened when they can be so the page finds them there.
+       */
+      at?: { start: ParaAnchor; end: ParaAnchor }
     }
-  | { kind: 'card'; sceneId: ID; sceneLabel: string; patch: CardProposal }
+  | {
+      kind: 'card'
+      sceneId: ID
+      sceneLabel: string
+      patch: CardProposal
+      /** The names the point of view, characters present and location stand for (STORYTOOLS), as the card shows them. */
+      names?: PartChange[]
+    }
+  | {
+      /**
+       * A consistency issue put right (chat Phase 3, STORYTOOLS), as the Issues tab's own buttons do it, and marked
+       * fixed. 'text': the check's suggested rewrite (`fix`) goes in for the quoted words (null: Apply runs Fix the text,
+       * which has the writer model rewrite the sentence as a change to accept or reject in the page). 'memory': the
+       * entry's field takes the text's value, as Update the memory sets it.
+       */
+      kind: 'issueFix'
+      issueId: ID
+      how: 'text' | 'memory'
+      /** The scene it is in (null for a story-wide one) and its label ('' when none). */
+      sceneId: ID | null
+      sceneLabel: string
+      message: string
+      severity: 'must-fix' | 'warning' | 'minor'
+      quote: string
+      fix: string | null
+      occurrence?: number
+      /** With how 'memory': the entry's field, as it says now and as it would. */
+      memory?: { entryId: ID; name: string; field: string; fieldLabel: string; from: string; to: string }
+    }
+  | {
+      /**
+       * A chapter card's parts (chat Phase 3, STORYTOOLS): written into the scene cards that follow the chapter, as
+       * the chapter card panel does; Undo puts the card and those scenes back. `scenes`: how many scene cards it would
+       * change when proposed.
+       */
+      kind: 'chapterCard'
+      chapterId: ID
+      chapterLabel: string
+      patch: Partial<ChapterCard>
+      lines: PartChange[]
+      scenes: number
+    }
+  | {
+      /**
+       * A plot thread linked to a scene on its card (chat Phase 3, STORYTOOLS): 'open' puts it on the scene's "Sets up",
+       * 'resolve' on its "Pays off", 'link' on `list`. Adam's own link (unmarked). `threadId` null: a new plot thread
+       * named `name` is made first (its promise `note`). Undo takes the link off (and the new thread to Recently deleted).
+       */
+      kind: 'thread'
+      threadId: ID | null
+      name: string
+      action: 'open' | 'resolve' | 'link'
+      list: ThreadLinkList
+      sceneId: ID
+      sceneLabel: string
+      note: string
+    }
   | { kind: 'entry'; entryId: ID; entryKind: EntryKind; name: string; patch: EntryProposal }
   | { kind: 'newEntry'; entryKind: EntryKind; name: string; summary: string; description: string }
   | {
@@ -104,6 +237,87 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
     }
   | { kind: 'newChapter'; storyId: ID; title: string }
   | { kind: 'rename'; target: 'scene' | 'chapter'; targetId: ID; from: string; to: string }
+  | {
+      /**
+       * A draft for the writer to write (propose_draft, lab switch DRAFT): nothing is written until Adam applies it,
+       * which starts the writer's own job for the scene with this direction. `beat` (redo_beat): the card's beat, from
+       * 1, with its words as the card had them. `atParagraph` (continue): carry on from the end of this paragraph (left
+       * out: from the end of the scene). `length`: words to aim for (left out: the writer's own choice).
+       */
+      kind: 'draft'
+      sceneId: ID
+      sceneLabel: string
+      mode: DraftMode
+      direction: string
+      beat?: { index: number; text: string }
+      atParagraph?: ParaAnchor
+      length?: number
+    }
+  | {
+      /**
+       * New paragraphs at a point in a scene, with no words to find (lab switch TEXTTOOLS): `text` (paragraphs a blank
+       * line apart, *asterisks* for italics) goes in after (or before) the paragraph `at` names. `near` is that
+       * paragraph's words as the chat read them (italics marked), to show and to find it by when it has no id.
+       */
+      kind: 'insert'
+      sceneId: ID
+      sceneLabel: string
+      where: 'after' | 'before'
+      at: ParaAnchor
+      near: string
+      text: string
+    }
+  | {
+      /**
+       * Whole paragraphs cut from a scene (lab switch TEXTTOOLS): from the paragraph `from` names to the one `to` names
+       * (never across a scene break). `paragraphs` are their words as the chat read them (italics marked): Apply cuts
+       * them only while they still read so.
+       */
+      kind: 'cut'
+      sceneId: ID
+      sceneLabel: string
+      from: ParaAnchor
+      to: ParaAnchor
+      paragraphs: string[]
+    }
+  | {
+      /**
+       * A scene card's beats changed (lab switch TEXTTOOLS): `before` the beats as the card had them (blank ones left
+       * out), `beats` the whole new list. `op` and `index` (from 1) say what changed, to show it: a whole new list, or
+       * one beat put in, reworded or taken out. `marks`: the scene had beat markers on the page (Beat by beat), which
+       * are numbered by the card's beats.
+       */
+      kind: 'beats'
+      sceneId: ID
+      sceneLabel: string
+      op: 'replace' | 'insert' | 'edit' | 'remove'
+      index?: number
+      before: string[]
+      beats: string[]
+      marks?: boolean
+    }
+  | {
+      /**
+       * Every place some words stand in a story (or one scene of it) replaced, through the app's own Find and replace
+       * (chat Phase 4, lab switch EXTRATOOLS): a History snapshot of each scene first, Undo by its token. `count` and
+       * `scenes` are how many matches and scenes there were when proposed, `examples` a few of them (Apply finds them
+       * again). `rename`: the words are an entry's name, so the card offers to rename it too (`renameEntry`, the writer's
+       * pick, set when applying). `sceneId` null: the whole story.
+       */
+      kind: 'replaceAll'
+      storyId: ID
+      find: string
+      replace: string
+      wholeWord: boolean
+      matchCase: boolean
+      sceneId: ID | null
+      sceneLabel: string
+      count: number
+      scenes: number
+      examples: { sceneLabel: string; before: string; text: string; after: string }[]
+      rename: { entryId: ID; kind: EntryKind; name: string } | null
+      renameEntry?: boolean
+    }
 )
 
 export interface AskInput {
@@ -115,6 +329,17 @@ export interface AskInput {
   /** The open story and scene: the answer is from this point of view. */
   storyId: ID | null
   sceneId: ID | null
+  /**
+   * What the writer pressed, when the box offers a choice (chat overhaul): 'edit' ("Edit this", or the Edit mode)
+   * always asks for a change; 'talk' or none lets the question's words decide. Optional.
+   */
+  mode?: 'edit' | 'talk'
+  /**
+   * The words selected in the page that the question quotes ("Ask about this", "Edit this"), with their paragraphs'
+   * ids when known: the chat then knows the question carries the words to change (AgentPlace.wordsInQuestion). The
+   * question itself still quotes them as before. Optional.
+   */
+  selection?: { text: string; pids?: string[] }
 }
 
 /** One question and its answer. */
@@ -137,8 +362,16 @@ export interface AskTurn {
   createdAt: string
   /** The editor chat: what it looked up on the way, in plain words. */
   steps?: string[]
+  /** The editor chat: each tool it called, in order, with how it went (an older record's are worked out from its steps). */
+  tools?: ToolActivity[]
   /** The editor chat: the changes it proposes, and what Adam made of each. */
   proposals?: Proposal[]
+  /** The editor chat ended its answer with a question with options (ask_user, lab switch ASKUSER). */
+  choice?: AskChoice
+  /** The note saved from this answer, kept with its record (so it still shows "Saved" after a restart). */
+  saved?: SavedNote
+  /** What Adam made of the answer's option cards, by card number (from 1); kept with its record. */
+  options?: Record<string, OptionMark>
 }
 
 /** A chat in the list of earlier chats. */
@@ -162,6 +395,8 @@ export interface SaveNoteInput {
   storyId: ID | null
   /** The open scene: the note goes on the entry as it is there (at the story's end when none is open). */
   sceneId?: ID | null
+  /** The answer's record: the note is kept with it, so the answer shows "Saved" after a restart too. */
+  generationId?: ID
 }
 
 export interface SavedNote {

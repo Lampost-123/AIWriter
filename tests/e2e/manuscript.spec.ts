@@ -366,12 +366,17 @@ test('words the app selects to show where a fact came from aren’t offered for 
 })
 
 test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) => {
-  const fake = await startFake()
+  // A draft that grows slowly enough for the hover card to open (after its short delay) before the page starts to
+  // follow the draft: any scroll closes the card. Since a draft first lets the memory read the scene's fresh words
+  // (World Memory Overhaul A6), its words come as soon as its place shows, with no wait for where things stand.
+  const fake = await startFake({ slowDelayMs: 150 })
   try {
     const { win } = await launch()
     const w = await setUp(win)
     await useFakeModel(win, fake, 'fake/slow')
     await expect(names(win, w.tobin)).toHaveCount(1)
+    // The memory has read the scene, so no new name is underlined (which redraws the names) while the card is open.
+    await expect(win.getByRole('banner').getByRole('button', { name: 'Memory updated' })).toBeVisible({ timeout: 30_000 })
 
     // Esc stops a draft being written, with a card open over a name above it. The scene has text, so
     // Generate asks where the draft goes: below it.
@@ -384,7 +389,7 @@ test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) 
     await prose(win).hover()
     await win.mouse.wheel(0, -5000)
     await expect.poll(() => win.locator('main .overflow-y-auto').first().evaluate((el) => el.scrollTop)).toBe(0)
-    await names(win, w.tobin).hover()
+    await names(win, w.tobin).first().hover()
     await expect(card(win)).toBeVisible()
     await win.keyboard.press('Escape')
     await expect.poll(async () => (await invoke(win, 'listGenerations', w.sceneId))[0]?.status).toBe('stopped')
@@ -454,6 +459,11 @@ test('with a draft being written, Esc on the Selected words bar or the floating 
     await expect(binder(win)).toBeVisible()
     await win.keyboard.press('Escape')
     await expect(binder(win)).toBeHidden()
+    // The draft carries on: it starts once the memory has read the words the first draft left (a few seconds at most,
+    // World Memory Overhaul A6), and is still being written.
+    await expect
+      .poll(async () => (await invoke(win, 'listGenerations', w.sceneId)).map((g) => g.status), { timeout: 15_000 })
+      .toEqual(['streaming', 'stopped'])
     await win.waitForTimeout(1000)
     expect((await invoke(win, 'listGenerations', w.sceneId)).map((g) => g.status)).toEqual(['streaming', 'stopped'])
     await win.keyboard.press('Escape')

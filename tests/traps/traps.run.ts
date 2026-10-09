@@ -4,13 +4,15 @@
 // does nothing unless TRAPS_RUN, TRAPS_WRITE or TRAPS_COMPARE is set.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import { configFromEnv, runTraps } from './run'
-import { CHAINS, rescoreChain, runChains } from './chain'
-import { chainsAsSummary, passagesMarkdown, reportMarkdown, summariseChains } from './score'
+import { CHAINS, chainProse, rescoreChain, runChains } from './chain'
+import { promptText, proseMarkdown } from './prose'
+import { chainsAsSummary, passagesMarkdown, reportMarkdown, summariseChains, summariseThreads } from './score'
 import { mkdirSync } from 'node:fs'
 import { runWrite } from './write'
-import { compareMarkdown, type RunReport } from './score'
+import { compareMarkdown, type ChainResult, type RunReport } from './score'
 
 const SIX_HOURS = 6 * 60 * 60_000
 
@@ -47,14 +49,42 @@ describe.runIf(!!process.env.TRAPS_RESCORE)('trap scores re-scored offline', () 
     const old = JSON.parse(readFileSync(join(from, 'report.json'), 'utf8')) as RunReport
     if (!old.chains) throw new Error(`${from} isn't a chain run (probes v4).`)
     const need: { chain: string; sample: number; step: number; plant: string; quote: string }[] = []
-    const chains = old.chains.map((c) => {
-      const spec = CHAINS.find((x) => x.id === c.id)
-      if (!spec) throw new Error(`No chain ${c.id} in this harness.`)
-      const r = rescoreChain(c, spec)
-      need.push(...r.needJudge.map((n) => ({ chain: c.id, ...n })))
-      return r.result
-    })
-    const report: RunReport = { ...old, chains, chainSummary: summariseChains(chains), summary: chainsAsSummary(chains), rescored: { from, at: new Date().toISOString(), needJudge: need } }
+    // The writer's saved prompts (for the prose check's sample lines), read only from each chain's evidence world.
+    const opened: Database.Database[] = []
+    const prompts = (chain: string) => {
+      const dbs = new Map<number, Database.Database | null>()
+      return (sample: number, generationId: string): string | null => {
+        if (!dbs.has(sample)) {
+          const file = join(from, `evidence-${chain}-${sample + 1}.db`)
+          const db = existsSync(file) ? new Database(file, { readonly: true, fileMustExist: true }) : null
+          if (db) opened.push(db)
+          dbs.set(sample, db)
+        }
+        const row = dbs.get(sample)?.prepare('SELECT messages_json AS m FROM generations WHERE id = ?').get(generationId) as { m: string } | undefined
+        return row ? promptText(row.m) : null
+      }
+    }
+    let chains: ChainResult[] = []
+    try {
+      chains = old.chains.map((c) => {
+        const spec = CHAINS.find((x) => x.id === c.id)
+        if (!spec) throw new Error(`No chain ${c.id} in this harness.`)
+        const r = rescoreChain(c, spec, prompts(c.id))
+        need.push(...r.needJudge.map((n) => ({ chain: c.id, ...n })))
+        return r.result
+      })
+    } finally {
+      for (const db of opened) db.close()
+    }
+    const report: RunReport = {
+      ...old,
+      chains,
+      chainSummary: summariseChains(chains),
+      ...(summariseThreads(chains) ? { threads: summariseThreads(chains)! } : {}),
+      summary: chainsAsSummary(chains),
+      prose: chainProse(chains),
+      rescored: { from, at: new Date().toISOString(), needJudge: need }
+    }
     mkdirSync(out, { recursive: true })
     writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, 2))
     writeFileSync(join(out, 'report.md'), reportMarkdown(report))
@@ -72,6 +102,8 @@ describe.runIf(!!process.env.TRAPS_RESCORE)('trap scores re-scored offline', () 
     }
     lines.push('', need.length ? `Would need the judge (a slip a pattern found, where the judge would now be asked whether the change was on the page before it; counted as broken here):` : 'Nothing would need the judge.')
     for (const n of need) lines.push(`- ${n.chain} chain ${n.sample}, step ${n.step}, ${n.plant}${n.quote ? `: “${n.quote}”` : ' (newly in force, never asked)'}`)
+    // The prose check's metrics, from the saved passages and prompts (the judge's marks only where a run saved them).
+    lines.push('', ...proseMarkdown(report.prose))
     writeFileSync(join(out, 'rescore.md'), lines.join('\n') + '\n')
     console.log(lines.join('\n'))
   })

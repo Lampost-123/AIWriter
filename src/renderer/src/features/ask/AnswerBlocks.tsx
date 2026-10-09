@@ -1,0 +1,396 @@
+// An answer's body in the new Ask panel (chat overhaul Phase 2), block by block as shared/answerBlocks.ts reads it:
+// the lead (the sentence that answers, in the story's serif, with a verdict chip for a fact check), then in the UI's
+// sans: option cards for ideas, fact rows with their source and scene, plain paragraphs, and a folded "Why / details".
+// Each block fades in as it arrives (opacity only); what already shows never moves.
+import { useId, useState } from 'react'
+import type { AnswerBlock, Verdict } from '@shared/answerBlocks'
+import type { ID } from '@shared/types'
+import { BookmarkPlus, BookOpenText, Check, ChevronRight, CircleDashed, CircleHelp, Lightbulb, ListPlus, MessageCircleMore, Sparkles, Star, X } from '@/components/ui/icons'
+import { cn } from '@/lib/cn'
+import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
+import { factParts, leadWords } from './answerView'
+import { rankedLead } from './toolView'
+import { InlineWords, AnswerProse } from './AnswerText'
+import { useAskPrefs, optionKey, setOption, type Density } from './askPrefs'
+import type { AskPlace } from './askStore'
+import { citedTargets, type LinkTarget } from './citations'
+import { SourceChip } from './CiteChip'
+import { addAsBeat, moreLike, saveOption } from './optionActions'
+
+/** What the option cards need from their turn. */
+export interface TurnContext {
+  generationId: ID
+  question: string
+  place: AskPlace
+  /** The answer has ended and nothing else is being answered: its cards' buttons work. */
+  canAct: boolean
+  /** The answer's own first cited entry, where an idea that names none is saved. */
+  firstCited: LinkTarget | null
+}
+
+const VERDICTS: Record<Verdict, { label: string; className: string; Icon: typeof Check }> = {
+  yes: { label: 'Yes', className: 'bg-success-soft text-success', Icon: Check },
+  no: { label: 'No', className: 'bg-danger-soft text-danger', Icon: X },
+  unknown: { label: 'Not in memory yet', className: 'bg-surface-2 text-muted', Icon: CircleHelp }
+}
+
+/** A fact check's verdict, before its lead: Yes, No, or Not in memory yet. */
+export function VerdictChip({ verdict }: { verdict: Verdict }): React.JSX.Element {
+  const v = VERDICTS[verdict]
+  return (
+    <span
+      data-verdict={verdict}
+      className={cn('mr-2 inline-flex h-[22px] translate-y-[-1px] items-center gap-1 rounded-full px-2 align-middle font-sans text-[12px] font-semibold', v.className)}
+    >
+      <v.Icon size={12} strokeWidth={2.5} aria-hidden />
+      {v.label}
+    </span>
+  )
+}
+
+/** The sentence that answers: the story's serif, a little larger (the plain sans in Compact). */
+function AnswerLead({ block, index, density }: { block: Extract<AnswerBlock, { kind: 'lead' }>; index: Map<string, LinkTarget>; density: Density }): React.JSX.Element {
+  return (
+    <div
+      data-lead
+      className={cn(
+        'break-words px-1 text-fg',
+        density === 'compact' ? 'text-[14px] font-medium leading-[1.5]' : 'font-serif text-[15.5px] leading-[1.55]'
+      )}
+    >
+      {block.verdict ? <VerdictChip verdict={block.verdict} /> : null}
+      {/* The chip says the verdict, so its word isn't said twice ("Yes. Mara is 34." → [Yes] Mara is 34.). */}
+      <InlineWords text={leadWords(block.text, block.verdict)} index={index} />
+    </div>
+  )
+}
+
+const actionButton =
+  'inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-focus disabled:pointer-events-none disabled:opacity-40'
+/** An action's word beside its icon, while the card has room for it (else the icon alone, with its tooltip). */
+const actionWord = 'hidden @[21rem]/opt:inline'
+
+/** One idea: its title, a line on why, and what to do with it (shown on hover or focus, in room kept for it). */
+function OptionCard({
+  item,
+  number,
+  ranked,
+  index,
+  turn,
+  density,
+  live
+}: {
+  item: { title: string; why: string }
+  number: number
+  /** The answer gives its ideas in an order ("worst first"): the card shows its number. */
+  ranked: boolean
+  index: Map<string, LinkTarget>
+  turn: TurnContext
+  density: Density
+  live: boolean
+}): React.JSX.Element {
+  const key = optionKey(turn.generationId, number)
+  const state = useAskPrefs((s) => s.options[key]) ?? {}
+  const [busy, setBusy] = useState(false)
+  const name = item.title.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, n: string, s?: string) => s ?? n).replace(/[*_]/g, '')
+  const named = citedTargets(`${item.title} ${item.why}`, index)[0] ?? null
+  const entry = named ?? turn.firstCited
+  const sceneId = turn.place.sceneId
+  const run = (fn: () => Promise<void>): void => {
+    setBusy(true)
+    void fn().finally(() => setBusy(false))
+  }
+  const status = state.aside ? 'aside' : state.usedAsBeat ? 'used' : state.kept ? 'kept' : 'idle'
+  const overlay = density === 'compact'
+  const compact = density === 'compact'
+  const kept = !!state.kept && !state.aside
+  // The band's mark: the idea's number when the ideas come in an order, else who or what it is about (its kind's
+  // icon, in its ink), else a plain idea.
+  const Mark = named ? KIND_ICONS[named.kind] : Lightbulb
+  const iconSize = compact ? 11 : 12
+  return (
+    <li
+      data-option-card={number}
+      data-state={status}
+      className={cn(
+        '@container/opt group/opt relative overflow-hidden rounded-lg border transition-[opacity,border-color,background-color] duration-150',
+        overlay && !state.aside && !state.usedAsBeat ? 'pb-2' : 'pb-1',
+        live && 'animate-fade-in',
+        kept ? 'border-accent/50 bg-accent-soft/50' : 'border-line bg-surface look-new:bg-raise look-new:shadow-e1',
+        state.aside && 'opacity-55'
+      )}
+    >
+      {/* The head band: a soft tint behind the mark, the title and the star. */}
+      <div data-option-band className={cn('flex items-start gap-2 px-3', compact ? 'pb-1 pt-1.5' : 'pb-1.5 pt-2', kept ? 'bg-accent-soft/70' : 'bg-ai-soft/40')}>
+        {ranked ? (
+          <span
+            data-option-rank={number}
+            className={cn(
+              'mt-px flex shrink-0 items-center justify-center rounded-full bg-ai font-semibold tabular-nums text-ai-fg',
+              compact ? 'size-4 text-[10px]' : 'size-5 text-[11px]'
+            )}
+          >
+            <span className="sr-only">Idea </span>
+            {number}
+          </span>
+        ) : (
+          <span
+            aria-hidden
+            data-option-mark={named ? named.kind : 'idea'}
+            className={cn('mt-px flex shrink-0 items-center justify-center rounded-md', compact ? 'size-4' : 'size-5', named ? KIND_INK[named.kind].tile : 'bg-ai-soft text-ai')}
+          >
+            <Mark size={compact ? 10 : 12} />
+          </span>
+        )}
+        <span className={cn('min-w-0 flex-1 break-words text-[13.5px] font-semibold leading-snug text-fg', state.aside && 'line-through decoration-faint')}>
+          <InlineWords text={item.title} index={index} />
+        </span>
+        <button
+          type="button"
+          aria-pressed={!!state.kept}
+          aria-label={state.kept ? `Stop keeping “${name}”` : `Keep “${name}”`}
+          title={state.kept ? 'Kept with this answer' : 'Keep this idea (kept with this answer)'}
+          onClick={() => setOption(key, { kept: !state.kept })}
+          className={cn(
+            '-mr-1 -mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-faint transition-[opacity,color,background-color] duration-150 hover:bg-surface-2 hover:text-accent focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-focus',
+            state.kept ? 'text-accent opacity-100' : 'opacity-0 group-hover/opt:opacity-100 group-focus-within/opt:opacity-100'
+          )}
+        >
+          <Star size={13} fill={state.kept ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+      {item.why ? (
+        <span className={cn('block break-words px-3 text-[13px] leading-[1.5] text-muted', compact ? 'truncate pt-1' : 'pt-1.5')}>
+          <InlineWords text={item.why} index={index} />
+        </span>
+      ) : null}
+      {/*
+        The buttons' row is always there (room kept), so nothing moves when they show. In Compact there is no room
+        kept: they show over the one-line why, on a fade of the card's own colour.
+      */}
+      <div
+        className={cn(
+          'flex min-w-0 items-center gap-0.5 overflow-hidden',
+          overlay && !state.aside && !state.usedAsBeat
+            ? cn(
+                'pointer-events-none absolute inset-x-px bottom-px h-7 rounded-b-lg px-1.5 opacity-0 transition-opacity duration-[140ms] group-hover/opt:pointer-events-auto group-hover/opt:opacity-100 group-focus-within/opt:pointer-events-auto group-focus-within/opt:opacity-100',
+                state.kept ? 'bg-accent-soft' : 'bg-surface look-new:bg-raise'
+              )
+            : 'mt-0.5 h-6 px-1.5'
+        )}
+      >
+        {state.aside ? (
+          <>
+            <span className="flex items-center gap-1 px-1.5 text-[12px] text-faint">
+              <X size={iconSize} aria-hidden /> Set aside
+            </span>
+            <button type="button" className={actionButton} onClick={() => setOption(key, { aside: false })} aria-label={`Bring back “${name}”`}>
+              Bring back
+            </button>
+          </>
+        ) : state.usedAsBeat ? (
+          <span className="flex items-center gap-1 px-1.5 text-[12px] font-medium text-success" data-used>
+            <Check size={12} strokeWidth={2.5} aria-hidden /> Added as beat {state.usedAsBeat}
+          </span>
+        ) : (
+          <div
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-0.5',
+              !overlay && 'opacity-0 transition-opacity duration-[140ms] group-hover/opt:opacity-100 group-focus-within/opt:opacity-100',
+              !turn.canAct && 'invisible'
+            )}
+          >
+            <button
+              type="button"
+              className={actionButton}
+              disabled={!turn.canAct || busy || !sceneId}
+              title={sceneId ? 'Add it to the end of the scene card’s beats' : 'Open a scene to add beats to its card'}
+              aria-label={`Use “${name}” as a beat`}
+              onClick={() => sceneId && run(() => addAsBeat(sceneId, key, item.title, item.why))}
+            >
+              <ListPlus size={iconSize} aria-hidden className="shrink-0" />
+              <span className={actionWord}>Use as beat</span>
+            </button>
+            <button
+              type="button"
+              className={actionButton}
+              disabled={!turn.canAct || busy}
+              title={entry ? `Save it to the memory for ${entry.name}, as your own note` : 'Save it as a new page in Lore, as your own note'}
+              aria-label={`Save “${name}” to ${entry ? entry.name : 'Lore'}`}
+              onClick={() => run(() => saveOption({ title: item.title, why: item.why, entryId: entry?.id ?? null, question: turn.question, place: turn.place }))}
+            >
+              <BookmarkPlus size={iconSize} aria-hidden className="shrink-0" />
+              <span className={actionWord}>Save to entry</span>
+            </button>
+            <button
+              type="button"
+              className={actionButton}
+              disabled={!turn.canAct}
+              title="Ask for more ideas like this one"
+              aria-label={`More ideas like “${name}”`}
+              onClick={() => moreLike(item.title, turn.place)}
+            >
+              <Sparkles size={iconSize} aria-hidden className="shrink-0" />
+              <span className={actionWord}>More like this</span>
+            </button>
+            <button
+              type="button"
+              className={cn(actionButton, 'ml-auto px-1')}
+              aria-label={`Set “${name}” aside`}
+              title="Set aside"
+              onClick={() => setOption(key, { aside: true, kept: false })}
+            >
+              <X size={iconSize} aria-hidden />
+            </button>
+          </div>
+        )}
+      </div>
+    </li>
+  )
+}
+
+/** A fact with where it comes from: the entry it names and the scene it is from. */
+function FactRow({ item, index, silent, live }: { item: string; index: Map<string, LinkTarget>; silent: boolean; live: boolean }): React.JSX.Element {
+  const { text, scene } = factParts(item)
+  const source = citedTargets(text, index)[0] ?? null
+  return (
+    <li
+      data-fact
+      className={cn('flex gap-2 border-l-2 py-1 pl-2.5 pr-1', live && 'animate-fade-in', silent ? 'border-dashed border-line-strong' : 'border-line-strong')}
+    >
+      {silent ? <CircleDashed size={13} aria-hidden className="mt-[3px] shrink-0 text-faint" /> : null}
+      <div className="min-w-0 flex-1">
+        <div className={cn('break-words text-[13px] leading-[1.5]', silent ? 'text-muted' : 'text-fg')}>
+          <InlineWords text={text} index={index} />
+        </div>
+        {source || scene ? (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {source ? <SourceChip target={source} /> : null}
+            {scene ? (
+              <span className="inline-flex h-6 items-center gap-1 rounded-full border border-line px-2 text-[11.5px] text-muted" data-fact-scene>
+                <BookOpenText size={11} aria-hidden />
+                {scene}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </li>
+  )
+}
+
+/** The facts a check found; with the memory silent, said so plainly. */
+function FactList({ block, index, live }: { block: Extract<AnswerBlock, { kind: 'facts' }>; index: Map<string, LinkTarget>; live: boolean }): React.JSX.Element {
+  const silent = block.verdict === 'unknown'
+  return (
+    <ul aria-label={silent ? 'What the memory has (it doesn’t say)' : 'What the memory says'} data-facts={block.verdict ?? ''} className="flex flex-col gap-1.5">
+      {block.items.length ? (
+        block.items.map((it, i) => <FactRow key={i} item={it} index={index} silent={silent} live={live} />)
+      ) : (
+        <FactRow item="The memory doesn’t say." index={index} silent live={live} />
+      )}
+    </ul>
+  )
+}
+
+/** The longer reasoning, folded away under "Why these" (or "Details"). */
+function MoreBlock({ text, index, label, live }: { text: string; index: Map<string, LinkTarget>; label: string; live: boolean }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  return (
+    <div data-more className={cn(live && 'animate-fade-in')}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-6 items-center gap-1 rounded-md px-1 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-focus"
+      >
+        <ChevronRight size={12} aria-hidden className={cn('transition-transform duration-150', open && 'rotate-90')} />
+        <MessageCircleMore size={13} aria-hidden className="text-faint" />
+        {label}
+      </button>
+      <div id={id} hidden={!open} className="mt-1 border-l-2 border-line pl-3 text-[13px] leading-[1.6] text-muted">
+        <AnswerProse text={text} index={index} gap="mt-2" />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The answer's blocks, in order. `live`: the answer is being written now (its blocks fade in as they come; an old
+ * chat's show at once). Follow-up questions (::next) aren't here: they show under the answer once it has ended.
+ */
+export function AnswerBlocks({
+  blocks,
+  index,
+  density,
+  turn,
+  live
+}: {
+  blocks: AnswerBlock[]
+  index: Map<string, LinkTarget>
+  density: Density
+  turn: TurnContext
+  live: boolean
+}): React.JSX.Element {
+  const gap = density === 'compact' ? 'mt-2' : 'mt-3'
+  const hasOptions = blocks.some((b) => b.kind === 'options')
+  // Ideas are numbered only when the lead says they come in an order ("worst first").
+  const lead = blocks.find((b): b is Extract<AnswerBlock, { kind: 'lead' }> => b.kind === 'lead')
+  const ranked = !!lead && rankedLead(lead.text)
+  let optionNumber = 0
+  return (
+    <>
+      {blocks.map((b, i) => {
+        const at = i > 0 ? gap : undefined
+        switch (b.kind) {
+          case 'lead':
+            return (
+              <div key={i} className={cn(at, live && 'animate-fade-in')}>
+                <AnswerLead block={b} index={index} density={density} />
+              </div>
+            )
+          case 'options': {
+            const first = optionNumber
+            optionNumber += b.items.length
+            return (
+              <div key={i} className={at}>
+                <div aria-hidden className="mb-1.5 flex h-5 items-center gap-1.5 px-1 text-[11.5px] font-semibold uppercase tracking-wide text-faint" data-options-head>
+                  <Lightbulb size={12} className="text-ai" />
+                  {b.items.length === 1 ? 'Idea' : `${b.items.length} ideas`}
+                  {ranked ? <span className="font-normal normal-case tracking-normal">· in order</span> : null}
+                </div>
+                <ol aria-label="Ideas" data-options className={cn('flex flex-col', density === 'compact' ? 'gap-1.5' : 'gap-2')}>
+                  {b.items.map((it, j) => (
+                    <OptionCard key={j} item={it} number={first + j + 1} ranked={ranked} index={index} turn={turn} density={density} live={live} />
+                  ))}
+                </ol>
+              </div>
+            )
+          }
+          case 'facts':
+            return (
+              <div key={i} className={at}>
+                <FactList block={b} index={index} live={live} />
+              </div>
+            )
+          case 'more':
+            return (
+              <div key={i} className={at}>
+                <MoreBlock text={b.text} index={index} label={hasOptions ? 'Why these' : 'Details'} live={live} />
+              </div>
+            )
+          case 'text':
+            return (
+              <div key={i} className={cn(at, 'px-1 text-[13.5px] leading-[1.6] text-fg', live && 'animate-fade-in')}>
+                <AnswerProse text={b.text} index={index} gap="mt-2" />
+              </div>
+            )
+          case 'next':
+            return null
+        }
+      })}
+    </>
+  )
+}

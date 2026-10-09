@@ -4,7 +4,8 @@
 import * as S from '@radix-ui/react-switch'
 import { ArrowLeft, ChevronRight, Copy, Undo2 } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
-import type { ContextBlock, GenerationRecord, ID } from '@shared/types'
+import type { ContextBlock, GenerationRecord, ID, MemoryTag } from '@shared/types'
+import { countMemoryTags } from '@shared/memoryTags'
 import { KIND_LABELS } from '@shared/fields'
 import { countWords } from '@shared/defaults'
 import { Button, Card, Notice, SectionTitle, toast } from '@/components/ui'
@@ -19,6 +20,8 @@ import { Skeleton, useDelayed } from './parts'
 import { BriefingArt } from '@/components/art/RoomArt'
 import { useDesk } from '@/features/look/look'
 import './aiSaw.css'
+import { laterMessageLabel, messageText, requestNote, requestsOf, requestTitle, toolOfResult } from './requestSteps'
+import { blockTagNote, recordTagNote, tagBadges, tagLabel, tagsInOrder } from './memoryTagsView'
 
 type Entry = GenerationRecord['entries'][number]
 
@@ -188,6 +191,8 @@ function DraftRecord({
   const allOpen = rec.blocks.every((b) => open.has(b.id))
   const responseWords = countWords(rec.response)
   const changed = rec.entries.filter((e) => e.changedSince && !e.deleted).length
+  // What the memory lines sent rested on (World Memory Overhaul B6): guesses and out-of-date facts, said once at the top.
+  const tagNote = recordTagNote(countMemoryTags(rec.blocks))
   // An answer in Ask the world (milestone 4) is called one here.
   const answer = rec.job === 'chat'
   // An AI edit of selected words, or Continue (milestone 4), is a change, named for its tool, not a draft.
@@ -218,14 +223,14 @@ function DraftRecord({
           {desk ? <p className="desk-caps">{answer ? 'An answer in Ask the world' : 'A record of the AI at work'}</p> : null}
           <h1 className="aisaw-title text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
           <p className="aisaw-intro mt-1 text-[13px] text-muted">
-            {answer ? (
-              <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
-            ) : (
-              <>
-                {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}${partWords(rec.params)}`}, written{' '}
-                {fullDate(rec.createdAt)}.
-              </>
-            )}
+        {answer ? (
+          <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
+        ) : (
+          <>
+            {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}${partWords(rec.params)}`}, written{' '}
+            {fullDate(rec.createdAt)}.
+          </>
+        )}
           </p>
         </div>
       </div>
@@ -272,170 +277,247 @@ function DraftRecord({
             {edit?.since ?? `this ${answer ? 'answer' : 'draft'}`}, so the AI saw an older version. They're marked below.
           </Notice>
         ) : null}
+        {tagNote ? <Notice tone="ai">{tagNote}</Notice> : null}
       </div>
 
       <ReplacedText rec={rec} sceneGone={sceneGone} />
 
       <div className="aisaw-cols contents">
         <div className="aisaw-side contents">
-          <Card className="aisaw-meta mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
-            {/* How much it was asked to think goes with the model, so the grid keeps its two even rows. */}
-            <Meta
-              label="Model"
-              value={modelLabel || rec.modelId}
-              title={rec.modelId}
-              note={rec.params.thinking ? `Thinking: ${THINKING_LABELS[rec.params.thinking]}` : undefined}
-            />
-            <Meta label="Provider" value={rec.providerName} />
-            <Meta
-              label="Creativity"
-              value={rec.params.sampling === false ? 'Set by the model' : creativityOf(rec.params)}
-              title={rec.params.sampling === false ? 'This model sets its own creativity, so the preset was not sent' : undefined}
-            />
-            <Meta
-              label="Tokens sent"
-              value={rec.promptTokens != null ? formatNumber(rec.promptTokens) : `about ${formatNumber(rec.budget.used)}`}
-              note={rec.promptTokens != null ? `Counted by ${rec.providerName}` : "AI Write's estimate"}
-            />
-            <Meta
-              label="Tokens written"
-              value={rec.completionTokens != null ? formatNumber(rec.completionTokens) : '—'}
-              note={rec.completionTokens != null ? `Counted by ${rec.providerName}` : undefined}
-            />
-            <Meta
-              label="Cost"
-              value={
-                rec.cost != null
-                  ? `${rec.costEstimated ? 'about ' : ''}${formatCost(rec.cost)}`
-                  : rec.status === 'error' && !rec.response
-                    ? 'Nothing charged'
-                    : 'Not known'
-              }
-              title={rec.costEstimated ? 'Estimated: the provider did not report the cost' : undefined}
-            />
-          </Card>
+      <Card className="aisaw-meta mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
+        {/* How much it was asked to think goes with the model, so the grid keeps its two even rows. */}
+        <Meta
+          label="Model"
+          value={modelLabel || rec.modelId}
+          title={rec.modelId}
+          note={rec.params.thinking ? `Thinking: ${THINKING_LABELS[rec.params.thinking]}` : undefined}
+        />
+        <Meta label="Provider" value={rec.providerName} />
+        <Meta
+          label="Creativity"
+          value={rec.params.sampling === false ? 'Set by the model' : creativityOf(rec.params)}
+          title={rec.params.sampling === false ? 'This model sets its own creativity, so the preset was not sent' : undefined}
+        />
+        <Meta
+          label="Tokens sent"
+          value={rec.promptTokens != null ? formatNumber(rec.promptTokens) : `about ${formatNumber(rec.budget.used)}`}
+          note={rec.promptTokens != null ? `Counted by ${rec.providerName}` : "AI Write's estimate"}
+        />
+        <Meta
+          label="Tokens written"
+          value={rec.completionTokens != null ? formatNumber(rec.completionTokens) : '—'}
+          note={rec.completionTokens != null ? `Counted by ${rec.providerName}` : undefined}
+        />
+        <Meta
+          label="Cost"
+          value={
+            rec.cost != null
+              ? `${rec.costEstimated ? 'about ' : ''}${formatCost(rec.cost)}`
+              : rec.status === 'error' && !rec.response
+                ? 'Nothing charged'
+                : 'Not known'
+          }
+          title={rec.costEstimated ? 'Estimated: the provider did not report the cost' : undefined}
+        />
+      </Card>
 
-          <BudgetBar
-            used={rec.budget.used}
-            available={rec.budget.available}
-            contextLength={rec.budget.contextLength}
-            reserved={rec.budget.reserved}
-            providerCounted={rec.promptTokens != null}
-          />
+      <BudgetBar
+        used={rec.budget.used}
+        available={rec.budget.available}
+        contextLength={rec.budget.contextLength}
+        reserved={rec.budget.reserved}
+        providerCounted={rec.promptTokens != null}
+      />
 
-          {rec.direction ? (
-            <section className="aisaw-direction mt-6">
-              <SectionTitle>{edit?.direction ?? (answer ? 'Your question' : 'Your direction for this draft')}</SectionTitle>
-              <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
-            </section>
-          ) : null}
+      {rec.direction ? (
+        <section className="aisaw-direction mt-6">
+          <SectionTitle>{edit?.direction ?? (answer ? 'Your question' : 'Your direction for this draft')}</SectionTitle>
+          <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
+        </section>
+      ) : null}
 
         </div>
         <div className="aisaw-main contents">
-          <section className="aisaw-briefing mt-7">
-            <SectionTitle
-              actions={
-                <div className="flex items-center gap-4">
-                  <label className="flex cursor-default items-center gap-2 text-[12px] text-muted">
-                    <S.Root
-                      checked={showMessages}
-                      onCheckedChange={setShowMessages}
-                      className="relative h-[18px] w-8 shrink-0 rounded-full bg-surface-3 transition-colors duration-150 data-[state=checked]:bg-accent"
-                    >
-                      <S.Thumb className="block h-3.5 w-3.5 translate-x-0.5 rounded-full bg-page shadow-sm transition-transform duration-150 data-[state=checked]:translate-x-[16px]" />
-                    </S.Root>
-                    Show the exact messages sent
-                  </label>
-                  {!showMessages ? (
-                    <button type="button" className="text-[12px] font-medium text-accent hover:underline" onClick={() => setOpen(allOpen ? new Set() : new Set(rec.blocks.map((b) => b.id)))}>
-                      {allOpen ? 'Collapse all' : 'Expand all'}
-                    </button>
-                  ) : null}
+      <section className="aisaw-briefing mt-7">
+        <SectionTitle
+          actions={
+            <div className="flex items-center gap-4">
+              <label className="flex cursor-default items-center gap-2 text-[12px] text-muted">
+                <S.Root
+                  checked={showMessages}
+                  onCheckedChange={setShowMessages}
+                  className="relative h-[18px] w-8 shrink-0 rounded-full bg-surface-3 transition-colors duration-150 data-[state=checked]:bg-accent"
+                >
+                  <S.Thumb className="block h-3.5 w-3.5 translate-x-0.5 rounded-full bg-page shadow-sm transition-transform duration-150 data-[state=checked]:translate-x-[16px]" />
+                </S.Root>
+                Show the exact messages sent
+              </label>
+              {!showMessages ? (
+                <button type="button" className="text-[12px] font-medium text-accent hover:underline" onClick={() => setOpen(allOpen ? new Set() : new Set(rec.blocks.map((b) => b.id)))}>
+                  {allOpen ? 'Collapse all' : 'Expand all'}
+                </button>
+              ) : null}
+            </div>
+          }
+        >
+          The briefing, in order
+        </SectionTitle>
+        {!showMessages ? (
+          <>
+            <p className="mb-3 text-[12.5px] text-muted">
+              {sentBlocks.length} {sentBlocks.length === 1 ? 'part' : 'parts'} sent, in the order the AI read them
+              {droppedCount ? `; ${droppedCount} left out because the model couldn't read that much` : ''}. Click a part to read it.
+            </p>
+            <div className="flex flex-col gap-2">
+              {rec.blocks.map((b) => (
+                <BlockRow
+                  key={b.id}
+                  block={b}
+                  number={sentNumber.get(b.id) ?? null}
+                  open={open.has(b.id)}
+                  onToggle={() => toggle(b.id)}
+                  entries={entries}
+                  generationId={rec.id}
+                  since={edit?.since}
+                />
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {rec.messages.map((m, i) => (
+              <div key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
+                <div className="flex items-center justify-between border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
+                  <span>
+                    {answer
+                      ? CHAT_ROLES[m.role]
+                      : m.role === 'system'
+                        ? 'Instructions message'
+                        : m.role === 'user'
+                          ? 'Briefing message'
+                          : 'Reply'}
+                  </span>
+                  <span className="tabular-nums text-faint">{formatNumber(countWords(m.content))} words</span>
                 </div>
-              }
-            >
-              The briefing, in order
-            </SectionTitle>
-            {!showMessages ? (
-              <>
-                <p className="mb-3 text-[12.5px] text-muted">
-                  {sentBlocks.length} {sentBlocks.length === 1 ? 'part' : 'parts'} sent, in the order the AI read them
-                  {droppedCount ? `; ${droppedCount} left out because the model couldn't read that much` : ''}. Click a part to read it.
-                </p>
-                <div className="flex flex-col gap-2">
-                  {rec.blocks.map((b) => (
-                    <BlockRow
-                      key={b.id}
-                      block={b}
-                      number={sentNumber.get(b.id) ?? null}
-                      open={open.has(b.id)}
-                      onToggle={() => toggle(b.id)}
-                      entries={entries}
-                      generationId={rec.id}
-                      since={edit?.since}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {rec.messages.map((m, i) => (
-                  <div key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
-                    <div className="flex items-center justify-between border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
-                      <span>
-                        {answer
-                          ? CHAT_ROLES[m.role]
-                          : m.role === 'system'
-                            ? 'Instructions message'
-                            : m.role === 'user'
-                              ? 'Briefing message'
-                              : 'Reply'}
-                      </span>
-                      <span className="tabular-nums text-faint">{formatNumber(countWords(m.content))} words</span>
-                    </div>
-                    <pre className="max-h-[560px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-3 font-mono text-[12px] leading-[1.6] text-fg">
-                      {m.content}
-                    </pre>
-                  </div>
-                ))}
+                <pre className="max-h-[560px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-3 font-mono text-[12px] leading-[1.6] text-fg">
+                  {m.content}
+                </pre>
               </div>
-            )}
-          </section>
+            ))}
+          </div>
+        )}
+      </section>
 
-          {/* The editor chat: each thing it looked up, or each change it proposed, on the way to its answer. */}
-          {rec.params.steps?.length ? (
-            <section className="mt-8" aria-label="Steps it took">
-              <SectionTitle>Steps it took</SectionTitle>
-              <ol className="flex flex-col gap-2">
-                {rec.params.steps.map((s, i) => (
-                  <li key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
-                    <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
-                      <span className="tabular-nums text-faint">{i + 1}.</span>
-                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                      <span className="font-mono text-[11px] text-faint">{s.tool}</span>
-                    </div>
-                    <pre className="max-h-[220px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-2.5 font-mono text-[11.5px] leading-[1.55] text-fg">
-                      {s.result}
-                    </pre>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          ) : null}
+      {/* The editor chat: each request of an answer that used tools (chat Phase 4); an older record has none. */}
+      {answer ? <RequestsSection rec={rec} /> : null}
 
-          <section className="aisaw-back mt-8">
-            <SectionTitle actions={<span className="text-[12px] tabular-nums text-faint">{responseWords.toLocaleString()} words</span>}>What came back</SectionTitle>
-            {rec.response ? (
-              <Card className="px-6 py-5">
-                <div className="max-w-[68ch] select-text whitespace-pre-wrap font-serif text-[15px] leading-[1.75] text-fg">{rec.response}</div>
-              </Card>
-            ) : (
-              <p className="text-[13px] text-muted">{rec.status === 'streaming' ? 'Waiting for the first words…' : 'No text came back.'}</p>
-            )}
-          </section>
+      {/* The editor chat: each thing it looked up, or each change it proposed, on the way to its answer. */}
+      {rec.params.steps?.length ? (
+        <section className="mt-8" aria-label="Steps it took">
+          <SectionTitle>Steps it took</SectionTitle>
+          <ol className="flex flex-col gap-2">
+            {rec.params.steps.map((s, i) => (
+              <li key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
+                <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
+                  <span className="tabular-nums text-faint">{i + 1}.</span>
+                  <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                  <span className="font-mono text-[11px] text-faint">{s.tool}</span>
+                </div>
+                <pre className="max-h-[220px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-2.5 font-mono text-[11.5px] leading-[1.55] text-fg">
+                  {s.result}
+                </pre>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      <section className="aisaw-back mt-8">
+        <SectionTitle actions={<span className="text-[12px] tabular-nums text-faint">{responseWords.toLocaleString()} words</span>}>What came back</SectionTitle>
+        {rec.response ? (
+          <Card className="px-6 py-5">
+            <div className="max-w-[68ch] select-text whitespace-pre-wrap font-serif text-[15px] leading-[1.75] text-fg">{rec.response}</div>
+          </Card>
+        ) : (
+          <p className="text-[13px] text-muted">{rec.status === 'streaming' ? 'Waiting for the first words…' : 'No text came back.'}</p>
+        )}
+      </section>
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Each request of an editor chat answer that used tools, in order (chat Phase 4, E18): request 1 is the briefing and
+ * the question (the messages above); each later one shows only what it added (the tool calls, what they brought back,
+ * a note AI Write sent). Each opens and closes; none show for a record from before, or an answer of one request.
+ */
+function RequestsSection({ rec }: { rec: GenerationRecord }): React.JSX.Element | null {
+  const requests = requestsOf(rec.params)
+  const [open, setOpen] = useState<Set<number>>(() => new Set())
+  if (!requests.length) return null
+  const toggle = (n: number): void =>
+    setOpen((s) => {
+      const next = new Set(s)
+      if (next.has(n)) next.delete(n)
+      else next.add(n)
+      return next
+    })
+  return (
+    <section className="mt-8" aria-label="Each request" data-requests>
+      <SectionTitle>Each request, in order</SectionTitle>
+      <p className="mb-3 text-[12.5px] text-muted">
+        The answer took {requests.length} requests. Each was sent everything before it again; here each shows only what it added.
+      </p>
+      <ol className="flex flex-col gap-2">
+        {requests.map((r) => {
+          const shown = open.has(r.n)
+          const messages = r.n === 1 ? rec.messages : r.added
+          return (
+            <li key={r.n} className="overflow-hidden rounded-xl border border-line bg-surface" data-request={r.n}>
+              <button
+                type="button"
+                onClick={() => toggle(r.n)}
+                aria-expanded={shown}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-150 hover:bg-surface-2"
+              >
+                <ChevronRight size={15} className={cn('shrink-0 text-faint transition-transform duration-150', shown && 'rotate-90')} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-medium text-fg">{requestTitle(r)}</span>
+                  <span className="block truncate text-[12px] text-faint">{requestNote(r)}</span>
+                </span>
+                <span className="shrink-0 text-[12px] tabular-nums text-faint">
+                  {messages.length} {messages.length === 1 ? 'message' : 'messages'}
+                </span>
+              </button>
+              {shown ? (
+                <div className="flex flex-col gap-2 border-t border-line px-4 pb-4 pt-3">
+                  {r.n === 1 ? <p className="text-[12.5px] text-muted">The briefing and the question, as shown above.</p> : null}
+                  {messages.map((m, i) => {
+                    const tool = toolOfResult(m, r.added)
+                    return (
+                      <div key={i} className="overflow-hidden rounded-lg border border-line">
+                        <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-1.5 text-[12px] font-medium text-muted">
+                          <span className="min-w-0 truncate">
+                            {r.n === 1 ? CHAT_ROLES[m.role] : laterMessageLabel(m, CHAT_ROLES)}
+                            {tool ? <span className="ml-1.5 font-mono text-[11px] text-faint">{tool}</span> : null}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-faint">{formatNumber(countWords(m.content))} words</span>
+                        </div>
+                        <pre className="max-h-[360px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-3 py-2 font-mono text-[11.5px] leading-[1.55] text-fg">
+                          {messageText(m) || '(no words)'}
+                        </pre>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ol>
+    </section>
   )
 }
 
@@ -612,6 +694,11 @@ function BlockRow({
           {number ?? '–'}
         </span>
         <span className={cn('min-w-0 flex-1 truncate text-[13.5px] font-medium', block.dropped ? 'text-faint' : 'text-fg')}>{block.title}</span>
+        {!block.dropped && blockTagNote(block.memory) ? (
+          <span className="shrink-0 text-[12px] font-medium text-ai" title="Some of what this part told the AI was a guess or out of date. Open it to see which.">
+            {blockTagNote(block.memory)}
+          </span>
+        ) : null}
         {block.dropped ? (
           <span className="shrink-0 text-[12px] text-faint">Left out: not enough room</span>
         ) : (
@@ -633,11 +720,61 @@ function BlockRow({
               ))}
             </div>
           ) : null}
+          {block.memory?.length ? <RestsOn tags={block.memory} /> : null}
           <BlockText text={block.text} />
         </div>
       ) : null}
     </div>
   )
+}
+
+/**
+ * What a part's memory lines rested on (World Memory Overhaul B6): each guess and each fact that was out of date as a
+ * small amber tag, then one quiet line for the rest ("Everything else here: 4 from your story, 1 yours").
+ */
+function RestsOn({ tags }: { tags: MemoryTag[] }): React.JSX.Element {
+  const ordered = tagsInOrder(tags)
+  const notable = ordered.filter((t) => t.origin === 'guess' || t.health !== 'ok')
+  const rest = ordered.filter((t) => !notable.includes(t))
+  const story = rest.filter((t) => t.origin === 'text').length
+  const yours = rest.filter((t) => t.origin === 'yours').length
+  const restWords = [story ? `${story} from your story` : '', yours ? `${yours} yours` : ''].filter(Boolean).join(', ')
+  return (
+    <div className="mb-3 flex flex-col gap-1.5" aria-label="What this part rests on">
+      {notable.length ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[12px] text-muted">Worth knowing:</span>
+          {notable.map((t, i) => (
+            <span
+              key={`${t.entryId ?? t.sceneId ?? ''}:${t.field ?? ''}:${i}`}
+              className="inline-flex h-6 items-center gap-1.5 rounded-full border border-ai/40 bg-ai-soft px-2 text-[12px] text-fg"
+              title={tagTitle(t)}
+            >
+              {tagLabel(t)}
+              {tagBadges(t).map((b) => (
+                <span key={b.text} className={cn('text-[11px] font-medium', b.tone === 'ai' ? 'text-ai' : 'text-faint')}>
+                  {b.text.toLowerCase()}
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {restWords ? (
+        <p className="text-[12px] text-faint">
+          {notable.length ? 'Everything else here' : 'What this part says of your world'}: {restWords}.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** A tag's tooltip, in a sentence. */
+function tagTitle(t: MemoryTag): string {
+  if (t.origin === 'guess') return 'The AI filled this in; nothing in your story says it yet. The AI was told it was a guess.'
+  if (t.health === 'updating') return 'This scene changed after its summary was written, so the AI was told the summary was being updated.'
+  if (t.health === 'changed') return 'The words this came from were edited, and the memory hadn’t confirmed it again yet.'
+  return t.origin === 'yours' ? 'You wrote this.' : 'Read from your story.'
 }
 
 function EntryChip({ entry, onOpen, since }: { entry: Entry; onOpen: () => void; since: string }): React.JSX.Element {

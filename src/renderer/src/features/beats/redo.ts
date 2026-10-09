@@ -83,14 +83,16 @@ export const redoing = (sceneId: ID): number | null => (redo && redo.sceneId ===
 
 /**
  * Writes beat `index` of the scene again, following `note` if there is one: in the bar's way for the session's
- * last beat, else as a tracked change in place (see the top of this file).
+ * last beat, else as a tracked change in place (see the top of this file). Resolves true once it is being written
+ * again (false when it can't be; why has been shown).
  */
-export async function redoBeat(sceneId: ID, index: number, note = '', o: { tracked?: boolean } = {}): Promise<void> {
+export async function redoBeat(sceneId: ID, index: number, note = '', o: { tracked?: boolean } = {}): Promise<boolean> {
   install()
   /** It can't be written now: says why, and "all in order" stops here. */
-  const refuse = (message?: string, o?: Parameters<typeof toast>[1]): void => {
+  const refuse = (message?: string, o?: Parameters<typeof toast>[1]): false => {
     queue = null
     if (message) toast(message, o)
+    return false
   }
   const bridge = editorBridge()
   if (!bridge?.editor || bridge.sceneId !== sceneId) return refuse(NOT_OPEN)
@@ -104,7 +106,8 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
   if (writing != null) return refuse(`Beat ${writing} is being written. Wait for it to finish, or stop it first.`)
   if (bridge.busy() || app.activeGeneration?.sceneId === sceneId) return refuse(BUSY)
   if (busyElsewhere(sceneId)) return refuse()
-  if (!o.tracked && writeAgainFromPage(sceneId, index, note.trim())) return refuse()
+  // The session's last beat: written again in the bar's way (and "all in order" stops here).
+  if (!o.tracked && writeAgainFromPage(sceneId, index, note.trim())) return !refuse()
 
   const marks = await loadMarks(sceneId)
   const ed = editorBridge()?.sceneId === sceneId ? editorBridge()?.editor : null
@@ -148,7 +151,7 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
   })
   if (!changeId) {
     queue = null
-    return
+    return false
   }
   r.changeId = changeId
   redo = r
@@ -158,11 +161,11 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
     const card = (await api.getScene(sceneId)).card
     const now = useApp.getState()
     const options = resolveDraftOptions(now.draftOptions[sceneId], cardLength(card), now.settings?.creativity ?? 'balanced')
-    if (r.cancelled) return
+    if (r.cancelled) return false
     const { generationId, of } = await api.startBeat({ sceneId, sessionId: marks.sessionId, index, options, steer, soFar, soFarEnds, after })
     if (r.cancelled || redo !== r) {
       void api.stopGeneration(generationId).catch(() => undefined)
-      return
+      return false
     }
     r.generationId = generationId
     updateReplacement(changeId, { status: 'writing', generationId })
@@ -170,16 +173,18 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
     for (const c of r.early) if (c.generationId === generationId) words(r, c.text)
     r.early = []
     if (r.earlyDone?.generationId === generationId) done(r, r.earlyDone)
+    return true
   } catch (e) {
-    if (r.cancelled) return
+    if (r.cancelled) return false
     r.ended = true
     if (redo === r) redo = null
     queue = null
     dropReplacement(changeId)
     const err = e as ApiError
-    if (err.code === 'cancelled') return
+    if (err.code === 'cancelled') return false
     const settings = err.code === 'no-key' || err.code === 'no-writer-model' || /\bSettings\b/.test(err.message)
     toast(err.message, { tone: 'danger', action: settings ? { label: 'Open Settings', run: openSettings } : undefined })
+    return false
   }
 }
 

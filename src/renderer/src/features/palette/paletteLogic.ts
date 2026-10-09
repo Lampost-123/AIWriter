@@ -105,6 +105,8 @@ export type FixedActionId =
   | 'settings-usage'
   | 'import-manuscript'
   | 'build-memory'
+  | 'reread-scene'
+  | 'reread-story'
   | 'focus-mode'
   | 'leave-focus-mode'
   | 'sample-world'
@@ -444,6 +446,9 @@ export const ACTIONS: ActionDef[] = [
     away: true,
     when: (c) => !!c.unreadStory
   },
+  // World Memory Overhaul B8: read again in full, after saying what it costs.
+  { id: 'reread-scene', label: 'Re-read this scene', keywords: 'memory read again refresh update facts cost', when: hasScene },
+  { id: 'reread-story', label: 'Re-read the whole story', keywords: 'memory read again refresh update facts cost all scenes', when: hasStory },
   {
     id: 'focus-mode',
     label: 'Focus mode',

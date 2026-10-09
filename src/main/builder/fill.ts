@@ -16,7 +16,9 @@
 //   where the entry was found: no world, no premise, no guessing. Each value comes with the words that show it, and
 //   is kept only when those words are in the story and the value rests on them. Fields about the author's plans
 //   (the arc, the role, lines of dialogue, what they never say) are never filled there. A field the words don't
-//   fill stays empty; with no words about the entry, nothing is asked.
+//   fill stays empty; with no words about the entry, nothing is asked. Since 2026-10-08 (World Memory Overhaul A4)
+//   each kept value also gets a source link to those words, so it follows them and goes when they go.
+// - Fields the World builder's fill drafts on Adam's own entries count as his (keeper/facts.ts builderField).
 // No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -28,7 +30,9 @@ import { runTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import type { MemoryModel } from '../keeper/model'
 import { parseLenient } from '../keeper/json'
-import { estimateTokens, findNearQuote, findQuote, plain, words } from '../keeper/text'
+import { estimateTokens, findNearQuote, findQuote, plain, sceneParagraphs, words } from '../keeper/text'
+import { spotIn } from '../keeper/track'
+import * as kdb from '../db/keeper'
 import { newId } from '../util'
 import { gatherWorld } from './context'
 import { entryText, fleshOutValues, profileKeys, toInput, valuesOf } from './profile'
@@ -207,7 +211,42 @@ async function fillOne(o: FillOptions, id: ID, out: FillResult): Promise<boolean
   if (done.status !== 'complete' || o.stopped?.() || !o.db.open) return false
   const parsed = parseLenient(done.text)
   if (!parsed.ok) return false
-  return saveFilled(o.db, id, o.fromStory ? storyValues(kind, parsed.value, targets, said) : fleshOutValues(kind, parsed.value, targets))
+  if (!o.fromStory) return saveFilled(o.db, id, fleshOutValues(kind, parsed.value, targets))
+  // From the story: each value keeps a link to the words that show it (World Memory Overhaul A4), so it follows them.
+  const quotes: Record<string, string> = {}
+  const values = storyValues(kind, parsed.value, targets, said, quotes)
+  const saved = saveFilled(o.db, id, values)
+  if (saved) linkQuotes(o.db, id, values, quotes)
+  return saved
+}
+
+/**
+ * Links each value filled in from the story to the words that show it, in the scene the entry was found in: the value
+ * then follows those words like anything else read from the text (and goes when they go). One whose words can't be
+ * found there stays unlinked: the writer is told it is a guess.
+ */
+export function linkQuotes(db: DB, entryId: ID, values: BuilderValues, quotes: Record<string, string>): void {
+  const e = liveEntry(db, entryId)
+  const scene = e?.originSceneId ? kdb.keeperScene(db, e.originSceneId) : null
+  if (!e || !scene) return
+  const paras = sceneParagraphs(scene.doc, scene.text)
+  for (const [key, value] of Object.entries(values)) {
+    const quote = quotes[key]
+    if (!quote || entryText(e, key) !== value || e.fieldOrigins?.[key] !== 'ai') continue
+    for (const p of paras) {
+      const r = findQuote(p.text, quote) ?? findNearQuote(p.text, quote)
+      if (!r) continue
+      hist.addLink(db, {
+        factKind: key === 'summary' ? 'summary' : 'field',
+        factId: e.id,
+        field: key,
+        sceneId: scene.sceneId,
+        sceneVersion: scene.textVersion,
+        ...spotIn(p, r)
+      })
+      break
+    }
+  }
 }
 
 /** Room for a reply that gives the words with each value: about 110 tokens a field. */
@@ -249,7 +288,7 @@ export function restsOn(value: string, quote: string): boolean {
  * only those whose words are in `said` and which rest on them. A bare value with no words, words the story doesn't
  * have, a value the words don't bear out, or "none" for a field that doesn't apply are all left out.
  */
-export function storyValues(kind: BuilderKind, value: unknown, targets: string[], said: string): BuilderValues {
+export function storyValues(kind: BuilderKind, value: unknown, targets: string[], said: string, quotes?: Record<string, string>): BuilderValues {
   const root = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
   const out: BuilderValues = {}
   for (const key of targets) {
@@ -261,7 +300,10 @@ export function storyValues(kind: BuilderKind, value: unknown, targets: string[]
     const text = v.trim()
     const shown = q.trim().replace(/^["“”'‘’]+|["“”'‘’]+$/g, '')
     if (!text || NOTHING.test(text) || !shown || !findNearQuote(said, shown)) continue
-    if (restsOn(text, shown)) out[key] = text
+    if (restsOn(text, shown)) {
+      out[key] = text
+      if (quotes) quotes[key] = shown
+    }
   }
   return cleanValues(kind, out)
 }

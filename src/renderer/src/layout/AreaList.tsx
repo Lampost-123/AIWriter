@@ -14,6 +14,7 @@ import { Binder } from '@/features/binder/Binder'
 import { useOutline } from '@/features/binder/outlineStore'
 import { useEntryCounts } from '@/features/binder/WorldSection'
 import { KIND_INK } from '@/features/world/kindIcons'
+import { useCheckCount } from '@/features/memory/useCheckCount'
 import { AREAS, areaOf, type Area } from './areas'
 import { chapterLinks, checkLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from './areaLinks'
 
@@ -172,12 +173,20 @@ function WorldList(): React.JSX.Element {
 
 function CheckList(): React.JSX.Element {
   const c = useLinkContext()
+  // What the memory keeper isn't sure about, counted beside What changed (main, 0.6.40).
+  const unsure = useCheckCount()
   return (
     <div className="min-h-0 flex-1 overflow-y-auto pb-3">
       <Links label="Check">
-        {checkLinks(c).map((l) => (
-          <Row key={l.id} link={l} />
-        ))}
+        {checkLinks(c)
+          .map((l) =>
+            l.id === 'memory' && unsure
+              ? { ...l, count: unsure, hint: `What the memory keeper changed, with Undo, and ${unsure === 1 ? 'one thing' : `${unsure} things`} it isn’t sure about` }
+              : l
+          )
+          .map((l) => (
+            <Row key={l.id} link={l} />
+          ))}
       </Links>
     </div>
   )

@@ -166,7 +166,9 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       if (!asked) return
       // After this frame's focus and scroll restore, so they don't undo it.
       requestAnimationFrame(() => {
-        if (!ctrl.revealWords(asked.quote, { wholeWord: asked.wholeWord })) toast("Those words aren't in the scene any more.")
+        const shownAs = ctrl.revealWords(asked.quote, { wholeWord: asked.wholeWord, paragraphId: asked.paragraphId })
+        if (!shownAs) toast("Those words aren't in the scene any more.")
+        else if (shownAs === 'paragraph' && asked.quote.trim()) toast('Those words have been edited since. This is the paragraph they were in.')
       })
     }
     tryReveal()

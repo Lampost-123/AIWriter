@@ -20,7 +20,7 @@ import * as streamDoc from './streamDoc'
 import { newSplitState, splitChunk, type SplitState } from './streamText'
 import { requestEditorFocus, takeFocusRequest } from './focusRequest'
 import { withParagraphIds } from './paragraphIds'
-import { findTextRange, type FindOptions } from './findText'
+import { findParagraphRange, findTextRange, type FindOptions } from './findText'
 import { REVEALED } from './reveal'
 import { requestPutBack } from './putBack'
 import { WORDS_META } from '@/features/goals/wordsMeta'
@@ -425,13 +425,15 @@ export class SceneController {
   }
 
   /**
-   * Selects the first place these words appear and brings it into view, a third of the way down
-   * the page (from "What changed"). Returns false when the words aren't in the scene any more.
+   * Selects the first place these words appear (in their own paragraph first, when given) and brings it into view, a
+   * third of the way down the page (from "What changed" and the memory's source lines). Words edited since: their
+   * paragraph is selected instead ('paragraph'). False when neither is in the scene any more.
    */
-  revealWords(quote: string, opts: FindOptions = {}): boolean {
+  revealWords(quote: string, opts: FindOptions = {}): 'words' | 'paragraph' | false {
     if (this.destroyed) return false
     const view = this.editor.view
-    const range = findTextRange(view.state.doc, quote, opts)
+    const words = quote.trim() ? findTextRange(view.state.doc, quote, opts) : null
+    const range = words ?? (opts.paragraphId ? findParagraphRange(view.state.doc, opts.paragraphId) : null)
     if (!range) return false
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)).setMeta(REVEALED, true))
     view.focus()
@@ -440,7 +442,7 @@ export class SceneController {
       const top = view.coordsAtPos(range.from).top - el.getBoundingClientRect().top
       el.scrollTop = Math.max(0, el.scrollTop + top - el.clientHeight / 3)
     }
-    return true
+    return words ? 'words' : 'paragraph'
   }
 
   // ---------- Editing and saving ----------

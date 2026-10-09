@@ -158,7 +158,7 @@ export function outlineFacts(db: DB, storyId: ID, premise: string): OutlineFacts
   let earlier: EarlierStory[] = []
   if (firstScene) {
     try {
-      earlier = earlierOf(sceneMemory(db, firstScene.id))
+      earlier = earlierOf(sceneMemory(db, firstScene.id, { forWriter: true }))
     } catch (e) {
       console.warn('The outline helper could not read the earlier stories', e)
     }
@@ -219,7 +219,7 @@ export function ideasFacts(db: DB, sceneId: ID, onScreen?: SceneCard | null): Id
   const saved = repo.getScene(db, sceneId)
   const scene = onScreen ? { ...saved, card: { ...saved.card, ...onScreen } } : saved
   const plan = storyPlan(db, story.id)
-  const memory = sceneMemory(db, sceneId)
+  const memory = sceneMemory(db, sceneId, { forWriter: true })
   const byId = new Map(memory.entries.map((e) => [e.id, e]))
   const onCard = [
     scene.card.povId,

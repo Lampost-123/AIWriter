@@ -1,7 +1,7 @@
 # Checks pull requests (once per push) and main after each merge, and builds a Windows
 # installer Adam can download from the run's "Artifacts" section (AI-Write-Windows-installer).
 # A branch with no pull request isn't checked on push; run it by hand from the Actions tab
-# ("Run workflow").
+# ("Run workflow"). Every job runs on Windows: the app is Windows only.
 name: CI
 
 on:
@@ -27,8 +27,8 @@ concurrency:
 jobs:
   checks:
     name: Typecheck and unit tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -50,8 +50,8 @@ jobs:
   # itself (the build takes seconds), so no part waits on another.
   app-tests:
     name: App tests (${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: windows-latest
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -71,9 +71,7 @@ jobs:
         run: npm run build
 
       - name: App tests (Playwright driving the built app)
-        run: |
-          command -v xvfb-run >/dev/null || (sudo apt-get update && sudo apt-get install -y xvfb)
-          xvfb-run -a -s "-screen 0 1440x900x24" npx playwright test --shard=${{ matrix.shard }}/4
+        run: npx playwright test --shard=${{ matrix.shard }}/4
 
       - name: Keep the test report
         if: failure()
@@ -99,10 +97,6 @@ jobs:
 
       - name: Install
         run: npm ci
-
-      # The release workflow runs these on Windows too, so a Windows-only failure shows up here first.
-      - name: Unit tests on Windows
-        run: npx vitest run
 
       - name: Build the installer
         run: npm run dist:win

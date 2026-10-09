@@ -17,6 +17,7 @@ import { runScene, type RunOutcome } from './run'
 import { answerItem, undoItem } from './undo'
 import { nextRollUp, sceneSummaryDue, writeRollUp, writeSceneSummary } from './summaries'
 import { Keeper } from './engine'
+import { logLineWords, sameOneWords } from './facts'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -247,15 +248,24 @@ describe("Adam's facts", () => {
     expect(back.origin).toBe('adam')
   })
 
-  it('an entry Adam edited is never moved to Trash, even when its last mention goes', async () => {
+  // Until 2026-10-08 any entry Adam had edited was never moved to the Trash. Adam's rule since (World Memory Overhaul
+  // part A): a text entry he only edited goes when its last mention goes (Undo brings it back); one he added something
+  // of his own to (a field no words were read for, notes...) stays.
+  it('an entry read from the text that Adam only edited goes to the Trash with its last mention; one he added to stays', async () => {
     const w = world()
-    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand. Tobin lost his hat.']])
     await read(w.db, w.sceneId)
     const mara = entryNamed(w.db, 'Mara')!
     repo.updateEntry(w.db, mara.id, { summary: 'A ferrywoman.' })
+    const tobin = entryNamed(w.db, 'Tobin')!
+    repo.updateEntry(w.db, tobin.id, { fields: { ...tobin.fields, hair: 'red' } })
     save(w.db, w.sceneId, [['p1', 'The ferry was late.']])
     await read(w.db, w.sceneId)
-    expect(entryNamed(w.db, 'Mara')).not.toBeNull()
+    expect(entryNamed(w.db, 'Mara')).toBeNull()
+    expect(entryNamed(w.db, 'Tobin')?.fields.hair).toBe('red')
+    const trashed = lines(w.db).find((l) => l.entryId === mara.id && l.text === 'Moved to Trash: no scene mentions it any more')!
+    undoItem(w.db, trashed.id)
+    expect(entryNamed(w.db, 'Mara')?.summary).toBe('A ferrywoman.')
   })
 })
 
@@ -510,6 +520,7 @@ describe('first seen elsewhere', () => {
     const line = lines(w.db).find((l) => l.question?.text === 'Is this the same one?')!
     expect(line.question!.options.map((o) => o.id)).toEqual(['link', 'new'])
     expect(line.question!.answer).toBe('link')
+    expect(line.text).toMatch(/^Same person as Kell in your world\. They /)
 
     // "Make a new character": a separate Kell for this scene.
     answerItem(w.db, line.id, 'new')
@@ -519,6 +530,33 @@ describe('first seen elsewhere', () => {
     answerItem(w.db, line.id, 'link')
     expect(repo.listEntries(w.db).filter((e) => e.name === 'Kell')).toHaveLength(1)
     expect(mem.listExistsPoints(w.db, kell.id).some((p) => p.sceneId === w.sceneId)).toBe(true)
+  })
+})
+
+describe('the "Is this the same one?" line', () => {
+  it('says in plain words that it is the same one as in the world, and why it is asked', () => {
+    expect(sameOneWords('character', 'Ash Penrose', 'not in the story yet at this point')).toBe(
+      'Same person as Ash Penrose in your world. They haven’t appeared in the story yet at this point.'
+    )
+    expect(sameOneWords('character', 'Ash', "from Kell's Road, not in this story so far")).toBe(
+      "Same person as Ash in your world. They are from Kell's Road and haven’t been in this story so far."
+    )
+    expect(sameOneWords('place', 'Haldon Bridge', 'not in this story so far')).toBe(
+      'Same place as Haldon Bridge in your world. It hasn’t been in this story so far.'
+    )
+    expect(sameOneWords('item', 'the seal', 'not in the story yet at this point')).toBe(
+      'Same item as the seal in your world. It hasn’t appeared in the story yet at this point.'
+    )
+  })
+
+  it('shows a line saved in the old words (0.6.38 and earlier) in the new ones, and leaves other lines alone', () => {
+    expect(logLineWords('Linked to the character already in the world (not in the story yet at this point)', 'the girl')).toBe(
+      'Same person as the girl in your world. They haven’t appeared in the story yet at this point.'
+    )
+    expect(logLineWords('Linked to the plot thread already in the world (not in this story so far)', 'The survey')).toBe(
+      'Same plot thread as The survey in your world. It hasn’t been in this story so far.'
+    )
+    expect(logLineWords('Lost her left hand', 'Mara')).toBe('Lost her left hand')
   })
 })
 

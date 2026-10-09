@@ -1,29 +1,65 @@
 // The plot threads board (milestone 3): every plot thread as seen in one story, in columns Open,
 // Resolved and (when there are any) Planned, with where each was set up and paid off linked to those
 // scenes. A thread open for many chapters gets a calm amber note, so nothing is forgotten. Clicking a
-// thread opens its page.
-import { Hourglass, Spool, Plus, Sparkles, Undo2 } from '@/components/ui/icons'
+// thread opens its page. The ledger (World Memory Overhaul B4) lists the same threads as rows: status, the scene that
+// last touched each, and how many scenes it has been quiet, sortable by that.
+import { ChevronDown, ChevronUp, Hourglass, Spool, Plus, Sparkles, Undo2 } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID } from '@shared/types'
-import type { BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'
+import type { BoardPlace, BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'
 import { Badge, Button, EmptyState, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { createEntry } from '@/features/world/entryActions'
+import { Segmented } from '@/features/generate/parts'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from '@/features/timeline/viewParts'
 import { useDesk } from '@/features/look/look'
-import { columnsOf, openFor, paidOffWords, setUpWords, type PlaceWords } from './boardLogic'
+import {
+  columnsOf,
+  isQuiet,
+  ledgerRows,
+  openFor,
+  paidOffWords,
+  quietWords,
+  setUpWords,
+  statusWords,
+  type LedgerSort,
+  type PlaceWords
+} from './boardLogic'
 import { DeskThreads } from './DeskThreads'
 
 const loadBoard = (storyId: ID): Promise<Board> => api.getThreadsBoard(storyId)
 
 const openThread = (id: ID): void => useApp.getState().navigate({ kind: 'entries', entryKind: 'thread', entryId: id })
 
+type Layout = 'board' | 'ledger'
+const LAYOUTS: { value: Layout; label: string }[] = [
+  { value: 'board', label: 'Board' },
+  { value: 'ledger', label: 'Ledger' }
+]
+const LAYOUT_KEY = 'aiwrite.threads.layout'
+const savedLayout = (): Layout => {
+  try {
+    return localStorage.getItem(LAYOUT_KEY) === 'ledger' ? 'ledger' : 'board'
+  } catch {
+    return 'board'
+  }
+}
+
 export function ThreadsBoard(): React.JSX.Element {
   const [storyId, setStoryId] = useViewStory()
   const { data, error, retry } = useWorldView(storyId, loadBoard)
   const [creating, setCreating] = useState(false)
+  const [layout, setLayoutState] = useState<Layout>(savedLayout)
+  const setLayout = (l: Layout): void => {
+    setLayoutState(l)
+    try {
+      localStorage.setItem(LAYOUT_KEY, l)
+    } catch {
+      /* remembered for this visit only */
+    }
+  }
 
   const create = async (): Promise<void> => {
     setCreating(true)
@@ -76,14 +112,21 @@ export function ThreadsBoard(): React.JSX.Element {
       <ViewHeader title="Plot threads board" subtitle="The questions and promises your story opens, and where each is paid off.">
         <StoryFilter value={storyId} onChange={setStoryId} />
         {data?.threads.length ? (
-          <Button icon={<Plus size={15} />} loading={creating} onClick={() => void create()}>
-            New plot thread
-          </Button>
+          <>
+            <Segmented value={layout} onChange={setLayout} options={LAYOUTS} label="Show the plot threads as" />
+            <Button icon={<Plus size={15} />} loading={creating} onClick={() => void create()}>
+              New plot thread
+            </Button>
+          </>
         ) : null}
       </ViewHeader>
       {data ? (
         data.threads.length ? (
-          <Columns board={data} />
+          layout === 'ledger' ? (
+            <Ledger board={data} />
+          ) : (
+            <Columns board={data} />
+          )
         ) : (
           <div className="flex-1 overflow-auto">
             <EmptyState
@@ -247,6 +290,121 @@ function ThreadCard({ thread: t }: { thread: BoardThread }): React.JSX.Element {
         <p className="mt-2 text-[12px] text-faint">{open}</p>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * The open threads ledger (B4): one row a thread, with its status, the scene that last touched it and how many scenes it
+ * has been quiet. Sorted by quiet-for (the quietest first) or by name; a quiet open thread gets a calm amber note.
+ */
+function Ledger({ board }: { board: Board }): React.JSX.Element {
+  const [sort, setSort] = useState<LedgerSort>('quiet')
+  const [ascending, setAscending] = useState(false)
+  const rows = ledgerRows(board, sort, ascending)
+  const sortBy = (s: LedgerSort): void => {
+    if (s === sort) setAscending((a) => !a)
+    else {
+      setSort(s)
+      setAscending(false)
+    }
+  }
+  const ariaSort = (s: LedgerSort): 'ascending' | 'descending' | 'none' =>
+    s !== sort ? 'none' : (s === 'name') !== ascending ? 'ascending' : 'descending'
+  const head = (s: LedgerSort, label: string): React.JSX.Element => (
+    <button
+      type="button"
+      onClick={() => sortBy(s)}
+      className="inline-flex items-center gap-1 rounded font-medium text-muted outline-none transition-colors duration-150 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40"
+      title={s === 'quiet' ? 'Sort by how long each has been quiet' : 'Sort by name'}
+    >
+      {label}
+      {sort === s ? ariaSort(s) === 'ascending' ? <ChevronUp size={13} aria-hidden /> : <ChevronDown size={13} aria-hidden /> : null}
+    </button>
+  )
+  return (
+    <div className="min-h-0 flex-1 overflow-auto px-6 pb-10 pt-5">
+      <p className="mb-3 max-w-[70ch] text-[12.5px] leading-relaxed text-muted">
+        When each plot thread was last touched in the story (a clue, a step on, or a mention), and how many scenes it has been quiet
+        since. The AI writer gets a gentle reminder of an open thread that has been quiet for a while.
+      </p>
+      <table className="w-full min-w-[560px] border-separate border-spacing-0 text-left text-[13px]" data-testid="threads-ledger">
+        <thead>
+          <tr className="text-[12px]">
+            <th scope="col" aria-sort={ariaSort('name')} className="border-b border-line py-2 pr-4">
+              {head('name', 'Plot thread')}
+            </th>
+            <th scope="col" className="border-b border-line py-2 pr-4 font-medium text-muted">
+              Status
+            </th>
+            <th scope="col" className="border-b border-line py-2 pr-4 font-medium text-muted">
+              Last touched
+            </th>
+            <th scope="col" aria-sort={ariaSort('quiet')} className="border-b border-line py-2">
+              {head('quiet', 'Quiet for')}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((t) => (
+            <LedgerRow key={t.id} thread={t} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function LedgerRow({ thread: t }: { thread: BoardThread }): React.JSX.Element {
+  const quiet = quietWords(t)
+  return (
+    <tr className="align-top">
+      <td className="border-b border-line py-2.5 pr-4">
+        <button
+          type="button"
+          onClick={() => openThread(t.id)}
+          title="Open this plot thread"
+          className="rounded text-left font-medium leading-snug text-fg outline-none hover:text-accent focus-visible:ring-2 focus-visible:ring-accent/40"
+        >
+          {t.name}
+        </button>
+        {t.promise ? <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-relaxed text-muted">{t.promise}</p> : null}
+      </td>
+      <td className="border-b border-line py-2.5 pr-4 text-muted">{statusWords(t)}</td>
+      <td className="border-b border-line py-2.5 pr-4 text-muted">
+        <PlaceLink place={t.lastTouched ?? null} />
+      </td>
+      <td className="whitespace-nowrap border-b border-line py-2.5 tabular-nums">
+        {isQuiet(t) ? (
+          <Badge tone="ai" className="gap-1">
+            <Hourglass size={12} aria-hidden />
+            {quiet}
+          </Badge>
+        ) : quiet ? (
+          <span className="text-muted">{quiet}</span>
+        ) : (
+          <span className="text-faint" aria-label="Not open">
+            —
+          </span>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+/** A place on the story's line, linked to its scene; "Not yet" when nothing has touched the thread. */
+function PlaceLink({ place }: { place: BoardPlace | null }): React.JSX.Element {
+  if (!place) return <span className="text-faint">Not yet</span>
+  const { sceneId, storyId } = place
+  if (!sceneId || !storyId) return <span>{place.label || 'Before the story begins'}</span>
+  return (
+    <button
+      type="button"
+      onClick={() => useApp.getState().selectScene(sceneId, storyId)}
+      title="Open this scene"
+      className="rounded text-left font-medium text-accent underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+    >
+      {place.label}
+    </button>
   )
 }
 

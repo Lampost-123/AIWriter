@@ -13,6 +13,7 @@ import type {
   ChangeAnchor,
   ChangeData,
   ChangeInput,
+  ChangeUntil,
   Entry,
   ExistsKind,
   ExistsPoint,
@@ -77,6 +78,17 @@ const toChange = (r: Row): Change =>
     position: r.position as number,
     origin: r.origin as Origin,
     runId: (r.run_id as string) ?? null,
+    ...(typeof r.until_scene_id === 'string' && r.until_scene_id
+      ? {
+          until: {
+            sceneId: r.until_scene_id,
+            when: (r.until_when as string) ?? '',
+            origin: ((r.until_origin as Origin) ?? 'text') as Origin,
+            quote: (r.until_quote as string) ?? '',
+            paragraphId: (r.until_paragraph_id as string) ?? null
+          }
+        }
+      : {}),
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string
   }) as Change
@@ -155,12 +167,57 @@ export function insertChange(db: DB, c: NewChange): Change {
   return change
 }
 
+/** Writes where a change stops being true (null: it holds again), without a version (the caller records one). */
+function writeUntil(db: DB, id: ID, until: ChangeUntil | null): void {
+  db.prepare(
+    'UPDATE changes SET until_scene_id = ?, until_when = ?, until_origin = ?, until_quote = ?, until_paragraph_id = ? WHERE id = ?'
+  ).run(
+    until?.sceneId ?? null,
+    until?.when ?? '',
+    until ? until.origin : null,
+    until?.quote ?? '',
+    until?.paragraphId ?? null,
+    id
+  )
+}
+
+/**
+ * Sets where a change stops being true (World Memory Overhaul B1), or null for "it still holds". `by` says who, for the
+ * memory history. Its anchor, kind and payload stay as they are.
+ */
+export function setChangeUntil(db: DB, id: ID, until: ChangeUntil | null, by: { origin: Origin; runId?: ID | null }): Change {
+  getChange(db, id)
+  writeUntil(db, id, until)
+  db.prepare('UPDATE changes SET updated_at = ? WHERE id = ?').run(now(), id)
+  const change = getChange(db, id)
+  recordVersion(db, { factKind: 'change', factId: id, entryId: change.entryId, data: change, origin: by.origin, runId: by.runId })
+  return change
+}
+
+/** The words that end a change moved in their scene (a typo fixed, a paragraph moved): no new version, like a link. */
+export function moveUntilWords(db: DB, id: ID, at: { quote: string; paragraphId: string | null }): void {
+  db.prepare('UPDATE changes SET until_quote = ?, until_paragraph_id = ? WHERE id = ?').run(at.quote, at.paragraphId, id)
+}
+
+/** Live changes that stop being true at this scene (B1). */
+export function changesEndingIn(db: DB, sceneId: ID): Change[] {
+  return (
+    db.prepare('SELECT * FROM changes WHERE until_scene_id = ? AND deleted_at IS NULL ORDER BY position, created_at, rowid').all(sceneId) as Row[]
+  ).map(toChange)
+}
+
 /**
  * Replaces a change's anchor, kind and payload. `origin` says who: Adam editing a text-origin change
- * makes it his ('adam'); the memory keeper passes 'text' or 'ai' with its run.
+ * makes it his ('adam'); the memory keeper passes 'text' or 'ai' with its run. `until` (B1): left out, where it stops
+ * being true stays as it was; given (null: it holds), it is set too (an older version put back).
  */
-export function replaceChange(db: DB, id: ID, c: ChangeInput & { origin: Origin; runId?: ID | null }): Change {
+export function replaceChange(
+  db: DB,
+  id: ID,
+  c: ChangeInput & { origin: Origin; runId?: ID | null; until?: ChangeUntil | null }
+): Change {
   const old = getChange(db, id)
+  if (c.until !== undefined) writeUntil(db, id, c.until)
   const { storyId, sceneId } = anchorFor(db, c)
   // Moved to another place: it goes after the changes already there.
   const moved = old.anchor !== c.anchor || old.storyId !== storyId || old.sceneId !== sceneId

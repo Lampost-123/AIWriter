@@ -318,7 +318,9 @@ test('while a replacing draft waits for its first words, the old text is held: n
     await win.keyboard.type(' More.')
     await win.keyboard.press('Control+z')
     await expect(prose(win).locator('p')).toHaveText(typedBefore)
-    expect(await lastStatus(win, sceneId)).toBe('streaming')
+    // The draft is still on its way: it starts once the memory has read the scene's fresh words (a few seconds at
+    // most, World Memory Overhaul A6; the memory model here is fake/wait too), then waits for its first words.
+    await expect.poll(() => lastStatus(win, sceneId), { timeout: 10_000 }).toBe('streaming')
 
     // The first words take its place, with nothing glued to them; the old text, with what was typed
     // before, is kept with the draft.

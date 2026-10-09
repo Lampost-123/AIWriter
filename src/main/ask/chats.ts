@@ -51,7 +51,11 @@ export const toTurn = (r: rows.TurnRow): AskTurn => ({
   cutOff: r.cutOff,
   createdAt: r.createdAt,
   ...(r.steps.length ? { steps: r.steps } : {}),
-  ...(r.proposals.length ? { proposals: r.proposals } : {})
+  ...(r.tools.length ? { tools: r.tools } : {}),
+  ...(r.proposals.length ? { proposals: r.proposals } : {}),
+  ...(r.choice ? { choice: r.choice } : {}),
+  ...(r.savedNote ? { saved: r.savedNote } : {}),
+  ...(Object.keys(r.options).length ? { options: r.options } : {})
 })
 
 /** A chat's turns, oldest first. */

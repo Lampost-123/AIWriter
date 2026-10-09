@@ -66,7 +66,12 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     // Words the model set in italics show in italics, without the marks.
     await expect(answer.locator('em')).toHaveText('nobody')
     await expect(answer).not.toContainText('*')
-    await expect(turns(win).first().getByRole('button', { name: 'What the AI saw' })).toBeVisible()
+    // What the AI saw is in the answer's ⋯ menu (its actions show on hover or focus).
+    await turns(win).first().getByRole('button', { name: 'More about this answer' }).click()
+    await expect(win.getByRole('menuitem', { name: 'What the AI saw' })).toBeVisible()
+    await win.keyboard.press('Escape')
+    // The entries it used, as chips under it.
+    await expect(turns(win).first().locator('[data-sources] [data-source-id]')).toHaveCount(2)
     // It was asked from the open scene, with the marker, and the entries it names in full.
     const sent = fake.lastRequest()!.body as { messages: { role: string; content: string }[] }
     expect(sent.messages[0].content.startsWith('[AIWRITE-ASK v1] answer\n')).toBe(true)
@@ -112,18 +117,20 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await box(win).fill('Give me ten tavern names that fit the north')
     await panel(win).getByRole('button', { name: 'Ask', exact: true }).click()
     const second = turns(win).nth(1)
-    await expect(second.getByRole('status')).toContainText('Answering…')
+    await expect(second.locator('[data-steps]')).toContainText('Answering…')
+    await expect(panel(win).locator('[data-ask-status]')).toHaveText('Answering…')
     await expect(second.locator('[data-answer]')).toContainText('Idea 1:')
     // An entry it cites, shown while it is being written: Esc goes back to the chat, and the answer goes on.
     await second.locator('[data-answer]').getByRole('button', { name: 'Tobin' }).click()
     await expect(peek).toContainText('The ferryman.')
     await win.keyboard.press('Escape')
     await expect(peek).toHaveCount(0)
-    await expect(second.getByRole('status')).toContainText('Answering…')
+    await expect(second.locator('[data-steps]')).toContainText('Answering…')
     await expect(box(win)).toBeFocused()
     await panel(win).getByRole('button', { name: 'Stop', exact: true }).click()
-    // Under it, "What the AI saw" first: how the answer ended (and its cost) come after it, so it never moves.
-    await expect(second).toContainText('What the AI saw·Stopped')
+    // How the answer ended shows under it, and a screen reader hears it.
+    await expect(second.locator('[data-end-note]')).toHaveText('Stopped')
+    await expect(panel(win).locator('[data-ask-status]')).toHaveText('Stopped')
     await expect(panel(win).getByRole('button', { name: 'Ask', exact: true })).toBeVisible()
     const kept = await second.locator('[data-answer]').innerText()
     expect(kept).toContain('Answer 2 in this chat.')
@@ -139,14 +146,14 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await box(win).press('Enter')
     const third = turns(win).nth(2)
     await expect(third.getByRole('alert')).toContainText('credit')
-    await expect(third.getByRole('button', { name: 'What the AI saw' })).toBeVisible()
+    await expect(third.getByRole('button', { name: 'More about this answer' })).toBeVisible()
     await invoke(win, 'updateSettings', { models: { chat: choice(providerId, 'fake/writer') } })
     await third.getByRole('alert').getByRole('button', { name: 'Try again' }).click()
     await expect(turns(win)).toHaveCount(4)
     await expect(turns(win).nth(3).locator('[data-answer]')).toContainText('they meet at The Grey Ferry at dusk')
     await expect(third.getByRole('alert')).toHaveCount(0)
     await expect(third).toContainText('Didn’t get an answer')
-    await expect(third.getByRole('button', { name: 'What the AI saw' })).toBeVisible()
+    await expect(third.getByRole('button', { name: 'More about this answer' })).toBeVisible()
 
     // New chat starts afresh; the first is in the list of earlier chats.
     await panel(win).getByRole('button', { name: 'New chat' }).click()
@@ -172,6 +179,97 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await expect(turns(again.win).nth(1)).toContainText('Stopped')
     await expect(turns(again.win).nth(2)).toContainText('Didn’t get an answer')
     await expect(turns(again.win).nth(2).getByRole('alert')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Ask the world’s answers in blocks: quick actions, option cards and what they do, follow-ups, a fact check’s verdict, density', async ({ launch }) => {
+  const fake = await startFake({ delayMs: 2 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Gamma')
+    const [story] = await invoke(win, 'listStories')
+    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+    await invoke(win, 'createEntry', 'character', { name: 'Mara Venn', aliases: ['Mara'], summary: 'A smith’s daughter.', originStoryId: story.id })
+    await useFakeModel(win, fake)
+    const beats = async (): Promise<string[]> => (await invoke(win, 'getScene', sceneId)).card.beats
+
+    // A quick action over the empty box starts the question.
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    // All four fit on the row in the panel's own width (short words there), with no scrolling sideways.
+    const row = panel(win).locator('[data-context-row]')
+    await expect(row.locator('[data-quick]')).toHaveCount(4)
+    expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await expect(row.locator('[data-quick="check"]')).toHaveText('Check', { useInnerText: true })
+    await panel(win).locator('[data-context-row]').getByRole('button', { name: 'Brainstorm' }).click()
+    await expect(box(win)).toHaveValue('Brainstorm ideas for ')
+    await expect(box(win)).toBeFocused()
+    await win.keyboard.type('the harbour')
+    await box(win).press('Enter')
+
+    // The ideas come as cards.
+    const turn = turns(win).first()
+    const cards = turn.locator('[data-option-card]')
+    await expect(cards).toHaveCount(3)
+    await expect(cards.first()).toContainText('Cut it back')
+    await expect(panel(win).locator('[data-ask-status]')).toHaveText('Answer ready: 3 options')
+
+    // Kept (★), with the answer (still kept after a reload, below).
+    await cards.first().getByRole('button', { name: /^Keep / }).click()
+    await expect(cards.first()).toHaveAttribute('data-state', 'kept')
+    // Use as beat: on the open scene's card, with Undo.
+    await cards.nth(1).getByRole('button', { name: /as a beat$/ }).click()
+    await expect(cards.nth(1)).toContainText('Added as beat 1')
+    await expect.poll(beats).toEqual(['End on the dialogue — the line of dialogue instead.'])
+    await toasts(win).getByRole('button', { name: 'Undo' }).last().click()
+    await expect.poll(beats).toEqual([])
+    await expect(cards.nth(1)).toHaveAttribute('data-state', 'idle')
+    // Set aside, and back.
+    await cards.nth(2).getByRole('button', { name: / aside$/ }).click()
+    await expect(cards.nth(2)).toHaveAttribute('data-state', 'aside')
+    await cards.nth(2).getByRole('button', { name: /^Bring back/ }).click()
+    await expect(cards.nth(2)).toHaveAttribute('data-state', 'idle')
+
+    // A follow-up fills the box, ready to change or ask.
+    const followUps = turn.locator('[data-follow-ups] button')
+    await expect(followUps).toHaveCount(2)
+    await followUps.nth(1).click()
+    await expect(box(win)).toHaveValue('Give me three more')
+    await expect(box(win)).toBeFocused()
+    // More like this asks at once.
+    await cards.first().getByRole('button', { name: /^More ideas like/ }).click()
+    await expect(turns(win)).toHaveCount(2)
+    await expect(turns(win).nth(1)).toContainText('More ideas like “Cut it back”')
+    await expect(turns(win).nth(1).locator('[data-option-card]')).toHaveCount(3)
+
+    // A fact check opens with its verdict, then what the memory has.
+    await panel(win).getByRole('button', { name: 'New chat' }).click()
+    await box(win).fill('Did I already say how old Mara is?')
+    await box(win).press('Enter')
+    const check = turns(win).first()
+    await expect(check.locator('[data-verdict="unknown"]')).toHaveText('Not in memory yet')
+    await expect(check.locator('[data-facts] [data-fact]')).toHaveCount(1)
+    await expect(check.locator('[data-fact] [data-source-id]')).toHaveAttribute('aria-label', /^Mara Venn/)
+
+    // Compact, from the panel's ⋯ menu, and remembered.
+    await panel(win).getByRole('button', { name: 'Ask panel options' }).click()
+    await win.getByRole('menuitemradio', { name: /^Compact/ }).click()
+    await expect(panel(win).locator('[data-density="compact"]')).toHaveCount(1)
+    await win.reload()
+    await expect(win.locator('.scene-prose')).toBeVisible()
+    if (!(await panel(win).count())) await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await expect(panel(win).locator('[data-density="compact"]')).toHaveCount(1)
+
+    // What was made of the option cards is kept with the answer (chat Phase 4): the earlier chat, read back from its
+    // records after the reload, shows its first card kept still; the others, put back, show as they were.
+    await panel(win).getByRole('button', { name: 'Earlier chats' }).click()
+    await win.getByRole('menuitem', { name: /Brainstorm ideas for the harbour/ }).click()
+    const keptCards = turns(win).first().locator('[data-option-card]')
+    await expect(keptCards).toHaveCount(3)
+    await expect(keptCards.first()).toHaveAttribute('data-state', 'kept')
+    await expect(keptCards.nth(1)).toHaveAttribute('data-state', 'idle')
+    await expect(keptCards.nth(2)).toHaveAttribute('data-state', 'idle')
   } finally {
     await fake.close()
   }

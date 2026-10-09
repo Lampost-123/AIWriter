@@ -18,13 +18,17 @@
 //   otherwise "from <the story of its first point>, not in this story so far".
 
 import type Database from 'better-sqlite3'
-import type { Change, ChangeView, EntryState, ID } from '@shared/types'
+import type { Change, ChangeView, Entry, EntryState, ID, ThreadState } from '@shared/types'
 import type { ExistsAt, Line, MemoryData, SceneMemory, StoryNode, StorySoFar, SummaryIndex, WorldShape } from './types'
 import { summaryKey } from './types'
 import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, storyOrder, storyOfScene } from './line'
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
 import * as mem from '../db/memory'
-import { linksForFacts } from '../db/history'
+import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
+import { threadTouches } from './threadQuiet'
+import { DUE_SUMMARY_SCENES, summaryDue } from '../keeper/sceneChange'
+import { fieldValue, guessFields } from '../keeper/facts'
+import { lastWords } from '../keeper/text'
 import * as repo from '../db/repo'
 import { UserError } from '../util'
 
@@ -67,35 +71,156 @@ export function loadMemoryData(db: DB): MemoryData {
   }
 }
 
-/** What counts for drafting (or reading) this scene. */
-export function sceneMemory(db: DB, sceneId: ID): SceneMemory {
+/**
+ * The memory as the writer is given it (World Memory Overhaul A1, Adam 2026-10-08): a fact read from the text whose
+ * words were edited or deleted, with nothing confirming it yet ('unsure' in db/history.ts factHealth), is left out until
+ * a read confirms it: a change is dropped, a field is left empty. Adam's own values (his facts, and text facts he
+ * edited) always count, and so does an entry's summary (Adam, 2026-10-08: the old one stands until a new one is
+ * written). The memory keeper and the memory pages see everything (loadMemoryData).
+ */
+export function writerData(db: DB, data: MemoryData): MemoryData {
+  const health = factHealth(db)
+  const unsure = (e: Entry, field: string): boolean =>
+    health.field(e.id, field) === 'unsure' && (e.fieldOrigins?.[field] ?? e.origin) !== 'adam'
+  return {
+    ...data,
+    entries: data.entries.map((e) => {
+      const fields = Object.keys(e.fields ?? {}).filter((k) => e.fields[k] && unsure(e, k))
+      const description = !!e.description && unsure(e, 'description')
+      // The memory's guesses with no words behind them (A4): labelled for the writer, never in "must stay true".
+      const guesses = guessFields(e).filter((k) => health.field(e.id, k) === 'unlinked' && fieldValue(e, k).trim())
+      // Sent although their words were edited and nothing confirms them yet (B6, for "What the AI saw"): the summary,
+      // which stands until a new one is written, and Adam's own values.
+      const kept = ['summary', 'description', ...Object.keys(e.fields ?? {})].filter(
+        (k) =>
+          health.field(e.id, k) === 'unsure' &&
+          !!fieldValue(e, k).trim() &&
+          (k === 'summary' || (e.fieldOrigins?.[k] ?? e.origin) === 'adam')
+      )
+      if (!fields.length && !description && !guesses.length && !kept.length) return e
+      return {
+        ...e,
+        description: description ? '' : e.description,
+        fields: { ...e.fields, ...Object.fromEntries(fields.map((k) => [k, ''])) },
+        ...(guesses.length ? { guesses } : {}),
+        ...(kept.length ? { unsure: kept } : {})
+      }
+    }),
+    changes: data.changes.filter((c) => c.origin === 'adam' || health.change(c.id) !== 'unsure')
+  }
+}
+
+/**
+ * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
+ * briefing and the "must stay true" list.
+ */
+export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
   const shape = loadShape(db)
   const story = storyOfScene(shape, sceneId)
   if (!story) throw new UserError('That scene no longer exists.')
-  const data = loadMemoryData(db)
+  const loaded = loadMemoryData(db)
+  const data = opts.forWriter ? writerData(db, loaded) : loaded
   const changes = indexChanges(data.changes)
   const line = buildLine(shape, { storyId: story.id, before: sceneId })
   const state = stateAt(data, shape, line, changes)
+  // A guessed field the story has since changed (a change read from the text) is no guess any more. A check leaves the
+  // guesses out altogether: the text never contradicts a guess.
+  if (opts.forWriter) {
+    for (const [id, e] of state.entries) {
+      if (!e.guesses?.length) continue
+      const left = e.guesses.filter((k) => !(e.changed ?? []).includes(k))
+      if (opts.dropGuesses && left.length) {
+        const next: EntryState = { ...e, fields: { ...e.fields }, guesses: undefined }
+        for (const k of left) {
+          if (k === 'summary') next.summary = ''
+          else if (k === 'description') next.description = ''
+          else next.fields[k] = ''
+        }
+        state.entries.set(id, next)
+      } else state.entries.set(id, { ...e, guesses: left.length ? left : undefined })
+    }
+  }
 
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
+  const previous = previousScene(db, shape, story.id, line)
+  const sf = withCards(db, storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries)))
 
   return {
     storyId: story.id,
     sceneId,
     knows: knowsSentence(shape, line),
-    previous: previousScene(db, shape, story.id, line),
+    previous,
     entries: [...state.entries.values()],
     firstHere: [...state.firstHere],
     elsewhere: elsewhere(shape, line, data, state),
     relationships: state.relationships,
     facts: state.facts,
-    threads: state.threads,
-    storySoFar: withCards(
-      db,
-      storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries))
-    ),
+    threads: withQuiet(db, shape, line, changes, state.threads),
+    storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
     bringAbout: changes.byScene.get(sceneId) ?? []
   }
+}
+
+/**
+ * Each thread with how long it has been quiet on this scene's line (World Memory Overhaul B4): the scenes since a thread
+ * change or words its facts rest on last touched it. Never stops the scene's memory: on a failure the threads go as they
+ * are.
+ */
+function withQuiet(db: DB, shape: WorldShape, line: Line, changes: ChangeIndex, threads: ThreadState[]): ThreadState[] {
+  if (!threads.length) return threads
+  try {
+    const ids = threads.map((t) => t.entryId)
+    const touches = threadTouches(line, changes, ids, entryLinkScenes(db, ids))
+    const label = labeler(shape)
+    return threads.map((t) => {
+      const at = touches.get(t.entryId)
+      if (!at) return t
+      return {
+        ...t,
+        quiet: at.quiet,
+        ...(at.storyId ? { lastStoryId: at.storyId } : {}),
+        lastWhere: at.storyId ? label({ storyId: at.storyId, sceneId: at.sceneId }) : ''
+      }
+    })
+  } catch (e) {
+    console.warn('Could not work out how long the plot threads have been quiet', e)
+    return threads
+  }
+}
+
+/** The most recent scenes whose summary is being brought up to date that also get a short excerpt of how they now end. */
+const EXCERPT_SCENES = 2
+const EXCERPT_WORDS = 60
+
+/** The most recent scenes on the line before this one whose due summaries a draft refreshes (engine.ts). */
+const recentScenes = (line: Line): Set<ID> =>
+  new Set(line.steps.flatMap((x) => (x.type === 'scene' ? [x.sceneId] : [])).slice(-DUE_SUMMARY_SCENES))
+
+/**
+ * For the writer (World Memory Overhaul A3): an earlier scene whose words changed since its summary was written, enough
+ * for a new one to be due (keeper/sceneChange.ts), keeps its old summary, marked as being brought up to date (the memory
+ * keeper refreshes it before long: engine.ts queueDueSummaries). The most recent two of them, but never the scene just
+ * before (the briefing has its words), also say in a few words how the scene now ends. Only the most recent scenes a
+ * draft refreshes (DUE_SUMMARY_SCENES) are marked: an older one keeps its old summary, given plainly, since nothing would
+ * ever bring it up to date and the note would stay for good.
+ */
+function markUpdating(db: DB, s: StorySoFar, previousId: ID | null, entries: Entry[], recent: Set<ID>): StorySoFar {
+  if (!s.scenes.length) return s
+  const names = entries
+    .flatMap((e) => [e.name, ...e.aliases])
+    .map((n) => n.trim())
+    .filter((n) => n.length >= 2)
+  const scenes = s.scenes.map((x) => (recent.has(x.sceneId) && summaryDue(db, x.sceneId, false, names) ? { ...x, updating: true } : x))
+  let excerpts = 0
+  for (let i = scenes.length - 1; i >= 0 && excerpts < EXCERPT_SCENES; i--) {
+    const x = scenes[i]
+    if (!x.updating || x.sceneId === previousId) continue
+    const text = mem.sceneText(db, x.sceneId)?.text ?? ''
+    if (!text.trim()) continue
+    scenes[i] = { ...x, excerpt: lastWords(text, EXCERPT_WORDS) }
+    excerpts++
+  }
+  return { ...s, scenes }
 }
 
 /**
@@ -367,9 +492,14 @@ export function changeViews(db: DB, changes: Change[], shape: WorldShape = loadS
     'change',
     keyed.map(({ c }) => c.id)
   )
-  return keyed.map(({ c }) => ({
-    ...c,
-    where: c.anchor === 'baseline' ? 'Before any story' : label({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }),
-    links: links.get(c.id) ?? []
-  }))
+  return keyed.map(({ c }) => {
+    // Where it stops being true (B1), while that scene is still in the story.
+    const until = c.until?.sceneId && storyOf.has(c.until.sceneId) ? label({ storyId: storyOf.get(c.until.sceneId)!, sceneId: c.until.sceneId }) : ''
+    return {
+      ...c,
+      where: c.anchor === 'baseline' ? 'Before any story' : label({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }),
+      links: links.get(c.id) ?? [],
+      ...(until ? { untilWhere: until } : {})
+    }
+  })
 }

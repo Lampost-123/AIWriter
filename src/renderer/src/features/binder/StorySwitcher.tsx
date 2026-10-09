@@ -1,5 +1,19 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookOpen, Brain, Check, ChevronDown, ChevronsUpDown, FileDown, FileUp, LibraryBig, ListTree, PenLine, Plus, Settings2 } from '@/components/ui/icons'
+import {
+  BookOpen,
+  Brain,
+  Check,
+  ChevronDown,
+  ChevronsUpDown,
+  FileDown,
+  FileUp,
+  LibraryBig,
+  ListTree,
+  PenLine,
+  Plus,
+  RefreshCw,
+  Settings2
+} from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -11,6 +25,7 @@ import { openOutlineHelper } from '@/features/outline/open'
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { inShelfOrder } from '@/features/stories/storiesLogic'
 import { canBuildMemory, offerMemory, startImport, useImport } from '@/features/importing/importStore'
+import { rereadStory } from '@/features/memory/reread'
 import * as actions from './actions'
 import { useOutline } from './outlineStore'
 import { useNewLook } from '@/features/look/look'
@@ -202,7 +217,14 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
                       </span>
                       Build the memory from this story
                     </M.Item>
-                  ) : null}
+                  ) : (
+                    <M.Item onSelect={() => rereadStory(story.id, story.title)} className={cn(item, 'shrink-0')}>
+                      <span className="flex w-4 justify-center text-muted">
+                        <RefreshCw size={14} />
+                      </span>
+                      Re-read the whole story
+                    </M.Item>
+                  )}
                 </>
               ) : null}
               <M.Item onSelect={() => useApp.getState().setNewStoryOpen(true)} className={cn(item, 'shrink-0')}>

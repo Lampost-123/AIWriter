@@ -4,6 +4,7 @@ import {
   beforeAfter,
   canUndo,
   changesNote,
+  checkAgainFailed,
   freshUpdate,
   groupHeading,
   groupLog,
@@ -12,6 +13,7 @@ import {
   markUndone,
   pointsToSettings,
   readingNote,
+  WHOLE_WORLD,
   wordsGone
 } from './logic'
 
@@ -36,6 +38,23 @@ const item = (runId: string, sceneId: string | null, where: string, extra: Parti
   createdAt: '2026-10-02T10:00:00Z',
   undone: false,
   ...extra
+})
+
+describe('checkAgainFailed', () => {
+  const bad = "The memory model's reply wasn't in the right format."
+  it('waits while the status is still the one from the ask, or the memory is reading', () => {
+    const asked = status({ error: bad, failed: 1 })
+    expect(checkAgainFailed(asked, asked)).toBeNull()
+    expect(checkAgainFailed(asked, status({ error: bad, reading: { sceneId: 's1', title: 'The ferry' } }))).toBeNull()
+    expect(checkAgainFailed(null, null)).toBeNull()
+  })
+
+  it('gives the reason once a later status has the memory idle with an error, and nothing when it read fine', () => {
+    const asked = status({ error: bad, failed: 1 })
+    expect(checkAgainFailed(asked, status({ error: bad, failed: 1 }))).toBe(bad)
+    expect(checkAgainFailed(status({}), status({ error: 'No memory model' }))).toBe('No memory model')
+    expect(checkAgainFailed(asked, status({}))).toBeNull()
+  })
 })
 
 describe('keeperState', () => {
@@ -124,6 +143,42 @@ describe('groupLog', () => {
 
   it('is empty for an empty list', () => {
     expect(groupLog([])).toEqual([])
+  })
+
+  it('puts the memory tidy-up note at the top under "Whole world", not under a scene of its run', () => {
+    // The tidy-up's run: removals from two scenes, then its one note (no scene, no entry), as the log lists them.
+    const r1 = item('tidy', 'a', 'Book 1, Ch 1, Sc 2', { action: 'removed' })
+    const r2 = item('tidy', 'a', 'Book 1, Ch 1, Sc 2', { action: 'removed' })
+    const r3 = item('tidy', 'b', 'Book 1, Ch 2, Sc 1', { action: 'removed' })
+    const note = item('tidy', null, '', {
+      entryName: '',
+      entryId: null,
+      what: 'scene',
+      action: 'updated',
+      text: 'Memory tidy-up: 3 removed, 1 to check again',
+      note: true
+    })
+    const newer = item('r9', 'c', 'Book 1, Ch 3, Sc 1')
+    const groups = groupLog([newer, r1, r2, r3, note])
+    expect(groups.map((g) => [groupHeading(g), g.items.map((i) => i.id)])).toEqual([
+      [WHOLE_WORLD, [note.id]],
+      ['Book 1, Ch 3, Sc 1', [newer.id]],
+      ['Book 1, Ch 1, Sc 2', [r1.id, r2.id]],
+      ['Book 1, Ch 2, Sc 1', [r3.id]]
+    ])
+    expect(groups[0].sceneId).toBeNull()
+    expect(new Set(groups.map((g) => g.key)).size).toBe(4)
+    // A scene's own note ("the scene no longer says this") stays with its scene.
+    const own = item('r5', 'a', 'Book 1, Ch 1, Sc 2', { note: true })
+    expect(groupHeading(groupLog([own])[0])).toBe('Book 1, Ch 1, Sc 2')
+    // Undone (dismissed), it stays where it was, struck through.
+    expect(groupHeading(groupLog([{ ...note, undone: true }])[0])).toBe(WHOLE_WORLD)
+  })
+
+  it("keeps a story flow's run under its own heading whatever scenes its lines name", () => {
+    const f1 = item('flow', 'a', 'Start of Book 4')
+    const f2 = item('flow', 'b', 'Start of Book 4')
+    expect(groupLog([f1, f2], new Map([['flow', 'Before Book 4 starts']]))).toHaveLength(1)
   })
 })
 

@@ -1,6 +1,37 @@
 import { describe, expect, it } from 'vitest'
 import type { BoardThread, ThreadsBoard } from '@shared/contracts/worldViews'
-import { columnsOf, openFor, paidOffWords, setUpWords } from './boardLogic'
+import { columnsOf, isQuiet, ledgerRows, openFor, paidOffWords, quietWords, setUpWords, statusWords } from './boardLogic'
+
+describe('the ledger (World Memory Overhaul B4)', () => {
+  const t = (id: string, column: BoardThread['column'], quietScenes: number | null): BoardThread => ({
+    id,
+    name: id,
+    promise: '',
+    column,
+    setUp: null,
+    paidOff: null,
+    openChapters: null,
+    longOpen: false,
+    quietScenes
+  })
+  const board: ThreadsBoard = { storyId: 'b1', threads: [t('Bell', 'open', 2), t('Anchor', 'resolved', null), t('Ledger', 'open', 9), t('Crow', 'open', 0)] }
+
+  it('sorts by quiet-for, the quietest first, with threads that are not open after', () => {
+    expect(ledgerRows(board, 'quiet').map((x) => x.id)).toEqual(['Ledger', 'Bell', 'Crow', 'Anchor'])
+    expect(ledgerRows(board, 'quiet', true).map((x) => x.id)).toEqual(['Crow', 'Bell', 'Ledger', 'Anchor'])
+    expect(ledgerRows(board, 'name').map((x) => x.id)).toEqual(['Anchor', 'Bell', 'Crow', 'Ledger'])
+  })
+
+  it('says how long in plain words, and marks a quiet open thread', () => {
+    expect(quietWords(t('a', 'open', 9))).toBe('9 scenes')
+    expect(quietWords(t('a', 'open', 1))).toBe('1 scene')
+    expect(quietWords(t('a', 'open', 0))).toBe('Touched in the latest scene')
+    expect(quietWords(t('a', 'resolved', null))).toBe('')
+    expect(isQuiet(t('a', 'open', 9))).toBe(true)
+    expect(isQuiet(t('a', 'open', 2))).toBe(false)
+    expect(statusWords(t('a', 'planned', null))).toBe('Planned')
+  })
+})
 
 const thread = (id: string, column: BoardThread['column'], t: Partial<BoardThread> = {}): BoardThread => ({
   id,

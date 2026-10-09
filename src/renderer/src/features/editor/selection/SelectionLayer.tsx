@@ -8,7 +8,7 @@
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
-import { BookmarkPlus, UserPlus, MessagesSquare } from '@/components/ui/icons'
+import { BookmarkPlus, UserPlus, MessagesSquare, PenLine } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'
@@ -21,7 +21,8 @@ import { REVEALED } from '../reveal'
 import { AddToMemoryForm } from './AddToMemoryForm'
 import { ListenFromHere } from '@/features/readAloud/ListenFromHere'
 import { MarkButtons } from '@/features/typing/MarkButtons'
-import { askAbout } from '@/features/ask/open'
+import { askAbout, editAbout } from '@/features/ask/open'
+import { pidsBetween } from '@/features/beats/sessionLogic'
 import { AiTools } from '@/features/edits/AiTools'
 import { suggestionsOf } from '@/features/edits/suggestions'
 import { FORM_EDGE, FORM_GAP, FORM_SIZE, formPlace, prefill, tidySelection, type AddPrefill, type FormPlace } from './addToMemoryLogic'
@@ -298,9 +299,13 @@ export function SelectionLayer({
           <BarButton icon={<UserPlus size={14} />} onClick={quickStart}>
             Quick start a character
           </BarButton>
-          {/* The editor chat: talk about these words (it can propose changes to them, for Adam to apply). */}
-          <BarButton icon={<MessagesSquare size={14} />} onClick={() => askAbout(bar.text)}>
+          {/* The editor chat: talk about these words (it can propose changes to them, for Adam to apply), or ask
+              for a change to them straight away (Edit this: the box waits for what to change). */}
+          <BarButton icon={<MessagesSquare size={14} />} onClick={() => askAbout(bar.text, pidsBetween(editor.state.doc, bar.from, bar.to))}>
             Ask about this
+          </BarButton>
+          <BarButton icon={<PenLine size={14} />} onClick={() => editAbout(bar.text, pidsBetween(editor.state.doc, bar.from, bar.to))}>
+            Edit this
           </BarButton>
           <ListenFromHere editor={editor} sceneId={sceneId} from={bar.from} to={bar.to} />
         </div>

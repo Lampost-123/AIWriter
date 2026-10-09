@@ -26,7 +26,7 @@ export function describeChange(change: Change, nameOf: (id: ID) => string): stri
     }
     case 'knowledge': {
       const fact = clean(change.payload.fact)
-      return `${name} ${change.payload.forgets ? 'forgets' : 'learns'}: ${fact}`
+      return `${name} ${change.payload.forgets ? 'forgets' : change.payload.seen ? 'sees it happen' : 'learns'}: ${fact}`
     }
     case 'thread': {
       const note = clean(change.payload.note)

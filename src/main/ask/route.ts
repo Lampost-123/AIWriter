@@ -1,0 +1,247 @@
+// The chat overhaul's routing (AIWRITE_EXP_CHAT_ROUTE, plan E3): what a question to the editor chat asks for, told
+// from its words before the model runs, with no model call. Edit wins whenever the writer pressed "Edit this" or picks
+// one of the options the last answer offered ("yes", "2", "go ahead"); otherwise the wording decides. Pure.
+
+import { hasBlockMarkers, parseAnswer } from '@shared/answerBlocks'
+import type { AskIntent } from '@shared/askIntent'
+import { asksForChanges, asksOneQuestion, claimsChanges, PROPOSE_NOW, proposeNow } from '@shared/askChanges'
+
+/** How many times an edit with nothing proposed is asked again in one answer, with routing on. */
+export const MAX_EDIT_NUDGES = 2
+
+export interface NudgeInput {
+  /** The answer given without tools. */
+  answer: string
+  /** Which note this would be, from 1. */
+  attempt: number
+  question: string
+  /** How many changes the answer has proposed so far. */
+  proposed: number
+  /** The routed intent (null with routing off). */
+  intent: AskIntent | null
+  /** AIWRITE_EXP_CHAT_ROUTE and AIWRITE_EXP_CHAT_CONTRACT. */
+  route: boolean
+  contract: boolean
+  /** The chat asked the writer a question with options (ask_user, ASKUSER), which ends the answer: never nudged. */
+  asked?: boolean
+  /**
+   * ACTFIRST: whether the scene's words are known yet (read, or quoted in the question). False: an edit answered with
+   * one short question is nudged to read first (DeepSeek asked for the paragraph to be pasted, R05). Left out: not checked.
+   */
+  read?: boolean
+}
+
+/**
+ * ACTFIRST's note to an edit answered with a question before any words were read. It starts as PROPOSE_NOW does
+ * ("Your answer gives"), so the eval and the fake provider know it for a nudge.
+ */
+export const READ_FIRST =
+  '[AI Write, not the writer] Your answer gives no proposal: it asks the writer before reading the words. You can read them yourself: read_scene gives the open scene (or another, by name) with its paragraphs numbered, and the open scene is the one meant unless the writer names another. Read it, then propose your best single version with the propose_ tools and answer in one line, starting with how many changes are ready. Ask only if, after reading, two readings would still give clearly different changes.'
+
+/**
+ * The note sent back to an answer given without tools, or null to keep it. Routing off: today's rule (no proposals,
+ * and the answer claims changes or the question's verbs ask for edits). Routing on: an edit with nothing proposed is
+ * asked again whatever its wording (up to MAX_EDIT_NUDGES, via the task's maxNudges), unless it only asked one short
+ * question; an answer or ideas never are; an unsure request only when its answer claims changes, once. The contract
+ * switch picks the note without the "only meant ideas" exit when the request is an edit.
+ */
+export function editorNudge(n: NudgeInput): string | null {
+  if (n.proposed > 0 || n.asked) return null
+  if (n.route) {
+    if (n.intent === 'edit') {
+      if (!asksOneQuestion(n.answer)) return n.contract ? proposeNow('edit', n.attempt) : PROPOSE_NOW
+      // One short question is allowed, but not before the words are read (ACTFIRST): read first, then ask if still unclear.
+      return n.read === false ? READ_FIRST : null
+    }
+    if (n.intent === 'unsure' && n.attempt === 1 && claimsChanges(n.answer)) return n.contract ? proposeNow(null) : PROPOSE_NOW
+    return null
+  }
+  const asked = asksForChanges(n.question)
+  if (!asked && !claimsChanges(n.answer)) return null
+  return n.contract ? proposeNow(asked ? 'edit' : null, n.attempt) : PROPOSE_NOW
+}
+
+export interface RouteInput {
+  question: string
+  /** Words selected in the scene when the question was asked, if any. */
+  selection?: string | null
+  /** What the writer pressed: "Edit this" (or the box's Edit mode) means edit; Talk goes on to the other checks. */
+  mode?: 'edit' | 'talk'
+  /** The chat's last answer, to tell whether it offered options or asked a question. */
+  lastAnswer?: string | null
+  /** Set when the caller already knows the last answer offered options or asked something (ask_user). */
+  lastHadOptionsOrQuestion?: boolean
+}
+
+const norm = (s: string): string => s.replace(/[’‘]/g, "'").replace(/\s+/g, ' ').trim().toLowerCase()
+
+const wordCount = (s: string): number => (s.match(/[\p{L}\p{N}']+/gu) ?? []).length
+
+/**
+ * True when an answer offered options (a list of two or more) or ends by asking the writer something. An answer in
+ * blocks (the answer format) offers a choice only through ::options (facts and follow-ups are lists too, but not
+ * choices), or a question in its words.
+ */
+export function offersChoice(answer: string | null | undefined): boolean {
+  const a = (answer ?? '').trim()
+  if (!a) return false
+  if (hasBlockMarkers(a)) {
+    const blocks = parseAnswer(a)
+    if (blocks.some((b) => b.kind === 'options' && b.items.length >= 2)) return true
+    const words = blocks.filter((b) => b.kind === 'lead' || b.kind === 'text').flatMap((b) => b.text.split('\n').map((l) => l.trim()).filter(Boolean))
+    return words.slice(-2).some((l) => /\?["”')\]*_]*$/.test(l))
+  }
+  const items = a.split('\n').filter((l) => /^\s*(\d+[.)]|[-*•]|\(?[a-e]\))\s+\S/i.test(l)).length
+  if (items >= 2) return true
+  // A question among its last two lines ("Which do you prefer?", "Shall I tighten the second one?").
+  const lines = a
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  return lines.slice(-2).some((l) => /\?["”')\]*_]*$/.test(l))
+}
+
+/** The writer says to leave the words alone: an answer, whatever verbs follow. */
+const HANDS_OFF =
+  /\b(don'?t|do not|without|no need to|never)\s+(change|edit|touch|rewrite|alter|propose|fix|modify)\w*\b|\b(no|without)\s+(changes|edits|proposals)\b|\bjust (tell|explain|answer|say)\b|\bleave (it|the \w+|this|that) (alone|as (it is|is))\b/
+
+/** A short reply picking up what the last answer offered: "yes", "2", "option 2", "the second", "go ahead", "both". */
+const PICK = new RegExp(
+  '^(?:ok(?:ay)?|sure|yes|yeah|yep|yup|please|great|perfect|good|cool|alright|right)?[,.! ]*(?:' +
+    [
+      'yes|yeah|yep|yup|sure|ok(?:ay)?|please',
+      'go (?:ahead|for it|with (?:it|that|this|the \\w+|option \\w+|#?\\d+|both|all)\\b)',
+      "let'?s (?:do|go with|use|try) (?:it|that|this|the \\w+|option \\w+|#?\\d+|both|all)\\b",
+      "(?:i'?ll take|take|use|pick|i like|i'?d go with) (?:it|that|this|that one|this one|the \\w+|option \\w+|#?\\d+|both|all)\\b",
+      'do (?:it|that|this|both|all(?: of them| three| two)?|the \\w+|option \\w+|#?\\d+)\\b',
+      'both(?: of them)?|all(?: of them| three| two)?|that one|this one|that|this|that works|sounds good|make it so',
+      'the (?:first|second|third|fourth|fifth|last|1st|2nd|3rd|4th|5th|other)(?: one| option| idea| version)?',
+      '(?:option|number|idea|version|no\\.?) ?#?(?:\\d+|[a-e]|one|two|three|four|five)\\b',
+      '#?\\d+(?:st|nd|rd|th)?(?: and #?\\d+)?'
+    ].join('|') +
+    ')(?![\\w-])'
+)
+
+/** Asking for ideas or options in words: brainstorm. */
+const IDEAS =
+  /\b(what (else )?could|what (else )?might|what else|what would happen|what if|ideas?\b|brainstorm|suggest(ions?)?\b|options?\b|alternatives?\b|possibilit(y|ies)|ways (to|i could|she could|he could|they could)|give me (some|a few|\d+|two|three|four|five|several)\b(?! (more )?(edits|changes|fixes)))/
+
+/**
+ * An edit verb, as the first word of an instruction ("tighten", "please cut", "can you rewrite", "I want you to fix"),
+ * at the start or after a clause ("In Hesper's note, change…", "…seventh lamp. Make it…", "About this passage: “…” fix this").
+ */
+const EDIT_VERB =
+  'rewrite|re-write|redo|rework|revise|edit|fix|correct|tighten|trim|cut|shorten|lengthen|expand|extend|add|insert|remove|delete|drop|replace|swap|change|rename|retitle|rephrase|reword|polish|punch (?:\\w+ ){0,2}up|sharpen|strengthen|soften|intensify|tone down|tone up|smooth|simplify|clean up|clarify|improve|update|adjust|split|merge|combine|join|move|reorder|condense|streamline|turn|give (?:her|him|them|it|this|the \\w+)|put|write|draft|continue|finish|end|open|start|push|heighten|raise|lower|slow|speed up|break up|fill in|flesh out|spell out|let (?:her|him|them)'
+const IMPERATIVE = new RegExp(
+  `(?:^|[.!?:;,"”)] )(?:(?:ok(?:ay)?|right|now|so|then|also|and|alright)[, ]+)?(?:please |pls |kindly )?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|'d like|would like) you to |i want to |let'?s |try (?:to |and )?|go ahead and |help me )?(?:${EDIT_VERB})\\b`
+)
+
+/** Edit cues anywhere in the request: "make her angrier", "this drags", "it should", "needs more", "the next bit". */
+const EDIT_CUES = [
+  /\bmake (it|this|that|these|those|her|him|them|the \w+|[a-z]+'s \w+|\w+)( \w+){0,2} (more|less|\w+er|\w+ier)\b/,
+  /\bmake (it|this|that|these|those|her|him|them|the \w+|\w+) (sound|feel|read|seem|look) /,
+  /(?:^|[.!?:;,"”] )make (it|this|that|them|him|her) (the|a|an) /,
+  /\b(can|could|would) (this|it|that|these|those|the \w+)( \w+)? be (more|less|\w+er|\w+ier)\b/,
+  /\b(this|it|that|these|those|the|my)( \w+){0,2} (drags|sags|is (too )?(clunky|flat|slow|wordy|long|dull|weak|stiff|awkward|rushed|repetitive|confusing|boring|bland|overwritten|purple|choppy)|feels? (flat|off|slow|rushed|clunky|wrong|weak)|reads? (badly|awkwardly|flat))\b/,
+  /^should (?!i\b|we\b)(\w+ ){1,3}(be|sound|feel|read|have|say|hesitate|react|notice|end|start)\b/,
+  /\b(should|needs? to|need to|ought to) (be|sound|feel|read|have|say|end|start|open|come|happen|move|get|show|hesitate|react|notice)\b/,
+  /\bneeds? (more|less|work|a |an |tightening|cutting|fixing|a rewrite|to be)\b/,
+  /\b(too (long|short|slow|fast|wordy|flat|much|little))\b/,
+  /\b(re-?write|tighten|punch up|rephrase|reword|rename|retitle|fix (the|this|that|it|a|my)|typos?)\b/,
+  /\b(write|draft) (the|a|an|my) (next|new|opening|closing|first|last|missing|rest)\b/,
+  /\b(continue|carry on|keep going|what happens next in (the )?(text|prose))\b(?! to)/,
+  /\b(the next bit|next paragraph|next scene|the rest of (the|this) scene)\b/,
+  /\bpush\b.{0,40}\b(harder|further)\b/,
+  /\b(add|insert|cut|remove|delete) (a|an|the|this|that|some|more|her|his|their|one|two|\d+)\b/
+]
+
+/** A question about what is so, asked of the memory ("Did I…", "Who knows…", "How old is…"). */
+const FACT_START =
+  /^(?:(?:ok(?:ay)?|so|and|wait|hm+|quick question)[, ]+)?(?:who|whom|whose|when|where|which|did|does|do (?:i|you|we|they|any|all|both)|has|have|had|is|are|was|were|am|how (?:old|many|much|long|far|tall|did|does|do|is|are|was|were)|what(?:'s| is| are| was| were| did| does| do| happened| happens| colou?r| year| day| time| age))\b/
+
+/**
+ * A pronoun standing for the thing to change ("it", "this", "his name"), with nothing else to say what it is. Not "her",
+ * "him" or "them" alone: "make her angrier" names a character the open scene usually makes plain.
+ */
+const BARE_OBJECT = '(?:it|this|that|these|those|(?:his|her|their|its) (?:name|line|lines|bit|part|words|dialogue|speech|scene|description))'
+
+/**
+ * A bare request: an edit whose only object is a pronoun ("Make it better.", "Shorten it.", "Change his name.", "can
+ * you tighten this?"), with nothing more to say what or how much: a few words, an edit verb or "make", the pronoun, and
+ * at most a word or two of how ("better", "shorter", "a bit", "up"). "this drags", "the ending's flat" or "she'd be
+ * angrier" are not bare (they say what is wrong), nor is anything naming a passage.
+ */
+/** The verbs of a bare request: changes to words already there (never new prose: "continue it", "write it", "finish it"). */
+const BARE_VERB =
+  'rewrite|re-write|redo|rework|revise|edit|fix|correct|tighten|trim|cut|shorten|lengthen|expand|change|rename|rephrase|reword|polish|punch|spice|liven|tidy|jazz|sharpen|strengthen|soften|intensify|tone|smooth|simplify|clean|clarify|improve|adjust|condense|streamline|heighten'
+
+const BARE = new RegExp(
+  `^(?:(?:ok(?:ay)?|so|now|just|then)[, ]+)?(?:please |pls )?(?:(?:can|could|would|will) you (?:please )?|i (?:want|need|'d like|would like) you to |help me )?` +
+    `(?:(?:${BARE_VERB}) ${BARE_OBJECT}(?: (?:up|down|out|back|over|again|a bit|a little|some|more|less|please|for me))*` +
+    `|make ${BARE_OBJECT} (?:(?:a (?:bit|little|lot) |much |more |less |even )?(?:better|\\w+er|\\w+ier|good|nicer|work|pop|sing|land|flow|shine|right))(?: please| for me)?)` +
+    `(?: please)?[.!?]*$`
+)
+
+/**
+ * True for a bare request (BARE) with nothing selected and no earlier answer it could point back to (a new chat, or
+ * a chat with no answer yet): "it" can only be guessed, so the request is unclear (Phase 3: A01 "Make it better" and
+ * A03 "Shorten it" got guesses every time). Routed as unsure; the agent then reads, and is made to call propose_changes,
+ * which can carry its question as an item of kind ask.
+ */
+export function bareRequest(input: Pick<RouteInput, 'question' | 'selection' | 'lastAnswer' | 'lastHadOptionsOrQuestion'>): boolean {
+  if (input.selection?.trim() || input.lastAnswer?.trim() || input.lastHadOptionsOrQuestion) return false
+  const q = norm(input.question)
+  return wordCount(q) <= 8 && BARE.test(q)
+}
+
+/**
+ * The intent of one question. Order: Edit mode; "don't change anything" (answer); a short pick of what the last answer
+ * offered (edit); a bare request with nothing to point to (unsure, bareRequest); an edit instruction (edit, or
+ * brainstorm when it asks for options); ideas (brainstorm); a question of fact (answer); an edit cue anywhere (edit);
+ * any other question (answer); else unsure (the model decides).
+ */
+export function routeIntent(input: RouteInput): AskIntent {
+  if (input.mode === 'edit') return 'edit'
+  const q = norm(input.question)
+  if (!q) return 'unsure'
+  if (HANDS_OFF.test(q)) return 'answer'
+  const offered = input.lastHadOptionsOrQuestion ?? offersChoice(input.lastAnswer)
+  if (offered && wordCount(q) <= 12 && PICK.test(q)) return 'edit'
+  if (bareRequest(input)) return 'unsure'
+  const ideas = IDEAS.test(q)
+  if (IMPERATIVE.test(q)) return ideas ? 'brainstorm' : 'edit'
+  if (ideas) return 'brainstorm'
+  if (FACT_START.test(q)) return 'answer'
+  if (EDIT_CUES.some((re) => re.test(q))) return 'edit'
+  // With words selected, a short complaint about them ("too stiff", "clunky?") is about changing them.
+  if (
+    input.selection?.trim() &&
+    wordCount(q) <= 6 &&
+    /\b(clunky|flat|stiff|wordy|awkward|weak|slow|rushed|off|wrong|better|tighter|shorter|longer)\b/.test(q)
+  )
+    return 'edit'
+  if (/\?\s*$/.test(q) || /^(why|how|what|explain|tell me|remind me|check|summari[sz]e|list)\b/.test(q)) return 'answer'
+  return 'unsure'
+}
+
+/**
+ * New prose for the open scene, asked in words ("write the next bit", "continue from here", "draft the scene from the
+ * card", "keep going"): with DRAFT and ACTFIRST the request made to call a tool asks for propose_draft (agent.ts
+ * forceTool). Not "the next scene" (that scene may not exist yet: propose_changes' new_scene), nor "continue to…".
+ */
+const NEW_PROSE = [
+  /\b(continue|carry on|keep going|keep writing|write on)\b(?! to\b)/,
+  /\b(write|draft) (the|a|an|my|some) (next|rest)\b(?! scene)/,
+  /\b(the next bit|the next few (lines|paragraphs)|next paragraphs?|the rest of (the|this) scene)\b/,
+  /\bdraft (the|this) scene\b|\b(write|draft)\b.{0,30}\bfrom (the|its) (scene )?card\b/
+]
+
+export function asksForNewProse(question: string): boolean {
+  const q = norm(question)
+  return !HANDS_OFF.test(q) && NEW_PROSE.some((re) => re.test(q))
+}
+
+/** The sampling temperature for an intent (AIWRITE_EXP_CHAT_TEMP, plan E10): exact for edits, freer for ideas. */
+export function temperatureFor(intent: AskIntent): number {
+  return intent === 'brainstorm' ? 0.8 : intent === 'answer' ? 0.5 : 0.3
+}

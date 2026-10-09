@@ -28,6 +28,8 @@ export interface RunOptions {
   db: DB
   /** The memory model, or null when none is chosen (then the scene waits). */
   model: MemoryModel | null
+  /** Read every paragraph again, though the text hasn't changed since the last read (B8, "Re-read"). */
+  whole?: boolean
   signal: AbortSignal
   /** True once the world has closed: nothing more is written. */
   closed: () => boolean
@@ -127,9 +129,9 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   if (o.closed() || !db.open) return { status: 'stopped' }
   const scene = kdb.keeperScene(db, sceneId)
   if (!scene) return { status: 'gone' }
-  if (scene.memoryVersion >= scene.textVersion && scene.memoryState === 'current') return { status: 'nothing' }
+  if (!o.whole && scene.memoryVersion >= scene.textVersion && scene.memoryState === 'current') return { status: 'nothing' }
 
-  const plan = planRead(db, scene)
+  const plan = planRead(db, scene, { whole: o.whole })
   const shape = loadShapeSafe(db)
   const where = placeWords(db, shape, { storyId: scene.storyId, chapterId: scene.chapterId, sceneId }) || 'this scene'
 

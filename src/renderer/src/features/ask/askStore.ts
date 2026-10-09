@@ -1,12 +1,17 @@
 // Ask the world's conversation, kept while the app runs (the panel can close and open again, and the
 // answer keeps arriving meanwhile). Each story has its own chats; the one on show is the story's most
 // recent when the panel first shows that story. Answers stream in as task events, matched by the task
-// id this side makes. Saved notes are remembered for this session, so an answer shows "Saved".
+// id this side makes. Saved notes are remembered, so an answer shows "Saved": this session's here, and
+// each turn's record keeps its own (read back when a chat is opened after a restart).
 import { create } from 'zustand'
-import type { AskTurn, ChatSummary, ProposalStatus, SavedNote } from '@shared/contracts/ask'
+import type { AskInput, AskTurn, ChatSummary, ProposalStatus, SavedNote } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 import { api, ApiError, onEvent } from '@/lib/api'
+import { editorBridge } from '@/lib/editorBridge'
 import { registerDiscarder } from '@/lib/flush'
+import { pickQuestion } from './askChoice'
+import { rememberOptions } from './askPrefs'
+import { endedCalls, withCall } from './toolView'
 
 /** A turn as the panel shows it. */
 export interface ShownTurn extends AskTurn {
@@ -14,6 +19,24 @@ export interface ShownTurn extends AskTurn {
   taskId?: ID
   /** Nothing could be sent (no model set up, say): what went wrong, in plain words. */
   problem?: { message: string; code?: string }
+  /** How it was asked this session ("Edit this", the words quoted), so Try again asks the same way. */
+  sentWith?: AskHow
+  /** When it was asked and when its answer ended (ms), this session: the steps row says how long it took. */
+  startedAt?: number
+  endedAt?: number
+}
+
+/** How a question is asked, beside its words: "Edit this" (mode 'edit'), and the selection it quotes. */
+export type AskHow = Pick<AskInput, 'mode' | 'selection'>
+
+/** Words selected in the page, quoted in the box by Ask about this or Edit this (the box shows the quote itself). */
+export interface BoxQuote {
+  /** The words as quoted in the box. */
+  text: string
+  /** Their paragraphs' ids, when known. */
+  pids: string[]
+  /** "Edit this": the question asks for a change to them. Null: Ask about this (the question's words decide). */
+  mode: 'edit' | null
 }
 
 export interface Running {
@@ -41,6 +64,8 @@ interface AskState {
   saved: Record<ID, SavedNote>
   /** What is typed in the box, kept while the panel is closed. */
   draft: string
+  /** The selection quoted in the box, while it is (it goes with the question that quotes it). */
+  quote: BoxQuote | null
   /** Moves each time the box should take the keyboard (Ask opened from the top bar or the palette). */
   focusRequest: number
 }
@@ -56,7 +81,7 @@ const initial = {
   saved: {}
 } satisfies Partial<AskState>
 
-export const useAsk = create<AskState>(() => ({ ...initial, draft: '', focusRequest: 0 }))
+export const useAsk = create<AskState>(() => ({ ...initial, draft: '', quote: null, focusRequest: 0 }))
 
 const get = useAsk.getState
 const set = useAsk.setState
@@ -105,12 +130,17 @@ function listen(): void {
     const r = get().running
     if (r?.taskId === p.taskId) set({ running: { ...r, retrying: p.reason } })
   })
-  // The editor chat: what it looks up on the way, and the changes it proposes, as they happen.
-  onEvent('ask:step', (p) => {
-    updateTask(p.taskId, (t) => ({ ...t, steps: [...(t.steps ?? []), p.label] }), p.generationId || undefined)
+  // The editor chat: each tool call as it starts (running) and ends (chat Phase 2b's tool rows), and the changes it
+  // proposes, as they happen.
+  onEvent('ask:tool', (p) => {
+    updateTask(p.taskId, (t) => ({ ...t, tools: withCall(t.tools, p.call) }), p.generationId || undefined)
   })
   onEvent('ask:proposals', (p) => {
     updateTask(p.taskId, (t) => ({ ...t, proposals: p.proposals }), p.generationId || undefined)
+  })
+  // The chat asked a question with options (ask_user): its buttons show as soon as it does.
+  onEvent('ask:choice', (p) => {
+    updateTask(p.taskId, (t) => ({ ...t, choice: p.choice }), p.generationId || undefined)
   })
   onEvent('task:done', (p) => {
     if (p.job !== 'chat') return
@@ -124,7 +154,9 @@ function listen(): void {
         status: p.status,
         error: p.error,
         cost: p.cost,
-        cutOff: p.cutOff
+        cutOff: p.cutOff,
+        tools: endedCalls(t.tools, Date.now()),
+        ...(t.startedAt && !t.endedAt ? { endedAt: Date.now() } : {})
       }),
       p.generationId
     )
@@ -144,7 +176,9 @@ async function settle(chatId: ID | null): Promise<void> {
       chats,
       turns: get().turns.map((t) => {
         const r = byId.get(t.generationId)
-        return r && t.status !== 'streaming' ? { ...t, cost: r.cost, costEstimated: r.costEstimated, cutOff: r.cutOff } : t
+        return r && t.status !== 'streaming'
+          ? { ...t, cost: r.cost, costEstimated: r.costEstimated, cutOff: r.cutOff, ...(r.choice && !t.choice ? { choice: r.choice } : {}) }
+          : t
       })
     })
   } catch {
@@ -157,7 +191,27 @@ const storyOfKey = (key: string | null): ID | null => {
   return story || null
 }
 
+/**
+ * The story a chat was asked in, from its id (`<story id>:…`, or `world:…` with no story open: null); undefined
+ * when that can't be told (no chat id yet).
+ */
+export function storyOfChat(chatId: string | null | undefined): ID | null | undefined {
+  const i = chatId ? chatId.indexOf(':') : -1
+  if (!chatId || i <= 0) return undefined
+  const story = chatId.slice(0, i)
+  return story === 'world' ? null : story
+}
+
+/** The chat a turn on show belongs to; undefined when it isn't on show (or has no chat yet). */
+export const chatOfTurn = (generationId: ID): ID | undefined => get().turns.find((t) => t.generationId === generationId)?.chatId || undefined
+
 // ---------- Which chat is on show ----------
+
+/** The notes saved this session, with those the turns' records keep (saved before a restart). */
+const withSaved = (turns: AskTurn[]): Record<ID, SavedNote> => {
+  const kept = Object.fromEntries(turns.filter((t) => t.saved).map((t) => [t.generationId, t.saved as SavedNote]))
+  return { ...kept, ...get().saved }
+}
 
 /** Shows a story's chats (its most recent one open), unless they already show. */
 export async function showStory(place: Pick<AskPlace, 'worldId' | 'storyId'>, again = false): Promise<void> {
@@ -173,7 +227,8 @@ export async function showStory(place: Pick<AskPlace, 'worldId' | 'storyId'>, ag
     const last = chats[0]
     const turns = last ? await api.getChat(last.chatId) : []
     if (get().storyKey !== key) return
-    set({ chats, chatId: last?.chatId ?? null, turns, loading: false })
+    rememberOptions(turns)
+    set({ chats, chatId: last?.chatId ?? null, turns, loading: false, saved: withSaved(turns) })
   } catch (e) {
     if (get().storyKey === key) set({ loading: false, loadError: errorOf(e).message })
   }
@@ -206,7 +261,8 @@ export async function openChat(chatId: ID): Promise<void> {
   try {
     const turns = await api.getChat(chatId)
     if (get().storyKey !== key) return
-    set({ chatId, turns, running: null, loadError: null })
+    rememberOptions(turns)
+    set({ chatId, turns, running: null, loadError: null, saved: withSaved(turns) })
   } catch (e) {
     set({ loadError: errorOf(e).message })
   }
@@ -240,9 +296,10 @@ const starting = new Map<ID, boolean>()
 
 /**
  * Asks a question in the chat on show (a new chat when none is). The question shows at once; the
- * answer streams in. Returns false when it couldn't be asked (the turn then says why, with Try again).
+ * answer streams in. Returns false when it couldn't be asked (the turn then says why, with Try again). `how`: "Edit
+ * this" (mode 'edit') and the selection the question quotes, sent beside its words.
  */
-export async function ask(question: string, place: AskPlace): Promise<boolean> {
+export async function ask(question: string, place: AskPlace, how: AskHow = {}): Promise<boolean> {
   const text = question.trim()
   const s = get()
   if (!text || s.running || s.loading) return false
@@ -250,6 +307,7 @@ export async function ask(question: string, place: AskPlace): Promise<boolean> {
   const taskId = crypto.randomUUID()
   const chatId = s.chatId
   const key = s.storyKey
+  const sentWith: AskHow = { ...(how.mode ? { mode: how.mode } : {}), ...(how.selection ? { selection: how.selection } : {}) }
   const pending: ShownTurn = {
     taskId,
     generationId: `pending:${taskId}`,
@@ -261,13 +319,19 @@ export async function ask(question: string, place: AskPlace): Promise<boolean> {
     cost: null,
     costEstimated: false,
     cutOff: false,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    startedAt: Date.now(),
+    ...(sentWith.mode || sentWith.selection ? { sentWith } : {})
   }
   // A question that never reached the AI gives way to the new one (asked again, or another).
   set({ turns: [...s.turns.filter((t) => !neverSent(t)), pending], running: { taskId, stopping: false, retrying: null } })
   starting.set(taskId, false)
   try {
-    const turn = await api.askWorld({ taskId, chatId, question: text, storyId: place.storyId, sceneId: place.sceneId })
+    // The open scene's unsaved typing is saved first, so the chat reads the scene as the page shows it (the
+    // question already shows meanwhile). A save that fails doesn't stop the question.
+    const page = editorBridge()
+    if (page) await page.flush().catch(() => undefined)
+    const turn = await api.askWorld({ taskId, chatId, question: text, storyId: place.storyId, sceneId: place.sceneId, ...sentWith })
     // Stop asked for before the answer had started (or it no longer shows here): it stops now. The
     // record keeps what arrived, and the chat shows it, stopped, when opened again.
     const stop = starting.get(taskId) || get().running?.taskId !== taskId
@@ -300,6 +364,53 @@ export function stopAnswer(): void {
 // ---------- The box ----------
 
 export const setDraft = (draft: string): void => set({ draft })
+
+/** Quotes words selected in the page in the box (the box's text is set apart, by setDraft), or lets the quote go. */
+export const setQuote = (quote: BoxQuote | null): void => set({ quote })
+
+/** The quote in the box, while the question still quotes it ("About this passage: “…”"); null once it doesn't. */
+export const quoteIn = (question: string, quote: BoxQuote | null): BoxQuote | null =>
+  quote && question.includes(`“${quote.text}”`) ? quote : null
+
+/** The quote's × in the box: its "About this passage" line comes out of the box, and the quote goes. */
+export function removeQuote(): void {
+  const s = get()
+  if (!s.quote) return
+  const draft = s.draft.replace(`About this passage: “${s.quote.text}”`, '').replace(/^\s+/, '')
+  set({ draft, quote: null })
+}
+
+/** How a question typed in the box is asked: with the selection it quotes, and "Edit this" when that is how it began. */
+export function howFor(question: string, quote: BoxQuote | null): AskHow {
+  const q = quoteIn(question, quote)
+  if (!q) return {}
+  return { selection: { text: q.text, ...(q.pids.length ? { pids: q.pids } : {}) }, ...(q.mode ? { mode: q.mode } : {}) }
+}
+
+/** Sends what is typed in the box (with the selection it quotes); the box empties, and the quote goes with it. */
+export function sendBox(place: AskPlace): boolean {
+  const s = get()
+  const q = s.draft.trim()
+  if (!q || s.running || s.loading) return false
+  const how = howFor(q, s.quote)
+  set({ draft: '', quote: null })
+  void ask(q, place, how)
+  return true
+}
+
+// ---------- A question with options (ask_user) ----------
+
+/**
+ * Sends the options picked from the chat's question as the next question in the chat (each on a line of its own:
+ * askChoice.pickQuestion). Only while the turn is the chat's last and nothing is being answered.
+ */
+export function pickChoice(generationId: ID, picked: number[], place: AskPlace): boolean {
+  const s = get()
+  const last = s.turns[s.turns.length - 1]
+  if (!last || last.generationId !== generationId || !last.choice || !picked.length || s.running || s.loading) return false
+  void ask(pickQuestion(last.choice, picked), place)
+  return true
+}
 
 /** Asks the box to take the keyboard (when the panel shows it next). */
 export function requestBoxFocus(): void {

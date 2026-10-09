@@ -285,6 +285,17 @@ export interface Entry {
    * null when it has none (milestone 3). Set with AppApi.setEntryImage; lists never carry the image itself.
    */
   image?: string | null
+  /**
+   * Only as the writer is given it (World Memory Overhaul A4, memory/scene.ts writerData): fields that are the memory's
+   * guesses, with no words in the story behind them. The briefing labels them; "must stay true" leaves them out.
+   */
+  guesses?: string[]
+  /**
+   * Only as the writer is given it (World Memory Overhaul B6, memory/scene.ts writerData): fields sent although the words
+   * they were read from were edited and no read has confirmed them since (an entry's summary, which stands until a new
+   * one is written, and Adam's own values). "What the AI saw" marks them.
+   */
+  unsure?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -629,6 +640,43 @@ export interface ContextBlock {
   hasShort?: boolean
   /** Adam's choice for this scene, from the Context tab: 'auto' lets the budget decide. */
   mode?: BlockMode
+  /**
+   * What this part's memory lines rest on (World Memory Overhaul B6), for "What the AI saw": one small tag per entry,
+   * guessed or unconfirmed field and scene summary being updated that went into the form sent. Records from before
+   * leave it out.
+   */
+  memory?: MemoryTag[]
+}
+
+/**
+ * One line of the briefing and what it rests on (World Memory Overhaul B6): where it came from ('text' read from the
+ * story, 'yours' made or kept by Adam, 'guess' filled in by the AI with no words behind it) and how it stands on its
+ * words ('ok'; 'changed': its words were edited and no read has confirmed it yet; 'updating': a scene summary the
+ * memory is bringing up to date). Only names and ids, never the line's own words, so a record stays small.
+ */
+export interface MemoryTag {
+  /** The entry's name, or the scene's place ("Book 1, Ch 2, Sc 3") for a scene summary. */
+  label: string
+  entryId?: ID
+  sceneId?: ID
+  /** The field the line is about ('summary', 'hair'); absent for the entry as a whole and for a scene summary. */
+  field?: string
+  /** The field's label in plain words ("Hair"). */
+  fieldLabel?: string
+  origin: 'text' | 'yours' | 'guess'
+  health: 'ok' | 'changed' | 'updating'
+}
+
+/** How many lines of a briefing rest on what (shared/memoryTags.ts countMemoryTags), counting the parts sent. */
+export interface MemoryTagCounts {
+  /** Tagged lines in all. */
+  lines: number
+  /** Lines whose words were edited since, or summaries being updated. */
+  stale: number
+  /** The AI's guesses. */
+  guesses: number
+  /** Adam's own. */
+  yours: number
 }
 
 export type BlockMode = 'auto' | 'full' | 'short'
@@ -679,18 +727,52 @@ export interface ChatMessage {
   /** A tool's answer: the call it answers. */
   toolCallId?: string
   /**
+   * An assistant turn that asked for tools: the thinking the model sent with it as `reasoning_content` (DeepSeek-style
+   * providers want it back on that turn while their thinking is on, or turn the next request down). Sent back only on
+   * that turn, as it came; never shown, and never kept in a record.
+   */
+  reasoning?: string
+  /**
    * Where the part of `content` that stays the same from one request to the next ends (a character
    * index), so a model that caches only where asked (Claude) can reuse it. Never sent as it is.
    */
   cacheUpTo?: number
 }
 
-/** One tool the editor chat's model used: what it did in plain words, the call, and (shortened) what came back. */
+/**
+ * One tool the editor chat's model used: what it did in plain words, the call, and (shortened) what came back. Since
+ * chat Phase 2b each is kept as a ToolActivity (shared/toolActivity.ts: these four and how the call went).
+ */
 export interface AgentStep {
   label: string
   tool: string
   arguments: string
   result: string
+}
+
+/**
+ * One request of an editor chat answer, kept for "What the AI saw" (chat Phase 4, E18). Request 1's messages are the
+ * record's own `messages` (the briefing and the question), so they aren't kept again; each later request keeps only
+ * what was added since the one before: the assistant's tool calls, the tools' results, and a note AI Write sent back
+ * (a nudge, or the last words). Thinking is never kept, and a long message is cut to REQUEST_TEXT_CAP characters with
+ * a note saying so.
+ */
+export interface AgentRequest {
+  /** Its place among the answer's requests, from 1. */
+  n: number
+  /** The messages added since the request before (none for request 1). */
+  added: ChatMessage[]
+  /** The tools whose results it brings (the calls of the request before), in order; none for request 1 or after a nudge. */
+  after?: string[]
+  /** It was offered the tools (false: asked for words, as the last request is). */
+  tools: boolean
+  /** The tool it was made to call (tool_choice), when it was. */
+  toolChoice?: string
+  /** How many earlier tool results were taken out before it, to keep within the model's context. */
+  removed?: number
+  /** As the provider counted them, when it said. */
+  promptTokens?: number
+  completionTokens?: number
 }
 
 /** A tool the model asked to use (the editor chat): its call id, the tool's name and the arguments as sent (JSON text). */
@@ -829,8 +911,29 @@ export interface GenerationRecord extends GenerationSummary {
     chatId?: ID
     /** The editor chat: each tool the model used on the way to its answer, in order (for "What the AI saw"). */
     steps?: AgentStep[]
+    /**
+     * The editor chat: each request of the answer, compactly (chat Phase 4: what each request added; request 1 is
+     * `messages`). Older records don't have it, and show the first request alone.
+     */
+    requests?: AgentRequest[]
+    /**
+     * The editor chat: what Adam made of each option card in the answer (kept ★, used as a beat, set aside), by the
+     * card's number (from 1), so it shows again after a restart.
+     */
+    options?: Record<string, import('./contracts/ask').OptionMark>
     /** The editor chat: the changes the answer proposes, and what Adam made of each. */
     proposals?: import('./contracts/ask').Proposal[]
+    /** The editor chat ended its answer with a question with options (ask_user, lab switch ASKUSER). */
+    choice?: import('./contracts/ask').AskChoice
+    /**
+     * The editor chat's request that was made to call a tool (tool_choice, lab switch TOOLCHOICE): which tool, at which
+     * request (from 1), and whether the provider turned tool_choice down (so it was asked again without it).
+     */
+    toolChoice?: { tool: string; step: number; dropped?: boolean }
+    /** The editor chat: the intent routing gave the question (chat overhaul, AIWRITE_EXP_CHAT_ROUTE). */
+    intent?: import('./askIntent').AskIntent
+    /** The editor chat: the note saved from the answer, so it shows "Saved" after a restart too. */
+    savedNote?: import('./contracts/ask').SavedNote
     // ----- The style guide's helpers -----
     /** min_p as sent (OpenRouter only, with the Balanced and Adventurous creativity); left out when it wasn't sent. */
     min_p?: number
@@ -1008,6 +1111,14 @@ export interface KnowledgePayload {
    * each character who heard it (one fact id), with the line itself. Missing for every other fact.
    */
   said?: SaidPayload
+  /**
+   * Who was there (World Memory Overhaul B5): everyone on stage at the words it was learned from (the speaker and those
+   * who heard it, or those who saw it happen), so who doesn't know it can be told too. Missing for a fact read on its own
+   * ("Mara realises the letter is forged"): then nothing is said of who doesn't know it.
+   */
+  there?: ID[]
+  /** Learned by seeing it happen (an event in the scene, B5). */
+  seen?: true
 }
 
 /** The kinds of things said that the memory keeps word for word. */
@@ -1051,8 +1162,25 @@ export type Change = ChangeData & {
   origin: Origin
   /** The memory keeper run that made or last changed it. */
   runId: ID | null
+  /**
+   * Where it stops being true (World Memory Overhaul B1, migration 4): from that scene on it no longer counts (she finds
+   * the knife again: "lost her knife" ends). Missing while it still holds.
+   */
+  until?: ChangeUntil
   createdAt: string
   updatedAt: string
+}
+
+/** Where a change stops being true: a scene, with the story's own words for when (optional), and the words that say so. */
+export interface ChangeUntil {
+  sceneId: ID
+  /** Story time, as the text says it ("the next morning"); '' when it doesn't say. */
+  when: string
+  /** Who ended it: 'text' (read from the scene, with its words) or 'adam'. */
+  origin: Origin
+  /** The words in that scene that end it ('' for Adam's), and their paragraph, so the end follows its words. */
+  quote: string
+  paragraphId: string | null
 }
 
 export type ChangeInput = ChangeData & {
@@ -1063,7 +1191,12 @@ export type ChangeInput = ChangeData & {
 }
 
 /** A change as an entry page lists it, with where it happened in plain words ("Book 1, Ch 12, Sc 3") and the words it came from. */
-export type ChangeView = Change & { where: string; links: SourceLink[] }
+export type ChangeView = Change & {
+  where: string
+  links: SourceLink[]
+  /** Where it stops being true, in plain words ("Book 1, Ch 4, Sc 2"); missing while it still holds (B1). */
+  untilWhere?: string
+}
 
 /** Where an entry first exists. An entry counts at a scene only if one of these is on that story's line, at or before the scene. */
 export type ExistsKind = 'world' | 'story-pre' | 'story-post' | 'scene'
@@ -1082,6 +1215,12 @@ export interface ExistsPoint {
 export interface EntryState extends Entry {
   /** What has happened to it so far, oldest first ("lost her left hand", with where). */
   happened: { note: string; where: string; changeId: ID; at?: number }[]
+  /**
+   * What happened to it that is no longer true here (B1: a change whose "true until" scene came before this point), oldest
+   * first, with where it stopped ("until"). History only: the briefing and what must stay true never use it; the canon
+   * timeline may mark it as past. Missing when there is none.
+   */
+  ended?: { note: string; where: string; changeId: ID; at?: number; until: string; when?: string }[]
   /** Field keys (and 'description' / 'summary') a change has set, so views can mark them. */
   changed: string[]
   /**
@@ -1110,6 +1249,13 @@ export interface FactState {
   /** Characters who know it at this point. */
   knownBy: ID[]
   /**
+   * Who knows it rests on who was there (World Memory Overhaul B5): every time it was learned on the line, Adam set it
+   * or the memory marked everyone on stage at those words (something said, or an event seen). Only then can "X does not
+   * know it" be told to the writer. False when some learning of it was a plain "knows" read; missing (older callers):
+   * counted as backed.
+   */
+  backed?: boolean
+  /**
    * Where on the line someone last learned it (a step index of the walk; -1 for the starting setup), so the newest
    * come first in what must stay true (step 4). Left out by anything older.
    */
@@ -1124,6 +1270,14 @@ export interface ThreadState {
   paidOff: string
   /** Not opened or resolved on the line yet (2026-10-08): planned on scene cards, or nowhere. Left out otherwise. */
   planned?: true
+  /**
+   * The open threads ledger (World Memory Overhaul B4): how many scenes on the line it has been quiet since something
+   * last touched it, the story that touch was in, and where in plain words. Left out when nothing on the line touched it
+   * (and by anything older than the scene memory).
+   */
+  quiet?: number
+  lastStoryId?: ID
+  lastWhere?: string
 }
 
 // ---------- Summaries, pins, answers ----------
@@ -1183,9 +1337,12 @@ export interface SourceLink {
   id: ID
   /** What the fact is: an entry (it was found here), one field of an entry, a change, a summary, or a voice sample line. */
   factKind: 'entry' | 'field' | 'change' | 'summary' | 'voice'
-  /** The entry, change or summary id (summaries: `${level}:${targetId}`). */
+  /**
+   * The entry, change or summary id (summaries: `${level}:${targetId}`). An entry's own one-line summary (2026-10-08,
+   * World Memory Overhaul A2) is a 'summary' link with the entry's id and field 'summary'.
+   */
   factId: ID
-  /** For 'field' and 'voice' links: the field key. */
+  /** For 'field' and 'voice' links: the field key ('summary' for an entry's summary link). */
   field: string | null
   sceneId: ID
   /** The scene's text version the words were read from. */
@@ -1199,6 +1356,13 @@ export interface SourceLink {
   quote: string
   /** 'ok' while the words are there; 'changed' when they were edited; 'gone' when they were deleted. */
   state: 'ok' | 'changed' | 'gone'
+  /** When the words were edited (state 'changed'); null otherwise. */
+  changedAt?: string | null
+  /**
+   * Reads since the words were edited that left the fact unconfirmed (no verdict, or words that couldn't be placed).
+   * A text fact still unconfirmed after one more read goes (keeper/apply.ts).
+   */
+  checks?: number
 }
 
 /** One version of a fact in the memory history. Every change, automatic or by hand, writes one. */
@@ -1216,6 +1380,51 @@ export interface FactVersion {
   /** The memory keeper run that wrote it; null for Adam's edits. */
   runId: ID | null
   createdAt: string
+}
+
+/**
+ * The memory check list (World Memory Overhaul B3): what the memory isn't sure about, in one place.
+ * - 'unconfirmed': a fact read from the story whose words were edited, not confirmed by a read since (the writer leaves
+ *   it out meanwhile);
+ * - 'guess': a detail the AI filled in on an entry found in the story, with no words behind it;
+ * - 'summary': a scene summary being brought up to date (the scene changed since it was written);
+ * - 'note': a quiet note that one of Adam's own facts is no longer what the scene says.
+ */
+export type MemoryCheckGroup = 'unconfirmed' | 'guess' | 'summary' | 'note'
+
+/** The fact a check is about, as Keep and Remove need it. */
+export type MemoryCheckFact =
+  | { kind: 'field'; entryId: ID; field: string }
+  | { kind: 'change'; changeId: ID }
+  | { kind: 'summary'; sceneId: ID }
+  | { kind: 'note'; logId: ID }
+
+export interface MemoryCheckItem {
+  /** Stable while the item stays in the list. */
+  key: string
+  group: MemoryCheckGroup
+  fact: MemoryCheckFact
+  entryId: ID | null
+  /** "Mara"; '' for a scene summary. */
+  entryName: string
+  entryKind: EntryKind | null
+  /** What the memory holds, in plain words: "Hair: black", "Lost her knife in the river", the summary itself. */
+  text: string
+  /** The scene the words are (or were) in; null when there are none. */
+  sceneId: ID | null
+  /** That scene in plain words: "Book 1, Ch 2, Sc 3". */
+  where: string
+  /** The words to show (as they were read); '' when there are none. */
+  quote: string
+  /** Their paragraph, to show it even when the words were edited since. */
+  paragraphId: string | null
+  /** False where Remove makes no sense (a summary is rewritten by itself). */
+  canRemove: boolean
+}
+
+/** What Keep or Remove did, so Undo can put it back. Opaque to the window; handed back as it came. */
+export interface MemoryCheckUndo {
+  steps: Record<string, unknown>[]
 }
 
 /** One line in the "What changed" list. */
@@ -1244,6 +1453,8 @@ export interface MemoryLogItem {
   createdAt: string
   /** Adam undid it. */
   undone: boolean
+  /** A quiet note that changes nothing ("the scene no longer says this"): dismissed rather than undone. */
+  note?: boolean
 }
 
 export interface MemoryStatus {
@@ -1257,6 +1468,26 @@ export interface MemoryStatus {
   error: string | null
   /** The last run that changed something, for the quiet "Memory updated" note. */
   lastUpdate: { at: string; runId: ID; changes: number } | null
+  /** A re-read Adam asked for (World Memory Overhaul B8): scenes still to be read, of how many. Missing when none. */
+  rereading?: { left: number; total: number }
+}
+
+/** What to read again in full (World Memory Overhaul B8): one scene, or every scene of a story. */
+export type RereadTarget = { sceneId: ID } | { storyId: ID }
+
+/** Roughly what a re-read costs, asked before it starts (B8). */
+export interface RereadEstimate {
+  /** Scenes with words that would be read, and their words. */
+  scenes: number
+  words: number
+  /** USD, roughly; null when not known (see `free`). */
+  cost: number | null
+  /** The memory model runs on this computer (a local server): nothing to pay. */
+  free: boolean
+  /** The memory model, as Settings › Models names it; null when there is none. */
+  model: string | null
+  /** Plain words when there is no model to read with (the fix is in Settings › Models). */
+  problem: string | null
 }
 
 /** Where a scene's memory stands: up to date, waiting to be read, or "Memory not updated". */

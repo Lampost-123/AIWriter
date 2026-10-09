@@ -13,8 +13,12 @@ import { UserError } from '../util'
 type DB = Database.Database
 
 export interface SpendHooks {
-  /** The limit reached and not carried on: the limit (US dollars), else null. */
-  held: () => number | null
+  /**
+   * The limit reached and not carried on: the limit (US dollars), else null. `extra` (US dollars, 0 when left out) is
+   * spending not in any finished record yet (the requests a running editor chat answer has made so far), counted
+   * as if it were.
+   */
+  held: (extra?: number) => number | null
   /** An AI call's record was finished in `db`. */
   finished: (db: DB) => void
 }
@@ -26,10 +30,14 @@ export function setSpendHooks(h: SpendHooks | null): void {
   hooks = h
 }
 
-/** The limit while AI calls are held (reached, and Adam hasn't carried on), else null. Never throws. */
-export function heldAt(): number | null {
+/**
+ * The limit while AI calls are held (reached, and Adam hasn't carried on), else null. Never throws. `extra`: spending
+ * not finished yet that counts too (the editor chat asks before each of its requests, with what the answer has cost
+ * so far, since one answer can make a dozen requests).
+ */
+export function heldAt(extra = 0): number | null {
   try {
-    return hooks?.held() ?? null
+    return hooks?.held(extra > 0 ? extra : 0) ?? null
   } catch (e) {
     console.warn('Could not work out the monthly spending', e)
     return null

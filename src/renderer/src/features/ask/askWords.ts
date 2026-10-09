@@ -18,6 +18,12 @@ export function examples(people: string[]): string[] {
   ]
 }
 
+/**
+ * The examples with no one named (the starter cards' fallback when the open scene has no cast, features/ask/answerView.ts):
+ * never names that aren't in Adam's world (Phase 0).
+ */
+export const EXAMPLES: readonly string[] = examples([])
+
 /** When a chat was last asked in, short enough for a list: "14:05", "Yesterday", "3 Oct", "3 Oct 2025". */
 export function chatWhen(iso: string, nowMs: number = Date.now()): string {
   const t = Date.parse(iso)
@@ -45,9 +51,14 @@ export function asOfText(o: { sceneLabel: string | null; storyTitle: string | nu
   return 'Your world as it was set up'
 }
 
-/** The longer explanation, for its tooltip. */
+/**
+ * The longer explanation, for its tooltip. With a scene open it also says why the chip has no ✕ (chat Phase 4): the
+ * open scene decides what the chat may know and which words an edit is about, so taking it off for one question
+ * would let later events into the answer and leave an edit without its scene.
+ */
 export function asOfHint(o: { hasScene: boolean; storyTitle: string | null }): string {
-  if (o.hasScene) return 'Answers come from your world as it stands at the open scene. Nothing later in the story is known.'
+  if (o.hasScene)
+    return 'Answers come from your world as it stands at the open scene. Nothing later in the story is known. This can’t be taken off for a question: it keeps later events out of the answer, and tells an edit which scene it’s for.'
   if (o.storyTitle) return `Answers come from your world as it stands at the end of ${o.storyTitle} as written so far.`
   return 'No story is open, so answers come from your world as it was set up, before any story.'
 }

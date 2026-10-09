@@ -12,8 +12,10 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
 import { appEvents } from './fakeElectron'
 import { Budget, DEFAULT_BUDGET } from './budget'
-import { JUDGE_MARKER, judgeMessages, readJudgeReply, type ChatMessage, type JudgeAnswer } from './judge'
-import { DEEPSEEK_BASE_URL, KEY_VARIABLE, pickFlash, type TrapProvider } from './models'
+import { JUDGE_MARKER, judgeMessages, readJudgeProse, readJudgeReply, type ChatMessage, type JudgeAnswer, type RubricAsk } from './judge'
+import type { ProseRubric } from './prose'
+import { DEEPSEEK_BASE_URL, KEY_VARIABLE, pickFlash, PROVIDER_NAMES, type TrapProvider } from './models'
+import { guardFetch } from './guard'
 import type { Fix } from './page'
 import type { SampleResult, Usage } from './score'
 import type { Check } from './story'
@@ -67,6 +69,11 @@ export interface TrapsConfig {
   saveWorld: boolean
   /** Start from a saved world (a world-before-*.db from an earlier run of the same checkout and story): no memory build. */
   fromWorld: string | null
+  /**
+   * Chains only: the memory reads the story from this scene on (its key, e.g. s28), not the whole story: a cheaper
+   * world for a test that only needs the chain scene (the edit chain K2E). Null: the whole story.
+   */
+  storyFrom: string | null
   /** 4: chains in one scene (the default, story version 3 only); 3: probes v3, one passage each. */
   probesVersion: 3 | 4
   /** The hard token budget: no call is sent once it would be passed. */
@@ -110,6 +117,7 @@ export function configFromEnv(env = process.env): TrapsConfig {
     searchModel: env.TRAPS_SEARCH_MODEL?.trim() || join(harnessRoot, DEFAULT_SEARCH_MODEL),
     saveWorld: env.TRAPS_SAVE_WORLD !== '0',
     fromWorld: env.TRAPS_FROM_WORLD?.trim() ? resolve(env.TRAPS_FROM_WORLD.trim()) : null,
+    storyFrom: env.TRAPS_STORY_FROM?.trim() || null,
     probesVersion: env.TRAPS_PROBES_VERSION === '3' || env.TRAPS_STORY === 'v2' ? 3 : 4,
     maxIn: num(env.TRAPS_MAX_TOKENS_IN, DEFAULT_BUDGET.in),
     maxOut: num(env.TRAPS_MAX_TOKENS_OUT, DEFAULT_BUDGET.out),
@@ -225,7 +233,9 @@ function standInJudge(body: string): Response {
   const firstSentence = /[^.!?]+[.!?]/.exec(passage)?.[0]?.trim() ?? ''
   const ids = [...content.matchAll(/^([A-Z]\w*): /gm)].map((m) => m[1])
   const answers = ids.map((id, i) => ({ id, answer: ['no', 'yes', 'unclear'][i % 3], quote: i % 3 === 1 ? firstSentence : '' }))
-  return sse(JSON.stringify({ answers }), content.length)
+  // Asked to mark the writing too (the prose check): stand-in marks.
+  const prose = content.includes('"prose"') ? { voices: 3, subtext: 2, direction: 4, ending: 3 } : undefined
+  return sse(JSON.stringify({ answers, ...(prose ? { prose } : {}) }), content.length)
 }
 
 /**
@@ -463,7 +473,7 @@ export interface App {
   save(sceneKey: string, sceneId: string, paragraphs: string[]): void
   memoryIdle(): Promise<void>
   leave(sceneId: string): Promise<void>
-  askJudge(probe: { facts: string[]; checks: Check[] }, text: string): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null }>
+  askJudge(probe: { facts: string[]; checks: Check[] }, text: string, rubric?: RubricAsk): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null; prose?: ProseRubric | null }>
   usage(): { byJob: Record<string, Usage>; judge: Usage; total: Usage }
   /** The newest record's row so far, to find the records a step makes. */
   lastRow(): number
@@ -553,7 +563,18 @@ export async function openApp(
       const { startFakeProvider } = await import('../fake-provider/server.mjs')
       fake = await startFakeProvider({ delayMs: 0, words: 220 })
       globalThis.fetch = budget.wrap(withStandIns(realFetch))
-    } else globalThis.fetch = budget.wrap(realFetch)
+    } else {
+      // A real provider: the guard (guard.ts) stops the run at once when it is out of balance or refuses the key, and
+      // waits out rate limits a few times first. Its stop is the budget's, so the run ends cleanly at its next step.
+      const guard = guardFetch(realFetch, {
+        provider: PROVIDER_NAMES[cfg.provider],
+        log: cfg.log,
+        stop: (why) => {
+          budget.hit ??= why
+        }
+      })
+      globalThis.fetch = budget.wrap(guard)
+    }
 
     const settings = await import('@app/main/settings')
     const providers = await import('@app/main/ai/providers')
@@ -576,7 +597,7 @@ export async function openApp(
     let modelNote: string | null = null
     if (retrieval) {
       process.env.AIWRITE_RECALL = 'on'
-      // The model is copied in below; the run never downloads it by itself.
+      // The model is copied in below; the run never downloads it by itself (where the app can, 0.6.31 on).
       process.env.AIWRITE_SEARCH_MODEL_AUTO = 'off'
       const files = await optional<ModelFilesModule>(cfg.root, 'main/retrieval/model/files')
       const { userDataDir } = await import('@app/main/paths')
@@ -801,13 +822,17 @@ export async function openApp(
     }
 
     const judgeTarget = providers.providerTarget(provider)
-    /** The judge on a passage: the probe's facts and yes/no questions, nothing else. No questions, no call. */
+    /**
+     * The judge on a passage: the probe's facts and yes/no questions, nothing else; with `rubric`, it marks the writing
+     * too in the same call (the prose check). No questions, no call: a rubric never makes one of its own.
+     */
     const askJudge = async (
       probe: { facts: string[]; checks: Check[] },
-      text: string
-    ): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null }> => {
+      text: string,
+      rubric?: RubricAsk
+    ): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null; prose?: ProseRubric | null }> => {
       if (!probe.checks.length) return { status: 'skipped', raw: '', answers: [] }
-      const messages: ChatMessage[] = judgeMessages(probe, text)
+      const messages: ChatMessage[] = judgeMessages(probe, text, rubric)
       let raw = ''
       for (let attempt = 0; attempt < 2; attempt++) {
         if (budget.hit) break
@@ -825,7 +850,7 @@ export async function openApp(
         }
         raw = o.text
         const answers = readJudgeReply(o.text)
-        if (answers) return { status: 'ok', raw, answers, asked: messages[1].content }
+        if (answers) return { status: 'ok', raw, answers, asked: messages[1].content, ...(rubric ? { prose: readJudgeProse(o.text) } : {}) }
       }
       return { status: raw ? 'unreadable' : 'failed', raw, answers: null, asked: messages[1].content }
     }

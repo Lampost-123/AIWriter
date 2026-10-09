@@ -119,6 +119,80 @@ Each world's overrides of Adam's writing preferences (spec: "Stored in milestone
 `meta` table under the key `writing_prefs_overrides`, as JSON (`Partial<WritingPrefs>`); the
 preferences themselves stay outside world.db and are not frozen.
 
+**Migration 3: facts follow their words** (World Memory Overhaul part A, 2026-10-08). The written reason:
+a fact whose words were edited and that the memory model said nothing clear about stayed marked
+`changed` for ever: it was never asked about again, never removed when its words were later deleted,
+and the writer was still told it as true. To settle such facts, a source link has to remember how many
+reads since the edit have left its fact unconfirmed, so `source_links` gains `checks` (that count) and
+`changed_at` (when the words were edited). Both have defaults, so older worlds open unchanged (a link
+already `changed` takes its `updated_at` as `changed_at`). The rules that use them are in
+`src/main/keeper/apply.ts` (a text fact still unconfirmed one read after it was first left so goes, with
+Undo; what Adam made himself never does) and `src/main/memory/scene.ts` `writerData` (the writer leaves
+such a fact out until a read confirms it). An entry's own summary also gets source links, as fact kind
+`summary` with field `summary`, which the schema already allowed.
+
+**Part B, round 1** (2026-10-08) needs no migration. Every source line opens the scene at the exact words (in their
+own paragraph first; the paragraph itself when they were edited since: `features/editor/reveal.ts`), and "(since
+edited)" offers "Check again now" (`Keeper.checkAgain`: the scene is read again though its text hasn't moved on). The
+memory check list ("Worth a look" on What changed) is `src/main/keeper/checkQueue.ts`: unconfirmed text facts, the
+AI's guesses, summaries being updated and notes on Adam's own facts, with Keep (it becomes Adam's and its links go),
+Remove and Undo. Each part of the writer's briefing records what its memory lines rest on as small tags
+(`ContextBlock.memory`, built in `ai/memoryTags.ts`, stored inside `blocks_json`: names and ids only);
+`shared/memoryTags.ts` `countMemoryTags` and `db/generations.ts` `memoryTagCounts` count them for a record.
+
+**Migration 4: facts with a start and an end** (Part B round 2, B1, 2026-10-08). The written reason: a change was true
+from its scene for ever, so "lost her knife" was still told to the writer chapters after she found it again; the only
+ends were a relationship's `ended`, a known fact's `forgets` and a thread's resolve, each a new change the writer had to
+weigh against the old one. `changes` gains `until_scene_id`, `until_when` (the story's words for when, optional),
+`until_origin`, `until_quote` and `until_paragraph_id` (the words that end it, so the end follows them). Columns only,
+all empty for older worlds, so every change keeps holding as before. `Change.until` carries them; `db/memory.ts`
+`setChangeUntil` sets or clears one with a version. The line (`memory/state.ts`) stops counting a change when the walk
+reaches its until scene: its note moves from `happened` to `ended` (history), a field it set goes back to what it was
+unless something later set it again, a relationship it set ends and a fact it taught is no longer known. The briefing,
+what must stay true and the memory keeper's "So far" see only what holds; the canon timeline marks what ended as past
+("Mara: lost her knife (until Ch 4, Sc 2)", `ai/timeline.ts`); entry pages say "until …" (`changeViews` `untilWhere`).
+The memory model ends a fact with an "end" item (a "So far" note or a K id, with "when" if the words say;
+`keeper/apply.ts` `endChange`): never one Adam made himself (a quiet note instead), Undo puts it back and records a
+suppression, and `settleEnds` makes the end follow its words (moved words carry it; gone words make the fact true
+again, with Undo).
+
+**Part B round 2, the rest** (2026-10-08, no further migration):
+- *B4, the open threads ledger.* `memory/threadQuiet.ts` `threadTouches`: the step on a story's line that last touched
+  each plot thread (a thread change, or a scene holding words its facts rest on: `db/history.ts` `entryLinkScenes`) and
+  how many scenes it has been quiet since. The board gives each thread `lastTouched` and, while open, `quietScenes`
+  (to the story's end); the Plot threads board has a Board / Ledger switch (`ThreadsBoard.tsx` `Ledger`, rows sortable by
+  quiet-for or name, `boardLogic.ts` `ledgerRows`). The scene memory gives each thread `quiet`, `lastStoryId` and
+  `lastWhere` (`memory/scene.ts` `withQuiet`); the writer's open threads block (`ai/openThreads.ts`) always keeps the
+  most overdue (quiet for `QUIET_SCENES`, 6, or more, and last touched in the story being written; at most 2) and ends
+  with one line, "Quiet for a while: … If it fits here, a passing mention keeps it alive; never force it."
+- *B5, who knows what from who was there.* `keeper/presence.ts` `onStageAt`: on stage at a paragraph are the scene
+  card's people and anyone named in that paragraph or the two before, less those a change in the scene says left or
+  died earlier; people only. Something said is known by the speaker, those the model says heard it and everyone on
+  stage (not when whispered or said aside); an event is known by everyone on stage ("Saw it happen", `seen`). Each such
+  knowledge change keeps `there` (who was on stage) and is linked to the same words, so it follows edits like any fact;
+  an event's Undo takes its witnesses' knowledge with it. `FactState.backed` (`memory/state.ts`) is true when every
+  learning of the fact on the line is Adam's, has `there`, or is something said (which always names who heard it); the
+  writer's "Kept from …" lines (`ai/mustStay.ts` `secretsAmong`, so the plan's too) and the check's and repair's "Not
+  known by" leave out every fact that isn't backed: a plain "knows" the memory read on its own says nothing of who
+  doesn't know it.
+- *B7, clear actions for the memory model.* The reading prompt (`keeper/prompts.ts`) has one rule line, "Actions on
+  the memory", and four items in the same shape (an entry id, a quote): `end` (B1), `guess` with `do` confirm or
+  withdraw (the memory lines mark the AI's own guesses "(guess)", `keeper/request.ts`), `close` (an open thread, applied
+  as a resolve under the same rules: `applyThread`) and `summary` (A2's revise). A guess confirmed gets a link and
+  becomes text-born; withdrawn, it is cleared (never an entry's summary); only `guessFields` count, so Adam's fields and
+  the world builder's drafts are never touched; each has Undo and a suppression. To make room, some examples were cut,
+  so the prompt is 5,948 characters (about 1,700 tokens; 5,806 before round 2) and still fits a 3,000-token model.
+- *B8, re-read buttons.* "Re-read this scene" (the binder's scene menu, the palette) and "Re-read the whole story" (the
+  story menu, the palette) open `features/memory/RereadDialog.tsx`, which first asks `estimateReread`
+  (`ipc/keeper.ts` `rereadEstimate`: the reading requests as `importing/estimate.ts` `guessReread` reckons them, priced at
+  what the memory model has lately cost per token in its own `memory_runs` records, `db/keeper.ts`
+  `memoryCostPerToken`, else at its prices; "Free with your local model" for a local server; "The cost isn't known"
+  otherwise), then `startReread` (in `ASKS_FIRST`, so the spending limit asks first). `Keeper.reread` queues the scenes
+  through the usual queue; `runScene` with `whole` reads every paragraph (`planRead` diffs against nothing), facts already
+  read told to the model as such. `MemoryStatus.rereading` carries progress; the top bar shows "Re-reading 3 of 12…"
+  with Stop (`stopReread`: the waiting scenes are dropped, the one being read stops with nothing applied). While there is
+  no model (the limit) the scenes stay asked for and go on when it comes back. Nothing is kept across a restart.
+
 ### How memory over time works
 
 - An entry row is its **baseline**. Every later fact is a row in `changes`, pinned to an anchor:
@@ -1854,6 +1928,11 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
   early steps' directions plant facts (boots off, Ash gone out, the door locked, the case put down, lying down, a cut
   hand) and every later step is checked against each one still in force, plus facts from chapters back. A change shown
   on the page ends a plant. `--rescore` scores a saved run again with today's checks, with no model.
+- **The prose check** (Adam, 2026-10-08): how the AI writes, measured per passage with no extra model call
+  (`prose.ts`: length against the words asked, recap, echoes of earlier steps, sample lines of dialogue copied from
+  the writer's prompt, stock tics, closing the scene off, "and" density, a card beat done again), plus a 1 to 5 rubric
+  folded into the judge's usual call (voices, subtext, direction, ending). A Prose section in the report, in
+  `--compare` and in `--rescore`.
 - **Probes v2** (Adam, 2026-10-07, after round 3 left most checks "not touched" and counted mentions as slips): each
   probe is aimed at its traps the way Adam would aim a draft (a direction, a beat's note, the card's beats for
   Continue) without saying what is true; a mention is no longer a slip (riding needs a riding verb with the horse as

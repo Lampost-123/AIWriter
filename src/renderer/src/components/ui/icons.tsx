@@ -24,6 +24,7 @@ const ICONS = {
   ArrowDown: [L.ArrowDown, 'ArrowDown'],
   ArrowDownToLine: [L.ArrowDownToLine, 'ArrowLineDown'],
   ArrowLeft: [L.ArrowLeft, 'ArrowLeft'],
+  ArrowLeftRight: [L.ArrowLeftRight, 'ArrowsLeftRight'],
   ArrowRight: [L.ArrowRight, 'ArrowRight'],
   ArrowUpRight: [L.ArrowUpRight, 'ArrowUpRight'],
   AudioLines: [L.AudioLines, 'Waveform'],
@@ -38,6 +39,7 @@ const ICONS = {
   Brain: [L.Brain, 'Brain'],
   CalendarDays: [L.CalendarDays, 'CalendarDots'],
   CalendarRange: [L.CalendarRange, 'CalendarBlank'],
+  CaseSensitive: [L.CaseSensitive, 'TextAa'],
   ChartColumn: [L.ChartColumn, 'ChartBar'],
   Check: [L.Check, 'Check'],
   CheckCircle2: [L.CheckCircle2, 'CheckCircle'],
@@ -50,6 +52,9 @@ const ICONS = {
   CircleArrowUp: [L.CircleArrowUp, 'ArrowCircleUp'],
   CircleCheck: [L.CircleCheck, 'CheckCircle'],
   CircleDashed: [L.CircleDashed, 'CircleDashed'],
+  CircleHelp: [L.CircleHelp, 'Question'],
+  CircleSlash: [L.CircleSlash, 'Prohibit'],
+  CircleX: [L.CircleX, 'XCircle'],
   ClipboardPaste: [L.ClipboardPaste, 'Clipboard'],
   ClipboardType: [L.ClipboardType, 'ClipboardText'],
   Clock: [L.Clock, 'Clock'],
@@ -60,6 +65,7 @@ const ICONS = {
   Compass: [L.Compass, 'Compass'],
   CookingPot: [L.CookingPot, 'CookingPot'],
   Copy: [L.Copy, 'Copy'],
+  CornerDownRight: [L.CornerDownRight, 'ArrowBendDownRight'],
   Cpu: [L.Cpu, 'Cpu'],
   DoorOpen: [L.DoorOpen, 'DoorOpen'],
   Download: [L.Download, 'DownloadSimple'],
@@ -115,6 +121,7 @@ const ICONS = {
   Link2: [L.Link2, 'LinkSimple'],
   ListChecks: [L.ListChecks, 'ListChecks'],
   ListOrdered: [L.ListOrdered, 'ListNumbers'],
+  ListPlus: [L.ListPlus, 'ListPlus'],
   ListRestart: [L.ListRestart, 'ArrowCounterClockwise'],
   ListTree: [L.ListTree, 'TreeStructure'],
   Lock: [L.Lock, 'Lock'],
@@ -122,6 +129,7 @@ const ICONS = {
   Maximize: [L.Maximize, 'CornersOut'],
   Merge: [L.Merge, 'GitMerge'],
   MessageCircle: [L.MessageCircle, 'ChatCircle'],
+  MessageCircleMore: [L.MessageCircleMore, 'ChatCircleDots'],
   MessageCircleQuestion: [L.MessageCircleQuestion, 'ChatTeardropDots'],
   MessageSquareQuote: [L.MessageSquareQuote, 'Quotes'],
   MessageSquareWarning: [L.MessageSquareWarning, 'ChatCenteredText'],
@@ -139,6 +147,7 @@ const ICONS = {
   PanelRight: [L.PanelRight, 'SidebarSimple', true],
   Pause: [L.Pause, 'Pause'],
   PenLine: [L.PenLine, 'PencilSimpleLine'],
+  Pilcrow: [L.Pilcrow, 'Paragraph'],
   Pencil: [L.Pencil, 'PencilSimple'],
   Pin: [L.Pin, 'PushPin'],
   PinOff: [L.PinOff, 'PushPinSlash'],
@@ -160,6 +169,7 @@ const ICONS = {
   Settings: [L.Settings, 'Gear'],
   Settings2: [L.Settings2, 'GearSix'],
   ShieldCheck: [L.ShieldCheck, 'ShieldCheck'],
+  Shrink: [L.Shrink, 'ArrowsIn'],
   Shuffle: [L.Shuffle, 'Shuffle'],
   SkipBack: [L.SkipBack, 'SkipBack'],
   SkipForward: [L.SkipForward, 'SkipForward'],
@@ -168,6 +178,8 @@ const ICONS = {
   Spool: [L.Spool, 'Yarn'],
   Square: [L.Square, 'Stop'],
   SquarePen: [L.SquarePen, 'NotePencil'],
+  SquareStack: [L.SquareStack, 'Cards'],
+  Star: [L.Star, 'Star'],
   StickyNote: [L.StickyNote, 'Note'],
   Sun: [L.Sun, 'Sun'],
   Swords: [L.Swords, 'Sword'],
@@ -175,6 +187,7 @@ const ICONS = {
   TextQuote: [L.TextQuote, 'Quotes'],
   Timer: [L.Timer, 'Timer'],
   Trash2: [L.Trash2, 'Trash'],
+  TextCursorInput: [L.TextCursorInput, 'CursorText'],
   Type: [L.Type, 'TextT'],
   Undo2: [L.Undo2, 'ArrowUUpLeft'],
   UnfoldVertical: [L.UnfoldVertical, 'ArrowsOutLineVertical'],
@@ -186,6 +199,7 @@ const ICONS = {
   Volume2: [L.Volume2, 'SpeakerHigh'],
   VolumeX: [L.VolumeX, 'SpeakerSlash'],
   WandSparkles: [L.WandSparkles, 'MagicWand'],
+  Wrench: [L.Wrench, 'Wrench'],
   Waves: [L.Waves, 'Waves'],
   X: [L.X, 'X'],
   Zap: [L.Zap, 'Lightning'],
@@ -239,6 +253,7 @@ export const Archive = BY_NAME.Archive
 export const ArrowDown = BY_NAME.ArrowDown
 export const ArrowDownToLine = BY_NAME.ArrowDownToLine
 export const ArrowLeft = BY_NAME.ArrowLeft
+export const ArrowLeftRight = BY_NAME.ArrowLeftRight
 export const ArrowRight = BY_NAME.ArrowRight
 export const ArrowUpRight = BY_NAME.ArrowUpRight
 export const AudioLines = BY_NAME.AudioLines
@@ -253,6 +268,7 @@ export const BookmarkPlus = BY_NAME.BookmarkPlus
 export const Brain = BY_NAME.Brain
 export const CalendarDays = BY_NAME.CalendarDays
 export const CalendarRange = BY_NAME.CalendarRange
+export const CaseSensitive = BY_NAME.CaseSensitive
 export const ChartColumn = BY_NAME.ChartColumn
 export const Check = BY_NAME.Check
 export const CheckCircle2 = BY_NAME.CheckCircle2
@@ -265,6 +281,9 @@ export const CircleAlert = BY_NAME.CircleAlert
 export const CircleArrowUp = BY_NAME.CircleArrowUp
 export const CircleCheck = BY_NAME.CircleCheck
 export const CircleDashed = BY_NAME.CircleDashed
+export const CircleHelp = BY_NAME.CircleHelp
+export const CircleSlash = BY_NAME.CircleSlash
+export const CircleX = BY_NAME.CircleX
 export const ClipboardPaste = BY_NAME.ClipboardPaste
 export const ClipboardType = BY_NAME.ClipboardType
 export const Clock = BY_NAME.Clock
@@ -275,6 +294,7 @@ export const Columns3 = BY_NAME.Columns3
 export const Compass = BY_NAME.Compass
 export const CookingPot = BY_NAME.CookingPot
 export const Copy = BY_NAME.Copy
+export const CornerDownRight = BY_NAME.CornerDownRight
 export const Cpu = BY_NAME.Cpu
 export const DoorOpen = BY_NAME.DoorOpen
 export const Download = BY_NAME.Download
@@ -330,6 +350,7 @@ export const List = BY_NAME.List
 export const Link2 = BY_NAME.Link2
 export const ListChecks = BY_NAME.ListChecks
 export const ListOrdered = BY_NAME.ListOrdered
+export const ListPlus = BY_NAME.ListPlus
 export const ListRestart = BY_NAME.ListRestart
 export const ListTree = BY_NAME.ListTree
 export const Lock = BY_NAME.Lock
@@ -337,6 +358,7 @@ export const MapPin = BY_NAME.MapPin
 export const Maximize = BY_NAME.Maximize
 export const Merge = BY_NAME.Merge
 export const MessageCircle = BY_NAME.MessageCircle
+export const MessageCircleMore = BY_NAME.MessageCircleMore
 export const MessageCircleQuestion = BY_NAME.MessageCircleQuestion
 export const MessageSquareQuote = BY_NAME.MessageSquareQuote
 export const MessageSquareWarning = BY_NAME.MessageSquareWarning
@@ -354,6 +376,7 @@ export const PanelLeft = BY_NAME.PanelLeft
 export const PanelRight = BY_NAME.PanelRight
 export const Pause = BY_NAME.Pause
 export const PenLine = BY_NAME.PenLine
+export const Pilcrow = BY_NAME.Pilcrow
 export const Pencil = BY_NAME.Pencil
 export const Pin = BY_NAME.Pin
 export const PinOff = BY_NAME.PinOff
@@ -375,6 +398,7 @@ export const Server = BY_NAME.Server
 export const Settings = BY_NAME.Settings
 export const Settings2 = BY_NAME.Settings2
 export const ShieldCheck = BY_NAME.ShieldCheck
+export const Shrink = BY_NAME.Shrink
 export const Shuffle = BY_NAME.Shuffle
 export const SkipBack = BY_NAME.SkipBack
 export const SkipForward = BY_NAME.SkipForward
@@ -383,6 +407,8 @@ export const Sparkles = BY_NAME.Sparkles
 export const Spool = BY_NAME.Spool
 export const Square = BY_NAME.Square
 export const SquarePen = BY_NAME.SquarePen
+export const SquareStack = BY_NAME.SquareStack
+export const Star = BY_NAME.Star
 export const StickyNote = BY_NAME.StickyNote
 export const Sun = BY_NAME.Sun
 export const Swords = BY_NAME.Swords
@@ -390,6 +416,7 @@ export const Target = BY_NAME.Target
 export const TextQuote = BY_NAME.TextQuote
 export const Timer = BY_NAME.Timer
 export const Trash2 = BY_NAME.Trash2
+export const TextCursorInput = BY_NAME.TextCursorInput
 export const Type = BY_NAME.Type
 export const Undo2 = BY_NAME.Undo2
 export const UnfoldVertical = BY_NAME.UnfoldVertical
@@ -401,6 +428,7 @@ export const Users = BY_NAME.Users
 export const Volume2 = BY_NAME.Volume2
 export const VolumeX = BY_NAME.VolumeX
 export const WandSparkles = BY_NAME.WandSparkles
+export const Wrench = BY_NAME.Wrench
 export const Waves = BY_NAME.Waves
 export const X = BY_NAME.X
 export const Zap = BY_NAME.Zap

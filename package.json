@@ -1,7 +1,7 @@
 {
   "name": "ai-write",
   "productName": "AI Write",
-  "version": "0.6.39",
+  "version": "0.6.41",
   "description": "Write long, consistent stories with AI and a memory of your world.",
   "author": "Adam (Lampost-123)",
   "private": true,
@@ -15,6 +15,7 @@
     "test": "vitest run",
     "traps": "node tests/traps/cli.mjs",
     "traps:write": "node tests/traps/cli.mjs --write",
+    "chat-eval": "node tests/chat-eval/cli.mjs",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
     "docs:screenshots": "npm run build && playwright test -c tests/docs/playwright.config.ts",

@@ -1,19 +1,35 @@
 import { Check, PenLine, Sparkles } from '@/components/ui/icons'
-import type { ID } from '@shared/types'
+import { useEffect, useRef, useState } from 'react'
+import type { ID, MemoryStatus } from '@shared/types'
+import { toast } from '@/components/ui'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
+import { checkAgainFailed } from '@/features/memory/logic'
+import { showWords } from '@/features/memory/openScene'
 import type { SourceNote } from '../memoryLogic'
 import type { ScenePlace } from '../useSceneLabels'
 
 /** Opens a scene in the writing view. */
 export const openScene = (sceneId: ID, storyId?: ID | null): void => useApp.getState().selectScene(sceneId, storyId ?? undefined)
 
-/** A scene's place as a quiet link that opens it ("Book 1, Ch 12, Sc 3"). Nothing while it isn't known. */
+/** Words a fact was read from, to show in their scene (Jump to source, World Memory Overhaul B2). */
+export interface WordsAt {
+  quote: string
+  paragraphId: string | null
+}
+
+/**
+ * A scene's place as a quiet link that opens it ("Book 1, Ch 12, Sc 3"). Nothing while it isn't known. With `words`,
+ * it opens the scene at those words, selected.
+ */
 export function PlaceLink({
   sceneId,
   place,
   label,
   storyId,
+  words,
   className
 }: {
   sceneId: ID
@@ -22,6 +38,7 @@ export function PlaceLink({
   label?: string
   /** The scene's story, when known without the place. */
   storyId?: ID | null
+  words?: WordsAt | null
   className?: string
 }): React.JSX.Element | null {
   const text = label ?? place?.label
@@ -29,8 +46,8 @@ export function PlaceLink({
   return (
     <button
       type="button"
-      title="Open this scene"
-      onClick={() => openScene(sceneId, storyId ?? place?.storyId)}
+      title={words ? 'Show these words in the scene' : 'Open this scene'}
+      onClick={() => (words ? showWords(sceneId, words.quote, words.paragraphId) : openScene(sceneId, storyId ?? place?.storyId))}
       className={cn(
         'rounded-sm font-medium text-muted underline-offset-2 transition-colors duration-150 hover:text-accent hover:underline',
         className
@@ -38,6 +55,80 @@ export function PlaceLink({
     >
       {text}
     </button>
+  )
+}
+
+/** The quoted words a fact came from, as a quiet link that shows them in the scene. */
+export function QuoteLink({ sceneId, words, className }: { sceneId: ID; words: WordsAt; className?: string }): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      title="Show these words in the scene"
+      onClick={() => showWords(sceneId, words.quote, words.paragraphId)}
+      className={cn(
+        'min-w-0 truncate rounded-sm text-left font-serif italic text-muted underline-offset-2 transition-colors duration-150 hover:text-accent hover:underline',
+        className
+      )}
+    >
+      “{words.quote}”
+    </button>
+  )
+}
+
+/**
+ * "(since edited)", for words a fact was read from that have been edited since: a link that shows where they were
+ * (their paragraph, when the words themselves are gone), and "Check again now", which asks the memory to read that
+ * scene again now (one read; World Memory Overhaul B2).
+ */
+export function EditedSince({ sceneId, words, className }: { sceneId: ID; words: WordsAt; className?: string }): React.JSX.Element {
+  const [asked, setAsked] = useState(false)
+  // The memory's status when it was asked: a read that fails leaves the words "since edited", and the button comes back
+  // (it said "Checking…" for good otherwise).
+  const status = useApp((s) => s.memoryStatus)
+  const askedWith = useRef<MemoryStatus | null>(null)
+  useEffect(() => {
+    if (!asked) return
+    const failed = checkAgainFailed(askedWith.current, status)
+    if (!failed) return
+    setAsked(false)
+    // Its own words already say what went wrong ("The memory couldn't read …") and what to do.
+    toast(failed)
+  }, [asked, status])
+  const checkAgain = async (): Promise<void> => {
+    askedWith.current = useApp.getState().memoryStatus
+    setAsked(true)
+    try {
+      await api.checkMemoryAgain(sceneId)
+      toast('Checking again. The memory is reading that scene now.')
+    } catch (e) {
+      setAsked(false)
+      toast(`The memory couldn't check again. ${plainReason(e)}`)
+    }
+  }
+  const link = 'shrink-0 rounded-sm underline-offset-2 transition-colors duration-150 hover:text-accent hover:underline'
+  return (
+    <span className={cn('inline-flex shrink-0 items-baseline gap-1.5 font-sans not-italic', className)}>
+      <button
+        type="button"
+        className={link}
+        title="These words were edited after the memory read them. Show where they were."
+        onClick={() => showWords(sceneId, words.quote, words.paragraphId)}
+      >
+        (since edited)
+      </button>
+      {asked ? (
+        <span className="shrink-0 text-faint">Checking…</span>
+      ) : (
+        <button
+          type="button"
+          className={cn(link, 'font-medium text-accent')}
+          title="Ask the memory to read that scene again now and see what the words say"
+          onClick={() => void checkAgain()}
+        >
+          Check again now
+        </button>
+      )}
+    </span>
   )
 }
 
@@ -49,8 +140,8 @@ export type LineNote = SourceNote | { kind: 'loading' } | { kind: 'story' } | { 
 
 /**
  * Where a fact came from, quietly, inline (it sits inside a field's hint): the words it was read from
- * and their scene, "Those words were removed", "Drafted by AI", or for Adam's own, "You wrote this"
- * when `showAdam`. Renders nothing when there is nothing to say.
+ * and their scene (each a link to those words in the scene), "Those words were removed", "Drafted by AI",
+ * or for Adam's own, "You wrote this" when `showAdam`. Renders nothing when there is nothing to say.
  */
 export function SourceLine({
   note,
@@ -75,11 +166,11 @@ export function SourceLine({
       </span>
     )
   }
-  if (note.kind === 'edited') {
+  if (note.kind === 'edited' || note.kind === 'kept') {
     return (
-      <span className={base}>
+      <span className={base} title={note.kind === 'kept' ? "You brought this back, so it no longer depends on the scene's words" : undefined}>
         <Check size={11} className="shrink-0 self-center" aria-hidden />
-        Changed by you
+        {note.kind === 'kept' ? 'Kept by you' : 'Changed by you'}
       </span>
     )
   }
@@ -101,18 +192,17 @@ export function SourceLine({
     )
   }
   const place = places?.get(note.sceneId)
+  const words = { quote: note.quote, paragraphId: note.paragraphId }
   return (
     <span className={base}>
-      <span className="min-w-0 truncate font-serif italic text-muted" title={note.quote}>
-        “{note.quote}”
-      </span>
+      <QuoteLink sceneId={note.sceneId} words={words} />
       {place ? (
         <>
           <span aria-hidden>·</span>
-          <PlaceLink sceneId={note.sceneId} place={place} className="shrink-0" />
+          <PlaceLink sceneId={note.sceneId} place={place} words={words} className="shrink-0" />
         </>
       ) : null}
-      {note.changed ? <span className="shrink-0">(since edited)</span> : null}
+      {note.changed ? <EditedSince sceneId={note.sceneId} words={words} /> : null}
       {note.more ? <span className="shrink-0">and {note.more} more</span> : null}
     </span>
   )

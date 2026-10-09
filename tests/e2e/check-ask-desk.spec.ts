@@ -224,36 +224,27 @@ test('What changed on the desk: the ledger, how the memory is doing, and its fil
   await expect(sheet(win).locator('.lg-line')).toHaveCount(3)
 })
 
-test('Ask on the desk: the lanterns, an answer arriving in the lamp’s language, its sources, and what to ask next', async ({ launch }) => {
+test('Ask on the desk: the lanterns in its head (brighter while it answers), a question to try, and the answer', async ({ launch }) => {
+  // (The chat's own design is main's editor chat, 0.6.40: its starter cards, answer blocks, sources and follow-ups; the
+  // desk gives it the drawer's leather head with the two lanterns, #94.)
   const fake = await startFake({ delayMs: 20 })
   try {
     const { win } = await sampleWorld(launch)
     await useFakeModel(win, fake, 'fake/slow')
     await (await openDockMenu(win)).getByRole('menuitemcheckbox', { name: 'Ask the world' }).click()
     const panel = win.getByRole('region', { name: 'Ask the world' })
-    await expect(panel.locator('[data-room-art="lanterns"]').first()).toBeVisible()
-    await expect(panel.getByRole('heading', { name: 'Ask your world' })).toBeVisible()
+    const lanterns = panel.locator('.ask-head [data-room-art="lanterns"]')
+    await expect(lanterns).toBeVisible()
+    await expect(lanterns).toHaveAttribute('data-state', 'idle')
     // A question to try fills the box.
-    await panel.getByRole('button', { name: /^What would Wren Halloway do if/ }).click()
+    await panel.locator('[data-starter="brainstorm"]').click()
     const box = panel.getByRole('textbox', { name: 'Ask about your world' })
-    await expect(box).toHaveValue(/^What would Wren Halloway do if/)
+    await expect(box).not.toHaveValue('')
     await box.press('Enter')
-    // Arriving: the lamp's language, its new words fading in.
+    await expect(lanterns).toHaveAttribute('data-state', 'busy')
     const answer = panel.locator('[data-answer]').first()
-    await expect(answer).toHaveAttribute('data-streaming')
-    await expect(answer.locator('.ask-arrive').first()).toBeAttached()
-    await expect(panel.locator('.ask-head [data-room-art="lanterns"]')).toHaveAttribute('data-state', 'busy')
-    await expect(answer).not.toHaveAttribute('data-streaming', { timeout: 30_000 })
-    await expect(answer).toContainText('Idea 20')
-    // Its sources, as small cards with their drawings; one opens its page beside the chat.
-    const sources = panel.getByRole('group', { name: 'From your world' })
-    await expect(sources.getByRole('button', { name: /Wren Halloway/ }).locator('[data-motif]')).toBeVisible()
-    // What to ask next fills the box (nothing is sent).
-    const next = panel.getByRole('group', { name: 'Ask next' })
-    await next.getByRole('button', { name: 'What does Wren Halloway want most right now?' }).click()
-    await expect(box).toHaveValue('What does Wren Halloway want most right now?')
-    await sources.getByRole('button', { name: /Wren Halloway/ }).click()
-    await expect(win.getByRole('button', { name: 'Back to Ask the world' })).toBeVisible()
+    await expect(answer).toContainText('Idea 20', { timeout: 30_000 })
+    await expect(lanterns).toHaveAttribute('data-state', 'idle', { timeout: 30_000 })
   } finally {
     await fake.close()
   }

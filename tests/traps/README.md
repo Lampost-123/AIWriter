@@ -59,12 +59,20 @@ more calls are sent and the run stops cleanly: scoring writes its report so far,
 progress for `--resume`. A chain run of main needs `--max-tokens-in 4000000` (it used 2.5 to 2.9 million in rounds 7
 and 8).
 
+**The provider guard** (`guard.ts`, real runs only): a reply of HTTP 402 or one naming an insufficient balance, or 401
+(the key refused), stops the run the budget's way at once, with a line starting "PROVIDER STOP"; HTTP 429 is waited
+out a few times (Retry-After when given) before the app's own retries see it, and stops the run once it lasts through
+three rounds of that.
+
 **The saved world.** Much of a run's cost is the memory reading the story before the first probe; that depends only on
 the app code being scored and the story, not on the probes. So each run saves the world as it stands just before the
 first probe (`world-before-chain.db` for chains, `world-before-s24.db` for probes v2 and v3, with a `.json` saying what
 it was made from) beside its report, and `--from-world <report folder>` starts a later run there. It is used only for
-the same app code (git's id for the checkout's `src` folder, with no uncommitted changes there), the same story file
-and the same models; anything else is refused. A copy is opened; the saved file is never changed. `--no-save-world`
+the same story file, the same models and, for chains, the same world-building code (`worldCode.mjs`: the git ids of
+the memory keeper, where things stand, the memory's model, the database and the few files they write through, with no
+uncommitted changes there; or the very same `src` folder), so a commit to the writer's prompts keeps the world; probes
+v2 and v3 still need the same `src` folder. The story's id is its file's hash with line endings made LF, so a checkout
+with core.autocrlf gives the same id (worlds saved with the old id still match). Anything else is refused. A copy is opened; the saved file is never changed. `--no-save-world`
 skips saving it.
 
 **Recall by meaning (step 5)** needs the search model's files (bge-small-en-v1.5, as the app downloads them). The
@@ -72,7 +80,8 @@ harness never downloads them: it copies them from `--search-model <folder>` (def
 committed). Without them the run uses keyword search, sticky entries and what was said only, and the report says so.
 
 Other flags: `--probes-version 4|3` (4, chains, is the default), `--story v2` or `--story-file <file>`, `--samples N`
-(default 3), `--probes G1,C1` (probes v3), `--words N`, `--add-words N`, `--beat-scene-words N`, `--price-in X
+(default 3), `--probes G1,C1` (probes v3), `--chain K1|K2|K3|both|all` or a list (`--chain K1,K3`; the chains to
+run, K1 alone by default; "both" is K1 and K2; instead of `--probes`), `--words N`, `--add-words N`, `--beat-scene-words N`, `--price-in X
 --price-cached Y --price-out Z` (USD per million tokens for the estimated cost; default DeepSeek's prices, 0.28, 0.028
 for input read from its cache, and 0.42), `--keep` (keep the throwaway world, with "What the AI saw" for every call),
 `--base-url <url>` (only to check the harness against a local fake server). The comment at the top of
@@ -120,6 +129,57 @@ v3, which is why the chains were built. Their scores don't compare with chains.
 Story version 2 (`--story v2`, nine short hand-written scenes) is kept for checking the harness; every fact fitted in
 what the writer is shown, so it can't tell versions apart.
 
+## The prose check
+
+How the AI writes, not only what it keeps true (Adam, 2026-10-08, after an audit of 122 real writer calls from rounds 7
+and 8). Every passage of every probe version is measured with no extra model call (`prose.ts`), from the passage,
+the scene before it, the earlier steps of its chain and the writer's own saved prompt:
+
+- **Length**: words against the words asked (Add below, Generate, a beat; Continue sets its own), and how many ran over
+  1.5 times: Add below invents action to fill its length.
+- **Recap**: the share of the passage's 4-word runs already in the scene; and whether its first sentence echoes the
+  last paragraph before it.
+- **Echoes from earlier steps**: 6-word runs the chain's earlier AI steps already used (the writer repeating itself,
+  or starting the scene again).
+- **Sample lines copied**: the sample lines of dialogue the writer was sent (read from its saved prompt) that the
+  passage copies word for word ("That's the way of it.").
+- **Stock tics** ("the rain went on", "neither of them said", "unhurried"...), **closing the scene off** at the end
+  (sleep, silence, a summing-up line), and **"and" per 100 words**.
+- **A card beat done again**: each chain scene beat has a pattern for how it shows (K1: reaching the inn, which the
+  opening already did; plans for what comes next, said aloud, two or more); a step that shows a beat the scene had
+  already shown does it again.
+- **The judge's marks**, 1 to 5 with what 1, 3 and 5 look like: distinct voices, subtext, sticking to the direction
+  (no invented events), ending mid-motion. They are asked in the judge's usual call for a passage, never in a call of
+  their own, so a chain step with no judge question (the early steps) is not marked.
+
+The report has a Prose section (medians, counts and the worst examples) and `--compare` puts two runs' side by side.
+`--rescore` measures a saved run's passages and prompts with no cost (the judge's marks only where a run saved them),
+so older runs give the baseline. From rounds 7 and 8, re-scored (5 chains, 60 steps each):
+
+| | 0.6.24 | 0.6.30, step 2b | 0.6.30 as released |
+|---|---|---|---|
+| Add below over 1.5 times its length | 0 of 30 | 4 of 30 | 2 of 30 |
+| Recap (median) | 4% | 3% | 2% |
+| Opening echoes the last paragraph | 0 | 3 | 2 |
+| Steps echoing an earlier step's 6-word runs | 35 | 31 | 30 |
+| Sample lines copied | 4 | 9 ("That's the way of it." 8) | 5 ("That's the way of it." 5) |
+| Steps with a stock tic | 16 | 32 ("the rain went on" 14) | 26 ("the rain went on" 13) |
+| Closes the scene off | 7 | 6 | 4 |
+| "and" per 100 words (median) | 5.4 | 6.6 | 6.8 |
+| Does a card beat again | 31 (28 reach the inn again) | 7 | 8 |
+
+**Held out** (2026-10-08): measures nothing in the writer aims at, so a change can't be tuned to them: "not X, but Y"
+contrasts per 1,000 words (slop-score's patterns, `slopScore.ts`, MIT, Sam Paech), one-line fragment paragraphs (5
+words or fewer, no speech), 5-word runs from earlier steps, a paragraph already on the page and the scene saying
+something twice, a line of dialogue included (`echo.ts`, from Poor Mans Holodeck). Older reports lack them; a re-score
+adds them.
+
+A chain step is measured, and the judge's marks asked, on its words as they went onto the page, after check and repair
+(since 2026-10-08; before, on the words as written).
+
+Limits: the metrics count words, not meaning, and the lists (tics, closing words, beat patterns) know only what the
+audit found; the judge's marks are one model's opinion, from a passage's own words only.
+
 ## Cost per run (from the real reports)
 
 DeepSeek reports tokens, not cost; the report estimates it at DeepSeek's prices ($0.28 per million tokens in, $0.028
@@ -152,8 +212,16 @@ step, step 4's plan for every Add below. A run from a saved world leaves out mos
 - **Few samples**: five chains of twelve steps. A difference of one or two broken checks is noise.
 - **Approximations**: the memory reads straight after each step (in the app, after 30 seconds of quiet); every Continue
   is accepted as it comes; a step whose plant didn't land is drafted again before it reaches the page.
-- **`--rescore` can't ask the judge.** A slip that the live judge cleared ("did Ash come back first?") is listed as
-  "would need the judge" and counted as broken in the re-score.
+- **`--rescore` can't ask the judge.** A slip that the live judge cleared ("did Ash come back first?") stays cleared
+  when the judge's words for the change are in the passage before the slip found now; a slip the live judge was asked
+  about word for word stays broken; any other slip a pattern finds where the judge would be asked is listed as "would
+  need the judge" and counted as broken in the re-score.
+- **The judge is asked over the scene since the plant** (`endedAsk`, `confirmSlips`; since round E, 2026-10-08): the
+  steps from the plant's own, as they went onto the page, then the step checked, so a change shown in an earlier step
+  in words no pattern knows (Ash back at step 6, the slip at step 7) is seen. A yes counts when its words are there,
+  after the planting and before the slip, and the plant ends at the step they are in. Runs before this asked about the
+  step alone, and a re-score only reuses their answers: their slips after such a change stay broken unless a pattern
+  knows the wording. The patterns are still taught each wording found.
 - **The names are fixed.** Who "he" and "she" can stand for is a list of the chain scene's people (`chain.ts`).
 
 Use the same models and the same story file for every run you compare.
@@ -227,6 +295,49 @@ a scene and across scenes. A chain does what he does (`chain.ts`):
   whose words show that change is kept. Getting up must be Wren's ("Ash got up" doesn't count).
 - **The report**: consistency over every later-step check, by plant and by step, "chains slipped by step N" (when drift
   starts), what drifted with the words, check and repair's fixes and questions, and the evidence.
+- **Chain K2** ("Fog on the coast road", `--probes K2`; K1 alone runs unless named, so scores stay comparable): the
+  open road in sea fog the next morning, with a carter met on the way. Plants: the fog (far views or sunshine before
+  it lifts), leading the horses on foot (riding before getting back on), the LEFT ankle twisted (the right one hurt;
+  and, by the judge, running or striding with no limp), the sealed claim handed to Wren (Ash with it again), and Ash
+  telling only Wren he won't go back to Linmouth (the carter knowing it, by the judge).
+
+## Chain K3: plot threads
+
+K1 and K2 test facts that hold; K3 (`--chain K3`, or `--chain all` for all three) tests threads set up early, left open, and
+paid off only when a direction asks. "The ferry-house at Gull Sound", after the same story (`story-v3.json` unchanged,
+so saved worlds fit), all invented:
+
+| Step | Kind | Direction (Add below) | Thread |
+|---:|---|---|---|
+| 1 | Add below | A carrier's boy brings a letter from Bryn, sealed, not to be opened until Wren is across the water; she puts it away unopened | letter planted (never paid off) |
+| 3 | Add below | The ferryman Jory Pask: Ash owes him three shillings, to be collected before the tide turns | debt planted |
+| 5 | Add below | A stranger in a grey hood asks Wren if she is the surveyor's girl from Linmouth; Wren doesn't answer | question planted (never paid off) |
+| 7 | Add below | The stranger's ink-stained fingers, her eyes on Wren's jacket | question: a clue, not an answer |
+| 9 | Add below | Ash asks what Bryn has written in the letter | bait for the letter |
+| 11 | Add below | The tide turns; Ash pays Jory the three shillings | debt paid off |
+| even | Continue | none | |
+
+The checks (each a judge question with a narration-only tripwire, one check a plant, as K1's; `K3_PLANTS`):
+
+- **(a) premature** (`debt-early`): the debt paid, settled or let off before step 11, at any step. Broken.
+- **(b) payoff** (`debt-paid`, step 11 only): the payment on the page. A pattern finding it in the narration keeps it
+  whatever the judge said; else the judge's yes needs its words in the passage (else unverified), its no is broken.
+- **(c) alive** (`letter-alive`, `debt-alive`, `question-alive`, Continue steps only): an open thread said to be resolved
+  without it being shown (the debt "settled long ago", the letter "already read" or lost), or changed (another sum or
+  time). The payment shown first in the passage is (a)'s, not this.
+- **(d) invented** (`letter-open`, `question-open`, every step): a thread no direction pays off resolved anyway (the
+  seal broken, the letter read, Wren answering the stranger or the stranger naming herself).
+
+A thread broken by (a) or (d), or paid at (b), ends there (all its checks; the report's "Ended on the page"). Each step
+also notes (`threads` in report.json) the threads open, those dormant (open and not named by the step's direction), those
+of the dormant the words touch anyway (a soft count, never a slip), and what the writer's prompt carried: the heading of
+a threads block ("Open threads", "Plot threads in this scene", ...) and which threads it names; null when no prompt was
+saved. Main sends "Plot threads in this scene" only for threads on the scene card, and K3's card has none, so main's
+prompts show no block. The report's "Plot threads (K3)" section tallies the four checks, the touches and the blocks.
+
+Limits: a payoff inside the step that plants the thread (Jory asks and Ash pays at once, step 3) isn't checked (checks
+start at the step after a plant, as K1's); "dormant" and "touched" go by words (`ChainThread.mention`), not meaning; the
+threads block is found by its heading only.
 
 ## Check and repair (step 3)
 
@@ -295,4 +406,4 @@ passage.
 Version 2 lives in `story.ts` (bump `STORY_VERSION`). Version 3's outline, probes and checks live in `story3.ts` (bump
 `OUTLINE_VERSION`: a story written from another outline won't load, so write it again). The chain and its checks live
 in `chain.ts`. The checks' own tests are in `tests/unit/traps.test.ts`, `tests/unit/traps3.test.ts` and
-`tests/unit/trapsChain.test.ts`; add the exact lines a real run got wrong when you change a check.
+`tests/unit/trapsChain.test.ts` (K3's threads: `tests/unit/trapsThreads.test.ts`); add the exact lines a real run got wrong when you change a check.

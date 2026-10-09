@@ -3,8 +3,9 @@
 // over a better-sqlite3 handle, no Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Proposal } from '@shared/contracts/ask'
-import type { ID } from '@shared/types'
+import type { AskChoice, OptionMark, Proposal, SavedNote } from '@shared/contracts/ask'
+import type { AgentStep, ID } from '@shared/types'
+import { activityOf, type ToolActivity } from '@shared/toolActivity'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -54,7 +55,15 @@ export interface TurnRow {
   createdAt: string
   /** The editor chat's steps (their labels) and proposals, as kept in the record's params. */
   steps: string[]
+  /** The same steps as tool calls with how each went (an older record's worked out from its four fields). */
+  tools: ToolActivity[]
   proposals: Proposal[]
+  /** The question with options the answer ended with (ask_user), if it did. */
+  choice: AskChoice | null
+  /** The note saved from this answer (so it shows "Saved" after a restart too); null when none is. */
+  savedNote: SavedNote | null
+  /** What Adam made of the answer's option cards, by card number (chat Phase 4); empty when nothing. */
+  options: Record<string, OptionMark>
 }
 
 const jsonList = <T>(v: unknown): T[] => {
@@ -64,6 +73,16 @@ const jsonList = <T>(v: unknown): T[] => {
     return Array.isArray(parsed) ? (parsed as T[]) : []
   } catch {
     return []
+  }
+}
+
+const jsonObject = <T>(v: unknown): T | null => {
+  if (typeof v !== 'string' || !v) return null
+  try {
+    const parsed = JSON.parse(v) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as T) : null
+  } catch {
+    return null
   }
 }
 
@@ -79,13 +98,22 @@ const toTurn = (r: Row): TurnRow => ({
   cutOff: r.cut_off === 1 || r.cut_off === true,
   createdAt: r.created_at as string,
   steps: jsonList<{ label?: string }>(r.steps).map((s) => s.label ?? '').filter(Boolean),
-  proposals: jsonList<Proposal>(r.proposals)
+  tools: jsonList<AgentStep>(r.steps)
+    .filter((s) => s && typeof s === 'object')
+    .map(activityOf),
+  proposals: jsonList<Proposal>(r.proposals),
+  choice: jsonObject<AskChoice>(r.choice),
+  savedNote: jsonObject<SavedNote>(r.saved_note),
+  options: jsonObject<Record<string, OptionMark>>(r.options) ?? {}
 })
 
 const TURN_COLUMNS = `id, ${CHAT_ID} AS chat_id, status, error, direction, response, cost, prompt_tokens, created_at,
   CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cutOff') END AS cut_off,
   CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.steps') END AS steps,
-  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.proposals') END AS proposals`
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.proposals') END AS proposals,
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.choice') END AS choice,
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.savedNote') END AS saved_note,
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.options') END AS options`
 
 /** A chat's turns, oldest first. */
 export function chatTurnRows(db: DB, chatId: ID): TurnRow[] {
@@ -107,6 +135,49 @@ export function saveProposals(db: DB, generationId: ID, proposals: Proposal[]): 
     JSON.stringify(proposals),
     generationId
   )
+}
+
+/**
+ * Keeps (or, with null, forgets) the note saved from a turn's answer with its record, so the answer still shows
+ * "Saved" after a restart and the same note isn't saved twice. A record that isn't a chat turn is left alone.
+ */
+export function setSavedNote(db: DB, generationId: ID, note: SavedNote | null): void {
+  if (note) {
+    db.prepare(
+      "UPDATE generations SET params_json = json_set(params_json, '$.savedNote', json(?)) WHERE id = ? AND job = 'chat' AND json_valid(params_json)"
+    ).run(JSON.stringify(note), generationId)
+  } else {
+    db.prepare("UPDATE generations SET params_json = json_remove(params_json, '$.savedNote') WHERE id = ? AND job = 'chat' AND json_valid(params_json)").run(
+      generationId
+    )
+  }
+}
+
+/**
+ * Keeps what Adam made of one option card in a turn's answer (chat Phase 4), by the card's number; null (or a mark
+ * with nothing in it) forgets it. A record that isn't a chat turn is left alone.
+ */
+export function setOptionMark(db: DB, generationId: ID, card: number, mark: OptionMark | null): void {
+  const all = optionMarksOf(db, generationId)
+  const kept: OptionMark = {
+    ...(mark?.kept ? { kept: true } : {}),
+    ...(mark?.usedAsBeat && mark.usedAsBeat > 0 ? { usedAsBeat: Math.floor(mark.usedAsBeat) } : {}),
+    ...(mark?.aside ? { aside: true } : {})
+  }
+  if (Object.keys(kept).length) all[String(card)] = kept
+  else delete all[String(card)]
+  db.prepare("UPDATE generations SET params_json = json_set(params_json, '$.options', json(?)) WHERE id = ? AND job = 'chat' AND json_valid(params_json)").run(
+    JSON.stringify(all),
+    generationId
+  )
+}
+
+/** A turn's option card marks as kept (chat Phase 4); empty when there are none. */
+export function optionMarksOf(db: DB, generationId: ID): Record<string, OptionMark> {
+  const r = db
+    .prepare("SELECT CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.options') END AS options FROM generations WHERE id = ?")
+    .get(generationId) as Row | undefined
+  return jsonObject<Record<string, OptionMark>>(r?.options) ?? {}
 }
 
 /** The editor chat: a turn's proposals as kept. */
