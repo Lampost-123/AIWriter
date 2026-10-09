@@ -18,13 +18,13 @@ import { useDesk } from '@/features/look/look'
 import { rewriteThis, showNote } from './actions'
 import {
   CATEGORY_WORDS,
-  SHORTENED_WORDS,
   WEIGHT_WORDS,
   askWords,
   changedWords,
   critiqueHeadline,
   quoted,
-  readingWords
+  readingWords,
+  shortenedWords
 } from './critiqueLogic'
 import { noteShown, setScope, startCritique, stopCritique, targetKey, useCritique, useCritiqueStore } from './critiqueStore'
 import '@/features/consistency/check.css'
@@ -186,7 +186,7 @@ function Report({ critique }: { critique: Critique }): React.JSX.Element {
       <div className="crit-overall rounded-lg border border-line bg-surface px-3 py-2.5">
         <h3 className="text-[11.5px] font-medium uppercase tracking-[0.04em] text-faint">Overall</h3>
         <p className="mt-1 text-[13px] leading-[19px] text-fg">{critique.summary || 'The critic gave no summary.'}</p>
-        {critique.shortened ? <p className="mt-1.5 text-[12px] leading-[17px] text-muted">{SHORTENED_WORDS}</p> : null}
+        {critique.shortened ? <p className="mt-1.5 text-[12px] leading-[17px] text-muted">{shortenedWords(critique.scope)}</p> : null}
         {critique.strengths.length ? (
           <>
             <h3 className="mt-2.5 text-[11.5px] font-medium uppercase tracking-[0.04em] text-faint">What works</h3>

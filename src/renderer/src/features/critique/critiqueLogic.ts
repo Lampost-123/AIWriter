@@ -41,9 +41,11 @@ export const askWords = (scope: CritiqueScope, again: boolean): string =>
 /** What the line says while the critic reads. */
 export const readingWords = (scope: CritiqueScope): string => (scope === 'scene' ? 'Reading the scene…' : 'Reading the chapter…')
 
-/** Said under a chapter's critique when its scenes were sent shortened. */
-export const SHORTENED_WORDS =
-  'This chapter was too long for the writer model to read whole, so it read each long scene’s opening and ending, with its summary.'
+/** Said under a critique whose words were sent shortened, to fit the writer model. */
+export const shortenedWords = (scope: CritiqueScope): string =>
+  scope === 'scene'
+    ? 'This scene was too long for the writer model to read whole, so it read its opening and ending.'
+    : 'This chapter was too long for the writer model to read whole, so it read each long scene’s opening and ending, with its summary.'
 
 /**
  * The direction Rewrite is given for a note: what the critic said and what to do, so the rewrite acts on it, while

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { CRITIQUE_CATEGORIES } from '@shared/contracts/critique'
-import { CATEGORY_WORDS, askWords, changedWords, critiqueHeadline, quoted, readingWords, rewriteDirection } from './critiqueLogic'
+import {
+  CATEGORY_WORDS,
+  askWords,
+  changedWords,
+  critiqueHeadline,
+  quoted,
+  readingWords,
+  rewriteDirection,
+  shortenedWords
+} from './critiqueLogic'
 
 describe('the Critique tab’s words', () => {
   const at = '2026-10-09T10:00:00.000Z'
@@ -19,6 +28,8 @@ describe('the Critique tab’s words', () => {
     expect(changedWords('scene')).toBe('The scene changed since this critique.')
     expect(changedWords('chapter')).toBe('The chapter changed since this critique.')
     expect(readingWords('chapter')).toBe('Reading the chapter…')
+    expect(shortenedWords('scene')).toMatch(/^This scene was too long/)
+    expect(shortenedWords('chapter')).toMatch(/^This chapter was too long/)
   })
 
   it('has words for every category', () => {
