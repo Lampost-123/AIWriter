@@ -431,8 +431,8 @@ export function TopBar(): React.JSX.Element {
         </button>
       ) : null}
       <SaveIndicator />
-      {/* Ask the world's chat, always one click away in every look (the New look's area rail has it too). */}
-      {hasWorld ? <AskButton /> : null}
+      {/* The New look has Ask the world and Settings on the area rail. */}
+      {hasWorld && !isNew ? <AskButton /> : null}
       {/* In the smallest windows the bar has no room for it (F11 and the palette still reach focus mode). */}
       {hasWorld ? (
         <span className="hidden min-[1000px]:flex">

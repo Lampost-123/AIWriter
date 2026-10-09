@@ -9,6 +9,7 @@ import { IconButton } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
+import { AskButton } from '@/features/ask/AskButton'
 import { StorySwitcher } from '@/features/binder/StorySwitcher'
 import { FocusButton } from '@/features/look/FocusLayer'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
@@ -82,13 +83,15 @@ export function DeskTopBar(): React.JSX.Element {
         <KeeperStatus quiet />
         <div className={cn('flex min-w-0 shrink justify-end', 'w-[240px] max-[1600px]:w-[150px] max-[1180px]:w-[104px]',
             // With Scene details beside it (the writing page), it narrows sooner, so the bar still fits.
-            'group-has-[[data-drawer-toggle]]/bar:max-[1599px]:w-[104px]',
+            'group-has-[[data-drawer-toggle]]/bar:max-[1599px]:w-[64px]',
             'group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:w-9')}>
           <CommandBar />
         </div>
         {/* The scene drawer, shown and hidden from here (on the writing page). */}
         <DrawerToggle />
         <StatusIsland />
+        {/* Ask the world's chat, always one click away. */}
+        <AskButton />
         <FocusButton />
         <IconButton
           label="Settings"
