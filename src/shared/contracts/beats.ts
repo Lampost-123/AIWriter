@@ -82,9 +82,12 @@ export interface SceneBeatMarks {
   beats: BeatMark[]
   /**
    * The session was still on when these were last kept: it didn't Finish (the app closed, another world or another
-   * scene's session came first...), so opening the scene again carries it on (features/beats/flow.ts, resume).
+   * scene's session came first...), so opening the scene again carries it on (features/beats/flow.ts, resume). An open
+   * session is kept from the moment it starts, before any beat has put words on the page (its `beats` empty then).
    */
   open?: boolean
+  /** How "This scene already has text" was answered for the first beat (none: the page was empty), so carrying on goes there too. */
+  start?: 'replace' | 'add'
 }
 
 export interface BeatsApi {

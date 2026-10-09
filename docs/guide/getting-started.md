@@ -42,7 +42,8 @@ AI Write doesn't include an AI of its own. You connect one, and pay that service
 1. Sign up at [platform.deepseek.com](https://platform.deepseek.com) and add a little credit. A few dollars goes a
    long way.
 2. Create an API key and copy it.
-3. Back in AI Write, click **Use another provider**, pick **DeepSeek**, paste the key and add it.
+3. Back in AI Write, click **DeepSeek** (under "Or use another service, or models running on this computer"),
+   paste the key and click **Add provider**.
 
 **Or OpenRouter**, where one key reaches DeepSeek and hundreds of other models:
 
@@ -50,7 +51,9 @@ AI Write doesn't include an AI of its own. You connect one, and pay that service
 2. Under **Keys**, create a key and copy it.
 3. Back in AI Write, paste the key under **API key** and click **Connect**. AI Write tests it straight away.
 
-**Use another provider** also works for OpenAI, a model on your own PC, or any other service. See
+<p align="center"><img src="../images/setup.png" alt="The setup's Connect step: OpenRouter, or another service such as DeepSeek" width="800"></p>
+
+The same row has OpenAI, Mistral, Groq, LM Studio and Ollama, and **Use another provider** works for any other service. See
 [AI services and models](ai-providers.md) for the details. You can also click **Skip for now** and connect later
 in **Settings › Models**.
 
@@ -76,31 +79,44 @@ writing preferences for every world. Each world and story can change them later 
 
 ## Find your way around
 
-<p align="center"><img src="../images/hero.png" alt="The AI Write window with the binder, the page and the scene panel" width="800"></p>
+<p align="center"><img src="../images/hero.png" alt="The desk: the story's spine, the page and the AI dock" width="800"></p>
 
-- **Down the left edge** are four areas: **Write** (your chapters and scenes, the style guide and the story's
-  settings), **Plan** (the outline, ideas and plot threads), **World** (everything in your world, the relationship
-  map and the timeline) and **Check** (consistency, what the memory changed, and the issues in a scene).
-  **Ask** (the chat beside the page) and **Settings** sit at the foot. If you've switched to the **Classic** look,
-  the same places are listed in the binder instead, under its **World** section.
-- **The binder** lists your chapters and scenes. Click a scene to open it.
-- **The page** in the middle is where you write.
-- **The scene panel** on the right has tabs: **Scene card**, **Context**, **Cast**, **Issues** and **Drafts**.
+AI Write opens on **the desk**:
+
+- **The rooms**, in the middle of the top bar: **Write** (the page, the style guide and the story's settings),
+  **Plan** (the story board, the outline helper, plot threads and recipes), **World** (everything in your world,
+  the relationship map and the timeline) and **Check** (consistency, what the memory changed, and this scene's
+  issues). Each room has a row of links at its top right.
+- **The story's spine** on the left lists your chapters and scenes (the binder). Click a scene to open it. The arrow
+  at its top folds it to a slim spine; click the spine to see every scene again.
+- **The page** in the middle is where you write. Under the title, **Scene details** opens the scene panel.
+- **The AI dock** at the foot of the page: **Continue**, **Add below**, and **More** for every other way to write,
+  the scene's tools and **Ask the world**.
+- **The scene panel** comes in from the right (**Scene details** in the top bar, or under the title). It has tabs:
+  **Scene card**, **Context**, **Cast**, **Issues** and **Drafts**.
+- **The top bar** also has the world and story names, **Search**, **Saved** with the scene's word count,
+  **Focus mode** and **Settings**. The arrow beside the story's name is the story menu: other stories,
+  **Story settings**, **Export story…** and more. The lamp at the top left, or the story's name, opens the
+  **story home**: the book, its chapters, open threads, the cast and this week's writing.
 - **Search** with Ctrl+K finds anything: a scene, a character, or an action like "Export story". If you
   forget where something is, this is the quickest way to it.
 - Press **?** (when you're not typing) to see every keyboard shortcut.
+
+If you'd rather have the areas down the left and the scene panel always beside the page, choose **Panels** in
+**Settings › Appearance › Layout**. In the **Classic** look, the same places are listed in the binder instead.
 
 ## Write your first scene
 
 The loop is: card, draft, edit, done.
 
-1. **Fill in the scene card** on the right. Choose the **Point of view** character, add **Characters present**,
+1. **Fill in the scene card**: click **Scene details** under the scene's title. Choose the **Point of view** character, add **Characters present**,
    pick a **Location**, and write a few **Beats** saying what should happen. In Gullhaven, the first scene,
    "Lighting the Lamp", has Wren climbing the hundred and twelve steps to the lamp room at dusk.
-2. **Press Generate** (Ctrl+G). The AI drafts the scene from its card and your world. Read along as it writes.
-   Press Esc to stop it; the text so far is kept.
+2. **Click Draft the scene** in the AI dock (or press Ctrl+G). The AI drafts the scene from its card and your world.
+   Read along as it writes. Click **Stop** or press Esc to stop it; the text so far is kept. Once the scene has words,
+   the dock's button says **Continue** (Ctrl+Shift+Enter) and writes on from the end.
 3. **Make it yours.** Change anything you like. AI Write saves as you type, and the memory keeps up.
-4. **Mark it done** with the **Mark done** button (Ctrl+Enter) when you're happy with it. AI Write reads the scene,
+4. **Mark it done** (Ctrl+Enter, or **More** › **Mark done** in the dock) when you're happy with it. AI Write reads the scene,
    updates the memory, and checks it against the rest of your story.
 
 > **Tip:** you don't have to fill in every box on the scene card. A point of view, a place and one or two beats

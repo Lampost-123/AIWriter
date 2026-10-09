@@ -199,14 +199,18 @@ export interface ResumePoint {
 }
 
 /**
- * Where the scene's kept beat by beat session can carry on from: null unless at least one of its beats is on the
- * page and fewer than the `of` beats on the scene card are (so there is a next beat to write).
+ * Where the scene's kept beat by beat session can carry on from. A session that is still on (open: it didn't Finish)
+ * can wherever it got to, while its beats are on the page: with every beat written too, or before its first beat put
+ * any words there. A finished one only while at least one of its beats is on the page and fewer than the `of` beats on
+ * the scene card are (so there is a next beat to write). Null with no beats on the card, or when the session's words
+ * have all gone from the page (new text in their place).
  */
 export function resumePoint(doc: PMNode, marks: SceneBeatMarks | null, of: number): ResumePoint | null {
-  if (!marks?.beats.length || of < 1) return null
+  if (!marks || of < 1) return null
   const paragraphs = paragraphsOf(marks)
   const written = beatsOnPage(doc, paragraphs)
-  if (written < 1 || written >= of) return null
+  const landed = marks.beats.some((b) => b.pids.length > 0)
+  if (marks.open ? written < 1 && landed : written < 1 || written >= of) return null
   const owners: Record<string, ID> = {}
   let last: ID | null = null
   for (const b of marks.beats) {

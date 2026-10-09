@@ -1,6 +1,6 @@
 // The Beat by beat session (milestone 4): one at a time, on one scene. It lasts until Adam finishes it,
 // starts a new draft of the scene (Generate) or switches worlds. Not saved itself, but where its beats are is
-// (marks.ts, with `open` until Finish), so after a restart or another scene's session it carries on (flow.ts, resume). Opening another scene pauses it (a beat
+// (marks.ts, with `open` from its start until Finish), so after a restart or another scene's session it carries on (flow.ts, resume). Opening another scene pauses it (a beat
 // being written stops there, as Generate's drafts do) and coming back carries on where it was; so does
 // going to another page. flow.ts changes it; the bar and the toolbar button show it.
 import { create } from 'zustand'

@@ -54,6 +54,16 @@ describe('beat marks kept with the scene', () => {
     expect(getBeatMarks(db, 's1')).toBeNull()
   })
 
+  it('keeps a session still on with no beats yet, and where its first beat goes', () => {
+    const db = world()
+    saveBeatMarks(db, 's1', { ...MARKS, beats: [], open: true, start: 'add' })
+    expect(getBeatMarks(db, 's1')).toEqual({ ...MARKS, beats: [], open: true, start: 'add' })
+    expect(cleanMarks('s1', { ...MARKS, start: 'somewhere' })).toEqual(MARKS)
+    // Finished before any beat put words on the page: nothing is left to keep.
+    saveBeatMarks(db, 's1', { ...MARKS, beats: [], open: false, start: 'add' })
+    expect(getBeatMarks(db, 's1')).toBeNull()
+  })
+
   it('tidies what is sent: no bad beats, ids or versions, no repeats, in order, kept to a sensible size', () => {
     expect(cleanMarks('s1', null)).toBeNull()
     expect(cleanMarks('s1', { beats: MARKS.beats })).toBeNull()

@@ -1,8 +1,9 @@
-<!-- version: 0.6.44 -->
-What's new in 0.6.44:
+<!-- version: 0.6.45 -->
+What's new in 0.6.45:
 
-- First-time setup now offers read aloud's one-time voice download, or Later.
-- With studio voices, characters get one that fits their sex and age, unless you chose their voice.
-- Read aloud skips “she said” after a line read in the character's own voice.
-- Continue and the AI tools keep writing when you open another scene. Go back to see the words so far, still coming in.
-- Read aloud keeps reading when you open another scene. The highlight comes back when you return, and the bar takes you there.
+- Setup offers the read-aloud download. Characters get studio voices by sex and age.
+- Read aloud skips “she said” after voiced lines.
+- Continue and the AI tools keep writing when you open another scene. Go back to see the words so far.
+- Read aloud keeps reading when you open another scene. The highlight comes back when you return.
+- Beat by beat's box no longer goes missing. An unfinished session comes back as it was, even after a restart.
+- A beat cut short when the app closed says it stopped part-way, so you can write it again or carry on.
