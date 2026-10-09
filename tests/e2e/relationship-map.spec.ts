@@ -282,12 +282,26 @@ test('Reset layout puts dragged characters back, and Undo moves them again', asy
   const { win } = await sampleMap(launch)
   const reset = win.getByRole('button', { name: 'Reset layout' })
   await expect(reset).toBeDisabled()
-  const ansel = node(win, 'Ansel Crane')
-  const b = (await ansel.boundingBox())!
+  // The character in the middle (left to right), dragged towards the middle: the map's edges stay where they were. (The
+  // sample world's ids are new each run and its layout is seeded from them, so who is at an edge changes from run to
+  // run; moving someone at an edge stretches the map afresh when it is read again after Undo, and everyone is drawn
+  // tens of pixels from where they were.)
+  const all = canvas(win).locator('[data-map-node]')
+  const xs = await all.evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect()
+      return r.x + r.width / 2
+    })
+  )
+  const mid = [...xs].sort((p, q) => p - q)[Math.floor(xs.length / 2)]
+  const who = all.nth(xs.indexOf(mid))
+  const b = (await who.boundingBox())!
   const [cx, cy] = [b.x + b.width / 2, b.y + b.height / 2]
+  const c = (await canvas(win).boundingBox())!
+  const step = cx > c.x + c.width / 2 ? -12 : 12
   await win.mouse.move(cx, cy)
   await win.mouse.down()
-  for (let i = 1; i <= 8; i++) await win.mouse.move(cx - i * 12, cy)
+  for (let i = 1; i <= 8; i++) await win.mouse.move(cx + i * step, cy)
   await win.mouse.up()
   await expect(reset).toBeEnabled()
   // Where the drag left it, once its last frame has landed (on a slow machine the last moves are drawn a few frames
@@ -296,16 +310,16 @@ test('Reset layout puts dragged characters back, and Undo moves them again', asy
   await expect
     .poll(async () => {
       const was = dragged
-      dragged = (await ansel.boundingBox())!.x
+      dragged = (await who.boundingBox())!.x
       return Math.abs(dragged - was)
     })
     .toBeLessThan(0.5)
   await reset.click()
-  await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - b.x)).toBeLessThan(2)
+  await expect.poll(async () => Math.abs((await who.boundingBox())!.x - b.x)).toBeLessThan(2)
   await expect(reset).toBeDisabled()
   await win.getByRole('button', { name: 'Undo' }).click()
   // (Within a few pixels: the place is kept in the map's own units and drawn back at the map's scale.)
-  await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - dragged)).toBeLessThan(3)
+  await expect.poll(async () => Math.abs((await who.boundingBox())!.x - dragged)).toBeLessThan(3)
   await expect(reset).toBeEnabled()
 })
 
