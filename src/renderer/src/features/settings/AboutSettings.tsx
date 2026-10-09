@@ -9,6 +9,7 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { useNewLook } from '@/features/look/look'
 import { notesFor } from './releaseNotes'
+import { PhoneLinkSettings } from './PhoneLink'
 // The notes this build was made with (the release page's words).
 import releaseNotes from '../../../../../build/release-notes.md?raw'
 
@@ -50,6 +51,7 @@ export function AboutSettings(): React.JSX.Element {
       </Card>
 
       <Updates />
+      <PhoneLinkSettings />
       <LibraryFolder info={info} onChanged={setInfo} />
     </div>
   )
@@ -101,6 +103,7 @@ function NewAbout({ info, onChanged }: { info: AppInfo | null; onChanged: (i: Ap
           </ul>
         </SettingsSection>
       ) : null}
+      <PhoneLinkSettings />
       <LibraryFolder info={info} onChanged={onChanged} />
     </div>
   )

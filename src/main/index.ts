@@ -20,6 +20,7 @@ import { purgeOldDeletedWorlds } from './library'
 import { initSpelling } from './spelling'
 import { closeRetrieval, initRetrieval } from './retrieval'
 import { contextMenuFor } from './spelling/menu'
+import { initPhone, stopPhone } from './phone/runtime'
 
 if (process.env.AIWRITE_DATA_DIR) app.setPath('userData', join(process.env.AIWRITE_DATA_DIR, 'app'))
 // App tests of dictation: Chromium's own pretend microphone (a beep), with no permission prompt.
@@ -209,6 +210,11 @@ function flushThenQuit(): void {
       console.error('Could not stop the speech server', e)
     }
     try {
+      void stopPhone()
+    } catch (e) {
+      console.error('Could not stop the phone link', e)
+    }
+    try {
       closeRetrieval()
     } catch (e) {
       console.error('Could not stop the search model', e)
@@ -256,6 +262,7 @@ function main(): void {
       app.setAppUserModelId('com.lampost.aiwrite')
       setAppMenu()
       registerIpc()
+      initPhone()
       servePortraits()
       initBackups()
       initAi()

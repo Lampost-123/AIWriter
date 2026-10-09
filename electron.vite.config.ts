@@ -21,7 +21,12 @@ export default defineConfig({
     },
     plugins: [react(), tailwindcss()],
     build: {
-      rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') }
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          phone: resolve(__dirname, 'src/renderer/phone.html')
+        }
+      }
     }
   }
 })

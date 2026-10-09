@@ -62,6 +62,17 @@ export const PLAY_FAILED =
  * Plays clips one at a time. `play` resolves 'ended' when the clip has played to its end, 'stopped' when it was
  * stopped first, and 'failed' when the audio couldn't be played; `onTime` reports how far through it is (0 to 1).
  */
+/** The phone's lock screen can show that a scene is being read. Some browsers only do this on a secure page. */
+function phonePlayback(state: 'playing' | 'paused' | 'none'): void {
+  if (typeof window === 'undefined' || window.aiwrite?.platform !== 'phone' || !('mediaSession' in navigator)) return
+  try {
+    navigator.mediaSession.playbackState = state
+    if (state === 'playing') navigator.mediaSession.metadata = new MediaMetadata({ title: 'Read aloud', artist: 'AI Write' })
+  } catch {
+    /* this browser has no lock-screen controls for the page */
+  }
+}
+
 export class ClipPlayer {
   private el: HTMLAudioElement | null = null
   private finish: ((end: PlayEnd) => void) | null = null
@@ -74,6 +85,7 @@ export class ClipPlayer {
     el.defaultPlaybackRate = rate
     this.el = el
     inUse = url
+    phonePlayback('playing')
     return new Promise<PlayEnd>((resolve) => {
       let done = false
       const finish = (end: PlayEnd): void => {
@@ -106,10 +118,12 @@ export class ClipPlayer {
 
   pause(): void {
     this.el?.pause()
+    phonePlayback('paused')
   }
 
   resume(): void {
     void this.el?.play().catch(() => undefined)
+    phonePlayback('playing')
   }
 
   setRate(rate: number): void {
@@ -129,5 +143,6 @@ export class ClipPlayer {
     this.finish = null
     finish?.('stopped')
     inUse = null
+    phonePlayback('none')
   }
 }

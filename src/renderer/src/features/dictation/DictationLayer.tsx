@@ -27,7 +27,13 @@ const SHORTCUT_GRACE_MS = 250
 /** After the Menu key comes up, the menu it would open is kept shut for this long. */
 const MENU_SHUT_MS = 600
 
-export function DictationLayer(): React.JSX.Element {
+export function DictationLayer(): React.JSX.Element | null {
+  // The phone is another window. Talking still happens on this computer, where the microphone and the dictation model are.
+  if (window.aiwrite.platform === 'phone') return null
+  return <DictationKeys />
+}
+
+function DictationKeys(): React.JSX.Element {
   const key = useApp((s) => s.settings?.speech?.dictationKey ?? '')
   const ready = useDictationReady()
 

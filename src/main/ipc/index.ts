@@ -45,6 +45,8 @@ import { searchModelHandlers } from './searchModel'
 import { chapterCardsHandlers } from './chapterCards'
 import { artHandlers } from './art'
 import { critiqueHandlers } from './critique'
+import { phoneHandlers } from './phone'
+import { bindPhoneCall } from '../phone/runtime'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -105,7 +107,8 @@ const all: Handlers<ApiMethod> = {
   // Chapter cards
   ...chapterCardsHandlers,
   // The scene and chapter critic
-  ...critiqueHandlers
+  ...critiqueHandlers,
+  ...phoneHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {
@@ -115,16 +118,22 @@ function plainMessage(err: unknown): { message: string; code?: string } {
   return { message: `Something went wrong: ${raw}` }
 }
 
+/** The same call the desktop window makes, for the phone. */
+export async function callApi(method: string, args: unknown[]): Promise<IpcResult<unknown>> {
+  const fn = (all as Record<string, ((...a: unknown[]) => unknown) | undefined>)[method]
+  if (!fn) return { ok: false, error: { message: 'That action is not in this version of AI Write.' } }
+  try {
+    askFirst(method)
+    return { ok: true, value: await fn(...args) }
+  } catch (err) {
+    return { ok: false, error: plainMessage(err) }
+  }
+}
+
 export function registerIpc(): void {
-  for (const [name, fn] of Object.entries(all)) {
-    ipcMain.handle(`api:${name}`, async (_e, ...args: unknown[]): Promise<IpcResult<unknown>> => {
-      try {
-        // Milestone 6: an AI action Adam starts asks first while this month's spending has reached his limit.
-        askFirst(name)
-        return { ok: true, value: await (fn as (...a: unknown[]) => unknown)(...args) }
-      } catch (err) {
-        return { ok: false, error: plainMessage(err) }
-      }
-    })
+  bindPhoneCall(callApi)
+  for (const name of Object.keys(all)) {
+    // Milestone 6: an AI action Adam starts asks first while this month's spending has reached his limit (callApi).
+    ipcMain.handle(`api:${name}`, (_e, ...args: unknown[]) => callApi(name, args))
   }
 }
