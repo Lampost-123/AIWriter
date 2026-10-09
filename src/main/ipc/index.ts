@@ -44,6 +44,7 @@ import { repairHandlers } from './repair'
 import { searchModelHandlers } from './searchModel'
 import { chapterCardsHandlers } from './chapterCards'
 import { artHandlers } from './art'
+import { critiqueHandlers } from './critique'
 import { phoneHandlers } from './phone'
 import { bindPhoneCall } from '../phone/runtime'
 
@@ -105,6 +106,8 @@ const all: Handlers<ApiMethod> = {
   ...searchModelHandlers,
   // Chapter cards
   ...chapterCardsHandlers,
+  // The scene and chapter critic
+  ...critiqueHandlers,
   ...phoneHandlers
 }
 

@@ -316,7 +316,8 @@ function soundsPlan(i: PlanInput): Step[] {
 
 /**
  * The studio voices (real voices recorded in a studio, from the EARS dataset, with their acted feelings) and the word
- * check's listener, in the voices' environment: about 3.7 GB to download, about 2 GB on disk. Always into AI Write's own
+ * check's listener, in the voices' environment: about 3.3 GB to download, about 1.1 GB on disk (measured: 740 MB of voices
+ * and the 320 MB listener). Always into AI Write's own
  * speech folder, fetched from where they are published (never copied from another app).
  */
 function studioPlan(i: PlanInput): Step[] {

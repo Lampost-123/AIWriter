@@ -384,7 +384,7 @@ test('the drawer: full height beside the page in a large window, the sheet betwe
     expect(Math.abs(side.y - spineBox.y)).toBeLessThanOrEqual(1)
     expect(Math.abs(side.height - spineBox.height)).toBeLessThanOrEqual(1)
     expect(side.width).toBeGreaterThanOrEqual(420)
-    // The five tabs on one line.
+    // The six tabs on one line.
     const tabs = await drawer(win).getByRole('tab').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))
     expect(new Set(tabs).size).toBe(1)
   }

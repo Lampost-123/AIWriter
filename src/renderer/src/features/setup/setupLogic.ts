@@ -1,8 +1,11 @@
-// The first run's logic (milestone 6): the steps in order, the writer model it recommends, and where the first
-// scene's guide is. Pure, so it is unit-tested; FirstRun.tsx and FirstSceneGuide.tsx show it.
+// The first run's logic (milestone 6): the steps in order, the writer model it recommends, what the read-aloud step
+// offers, and where the first scene's guide is. Pure, so it is unit-tested; FirstRun.tsx, ReadAloudStep.tsx and
+// FirstSceneGuide.tsx show it.
 
 import type { ModelInfo, SceneCard } from '@shared/types'
 import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
+import type { SpeechDownloadKind, SpeechStatus } from '@shared/contracts/speech'
+import { voicesChecks } from '../speech/voiceNeeds'
 
 // ---------- Steps ----------
 
@@ -12,6 +15,7 @@ export const STEP_NAMES: Record<SetupStep, string> = {
   connect: 'Connect',
   model: 'Writer model',
   style: 'Style',
+  voices: 'Read aloud',
   builder: 'Lay it out'
 }
 
@@ -79,6 +83,29 @@ export function recommendWriter(models: ModelInfo[], baseUrl?: string): { model:
     if (found.length) return { model: found[0], why: pick.why }
   }
   return null
+}
+
+// ---------- Read aloud ----------
+
+type SpeechFacts = Pick<SpeechStatus, 'installed' | 'download' | 'queued' | 'nvidia' | 'nvidiaMemoryMb' | 'nvidiaComputeCap'>
+
+const READ_ALOUD_KINDS: SpeechDownloadKind[] = ['voices', 'studio']
+
+/**
+ * What the read-aloud step offers: 'ready' when the voices and the studio voices are downloaded; 'downloading' while
+ * either is downloading, waiting or stopped (its card in the step says which); 'cant-run' when this computer's
+ * graphics card can't run the voices, with Settings' own words for why; else 'offer'. A card not known yet is offered.
+ */
+export function readAloudOffer(s: SpeechFacts): { kind: 'ready' | 'downloading' | 'offer' } | { kind: 'cant-run'; why: string } {
+  if (s.installed.voices && s.installed.studio) return { kind: 'ready' }
+  const d = s.download
+  if ((d && d.state !== 'done' && READ_ALOUD_KINDS.includes(d.kind)) || s.queued.some((k) => READ_ALOUD_KINDS.includes(k))) {
+    return { kind: 'downloading' }
+  }
+  // The card alone: the disk space is checked by the download itself.
+  const card = voicesChecks({ nvidia: s.nvidia, nvidiaMemoryMb: s.nvidiaMemoryMb, nvidiaComputeCap: s.nvidiaComputeCap })[0]
+  if (card && !card.ok && !s.installed.voices) return { kind: 'cant-run', why: card.text }
+  return { kind: 'offer' }
 }
 
 // ---------- The first scene's guide ----------

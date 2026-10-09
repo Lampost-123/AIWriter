@@ -22,7 +22,8 @@ export const JOB_GROUPS: Record<string, { key: string; label: string }> = {
   check: { key: 'check', label: 'Consistency checks' },
   story: { key: 'story', label: 'Story flows' },
   recipe: { key: 'recipe', label: 'Story recipes' },
-  sample: { key: 'sample', label: 'Style guide samples' }
+  sample: { key: 'sample', label: 'Style guide samples' },
+  critique: { key: 'critique', label: 'Scene and chapter critiques' }
 }
 
 export function jobGroup(job: string): { key: string; label: string } {

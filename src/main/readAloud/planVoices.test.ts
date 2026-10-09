@@ -15,7 +15,9 @@ const settings: PlanSettings = {
   style: '',
   castVoices: true,
   steadyNarrator: false,
-  sounds: false
+  sounds: false,
+  // Every word is read here, the tags too (speechTags.test.ts tests skipping them).
+  skipSpeechTags: false
 }
 
 const voices: StudioVoice[] = [

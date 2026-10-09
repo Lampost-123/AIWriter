@@ -375,6 +375,13 @@ function runner(steps: Step[], onUpdate: ConstructorParameters<typeof StepRunner
   })
 }
 
+const downloadedListeners: ((kind: SpeechDownloadKind) => void)[] = []
+
+/** Tells `fn` each download that finishes (the studio voices: reading aloud gives the world's characters theirs). */
+export function onSpeechDownloaded(fn: (kind: SpeechDownloadKind) => void): void {
+  downloadedListeners.push(fn)
+}
+
 async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }): Promise<void> {
   const file = manifestFile()
   const manifest = readManifest(file)
@@ -402,6 +409,13 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
   else if ((kind === 'parakeet' || kind === 'whisper') && s.dictationEngine === kind && health) void useDictation(kind)
   // The server sees new files as they arrive: ask it again now rather than at the next check.
   else void refresh()
+  for (const fn of downloadedListeners) {
+    try {
+      fn(kind)
+    } catch (e) {
+      console.warn('[speech] a download listener failed', e)
+    }
+  }
 }
 
 /**

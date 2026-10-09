@@ -532,7 +532,7 @@ export interface UsageNotice {
  */
 export interface FirstRun {
   worldId: ID | null
-  step: 'world' | 'connect' | 'model' | 'style' | 'builder' | 'guide'
+  step: 'world' | 'connect' | 'model' | 'style' | 'voices' | 'builder' | 'guide'
   sceneId: ID | null
 }
 
@@ -581,6 +581,11 @@ export interface SpeechSettings {
    * a character owns is read in their voice (a thought softly), not the narrator's. On by default.
    */
   voicedLines: boolean
+  /**
+   * "Skip ‘he said’ after a voiced line": a dialogue tag beside a quote read in its speaker's own voice ("she said",
+   * "said Mara") isn't spoken; an action it carries still is. Only what is spoken: the page keeps its words. On by default.
+   */
+  skipSpeechTags: boolean
   /** "Mark who says what": the AI also notes each line's tone and pace, a little ahead of the reading. */
   markSpeakers: boolean
   /**
@@ -830,6 +835,7 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * spending file (`Recipes/spending.db`), never in a world, and without the words sent or received.
  * The style guide's helpers add 'sample' (a sample passage written from the style guide, "Write a sample for
  * me"; sceneId '') and 'polish' (the polish pass that revises a finished Generate draft; `params.polishOf`).
+ * The critic adds 'critique': craft feedback on a scene (its sceneId) or a chapter (sceneId '').
  */
 export type GenerationJob =
   | 'draft'
@@ -848,6 +854,7 @@ export type GenerationJob =
   | 'recipe'
   | 'sample'
   | 'polish'
+  | 'critique'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'

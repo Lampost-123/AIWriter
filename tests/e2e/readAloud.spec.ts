@@ -114,7 +114,8 @@ test('Ctrl+L reads from the cursor with the narrator and Mara in her own voice; 
       name: 'Mara',
       summary: 'Runs the harbour ferry. Thirty-four, sharp-tongued.'
     })
-    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url } })
+    // Every word read, "said Mara" too (Skip ‘he said’ is off), so Say it as is heard on her name.
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, skipSpeechTags: false } })
     await useFakeModel(win, fake)
 
     // Turning read aloud on: the voices load, and the narrator says it is ready.

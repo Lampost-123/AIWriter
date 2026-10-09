@@ -105,7 +105,7 @@ def dictation() -> str:
 
 
 def idle_unload_seconds() -> int:
-    """Free an unused model after this long. Breeze holds about 8 GB of the graphics card, and a writing
+    """Free an unused model after this long. Breeze holds about 9.5 GB of the graphics card, and a writing
     session goes long stretches without reading; reloading it costs a few seconds."""
     try:
         return int(_env("AIWRITE_SPEECH_IDLE_UNLOAD", "300"))

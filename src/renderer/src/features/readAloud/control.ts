@@ -424,6 +424,7 @@ function watch(): void {
         speech.sounds !== was.sounds ||
         speech.steadyNarrator !== was.steadyNarrator ||
         speech.voicedLines !== was.voicedLines ||
+        speech.skipSpeechTags !== was.skipSpeechTags ||
         speech.soundEffects !== was.soundEffects)
     )
       session?.settingsChanged()

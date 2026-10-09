@@ -13,16 +13,18 @@ import { AskPanel } from '@/features/ask/AskPanel'
 import { IssuesPanel, IssuesTabCount } from '@/features/issues/IssuesPanel'
 import { SoundsPanel } from '@/features/sounds/SoundsPanel'
 import { ChapterCardPanel } from '@/features/chapterCard/ChapterCardPanel'
+import { CritiqueLabel, CritiquePanel } from '@/features/critique/CritiquePanel'
 
 const TAB_LABELS: Record<InspectorTab, string> = {
   card: 'Scene card',
   context: 'Context',
   cast: 'Cast',
   issues: 'Issues',
+  critique: 'Critique',
   drafts: 'Drafts',
   sounds: 'Sounds'
 }
-const TABS: InspectorTab[] = ['card', 'context', 'cast', 'issues', 'drafts']
+const TABS: InspectorTab[] = ['card', 'context', 'cast', 'issues', 'critique', 'drafts']
 /** With sound effects on, the Sounds tab comes last. */
 const TABS_WITH_SOUNDS: InspectorTab[] = [...TABS, 'sounds']
 
@@ -100,18 +102,29 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
       >
         <TabsList
           tall
-          // Five tabs fit the panel at its narrowest (260 px): a little less room around each, and "Card" for
-          // "Scene card" (still read out in full) below 330 px. The Issues tab's count sits over its corner. With the
-          // Sounds tab (six), a speaker stands for "Sounds" below 396 px, and the tabs sit a little closer: below
-          // 300 px with no gap, and from 380 px with less room around each until 440 px.
+          // Six tabs fit the panel at its narrowest (260 px): a little less room around each, no gap below 300 px, "Card"
+          // for "Scene card" (still read out in full) below 330 px, and a speech mark for "Critique" below 360 px. The
+          // Issues tab's count sits over its corner. With the Sounds tab (seven), a speaker stands for "Sounds" below 396 px
+          // and the speech mark for "Critique" below 460 px, and the tabs sit a little closer: below 300 px with no gap and
+          // little room around each, and from 380 px with less room around each until 440 px. The New look's tabs have
+          // more room around them, so it gives them less too below 440 px.
           className={
             sounds
-              ? 'px-1! *:px-1 @max-[299px]:gap-0! @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2 @min-[440px]:*:px-2.5'
-              : 'px-1! *:px-1 @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2.5'
+              ? 'px-1! *:px-1 @max-[299px]:gap-0! @max-[299px]:*:px-0.5 @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2 @min-[440px]:*:px-2.5 @max-[299px]:look-new:*:px-0.5! @min-[300px]:@max-[439px]:look-new:*:px-1.5!'
+              : 'px-1! *:px-1 @max-[299px]:gap-0! @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2.5 @max-[299px]:look-new:*:px-1! @min-[300px]:@max-[439px]:look-new:*:px-1.5!'
           }
           items={tabs.map((value) => ({
             value,
-            label: value === 'card' ? <CardLabel /> : value === 'sounds' ? <SoundsLabel /> : TAB_LABELS[value],
+            label:
+              value === 'card' ? (
+                <CardLabel />
+              ) : value === 'sounds' ? (
+                <SoundsLabel />
+              ) : value === 'critique' ? (
+                <CritiqueLabel crowded={sounds} />
+              ) : (
+                TAB_LABELS[value]
+              ),
             badge: value === 'issues' ? <IssuesTabCount sceneId={sceneId} /> : undefined
           }))}
         />
@@ -126,6 +139,9 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </TabsContent>
         <TabsContent value="issues" className="overflow-auto">
           <IssuesPanel key={sceneId} sceneId={sceneId} />
+        </TabsContent>
+        <TabsContent value="critique" className="overflow-auto">
+          <CritiquePanel key={sceneId} sceneId={sceneId} />
         </TabsContent>
         <TabsContent value="drafts" className="overflow-auto">
           <GenerationsPanel key={sceneId} sceneId={sceneId} />

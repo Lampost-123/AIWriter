@@ -47,3 +47,4 @@ Milestone 6:
 After milestone 6: recipes.ts (Story recipes: the recipe library, making a recipe, a new story from one).
 Writing by hand: find.ts (find and replace across the story; finding in the open scene is the window's own).
 Writing by hand: spelling.ts (spell check in the writer's spelling, the world's names, synonyms on right-click).
+The scene and chapter critic: critique.ts (craft feedback on a scene or a chapter, the Critique tab).

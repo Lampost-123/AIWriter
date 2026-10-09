@@ -11,7 +11,7 @@ const card = (name: string | null, memoryMb: number | null = null, computeCap: n
 describe('what the voices need', () => {
   it('says it plainly: the card, its memory, the processor, and the disk space', () => {
     expect(VOICES_NEEDS).toBe(
-      'They need an NVIDIA graphics card (RTX 20 series or newer) with at least 8 GB of memory. Without one they run on the ' +
+      'They need an NVIDIA graphics card (RTX 20 series or newer) with at least 10 GB of memory. Without one they run on the ' +
         'processor, far too slowly for reading aloud. They take about 12 GB of disk space, and need about 15 GB free while they download.'
     )
   })
@@ -26,8 +26,8 @@ describe('what the voices need', () => {
       { ok: true, text: 'NVIDIA GeForce RTX 5070 Ti with 16 GB of memory' },
       { ok: true, text: '412 GB free on the disk' }
     ])
-    // An 8 GB card reports a little under 8192 MiB.
-    expect(voicesChecks(card('NVIDIA GeForce RTX 3070', 8188, 8.6))).toEqual([{ ok: true, text: 'NVIDIA GeForce RTX 3070 with 8 GB of memory' }])
+    // A 10 GB card reports a little under 10240 MiB.
+    expect(voicesChecks(card('NVIDIA GeForce RTX 3080', 10236, 8.6))).toEqual([{ ok: true, text: 'NVIDIA GeForce RTX 3080 with 10 GB of memory' }])
     // An older driver that can't say how new the card is, or how much memory it has: the name alone.
     expect(voicesChecks(card('NVIDIA GeForce RTX 2080'))).toEqual([{ ok: true, text: 'NVIDIA GeForce RTX 2080' }])
   })
@@ -45,9 +45,11 @@ describe('what the voices need', () => {
     expect(voicesChecks(card('NVIDIA GeForce RTX 3060 Laptop GPU', 6144, 8.6))).toEqual([
       {
         ok: false,
-        text: 'This computer’s NVIDIA GeForce RTX 3060 Laptop GPU has 6 GB of memory, and the voices need about 8 GB, so they won’t fit on it.'
+        text: 'This computer’s NVIDIA GeForce RTX 3060 Laptop GPU has 6 GB of memory, and the voices need about 10 GB, so they won’t fit on it.'
       }
     ])
+    // An 8 GB card is too small now the voices are known to hold about 9.5 GB.
+    expect(voicesChecks(card('NVIDIA GeForce RTX 3070', 8188, 8.6))[0]).toMatchObject({ ok: false })
     // The GTX 16 series is as new as the RTX 20s.
     expect(voicesChecks(card('NVIDIA GeForce GTX 1660 Ti', 6144, 7.5))[0].text).toContain('has 6 GB of memory')
   })
