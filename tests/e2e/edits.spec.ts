@@ -623,6 +623,61 @@ test('one change at a time; editing its words, opening another scene or a new dr
   }
 })
 
+test('a change being written goes on in another scene: back in its scene it is still writing, or ready; one change at a time across scenes', async ({
+  launch
+}) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(QUIET)
+    await setUp(win, fake, { model: 'fake/slow', secondScene: true })
+    const other = 'The rain went on over the roofs of Lowtown all night.'
+
+    // Another scene while the AI writes: nothing is dropped, and the words go on coming.
+    await selectWords(win, P1)
+    await runTool(win, 'Expand')
+    await expect(newWords(win)).toContainText('She let the silence')
+    const left = ((await newWords(win).textContent()) ?? '').length
+    await row(win, 'Scene 2').click()
+    await expect(paras(win)).toHaveCount(1)
+    await expect(change(win)).toBeHidden()
+
+    // One change at a time, in any scene: the tools say where the other one is.
+    await prose(win).click()
+    await win.keyboard.type(other)
+    await selectWords(win, other)
+    await runTool(win, 'Condense')
+    await expect(toasts(win).getByText('One change at a time: the AI’s change in “Scene 1” is still being written.')).toBeVisible()
+    await expect(change(win)).toBeHidden()
+
+    // Back in its scene, it is there again, still writing, with the words that came meanwhile.
+    await row(win, 'Scene 1').click()
+    await expect(stopButton(win)).toBeVisible()
+    await expect.poll(async () => ((await newWords(win).textContent()) ?? '').length).toBeGreaterThan(left)
+    await expect(toasts(win).getByText('The AI’s change was dropped because you opened another scene.')).toHaveCount(0)
+    await stopButton(win).click()
+    await acceptButton(win).click()
+    await expect(paras(win).first()).toContainText(`${P1} She let the silence`)
+
+    // Finished while Adam is in another scene: a message says so, and Show goes back to it, ready to accept.
+    const { models } = await invoke(win, 'getSettings')
+    await invoke(win, 'updateSettings', { models: { writer: { ...models.writer, modelId: 'fake/wait', label: 'fake/wait' } } })
+    await selectWords(win, P2)
+    await runTool(win, 'Condense')
+    await expect(change(win)).toContainText('Condensing…')
+    await row(win, 'Scene 2').click()
+    await expect(paras(win)).toHaveText([other])
+    const ready = toasts(win).getByText('The AI’s change in “Scene 1” is ready. Go back to that scene to accept or reject it.')
+    await expect(ready).toBeVisible({ timeout: 20000 })
+    await toasts(win).getByRole('button', { name: 'Show', exact: true }).click()
+    await expect(acceptButton(win)).toBeVisible()
+    await expect(oldWords(win)).toHaveText(P2)
+    await rejectButton(win).click()
+    await expect(change(win)).toBeHidden()
+  } finally {
+    await fake.close()
+  }
+})
+
 test('Fix voice matches a speaker’s voice, says whose, and says plainly what to do when a speaker has no voice yet', async ({ launch }) => {
   const fake = await startFake()
   try {

@@ -30,7 +30,9 @@ export function useListenKeys(): void {
 
 export function ListenButton({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
   const on = useApp((s) => !!s.settings?.speech.readAloud)
-  const reading = useReading((s) => s.reading && s.sceneId === sceneId)
+  // A reading of another scene (it reads on when Adam opens another) is paused and carried on from here too.
+  const reading = useReading((s) => s.reading)
+  const here = useReading((s) => s.sceneId === sceneId)
   const paused = useReading((s) => s.paused)
 
   useListenKeys()
@@ -41,7 +43,7 @@ export function ListenButton({ sceneId }: { sceneId: ID }): React.JSX.Element | 
     <ToolButton
       icon={<Headphones size={15} />}
       label="Listen"
-      active={reading}
+      active={reading && here}
       title={withShortcut(title, 'listen')}
       // The caret stays in the page, so Adam can keep writing while it reads.
       onMouseDown={(e) => e.preventDefault()}

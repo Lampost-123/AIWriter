@@ -2,9 +2,11 @@
 // (Ctrl+Shift+Space), Listen from here, the bar's Back one line, Next line and speed, and what the bar above the
 // page shows. Owned by the Read aloud part.
 //
-// A reading belongs to the scene it started in. Opening another scene, closing the world or turning read aloud
-// off ends it; Keep reading carries it on into the next scene of the story by itself. The page it reads is the
-// scene editor's (ReadAloudBar hands it over), whichever page of the app is showing.
+// A reading belongs to the scene it started in. Opening another scene doesn't end it: it reads on, heard but not
+// shown, and the highlight comes back when the page shows its scene again (the bar names the scene, and goes back to
+// it). Closing the world or turning read aloud off ends it; Keep reading carries it on into the next scene of the
+// story by itself, but only while Adam is in the scene being read. The page it reads is the scene editor's
+// (ReadAloudBar hands it over), whichever page of the app is showing.
 import type { Editor } from '@tiptap/core'
 import { create } from 'zustand'
 import type { ID, SpeechSettings } from '@shared/types'
@@ -45,6 +47,8 @@ let page: { editor: Editor; scroller: () => HTMLElement | null } | null = null
 let carryOnInto: ID | null = null
 let carryOnTimer: ReturnType<typeof setTimeout> | null = null
 let finishedTimer: ReturnType<typeof setTimeout> | null = null
+/** The bar's scene name was clicked while the reading went on in another scene: its line comes into view once it shows. */
+let showOnReturn = false
 
 const readAloudOn = (): boolean => !!useApp.getState().settings?.speech.readAloud
 
@@ -237,20 +241,33 @@ export function showReading(): void {
   const { sceneId } = useReading.getState()
   if (!sceneId) return
   const app = useApp.getState()
+  // Read while Adam is in another scene: the line comes into view once the page shows its scene again (backOnPage).
+  if (session?.isAway && session.sceneId === sceneId) showOnReturn = true
   if (app.sceneId !== sceneId || app.view.kind !== 'write') void openScene(sceneId)
   // Once the page is on screen.
-  requestAnimationFrame(() => {
-    const p = page
-    if (!p || p.editor.isDestroyed || editorBridge()?.sceneId !== sceneId) return
-    const place = readingPlace(p.editor.state)
-    const pos = place.sentence?.from ?? place.clip?.from
-    if (pos == null) return
-    try {
-      new FollowAlong(p.scroller, barRoom).bring(p.editor.view.coordsAtPos(pos).top)
-    } catch {
-      // Not on the page any more: nothing to bring into view.
-    }
-  })
+  requestAnimationFrame(() => bringLine(sceneId))
+}
+
+/** Brings the line being read into view, a third of the way down the page, when the page shows its scene. */
+function bringLine(sceneId: ID): void {
+  const p = page
+  if (!p || p.editor.isDestroyed || editorBridge()?.sceneId !== sceneId) return
+  const place = readingPlace(p.editor.state)
+  const pos = place.sentence?.from ?? place.clip?.from
+  if (pos == null) return
+  try {
+    new FollowAlong(p.scroller, barRoom).bring(p.editor.view.coordsAtPos(pos).top)
+  } catch {
+    // Not on the page any more: nothing to bring into view.
+  }
+}
+
+/** The page shows the scene being read again, after another: the highlight comes back (and the line into view, if asked). */
+function backOnPage(s: Session): void {
+  if (session !== s || editorBridge()?.sceneId !== s.sceneId) return
+  s.backOnPage()
+  if (showOnReturn) bringLine(s.sceneId)
+  showOnReturn = false
 }
 
 /** A part of Settings › Read aloud and dictation to show when it opens (its element's id), under More. */
@@ -299,16 +316,18 @@ const finished = (note: string): void => {
 
 /** The scene's words have all been read: on into the next scene (Keep reading), or the bar says it is done. */
 async function carryOn(s: Session): Promise<void> {
-  const { settings, storyId } = useApp.getState()
-  if (!settings?.speech.keepReading || !storyId) return finished('Read to the end of the scene.')
+  const { settings, storyId, sceneId } = useApp.getState()
+  // In another scene, Keep reading doesn't open the next one under Adam.
+  if (!settings?.speech.keepReading || !storyId || sceneId !== s.sceneId) return finished('Read to the end of the scene.')
   let next: ReturnType<typeof sceneAfter> = null
   try {
     next = sceneAfter(await api.getOutline(storyId), s.sceneId)
   } catch {
     return finished('Read to the end of the scene.')
   }
-  // Adam started something else meanwhile.
-  if (session !== s || useApp.getState().sceneId !== s.sceneId) return
+  // Adam started something else meanwhile, or went to another scene.
+  if (session !== s) return
+  if (useApp.getState().sceneId !== s.sceneId) return finished('Read to the end of the scene.')
   if (!next) return finished('Read to the end of the story.')
   carryOnInto = next.id
   // The bar and the binder name the scene it is going on to from now.
@@ -340,8 +359,17 @@ export function attachPage(editor: Editor, scroller: () => HTMLElement | null): 
   }
 }
 
-/** The page now shows a scene: a reading carried on by Keep reading starts at its top. */
+/**
+ * The page now shows a scene: a reading carried on by Keep reading starts at its top, and a reading that went on
+ * while Adam was in another scene shows on its page again.
+ */
 export function sceneShown(sceneId: ID | null): void {
+  if (sceneId && session?.isAway && session.sceneId === sceneId) {
+    const s = session
+    // Once its words are on the page (see below).
+    setTimeout(() => backOnPage(s), 0)
+    return
+  }
   if (!sceneId || sceneId !== carryOnInto || !page) return
   // The page says which scene it shows just before it swaps in that scene's words: start once they are there.
   setTimeout(() => {
@@ -364,12 +392,24 @@ function watch(): void {
   })
   useApp.subscribe((now, before) => {
     const reading = useReading.getState()
-    // Another scene opened (not by Keep reading), the world closed, or read aloud was turned off: the reading ends.
     const sceneChanged = now.sceneId !== before.sceneId && now.sceneId !== carryOnInto && reading.sceneId && now.sceneId !== reading.sceneId
-    if (sceneChanged || now.world?.id !== before.world?.id || (!now.settings?.speech.readAloud && before.settings?.speech.readAloud)) {
+    const s = session?.active ? session : null
+    // The world closed, or read aloud was turned off: the reading ends. So does another scene opening (not by Keep
+    // reading) after it stopped or finished.
+    const off = !now.settings?.speech.readAloud && before.settings?.speech.readAloud
+    if ((sceneChanged && !s) || now.world?.id !== before.world?.id || off) {
       if (reading.bar || session) closeReading()
       stopSample()
       return
+    }
+    if (sceneChanged && s) {
+      // Another scene opened while it reads: it reads on, heard but not shown, until the page shows its scene again.
+      showOnReturn = false
+      s.leavePage()
+      stopSample()
+    } else if (s?.isAway && now.sceneId !== before.sceneId && now.sceneId === s.sceneId && editorBridge()?.sceneId === s.sceneId) {
+      // Back before the other scene showed: the page never left it.
+      s.backOnPage()
     }
     const speech = now.settings?.speech
     const was = before.settings?.speech
