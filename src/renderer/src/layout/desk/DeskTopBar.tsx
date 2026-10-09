@@ -4,7 +4,7 @@
 // memory when it is reading or in trouble, the command bar, the status island, focus mode and Settings.
 // Nothing in it is cut short at the sizes the desk is made for; in a small window the command bar narrows first.
 import { useRef } from 'react'
-import { Settings as SettingsIcon } from '@/components/ui/icons'
+import { House, Settings as SettingsIcon } from '@/components/ui/icons'
 import { IconButton } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { withShortcut } from '@/lib/shortcuts'
@@ -15,6 +15,7 @@ import { FocusButton } from '@/features/look/FocusLayer'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
 import { SampleWorldChip } from '@/features/setup/SampleWorldBar'
 import { openStoryHome } from '@/features/desk/home/open'
+import { goToStartScreen } from '@/features/start/home'
 import { RenameWorld, useSettingsKey, WorldMenu } from '@/layout/TopBar'
 import { UpdateBanner } from '@/layout/UpdateBanner'
 import { CommandBar } from './CommandBar'
@@ -50,6 +51,10 @@ export function DeskTopBar(): React.JSX.Element {
       className="desk-topbar group/bar relative z-30 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 min-[1440px]:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]"
     >
       <div className="flex min-w-0 items-center">
+        {/* Back to the start screen, where Adam picks what to work on. */}
+        <IconButton label="Home" title="Home: pick a world or story (the start screen)" onClick={goToStartScreen} className="mr-1">
+          <House size={18} />
+        </IconButton>
         {/* The story's home (the world menu has the start screen). */}
         <button
           type="button"
