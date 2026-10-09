@@ -20,6 +20,8 @@ export interface LaunchOptions {
   /** Reuse a data folder (to test what survives a restart). A fresh temp folder by default. */
   dataDir?: string
   env?: Record<string, string>
+  /** Extra Electron switches, e.g. '--force-device-scale-factor=1' for pictures the same size on any screen. */
+  args?: string[]
   /**
    * Writing by hand: false starts a fresh data folder with smart punctuation off, for tests that type straight
    * quotes and look for them as typed. On by default, as for Adam.
@@ -64,7 +66,7 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
     { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off', AIWRITE_LOOK: 'classic', AIWRITE_BACKGROUND: background, AIWRITE_PLAN: 'off' },
     opts.env
   )
-  const app = await electron.launch({ args: ['.'], cwd: ROOT, env, timeout: 60_000 })
+  const app = await electron.launch({ args: ['.', ...(opts.args ?? [])], cwd: ROOT, env, timeout: 60_000 })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
   let closed = false
