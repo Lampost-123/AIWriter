@@ -282,12 +282,26 @@ test('Reset layout puts dragged characters back, and Undo moves them again', asy
   const { win } = await sampleMap(launch)
   const reset = win.getByRole('button', { name: 'Reset layout' })
   await expect(reset).toBeDisabled()
-  const ansel = node(win, 'Ansel Crane')
-  const b = (await ansel.boundingBox())!
+  // The character in the middle (left to right), dragged towards the middle: the map's edges stay where they were. (The
+  // sample world's ids are new each run and its layout is seeded from them, so who is at an edge changes from run to
+  // run; moving someone at an edge stretches the map afresh when it is read again after Undo, and everyone is drawn
+  // tens of pixels from where they were.)
+  const all = canvas(win).locator('[data-map-node]')
+  const xs = await all.evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect()
+      return r.x + r.width / 2
+    })
+  )
+  const mid = [...xs].sort((p, q) => p - q)[Math.floor(xs.length / 2)]
+  const who = all.nth(xs.indexOf(mid))
+  const b = (await who.boundingBox())!
   const [cx, cy] = [b.x + b.width / 2, b.y + b.height / 2]
+  const c = (await canvas(win).boundingBox())!
+  const step = cx > c.x + c.width / 2 ? -12 : 12
   await win.mouse.move(cx, cy)
   await win.mouse.down()
-  for (let i = 1; i <= 8; i++) await win.mouse.move(cx - i * 12, cy)
+  for (let i = 1; i <= 8; i++) await win.mouse.move(cx + i * step, cy)
   await win.mouse.up()
   await expect(reset).toBeEnabled()
   // Where the drag left it, once its last frame has landed (on a slow machine the last moves are drawn a few frames
@@ -296,16 +310,16 @@ test('Reset layout puts dragged characters back, and Undo moves them again', asy
   await expect
     .poll(async () => {
       const was = dragged
-      dragged = (await ansel.boundingBox())!.x
+      dragged = (await who.boundingBox())!.x
       return Math.abs(dragged - was)
     })
     .toBeLessThan(0.5)
   await reset.click()
-  await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - b.x)).toBeLessThan(2)
+  await expect.poll(async () => Math.abs((await who.boundingBox())!.x - b.x)).toBeLessThan(2)
   await expect(reset).toBeDisabled()
   await win.getByRole('button', { name: 'Undo' }).click()
   // (Within a few pixels: the place is kept in the map's own units and drawn back at the map's scale.)
-  await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - dragged)).toBeLessThan(3)
+  await expect.poll(async () => Math.abs((await who.boundingBox())!.x - dragged)).toBeLessThan(3)
   await expect(reset).toBeEnabled()
 })
 
@@ -326,14 +340,39 @@ async function bigWorld(win: Page): Promise<void> {
   const last = ['Marrow', 'Quill', 'Thorne', 'Vane', 'Ashby', 'Pell', 'Rusk', 'Sorrel', 'Tamsin', 'Wick']
   const ids: string[] = []
   for (let i = 0; i < 150; i++)
-    ids.push((await invoke(win, 'createEntry', 'character', { name: `${first[i % 15]} ${last[Math.floor(i / 15)]}`, fields: { role: i === 0 ? 'protagonist' : 'minor' } })).id)
-  const kinds = ['sister', 'old friend', 'rival', 'mentor', 'married', 'works for', 'sworn enemy', 'cousin', 'loyal to', 'owes money', 'in love', 'apprentice']
+    ids.push(
+      (
+        await invoke(win, 'createEntry', 'character', {
+          name: `${first[i % 15]} ${last[Math.floor(i / 15)]}`,
+          fields: { role: i === 0 ? 'protagonist' : 'minor' }
+        })
+      ).id
+    )
+  const kinds = [
+    'sister',
+    'old friend',
+    'rival',
+    'mentor',
+    'married',
+    'works for',
+    'sworn enemy',
+    'cousin',
+    'loyal to',
+    'owes money',
+    'in love',
+    'apprentice'
+  ]
   let n = 0
   const tie = (a: number, b: number, k: number, at: number | null) => {
     n++
     return invoke(win, 'createChange', {
       kind: 'relationship',
-      payload: { otherId: ids[b], type: kinds[k % kinds.length], feels: k % 2 ? 'fond' : 'wary', otherFeels: k % 3 ? 'trusting' : 'resentful' },
+      payload: {
+        otherId: ids[b],
+        type: kinds[k % kinds.length],
+        feels: k % 2 ? 'fond' : 'wary',
+        otherFeels: k % 3 ? 'trusting' : 'resentful'
+      },
       entryId: ids[a],
       ...(at === null ? { anchor: 'baseline' as const } : { anchor: 'scene' as const, sceneId: scenes[at] })
     })
@@ -356,7 +395,10 @@ test('150 characters and 400 ties stay smooth: no frame over 50 ms while draggin
   await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1920, 1080))
   await bigWorld(win)
-  await win.getByRole('navigation', { name: 'Rooms' }).getByRole('button', { name: /^World/ }).click()
+  await win
+    .getByRole('navigation', { name: 'Rooms' })
+    .getByRole('button', { name: /^World/ })
+    .click()
   await win.locator('[data-desk-room] [data-desk-sublinks]').getByRole('button', { name: 'Relationship map' }).click()
   await expect(canvas(win).locator('[data-map-node]').first()).toBeVisible()
   await expect(win.locator('[data-map-minimap]')).toBeVisible()
@@ -403,9 +445,11 @@ test('150 characters and 400 ties stay smooth: no frame over 50 ms while draggin
   await win.evaluate('window.__phase = "hover"')
   // Pointing at characters in the open middle of the map (clear of the strip, the legend and the mini-map).
   const c = (await canvas(win).boundingBox())!
-  const middle = (await nodes.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 })))).filter(
-    (p) => p.x > c.x + 300 && p.x < c.x + c.width - 300 && p.y > c.y + 220 && p.y < c.y + c.height - 160
-  )
+  const middle = (
+    await nodes.evaluateAll((els) =>
+      els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 }))
+    )
+  ).filter((p) => p.x > c.x + 300 && p.x < c.x + c.width - 300 && p.y > c.y + 220 && p.y < c.y + c.height - 160)
   expect(middle.length).toBeGreaterThan(8)
   for (const p of middle.filter((_, i) => i % Math.floor(middle.length / 5) === 0).slice(0, 5)) {
     await win.mouse.move(p.x, p.y, { steps: 4 })
@@ -414,7 +458,9 @@ test('150 characters and 400 ties stay smooth: no frame over 50 ms while draggin
   await win.waitForTimeout(400)
   const all = await win.evaluate<[string, number, string, string, string][]>('window.__frames')
   const frames = all.map((f) => f[1])
-  console.log(`relationship-map perf: ${frames.length} long frames, worst ${Math.round(Math.max(0, ...frames))} ms: ${all.map((f) => f.join(' ')).join(', ')}`)
+  console.log(
+    `relationship-map perf: ${frames.length} long frames, worst ${Math.round(Math.max(0, ...frames))} ms: ${all.map((f) => f.join(' ')).join(', ')}`
+  )
   // On this PC: not one frame over 50 ms. On CI (a slower, software-drawn screen, about five times slower here with the
   // CPU held back to match: PERF_THROTTLE=5) the frames are judged by their spread instead: most long frames well
   // under a tenth of a second, none stuck for long.
