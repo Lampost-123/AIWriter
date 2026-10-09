@@ -296,6 +296,28 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       beats: string[]
       marks?: boolean
     }
+  | {
+      /**
+       * Every place some words stand in a story (or one scene of it) replaced, through the app's own Find and replace
+       * (chat Phase 4, lab switch EXTRATOOLS): a History snapshot of each scene first, Undo by its token. `count` and
+       * `scenes` are how many matches and scenes there were when proposed, `examples` a few of them (Apply finds them
+       * again). `rename`: the words are an entry's name, so the card offers to rename it too (`renameEntry`, the writer's
+       * pick, set when applying). `sceneId` null: the whole story.
+       */
+      kind: 'replaceAll'
+      storyId: ID
+      find: string
+      replace: string
+      wholeWord: boolean
+      matchCase: boolean
+      sceneId: ID | null
+      sceneLabel: string
+      count: number
+      scenes: number
+      examples: { sceneLabel: string; before: string; text: string; after: string }[]
+      rename: { entryId: ID; kind: EntryKind; name: string } | null
+      renameEntry?: boolean
+    }
 )
 
 export interface AskInput {

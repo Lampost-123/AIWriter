@@ -23,8 +23,8 @@ export function pageNow(): { page: PageForFind; doc: PMNode } | null {
   return { page: { ...now, keep: keptRanges(editor.state) }, doc: editor.state.doc }
 }
 
-/** Makes a change worked out in the main process in the page, if it still shows what was sent. */
-function applyToPage(change: PageChange, sent: PMNode | null): boolean {
+/** Makes a change worked out in the main process in the page, if it still shows what was sent (also Ask the world's replace_all). */
+export function applyToPage(change: PageChange, sent: PMNode | null): boolean {
   const bridge = editorBridge()
   const view = bridge?.editor?.view
   if (!bridge || !view || bridge.sceneId !== change.sceneId || bridge.busy() || !sent || !view.state.doc.eq(sent)) return false

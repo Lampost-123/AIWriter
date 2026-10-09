@@ -12,9 +12,26 @@ export type ToolStatus = 'running' | 'done' | 'failed' | 'not-proposed' | 'stopp
 
 /**
  * What a call does, for its icon and its words ('mentions': find_mentions, lab switch TEXTTOOLS; 'chapter' and
- * 'threads': chapter_card and list_threads, lab switch STORYTOOLS).
+ * 'threads': chapter_card and list_threads, lab switch STORYTOOLS; 'state', 'sofar' and 'compare': scene_state,
+ * story_so_far and compare_version, lab switch EXTRATOOLS).
  */
-export type ToolKind = 'read' | 'outline' | 'search' | 'mentions' | 'entry' | 'style' | 'issues' | 'chapter' | 'threads' | 'propose' | 'draft' | 'ask' | 'other'
+export type ToolKind =
+  | 'read'
+  | 'outline'
+  | 'search'
+  | 'mentions'
+  | 'entry'
+  | 'style'
+  | 'issues'
+  | 'chapter'
+  | 'threads'
+  | 'state'
+  | 'sofar'
+  | 'compare'
+  | 'propose'
+  | 'draft'
+  | 'ask'
+  | 'other'
 
 /** One tool call of the editor chat, as it is kept with the turn's record and sent live as `ask:tool`. */
 export interface ToolActivity extends AgentStep {
@@ -45,6 +62,9 @@ const KINDS: Record<string, ToolKind> = {
   list_issues: 'issues',
   chapter_card: 'chapter',
   list_threads: 'threads',
+  scene_state: 'state',
+  story_so_far: 'sofar',
+  compare_version: 'compare',
   propose_draft: 'draft',
   ask_user: 'ask'
 }
@@ -80,6 +100,7 @@ const CHANGE_WORDS: Record<string, [string, string]> = {
   issue_fix: ['issue fix', 'issue fixes'],
   chapter_card: ['chapter card change', 'chapter card changes'],
   thread: ['plot thread link', 'plot thread links'],
+  replace_all: ['replace all', 'replace-all changes'],
   ask: ['question', 'questions']
 }
 
@@ -116,6 +137,16 @@ export function argSummary(tool: string, args: Record<string, unknown>): string 
       return str('chapter') || 'the open chapter'
     case 'threads':
       return str('status') ? `${str('status').toLowerCase()} plot threads` : 'plot threads'
+    case 'state': {
+      // "[12]" in the open scene, "the end of Ch 2, Sc 1" (the agent says it better, with the scene's title).
+      const n = typeof args.at_paragraph === 'number' ? args.at_paragraph : null
+      const scene = str('scene')
+      return n != null ? `[${n}]${scene ? ` of ${scene}` : ''}` : `the end of ${scene || 'the open scene'}`
+    }
+    case 'sofar':
+      return str('from_scene') || str('to_scene') ? `${str('from_scene') || 'the start'} to ${str('to_scene') || 'the open scene'}` : ''
+    case 'compare':
+      return str('scene') || 'the open scene'
     case 'search':
       return str('query') ? `“${str('query')}”` : ''
     case 'mentions':

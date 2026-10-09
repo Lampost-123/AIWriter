@@ -13,6 +13,7 @@ import { askAboutQuote, SCENES, vigilParagraphs } from './world'
 import { REAL } from './real'
 import { P3TEXT } from './scenarios-p3text'
 import { P3STORY } from './scenarios-p3story'
+import { P4 } from './scenarios-p4'
 
 export type Group =
   | 'edit'
@@ -28,6 +29,7 @@ export type Group =
   | 'r-change-q'
   | 'p3-text'
   | 'p3-story'
+  | 'p4-extra'
 
 /** What should happen at a turn. */
 export type Outcome =
@@ -59,6 +61,7 @@ export type ProposalKind =
   | 'issueFix'
   | 'chapterCard'
   | 'thread'
+  | 'replaceAll'
 
 /** An earlier turn of the chat, seeded as the app stores one (a 'chat' generation record) before the first question. */
 export interface HistoryTurn {
@@ -73,8 +76,11 @@ export interface Scenario {
   group: Group
   /** Asked in story C (bigWorld.ts): a briefing of 30-60k tokens. Its scene keys are bigWorld's. */
   big?: boolean
-  /** 'story': needs the story set's plot threads and issue in the world (scenarios-p3story.ts seedStory). */
-  seed?: 'story'
+  /**
+   * 'story': needs the story set's plot threads and issue in the world (scenarios-p3story.ts seedStory); 'p4': the
+   * Phase 4 set's summaries, kept state and earlier History version (scenarios-p4.ts seedP4).
+   */
+  seed?: 'story' | 'p4'
   /** Earlier turns of the chat (oldest first), seeded before the first question. */
   history?: HistoryTurn[]
   /** The rule it tests, in plain words. */
@@ -191,12 +197,15 @@ export const CORE: Scenario[] = [
   }
 ]
 
-/** Every scenario: the core 40, the real set, then Phase 3's text tools (scenarios-p3text.ts) and story tools (scenarios-p3story.ts). */
-export const SCENARIOS: Scenario[] = [...CORE, ...REAL, ...P3TEXT, ...P3STORY]
+/**
+ * Every scenario: the core 40, the real set, then Phase 3's text tools (scenarios-p3text.ts) and story tools
+ * (scenarios-p3story.ts), and Phase 4's (scenarios-p4.ts).
+ */
+export const SCENARIOS: Scenario[] = [...CORE, ...REAL, ...P3TEXT, ...P3STORY, ...P4]
 
 /**
  * The scenarios a --scenarios value names: core (also the default), real, p3 (both Phase 3 sets), p3text, p3story,
- * all, subset, or ids.
+ * p4, all, subset, or ids.
  */
 export function pickScenarios(only: string[] | null): Scenario[] {
   if (!only?.length) return CORE
@@ -206,6 +215,7 @@ export function pickScenarios(only: string[] | null): Scenario[] {
     P3: [...P3TEXT, ...P3STORY],
     P3TEXT,
     P3STORY,
+    P4,
     ALL: SCENARIOS,
     SUBSET: CORE.filter((s) => SUBSET.includes(s.id))
   }

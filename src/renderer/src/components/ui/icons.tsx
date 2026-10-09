@@ -24,6 +24,7 @@ const ICONS = {
   ArrowDown: [L.ArrowDown, 'ArrowDown'],
   ArrowDownToLine: [L.ArrowDownToLine, 'ArrowLineDown'],
   ArrowLeft: [L.ArrowLeft, 'ArrowLeft'],
+  ArrowLeftRight: [L.ArrowLeftRight, 'ArrowsLeftRight'],
   ArrowRight: [L.ArrowRight, 'ArrowRight'],
   ArrowUpRight: [L.ArrowUpRight, 'ArrowUpRight'],
   AudioLines: [L.AudioLines, 'Waveform'],
@@ -248,6 +249,7 @@ export const Archive = BY_NAME.Archive
 export const ArrowDown = BY_NAME.ArrowDown
 export const ArrowDownToLine = BY_NAME.ArrowDownToLine
 export const ArrowLeft = BY_NAME.ArrowLeft
+export const ArrowLeftRight = BY_NAME.ArrowLeftRight
 export const ArrowRight = BY_NAME.ArrowRight
 export const ArrowUpRight = BY_NAME.ArrowUpRight
 export const AudioLines = BY_NAME.AudioLines

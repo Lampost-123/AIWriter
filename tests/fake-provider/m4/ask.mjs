@@ -254,6 +254,10 @@ function scriptedCalls(system, messages, tools) {
   const seen = last?.role === 'tool' ? last.content : !toolResults.length && page ? page : null
   const mustRead = !toolResults.length && !page
   const fresh = (last?.role === 'tool' && toolResults.length === 1) || (!toolResults.length && !!page)
+  // The Phase 4 tools (EXTRATOOLS), when offered: replace all, what is true at a point, the story so far, a version.
+  const raw = users.filter((u) => !u.startsWith('[AI Write, not the writer]')).at(-1) ?? ''
+  const extra = extraCalls(raw.toLowerCase().startsWith('about this passage:') ? raw.slice(raw.lastIndexOf('\n\n') + 2) : raw, tools, called)
+  if (extra !== undefined) return extra
   // The story tools (chat Phase 3, STORYTOOLS), when offered: issues, chapter cards and plot threads.
   const story = storyCalls(typed, messages, tools, called, last)
   if (story !== undefined) return story
@@ -343,6 +347,31 @@ function storyCalls(typed, messages, tools, called, last) {
     if (called('list_issues')) return null
     return [{ name: 'list_issues', arguments: { scope: 'story' } }]
   }
+  return undefined
+}
+
+/**
+ * The Phase 4 tools (EXTRATOOLS), only when the app offers them (plumbing only, never a score):
+ *   "replace X with Y everywhere" / "rename X to Y everywhere" (X and Y as typed, case kept)   one replace_all item
+ *                     (propose_replace_all without propose_changes), then an answer in words
+ *   "what is … wearing" / "what is … holding" / "what's true"   scene_state on the open scene, then words
+ *   "story so far" / "recap"   story_so_far, then words
+ *   "what did i change" / "earlier version"   compare_version, then words
+ * Returns the calls to send, null to answer in words, or undefined when none of these fits.
+ */
+function extraCalls(raw, tools, called) {
+  if (!offered(tools, 'scene_state')) return undefined
+  const typed = raw.toLowerCase()
+  const swap = /\b(?:replace|rename|change) ["“]?(.+?)["”]? (?:with|to) ["“]?(.+?)["”]? (?:everywhere|all through|throughout)\b/i.exec(raw)
+  if (swap) {
+    if (called('propose_changes') || called('propose_replace_all')) return null
+    const args = { find: swap[1].trim(), replace: swap[2].trim(), why: 'The same change everywhere, as asked.' }
+    return [offered(tools, 'propose_changes') ? changesCall(tools, [{ kind: 'replace_all', ...args }]) : { name: 'propose_replace_all', arguments: args }]
+  }
+  const once = (name, args = {}) => (called(name) ? null : [{ name, arguments: args }])
+  if (/\bwhat(?: is|['’]s) .*\b(wearing|holding)\b|\bwhat['’]s true\b/.test(typed)) return once('scene_state')
+  if (/\b(story so far|recap)\b/.test(typed)) return once('story_so_far')
+  if (/\b(what did i change|earlier version)\b/.test(typed)) return once('compare_version')
   return undefined
 }
 

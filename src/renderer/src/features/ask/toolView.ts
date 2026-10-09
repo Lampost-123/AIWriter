@@ -28,6 +28,12 @@ export function runningPhrase(c: Call): string {
       return `Reading the chapter card of ${s || 'the open chapter'}`
     case 'threads':
       return `Listing ${s || 'plot threads'}`
+    case 'state':
+      return `Checking what’s true at ${s || 'the end of the open scene'}`
+    case 'sofar':
+      return `Reading the story so far${s ? `, ${s}` : ''}`
+    case 'compare':
+      return `Comparing ${s || 'the open scene'} with an earlier version`
     case 'propose':
       return s ? `Proposing ${s}` : 'Proposing changes'
     case 'draft':
@@ -65,6 +71,14 @@ export function toolPhrase(c: Call): string {
       return `${tried ? 'Tried to read' : 'Read'} the chapter card of ${s || 'the open chapter'}`
     case 'threads':
       return `${tried ? 'Tried to list' : 'Listed'} ${s || 'plot threads'}`
+    case 'state':
+      // "Checked what’s true at [12]", "Checked what’s true at the end of Ch 1, Sc 2 “The Ford”".
+      return `${tried ? 'Tried to check' : 'Checked'} what’s true at ${s || 'the end of the open scene'}`
+    case 'sofar':
+      return `${tried ? 'Tried to read' : 'Read'} the story so far${s ? `, ${s}` : ''}`
+    case 'compare':
+      // "Compared Ch 1, Sc 2 “The Ford” with “Before Rewrite”".
+      return `${tried ? 'Tried to compare' : 'Compared'} ${s || 'the open scene'}${/ with “/.test(s) ? '' : ' with an earlier version'}`
     case 'propose':
       return `${tried ? 'Tried to propose' : 'Proposed'} ${s || 'changes'}`
     case 'draft':

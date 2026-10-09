@@ -24,6 +24,7 @@ import { openHistory } from '@/features/history/open'
 import { changeOf, planCut, planInsert, planPassage, planRevert, planText, revertDoc, type BlockChange, type Plan } from './askEdits'
 import { chatOfTurn, setProposalStatus, storyOfChat } from './askStore'
 import { startProposedDraft } from './applyDraft'
+import { applyReplaceAll } from './applyReplaceAll'
 import { sceneInPage } from './sceneInPage'
 import { threadLinkKey, withListEdited } from '@shared/threadLinks'
 import { fixTheText, placesInPage, setMemoryFromIssue } from '@/features/issues/actions'
@@ -454,6 +455,9 @@ export async function applyProposal(p: Proposal, place: ApplyPlace = {}): Promis
         return await applyCut(p, place)
       case 'beats':
         return await applyBeats(p)
+      case 'replaceAll':
+        // Phase 4 (EXTRATOOLS): through the app's own Find and replace (applyReplaceAll.ts).
+        return await applyReplaceAll(p, place)
     }
   } catch (e) {
     return { ok: false, why: (e as Error)?.message || 'That change couldn’t be applied.' }

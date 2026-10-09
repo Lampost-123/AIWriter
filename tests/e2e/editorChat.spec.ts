@@ -541,3 +541,70 @@ test('the chat reads a chapter card and proposes its point of view by name: Appl
     await fake.close()
   }
 })
+
+// Phase 4 (EXTRATOOLS; on by default, named here so this test keeps it whatever the defaults).
+const EXTRA = { env: { AIWRITE_EXP_CHAT_EXTRATOOLS: 'on', AIWRITE_KEEPER_QUIET_MS: '600000' } }
+
+test('replace all: the card shows how many and where, Apply changes every scene (the entry renamed too when ticked), Undo puts them back, the scene closed too', async ({
+  launch
+}) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(EXTRA)
+    await createWorldFromWelcome(win, 'Saltreach')
+    await useFakeModel(win, fake)
+    const mara = await invoke(win, 'createEntry', 'character', { name: 'Mara' })
+    const [story] = await invoke(win, 'listStories')
+    const outline = await invoke(win, 'getOutline', story.id)
+    const sceneId = outline.scenes[0].id
+    const ford = await invoke(win, 'createScene', outline.chapters[0].id, { title: 'The Ford' })
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+    // Both scenes written in the page, so each is kept with its page (as Find and replace's Undo needs it).
+    await binder(win).locator('[data-row]', { hasText: 'The Ford' }).first().click()
+    await prose(win).click()
+    await win.keyboard.type('At the ford Mara said nothing.')
+    await expect.poll(async () => (await invoke(win, 'getScene', ford.id)).text).toBe('At the ford Mara said nothing.')
+    await binder(win).locator('[data-row]', { hasText: 'Scene 1' }).first().click()
+    await prose(win).click()
+    await win.keyboard.type('Mara pushed the door open. Bram waited for Mara.')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('waited for Mara')
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+
+    await ask(win, 'Replace Mara with Wren everywhere')
+    const card = changes(win).locator('[data-proposal]').first()
+    await expect(card).toContainText('Replace all · the whole story')
+    await expect(card.locator('[data-replace-count]')).toContainText('3 times in 2 scenes')
+    await expect(card.locator('[data-replace-examples] li')).toHaveCount(3)
+    await expect(card.locator('del').first()).toHaveText('Mara')
+    await expect(card.locator('ins').first()).toHaveText('Wren')
+    await expect(panel(win).getByRole('list', { name: 'Tool calls' }).locator('[data-tool="propose_changes"]')).toContainText('Proposed 1 replace all')
+    // Nothing changes until Apply; the entry's rename is the writer's pick.
+    await expect(prose(win)).toContainText('Mara pushed the door open.')
+    await card.locator('[data-replace-rename]').check()
+
+    await card.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(card).toHaveAttribute('data-status', 'applied')
+    await expect(prose(win)).toContainText('Wren pushed the door open. Bram waited for Wren.')
+    await expect.poll(async () => (await invoke(win, 'getScene', ford.id)).text).toBe('At the ford Wren said nothing.')
+    await expect.poll(async () => (await invoke(win, 'getEntry', mara.id)).name).toBe('Wren')
+    await card.getByRole('button', { name: /^Undo this change/ }).click()
+    await expect(card).toHaveAttribute('data-status', 'pending')
+    await expect(prose(win)).toContainText('Mara pushed the door open. Bram waited for Mara.')
+    await expect.poll(async () => (await invoke(win, 'getScene', ford.id)).text).toBe('At the ford Mara said nothing.')
+    await expect.poll(async () => (await invoke(win, 'getEntry', mara.id)).name).toBe('Mara')
+
+    // Applied again, then undone with the other scene open: the closed scene comes back from its saved words.
+    await card.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(card).toHaveAttribute('data-status', 'applied')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('Bram waited for Wren.')
+    await binder(win).locator('[data-row]', { hasText: 'The Ford' }).first().click()
+    await expect(prose(win)).toContainText('At the ford Wren said nothing.')
+    await card.getByRole('button', { name: /^Undo this change/ }).click()
+    await expect(card).toHaveAttribute('data-status', 'pending')
+    await expect(prose(win)).toContainText('At the ford Mara said nothing.')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toBe('Mara pushed the door open. Bram waited for Mara.')
+  } finally {
+    await fake.close()
+  }
+})

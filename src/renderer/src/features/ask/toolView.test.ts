@@ -45,6 +45,15 @@ describe('a tool call’s words', () => {
     expect(toolPhrase(find({ status: 'failed' }))).toBe('Tried to find “oil lamp”')
   })
 
+  it('says what the Phase 4 look-ups did (EXTRATOOLS)', () => {
+    expect(toolPhrase(call({ kind: 'state', tool: 'scene_state', summary: '[12]' }))).toBe('Checked what’s true at [12]')
+    expect(toolPhrase(call({ kind: 'state', tool: 'scene_state', summary: 'the end of Ch 1, Sc 2 “The Ford”' }))).toBe('Checked what’s true at the end of Ch 1, Sc 2 “The Ford”')
+    expect(runningPhrase(call({ kind: 'state', tool: 'scene_state', summary: '[3]', status: 'running' }))).toBe('Checking what’s true at [3]')
+    expect(toolPhrase(call({ kind: 'sofar', tool: 'story_so_far', summary: 'up to the open scene' }))).toBe('Read the story so far, up to the open scene')
+    expect(toolPhrase(call({ kind: 'compare', tool: 'compare_version', summary: 'Ch 1, Sc 1 with “While writing”' }))).toBe('Compared Ch 1, Sc 1 with “While writing”')
+    expect(toolPhrase(call({ kind: 'compare', tool: 'compare_version', summary: 'Ch 1, Sc 1', status: 'failed' }))).toBe('Tried to compare Ch 1, Sc 1 with an earlier version')
+  })
+
   it('says what a call is doing while it runs, and what one that went wrong tried', () => {
     expect(runningPhrase(call({ status: 'running', summary: '' }))).toBe('Reading the scene')
     expect(toolPhrase(call({ kind: 'propose', tool: 'propose_changes', status: 'running' }))).toBe('Proposing changes')

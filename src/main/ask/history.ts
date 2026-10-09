@@ -78,6 +78,9 @@ export function proposalLine(p: Proposal): string {
         return `[${p.chapterLabel}] chapter card: ${p.lines.map((l) => `${l.label} ${q(l.to)}`).join(', ') || 'no parts'}${p.scenes ? ` (into ${p.scenes} scene card${p.scenes === 1 ? '' : 's'})` : ''}`
       case 'thread':
         return `[${p.sceneLabel}] thread ${q(p.name)}${p.threadId ? '' : ' (new)'}: ${p.action} (${p.list === 'paysOff' ? 'pays off' : 'sets up'})${p.note ? ` ${q(p.note)}` : ''}`
+      case 'replaceAll':
+        // Phase 4 (EXTRATOOLS): every place the words stand, with how many when proposed and the entry renamed too.
+        return `${p.sceneLabel ? `[${p.sceneLabel}] ` : ''}replace all ${q(p.find)} → ${p.replace ? q(p.replace) : '(cut)'} (${p.count} in ${p.scenes} scene${p.scenes === 1 ? '' : 's'}${p.renameEntry && p.rename ? `, ${p.rename.name} renamed` : ''})`
       default:
         return `a ${(p as { kind: string }).kind} change`
     }
