@@ -1,9 +1,6 @@
-<!-- version: 0.6.43 -->
-What's new in 0.6.43:
+<!-- version: 0.6.44 -->
+What's new in 0.6.44:
 
 - First-time setup now offers read aloud's one-time voice download, or Later.
-- A new desk layout is the default, in a calm blue Dark theme. Panels stay in Settings.
-- Drawings that move gently on the start screen and empty pages.
-- Rebuilt World room, timeline, relationship map, plan board and AI planning pages.
-- A character builder that asks you questions first.
-- A new Check room and Ask, and faster rooms in long books.
+- Continue and the AI tools keep writing when you open another scene. Go back to see the words so far, still coming in.
+- Read aloud keeps reading when you open another scene. The highlight comes back when you return, and the bar takes you there.
