@@ -38,6 +38,7 @@
 //   fake/content-parts     sends its reply as lists of content parts (with a thinking part that isn't text)
 //   fake/finish-error-once stops with finish_reason "error" and no text on the first request, then a normal stream
 //   fake/stubborn          asked to fix an issue's words (Fix the text), sends them back unchanged every time (m4/edits.mjs)
+//   fake/critique-bad-json asked for a critique, answers the first time with words, not JSON (critique.mjs)
 //
 // Prompt caching, as Claude does it through OpenRouter: a message sent as content parts, some marked with
 // cache_control, keeps everything up to its last mark; sent again unchanged, that part is reported as
@@ -77,6 +78,7 @@ import { planReply } from './plan.mjs'
 import { askToolCalls } from './m4/ask.mjs'
 import { m5Reply } from './m5/index.mjs'
 import { recipeReply } from './recipes.mjs'
+import { critiqueReply } from './critique.mjs'
 import { repairReply } from './repair.mjs'
 
 /** How long fake/overthinker thinks, in tokens. */
@@ -489,6 +491,8 @@ export async function startFakeProvider(options = {}) {
     memory ??= continuityReply(system, firstUser)
     memory ??= repairReply(system, firstUser)
     memory ??= recipeReply(system, messages, model)
+    // The scene and chapter critic, answered by critique.mjs.
+    memory ??= critiqueReply(system, firstUser, model)
     let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.
     const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)

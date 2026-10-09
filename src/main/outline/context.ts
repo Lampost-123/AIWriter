@@ -189,7 +189,7 @@ export interface IdeasFacts {
 }
 
 /** The card's who, where and when (and anything else on it) in plain lines, with names for its ids. */
-function cardLines(card: SceneCard, name: (id: ID) => string): string {
+export function cardLines(card: SceneCard, name: (id: ID) => string): string {
   const lines: string[] = []
   const add = (label: string, v: string): void => {
     if (v.trim()) lines.push(`${label}: ${v.trim()}`)

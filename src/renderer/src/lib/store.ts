@@ -178,8 +178,11 @@ interface AppState {
   closeWorld(): void
 }
 
-/** 'sounds': the Sounds tab, shown while sound effects are on (features/sounds/SoundsPanel.tsx). */
-export type InspectorTab = 'card' | 'context' | 'drafts' | 'cast' | 'issues' | 'sounds'
+/**
+ * 'sounds': the Sounds tab, shown while sound effects are on (features/sounds/SoundsPanel.tsx). 'critique': the scene
+ * and chapter critic, beside Issues (features/critique/CritiquePanel.tsx).
+ */
+export type InspectorTab = 'card' | 'context' | 'drafts' | 'cast' | 'issues' | 'critique' | 'sounds'
 
 /**
  * Opens the story and scene Adam was last in. The last place anywhere (lastStoryId, lastSceneId)
