@@ -1,8 +1,8 @@
 // The desk's look guard (UI overhaul, D3.7): screenshots of the desk's writing room (the sheet, the whole story down the
 // spine, the margin's notes and the AI dock), the slim spine's flyout and the scene drawer beside the page, on the
-// sample world, in Light, Dark and Sepia, at 1920×1080, compared with baselines. Fonts render differently on each
-// system, so each platform has its own baselines (desk.visual.spec.ts-snapshots/*-win32.png, *-linux.png); where a
-// platform has none yet the pictures are skipped rather than failing (take them on purpose, below).
+// sample world, in Light, Dark and Sepia, at 1920×1080 and a display scale of 1, compared with Windows baselines
+// (desk.visual.spec.ts-snapshots/*-win32.png; CI runs on Windows too). Where there are none the pictures are skipped
+// rather than failing (take them on purpose, below).
 //
 // To take new baselines on purpose (when the desk is meant to change): npx playwright test desk.visual --update-snapshots
 import { existsSync } from 'node:fs'
@@ -46,7 +46,8 @@ for (const theme of ['light', 'dark', 'sepia'] as const) {
       !existsSync(join(SNAPSHOTS, `write-${theme}-${process.platform}.png`)) && !updating,
       `No ${process.platform} baselines for the desk yet (take them with --update-snapshots).`
     )
-    const { app, win } = await launch({ env: DESK })
+    // One display scale everywhere (Adam's PC is at 150%, CI at 100%), as classic.spec does.
+    const { app, win } = await launch({ env: DESK, args: ['--force-device-scale-factor=1'] })
     await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
     await invoke(win, 'openSampleWorld')
     await invoke(win, 'updateSettings', { theme, editor: { spellCheck: false } })
