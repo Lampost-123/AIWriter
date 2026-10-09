@@ -532,7 +532,7 @@ export interface UsageNotice {
  */
 export interface FirstRun {
   worldId: ID | null
-  step: 'world' | 'connect' | 'model' | 'style' | 'builder' | 'guide'
+  step: 'world' | 'connect' | 'model' | 'style' | 'voices' | 'builder' | 'guide'
   sceneId: ID | null
 }
 

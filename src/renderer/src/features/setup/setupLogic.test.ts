@@ -3,19 +3,61 @@
 import { describe, expect, it } from 'vitest'
 import type { ModelInfo } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
-import { cardFilled, guideStep, nextStep, previousStep, recommendWriter, stepNumber } from './setupLogic'
+import { cardFilled, guideStep, nextStep, previousStep, readAloudOffer, recommendWriter, stepNumber } from './setupLogic'
 
 const model = (id: string): ModelInfo => ({ id, name: id, contextLength: 200000, promptPrice: 0.000003, completionPrice: 0.000015 })
 
 describe('steps', () => {
   it('go in order, with no step before the first or after the last', () => {
     expect(stepNumber('world')).toBe(1)
-    expect(stepNumber('builder')).toBe(5)
+    expect(stepNumber('builder')).toBe(6)
     expect(nextStep('world')).toBe('connect')
-    expect(nextStep('style')).toBe('builder')
+    expect(nextStep('style')).toBe('voices')
+    expect(nextStep('voices')).toBe('builder')
     expect(nextStep('builder')).toBeNull()
+    expect(previousStep('builder')).toBe('voices')
     expect(previousStep('connect')).toBe('world')
     expect(previousStep('world')).toBeNull()
+  })
+})
+
+describe('readAloudOffer', () => {
+  const none = { server: false, voices: null, parakeet: false, whisper: false }
+  const facts = (more: Partial<Parameters<typeof readAloudOffer>[0]> = {}): Parameters<typeof readAloudOffer>[0] => ({
+    installed: none,
+    download: null,
+    queued: [],
+    nvidia: 'NVIDIA GeForce RTX 4090',
+    nvidiaMemoryMb: 24564,
+    nvidiaComputeCap: 8.9,
+    ...more
+  })
+
+  it('offers the download on a computer that can run it, or whose card is not known yet', () => {
+    expect(readAloudOffer(facts())).toEqual({ kind: 'offer' })
+    expect(readAloudOffer(facts({ nvidia: null, nvidiaMemoryMb: null, nvidiaComputeCap: null }))).toEqual({ kind: 'offer' })
+    // The voices are here already: the studio voices are still offered.
+    expect(readAloudOffer(facts({ installed: { ...none, voices: 'own' } }))).toEqual({ kind: 'offer' })
+  })
+
+  it('is ready when the voices and the studio voices are downloaded', () => {
+    expect(readAloudOffer(facts({ installed: { ...none, voices: 'own', studio: true }, nvidia: '' }))).toEqual({ kind: 'ready' })
+  })
+
+  it('says plainly when the graphics card cannot run the voices', () => {
+    expect(readAloudOffer(facts({ nvidia: '' }))).toEqual({
+      kind: 'cant-run',
+      why: 'No NVIDIA graphics card was found on this computer, so the voices would be far too slow here.'
+    })
+    expect(readAloudOffer(facts({ nvidia: 'NVIDIA GeForce GTX 1650', nvidiaMemoryMb: 4096, nvidiaComputeCap: 7.5 })).kind).toBe('cant-run')
+  })
+
+  it('shows a download already under way, waiting or stopped', () => {
+    const running = { kind: 'voices', state: 'running' } as unknown as NonNullable<Parameters<typeof readAloudOffer>[0]['download']>
+    expect(readAloudOffer(facts({ download: running, queued: ['studio'] }))).toEqual({ kind: 'downloading' })
+    expect(readAloudOffer(facts({ download: { ...running, state: 'failed' } as typeof running }))).toEqual({ kind: 'downloading' })
+    // Another download (dictation, say) is not this step's.
+    expect(readAloudOffer(facts({ download: { ...running, kind: 'parakeet' } as typeof running }))).toEqual({ kind: 'offer' })
   })
 })
 
