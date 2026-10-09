@@ -106,6 +106,7 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   accent: null,
   usage: { monthlyLimit: null, notice: null },
   startWith: 'start',
+  tourSeen: false,
   worldsSeenAt: {},
   look: 'new',
   lookNote: false,

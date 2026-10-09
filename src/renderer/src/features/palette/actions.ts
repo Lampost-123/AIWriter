@@ -53,6 +53,7 @@ import { setScope, startCritique } from '@/features/critique/critiqueStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
+import { startTour } from '@/features/tour/tourStore'
 import { openShortcuts, openWorldMenu, startRenamingWorld, usePalette } from './paletteStore'
 
 const app = useApp.getState
@@ -252,6 +253,9 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'shortcuts':
         openShortcuts()
+        return
+      case 'show-tour':
+        startTour()
         return
       case 'settings-models':
       case 'settings-preferences':

@@ -80,8 +80,10 @@ export function DeskTopBar(): React.JSX.Element {
         <div data-update-slot className="flex min-w-0 justify-end">
           <UpdateBanner />
         </div>
-        <KeeperStatus quiet />
-        <div className={cn('flex min-w-0 shrink justify-end', 'w-[240px] max-[1600px]:w-[150px] max-[1180px]:w-[104px]',
+        <span data-tour="keeper" className="contents">
+          <KeeperStatus quiet />
+        </span>
+        <div data-tour="command" className={cn('flex min-w-0 shrink justify-end', 'w-[240px] max-[1600px]:w-[150px] max-[1180px]:w-[104px]',
             // With Scene details beside it (the writing page), it narrows sooner, so the bar still fits.
             'group-has-[[data-drawer-toggle]]/bar:max-[1599px]:w-[64px]',
             'group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:w-9')}>

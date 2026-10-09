@@ -69,6 +69,7 @@ export type FixedActionId =
   | 'switch-world'
   | 'rename-world'
   | 'shortcuts'
+  | 'show-tour'
   // Milestone 4
   | 'variants'
   | 'beat-by-beat'
@@ -304,6 +305,7 @@ export const ACTIONS: ActionDef[] = [
   { id: 'switch-world', label: 'Switch to another world', keywords: 'open change worlds' },
   { id: 'rename-world', label: 'Rename this world', keywords: 'name title' },
   { id: 'shortcuts', label: 'Keyboard shortcuts', keywords: 'keys help hotkeys', shortcut: 'shortcuts' },
+  { id: 'show-tour', label: 'Show the tour', keywords: 'help guide walkthrough introduction learn onboarding' },
   // ----- Milestone 4 -----
   {
     id: 'variants',
