@@ -199,10 +199,10 @@ export async function openBeats(sceneId: ID, byKey: boolean): Promise<void> {
   // Gone to another scene in the meantime.
   if (useApp.getState().sceneId !== sceneId || editorBridge()?.sceneId !== sceneId) return
   if (!beats.length) return ask({ sceneId, kind: 'no-beats', byKey, from: 'button', beats })
-  // The scene's session didn't Finish (the app closed, another scene's session came first...): its bar comes back as it
-  // was, wherever it had got to, rather than asking where a new draft goes.
+  // The scene's session didn't Finish (the app closed, another scene's session came first...) or was left for the AI bar
+  // (Back to the AI bar): its bar comes back as it was, wherever it had got to, rather than asking where a new draft goes.
   const page = editorBridge()?.editor?.state.doc
-  if (kept?.open && page && resumePoint(page, kept, beats.length)) {
+  if ((kept?.open || kept?.left) && page && resumePoint(page, kept, beats.length)) {
     if (await resumeBeats(sceneId, { beats })) return
     if (useApp.getState().sceneId !== sceneId || editorBridge()?.sceneId !== sceneId) return
   }
@@ -383,13 +383,23 @@ export function finish(): void {
 }
 
 /**
- * Ends the session. The text stays. `how`: Adam finished it, or the scene got new text in place of the beats
- * (Generate, the whole scene replaced), so its kept marks say it is over; or it gave way to another world or another
- * scene's session ('elsewhere'), and its marks stay open, so opening the scene again carries it on (resumeBeats).
+ * Back to the AI bar: the session ends with its beats kept, so Beat by beat from the AI bar's More menu carries on from
+ * the beat it got to (no question). Not Finished, so the scene doesn't carry it on by itself. The keyboard goes back into the page.
  */
-function end(how: 'finish' | 'replaced' | 'elsewhere'): void {
+export function leave(): void {
+  end('left')
+  requestAnimationFrame(() => editorBridge()?.takeKeyboard())
+}
+
+/**
+ * Ends the session. The text stays. `how`: Adam finished it, or left it for the AI bar ('left': its marks are kept as
+ * left), or the scene got new text in place of the beats (Generate, the whole scene replaced), so its kept marks say it
+ * is over; or it gave way to another world or another scene's session ('elsewhere'), and its marks stay open, so opening
+ * the scene again carries it on (resumeBeats).
+ */
+function end(how: 'finish' | 'left' | 'replaced' | 'elsewhere'): void {
   const s = useBeats.getState().session
-  if (s && how !== 'elsewhere') closeMarks(s)
+  if (s && how !== 'elsewhere') closeMarks(s, how === 'left')
   const r = run
   run = null
   if (r) {
@@ -679,7 +689,7 @@ function sessionMarks(m: SceneBeatMarks | null, s: BeatSession): SceneBeatMarks 
   // Open while the session is on (until Finish), so a restart carries it on.
   return base.mode === s.mode && base.of === s.beats.length && base.open && base.start === start
     ? base
-    : { ...base, mode: s.mode, of: s.beats.length, open: true, start }
+    : { ...base, mode: s.mode, of: s.beats.length, open: true, left: false, start }
 }
 
 /** Keeps the session with the scene as it is now (open), so the bar comes back after a restart wherever it had got to. */
@@ -688,9 +698,12 @@ function keepSession(): void {
   if (s) changeMarks(s.sceneId, (m) => sessionMarks(m, s))
 }
 
-/** The session is over (Finish, or new text in place of its beats): its kept marks stay for the markers, but closed. */
-function closeMarks(s: BeatSession): void {
-  changeMarks(s.sceneId, (m) => (m?.sessionId === s.id && m.open ? { ...m, open: false } : m))
+/**
+ * The session is over (Finish, left for the AI bar, or new text in place of its beats): its kept marks stay for the
+ * markers, but closed (and `left` when it was left, so it carries on from its beat with no question).
+ */
+function closeMarks(s: BeatSession, left: boolean): void {
+  changeMarks(s.sceneId, (m) => (m?.sessionId === s.id && m.open ? { ...m, open: false, left } : m))
 }
 
 /**

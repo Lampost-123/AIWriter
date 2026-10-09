@@ -44,6 +44,15 @@ describe('beat marks kept with the scene', () => {
     expect(cleanMarks('s1', { ...MARKS, open: 'yes' })).toEqual(MARKS)
   })
 
+  it('keeps a session left for the AI bar (not open, not finished), so Beat by beat carries on from it', () => {
+    const db = world()
+    saveBeatMarks(db, 's1', { ...MARKS, open: false, left: true })
+    expect(getBeatMarks(db, 's1')).toEqual({ ...MARKS, left: true })
+    saveBeatMarks(db, 's1', { ...MARKS, open: false, left: false })
+    expect(getBeatMarks(db, 's1')).toEqual(MARKS)
+    expect(cleanMarks('s1', { ...MARKS, open: true, left: true })).toEqual({ ...MARKS, open: true })
+  })
+
   it('forgets them with null, or with no beats', () => {
     const db = world()
     saveBeatMarks(db, 's1', MARKS)
