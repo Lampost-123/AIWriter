@@ -13,11 +13,6 @@ on:
 permissions:
   contents: read
 
-# onnxruntime-node (the search model's engine) would fetch its GPU files from NuGet on Linux at install, hundreds of MB
-# the app never uses (it runs on the CPU): skipped.
-env:
-  ONNXRUNTIME_NODE_INSTALL: skip
-
 # A newer push to the same pull request stops the older run. Runs on main are never
 # stopped, so every merge gets checked.
 concurrency:

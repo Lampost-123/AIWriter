@@ -120,9 +120,8 @@ test('opening AI Write again while it runs changes nothing and leaves a draft wr
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
     delete env.ELECTRON_RUN_AS_NODE
     env.AIWRITE_DATA_DIR = dataDir
-    const args = process.platform === 'linux' ? ['.', '--no-sandbox'] : ['.']
     const code = await new Promise<number | null>((resolve) => {
-      spawn(electronPath, args, { cwd: ROOT, env, stdio: 'ignore' }).once('exit', resolve)
+      spawn(electronPath, ['.'], { cwd: ROOT, env, stdio: 'ignore' }).once('exit', resolve)
     })
     expect(code).toBe(0)
     expect(statSync(settingsFile).mtimeMs).toBe(before)

@@ -64,8 +64,7 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
     { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off', AIWRITE_LOOK: 'classic', AIWRITE_BACKGROUND: background, AIWRITE_PLAN: 'off' },
     opts.env
   )
-  const args = process.platform === 'linux' ? ['.', '--no-sandbox'] : ['.']
-  const app = await electron.launch({ args, cwd: ROOT, env, timeout: 60_000 })
+  const app = await electron.launch({ args: ['.'], cwd: ROOT, env, timeout: 60_000 })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
   let closed = false
