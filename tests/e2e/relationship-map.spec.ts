@@ -290,12 +290,22 @@ test('Reset layout puts dragged characters back, and Undo moves them again', asy
   for (let i = 1; i <= 8; i++) await win.mouse.move(cx - i * 12, cy)
   await win.mouse.up()
   await expect(reset).toBeEnabled()
-  const dragged = (await ansel.boundingBox())!.x
+  // Where the drag left it, once its last frame has landed (on a slow machine the last moves are drawn a few frames
+  // after the mouse is let go; reading it at once caught it short of where it was kept).
+  let dragged = -1
+  await expect
+    .poll(async () => {
+      const was = dragged
+      dragged = (await ansel.boundingBox())!.x
+      return Math.abs(dragged - was)
+    })
+    .toBeLessThan(0.5)
   await reset.click()
   await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - b.x)).toBeLessThan(2)
   await expect(reset).toBeDisabled()
   await win.getByRole('button', { name: 'Undo' }).click()
-  await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - dragged)).toBeLessThan(2)
+  // (Within a few pixels: the place is kept in the map's own units and drawn back at the map's scale.)
+  await expect.poll(async () => Math.abs((await ansel.boundingBox())!.x - dragged)).toBeLessThan(3)
   await expect(reset).toBeEnabled()
 })
 

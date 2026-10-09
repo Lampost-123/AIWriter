@@ -477,7 +477,10 @@ test('with a draft being written, Esc on the Selected words bar or the floating 
 async function resize(app: ElectronApplication, win: Page, width: number, height: number): Promise<void> {
   await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, height])
   // Within a pixel: Windows' display scaling can round the window's size either way.
-  await expect.poll(async () => Math.abs(((await win.evaluate('window.innerWidth')) as number) - width)).toBeLessThanOrEqual(1)
+  // (A reload under way while it is asked, as when a model was just set, is asked again.)
+  await expect
+    .poll(async () => Math.abs(((await win.evaluate('window.innerWidth').catch(() => -1e6)) as number) - width))
+    .toBeLessThanOrEqual(1)
   // The panels follow the window straight away while it is resized, then settle.
   await win.waitForTimeout(400)
 }
