@@ -1,7 +1,7 @@
 # Read aloud and dictation
 
 Hearing your words read aloud is one of the best ways to catch a clumsy sentence. AI Write can read your scenes with
-a narrator and a different voice for each character. It can also type what you say, so you can draft by talking.
+a narrator and a different voice for each character, chosen from 96 studio voices recorded by real people. It can also type what you say, so you can draft by talking.
 
 The voices and dictation run on your own computer, so there's no cost per use. They are off until you turn them on,
 and each part downloads only when you ask for it. Everything here is in **Settings › Read aloud and dictation**.
@@ -51,8 +51,11 @@ The sentence being read is highlighted. With **Follow along** on, the page scrol
 
 - Turn on **Give characters their own voices**. Each character's lines are read in the voice set on their page in
   your world (**Read-aloud voice**). Other quoted lines use the **Quoted dialogue** voice.
+- Turn on **Read thoughts, messages and letters in the character’s voice**: a character's thoughts are read softly
+  in their voice, and the texts, chat messages and letters they write in their voice too. Signs, and words nobody
+  owns, stay with the narrator.
 - **Describe the narrator** in a few words to shape the narrator's voice.
-- **Studio voices** are 96 real voices recorded in a studio. Download them with **Download the studio voices**.
+- **Studio voices** are 96 real voices recorded in a studio, to give each character a voice of their own. Download them with **Download the studio voices**.
   Turn on **Act out feelings** and a character reads an angry, frightened or tender line from their own recording
   of that feeling.
 

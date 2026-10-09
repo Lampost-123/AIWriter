@@ -191,7 +191,8 @@ beside the words, so that doesn't happen.
 <tr>
 <td width="50%">
 
-- **Listen** reads your scene aloud (Ctrl+L), with a narrator and a voice for each character.
+- **Listen** reads your scene aloud (Ctrl+L), with a narrator and a voice for each character, from **96 studio voices** recorded by real people.
+- Characters' thoughts, texts, chat messages and letters are read in their own voice too.
 - Hold a key and talk: dictation types your words where the cursor is.
 - The voices and dictation run on your own computer, downloaded only when you ask for them. Nothing to pay per use.
 

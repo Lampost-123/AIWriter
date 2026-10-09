@@ -28,12 +28,12 @@ export function socialPage(root: string, theme: keyof typeof COLOURS = 'dark'): 
   const inter = font('inter-latin-wght-normal-')
   const icon = url(join(root, 'build', 'icon.png'))
   const img = (name: string): string => url(join(root, 'docs', 'images', `${name}.png`))
-  // A collage of the app's own screenshots (1440 x 900 each): the desk's Write room in front, four rooms around it, Ask over its corner.
+  // A collage of the app's own screenshots (1440 x 900 each): the desk's Write room in front, four rooms around it, the map and Ask over its lower corners.
   // Each panel: [picture, left, top, width, height, scale of the picture, crop x, crop y (in the picture's pixels), label (none where the picture shows its own title), z].
   const panels: [string, number, number, number, number, number, number, number, string, number][] = [
     ['world-gallery', 468, 34, 340, 214, 0.5, 372, 270, 'World', 1],
     ['story-board', 918, 26, 330, 212, 0.5, 318, 262, 'Plan', 1],
-    ['world-map', 452, 392, 330, 214, 0.42, 500, 330, 'Relationship map', 2],
+    ['world-map', 452, 392, 330, 214, 0.34, 365, 318, 'Relationship map', 4],
     ['ask', 1000, 404, 252, 204, 0.75, 1078, 66, '', 4],
     ['hero', 598, 150, 500, 330, 0.55, 476, 46, 'Write', 3]
   ]
@@ -49,7 +49,8 @@ body::before { content: ''; position: absolute; inset: 0; background: radial-gra
 .left { position: absolute; left: 56px; top: 0; bottom: 0; width: 372px; display: flex; flex-direction: column; justify-content: center; }
 .icon { width: 96px; height: 96px; margin-bottom: 24px; filter: drop-shadow(0 6px 14px rgb(0 0 0 / 0.3)); }
 h1 { font-family: 'Literata Variable', serif; font-weight: 600; font-size: 64px; line-height: 1; letter-spacing: -0.01em; margin: 0 0 20px; }
-.tag { font-size: 25px; line-height: 1.34; font-weight: 450; margin: 0 0 26px; color: ${c.fg}; }
+.tag { font-size: 25px; line-height: 1.34; font-weight: 450; margin: 0 0 16px; color: ${c.fg}; }
+.extra { font-size: 17px; line-height: 1.4; color: ${c.muted}; margin: 0 0 22px; }
 .small { font-size: 15px; color: ${c.muted}; font-weight: 500; white-space: nowrap; }
 .panel { position: absolute; border-radius: 14px; overflow: hidden; background-color: ${c.page}; background-repeat: no-repeat; box-shadow: ${c.shadow}; }
 .label { position: absolute; left: 10px; top: 10px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600;
@@ -59,6 +60,7 @@ h1 { font-family: 'Literata Variable', serif; font-weight: 600; font-size: 64px;
   <img class="icon" src="${icon}" alt="">
   <h1>AI Write</h1>
   <p class="tag">Write long stories with an AI that remembers your world.</p>
+  <p class="extra">Story memory, a story board, world cards, and read aloud in 96 studio voices.</p>
   <div class="small">Free for Windows · github.com/Lampost-123/AIWriter</div>
 </div>
 ${panels.map(panel).join('')}
