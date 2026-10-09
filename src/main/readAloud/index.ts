@@ -47,7 +47,7 @@ import type { WriterSpeaker } from '../ai/speakerTags'
 import { linesSpokenBy, paragraphsOfDoc } from './suggest'
 import { askVoice, voiceLater as queueVoices } from './autoVoice'
 import { listVoices } from './voices'
-import { castableCharacters, castFromStudio, castVoiceless, readStudioVoices } from './studio'
+import { castableCharacters, castFromStudio, castsByItself, castVoiceless, readStudioVoices } from './studio'
 import { writerBlocks } from './writerBlocks'
 import { castList, voicelessCharacters } from './castList'
 import { soundsForReading, soundsInBackground, soundsWorldClosing, stopSoundMarks } from '../sounds'
@@ -169,14 +169,16 @@ function castingFor(worldId: ID, cast: CastMember[], s: SpeechSettings): { caste
 }
 
 /**
- * The world's characters who speak in these clips (their lines, thoughts or messages) with no voice at all are given a
- * studio voice that fits them, saved on their page (studio.ts castVoiceless), so Adam sees it there and can change it.
- * True when anyone was given one: the cast is read again before planning.
+ * The world's characters who speak in these clips (their lines, thoughts or messages) with no voice of Adam's own (no
+ * voice at all, or only a description the AI wrote) are given a studio voice that fits them, saved on their page
+ * (studio.ts castVoiceless), so Adam sees it there and can change it. True when anyone was given one: the cast is read
+ * again before planning.
  */
 function castWhoSpeaks(db: Parameters<typeof castVoiceless>[0], s: SpeechSettings, cast: CastMember[], clips: readonly PlannedClip[]): boolean {
   if (!s.castVoices || s.studioVoices === false) return false
   const speaking = new Set(clips.map((c) => c.who))
-  const voiceless = cast.filter((c) => speaking.has(c.name) && !c.voice?.voice?.trim() && !c.voice?.design?.trim()).map((c) => c.id)
+  // castVoiceless leaves out a description of Adam's own.
+  const voiceless = cast.filter((c) => speaking.has(c.name) && !c.voice?.voice?.trim()).map((c) => c.id)
   if (!voiceless.length) return false
   const voices = readStudioVoices(studioVoicesDir())
   const given = castVoiceless(db, voices, s.narratorVoice, voiceless)
@@ -738,7 +740,7 @@ export function voiceLater(db: ReturnType<typeof world.db>, entryIds: ID[], opts
     live: () => world.maybeCurrentWorld()?.db === db,
     lines: (e) => linesFor(db, e),
     delayMs: opts.delayMs,
-    castAfter: (ids) => (speech().studioVoices ? castStudio(db, ids) : Promise.resolve([])),
+    castAfter: (ids) => (castsByItself(speech()) ? castStudio(db, ids, { byItself: true }) : Promise.resolve([])),
     onVoiced: (ids) => {
       // Their pages show the voice, and backups see the world changed.
       repo.touchWorld(db)
@@ -748,7 +750,7 @@ export function voiceLater(db: ReturnType<typeof world.db>, entryIds: ID[], opts
 }
 
 /** Gives these characters studio voices, when they are downloaded (studio.ts). Never throws; returns those given one. */
-async function castStudio(db: ReturnType<typeof world.db>, entryIds: ID[]): Promise<ID[]> {
+async function castStudio(db: ReturnType<typeof world.db>, entryIds: ID[], opts: { byItself?: boolean } = {}): Promise<ID[]> {
   const voices = readStudioVoices(studioVoicesDir())
   if (!voices.length) return []
   let model: JobModel | null = null
@@ -766,13 +768,36 @@ async function castStudio(db: ReturnType<typeof world.db>, entryIds: ID[]): Prom
       model,
       emit,
       onKeyRejected: model ? () => providers.markCheck(model.target.id, false) : undefined,
-      stopped: () => world.maybeCurrentWorld()?.db !== db
+      stopped: () => world.maybeCurrentWorld()?.db !== db,
+      byItself: opts.byItself
     },
     entryIds
   ).catch((e) => {
     console.warn('[read aloud] could not give studio voices', e)
     return []
   })
+}
+
+/**
+ * Every character in the open world with no voice of Adam's own is given a studio voice by the rules alone (no model
+ * call), all different and never the narrator's: when the studio voices finish downloading, and as a world opens with
+ * them here. A voice Adam picked or a description he wrote is left alone (studio.ts castByItself). Never throws.
+ */
+export function castWorldByItself(): void {
+  try {
+    const w = world.maybeCurrentWorld()
+    const s = speech()
+    if (!w || !castsByItself(s)) return
+    const voices = readStudioVoices(studioVoicesDir())
+    if (!voices.length) return
+    const ids = castableCharacters(w.db)
+    const given = castVoiceless(w.db, voices, s.narratorDescription.trim() ? '' : s.narratorVoice, ids)
+    if (!given.length) return
+    repo.touchWorld(w.db)
+    emit('memory:changed', { sceneId: null, entryIds: given })
+  } catch (e) {
+    console.warn('[read aloud] could not give the world studio voices', e)
+  }
 }
 
 /**

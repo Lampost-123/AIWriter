@@ -18,6 +18,11 @@ interface Stored {
    * "Auto" beside one while the character still has it. Older copies of the app leave it out; nothing else reads it.
    */
   auto?: Record<ID, string>
+  /**
+   * The descriptions the AI wrote on its own (autoVoice.ts), by entry id, while the character still has them as written:
+   * such a character can still be given a studio voice by itself. One Adam typed or changed is his, and never cast over.
+   */
+  autoDesign?: Record<ID, string>
 }
 
 export const emptyReadAloud = (): EntryReadAloud => ({ voice: { design: '', voice: '' }, say: '' })
@@ -60,24 +65,58 @@ export function autoVoicesOf(db: DB): Record<ID, string> {
   )
 }
 
+/** The descriptions the AI wrote that the characters still have as written, by entry id. */
+export function autoDesignsOf(db: DB): Record<ID, string> {
+  const auto = stored(db).autoDesign
+  if (!isRecord(auto)) return {}
+  const now = readAloudOf(db)
+  return Object.fromEntries(
+    Object.entries(auto).filter((e): e is [ID, string] => typeof e[1] === 'string' && !!e[1] && now[e[0]]?.voice.design === e[1])
+  )
+}
+
+/**
+ * True when a character's voice is Adam's own: one he picked from the list, or a description he typed or changed. A
+ * studio voice the app gave and a description the AI wrote are not.
+ */
+export function hasOwnVoice(db: DB, entryId: ID): boolean {
+  const v = getEntryReadAloud(db, entryId).voice
+  if (v.voice.trim() && autoVoicesOf(db)[entryId] !== v.voice) return true
+  return !!v.design.trim() && autoDesignsOf(db)[entryId] !== v.design
+}
+
 export function getEntryReadAloud(db: DB, entryId: ID): EntryReadAloud {
   return readAloudOf(db)[entryId] ?? emptyReadAloud()
 }
 
 /**
  * Saves one entry's voice and "Say it as"; an empty one is removed. Returns what was saved. `auto`: the app gave this
- * voice on its own (casting), so the Cast list can say so while they keep it.
+ * voice on its own (casting), so the Cast list can say so while they keep it. `autoDesign`: the AI wrote this
+ * description on its own (autoVoice.ts).
  */
-export function setEntryReadAloud(db: DB, entryId: ID, value: unknown, opts: { auto?: boolean } = {}): EntryReadAloud {
+export function setEntryReadAloud(
+  db: DB,
+  entryId: ID,
+  value: unknown,
+  opts: { auto?: boolean; autoDesign?: boolean } = {}
+): EntryReadAloud {
   repo.getEntry(db, entryId) // A plain-words error when the page has gone.
   const clean = cleanReadAloud(value)
   const all = readAloudOf(db)
   const auto = autoVoicesOf(db)
+  const autoDesign = autoDesignsOf(db)
   if (isEmpty(clean)) delete all[entryId]
   else all[entryId] = clean
   if (opts.auto && clean.voice.voice) auto[entryId] = clean.voice.voice
   else if (auto[entryId] !== clean.voice.voice) delete auto[entryId]
-  const next: Stored = { v: 1, entries: all, ...(Object.keys(auto).length ? { auto } : {}) }
+  if (opts.autoDesign && clean.voice.design) autoDesign[entryId] = clean.voice.design
+  else if (autoDesign[entryId] !== clean.voice.design) delete autoDesign[entryId]
+  const next: Stored = {
+    v: 1,
+    entries: all,
+    ...(Object.keys(auto).length ? { auto } : {}),
+    ...(Object.keys(autoDesign).length ? { autoDesign } : {})
+  }
   repo.setMeta(db, META_KEY, JSON.stringify(next))
   return clean
 }

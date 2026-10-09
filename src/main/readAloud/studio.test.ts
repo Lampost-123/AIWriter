@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ageHint, genderOf, pickVoices, readCasting, readStudioVoices, studioClip, studioIdOf, type StudioVoice } from './studio'
+import { ageFieldBand, ageHint, castingPrompt, genderOf, pickVoices, readCasting, readStudioVoices, studioClip, studioIdOf, type StudioVoice } from './studio'
 
 const voices: StudioVoice[] = [
   { id: 'p001', gender: 'female', age: '18-25', pitch: 'high', name: 'Clara' },
@@ -59,5 +59,36 @@ describe('casting', () => {
   it('reads the model’s reply leniently', () => {
     expect(readCasting('Here you go: {"Mara": "p001", "Tom": 3}')).toEqual({ Mara: 'p001' })
     expect(readCasting('no idea')).toEqual({})
+  })
+})
+
+describe('ages', () => {
+  it('reads an Age field as a band: a number, a decade, or words; under 18 the youngest, over 75 the oldest', () => {
+    expect(ageFieldBand('34')).toBe('26-35')
+    expect(ageFieldBand('34 years old')).toBe('26-35')
+    expect(ageFieldBand('mid-30s')).toBe('26-35')
+    expect(ageFieldBand('mid-50s')).toBe('46-55')
+    expect(ageFieldBand('early twenties')).toBe('18-25')
+    expect(ageFieldBand('late forties')).toBe('46-55')
+    expect(ageFieldBand('12')).toBe('18-25')
+    expect(ageFieldBand('child')).toBe('18-25')
+    expect(ageFieldBand('91')).toBe('66-75')
+    expect(ageFieldBand('')).toBeNull()
+    expect(ageFieldBand('unknown')).toBeNull()
+  })
+
+  it('finds an age in the words only when it is said as one, and the Age field wins over them', () => {
+    expect(ageHint('a 34-year-old courier')).toBe('26-35')
+    expect(ageHint('aged 60, and still rowing')).toBe('56-65')
+    expect(ageHint('she has 3 brothers')).toBeNull()
+    const need = { id: 'a', name: 'Wren', gender: 'female' as const, about: 'An elderly woman', age: '18-25' }
+    expect(pickVoices([need], voices, new Set())).toEqual({ a: 'p001' })
+  })
+
+  it('tells the casting model the gender and age band it knows, and reads a Sex field', () => {
+    const [, user] = castingPrompt([{ id: 'a', name: 'Wren', gender: 'female', about: 'A courier.', age: '26-35' }], voices)
+    expect(user!.content).toContain('- Wren (female, 26-35): A courier.')
+    expect(genderOf('', 'A man', 'Female')).toBe('female')
+    expect(genderOf('she/her', '', 'M')).toBe('male')
   })
 })

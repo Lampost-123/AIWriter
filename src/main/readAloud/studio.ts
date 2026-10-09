@@ -11,12 +11,12 @@
 import type Database from 'better-sqlite3'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ChatMessage, Entry, ID } from '@shared/types'
+import type { ChatMessage, Entry, ID, SpeechSettings } from '@shared/types'
 import * as repo from '../db/repo'
 import { runTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import { newId } from '../util'
-import { getEntryReadAloud, readAloudOf, setEntryReadAloud } from './voiceStore'
+import { getEntryReadAloud, hasOwnVoice, readAloudOf, setEntryReadAloud } from './voiceStore'
 
 type DB = Database.Database
 
@@ -68,13 +68,43 @@ const describeVoice = (v: StudioVoice): string => `${v.id}: ${v.gender === 'fema
 /** The age band a description suggests, as the library's bands go, or null. */
 export function ageHint(text: string): string | null {
   const t = text.toLowerCase()
-  if (/\b(elderly|old (?:man|woman|lady)|grand(?:mother|father|ma|pa)|seventies|eighties|aged)\b/.test(t)) return '66-75'
-  if (/\b(sixties|older|retired|veteran|grey-haired|gray-haired)\b/.test(t)) return '56-65'
-  if (/\b(fifties|middle-aged)\b/.test(t)) return '46-55'
-  if (/\b(forties)\b/.test(t)) return '36-45'
-  if (/\b(thirties)\b/.test(t)) return '26-35'
-  if (/\b(teen\w*|student|young|youth|girl|boy|twenties|college)\b/.test(t)) return '18-25'
+  // A number first: "34 years old", "a 34-year-old", "aged 60", "age 52".
+  const years = t.match(/\b(\d{1,3})[- ]?(?:years?|yrs?)[- ]?old\b/) ?? t.match(/\bage[ds]?:? (\d{1,3})\b/)
+  if (years) return bandOfYears(Number(years[1]))
+  const decade = decadeYears(t)
+  if (decade !== null) return bandOfYears(decade)
+  if (/\b(elderly|old (?:man|woman|lady)|grand(?:mother|father|ma|pa)|aged)\b/.test(t)) return '66-75'
+  if (/\b(older|retired|veteran|grey-haired|gray-haired)\b/.test(t)) return '56-65'
+  if (/\b(middle-aged)\b/.test(t)) return '46-55'
+  if (/\b(child|children|kid|teen\w*|student|young|youth|girl|boy|college)\b/.test(t)) return '18-25'
   return null
+}
+
+/** A character's Age field as an age band: "34", "34 years old", "mid-30s", "early twenties", "child"; null when unclear. */
+export function ageFieldBand(field: string): string | null {
+  const t = field.trim().toLowerCase()
+  if (!t) return null
+  const bare = t.match(/^(?:about |around |roughly |~)?(\d{1,3})\+?$/)
+  if (bare) return bandOfYears(Number(bare[1]))
+  return ageHint(t)
+}
+
+const DECADES: Record<string, number> = { twenties: 20, thirties: 30, forties: 40, fifties: 50, sixties: 60, seventies: 70, eighties: 80, nineties: 90 }
+
+/** "mid-30s", "late forties", "in her 50s": the age it suggests (early 2, mid or none 5, late 8 into the decade). */
+function decadeYears(t: string): number | null {
+  const m = t.match(/\b(?:(early|mid|late)[- ])?(?:(\d)0'?s|(twenties|thirties|forties|fifties|sixties|seventies|eighties|nineties))\b/)
+  if (!m) return null
+  const base = m[2] ? Number(m[2]) * 10 : DECADES[m[3]!]!
+  if (base < 20) return null
+  return base + (m[1] === 'early' ? 2 : m[1] === 'late' ? 8 : 5)
+}
+
+/** An age in years as the library's band: under 26 the youngest (there are no children's voices), over 65 the oldest. */
+function bandOfYears(n: number): string {
+  if (n <= 25) return '18-25'
+  if (n >= 66) return '66-75'
+  return BANDS[Math.min(BANDS.length - 1, Math.floor((n - 26) / 10) + 1)]!
 }
 
 const BANDS = ['18-25', '26-35', '36-45', '46-55', '56-65', '66-75']
@@ -84,8 +114,14 @@ const bandGap = (a: string, b: string): number => {
   return i < 0 || j < 0 ? 2 : Math.abs(i - j)
 }
 
-/** A character's gender for casting: their pronouns, else how their voice or page describes them; null when unsure. */
-export function genderOf(pronouns: string, words: string): 'male' | 'female' | null {
+/**
+ * A character's gender for casting: a Sex or Gender field when their page has one, else their pronouns, else how their
+ * voice or page describes them; null when unsure.
+ */
+export function genderOf(pronouns: string, words: string, field = ''): 'male' | 'female' | null {
+  const f = field.trim().toLowerCase()
+  if (/^(f|female|woman|girl|she\b)/.test(f)) return 'female'
+  if (/^(m|male|man|boy|he\b)/.test(f)) return 'male'
   const p = pronouns.toLowerCase()
   if (/\bshe\b|\bher\b/.test(p)) return 'female'
   if (/\bhe\b|\bhim\b/.test(p)) return 'male'
@@ -101,6 +137,8 @@ export interface CastingNeed {
   gender: 'male' | 'female' | null
   /** What is known of them: their voice's description, their one line, their page. */
   about: string
+  /** Their age band from their Age field, which wins over what the words suggest; null or absent when it doesn't say. */
+  age?: string | null
 }
 
 /**
@@ -123,7 +161,7 @@ export function pickVoices(
       taken.add(offered.id)
       continue
     }
-    const age = ageHint(need.about)
+    const age = need.age ?? ageHint(need.about)
     const pitch = /\b(deep|low|gravel\w*|baritone|bass|husky|rumbl\w*)\b/i.test(need.about)
       ? 'low'
       : /\b(high|light|bright|thin|squeak\w*|piping)\b/i.test(need.about)
@@ -154,7 +192,7 @@ export function castingPrompt(needs: CastingNeed[], voices: StudioVoice[]): Chat
       content: [
         'CHARACTERS:',
         ...needs.map(
-          (n) => `- ${n.name}${n.gender ? ` (${n.gender})` : ''}${n.about ? `: ${n.about.replace(/\s+/g, ' ').slice(0, 200)}` : ''}`
+          (n) => `- ${n.name}${castingFacts(n)}${n.about ? `: ${n.about.replace(/\s+/g, ' ').slice(0, 200)}` : ''}`
         ),
         '',
         'VOICES:',
@@ -162,6 +200,12 @@ export function castingPrompt(needs: CastingNeed[], voices: StudioVoice[]): Chat
       ].join('\n')
     }
   ]
+}
+
+/** " (female, 26-35)": what is known for sure of a character's gender and age band, for the casting model. */
+function castingFacts(n: CastingNeed): string {
+  const facts = [n.gender, n.age ?? ageHint(n.about)].filter(Boolean)
+  return facts.length ? ` (${facts.join(', ')})` : ''
 }
 
 /** The model's picks, read leniently: the first JSON object in the reply, its string values only. */
@@ -186,7 +230,14 @@ function needOf(db: DB, e: Entry): CastingNeed {
   ]
     .filter(Boolean)
     .join(' ')
-  return { id: e.id, name: e.name, gender: genderOf(e.fields.pronouns ?? '', `${design} ${e.summary} ${e.description}`), about }
+  const sex = e.fields.sex ?? e.fields.gender ?? ''
+  return {
+    id: e.id,
+    name: e.name,
+    gender: genderOf(e.fields.pronouns ?? '', `${design} ${e.summary} ${e.description}`, sex),
+    about,
+    age: ageFieldBand(e.fields.age ?? '')
+  }
 }
 
 /** The studio voices the world's characters (and the narrator) have now, so no one else is given them. */
@@ -216,11 +267,24 @@ export interface CastOptions {
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
+  /** Only characters with no voice of Adam's own (castByItself): those after the AI made them. */
+  byItself?: boolean
 }
+
+/** "Give characters their own voices" and "Studio voices" are both on: the app may give studio voices by itself. */
+export const castsByItself = (s: Pick<SpeechSettings, 'castVoices' | 'studioVoices'>): boolean => !!s.castVoices && s.studioVoices !== false
 
 /** A character who can be given a studio voice: a character with no voice picked from the list. */
 function castable(db: DB, e: Entry): boolean {
   return e.kind === 'character' && !getEntryReadAloud(db, e.id).voice.voice.trim()
+}
+
+/**
+ * A character the app may give a studio voice by itself: no voice from the list, and no description of Adam's own (none
+ * at all, or one the AI wrote, which is kept underneath). A voice Adam picked or a description he wrote is never cast over.
+ */
+export function castByItself(db: DB, e: Pick<Entry, 'id' | 'kind'>): boolean {
+  return e.kind === 'character' && !getEntryReadAloud(db, e.id).voice.voice.trim() && !hasOwnVoice(db, e.id)
 }
 
 /**
@@ -232,7 +296,7 @@ export async function castFromStudio(o: CastOptions, entryIds: ID[]): Promise<ID
   if (!o.voices.length || !entryIds.length) return []
   let characters: Entry[]
   try {
-    characters = repo.getEntries(o.db, [...new Set(entryIds)]).filter((e) => castable(o.db, e))
+    characters = repo.getEntries(o.db, [...new Set(entryIds)]).filter((e) => (o.byItself ? castByItself : castable)(o.db, e))
   } catch (e) {
     console.warn('Could not find the characters to give studio voices', e)
     return []
@@ -276,8 +340,8 @@ export async function castFromStudio(o: CastOptions, entryIds: ID[]): Promise<ID
     try {
       if (!repo.getEntries(o.db, [e.id]).length) continue
       const now = getEntryReadAloud(o.db, e.id)
-      // Picked meanwhile: theirs stays.
-      if (now.voice.voice.trim()) continue
+      // Picked meanwhile (or, casting by itself, described by Adam meanwhile): theirs stays.
+      if (now.voice.voice.trim() || (o.byItself && hasOwnVoice(o.db, e.id))) continue
       setEntryReadAloud(o.db, e.id, { ...now, voice: { design: now.voice.design, voice: studioClip(id) } }, { auto: true })
       cast.push(e.id)
     } catch (err) {
@@ -296,8 +360,9 @@ export function castableCharacters(db: DB): ID[] {
 }
 
 /**
- * Reading aloud's own casting, as it reads: these characters, the ones with no voice at all (none picked from the
- * list and no description), are given a studio voice by the rules alone (`castFromStudio` with no model, at once),
+ * Reading aloud's own casting, as it reads (and over the whole world once the studio voices are here): these
+ * characters, the ones with no voice of Adam's own (none picked from the list, and no description or only one the AI
+ * wrote: castByItself), are given a studio voice by the rules alone (`castFromStudio` with no model, at once),
  * saved on their page so Adam sees it there and can change it. All different from each other and from the ones the
  * rest of the world has, and never the narrator's. Returns the characters given one. Never throws.
  */
@@ -306,7 +371,7 @@ export function castVoiceless(db: DB, voices: StudioVoice[], narrator: string, e
   try {
     const characters = repo
       .getEntries(db, [...new Set(entryIds)])
-      .filter((e) => castable(db, e) && !getEntryReadAloud(db, e.id).voice.design.trim())
+      .filter((e) => castByItself(db, e))
     if (!characters.length) return []
     const picks = pickVoices(
       characters.map((e) => needOf(db, e)),
