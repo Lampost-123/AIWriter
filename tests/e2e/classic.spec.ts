@@ -41,8 +41,8 @@ const shot = async (win: Page, name: string): Promise<void> => {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Classic stays as it was: the main screens in ${theme}`, async ({ launch }) => {
-    const { app, win } = await launch()
-    // One window size everywhere, whatever the screen.
+    // One window size and one display scale everywhere, whatever the screen (Adam's PC is at 150%, CI at 100%).
+    const { app, win } = await launch({ args: ['--force-device-scale-factor=1'] })
     await app.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0]
       w.unmaximize()

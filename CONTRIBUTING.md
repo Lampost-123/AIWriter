@@ -79,8 +79,8 @@ rules below in more detail.
 - Add or update unit tests next to the logic you change (`*.test.ts`).
 - If you change something on screen, run the app tests that cover it. Locally, running the unit tests plus the
   affected Playwright specs is enough; CI runs the full suite on your pull request.
-- CI runs the typecheck, the unit tests (on Linux and Windows), the app tests in four shards, and builds the
-  Windows installer. Everything must be green.
+- CI runs everything on Windows (the app is Windows only): the typecheck, the unit tests, the app tests in four
+  shards, and the Windows installer build. Everything must be green.
 
 ## Pull requests
 
