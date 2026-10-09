@@ -52,14 +52,8 @@ export type Activity =
   | { kind: 'beats' }
 
 export function activityOf(i: ActivityInput): Activity {
-  // Beat by beat has the foot of the page while it is on (its bar says what it is doing).
-  if (i.beats) return { kind: 'beats' }
-  const d = i.draft
-  if (d.phase === 'starting') return { kind: 'starting', what: 'draft', memory: i.memoryReading }
-  if (d.phase === 'streaming' || d.phase === 'stopping') {
-    return { kind: 'writing', what: 'draft', words: Math.max(0, d.written ?? 0), target: d.target, retrying: d.retrying, stopping: d.phase === 'stopping' }
-  }
-  if (i.polish.running) return { kind: 'polishing', stopping: i.polish.stopping }
+  // A change waiting in the page (a fix, an AI edit, an earlier beat written again) has the dock, even while Beat by beat
+  // is on: its bar steps aside until the change is accepted or rejected, so it never covers Accept.
   const c = i.change
   if (c) {
     const words = countWords(c.text)
@@ -69,6 +63,14 @@ export function activityOf(i: ActivityInput): Activity {
     }
     return { kind: 'review', what: c.tool, label: c.label || TOOL_NAMES[c.tool], words, accepting: c.status === 'accepting' }
   }
+  // Beat by beat has the foot of the page while it is on (its bar says what it is doing).
+  if (i.beats) return { kind: 'beats' }
+  const d = i.draft
+  if (d.phase === 'starting') return { kind: 'starting', what: 'draft', memory: i.memoryReading }
+  if (d.phase === 'streaming' || d.phase === 'stopping') {
+    return { kind: 'writing', what: 'draft', words: Math.max(0, d.written ?? 0), target: d.target, retrying: d.retrying, stopping: d.phase === 'stopping' }
+  }
+  if (i.polish.running) return { kind: 'polishing', stopping: i.polish.stopping }
   return { kind: 'idle' }
 }
 

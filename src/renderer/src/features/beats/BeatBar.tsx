@@ -7,13 +7,14 @@
 // leads to a beat being written out of sight below.
 import * as P from '@radix-ui/react-popover'
 import { ArrowDown, Check, FileSearch, ListOrdered, RotateCcw, Sparkles, Square } from '@/components/ui/icons'
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import type { ID } from '@shared/types'
 import { Button, Textarea, useToastsAbove } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
+import { suggestionsOf } from '@/features/edits/suggestions'
 import { useDelayed } from '@/features/generate/parts'
 import {
   clearHeight,
@@ -61,7 +62,25 @@ export function BeatBar({ sceneId }: { sceneId: ID }): React.JSX.Element | null 
       clearTimeout(timer)
     }
   }, [sceneId, anyOn])
-  return session ? <Bar session={session} /> : null
+  // A change waits in the page (a fix, an AI edit): the bar steps aside so it never covers Accept, and comes back after.
+  const changing = useChangeWaiting(sceneId)
+  return session && !changing ? <Bar session={session} /> : null
+}
+
+/** A change (features/edits) is on the scene's page, being written or waiting for Accept or Reject. */
+function useChangeWaiting(sceneId: ID): boolean {
+  const ed = editorBridge()?.sceneId === sceneId ? editorBridge()?.editor : null
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (!ed) return () => undefined
+      ed.on('transaction', onChange)
+      return () => {
+        ed.off('transaction', onChange)
+      }
+    },
+    [ed]
+  )
+  return useSyncExternalStore(subscribe, () => !!ed && !ed.isDestroyed && suggestionsOf(ed.state).active?.sceneId === sceneId)
 }
 
 /** How far the session has got, one mark a beat: written, being written (or stopped part-way), still to come. */
