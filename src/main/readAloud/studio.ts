@@ -278,7 +278,7 @@ export async function castFromStudio(o: CastOptions, entryIds: ID[]): Promise<ID
       const now = getEntryReadAloud(o.db, e.id)
       // Picked meanwhile: theirs stays.
       if (now.voice.voice.trim()) continue
-      setEntryReadAloud(o.db, e.id, { ...now, voice: { design: now.voice.design, voice: studioClip(id) } })
+      setEntryReadAloud(o.db, e.id, { ...now, voice: { design: now.voice.design, voice: studioClip(id) } }, { auto: true })
       cast.push(e.id)
     } catch (err) {
       console.warn('Could not save a studio voice', err)
@@ -293,4 +293,37 @@ export function castableCharacters(db: DB): ID[] {
     .listEntries(db, 'character')
     .filter((e) => castable(db, e))
     .map((e) => e.id)
+}
+
+/**
+ * Reading aloud's own casting, as it reads: these characters, the ones with no voice at all (none picked from the
+ * list and no description), are given a studio voice by the rules alone (`castFromStudio` with no model, at once),
+ * saved on their page so Adam sees it there and can change it. All different from each other and from the ones the
+ * rest of the world has, and never the narrator's. Returns the characters given one. Never throws.
+ */
+export function castVoiceless(db: DB, voices: StudioVoice[], narrator: string, entryIds: ID[]): ID[] {
+  if (!voices.length || !entryIds.length || !db.open) return []
+  try {
+    const characters = repo
+      .getEntries(db, [...new Set(entryIds)])
+      .filter((e) => castable(db, e) && !getEntryReadAloud(db, e.id).voice.design.trim())
+    if (!characters.length) return []
+    const picks = pickVoices(
+      characters.map((e) => needOf(db, e)),
+      voices,
+      voicesInUse(db, new Set(characters.map((e) => e.id)), narrator)
+    )
+    const cast: ID[] = []
+    for (const e of characters) {
+      const id = picks[e.id]
+      if (!id) continue
+      const now = getEntryReadAloud(db, e.id)
+      setEntryReadAloud(db, e.id, { ...now, voice: { design: now.voice.design, voice: studioClip(id) } }, { auto: true })
+      cast.push(e.id)
+    }
+    return cast
+  } catch (e) {
+    console.warn('Could not give the characters studio voices', e)
+    return []
+  }
 }

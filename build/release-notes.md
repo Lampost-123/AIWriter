@@ -1,5 +1,7 @@
-<!-- version: 0.6.37 -->
-What's new in 0.6.37:
+<!-- version: 0.6.39 -->
+What's new in 0.6.39:
 
-- Beat by beat carries on where you left off. After a restart, another world or another scene, open the scene and it picks up again, or Beat by beat offers "Carry on from beat N of M".
-- A first beat that brings nothing no longer stalls the bar. You can write the next beat, and What the AI saw shows what was tried.
+- Setting a character's read-aloud voice is easy to find: it sits near the top of their page, even with read aloud off.
+- A Cast list in Settings > Read aloud shows every character's voice, with Hear, a voice picker and Open page.
+- Give everyone without a voice a voice in one click, with Undo.
+- Click a speaker's name in Show speakers and tone, or in the reading bar, to set their voice.

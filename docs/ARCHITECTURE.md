@@ -1711,6 +1711,11 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
   early steps' directions plant facts (boots off, Ash gone out, the door locked, the case put down, lying down, a cut
   hand) and every later step is checked against each one still in force, plus facts from chapters back. A change shown
   on the page ends a plant. `--rescore` scores a saved run again with today's checks, with no model.
+- **The prose check** (Adam, 2026-10-08): how the AI writes, measured per passage with no extra model call
+  (`prose.ts`: length against the words asked, recap, echoes of earlier steps, sample lines of dialogue copied from
+  the writer's prompt, stock tics, closing the scene off, "and" density, a card beat done again), plus a 1 to 5 rubric
+  folded into the judge's usual call (voices, subtext, direction, ending). A Prose section in the report, in
+  `--compare` and in `--rescore`.
 - **Probes v2** (Adam, 2026-10-07, after round 3 left most checks "not touched" and counted mentions as slips): each
   probe is aimed at its traps the way Adam would aim a draft (a direction, a beat's note, the card's beats for
   Continue) without saying what is true; a mention is no longer a slip (riding needs a riding verb with the horse as

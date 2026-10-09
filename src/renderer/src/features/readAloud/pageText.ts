@@ -13,7 +13,7 @@ export interface PageParagraph extends ReadParagraph {
 /** Every paragraph with an id, in reading order (paragraphs in a quoted passage too). */
 export function pageParagraphs(doc: PMNode): PageParagraph[] {
   const out: PageParagraph[] = []
-  doc.descendants((node, pos) => {
+  doc.descendants((node, pos, parent) => {
     if (!node.isTextblock) return true
     const pid = node.attrs.pid as string | null | undefined
     if (!pid) return false
@@ -29,7 +29,7 @@ export function pageParagraphs(doc: PMNode): PageParagraph[] {
         else italics.push([at, text.length])
       }
     })
-    out.push({ pid, pos, text, italics })
+    out.push({ pid, pos, text, italics, ...(parent?.type.name === 'blockquote' ? { block: 'quote' as const } : {}) })
     return false
   })
   return out
@@ -68,5 +68,6 @@ export function wordStart(text: string, offset: number): number {
 export const forPlan = (p: PageParagraph): ReadParagraph => ({
   pid: p.pid,
   text: p.text,
-  ...(p.italics.length ? { italics: p.italics } : {})
+  ...(p.italics.length ? { italics: p.italics } : {}),
+  ...(p.block ? { block: p.block } : {})
 })

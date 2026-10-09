@@ -21,6 +21,7 @@ import { sceneAfter } from './nextScene'
 import { hasWords, pageParagraphs, placeOf, posIn, wordStart } from './pageText'
 import { Session, type ReadingBar } from './session'
 import { HOW_IT_READS } from './tone'
+import { CAST_SECTION } from './voiceReveal'
 import { onSampleStart, stopSample } from './useSample'
 
 export type { ReadingAt, ReadingBar, ReadingPhase } from './session'
@@ -268,6 +269,14 @@ export function openSpeechSettings(): void {
   useApp.getState().navigate({ kind: 'settings', tab: 'speech' })
 }
 
+/** Settings › Read aloud and dictation open at the Cast: every character and their voice (the page scrolls to it). */
+export function openCastSettings(): void {
+  reveal = CAST_SECTION
+  const a = useApp.getState()
+  if (a.home) a.leaveHome()
+  a.navigate({ kind: 'settings', tab: 'speech' })
+}
+
 /** Settings › Read aloud and dictation open at How it reads (More opens, and the page scrolls to it). */
 export function openHowItReads(): void {
   reveal = HOW_IT_READS
@@ -374,6 +383,7 @@ function watch(): void {
       (speech.markSpeakers !== was.markSpeakers ||
         speech.sounds !== was.sounds ||
         speech.steadyNarrator !== was.steadyNarrator ||
+        speech.voicedLines !== was.voicedLines ||
         speech.soundEffects !== was.soundEffects)
     )
       session?.settingsChanged()

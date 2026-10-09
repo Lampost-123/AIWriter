@@ -467,7 +467,13 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
             label="Give characters their own voices"
             checked={speech.castVoices}
             onChange={(castVoices) => void save({ castVoices })}
-            description="Each character’s lines are read in the voice on their page in the world (Read-aloud voice). Off, everyone is read in the dialogue voice."
+            description="Each character’s lines are read in the voice on their page in the world (Read-aloud voice). With the studio voices downloaded, a character who has no voice yet is given one that fits them as they first speak, saved on their page, where you can change it. Off, everyone is read in the dialogue voice."
+          />
+          <SwitchRow
+            label="Read thoughts, messages and letters in the character’s voice"
+            checked={speech.voicedLines}
+            onChange={(voicedLines) => void save({ voicedLines })}
+            description="A character’s thoughts are read softly in their voice, and the texts, chat messages and letters they write are read in their voice too. Signs and words nobody owns stay with the narrator. Off, the narrator reads all of these."
           />
           <StudioVoices speech={speech} />
         </div>
