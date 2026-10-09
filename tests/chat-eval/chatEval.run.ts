@@ -57,7 +57,12 @@ describe.runIf(process.env.CHAT_EVAL_RUN === '1')('chat eval', () => {
       const list = pickScenarios(cfg.only)
       if (!list.length) throw new Error(`No scenarios match ${cfg.only?.join(',')}.`)
       // Story C (the big briefing) is seeded only when a scenario asks in it.
-      const app = await openEvalApp(cfg, { network: true, big: list.some((s) => s.big), story: list.some((s) => s.seed === 'story') })
+      const app = await openEvalApp(cfg, {
+        network: true,
+        big: list.some((s) => s.big),
+        story: list.some((s) => s.seed === 'story'),
+        p4: list.some((s) => s.seed === 'p4')
+      })
       const turns: TurnResult[] = []
       const m = meta(cfg.root, { backend: cfg.backend, model: app.model, provider: app.providerName, label: cfg.label, switches: cfg.switches, switchesSet: cfg.switchesSet, note: NOTES[cfg.backend] })
       const save = (partial: boolean): void => {

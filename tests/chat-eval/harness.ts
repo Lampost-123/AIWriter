@@ -27,6 +27,7 @@ import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
 import { C_CHAPTERS, C_CHAPTER_SUMMARIES, C_EARLIER, C_EMPTY, C_ENTRIES, C_OPEN, STORY_C, type BigScene } from './bigWorld'
 import { firstQuestion, type Scenario } from './scenarios'
 import { seedStory } from './scenarios-p3story'
+import { seedP4 } from './scenarios-p4'
 
 export type Backend = 'fake' | 'bridge' | 'openrouter' | 'deepseek'
 
@@ -297,7 +298,7 @@ export interface EvalApp {
   close(): Promise<void>
 }
 
-export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big?: boolean; story?: boolean } = { network: true }): Promise<EvalApp> {
+export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big?: boolean; story?: boolean; p4?: boolean } = { network: true }): Promise<EvalApp> {
   paidGuard(cfg)
   const dataDir = mkdtempSync(join(tmpdir(), 'aiwrite-chat-eval-'))
   process.env.AIWRITE_DATA_DIR = dataDir
@@ -384,6 +385,9 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big
       }
     }
     initAi()
+    // The Phase 4 set's compare_version reads History (scenarios-p4.ts): it opens with the world, only when one runs.
+    const history = opts.p4 ? await import('@app/main/history') : null
+    history?.initHistory()
 
     // The world: story A (the open story), story B (a story of its own), the entries, the hidden one, the scenes.
     world.createWorld('Saltreach (chat eval)')
@@ -444,6 +448,14 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big
         insertChange: (d, c) => memory.insertChange(d, c),
         getCard: (d, id) => repo.getScene(d, id).card as unknown as Record<string, unknown> & { setsUpIds: string[] },
         updateCard: (d, id, card) => repo.updateSceneCard(d, id, card as never)
+      })
+    // The Phase 4 set's summaries, kept state and earlier version (scenarios-p4.ts), only when one of those runs.
+    if (opts.p4)
+      seedP4(scenes, {
+        putSummary: (sceneId, text) => memory.putSummary(db, { level: 'scene', targetId: sceneId, text, origin: 'adam' }),
+        setMeta: (key, value) => repo.setMeta(db, key, value),
+        sceneText: (sceneId) => repo.getScene(db, sceneId).text,
+        snapshot: (sceneId, text) => history?.currentHistory()?.take({ sceneId, kind: 'restore', label: 'Before restoring', doc: null, text }) ?? null
       })
 
     // Story C, the big briefing (only when a scenario asks in it): hundreds of entries of its own, ninety summarised
