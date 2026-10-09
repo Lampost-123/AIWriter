@@ -1,6 +1,8 @@
 // The AI edit being written or waiting in the page (one at a time): starts it, follows its words as they
 // arrive (task events), and does what Accept, Reject, Stop and the keys ask. The suggestion itself lives in
-// the editor (suggestions.ts); this keeps the task that writes it. Owned by the AI edits part.
+// the editor (suggestions.ts); this keeps the task that writes it. Opening another scene while it is being
+// written doesn't stop it: its words go on arriving here, and it shows again (still writing, or ready) when
+// Adam is back in its scene. Owned by the AI edits part.
 
 import type { Editor } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
@@ -18,6 +20,8 @@ import { snapshotBefore } from '@/features/history/snapshot'
 import { sceneText } from '@/features/editor/streamDoc'
 import { settleWords } from '@/features/editor/arrival'
 import { revealEntryPart } from '@/features/palette/entryReveal'
+import { useOutlineStore } from '@/features/binder/outlineStore'
+import { openScene } from '@/features/memory/openScene'
 import {
   acceptSuggestion,
   activeSuggestion,
@@ -30,6 +34,7 @@ import {
   suggestionsOf,
   updateSuggestion,
   type GoneReason,
+  type NewSuggestion,
   type Suggestion
 } from './suggestions'
 import { TOOL_NAMES } from './names'
@@ -43,6 +48,9 @@ const DROPPED: Partial<Record<GoneReason | 'scene', string>> = {
   draft: 'A new draft started, so the AI’s change was dropped.',
   scene: 'The AI’s change was dropped because you opened another scene.'
 }
+
+/** Said when Adam is back in a scene whose words changed while its change was being written elsewhere. */
+const CHANGED_AWAY = 'The scene’s words changed while you were in another scene, so the AI’s change was dropped.'
 
 /** Said when a change is stopped (or rejected) before any of its words came. */
 const NOTHING_CHANGED = 'Stopped. Nothing in the text was changed.'
@@ -75,6 +83,16 @@ interface Live {
   stopTimer: ReturnType<typeof setTimeout> | null
   /** The words must change (Fix the text): what to add when they come back the same, and what to say if they do again. */
   mustChange?: MustChange
+  /** How it showed in the page, and the scene's words around it then: to show it again when Adam is back (see away). */
+  shown: NewSuggestion
+  before: string
+  after: string
+  worldId: ID | null
+  generationId: ID | null
+  /** Adam opened another scene while it was being written: it goes on, out of the page, until he is back in its scene. */
+  away: boolean
+  /** Its end, when that came while Adam was in another scene: it is done once he is back. */
+  done: Pick<TaskDone, 'text' | 'status' | 'error' | 'cutOff'> | null
 }
 
 /**
@@ -173,12 +191,78 @@ export function attachEditor(e: Editor): () => void {
   }
 }
 
-/** Another scene is showing in the page: a suggestion from the last one has gone with it. */
+/**
+ * Another scene is showing in the page: a suggestion from the last one has gone with it (one still being written
+ * goes on out of the page), and one written for this scene while Adam was elsewhere shows again.
+ */
 export function sceneShown(): void {
   // A change rejected in the last scene can't come back in this one: its message (with Undo) goes.
   dropRejectedToast()
   // The scene's name shows a moment before its text replaces the page's (with no transaction): look after.
-  queueMicrotask(() => notice('scene'))
+  queueMicrotask(() => {
+    notice('scene')
+    backInScene()
+  })
+}
+
+/** A scene's name in quotes, as the binder shows it. */
+function sceneName(sceneId: ID): string {
+  const scene = useOutlineStore.getState().outline?.scenes.find((s) => s.id === sceneId)
+  return scene ? `“${scene.title || 'Untitled scene'}”` : 'another scene'
+}
+
+/** Stops the change kept for a scene Adam left, and forgets it. */
+function letGoAway(l: Live): void {
+  if (!l.ended) void api.stopTask(l.taskId).catch(noop)
+  if (live === l) clearLive()
+}
+
+/**
+ * Back in the scene a change was being written for while Adam was in another: it shows again in its place, with the
+ * words that came meanwhile (still writing, or ready). The scene's words around it must be as they were.
+ */
+function backInScene(): void {
+  const l = live
+  if (!l?.away) return
+  if (l.worldId !== (useApp.getState().world?.id ?? null)) return letGoAway(l)
+  const v = view()
+  const bridge = editorBridge()
+  if (!v || bridge?.sceneId !== l.sceneId || bridge.editor !== editor) return
+  l.away = false
+  const doc = v.state.doc
+  const size = doc.content.size
+  const fits =
+    l.to <= size && textOf(doc, 0, l.from) === l.before && textOf(doc, l.from, l.to) === l.selection && textOf(doc, l.to, size) === l.after
+  if (!fits || current()) {
+    letGoAway(l)
+    toast(CHANGED_AWAY)
+    return
+  }
+  v.dispatch(
+    showSuggestion(v.state, { ...l.shown, status: l.generationId ? 'writing' : 'starting', generationId: l.generationId, note: l.note })
+  )
+  known = l.taskId
+  if (l.done) finish(l.done)
+  else show(false)
+}
+
+/** Its end came while Adam was in another scene: the change waits for him there (or, with no words, goes). */
+function endedAway(l: Live, d: Pick<TaskDone, 'text' | 'status' | 'error' | 'cutOff'>): void {
+  const words =
+    l.tool === 'alternatives'
+      ? parseAlternatives(l.raw, true).versions.some((x) => x.trim())
+      : !!cleanReply(l.raw, true, l.tool === 'continue' ? {} : { selection: l.selection }).trim()
+  const name = sceneName(l.sceneId)
+  if (!words) {
+    clearLive()
+    if (d.status === 'error' && d.error) toast(`The AI’s change in ${name} ran into a problem. ${d.error}`, { tone: 'danger' })
+    else toast(`The AI didn’t write anything for its change in ${name}, so nothing changed.`)
+    return
+  }
+  l.done = d
+  toast(`The AI’s change in ${name} is ready. Go back to that scene to accept or reject it.`, {
+    action: { label: 'Show', run: () => void openScene(l.sceneId) }
+  })
 }
 
 /** Notices a suggestion that went on its own, stops its task and says why. */
@@ -190,17 +274,24 @@ function notice(why: 'scene' | null = null): void {
     const id = known
     known = null
     const reason: GoneReason | 'scene' = ps?.gone?.id === id ? ps.gone.reason : (why ?? 'scene')
-    if (live?.taskId === id) {
-      if (!live.ended) void api.stopTask(id).catch(noop)
-      clearLive()
+    const l = live?.taskId === id ? live : null
+    const sameWorld = l?.worldId === (useApp.getState().world?.id ?? null)
+    if (l && reason === 'scene' && !l.ended && sameWorld && editorBridge()?.sceneId !== l.sceneId) {
+      // Another scene opened while the AI writes the change: it goes on, and shows again when Adam is back (backInScene).
+      l.away = true
+    } else {
+      if (l) {
+        if (!l.ended) void api.stopTask(id).catch(noop)
+        clearLive()
+      }
+      const o = outside.get(id)
+      if (o && reason !== 'accepted') {
+        o.stop()
+        tellGone(id, reason)
+      }
+      const message = DROPPED[reason]
+      if (message) toast(message)
     }
-    const o = outside.get(id)
-    if (o && reason !== 'accepted') {
-      o.stop()
-      tellGone(id, reason)
-    }
-    const message = DROPPED[reason]
-    if (message) toast(message)
   }
   if (active && known !== active.id) known = active.id
 }
@@ -272,6 +363,7 @@ function finish(d: Pick<TaskDone, 'text' | 'status' | 'error' | 'cutOff'>): void
   if (l.stopTimer) clearTimeout(l.stopTimer)
   l.stopTimer = null
   if (d.text.length >= l.raw.length) l.raw = d.text
+  if (l.away) return endedAway(l, d)
   show(true)
   const s = current()
   if (!s || s.id !== l.taskId) {
@@ -341,6 +433,31 @@ function unchanged(l: Live, id: ID): void {
 
 const newTaskId = (): ID => globalThis.crypto.randomUUID()
 
+/**
+ * One change at a time, in any scene: a change still being written for a scene Adam left (or waiting there) says where
+ * it is. True when there is none, or its scene has gone (deleted, or its world closed) and so has the change.
+ */
+async function noneAway(): Promise<boolean> {
+  const l = live
+  if (!l?.away) return true
+  const there =
+    l.worldId === (useApp.getState().world?.id ?? null) &&
+    (await api.getScene(l.sceneId).then(
+      () => true,
+      () => false
+    ))
+  if (live !== l || !l.away) return !live?.away
+  if (!there) {
+    letGoAway(l)
+    return true
+  }
+  const what = l.done ? 'is waiting for you to accept or reject it' : 'is still being written'
+  toast(`One change at a time: the AI’s change in ${sceneName(l.sceneId)} ${what}.`, {
+    action: { label: 'Show it', run: () => void openScene(l.sceneId) }
+  })
+  return false
+}
+
 /** The button a message about the model needs: to Settings › Models when that's where the fix is. */
 function settingsAction(message: string, code?: string): { label: string; run: () => void } | undefined {
   if (code === 'no-writer-model' || code === 'no-key' || /\bSettings\b/.test(message)) {
@@ -400,6 +517,7 @@ export async function startTool(
   tool: EditTool,
   o: { direction?: string; range?: Target; at?: number; onAccepted?: (words: { from: number; to: number }) => void; mustChange?: MustChange } = {}
 ): Promise<boolean> {
+  if (live?.away && !(await noneAway())) return false
   const v = view()
   const bridge = editorBridge()
   const sceneId = bridge?.sceneId
@@ -453,6 +571,7 @@ export async function startTool(
   }
   const taskId = input.taskId
   if (o.onAccepted) onAccepted.set(taskId, o.onAccepted)
+  const shown: NewSuggestion = { id: taskId, sceneId, tool, direction, from, to, mode, lineBreaks: keepsLineBreaks(input) }
   live = {
     taskId,
     sceneId,
@@ -465,9 +584,16 @@ export async function startTool(
     note: null,
     ended: false,
     stopTimer: null,
-    ...(o.mustChange ? { mustChange: o.mustChange } : {})
+    ...(o.mustChange ? { mustChange: o.mustChange } : {}),
+    shown,
+    before: input.before,
+    after: input.after,
+    worldId: useApp.getState().world?.id ?? null,
+    generationId: null,
+    away: false,
+    done: null
   }
-  v.dispatch(showSuggestion(v.state, { id: taskId, sceneId, tool, direction, from, to, mode, lineBreaks: keepsLineBreaks(input) }))
+  v.dispatch(showSuggestion(v.state, shown))
   dropRejectedToast()
   known = taskId
   if (useApp.getState().view.kind === 'write') v.focus()
@@ -496,6 +622,7 @@ export async function startTool(
     }
     const setup = [res.note, o.mustChange?.retried ? ASKED_AGAIN : null].filter(Boolean).join(' ') || null
     live.note = setup
+    live.generationId = res.generationId
     if (live.ended) {
       // All of it came before this answer did: it is ready already, and its note goes first.
       const note = [setup, current()?.note].filter(Boolean).join(' ') || null
@@ -533,7 +660,7 @@ export async function accept(id?: ID): Promise<void> {
     toast('The new words couldn’t be put in. Try Accept again.')
     return
   }
-  clearLive()
+  if (live?.taskId === s.id) clearLive()
   known = null
   outside.delete(s.id)
   // Where the new words are once in: from where the change starts (a paragraph's start, for new paragraphs ahead of
@@ -663,7 +790,7 @@ export function reject(id?: ID, how: 'button' | 'key' | 'undo' = 'button'): void
   const kept = s.versions ? s.versions.some((x) => x.trim()) : !!s.text.trim()
   if (live?.taskId === s.id && !live.ended) void api.stopTask(s.id).catch(noop)
   if (writing) outside.get(s.id)?.stop()
-  clearLive()
+  if (live?.taskId === s.id) clearLive()
   known = null
   tellGone(s.id, 'rejected')
   if (writing && kept) patch(s.id, { note: [s.note, stoppedNote(s.tool)].filter(Boolean).join(' ') })
