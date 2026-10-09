@@ -2228,6 +2228,34 @@ When, mood, length and notes for the AI. Goal, conflict, outcome, beats, plot th
   `card_json` carries `inherits` and `threadLinks` side by side. `unkeepOutline` undoes both: the chapter cards it
   filled, the AI links on a reused first scene (`acts.takeBackKept`), then the threads it made (`takeBackThreads`).
 
+## The scene and chapter critic (Adam, 2026-10-09)
+
+Craft feedback on a scene or a whole chapter, only when Adam asks: never run by itself. It judges craft, never continuity
+(that is the consistency checker's, and its report in the Issues tab stays as it is). Contract `contracts/critique.ts`,
+main side `src/main/critique/`, handlers `ipc/critique.ts`, the tab `features/critique/`.
+
+- **Where.** The scene panel's Critique tab, beside Issues (a speech mark when the panel is narrow), with This scene /
+  This chapter (the open scene's chapter); Critique scene and Critique chapter there (Stop while it reads), and the
+  palette's "Critique this scene", "Critique this chapter" and "Scene critique" (the tab).
+- **The request** (`critique/run.ts`, `prompts.ts`): one 'critique' record through the task runner, with the writer
+  model and its Thinking, `[AIWRITE-CRITIQUE v1] scene|chapter`. A lean briefing fitted with `outline/brief.ts`
+  `fitBlocks`: how the story is written (genre and its feel, the author's take, tone, point of view, tense, prose style),
+  the scene card or the chapter's goal and card, who is named (with how a character speaks and what they want), where it
+  sits, the end of the scene or chapter before, and the words. A long scene goes as its opening and ending; a long
+  chapter as each long scene's summary, opening and ending (three lengths), then summaries alone, rather than refused
+  (`Critique.shortened`, said in the tab). A reply that can't be read is asked for once more.
+- **The reply** (`critique/parse.ts`): a summary, up to three strengths and up to eight notes (category, title, weight
+  high/medium/low, quote, suggestion), what matters most first. A quote counts only when it is in the words
+  (`checks/quote.ts` `findSceneQuote`; for a chapter, in which scene, and which appearance); otherwise the note shows
+  without it.
+- **Kept** in `meta` as `critique:scene:<id>` and `critique:chapter:<id>` (the latest only), with a fingerprint of the
+  words read (`textHash`), so reopening costs no AI call and `getCritique` says when they have changed since ("The scene
+  changed since this critique", with Critique again). The tab checks it against the saved words every few seconds while
+  it shows.
+- **Notes.** A click on the words shows them in the page (opening their scene for a chapter's note). "Rewrite this"
+  hands the words, widened to whole sentences, and the note to the AI tools' Rewrite (`startTool('rewrite')`, with
+  `mustChange`), so the rewrite waits in the page as a tracked change like any other.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

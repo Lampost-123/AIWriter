@@ -225,7 +225,7 @@ test('without a model Check this scene says what to set up, and marking done say
   await expect(toasts(win).getByText(/^Found/)).toHaveCount(0)
 })
 
-test('five tabs fit the scene panel at its narrowest, with the count over the Issues tab', async ({ launch }) => {
+test('six tabs fit the scene panel at its narrowest, with the count over the Issues tab', async ({ launch }) => {
   const fake = await startFake()
   try {
     const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
@@ -238,7 +238,7 @@ test('five tabs fit the scene panel at its narrowest, with the count over the Is
     const list = scenePanel(win).getByRole('tablist')
     const box = await list.boundingBox()
     expect(box!.width).toBeLessThanOrEqual(262)
-    for (const name of ['Scene card', 'Context', 'Cast', /^Issues/, 'Drafts']) {
+    for (const name of ['Scene card', 'Context', 'Cast', /^Issues/, 'Critique', 'Drafts']) {
       const tab = list.getByRole('tab', { name })
       const t = await tab.boundingBox()
       expect(t!.x + t!.width).toBeLessThanOrEqual(box!.x + box!.width + 0.5)

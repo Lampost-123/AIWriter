@@ -830,6 +830,7 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * spending file (`Recipes/spending.db`), never in a world, and without the words sent or received.
  * The style guide's helpers add 'sample' (a sample passage written from the style guide, "Write a sample for
  * me"; sceneId '') and 'polish' (the polish pass that revises a finished Generate draft; `params.polishOf`).
+ * The critic adds 'critique': craft feedback on a scene (its sceneId) or a chapter (sceneId '').
  */
 export type GenerationJob =
   | 'draft'
@@ -848,6 +849,7 @@ export type GenerationJob =
   | 'recipe'
   | 'sample'
   | 'polish'
+  | 'critique'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'

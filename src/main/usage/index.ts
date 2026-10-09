@@ -71,7 +71,9 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'readRecipeAgain',
   'startRecipeStory',
   'writeStyleSample',
-  'startPolish'
+  'startPolish',
+  // The scene and chapter critic
+  'startCritique'
 ])
 
 let library: UsageLibrary | null = null
