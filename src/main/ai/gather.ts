@@ -62,7 +62,7 @@ export function gatherContextInput(
   return {
     style: effectiveStyle(extra.prefs, repo.getWorldStyle(db), story.style),
     scene: { title: scene.title, card: scene.card },
-    memory: sceneMemory(db, sceneId),
+    memory: sceneMemory(db, sceneId, { forWriter: true }),
     pins: pinsForScene(db, sceneId),
     blockModes: getBlockModes(db, sceneId),
     world: { themes: repo.getMeta(db, 'themes') ?? '', tone: repo.getMeta(db, 'tone') ?? '' },

@@ -35,6 +35,7 @@ import { openRecipes } from '@/features/recipes/recipeStore'
 import { openStorySettings } from '@/features/stories/storyActions'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
+import { useCheckCount } from '@/features/memory/useCheckCount'
 import { AREAS, areaOf, type Area } from './areas'
 
 /** The area last shown, kept while Settings (in no area) is open. */
@@ -233,6 +234,7 @@ function CheckList({ view }: { view: View }): React.JSX.Element {
   const storyId = useApp((s) => s.storyId)
   const sceneId = useApp((s) => s.sceneId)
   const issuesShowing = useApp((s) => s.view.kind === 'write' && s.inspectorTab === 'issues' && !!s.settings?.layout.inspectorOpen)
+  const unsure = useCheckCount()
   return (
     <div className="min-h-0 flex-1 overflow-y-auto pb-3">
       <Links label="Check">
@@ -247,7 +249,12 @@ function CheckList({ view }: { view: View }): React.JSX.Element {
         <SideLink
           icon={History}
           label="What changed"
-          hint="What the memory keeper changed, with Undo"
+          hint={
+            unsure
+              ? `What the memory keeper changed, with Undo, and ${unsure === 1 ? 'one thing' : `${unsure} things`} it isn’t sure about`
+              : 'What the memory keeper changed, with Undo'
+          }
+          count={unsure}
           active={is(view, 'memory')}
           onClick={() => useApp.getState().navigate({ kind: 'memory', sceneId: null })}
         />

@@ -6,7 +6,7 @@ import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { isTaskRunning, runTask, startTask, stopTask, stopTasksFor, type Emit, type TaskRequest } from './tasks'
+import { isTaskRunning, runTask, startingSignal, startTask, stopTask, stopTasksFor, type Emit, type TaskRequest } from './tasks'
 import { jobModel, type ModelSources } from './jobModel'
 import { SPEAKER_TAG_LINE, type WriterSpeaker } from './speakerTags'
 
@@ -118,6 +118,18 @@ describe('the task runner', () => {
     stopTasksFor(db)
     expect(gens.getGeneration(db, generationId).status).toBe('stopped')
     await stopTask(req.taskId)
+  })
+
+  it('Stop ends a task’s wait while it gets ready (Continue waiting for the memory), and only then', async () => {
+    const ready = startingSignal('t-getting-ready')
+    expect(ready.signal.aborted).toBe(false)
+    await stopTask('t-getting-ready')
+    expect(ready.signal.aborted).toBe(true)
+    ready.done()
+    const next = startingSignal('t-getting-ready')
+    next.done()
+    await stopTask('t-getting-ready')
+    expect(next.signal.aborted).toBe(false)
   })
 
   it('takes the writer’s speaker tags out as it streams, and hears what they said once it ends', async () => {

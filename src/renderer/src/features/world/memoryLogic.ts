@@ -72,12 +72,26 @@ export const allAdams = (e: Pick<Entry, 'origin' | 'fieldOrigins'>): boolean =>
 // ---------- Where a fact came from ----------
 
 export type SourceNote =
-  /** Read from the text: the words (the first that are still there) and the scene they're in. */
-  | { kind: 'words'; quote: string; sceneId: ID; changed: boolean; more: number }
+  /**
+   * Read from the text: the words (the first that are still there), the scene and paragraph they're in (for Jump to
+   * source, World Memory Overhaul B2), and whether they were edited since.
+   */
+  | { kind: 'words'; quote: string; sceneId: ID; paragraphId: string | null; changed: boolean; more: number }
   /** Read from the text, but every passage it came from has been deleted. */
   | { kind: 'gone'; sceneId: ID | null }
   | { kind: 'ai' }
   | { kind: 'adam' }
+  /** Read from the text, then kept by Adam: brought back by Undo after its words changed, it rests on no words now. */
+  | { kind: 'kept' }
+
+/**
+ * Where a change came from: as sourceNote, and "Kept by you" for one read from the text that has no words behind it any
+ * more. The memory links every change it reads to its words; only an Undo that brings a removed change back unlinks it
+ * (it is Adam's to keep from then on, keeper/undo.ts).
+ */
+export function changeSourceNote(c: Pick<ChangeView, 'origin' | 'links'>): SourceNote | null {
+  return sourceNote(c.origin, c.links) ?? (c.origin === 'text' ? { kind: 'kept' } : null)
+}
 
 /** Where a fact came from, for a quiet line under it. Null when there is nothing to say. */
 export function sourceNote(origin: Origin, links: SourceLink[]): SourceNote | null {
@@ -86,7 +100,14 @@ export function sourceNote(origin: Origin, links: SourceLink[]): SourceNote | nu
   const live = links.filter((l) => l.state !== 'gone' && l.quote.trim())
   if (live.length) {
     const first = live.find((l) => l.state === 'ok') ?? live[0]
-    return { kind: 'words', quote: first.quote.trim(), sceneId: first.sceneId, changed: first.state === 'changed', more: live.length - 1 }
+    return {
+      kind: 'words',
+      quote: first.quote.trim(),
+      sceneId: first.sceneId,
+      paragraphId: first.paragraphId ?? null,
+      changed: first.state === 'changed',
+      more: live.length - 1
+    }
   }
   return links.length ? { kind: 'gone', sceneId: links[0].sceneId } : null
 }
@@ -94,7 +115,7 @@ export function sourceNote(origin: Origin, links: SourceLink[]): SourceNote | nu
 /** Links for one of an entry's own facts: the field key, or 'entry' for the entry itself (where it was found). */
 export function linksFor(links: SourceLink[], key: string): SourceLink[] {
   if (key === 'entry') return links.filter((l) => l.factKind === 'entry')
-  return links.filter((l) => (l.factKind === 'field' || l.factKind === 'voice') && l.field === key)
+  return links.filter((l) => (l.factKind === 'field' || l.factKind === 'voice' || l.factKind === 'summary') && l.field === key)
 }
 
 /** Who a field's value comes from: its own origin, or the entry's when it has none. */
@@ -255,6 +276,36 @@ const WITH_WORDS = new Set('obsessed infatuated besotted friendly angry furious 
 // Words that already say which one ("the leader", "her sister", "Tobin's rival"), so no "a" goes before them.
 const DETERMINERS = new Set('a an the his her their its my our your one some no this that'.split(' '))
 
+// The two halves of a relationship both have ("father and daughter", "master and apprentice"): said "with" the other.
+const PAIR_WORDS = new Set(
+  (
+    'father mother son daughter brother sister husband wife uncle aunt niece nephew cousin cousins grandfather grandmother ' +
+    'grandson granddaughter parent child master apprentice teacher pupil student mistress servant lord vassal'
+  ).split(' ')
+)
+
+// Words that start extra detail after a relationship: "companions on the drove road", "rivals at court", "friends since
+// childhood".
+const DETAIL_WORDS = new Set('on at in from since during across along through near among after before until'.split(' '))
+
+/**
+ * A relationship type's extra detail, split from the relationship itself: "travelling companions on the drove road" is
+ * "travelling companions" + "on the drove road". Null when there is none, or when the words belong together: a type
+ * ending in its own linking word ("involved in"), one that starts with a verb or "in"/"at" ("lives in the hills",
+ * "in love"), or a word like "stationed" whose link is the detail itself.
+ */
+function trailingDetail(core: string): { head: string; detail: string } | null {
+  const words = core.split(' ')
+  const lower = words.map((w) => w.toLocaleLowerCase())
+  const first = lower[0]
+  if (VERBS.has(first) || first === 'married' || first === 'owes' || first === 'in' || first === 'at') return null
+  const at = lower.findIndex((w, i) => i > 0 && i < lower.length - 1 && DETAIL_WORDS.has(w))
+  if (at < 0) return null
+  const last = lower[at - 1]
+  if (last === 'born' || (/ed$/.test(last) && !TO_WORDS.has(last) && !FROM_WORDS.has(last) && !WITH_WORDS.has(last))) return null
+  return { head: words.slice(0, at).join(' '), detail: words.slice(at).join(' ') }
+}
+
 /** "a rival", "an enemy", "an heir", "a one-time ally". */
 function withArticle(phrase: string): string {
   const w = phrase.toLocaleLowerCase()
@@ -270,14 +321,23 @@ function withArticle(phrase: string): string {
 export function relationPhrase(type: string, other: string, opts: { article?: boolean } = {}): string {
   const raw = type.trim().replace(/\s+/g, ' ')
   const aside = raw.match(/\s*\(([^)]*)\)\s*/)
-  const core = lowerFirst((aside ? raw.replace(aside[0], ' ') : raw).trim())
-  const tail = aside ? ` (${aside[1].trim()})` : ''
+  let core = lowerFirst((aside ? raw.replace(aside[0], ' ') : raw).trim())
+  // Extra detail after the relationship itself goes in brackets after the other one's name, like an aside: after a
+  // semicolon, comma or dash ("acquaintance; he has stayed at her inn"), or a place or time ("travelling companions on
+  // the drove road" is "travelling companions with Ash (on the drove road)").
+  const said = core.match(/^([^;,:—–]+?)\s*[;,:—–]\s*(.+)$/)
+  if (said) core = said[1]
+  const extra = trailingDetail(core)
+  if (extra) core = extra.head
+  const asides = [extra?.detail, said?.[2].trim(), aside?.[1].trim()].filter((s): s is string => !!s)
+  const tail = asides.length ? ` (${asides.join('; ')})` : ''
   if (!core) return `linked to ${other}${tail}`
   const words = core.toLocaleLowerCase().split(' ')
   const first = words[0]
   const last = words[words.length - 1]
   let link: string
   if (PREPOSITIONS.has(last)) link = ''
+  else if (words.length === 3 && words[1] === 'and' && PAIR_WORDS.has(first) && PAIR_WORDS.has(last)) link = 'with'
   else if (first === 'married') link = 'to'
   else if (first === 'owes' && words.length > 1) link = 'to'
   else if (VERBS.has(first)) link = ''
@@ -382,6 +442,23 @@ const excerpt = (s: string, max = 90): string => {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
 }
 
+/** The same words, quote marks around them and spacing aside. */
+const sameWords = (a: string, b: string): boolean => {
+  const bare = (s: string): string =>
+    s
+      .trim()
+      .replace(/^["“'‘]+|["”'’]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  return bare(a) !== '' && bare(a) === bare(b)
+}
+
+/** "Ash", "Ash and Tobin", "Ash, Tobin and Wren"; more than four: "Ash, Tobin, Wren and 3 others". */
+function joinNames(names: string[]): string {
+  const shown = names.length > 4 ? [...names.slice(0, 3), `${names.length - 3} others`] : names
+  return shown.length <= 1 ? shown.join('') : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`
+}
+
 export interface ChangeWords {
   text: string
   /** A second, quieter line: how each feels, for relationships; the line itself, for something said. */
@@ -443,8 +520,22 @@ export function describeChange(
       const said = c.payload.said && !c.payload.forgets ? c.payload.said : null
       const line = said?.words.trim() ?? ''
       const words = line ? (/^["“'‘]/.test(line) ? line : `“${line}”`) : null
-      const what = said ? { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }[said.kind] : c.payload.forgets ? 'Forgets' : 'Learns'
-      return { text: `${what}: ${c.payload.fact.trim()}`, detail: words }
+      const what = said
+        ? { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }[said.kind]
+        : c.payload.forgets
+          ? 'Forgets'
+          : c.payload.seen
+            ? 'Saw it happen'
+            : 'Learns'
+      // Who was there (World Memory Overhaul B5): the others on stage at those words know it too.
+      const others = (c.payload.there ?? []).filter((id) => id !== selfId).flatMap((id) => nameOf(id) ?? [])
+      const there = others.length ? `Was there with ${joinNames(others)}` : null
+      // The line itself shows as the change's source words already, so who was there takes its place when known. A
+      // world read before who-was-there was kept has no names: the line is left out then too, when the source words
+      // shown under it are the same words (it showed twice otherwise).
+      const quoted = !!line && (c.links ?? []).some((l) => l.state === 'ok' && sameWords(l.quote, line))
+      const detail = there ?? (quoted ? null : words)
+      return { text: `${what}: ${c.payload.fact.trim()}`, detail }
     }
     case 'thread': {
       const note = c.payload.note?.trim()
@@ -459,6 +550,17 @@ export function changeWhere(c: Pick<ChangeView, 'where' | 'anchor'>): string {
   const w = c.where.trim()
   if (w) return upperFirst(w)
   return c.anchor === 'baseline' ? 'From the start' : 'Somewhere in your story'
+}
+
+/**
+ * Where a change stops being true, for its row (World Memory Overhaul B1): "until Book 1, Ch 4, Sc 2", with the story's
+ * own words for when ("until Book 1, Ch 4, Sc 2 (the next morning)"); '' while it still holds.
+ */
+export function changeUntil(c: Pick<ChangeView, 'untilWhere' | 'until'>): string {
+  const w = c.untilWhere?.trim()
+  if (!w) return ''
+  const when = c.until?.when?.trim()
+  return `until ${w}${when ? ` (${when})` : ''}`
 }
 
 /** A short form of a fact or note for a toast: "Removed "Mara is the heir"." */

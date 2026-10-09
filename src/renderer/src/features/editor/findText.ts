@@ -31,9 +31,13 @@ function normalise(text: string): { norm: string; map: number[] } {
   return { norm, map }
 }
 
-/** Options for finding words: `wholeWord` skips matches inside a longer word ("rain" in "brain"). */
+/**
+ * Options for finding words: `wholeWord` skips matches inside a longer word ("rain" in "brain"); `paragraphId` looks in
+ * that paragraph first (the one a fact's words were read from: Jump to source, World Memory Overhaul B2), then anywhere.
+ */
 export interface FindOptions {
   wholeWord?: boolean
+  paragraphId?: string | null
 }
 
 // A possessive's apostrophe ends the word ("king" is found in "king's"); a hyphen doesn't.
@@ -50,13 +54,14 @@ function indexIn(norm: string, want: string, wholeWord: boolean): number {
   return -1
 }
 
-function findInParagraphs(doc: PMNode, quote: string, opts: FindOptions = {}): { from: number; to: number } | null {
+function findInParagraphs(doc: PMNode, quote: string, opts: FindOptions = {}, onlyPid?: string): { from: number; to: number } | null {
   const want = normalise(quote).norm
   if (!want) return null
   let found: { from: number; to: number } | null = null
   doc.descendants((node, pos) => {
     if (found) return false
     if (!node.isTextblock) return true
+    if (onlyPid && node.attrs.pid !== onlyPid) return false
     // The paragraph's text, with the document position of each character.
     let text = ''
     const at: number[] = []
@@ -123,11 +128,24 @@ export function findTextRangeAfter(doc: PMNode, quote: string, after: number): {
  * first paragraph's part.
  */
 export function findTextRange(doc: PMNode, quote: string, opts: FindOptions = {}): { from: number; to: number } | null {
-  const whole = findInParagraphs(doc, quote, opts)
-  if (whole) return whole
   const first = quote
     .split(/\n+/)
     .map((s) => s.trim())
     .find(Boolean)
-  return first && first !== quote.trim() ? findInParagraphs(doc, first, opts) : null
+  const tryIn = (pid?: string): { from: number; to: number } | null =>
+    findInParagraphs(doc, quote, opts, pid) ?? (first && first !== quote.trim() ? findInParagraphs(doc, first, opts, pid) : null)
+  return (opts.paragraphId ? tryIn(opts.paragraphId) : null) ?? tryIn()
+}
+
+/** The text of the paragraph with this id, as a range of positions; null when there is no such paragraph (or it is empty). */
+export function findParagraphRange(doc: PMNode, paragraphId: string): { from: number; to: number } | null {
+  if (!paragraphId) return null
+  let found: { from: number; to: number } | null = null
+  doc.descendants((node, pos) => {
+    if (found) return false
+    if (!node.isTextblock) return true
+    if (node.attrs.pid === paragraphId && node.content.size > 0) found = { from: pos + 1, to: pos + 1 + node.content.size }
+    return false
+  })
+  return found
 }

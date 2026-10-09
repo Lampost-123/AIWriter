@@ -88,9 +88,10 @@ import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledW
 import type { RecallInput } from '../retrieval/types'
 import { beatsOnPage, speechSamples } from './repetition'
 import { cleanKnows, happenedOf, pastDeathNote } from './knows'
-import { TIMELINE_LEVELS, timelineText, type TimelineContext } from './timeline'
+import { TIMELINE_LEVELS, timelineText, updatingNote, type TimelineContext } from './timeline'
 import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from './briefingFixes'
 import { withLockLines } from './lockRule'
+import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -206,6 +207,8 @@ export interface PreparedContext {
   toolRoom?: number
   /** The most tokens the briefing may take whatever the model's room (the editor chat's edits, ask/context.ts CAP); left out: none. */
   briefingCap?: number
+  /** What each part's memory lines rest on, by part id (World Memory Overhaul B6), kept for the forms sent. */
+  tags?: Map<string, DraftTag[]>
 }
 
 // ---------- Budget ----------
@@ -379,6 +382,8 @@ export function fieldSections(e: Entry, onlyGroups?: string[], short = false, on
       if (onlyKeys && !onlyKeys.has(f.key)) continue
       const v = clean(e.fields?.[f.key])
       if (!v) continue
+      // The memory's guess, with no words in the story behind it (World Memory Overhaul A4): said to be one.
+      const label = e.guesses?.includes(f.key) ? `${f.label} (guess)` : f.label
       if (f.key === 'sampleLines') {
         // Only real speech, never narration (Adam, 2026-10-08: some "sample lines" were narration). The instructions say
         // never to reuse one word for word (a sample line came back verbatim in 14 of 122 writer calls).
@@ -388,14 +393,14 @@ export function fieldSections(e: Entry, onlyGroups?: string[], short = false, on
       }
       if (v.includes('\n')) {
         lines.push(
-          `- ${f.label}:\n${v
+          `- ${label}:\n${v
             .split(/\r?\n/)
             .filter((l) => l.trim())
             .map((l) => `    ${l.trim()}`)
             .join('\n')}`
         )
       } else {
-        lines.push(`- ${f.label}: ${v}`)
+        lines.push(`- ${label}: ${v}`)
       }
     }
     // A kind with a single group (places, lore) doesn't need the group's label.
@@ -403,6 +408,9 @@ export function fieldSections(e: Entry, onlyGroups?: string[], short = false, on
   }
   return out
 }
+
+/** " (guess)" after a field's label when it is the memory's guess (World Memory Overhaul A4). */
+const guessMark = (e: Entry, field: string): string => (e.guesses?.includes(field) ? ' (guess)' : '')
 
 /**
  * A profile: name line, aliases, summary, description and every filled field (or only `onlyGroups`).
@@ -413,9 +421,9 @@ export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`
   if (heading) head.push(heading)
   const aliases = (e.aliases ?? []).map((a) => a.trim()).filter(Boolean)
   if (aliases.length) head.push(`Also called: ${aliases.join(', ')}`)
-  if (clean(e.summary)) head.push(`In short: ${clean(e.summary)}`)
+  if (clean(e.summary)) head.push(`In short${guessMark(e, 'summary')}: ${clean(e.summary)}`)
   const parts = [head.join('\n')]
-  if (clean(e.description)) parts.push(clean(e.description))
+  if (clean(e.description)) parts.push(`${e.guesses?.includes('description') ? 'A guess: ' : ''}${clean(e.description)}`)
   parts.push(...fieldSections(e, onlyGroups, short, undefined, split))
   return parts.filter(Boolean).join('\n\n')
 }
@@ -461,7 +469,7 @@ function coreProfile(e: Entry, size: 'core' | 'least'): string {
   const head: string[] = []
   const aliases = (e.aliases ?? []).map((a) => a.trim()).filter(Boolean)
   if (aliases.length) head.push(`Also called: ${aliases.join(', ')}`)
-  if (clean(e.summary)) head.push(`In short: ${clean(e.summary)}`)
+  if (clean(e.summary)) head.push(`In short${guessMark(e, 'summary')}: ${clean(e.summary)}`)
   const parts = [head.join('\n')]
   if (clean(e.description) && (size === 'core' || !clean(e.summary))) {
     parts.push(openingSentences(e.description, CORE_DESCRIPTION_WORDS[size]))
@@ -1242,6 +1250,14 @@ function chapterOrder(s: StorySoFar): ID[] {
  * nothing at all.
  */
 export const STORY_LEVELS = 6
+
+/**
+ * One earlier scene in block 8: its place and summary, word for word. A summary being brought up to date (the scene
+ * changed since: World Memory Overhaul A3) says so, with how the scene now ends when the memory gave it.
+ */
+function sceneLine(x: StorySoFar['scenes'][number]): string {
+  return `${x.label}: ${clean(x.text)}${updatingNote(x)}`
+}
 /** At each level: how many of the most recent parts (a story, a chapter or a scene) are kept. */
 const RECENT_PARTS = [Infinity, Infinity, Infinity, 6, 2, 1]
 
@@ -1284,16 +1300,16 @@ export function storySoFarText(s: StorySoFar, storyTitle: string, level: number 
     const chapter = told.get(chapterId)
     if (every && own.length) {
       // The full form: every earlier scene by its own summary, which keeps what a chapter's summary leaves out.
-      for (const x of own) if (!shown.has(x.sceneId)) parts.push({ heading: earlier, text: `${x.label}: ${clean(x.text)}` })
+      for (const x of own) if (!shown.has(x.sceneId)) parts.push({ heading: earlier, text: sceneLine(x) })
     } else if (chapter) {
       // A chapter is told by its own summary unless every one of its summarised scenes is shown.
       if (!own.length || own.some((x) => !shown.has(x.sceneId)))
         parts.push({ heading: earlier, text: `${chapter.label}: ${clean(chapter.text)}` })
     } else {
-      for (const x of own) if (!shown.has(x.sceneId)) parts.push({ heading: earlier, text: `${x.label}: ${clean(x.text)}` })
+      for (const x of own) if (!shown.has(x.sceneId)) parts.push({ heading: earlier, text: sceneLine(x) })
     }
   }
-  for (const x of recent) parts.push({ heading: 'Most recently', text: `${x.label}: ${clean(x.text)}` })
+  for (const x of recent) parts.push({ heading: 'Most recently', text: sceneLine(x) })
 
   const keep = RECENT_PARTS[lv]
   const kept = parts.slice(-keep)
@@ -1867,7 +1883,8 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     targetWords,
     ...(autoMax != null ? { autoMax, autoFinals: (max: number) => finalsFor(max) } : {}),
     knows: input.memory.knows ?? '',
-    entries: contextEntries(sel, blocks)
+    entries: contextEntries(sel, blocks),
+    tags: draftMemoryTags(blocks, input.memory)
   }
 }
 
@@ -2033,18 +2050,22 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     if (ceiling !== prepared.autoMax && prepared.autoFinals) finals = prepared.autoFinals(ceiling)
   }
 
-  const blocks: ContextBlock[] = state.map((s) => ({
-    id: s.b.id,
-    priority: s.b.priority,
-    title: s.b.title,
-    text: s.forms[s.level],
-    tokens: tokens(s),
-    entryIds: s.b.entryIds,
-    dropped: s.dropped,
-    short: s.level > 0,
-    hasShort: s.hasShort,
-    mode: s.mode
-  }))
+  const blocks: ContextBlock[] = state.map((s) => {
+    const memory = sentTags(prepared.tags?.get(s.b.id), s.forms[s.level])
+    return {
+      id: s.b.id,
+      priority: s.b.priority,
+      title: s.b.title,
+      text: s.forms[s.level],
+      tokens: tokens(s),
+      entryIds: s.b.entryIds,
+      dropped: s.dropped,
+      short: s.level > 0,
+      hasShort: s.hasShort,
+      mode: s.mode,
+      ...(memory ? { memory } : {})
+    }
+  })
   const sent = blocks.filter((b) => !b.dropped)
   const hasPrev = sent.some((b) => b.id === 'previous-scene')
   const system = sent.find((b) => b.priority === 1)?.text ?? ''

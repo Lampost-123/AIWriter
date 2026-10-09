@@ -15,6 +15,8 @@
 //   --samples <n>          samples per probe (default 3)
 //   --probes A,C           only these probes (default all; chains: K1 by default, or K1,K2,K3)
 //   --chain K1|K2|K3|both|all   the chains to run, or a list of them (K1,K3); "both" is K1 and K2. Instead of --probes
+//                          K2E, the edit chain, runs only when named (--probes K2E)
+//   --story-from s28       chains only: the memory reads the story from this scene on, not the whole story
 //   --writer <model id>    writer model (default: the model with "flash" in its id, from the provider's model list)
 //   --memory <model id>    memory model (default: the writer model)
 //   --judge <model id>     judge model (default: the memory model)
@@ -70,7 +72,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--rescore', '--probes-version', '--search-model', '--from-world', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -188,6 +190,7 @@ if (flag('--rescore')) {
   const fromWorld = value('--from-world')
   if (fromWorld) env.TRAPS_FROM_WORLD = resolve(fromWorld)
   if (flag('--no-save-world')) env.TRAPS_SAVE_WORLD = '0'
+  set('--story-from', 'TRAPS_STORY_FROM')
   set('--probes', 'TRAPS_PROBES')
   // --chain K1|K2|K3|both|all, or a list (K1,K3): the chains a run takes (probes v4; K1 by default), as TRAPS_PROBES.
   const chainArg = value('--chain')

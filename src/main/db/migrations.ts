@@ -347,6 +347,25 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX memory_log_created ON memory_log(created_at);
   CREATE INDEX memory_log_scene ON memory_log(scene_id, created_at);
   CREATE INDEX memory_log_entry ON memory_log(entry_id, created_at);
+  `,
+  // 3: World Memory Overhaul, part A (2026-10-08; the reason is in docs/ARCHITECTURE.md, "Facts follow their words").
+  // A link whose words were edited ('changed') remembers when that happened and how many reads since have left its
+  // fact unconfirmed, so a text fact the memory model says nothing about goes after one more read.
+  `
+  ALTER TABLE source_links ADD COLUMN changed_at TEXT;
+  ALTER TABLE source_links ADD COLUMN checks INTEGER NOT NULL DEFAULT 0;
+  UPDATE source_links SET changed_at = updated_at WHERE state = 'changed';
+  `,
+  // 4: World Memory Overhaul, part B1 (2026-10-08; the reason is in docs/ARCHITECTURE.md, "Facts with a start and an
+  // end"). A change can stop being true at a later scene ("lost her knife" ends where she finds it again), with the
+  // story's words for when, who ended it, and the words that say so (so the end follows them). Columns only: every
+  // existing change keeps holding, as before.
+  `
+  ALTER TABLE changes ADD COLUMN until_scene_id TEXT;
+  ALTER TABLE changes ADD COLUMN until_when TEXT NOT NULL DEFAULT '';
+  ALTER TABLE changes ADD COLUMN until_origin TEXT;
+  ALTER TABLE changes ADD COLUMN until_quote TEXT NOT NULL DEFAULT '';
+  ALTER TABLE changes ADD COLUMN until_paragraph_id TEXT;
   `
 ]
 

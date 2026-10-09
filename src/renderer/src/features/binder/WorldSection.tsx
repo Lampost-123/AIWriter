@@ -8,6 +8,7 @@ import { watchMoreBelow } from '@/lib/moreBelow'
 import { useApp } from '@/lib/store'
 import { KIND_ICONS } from '@/features/world/kindIcons'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
+import { useCheckCount } from '@/features/memory/useCheckCount'
 import { openConsistency } from '@/features/consistency/checkStore'
 
 type Counts = Partial<Record<EntryKind, number>>
@@ -89,6 +90,7 @@ export function WorldSection(): React.JSX.Element {
   const navigate = useApp((s) => s.navigate)
   const storyId = useApp((s) => s.storyId)
   const counts = useEntryCounts()
+  const unsure = useCheckCount()
 
   return (
     // All of it shows when the chapters above can keep about six rows; in a shorter window it scrolls
@@ -146,6 +148,7 @@ export function WorldSection(): React.JSX.Element {
       <Link
         icon={<History size={15} />}
         label="What changed"
+        count={unsure}
         active={view.kind === 'memory'}
         onClick={() => navigate({ kind: 'memory', sceneId: null })}
       />

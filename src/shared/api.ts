@@ -14,8 +14,13 @@ import type {
   ExistsPoint,
   FactVersion,
   MemoryLogItem,
+  MemoryCheckFact,
+  MemoryCheckItem,
+  MemoryCheckUndo,
   SourceLink,
   MemoryStatus,
+  RereadEstimate,
+  RereadTarget,
   PinScope,
   StartAt,
   Summary,
@@ -224,6 +229,32 @@ export interface AppApi
   listEntryLinks(entryId: ID): Promise<SourceLink[]>
   /** Brings the memory up to date with a scene now (or every scene that is behind), e.g. after an error. */
   updateMemoryNow(sceneId?: ID): Promise<void>
+  /**
+   * "Check again now" (World Memory Overhaul B2): the memory reads this scene again now for facts whose words were
+   * edited and not yet confirmed, even when its text hasn't changed since the last read. One read; nothing at all is
+   * asked of the model when nothing in the scene is unsure.
+   */
+  checkMemoryAgain(sceneId: ID): Promise<void>
+  /** "Re-read" (World Memory Overhaul B8): roughly what reading a scene, or a whole story, again in full would cost. */
+  estimateReread(target: RereadTarget): Promise<RereadEstimate>
+  /**
+   * Reads a scene, or every scene of a story, again in full with the memory model, through the memory keeper's queue
+   * (one at a time; progress in MemoryStatus.rereading). Refused while this month's spending limit holds AI calls.
+   */
+  startReread(target: RereadTarget): Promise<void>
+  /** Stops a re-read: the scenes still waiting are dropped and the one being read stops, with nothing applied. */
+  stopReread(): Promise<void>
+  /** The memory check list (World Memory Overhaul B3): everything the memory isn't sure about, grouped by kind. */
+  listMemoryChecks(): Promise<MemoryCheckItem[]>
+  /**
+   * Keep (one or several, as "Keep all"): Adam confirms. A fact becomes his and no longer depends on the words; a guess
+   * becomes his; a summary counts as fitting the scene as it is now; a note is dismissed. Returns what Undo needs.
+   */
+  keepMemoryChecks(facts: MemoryCheckFact[]): Promise<MemoryCheckUndo>
+  /** Remove: takes the fact out of the memory (a note's fact too: Adam's own). Returns what Undo needs. */
+  removeMemoryCheck(fact: MemoryCheckFact): Promise<MemoryCheckUndo>
+  /** Undoes a Keep or Remove from the check list. */
+  undoMemoryCheck(undo: MemoryCheckUndo): Promise<void>
 
   // ----- Portraits and the memory as of a point (milestone 3) -----
   /**

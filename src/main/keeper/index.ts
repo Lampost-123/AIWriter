@@ -87,11 +87,12 @@ export function initKeeper(): void {
       emit('memory:status', idleStatus())
     }
   })
-  // Before a draft, the memory catches up with earlier scenes on the line, and then where things stand as the
-  // previous scene ends is brought up to date (continuity/tracker.ts).
+  // Before a draft (and Continue), the memory catches up with earlier scenes on the line and reads the scene's own
+  // unread words (waiting a few seconds at most), and then where things stand as the previous scene ends is brought up
+  // to date (continuity/tracker.ts).
   setBeforeDraft(async (db, sceneId) => {
     if (!keeper || keeper.db !== db) return
-    await keeper.catchUpBefore(sceneId)
+    await keeper.beforeDraft(sceneId)
     await continuityBefore(db, sceneId)
   })
   // Add below, a later beat and Continue carry on from the scene so far: where things stand at its end.

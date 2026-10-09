@@ -5,6 +5,9 @@
 // Since 2026-10-07 it is told that a thing someone has or wants is an item, never a character (keeper/kinds.ts checks).
 // Since 2026-10-08 (the AI manages plot threads) it opens a plot thread with its promise, adds clues, notes when one
 // moves on, and resolves one only when the payoff is on the page (keeper/threads.ts applies these).
+// Since 2026-10-08 (World Memory Overhaul A2) it may revise an entry's or event's one-line summary ("summary" items), and
+// the facts whose words changed are told apart from the "nothing the memory already says" rule.
+// Since 2026-10-08 (World Memory Overhaul B1) it may end a fact that is no longer true ("end" items, keeper/apply.ts).
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -28,17 +31,18 @@ You keep the memory of a novel's world up to date while the author writes. You a
 
 Rules
 - Read only the paragraphs labelled P1, P2 and so on. Lines labelled "Context" are there to help you understand them; take nothing from them.
-- Report only what the words show happens, is said to be true, or becomes true. No guesses, no reading between the lines, and nothing the memory already says, in any words.
+- Report only what the words show happens, is said to be true, or becomes true. No guesses, no reading between the lines, and nothing the memory already says, in any words (facts whose words changed excepted).
 - Every fact needs "quote": words copied exactly, character for character, from one P paragraph: the shortest phrase or sentence that shows it.
-- Refer to entries by their ids (E1, E2 ...). If someone or something is listed under "Elsewhere in the world", use that id: never make a new entry with a name or alias already listed. A new entry you add can be referred to in later items by the "ref" you give it (N1, N2 ...).
-- A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives, buys or makes (a bead, a letter, a sword, a cart) is an item, however much it matters to them, and gets item fields. Give a new entry only fields the words show.
-- Changes are what is now different: injuries, possessions, looks, where someone is, goals, someone's death. Write a "note" as a short phrase without the name, such as "lost her left hand" or "now carries the Duke's seal". When a change ends what one of their fields says (a bandage off for good, a hat lost), give that field's new value in the change's "fields" too, without it.
+- Refer to entries by their ids (E1, E2 ...). If someone or something is listed under "Elsewhere in the world", use that id: never make a new entry with a name or alias already listed. A new entry can be referred to in later items by its "ref" (N1, N2 ...).
+- A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives or makes (a bead, a letter, a sword) is an item, however much it matters to them. Give a new entry only fields the words show.
+- Changes are what is now different: injuries, possessions, looks, where someone is, goals, someone's death. Write a "note" as a short phrase without the name, such as "lost her left hand". When a change ends what one of their fields says (a bandage off for good, a hat lost), give that field's new value in the change's "fields" too, without it.
 - Details are facts about an entry that don't change in the scene (a newcomer's eye colour, what a place smells like).
-- What was said that later scenes must keep to: a promise or vow, a threat or warning of harm, or a secret told. Give each as a "said" item: who says it, everyone in the scene who hears it, and the spoken line itself as the quote, copied exactly. A secret told is something the hearers now know: give it as "said" only, not also as "knows".
-- Plot threads: a promise, mystery, threat, goal, debt or secret the story must answer. "open" when the words set one up, with its "promise" (what the reader waits on); "clue" for a new hint; "developing" with a note when it moves on; "resolved" only when the payoff itself is on the page, never for a hint or a plan.
+- Said lines later scenes must keep to (a promise or vow, a threat, a secret told): a "said" item with who says it, who hears it, and the spoken line itself as the quote. A secret told is something the hearers now know: give it as "said" only, not also as "knows".
+- Plot threads: a promise, mystery, threat, goal, debt or secret the story must answer. "open" when the words set one up, with its "promise" (what the reader waits on); "clue" for a new hint; "developing" with a note when it moves on.
+- Actions on the memory: "end" a "So far" note or known fact no longer true (a lost thing found); "guess" to "confirm" or "withdraw" a detail marked (guess); "close" an open thread only when its payoff is on the page, never for a hint or plan; "summary" when the scene now tells an entry's summary otherwise.
 - Facts under "Facts whose words changed" need a verdict each: "keep" (the scene still says it; give the words that now show it), "update" (it now says something else; give the new value and words) or "remove" (the scene no longer says it).
 - Don't repeat facts listed under "Facts from this scene".
-- If the scene contradicts the memory without it happening in the story (a different eye colour, a dead character walking about), put it under "clashes" rather than changing anything. A clash is only something that can't be true alongside what the memory says. A detail the memory doesn't have, a fuller or vaguer description, or the same thing in other words ("redder" for "red", "about twelve" for "12") is never a clash.
+- If the scene contradicts the memory without it happening in the story (a different eye colour, a dead character walking about), put it under "clashes" rather than changing anything. A clash is only something that can't be true alongside what the memory says. A detail the memory doesn't have, a fuller or vaguer description, or the same thing in other words ("redder" for "red") is never a clash.
 
 Reply with:
 {"facts": [verdicts], "add": [new facts], "clashes": [clashes]}
@@ -48,23 +52,27 @@ Verdicts:
 {"id": "F2", "do": "update", "quote": "...", and the fields of its type below with the new value}
 {"id": "F3", "do": "remove"}
 
-New facts, by "type":
+New facts and actions, by "type":
 {"type": "entry", "ref": "N1", "kind": "character|place|group|item|lore|glossary", "name": "...", "aliases": ["..."], "summary": "one line", "fields": {"key": "value"}, "quote": "..."}
 {"type": "change", "entry": "E1", "note": "lost her left hand", "fields": {"marks": "left hand missing"}, "quote": "..."}
 {"type": "detail", "entry": "E1", "field": "eyes", "value": "grey", "quote": "..."}
 {"type": "relationship", "entry": "E1", "other": "E2", "rel": "sister, rival, holds, member of...", "feels": "how E1 feels about E2", "otherFeels": "how E2 feels about E1", "ended": false, "quote": "..."}
-{"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 when it is a fact listed under Facts", "forgets": false, "quote": "..."}
-{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "what it amounts to, in a few words: Mara will come back for Tobin before the snow", "factId": "K1 when it is a fact listed under Facts", "quote": "the spoken line, copied exactly"}
-{"type": "thread", "entry": "E5 (an open plot thread), or leave it out and give a name", "name": "the question or promise", "status": "open|clue|developing|resolved", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
+{"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 if listed under Facts", "forgets": false, "quote": "..."}
+{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "what it amounts to: Mara will be back before the snow", "factId": "K1 if listed under Facts", "quote": "the spoken line, copied exactly"}
+{"type": "thread", "entry": "E5, or leave it out and give a name", "name": "the question or promise", "status": "open|clue|developing", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
 {"type": "event", "name": "...", "summary": "what happened, in one line", "involved": ["E1", "E2"], "quote": "..."}
-{"type": "voice", "entry": "E1", "quote": "a line of their dialogue that is especially typical of how they speak"}
+{"type": "voice", "entry": "E1", "quote": "a line of dialogue typical of how they speak"}
+{"type": "end", "entry": "E1", "fact": "lost her knife, or K1", "when": "if the words say", "quote": "..."}
+{"type": "guess", "entry": "E1", "field": "eyes", "do": "confirm|withdraw", "quote": "..."}
+{"type": "close", "entry": "E5", "note": "the payoff", "quote": "..."}
+{"type": "summary", "entry": "E3", "summary": "the new one line", "quote": "..."}
 
 Clashes:
 {"entry": "E1", "about": "eyes", "memory": "blue", "text": "green", "quote": "..."}
 
 Field keys. ${keysLine('character', 'Characters')} ${keysLine('item', 'Items')} ${keysLine('place', 'Places')} ${keysLine('lore', 'Lore')} Any kind: summary, description.
 
-If there is nothing to report, reply {"facts": [], "add": [], "clashes": []}.`
+Nothing to report: {"facts": [], "add": [], "clashes": []}.`
 
 /** Said when a reply couldn't be read, before asking once more. */
 export const retryMessage = (why: string): string =>
@@ -79,6 +87,8 @@ export type SummaryAsk =
   | { level: 'scene'; where: string; title: string; text: string; words: number }
   | { level: 'scene-part'; where: string; title: string; part: number; parts: number; text: string }
   | { level: 'scene-parts'; where: string; title: string; summaries: string[]; words: number }
+  /** A scene's summary patched from the paragraphs added or rewritten since (World Memory Overhaul A3). */
+  | { level: 'scene-patch'; where: string; title: string; summary: string; paragraphs: string[] }
   | { level: 'chapter'; where: string; title: string; summaries: { label: string; text: string }[] }
   | { level: 'story'; title: string; summaries: { label: string; text: string }[] }
   | { level: 'series'; name: string; summaries: { label: string; text: string }[] }
@@ -99,6 +109,8 @@ export function summaryPrompt(a: SummaryAsk): string {
       return `This is part ${a.part} of ${a.parts} of a long scene (${a.where}${a.title ? ` "${a.title}"` : ''}). Summarise this part in about 80 words.\n\n${a.text}`
     case 'scene-parts':
       return `These summarise the parts of one scene, in order (${a.where}${a.title ? ` "${a.title}"` : ''}). Join them into one summary of the scene ${sceneSummaryLength(a.words)}.\n\n${a.summaries.map((s, i) => `Part ${i + 1}: ${s}`).join('\n\n')}`
+    case 'scene-patch':
+      return `This is the summary of a scene (${a.where}${a.title ? ` "${a.title}"` : ''}), then the paragraphs of the scene that are new or rewritten since it was written. Edit the summary so it is true to the scene as it now reads, changing as little as you can and keeping about its length. Reply with the whole edited summary.\n\nSummary: ${a.summary}\n\nNew or rewritten paragraphs:\n\n${a.paragraphs.join('\n\n')}`
     case 'chapter':
       return `Summarise this chapter (${a.where}${a.title ? `, "${a.title}"` : ''}) from its scene summaries, in 100 to 250 words.\n\n${list(a.summaries)}`
     case 'story':

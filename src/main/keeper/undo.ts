@@ -56,14 +56,28 @@ function deleteLinks(db: DB, ids: ID[]): void {
   for (const id of ids) hist.deleteLink(db, id)
 }
 
+/**
+ * Forgets a fact's links whose words were edited or deleted. A fact Undo brings back no longer rests on those words
+ * (it is Adam's to keep): left 'gone' or 'changed', the writer would leave it out as unsure and a later read could take
+ * it away again.
+ */
+function dropLostLinks(db: DB, links: { id: ID; state: string }[]): void {
+  deleteLinks(
+    db,
+    links.filter((l) => l.state !== 'ok').map((l) => l.id)
+  )
+}
+
 /** Puts a field back as it was, and who it came from. */
-function restoreField(db: DB, u: FieldUndo): void {
+function restoreField(db: DB, u: FieldUndo, keepLinks = false): void {
   const e = live(db, u.entryId)
   if (!e) return
   if (fieldValue(e, u.field) !== u.before)
     repo.updateEntry(db, e.id, patchFor(e, u.field, u.before), { origin: u.beforeOrigin ?? e.origin })
   kdb.setFieldOrigins(db, e.id, { [u.field]: u.beforeOrigin })
   deleteLinks(db, u.linkIds)
+  // A value brought back (a removal undone) no longer rests on words that were edited or deleted.
+  if (u.before.trim() && !keepLinks) dropLostLinks(db, hist.linksForEntry(db, e.id).filter((l) => hist.isFieldLink(l, u.field)))
 }
 
 // ---------- "First seen elsewhere" ----------
@@ -194,8 +208,12 @@ function restoreSummary(db: DB, level: Summary['level'], targetId: ID, version: 
 
 // ---------- Undo ----------
 
-/** Undoes one line: puts back what was there before, and stops the same change being made again from the same words. */
-export function undoItem(db: DB, id: ID): Outcome {
+/**
+ * Undoes one line: puts back what was there before, and stops the same change being made again from the same words.
+ * `keepLinks`: a fact brought back keeps its links whose words were edited or deleted (a scene back from the Trash: its
+ * links go back to their words next, removed.ts); otherwise they are forgotten, so the fact stands for good.
+ */
+export function undoItem(db: DB, id: ID, opts: { keepLinks?: boolean } = {}): Outcome {
   const row = line(db, id)
   if (isFlowLine(row)) return undoFlowLine(db, row) // a story flow's line (milestone 3)
   if (isWorldLine(row)) return undoWorldLine(db, row) // a world build's line (milestone 4)
@@ -255,25 +273,22 @@ export function undoItem(db: DB, id: ID): Outcome {
       const data = old?.data as Change | null
       if (data && liveChange(db, u.changeId))
         mem.replaceChange(db, u.changeId, { ...changeInput(data, data as ChangeData), origin: old!.origin })
-      // The link goes back to the old words, which aren't in the scene any more.
-      if (u.link)
-        hist.updateLink(db, u.link.id, {
-          quote: u.link.quote,
-          start: u.link.start,
-          end: u.link.end,
-          paragraphId: u.link.paragraphId,
-          state: 'changed'
-        })
+      // The link stays on the words the update was read from: the old fact now rests on them, and isn't updated from
+      // them again (the suppression below). Sent back to the old words, which aren't in the scene any more, it would be
+      // hidden from the writer as unsure and removed two reads later.
       break
     }
     case 'change-removed': {
       if (!liveChange(db, u.changeId) && db.prepare('SELECT 1 FROM changes WHERE id = ?').get(u.changeId)) {
         mem.restoreChange(db, u.changeId, { origin: earlierOrigin(db, 'change', u.changeId) })
       }
+      // Brought back, it no longer rests on the edited or deleted words (it is Adam's to keep).
+      deleteLinks(db, u.linkIds ?? [])
+      if (!opts.keepLinks) dropLostLinks(db, hist.linksForFact(db, 'change', u.changeId))
       break
     }
     case 'field-set':
-      restoreField(db, u)
+      restoreField(db, u, opts.keepLinks)
       break
     case 'voice-added': {
       const e = live(db, u.entryId)
@@ -314,6 +329,10 @@ export function undoItem(db: DB, id: ID): Outcome {
       break
     case 'summary-refresh':
       if (u.refreshed) restoreSummary(db, 'scene', u.sceneId, u.version, 'adam')
+      break
+    case 'until-set':
+      // Where the fact stopped being true goes back to what it was (B1): an end taken back, or a cleared one restored.
+      if (liveChange(db, u.changeId)) mem.setChangeUntil(db, u.changeId, u.before, ADAM)
       break
   }
   if (u.fingerprint && u.words != null && row.sceneId) kdb.addSuppression(db, u.fingerprint, row.sceneId, u.words)

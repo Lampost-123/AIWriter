@@ -14,9 +14,11 @@ import type {
   GenerationStatus,
   GenerationSummary,
   ID,
+  MemoryTagCounts,
   ReplacedText
 } from '@shared/types'
 import { countWords } from '@shared/defaults'
+import { countMemoryTags } from '@shared/memoryTags'
 import { UserError } from '../util'
 import { aiCallFinished, beforeAiCall } from '../usage/gate'
 import { touchWorld } from './repo'
@@ -269,4 +271,15 @@ export function getGeneration(db: DB, id: ID): GenerationRecord {
     finishedAt: (r.finished_at as string | null) ?? null,
     replacedText: isReplacedText(replaced) ? replaced : null
   }
+}
+
+/**
+ * How many of a record's briefing lines were the AI's guesses, out of date (words edited since, or a summary being
+ * updated) or Adam's own (World Memory Overhaul B6), counting the parts sent; null when there is no such record.
+ * For "What the AI saw" and the trap harness. Records from before the tags were kept count nothing.
+ */
+export function memoryTagCounts(db: DB, id: ID): MemoryTagCounts | null {
+  const r = db.prepare('SELECT blocks_json FROM generations WHERE id = ?').get(id) as Row | undefined
+  if (!r) return null
+  return countMemoryTags(json<ContextBlock[]>(r.blocks_json, []))
 }

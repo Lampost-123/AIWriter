@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { announceDelete } from '@/lib/undoDelete'
 import { normalizeName } from '../entryLogic'
-import { shortQuote, sourceNote } from '../memoryLogic'
+import { changeSourceNote, changeUntil, shortQuote } from '../memoryLogic'
 import { Combobox, type ComboOption } from '../parts/Combobox'
 import type { ScenePlace } from '../useSceneLabels'
 import { QuietError } from './QuietError'
@@ -99,11 +99,12 @@ export function KnowledgeSection({
       {rows.length ? (
         <ul className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface">
           {rows.map((c) => {
-            const note = c.origin === 'adam' && adamsEntry ? null : sourceNote(c.origin, c.links)
+            const note = c.origin === 'adam' && adamsEntry ? null : changeSourceNote(c)
             return (
               <li key={c.id} className="flex items-start gap-2 py-1.5 pl-3 pr-1.5">
                 <div className="min-w-0 flex-1 py-0.5">
                   <p className="text-[13.5px] leading-snug text-fg">{c.payload.fact}</p>
+                  {changeUntil(c) ? <p className="text-[12px] leading-snug text-faint">True {changeUntil(c)}</p> : null}
                   {note ? <SourceLine note={note} places={places} showAdam /> : null}
                 </div>
                 <IconButton label={`Remove ${shortQuote(c.payload.fact)} from what ${name} knows`} size="sm" onClick={() => void remove(c)}>

@@ -53,7 +53,11 @@
 //   - "Nobody knew who|why|where|what|how|whether <x>."  opens a plot thread "Who <x>" (promise "Who <x>?")
 //   - "A clue: <x>."                                a clue for the first open plot thread listed (or one opened above)
 //   - "Things moved on: <x>."                       the same thread moves on (developing, note <x>)
-//   - "At last the answer came: <x>."               the same thread is resolved (note <x>)
+//   - "At last the answer came: <x>."               the same thread is closed (a "close" item, note <x>)
+//   - "<Name> found her|his|their <thing> again."   ends <Name>'s "lost her <thing>" (an "end" item; a leading
+//                                                    "The next morning," and the like is its "when")
+//   - "<Name> told them a secret: <x>."             a secret told by <Name> ("said", heard by nobody named: the
+//                                                    app adds who was on stage)
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
@@ -229,7 +233,11 @@ const sentencesOf = (p) => (p.match(/[^.!?]+[.!?]+["'’”]?|[^.!?]+$/g) ?? [])
 
 /** What the rules read in one sentence: { kind, name, ... } or null. */
 function readSentence(s) {
-  let m = s.match(/\b([A-Z][a-z]+) (?:lost|loses) (her|his|their) ([a-z][a-z ]*[a-z])/)
+  let m = s.match(/^(?:(The next morning|That night|At dawn|Later), )?([A-Z][a-z]+) (?:found|finds) (her|his|their) ([a-z][a-z ]*[a-z]) again/)
+  if (m) return { kind: 'end', name: m[2], fact: `lost ${m[3]} ${m[4]}`, when: (m[1] ?? '').toLowerCase() }
+  m = s.match(/\b([A-Z][a-z]+) told them a secret: ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'said', name: m[1], fact: m[2].trim() }
+  m = s.match(/\b([A-Z][a-z]+) (?:lost|loses) (her|his|their) ([a-z][a-z ]*[a-z])/)
   if (m) return { kind: 'change', name: m[1], note: `lost ${m[2]} ${m[3]}`, fields: { marks: `${m[3]} lost` } }
   m = s.match(/\b([A-Z][a-z]+)'s eyes (?:are|were) ([a-z]+)/)
   if (m) return { kind: 'detail', name: m[1], field: 'eyes', value: m[2] }
@@ -290,13 +298,16 @@ export function fakeMemoryReply(user) {
       if (!target) continue
       if (r.kind === 'thread-clue') add.push({ type: 'thread', ...target, status: 'clue', clue: r.clue, quote: s })
       if (r.kind === 'thread-developing') add.push({ type: 'thread', ...target, status: 'developing', note: r.note, quote: s })
-      if (r.kind === 'thread-resolved') add.push({ type: 'thread', ...target, status: 'resolved', note: r.note, quote: s })
+      // Closed with the "close" action (World Memory Overhaul B7), as the reading prompt now asks.
+      if (r.kind === 'thread-resolved') add.push({ type: 'close', ...target, note: r.note, quote: s })
       continue
     }
     const entry = ref(r.name)
     if (r.kind === 'change') add.push({ type: 'change', entry, note: r.note, fields: r.fields, quote: s })
     if (r.kind === 'detail') add.push({ type: 'detail', entry, field: r.field, value: r.value, quote: s })
     if (r.kind === 'knows') add.push({ type: 'knows', entry, fact: r.fact, quote: s })
+    if (r.kind === 'end') add.push({ type: 'end', entry, fact: r.fact, when: r.when, quote: s })
+    if (r.kind === 'said') add.push({ type: 'said', kind: 'secret', entry, heard: [], fact: r.fact, quote: s })
     if (r.kind === 'wants') {
       // Filed as a character, as a careless memory model once did with a bead (the app makes it an item).
       const name = `${r.name}'s ${r.what} ${r.thing}`
@@ -335,8 +346,18 @@ export function fakeMemoryReply(user) {
   return JSON.stringify({ facts, add, clashes: [] }, null, 1)
 }
 
-/** A deterministic summary: the opening words of the text it was given. */
+/**
+ * A deterministic summary: the opening words of the text it was given. A scene summary to patch (World Memory Overhaul
+ * A3: the old summary, then the paragraphs new or rewritten since) is edited the same way: the opening words of those
+ * paragraphs, then of the old summary, so it never echoes the prompt's "Summary:" label back.
+ */
 export function fakeSummary(user) {
+  const patch = String(user).match(/^This is the summary of a scene[\s\S]*?\n\nSummary: ([\s\S]*?)\n\nNew or rewritten paragraphs:\n\n([\s\S]*)$/)
+  if (patch) {
+    const old = patch[1].replace(/^This part of the story begins:\s*/, '')
+    const words = `${patch[2]} ${old}`.split(/\s+/).filter(Boolean).slice(0, 40).join(' ')
+    return `This part of the story begins: ${words.replace(/[.,;:!?"']+$/, '')}.`
+  }
   const text = String(user)
     .split('\n\n')
     .slice(1)

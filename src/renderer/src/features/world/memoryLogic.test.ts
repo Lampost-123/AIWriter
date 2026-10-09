@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChangeInput, ChangeView, Entry, Outline, SourceLink } from '@shared/types'
 import {
   allAdams,
+  changeSourceNote,
   changeWhere,
   createKindsFor,
   describeChange,
@@ -123,8 +124,20 @@ describe('sourceNote', () => {
       kind: 'words',
       quote: 'she lost her hand',
       sceneId: 's1',
+      paragraphId: 'p1',
       changed: false,
       more: 1
+    })
+  })
+
+  it('keeps the paragraph of words edited since, so the page can show where they were', () => {
+    expect(sourceNote('text', [{ ...link('changed', 'old words'), paragraphId: 'p9' }])).toEqual({
+      kind: 'words',
+      quote: 'old words',
+      sceneId: 's1',
+      paragraphId: 'p9',
+      changed: true,
+      more: 0
     })
   })
 
@@ -136,6 +149,15 @@ describe('sourceNote', () => {
   it('marks AI drafts and Adam’s own facts', () => {
     expect(sourceNote('ai', [link('ok')])).toEqual({ kind: 'ai' })
     expect(sourceNote('adam', [link('ok')])).toEqual({ kind: 'adam' })
+  })
+
+  it('says "Kept by you" for a change brought back by Undo, which rests on no words any more', () => {
+    expect(changeSourceNote({ origin: 'text', links: [] })).toEqual({ kind: 'kept' })
+    // Otherwise as sourceNote: its words, words removed, the AI's or Adam's.
+    expect(changeSourceNote({ origin: 'text', links: [link('ok')] })?.kind).toBe('words')
+    expect(changeSourceNote({ origin: 'text', links: [link('gone')] })).toEqual({ kind: 'gone', sceneId: 's1' })
+    expect(changeSourceNote({ origin: 'ai', links: [] })).toEqual({ kind: 'ai' })
+    expect(changeSourceNote({ origin: 'adam', links: [] })).toEqual({ kind: 'adam' })
   })
 })
 
@@ -300,6 +322,31 @@ describe('relationPhrase', () => {
     expect(a('part of', 'The Guild')).toBe('part of The Guild')
   })
 
+  it('reads plural and singular types with extra detail as a sentence, the detail after the name', () => {
+    const a = (type: string, other = 'Ash Penrose'): string => relationPhrase(type, other, { article: true })
+    // The trial's own: plural, with where they are.
+    expect(a('travelling companions on the drove road')).toBe('travelling companions with Ash Penrose (on the drove road)')
+    expect(a('travelling companion on the drove road')).toBe('a travelling companion of Ash Penrose (on the drove road)')
+    expect(a('travelling companions')).toBe('travelling companions with Ash Penrose')
+    expect(a('travelling companion')).toBe('a travelling companion of Ash Penrose')
+    expect(a('rivals at court')).toBe('rivals with Ash Penrose (at court)')
+    expect(a('friends since childhood')).toBe('friends with Ash Penrose (since childhood)')
+    expect(a('enemy since the fire')).toBe('an enemy of Ash Penrose (since the fire)')
+    expect(a('estranged since the war')).toBe('estranged from Ash Penrose (since the war)')
+    expect(a('companions on the road (uneasy)')).toBe('companions with Ash Penrose (on the road; uneasy)')
+    // The trial's others: detail after a semicolon, and the two halves of a family tie.
+    expect(a('acquaintance; he has stayed at her inn before')).toBe('an acquaintance of Ash Penrose (he has stayed at her inn before)')
+    expect(a('father and daughter', 'Pell Venn')).toBe('father and daughter with Pell Venn')
+    expect(a('mentor and friend')).toBe('a mentor and friend of Ash Penrose')
+    expect(a('old friend, from the war')).toBe('an old friend of Ash Penrose (from the war)')
+    // Words that belong together keep their own link.
+    expect(a('involved in')).toBe('involved in Ash Penrose')
+    expect(a('in love')).toBe('in love with Ash Penrose')
+    expect(a('holds the key to', 'the Assay Office')).toBe('holds the key to the Assay Office')
+    expect(a('stationed at', 'Harrowgate')).toBe('stationed at Harrowgate')
+    expect(relationPhrase('companions on the drove road', 'Ash')).toBe('companions with Ash (on the drove road)')
+  })
+
   it('offers sensible kinds to create from a typed name', () => {
     expect(createKindsFor('character')[0]).toBe('character')
     expect(createKindsFor('event')).toContain('place')
@@ -353,6 +400,16 @@ describe('describeChange', () => {
     expect(say(rel('r', 'mara', 'tobin', { type: 'rival', ended: true }, 'scene'))).toBe('No longer a rival of Tobin')
   })
 
+  it('phrases a plural relationship with extra detail as a sentence (the trial’s "Now a travelling companions ...")', () => {
+    expect(say(rel('r', 'mara', 'tobin', { type: 'travelling companions on the drove road' }, 'scene'))).toBe(
+      'Now travelling companions with Tobin (on the drove road)'
+    )
+    expect(say(rel('r', 'mara', 'tobin', { type: 'travelling companions', ended: true }, 'scene'))).toBe(
+      'No longer travelling companions with Tobin'
+    )
+    expect(say(rel('r', 'tobin', 'mara', { type: 'guide on the fell road' }, 'scene'))).toBe('Tobin: now a guide of Mara (on the fell road)')
+  })
+
   it('adds how each feels, this entry first', () => {
     const c = rel('r', 'tobin', 'mara', { type: 'enemies', feels: 'betrayed', otherFeels: 'guilty' }, 'scene')
     expect(describeChange(c, 'mara', nameOf, label)?.detail).toBe('Mara feels: guilty · Tobin feels: betrayed')
@@ -360,6 +417,31 @@ describe('describeChange', () => {
 
   it('leaves out a relationship with an entry that no longer exists', () => {
     expect(say(rel('r', 'mara', 'gone', { type: 'enemies' }, 'scene'))).toBeNull()
+  })
+
+  it('shows something said once: not again under it when its source words are the same words', () => {
+    const said = (links: SourceLink[], there?: string[]): ChangeView => ({
+      ...base,
+      id: 's',
+      entryId: 'tobin',
+      anchor: 'scene',
+      kind: 'knowledge',
+      links,
+      payload: { factId: 'f', fact: 'the vault is empty', said: { kind: 'secret', by: 'mara', words: 'The vault is empty.' }, ...(there ? { there } : {}) }
+    })
+    const link = (quote: string, state: SourceLink['state'] = 'ok'): SourceLink =>
+      ({ id: 'l', factKind: 'change', factId: 's', field: null, sceneId: 'sc', sceneVersion: 1, paragraphId: 'p1', start: 0, end: 20, quote, state }) as SourceLink
+    const detail = (c: ChangeView): string | null | undefined => describeChange(c, 'tobin', nameOf, label)?.detail
+    expect(say(said([link('“The vault is empty.”')]), 'tobin')).toBe('A secret told: the vault is empty')
+    // An older world (no one named as there): the line is shown by its source words only.
+    expect(detail(said([link('“The vault is empty.”')]))).toBeNull()
+    expect(detail(said([link('The  vault is empty.')]))).toBeNull()
+    // No source words to show it, or words that are gone or say something else: the line is shown under it.
+    expect(detail(said([]))).toBe('“The vault is empty.”')
+    expect(detail(said([link('The vault is empty.', 'gone')]))).toBe('“The vault is empty.”')
+    expect(detail(said([link('She said nothing more.')]))).toBe('“The vault is empty.”')
+    // Who was there takes its place when known.
+    expect(detail(said([link('The vault is empty.')], ['tobin', 'mara']))).toBe('Was there with Mara')
   })
 
   it('phrases knowledge and plot threads', () => {

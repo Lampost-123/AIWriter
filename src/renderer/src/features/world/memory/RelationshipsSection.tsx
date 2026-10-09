@@ -14,8 +14,8 @@ import {
   mergeRelationEdit,
   relationEditOf,
   relationPlaceholder,
+  changeSourceNote,
   saveRelationOverNewer,
-  sourceNote,
   type RelationEdit,
   type RelationshipChange,
   type RelationView
@@ -316,7 +316,7 @@ const RelationshipRow = memo(function RelationshipRow({
   const to = view.mine ? otherName : selfName
   const Icon = KIND_ICONS[other.kind]
   // Where it came from; Adam's own say so too, except on an entry that is all his.
-  const note = view.change.origin === 'adam' && adamsEntry ? null : sourceNote(view.change.origin, view.change.links)
+  const note = view.change.origin === 'adam' && adamsEntry ? null : changeSourceNote(view.change)
 
   return (
     <div className="rounded-lg border border-line bg-surface px-3 pb-3 pt-2" onBlur={() => void autosave.flush()}>

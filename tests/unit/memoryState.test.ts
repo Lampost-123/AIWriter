@@ -113,7 +113,7 @@ describe('state', () => {
     expect(where.age).toMatch(/^the start of /)
     expect(w.state('b1').entries.get('m')?.changedWhere).toBeUndefined()
     expect(s.relationships.map((r) => [r.aId, r.bId, r.type])).toEqual([['m', 'k', 'cousin']])
-    expect(s.facts).toEqual([{ factId: 'f2', fact: 'Kell knows this.', knownBy: ['k'], at: -1 }])
+    expect(s.facts).toEqual([{ factId: 'f2', fact: 'Kell knows this.', knownBy: ['k'], at: -1, backed: true }])
   })
 
   it('takes a thing worn gone for good out of the typical clothing, unless the change sets the clothing itself', () => {

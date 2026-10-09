@@ -14,7 +14,7 @@ import { asOfStops, memoryAt, type MemoryAt } from '../memory/asOf'
 import { buildLine } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import type { MemoryData, WorldShape } from '../memory/types'
-import { changesMade, readMapLayout, sceneCards, storyGaps, writeMapLayout, type CardInfo } from '../db/worldViews'
+import { changesMade, readMapLayout, sceneCards, storyGaps, writeMapLayout, writtenScenes, type CardInfo } from '../db/worldViews'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
 import { UserError } from '../util'
@@ -83,7 +83,20 @@ export function threadsBoardOf(db: DB, storyId: ID): ThreadsBoard {
   let b = r.boards.get(storyId)
   if (!b) {
     const { shape, data, line, state, cards } = atEnd(db, r, storyId)
-    r.boards.set(storyId, (b = buildBoard({ storyId, shape, data, line, state, cards, payoff: (ids) => payoffWords(db, ids) })))
+    r.boards.set(
+      storyId,
+      (b = buildBoard({
+        storyId,
+        shape,
+        data,
+        line,
+        state,
+        cards,
+        payoff: (ids) => payoffWords(db, ids),
+        linkScenes: (ids) => hist.entryLinkScenes(db, ids),
+        written: writtenScenes(db)
+      }))
+    )
   }
   return b
 }

@@ -5,7 +5,7 @@
 import type Database from 'better-sqlite3'
 import type { Change, ID, SaidPayload, SceneCard } from '@shared/types'
 import { listAllChanges } from './memory'
-import { linksForFacts } from './history'
+import { linkHealth, linksForFacts } from './history'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -55,7 +55,9 @@ export interface SaidChange {
 
 /**
  * Every live change that records something said (KnowledgePayload.said), with the line as its words now read: the
- * latest source link still standing, else the words first read. A line whose words are all gone is left out.
+ * latest source link still standing, else the words first read. A line whose words are all gone is left out, and so is
+ * one read from the text whose words were edited with nothing confirming it yet (World Memory Overhaul A1: the writer
+ * isn't told it until a read does), unless Adam edited it.
  */
 export function saidChanges(db: DB, changes: Change[] = listAllChanges(db)): SaidChange[] {
   const said = changes.filter((c): c is Change & { kind: 'knowledge' } => c.kind === 'knowledge' && !!c.payload.said && !c.payload.forgets)
@@ -69,6 +71,7 @@ export function saidChanges(db: DB, changes: Change[] = listAllChanges(db)): Sai
     const ls = links.get(c.id) ?? []
     const standing = ls.filter((l) => l.state !== 'gone')
     if (ls.length && !standing.length) continue
+    if (linkHealth(ls) === 'unsure' && c.origin !== 'adam') continue
     const latest = [...standing].reverse().find((l) => l.state === 'ok') ?? standing[standing.length - 1]
     out.push({ change: c, said: c.payload.said!, words: (latest?.quote ?? c.payload.said!.words).trim() })
   }
