@@ -5,11 +5,14 @@
 //
 // The sound effects' shaping (app/sound_audio.py) and the graphics card sharing (app/engines/base.py) need numpy
 // as well: those run with a Python that has it (AIWRITE_TEST_PYTHON names one), and are skipped without.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+
+// Each test starts Python, which can take over 5 s on a busy Windows CI runner.
+vi.setConfig({ testTimeout: 15_000 })
 
 const SERVER = resolve(__dirname, '..', '..', '..', 'speech-server')
 

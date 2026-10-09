@@ -40,6 +40,8 @@ export function getSettings(): Settings {
       const forced = themeFromEnv()
       if (forced) cached.theme = forced
     }
+    // App tests never see the guided tour of the desk (AIWRITE_TOUR=off) unless they ask for it.
+    if (!('tourSeen' in stored) && process.env.AIWRITE_TOUR === 'off') cached.tourSeen = true
     // The New look's layout: once the desk is ready (or in a try-out build), everyone on the New look who never chose a
     // layout moves to the desk, with its story list and scene drawer shut to start with, and a one-time note offering
     // the panels to anyone who used them. App tests choose the layout they start in (AIWRITE_ARRANGEMENT).

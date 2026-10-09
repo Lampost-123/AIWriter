@@ -75,7 +75,7 @@ export function DeskTopBar(): React.JSX.Element {
           <StorySwitcher bar onTitle={openStoryHome} />
           <RenameWorld trigger={worldButton} />
         </div>
-        <div className="ml-3 flex shrink-0 items-center max-[1440px]:hidden">
+        <div className="ml-3 flex shrink-0 items-center max-[1520px]:hidden">
           <SampleWorldChip />
         </div>
       </div>

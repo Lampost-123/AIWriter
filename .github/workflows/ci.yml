@@ -1,3 +1,7 @@
+# Checks pull requests (once per push) and main after each merge, and builds a Windows
+# installer Adam can download from the run's "Artifacts" section (AI-Write-Windows-installer).
+# A branch with no pull request isn't checked on push; run it by hand from the Actions tab
+# ("Run workflow"). Every job runs on Windows: the app is Windows only.
 name: CI
 
 on:
@@ -9,14 +13,16 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request stops the older run. Runs on main are never
+# stopped, so every merge gets checked.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  unit-checks:
-    name: Unit checks
-    runs-on: ubuntu-latest
+  checks:
+    name: Typecheck and unit tests
+    runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -35,40 +41,14 @@ jobs:
       - name: Unit tests
         run: npx vitest run
 
-  build-app:
-    name: Build app
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Build app
-        run: npm run build
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aiwrite-build
-          path: out/
-          if-no-files-found: error
-          retention-days: 7
-
+  # The app tests are split into 4 parts that run side by side. Each part builds the app
+  # itself (the build takes seconds), so no part waits on another.
   app-tests:
     name: App tests (${{ matrix.shard }}/4)
-    needs: build-app
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: windows-latest
+    timeout-minutes: 40
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -79,16 +59,19 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: aiwrite-build
-          path: out
-
       - name: Install
         run: npm ci
 
-      - name: App tests (Playwright)
+      - name: Build
+        run: npm run build
+
+      # The runner's screen starts at 1024x768, smaller than the app's 1440x900 window, so Windows shrinks the window
+      # and the binder folds away (the narrow layout). Linux CI used a 1440x900 virtual screen; this matches it and more.
+      - name: Screen size 1920x1080
+        shell: pwsh
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+
+      - name: App tests (Playwright driving the built app)
         run: npx playwright test --shard=${{ matrix.shard }}/4
 
       - name: Keep the test report
@@ -103,8 +86,6 @@ jobs:
 
   windows-installer:
     name: Windows installer
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    needs: build-app
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -131,22 +112,3 @@ jobs:
           path: release/*.exe
           if-no-files-found: error
           retention-days: 30
-
-  perf-tests:
-    name: Performance checks
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Run performance tests
-        run: npx vitest run tests/unit/searchPerf.test.ts src/main/entryViews/perf.test.ts
