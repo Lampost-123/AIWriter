@@ -472,13 +472,13 @@ test('says what the voices need before they download, and where this computer fa
   const section = engine(win)
   await expect(
     section.getByText(
-      'They need an NVIDIA graphics card (RTX 20 series or newer) with at least 8 GB of memory. Without one they run on the processor, ' +
+      'They need an NVIDIA graphics card (RTX 20 series or newer) with at least 10 GB of memory. Without one they run on the processor, ' +
         'far too slowly for reading aloud. They take about 12 GB of disk space, and need about 15 GB free while they download.'
     )
   ).toBeVisible()
   const computer = section.getByRole('list', { name: 'This computer' })
   await expect(computer.getByRole('listitem')).toHaveText([
-    'This computer’s NVIDIA GeForce RTX 3060 Laptop GPU has 6 GB of memory, and the voices need about 8 GB, so they won’t fit on it.',
+    'This computer’s NVIDIA GeForce RTX 3060 Laptop GPU has 6 GB of memory, and the voices need about 10 GB, so they won’t fit on it.',
     'Only 9 GB is free on the disk the voices go on, and they need about 15 GB. Free up some space first.'
   ])
   // Said, not stopped: the download is still Adam's to start.

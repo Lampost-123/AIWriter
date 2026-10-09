@@ -71,7 +71,7 @@ export function ReadAloudStep(): React.JSX.Element {
               </Part>
             )}
             <Part icon={<Users size={16} />} title="The studio voices" size={KINDS.studio.size}>
-              96 real voices recorded in a studio, which characters can be given instead.
+              96 real voices recorded in a studio, which characters can be given instead. About 1.1 GB on disk.
             </Part>
           </Card>
           {status.installed.voices ? null : <p className="text-[12.5px] leading-relaxed text-muted">{VOICES_NEEDS}</p>}
