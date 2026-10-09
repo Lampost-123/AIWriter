@@ -27,6 +27,7 @@ Milestone 4:
 | ask.ts | Ask the world |
 | outline.ts | The outline helper, acts in the binder, next scene ideas |
 | speech.ts | The speech engine: the local speech server, its downloads and status |
+| phone.ts | The phone on the same Wi-Fi: another window, with the AI and the voices still on this computer |
 | readAloud.ts | Reading aloud: Listen, voices, who says each line, calibration |
 | dictation.ts | Dictation: hold to talk, the microphone button, the microphone test |
 | worldBuilder.ts | Build the world from a summary (the World builder) |

@@ -1,0 +1,22 @@
+/* The phone is a narrow window of the same app. The desk already slims the story list and lays the
+   scene panel over the page. The top bar scrolls sideways so every control can be reached. */
+html[data-phone] {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+html[data-phone] .desk-topbar,
+html[data-phone] header[data-focus-chrome] {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+html[data-phone] .desk-topbar {
+  display: flex;
+  height: auto;
+  min-height: 52px;
+  gap: 8px;
+}
+
+html[data-phone] .desk-topbar > * {
+  flex: 0 0 auto;
+}

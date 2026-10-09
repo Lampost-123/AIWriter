@@ -79,6 +79,9 @@ const AUDIO: MediaTrackConstraints = { channelCount: 1, echoCancellation: true, 
 
 /** The microphone's stream: the one asked for, or the default when that one isn't plugged in. */
 async function streamFor(deviceId: string): Promise<{ stream: MediaStream; fellBack: boolean }> {
+  if (window.aiwrite?.platform === 'phone') {
+    throw new MicError('Talking is on this computer for now. Type on the phone, or hold the dictation key on the computer.', 'denied')
+  }
   if (!navigator.mediaDevices?.getUserMedia) throw new MicError(MIC_MISSING, 'missing')
   if (deviceId) {
     try {

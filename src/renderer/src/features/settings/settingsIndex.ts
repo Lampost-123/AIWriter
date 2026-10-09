@@ -105,7 +105,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         id: 'about',
         label: 'About and updates',
         blurb: 'Which version this is, what’s new, and updates.',
-        finds: ['Version', 'Updates', 'Check for updates', 'What’s new', 'Library folder', 'Release notes']
+        finds: ['Version', 'Updates', 'Check for updates', 'What’s new', 'Library folder', 'Release notes', 'Phone', 'On your phone', 'Pairing code']
       }
     ]
   }
