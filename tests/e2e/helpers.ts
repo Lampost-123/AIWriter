@@ -65,6 +65,7 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // for what Adam gets).
   // Plan before writing (one more AI call before each draft or beat, src/main/plan/) is left out of app tests that
   // aren't about it, so the calls they count stay as they were; they ask for it with { env: { AIWRITE_PLAN: 'on' } }.
+  // The guided tour of the desk is left out too; a test asks for it with { env: { AIWRITE_TOUR: 'on' } }.
   const background = process.env.AIWRITE_BACKGROUND ?? (process.env.CI ? 'off' : 'on')
   Object.assign(
     env,
@@ -76,7 +77,8 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
       AIWRITE_ARRANGEMENT: 'panels',
       AIWRITE_THEME: 'system',
       AIWRITE_BACKGROUND: background,
-      AIWRITE_PLAN: 'off'
+      AIWRITE_PLAN: 'off',
+      AIWRITE_TOUR: 'off'
     },
     opts.env
   )
