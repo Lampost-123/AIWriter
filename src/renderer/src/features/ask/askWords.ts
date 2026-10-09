@@ -93,18 +93,3 @@ export const NO_CHANGES_CAME = 'No changes came with this answer, so there’s n
 /** True when an answer clearly says it made or proposed changes (shared/askChanges.ts): "apply pressure" doesn't count. */
 export { claimsChanges as speaksOfChanges } from '@shared/askChanges'
 
-/**
- * What to ask next, under the last answer on the desk: up to three questions about the pages it named (the people first,
- * then a place, then what comes next). Clicking one puts it in the box, to change or ask as it is.
- */
-export function followUps(cited: { kind: string; name: string }[]): string[] {
-  const out: string[] = []
-  const people = cited.filter((t) => t.kind === 'character')
-  const place = cited.find((t) => t.kind === 'place')
-  if (people[0]) out.push(`What does ${people[0].name} want most right now?`)
-  if (people[1]) out.push(`How does ${people[1].name} feel about ${people[0].name}?`)
-  if (place) out.push(`What could happen at ${place.name} next?`)
-  if (out.length < 3 && people[0] && !people[1]) out.push(`What is ${people[0].name} hiding?`)
-  if (out.length < 3) out.push('What could go wrong next?')
-  return out.slice(0, 3)
-}

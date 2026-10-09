@@ -55,6 +55,8 @@ export interface DeskLedgerProps {
   onShowWords: (item: MemoryLogItem) => void
   onOpenScene: (sceneId: ID) => void
   emptyHelp: string
+  /** What the memory keeper isn't sure about (main's check queue, 0.6.40), over the ledger. */
+  checks?: React.ReactNode
 }
 
 export function DeskLedger(p: DeskLedgerProps): React.JSX.Element {
@@ -108,6 +110,7 @@ export function DeskLedger(p: DeskLedgerProps): React.JSX.Element {
         </aside>
         <div className="ck-main">
           <div className="lg-scroll" data-ck-scroll>
+            {p.checks ? <div className="lg-pad lg-checks">{p.checks}</div> : null}
             {p.error && !p.items ? (
               <div className="lg-pad">
                 <Notice

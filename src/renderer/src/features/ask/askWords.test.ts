@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerNote, asOfText, chatWhen, examples, savedMessage, speaksOfChanges, followUps } from './askWords'
+import { answerNote, asOfText, chatWhen, examples, savedMessage, speaksOfChanges } from './askWords'
 
 describe('Ask the world’s words', () => {
   it('give examples that name the world’s own characters, never someone from elsewhere', () => {
@@ -76,23 +76,5 @@ describe('an answer that claims changes it never proposed', () => {
     expect(speaksOfChanges('Apply these edits when you’re ready.')).toBe(true)
     expect(speaksOfChanges('She could apply pressure to the wound, or run.')).toBe(false)
     expect(speaksOfChanges('Would you accept a darker ending?')).toBe(false)
-  })
-})
-
-describe('what to ask next', () => {
-  it('asks about the people an answer named first, then a place, then what comes next', () => {
-    expect(
-      followUps([
-        { kind: 'character', name: 'Wren Halloway' },
-        { kind: 'place', name: 'The Drowned Steps' },
-        { kind: 'character', name: 'Iska Vey' }
-      ])
-    ).toEqual(['What does Wren Halloway want most right now?', 'How does Iska Vey feel about Wren Halloway?', 'What could happen at The Drowned Steps next?'])
-    expect(followUps([{ kind: 'character', name: 'Ansel Crane' }])).toEqual([
-      'What does Ansel Crane want most right now?',
-      'What is Ansel Crane hiding?',
-      'What could go wrong next?'
-    ])
-    expect(followUps([])).toEqual(['What could go wrong next?'])
   })
 })

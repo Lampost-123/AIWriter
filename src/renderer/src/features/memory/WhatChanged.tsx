@@ -172,6 +172,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
         onShowWords={showWords}
         onOpenScene={(id) => void openScene(id)}
         emptyHelp={WHAT_CHANGED_HELP}
+        checks={checks.length ? <CheckQueue items={checks} entries={entries} onChange={setChecks} onReload={load} /> : null}
       />
     )
   }
