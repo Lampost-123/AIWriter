@@ -14,6 +14,8 @@
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { BeatMark, BeatVersion, SceneBeatMarks } from '@shared/contracts/beats'
 import type { ID } from '@shared/types'
+import { beatsOnPage as wordsTellBeats } from '@shared/beats'
+import { sceneText } from '@/features/editor/streamDoc'
 import { beatsOnPage, filledParagraphs, type BeatMode, type BeatParagraphs } from './sessionLogic'
 
 export type { BeatMark, BeatVersion, SceneBeatMarks }
@@ -196,19 +198,29 @@ export interface ResumePoint {
   owners: Record<string, ID>
   /** The record of the last beat on the page (the version showing), or null with none kept. */
   last: ID | null
+  /** Beats 1 to `from` are in the scene's words from before the session (it carried on from them; 0: none). */
+  from: number
 }
+
+/**
+ * How many of the card's beats, from the first, the page's words already tell, as the desk's next-beat chip counts them
+ * (shared/beats.ts: by their words, with no AI call), whoever wrote them.
+ */
+export const beatsInWords = (doc: PMNode, beats: readonly string[]): number => wordsTellBeats(beats, sceneText(doc))
 
 /**
  * Where the scene's kept beat by beat session can carry on from. A session that is still on (open: it didn't Finish)
  * can wherever it got to, while its beats are on the page: with every beat written too, or before its first beat put
  * any words there. A finished one only while at least one of its beats is on the page and fewer than the `of` beats on
  * the scene card are (so there is a next beat to write). Null with no beats on the card, or when the session's words
- * have all gone from the page (new text in their place).
+ * have all gone from the page (new text in their place). `inWords`: how many beats the page's words tell
+ * (beatsInWords), for a session that carried on from beats already in them (`from`): those count while they are there.
  */
-export function resumePoint(doc: PMNode, marks: SceneBeatMarks | null, of: number): ResumePoint | null {
+export function resumePoint(doc: PMNode, marks: SceneBeatMarks | null, of: number, inWords = 0): ResumePoint | null {
   if (!marks || of < 1) return null
   const paragraphs = paragraphsOf(marks)
-  const written = beatsOnPage(doc, paragraphs)
+  const from = Math.min(marks.from ?? 0, inWords)
+  const written = Math.max(beatsOnPage(doc, paragraphs), from)
   const landed = marks.beats.some((b) => b.pids.length > 0)
   if (marks.open ? written < 1 && landed : written < 1 || written >= of) return null
   const owners: Record<string, ID> = {}
@@ -219,5 +231,5 @@ export function resumePoint(doc: PMNode, marks: SceneBeatMarks | null, of: numbe
     for (const pid of b.pids) owners[pid] = v.recordId
     if (b.index === written) last = v.recordId
   }
-  return { written, of, paragraphs, owners, last }
+  return { written, of, paragraphs, owners, last, from }
 }

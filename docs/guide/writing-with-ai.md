@@ -123,6 +123,10 @@ For close control, the AI can write one beat of the scene card at a time.
 3. Click **Write the next beat**, or **Write it again** to redo the last one.
 4. Click **Finish** when you're done.
 
+To stop for a while, click **Back to the AI bar**. Later, **More** › **Beat by beat** picks up at the next beat. If
+the scene already covers its first beats some other way (you wrote them yourself, or rewrote them), Beat by beat
+offers **Carry on from beat N**, the same next beat the **Next beat** chip shows.
+
 While you write beat by beat, a band marks where each beat begins. Point at a beat and click its **Beat N** label to
 redo it (with a note if you like), see what the AI saw, or remove it. An earlier beat comes back as a tracked
 change: **Accept** or **Reject** it. If you typed your own paragraphs inside that beat, the change says it replaces

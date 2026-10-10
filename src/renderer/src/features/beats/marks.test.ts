@@ -10,6 +10,7 @@ import { docFromText } from '@/features/editor/streamDoc'
 import { decorateBeats } from './beatMarks'
 import {
   adoptSplits,
+  beatsInWords,
   beatSig,
   beatsShown,
   currentVersion,
@@ -198,5 +199,28 @@ describe('carrying on a session from its kept marks', () => {
     // Its words have all gone from the page (other text in their place), or the card has no beats: nothing to carry on.
     expect(resumePoint(stateFrom('Adam wrote all of this himself.').doc, open, 4)).toBeNull()
     expect(resumePoint(s.doc, open, 0)).toBeNull()
+  })
+})
+
+describe('carrying on from beats already in the scene’s words', () => {
+  const CARD = ['Wren climbs to the lamp room', 'Edric watches the ferry come in', 'The bell rings over the harbour', 'Iska arrives soaked']
+  const PAGE = 'Wren climbed the steps to the lamp room.\n\nBelow, Edric watched the ferry come in through the rain.'
+
+  it('counts the card’s beats the words tell, from the first, as the desk’s next-beat chip does', () => {
+    expect(beatsInWords(stateFrom(PAGE).doc, CARD)).toBe(2)
+    expect(beatsInWords(stateFrom('Rain on the harbour.').doc, CARD)).toBe(0)
+  })
+
+  it('counts a session’s beats carried on from the words while the words still tell them', () => {
+    const doc = stateFrom(PAGE).doc
+    const left: SceneBeatMarks = { ...newMarks('s1', 'sess', 4, 'whole'), left: true, from: 2 }
+    expect(resumePoint(doc, left, 4, 2)).toMatchObject({ written: 2, of: 4, from: 2, last: null })
+    // The words no longer tell them (rewritten since): nothing to carry on.
+    expect(resumePoint(doc, left, 4, 0)).toBeNull()
+    // Still on, with only the first beat told now: it carries on from there.
+    expect(resumePoint(doc, { ...left, left: undefined, open: true }, 4, 1)).toMatchObject({ written: 1, from: 1 })
+    // A session that wrote its own beats doesn't count the words at all.
+    const { s, marks } = threeBeats()
+    expect(resumePoint(s.doc, marks, 4, 4)).toMatchObject({ written: 3, from: 0 })
   })
 })

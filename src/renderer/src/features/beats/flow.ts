@@ -66,7 +66,7 @@ import {
 import { WORDS_META } from '@/features/goals/wordsMeta'
 import { onRepaired, repairLanded } from '@/features/repair/repairRun'
 import { quietRepairs } from '@/features/repair/marks'
-import { beatOf, beatSig, newMarks, resumePoint, withPids, withVersion, type SceneBeatMarks } from './marks'
+import { beatOf, beatSig, beatsInWords, newMarks, resumePoint, withPids, withVersion, type SceneBeatMarks } from './marks'
 import { changeMarks, installMarks, loadMarks } from './marksStore'
 import { redoing } from './redo'
 
@@ -202,15 +202,23 @@ export async function openBeats(sceneId: ID, byKey: boolean): Promise<void> {
   // The scene's session didn't Finish (the app closed, another scene's session came first...) or was left for the AI bar
   // (Back to the AI bar): its bar comes back as it was, wherever it had got to, rather than asking where a new draft goes.
   const page = editorBridge()?.editor?.state.doc
-  if ((kept?.open || kept?.left) && page && resumePoint(page, kept, beats.length)) {
+  if ((kept?.open || kept?.left) && page && resumePoint(page, kept, beats.length, beatsInWords(page, beats))) {
     if (await resumeBeats(sceneId, { beats })) return
     if (useApp.getState().sceneId !== sceneId || editorBridge()?.sceneId !== sceneId) return
   }
   const bridgeNow = editorBridge()
   if (bridgeNow?.hasText()) {
     // The scene's last session stopped short of its last beat (and its beats are still on the page): it can carry on.
-    const at = bridgeNow.editor ? resumePoint(bridgeNow.editor.state.doc, kept, beats.length) : null
-    const resume = at ? { written: at.written, of: at.of } : undefined
+    // Or no session's beats are on the page any more (rewritten, or written some other way), but the scene's words
+    // already tell its first beats, as the desk's next-beat chip counts them: Beat by beat carries on after those.
+    const doc = bridgeNow.editor?.state.doc
+    const inWords = doc ? beatsInWords(doc, beats) : 0
+    const at = doc ? resumePoint(doc, kept, beats.length, inWords) : null
+    const resume = at
+      ? { written: at.written, of: at.of }
+      : inWords >= 1 && inWords < beats.length
+        ? { written: inWords, of: beats.length }
+        : undefined
     return ask({ sceneId, kind: 'choose', byKey, from: 'button', beats, ...(resume ? { resume } : {}) })
   }
   begin(sceneId, 'whole', beats, false, null)
@@ -230,7 +238,8 @@ export function answer(choice: 'resume' | 'replace' | 'add'): void {
   if (!bridge || bridge.sceneId !== q.sceneId) return void toast(NOT_OPEN)
   if (choice === 'resume') {
     void resumeBeats(q.sceneId, { beats: q.beats }).then((ok) => {
-      if (!ok) toast("The beats this scene stopped at aren't on the page any more, so there's nothing to carry on from.")
+      if (!ok && !carryOnFromWords(q.sceneId, q.beats))
+        toast("The beats this scene stopped at aren't on the page any more, so there's nothing to carry on from.")
     })
     return
   }
@@ -248,8 +257,25 @@ export function answer(choice: 'resume' | 'replace' | 'add'): void {
   focusBar()
 }
 
-/** A new session on the scene (one at a time), writing its first beat straight away. */
-function begin(sceneId: ID, mode: BeatMode, beats: string[], replace: boolean, start: BeatSession['start']): void {
+/**
+ * Carry on from beats already in the scene's words (no session's marks are on the page): a new session whose beats 1 to
+ * N are the page's words as they are, paused on beat N + 1 for Adam's note. False when the page doesn't tell any beat
+ * now, or tells them all.
+ */
+function carryOnFromWords(sceneId: ID, beats: string[]): boolean {
+  const bridge = editorBridge()
+  const doc = bridge?.sceneId === sceneId ? bridge.editor?.state.doc : null
+  const from = doc ? beatsInWords(doc, beats) : 0
+  if (from < 1 || from >= beats.length) return false
+  begin(sceneId, 'whole', beats, false, null, from)
+  return true
+}
+
+/**
+ * A new session on the scene (one at a time), writing its first beat straight away; or, carrying on from `from` beats
+ * already in the scene's words, paused on the beat after them.
+ */
+function begin(sceneId: ID, mode: BeatMode, beats: string[], replace: boolean, start: BeatSession['start'], from = 0): void {
   const worldId = useApp.getState().world?.id
   if (!worldId) return
   // A session on another scene gives way, but stays open there: opening that scene again carries it on.
@@ -264,7 +290,7 @@ function begin(sceneId: ID, mode: BeatMode, beats: string[], replace: boolean, s
       owners: {},
       partWay: [],
       kept: false,
-      written: 0,
+      written: from,
       last: null,
       below: null,
       phase: 'paused',
@@ -273,14 +299,15 @@ function begin(sceneId: ID, mode: BeatMode, beats: string[], replace: boolean, s
       steer: '',
       beats,
       start,
-      tried: null
+      tried: null,
+      from
     },
     question: null
   })
   // Kept with the scene from the start, so the bar comes back even if the app closes before the first beat's words land.
   keepSession()
   focusBar()
-  void writeBeat(1, { replace })
+  if (!from) void writeBeat(1, { replace })
 }
 
 /** Some beat of the session has put words on the page (they may have been taken out since). */
@@ -312,6 +339,9 @@ export function writeNext(byKey = false): void {
   focusBar()
 }
 
+/** The bar can write its last beat again: one the session wrote itself, not one it carried on from (`from`). */
+export const canWriteAgain = (s: BeatSession): boolean => s.written >= 1 && s.written > s.from
+
 /**
  * Write it again: the beat just written is undone and written afresh in its place, with the note in the
  * box (see makeWay). Only while it ends the scene: with Adam's own words after it, the new version
@@ -319,7 +349,7 @@ export function writeNext(byKey = false): void {
  */
 export function writeAgain(): void {
   const s = useBeats.getState().session
-  if (!s || s.phase !== 'paused' || run || s.written < 1) return
+  if (!s || s.phase !== 'paused' || run || !canWriteAgain(s)) return
   const ed = editorBridge()?.sceneId === s.sceneId ? editorBridge()?.editor : null
   if (ed && !endsPage(ed.state.doc, s.paragraphs[s.written] ?? [])) {
     toast(`Beat ${s.written} can only be written again while it ends the scene, and your own words come after it now.`)
@@ -552,6 +582,8 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
  * part-way through that beat (it was stopped or cut off), or with Adam's own words after it.
  */
 function howSoFarEnds(s: BeatSession, doc: PMNode, index: number, again: boolean): SoFarEnd {
+  // The beat before is one the session carried on from: the scene's words tell it, and the scene so far ends with them.
+  if (!again && index - 1 <= s.from && !(s.paragraphs[index - 1] ?? []).length) return 'with-beat'
   if (!endsWithBeat(doc, s.paragraphs, index, again ? index : undefined)) return 'after-beat'
   const before = recordOf(doc, s.paragraphs[index - 1] ?? [], s.owners)
   return before && s.partWay.includes(before) ? 'mid-beat' : 'with-beat'
@@ -686,10 +718,11 @@ function note(r: Run): void {
 function sessionMarks(m: SceneBeatMarks | null, s: BeatSession): SceneBeatMarks {
   const base = m?.sessionId === s.id ? m : newMarks(s.sceneId, s.id, s.beats.length, s.mode)
   const start = s.start ?? undefined
+  const from = s.from || undefined
   // Open while the session is on (until Finish), so a restart carries it on.
-  return base.mode === s.mode && base.of === s.beats.length && base.open && base.start === start
+  return base.mode === s.mode && base.of === s.beats.length && base.open && base.start === start && base.from === from
     ? base
-    : { ...base, mode: s.mode, of: s.beats.length, open: true, left: false, start }
+    : { ...base, mode: s.mode, of: s.beats.length, open: true, left: false, start, from }
 }
 
 /** Keeps the session with the scene as it is now (open), so the bar comes back after a restart wherever it had got to. */
@@ -738,7 +771,7 @@ export async function resumeBeats(sceneId: ID, o: { beats?: string[]; auto?: boo
     return bridge.editor
   }
   const ed = here()
-  const at = ed ? resumePoint(ed.state.doc, saved, beats.length) : null
+  const at = ed ? resumePoint(ed.state.doc, saved, beats.length, beatsInWords(ed.state.doc, beats)) : null
   if (!ed || !saved || !at) return false
   // The last beat stopped or was cut off before its end: the bar says so, and the next beat is told.
   let partWay: ID[] = []
@@ -774,7 +807,8 @@ export async function resumeBeats(sceneId: ID, o: { beats?: string[]; auto?: boo
     // Where Adam said the first beat goes, for a first beat that hasn't put words on the page yet (Add below, before
     // the answer was kept).
     start: saved.start ?? (saved.mode === 'below' ? 'add' : null),
-    tried: at.last
+    tried: at.last,
+    from: at.from
   }
   useBeats.setState({ session, question: null })
   changeMarks(sceneId, (m) => (m ? sessionMarks(m, session) : m))
@@ -937,7 +971,8 @@ export function recount(): void {
   const ed = bridge?.editor
   if (!s || !ed || bridge?.sceneId !== s.sceneId) return
   const doc = ed.state.doc
-  const written = beatsOnPage(doc, s.paragraphs)
+  // Beats the session carried on from count while the scene's words still tell them.
+  const written = Math.max(beatsOnPage(doc, s.paragraphs), s.from ? Math.min(s.from, beatsInWords(doc, s.beats)) : 0)
   const last = written ? recordOf(doc, s.paragraphs[written] ?? [], s.owners) : null
   if (written !== s.written || last !== s.last) patchSession({ written, last })
   updatePointer()

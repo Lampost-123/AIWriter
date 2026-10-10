@@ -17,6 +17,7 @@ import { useApp } from '@/lib/store'
 import { suggestionsOf } from '@/features/edits/suggestions'
 import { useDelayed } from '@/features/generate/parts'
 import {
+  canWriteAgain,
   clearHeight,
   dismissQuestion,
   finish,
@@ -197,7 +198,8 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
       : next != null
         ? (s.beats[next - 1] ?? '')
         : 'That was the last beat on the scene card. Write it again, or finish.'
-  const again = s.written >= 1 ? s.written : null
+  // Not a beat the session carried on from in the scene's words: it has no record of its own to write again.
+  const again = canWriteAgain(s) ? s.written : null
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter writes (Shift+Enter starts a new line in the note). Ctrl+Enter does too, here, and not Mark done.

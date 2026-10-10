@@ -47,6 +47,12 @@ export interface BeatSession {
   start: 'replace' | 'add' | null
   /** The record of the last beat tried, even one that brought no words (What the AI saw opens it when no beat shows). */
   tried: ID | null
+  /**
+   * Carried on from beats already in the scene's words (Carry on from beat N with no session's marks on the page):
+   * beats 1 to `from` count as written while the words still tell them, with no paragraphs or records of their own,
+   * so they can't be written again from the bar. 0: the session wrote all its beats itself.
+   */
+  from: number
 }
 
 /** What the Beat by beat button (or the bar) is asking: where the first beat goes, or what is missing first. */
@@ -59,7 +65,10 @@ export interface BeatQuestion {
   from: 'button' | 'bar'
   /** The scene card's beats, as read when Adam asked (a session started by the answer begins with them). */
   beats: string[]
-  /** 'choose' only: the scene's last session didn't get to its last beat, and can carry on from beat `written + 1`. */
+  /**
+   * 'choose' only: the scene's last session didn't get to its last beat, or the scene's words already tell its first
+   * beats (as the desk's next-beat chip counts them), so Beat by beat can carry on from beat `written + 1`.
+   */
   resume?: { written: number; of: number }
 }
 
