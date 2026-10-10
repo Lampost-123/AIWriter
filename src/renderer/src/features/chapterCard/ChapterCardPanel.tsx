@@ -7,7 +7,7 @@ import type { ChapterCard, Entry, ID } from '@shared/types'
 import { emptyChapterCard } from '@shared/chapterCard'
 import { cardLength } from '@shared/defaults'
 import { Button, Field, IconButton, Input, Notice, Spinner, toast } from '@/components/ui'
-import { ArrowLeft, Feather, Users, X } from '@/components/ui/icons'
+import { ArrowLeft, BookOpenText, Feather, Users, X } from '@/components/ui/icons'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { placeOptions } from '@/features/world/entryLogic'
@@ -18,6 +18,7 @@ import { useSlow } from '@/features/world/parts/useSlow'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { CastPicker } from '@/features/inspector/CastPicker'
 import { Group, OptionSelect, TargetLength } from '@/features/inspector/SceneCardPanel'
+import { ChapterWriterReport } from '@/features/chapterWriter/ChapterWriterReport'
 import { announceChapterCard, endChapterCardBatch, registerChapterCardForm, scenesWord, takeChapterCardFocus } from './chapterCardEvents'
 
 export function ChapterCardPanel({ chapterId, onClose, closeLabel }: { chapterId: ID; onClose: () => void; closeLabel: string | null }): React.JSX.Element {
@@ -226,6 +227,9 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
               />
             )}
           </Field>
+        </Group>
+        <Group title="Written with AI" icon={BookOpenText}>
+          <ChapterWriterReport chapterId={chapterId} />
         </Group>
       </div>
     )

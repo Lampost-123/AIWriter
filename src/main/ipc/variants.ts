@@ -11,10 +11,13 @@ import { latestVariantSet, startVariantSet, stopVariantSet } from '../variants'
 import { isStartingBeat } from '../beats'
 import { isStartingDraft } from './ai'
 import { noteGenerationSpeakers } from '../readAloud'
+import { UserError } from '../util'
+import { chapterWriterHolds, HELD } from '../chapterWriter/active'
 
 export const variantsHandlers: Handlers<keyof VariantsApi> = {
-  startVariants: (input) =>
-    startVariantSet(input, {
+  startVariants: (input) => {
+    if (chapterWriterHolds(input.sceneId)) throw new UserError(HELD, 'busy')
+    return startVariantSet(input, {
       db: world.db(),
       emit,
       // No plan before writing (step 4): one plan for the whole set would make its drafts alike, and choice is what they
@@ -24,7 +27,8 @@ export const variantsHandlers: Handlers<keyof VariantsApi> = {
       startingElsewhere: (sceneId) => isStartingDraft(sceneId) || isStartingBeat(sceneId),
       providerNotes,
       onSpeakers: noteGenerationSpeakers
-    }),
+    })
+  },
   stopVariants: (setId) => stopVariantSet(setId),
   getVariantSet: (sceneId) => latestVariantSet(world.db(), sceneId)
 }

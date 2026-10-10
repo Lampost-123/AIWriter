@@ -374,8 +374,10 @@ export interface ModelChoice {
  * the world from a summary; the character builder's model until Adam picks one). 'check' is the Consistency
  * check model (milestone 5's AI checks; the memory model until Adam picks one). 'recipe' is the Recipe maker
  * (Story recipes: reads a whole story and sums it up as a recipe; the memory model until Adam picks one).
+ * 'chapter' is the Chapter writer model (Write the whole chapter's agent, which must use tools; the chat and
+ * brainstorm model until Adam picks one; the scenes themselves are drafted by the writer model).
  */
-export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe'
+export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter'
 
 /**
  * The jobs with a Thinking level of their own: every job, and those with no model choice of their own: 'sounds', the AI
@@ -838,6 +840,7 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * The style guide's helpers add 'sample' (a sample passage written from the style guide, "Write a sample for
  * me"; sceneId '') and 'polish' (the polish pass that revises a finished Generate draft; `params.polishOf`).
  * The critic adds 'critique': craft feedback on a scene (its sceneId) or a chapter (sceneId '').
+ * Write the whole chapter adds 'chapter': one session of its agent (the scene it works on, or '' for the chapter).
  */
 export type GenerationJob =
   | 'draft'
@@ -857,6 +860,7 @@ export type GenerationJob =
   | 'sample'
   | 'polish'
   | 'critique'
+  | 'chapter'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'
@@ -914,6 +918,8 @@ export interface GenerationRecord extends GenerationSummary {
     variant?: { setId: ID; index: number; of: number }
     /** One beat of a Beat by beat draft: which session, which beat (from 1), of how many. */
     beat?: { sessionId: ID; index: number; of: number }
+    /** A scene drafted by Write the whole chapter (contracts/chapterWriter.ts): which run. */
+    chapterWriter?: { runId: ID }
     /** An AI edit of selected words, or Continue. */
     tool?: EditTool
     /** A turn of an Ask the world conversation. */

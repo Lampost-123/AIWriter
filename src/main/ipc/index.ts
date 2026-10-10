@@ -45,6 +45,7 @@ import { searchModelHandlers } from './searchModel'
 import { chapterCardsHandlers } from './chapterCards'
 import { artHandlers } from './art'
 import { critiqueHandlers } from './critique'
+import { chapterWriterHandlers } from './chapterWriter'
 import { phoneHandlers } from './phone'
 import { bindPhoneCall } from '../phone/runtime'
 
@@ -108,6 +109,8 @@ const all: Handlers<ApiMethod> = {
   ...chapterCardsHandlers,
   // The scene and chapter critic
   ...critiqueHandlers,
+  // Write the whole chapter
+  ...chapterWriterHandlers,
   ...phoneHandlers
 }
 

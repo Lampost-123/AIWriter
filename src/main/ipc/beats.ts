@@ -10,9 +10,11 @@ import { VARIANTS_WRITING, variantsBusy } from '../variants'
 import { UserError } from '../util'
 import * as world from '../world'
 import { isStartingDraft } from './ai'
+import { chapterWriterHolds, HELD } from '../chapterWriter/active'
 
 export const beatsHandlers: Handlers<keyof BeatsApi> = {
   startBeat: (input) => {
+    if (chapterWriterHolds(input.sceneId)) throw new UserError(HELD, 'busy')
     // The scene's variants (getting ready, or being written) have it for now, as for Generate.
     if (variantsBusy(input.sceneId)) throw new UserError(VARIANTS_WRITING, 'busy')
     return startBeat(input, { emit, otherStarting: isStartingDraft })

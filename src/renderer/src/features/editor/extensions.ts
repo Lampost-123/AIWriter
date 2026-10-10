@@ -22,6 +22,7 @@ import { SoundMarks } from '@/features/sounds/soundMarks'
 import { RepairMarks } from '@/features/repair/marks'
 import { BeatMarks } from '@/features/beats/beatMarks'
 import { deskOn } from '@/features/look/look'
+import { ChapterHold } from '@/features/chapterWriter/hold'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 /** On the desk there is no Generate button: the AI dock below the page offers Draft the scene. */
@@ -110,6 +111,8 @@ export function sceneExtensions(): AnyExtension[] {
     RepairMarks,
     // Beat by beat: a band down the edge of each beat's paragraphs, while writing beat by beat or with
     // "Show beats" on (features/beats/beatMarks.ts).
-    BeatMarks
+    BeatMarks,
+    // Write the whole chapter: a scene it is working on can be read but not typed in (features/chapterWriter/hold.ts).
+    ChapterHold
   ]
 }

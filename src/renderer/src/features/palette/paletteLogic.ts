@@ -101,6 +101,7 @@ export type FixedActionId =
   // The scene and chapter critic
   | 'critique-scene'
   | 'critique-chapter'
+  | 'write-chapter'
   // Milestone 6
   | 'export-story'
   | 'export-bible'
@@ -447,6 +448,13 @@ export const ACTIONS: ActionDef[] = [
     label: 'Critique this chapter',
     keywords: 'critic feedback notes craft editor shape flow pacing ending review ai',
     away: toWriting,
+    when: hasScene
+  },
+  // ----- Write the whole chapter -----
+  {
+    id: 'write-chapter',
+    label: 'Whole chapter with AI',
+    keywords: 'whole chapter draft scenes generate agent check fix proofread auto write all',
     when: hasScene
   },
   // ----- Milestone 6 -----

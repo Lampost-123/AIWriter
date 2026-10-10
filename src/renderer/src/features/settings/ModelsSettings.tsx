@@ -2,7 +2,7 @@
 // and, if Adam wants others, the memory, character builder, world builder, chat and brainstorm, consistency
 // check and read aloud models.
 // Keys are sent to the main process once and never come back.
-import { AudioLines, Check, CookingPot, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from '@/components/ui/icons'
+import { AudioLines, BookOpenText, Check, CookingPot, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingJob, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
@@ -168,6 +168,14 @@ export function ModelsSettings(): React.JSX.Element {
         providerResults={results}
         onTest={(pid, mid) => void test('recipe', pid, mid)}
         onClearResult={() => clearResult('recipe')}
+      />
+      <HelperModel
+        job="chapter"
+        providers={providers}
+        result={results.chapter}
+        providerResults={results}
+        onTest={(pid, mid) => void test('chapter', pid, mid)}
+        onClearResult={() => clearResult('chapter')}
       />
       {/* Only once read aloud is on: until then it has nothing to do, so it doesn't crowd the page. */}
       {readAloud ? (
@@ -674,7 +682,7 @@ function ProviderForm({
  * character builder's, the world builder's, Ask the world's and the outline helper's (chat and brainstorm),
  * and read aloud's.
  */
-export type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check' | 'recipe'
+export type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter'
 type HelperJob = Exclude<ModelJob, 'writer'>
 
 const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: { [job]: choice } })
@@ -761,7 +769,7 @@ function WriterModel({
  */
 const HELPERS: Record<
   HelperJob,
-  { title: string; description: string; icon: ReactNode; waiting: string; noWriter: string; thinking: string; fallback?: 'memory' | 'builder' }
+  { title: string; description: string; icon: ReactNode; waiting: string; noWriter: string; thinking: string; fallback?: 'memory' | 'builder' | 'chat' }
 > = {
   memory: {
     title: 'Memory model',
@@ -816,6 +824,16 @@ const HELPERS: Record<
     thinking: 'Off is quickest and cheapest. It applies even when the recipe maker uses the memory model.',
     fallback: 'memory'
   },
+  chapter: {
+    title: 'Chapter writer model',
+    description:
+      'Studies a chapter before it is written, then checks and fixes it until it is right, when you use Write this chapter with AI. It looks things up as it goes, so it must be able to use tools. (The scenes themselves are written by the writer model.)',
+    icon: <BookOpenText size={16} />,
+    waiting: 'Once a provider is connected above, the chapter writer uses the chat and brainstorm model, or one you choose here.',
+    noWriter: 'Choose a writer model above, or a model just for the chapter writer here.',
+    thinking: 'Off is quickest and cheapest. Some thinking can help it judge what to fix, but each chapter takes longer and costs more.',
+    fallback: 'chat'
+  },
   speech: {
     title: 'Read aloud model',
     description: 'Suggests voices for characters and how their names are said. (Who says each line, and how, comes from the writer model.) A fast, cheaper model is fine.',
@@ -852,8 +870,16 @@ function HelperModel({
   const memory = useApp((s) => s.settings?.models.memory ?? null)
   const builder = useApp((s) => s.settings?.models.builder ?? null)
   // What the job uses while Adam hasn't chosen a model for it.
-  const fallsBackTo = words.fallback === 'memory' ? 'memory model' : words.fallback === 'builder' ? 'character builder model' : 'writer model'
-  const helper = words.fallback === 'memory' ? memory : words.fallback === 'builder' ? builder : null
+  const chat = useApp((s) => s.settings?.models.chat ?? null)
+  const fallsBackTo =
+    words.fallback === 'memory'
+      ? 'memory model'
+      : words.fallback === 'builder'
+        ? 'character builder model'
+        : words.fallback === 'chat'
+          ? 'chat and brainstorm model'
+          : 'writer model'
+  const helper = words.fallback === 'memory' ? memory : words.fallback === 'builder' ? builder : words.fallback === 'chat' ? chat : null
   const fallbackModel = helper && providers.some((p) => p.id === helper.providerId) ? helper : writer
   const update = useApp((s) => s.updateSettings)
   const [picking, setPicking] = useState(false)
@@ -1013,6 +1039,8 @@ function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoic
                     ? "AI Write fits how much of a scene it checks at once to this. Change it if the model's page says it can read more or less."
                   : job === 'recipe'
                     ? "AI Write reads a story for a recipe in parts that fit this. Change it if the model's page says it can read more or less."
+                  : job === 'chapter'
+                    ? "AI Write fits what it tells the chapter writer, and what its look-ups bring back, to this. Change it if the model's page says it can read more or less."
                   : "AI Write fits what it tells the builder about your world to this. Change it if the model's page says it can read more or less."
         }
       >
@@ -1251,6 +1279,7 @@ const THINKING_NAMES: Record<ThinkingJob, string> = {
   chat: 'Chat and brainstorm model thinking',
   check: 'Consistency check model thinking',
   recipe: 'Recipe maker thinking',
+  chapter: 'Chapter writer model thinking',
   speech: 'Read aloud model thinking',
   sample: 'Thinking for sample passages',
   polish: 'Thinking for the polish pass',

@@ -70,7 +70,8 @@ world.onWorldClosing((w) => closeRunsFor(w.db))
 const AFTER_DRAFT_MS = 15_000
 const afterDraft = new Map<ID, { timer: ReturnType<typeof setTimeout> | null; records: ID[] }>()
 onDraftActivity((e) => {
-  if (e.variant) return
+  // Write the whole chapter checks its own drafts (chapterWriter/run.ts).
+  if (e.variant || e.chapterWriter) return
   const was = afterDraft.get(e.sceneId)
   if (was?.timer) clearTimeout(was.timer)
   const records = was?.records ?? []

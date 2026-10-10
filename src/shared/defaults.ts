@@ -86,9 +86,9 @@ export const DESK_READY = true
 export const defaultSettings = (libraryPath: string): Settings => ({
   libraryPath,
   providers: [],
-  models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null, check: null, recipe: null },
+  models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null, check: null, recipe: null, chapter: null },
   // No thinking unless Adam asks for it: it slows every job down and can use up the room to answer.
-  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off', recipe: 'off', sounds: 'off', sample: 'off', polish: 'off' },
+  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off', recipe: 'off', chapter: 'off', sounds: 'off', sample: 'off', polish: 'off' },
   creativity: 'balanced',
   planFirst: true,
   // Dark, the desk's "Night harbour", for a new install or anyone who never chose a theme (Adam, 2026-10-08: "desk is new

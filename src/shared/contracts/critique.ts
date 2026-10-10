@@ -98,6 +98,11 @@ export interface CritiqueRequest {
   /** Made by the interface (any unique id), so Stop can stop it. */
   taskId: ID
   target: CritiqueTarget
+  /**
+   * A re-read after revisions (the chapter writer, contracts/chapterWriter.ts): only notes still clearly worth
+   * fixing, and none when it is ready. Left out: a first reading.
+   */
+  again?: boolean
 }
 
 export type CritiqueOutcome = { status: 'complete'; critique: Critique } | { status: 'stopped' } | { status: 'error'; error: string }

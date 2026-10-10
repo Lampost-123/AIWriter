@@ -76,6 +76,7 @@ import { pathToFileURL } from 'node:url'
 import { m4Reply } from './m4/index.mjs'
 import { planReply } from './plan.mjs'
 import { askToolCalls } from './m4/ask.mjs'
+import { chapterToolCalls } from './chapter.mjs'
 import { m5Reply } from './m5/index.mjs'
 import { recipeReply } from './recipes.mjs'
 import { critiqueReply } from './critique.mjs'
@@ -576,7 +577,8 @@ export async function startFakeProvider(options = {}) {
     }
     // The editor chat: the fake may ask for tools (m4/ask.mjs), streamed as a real model's tool calls are: the call's id
     // and name, then its arguments.
-    const calls = body.tools?.length ? askToolCalls(system, messages, body.tools, body.tool_choice) : null
+    // Write the whole chapter's agent (chapter.mjs), else the editor chat's.
+    const calls = body.tools?.length ? (chapterToolCalls(system, messages, body.tools, model) ?? askToolCalls(system, messages, body.tools, body.tool_choice)) : null
     if (calls) {
       for (const [i, c] of calls.entries()) {
         const id = `call_fake_${i}_${n}`

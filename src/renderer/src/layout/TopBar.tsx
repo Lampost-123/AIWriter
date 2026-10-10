@@ -24,6 +24,7 @@ import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
+import { ChapterWriterStatus } from '@/features/chapterWriter/ChapterWriterStatus'
 import { openScene } from '@/features/memory/openScene'
 import { AskButton } from '@/features/ask/AskButton'
 import { WorldFileItems } from '@/features/transfer/WorldFileItems'
@@ -411,6 +412,8 @@ export function TopBar(): React.JSX.Element {
       {/* The New look: the sample world says so here, as a chip (Classic has a bar under the top bar). */}
       {isNew ? <SampleWorldChip /> : null}
       {/* The memory keeper's quiet status: a slot that is always there, empty while all is well. */}
+      {/* Write the whole chapter, while it works: what it is doing, with Stop. */}
+      {hasWorld ? <ChapterWriterStatus /> : null}
       {hasWorld ? <KeeperStatus /> : null}
       {hasWorld && isNew ? <SearchBox /> : null}
       {/* The bar fits the smallest window with the longest world name, so what follows never wraps. */}

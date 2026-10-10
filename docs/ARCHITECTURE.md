@@ -2256,6 +2256,69 @@ main side `src/main/critique/`, handlers `ipc/critique.ts`, the tab `features/cr
   hands the words, widened to whole sentences, and the note to the AI tools' Rewrite (`startTool('rewrite')`, with
   `mustChange`), so the rewrite waits in the page as a tracked change like any other.
 
+## Write the whole chapter (Adam, 2026-10-10)
+
+One action writes a whole chapter from its scene cards and keeps working on it until it is right: in line with the
+codex, Recall and the timeline, consistent from scene to scene, the critic's notes dealt with, and proofread. Adam's
+choices: it is agentic (the AI decides what to look up and how to fix things), the AI corrects itself (its changes go
+straight in, with the words before kept for Undo), every scene with a card is drafted, even ones with words, there is
+no cap on rounds, and every critic note is weighed. Contract `contracts/chapterWriter.ts`, main side
+`src/main/chapterWriter/`, handlers `ipc/chapterWriter.ts`, window `features/chapterWriter/`.
+
+- **The agent thinks, the app holds the gate.** A cheap model left to itself declares victory early or goes round in
+  circles, so the agent (a model with tools, through the task runner's `agent` loop, as the editor chat) decides what to
+  do inside each session, and `run.ts` decides when the chapter is done: it runs the checks and the critic again itself.
+- **The stages** (`run.ts` `ChapterRun`): *study* (one session reads the cards against the memory with the editor
+  chat's look-ups and calls `write_brief`: per scene the facts to keep to, who knows what, where everyone starts, when,
+  threads and traps; and `questions`, things in Adam's cards that don't fit the memory, which are never changed);
+  *draft* (each scene in order through the normal writer path, `draftBriefing` with `fresh: true`, the card's length,
+  the brief's notes as an extra block, and `startDraftJob`'s new `done` promise; the next scene's briefing catches the
+  memory up first, so it is written knowing what the scene before now says); then *rounds*: the consistency checks
+  (`checkScene`, every check, after the memory catches up as the checks do) and the critic (`runCritique`, each scene
+  changed and the chapter) read what changed; each scene with findings gets a *review* session, then the chapter-wide
+  findings a *chapter* session; a round that finds nothing gets a *proofread* session per scene, and is checked again
+  if that changed anything. Done is a round that finds nothing after a proofread that changed nothing.
+- **Findings** (`tools.ts` `Finding`): the scene's open issues (checks and the memory keeper's clashes, not live
+  checks) and the critic's notes, numbered F1, F2... across the run. The critic after the first round is told it is
+  reading again (`CritiqueRequest.again`, `critique/prompts.ts` `AGAIN_LINE`) and gives no notes when it is ready;
+  without that it would never be clean.
+- **The agent's own tools** (`prompts.ts`, `tools.ts` `ChapterSession`), beside the look-ups (`read_scene`, `outline`,
+  `search`, `get_entry`, `style_guide`, `scene_state`, `story_so_far`, `chapter_card`, `list_threads`, `find_mentions`,
+  seen from the scene being worked on): `timeline` (the canon timeline before a scene), `chapter_brief`, `revise` (a
+  passage from its `start` to its `end` words, found tolerantly as the chat's are, `ask/anchor.ts`; at most about 600
+  words; the whole paragraphs it touches are rebuilt from the marked words so italics stay whole; saved at once),
+  `rewrite_scene` (the writer again, with a direction), `not_a_problem` (only with words in "double quotes" that are in
+  the story's scenes, the codex or the timeline; the issue becomes Ignored, a critic note isn't raised again this run,
+  and the report lists it with the reason), `check_again` and `done` (turned down twice while findings it was given are
+  open, then let through: the gate checks again anyway). A mistake goes back to the model as the tool's answer.
+- **Pages in main** (`page.ts`): prose to a TipTap page as the editor saves it (`importing/doc.ts` ids, `*italics*` with
+  `shared/emphasis.ts`, moved from the editor's `streamText.ts`, which re-exports it). A paragraph whose words didn't
+  change keeps its old node, id and marks, so source links, beat markers and speaker marks stay with it. Each save keeps
+  the page before in History ("Before the chapter writer's change: …") and goes through `coreHandlers.saveSceneText`,
+  so the memory keeper, search and History follow it.
+- **Never stuck, never runaway** (`progress.ts`): no round cap; it stops when clean, on Stop, at the monthly spending
+  limit (`pausedNote`), when a call fails, or when a round makes no progress: the same findings three rounds running
+  (found, then two tries), or the chapter's words back to a version already checked with findings open ("The AI
+  couldn't settle N things"). Each session has its own step limit (`STEPS`).
+- **Kept** in `meta` (no migration): the latest report per chapter (`chapter_writer:<id>`) and every scene's page and
+  text before that run (`chapter_writer_before:<id>`), which Undo puts back (with a History copy first); both go with
+  their chapter in `purgeTrash`.
+- **The job.** "Chapter writer model" in Settings › Models (`settings.models.chapter`; the chat and brainstorm model,
+  then the writer model, until Adam picks one; it must use tools), its own Thinking (Off). Records use job `'chapter'`;
+  the drafts are `draft` records with `params.chapterWriter`, which the critic after a draft leaves alone
+  (`DraftActivity.chapterWriter`). The checks use the check model, the critic the writer model. `startChapterWriter` is
+  in `ASKS_FIRST`. One run at a time; Generate, Beat by beat and Variants are turned down in its scenes
+  (`chapterWriter/active.ts`).
+- **The window.** The binder's chapter menu ("Write this chapter with AI…"), the palette ("Whole chapter with AI")
+  and the chapter card's "Written with AI" group open the start dialog (`ChapterWriterDialog.tsx`, mounted once): the
+  scenes, which have no card to write from (left out), and that words already there are replaced but kept for Undo.
+  While it works, the top bar shows what it is doing with Stop and what it has spent (`ChapterWriterStatus.tsx`), and a
+  scene of the chapter open in the page can be read but not typed in (`hold.ts`, dimmed, `chapter-held`); each change
+  shows in the page at once (`chapterWriter:sceneChanged`, `replaceScene`). It ends in a toast with Show (the report on
+  the chapter card, `ChapterWriterReport.tsx`) and Undo.
+- **Tests.** `chapterWriter/chapterWriter.test.ts` (the fake provider scripts the agent's calls, `tests/fake-provider/
+  chapter.mjs`; the critic's fake finds a re-read ready).
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

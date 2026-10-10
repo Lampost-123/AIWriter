@@ -74,6 +74,13 @@
   opacity: 0.5;
 }
 
+/* Write the whole chapter is working on this scene (features/chapterWriter/hold.ts): it can be read as the AI changes it,
+   but not typed in, so it is dimmed a little less than text about to be replaced. */
+.scene-prose.chapter-held {
+  opacity: 0.72;
+  cursor: default;
+}
+
 .scene-prose ::selection {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
