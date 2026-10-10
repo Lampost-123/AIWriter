@@ -53,6 +53,15 @@ describe('beat marks kept with the scene', () => {
     expect(cleanMarks('s1', { ...MARKS, open: true, left: true })).toEqual({ ...MARKS, open: true })
   })
 
+  it('keeps where a session carried on from beats already in the words, with no beats of its own yet too', () => {
+    const db = world()
+    saveBeatMarks(db, 's1', { ...MARKS, beats: [], open: false, left: true, from: 3 })
+    expect(getBeatMarks(db, 's1')).toEqual({ ...MARKS, beats: [], left: true, from: 3 })
+    expect(cleanMarks('s1', { ...MARKS, from: 0 })).toEqual(MARKS)
+    expect(cleanMarks('s1', { ...MARKS, from: 'three' })).toEqual(MARKS)
+    expect(cleanMarks('s1', { ...MARKS, beats: [], from: -2 })).toBeNull()
+  })
+
   it('forgets them with null, or with no beats', () => {
     const db = world()
     saveBeatMarks(db, 's1', MARKS)

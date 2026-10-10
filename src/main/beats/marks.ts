@@ -49,12 +49,16 @@ export function cleanMarks(sceneId: ID, v: unknown): SceneBeatMarks | null {
     .map(cleanBeat)
     .filter((b): b is BeatMark => !!b && !seen.has(b.index) && !!seen.add(b.index))
     .sort((a, b) => a.index - b.index)
-  // A session still on is kept with no beats too (its first beat hasn't put words on the page yet), so it can carry on.
-  if (!beats.length && x.open !== true) return null
+  const from = Math.floor(Number(x.from))
+  const fromWords = Number.isFinite(from) && from >= 1 && from < MAX_BEATS ? from : 0
+  // A session still on is kept with no beats too (its first beat hasn't put words on the page yet), so it can carry on;
+  // so is one that carried on from beats already in the scene's words.
+  if (!beats.length && x.open !== true && !fromWords) return null
   const of = Math.max(1, Math.min(MAX_BEATS, Math.floor(Number(x.of)) || (beats.at(-1)?.index ?? 1)))
   const out: SceneBeatMarks = { sceneId, sessionId: x.sessionId, of, mode: x.mode === 'below' ? 'below' : 'whole', beats }
   if (x.open === true) out.open = true
   else if (x.left === true) out.left = true
+  if (fromWords) out.from = fromWords
   if (x.start === 'replace' || x.start === 'add') out.start = x.start
   return out
 }

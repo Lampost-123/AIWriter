@@ -1044,3 +1044,78 @@ test('An unfinished session carries on: after a restart the bar comes back where
     await fake.close()
   }
 })
+
+test('With no session’s beats on the page, but the scene’s words already telling its first beats (as the next-beat chip counts them), Beat by beat offers to carry on after them, and keeps that place', async ({
+  launch
+}) => {
+  const fake = await fakeProvider({ words: 40 })
+  try {
+    const first = await launch()
+    let win = first.win
+    await createWorldFromWelcome(win, 'Alpha')
+    const { sceneId } = await firstScene(win)
+    const five = [...BEATS, 'Mara runs for the back stairs.', 'The lamp gutters out over the harbour.']
+    await setBeats(win, sceneId, five)
+    // Beats 1 to 3 written some other way (by hand, say), with no Beat by beat marks on the page.
+    const told = [
+      'Mara met Tobin at the Gilded Eel, by the fire.',
+      'Tobin leaned close and asked her for the ledger.',
+      'Then someone knocked at the door, three slow knocks.'
+    ]
+    await invoke(win, 'saveSceneText', sceneId, null, told.join('\n\n'))
+    await useWriter(win, fake)
+    await expect(prose(win)).toContainText('three slow knocks')
+    expect(await invoke(win, 'getBeatMarks', sceneId)).toBeNull()
+
+    // Carry on from beat 4 comes first, before Replace it and Add below.
+    await beatsButton(win).click()
+    await expect(choiceHeading(win)).toBeVisible()
+    await expect(win.getByRole('heading', { name: 'This scene already has text' }).locator('..')).toContainText('Carry on with its beats')
+    const carryOn = win.getByRole('button', { name: /^Carry on from beat 4 of 5/ })
+    await expect(carryOn).toBeVisible()
+    await expect(win.locator('[data-choice]')).toHaveCount(3)
+    const sent = chatRequests(fake)
+    await carryOn.click()
+
+    // The bar waits on beat 4 for a note; nothing is sent yet, and beats 1 to 3 (the scene's own words) can't be written again.
+    await expect(status(win)).toHaveText('Beat 4 of 5')
+    await expect(box(win)).toBeFocused()
+    await expect(barButton(win, 'Write it again')).toBeDisabled()
+    expect(chatRequests(fake)).toBe(sent)
+    expect(await paragraphs(win)).toBe(3)
+
+    // Back to the AI bar before writing: Beat by beat comes back on beat 4, with no question.
+    await barButton(win, 'Back to the AI bar').click()
+    await expect(bar(win)).toBeHidden()
+    await expect.poll(async () => (await invoke(win, 'getBeatMarks', sceneId))?.from).toBe(3)
+    await beatsButton(win).click()
+    await expect(status(win)).toHaveText('Beat 4 of 5')
+    await expect(choiceHeading(win)).toHaveCount(0)
+
+    // Beat 4 follows the scene's words, told that beat 3 is written and the scene so far ends with it.
+    await barButton(win, 'Write the next beat').click()
+    await expect(status(win)).toHaveText('Beat 5 of 5')
+    const brief = await lastSent(win, sceneId)
+    expect(brief).toContain('beat 4 of the 5 on the scene card')
+    expect(brief).toContain('already written: the scene so far ends with it')
+    expect(brief).toContain('three slow knocks')
+    expect((await lastRecord(win))?.params.beat).toMatchObject({ index: 4, of: 5 })
+    await expect(prose(win).locator('hr')).toHaveCount(0)
+    await expect(prose(win).locator('p').nth(0)).toHaveText(told[0])
+    await expect(barButton(win, 'Write it again')).toBeEnabled()
+
+    // Left again and the app closed: Beat by beat carries on at beat 5.
+    await barButton(win, 'Back to the AI bar').click()
+    await expect(bar(win)).toBeHidden()
+    await expect.poll(async () => (await invoke(win, 'getBeatMarks', sceneId))?.left).toBe(true)
+    await first.close()
+    const again = await launch({ dataDir: first.dataDir })
+    win = again.win
+    await expect(prose(win)).toContainText('three slow knocks')
+    await beatsButton(win).click()
+    await expect(status(win)).toHaveText('Beat 5 of 5')
+    await expect(choiceHeading(win)).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})

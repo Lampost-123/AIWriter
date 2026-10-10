@@ -91,6 +91,12 @@ export interface SceneBeatMarks {
    * on from the beat it got to, with no question. A Finished session isn't left, so it still asks "Carry on from beat N".
    */
   left?: boolean
+  /**
+   * The session carried on from beats already in the scene's words (Carry on from beat N when no session's marks were
+   * on the page any more): beats 1 to `from` count as written while the page's words still tell them, and the
+   * session's own beats start at `from` + 1.
+   */
+  from?: number
   /** How "This scene already has text" was answered for the first beat (none: the page was empty), so carrying on goes there too. */
   start?: 'replace' | 'add'
 }

@@ -1,6 +1,4 @@
-<!-- version: 0.7.0 -->
-What's new in 0.7.0:
+<!-- version: 0.7.1 -->
+What's new in 0.7.1:
 
-- A Home button in the top bar takes you back to the start screen.
-- Picking a story on the start screen opens its home, not the writing page.
-- A guided tour shows you around the desk. You can skip it.
+- Beat by beat picks up where you left off, even when the scene's first beats were rewritten or written some other way: it offers "Carry on from beat N", the same next beat the Next beat chip shows.
