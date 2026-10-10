@@ -82,10 +82,17 @@ export const retryMessage = (why: string, cutOff: boolean): string =>
   }`
 
 /** What the last part of the briefing asks for. */
-export function critiqueAsk(scope: CritiqueScope, title: string): string {
+export function critiqueAsk(scope: CritiqueScope, title: string, again = false): string {
   const named = clean(title) ? ` “${clean(title)}”` : ''
-  return `Critique the ${scope}${named} now, as one JSON object.`
+  const ask = `Critique the ${scope}${named} now, as one JSON object.`
+  return again ? `${AGAIN_LINE(scope)}
+
+${ask}` : ask
 }
+
+/** Said on a re-read after revisions (the chapter writer): the critic may find it ready. */
+export const AGAIN_LINE = (scope: CritiqueScope): string =>
+  `This is a re-read: the ${scope} has been revised since your last notes. Give only notes still clearly worth fixing, the kind a good editor would insist on. If the ${scope} is ready, give no notes at all ("notes": []).`
 
 // ---------- How the story is written ----------
 

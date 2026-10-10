@@ -54,6 +54,7 @@ import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
 import { startTour } from '@/features/tour/tourStore'
+import { openChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { openShortcuts, openWorldMenu, startRenamingWorld, usePalette } from './paletteStore'
 
 const app = useApp.getState
@@ -374,6 +375,13 @@ export async function runAction(id: ActionId): Promise<void> {
         setScope('chapter')
         openSceneTab('critique')
         await startCritique({ scope: 'chapter', id: chapterId })
+        return
+      }
+      // ----- Write the whole chapter -----
+      case 'write-chapter': {
+        if (!a.sceneId || !a.storyId) return
+        const chapterId = (await outlineOf(a.storyId)).scenes.find((s) => s.id === a.sceneId)?.chapterId
+        if (chapterId) openChapterWriter(chapterId)
         return
       }
       // ----- Milestone 6 -----

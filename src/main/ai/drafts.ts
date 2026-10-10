@@ -32,7 +32,14 @@ interface Job {
   text: string
   /** The world closed under this draft: its record is already finished. */
   closed: boolean
-  done: Promise<void>
+  done: Promise<DraftEnd>
+}
+
+/** How a draft ended, with its words (the chapter writer waits for it: startDraftJob's `done`). */
+export interface DraftEnd {
+  status: 'complete' | 'stopped' | 'error'
+  text: string
+  error: string | null
 }
 
 const active = new Map<ID, Job>()
@@ -48,6 +55,8 @@ export interface DraftActivity {
   variant: boolean
   /** The draft's record (check and repair keys what it checked by it: the critic after the draft asks). */
   generationId: ID
+  /** Written by Write the whole chapter, which checks its drafts itself (so the critic after a draft leaves it). */
+  chapterWriter?: boolean
 }
 const watchers = new Set<(e: DraftActivity) => void>()
 
@@ -73,7 +82,7 @@ export interface DraftRequest {
   /** 'draft' (Generate and Variants) unless said: milestone 4's Beat by beat records each beat as 'beat'. */
   job?: 'draft' | 'beat'
   /** What the draft is part of (milestone 4): one of a set of variants, or one beat. Saved with its record. */
-  partOf?: Pick<GenerationParams, 'variant' | 'beat'>
+  partOf?: Pick<GenerationParams, 'variant' | 'beat' | 'chapterWriter'>
   /**
    * Refuses to start while another draft of this scene is being written (the default). Variants write
    * 2 or 3 drafts of one scene side by side, so they pass false.
@@ -140,7 +149,7 @@ function withSent(p: GenerationParams, sent: SentParams, effort: string | null):
   return out
 }
 
-export function startDraftJob(req: DraftRequest): { generationId: ID } {
+export function startDraftJob(req: DraftRequest): { generationId: ID; done: Promise<DraftEnd> } {
   if (req.exclusive !== false && isDrafting(req.sceneId)) {
     throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
   }
@@ -182,14 +191,23 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
     createdAt: now()
   })
 
-  const job: Job = { id, sceneId: req.sceneId, db: req.db, controller: new AbortController(), text: '', closed: false, done: Promise.resolve() }
+  const job: Job = {
+    id,
+    sceneId: req.sceneId,
+    db: req.db,
+    controller: new AbortController(),
+    text: '',
+    closed: false,
+    done: Promise.resolve({ status: 'stopped', text: '', error: null })
+  }
   active.set(id, job)
-  tellWatchers({ sceneId: req.sceneId, phase: 'start', variant: !!req.partOf?.variant, generationId: id })
+  const writer = req.partOf?.chapterWriter ? { chapterWriter: true } : {}
+  tellWatchers({ sceneId: req.sceneId, phase: 'start', variant: !!req.partOf?.variant, generationId: id, ...writer })
   job.done = run(job, req, params, reply.fallback)
-  return { generationId: id }
+  return { generationId: id, done: job.done }
 }
 
-async function run(job: Job, req: DraftRequest, params: GenerationParams, fallbackMaxTokens: number): Promise<void> {
+async function run(job: Job, req: DraftRequest, params: GenerationParams, fallbackMaxTokens: number): Promise<DraftEnd> {
   const { db, emit } = req
   let pending = ''
   // The writer's speaker tags never reach the page, the record or the word count, and nor do the plan's notes if the
@@ -326,7 +344,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   } catch (e) {
     console.error('Could not keep who says each line', e)
   }
-  tellWatchers({ sceneId: job.sceneId, phase: 'end', variant: !!req.partOf?.variant, generationId: job.id })
+  tellWatchers({ sceneId: job.sceneId, phase: 'end', variant: !!req.partOf?.variant, generationId: job.id, ...(req.partOf?.chapterWriter ? { chapterWriter: true } : {}) })
   try {
     if (isKeyFailure(outcome.failure)) req.onKeyRejected?.()
     else if (outcome.status === 'complete') req.onWorked?.()
@@ -343,6 +361,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     cost,
     cutOff
   })
+  return { status, text: job.text, error }
 }
 
 /** Stops a draft; the text so far is kept. Resolves once its record is finished. */

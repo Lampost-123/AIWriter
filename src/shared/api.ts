@@ -96,6 +96,7 @@ import type { SearchModelApi, SearchModelEvents } from './contracts/searchModel'
 import type { ChapterCardsApi, ChapterCardsEvents } from './contracts/chapterCards'
 import type { ArtApi, ArtEvents } from './contracts/art'
 import type { CritiqueApi, CritiqueEvents } from './contracts/critique'
+import type { ChapterWriterApi, ChapterWriterEvents } from './contracts/chapterWriter'
 import type { PhoneApi } from './contracts/phone'
 
 /** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
@@ -137,6 +138,7 @@ export interface AppApi
     ChapterCardsApi,
     ArtApi,
     CritiqueApi,
+    ChapterWriterApi,
     PhoneApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
@@ -400,7 +402,8 @@ export interface AppEvents
     SearchModelEvents,
     ChapterCardsEvents,
     ArtEvents,
-    CritiqueEvents {
+    CritiqueEvents,
+    ChapterWriterEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID

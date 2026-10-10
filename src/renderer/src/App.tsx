@@ -42,6 +42,7 @@ import { AskPanel } from '@/features/ask/AskPanel'
 import { closeAsk } from '@/features/ask/open'
 import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 import { RereadDialog } from '@/features/memory/RereadDialog'
+import { ChapterWriterDialog } from '@/features/chapterWriter/ChapterWriterDialog'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
@@ -430,6 +431,7 @@ function Workspace(): React.JSX.Element {
       <DictationLayer />
       <ExportDialogs />
       <RereadDialog />
+      <ChapterWriterDialog />
       <FocusLayer />
       <FindLayer />
     </>

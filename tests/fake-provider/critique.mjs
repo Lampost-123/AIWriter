@@ -8,6 +8,7 @@
 //              2. for a chapter, pull, medium, "The ending could pull harder", quoting its last scene's first sentence;
 //              3. prose, low, "A quote from nowhere", quoting words that are in no scene (the app keeps the note,
 //                 without the quote).
+// A re-read after revisions ("This is a re-read" in the request, the chapter writer's) finds the work ready: no notes.
 // The model fake/critique-bad-json answers its first critique with words, not JSON (asked once more, it answers
 // properly). Returns null for any other request.
 
@@ -37,6 +38,7 @@ export function critiqueReply(system, user, model = '') {
   if (!s.includes(MARKER)) return null
   const scope = s.includes(`${MARKER} chapter`) ? 'chapter' : 'scene'
   if (model === 'fake/critique-bad-json' && badJsonSeen++ === 0) return 'This scene is lovely, I would change very little.'
+  if (String(user).includes('This is a re-read')) return JSON.stringify({ summary: `The ${scope} is ready.`, strengths: [], notes: [] })
   const words = wordsIn(String(user), scope)
   const scenes = scope === 'chapter' ? words.split(/^### Scene \d+: .*$/m).slice(1) : [words]
   const first = sentencesOf(scenes[0] ?? '')

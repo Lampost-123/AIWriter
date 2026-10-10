@@ -17,6 +17,7 @@ import { noteStage, stageTold } from '../repair'
 import { memorySettingsChanged } from '../keeper'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
 import { noteWriterSpeakers } from '../readAloud'
+import { chapterWriterHolds, HELD } from '../chapterWriter/active'
 
 type AiMethods =
   | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
@@ -45,6 +46,8 @@ export const aiHandlers: Handlers<AiMethods> = {
   previewContext: async (sceneId, options) => (await assemble(sceneId, options)).preview,
 
   startDraft: async (sceneId, options) => {
+    // Write the whole chapter is working on this scene.
+    if (chapterWriterHolds(sceneId)) throw new UserError(HELD, 'busy')
     // Milestone 4: the scene's variants (getting ready, or being written) have it for now.
     if (variantsBusy(sceneId)) throw new UserError(VARIANTS_WRITING, 'busy')
     if (isDrafting(sceneId) || starting.has(sceneId)) {
@@ -81,7 +84,8 @@ export const aiHandlers: Handlers<AiMethods> = {
       })
       // Check and repair: the draft's words are checked against where things stood as the writer was told it.
       noteStage(started.generationId, sceneId, stageTold(b, !!block))
-      return started
+      // Only the record's id goes back to the window (its `done` promise can't cross IPC).
+      return { generationId: started.generationId }
     } finally {
       if (starting.get(sceneId) === stop) starting.delete(sceneId)
     }

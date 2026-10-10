@@ -95,7 +95,7 @@ export interface CritiqueBriefing {
 }
 
 /** What the critic is told about a scene or a chapter. Throws (plain words) when it is gone or has no words. */
-export function critiqueBriefing(db: DB, target: CritiqueTarget, prefs: WritingPrefs): CritiqueBriefing {
+export function critiqueBriefing(db: DB, target: CritiqueTarget, prefs: WritingPrefs, again = false): CritiqueBriefing {
   const texts = targetTexts(db, target)
   const written = texts.filter((t) => t.text.trim())
   const entries = repo.listEntries(db)
@@ -134,7 +134,7 @@ export function critiqueBriefing(db: DB, target: CritiqueTarget, prefs: WritingP
         { id: 'where', title: 'Where it sits', priority: 1, forms: [where] },
         { id: 'before', title: 'How the scene before ends', priority: 5, forms: [endBefore(db, story.id, scene.id)] },
         { id: 'text', title: `The scene: ${scene.title.trim() || 'Untitled scene'}`, priority: 2, forms: sceneTextForms(scene.text) },
-        { id: 'ask', title: 'What to do', priority: 0, forms: [critiqueAsk('scene', scene.title)] }
+        { id: 'ask', title: 'What to do', priority: 0, forms: [critiqueAsk('scene', scene.title, again)] }
       ]
     }
   }
@@ -175,7 +175,7 @@ export function critiqueBriefing(db: DB, target: CritiqueTarget, prefs: WritingP
       },
       { id: 'before', title: 'How the chapter before ends', priority: 5, forms: [endBefore(db, story.id, written[0].sceneId)] },
       { id: 'text', title: `The chapter: ${chapter.title.trim() || 'Untitled chapter'}`, priority: 2, forms: chapterTextForms(scenes) },
-      { id: 'ask', title: 'What to do', priority: 0, forms: [critiqueAsk('chapter', chapter.title)] }
+      { id: 'ask', title: 'What to do', priority: 0, forms: [critiqueAsk('chapter', chapter.title, again)] }
     ]
   }
 }
@@ -209,7 +209,7 @@ export async function runCritique(deps: CritiqueDeps, input: CritiqueRequest): P
   const taskId = String(input?.taskId ?? '')
   if (!target || !taskId) throw new UserError('Something went wrong starting the critique. Try again.')
   const { db } = deps
-  const briefing = critiqueBriefing(db, target, deps.prefs)
+  const briefing = critiqueBriefing(db, target, deps.prefs, input?.again === true)
   const fitted = fitCritique(briefing, deps.model)
   // What the words were when they were read: a critique of words changed since says so.
   const textHash = textsHash(targetTexts(db, target))

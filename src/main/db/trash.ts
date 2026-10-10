@@ -63,6 +63,10 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     db.prepare(`DELETE FROM meta WHERE substr(key, 1, ${CHAPTER_CARD_PREFIX.length}) = ? AND substr(key, ${CHAPTER_CARD_PREFIX.length + 1}) NOT IN (SELECT id FROM chapters)`).run(
       CHAPTER_CARD_PREFIX
     )
+    // The chapter writer's report and the words before its run (chapterWriter/store.ts) go with their chapter too.
+    for (const prefix of ['chapter_writer:', 'chapter_writer_before:']) {
+      db.prepare(`DELETE FROM meta WHERE substr(key, 1, ${prefix.length}) = ? AND substr(key, ${prefix.length + 1}) NOT IN (SELECT id FROM chapters)`).run(prefix)
+    }
     // Milestone 4: deleted acts too (a purged story's acts go with it).
     purgeActs(db, cutoff)
     const delStory = db.prepare('DELETE FROM stories WHERE id = ?')

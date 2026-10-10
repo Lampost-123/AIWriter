@@ -19,6 +19,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import {
   BetweenHorizontalStart,
+  BookOpenText,
   FilePlus2,
   FolderInput,
   FolderPlus,
@@ -38,6 +39,7 @@ import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { undoLastDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
+import { openChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { requestChapterCardFocus } from '@/features/chapterCard/chapterCardEvents'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
 import { checkChapter, checkScene, useIssueCounts } from '@/features/consistency/checkStore'
@@ -716,6 +718,9 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             </RowMenuItem>
             <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void checkChapter(menu.id, outline.story.id)}>
               Check this chapter
+            </RowMenuItem>
+            <RowMenuItem icon={<BookOpenText size={14} />} onSelect={() => openChapterWriter(menu.id)}>
+              Write this chapter with AI…
             </RowMenuItem>
             <RowMenuSeparator />
             <RowMenuItem icon={<Trash2 size={14} />} hint="Del" danger onSelect={() => remove({ kind: 'chapter', id: menu.id })}>
