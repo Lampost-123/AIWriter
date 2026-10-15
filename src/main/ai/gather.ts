@@ -11,6 +11,7 @@ import * as repo from '../db/repo'
 import { getBlockModes, pinsForScene } from '../db/memory'
 import { sceneMemory } from '../memory/scene'
 import { loadShapeSafe, sceneWords } from '../keeper/places'
+import { lessonsBefore } from '../checks/lessons'
 import type { ContextInput } from './context'
 
 type DB = Database.Database
@@ -73,7 +74,9 @@ export function gatherContextInput(
     maxOutput: extra.maxOutput ?? null,
     // Where things stand as the previous scene ended, if it still stands (brought up to date before a draft).
     continuity: stand,
-    stageWhere: stageWhere(db, stand)
+    stageWhere: stageWhere(db, stand),
+    // Slips the checks found in earlier scenes and that were put right: what must stay true warns of those about the people here.
+    slips: lessonsBefore(db, sceneId).slips
   }
 }
 

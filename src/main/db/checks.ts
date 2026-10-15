@@ -54,6 +54,8 @@ export interface IssuePayload {
   otherStoryId?: ID
   /** Which of the quote's appearances in the scene it is (0 for the first), when it was found by a check. */
   occurrence?: number
+  /** Settled by Update the memory (the text was right): never a slip later scenes are warned of (checks/lessons.ts). */
+  fixedBy?: 'memory'
 }
 
 // ---------- Telling the window ----------
@@ -336,6 +338,16 @@ export function setIssueStatus(db: DB, id: ID, status: IssueStatus): Row | null 
   return issueRow(db, id)
 }
 
+/** Marks an issue fixed by Update the memory: the text was right and the memory took its value (`fixedBy`). */
+export function setFixedByMemory(db: DB, id: ID): Row | null {
+  const r = issueRow(db, id)
+  if (!r) return null
+  const p = json<IssuePayload>(r.payload_json, {})
+  db.prepare("UPDATE issues SET status = 'fixed', payload_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify({ ...p, fixedBy: 'memory' }), now(), id)
+  issuesTouched(r.story_id as ID | null, (r.scene_id as ID) || null)
+  return issueRow(db, id)
+}
+
 /**
  * Reopens an issue. A live flag Adam ignored (LIVE_KINDS) is never a stored open issue: its row goes instead,
  * as unignoreLive does. Returns the row as it is now (as it was, with status 'gone', when it went), or null.
@@ -343,7 +355,15 @@ export function setIssueStatus(db: DB, id: ID, status: IssueStatus): Row | null 
 export function reopenIssue(db: DB, id: ID): Row | null {
   const r = issueRow(db, id)
   if (!r) return null
-  if (!isLiveKind(r.kind)) return setIssueStatus(db, id, 'open')
+  if (!isLiveKind(r.kind)) {
+    // Open again, it is no longer settled by the memory: fixed later by the text, it is a slip like any other.
+    const p = json<IssuePayload>(r.payload_json, {})
+    if (p.fixedBy) {
+      delete p.fixedBy
+      db.prepare('UPDATE issues SET payload_json = ? WHERE id = ?').run(JSON.stringify(p), id)
+    }
+    return setIssueStatus(db, id, 'open')
+  }
   db.prepare('DELETE FROM issues WHERE id = ?').run(id)
   issuesTouched(r.story_id as ID | null, (r.scene_id as ID) || null)
   return { ...r, status: 'gone' }
@@ -478,6 +498,25 @@ export function rowsInScenes(db: DB, sceneIds: ID[]): Row[] {
   for (let i = 0; i < sceneIds.length; i += 500) {
     const part = sceneIds.slice(i, i + 500)
     out.push(...(db.prepare(`SELECT * FROM issues WHERE scene_id IN (${part.map(() => '?').join(',')})`).all(...part) as Row[]))
+  }
+  return out
+}
+
+/**
+ * The fixed and ignored issues of these kinds in these scenes: what earlier scenes' checks settled (checks/lessons.ts).
+ * Never the live checks' rows.
+ */
+export function settledRows(db: DB, sceneIds: ID[], kinds: IssueKind[]): Row[] {
+  if (!sceneIds.length || !kinds.length) return []
+  const out: Row[] = []
+  const kindList = kinds.map(() => '?').join(',')
+  for (let i = 0; i < sceneIds.length; i += 500) {
+    const part = sceneIds.slice(i, i + 500)
+    out.push(
+      ...(db
+        .prepare(`SELECT * FROM issues WHERE status IN ('fixed', 'ignored') AND kind IN (${kindList}) AND scene_id IN (${part.map(() => '?').join(',')})`)
+        .all(...kinds, ...part) as Row[])
+    )
   }
   return out
 }

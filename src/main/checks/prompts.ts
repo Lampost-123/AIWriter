@@ -43,6 +43,7 @@ Rules
 - When unsure whether something is a problem, leave it out. "must-fix" only when it cannot be right.
 - Only what CONTRADICTS the memory, the story so far or the scene itself is an issue. A detail the memory doesn't have (a coat's colour, extra watchmen, something a character knows that it doesn't list) is never an issue on its own.
 - Clothing in a profile is what someone usually wears, not what they must wear: a change of clothes is not an issue (unless where things stood says otherwise and nothing in the scene explains it).
+- Under "What the author has said is meant" are things a check raised in earlier scenes that the author said are intended. The same thing in this scene is not an issue either.
 - Anyone listed under "Dead at the start of this scene" who speaks, acts, sleeps, breathes or is treated as alive is a must-fix, unless the scene shows a ghost, a memory, a dream or a vision.
 - "quote": words copied exactly, character for character, from the scene: the shortest phrase or sentence that shows the problem.
 - "message": one plain sentence for the author saying what disagrees with what, such as "Mara's eyes are blue in the memory, but green here." Use names, never the ids.

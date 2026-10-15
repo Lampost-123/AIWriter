@@ -479,8 +479,11 @@ describe('tidying up', () => {
     w.history.deleteDraft(made.kept.id)
 
     repo.deleteScene(w.db, w.other)
+    // deleteScene stamps today's real date; deleted on this test's clock instead, or the Trash
+    // keeps the scene once the real date is past T0 + 10 days.
+    w.db.prepare('UPDATE scenes SET deleted_at = ? WHERE id = ?').run(new Date(w.now()).toISOString(), w.other)
     w.later(40 * DAY)
-    purgeTrash(w.db, 30, w.now())
+    expect(purgeTrash(w.db, 30, w.now())).toMatchObject({ scenes: 1 })
     w.history.tidy()
     // Gone for good, but only for 40 days: kept a while longer (a backup could bring the scene back).
     expect(w.list(w.other)).toHaveLength(1)

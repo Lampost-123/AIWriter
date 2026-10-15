@@ -2388,9 +2388,23 @@ the same story so far and passages as before; what changes for it is the share f
   once every block from 3 to 11 is. On a 4,096-token model writing 600 words that leaves no room for the point of
   view's core, which the list used to give way to; the models AI Write suggests read far more.
 
+- **Remembering what the checks found** (fix 7, `checks/lessons.ts`; no migration: it reads the `issues` rows the checks
+  already keep). Two kinds of lesson from every scene before this one on its line: a *slip*, a finding about facts, who
+  knows what or the timeline that was put right in the text (Fix the text, Ask, the chapter writer, check and repair as a
+  draft lands), and a finding Adam *meant* (ignored). Not style, voice or continuity (about one moment), and not a
+  finding settled by Update the memory (the text was right: `IssuePayload.fixedBy` 'memory', set by `setFixedByMemory`
+  and cleared on Reopen; an older row counts as settled when the memory's value now is its text's). Who knows what and
+  the timeline only from the last `RECENT_SCENES` (6) scenes; a fact however long ago. The newest once for the same
+  entry and field or the same words. Slips go to the writer in "Must stay true" (`ContextInput.slips`, `ai/gather.ts`;
+  `mustStay.ts` `MUST_SLIPS` (2), those about people in the scene first, then others in the briefing, never in the short
+  or smallest form): "Slipped in Ch 2, Sc 3 and put right, so don't repeat it: …". What Adam meant goes to a later
+  check of a scene that names the same entries (`SceneCheckContext.meant`, section "What the author has said is meant",
+  `MOST_MEANT` (8), only for the check it belongs to; the system prompt says the same thing there is no issue). The
+  same thing in the same scene was already never raised again (`sameThing`).
+
 The book-length test story is the trap harness's story version 4 (`--story book`, see "Trap scores"). Not done here
-(the research's later steps): remembering what the checks found, rule-based
-checks, ledgers for who knows what, promises and time, spotting characters however they are named, and a continuity
+(the research's later steps): rule-based checks, ledgers for who knows what, promises and time, spotting characters
+however they are named, and a continuity
 brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
 cover some of it.
 

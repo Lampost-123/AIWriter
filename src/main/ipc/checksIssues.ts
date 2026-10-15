@@ -199,7 +199,7 @@ export const issuesHandlers: Handlers<
     // The same path as Adam editing the entry himself: the field becomes his, with a version in its history.
     db.transaction(() => {
       entryEditedByHand(db, entry, repo.updateEntry(db, fix.entryId, patchFor(fix.field, fix.value)))
-      cdb.setIssueStatus(db, id, 'fixed')
+      cdb.setFixedByMemory(db, id)
     })()
     repo.touchWorld(db)
     emit('memory:changed', { sceneId: null, entryIds: [fix.entryId] })
