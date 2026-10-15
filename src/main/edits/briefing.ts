@@ -10,7 +10,7 @@
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
-import type { ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, RelationshipState, SceneCard, StyleGuide } from '@shared/types'
+import type { BeliefState, ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, RelationshipState, SceneCard, StyleGuide } from '@shared/types'
 import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
 import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defaults'
 import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
@@ -48,7 +48,15 @@ export interface EditWorld {
    * scene and its story, where the stage's words are (by scene id), and the relationships at the scene (with `entries`,
    * what those in the briefing gave away, lost or got: memory/items.ts). Left out: no list.
    */
-  must?: { facts: FactState[]; sceneId: ID; storyTitle: string; places: Record<ID, string>; relationships?: RelationshipState[] }
+  must?: {
+    facts: FactState[]
+    /** What characters believe that isn't true here (long story memory fix 9). */
+    beliefs?: BeliefState[]
+    sceneId: ID
+    storyTitle: string
+    places: Record<ID, string>
+    relationships?: RelationshipState[]
+  }
   /**
    * Continue's memory core (Adam, 2026-10-08), each part capped (CORE_MOST): the canon timeline's short form, entries
    * recalled for the words near the cursor (those found by searching first), and what was said word for word. Left out:

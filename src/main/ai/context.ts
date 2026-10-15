@@ -26,7 +26,10 @@
 //  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory;
 //    smaller: the core of the profile, then less)
 //  5 others present as of this scene: profile and voice (summary plus voice)
-//  6 relationships and who knows what among those present (none; with many facts, the ones that matter here)
+//  6 relationships among those present (no short form)
+//  6 who knows what (long story memory fix 9, whoKnows.ts): everyone in the scene (the card, the stage, the scene so
+//    far), what they don't know yet that someone here knows, what they believe wrongly, and what they know with since
+//    when and how (short: only what they don't know or believe wrongly); sent late, as who is in the scene can change
 //  7 setting (location, places around it, groups), hard-rule lore, open plot threads on the card (one line each)
 //  8 story so far: recent scenes, this story's chapters, earlier stories, "Leads into" (fewer scenes, series roll-ups;
 //    smaller: only the most recent parts)
@@ -87,7 +90,8 @@ import { finalInstruction, indentMore, instructionsText, type FinalOptions } fro
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_MOST, OPEN_THREADS_TITLE, openThreadsAt, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
-import { MUST_TITLE, mustStayTrue, mustText, realSecrets, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { MUST_TITLE, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { LEDGER_BLOCK, ledgerText } from './whoKnows'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
@@ -1027,9 +1031,6 @@ function relationshipLine(r: RelationshipState, name: (id: ID) => string): strin
   return parts.join(' ')
 }
 
-const joinAnd = (items: string[]): string =>
-  items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
-
 /** A change pinned to this scene, as an aim for the draft ("Mara: loses her left hand"). */
 export function bringAboutLine(c: Change, name: (id: ID) => string): string | null {
   const who = name(c.entryId)
@@ -1253,10 +1254,10 @@ function someFacts<T extends { fact: string }>(facts: T[], sel: Selection, cap: 
 const leftOutLine = (n: number): string => `(And ${n.toLocaleString('en-GB')} more, left out here to save space.)`
 
 /**
- * Relationships among the people present, and the facts some of them know and others don't. The
- * short form, used only when there are many such facts (a long series), keeps the ones that matter here.
+ * Relationships among the people present (no short form: these are short). What some of them know and others don't is
+ * the "Who knows what" block's since long story memory fix 9 (whoKnows.ts), for everyone in the scene.
  */
-function relationshipsText(input: ContextInput, sel: Selection): { text: string; short: string | null; entryIds: ID[] } {
+function relationshipsText(input: ContextInput, sel: Selection): { text: string; entryIds: ID[] } {
   const people = [sel.pov, ...sel.present].filter((x): x is EntryState => !!x && x.kind === 'character')
   const ids = new Set(people.map((p) => p.id))
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
@@ -1268,37 +1269,27 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
       used.add(r.bId)
       return `- ${relationshipLine(r, name)}`
     })
-  // Only real secrets (Adam, 2026-10-08: 37 "does not know" lines, many false, one "Wren does not know" a plan of
-  // Wren's own): what one of them knows that another here doesn't, never kept from someone it is about, at most
-  // RELATIONSHIP_SECRETS (mustStay.ts realSecrets).
-  const facts: { fact: string; line: string }[] = realSecrets(people, input.memory.facts, { happened: happenedOf(input.memory.entries) }, RELATIONSHIP_SECRETS).map(
-    (s) => {
-      for (const n of [...s.knownBy, ...s.keptFrom]) for (const p of people) if (p.name === n) used.add(p.id)
-      const knowersText = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
-      return {
-        fact: s.fact,
-        line: `- ${joinAnd(s.keptFrom)} ${s.keptFrom.length === 1 ? 'does' : 'do'} not know: ${sentence(s.fact)} (${knowersText}.)`
-      }
-    }
-  )
-  const write = (list: string[]): string => {
-    const parts: string[] = []
-    if (rels.length) parts.push(rels.join('\n'))
-    if (list.length) parts.push(`Facts some of them know and others don't:\n${list.join('\n')}`)
-    return parts.join('\n\n')
-  }
-  const { kept, left } = someFacts(facts, sel, RELATIONSHIP_FACTS_SHORT)
-  return {
-    text: write(facts.map((f) => f.line)),
-    short: left ? write([...kept.map((f) => f.line), leftOutLine(left)]) : null,
-    entryIds: people.map((p) => p.id).filter((id) => used.has(id))
-  }
+  return { text: rels.join('\n'), entryIds: people.map((p) => p.id).filter((id) => used.has(id)) }
 }
 
-/** Facts some of those present don't know, kept in block 6's short form. */
-const RELATIONSHIP_FACTS_SHORT = 10
-/** The most secrets block 6 gives. */
-export const RELATIONSHIP_SECRETS = 3
+/**
+ * Everyone in the scene, for who knows what (long story memory fix 9): the point of view, the others on the card, those
+ * where things stand puts there, and the living characters the scene so far names (fix 12); only people who exist here,
+ * each once, in that order (the stage's and the scene so far's in the steady order).
+ */
+export function sceneKnowers(input: Pick<ContextInput, 'memory'>, sel: Pick<Selection, 'pov' | 'present' | 'inSoFar'>, stage: SceneState | null): EntryState[] {
+  const here = new Map(input.memory.entries.map((e) => [e.id, e]))
+  const out: EntryState[] = []
+  const add = (id: ID | undefined): void => {
+    const e = id ? here.get(id) : undefined
+    if (e && e.kind === 'character' && !out.includes(e)) out.push(e)
+  }
+  for (const e of [sel.pov, ...sel.present]) add(e?.id)
+  const characters = steadyOrder(input.memory.entries.filter((e) => e.kind === 'character'))
+  if (stage?.characters.length) for (const e of characters) if (stageFor(e, stage)) add(e.id)
+  for (const e of characters) if (sel.inSoFar.has(e.id)) add(e.id)
+  return out
+}
 
 /** How a tie stands: the relationship, and in full how each of them feels ("Brother, estranged. Mara feels: Guilt."). */
 function tieStanding(t: Tie, person: EntryState, short: boolean): string {
@@ -1609,6 +1600,8 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   // to 11 is (finishContext).
   const reach = stageReach(input)
   const people = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character')
+  // Everyone in the scene, for who knows what (fix 9).
+  const knowers = sceneKnowers(input, sel, stage)
   const card = input.scene.card
   const mustFrom = {
     stand,
@@ -1629,7 +1622,11 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     stageShown: !!full,
     happened: happenedOf(input.memory.entries),
     elapsed: timeSince(input, reach),
-    slips: input.slips
+    slips: input.slips,
+    // What is kept from someone and what is believed wrongly, among everyone in the scene (fix 9: the card, the stage,
+    // the scene so far), as the "Who knows what" block has it.
+    knowers,
+    beliefs: input.memory.beliefs
   }
   const must = mustStayTrue(mustFrom)
   if (must.length) {
@@ -1681,11 +1678,26 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     )
   }
 
-  // 6 Relationships and who knows what. The spec gives it no short form ("these are short"); in a long
-  //   series who-knows-what can run to many lines, so then a short form keeps the facts that matter
-  //   here rather than the whole block, relationships included, being left out.
+  // 6 Relationships among those present (the spec gives it no short form: "these are short").
   const rel = relationshipsText(input, sel)
-  add('relationships', 6, 'Relationships and who knows what', rel.text, rel.short, rel.entryIds)
+  add('relationships', 6, 'Relationships', rel.text, null, rel.entryIds)
+
+  // 6 Who knows what (long story memory fix 9, whoKnows.ts): everyone in the scene, what they don't know yet that
+  //   someone here knows, what they believe wrongly, and what they know with since when and how, as this scene begins
+  //   (short: only what they don't know or believe wrongly). Who is in the scene can change from step to step (the
+  //   stage, the scene so far), so it is sent late (SEND_ORDER).
+  const ledgerFrom = {
+    people: knowers,
+    povId: sel.pov?.id ?? null,
+    facts: input.memory.facts,
+    beliefs: input.memory.beliefs ?? [],
+    happened: happenedOf(input.memory.entries),
+    storyTitle: input.story.title,
+    nameOf: (id: ID): string | null => sel.known.get(id)?.name ?? null,
+    scale: memoryScale(input.contextLength)
+  }
+  const ledger = ledgerText(ledgerFrom)
+  if (ledger) add(LEDGER_BLOCK.id, LEDGER_BLOCK.priority, LEDGER_BLOCK.title, ledger, ledgerText(ledgerFrom, true), knowers.map((e) => e.id))
 
   // 7 Where the scene happens, the places around it and the groups of those present.
   const where = sel.location
@@ -1908,6 +1920,8 @@ export const SEND_ORDER = [
   RECALL_ENTRIES.id,
   'said',
   'recalled',
+  // Who knows what (fix 9): who is in the scene can change at every step (the stage, the scene so far).
+  LEDGER_BLOCK.id,
   'scene-card',
   'continuity',
   MUST_BLOCK

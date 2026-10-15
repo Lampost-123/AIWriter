@@ -16,7 +16,7 @@
 // The caller runs this inside one transaction. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Change, ChangeData, ChangeUntil, Entry, EntryKind, ID, Origin, SourceLink } from '@shared/types'
+import type { Change, ChangeData, ChangeUntil, Entry, EntryKind, ID, KnowHow, Origin, SourceLink } from '@shared/types'
 import type { SceneMemory, WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
@@ -650,9 +650,21 @@ function updatedPayload(
     }
     case 'knowledge': {
       const fact = str(v.fact, 300)
+      // How they learned it, from whom, and whether it is a belief that isn't true (fix 9), when the verdict says.
+      const how = knowHow(v.how) ?? c.payload.how
+      const from = v.from !== undefined ? toldBy(run, v.from, ids, refs, c.entryId) : c.payload.from
+      const wrong = v.wrong !== undefined ? bool(v.wrong) : !!c.payload.wrong
+      const { how: _how, from: _from, wrong: _wrong, ...rest } = c.payload
       return {
         kind: 'knowledge',
-        payload: { ...c.payload, fact: fact || c.payload.fact, forgets: v.forgets !== undefined ? bool(v.forgets) : c.payload.forgets }
+        payload: {
+          ...rest,
+          fact: fact || c.payload.fact,
+          forgets: v.forgets !== undefined ? bool(v.forgets) : c.payload.forgets,
+          ...(how ? { how } : {}),
+          ...(from ? { from } : {}),
+          ...(wrong ? { wrong: true as const } : {})
+        }
       }
     }
     case 'thread':
@@ -1524,6 +1536,38 @@ function applyThread(run: Run, a: Record<string, unknown>, chunk: ChunkReply, re
   }
 }
 
+// ---------- Who knows what: how they learned it (long story memory fix 9) ----------
+
+const KNOW_HOW: Record<string, KnowHow> = {
+  saw: 'saw',
+  seen: 'saw',
+  see: 'saw',
+  witnessed: 'saw',
+  told: 'told',
+  tell: 'told',
+  heard: 'told',
+  overheard: 'overheard',
+  overhear: 'overheard',
+  read: 'read',
+  guessed: 'guessed',
+  guess: 'guessed',
+  inferred: 'guessed',
+  deduced: 'guessed'
+}
+
+/** How the reply says they learned it, as one of the ledger's ways (its first word: "told by Ash" is told); else undefined. */
+export function knowHow(v: unknown): KnowHow | undefined {
+  const word = str(v, 40).toLowerCase().match(/[a-z]+/)?.[0] ?? ''
+  return KNOW_HOW[word]
+}
+
+/** Who told them (an E id or a new entry's ref): a character other than themselves; else undefined. */
+function toldBy(run: Run, v: unknown, ids: Ids, refs: Map<string, ID>, self: ID): ID | undefined {
+  if (!str(v, 20)) return undefined
+  const e = run.resolve(v, ids, refs)
+  return e && e.kind === 'character' && e.id !== self ? e.id : undefined
+}
+
 // ---------- Facts with an end (World Memory Overhaul B1) ----------
 
 const lowerFirst = (s: string): string => (s ? s[0].toLowerCase() + s.slice(1) : s)
@@ -1534,17 +1578,33 @@ const lowerFirst = (s: string): string => (s ? s[0].toLowerCase() + s.slice(1) :
  */
 function endTarget(run: Run, entry: Entry, fact: string, chunk: ChunkReply): Change | null {
   if (!fact) return null
-  const here = run.ctx.memory?.entries.find((x) => x.id === entry.id)
+  const memory = run.ctx.memory
+  const here = memory?.entries.find((x) => x.id === entry.id)
   const k = fact.toUpperCase()
+  const listed = /^K\d+$/.test(k) ? chunk.ids.known.get(k) : undefined
   const knownId =
-    (/^K\d+$/.test(k) ? chunk.ids.known.get(k) : undefined) ??
-    run.ctx.memory?.facts.find((f) => f.knownBy.includes(entry.id) && sameFact(f.fact, fact))?.factId
+    (listed && !chunk.ids.wrong.has(k) ? listed : undefined) ??
+    memory?.facts.find((f) => f.knownBy.includes(entry.id) && sameFact(f.fact, fact))?.factId
+  // A belief they see through (the who-knows-what ledger, long story memory fix 9) ends the same way.
+  const believedId =
+    (listed && chunk.ids.wrong.has(k) ? listed : undefined) ??
+    memory?.beliefs?.find((b) => b.believedBy.includes(entry.id) && sameFact(b.fact, fact))?.factId
+  const holds = (id: ID, wrong: boolean): boolean =>
+    wrong
+      ? !!memory?.beliefs?.some((b) => b.factId === id && b.believedBy.includes(entry.id))
+      : !!memory?.facts.some((f) => f.factId === id && f.knownBy.includes(entry.id))
   const own = mem.changesForEntry(run.db, entry.id).filter((c) => c.entryId === entry.id && c.sceneId !== run.scene.sceneId)
-  if (knownId && run.ctx.memory?.facts.some((f) => f.factId === knownId && f.knownBy.includes(entry.id))) {
+  for (const [id, wrong] of [
+    [knownId, false],
+    [believedId, true]
+  ] as const) {
+    if (!id || !holds(id, wrong)) continue
     // The learning that is true here: the latest before this scene on its line (one from a start of story counts first).
     const line = run.ctx.shape ? scenesBefore(run.ctx.shape, run.scene.sceneId) : []
     const pos = (c: Change): number => (c.sceneId ? line.indexOf(c.sceneId) : -1)
-    const learned = own.filter((c) => c.kind === 'knowledge' && c.payload.factId === knownId && !c.payload.forgets && (!c.sceneId || pos(c) >= 0))
+    const learned = own.filter(
+      (c) => c.kind === 'knowledge' && c.payload.factId === id && !c.payload.forgets && !!c.payload.wrong === wrong && (!c.sceneId || pos(c) >= 0)
+    )
     const last = learned.sort((a, b) => pos(b) - pos(a) || (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))[0]
     if (last) return last
   }
@@ -1802,7 +1862,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     const seen = (e.summary || e.name).trim()
     const stage = run.stageAt(s)
     if (seen && stage.length) {
-      const factId = mem.listFacts(db).find((x) => plain(x.fact) === plain(seen))?.factId ?? newId()
+      const factId = mem.listFacts(db).find((x) => !x.wrong && plain(x.fact) === plain(seen))?.factId ?? newId()
       const there = stage.map((p) => p.id)
       for (const p of stage) {
         const c = addChange(run, p, { kind: 'knowledge', payload: { factId, fact: seen, seen: true, there } }, s, `Saw it happen: ${seen}`)
@@ -1891,9 +1951,27 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     case 'knows': {
       const fact = str(a.fact, 300)
       if (!fact) return
+      // The who-knows-what ledger (long story memory fix 9): how they learned it, from whom, and whether it is a belief
+      // that isn't true. A belief and a fact someone knows never share an id: a K id or the same words count only when
+      // they are the same kind (a K line says "wrongly believed by" for a belief: request.ts).
+      const wrong = bool(a.wrong)
+      const how = knowHow(a.how)
+      const from = how === 'told' || how === 'overheard' || (!how && a.from) ? toldBy(run, a.from, chunk.ids, refs, entry.id) : undefined
       const k = str(a.factId, 10).toUpperCase()
-      const factId = chunk.ids.known.get(k) ?? mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ?? newId()
-      addChange(run, entry, { kind: 'knowledge', payload: { factId, fact, forgets: bool(a.forgets) } }, s)
+      const listed = chunk.ids.known.get(k)
+      const factId =
+        (listed && chunk.ids.wrong.has(k) === wrong ? listed : undefined) ??
+        mem.listFacts(db).find((x) => !!x.wrong === wrong && plain(x.fact) === plain(fact))?.factId ??
+        newId()
+      const payload = {
+        factId,
+        fact,
+        forgets: bool(a.forgets),
+        ...(how ? { how } : {}),
+        ...(from ? { from } : {}),
+        ...(wrong ? { wrong: true as const } : {})
+      }
+      addChange(run, entry, { kind: 'knowledge', payload }, s)
       return
     }
     case 'said': {
@@ -1914,8 +1992,8 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const k = str(a.factId, 10).toUpperCase()
       const factId =
         (again?.kind === 'knowledge' ? again.payload.factId : null) ??
-        chunk.ids.known.get(k) ??
-        mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ??
+        (chunk.ids.wrong.has(k) ? undefined : chunk.ids.known.get(k)) ??
+        mem.listFacts(db).find((x) => !x.wrong && plain(x.fact) === plain(fact))?.factId ??
         newId()
       // Everyone on stage at those words heard them too (B5), unless they were whispered or said aside: then only those
       // the model names. Who was there is kept with the fact, so who doesn't know it can be told.

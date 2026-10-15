@@ -14,10 +14,9 @@ import { clothesOf, pieceSource, STATE_FIELDS, STATE_LABELS, sourceKey, thingKey
 import { pieceText, thingText } from '@shared/stageItems'
 import { deadBy } from '../ai/context'
 import type { SceneCheckContext } from '../checks/context'
-import { entryText, factsThatMatter, headsAt, holdingsHere } from '../checks/context'
+import { beliefLines, entryText, factsThatMatter, headsAt, holdingsHere, knowsLine, namesAt } from '../checks/context'
 import { estimateTokens } from '../keeper/text'
 import { holdingLine, nameIn, namesOf } from '../memory/items'
-import { isPerson, namesPerson } from '../ai/mustStay'
 
 export const REPAIR_MARKER = '[AIWRITE-REPAIR v1]'
 
@@ -54,6 +53,8 @@ const MOST_FULL = 8
 const MOST_FACTS = 30
 /** The most lines about what people here gave away, lost or got. */
 const MOST_OWNED = 12
+/** The most lines about what people here believe that isn't true (fix 9). */
+const MOST_BELIEFS = 8
 
 /**
  * Where things stand as lines with ids, each with its words: each piece of clothing, and each thing in the place, its
@@ -123,20 +124,25 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
     MOST_FACTS,
     heads
   )
-  if (facts.length) {
-    const text = facts.map((f, i) => {
-      const code = `K${i + 1}`
-      lines.push({ code, kind: 'knows', label: f.fact.trim() })
-      const knows = people.filter((c) => f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
-      // Never "not known by" someone the fact is about ("Ash will be at the Crown... Not known by: Ash"), as the
-      // writer's own list has it (mustStay.ts realSecrets); nor an animal (isPerson); nor at all when who knows it doesn't
-      // rest on who was there or on Adam (B5, FactState.backed).
-      const not =
-        f.backed === false
-          ? []
-          : people.filter((c) => !f.knownBy.includes(c.entry.id) && isPerson(c.entry) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
-      return `- [${code}] ${f.fact.trim()} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
-    })
+  // Each with who knows it, since when and how, and who here doesn't (checks/context.ts knowsLine: never "not known by"
+  // someone the fact is about, nor an animal, nor when who knows it doesn't rest on who was there or on Adam); then what
+  // those here believe that isn't true (the who-knows-what ledger, long story memory fix 9), K lines too.
+  const nameOf = namesAt(ctx.memory)
+  const wrong = beliefLines(ctx.memory.beliefs, people.map((c) => c.entry), nameOf, MOST_BELIEFS)
+  if (facts.length || wrong.length) {
+    let k = 0
+    const text = [
+      ...facts.map((f) => {
+        const code = `K${++k}`
+        lines.push({ code, kind: 'knows', label: f.fact.trim() })
+        return `- [${code}] ${knowsLine(f, people.map((c) => c.entry), nameOf)}`
+      }),
+      ...wrong.map((l) => {
+        const code = `K${++k}`
+        lines.push({ code, kind: 'knows', label: l })
+        return `- [${code}] ${l}`
+      })
+    ]
     sections.push({ id: 'knowledge', title: 'Who knows what at the start of this scene (K ids)', text: text.join('\n'), entryIds: [] })
   }
   // What the people here gave away, lost or got, however long ago, as it is now (memory/items.ts; Adam, 2026-10-07: a

@@ -107,8 +107,15 @@ Characters change. Wren may learn a secret in chapter three, and the AI shouldn'
 3. Move the slider to a scene. The page shows what was true at that point: what has happened so far, what the
    character knows, and what has changed.
 
+Under **What they know**, each thing a character knows says since when ("since Book 1, Ch 2, Sc 3") and how they
+learned it, if the story says: they saw it, heard it from someone, overheard it, read it or guessed it. **Believes
+wrongly** lists what they believe that isn't true, such as a forged letter they take for real. In the New look, a
+character's card shows the same as of the scene you're in, under **What they know**.
+
 Each entry also shows where it **First appears**, which scenes it **Appears in**, what it **Knows at the start**, and
-how it **Changes over time**.
+how it **Changes over time**. To give a character a mistaken belief from the start, type it under **Knows at the
+start** and pick **as something they believe wrongly**. To take one away, remove it there or under **Changes over
+time**; **Undo** brings it back.
 
 ## Rules the AI must never break
 

@@ -20,6 +20,11 @@ what it changed in the scene too.
 The memory adds what your story says, such as a character's new scar, a place they've been, or something they've
 just found out. It never overwrites what you typed into an entry yourself.
 
+It keeps track of who knows what: what each character knows, since which scene, and how they found out (they saw
+it, someone told them, they read it or guessed it), and what they believe that isn't true. Before every scene, the
+AI is told this for everyone in the scene, including anyone your words bring in, so no one acts on something they
+haven't found out yet. You can see it on each character's page, under **What they know**.
+
 It also notices when your story calls someone something new, such as a nickname, a title ("the Captain") or "her
 brother". In that scene the AI knows who you mean straight away, and **What changed** says so: **Dismiss** there if
 it got it wrong. A nickname or a title is also offered as another name, under **Worth a look**, in **Other names the
@@ -90,7 +95,8 @@ accept or reject), or **Ignore** if it's meant to be that way.
 Deeper checks compare a scene with the memory. They look at:
 
 - **Facts**: does anything contradict what's already established?
-- **Who knows what**: does a character know something they haven't found out yet?
+- **Who knows what**: does a character know something they haven't found out yet, or act as if a mistaken belief
+  were already put right?
 - **Timeline and place**: could they really be here, at this time?
 - **Voice** and **Style and tone**: does everyone sound like themselves?
 

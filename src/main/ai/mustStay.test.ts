@@ -191,6 +191,31 @@ describe('what must stay true', () => {
     expect(learned.map((l) => l.split(':')[1].trim())).toEqual(['The mill is mortgaged (Wren knows it). Osric Hale must not learn, guess or think it here unless the scene card says so', 'The flour tax was forged (Wren knows it). Osric Hale must not learn, guess or think it here unless the scene card says so', 'Osric owes the abbey (Osric Hale knows it). Wren must not learn, guess or think it here unless the scene card says so'])
   })
 
+  it('keeps a secret from anyone in the scene (fix 9), and says what someone here believes wrongly, after the secrets', () => {
+    const wren = entry('character', 'Wren')
+    const osric = entry('character', 'Osric Hale')
+    const bryn = entry('character', 'Bryn')
+    const facts: FactState[] = [{ factId: 'f1', fact: 'The flour tax was forged.', knownBy: [wren.id, osric.id], at: 3 }]
+    const beliefs = [{ factId: 'b1', fact: 'The abbot is alive', believedBy: [osric.id], since: { [osric.id]: { at: 5, where: 'The Mill, Ch 2, Sc 1' } }, at: 5 }]
+    const only = mustStayTrue(base({ people: [wren, osric], facts, beliefs, stand: null, reach: 'none' }))
+    expect(only).toEqual([
+      "Osric Hale wrongly believes: The abbot is alive (it isn't true). Osric Hale takes it as true here unless the scene card says otherwise"
+    ])
+    // Bryn is in the scene (named in it so far, or on the stage): the secret is kept from him too, and comes first.
+    const all = mustStayTrue(base({ people: [wren, osric], knowers: [wren, osric, bryn], facts, beliefs, stand: null, reach: 'none' }))
+    expect(all).toEqual([
+      'Kept from Bryn: The flour tax was forged (Wren and Osric Hale know it). Bryn must not learn, guess or think it here unless the scene card says so',
+      "Osric Hale wrongly believes: The abbot is alive (it isn't true). Osric Hale takes it as true here unless the scene card says otherwise"
+    ])
+    expect(mustStayTrue(base({ people: [wren, osric], knowers: [wren, osric, bryn], facts, beliefs, stand: null, reach: 'none', smallest: true }))).toEqual([
+      'Kept from Bryn: The flour tax was forged (Wren and Osric Hale know it)',
+      "Osric Hale wrongly believes: The abbot is alive (it isn't true)"
+    ])
+    // No more than MUST_GAPS of the two together: the secrets first.
+    const many = Array.from({ length: MUST_GAPS }, (_, i) => ({ factId: `k${i}`, fact: `Secret ${i}`, knownBy: [wren.id] }))
+    expect(mustStayTrue(base({ people: [wren, osric], facts: many, beliefs, stand: null, reach: 'none' })).join('\n')).not.toContain('wrongly believes')
+  })
+
   it('cuts a long value short, never since when it holds', () => {
     const wren = entry('character', 'Wren', { fields: { marks: `scars ${'and more scars '.repeat(40)}`.trim() }, changedWhere: { marks: 'The Mill, Ch 4, Sc 1' } })
     const [line] = mustStayTrue(base({ people: [wren], stand: null, reach: 'none' }))

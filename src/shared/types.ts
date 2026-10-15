@@ -1134,6 +1134,39 @@ export interface KnowledgePayload {
   there?: ID[]
   /** Learned by seeing it happen (an event in the scene, B5). */
   seen?: true
+  /**
+   * How they learned it, as the words show (the who-knows-what ledger, long story memory fix 9): saw it, were told (by
+   * `from`), overheard it, read it or guessed it. Missing when the words don't say; then `said` and `seen` tell what they
+   * can (memory/ledger.ts learnedHow).
+   */
+  how?: KnowHow
+  /** Who told them, or whom they overheard (fix 9). */
+  from?: ID
+  /**
+   * Something they believe that isn't true (fix 9): never counted as known, so never a secret kept from anyone; told as
+   * "believes wrongly" until they learn otherwise (the belief is ended or forgotten).
+   */
+  wrong?: true
+}
+
+/** How a character came to know something, as the words show it (fix 9). */
+export type KnowHow = 'saw' | 'told' | 'overheard' | 'read' | 'guessed'
+
+/**
+ * Since when and how one character knows (or believes) a fact, as of a point (the who-knows-what ledger, long story memory
+ * fix 9): their first learning of it on the line since they last forgot it. 'said': they said it themselves (something
+ * said, the speaker).
+ */
+export interface Learned {
+  /** Where on the line (a step index of the walk; -1 for the starting setup). */
+  at: number
+  /** In plain words ("Book 1, Ch 2, Sc 3", "the start of Book 2"); '' for the starting setup. */
+  where: string
+  /** The scene it was learned in, when it was learned in one. */
+  sceneId?: ID
+  how?: KnowHow | 'said'
+  /** Who told them, or whom they overheard. */
+  from?: ID
 }
 
 /** The kinds of things said that the memory keeps word for word. */
@@ -1275,6 +1308,26 @@ export interface FactState {
    * come first in what must stay true (step 4). Left out by anything older.
    */
   at?: number
+  /**
+   * The who-knows-what ledger (long story memory fix 9): for each who knows it here, since when and how. Left out by
+   * anything older.
+   */
+  since?: Record<ID, Learned>
+}
+
+/**
+ * Something characters believe that isn't true, as of a point (the who-knows-what ledger, long story memory fix 9). Kept
+ * apart from FactState, so a false belief is never taken for knowledge, nor for a secret kept from anyone else.
+ */
+export interface BeliefState {
+  factId: ID
+  fact: string
+  /** Characters who believe it at this point. */
+  believedBy: ID[]
+  /** For each of them, since when and how. */
+  since: Record<ID, Learned>
+  /** Where on the line someone last came to believe it (a step index; -1 for the starting setup). */
+  at: number
 }
 
 export interface ThreadState {
@@ -1554,6 +1607,8 @@ export interface EntryAsOf {
   relationships: RelationshipState[]
   /** For a character: the facts it knows there. */
   knows: FactState[]
+  /** For a character: what it believes there that isn't true (long story memory fix 9). Left out by anything older. */
+  believes?: BeliefState[]
   /** For a plot thread: open or resolved there, and where it was set up and paid off. */
   thread: ThreadState | null
 }

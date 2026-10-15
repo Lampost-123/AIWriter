@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AsOfStop, ChangeData, ChangeView, Origin, RelationshipState, SourceLink } from '@shared/types'
 import {
   asOfHappened,
+  asOfKnowing,
   asOfLead,
   asOfNote,
   asOfOrigins,
@@ -223,5 +224,33 @@ describe('an entry as of a point', () => {
     expect(chosenStop(stops, { kind: 'scene', storyId: 'b1', sceneId: 'gone' }, 's2')?.sceneId).toBe('s2')
     expect(chosenStop(stops, null, 'elsewhere')?.sceneId).toBe('s3')
     expect(chosenStop([], null, 's1')).toBeNull()
+  })
+})
+
+describe('what a character knows and believes wrongly at a point (long story memory fix 9)', () => {
+  const nameOf = (id: string): string | null => ({ ash: 'Ash' })[id] ?? null
+  it('the most lately learned first, each with since when and how; those with no place last, as the memory lists them', () => {
+    const rows = asOfKnowing(
+      [
+        { factId: 'a', fact: 'The ferry leaks', knownBy: ['m'] },
+        { factId: 'b', fact: 'The will was burned ', knownBy: ['m'], since: { m: { at: 2, where: 'Book 1, Ch 1, Sc 2', how: 'saw' } } },
+        { factId: 'c', fact: 'The toll doubled', knownBy: ['m'], since: { m: { at: 6, where: 'Book 1, Ch 2, Sc 1', how: 'told', from: 'ash' } } },
+        { factId: 'd', fact: 'The Binding holds', knownBy: ['m'], since: { m: { at: -1, where: '' } } },
+        { factId: 'e', fact: '  ', knownBy: ['m'] }
+      ],
+      'm',
+      nameOf
+    )
+    expect(rows).toEqual([
+      { factId: 'c', fact: 'The toll doubled', learned: 'since Book 1, Ch 2, Sc 1 · heard it from Ash', since: 'since Book 1, Ch 2, Sc 1', how: 'heard it from Ash' },
+      { factId: 'b', fact: 'The will was burned', learned: 'since Book 1, Ch 1, Sc 2 · saw it', since: 'since Book 1, Ch 1, Sc 2', how: 'saw it' },
+      { factId: 'd', fact: 'The Binding holds', learned: 'from the start', since: 'from the start', how: '' },
+      { factId: 'a', fact: 'The ferry leaks', learned: '', since: '', how: '' }
+    ])
+  })
+
+  it('reads beliefs the same way', () => {
+    const rows = asOfKnowing([{ factId: 'l', fact: 'The letter is genuine', believedBy: ['m'], since: { m: { at: 3, where: 'Book 1, Ch 1, Sc 3', how: 'read' } }, at: 3 }], 'm', nameOf)
+    expect(rows).toEqual([{ factId: 'l', fact: 'The letter is genuine', learned: 'since Book 1, Ch 1, Sc 3 · read it', since: 'since Book 1, Ch 1, Sc 3', how: 'read it' }])
   })
 })

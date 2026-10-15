@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { finishContext, keptOrder, MENTIONED_TITLE, MUST_BLOCK, prepareContext, SEND_ORDER, sentOrderOf, type ContextInput } from '../../src/main/ai/context'
 import { RECALL_ENTRIES } from '../../src/main/retrieval/briefing'
+import { LEDGER_BLOCK, LEDGER_GAPS } from '../../src/main/ai/whoKnows'
 import { soFarBlock } from '../../src/main/beats/instructions'
 import { countRaw } from '../../src/main/ai/tokens'
 import { finalInstruction, writerInstructions } from '../../src/main/ai/prompts'
@@ -146,12 +147,14 @@ describe('blocks go in an order a provider can reuse from one step to the next',
 
 describe('a cleaner briefing', () => {
   it('"does not know" only for real secrets: never about the person themselves, the same fact once, at most three', () => {
-    const rel = block(addBelowStep(0), 'relationships')!.text
-    expect(rel).not.toContain('Wren Hollis does not know: Wren will go up to the abbey')
-    const lines = rel.split('\n').filter((l) => l.includes(' does not know: '))
-    expect(lines.length).toBeLessThanOrEqual(3)
+    // In "Who knows what" since long story memory fix 9, a section for each person in the scene.
+    const known = block(addBelowStep(0), LEDGER_BLOCK.id)!.text
+    expect(block(addBelowStep(0), 'relationships')!.text).not.toContain('know')
+    expect(known).not.toContain('Wren will go up to the abbey')
+    const lines = known.split('\n').filter((l) => l.startsWith("- Doesn't know yet: "))
+    expect(lines.length).toBeLessThanOrEqual(LEDGER_GAPS)
     expect(lines.length).toBeGreaterThan(0)
-    expect(rel.match(/must be laid before the Assize/g) ?? []).toHaveLength(1)
+    expect(known.match(/must be laid before the Assize/g) ?? []).toHaveLength(1)
   })
 
   it('what the point of view knows: once each, no plan long past or already done', () => {

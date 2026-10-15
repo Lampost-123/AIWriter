@@ -13,9 +13,12 @@
 // who is dead, what is kept from someone here, how people are hurt, and how much time has passed since the scene before,
 // so they are never crowded out by clothes and things in the place, and its short form keeps them. Since fix 7 of that
 // research it also says the latest slips the checks found about these people in earlier scenes and that were put right
-// (MUST_SLIPS, checks/lessons.ts), so the writer doesn't make them again. Pure.
+// (MUST_SLIPS, checks/lessons.ts), so the writer doesn't make them again. Since fix 9 (the who-knows-what ledger) what is
+// kept from someone is worked out among everyone in the scene (the card, the stage, the scene so far: `knowers`), as the
+// "Who knows what" block has it (whoKnows.ts), and what someone here believes that isn't true joins those lines, after
+// the secrets, in the same few. Pure.
 
-import type { EntryState, FactState, ID } from '@shared/types'
+import type { BeliefState, EntryState, FactState, ID } from '@shared/types'
 import {
   clothesOf,
   heldNotPlaced,
@@ -126,6 +129,13 @@ export interface MustInput {
    * short or smallest form. Left out: none.
    */
   slips?: { text: string; where: string; entryIds: ID[] }[]
+  /**
+   * Everyone in the scene for who knows what (long story memory fix 9: the card, the stage, the scene so far), point of
+   * view first: what is kept from one of them, and what one of them believes wrongly. Left out: `people`.
+   */
+  knowers?: EntryState[]
+  /** What characters believe that isn't true at this point (fix 9). Left out: none. */
+  beliefs?: BeliefState[]
 }
 
 /**
@@ -242,11 +252,14 @@ export function realSecrets(
   return out
 }
 
-/** True when a text names this person: by name, another name, or a first name of three letters or more. */
+/**
+ * True when a text names this person: by name, another name, or a first name of three letters or more ("The" of "The
+ * Duke" is no first name: "The will was burned" isn't about him).
+ */
 export function namesPerson(text: string, p: Pick<EntryState, 'name' | 'aliases'>): boolean {
   const names = [p.name, ...(p.aliases ?? [])].map(clean).filter(Boolean)
   const first = clean(p.name).split(' ')[0] ?? ''
-  if (first.length >= 3 && /^\p{Lu}/u.test(first)) names.push(first)
+  if (first.length >= 3 && /^\p{Lu}/u.test(first) && !/^the$/i.test(first)) names.push(first)
   return names.some((n) => nameIn(text, n))
 }
 
@@ -506,14 +519,31 @@ export function mustStayTrue(o: MustInput): string[] {
 
   // What some of those in the scene know and others don't, the most lately learned first: kept from the others, who
   // must not learn, guess or think it here (when the point-of-view character is one of them, not even in thought).
-  realSecrets(people, o.facts, { happened: o.happened ?? happenedOf([...people, ...o.named]) })
-    .slice(0, MUST_GAPS)
-    .forEach((s, i) => {
-      const not = joinAnd(s.keptFrom)
-      const knows = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
-      const fact = clipTo(s.fact, LONGEST_FACT)
-      const rule = o.smallest ? '' : `. ${not} must not learn, guess or think it here unless the scene card says so`
-      add('gap', 2000 + i, `Kept from ${not}: ${fact} (${knows})${rule}`, '', true)
+  // Everyone in the scene counts (fix 9), as in the "Who knows what" block.
+  const knowers = o.knowers ?? people
+  const secrets = realSecrets(knowers, o.facts, { happened: o.happened ?? happenedOf([...people, ...o.named]) }).slice(0, MUST_GAPS)
+  secrets.forEach((s, i) => {
+    const not = joinAnd(s.keptFrom)
+    const knows = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
+    const fact = clipTo(s.fact, LONGEST_FACT)
+    const rule = o.smallest ? '' : `. ${not} must not learn, guess or think it here unless the scene card says so`
+    add('gap', 2000 + i, `Kept from ${not}: ${fact} (${knows})${rule}`, '', true)
+  })
+  // Then what someone here believes that isn't true (fix 9), the most lately come to first, in the room the secrets left.
+  const believers = knowers.filter((e) => isPerson(e) && !clean(deathOf(e)?.note))
+  ;(o.beliefs ?? [])
+    .flatMap((b) =>
+      b.believedBy.flatMap((id) => {
+        const p = believers.find((x) => x.id === id)
+        return p ? [{ p, b, at: b.since[id]?.at ?? b.at }] : []
+      })
+    )
+    .sort((x, y) => y.at - x.at)
+    .slice(0, Math.max(0, MUST_GAPS - secrets.length))
+    .forEach(({ p, b }, i) => {
+      const fact = clipTo(clean(b.fact).replace(/[.]$/, ''), LONGEST_FACT)
+      const rule = o.smallest ? '' : `. ${p.name} takes it as true here unless the scene card says otherwise`
+      add('gap', 2500 + i, `${p.name} wrongly believes: ${fact} (it isn't true)${rule}`, '', true)
     })
 
   // How much time has passed since the scene before, at a new scene's start.

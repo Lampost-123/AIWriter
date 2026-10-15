@@ -13,6 +13,7 @@ import type {
   RelationshipPayload,
   SourceLink
 } from '@shared/types'
+import { howWords } from '@shared/knowWords'
 
 // ---------- Places in plain words ----------
 
@@ -522,11 +523,17 @@ export function describeChange(
       const words = line ? (/^["“'‘]/.test(line) ? line : `“${line}”`) : null
       const what = said
         ? { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }[said.kind]
-        : c.payload.forgets
-          ? 'Forgets'
-          : c.payload.seen
-            ? 'Saw it happen'
-            : 'Learns'
+        : c.payload.wrong
+          ? c.payload.forgets
+            ? 'No longer believes'
+            : 'Believes wrongly'
+          : c.payload.forgets
+            ? 'Forgets'
+            : c.payload.seen
+              ? 'Saw it happen'
+              : 'Learns'
+      // How they learned it, as the words show (the who-knows-what ledger, long story memory fix 9): "Heard it from Ash".
+      const how = said || c.payload.seen || c.payload.forgets ? '' : upperFirst(howWords(c.payload, nameOf))
       // Who was there (World Memory Overhaul B5): the others on stage at those words know it too.
       const others = (c.payload.there ?? []).filter((id) => id !== selfId).flatMap((id) => nameOf(id) ?? [])
       const there = others.length ? `Was there with ${joinNames(others)}` : null
@@ -534,7 +541,7 @@ export function describeChange(
       // world read before who-was-there was kept has no names: the line is left out then too, when the source words
       // shown under it are the same words (it showed twice otherwise).
       const quoted = !!line && (c.links ?? []).some((l) => l.state === 'ok' && sameWords(l.quote, line))
-      const detail = there ?? (quoted ? null : words)
+      const detail = [how, there].filter(Boolean).join(' · ') || (quoted ? null : words)
       return { text: `${what}: ${c.payload.fact.trim()}`, detail }
     }
     case 'thread': {

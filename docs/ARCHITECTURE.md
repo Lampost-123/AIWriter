@@ -182,7 +182,8 @@ again, with Undo).
   becomes text-born; withdrawn, it is cleared (never an entry's summary); only `guessFields` count, so Adam's fields and
   the world builder's drafts are never touched; each has Undo and a suppression. To make room, some examples were cut,
   so the prompt is 5,948 characters (about 1,700 tokens; 5,806 before round 2) and still fits a 3,000-token model.
-  (5,875 since long story memory fix 12 added the "name" item and tightened the wording, to leave later fixes room.)
+  (5,875 since long story memory fix 12 added the "name" item and tightened the wording, to leave later fixes room;
+  5,942 since fix 9 gave "knows" its how, from and wrong, again with tighter wording.)
 - *B8, re-read buttons.* "Re-read this scene" (the binder's scene menu, the palette) and "Re-read the whole story" (the
   story menu, the palette) open `features/memory/RereadDialog.tsx`, which first asks `estimateReread`
   (`ipc/keeper.ts` `rereadEstimate`: the reading requests as `importing/estimate.ts` `guessReread` reckons them, priced at
@@ -781,7 +782,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   field a change set during the story (`EntryState.changedWhere`, memory/state.ts; when a side story added whole
   loses a clash, the host's place goes back with the host's value), anyone in the briefing who is dead, and up to
   three things kept from someone in the scene, the most lately learned first (`FactState.at`): "Kept from Tobin: …
-  (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so" (`secretsAmong`). How
+  (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so" (`secretsAmong`; since
+  long story memory fix 9, among everyone in the scene, and what someone here believes wrongly after them). How
   much of the stage (`stageReach`): all of it carrying on inside a scene (Add below, a later beat, Continue); at a
   new scene's start on the same day by both cards' When ("Day 3"), injuries and what people wear and hold (the card
   sets where and when); on a later day, or when how long has passed isn't known (no When, "Three weeks later"), only
@@ -1217,7 +1219,8 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
 - **What a check sees** (`checks/context.ts`): the scene's memory as of its **start** (`sceneMemory`, the
   line up to just before it), so a clash with earlier scenes or Adam's notes is caught even though the keeper
   has already followed the scene's text. Entries on the card or named in the text (with what has happened to
-  them), hard rules, who knows what, the three scenes before (When, where, who), the end of the scene before,
+  them), hard rules, who knows what (since long story memory fix 9 with since when and how each knows it, and what
+  anyone there believes wrongly), the three scenes before (When, where, who), the end of the scene before,
   the style guide's point of view and tense, the card's mood. Entries and scenes get short ids (E1, S1).
 - **One request per scene** for every check asked for (`checks/run.ts`), split into parts for a small model;
   a reply that can't be read is asked for once more, one cut off is asked again in halves. `checks/parse.ts`
@@ -1988,12 +1991,14 @@ lab's winners in the next section):
 - **Order for the cache** (`ai/context.ts` `SEND_ORDER`): what stays the same from one step of a scene to the next comes
   first (instructions, world rules, themes, setting, the story so far, the previous scene's end, plot threads), then the
   people (the same unless the memory learns something), then what a step brings in (entries named, recalled, what was
-  said, earlier passages), and last the scene card, the scene so far, the stage and what must stay true. Block 9's
+  said, earlier passages; since long story memory fix 9, who knows what), and last the scene card, the scene so far,
+  the stage and what must stay true. Block 9's
   entries and the recalled entries go in a steady order (kind, then name) under fixed titles (`MENTIONED_TITLE`). Claude's
   cache breakpoint ends before the people. Measured on an invented scene, two Add below steps in a row
   (`tests/unit/writerRound.test.ts`): the second step's prompt that the first already sent went from 29% to 69% with a
   short story so far, and from 11% to 71% with a long one (12,234 tokens down to 4,431, the timeline below included).
-- **A cleaner briefing**: "X does not know" only for real secrets (`ai/mustStay.ts` `realSecrets`: what one person here
+- **A cleaner briefing** (who knows what moved to its own block in long story memory fix 9, below, with the same
+  rules): "X does not know" only for real secrets (`ai/mustStay.ts` `realSecrets`: what one person here
   knows and another here doesn't, never kept from someone it is about, at most 3); "What X knows" gives each fact once
   and drops plans that happened or whose time has passed (`ai/knows.ts` `cleanKnows`: a later note with most of the
   plan's words; "tonight", "tomorrow", "in the morning" with two or more later scenes since); deaths told later lose
@@ -2397,8 +2402,8 @@ the same story so far and passages as before; what changes for it is the share f
   `MOST_MEANT` (8), only for the check it belongs to; the system prompt says the same thing there is no issue). The
   same thing in the same scene was already never raised again (`sameThing`).
 
-Not done here (the research's later steps): a book-length test story, rule-based checks, ledgers for who knows what,
-promises and time, spotting characters however they are named (fix 12, below), and a continuity
+Not done here (the research's later steps): a book-length test story, rule-based checks, ledgers for promises and
+time, a ledger for who knows what (fix 9, below), spotting characters however they are named (fix 12, below), and a continuity
 brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
 cover some of it.
 
@@ -2468,6 +2473,70 @@ nickname, a title or "her brother", got one line or nothing (the scene so far wa
   still takes under 0.1 ms with 500 entries). The hover card says how the words name them ("Character · “her
   brother” in this scene"). The sample world's scenes have no keeper reads, so Classic's screenshots are unchanged; no
   View setting was needed.
+
+## Long story memory: keeping track of who knows what (fix 9, 2026-10-15)
+
+The research's fix 9: characters acting on what they couldn't know yet is a named error type in story benchmarks
+(ConStory-Bench's "knowledge contradictions") and the most asked-for missing feature in other writing tools. The memory
+keeper already recorded what characters know, with quotes, but the writer was told the whole of it only for the point
+of view, up to three secrets among those on the card, and nothing said since when or how anyone knew. Now there is a
+ledger, built from what the memory already keeps (no new store, no migration, no new AI call).
+
+- **The ledger** (`memory/ledger.ts`, worked out in `memory/state.ts` `stateAt` with everything else true at a point,
+  so it is scene-scoped as every fact is: a redraft or a check of an earlier scene sees only what was known by then).
+  Each knower of a fact has `FactState.since[entryId]` (`Learned`: where on the line, the place in plain words, the
+  scene, and how): their first learning of it since they last forgot it (a forgetting, an end or a full description
+  clears it). How comes from the knowledge change: its own `how` and `from` (`KnowledgePayload`, JSON in
+  `changes.payload_json`), else something said (the speaker "said it", the rest heard it from the speaker), else an
+  event seen ("saw it") (`learnedHow`). Something believed that isn't true is a knowledge change with `wrong`: it goes
+  to `MemoryState.beliefs` / `SceneMemory.beliefs` (`BeliefState`), never into `facts`, so it is never a secret kept from
+  anyone; for one character and fact the latest learning says whether they know it or believe it wrongly. `Ledger`
+  indexes a point so a question is one look-up: `couldKnow(character, fact)` (knows it since when and how, believes it
+  wrongly, or neither), `knows`, `believes`, `whoKnows`; `ledgerForScene(db, sceneId)` (`memory/scene.ts`) builds it as
+  a scene begins, for rule-based checks to come (fix 8). Plain words for since and how are shared by the briefing, the
+  checks and the page (`shared/knowWords.ts`: "since Ch 2, Sc 3; heard it from Ash", "from the start").
+- **The memory keeper** (`keeper/prompts.ts`): the "knows" item gains `"how": "saw|told|overheard|read|guessed"`,
+  `"from"` and `"wrong"`, one rule line ("Knows: give how and, if told or overheard, from whom; wrong: true if what
+  they believe isn't true"), and "end" also ends a wrong belief they see through. Tighter wording elsewhere keeps the
+  prompt at 5,942 characters, under the 6,000 the tests hold it to. `keeper/apply.ts` keeps `how` (`knowHow` reads the
+  model's first word: "told by Ash" is told), `from` (a character other than themselves) and `wrong`; a belief and a
+  fact someone knows never share an id (a K id or the same words count only when they are the same kind: `listFacts`
+  says which facts are beliefs, `Ids.wrong` which K lines). The reading request lists beliefs among the K lines,
+  "wrongly believed by E2" (`keeper/request.ts`); `endTarget` finds them. What changed says "Wrongly believes …".
+- **The writer's briefing** (`ai/whoKnows.ts`, block `knowledge`, "Who knows what", priority 6). Everyone in the scene
+  (`ai/context.ts` `sceneKnowers`: the point of view, the others on the card, those where things stand puts there, and
+  the living characters the scene so far names, fix 12), point of view first, each with what they don't know yet that
+  someone else here knows ("Doesn't know yet: … (Tobin knows it, since Ch 2, Sc 1; saw it)"), what they believe wrongly
+  ("Wrongly believes: … It isn't true.") and what they know with since when and how ("Knows: …"; the point of view's
+  only for what they learned during the story, as block 4 lists all they know). What matters most goes in first:
+  every secret kept from someone here, then false beliefs, then what they know, the most lately learned first within
+  each; a secret told as someone's "doesn't know yet" isn't told again as another's "knows". The same rules as before
+  for secrets (`cleanKnows`, only backed facts, never kept from someone it is about; `namesPerson` no longer takes "The"
+  of "The Duke" for a first name). Caps (`LEDGER_GAPS` 3 and `LEDGER_WRONG` 2 a person, `LEDGER_LINES` 10, `LEDGER_PEOPLE`
+  6) grow with `memoryScale`, at most twice; what they know (`LEDGER_KNOWS` 4, `LEDGER_POV_KNOWS` 2) comes only with more
+  room than the smallest model's, growing to those at twice it, so on a 16,000-token model the block is what block 6
+  used to give and doesn't push out the setting (the fitting shortens priority 7 before 6). Short form: only what they
+  don't know or believe wrongly, without since when (`LEDGER_SHORT_LINES` 6). Block 6 is now "Relationships" alone.
+  Who is in the scene can change from step to step (the stage, the scene so far), so the block is sent late
+  (`SEND_ORDER`: after what a step brings in, before the scene card); every block before it stays word for word the
+  same when someone new is named (tested). What must stay true keeps its key kind for secrets (`gap`, no second list):
+  `MustInput.knowers` works them out among the same people, and what someone here believes wrongly follows them
+  within `MUST_GAPS` ("Tobin wrongly believes: … (it isn't true). Tobin takes it as true here unless the scene card says
+  otherwise"); AI edits and Continue pass the beliefs too.
+- **The checks** (`checks/context.ts`): who knows what is the ledger as the scene begins, as before the memory as of
+  its start, now with each knower's since when and how (`knowsLine`: "Known by: Tobin (since Book 1, Ch 3, Sc 1)") and
+  "What some of them believe that isn't true" (`beliefLines`, `MOST_BELIEFS` 12). Check and repair's K lines are the
+  same, beliefs among them (`repair/prompts.ts` `codexLines`, 8 at most). The knowledge check's instructions add a
+  character "who acts on the truth of something the memory says they believe wrongly, with nothing showing them learn
+  it". No new call.
+- **The page**: an entry's view as of a scene (`AsOfView.tsx`, both looks) has "What they know", the most lately
+  learned first, each with since when and how in a quiet line beside it ("since Book 1, Ch 2, Sc 3 · heard it from
+  Ash", `asOfViewLogic.ts` `asOfKnowing`), and "Believes wrongly" when there is any. The New look's card has "What they
+  know" under "Where things stand", as of the scene Adam is in (`Dossier.tsx` `KnowingRows`, six at most, "and 3 more,
+  seen as of any scene"). "Changes over time" says how under a learning ("Heard it from Ash") and "Believes wrongly: …"
+  for a belief (`memoryLogic.ts` `describeChange`); removing either is the usual remove with Undo. "Knows at the start"
+  offers to add what was typed "as something {name} believes wrongly", and marks such a row. Classic's screens look as
+  they did until a world has such knowledge (the sample world's is unchanged).
 
 ## Milestone 1 scope
 

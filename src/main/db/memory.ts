@@ -18,6 +18,7 @@ import type {
   ExistsKind,
   ExistsPoint,
   ID,
+  KnowHow,
   Origin,
   Pin,
   PinScope,
@@ -95,6 +96,8 @@ const toChange = (r: Row): Change =>
 
 const ANCHORS: ChangeAnchor[] = ['baseline', 'story-start', 'scene']
 const KINDS: ChangeData['kind'][] = ['update', 'full', 'relationship', 'knowledge', 'thread']
+/** How a character can come to know something (KnowledgePayload.how). */
+const KNOW_HOWS: KnowHow[] = ['saw', 'told', 'overheard', 'read', 'guessed']
 
 /** The story a scene is in (live or not), or null. */
 function sceneStory(db: DB, sceneId: ID): ID | null {
@@ -321,7 +324,11 @@ export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
               }
             }
           : {}
-      return { ...base, kind: 'knowledge', payload: { factId: p.factId || newId(), fact, ...(p.forgets ? { forgets: true } : {}), ...said } }
+      // How they learned it, from whom, and a belief that isn't true (the who-knows-what ledger, long story memory fix 9).
+      const how = KNOW_HOWS.includes(p.how as KnowHow) ? { how: p.how } : {}
+      const from = typeof p.from === 'string' && p.from && p.from !== input.entryId ? { from: p.from } : {}
+      const ledger = { ...how, ...from, ...(p.wrong ? { wrong: true as const } : {}) }
+      return { ...base, kind: 'knowledge', payload: { factId: p.factId || newId(), fact, ...(p.forgets ? { forgets: true } : {}), ...said, ...ledger } }
     }
     case 'thread': {
       const p = input.payload
@@ -372,8 +379,12 @@ export function changesInScene(db: DB, sceneId: ID): Change[] {
 }
 
 /** Every fact any character knows (or knew), once each, for picking the same fact again. */
-export function listFacts(db: DB): { factId: ID; fact: string }[] {
-  const out = new Map<ID, string>()
+/**
+ * Every fact anyone knows, by id, in its latest wording. `wrong`: it is something believed that isn't true (the
+ * who-knows-what ledger, long story memory fix 9): its latest learning was a belief.
+ */
+export function listFacts(db: DB): { factId: ID; fact: string; wrong?: true }[] {
+  const out = new Map<ID, { fact: string; wrong: boolean }>()
   // Oldest first, so a fact's latest wording wins; facts only deleted entries knew are left out.
   for (const c of db
     .prepare(
@@ -382,14 +393,16 @@ export function listFacts(db: DB): { factId: ID; fact: string }[] {
     )
     .all() as Row[]) {
     if (c.kind === 'knowledge') {
-      const p = json<{ factId?: ID; fact?: string }>(c.payload_json, {})
-      if (p.factId && p.fact) out.set(p.factId, p.fact)
+      const p = json<{ factId?: ID; fact?: string; wrong?: boolean }>(c.payload_json, {})
+      if (p.factId && p.fact) out.set(p.factId, { fact: p.fact, wrong: !!p.wrong })
     } else {
       for (const k of json<{ knows?: { factId: ID; fact: string }[] }>(c.payload_json, {}).knows ?? [])
-        if (k.factId && k.fact) out.set(k.factId, k.fact)
+        if (k.factId && k.fact) out.set(k.factId, { fact: k.fact, wrong: false })
     }
   }
-  return [...out].map(([factId, fact]) => ({ factId, fact })).sort((a, b) => a.fact.localeCompare(b.fact))
+  return [...out]
+    .map(([factId, f]) => ({ factId, fact: f.fact, ...(f.wrong ? { wrong: true as const } : {}) }))
+    .sort((a, b) => a.fact.localeCompare(b.fact))
 }
 
 // ---------- Where entries first exist ----------

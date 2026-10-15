@@ -143,6 +143,8 @@ export function changeWords(c: ChangeData, nameOf: (id: ID) => string): string {
       if (c.payload.said && !c.payload.forgets) return `${SAID_WORDS[c.payload.said.kind] ?? 'Knows'}: ${c.payload.fact}`
       // Seen happening, with everyone who was there (World Memory Overhaul B5).
       if (c.payload.seen && !c.payload.forgets) return `Saw it happen: ${c.payload.fact}`
+      // Something believed that isn't true (the who-knows-what ledger, long story memory fix 9).
+      if (c.payload.wrong) return `${c.payload.forgets ? 'No longer believes' : 'Wrongly believes'} ${lowerFirstWord(c.payload.fact)}`
       return `${c.payload.forgets ? 'Forgets' : 'Knows'} ${lowerFirstWord(c.payload.fact)}`
     case 'thread':
       return `Plot thread ${c.payload.status === 'resolved' ? 'resolved' : 'opened'}${c.payload.note ? `: ${c.payload.note}` : ''}`
@@ -153,7 +155,7 @@ export function changeWords(c: ChangeData, nameOf: (id: ID) => string): string {
 
 /** A removed change in plain words: "No longer knows Mara is the heir". */
 export function removedWords(c: ChangeData, nameOf: (id: ID) => string): string {
-  if (c.kind === 'knowledge' && !c.payload.forgets) return `No longer knows ${lowerFirstWord(c.payload.fact)}`
+  if (c.kind === 'knowledge' && !c.payload.forgets) return `No longer ${c.payload.wrong ? 'believes' : 'knows'} ${lowerFirstWord(c.payload.fact)}`
   return changeWords(c, nameOf)
 }
 
@@ -259,7 +261,7 @@ export function changeContent(c: ChangeData): string {
     case 'knowledge':
       // Something said is the same fact when the same speaker says the same line, however the fact is worded.
       if (c.payload.said) return `said by ${c.payload.said.by}: ${c.payload.said.words}`
-      return `${c.payload.fact} ${c.payload.forgets ? 'forgets' : 'knows'}`
+      return `${c.payload.fact} ${c.payload.forgets ? 'forgets' : c.payload.wrong ? 'believes' : 'knows'}`
     case 'thread':
       return `${c.payload.status} ${c.payload.note}`
     case 'full':

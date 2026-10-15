@@ -10,6 +10,10 @@
 // Since 2026-10-08 (World Memory Overhaul B1) it may end a fact that is no longer true ("end" items, keeper/apply.ts).
 // Since 2026-10-15 (long story memory fix 12) it reports what the words call a character that the memory doesn't list
 // ("name" items: a nickname, a title, "her brother" where it can only mean them; keeper/names.ts).
+// Since 2026-10-15 (long story memory fix 9, the who-knows-what ledger) a "knows" item says how it was learned (saw, told,
+// overheard, read, guessed), from whom, and whether it is a belief that isn't true ("wrong"), which "end" can end
+// (keeper/apply.ts, memory/ledger.ts). The wording elsewhere was tightened to make room: 5,942 characters, under the
+// 6,000 the tests hold it to.
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -29,21 +33,22 @@ const keysLine = (kind: EntryKind, label: string): string => `${label}: ${fieldK
 
 /** The reading instructions. Stable, so providers that cache repeated prompts can reuse them. */
 export const READING_SYSTEM = `${READING_MARKER}
-You keep the memory of a novel's world up to date as the author writes. You get the memory at this point in the story, the facts already read from this scene, and its new or changed paragraphs. Reply with one JSON object only.
+You keep a novel's memory up to date as the author writes. You get the memory at this point, the facts already read from this scene, and its new or changed paragraphs. Reply with one JSON object only.
 
 Rules
-- Read only the paragraphs labelled P1, P2 ...; lines labelled "Context" are only there to help: take nothing from them.
+- Read only paragraphs P1, P2 ...; "Context" lines are only there to help: take nothing from them.
 - Report only what the words show happens, is said to be true or becomes true: no guesses or reading between the lines, and nothing the memory already says in any words (facts whose words changed excepted).
 - Every fact needs "quote": words copied character for character from one P paragraph: the shortest phrase or sentence that shows it.
 - Refer to entries by their ids (E1, E2 ...), those under "Elsewhere in the world" too: never make a new entry with a name or alias already listed. Later items can refer to a new entry by its "ref" (N1, N2 ...).
 - A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives or makes (a bead, a letter) is an item, however much it matters to them. Give a new entry only fields the words show.
-- Changes are what is now different: injuries, possessions, looks, where someone is, goals, a death. Write a "note" as a short phrase without the name ("lost her left hand"). When a change ends what one of their fields says (a bandage off for good, a hat lost), also give that field's new value, without it, in "fields".
+- Changes are what is now different: injuries, possessions, looks, where someone is, goals, a death. Write a "note" as a short phrase without the name. When a change ends what one of their fields says (a bandage off for good, a hat lost), also give that field's new value, without it, in "fields".
 - Details: facts about an entry that don't change in the scene (a newcomer's eye colour).
 - Said lines later scenes must keep to (a promise or vow, a threat, a secret told): a "said" item with who says it, who hears it, and the spoken line itself as the quote. A secret told is now known by the hearers: give it as "said" only, not also "knows".
+- Knows: give "how" and, if told or overheard, "from" whom; "wrong": true if what they believe isn't true.
 - Names: a listed character called something the memory doesn't list (a nickname or title, "her brother" if here it can only mean them): a "name" item.
 - Plot threads: a promise, mystery, threat, goal, debt or secret the story must answer. "open" when the words set one up, with its "promise" (what the reader waits on); "clue" for a new hint; "developing" with a note when it moves on.
-- Actions on the memory: "end" a "So far" note or known fact no longer true (a lost thing found); "guess" to "confirm" or "withdraw" a detail marked (guess); "close" an open thread only when its payoff is on the page, never for a hint or plan; "summary" when the scene now tells an entry's summary otherwise.
-- Facts under "Facts whose words changed" need a verdict each: "keep" (the scene still says it; give the words now showing it), "update" (it says something else now; give the new value and words) or "remove" (it no longer says it).
+- Actions on the memory: "end" a "So far" note, known fact or wrong belief no longer true (a lost thing found); "guess" to "confirm" or "withdraw" a detail marked (guess); "close" an open thread only when its payoff is on the page, never for a hint or plan; "summary" when the scene now tells an entry's summary otherwise.
+- Each fact under "Facts whose words changed" needs a verdict: "keep" (still said; give the words now showing it), "update" (it says something else now; give the new value and words) or "remove" (no longer said).
 - Don't repeat facts listed under "Facts from this scene".
 - If the scene contradicts the memory without it happening in the story (a different eye colour, a dead character walking about), put it under "clashes", changing nothing. A clash is only something that can't be true alongside what the memory says. A detail the memory doesn't have, a fuller or vaguer description, or the same thing in other words ("redder" for "red") is never a clash.
 
@@ -60,8 +65,8 @@ New facts and actions, by "type":
 {"type": "change", "entry": "E1", "note": "lost her left hand", "fields": {"marks": "left hand missing"}, "quote": "..."}
 {"type": "detail", "entry": "E1", "field": "eyes", "value": "grey", "quote": "..."}
 {"type": "relationship", "entry": "E1", "other": "E2", "rel": "sister, rival, holds, member of...", "feels": "how E1 feels about E2", "otherFeels": "how E2 feels about E1", "ended": false, "quote": "..."}
-{"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 if listed", "forgets": false, "quote": "..."}
-{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "what it amounts to: Mara will be back before the snow", "factId": "K1 if listed", "quote": "the spoken line, copied exactly"}
+{"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 if listed", "how": "saw|told|overheard|read|guessed", "from": "E1", "wrong": false, "forgets": false, "quote": "..."}
+{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "Mara will be back before the snow", "factId": "K1 if listed", "quote": "the spoken line"}
 {"type": "thread", "entry": "E5, or none and a name", "name": "the question or promise", "status": "open|clue|developing", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
 {"type": "event", "name": "...", "summary": "one line", "involved": ["E1", "E2"], "quote": "..."}
 {"type": "voice", "entry": "E1", "quote": "a line of dialogue typical of them"}

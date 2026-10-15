@@ -161,6 +161,8 @@ export class Ids {
   readonly facts = new Map<string, SceneFact>()
   readonly known = new Map<string, ID>()
   readonly knownText = new Map<string, string>()
+  /** K ids that stand for something believed wrongly (long story memory fix 9), not for a fact someone knows. */
+  readonly wrong = new Set<string>()
   private readonly fixed = new Map<ID, number>()
   private extra = 0
 
@@ -193,11 +195,12 @@ export class Ids {
     this.facts.set(id, f)
     return id
   }
-  knownFact(factId: ID, fact: string): string {
+  knownFact(factId: ID, fact: string, wrong = false): string {
     for (const [k, v] of this.known) if (v === factId) return k
     const k = `K${this.known.size + 1}`
     this.known.set(k, factId)
     this.knownText.set(k, fact)
+    if (wrong) this.wrong.add(k)
     return k
   }
 }
@@ -220,7 +223,7 @@ function describeFact(f: SceneFact, ids: Ids): string {
       const c = f.change
       if (c.kind === 'relationship')
         return `relationship ${e} with ${ids.entry(c.payload.otherId)}: ${c.payload.type}${c.payload.ended ? ' (ended)' : ''}`
-      if (c.kind === 'knowledge') return `${c.payload.forgets ? 'forgets' : 'knows'} ${e}: ${c.payload.fact}`
+      if (c.kind === 'knowledge') return `${c.payload.forgets ? 'forgets' : c.payload.wrong ? 'believes wrongly' : 'knows'} ${e}: ${c.payload.fact}`
       if (c.kind === 'thread') return `thread ${e}: ${c.payload.status}${c.payload.note ? ` (${c.payload.note})` : ''}`
       const fields = Object.entries(c.kind === 'update' ? (c.payload.fields ?? {}) : {})
         .map(([k, v]) => `${k}: ${v}`)
@@ -368,6 +371,14 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     if (!f.knownBy.some((k) => shown.has(k)) && !relevant.some((e) => mentionAt(f.fact, e.name))) continue
     const known = f.knownBy.filter((k) => shown.has(k)).map((k) => ids.entry(k))
     const line = `- ${ids.knownFact(f.factId, f.fact)} ${q(f.fact)}${known.length ? `: known by ${known.join(', ')}` : ''}`
+    if (factLines.length < 40 && room.take(line)) factLines.push(line)
+  }
+  // What those shown believe that isn't true (the who-knows-what ledger, long story memory fix 9), so a belief they see
+  // through can be ended and one already kept isn't reported again.
+  for (const b of sm?.beliefs ?? []) {
+    const by = b.believedBy.filter((k) => shown.has(k)).map((k) => ids.entry(k))
+    if (!by.length) continue
+    const line = `- ${ids.knownFact(b.factId, b.fact, true)} ${q(b.fact)}: wrongly believed by ${by.join(', ')}`
     if (factLines.length < 40 && room.take(line)) factLines.push(line)
   }
   // Each open thread with what it promises and its last clue (2026-10-08), so a clue or a payoff is told apart from news.

@@ -13,6 +13,7 @@ import { checkRequest, checkSections, factsThatMatter, gatherSceneCheck, splitSc
 import * as mem from '../db/memory'
 import { storyComparisons, storyIssues } from './stories'
 import { sceneSystem } from './prompts'
+import { codexLines } from '../repair/prompts'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import { sideClashes } from '../memory/state'
 
@@ -460,10 +461,52 @@ describe('what a check of a scene is told', () => {
     expect(sections.find((s) => s.id === 'knowledge')!.text).not.toContain('Known by: Tobin')
     repo.saveSceneText(w.db, w.id('b1.c3.s2'), null, 'Tobin bowed to Mara.')
     const next = checkSections(at('b1.c3.s2'), ['knowledge'])
-    expect(next.find((s) => s.id === 'knowledge')!.text).toContain('Mara is the heir to the Reach. Known by: Tobin.')
+    // Since when he knows it (the who-knows-what ledger, fix 9).
+    expect(next.find((s) => s.id === 'knowledge')!.text).toContain('Mara is the heir to the Reach. Known by: Tobin (since Book 1, Ch 3, Sc 1).')
     // Earlier scenes for the timeline, nearest last, with short ids.
     expect(after.earlier.map((s) => s.code)).toEqual(['S1', 'S2', 'S3'])
     expect(after.earlier[2].sceneId).toBe(w.id('b1.c2.s2'))
+  })
+
+  it('gives who knows what as the ledger has it as the scene begins: since when and how, and what is believed wrongly (fix 9)', () => {
+    const w = dbWorld()
+    const [mara, tobin] = ['Mara', 'Tobin'].map((n) => repo.listEntries(w.db).find((e) => e.name === n)!)
+    const s = (key: string) => w.id(key)
+    mem.insertChange(w.db, {
+      entryId: tobin.id,
+      anchor: 'scene',
+      sceneId: s('b1.c2.s1'),
+      kind: 'knowledge',
+      payload: { factId: 'f-letter', fact: 'The letter is genuine.', wrong: true, how: 'told', from: mara.id },
+      origin: 'text'
+    })
+    mem.insertChange(w.db, {
+      entryId: mara.id,
+      anchor: 'scene',
+      sceneId: s('b1.c2.s1'),
+      kind: 'knowledge',
+      payload: { factId: 'f-gate', fact: 'The east gate is unguarded.', how: 'saw', there: [mara.id] },
+      origin: 'text'
+    })
+    repo.saveSceneText(w.db, s('b1.c3.s2'), null, 'Tobin bowed to Mara.')
+    const knowledge = (key: string) => checkSections(gatherSceneCheck(w.db, s(key), PREFS), ['knowledge']).find((x) => x.id === 'knowledge')!.text
+    const text = knowledge('b1.c3.s2')
+    expect(text).toContain('The east gate is unguarded. Known by: Mara (since Book 1, Ch 2, Sc 1; saw it). Not known by: Tobin.')
+    expect(text).toContain(
+      "What some of them believe that isn't true:\n- Tobin wrongly believes: The letter is genuine (since Book 1, Ch 2, Sc 1; heard it from Mara). It isn't true."
+    )
+    // Check and repair of new words gets the same, with K ids to point at.
+    const codex = codexLines(gatherSceneCheck(w.db, s('b1.c3.s2'), PREFS), 'Tobin bowed to Mara.')
+    const k = codex.sections.find((x) => x.id === 'knowledge')!.text
+    expect(k).toMatch(/^- \[K\d+\] The east gate is unguarded\. Known by: Mara \(since Book 1, Ch 2, Sc 1; saw it\)\. Not known by: Tobin\.$/m)
+    expect(k).toMatch(/^- \[K\d+\] Tobin wrongly believes: The letter is genuine \(since Book 1, Ch 2, Sc 1; heard it from Mara\)\. It isn't true\.$/m)
+    expect(codex.lines.map((l) => l.code)).toEqual(expect.arrayContaining(['K1', 'K2', 'K3']))
+    // A check of an earlier scene sees only what was known and believed by then.
+    repo.saveSceneText(w.db, s('b1.c2.s1'), null, 'Tobin bowed to Mara.')
+    expect(knowledge('b1.c2.s1')).not.toContain('east gate')
+    expect(knowledge('b1.c2.s1')).not.toContain('wrongly believes')
+    // The knowledge check is told what a belief that isn't true means.
+    expect(sceneSystem(['knowledge'])).toContain('acts on the truth of something the memory says they believe wrongly')
   })
 
   it('offers to update one of Adam’s notes only while no earlier scene’s change has set that field', () => {

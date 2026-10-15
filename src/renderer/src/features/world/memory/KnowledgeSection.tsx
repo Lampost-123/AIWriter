@@ -16,10 +16,14 @@ import { useEntryData, type EntryData } from './useEntryData'
 type Knows = Extract<ChangeView, { kind: 'knowledge' }>
 
 const MAX_SHOWN = 50
+/** The option that adds what was typed as something they believe wrongly. */
+const WRONG = 'new-wrong'
 
 /**
  * What a character knows from the beginning (baseline knowledge). Facts are shared by id, so
  * picking a fact another character knows means the AI can tell who knows it and who doesn't.
+ * Something they believe that isn't true can be added as believed wrongly (the who-knows-what ledger, long story
+ * memory fix 9): the AI writes them believing it until the story shows them learning otherwise.
  */
 export function KnowledgeSection({
   self,
@@ -44,23 +48,30 @@ export function KnowledgeSection({
     const known = new Set(rows.map((r) => r.payload.factId))
     const words = normalizeName(query).split(' ').filter(Boolean)
     const matching = (facts.data ?? []).filter((f) => !known.has(f.factId) && words.every((w) => normalizeName(f.fact).includes(w)))
-    const list: ComboOption[] = matching.slice(0, MAX_SHOWN).map((f) => ({ key: f.factId, label: f.fact }))
+    const list: ComboOption[] = matching
+      .slice(0, MAX_SHOWN)
+      .map((f) => ({ key: f.factId, label: f.wrong ? `${f.fact} (believed wrongly)` : f.fact }))
     const text = query.trim()
     const same = (facts.data ?? []).some((f) => normalizeName(f.fact) === normalizeName(text))
-    if (text && !same) list.push({ key: 'new', label: `Add "${text}"`, create: true })
+    if (text && !same) {
+      list.push({ key: 'new', label: `Add "${text}"`, create: true })
+      list.push({ key: WRONG, label: `Add "${text}" as something ${name} believes wrongly`, create: true })
+    }
     return { list, more: Math.max(0, matching.length - MAX_SHOWN) }
-  }, [facts.data, rows, query])
+  }, [facts.data, rows, query, name])
 
   const pick = async (o: ComboOption): Promise<void> => {
     setAddError(null)
-    const fact = o.create ? { factId: crypto.randomUUID(), fact: query.trim() } : (facts.data ?? []).find((f) => f.factId === o.key)
+    const fact = o.create
+      ? { factId: crypto.randomUUID(), fact: query.trim(), ...(o.key === WRONG ? { wrong: true as const } : {}) }
+      : (facts.data ?? []).find((f) => f.factId === o.key)
     if (!fact) return
     try {
       const c = await api.createChange({
         entryId: self.id,
         anchor: 'baseline',
         kind: 'knowledge',
-        payload: { factId: fact.factId, fact: fact.fact }
+        payload: { factId: fact.factId, fact: fact.fact, ...(fact.wrong ? { wrong: true as const } : {}) }
       })
       data.update((list) => [...list, c])
       if (o.create) facts.update((list) => [...list, fact])
@@ -79,7 +90,7 @@ export function KnowledgeSection({
     }
     data.update((list) => list.filter((x) => x.id !== c.id))
     announceDelete({
-      message: `Removed ${shortQuote(c.payload.fact)} from what ${name} knows.`,
+      message: `Removed ${shortQuote(c.payload.fact)} from what ${name} ${c.payload.wrong ? 'believes' : 'knows'}.`,
       noun: ['fact', 'facts'],
       undo: () =>
         api
@@ -104,10 +115,15 @@ export function KnowledgeSection({
               <li key={c.id} className="flex items-start gap-2 py-1.5 pl-3 pr-1.5">
                 <div className="min-w-0 flex-1 py-0.5">
                   <p className="text-[13.5px] leading-snug text-fg">{c.payload.fact}</p>
+                  {c.payload.wrong ? <p className="text-[12px] leading-snug text-muted">Believes wrongly: it isn’t true</p> : null}
                   {changeUntil(c) ? <p className="text-[12px] leading-snug text-faint">True {changeUntil(c)}</p> : null}
                   {note ? <SourceLine note={note} places={places} showAdam /> : null}
                 </div>
-                <IconButton label={`Remove ${shortQuote(c.payload.fact)} from what ${name} knows`} size="sm" onClick={() => void remove(c)}>
+                <IconButton
+                  label={`Remove ${shortQuote(c.payload.fact)} from what ${name} ${c.payload.wrong ? 'believes' : 'knows'}`}
+                  size="sm"
+                  onClick={() => void remove(c)}
+                >
                   <X size={13} />
                 </IconButton>
               </li>

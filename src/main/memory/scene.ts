@@ -23,6 +23,7 @@ import type { ExistsAt, Line, MemoryData, SceneMemory, StoryNode, StorySoFar, Su
 import { summaryKey } from './types'
 import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, storyOrder, storyOfScene } from './line'
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
+import { ledgerOf, type Ledger } from './ledger'
 import * as mem from '../db/memory'
 import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
 import { threadTouches } from './threadQuiet'
@@ -159,10 +160,20 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
     elsewhere: elsewhere(shape, line, data, state),
     relationships: state.relationships,
     facts: state.facts,
+    beliefs: state.beliefs,
     threads: withQuiet(db, shape, line, changes, state.threads),
     storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
     bringAbout: changes.byScene.get(sceneId) ?? []
   }
+}
+
+/**
+ * The who-knows-what ledger as this scene begins (long story memory fix 9): what each character knows here, since when and
+ * how, and what they believe that isn't true; `couldKnow(character, fact)` is then one look-up. As a draft is given it
+ * (`forWriter`: facts whose words were edited and not yet confirmed left out), or as the memory keeper reads it.
+ */
+export function ledgerForScene(db: DB, sceneId: ID, opts: { forWriter?: boolean } = { forWriter: true }): Ledger {
+  return ledgerOf(sceneMemory(db, sceneId, opts))
 }
 
 /**

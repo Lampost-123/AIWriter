@@ -9,6 +9,7 @@
 
 import type {
   Answer,
+  BeliefState,
   Change,
   Entry,
   EntryState,
@@ -140,6 +141,8 @@ export interface MemoryState {
   firstHere: Set<ID>
   relationships: RelationshipState[]
   facts: FactState[]
+  /** What characters believe here that isn't true (the who-knows-what ledger, long story memory fix 9). */
+  beliefs: BeliefState[]
   threads: ThreadState[]
 }
 
@@ -225,6 +228,11 @@ export interface SceneMemory {
   elsewhere: { entry: EntryState; label: string }[]
   relationships: RelationshipState[]
   facts: FactState[]
+  /**
+   * What characters believe here that isn't true (the who-knows-what ledger, long story memory fix 9; with `facts`,
+   * memory/ledger.ts). Left out: none.
+   */
+  beliefs?: BeliefState[]
   threads: ThreadState[]
   storySoFar: StorySoFar
   /** Changes pinned to this scene: never facts for drafting it; on a redraft the card shows them as "what this scene should bring about". */

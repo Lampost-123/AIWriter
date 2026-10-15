@@ -1,6 +1,7 @@
 // An entry as of a point in the story (milestone 3: "Any entry can be viewed as of any scene"):
 // read-only, with a slider through the story's scenes kept at the top of the page, what has changed
-// by then marked, what has happened so far, its relationships and what it knows. Each value still as
+// by then marked, what has happened so far, its relationships and what it knows (since when and how, and what it
+// believes wrongly: the who-knows-what ledger, long story memory fix 9). Each value still as
 // written, each relationship and each fact says where it came from (the words, the AI, or Adam).
 // "Back to editing" returns to the profile in one click. The last answer stays on screen while the
 // next one loads, so sliding never flickers.
@@ -20,6 +21,7 @@ import { hasOtherKinds } from '@/features/views/asOfLogic'
 import { useAsOfStopsState, useEntryAsOf } from '@/features/views/useAsOf'
 import {
   asOfHappened,
+  asOfKnowing,
   asOfLead,
   asOfNote,
   asOfOrigins,
@@ -27,6 +29,7 @@ import {
   asOfRelations,
   chosenStop,
   knowsSource,
+  type AsOfKnowing,
   type AsOfValue
 } from './asOfViewLogic'
 import { setAsOfMode, useAsOfMode } from './asOfMode'
@@ -198,6 +201,10 @@ const AsOfContent = memo(function AsOfContent({
   }
 
   const happened = asOfHappened(state.happened)
+  // What they know and believe wrongly here, the most lately learned first, each with since when and how (fix 9).
+  const knows = asOfKnowing(data.knows, entry.id, nameOf)
+  const believes = asOfKnowing(data.believes ?? [], entry.id, nameOf)
+  const knowingNote = (factId: ID): LineNote | null => asOfNote(knowsSource(entry.id, factId, changes), adamsEntry)
   return (
     <div className="flex flex-col gap-6">
       <p className="text-[12.5px] text-muted">{asOfLead(profile, happened.length, adamsEntry)}</p>
@@ -275,22 +282,22 @@ const AsOfContent = memo(function AsOfContent({
 
       {entry.kind === 'character' ? (
         <section>
-          <h3 className="mb-2 text-[13.5px] font-semibold text-fg">Knows at this point</h3>
-          {data.knows.length ? (
-            <ul className="flex list-disc flex-col gap-1 pl-5 text-[13.5px] text-fg marker:text-faint">
-              {data.knows.map((f) => {
-                const note = asOfNote(knowsSource(entry.id, f.factId, changes), adamsEntry)
-                return (
-                  <li key={f.factId}>
-                    {f.fact}
-                    {note ? <SourceLine note={note} places={places} showAdam className="flex" /> : null}
-                  </li>
-                )
-              })}
-            </ul>
+          <h3 className="mb-2 text-[13.5px] font-semibold text-fg">What they know</h3>
+          {knows.length ? (
+            <KnowingList rows={knows} noteOf={knowingNote} places={places} />
           ) : (
             <p className="text-[13px] text-muted">Nothing noted yet.</p>
           )}
+        </section>
+      ) : null}
+
+      {entry.kind === 'character' && believes.length ? (
+        <section>
+          <h3 className="mb-1 text-[13.5px] font-semibold text-fg">Believes wrongly</h3>
+          <p className="mb-2 text-[12.5px] text-muted">
+            Things {name} believes that aren’t true. The AI writes them believing it until your story shows them learning otherwise.
+          </p>
+          <KnowingList rows={believes} noteOf={knowingNote} places={places} />
         </section>
       ) : null}
 
@@ -305,6 +312,37 @@ const AsOfContent = memo(function AsOfContent({
     </div>
   )
 })
+
+/**
+ * What a character knows (or believes wrongly) at a point: each fact, then quietly since when and how they learned it
+ * ("since Book 1, Ch 2, Sc 3 · heard it from Ash"), as a relationship says since when, and where it came from.
+ */
+function KnowingList({
+  rows,
+  noteOf,
+  places
+}: {
+  rows: AsOfKnowing[]
+  noteOf: (factId: ID) => LineNote | null
+  places: Map<ID, ScenePlace> | null
+}): React.JSX.Element {
+  return (
+    <ul className="flex list-disc flex-col gap-1 pl-5 text-[13.5px] text-fg marker:text-faint">
+      {rows.map((k) => {
+        const note = noteOf(k.factId)
+        return (
+          <li key={k.factId}>
+            <span className="flex flex-wrap items-baseline gap-x-2">
+              <span>{k.fact}</span>
+              {k.learned ? <span className="text-[12px] text-faint">{k.learned}</span> : null}
+            </span>
+            {note ? <SourceLine note={note} places={places} showAdam className="flex" /> : null}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
 
 /**
  * One value as of the point: its label, then "Changed" when a change has set it by then, or else

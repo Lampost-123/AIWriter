@@ -171,6 +171,13 @@ test('each relationship and fact says where it came from, or that Adam wrote it,
       kind: 'relationship',
       payload: { otherId: mara.id, type: 'brother', feels: '', otherFeels: '' }
     })
+    // And something Kell believes from the start that isn't true (the who-knows-what ledger, long story memory fix 9).
+    await invoke(win, 'createChange', {
+      entryId: kell.id,
+      anchor: 'baseline',
+      kind: 'knowledge',
+      payload: { factId: 'f-ford', fact: 'The ford is safe', wrong: true }
+    })
     await reload(win)
 
     // On Kell's page (AI Write made him) Adam's relationship says he wrote it; on Mara's (all his) it needn't.
@@ -189,6 +196,10 @@ test('each relationship and fact says where it came from, or that Adam wrote it,
     const knows = main(win).getByRole('listitem').filter({ hasText: 'the bridge is out' })
     await expect(knows).toContainText('“Kell learned that the bridge is out.”')
     await expect(knows.getByRole('button', { name: 'Book 1, Ch 1, Sc 1' })).toBeVisible()
+    // Since when he knows it, and what he believes wrongly.
+    await expect(knows).toContainText('since Book 1, Ch 1, Sc 1')
+    await expect(main(win).getByRole('heading', { name: 'Believes wrongly' })).toBeVisible()
+    await expect(main(win).getByRole('listitem').filter({ hasText: 'The ford is safe' })).toContainText('from the start')
     const brother = main(win).getByRole('listitem').filter({ hasText: 'Brother of Mara' })
     await expect(brother.getByText('You wrote this', { exact: true })).toBeVisible()
   } finally {
