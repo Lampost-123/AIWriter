@@ -8,7 +8,7 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import { gatherContextInput } from '../ai/gather'
-import { assembleContext } from '../ai/context'
+import { assembleContext, EARLIER_BLOCK } from '../ai/context'
 import { countRaw } from '../ai/tokens'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { memorySearchIndex, type SearchIndex } from './store'
@@ -260,6 +260,8 @@ describe('a small model gives step 5 a share of its room, and loses nothing more
       // Since 2026-10-15 a share of the room is held for step 5 (RECALL_SHARE) while the rest is fitted, and what it
       // doesn't use goes back: here everything else is still exactly as it is without step 5.
       for (const was of a.blocks) {
+        // The scenes before word for word take only the room left to spare once step 5 has its share.
+        if (was.id === EARLIER_BLOCK.id) continue
         const now = b.blocks.find((x) => x.id === was.id)
         expect({ length, id: was.id, text: now?.text, dropped: now?.dropped }).toEqual({ length, id: was.id, text: was.text, dropped: was.dropped })
       }

@@ -143,6 +143,7 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
 
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
   const previous = previousScene(db, shape, story.id, line)
+  const earlier = opts.forWriter && previous ? earlierScenes(db, shape, line, previous) : []
   // For the writer, earlier scenes of this story with words but no summary yet are told as such (2026-10-15).
   const unsummarised = opts.forWriter ? withoutSummary(db, line, summaries) : undefined
   const sf = withCards(db, storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries), unsummarised))
@@ -152,6 +153,7 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
     sceneId,
     knows: knowsSentence(shape, line),
     previous,
+    ...(earlier.length ? { earlier } : {}),
     entries: [...state.entries.values()],
     firstHere: [...state.firstHere],
     elsewhere: elsewhere(shape, line, data, state),
@@ -243,11 +245,41 @@ function previousScene(db: DB, shape: WorldShape, storyId: ID, line: Line): Scen
     storyId: step.storyId,
     storyTitle: from?.title ?? '',
     when: repo.getScene(db, step.sceneId).card.when.trim(),
+    label: labeler(shape)({ storyId: step.storyId, sceneId: step.sceneId }),
     otherStory:
       step.storyId === storyId
         ? null
         : { ended: scenes.length > 0 && scenes[scenes.length - 1].id === step.sceneId, timeGap: repo.getStory(db, storyId).timeGap.trim() }
   }
+}
+
+/** How many scenes before the previous one the writer may be given word for word (2026-10-15): with it, three. */
+export const EARLIER_SCENES = 2
+
+/**
+ * The scenes before the previous one on the story's line, in the previous scene's own story, oldest first, with their
+ * words (EARLIER_SCENES at most; none with no words). The briefing gives them word for word where there is room to spare.
+ */
+function earlierScenes(db: DB, shape: WorldShape, line: Line, previous: NonNullable<SceneMemory['previous']>): NonNullable<SceneMemory['earlier']> {
+  const steps = line.steps.filter((x): x is Extract<Line['steps'][number], { type: 'scene' }> => x.type === 'scene' && x.via === 'line')
+  const at = steps.findIndex((x) => x.sceneId === previous.sceneId)
+  if (at <= 0) return []
+  const out: NonNullable<SceneMemory['earlier']> = []
+  const label = labeler(shape)
+  for (let i = at - 1; i >= 0 && out.length < EARLIER_SCENES; i--) {
+    const step = steps[i]
+    if (step.storyId !== previous.storyId) break
+    const text = mem.sceneText(db, step.sceneId)
+    if (!text?.text.trim()) continue
+    out.unshift({
+      sceneId: step.sceneId,
+      title: text.title,
+      text: text.text,
+      label: label({ storyId: step.storyId, sceneId: step.sceneId }),
+      when: repo.getScene(db, step.sceneId).card.when.trim()
+    })
+  }
+  return out
 }
 
 /**

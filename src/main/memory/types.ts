@@ -200,12 +200,20 @@ export interface SceneMemory {
     storyTitle: string
     /** That scene's When on its card ('' when it has none), so a draft knows how much time has passed. */
     when?: string
+    /** Where it is, in plain words ("Book 1, Ch 3, Sc 2"). */
+    label?: string
     /**
      * Set when that is another story (this story's first scene, after another book or a time gap):
      * whether it was that story's last scene, and this story's time gap ("200 years", '' for none).
      */
     otherStory: { ended: boolean; timeGap: string } | null
   } | null
+  /**
+   * For the writer (2026-10-15): the scenes before the previous one on the story's line, in the same story, oldest first
+   * (EARLIER_SCENES at most), with their words, so the briefing can give them word for word where there is room to
+   * spare (ai/context.ts). Left out: none.
+   */
+  earlier?: { sceneId: ID; title: string; text: string; label: string; when: string }[]
   /** Every entry that exists here, as of this scene. */
   entries: EntryState[]
   /** Ids of entries whose first appearance is this scene. */

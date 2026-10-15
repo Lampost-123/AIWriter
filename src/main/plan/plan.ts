@@ -22,7 +22,7 @@ import { isOff, itemKey, namesItem, parsePiece, pieceText, thingText, type Stage
 import * as gens from '../db/generations'
 import { callModel, type MemoryModel } from '../keeper/model'
 import { estimateTokens } from '../keeper/text'
-import { MUST_BLOCK, sceneTail, stageReach, type ContextInput, type PreparedContext } from '../ai/context'
+import { EARLIER_BLOCK, MUST_BLOCK, sceneTail, stageReach, type ContextInput, type PreparedContext } from '../ai/context'
 import { OPEN_THREADS_BLOCK } from '../ai/openThreads'
 import { deathOf } from '../ai/deaths'
 import { pieceLine, secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
@@ -582,13 +582,14 @@ export function planText(p: Pick<ScenePlan, 'keep' | 'changes'>, carryingOn: boo
 
 /**
  * True when the briefing with the plan (and what it asked for) loses nothing the briefing without it had room for:
- * every part sent before is still sent, none of it shorter, the reply's room is the same, and it still fits (or didn't
- * fit before either). Not enough room means no plan.
+ * every part sent before is still sent, none of it shorter (but the scenes before word for word, sent only in room to
+ * spare), the reply's room is the same, and it still fits (or didn't fit before either). Not enough room means no plan.
  */
 export function keepsRoom(before: Pick<ContextPreview, 'blocks' | 'budget'>, after: Pick<ContextPreview, 'blocks' | 'budget'>): boolean {
   const now = new Map(after.blocks.map((x) => [x.id, x]))
   for (const x of before.blocks) {
-    if (x.dropped) continue
+    // The scenes before word for word go only in room to spare: the plan may have that room (2026-10-15).
+    if (x.dropped || x.id === EARLIER_BLOCK.id) continue
     const y = now.get(x.id)
     if (!y || y.dropped || y.tokens < x.tokens) return false
   }

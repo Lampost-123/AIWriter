@@ -554,16 +554,39 @@ function namedIn(h: { text: string; plain: string }, names: string[]): boolean {
 
 const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu
 
+/** How much of a scene's end block 3 sends: 400 to 800 words, aiming for about 600. */
+export const TAIL = { min: 400, target: 600, max: 800 }
+
 /**
  * The last 400 to 800 words of a scene, aiming for about 600, cut at the start
  * of a paragraph if possible, otherwise at the start of a sentence.
  */
-export function sceneTail(text: string, o: { min: number; target: number; max: number } = { min: 400, target: 600, max: 800 }): string {
+export function sceneTail(text: string, o: { min: number; target: number; max: number } = TAIL): string {
   const t = text.trim()
+  const cut = tailCut(t, o)
+  if (!cut) return t
+  return cut.mid ? `…${t.slice(cut.at)}`.trim() : t.slice(cut.at).trim()
+}
+
+/**
+ * What comes before a scene's end as sceneTail gives it (2026-10-15: the previous scene's opening, for the scenes
+ * before word for word); empty when the end is the whole scene. Cut where the end begins, with "…" when that is
+ * inside a sentence.
+ */
+export function sceneHead(text: string, o: { min: number; target: number; max: number } = TAIL): string {
+  const t = text.trim()
+  const cut = tailCut(t, o)
+  if (!cut) return ''
+  const head = t.slice(0, cut.at).trim()
+  return head && cut.mid ? `${head}…` : head
+}
+
+/** Where sceneTail cuts a (trimmed) text, and whether inside a sentence; null when it keeps the whole text. */
+function tailCut(t: string, o: { min: number; target: number; max: number }): { at: number; mid: boolean } | null {
   const starts: number[] = []
   for (const m of t.matchAll(WORD_RE)) starts.push(m.index ?? 0)
   const n = starts.length
-  if (n <= o.max) return t
+  if (n <= o.max) return null
 
   // Words from position p to the end.
   const wordsFrom = (p: number): number => {
@@ -592,14 +615,39 @@ export function sceneTail(text: string, o: { min: number; target: number; max: n
     return pick
   }
   const para = best(/\n\s*/g)
-  if (para != null) return t.slice(para).trim()
+  if (para != null) return { at: para, mid: false }
   const sentence = best(/[.!?…]["'”’)\]]*\s+/g)
-  if (sentence != null) return t.slice(sentence).trim()
-  return `…${t.slice(starts[n - o.target])}`.trim()
+  if (sentence != null) return { at: sentence, mid: false }
+  return { at: starts[n - o.target], mid: true }
 }
 
 /** Block 3's short form: about the last 200 words. */
 export const SHORT_TAIL = { min: 150, target: 200, max: 250 }
+
+/**
+ * The scenes before, word for word (2026-10-15, after the long story memory research: only one scene's end was ever sent
+ * as prose, so what was said two scenes back reached the writer as one line of summary): the scenes before the previous
+ * one (memory.earlier) and the previous scene up to where block 3's end begins, oldest first. Sent only in room to spare,
+ * once everything else has its room (finishContext), and only beside block 3 in full, so nothing is missing between.
+ */
+export const EARLIER_BLOCK = { id: 'earlier-scenes', priority: 8, title: 'The scenes before, word for word' } as const
+/** The most words of each scene it gives: the end of a longer one. */
+export const EARLIER_WORDS = { min: 2_500, target: 3_000, max: 3_000 }
+const EARLIER_LEAD =
+  'The scenes just before this one, word for word, oldest first, so what was said and done in them stays the same. They happened: never write them again.'
+
+/** The forms of the scenes-before block, longest first (each leaves out the oldest scene); empty when there are none. */
+function earlierForms(input: ContextInput): string[] {
+  const prev = input.memory.previous
+  if (!prev || !clean(prev.text) || previousStory(input)) return []
+  const place = (label: string): string => shortPlace(label, input.story.title)
+  const parts = (input.memory.earlier ?? [])
+    .filter((x) => clean(x.text))
+    .map((x) => `### ${place(x.label)}${clean(x.when) ? ` (${clean(x.when)})` : ''}\n${sceneTail(x.text, EARLIER_WORDS)}`)
+  const head = sceneHead(prev.text)
+  if (head) parts.push(`### ${prev.label ? place(prev.label) : 'The previous scene'}, up to where its end, below, begins\n${sceneTail(head, EARLIER_WORDS)}`)
+  return parts.map((_, i) => [EARLIER_LEAD, ...parts.slice(i)].join('\n\n'))
+}
 
 /** The story the previous scene is in, when it isn't this one (this story's first scene); null otherwise. */
 function previousStory(input: ContextInput): { title: string; ended: boolean; timeGap: string } | null {
@@ -1457,6 +1505,10 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     add('previous-scene', 3, title, `${lead}\n\n${sceneTail(prev)}`, `${lead}\n\n${sceneTail(prev, SHORT_TAIL)}`, [])
   } else if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
+  // 8 The scenes before, word for word (EARLIER_BLOCK): only where there is room to spare.
+  const earlier = earlierForms(input)
+  if (earlier.length) add(EARLIER_BLOCK.id, EARLIER_BLOCK.priority, EARLIER_BLOCK.title, earlier[0], earlier[1] ?? null, [], earlier.slice(2))
+
   // 3b Where things stand as the previous scene ended (continuity/tracker.ts): where each character is, what they
   //    wear and hold, how they are placed and how they are; or, carrying on from the scene so far (Add below, a later
   //    beat), at the end of it. Short: only the characters on the scene card. Sent last, right above the closing
@@ -1746,6 +1798,7 @@ export const SEND_ORDER = [
   'themes',
   'setting',
   'story-so-far',
+  EARLIER_BLOCK.id,
   'previous-scene',
   'threads',
   OPEN_THREADS_BLOCK,
@@ -1940,9 +1993,11 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // is held for them while the rest is fitted (RECALL_SHARE of it, at most what they take in full), so they always have
   // some room, and more beside a long briefing.
   const candidates = state.filter((s) => isRecallBlock(s.b.id) && s.mode !== 'full')
-  const others = state.filter((s) => !candidates.includes(s))
+  // The scenes before, word for word (EARLIER_BLOCK): only in room to spare, after everything else (step 9).
+  const spare = state.filter((s) => s.b.id === EARLIER_BLOCK.id && s.mode !== 'full')
+  const others = state.filter((s) => !candidates.includes(s) && !spare.includes(s))
   const leaveOutCandidates = (): void => {
-    for (const s of candidates) s.dropped = true
+    for (const s of [...candidates, ...spare]) s.dropped = true
   }
   leaveOutCandidates()
   const wanted = candidates.reduce((n, s) => n + s.tokensAt[s.min], 0)
@@ -2043,6 +2098,19 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     }
     // 8. Room held for them that they didn't use goes back to the rest, as in steps 4 to 6.
     if (candidates.length) giveBack()
+
+    // 9. The scenes before, word for word, in the longest form that fits in the room left to spare, and only beside the
+    //    end of the previous scene in full, so nothing is missing between them.
+    const prev = state.find((x) => x.b.id === 'previous-scene')
+    for (const s of spare) {
+      if (!prev || prev.dropped || prev.level > 0) continue
+      s.dropped = false
+      for (s.level = s.min; s.level <= s.max && !fits(); s.level++);
+      if (s.level > s.max) {
+        s.level = s.min
+        s.dropped = true
+      }
+    }
   }
   // Auto, when the briefing as Adam set it leaves too little room for autoMax words: the briefing comes
   // first, so Auto's ceiling comes down to what fits beside it (to no less than a typical scene) before
