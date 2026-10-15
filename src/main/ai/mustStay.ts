@@ -11,7 +11,9 @@
 // who touches whom and who can see or hear whom. Since 2026-10-15 (the long story memory research) it is never left
 // out of a draft's briefing (ai/context.ts), and it opens with the few facts a scene is most likely to break (MUST_KEY):
 // who is dead, what is kept from someone here, how people are hurt, and how much time has passed since the scene before,
-// so they are never crowded out by clothes and things in the place, and its short form keeps them. Pure.
+// so they are never crowded out by clothes and things in the place, and its short form keeps them. Since fix 7 of that
+// research it also says the latest slips the checks found about these people in earlier scenes and that were put right
+// (MUST_SLIPS, checks/lessons.ts), so the writer doesn't make them again. Pure.
 
 import type { EntryState, FactState, ID } from '@shared/types'
 import {
@@ -52,6 +54,8 @@ export const MUST_ITEMS = 4
 /** The most pieces of clothing a person, and things in the place, among them (those the scene names first). */
 export const MUST_CLOTHES = 3
 export const MUST_THINGS = 3
+/** The most slips put right in earlier scenes among them (checks/lessons.ts): the newest, about people here first. */
+export const MUST_SLIPS = 2
 /** The longest a line's words are kept, in characters (since when it holds comes after, whole), and a secret's. */
 const LONGEST_LINE = 320
 const LONGEST_FACT = 200
@@ -116,6 +120,12 @@ export interface MustInput {
    * Day 5"), at a new scene's start; '' or left out when it isn't known or no time has passed.
    */
   elapsed?: string
+  /**
+   * Slips the checks found in earlier scenes and that were put right in the text (checks/lessons.ts), newest first: those
+   * about someone in the scene, or else in the briefing, are said so the writer doesn't make them again. Never in the
+   * short or smallest form. Left out: none.
+   */
+  slips?: { text: string; where: string; entryIds: ID[] }[]
 }
 
 /**
@@ -131,6 +141,7 @@ const RANK = {
   dead: 0,
   condition: 1,
   elapsed: 1.5,
+  slip: 1.8,
   wearingNamed: 2,
   thingNamed: 3,
   holding: 4,
@@ -508,6 +519,19 @@ export function mustStayTrue(o: MustInput): string[] {
   // How much time has passed since the scene before, at a new scene's start.
   const elapsed = clean(o.elapsed)
   if (elapsed) add('elapsed', 3000, elapsed, '', true)
+
+  // Slips put right in earlier scenes about those here (checks/lessons.ts): "Slipped in Ch 2, Sc 3 and put right, so don't
+  // repeat it: Mara's eyes are blue in the memory, but green here." People in the scene first, then the rest of the briefing.
+  if (!o.short && !o.smallest) {
+    const inScene = new Set(people.map((e) => e.id))
+    const inBriefing = new Set(o.named.map((e) => e.id))
+    const about = (s: NonNullable<MustInput['slips']>[number], ids: Set<ID>): boolean => s.entryIds.some((id) => ids.has(id))
+    const slips = [...(o.slips ?? []).filter((s) => about(s, inScene)), ...(o.slips ?? []).filter((s) => !about(s, inScene) && about(s, inBriefing))]
+    slips.slice(0, MUST_SLIPS).forEach((s, i) => {
+      const where = shortPlace(s.where, o.storyTitle)
+      add('slip', 4000 + i, `Slipped ${where ? `in ${where} ` : 'before '}and put right, so don't repeat it: ${clean(s.text)}`)
+    })
+  }
 
   // The same line once only.
   const seen = new Set<string>()
