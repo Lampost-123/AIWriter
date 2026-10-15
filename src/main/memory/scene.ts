@@ -26,7 +26,7 @@ import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './
 import * as mem from '../db/memory'
 import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
 import { threadTouches } from './threadQuiet'
-import { DUE_SUMMARY_SCENES, summaryDue } from '../keeper/sceneChange'
+import { DUE_SUMMARY_SCENES, MIN_SUMMARY_WORDS, summaryDue } from '../keeper/sceneChange'
 import { fieldValue, guessFields } from '../keeper/facts'
 import { lastWords } from '../keeper/text'
 import * as repo from '../db/repo'
@@ -143,7 +143,9 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
 
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
   const previous = previousScene(db, shape, story.id, line)
-  const sf = withCards(db, storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries)))
+  // For the writer, earlier scenes of this story with words but no summary yet are told as such (2026-10-15).
+  const unsummarised = opts.forWriter ? withoutSummary(db, line, summaries) : undefined
+  const sf = withCards(db, storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries), unsummarised))
 
   return {
     storyId: story.id,
@@ -210,7 +212,7 @@ function markUpdating(db: DB, s: StorySoFar, previousId: ID | null, entries: Ent
     .flatMap((e) => [e.name, ...e.aliases])
     .map((n) => n.trim())
     .filter((n) => n.length >= 2)
-  const scenes = s.scenes.map((x) => (recent.has(x.sceneId) && summaryDue(db, x.sceneId, false, names) ? { ...x, updating: true } : x))
+  const scenes = s.scenes.map((x) => (!x.missing && recent.has(x.sceneId) && summaryDue(db, x.sceneId, false, names) ? { ...x, updating: true } : x))
   let excerpts = 0
   for (let i = scenes.length - 1; i >= 0 && excerpts < EXCERPT_SCENES; i--) {
     const x = scenes[i]
@@ -317,12 +319,34 @@ function apartFromBooks(shape: WorldShape): (s: StoryNode) => boolean {
   }
 }
 
+/**
+ * The scenes of this scene's own story, before it on its line, that have words enough for a summary (MIN_SUMMARY_WORDS)
+ * but none yet: a scene just written, or one whose summary failed. The timeline says "no summary yet" for each rather
+ * than leaving it out without a word (2026-10-15). One query, for those scenes only.
+ */
+function withoutSummary(db: DB, line: Line, summaries: SummaryIndex): Set<ID> {
+  const ids = line.steps.flatMap((x) =>
+    x.type === 'scene' && x.via === 'line' && x.storyId === line.target.storyId && !summaries.get(summaryKey('scene', x.sceneId))?.text.trim()
+      ? [x.sceneId]
+      : []
+  )
+  if (!ids.length) return new Set()
+  try {
+    const words = repo.sceneWordCounts(db, ids)
+    return new Set(ids.filter((id) => (words.get(id) ?? 0) >= MIN_SUMMARY_WORDS))
+  } catch (e) {
+    console.warn('Could not tell which earlier scenes have no summary yet', e)
+    return new Set()
+  }
+}
+
 function storySoFar(
   shape: WorldShape,
   line: Line,
   summaries: SummaryIndex,
   seriesNames: Map<ID, string>,
-  leads: StorySoFar['leadsInto']
+  leads: StorySoFar['leadsInto'],
+  unsummarised?: Set<ID>
 ): StorySoFar {
   const label = labeler(shape)
   const text = (level: 'scene' | 'chapter' | 'story' | 'series', id: ID): string => summaries.get(summaryKey(level, id))?.text.trim() ?? ''
@@ -347,6 +371,8 @@ function storySoFar(
           label: label({ storyId: targetId, sceneId: step.sceneId }),
           text: t
         })
+      else if (unsummarised?.has(step.sceneId))
+        out.scenes.push({ sceneId: step.sceneId, chapterId: step.chapterId, label: label({ storyId: targetId, sceneId: step.sceneId }), text: '', missing: true })
     } else if (step.type === 'chapter-end') {
       const t = text('chapter', step.chapterId)
       if (t) out.chapters.push({ chapterId: step.chapterId, label: label({ storyId: targetId, chapterId: step.chapterId }), text: t })

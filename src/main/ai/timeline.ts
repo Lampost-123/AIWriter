@@ -37,6 +37,9 @@ const WORDS = { recent: 90, scene: 40, chapter: 60, story: 70, brief: 18, leads:
 /** The most marks on a scene or a chapter. */
 const MOST_MARKS = 3
 
+/** What a scene with words but no summary yet says in place of one (2026-10-15), so it isn't left out without a word. */
+export const NO_SUMMARY = "no summary yet, so what happens in it isn't told here"
+
 export const TIMELINE_LEAD =
   'Canon: what has already happened, oldest first, the most recent last. It happened: never contradict it, and never write it again as if it were new.'
 
@@ -212,8 +215,8 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
     parts.push({ head, detail: firstWords(st.text, say.story), brief: firstWords(st.text, say.brief), marks: [] })
   }
 
-  // This story: older chapters a line each, the recent ones a line a scene.
-  const scenes = s.scenes.filter((x) => clean(x.text))
+  // This story: older chapters a line each, the recent ones a line a scene; a scene with no summary yet says so.
+  const scenes = s.scenes.filter((x) => clean(x.text) || x.missing)
   const order = chapterOrder(s)
   const recentChapters = new Set(order.filter((id) => scenes.some((x) => x.chapterId === id)).slice(-shape.chapters))
   const lastScenes = new Set(scenes.slice(-shape.scenes).map((x) => x.sceneId))
@@ -234,10 +237,11 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
       if (where) bits.push(where)
       const who = (x.whoIds ?? []).map((id) => ctx.name(id)).filter((n): n is string => !!n)
       const head = `${bits.join(', ')}${who.length ? ` (${who.join(', ')})` : ''}`
+      const none = !clean(x.text)
       parts.push({
         head,
-        detail: firstWords(x.text, lastScenes.has(x.sceneId) ? say.recent : say.scene),
-        brief: firstWords(x.text, say.brief),
+        detail: none ? NO_SUMMARY : firstWords(x.text, lastScenes.has(x.sceneId) ? say.recent : say.scene),
+        brief: none ? NO_SUMMARY : firstWords(x.text, say.brief),
         marks: sceneMarks(x.label),
         updating: x.updating ? { updating: true, excerpt: x.excerpt } : undefined
       })

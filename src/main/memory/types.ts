@@ -165,6 +165,11 @@ export interface StorySoFar {
     updating?: boolean
     /** With `updating`, for the most recent such scenes: the last few dozen words of the scene as it now reads. */
     excerpt?: string
+    /**
+     * For the writer (2026-10-15): the scene has words but no summary yet (`text` is empty), so the timeline says so
+     * rather than leaving the scene out without a word.
+     */
+    missing?: boolean
   }[]
   /** This story's chapters that ended before this scene, oldest first, with their summaries. */
   chapters: { chapterId: ID; label: string; text: string }[]

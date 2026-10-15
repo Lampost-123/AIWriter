@@ -80,8 +80,14 @@ export const retryMessage = (why: string): string =>
 
 // ---------- Summaries ----------
 
+/**
+ * Summaries lead with how things stand at the end (Adam, 2026-10-15, after the long story memory research): the writer's
+ * timeline keeps the opening of each summary (ai/timeline.ts firstWords), so where people end up, injuries, who now
+ * knows what and who holds what come first, and what happened, in order, after. A summary that told events in order
+ * lost its ending first: the part the next scene depends on.
+ */
 export const SUMMARY_SYSTEM = `${SUMMARY_MARKER}
-You write short summaries of a novel's scenes, chapters and books, for the author's own notes and for the AI that drafts the next scenes. Write plain prose in the past tense and the third person, naming who does what. Say what happens and what changes, especially what later scenes depend on: who learns what, injuries, decisions, where people end up, promises made and questions left open. No headings, no lists, no comments on the writing, no quotes longer than a few words. Reply with the summary only.`
+You write short summaries of a novel's scenes, chapters and books, for the author's own notes and for the AI that drafts the next scenes. Write plain prose in the past tense and the third person, naming who does what. Begin with one or two sentences on how things stand at the end, starting "By the end,": where people end up, injuries, who now knows what, who holds what, decisions, promises made and questions left open. Then say what happens and what changes, in order. No headings, no lists, no comments on the writing, no quotes longer than a few words. Reply with the summary only.`
 
 export type SummaryAsk =
   | { level: 'scene'; where: string; title: string; text: string; words: number }
@@ -110,13 +116,13 @@ export function summaryPrompt(a: SummaryAsk): string {
     case 'scene-parts':
       return `These summarise the parts of one scene, in order (${a.where}${a.title ? ` "${a.title}"` : ''}). Join them into one summary of the scene ${sceneSummaryLength(a.words)}.\n\n${a.summaries.map((s, i) => `Part ${i + 1}: ${s}`).join('\n\n')}`
     case 'scene-patch':
-      return `This is the summary of a scene (${a.where}${a.title ? ` "${a.title}"` : ''}), then the paragraphs of the scene that are new or rewritten since it was written. Edit the summary so it is true to the scene as it now reads, changing as little as you can and keeping about its length. Reply with the whole edited summary.\n\nSummary: ${a.summary}\n\nNew or rewritten paragraphs:\n\n${a.paragraphs.join('\n\n')}`
+      return `This is the summary of a scene (${a.where}${a.title ? ` "${a.title}"` : ''}), then the paragraphs of the scene that are new or rewritten since it was written. Edit the summary so it is true to the scene as it now reads, changing as little as you can and keeping about its length. Keep its opening on how things stand at the end true; if it doesn't open that way, begin it so ("By the end, …"). Reply with the whole edited summary.\n\nSummary: ${a.summary}\n\nNew or rewritten paragraphs:\n\n${a.paragraphs.join('\n\n')}`
     case 'chapter':
-      return `Summarise this chapter (${a.where}${a.title ? `, "${a.title}"` : ''}) from its scene summaries, in 100 to 250 words.\n\n${list(a.summaries)}`
+      return `Summarise this chapter (${a.where}${a.title ? `, "${a.title}"` : ''}) from its scene summaries, in 100 to 250 words. Begin with how things stand at the end of the chapter, which its last scenes say.\n\n${list(a.summaries)}`
     case 'story':
-      return `Summarise the story "${a.title}" from its chapter summaries, in one paragraph of 150 to 300 words.\n\n${list(a.summaries)}`
+      return `Summarise the story "${a.title}" from its chapter summaries, in one paragraph of 150 to 300 words. Begin with how things stand at the end of it.\n\n${list(a.summaries)}`
     case 'series':
-      return `Summarise the series "${a.name}" from the summaries of its books, in one paragraph of 150 to 300 words.\n\n${list(a.summaries)}`
+      return `Summarise the series "${a.name}" from the summaries of its books, in one paragraph of 150 to 300 words. Begin with how things stand at the end of it.\n\n${list(a.summaries)}`
   }
 }
 

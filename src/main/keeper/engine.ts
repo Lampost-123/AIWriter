@@ -6,7 +6,10 @@
 // - Before a draft, queued or failed runs for earlier scenes on the line run first (catchUpBefore), then the scene's
 //   own unread words are read, waiting a few seconds at most (beforeDraft; World Memory Overhaul A6, 2026-10-08).
 // - Summaries of earlier scenes that are due (the scene changed enough since) are brought up to date after a draft
-//   asks for the memory (A3), before roll-ups.
+//   asks for the memory (A3), before roll-ups. The ones the briefing can't do without (the scene just before, and any
+//   recent scene with no summary yet, which the timeline would leave out) are written first, and the draft waits for
+//   them, within the time it waits for the memory at all (Adam, 2026-10-15: "Write the whole chapter" drafted the next
+//   scene before the last one's summary was written).
 // - The first time a world opens with this version, its memory is tidied once against the text (tidy.ts, A7).
 // - When the queue is empty, summaries whose sources changed are rolled up (chapter, story, series).
 // - After each read, where things stand as the scene ends is brought up to date as a follow-on (onSceneRead).
@@ -24,6 +27,9 @@ import { DUE_SUMMARY_SCENES } from './sceneChange'
 import { summaryRefreshed } from './undo'
 import { loadShapeSafe, placeWords, scenesBefore } from './places'
 import { tidyOnce } from './tidy'
+
+/** What a draft waiting for a scene's summary waits on (beside the scene ids a read is waited for by). */
+const summaryWait = (sceneId: ID): ID => `summary:${sceneId}`
 
 /** What the keeper says when there is no model to use (none for the memory keeper, and no writer model). */
 export const NO_MODEL = 'Choose a writer model in Settings › Models to keep the memory up to date.'
@@ -75,6 +81,8 @@ export class Keeper {
   private summaryAsks: { sceneId: ID; logId: ID }[] = []
   /** Scenes whose summary is due (A3), written once nothing is waiting to be read. */
   private summaryDue: ID[] = []
+  /** Scenes whose summary a draft is waiting for (summariesFirst), written before any other summary. */
+  private summaryNow: ID[] = []
   private readonly dirtyStories = new Set<ID>()
   private readonly failedRollUps = new Set<string>()
   private current: { sceneId: ID; controller: AbortController; records: Set<ID> } | null = null
@@ -313,9 +321,39 @@ export class Keeper {
     const before = await this.catchUpEarlier(sceneId)
     try {
       await this.readNow(sceneId, readMs)
+      if (before) await this.summariesFirst(before)
     } finally {
       if (before) this.queueDueSummaries(before)
     }
+  }
+
+  /**
+   * The earlier scenes whose summary a draft can't do without (2026-10-15): the scene just before, when its summary is
+   * due (none yet, or the scene changed enough since), and any of the most recent scenes with no summary at all (the
+   * timeline can only say "no summary yet" of those). Adam's own summaries are never due.
+   */
+  private summariesNeeded(before: ID[]): ID[] {
+    if (this.closed || this.deps.summaries === false) return []
+    const recent = before.slice(-DUE_SUMMARY_SCENES)
+    try {
+      return recent.filter(
+        (id, i) => sceneSummaryDue(this.db, id, false) && (i === recent.length - 1 || !kdb.summaryRow(this.db, 'scene', id))
+      )
+    } catch (e) {
+      console.warn('Could not tell which summaries a draft needs', e)
+      return []
+    }
+  }
+
+  /** Writes the summaries a draft can't do without (summariesNeeded) before any other, and resolves once each was tried. */
+  private async summariesFirst(before: ID[]): Promise<void> {
+    const ids = this.summariesNeeded(before)
+    if (!ids.length || 'error' in this.deps.model()) return
+    this.summaryDue = this.summaryDue.filter((x) => !ids.includes(x))
+    for (const id of ids) if (!this.summaryNow.includes(id)) this.summaryNow.push(id)
+    const wait = new Promise<void>((resolve) => this.waiters.push({ ids: new Set(ids.map(summaryWait)), resolve }))
+    this.kick()
+    await wait
   }
 
   /** Earlier scenes (the most recent few) whose summary is due: written once nothing is waiting to be read. */
@@ -372,6 +410,7 @@ export class Keeper {
     this.urgent = []
     this.summaryAsks = []
     this.summaryDue = []
+    this.summaryNow = []
     this.rereads.clear()
     const cur = this.current
     if (cur) {
@@ -451,7 +490,8 @@ export class Keeper {
       .catch((e) => console.error('The memory keeper stopped unexpectedly', e))
       .finally(() => {
         this.pumping = null
-        if (!this.closed && (this.queue.length || this.urgent.length || this.summaryAsks.length || this.summaryDue.length)) this.kick()
+        if (!this.closed && (this.queue.length || this.urgent.length || this.summaryNow.length || this.summaryAsks.length || this.summaryDue.length))
+          this.kick()
         else this.emitStatus()
       })
   }
@@ -461,6 +501,15 @@ export class Keeper {
       const id = this.urgent.shift() ?? this.queue.shift()
       if (id) {
         await this.runOne(id)
+        continue
+      }
+      const first = this.summaryNow.shift()
+      if (first) {
+        try {
+          await this.writeDueSummary(first)
+        } finally {
+          this.settle(summaryWait(first))
+        }
         continue
       }
       const ask = this.summaryAsks.shift()

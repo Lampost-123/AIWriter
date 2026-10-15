@@ -20,7 +20,9 @@ import { Keeper } from './engine'
 import { undoItem } from './undo'
 import { fillFound } from '../builder/fill'
 import { gatherContextInput } from '../ai/gather'
-import { formatProfile, storySoFarText } from '../ai/context'
+import { buildBlocks, formatProfile, storySoFarText } from '../ai/context'
+import { NO_SUMMARY } from '../ai/timeline'
+import { sceneMemory } from '../memory/scene'
 import { mustStayTrue } from '../ai/mustStay'
 import { gatherSceneCheck } from '../checks/context'
 import { askPoint } from '../ask/context'
@@ -186,6 +188,62 @@ describe('A3: a scene summary follows its scene', () => {
     k.stop()
     expect(kdb.summaryRow(w.db, 'scene', s1)!.text).not.toBe(before)
     expect(writerMemory(w.db, s3).storySoFar.scenes.find((x) => x.sceneId === s1)!.updating).toBeFalsy()
+  })
+})
+
+describe('a draft waits for the summaries it needs (2026-10-15)', () => {
+  it('says "no summary yet" for a scene without one, then writes those summaries before the draft goes ahead', async () => {
+    const w = testWorld(3)
+    const [s1, s2, s3, s4] = w.scenes
+    saveParas(w.db, s1, [['p1', HARBOUR]])
+    saveParas(w.db, s2, [
+      ['q1', MARKET],
+      ['q2', CHAPEL]
+    ])
+    // Too short for a summary: never "no summary yet".
+    saveParas(w.db, s3, [['r1', 'The bell rang once.']])
+    // Read with summaries off: the memory has the scenes, but no summary of either yet.
+    const quiet = new Keeper({ db: w.db, model: () => fakeModel(fake), emitStatus: () => {}, emitChanged: () => {}, quietMs: 60_000, summaries: false, retryDelays: [0], fetchImpl: shapedFetch({}) })
+    await quiet.catchUpBefore(s4)
+    quiet.stop()
+    expect(kdb.summaryRow(w.db, 'scene', s1)).toBeFalsy()
+    expect(kdb.summaryRow(w.db, 'scene', s2)).toBeFalsy()
+    // The writer (and the Context tab) are told so, rather than the scenes being left out without a word.
+    const sf = writerMemory(w.db, s4).storySoFar
+    expect(sf.scenes.map((x) => [x.sceneId, x.missing])).toEqual([
+      [s1, true],
+      [s2, true]
+    ])
+    const input = gatherContextInput(w.db, s4, undefined, { prefs: defaultWritingPrefs(), contextLength: 32000, creativity: 'balanced' })
+    const timeline = buildBlocks(input).find((b) => b.id === 'story-so-far')!.text
+    expect(timeline).toContain(`Sc 1: ${NO_SUMMARY}`)
+    expect(timeline).toContain(`Sc 2: ${NO_SUMMARY}`)
+    expect(timeline).not.toContain('Sc 3')
+    // Anything else (the checks, Ask) still sees only the summaries there are.
+    expect(sceneMemory(w.db, s4).storySoFar.scenes).toEqual([])
+
+    // Before the next draft, both are written: the scene just before's, and the earlier one that had none.
+    const k = new Keeper({ db: w.db, model: () => fakeModel(fake), emitStatus: () => {}, emitChanged: () => {}, quietMs: 60_000, retryDelays: [0], fetchImpl: shapedFetch({}) })
+    await k.beforeDraft(s4)
+    expect(kdb.summaryRow(w.db, 'scene', s1)?.text).toBeTruthy()
+    expect(kdb.summaryRow(w.db, 'scene', s2)?.text).toBeTruthy()
+    expect(writerMemory(w.db, s4).storySoFar.scenes.every((x) => !x.missing && x.text)).toBe(true)
+    k.stop()
+  })
+
+  it('never waits without a memory model', async () => {
+    const w = testWorld(1)
+    const [s1, s2] = w.scenes
+    saveParas(w.db, s1, [['p1', HARBOUR]])
+    const quiet = new Keeper({ db: w.db, model: () => fakeModel(fake), emitStatus: () => {}, emitChanged: () => {}, quietMs: 60_000, summaries: false, retryDelays: [0], fetchImpl: shapedFetch({}) })
+    await quiet.catchUpBefore(s2)
+    quiet.stop()
+    const none = new Keeper({ db: w.db, model: () => ({ error: 'No model' }), emitStatus: () => {}, emitChanged: () => {}, quietMs: 60_000, retryDelays: [0] })
+    const t = Date.now()
+    await none.beforeDraft(s2)
+    expect(Date.now() - t).toBeLessThan(2000)
+    expect(kdb.summaryRow(w.db, 'scene', s1)).toBeFalsy()
+    none.stop()
   })
 })
 
