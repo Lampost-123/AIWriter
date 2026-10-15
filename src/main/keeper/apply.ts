@@ -650,11 +650,12 @@ function updatedPayload(
     }
     case 'knowledge': {
       const fact = str(v.fact, 300)
-      // How they learned it, from whom, and whether it is a belief that isn't true (fix 9), when the verdict says.
+      // How they learned it and from whom (fix 9), when the verdict says. Whether it is a belief that isn't true is the
+      // fact's own: one fact id is either known or believed wrongly, never both, so a verdict never turns one into the
+      // other (it would share its id with the other kind).
       const how = knowHow(v.how) ?? c.payload.how
       const from = v.from !== undefined ? toldBy(run, v.from, ids, refs, c.entryId) : c.payload.from
-      const wrong = v.wrong !== undefined ? bool(v.wrong) : !!c.payload.wrong
-      const { how: _how, from: _from, wrong: _wrong, ...rest } = c.payload
+      const { how: _how, from: _from, ...rest } = c.payload
       return {
         kind: 'knowledge',
         payload: {
@@ -662,8 +663,7 @@ function updatedPayload(
           fact: fact || c.payload.fact,
           forgets: v.forgets !== undefined ? bool(v.forgets) : c.payload.forgets,
           ...(how ? { how } : {}),
-          ...(from ? { from } : {}),
-          ...(wrong ? { wrong: true as const } : {})
+          ...(from ? { from } : {})
         }
       }
     }
@@ -1561,6 +1561,26 @@ export function knowHow(v: unknown): KnowHow | undefined {
   return KNOW_HOW[word]
 }
 
+/**
+ * A belief they see through (fix 9): the reply names its K as now known. It ends here, as an "end" item ends it (with the
+ * words, and Undo; Adam's own is kept, with a note); one they only came to in this scene is forgotten here instead.
+ */
+function seeThrough(run: Run, entry: Entry, k: string, factId: ID, chunk: ChunkReply, s: Spot): void {
+  const target = endTarget(run, run.entry(entry.id) ?? entry, k, chunk)
+  if (target?.kind === 'knowledge' && target.payload.wrong && target.payload.factId === factId) return endChange(run, target, '', s)
+  const fact = chunk.ids.knownText.get(k) ?? ''
+  addChange(run, entry, { kind: 'knowledge', payload: { factId, fact, forgets: true, wrong: true } }, s)
+}
+
+/** The fact id of something this character believes wrongly in these words, as this scene begins or in it; else undefined. */
+function beliefIn(run: Run, entryId: ID, fact: string): ID | undefined {
+  const before = run.ctx.memory?.beliefs?.find((b) => b.believedBy.includes(entryId) && plain(b.fact) === plain(fact))
+  if (before) return before.factId
+  for (const c of mem.changesInScene(run.db, run.scene.sceneId))
+    if (c.kind === 'knowledge' && c.entryId === entryId && c.payload.wrong && !c.payload.forgets && plain(c.payload.fact) === plain(fact)) return c.payload.factId
+  return undefined
+}
+
 /** Who told them (an E id or a new entry's ref): a character other than themselves; else undefined. */
 function toldBy(run: Run, v: unknown, ids: Ids, refs: Map<string, ID>, self: ID): ID | undefined {
   if (!str(v, 20)) return undefined
@@ -1952,21 +1972,27 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const fact = str(a.fact, 300)
       if (!fact) return
       // The who-knows-what ledger (long story memory fix 9): how they learned it, from whom, and whether it is a belief
-      // that isn't true. A belief and a fact someone knows never share an id: a K id or the same words count only when
-      // they are the same kind (a K line says "wrongly believed by" for a belief: request.ts).
-      const wrong = bool(a.wrong)
+      // that isn't true. One fact id is either known or believed wrongly, never both. A K the reply names says which (a K
+      // line says "wrongly believed by" for a belief: request.ts), whatever the reply's own "wrong"; the same words count
+      // only when they are the same kind.
+      const forgets = bool(a.forgets)
       const how = knowHow(a.how)
       const from = how === 'told' || how === 'overheard' || (!how && a.from) ? toldBy(run, a.from, chunk.ids, refs, entry.id) : undefined
       const k = str(a.factId, 10).toUpperCase()
       const listed = chunk.ids.known.get(k)
+      const listedWrong = !!listed && chunk.ids.wrong.has(k)
+      // A belief named and now known, not as a belief: they have learned the truth, so the belief ends here.
+      if (listed && listedWrong && !forgets && !bool(a.wrong)) return seeThrough(run, entry, k, listed, chunk, s)
+      // The same words as something they already believe wrongly, before this scene or in it: that belief (known again,
+      // or forgotten), never a fact they know in the same words.
+      const ownId = listed ? undefined : beliefIn(run, entry.id, fact)
+      const wrong = listed ? listedWrong : ownId ? true : bool(a.wrong)
       const factId =
-        (listed && chunk.ids.wrong.has(k) === wrong ? listed : undefined) ??
-        mem.listFacts(db).find((x) => !!x.wrong === wrong && plain(x.fact) === plain(fact))?.factId ??
-        newId()
+        listed ?? ownId ?? mem.listFacts(db).find((x) => !!x.wrong === wrong && plain(x.fact) === plain(fact))?.factId ?? newId()
       const payload = {
         factId,
         fact,
-        forgets: bool(a.forgets),
+        forgets,
         ...(how ? { how } : {}),
         ...(from ? { from } : {}),
         ...(wrong ? { wrong: true as const } : {})

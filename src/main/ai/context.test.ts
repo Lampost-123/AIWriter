@@ -2618,6 +2618,22 @@ describe('who knows what, for everyone in the scene (fix 9)', () => {
     expect(blockOf(inp, LEDGER_BLOCK.id)!.text).toContain("The Duke:\n- Doesn't know yet: The will was burned (Mara Venn knows it, since Ch 1, Sc 2; saw it).")
   })
 
+  it('what must stay true names the people the block covers, and a crowd only so far (fix 9 review)', () => {
+    const inp = input({ contextLength: 16_000 })
+    const mara = named(inp, 'Mara Venn')
+    const crowd = Array.from({ length: 7 }, (_, i) => entry('character', `Carter ${String.fromCharCode(65 + i)}`))
+    inp.memory.entries = [...inp.memory.entries, ...crowd]
+    inp.scene.card.presentIds = [...inp.scene.card.presentIds, ...crowd.map((e) => e.id)]
+    inp.memory.facts = [{ factId: 'will', fact: 'The will was burned', knownBy: [mara.id], at: 4 }]
+    const block = blockOf(inp, LEDGER_BLOCK.id)!.text
+    const must = blockOf(inp, MUST_BLOCK)!.text
+    // Six people at this size: Mara, Tobin and four of the carters, the same in both.
+    expect(block).toContain('Carter D:')
+    expect(block).not.toContain('Carter E')
+    expect(must).toContain('- Kept from Tobin, Carter A, Carter B and 2 more: The will was burned (Mara Venn knows it).')
+    expect(must).not.toContain('Carter E')
+  })
+
   it('the earlier blocks stay word for word the same when someone new is named (the cache)', () => {
     const { inp } = scene()
     const later: ContextInput = { ...inp, soFar: 'Bryn waited by the gate.' }

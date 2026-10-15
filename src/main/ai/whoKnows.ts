@@ -19,7 +19,7 @@
 import type { BeliefState, EntryState, FactState, ID, Learned } from '@shared/types'
 import { learnedWords } from '@shared/knowWords'
 import { cleanKnows, type KnowsContext } from './knows'
-import { isPerson, namesPerson, shortPlace } from './mustStay'
+import { isPerson, namesPerson, namesUpTo, shortPlace } from './mustStay'
 import { deathOf } from './deaths'
 
 /** The block: priority 6, as block 6's secrets were. */
@@ -76,17 +76,27 @@ interface Line {
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 const bare = (s: string): string => clean(s).replace(/[.]+$/, '')
-const joinAnd = (items: string[]): string =>
-  items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 const TIER: Record<Kind, number> = { gap: 0, wrong: 1, knows: 2 }
+
+/** How much the caps grow: the room the model has (memoryScale), at most twice; the short form, not at all. */
+const growOf = (scale: number, short = false): number => (short ? 1 : Math.min(2, Math.max(1, scale || 1)))
+
+/**
+ * The people the block covers, in order: people only, the living, each once, at most LEDGER_PEOPLE (grown with the room).
+ * What must stay true is given the same list (ai/context.ts), so both name the same people.
+ */
+export function ledgerPeople(people: EntryState[], scale: number, short = false): EntryState[] {
+  const most = Math.round(LEDGER_PEOPLE * growOf(scale, short))
+  return people.filter((p, i, all) => isPerson(p) && !deathOf(p) && all.findIndex((x) => x.id === p.id) === i).slice(0, most)
+}
 
 /** The block's text: the full form, or the short one (null when it would hold nothing). */
 export function ledgerText(o: LedgerInput, short = false): string | null {
-  const grow = short ? 1 : Math.min(2, Math.max(1, o.scale || 1))
+  const grow = growOf(o.scale, short)
   const most = (n: number): number => Math.round(n * grow)
   /** What they know: nothing at the smallest scale, all of `n` at twice the room. */
   const knowsMost = (n: number): number => Math.round(n * (grow - 1))
-  const people = o.people.filter((p, i, all) => isPerson(p) && !deathOf(p) && all.findIndex((x) => x.id === p.id) === i).slice(0, most(LEDGER_PEOPLE))
+  const people = ledgerPeople(o.people, o.scale, short)
   if (!people.length) return null
   const ids = new Set(people.map((p) => p.id))
   const place = (w: string): string => shortPlace(w, o.storyTitle)
@@ -103,7 +113,7 @@ export function ledgerText(o: LedgerInput, short = false): string | null {
     const fact = bare(f.fact)
     if (!fact) return
     const one = knowers.length === 1 ? since(f.since?.[knowers[0].id]) : ''
-    const who = knowers.length === 1 ? `${knowers[0].name} knows it` : `${joinAnd(knowers.map((p) => p.name))} know it`
+    const who = knowers.length === 1 ? `${knowers[0].name} knows it` : `${namesUpTo(knowers.map((p) => p.name))} know it`
     for (const p of people) {
       if (f.knownBy.includes(p.id) || namesPerson(f.fact, p)) continue
       lines.push({
@@ -146,12 +156,16 @@ export function ledgerText(o: LedgerInput, short = false): string | null {
   const choose = (list: Line[]): void => {
     for (const l of [...list].sort((a, b) => TIER[a.kind] - TIER[b.kind] || b.at - a.at || b.i - a.i)) {
       if (chosen.size >= total) break
+      if (chosen.has(l)) continue
       const k = `${l.who}|${l.kind}`
       if ((count.get(k) ?? 0) >= cap(l.who, l.kind)) continue
       count.set(k, (count.get(k) ?? 0) + 1)
       chosen.add(l)
     }
   }
+  // Each believer's most lately come to belief keeps its seat before any secret takes it: one a person (the people are
+  // capped at no more than the block's lines, so all fit).
+  choose(people.flatMap((p) => lines.filter((l) => l.kind === 'wrong' && l.who === p.id).slice(0, 1)))
   choose(lines)
 
   // What they know, with since when and how; a secret told as someone's "doesn't know yet" (with who knows it) isn't

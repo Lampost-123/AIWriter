@@ -15,8 +15,8 @@
 // research it also says the latest slips the checks found about these people in earlier scenes and that were put right
 // (MUST_SLIPS, checks/lessons.ts), so the writer doesn't make them again. Since fix 9 (the who-knows-what ledger) what is
 // kept from someone is worked out among everyone in the scene (the card, the stage, the scene so far: `knowers`), as the
-// "Who knows what" block has it (whoKnows.ts), and what someone here believes that isn't true joins those lines, after
-// the secrets, in the same few. Pure.
+// "Who knows what" block has it (whoKnows.ts), and what someone here believes that isn't true is a key kind of its own,
+// with its own few lines (MUST_BELIEFS). Pure.
 
 import type { BeliefState, EntryState, FactState, ID } from '@shared/types'
 import {
@@ -52,6 +52,13 @@ export const MUST_KEY = 5
 export const MUST_SMALLEST = 3
 /** The most "does not know" lines among them. */
 export const MUST_GAPS = 3
+/**
+ * The most lines among them saying what someone here believes that isn't true (long story memory fix 9): a seat of their
+ * own, never taken by the secrets.
+ */
+export const MUST_BELIEFS = 2
+/** The most names a line gives before "and 3 more" (who something is kept from, who knows it). */
+export const MUST_NAMES = 3
 /** The most lines among them about what someone gave away, lost or got. */
 export const MUST_ITEMS = 4
 /** The most pieces of clothing a person, and things in the place, among them (those the scene names first). */
@@ -162,6 +169,7 @@ const RANK = {
   gone: 9,
   gotNamed: 10,
   gap: 11,
+  belief: 11.5,
   where: 12,
   posture: 13,
   touching: 14,
@@ -175,9 +183,10 @@ const RANK = {
 type Kind = keyof typeof RANK
 /**
  * What a new scene is most likely to break, in the order the list gives them first (2026-10-15): someone dead acting
- * alive, someone learning or thinking what is kept from them, an injury forgotten, and time passing unnoticed.
+ * alive, someone learning or thinking what is kept from them, an injury forgotten, someone acting on the truth of what
+ * they believe wrongly (fix 9), and time passing unnoticed.
  */
-const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'elapsed']
+const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'belief', 'elapsed']
 
 /** Fields whose current value is a fact to keep to when a change set it during the story (a haircut in Ch 5). */
 const FACT_FIELDS = (FIELD_GROUPS.character ?? []).filter((g) => g.id === 'basics' || g.id === 'looks').flatMap((g) => g.fields)
@@ -187,6 +196,10 @@ const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g
 const clipTo = (s: string, most: number): string => (s.length > most ? `${s.slice(0, most - 1).trimEnd()}…` : s)
 const joinAnd = (items: string[]): string =>
   items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+
+/** Names joined, at most `most` of them before "and 9 more" (all of them when only one more would be left out). */
+export const namesUpTo = (names: string[], most = MUST_NAMES): string =>
+  names.length > most + 1 ? `${names.slice(0, most).join(', ')} and ${names.length - most} more` : joinAnd(names)
 
 /** Something some of the people in a scene know and others don't. */
 export interface Secret {
@@ -523,13 +536,15 @@ export function mustStayTrue(o: MustInput): string[] {
   const knowers = o.knowers ?? people
   const secrets = realSecrets(knowers, o.facts, { happened: o.happened ?? happenedOf([...people, ...o.named]) }).slice(0, MUST_GAPS)
   secrets.forEach((s, i) => {
-    const not = joinAnd(s.keptFrom)
-    const knows = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
+    // A crowd is named only so far ("Ash, Bryn, Cole and 4 more"): `knowers` is capped as the block is (whoKnows.ts).
+    const not = namesUpTo(s.keptFrom)
+    const knows = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${namesUpTo(s.knownBy)} know it`
     const fact = clipTo(s.fact, LONGEST_FACT)
     const rule = o.smallest ? '' : `. ${not} must not learn, guess or think it here unless the scene card says so`
     add('gap', 2000 + i, `Kept from ${not}: ${fact} (${knows})${rule}`, '', true)
   })
-  // Then what someone here believes that isn't true (fix 9), the most lately come to first, in the room the secrets left.
+  // Then what someone here believes that isn't true (fix 9), the most lately come to first: a key kind of its own, with
+  // its own few lines (MUST_BELIEFS), so secrets never take its seat.
   const believers = knowers.filter((e) => isPerson(e) && !clean(deathOf(e)?.note))
   ;(o.beliefs ?? [])
     .flatMap((b) =>
@@ -539,11 +554,11 @@ export function mustStayTrue(o: MustInput): string[] {
       })
     )
     .sort((x, y) => y.at - x.at)
-    .slice(0, Math.max(0, MUST_GAPS - secrets.length))
+    .slice(0, MUST_BELIEFS)
     .forEach(({ p, b }, i) => {
       const fact = clipTo(clean(b.fact).replace(/[.]$/, ''), LONGEST_FACT)
       const rule = o.smallest ? '' : `. ${p.name} takes it as true here unless the scene card says otherwise`
-      add('gap', 2500 + i, `${p.name} wrongly believes: ${fact} (it isn't true)${rule}`, '', true)
+      add('belief', 2500 + i, `${p.name} wrongly believes: ${fact} (it isn't true)${rule}`, '', true)
     })
 
   // How much time has passed since the scene before, at a new scene's start.
@@ -582,7 +597,7 @@ export function mustStayTrue(o: MustInput): string[] {
   if (o.smallest) return key.map((l) => l.text)
   // Then the most that matter of the rest, in order: person by person, then the scene, then who knows what.
   const rest = once.filter((l) => !key.includes(l))
-  const room = o.short ? rest.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.changed) : rest
+  const room = o.short ? rest.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.belief && l.rank !== RANK.changed) : rest
   // The short form: one piece of clothing a person at most, the one that matters most.
   const dressed = new Set<number>()
   const ranked = [...room]

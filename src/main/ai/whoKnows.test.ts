@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { BeliefState, EntryState, FactState } from '@shared/types'
-import { LEDGER_GAPS, LEDGER_LEAD, LEDGER_LINES, LEDGER_SHORT_LINES, ledgerText, type LedgerInput } from './whoKnows'
+import { LEDGER_GAPS, LEDGER_LEAD, LEDGER_LINES, LEDGER_SHORT_LINES, ledgerPeople, ledgerText, type LedgerInput } from './whoKnows'
 
 const person = (id: string, name: string, more: Partial<EntryState> = {}): EntryState =>
   ({
@@ -156,5 +156,31 @@ describe('who knows what in the scene', () => {
     expect(text).not.toContain('Ash:')
     expect(text).not.toContain('Cinder')
     expect(text).toContain("Mara Venn (point of view):\n- Doesn't know yet: The will was burned (Tobin knows it).")
+  })
+})
+
+describe('a belief keeps its seat (fix 9 review)', () => {
+  const crowd = [mara, tobin, ash, person('g', 'Gale'), person('r', 'Rook')]
+  const secrets = Array.from({ length: 6 }, (_, i) => fact(`s${i}`, `Secret number ${i + 1}`, ['m'], 10 + i))
+  const beliefs: BeliefState[] = [{ factId: 'letter', fact: 'The letter is genuine', believedBy: ['r'], since: { r: { at: 1, where: 'Book 1, Ch 1, Sc 1' } }, at: 1 }]
+
+  it('with four others in the scene and many secrets kept from them, in the full form and the short one', () => {
+    const full = lines(ledgerText(input({ people: crowd, facts: secrets, beliefs })))
+    expect(full).toHaveLength(LEDGER_LINES)
+    expect(full).toContain("- Wrongly believes: The letter is genuine (since Ch 1, Sc 1). It isn't true.")
+    const short = lines(ledgerText(input({ people: crowd, facts: secrets, beliefs }), true))
+    expect(short).toHaveLength(LEDGER_SHORT_LINES)
+    expect(short).toContain("- Wrongly believes: The letter is genuine. It isn't true.")
+  })
+
+  it('names a crowd only so far, and covers the people the must-stay list is given', () => {
+    const many = [mara, ...Array.from({ length: 9 }, (_, i) => person(`p${i}`, `Person ${i}`))]
+    const known = fact('x', 'The bridge is out', many.slice(1, 7).map((p) => p.id), 3)
+    const text = ledgerText(input({ people: many, facts: [known] }))!
+    expect(text).toContain("Mara Venn (point of view):\n- Doesn't know yet: The bridge is out (Person 0, Person 1, Person 2 and 2 more know it).")
+    expect(ledgerPeople(many, 1).map((p) => p.name)).toEqual(['Mara Venn', 'Person 0', 'Person 1', 'Person 2', 'Person 3', 'Person 4'])
+    expect(ledgerPeople(many, 3.6)).toHaveLength(10)
+    // No one the block doesn't cover is named in it.
+    expect(text).not.toContain('Person 5:')
   })
 })

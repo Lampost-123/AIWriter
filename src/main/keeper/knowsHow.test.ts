@@ -6,13 +6,17 @@ import type Database from 'better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { entryNamed, readScene, saveParas, testWorld } from '../../../tests/unit/keeperRead'
+import { entryNamed, fakeModel, readScene, saveParas, testWorld, textOf } from '../../../tests/unit/keeperRead'
 import * as mem from '../db/memory'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
-import { READING_SYSTEM } from './prompts'
+import { READING_MARKER, READING_SYSTEM } from './prompts'
 import { knowHow } from './apply'
-import { readingBudget } from './request'
+import { FACT_LINES, Ids, readingBudget } from './request'
+import { runScene } from './run'
+import { gatherContextInput } from '../ai/gather'
+import { buildBlocks, MUST_BLOCK } from '../ai/context'
+import { LEDGER_BLOCK } from '../ai/whoKnows'
 import { sceneMemory, ledgerForScene } from '../memory/scene'
 
 let fake: FakeProvider
@@ -150,5 +154,218 @@ describe('Adam’s own knowledge', () => {
       wrong: true
     })
     expect(clean({ factId: 'f', fact: 'The ford is safe', how: 'dreamt', from: tobin.id, wrong: false })).toEqual({ factId: 'f', fact: 'The ford is safe' })
+  })
+})
+
+// ---------- Fix 9 review ----------
+
+/** Reads a scene with only these items in the reply: entries by name, a K by "belief:words" or "known:words", and verdicts. */
+async function readNaming(
+  db: Database.Database,
+  sceneId: ID,
+  items: Record<string, unknown>[],
+  verdicts: (user: string) => Record<string, unknown>[] = () => []
+): Promise<string[]> {
+  const asked: string[] = []
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: unknown }[] }
+    if (!textOf(body.messages?.find((m) => m.role === 'system')?.content).includes(READING_MARKER)) return fetch(input, init)
+    const user = textOf(body.messages?.find((m) => m.role === 'user')?.content)
+    asked.push(user)
+    const ids = new Map([...user.matchAll(/^- (E\d+) [a-z]+ "([^"]+)"/gm)].map((m) => [m[2], m[1]]))
+    const ks = [...user.matchAll(/^- (K\d+) "([^"]+)"(: wrongly believed by)?/gm)]
+    const kOf = (v: unknown): unknown => {
+      const m = typeof v === 'string' ? /^(belief|known):(.*)$/.exec(v) : null
+      return m ? (ks.find((x) => x[2] === m[2] && !!x[3] === (m[1] === 'belief'))?.[1] ?? v) : v
+    }
+    const add = items.map((a) => ({ ...a, entry: ids.get(String(a.entry)) ?? a.entry, ...('factId' in a ? { factId: kOf(a.factId) } : {}) }))
+    const reply = { facts: verdicts(user), add, clashes: [] }
+    const chunk = { choices: [{ index: 0, delta: { content: JSON.stringify(reply) }, finish_reason: 'stop' }] }
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
+  }
+  await runScene({ db, model: fakeModel(fake), signal: new AbortController().signal, closed: () => false, retryDelays: [0, 0], fetchImpl }, sceneId)
+  return asked
+}
+
+/** Scene 1: the cast, and Tobin coming to believe wrongly that the letter is genuine (Ash knows it as true, apart). */
+async function belief(extra = 2) {
+  const w = testWorld(extra)
+  saveParas(w.db, w.scenes[0], [
+    ['a', CAST],
+    ['b', LIE]
+  ])
+  await readScene(w.db, fake, w.scenes[0], { add: [{ type: 'knows', entry: 'Tobin', fact: 'The letter is genuine', wrong: true, quote: LIE }] })
+  const tobin = entryNamed(w.db, 'Tobin')!
+  const [held] = knowledge(w.db, tobin.id)
+  expect(held.payload.wrong).toBe(true)
+  return { ...w, tobin, factId: held.payload.factId, held }
+}
+
+const TRUTH = 'Tobin saw at last that the letter was forged.'
+
+describe('a belief’s K named without "wrong" (fix 9 review)', () => {
+  it('known: they have learned the truth, so the belief ends there, on its own id, and nothing new is known', async () => {
+    const w = await belief()
+    saveParas(w.db, w.scenes[1], [['c', TRUTH]])
+    const asked = await readNaming(w.db, w.scenes[1], [{ type: 'knows', entry: 'Tobin', fact: 'The letter is genuine', factId: 'belief:The letter is genuine', quote: TRUTH }])
+    expect(asked.join('\n')).toMatch(/: wrongly believed by E\d+/)
+    const all = knowledge(w.db, w.tobin.id)
+    expect(all).toHaveLength(1)
+    expect(all[0].until?.sceneId).toBe(w.scenes[1])
+    const after = sceneMemory(w.db, w.scenes[2])
+    expect(after.beliefs).toEqual([])
+    expect(after.facts.some((f) => f.factId === w.factId)).toBe(false)
+    expect(ledgerForScene(w.db, w.scenes[2]).couldKnow(w.tobin.id, w.factId)).toEqual({ knows: false, believesWrongly: false, since: null })
+  })
+
+  it('forgotten: the belief is forgotten on its own id, whatever "wrong" the reply gives', async () => {
+    const w = await belief()
+    saveParas(w.db, w.scenes[1], [['c', TRUTH]])
+    await readNaming(w.db, w.scenes[1], [{ type: 'knows', entry: 'Tobin', fact: 'The letter is genuine', factId: 'belief:The letter is genuine', forgets: true, quote: TRUTH }])
+    const forgot = knowledge(w.db, w.tobin.id).find((c) => c.payload.forgets)!
+    expect(forgot.payload).toMatchObject({ factId: w.factId, forgets: true, wrong: true })
+    expect(sceneMemory(w.db, w.scenes[2]).beliefs).toEqual([])
+    expect(kdb.listLog(w.db).some((l) => l.text === 'No longer believes the letter is genuine')).toBe(true)
+  })
+
+  it('the same words as a belief, known again without "wrong", are that belief again, in its own scene or a later one', async () => {
+    const w = await belief()
+    // Read again in the scene it was come to in, the model leaving "wrong" off this time.
+    saveParas(w.db, w.scenes[0], [
+      ['a', CAST],
+      ['b', LIE],
+      ['c', 'He folded the letter away.']
+    ])
+    await readNaming(w.db, w.scenes[0], [{ type: 'knows', entry: 'Tobin', fact: 'The letter is genuine', quote: LIE }])
+    // And in a later scene.
+    saveParas(w.db, w.scenes[1], [['c', 'Tobin still thought the letter genuine.']])
+    await readNaming(w.db, w.scenes[1], [{ type: 'knows', entry: 'Tobin', fact: 'The letter is genuine', quote: 'Tobin still thought the letter genuine.' }])
+    expect(knowledge(w.db, w.tobin.id).every((c) => c.payload.factId === w.factId && c.payload.wrong)).toBe(true)
+    const m = sceneMemory(w.db, w.scenes[2])
+    expect(m.beliefs?.map((b) => b.factId)).toEqual([w.factId])
+    expect(m.facts.some((f) => f.knownBy.includes(w.tobin.id))).toBe(false)
+  })
+
+  it('a known K with "wrong" stays known: one fact id is never both', async () => {
+    const w = await belief()
+    const ash = entryNamed(w.db, 'Ash')!
+    // Ash knows the will was burned; the reply then says Tobin believes it "wrongly", naming Ash's K.
+    mem.insertChange(w.db, { entryId: ash.id, anchor: 'baseline', kind: 'knowledge', payload: { factId: 'f-will', fact: 'The will was burned' }, origin: 'adam' })
+    saveParas(w.db, w.scenes[1], [['c', 'Tobin and Ash talked of the will.']])
+    await readNaming(w.db, w.scenes[1], [
+      { type: 'knows', entry: 'Tobin', fact: 'The will was burned', factId: 'known:The will was burned', wrong: true, quote: 'Tobin and Ash talked of the will.' }
+    ])
+    const c = knowledge(w.db, w.tobin.id).find((x) => x.payload.factId === 'f-will')!
+    expect(c.payload.wrong).toBeUndefined()
+    const m = sceneMemory(w.db, w.scenes[2])
+    expect(m.facts.find((f) => f.factId === 'f-will')?.knownBy.sort()).toEqual([ash.id, w.tobin.id].sort())
+    expect(m.beliefs?.some((b) => b.factId === 'f-will')).toBe(false)
+  })
+
+  it('a verdict on its edited words never turns a belief into knowledge', async () => {
+    const w = await belief()
+    saveParas(w.db, w.scenes[0], [
+      ['a', CAST],
+      ['b', 'Tobin was certain the letter was genuine.']
+    ])
+    await readNaming(w.db, w.scenes[0], [], (user) => {
+      const f = /^- (F\d+) believes wrongly E\d+: /m.exec(user)?.[1]
+      return f ? [{ id: f, do: 'update', fact: 'The letter is genuine', wrong: false, quote: 'Tobin was certain the letter was genuine.' }] : []
+    })
+    const [held] = knowledge(w.db, w.tobin.id)
+    expect(held.payload).toMatchObject({ factId: w.factId, wrong: true })
+    expect(sceneMemory(w.db, w.scenes[1]).beliefs?.map((b) => b.factId)).toEqual([w.factId])
+  })
+})
+
+describe('a belief has its own seat in the reading request (fix 9 review)', () => {
+  it('past the 40 lines of what is known', async () => {
+    const w = await belief()
+    for (let i = 0; i < FACT_LINES + 5; i++)
+      mem.insertChange(w.db, { entryId: w.tobin.id, anchor: 'baseline', kind: 'knowledge', payload: { factId: `f${i}`, fact: `Fact number ${i}` }, origin: 'adam' })
+    saveParas(w.db, w.scenes[1], [['c', 'Tobin waited by the gate.']])
+    const asked = (await readNaming(w.db, w.scenes[1], [])).join('\n')
+    expect(asked.match(/^- K\d+ "Fact number/gm)).toHaveLength(FACT_LINES)
+    expect(asked).toMatch(/^- K\d+ "The letter is genuine": wrongly believed by E\d+$/m)
+  })
+
+  it('gets a K of its own even should a fact id turn up as both', () => {
+    const ids = new Ids()
+    const known = ids.knownFact('x', 'The ford is safe')
+    const believed = ids.knownFact('x', 'The ford is safe', true)
+    expect(believed).not.toBe(known)
+    expect(ids.wrong.has(believed)).toBe(true)
+    expect(ids.wrong.has(known)).toBe(false)
+    expect(ids.knownFact('x', 'The ford is safe', true)).toBe(believed)
+  })
+})
+
+describe('Adam’s own knowledge keeps one kind to a fact id (fix 9 review)', () => {
+  it('a fact id used for the other kind gets one of its own', async () => {
+    const w = await belief()
+    const ash = entryNamed(w.db, 'Ash')!
+    const asKnown = mem.cleanChangeInput(w.db, { entryId: ash.id, anchor: 'baseline', kind: 'knowledge', payload: { factId: w.factId, fact: 'The letter is genuine' } })
+    expect(asKnown.kind === 'knowledge' && asKnown.payload.factId).not.toBe(w.factId)
+    const asBelief = mem.cleanChangeInput(w.db, { entryId: ash.id, anchor: 'baseline', kind: 'knowledge', payload: { factId: w.factId, fact: 'The letter is genuine', wrong: true } })
+    expect(asBelief.kind === 'knowledge' && asBelief.payload.factId).toBe(w.factId)
+    // Editing the only change with it: its own kind may change, and the id stays.
+    const own = mem.cleanChangeInput(w.db, { entryId: w.tobin.id, anchor: 'scene', sceneId: w.scenes[0], kind: 'knowledge', payload: { factId: w.factId, fact: 'The letter is genuine' } }, w.held.id)
+    expect(own.kind === 'knowledge' && own.payload.factId).toBe(w.factId)
+    expect(mem.factIsBelief(w.db, w.factId)).toBe(true)
+    expect(mem.factIsBelief(w.db, 'nothing')).toBeNull()
+  })
+})
+
+describe('a scene with a belief deleted or moved (fix 9 review)', () => {
+  /** The briefing's who knows what and must stay true for a scene with Mara (point of view) and Tobin on its card. */
+  const briefing = (db: Database.Database, sceneId: ID, mara: ID, tobin: ID): { ledger: string; must: string } => {
+    repo.updateSceneCard(db, sceneId, { ...repo.getScene(db, sceneId).card, povId: mara, presentIds: [mara, tobin] })
+    const input = gatherContextInput(db, sceneId, undefined, { prefs: { spelling: 'UK', pov: '', tense: '', voiceNotes: '', avoidWords: [] }, contextLength: null, creativity: 'steady' })
+    const blocks = buildBlocks(input)
+    return { ledger: blocks.find((b) => b.id === LEDGER_BLOCK.id)?.text ?? '', must: blocks.find((b) => b.id === MUST_BLOCK)?.text ?? '' }
+  }
+
+  /** Scene 1 the cast; scene 2 Tobin coming to believe wrongly that the letter is genuine. */
+  async function inSecond(extra: number) {
+    const w = testWorld(extra)
+    saveParas(w.db, w.scenes[0], [['a', CAST]])
+    await readScene(w.db, fake, w.scenes[0])
+    saveParas(w.db, w.scenes[1], [['b', LIE]])
+    await readScene(w.db, fake, w.scenes[1], { add: [{ type: 'knows', entry: 'Tobin', fact: 'The letter is genuine', wrong: true, quote: LIE }] })
+    return { ...w, mara: entryNamed(w.db, 'Mara')!, tobin: entryNamed(w.db, 'Tobin')! }
+  }
+
+  it('deleted: later scenes no longer see it, in the ledger, the briefing or what must stay true', async () => {
+    const w = await inSecond(1)
+    const mara = w.mara
+    const third = repo.createScene(w.db, w.chapterId, { title: 'Third' }).id
+    expect(ledgerForScene(w.db, third).couldKnow(w.tobin.id, knowledge(w.db, w.tobin.id).at(-1)!.payload.factId).believesWrongly).toBe(true)
+    const before = briefing(w.db, third, mara.id, w.tobin.id)
+    expect(before.ledger).toContain("Tobin:\n- Wrongly believes: The letter is genuine (since Ch 1, Sc 2). It isn't true.")
+    expect(before.must).toContain('Tobin wrongly believes: The letter is genuine')
+
+    saveParas(w.db, third, [['d', 'Tobin waited by the gate.']])
+    expect((await readNaming(w.db, third, [])).join('\n')).toContain('wrongly believed by')
+    repo.deleteScene(w.db, w.scenes[1])
+    expect(sceneMemory(w.db, third).beliefs).toEqual([])
+    // The memory keeper isn't told it any more either.
+    saveParas(w.db, third, [['d', 'Tobin waited by the gate, then sat.']])
+    expect((await readNaming(w.db, third, [])).join('\n')).not.toContain('wrongly believed by')
+    const after = briefing(w.db, third, mara.id, w.tobin.id)
+    expect(after.ledger).not.toContain('Wrongly believes')
+    expect(after.must).not.toContain('wrongly believes')
+  })
+
+  it('moved after another: it counts from its new place, and says so', async () => {
+    const w = await inSecond(2)
+    const mara = w.mara
+    // Scene 2 moves to the end, after scene 3.
+    repo.moveScene(w.db, w.scenes[1], w.chapterId, 2)
+    expect(sceneMemory(w.db, w.scenes[2]).beliefs).toEqual([])
+    expect(briefing(w.db, w.scenes[2], mara.id, w.tobin.id).ledger).not.toContain('Wrongly believes')
+    const fourth = repo.createScene(w.db, w.chapterId, { title: 'Fourth' }).id
+    const [b] = sceneMemory(w.db, fourth).beliefs ?? []
+    expect(b.since[w.tobin.id]).toMatchObject({ where: 'Book 1, Ch 1, Sc 3', sceneId: w.scenes[1] })
+    expect(briefing(w.db, fourth, mara.id, w.tobin.id).ledger).toContain('Wrongly believes: The letter is genuine (since Ch 1, Sc 3).')
   })
 })

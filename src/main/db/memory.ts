@@ -267,7 +267,24 @@ const liveEntry = (db: DB, id: ID): boolean => !!db.prepare('SELECT 1 FROM entri
  * Checks a change Adam made on an entry page and tidies it, with plain-words reasons when it can't be
  * saved. A fact without an id gets a new one (a new fact); empty rows in a full description are dropped.
  */
-export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
+/**
+ * Whether a fact id is used for something believed wrongly (true), for something known (false), or not yet (null), by
+ * any live knowledge change but `except` (the change being edited). One fact id is only ever one of the two (long story
+ * memory fix 9).
+ */
+export function factIsBelief(db: DB, factId: ID, except: ID | null = null): boolean | null {
+  const rows = db
+    .prepare(
+      `SELECT json_extract(payload_json, '$.wrong') AS wrong FROM changes
+       WHERE deleted_at IS NULL AND kind = 'knowledge' AND json_extract(payload_json, '$.factId') = ? AND id IS NOT ?`
+    )
+    .all(factId, except) as { wrong: unknown }[]
+  if (!rows.length) return null
+  return rows.some((r) => !!r.wrong)
+}
+
+/** `changeId`: the change being edited, when it is an edit. */
+export function cleanChangeInput(db: DB, input: ChangeInput, changeId: ID | null = null): ChangeInput {
   if (!input || typeof input !== 'object') throw new UserError('That change is empty.')
   if (!liveEntry(db, input.entryId)) throw new UserError('That page no longer exists. It may have been deleted.')
   const other = (otherId: ID | undefined): ID => {
@@ -328,7 +345,10 @@ export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
       const how = KNOW_HOWS.includes(p.how as KnowHow) ? { how: p.how } : {}
       const from = typeof p.from === 'string' && p.from && p.from !== input.entryId ? { from: p.from } : {}
       const ledger = { ...how, ...from, ...(p.wrong ? { wrong: true as const } : {}) }
-      return { ...base, kind: 'knowledge', payload: { factId: p.factId || newId(), fact, ...(p.forgets ? { forgets: true } : {}), ...said, ...ledger } }
+      // One fact id is either known or believed wrongly, never both: a fact id used for the other kind gets one of its own.
+      const kind = p.factId ? factIsBelief(db, p.factId, changeId) : null
+      const factId = p.factId && (kind === null || kind === !!p.wrong) ? p.factId : newId()
+      return { ...base, kind: 'knowledge', payload: { factId, fact, ...(p.forgets ? { forgets: true } : {}), ...said, ...ledger } }
     }
     case 'thread': {
       const p = input.payload

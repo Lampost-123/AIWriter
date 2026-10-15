@@ -7,6 +7,7 @@ import { pieceKey, thingKey, type SceneState } from '@shared/continuity'
 import {
   MUST_CLOTHES,
   MUST_THINGS,
+  MUST_BELIEFS,
   MUST_GAPS,
   MUST_KEY,
   MUST_ITEMS,
@@ -16,6 +17,7 @@ import {
   MUST_SMALLEST,
   mustStayTrue,
   mustText,
+  namesUpTo,
   shortPlace,
   stageFor,
   stageInScene,
@@ -211,9 +213,36 @@ describe('what must stay true', () => {
       'Kept from Bryn: The flour tax was forged (Wren and Osric Hale know it)',
       "Osric Hale wrongly believes: The abbot is alive (it isn't true)"
     ])
-    // No more than MUST_GAPS of the two together: the secrets first.
+    // Beliefs have their own seat (MUST_BELIEFS): three secrets don't take it (fix 9 review), in the full form, the short
+    // one and the smallest.
     const many = Array.from({ length: MUST_GAPS }, (_, i) => ({ factId: `k${i}`, fact: `Secret ${i}`, knownBy: [wren.id] }))
-    expect(mustStayTrue(base({ people: [wren, osric], facts: many, beliefs, stand: null, reach: 'none' })).join('\n')).not.toContain('wrongly believes')
+    const crowd = base({ people: [wren, osric], facts: many, beliefs, stand: null, reach: 'none' })
+    for (const form of [{}, { short: true }, { smallest: true }]) {
+      const lines = mustStayTrue({ ...crowd, ...form })
+      expect(lines.filter((l) => l.startsWith('Kept from ')).length, JSON.stringify(form)).toBeGreaterThan(0)
+      expect(lines.some((l) => l.startsWith('Osric Hale wrongly believes: The abbot is alive')), JSON.stringify(form)).toBe(true)
+    }
+    const two = [
+      ...beliefs,
+      { factId: 'b2', fact: 'The mill is safe', believedBy: [wren.id], since: { [wren.id]: { at: 7, where: 'The Mill, Ch 3, Sc 1' } }, at: 7 },
+      { factId: 'b3', fact: 'The road is open', believedBy: [wren.id], since: { [wren.id]: { at: 1, where: 'The Mill, Ch 1, Sc 1' } }, at: 1 }
+    ]
+    const lines = mustStayTrue({ ...crowd, beliefs: two })
+    expect(lines.filter((l) => l.includes(' wrongly believes: '))).toEqual([
+      "Wren wrongly believes: The mill is safe (it isn't true). Wren takes it as true here unless the scene card says otherwise",
+      "Osric Hale wrongly believes: The abbot is alive (it isn't true). Osric Hale takes it as true here unless the scene card says otherwise"
+    ])
+    expect(lines.filter((l) => l.includes(' wrongly believes: '))).toHaveLength(MUST_BELIEFS)
+  })
+
+  it('names a crowd only so far, in a secret kept from many (fix 9 review)', () => {
+    const people = Array.from({ length: 6 }, (_, i) => entry('character', `Person ${i}`))
+    const facts = [{ factId: 'x', fact: 'The bridge is out', knownBy: [people[0].id, people[1].id, people[2].id, people[3].id, people[4].id] }]
+    expect(mustStayTrue(base({ people: [people[0], people[5]], knowers: people, facts, stand: null, reach: 'none' }))).toEqual([
+      'Kept from Person 5: The bridge is out (Person 0, Person 1, Person 2 and 2 more know it). Person 5 must not learn, guess or think it here unless the scene card says so'
+    ])
+    expect(namesUpTo(['A', 'B', 'C', 'D'])).toBe('A, B, C and D')
+    expect(namesUpTo(['A', 'B', 'C', 'D', 'E'])).toBe('A, B, C and 2 more')
   })
 
   it('cuts a long value short, never since when it holds', () => {
@@ -241,7 +270,8 @@ describe('what must stay true', () => {
     expect(lines.filter((l) => l.startsWith('Kept from '))).toHaveLength(1)
     // The secret and the first injuries lead, in the full form and the short one (2026-10-15).
     expect(lines.slice(0, MUST_KEY)).toEqual([
-      'Kept from Person 1, Person 2, Person 3, Person 4, Person 5, Person 6 and Person 7: The bridge is out (Person 0 knows it). Person 1, Person 2, Person 3, Person 4, Person 5, Person 6 and Person 7 must not learn, guess or think it here unless the scene card says so',
+      // A crowd is named only so far (fix 9 review).
+      'Kept from Person 1, Person 2, Person 3 and 4 more: The bridge is out (Person 0 knows it). Person 1, Person 2, Person 3 and 4 more must not learn, guess or think it here unless the scene card says so',
       'Person 0: bruised 0',
       'Person 1: bruised 1',
       'Person 2: bruised 2',

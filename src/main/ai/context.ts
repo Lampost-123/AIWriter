@@ -92,7 +92,7 @@ import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost,
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
-import { LEDGER_BLOCK, ledgerText } from './whoKnows'
+import { LEDGER_BLOCK, ledgerPeople, ledgerText } from './whoKnows'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
@@ -1601,8 +1601,8 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   // to 11 is (finishContext).
   const reach = stageReach(input)
   const people = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character')
-  // Everyone in the scene, for who knows what (fix 9).
-  const knowers = sceneKnowers(input, sel, stage)
+  // Everyone in the scene, for who knows what (fix 9), as many as its block covers: what must stay true names the same.
+  const knowers = ledgerPeople(sceneKnowers(input, sel, stage), memoryScale(input.contextLength))
   const card = input.scene.card
   const mustFrom = {
     stand,

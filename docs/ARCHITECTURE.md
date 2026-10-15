@@ -2386,7 +2386,8 @@ the same story so far and passages as before; what changes for it is the share f
   level can change from one step of a scene to the next when room is tight, which costs some of the cache; with a
   real reading limit there is room for it at every step.
 - **What must stay true, never left out, and sharper** (`ai/mustStay.ts`). It opens with what the scene is most
-  likely to break (`KEY_KINDS`: who is dead, what is kept from someone here, injuries, and how much time has passed
+  likely to break (`KEY_KINDS`: who is dead, what is kept from someone here, injuries, since fix 9 what someone here
+  believes wrongly, and how much time has passed
   since the scene before, by both cards' When or a story's time gap: `ai/context.ts` `timeSince`), one of each kind
   first, `MUST_KEY` (5) at most; the rest follow as before. Its short form keeps them, and a smallest form has
   `MUST_SMALLEST` (3) of them, said briefly. The block is priority 2 (`MUST_PRIORITY`): never left out, shortened only
@@ -2495,7 +2496,9 @@ ledger, built from what the memory already keeps (no new store, no migration, no
   `changes.payload_json`), else something said (the speaker "said it", the rest heard it from the speaker), else an
   event seen ("saw it") (`learnedHow`). Something believed that isn't true is a knowledge change with `wrong`: it goes
   to `MemoryState.beliefs` / `SceneMemory.beliefs` (`BeliefState`), never into `facts`, so it is never a secret kept from
-  anyone; for one character and fact the latest learning says whether they know it or believe it wrongly. `Ledger`
+  anyone; for one character and fact the latest learning says whether they know it or believe it wrongly. One fact id is
+  only ever one of the two, known or believed wrongly (decided in review: a belief is a fact that isn't true, so no one
+  can know it): the keeper, verdicts and Adam's own changes keep it so (below). `Ledger`
   indexes a point so a question is one look-up: `couldKnow(character, fact)` (knows it since when and how, believes it
   wrongly, or neither), `knows`, `believes`, `whoKnows`; `ledgerForScene(db, sceneId)` (`memory/scene.ts`) builds it as
   a scene begins, for rule-based checks to come (fix 8). Plain words for since and how are shared by the briefing, the
@@ -2504,10 +2507,18 @@ ledger, built from what the memory already keeps (no new store, no migration, no
   `"from"` and `"wrong"`, one rule line ("Knows: give how and, if told or overheard, from whom; wrong: true if what
   they believe isn't true"), and "end" also ends a wrong belief they see through. Tighter wording elsewhere keeps the
   prompt at 5,942 characters, under the 6,000 the tests hold it to. `keeper/apply.ts` keeps `how` (`knowHow` reads the
-  model's first word: "told by Ash" is told), `from` (a character other than themselves) and `wrong`; a belief and a
-  fact someone knows never share an id (a K id or the same words count only when they are the same kind: `listFacts`
-  says which facts are beliefs, `Ids.wrong` which K lines). The reading request lists beliefs among the K lines,
-  "wrongly believed by E2" (`keeper/request.ts`); `endTarget` finds them. What changed says "Wrongly believes …".
+  model's first word: "told by Ash" is told), `from` (a character other than themselves) and `wrong`. A K the reply
+  names says which kind it is, whatever the reply's own "wrong" (`Ids.wrong` marks a belief's K lines): a "knows" naming a
+  belief's K without "wrong" means they have learned the truth, so the belief ends there on its own id, as an "end"
+  item ends it (`seeThrough`: with Undo, Adam's own kept with a note; one come to in that same scene is forgotten
+  there); a "forgets" naming it forgets the belief; a known K stays known. The same words as something the character
+  already believes wrongly, before the scene or in it, are that belief again (`beliefIn`); other words match only facts
+  of the same kind (`listFacts` says which are beliefs). A verdict on a fact whose words changed never flips `wrong`;
+  Adam's own change taking a fact id used for the other kind gets an id of its own (`db/memory.ts` `factIsBelief`,
+  `cleanChangeInput`). The reading request lists beliefs first among the K lines, "wrongly believed by E2", with a seat of
+  their own (`BELIEF_LINES` 12, `BELIEF_TOKENS` 400) ahead of the facts' `FACT_LINES` (40), so in a long series a belief
+  can always be ended; should a fact id ever turn up as both, each still gets its own K (`Ids.knownFact`). `endTarget`
+  finds them. What changed says "Wrongly believes …", and "No longer believes …".
 - **The writer's briefing** (`ai/whoKnows.ts`, block `knowledge`, "Who knows what", priority 6). Everyone in the scene
   (`ai/context.ts` `sceneKnowers`: the point of view, the others on the card, those where things stand puts there, and
   the living characters the scene so far names, fix 12), point of view first, each with what they don't know yet that
@@ -2515,7 +2526,9 @@ ledger, built from what the memory already keeps (no new store, no migration, no
   ("Wrongly believes: … It isn't true.") and what they know with since when and how ("Knows: …"; the point of view's
   only for what they learned during the story, as block 4 lists all they know). What matters most goes in first:
   every secret kept from someone here, then false beliefs, then what they know, the most lately learned first within
-  each; a secret told as someone's "doesn't know yet" isn't told again as another's "knows". The same rules as before
+  each, except that each believer's latest belief keeps its seat before any secret (review: four people and three
+  secrets filled the ten lines); a secret told as someone's "doesn't know yet" isn't told again as another's "knows".
+  A crowd who know something is named only so far ("Mara, Ash, Tobin and 2 more know it", `namesUpTo`). The same rules as before
   for secrets (`cleanKnows`, only backed facts, never kept from someone it is about; `namesPerson` no longer takes "The"
   of "The Duke" for a first name). Caps (`LEDGER_GAPS` 3 and `LEDGER_WRONG` 2 a person, `LEDGER_LINES` 10, `LEDGER_PEOPLE`
   6) grow with `memoryScale`, at most twice; what they know (`LEDGER_KNOWS` 4, `LEDGER_POV_KNOWS` 2) comes only with more
@@ -2525,9 +2538,11 @@ ledger, built from what the memory already keeps (no new store, no migration, no
   Who is in the scene can change from step to step (the stage, the scene so far), so the block is sent late
   (`SEND_ORDER`: after what a step brings in, before the scene card); every block before it stays word for word the
   same when someone new is named (tested). What must stay true keeps its key kind for secrets (`gap`, no second list):
-  `MustInput.knowers` works them out among the same people, and what someone here believes wrongly follows them
-  within `MUST_GAPS` ("Tobin wrongly believes: … (it isn't true). Tobin takes it as true here unless the scene card says
-  otherwise"); AI edits and Continue pass the beliefs too.
+  `MustInput.knowers` works them out among the same people, the block's own capped list (`ledgerPeople`, so both name
+  the same people, and "Kept from" names at most `MUST_NAMES` (3) before "and 4 more"); what someone here believes
+  wrongly is a key kind of its own after injuries (`belief`, `MUST_BELIEFS` (2) lines, never taken by the secrets: "Tobin
+  wrongly believes: … (it isn't true). Tobin takes it as true here unless the scene card says otherwise"); AI edits and
+  Continue pass the beliefs too.
 - **The checks** (`checks/context.ts`): who knows what is the ledger as the scene begins, as before the memory as of
   its start, now with each knower's since when and how (`knowsLine`: "Known by: Tobin (since Book 1, Ch 3, Sc 1)") and
   "What some of them believe that isn't true" (`beliefLines`, `MOST_BELIEFS` 12). Check and repair's K lines are the

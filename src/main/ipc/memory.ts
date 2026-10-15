@@ -65,7 +65,7 @@ export const memoryHandlers: Handlers<MemoryMethods> = {
     // Adam's edit makes the change his: the keeper never changes it again (its source links stay, for reference).
     const [before, after] = write(() => {
       const old = mem.getChange(world.db(), id)
-      const clean = mem.cleanChangeInput(world.db(), input)
+      const clean = mem.cleanChangeInput(world.db(), input, id)
       return [old, mem.replaceChange(world.db(), id, { ...clean, origin: 'adam' })] as const
     })
     changed(after.sceneId, [...mem.entriesTouched(before), ...mem.entriesTouched(after)])
