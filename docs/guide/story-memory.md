@@ -21,10 +21,11 @@ The memory adds what your story says, such as a character's new scar, a place th
 just found out. It never overwrites what you typed into an entry yourself.
 
 It also notices when your story calls someone something new, such as a nickname, a title ("the Captain") or "her
-brother". In that scene the AI knows who you mean straight away. A nickname or a title is also offered as another
-name in **What changed**, under **Worth a look**, in **Other names the story uses**: click **Add name** and the AI
-knows them by it in every scene, or **Ignore**. Words like "her brother" or "Mother" depend on who is speaking, so
-they only ever count in the scene they're in.
+brother". In that scene the AI knows who you mean straight away, and **What changed** says so: **Dismiss** there if
+it got it wrong. A nickname or a title is also offered as another name, under **Worth a look**, in **Other names the
+story uses**. Click **Add name** and the AI knows them by it in every scene. Click **Ignore** and it's never offered
+for them again, and stops counting as them in that scene. Words like "her brother" or "Mother" depend on who is
+speaking, so they only ever count in the scene they're in.
 
 ## See and undo what the memory changed
 

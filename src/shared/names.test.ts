@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { askingAt, calledFor, ignoresCase, namedInProse, startsSentence } from './names'
+import { askingAt, calledFor, findName, ignoresCase, namedInProse, startsSentence } from './names'
 
 const at = (text: string, word: string): [number, number] => {
   const i = text.indexOf(word)
@@ -36,6 +36,27 @@ describe('names in prose', () => {
     expect(namedInProse('“Go,” said Will.', 'Will')).toBe(true)
     expect(namedInProse('Tell Will you love him.', 'Will')).toBe(true)
     expect(namedInProse('“Will you come?” she asked. Will shook his head.', 'Will')).toBe(true)
+  })
+
+  it('"Will be there." and "May be the last time." are the verb too, with "never" or "still" between or not', () => {
+    for (const verb of ['Will be there.', 'May be the last time.', 'Will have to wait.', 'Will do.', 'Will never forget it.', 'May still be here.', 'Will go now.'])
+      expect(namedInProse(verb, verb.split(' ')[0])).toBe(false)
+    // A name, with a verb in the past, a modal of its own, or "never" with a past verb after.
+    for (const name of ['Will was there.', 'Will could see the shore.', 'May would not answer.', 'Will still had the knife.', 'Will never forgave her.', 'Will let her go.'])
+      expect(namedInProse(name, name.split(' ')[0])).toBe(true)
+  })
+
+  it('any apostrophe for any; a hyphen joins words; a dot must be there', () => {
+    expect(namedInProse('Ask O’Brien.', "O'Brien")).toBe(true)
+    expect(namedInProse("Ask O'Brien.", 'O‘Brien')).toBe(true)
+    expect(namedInProse("O'Brien's boat", 'O’Brien')).toBe(true)
+    expect(namedInProse('A will-o’-the-wisp. Will-o’-the-wisp.', 'Will')).toBe(false)
+    expect(namedInProse('Mara-Jane waved.', 'Mara')).toBe(false)
+    expect(namedInProse('Jean-Luc waved.', 'Jean-Luc')).toBe(true)
+    expect(namedInProse('Will—no, Wren—came in.', 'Will')).toBe(true)
+    expect(namedInProse('Dr. Hale came.', 'Dr. Hale')).toBe(true)
+    expect(namedInProse('Dr Hale came.', 'Dr. Hale')).toBe(false)
+    expect(findName('Will you? Will went.', 'Will')).toEqual({ start: 10, end: 14 })
   })
 
   it('where a sentence starts', () => {

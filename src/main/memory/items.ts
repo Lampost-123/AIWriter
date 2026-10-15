@@ -13,25 +13,29 @@
 // of the codex count, so "lost her temper" or "lost her left hand" never does. Pure.
 
 import type { EntryState, ID, RelationshipState } from '@shared/types'
+import { foldApostrophes, ignoresCase, NAME_AFTER, NAME_BEFORE, namedInProse, namePattern } from '@shared/names'
 
 type Named = Pick<EntryState, 'id' | 'kind' | 'name' | 'aliases'>
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu
-const wordsOf = (s: string): string[] => s.toLowerCase().match(WORD) ?? []
+/** Words in lower case, any apostrophe as a straight one. */
+const wordsOf = (s: string): string[] => foldApostrophes(s.toLowerCase()).match(WORD) ?? []
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** Each name's pattern, made once (a big world reads thousands of notes for the same few hundred names). */
 const patterns = new Map<string, RegExp>()
 
-/** A whole word or phrase: a single capitalised word must be capitalised there; anything else ignores case. */
+/**
+ * A whole word or phrase: a single capitalised word must be capitalised there; anything else ignores case. Any
+ * apostrophe for any, and never joined by a hyphen to the next word (shared/names.ts, long story memory fix 12).
+ */
 const nameRe = (name: string): RegExp => {
   const n = name.trim()
   let re = patterns.get(n)
   if (!re) {
     if (patterns.size > 5_000) patterns.clear()
-    const flags = `g${/\s/.test(n) || !/^\p{Lu}/u.test(n) ? 'iu' : 'u'}`
-    re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, flags)
+    re = new RegExp(`${NAME_BEFORE}${namePattern(n)}${NAME_AFTER}`, `g${ignoresCase(n) ? 'iu' : 'u'}`)
     patterns.set(n, re)
   }
   re.lastIndex = 0
@@ -43,7 +47,7 @@ const lastOf = (name: string): string => wordsOf(name).at(-1) ?? ''
 
 /** True when `name` is in `text` as a whole word or phrase, read as the briefing reads names (ai/context.ts `mentions`). */
 export function nameIn(text: string, name: string): boolean {
-  return name.trim().length >= 2 && !!text && text.toLowerCase().includes(lastOf(name)) && nameRe(name).test(text)
+  return name.trim().length >= 2 && !!text && foldApostrophes(text.toLowerCase()).includes(lastOf(name)) && namedInProse(text, name)
 }
 
 // ---------- An item's main word ----------

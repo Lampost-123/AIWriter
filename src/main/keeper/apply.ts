@@ -56,7 +56,7 @@ import {
 } from './facts'
 import { findQuote, likeness, locateQuote, mentionAt, plain, sameFact, sceneParagraphs, type Para } from './text'
 import { aliasWorthy, cleanCalled } from './names'
-import { keepCalled } from '../db/called'
+import { forgetCalledNotIn, keepCalled } from '../db/called'
 import type { CalledName } from '@shared/names'
 
 type DB = Database.Database
@@ -158,13 +158,16 @@ export type Undo = (
   | { op: 'summary-refresh'; key: string; sceneId: ID; version: number; refreshed?: boolean }
   /**
    * A quiet note that changes nothing (World Memory Overhaul, 2026-10-08): "the scene no longer says this" under one of
-   * Adam's own facts, or the tidy-up's summary line. Undoing it only dismisses it.
+   * Adam's own facts, or the tidy-up's summary line. Undoing it only dismisses it; for words that count as someone in
+   * the scene (long story memory fix 12), it also stops them counting there (undo.ts).
    */
   | {
       op: 'note'
       key: string
       /** What the words call someone, offered in Worth a look as another name for them (long story memory fix 12). */
       alias?: string
+      /** What the words call someone in this scene, not offered as another name ("her brother"; fix 12). */
+      called?: string
     }
   /** Where a fact stops being true was set or cleared (World Memory Overhaul B1): Undo puts back what it was before. */
   | { op: 'until-set'; changeId: ID; before: ChangeUntil | null }
@@ -1697,42 +1700,59 @@ function noteName(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
   run.called.push({ entryId: e.id, words, s })
 }
 
+/** The quiet note offering words as another name for a character: one per character and words, in the whole story. */
+export const aliasNoteKey = (entryId: ID, words: string): string => `alias:${entryId}:${plain(words)}`
+/** The quiet note saying words count as a character in one scene (any words not offered there as another name). */
+export const calledNoteKey = (sceneId: ID, entryId: ID, words: string): string => `called:${sceneId}:${entryId}:${plain(words)}`
+
 /**
  * Keeps what the words call each character for this scene (db/called.ts), so the writer's briefing and the page find
- * them by it here; and offers one that would name them anywhere in the story (a nickname or a title, aliasWorthy) as
- * another name, with a quiet note Adam can act on in Worth a look (checkQueue.ts), once per character and words. Words
- * that are already a name of theirs or of anyone else's, or that the reply gives for two people, are left alone.
+ * them by it here, each with a quiet note in What changed whose Dismiss takes it back in this scene. One that would
+ * name them anywhere in the story (a nickname or a title, aliasWorthy) is offered as another name the first time, with
+ * a note Adam can act on in Worth a look (checkQueue.ts); any other (a relation, "her brother", or a name offered
+ * before) gets a plain note. Words already a name of theirs or of anyone else's, given for two people, or dismissed or
+ * ignored in this scene before, are left alone, so Ignore sticks when the scene is read again. Words no longer in the
+ * scene stop counting there.
  */
 function settleNames(run: Run): void {
+  if (run.ctx.removed) return
+  const db = run.db
+  const sceneId = run.scene.sceneId
+  forgetCalledNotIn(db, sceneId, run.plan.paras.map((p) => p.text).join('\n\n'))
   if (!run.called.length) return
   const byWords = new Map<string, Run['called']>()
   for (const c of run.called) byWords.set(plain(c.words), [...(byWords.get(plain(c.words)) ?? []), c])
   const named = (e: Entry, k: string): boolean => [e.name, ...e.aliases].some((n) => plain(n) === k)
-  const everyone = repo.listEntries(run.db)
+  const everyone = repo.listEntries(db)
   const keep: CalledName[] = []
   for (const [k, list] of byWords) {
     if (new Set(list.map((c) => c.entryId)).size > 1) continue
     const c = list[0]
     const e = run.entry(c.entryId)
     if (!e || everyone.some((x) => named(x, k))) continue
+    // This scene's note for these words: the offer, if it was made here, or the plain note.
+    const offers = kdb.linesWithKey(db, aliasNoteKey(e.id, c.words))
+    const here = [...offers.filter((l) => l.sceneId === sceneId), ...kdb.linesWithKey(db, calledNoteKey(sceneId, e.id, c.words))]
+    if (here.some((l) => l.undone)) continue
     keep.push({ entryId: e.id, words: c.words })
     run.calledKept.add(e.id)
-    if (!aliasWorthy(c.words)) continue
-    const key = `alias:${e.id}:${k}`
-    if (kdb.lineGiven(run.db, key) || run.lines.some((l) => (l.undo as { key?: string } | null)?.key === key)) continue
+    if (here.length) continue
+    const offer = aliasWorthy(c.words) && !offers.length
     run.log({
       action: 'updated',
       what: 'entry',
       entryId: e.id,
       entryName: e.name,
-      text: `Also called “${c.words}” here`,
+      text: offer ? `Also called “${c.words}” here` : `Called “${c.words}” here`,
       before: '',
       after: '',
       quote: c.s.quote,
-      undo: { op: 'note', key, alias: c.words }
+      undo: offer
+        ? { op: 'note', key: aliasNoteKey(e.id, c.words), alias: c.words }
+        : { op: 'note', key: calledNoteKey(sceneId, e.id, c.words), called: c.words }
     })
   }
-  keepCalled(run.db, run.scene.sceneId, keep)
+  keepCalled(db, sceneId, keep)
 }
 
 function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {

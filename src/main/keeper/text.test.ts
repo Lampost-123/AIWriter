@@ -92,8 +92,13 @@ describe('the words a fact rests on', () => {
   })
 
   it('matches a name as a whole word, and a one-word name only with its capital', () => {
-    expect(mentionAt('Will you come?', 'Will')).toEqual({ start: 0, end: 4 })
+    expect(mentionAt('Will came in.', 'Will')).toEqual({ start: 0, end: 4 })
     expect(mentionAt('I will come.', 'Will')).toBeNull()
+    // The one rule the briefing and the page read names by (shared/names.ts, long story memory fix 12): "Will you…?"
+    // asks, a hyphen joins another word, and any apostrophe is any.
+    expect(mentionAt('Will you come? Will nodded.', 'Will')).toEqual({ start: 15, end: 19 })
+    expect(mentionAt('A will-o’-the-wisp. Will-o’-the-wisp.', 'Will')).toBeNull()
+    expect(mentionAt('Ask O’Brien.', "O'Brien")).toEqual({ start: 4, end: 11 })
     expect(mentionAt('Marama came.', 'Mara')).toBeNull()
     expect(mentionAt('the old woman laughed', 'The Old Woman')).toEqual({ start: 0, end: 13 })
   })
@@ -105,7 +110,7 @@ describe('fitting the model', () => {
     expect(budget.reply).toBeGreaterThanOrEqual(400)
     expect(budget.available).toBeLessThan(3000)
     // Each paragraph short enough to fit a chunk whole beside the memory's instructions (which grow as it learns more).
-    const paras = textParas(Array.from({ length: 10 }, (_, i) => `Paragraph ${i}. ${'Words go on and on. '.repeat(25)}`).join('\n\n'))
+    const paras = textParas(Array.from({ length: 10 }, (_, i) => `Paragraph ${i}. ${'Words go on and on. '.repeat(30)}`).join('\n\n'))
     const chunks = planChunks(paras, paras, [], budget)
     expect(chunks.length).toBeGreaterThan(1)
     expect(chunks.flatMap((c) => c.paras)).toHaveLength(10)

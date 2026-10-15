@@ -695,6 +695,12 @@ export function lineGiven(db: DB, key: string): boolean {
   return rows.some((r) => json<{ key?: string }>(r.undo_json, {}).key === key)
 }
 
+/** The lines with this key (a question or a quiet note), oldest first: undone ones too. */
+export function linesWithKey(db: DB, key: string): LogRow[] {
+  const rows = db.prepare('SELECT * FROM memory_log WHERE undo_json LIKE ? ORDER BY rowid').all(`%${key}%`) as Row[]
+  return rows.map(toLog).filter((l) => (l.undo as { key?: string } | null)?.key === key)
+}
+
 // ---------- References ----------
 
 /** True when the id is one of the values in a card (at any depth), never only in a key. */

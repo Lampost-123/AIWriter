@@ -8,15 +8,16 @@
 // On top of that, for the page: plot threads aren't underlined, nor names the app gives new entries
 // before Adam names them, and a lower-case alias only when it has two words or more (so "boss" or
 // "smith" never light up across the page). Where names overlap, the longest wins.
-// Since long story memory fix 12 (2026-10-15), as the writer's briefing reads names (shared/names.ts): a character is
-// also found by what this scene's words call them ("the Captain", "her brother": SceneNames.called, read by the
-// memory keeper), and "Will" or "May" opening a question ("Will you come?") isn't the name.
+// Since long story memory fix 12 (2026-10-15) it reads names by the one rule the writer's briefing and the memory
+// keeper use (shared/names.ts): any apostrophe for any ("O'Brien" is "O’Brien"), never a name joined by a hyphen to the
+// next word ("Will-o’-the-wisp"), and "Will" or "May" as the verb ("Will you come?") isn't the name. A character is also
+// found by what this scene's words call them ("the Captain", "her brother": SceneNames.called, read by the keeper).
 //
 // The index is built once per change to the list of names; scanning a paragraph is a lookup per
 // word, so it stays well within a keystroke even with hundreds of entries. Pure, so it is unit-tested.
 
 import type { EntryKind, ID } from '@shared/types'
-import { askingAt } from '@shared/names'
+import { askingAt, NAME_AFTER, namePattern } from '@shared/names'
 import { isPlaceholderName } from '@/features/world/entryLogic'
 
 export interface NameSource {
@@ -69,7 +70,6 @@ export const EMPTY_INDEX: NameIndex = { byFirst: new Map(), size: 0, key: '' }
 const WORD = /[\p{L}\p{N}]+/gu
 const FIRST_WORD = /^[\p{L}\p{N}]+/u
 const WORDS = (s: string): string[] => (s.match(WORD) ?? []).map((w) => w.toLowerCase())
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** True when a name is matched whatever its case (mentionAt: a phrase, or not capitalised). */
 export const ignoresCase = (name: string): boolean => /\s/.test(name) || !/^\p{Lu}/u.test(name)
@@ -114,7 +114,7 @@ export function buildNameIndex(entries: NameSource[]): NameIndex {
     const [own, called] = namesOf(e)
     for (const n of [...own, ...called]) {
       const [first, second] = WORDS(n)
-      const re = new RegExp(`${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, ignoresCase(n) ? 'iuy' : 'uy')
+      const re = new RegExp(`${namePattern(n)}${NAME_AFTER}`, ignoresCase(n) ? 'iuy' : 'uy')
       const c = { entryId: e.id, kind: e.kind, called: called.includes(n), re, length: n.length }
       let slot = byFirst.get(first)
       if (!slot) byFirst.set(first, (slot = { one: [], bySecond: new Map() }))

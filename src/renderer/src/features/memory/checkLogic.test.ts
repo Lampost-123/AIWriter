@@ -8,6 +8,7 @@ import {
   foldedGroup,
   groupChecks,
   guessesOpen,
+  ignoreTitle,
   keepLabel,
   keptToast,
   offeredName,
@@ -126,6 +127,8 @@ describe('the memory check list, grouped', () => {
     expect(keptToast([name])).toBe('Added “the Captain” to Mara Venn’s names.')
     expect(keptToast([name, item('alias')])).toBe('Added 2 names.')
     expect(removedToast(name)).toBe('Ignored “the Captain” for Mara Venn.')
+    // Ignore's button says exactly what it does: never offered again, and no longer her in this scene only.
+    expect(ignoreTitle(name)).toBe('Never offer “the Captain” for Mara Venn again, and stop counting it as Mara Venn in this scene only. You can undo this.')
     expect(countedChecks([name, item('guess')])).toBe(1)
     expect(foldedGroup('alias')).toBe(false)
   })

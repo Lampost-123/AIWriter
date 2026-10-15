@@ -10,9 +10,10 @@
 //   keeper/apply.ts: a nickname or a title, never "her brother").
 // Keep is Adam confirming: a fact becomes his and no longer rests on the words (as an Undo of a removal does in part
 // A), a guess becomes his, a summary counts as fitting the scene as it is now (it still follows later edits), a note is
-// dismissed, a name is added to the character's other names. Remove takes the fact out; for a name, it is ignored, and
-// no longer counts as the character even in its own scene (db/called.ts). Both hand back what Undo needs. Runs inside
-// the caller's transaction for writes. No Electron imports.
+// dismissed, a name is added to the character's other names (refused when someone else goes by it). Remove takes the
+// fact out; for a name, Ignore: it is never offered for that character again anywhere in the story, and stops counting
+// as them in the scene it was found in, for good (other scenes may mean someone else by it: db/called.ts, settleNames).
+// Both hand back what Undo needs. Runs inside the caller's transaction for writes. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { Change, Entry, ID, MemoryCheckFact, MemoryCheckItem, MemoryCheckUndo, Origin, SourceLink } from '@shared/types'
@@ -234,11 +235,11 @@ export function listMemoryChecks(db: DB): MemoryCheckItem[] {
   }
 
   // Names the story calls a character by, offered as other names (long story memory fix 12): while the character is
-  // there and doesn't go by it yet.
+  // there, and neither they nor anyone else goes by it yet.
   for (const row of kdb.openAliasNotes(db)) {
     const alias = aliasOf(row)
     const e = row.entryId ? entries.get(row.entryId) : undefined
-    if (!alias || !e || goesBy(e, alias)) continue
+    if (!alias || !e || [...entries.values()].some((x) => goesBy(x, alias))) continue
     out.push({
       key: `alias:${row.id}`,
       group: 'alias',
@@ -306,11 +307,15 @@ function keepOne(db: DB, fact: MemoryCheckFact): Step[] {
       return [{ op: 'note', logId: row.id }]
     }
     case 'alias': {
-      // Added to the character's other names, as if Adam had typed it on their page.
+      // Added to the character's other names, as if Adam had typed it on their page; never a name someone else has
+      // (it would name two people everywhere), which is refused in plain words.
       const row = kdb.getLog(db, fact.logId)
       const alias = row ? aliasOf(row) : ''
       const e = row?.entryId ? liveEntry(db, row.entryId) : null
       if (!row || row.undone || !alias || !e) return []
+      const other = repo.listEntries(db).find((x) => x.id !== e.id && goesBy(x, alias))
+      if (other)
+        throw new UserError(`“${alias}” is already ${other.name}’s name, so it wasn’t added to ${e.name}. To give it to ${e.name}, take it off ${other.name}’s page first.`)
       kdb.markUndone(db, row.id)
       const steps: Step[] = [{ op: 'note', logId: row.id }]
       if (!goesBy(e, alias)) {

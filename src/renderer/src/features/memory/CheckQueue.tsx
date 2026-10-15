@@ -21,6 +21,7 @@ import {
   foldedGroup,
   groupChecks,
   guessesOpen,
+  ignoreTitle,
   keepLabel,
   keptToast,
   offeredName,
@@ -73,7 +74,9 @@ export function CheckQueue({
       toast(keptToast(rows), { action: { label: 'Undo', run: () => void undoWith(undo) } })
     } catch (e) {
       onReload()
-      toast(`That couldn't be kept. ${plainReason(e)}`, { tone: 'danger' })
+      toast(`${rows.every((r) => r.group === 'alias') ? 'That name couldn’t be added.' : "That couldn't be kept."} ${plainReason(e)}`, {
+        tone: 'danger'
+      })
     }
   }
 
@@ -319,7 +322,7 @@ function Row({
             icon={<X size={13} />}
             onClick={() => onRemove(row)}
             aria-label={`${removeLabel(row)}: ${label}`}
-            title={row.group === 'alias' ? 'Don’t use this name for them (you can undo it)' : 'Take this out of the memory (you can undo it)'}
+            title={row.group === 'alias' ? ignoreTitle(row) : 'Take this out of the memory (you can undo it)'}
           >
             {removeLabel(row)}
           </Button>

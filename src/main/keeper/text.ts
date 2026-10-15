@@ -3,6 +3,7 @@
 // word likeness and token estimates. Pure, no Electron imports.
 
 import { createHash } from 'node:crypto'
+import { findName } from '@shared/names'
 
 // ---------- Normalising ----------
 
@@ -387,20 +388,14 @@ export function closestSentence(text: string, quote: string): { sentence: string
   return best
 }
 
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
 /**
- * Where a name first appears in the text as a whole word or phrase, or -1. A single capitalised word
+ * Where a name first appears in the text as a whole word or phrase, or null. A single capitalised word
  * ("Will", "Rose") must appear capitalised, so ordinary words don't count; phrases and lower-case
- * aliases ("the old woman") ignore case.
+ * aliases ("the old woman") ignore case. Since long story memory fix 12 it is the one rule the briefing and the page
+ * read names by too (shared/names.ts): any apostrophe for any, never joined by a hyphen to the next word, and not
+ * "Will you…?".
  */
-export function mentionAt(text: string, name: string): { start: number; end: number } | null {
-  const n = name.trim()
-  if (n.length < 2 || !text) return null
-  const flags = /\s/.test(n) || !/^\p{Lu}/u.test(n) ? 'iu' : 'u'
-  const m = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, flags).exec(text)
-  return m ? { start: m.index, end: m.index + m[0].length } : null
-}
+export const mentionAt = (text: string, name: string): { start: number; end: number } | null => findName(text, name)
 
 // ---------- Sizes ----------
 

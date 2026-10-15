@@ -36,7 +36,7 @@ export const CHECK_GROUPS: CheckGroupInfo[] = [
     // Long story memory fix 12: what the story calls a character, offered as another name for them (keeper/names.ts).
     id: 'alias',
     title: 'Other names the story uses',
-    help: 'Your story calls these characters something new. Add a name and the AI knows who it means in every scene. Ignore it and it’s left alone.'
+    help: 'Your story calls these characters something new. Add a name and the AI knows who it means in every scene. Ignore it and it’s never offered for them again.'
   }
 ]
 
@@ -95,6 +95,15 @@ export function dropChecks(items: MemoryCheckItem[], keys: string[]): MemoryChec
 /** The name a row offers ("the Captain" in “Also called “the Captain””); '' for any other row. */
 export function offeredName(item: MemoryCheckItem): string {
   return item.group === 'alias' ? (/“(.+)”/.exec(item.text)?.[1] ?? '') : ''
+}
+
+/**
+ * What Ignore does to a name the story uses, said on its button: never offered for them again anywhere in the story,
+ * and no longer counted as them in the scene it was found in (other scenes may mean someone else by it).
+ */
+export function ignoreTitle(item: MemoryCheckItem): string {
+  const name = item.entryName.trim() || 'them'
+  return `Never offer “${offeredName(item)}” for ${name} again, and stop counting it as ${name} in this scene only. You can undo this.`
 }
 
 /** Keep and Remove say what they do for a name the story uses: Add name, Ignore. */

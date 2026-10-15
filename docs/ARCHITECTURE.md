@@ -182,7 +182,7 @@ again, with Undo).
   becomes text-born; withdrawn, it is cleared (never an entry's summary); only `guessFields` count, so Adam's fields and
   the world builder's drafts are never touched; each has Undo and a suppression. To make room, some examples were cut,
   so the prompt is 5,948 characters (about 1,700 tokens; 5,806 before round 2) and still fits a 3,000-token model.
-  (6,116 since long story memory fix 12 added the "name" item; 6,125 is the most a 3,000-token model has room for.)
+  (5,875 since long story memory fix 12 added the "name" item and tightened the wording, to leave later fixes room.)
 - *B8, re-read buttons.* "Re-read this scene" (the binder's scene menu, the palette) and "Re-read the whole story" (the
   story menu, the palette) open `features/memory/RereadDialog.tsx`, which first asks `estimateReread`
   (`ipc/keeper.ts` `rereadEstimate`: the reading requests as `importing/estimate.ts` `guessReread` reckons them, priced at
@@ -429,7 +429,8 @@ is built on migrations 1 and 2.
   decorations with class `aw-name` and `data-name-of` (never `data-entry`, which lists and tests use).
   Since long story memory fix 12 it also underlines what the scene's words call a character (`SceneNames.called`,
   marked `data-called` with the words, which the hover card says: "Character · “her brother” in this scene"), and
-  skips "Will" or "May" asking a question (`shared/names.ts` `askingAt`), as the writer's briefing does.
+  reads names by the one rule `mentionAt`, the briefing and what must stay true share (`shared/names.ts`: any
+  apostrophe for any, no word joined on by a hyphen, and not "Will you…?"; see "Long story memory: spotting characters").
 - Code that selects words to show Adam where something is sets the `REVEALED` meta
   (`editor/reveal.ts`), as `controller.revealWords` does, so the "Selected words" bar ignores it.
 - The hover card (`role="tooltip"`, in a portal) closes on any key but a lone modifier and lets the key
@@ -2417,38 +2418,54 @@ nickname, a title or "her brother", got one line or nothing (the scene so far wa
   before (who they are and how they look), then a line each; with no one in the scene so far the first two are the
   same and only one is kept, so other briefings are unchanged. Only "Also relevant" changes from step to step, as it
   already did; every block before it in `SEND_ORDER` stays word for word the same (the cache, tested).
-- **How a name is read** (`shared/names.ts`, shared by the briefing, the keeper and the page): a whole word or phrase,
-  so "Mara's" names Mara and "Marabel" doesn't; a single capitalised name only capitalised ("will" and "hope" are
-  words); a phrase or lower-case name whatever its case; and in prose `askingAt`: "Will" or "May" opening a sentence
-  with "you", "the", "not" and the like straight after is the word, not the name ("Will you come?"), while "Will drew
-  his knife" and "said Will" still name him. A name at the start of a sentence otherwise counts ("Hope smiled"): a
-  noun like "Hope was all she had" can't be told apart from the name there, and the beats, card and previous scene
-  keep the older `mentions` rule. Parts of a name ("Mara" for "Mara Venn") are not guessed at: the keeper offers them
-  (below), so Adam decides.
+- **How a name is read** (`shared/names.ts` `findName`, `namedInProse`): one rule for the briefing (`ai/context.ts`
+  `mentions`, so the card, beats, notes, direction and the previous scene's end too), the keeper (`keeper/text.ts`
+  `mentionAt`), what must stay true (`memory/items.ts` `nameIn`) and the page (`nameMatch.ts`, with the same
+  `namePattern` and `NAME_AFTER`). A whole word or phrase, so "Mara's" names Mara and "Marabel" doesn't, nor a word
+  joined on by a hyphen ("Will" isn't in "Will-o’-the-wisp", "Mara" isn't in "Mara-Jane"; "Jean-Luc" as a name is
+  fine); any apostrophe for any ("O'Brien" is "O’Brien", as the keeper's quotes fold them); a dot must be there ("Dr.
+  Hale", not "Dr Hale"); a single capitalised name only capitalised ("will" and "hope" are words); a phrase or
+  lower-case name whatever its case. `askingAt`: "Will" or "May" opening a sentence as the verb is the word, not the
+  name: with "you", "the", "not" and the like after it, or a verb as it comes after "will" (`BARE_VERBS`: "Will be
+  there.", "May be the last time."), with "never", "still" and the like between or not ("Will never forget it.").
+  Only verbs whose past is another word count, so "Will let her go" still names him; and not "can", "could", "would"
+  or "must", which follow a name ("Will could see the shore"). A name at the start of a sentence otherwise counts
+  ("Hope smiled"): "Hope was all she had" can't be told apart from it. Parts of a name ("Mara" for "Mara Venn") are not
+  guessed at: the keeper offers them (below), so Adam decides. Known limit: scripts without capitals or spaces between
+  words (Arabic, Chinese, Japanese) aren't read this way.
 - **What the words call someone** (`keeper/names.ts`, `db/called.ts`). The memory keeper's reading reply gains a
   "name" item (`{"type": "name", "entry": "E1", "name": "the Captain", "quote": "..."}`; one rule line, no new call;
-  the prompt is now 6,116 characters). `apply.ts` `noteName` keeps it only for a character who exists here and words
-  that are in the scene (`cleanCalled`: no pronoun, no "the" alone, no single lower-case word, 60 characters and six
-  words at most); `settleNames` drops words the reply gives for two people, or that are already anyone's name or
-  alias. What is left is kept for the scene in meta (`called:<scene id>`, the newest `MOST_CALLED` (30); the same
-  words for someone else replace the old; emptied with the scene from the Trash, `db/trash.ts`). `ai/gather.ts` gives
-  the briefing this scene's (`ContextInput.called.here`: for its card, beats, notes, direction and the scene so far)
-  and the previous scene's (`called.previous`: for its end, block 3's tail), and `getSceneNames` gives the page the
-  scene's (`SceneNames.called`). The run reports the characters as changed, so the page underlines them at once.
-- **Offered as another name, never a relation** (the judgement call). A nickname or a title (`aliasWorthy`: a
-  capitalised word besides "the" and the like that isn't a family word: "the Captain", "Red", "Aunt Jo") also gets a
-  quiet note in What changed, "Also called “the Captain” here" (op `note`, key `alias:<entry>:<words>`, `alias`),
-  once per character and words, and a row in Worth a look under "Other names the story uses" (`checkQueue.ts`, group
-  `alias`, fact `{ kind: 'alias', logId }`; counted in the badge). **Add name** (Keep) adds it to the character's
-  aliases as Adam's own; **Ignore** (Remove; a plain toast, nothing is deleted) dismisses it and stops the words
-  counting as them in that scene too, as Dismiss in What changed does (`undo.ts`); both have Undo, and Add all is Keep
-  all. "her brother", "Mother" or "the old woman" depend on who is speaking or who "her" is, so nothing can promise they
-  mean the same person in another scene: they are kept for their own scene (its end included, as the next scene's
-  briefing reads it) and never offered as another name.
+  with the wording tightened, the prompt is 5,875 characters, under the 6,000 the tests hold it to). `apply.ts`
+  `noteName` keeps it only for a character who exists here and words that are in the scene (`cleanCalled`: no pronoun,
+  no "the" alone, no single lower-case word, 60 characters and six words at most); `settleNames` drops words the reply
+  gives for two people, words that are already anyone's name or alias, and words Adam ignored or dismissed in this
+  scene before (their note is undone), so that sticks however often the scene is read again. What is left is kept
+  for the scene in meta (`called:<scene id>`, the newest `MOST_CALLED` (30); the same words for someone else replace
+  the old; words no longer in the scene's text go at its next read, `forgetCalledNotIn`; emptied with the scene from
+  the Trash, `db/trash.ts`). `ai/gather.ts` gives the briefing this scene's (`ContextInput.called.here`: for its card,
+  beats, notes, direction and the scene so far) and the previous scene's (`called.previous`: for its end, block 3's
+  tail), and `getSceneNames` gives the page the scene's (`SceneNames.called`). The run reports the characters as
+  changed, so the page underlines them at once.
+- **Every one has a note; only a nickname or a title is offered** (the judgement call). Each binding gets one quiet note
+  in What changed, once per scene, character and words; Dismiss takes it back in that scene for good (`undo.ts`). A
+  nickname or a title (`aliasWorthy`: a capitalised word besides "the" and the like that isn't a family word: "the
+  Captain", "Red", "Aunt Jo"), the first time it is found for that character, has the offer as its note, "Also called
+  “the Captain” here" (op `note`, key `alias:<entry>:<words>`, `alias`), and a row in Worth a look under "Other names
+  the story uses" (`checkQueue.ts`, group `alias`, fact `{ kind: 'alias', logId }`; counted in the badge; not shown
+  while anyone goes by it). Anything else ("her brother", "Mother", "the old woman", or a name offered before) has a
+  plain note, "Called “her brother” here" (key `called:<scene>:<entry>:<words>`, `called`). **Add name** (Keep) adds it
+  to the character's aliases as Adam's own, and is refused in plain words when someone else goes by it by then
+  ("“the Boss” is already Ana’s name, so it wasn’t added to Mara. …"). **Ignore** (Remove; a plain toast, nothing is
+  deleted) means two things, as its button says: the name is never offered for that character again anywhere in the
+  story, and it stops counting as them in the scene it was found in, for good. Other scenes keep their own reading,
+  as they may mean someone else by "the Boss". Dismiss on the offer's note in What changed does the same. Both have
+  Undo, and Add all is Keep all. "her brother" and the like depend on who is speaking or who "her" is, so nothing can
+  promise they mean the same person in another scene: they are kept for their own scene (its end included, as the next
+  scene's briefing reads it) and never offered as another name.
 - **The page** already underlined known names (milestone 3: a faint dotted `aw-name` underline, theme tokens, no room
   taken, rebuilt only in the blocks a keystroke touches; Classic's screenshots have always shown it). It now underlines
-  what the scene calls someone too, and skips "Will you…?" (`nameMatch.ts`; the 300-word paragraph a keystroke
-  rescans still takes under 0.1 ms with 500 entries). The hover card says how the words name them ("Character · “her
+  what the scene calls someone too, by the rule above (`nameMatch.ts`; the 300-word paragraph a keystroke rescans
+  still takes under 0.1 ms with 500 entries). The hover card says how the words name them ("Character · “her
   brother” in this scene"). The sample world's scenes have no keeper reads, so Classic's screenshots are unchanged; no
   View setting was needed.
 

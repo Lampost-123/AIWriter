@@ -99,7 +99,7 @@ import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from '
 import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
-import { calledFor, namedInProse, type CalledName } from '@shared/names'
+import { calledFor, foldApostrophes, namedInProse, type CalledName } from '@shared/names'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -564,22 +564,16 @@ export function parentChain(place: Entry, byId: Map<ID, Entry>): Entry[] {
   return out
 }
 
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
 /**
  * True when `name` appears in `text` as a whole word or phrase. A single
  * capitalised word ("Will", "Rose", "Red") must appear capitalised, so ordinary
  * words don't count; phrases and lower-case aliases ("The Duke", "the old
- * woman") ignore case.
+ * woman") ignore case. Since long story memory fix 12 it is the one rule the keeper and the page read names by too
+ * (shared/names.ts): any apostrophe for any, never joined by a hyphen to the next word, and not "Will you…?".
  */
-export function mentions(text: string, name: string): boolean {
-  const n = name.trim()
-  if (n.length < 2 || !text) return false
-  const flags = /\s/.test(n) || !/^\p{Lu}/u.test(n) ? 'iu' : 'u'
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, flags).test(text)
-}
+export const mentions = (text: string, name: string): boolean => namedInProse(text, name)
 
-const squash = (s: string): string => s.toLocaleLowerCase().replace(/\s+/g, ' ')
+const squash = (s: string): string => foldApostrophes(s.toLocaleLowerCase()).replace(/\s+/g, ' ')
 
 /** A text to look for names in, with a plain copy for a quick check first, so a big world stays fast. */
 const haystack = (text: string): { text: string; plain: string } => ({ text, plain: squash(text) })

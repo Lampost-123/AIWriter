@@ -10,7 +10,8 @@ describe('the memory keeper’s rule for a mention', () => {
   it('a single capitalised word matches only capitalised, as a whole word', () => {
     const will = [entry('w', 'Will')]
     expect(found('Will said he will come.', will)).toEqual(['Will'])
-    expect(found('WILL. Willow. Will’s boat. Will-o’-the-wisp.', will)).toEqual(['Will', 'Will'])
+    // "Will’s" names him; "Will-o’-the-wisp" is another word, joined by a hyphen (long story memory fix 12).
+    expect(found('WILL. Willow. Will’s boat. Will-o’-the-wisp.', will)).toEqual(['Will'])
     expect(found('Will2 and 2Will', will)).toEqual([])
   })
 
@@ -100,11 +101,20 @@ describe('however a character is named (long story memory fix 12)', () => {
     expect(called.map((e) => e.called)).toEqual([undefined, ['her brother', 'the Ferryman']])
   })
 
+  it('any apostrophe for any, a hyphen joins words, and a dot must be there', () => {
+    expect(found("Ask O’Brien, then O‘Brien, then O'Brien.", [entry('o', "O'Brien")])).toEqual(['O’Brien', 'O‘Brien', "O'Brien"])
+    expect(found("Ask O'Brien.", [entry('o', 'O’Brien')])).toEqual(["O'Brien"])
+    expect(found('Jean-Luc met Jean. Mara-Jane waved.', [entry('j', 'Jean'), entry('m', 'Mara')])).toEqual(['Jean'])
+    expect(found('Jean-Luc came.', [entry('j', 'Jean-Luc')])).toEqual(['Jean-Luc'])
+    expect(found('Dr. Hale and Dr Hale.', [entry('h', 'Dr. Hale')])).toEqual(['Dr. Hale'])
+  })
+
   it('"Will you come?" asks; "Will said" names him', () => {
     const will = [entry('w', 'Will')]
     expect(found('“Will you come?” she asked.', will)).toEqual([])
     expect(found('She paused. Will the boat hold?', will)).toEqual([])
     expect(found('Will said nothing. “Go,” said Will.', will)).toEqual(['Will', 'Will'])
+    expect(found('Will be there. Will never forget it. Will could see the shore. Will still had the knife.', will)).toEqual(['Will', 'Will'])
   })
 
   it('the key changes when what a scene calls someone does, or when it becomes one of their names', () => {

@@ -68,7 +68,7 @@ async function deckScene() {
 }
 
 describe('the memory keeper reads what the words call someone', () => {
-  it('keeps both for the scene; offers the title as another name, never the relation', async () => {
+  it('keeps both for the scene, each with a note; offers the title as another name, never the relation', async () => {
     const w = await deckScene()
     expect(calledIn(w.db, w.s1)).toEqual([
       { entryId: w.mara.id, words: 'the Captain' },
@@ -76,7 +76,8 @@ describe('the memory keeper reads what the words call someone', () => {
     ])
     const notes = kdb.listLog(w.db).filter((l) => l.note && l.entryId === w.mara.id)
     expect(notes.map((l) => l.text)).toEqual(['Also called “the Captain” here'])
-    expect(kdb.listLog(w.db).some((l) => l.text.includes('her brother'))).toBe(false)
+    // The relation gets a plain note, so Adam can see it and take it back, but is never offered as another name.
+    expect(kdb.listLog(w.db).filter((l) => l.note && l.entryId === w.tobin.id).map((l) => l.text)).toEqual(['Called “her brother” here'])
     const checks = listMemoryChecks(w.db).filter((i) => i.group === 'alias')
     expect(checks).toHaveLength(1)
     expect(checks[0]).toMatchObject({ entryId: w.mara.id, entryName: 'Mara', text: 'Also called “the Captain”', sceneId: w.s1, quote: DECK })
@@ -122,6 +123,72 @@ describe('the memory keeper reads what the words call someone', () => {
     undoItem(w.db, note.id)
     expect(listMemoryChecks(w.db).some((i) => i.group === 'alias')).toBe(false)
     expect(calledIn(w.db, w.s1).map((c) => c.words)).toEqual(['her brother'])
+  })
+
+  it('Ignore sticks: the scene read again with the same words never counts them as her there again', async () => {
+    const w = await deckScene()
+    removeMemoryCheck(w.db, listMemoryChecks(w.db).find((i) => i.group === 'alias')!.fact)
+    const again = async () => {
+      saveParas(w.db, w.s1, [
+        ['p1', 'Mara lost her hat. Tobin lost his oar.'],
+        ['p2', DECK],
+        ['p3', 'The Captain laughed at her brother.']
+      ])
+      await readScene(w.db, fake, w.s1, {
+        add: [
+          { type: 'name', entry: 'Mara', name: 'the Captain', quote: DECK },
+          { type: 'name', entry: 'Tobin', name: 'her brother', quote: DECK }
+        ]
+      })
+    }
+    await again()
+    expect(calledIn(w.db, w.s1).map((c) => c.words)).toEqual(['her brother'])
+    expect(listMemoryChecks(w.db).some((i) => i.group === 'alias')).toBe(false)
+    // Never offered again anywhere in the story, but another scene may still call her so.
+    saveParas(w.db, w.s2, [['q1', 'The Captain came aboard.']])
+    await readScene(w.db, fake, w.s2, { add: [{ type: 'name', entry: 'Mara', name: 'the Captain', quote: 'The Captain came aboard.' }] })
+    expect(calledIn(w.db, w.s2)).toEqual([{ entryId: w.mara.id, words: 'the Captain' }])
+    expect(listMemoryChecks(w.db).some((i) => i.group === 'alias')).toBe(false)
+    expect(kdb.listLog(w.db).filter((l) => l.sceneId === w.s2 && l.note).map((l) => l.text)).toEqual(['Called “the Captain” here'])
+  })
+
+  it('a relation, dismissed in What changed, stops counting there for good', async () => {
+    const w = await deckScene()
+    const note = kdb.listLog(w.db).find((l) => l.note && l.entryId === w.tobin.id)!
+    undoItem(w.db, note.id)
+    expect(calledIn(w.db, w.s1).map((c) => c.words)).toEqual(['the Captain'])
+    saveParas(w.db, w.s1, [
+      ['p1', 'Mara lost her hat. Tobin lost his oar.'],
+      ['p2', DECK],
+      ['p3', 'Her brother said nothing.']
+    ])
+    await readScene(w.db, fake, w.s1, { add: [{ type: 'name', entry: 'Tobin', name: 'her brother', quote: 'Her brother said nothing.' }] })
+    expect(calledIn(w.db, w.s1).map((c) => c.words)).toEqual(['the Captain'])
+    expect(kdb.listLog(w.db).filter((l) => l.note && l.entryId === w.tobin.id)).toHaveLength(1)
+  })
+
+  it('words no longer in the scene stop counting there at its next read', async () => {
+    const w = await deckScene()
+    saveParas(w.db, w.s1, [
+      ['p1', 'Mara lost her hat. Tobin lost his oar.'],
+      ['p2', 'The Captain shouted across the deck.']
+    ])
+    await readScene(w.db, fake, w.s1)
+    expect(calledIn(w.db, w.s1)).toEqual([{ entryId: w.mara.id, words: 'the Captain' }])
+  })
+
+  it('Add name is refused, in plain words, when someone else already goes by it', async () => {
+    const w = await deckScene()
+    const item = listMemoryChecks(w.db).find((i) => i.group === 'alias')!
+    repo.updateEntry(w.db, w.tobin.id, { aliases: ['the Captain'] })
+    // No longer offered...
+    expect(listMemoryChecks(w.db).some((i) => i.group === 'alias')).toBe(false)
+    // ...and an Add that was already on screen is refused, changing nothing.
+    expect(() => keepMemoryCheck(w.db, item.fact)).toThrow(
+      '“the Captain” is already Tobin’s name, so it wasn’t added to Mara. To give it to Mara, take it off Tobin’s page first.'
+    )
+    expect(entryNamed(w.db, 'Mara')!.aliases).toEqual([])
+    expect(kdb.getLog(w.db, (item.fact as { logId: string }).logId)!.undone).toBe(false)
   })
 
   it('offered once: read again, it is not offered again', async () => {

@@ -2,11 +2,12 @@
 // the memory keeper (keeper/names.ts), kept in the world's meta table (one row a scene, `called:<scene id>`), so the
 // writer's briefing (ai/gather.ts) and the page's underlines (manuscript/sceneNames.ts) find the character by them in
 // that scene and at the end of it. No migration: the meta table is the world's own key-value store (as beats/marks.ts
-// uses). A scene emptied from Recently deleted takes its row with it (db/trash.ts).
+// uses). Words no longer in the scene's text stop counting at its next read (forgetCalledNotIn); a scene emptied from
+// Recently deleted takes its row with it (db/trash.ts).
 
 import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
-import type { CalledName } from '@shared/names'
+import { foldApostrophes, namedInProse, type CalledName } from '@shared/names'
 import * as repo from './repo'
 
 type DB = Database.Database
@@ -19,7 +20,7 @@ export const MOST_CALLED = 30
 /** The longest words kept. */
 const LONGEST = 60
 
-const plain = (s: string): string => s.toLocaleLowerCase().replace(/\s+/g, ' ').trim()
+const plain = (s: string): string => foldApostrophes(s.toLocaleLowerCase()).replace(/\s+/g, ' ').trim()
 
 function cleanList(v: unknown): CalledName[] {
   const out: CalledName[] = []
@@ -56,13 +57,23 @@ export function keepCalled(db: DB, sceneId: ID, found: CalledName[]): void {
   repo.setMeta(db, key(sceneId), JSON.stringify(next))
 }
 
-/** Forgets what the words call one character in a scene (a name Adam made one of theirs, or took back). */
-export function forgetCalled(db: DB, sceneId: ID, entryId: ID, words: string): void {
+/** Keeps only those of a scene's that `keep` says to (the row goes when none are left). */
+function keepOnly(db: DB, sceneId: ID, keep: (c: CalledName) => boolean): void {
   const before = calledIn(db, sceneId)
-  const next = before.filter((c) => !(c.entryId === entryId && plain(c.words) === plain(words)))
+  const next = before.filter(keep)
   if (next.length === before.length) return
   if (next.length) repo.setMeta(db, key(sceneId), JSON.stringify(next))
   else db.prepare('DELETE FROM meta WHERE key = ?').run(key(sceneId))
+}
+
+/** Forgets what the words call one character in a scene (Adam ignored or dismissed it). */
+export function forgetCalled(db: DB, sceneId: ID, entryId: ID, words: string): void {
+  keepOnly(db, sceneId, (c) => !(c.entryId === entryId && plain(c.words) === plain(words)))
+}
+
+/** Forgets what the words call someone where those words are no longer in the scene's text (read as names are read). */
+export function forgetCalledNotIn(db: DB, sceneId: ID, text: string): void {
+  keepOnly(db, sceneId, (c) => namedInProse(text, c.words))
 }
 
 /** Rows of scenes that are gone for good (called when the Trash is emptied). */
