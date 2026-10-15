@@ -10,11 +10,12 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import { memoryWorld } from '../../../tests/unit/helpers'
-import { setThreadPlan, threadPlan, threadPlans, cleanPlan, dropPlansOfGoneThreads } from '../db/threadPlans'
+import { setThreadPlan, threadPlan, threadPlans, cleanPlan, clearGoneChapters, dropPlansOfGoneThreads } from '../db/threadPlans'
 import { purgeTrash } from '../db/trash'
-import { chapterChoice, LONG_QUIET_MIN, longQuiet, promiseLedger, threadWarnings, type PromiseInput } from './promises'
+import { chapterChoice, LONG_QUIET_MIN, longQuiet, promiseLedger, threadWarnings, writtenUpTo, type PromiseInput } from './promises'
 import type { ThreadTouch } from './threadQuiet'
 import type { Line, WorldShape } from './types'
+import { buildLine } from './line'
 import { overdueThreads, sceneMemory } from './scene'
 import { threadsBoardOf } from '../worldViews'
 import { keepMemoryChecks, listMemoryChecks, planThread, removeMemoryCheck, undoMemoryCheck } from '../keeper/checkQueue'
@@ -128,6 +129,14 @@ describe('where each thread stands, and when it is due', () => {
     expect(rows.get('d')?.standing).toBe('dropped')
   })
 
+  it('a later touch at a story’s start, with no scene, is not a step on: it stays open, with nowhere to show as moved on', () => {
+    const l = before(line, scene(3, 2))
+    const startStep = l.steps.findIndex((s) => s.type === 'start-changes')
+    const atStart: ThreadTouch = { step: startStep, sceneId: null, storyId: 'b1', quiet: 6, opened: { step: -1, sceneId: null, storyId: '' } }
+    const rows = promiseLedger(base({ line: l, threads: [open('a')], touches: new Map([['a', atStart]]) }))
+    expect(rows.get('a')).toEqual({ standing: 'open' })
+  })
+
   it('by a chapter Adam chose: overdue once that chapter is over, due now in it, later before it', () => {
     const plans = new Map<ID, ThreadPlan>([
       ['a', { payBy: 'c2' }],
@@ -160,6 +169,42 @@ describe('where each thread stands, and when it is due', () => {
     expect(at(scene(2, 2), new Map([['a', { payBy: 'c4' }]]))).toMatchObject({ from: 'adam', chapterId: 'c4', state: 'later' })
   })
 
+  it('reads scenes in the walk’s order: a side story’s scenes sit where it is added, not after its host’s whole story', () => {
+    // Book 1 (3 chapters of 2 scenes), and a side story added after Book 1's Ch 1, where the thread is set up.
+    const side = {
+      ...shape.stories[0],
+      id: 'sd',
+      title: 'The Lighthouse Keeper',
+      kind: 'side',
+      startStoryId: 'b1',
+      startAt: 'chapter',
+      startRefId: 'c1',
+      endAt: 'chapter',
+      endRefId: 'c1',
+      position: 1,
+      createdOrder: 1,
+      chapters: [{ id: 'sd1', title: '', scenes: [{ id: 'sd1_1', title: '' }, { id: 'sd1_2', title: '' }] }]
+    } as unknown as WorldShape['stories'][number]
+    const host = { ...shape.stories[0], chapters: shape.stories[0].chapters.slice(0, 3).map((c) => ({ ...c, scenes: c.scenes.slice(0, 2) })) }
+    const world: WorldShape = { stories: [host, side], answers: [] }
+    const l = buildLine(world, { storyId: 'b1', before: scene(2, 1) })
+    expect(l.segments.map((s) => s.storyId)).toEqual(['sd', 'b1'])
+    const touches = new Map<ID, ThreadTouch>([
+      ['a', { step: l.steps.findIndex((s) => s.type === 'scene' && s.sceneId === 'sd1_2'), sceneId: 'sd1_2', storyId: 'sd', quiet: 0, opened: { step: l.steps.findIndex((s) => s.type === 'scene' && s.sceneId === 'sd1_2'), sceneId: 'sd1_2', storyId: 'sd' } }]
+    ])
+    // A card in Ch 1 (before the side story) and one in Ch 3 (after it) plan the pay-off: Ch 3's is the one after the set-up.
+    const due = promiseLedger({
+      ...base({}),
+      shape: world,
+      line: l,
+      threads: [open('a')],
+      touches,
+      paysOff: new Map([[scene(1, 1), ['a']], [scene(3, 1), ['a']]]),
+      now: { sceneId: scene(2, 1) }
+    }).get('a')?.due
+    expect(due).toMatchObject({ chapterId: 'c3', sceneLabel: 'Ch 3, Sc 1', state: 'later' })
+  })
+
   it('as the story stands now: against its latest scene with words, and nothing is due before any', () => {
     const plans = new Map<ID, ThreadPlan>([['a', { payBy: 'c2' }]])
     const now = (written: ID[]) => promiseLedger(base({ line, threads: [open('a')], plans, now: { written: new Set(written) } })).get('a')?.due?.state
@@ -184,22 +229,26 @@ describe('which threads are worth a look', () => {
     expect(warn({ threads: [open('a')], rows, touches, plans: new Map([['a', { kept: { due: 'c1' } }]]) })).toHaveLength(1)
   })
 
-  it('one with no due date untouched for a long stretch in this story; never one dropped, paid off, planned or due later', () => {
+  it('one with no due date untouched for a long stretch; never one dropped, paid off or only planned, and never one with any due date (Adam’s or a card’s, even still to come)', () => {
     const rows = new Map([
       ['a', { standing: 'open' as const }],
       ['b', { standing: 'advanced' as const }],
       ['c', { standing: 'dropped' as const }],
       ['d', { standing: 'open' as const, due: { chapterId: 'c8', label: 'Ch 8', from: 'adam' as const, state: 'later' as const } }],
       ['e', { standing: 'open' as const }],
-      ['f', { standing: 'open' as const }]
+      ['f', { standing: 'open' as const }],
+      ['g', { standing: 'open' as const, due: { chapterId: 'c7', label: 'Ch 7', from: 'card' as const, sceneId: 's7_1', sceneLabel: 'Ch 7, Sc 1', state: 'later' as const } }],
+      ['h', { standing: 'open' as const }]
     ])
-    const touches = new Map([t('a', 13), t('b', 20), t('c', 30), t('d', 30), t('e', 11), t('f', 40, { storyId: 'b0' })])
-    const threads = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => open(id))
+    const touches = new Map([t('a', 13), t('b', 20), t('c', 30), t('d', 30), t('e', 11), t('f', 40, { storyId: 'b0' }), t('g', 30), t('h', 14, { storyId: '', sceneId: null })])
+    const threads = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id) => open(id))
+    // h's only touch is from before any story began: it counts as this story's.
     expect(warn({ threads, rows, touches }).map((w) => [w.threadId, w.why, w.quiet])).toEqual([
       ['b', 'quiet', 20],
+      ['h', 'quiet', 14],
       ['a', 'quiet', 13]
     ])
-    // The stretch grows with the story: 13 isn't long in a story of 80 scenes (20).
+    // The stretch grows with the story: 13 or 14 isn't long in a story of 80 scenes (20).
     expect(warn({ threads, rows, touches, written: 80 }).map((w) => w.threadId)).toEqual(['b'])
     expect(warn({ threads: [open('a', { planned: true })], rows, touches })).toEqual([])
   })
@@ -298,6 +347,39 @@ describe('overdueThreads (for Worth a look, and rule-based checks to come)', () 
   })
 })
 
+describe('as of a point, and in a long story', () => {
+  it('counts only the scenes with words the line reaches: writing later never changes an earlier point', () => {
+    const { line, scene } = shapeOf(4, 3)
+    const written = new Set([scene(1, 1), scene(1, 2), scene(2, 1), scene(4, 3)])
+    expect(writtenUpTo(line, 'b1', written)).toBe(4)
+    expect(writtenUpTo(before(line, scene(2, 2)), 'b1', written)).toBe(3)
+    expect(writtenUpTo(line, 'other', written)).toBe(0)
+  })
+
+  it('past 48 scenes the stretch is a quarter of them; an earlier scene is told by what was written up to it', () => {
+    const w = book(12, 5) // 60 scenes
+    w.write([12, 5])
+    // Touched in Ch 10, Sc 2 (scene 47): 13 scenes since, short of the 15 a story of 60 scenes asks for.
+    hist.addLink(w.db, { factKind: 'field', factId: w.bell.id, field: 'clues', sceneId: w.scenes[9][1], sceneVersion: 1, paragraphId: 'p1', start: 0, end: 5, quote: 'A bell', state: 'ok' })
+    expect(overdueThreads(w.db, w.storyId)).toEqual([])
+    // As Ch 3, Sc 4 (scene 14) begins, only the 13 scenes before it count: 12 since the bell was set up is a long stretch,
+    // however much is written after it.
+    expect(overdueThreads(w.db, w.storyId, w.scenes[2][3]).map((x) => [x.why, x.quiet])).toEqual([['quiet', 12]])
+  })
+
+  it('a thread whose only history is before the story began is asked about too', () => {
+    const w = book(4, 4)
+    const lamp = repo.createEntry(w.db, 'thread', { name: 'The lamp oath', fields: { promise: 'Will the lamp stay lit?' } })
+    mem.insertChange(w.db, { kind: 'thread', payload: { status: 'open', note: 'sworn long ago' }, entryId: lamp.id, anchor: 'baseline', origin: 'adam' })
+    w.moves(w.bell.id, w.scenes[3][3])
+    w.write([4, 4])
+    const [o] = overdueThreads(w.db, w.storyId)
+    expect(o).toMatchObject({ threadId: lamp.id, why: 'quiet', quiet: 16, lastWhere: '' })
+    // Nothing in a scene moved it on.
+    expect(threadsBoardOf(w.db, w.storyId).threads.find((t) => t.id === lamp.id)).toMatchObject({ standing: 'open', advanced: null, warn: 'quiet' })
+  })
+})
+
 describe('the board', () => {
   it('says where each stands, its last step on, when it is due and what is worth a look; dropped has its own column', () => {
     const w = book()
@@ -322,6 +404,8 @@ describe('the board', () => {
     expect(bell().due).toEqual({ chapterId: w.chapters[3], label: 'Ch 4', from: 'card', sceneId: w.scenes[3][1], sceneLabel: 'Ch 4, Sc 2', state: 'later' })
     planThread(w.db, w.bell.id, { payBy: w.chapters[1] })
     expect(bell().due).toMatchObject({ from: 'adam', label: 'Ch 2', state: 'now' })
+    // The cards' plan is still known, for "As the cards plan" and what clearing the chapter goes back to.
+    expect(bell().cardDue).toMatchObject({ from: 'card', sceneLabel: 'Ch 4, Sc 2' })
   })
 })
 
@@ -403,5 +487,21 @@ describe('the plans in the world', () => {
     purgeTrash(w.db, 0, Date.now() + 60_000)
     expect(threadPlan(w.db, w.bell.id)).toBeNull()
     expect(repo.getMeta(w.db, 'thread_plan:broken')).toBeNull()
+  })
+
+  it('a pay-off chapter in Recently deleted is none of Adam’s (the cards’ plan holds); gone for good, it leaves the plan', () => {
+    const w = book()
+    repo.updateSceneCard(w.db, w.scenes[3][0], { ...emptySceneCard(), paysOffIds: [w.bell.id] })
+    setThreadPlan(w.db, w.bell.id, { payBy: w.chapters[1], dropped: true, kept: { due: w.chapters[1], quiet: 3, touch: null } })
+    const other = repo.createEntry(w.db, 'thread', { name: 'The missing ledger' })
+    setThreadPlan(w.db, other.id, { payBy: w.chapters[1] })
+    repo.deleteChapter(w.db, w.chapters[1])
+    clearGoneChapters(w.db)
+    expect(threadPlan(w.db, w.bell.id)?.payBy).toBe(w.chapters[1])
+    setThreadPlan(w.db, w.bell.id, { payBy: w.chapters[1], kept: { due: w.chapters[1], quiet: 3, touch: null } })
+    expect(threadsBoardOf(w.db, w.storyId).threads.find((t) => t.id === w.bell.id)?.due).toMatchObject({ from: 'card', label: 'Ch 3' })
+    purgeTrash(w.db, 0, Date.now() + 60_000)
+    expect(threadPlan(w.db, w.bell.id)).toEqual({ kept: { quiet: 3, touch: null } })
+    expect(threadPlan(w.db, other.id)).toBeNull()
   })
 })

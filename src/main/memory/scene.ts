@@ -27,7 +27,7 @@ import { ledgerOf, type Ledger } from './ledger'
 import * as mem from '../db/memory'
 import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
 import { threadTouches } from './threadQuiet'
-import { promiseLedger, threadWarnings, type ThreadWarning } from './promises'
+import { promiseLedger, threadWarnings, writtenUpTo, type ThreadWarning } from './promises'
 import { threadPlans } from '../db/threadPlans'
 import { sceneCards } from '../db/worldViews'
 import { DUE_SUMMARY_SCENES, MIN_SUMMARY_WORDS, summaryDue } from '../keeper/sceneChange'
@@ -239,8 +239,10 @@ export interface OverdueThread extends ThreadWarning {
  * The plot threads worth a look in a story (the promises ledger, long story memory fix 10): still open past the chapter
  * they were due by, or untouched for a long stretch (memory/promises.ts threadWarnings: dropped threads and what Adam
  * said Keep to are left out). As a scene begins (`asOfSceneId`: what counts for drafting it, told against its chapter),
- * or as the story stands now (none: told against its latest scene with words). For Worth a look and for rule-based
- * checks to come (fix 8).
+ * or as the story stands now (none: told against its latest scene with words). What the story says is as of that point
+ * (only scenes with words the line reaches count, so writing later never changes an earlier point); Adam's plans (Pay
+ * off by, dropped, what he kept) and the scene cards' planned pay-offs are read as they stand now: they are his current
+ * plan, not facts of the story. For Worth a look and for rule-based checks to come (fix 8).
  */
 export function overdueThreads(db: DB, storyId: ID, asOfSceneId?: ID | null, read?: { shape: WorldShape; data: MemoryData }): OverdueThread[] {
   const shape = read?.shape ?? loadShape(db)
@@ -259,9 +261,8 @@ export function overdueThreads(db: DB, storyId: ID, asOfSceneId?: ID | null, rea
   const plans = threadPlans(db)
   const paysOff = new Map([...cards].filter(([, c]) => c.paysOffIds.length).map(([id, c]) => [id, c.paysOffIds] as const))
   const rows = promiseLedger({ storyId, shape, line, threads, touches, plans, paysOff, now: asOfSceneId ? { sceneId: asOfSceneId } : { written } })
-  const inStory = new Set(shape.stories.find((s) => s.id === storyId)!.chapters.flatMap((c) => c.scenes.map((sc) => sc.id)))
   const label = labeler(shape)
-  return threadWarnings({ storyId, threads, rows, touches, plans, written: [...written].filter((id) => inStory.has(id)).length }).map((w) => {
+  return threadWarnings({ storyId, threads, rows, touches, plans, written: writtenUpTo(line, storyId, written) }).map((w) => {
     const e = state.entries.get(w.threadId)
     const at = touches.get(w.threadId)
     return {

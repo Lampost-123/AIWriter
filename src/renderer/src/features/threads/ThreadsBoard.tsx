@@ -37,6 +37,7 @@ import {
 } from './boardLogic'
 import { DeskThreads } from './DeskThreads'
 import { setDropped, setPayBy } from './planActions'
+import { noChapterLabel } from './planWords'
 
 const loadBoard = (storyId: ID): Promise<Board> => api.getThreadsBoard(storyId)
 
@@ -463,7 +464,7 @@ function LedgerRow({ thread: t, chapters }: { thread: BoardThread; chapters: { i
             <Select
               value={chosen}
               allowNone
-              noneLabel={t.due?.from === 'card' && t.due.sceneLabel ? `As the cards plan (${t.due.sceneLabel})` : 'No chapter'}
+              noneLabel={noChapterLabel(t.cardDue?.sceneLabel)}
               ariaLabel={`Pay off “${t.name}” by`}
               onChange={(id) => act(() => setPayBy(t, id, id ? short(id) : ''))}
               options={chapters.map((c) => ({ value: c.id, label: c.label }))}

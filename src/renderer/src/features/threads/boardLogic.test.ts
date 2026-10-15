@@ -15,7 +15,7 @@ import {
   statusWords,
   warnWords
 } from './boardLogic'
-import { droppedToast, payByToast } from './planWords'
+import { droppedToast, noChapterLabel, payByToast } from './planWords'
 
 describe('the ledger (World Memory Overhaul B4)', () => {
   const t = (id: string, column: BoardThread['column'], quietScenes: number | null): BoardThread => ({
@@ -166,7 +166,12 @@ describe('the promises ledger on the board (long story memory fix 10)', () => {
 
   it('says what Pay off by and Mark as dropped did', () => {
     expect(payByToast('The drowned bell', 'Ch 5')).toBe('“The drowned bell” is to be paid off by the end of Ch 5.')
-    expect(payByToast('The drowned bell', null)).toBe('“The drowned bell” has no chapter to be paid off by now.')
+    expect(payByToast('The drowned bell', null)).toBe('“The drowned bell” no longer has a chapter to be paid off by.')
+    // Back to the cards' plan: it says where they plan it, not that it has no chapter.
+    expect(payByToast('The drowned bell', null, 'Ch 5, Sc 2')).toBe('“The drowned bell” will be paid off where the cards plan it: Ch 5, Sc 2.')
+    expect(payByToast('The drowned bell', 'Ch 3', 'Ch 5, Sc 2')).toBe('“The drowned bell” is to be paid off by the end of Ch 3.')
+    expect(noChapterLabel('Ch 5, Sc 2')).toBe('As the cards plan (Ch 5, Sc 2)')
+    expect(noChapterLabel(null)).toBe('No chapter')
     expect(droppedToast('The drowned bell', true)).toBe('Marked “The drowned bell” as dropped. The AI won’t bring it up again.')
     expect(droppedToast(' ', false)).toBe('“This plot thread” is open again. The AI will keep it alive.')
   })

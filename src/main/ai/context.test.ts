@@ -2372,6 +2372,23 @@ describe('the open plot threads (the AI manages plot threads, 2026-10-08; the pr
     expect(names).toEqual(['- Thread 1', '- Thread 4', '- Thread 5', '- Thread 2', '- Thread 3'])
   })
 
+  it('a write to a thread between steps never reorders the block: ties go by when it was made, not its last edit', () => {
+    const { inp } = withThreads(4)
+    for (const e of inp.memory.entries) if (e.kind === 'thread') e.happened = [{ note: 'moved on', where: '', changeId: `x${e.id}`, at: 0 }]
+    const before = linesOf(inp)
+    // The memory (or Adam) writes to the first thread listed: it now has the newest last edit.
+    const first = inp.memory.entries.find((e) => before[0].startsWith(`- ${e.name} `))!
+    first.updatedAt = '2026-10-16T09:00:00.000Z'
+    expect(linesOf(inp)).toEqual(before)
+    const last = inp.memory.entries.find((e) => before[3].startsWith(`- ${e.name} `))!
+    last.updatedAt = '2025-01-01T00:00:00.000Z'
+    expect(linesOf(inp)).toEqual(before)
+    // Made later than the others: after them.
+    const second = inp.memory.entries.find((e) => before[1].startsWith(`- ${e.name} `))!
+    second.createdAt = '2026-10-16T09:00:00.000Z'
+    expect(linesOf(inp).at(-1)).toBe(before[1])
+  })
+
   it('reads the same at every step of a scene (the cache)', () => {
     const { inp } = withThreads(8)
     inp.memory.threads[2] = { ...inp.memory.threads[2], due: { chapterId: 'c5', label: 'Ch 5', from: 'adam', state: 'now' } }

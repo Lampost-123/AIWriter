@@ -17,7 +17,7 @@ import { labeler } from '../memory/line'
 import type { CardInfo } from '../db/worldViews'
 import { chaptersAfter, walkOf } from './walk'
 import { threadTouches } from '../memory/threadQuiet'
-import { chapterChoice, promiseLedger, threadWarnings } from '../memory/promises'
+import { chapterChoice, promiseLedger, threadWarnings, writtenUpTo } from '../memory/promises'
 
 /** A thread open for this many chapters or more is highlighted on the board, so it isn't forgotten. */
 export const LONG_OPEN_CHAPTERS = 10
@@ -114,7 +114,6 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
   const plans = input.plans ?? new Map<ID, ThreadPlan>()
   const paysOff = new Map([...cards].filter(([, c]) => c.paysOffIds?.length).map(([id, c]) => [id, c.paysOffIds] as const))
   const promises = promiseLedger({ storyId, shape, line, threads: state.threads, touches, plans, paysOff, now: { written } })
-  const storyScenes = new Set(shape.stories.find((s) => s.id === storyId)?.chapters.flatMap((c) => c.scenes.map((sc) => sc.id)) ?? [])
   const warnings = new Map(
     threadWarnings({
       storyId,
@@ -122,7 +121,7 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
       rows: promises,
       touches,
       plans,
-      written: [...written].filter((id) => storyScenes.has(id)).length
+      written: writtenUpTo(line, storyId, written)
     }).map((w) => [w.threadId, w.why] as const)
   )
   const placeOf = (p: { sceneId: ID; storyId: ID } | undefined): BoardPlace | null =>
@@ -169,6 +168,7 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
       advanced: inStory ? placeOf(promise?.advanced) : null,
       // A dropped thread isn't to be paid off: its chapter waits in Adam's plan in case he picks it up again.
       due: column === 'resolved' || column === 'dropped' ? null : (promise?.due ?? null),
+      cardDue: column === 'resolved' || column === 'dropped' ? null : (promise?.cardDue ?? null),
       warn: column === 'open' ? (warnings.get(t.entryId) ?? null) : null,
       order: setUpStep ?? Infinity
     })

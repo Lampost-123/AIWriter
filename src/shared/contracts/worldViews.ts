@@ -326,6 +326,8 @@ export interface BoardThread {
   standing?: ThreadStanding
   advanced?: BoardPlace | null
   due?: ThreadDue | null
+  /** A scene card's plan for its pay-off, whether or not Adam chose a chapter ("As the cards plan"); null for none. */
+  cardDue?: ThreadDue | null
   warn?: 'overdue' | 'quiet' | null
 }
 

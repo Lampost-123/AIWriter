@@ -113,7 +113,10 @@ export function openThreadsAt(
         b.named - a.named ||
         b.quiet - a.quiet ||
         a.last - b.last ||
-        (a.e.updatedAt < b.e.updatedAt ? -1 : a.e.updatedAt > b.e.updatedAt ? 1 : 0) ||
+        // Ties on what never changes (when it was made, then its id), never on its last edit: a write to a thread
+        // between two steps of a scene mustn't reorder the block (the cache).
+        (a.e.createdAt < b.e.createdAt ? -1 : a.e.createdAt > b.e.createdAt ? 1 : 0) ||
+        (a.e.id < b.e.id ? -1 : a.e.id > b.e.id ? 1 : 0) ||
         a.order - b.order
     )
   // The most overdue (at most REMINDER_MOST) always make the list, in place of the last ones, keeping its order.

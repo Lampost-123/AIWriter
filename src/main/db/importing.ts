@@ -11,6 +11,7 @@
 import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
 import { getMeta, setMeta } from './repo'
+import { clearGoneChapters } from './threadPlans'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -154,6 +155,7 @@ export function clearEmptyFirstStory(db: DB): boolean {
   db.prepare('DELETE FROM chapters WHERE story_id = ?').run(id)
   db.prepare('DELETE FROM acts WHERE story_id = ?').run(id)
   db.prepare('DELETE FROM stories WHERE id = ?').run(id)
+  clearGoneChapters(db)
   return true
 }
 

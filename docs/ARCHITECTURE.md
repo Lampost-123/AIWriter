@@ -2567,17 +2567,24 @@ no sense of timing, and nothing said when one was overdue. Now there is a ledger
 parallel store) and no new AI call.
 
 - **Where each stands** (`memory/promises.ts` `promiseLedger`, pure). Open (set up, nothing since), advanced (touched
-  again after the thread change that first opened it: a clue, a step on, its words in a later scene; `threadTouches`
-  now gives `opened`), paid off (resolved, as before), or dropped (Adam's call). The set-up scene, and the last scene
-  after it that moved it on. Status changes come from what the memory keeper already reads (`open`, `clue`,
+  again in a scene after the thread change that first opened it: a clue, a step on, its words there; `threadTouches`
+  now gives `opened`; a story's start-of-story change has no scene, so it isn't a step on), paid off (resolved, as
+  before), or dropped (Adam's call). The set-up scene, and the last scene after it that moved it on. Status changes come from what the memory keeper already reads (`open`, `clue`,
   `developing`, `close`), so its reading prompt is unchanged (5,942 characters; the 58 to spare are left for later
   fixes); dropped is never read from the text, only set by Adam.
 - **When it is due** (`ThreadDue`). By the end of a chapter Adam chose ("Pay off by"), else the chapter of the first
   scene whose card has it under "Pays off" (at or after its set-up; the scene card is the plan the app already has).
+  Scenes are read in the walk's order (`line.steps`: a side story's where it is added in its host, never after the
+  host's whole story), then the story's own scenes past the point in story order.
   Told as of a point: `overdue` (the walk has passed that chapter's end and it is still open), `now` (the chapter being
   written; a card's plan later in this chapter is still `later`, as that scene's card will say "this scene pays it
   off"), or `later`. For the writer the point is the scene being drafted; for the board and Worth a look, the story's
-  latest scene with words. A chapter that is gone is no date.
+  latest scene with words. A Pay off by chapter in Recently deleted is read as none of Adam's (the cards' plan holds,
+  and a restore brings it back); one gone for good (`purgeTrash`, the outline helper's Undo, an imported story taking
+  the empty first one's place) is cleared from every plan, with what Keep remembered for it
+  (`db/threadPlans.ts` `clearGoneChapters`). The cards' plan is kept beside Adam's (`PromiseRow.cardDue`,
+  `BoardThread.cardDue`), so "Pay off by" offers "As the cards plan (Ch 4, Sc 2)" and clearing the chapter says
+  "will be paid off where the cards plan it: Ch 4, Sc 2".
 - **Adam's plan, in meta** (`db/threadPlans.ts`, `thread_plan:<thread id>`, JSON of `ThreadPlan`: `payBy`, `dropped`,
   `kept`; no row for an empty plan; no migration). It travels with the world; `purgeTrash` drops the rows of threads
   gone for good (one in Recently deleted keeps its row). `planThread` (`keeper/checkQueue.ts`; `AppApi.planThread`,
@@ -2589,7 +2596,9 @@ parallel store) and no new AI call.
   or overdue first (overdue before due now); then those that involve the scene (the card's words name them, as before,
   or the thread's name, promise, clues, payoff or summary name the point of view, someone else on the card, the
   location, or an item those people hold as the scene begins: `holdingsOf`, `namesOf`, `nameIn`, the one name rule of
-  fix 12); then the longest untouched (`quiet`, else the oldest last note). B4's two most quiet still always make the
+  fix 12); then the longest untouched (`quiet`, else the oldest last note); ties by when the thread was made, then its
+  id, never by its last edit, so a write to a thread between two steps of a scene doesn't reorder the block (the
+  cache). B4's two most quiet still always make the
   list. The cap grows with room: `openThreadsMost(memoryScale)` 6 to 22 (`OPEN_THREADS_MOST` × the scale, at most
   `MOST_SCALE`), short `openThreadsShort` 3 to 6; Continue keeps 4. Each line says when it is due (`dueWords`): "Pay
   this off by the end of this chapter.", "Overdue: it was to be paid off by the end of Ch 4. Pay it off soon, where it
@@ -2598,11 +2607,15 @@ parallel store) and no new AI call.
   direction), so the block stays in the steady part of `SEND_ORDER` and reads the same at every step (tested).
 - **Worth a look** (`memory/promises.ts` `threadWarnings`; `memory/scene.ts` `overdueThreads`; `keeper/checkQueue.ts`
   group `promise`, "Plot threads left waiting"). An open or advanced thread (never dropped, paid off or only planned)
-  that is overdue, unless Adam kept it for that due chapter; or, with no due date at all, untouched for a long stretch:
-  `longQuiet(written)`, a quarter of the story's scenes with words and never fewer than `LONG_QUIET_MIN` (12, twice the
+  that is overdue, unless Adam kept it for that due chapter; or untouched for a long stretch. A thread with any due date
+  (Adam's Pay off by, or a scene card's plan, even one still to come) is never asked about as untouched: it is planned,
+  and the overdue warning covers it once its chapter is over. One with no due date at all is asked about when untouched
+  for `longQuiet(written)`: a quarter of the story's scenes with words and never fewer than `LONG_QUIET_MIN` (12, twice the
   `QUIET_SCENES` after which the writer is reminded, so Adam is asked only once the reminders haven't brought it back):
-  12 up to 48 scenes, 25 at 100, 50 at 200. Like the writer's reminder, only a thread last touched in that story (one
-  carried from an earlier book isn't asked about until the story touches it). Every story with words is looked at, each
+  12 up to 48 scenes, 25 at 100, 50 at 200 (`writtenUpTo`: only the story's scenes with words the line reaches, so as
+  of an earlier scene, writing after it never changes the count). Like the writer's reminder, only a thread last touched
+  in that story, or before any story began (a baseline change), which counts as this story's; one carried from an
+  earlier book isn't asked about until the story touches it. Every story with words is looked at, each
   thread listed once (`promiseChecks`, kept while `changesMade` doesn't move). A row: "Still open, and due by the end of
   Ch 1" (or "…though its scene card planned the pay-off for Ch 4, Sc 2"), "Untouched for 14 scenes", and "Last touched
   in …". **Pay off later** (a menu of the chapters from the one being written to the story's end, `MemoryCheckItem.later`)
@@ -2610,7 +2623,9 @@ parallel store) and no new AI call.
   until something touches it, or another long stretch goes by); **Mark as dropped** is Remove; **Open** goes to the
   thread; Show me opens the scene that last touched it. Each has Undo, and the rows count in the badge.
 - **`overdueThreads(db, storyId, asOfSceneId?)`** gives the same as a scene begins (told against its chapter) or as the
-  story stands now, with names and where each was last touched, for rule-based checks to come (fix 8).
+  story stands now, with names and where each was last touched, for rule-based checks to come (fix 8). What the story
+  says is as of that point; Adam's plans (Pay off by, dropped, what he kept) and the cards' planned pay-offs are read as
+  they stand now: they are his current plan, not facts of the story, so a check of an earlier scene uses today's plan.
 - **The board** (`worldViews/threads.ts`, as of the story's latest scene with words). `BoardThread` gains `standing`,
   `advanced` (a place), `due` (none once resolved or dropped) and `warn`; a dropped thread has column `dropped`, shown
   only when there is one ("You decided not to pay these off"); `ThreadsBoard.chapters` is the story's chapters for the

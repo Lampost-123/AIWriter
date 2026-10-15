@@ -30,6 +30,7 @@ import { StoryFilter } from '@/features/timeline/viewParts'
 import { useEntryMotifs } from '@/features/world/art/artStore'
 import { advancedWords, canPlan, columnsOf, dueWords, openFor, paidOffWords, payBy, setUpWords, statusWords, warnWords, type PlaceWords } from './boardLogic'
 import { setDropped, setPayBy } from './planActions'
+import { noChapterLabel } from './planWords'
 import { loomRuler, matchesWords, openMarks, sceneWords, strandOf, touchesChapter, type LoomRuler, type Strand } from './loomLogic'
 import { markPaidOff } from './payOff'
 import './threads.css'
@@ -486,7 +487,7 @@ function ThreadCard({
               className="th-due-pick"
               value={payBy(t)}
               allowNone
-              noneLabel={t.due?.from === 'card' && t.due.sceneLabel ? `As the cards plan (${t.due.sceneLabel})` : 'No chapter'}
+              noneLabel={noChapterLabel(t.cardDue?.sceneLabel)}
               ariaLabel={`Pay off “${t.name}” by`}
               onChange={(id) => plan(() => setPayBy(t, id, id ? chapterWords(id) : ''))}
               options={chapters.map((c) => ({ value: c.id, label: c.label }))}
