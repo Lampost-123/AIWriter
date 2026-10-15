@@ -149,11 +149,12 @@ export const shortPlace = (label: string): string => label.replace(/^.*?(?=Ch \d
 export const roleLabel = (c: Pick<CodexCard, 'kind' | 'role'>): string =>
   c.kind === 'character' && c.role.trim() ? c.role.trim()[0].toLocaleUpperCase() + c.role.trim().slice(1) : ''
 
-/** A plot thread's state over its title: "Open", "Resolved", or "Planned". */
+/** A plot thread's state over its title: "Open", "Resolved", "Dropped" (long story memory fix 10) or "Planned". */
 export function threadState(t: Pick<BoardThread, 'column'> | null): { label: string; tone: 'open' | 'done' | 'planned' } {
   if (!t) return { label: 'Not set up yet', tone: 'planned' }
   if (t.column === 'resolved') return { label: 'Resolved', tone: 'done' }
   if (t.column === 'open') return { label: 'Open', tone: 'open' }
+  if (t.column === 'dropped') return { label: 'Dropped', tone: 'planned' }
   return { label: 'Planned', tone: 'planned' }
 }
 
@@ -168,6 +169,7 @@ export function threadLine(t: Pick<BoardThread, 'column' | 'setUp' | 'paidOff' |
     return up ? `Opened ${up} · resolved ${off || 'in the story'}` : `Resolved ${off}`
   }
   if (t.column === 'planned') return `Planned for ${placeWords(t.setUp) || 'later'}`
+  if (t.column === 'dropped') return `Set up in ${placeWords(t.setUp) || 'the story'} · dropped`
   const open = t.openChapters && t.openChapters > 1 ? ` · open for ${t.openChapters} chapters` : ''
   return `Set up in ${placeWords(t.setUp)}${open || ' · no payoff written yet'}`
 }

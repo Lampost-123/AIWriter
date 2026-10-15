@@ -162,9 +162,11 @@ again, with Undo).
   how many scenes it has been quiet since. The board gives each thread `lastTouched` and, while open, `quietScenes`
   (to the story's end); the Plot threads board has a Board / Ledger switch (`ThreadsBoard.tsx` `Ledger`, rows sortable by
   quiet-for or name, `boardLogic.ts` `ledgerRows`). The scene memory gives each thread `quiet`, `lastStoryId` and
-  `lastWhere` (`memory/scene.ts` `withQuiet`); the writer's open threads block (`ai/openThreads.ts`) always keeps the
+  `lastWhere` (`memory/scene.ts` `withLedger`, formerly `withQuiet`); the writer's open threads block (`ai/openThreads.ts`) always keeps the
   most overdue (quiet for `QUIET_SCENES`, 6, or more, and last touched in the story being written; at most 2) and ends
-  with one line, "Quiet for a while: … If it fits here, a passing mention keeps it alive; never force it."
+  with one line, "Quiet for a while: … If it fits here, a passing mention keeps it alive; never force it." The promises
+  ledger (long story memory fix 10, below) builds on it: `threadTouches` also gives where a thread change first opened
+  each thread (`opened`), so a later touch is a step on.
 - *B5, who knows what from who was there.* `keeper/presence.ts` `onStageAt`: on stage at a paragraph are the scene
   card's people and anyone named in that paragraph or the two before, less those a change in the scene says left or
   died earlier; people only. Something said is known by the speaker, those the model says heard it and everyone on
@@ -2182,14 +2184,17 @@ only) with their source links, and the scene card's `setsUpIds` / `paysOffIds` i
 - **The board** (`worldViews/threads.ts`): "Found by AI" (text or AI origin, never edited by Adam) or "Yours"; a
   resolved thread shows the words that paid it off, "Resolved by AI" and Undo (the What changed line that added the
   resolve, `kdb.addedLines`), which reopens it and records a suppression.
-- **The writer** (`ai/openThreads.ts`): "Open plot threads" — the threads open here (not planned, not on the card),
-  one line each (name — promise — last clue), those the card's words name first, then the most recently moved; at most
-  6 (short: 3) for Generate and Add below, block `open-threads` at priority 9 in the steady part of `SEND_ORDER` (right
+- **The writer** (`ai/openThreads.ts`): "Open plot threads" — the threads open here (not planned, not on the card,
+  not dropped), one line each (name — promise — last clue — when it is due), those due or overdue first, then those the
+  card's words or people name, then the longest untouched (since the promises ledger, fix 10: before it, the card's
+  first, then the most recently moved, at most 6); 6 to 22 by `memoryScale` (short: 3 to 6) for Generate and Add
+  below, block `open-threads` at priority 9 in the steady part of `SEND_ORDER` (right
   after the card's `threads`, before the people, so it is cached); the planner gets the same block, in its steady part (after the
   world, before where things stand and the ask), and the rule to plan no payoff the card or direction doesn't ask for
-  (`plan/plan.ts`); Continue gets at most 4, short, next to the
+  or the thread's line doesn't say is due now (`plan/plan.ts`); Continue gets at most 4, short, next to the
   timeline (`edits/briefing.ts`). The lead: "Keep these alive. Bring one in only where it fits naturally. Don't pay a
-  thread off unless the scene card or the author's direction asks for it." The card's own threads keep their block
+  thread off unless the scene card or the author's direction asks for it, or its line below says it is due." The card's
+  own threads keep their block
   ("this scene pays it off").
 - **Outlines** (`outline/prompts.ts`, `outline/interview.ts`, `features/outline/parse.ts`): each scene may give
   "Sets up:" and "Pays off:" lines (thread names, semicolons); the suggestions show them, and keeping a scene puts them
@@ -2402,9 +2407,9 @@ the same story so far and passages as before; what changes for it is the share f
   `MOST_MEANT` (8), only for the check it belongs to; the system prompt says the same thing there is no issue). The
   same thing in the same scene was already never raised again (`sameThing`).
 
-Not done here (the research's later steps): a book-length test story, rule-based checks, ledgers for promises and
-time, a ledger for who knows what (fix 9, below), spotting characters however they are named (fix 12, below), and a continuity
-brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
+Not done here (the research's later steps): a book-length test story, rule-based checks, a ledger for time, a ledger
+for promises (fix 10, below), a ledger for who knows what (fix 9, below), spotting characters however they are named
+(fix 12, below), and a continuity brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
 cover some of it.
 
 ## Long story memory: spotting characters however they are named (fix 12, 2026-10-15)
@@ -2537,6 +2542,71 @@ ledger, built from what the memory already keeps (no new store, no migration, no
   for a belief (`memoryLogic.ts` `describeChange`); removing either is the usual remove with Undo. "Knows at the start"
   offers to add what was typed "as something {name} believes wrongly", and marks such a row. Classic's screens look as
   they did until a world has such knowledge (the sample world's is unchanged).
+
+## Long story memory: a promises ledger with due dates (fix 10, 2026-10-15)
+
+The research's fix 10: setups (a planted clue, a promise, a threat, a mystery) get quietly dropped in long books
+(ConStory-Bench's "abandoned plot elements"). The memory already kept plot threads (open, clue, developing, resolved:
+"The AI manages plot threads") and B4 knew where each was last touched, but the writer got at most 6 open threads with
+no sense of timing, and nothing said when one was overdue. Now there is a ledger, built on the threads as they are (no
+parallel store) and no new AI call.
+
+- **Where each stands** (`memory/promises.ts` `promiseLedger`, pure). Open (set up, nothing since), advanced (touched
+  again after the thread change that first opened it: a clue, a step on, its words in a later scene; `threadTouches`
+  now gives `opened`), paid off (resolved, as before), or dropped (Adam's call). The set-up scene, and the last scene
+  after it that moved it on. Status changes come from what the memory keeper already reads (`open`, `clue`,
+  `developing`, `close`), so its reading prompt is unchanged (5,942 characters; the 58 to spare are left for later
+  fixes); dropped is never read from the text, only set by Adam.
+- **When it is due** (`ThreadDue`). By the end of a chapter Adam chose ("Pay off by"), else the chapter of the first
+  scene whose card has it under "Pays off" (at or after its set-up; the scene card is the plan the app already has).
+  Told as of a point: `overdue` (the walk has passed that chapter's end and it is still open), `now` (the chapter being
+  written; a card's plan later in this chapter is still `later`, as that scene's card will say "this scene pays it
+  off"), or `later`. For the writer the point is the scene being drafted; for the board and Worth a look, the story's
+  latest scene with words. A chapter that is gone is no date.
+- **Adam's plan, in meta** (`db/threadPlans.ts`, `thread_plan:<thread id>`, JSON of `ThreadPlan`: `payBy`, `dropped`,
+  `kept`; no row for an empty plan; no migration). It travels with the world; `purgeTrash` drops the rows of threads
+  gone for good (one in Recently deleted keeps its row). `planThread` (`keeper/checkQueue.ts`; `AppApi.planThread`,
+  `ipc/worldViews.ts`, which emits `memory:changed`) sets the pay-off chapter or dropped, refused in plain words for a
+  thread or chapter that is gone, and returns a `MemoryCheckUndo` (`undoMemoryCheck` puts the plan back).
+- **The scene memory** (`memory/scene.ts` `withLedger`): each `ThreadState` gains `standing`, `setUpSceneId`,
+  `advancedSceneId`/`advancedWhere` and `due`, as the scene is written.
+- **The writer's briefing** (`ai/openThreads.ts`). Dropped threads are left out. Order: due by the end of this chapter
+  or overdue first (overdue before due now); then those that involve the scene (the card's words name them, as before,
+  or the thread's name, promise, clues, payoff or summary name the point of view, someone else on the card, the
+  location, or an item those people hold as the scene begins: `holdingsOf`, `namesOf`, `nameIn`, the one name rule of
+  fix 12); then the longest untouched (`quiet`, else the oldest last note). B4's two most quiet still always make the
+  list. The cap grows with room: `openThreadsMost(memoryScale)` 6 to 22 (`OPEN_THREADS_MOST` × the scale, at most
+  `MOST_SCALE`), short `openThreadsShort` 3 to 6; Continue keeps 4. Each line says when it is due (`dueWords`): "Pay
+  this off by the end of this chapter.", "Overdue: it was to be paid off by the end of Ch 4. Pay it off soon, where it
+  fits.", "to be paid off by the end of Ch 7, not yet", "its pay-off is planned for Ch 7, Sc 2, not yet". Only the
+  card, Adam's plans and the memory before the scene decide it, never what a step adds (the scene so far, the
+  direction), so the block stays in the steady part of `SEND_ORDER` and reads the same at every step (tested).
+- **Worth a look** (`memory/promises.ts` `threadWarnings`; `memory/scene.ts` `overdueThreads`; `keeper/checkQueue.ts`
+  group `promise`, "Plot threads left waiting"). An open or advanced thread (never dropped, paid off or only planned)
+  that is overdue, unless Adam kept it for that due chapter; or, with no due date at all, untouched for a long stretch:
+  `longQuiet(written)`, a quarter of the story's scenes with words and never fewer than `LONG_QUIET_MIN` (12, twice the
+  `QUIET_SCENES` after which the writer is reminded, so Adam is asked only once the reminders haven't brought it back):
+  12 up to 48 scenes, 25 at 100, 50 at 200. Like the writer's reminder, only a thread last touched in that story (one
+  carried from an earlier book isn't asked about until the story touches it). Every story with words is looked at, each
+  thread listed once (`promiseChecks`, kept while `changesMade` doesn't move). A row: "Still open, and due by the end of
+  Ch 1" (or "…though its scene card planned the pay-off for Ch 4, Sc 2"), "Untouched for 14 scenes", and "Last touched
+  in …". **Pay off later** (a menu of the chapters from the one being written to the story's end, `MemoryCheckItem.later`)
+  calls `planThread`; **Keep** records `kept` (an overdue one: not asked again for that due chapter; a quiet one: not
+  until something touches it, or another long stretch goes by); **Mark as dropped** is Remove; **Open** goes to the
+  thread; Show me opens the scene that last touched it. Each has Undo, and the rows count in the badge.
+- **`overdueThreads(db, storyId, asOfSceneId?)`** gives the same as a scene begins (told against its chapter) or as the
+  story stands now, with names and where each was last touched, for rule-based checks to come (fix 8).
+- **The board** (`worldViews/threads.ts`, as of the story's latest scene with words). `BoardThread` gains `standing`,
+  `advanced` (a place), `due` (none once resolved or dropped) and `warn`; a dropped thread has column `dropped`, shown
+  only when there is one ("You decided not to pay these off"); `ThreadsBoard.chapters` is the story's chapters for the
+  picker (`chapterChoice`: "Ch 6 · The Ferry", or "Ch 6" for a default title). In the panels (`ThreadsBoard.tsx`), the
+  **Ledger** has Status (Open, Advanced, Resolved, Dropped, Planned; "Overdue" or "Untouched for a long stretch" as a
+  calm amber badge; Mark as dropped or Pick up again), Set up in, Last moved on, **Pay off by** (the `Select`, with "No
+  chapter" or "As the cards plan (Ch 4, Sc 2)" as none) and Quiet for. A Board card shows its due date only when Adam
+  chose the chapter or it is due or overdue by a card's plan (`DueNote`), and a dropped one has Pick up again, so
+  Classic's screenshots of the sample world are unchanged. On the desk (`DeskThreads.tsx`) each card has its status,
+  "Moved on", "Pay off by" and the amber note, with Mark as dropped or Pick up again (`planActions.ts`, toasts with Undo
+  in `planWords.ts`). The world gallery, the story home, the story board's legend and the series bible say "Dropped".
 
 ## Milestone 1 scope
 

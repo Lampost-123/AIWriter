@@ -32,6 +32,12 @@ story uses**. Click **Add name** and the AI knows them by it in every scene. Cli
 for them again, and stops counting as them in that scene. Words like "her brother" or "Mother" depend on who is
 speaking, so they only ever count in the scene they're in.
 
+It keeps track of the promises your story makes, too: each plot thread is open, moved on, resolved, or dropped. If a
+thread is still open after the chapter you chose to pay it off by, or nothing has touched it for a long stretch (a
+quarter of the story so far, and at least 12 scenes), it shows under **Worth a look**, in **Plot threads left
+waiting**. Click **Pay off later** to choose a later chapter, **Mark as dropped** if the story won't pay it off, or
+**Keep** to leave it as it is. Each one can be undone.
+
 ## See and undo what the memory changed
 
 **What changed** lists everything the memory has done, newest first, grouped by the scene it read. Each line says

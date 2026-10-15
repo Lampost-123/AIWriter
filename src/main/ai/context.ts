@@ -35,7 +35,8 @@
 //    smaller: only the most recent parts)
 //  9 other entries named in the beats, notes or direction, and pins; a character in the scene so far in full, as in
 //    block 5 (one line each; with someone in the scene so far, first a step between: everyone as the rest are sent)
-//  9 the other plot threads open here, a line each, kept alive gently (ai/openThreads.ts; short: the first 3)
+//  9 the other plot threads open here, a line each, kept alive gently, those due or overdue first and saying so (the
+//    promises ledger, fix 10); 6 to 22 of them by memoryScale (ai/openThreads.ts; short: the first 3 to 6)
 // 10 themes, tone and premise (one line)
 // 11 ties to people not in this scene: for each character present, the people they're tied to who aren't
 //    there, with where things stand and what has happened between them, newest first (names and relationship
@@ -87,7 +88,7 @@ import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { sameWhen, stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
-import { OPEN_THREADS_BLOCK, OPEN_THREADS_MOST, OPEN_THREADS_TITLE, openThreadsAt, openThreadsText } from './openThreads'
+import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost, openThreadsShort, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
@@ -1764,10 +1765,13 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     )
   }
 
-  // 9 The other plot threads still open here (2026-10-08, ai/openThreads.ts): a line each, kept alive gently. In the
-  //   steady part, after the card's threads: only the card and the memory before this scene decide it.
-  const openNow = openThreadsAt(input.memory, input.scene.card, OPEN_THREADS_MOST)
-  add(OPEN_THREADS_BLOCK, 9, OPEN_THREADS_TITLE, openThreadsText(openNow), openThreadsText(openNow.slice(0, 3), true), [])
+  // 9 The other plot threads still open here (2026-10-08, ai/openThreads.ts): a line each, kept alive gently; since the
+  //   promises ledger (fix 10) as many as the model has room for, those due by the end of this chapter or overdue first,
+  //   then those involving the card's people, place and what they hold, then the longest untouched. In the steady part,
+  //   after the card's threads: only the card, Adam's plans and the memory before this scene decide it.
+  const threadScale = memoryScale(input.contextLength)
+  const openNow = openThreadsAt(input.memory, input.scene.card, openThreadsMost(threadScale))
+  add(OPEN_THREADS_BLOCK, 9, OPEN_THREADS_TITLE, openThreadsText(openNow), openThreadsText(openNow.slice(0, openThreadsShort(threadScale)), true), [])
 
   // 8 The story so far (short: fewer scenes, chapter summaries, series roll-ups; smaller: only the most recent parts).
   // Since 2026-10-08 (Adam: "a clear outline of what has happened so far, when, and involving who"): a timeline of

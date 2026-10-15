@@ -717,7 +717,7 @@ function Legend({ threads, drawn }: { threads: ThreadsBoard['threads']; drawn: S
         {threads.length ? (
           threads.map((t, i) => {
             const ink = `var(--thread-${(i % 6) + 1})`
-            const state = t.column === 'resolved' ? 'Resolved' : t.column === 'planned' ? 'Planned' : 'Open'
+            const state = t.column === 'resolved' ? 'Resolved' : t.column === 'planned' ? 'Planned' : t.column === 'dropped' ? 'Dropped' : 'Open'
             return (
               <button
                 key={t.id}

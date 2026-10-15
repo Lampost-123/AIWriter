@@ -5,7 +5,7 @@
 // (spec, Multi-story rules: "every as-of view uses it too"), and comes back in one call with everything
 // its screen needs. Places are in plain words ("Book 1, Ch 3, Sc 2").
 
-import type { AsOf, AsOfStop, EntryKind, ID, SceneStatus } from '../types'
+import type { AsOf, AsOfStop, EntryKind, ID, MemoryCheckUndo, SceneStatus, ThreadDue, ThreadPlanChange, ThreadStanding } from '../types'
 
 export interface WorldViewsApi {
   /**
@@ -29,6 +29,11 @@ export interface WorldViewsApi {
   resetMapLayout(): Promise<{ id: ID; x: number; y: number }[]>
   /** The plot threads board as seen in a story, at its end: open, resolved and planned threads, with where each was set up and paid off. */
   getThreadsBoard(storyId: ID): Promise<ThreadsBoard>
+  /**
+   * The promises ledger (long story memory fix 10): sets the chapter a plot thread should be paid off by (null: none), or
+   * marks it dropped (or picks it up again). Kept in the world; returns what Undo needs (undoMemoryCheck takes it back).
+   */
+  planThread(threadId: ID, change: ThreadPlanChange): Promise<MemoryCheckUndo>
   /**
    * The desk's story board (UI overhaul, D5.2): each live scene's card in the story, by scene id, in one call. Titles,
    * status and words come from the outline; names and portraits from the timeline's entries.
@@ -287,8 +292,11 @@ export interface BoardThread {
   name: string
   /** What's promised to the reader (the thread's `promise` field). */
   promise: string
-  /** 'planned': set up on scene cards (or nowhere yet) but not yet opened in the story. */
-  column: 'open' | 'resolved' | 'planned'
+  /**
+   * 'planned': set up on scene cards (or nowhere yet) but not yet opened in the story. 'dropped': open in the story, and
+   * Adam decided it won't be paid off (long story memory fix 10).
+   */
+  column: 'open' | 'resolved' | 'planned' | 'dropped'
   setUp: BoardPlace | null
   paidOff: BoardPlace | null
   /** While open: how many chapters have gone by since it was set up. */
@@ -309,6 +317,16 @@ export interface BoardThread {
    */
   lastTouched?: BoardPlace | null
   quietScenes?: number | null
+  /**
+   * The promises ledger (long story memory fix 10), as of the latest scene with words in the story: where it stands
+   * (open, advanced, paid off, dropped), the last scene after its set-up that moved it on (null: none yet), when it is
+   * due to be paid off (null: no date and no scene card planning it), and what Worth a look says of it (overdue, or
+   * untouched for a long stretch; null: nothing). Left out by older boards.
+   */
+  standing?: ThreadStanding
+  advanced?: BoardPlace | null
+  due?: ThreadDue | null
+  warn?: 'overdue' | 'quiet' | null
 }
 
 /**
@@ -321,6 +339,8 @@ export interface ThreadsBoard {
   storyId: ID
   /** Ordered by where they were set up. */
   threads: BoardThread[]
+  /** The story's chapters, in order, for "Pay off by" (long story memory fix 10). Left out by older boards. */
+  chapters?: { id: ID; label: string }[]
 }
 
 // ---------- The desk's story board ----------

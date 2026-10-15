@@ -2,12 +2,15 @@
 // Resolved and (when there are any) Planned, with where each was set up and paid off linked to those
 // scenes. A thread open for many chapters gets a calm amber note, so nothing is forgotten. Clicking a
 // thread opens its page. The ledger (World Memory Overhaul B4) lists the same threads as rows: status, the scene that
-// last touched each, and how many scenes it has been quiet, sortable by that.
+// last touched each, and how many scenes it has been quiet, sortable by that. The promises ledger (long story memory fix
+// 10) adds to its rows where each was set up and last moved on, and "Pay off by" (a chapter picker) with Mark as
+// dropped; a card on the board says when its thread is due when Adam chose a chapter or it is overdue, and dropped
+// threads have their own column, with Pick up again.
 import { ChevronDown, ChevronUp, Hourglass, Spool, Plus, Sparkles, Undo2 } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID } from '@shared/types'
 import type { BoardPlace, BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'
-import { Badge, Button, EmptyState, toast } from '@/components/ui'
+import { Badge, Button, EmptyState, Select, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -16,18 +19,24 @@ import { Segmented } from '@/features/generate/parts'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from '@/features/timeline/viewParts'
 import { useDesk } from '@/features/look/look'
 import {
+  advancedWords,
+  canPlan,
   columnsOf,
+  dueWords,
   isQuiet,
   ledgerRows,
   openFor,
   paidOffWords,
+  payBy,
   quietWords,
   setUpWords,
   statusWords,
+  warnWords,
   type LedgerSort,
   type PlaceWords
 } from './boardLogic'
 import { DeskThreads } from './DeskThreads'
+import { setDropped, setPayBy } from './planActions'
 
 const loadBoard = (storyId: ID): Promise<Board> => api.getThreadsBoard(storyId)
 
@@ -289,7 +298,43 @@ function ThreadCard({ thread: t }: { thread: BoardThread }): React.JSX.Element {
       ) : open ? (
         <p className="mt-2 text-[12px] text-faint">{open}</p>
       ) : null}
+      <DueNote thread={t} />
+      {t.column === 'dropped' ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="-ml-2 mt-1.5 px-2"
+          title="Open this plot thread again: the AI will keep it alive"
+          onClick={() => void setDropped(t, false)}
+        >
+          Pick up again
+        </Button>
+      ) : null}
     </div>
+  )
+}
+
+/**
+ * When a thread is due (the promises ledger, fix 10), on its card: only when Adam chose the chapter, or it is due or
+ * overdue by a scene card's plan (a plan still to come is already said by "To be paid off in…"). Overdue is a calm amber
+ * note, as a thread open a long time is.
+ */
+function DueNote({ thread: t }: { thread: BoardThread }): React.JSX.Element | null {
+  const words = dueWords(t)
+  if (!words || !t.due || (t.due.from === 'card' && t.due.state === 'later')) return null
+  if (t.due.state === 'overdue')
+    return (
+      <span className="mt-2.5 block" data-testid="thread-due">
+        <Badge tone="ai" className="gap-1">
+          <Hourglass size={12} aria-hidden />
+          {words}
+        </Badge>
+      </span>
+    )
+  return (
+    <p className="mt-2 text-[12px] text-muted" data-testid="thread-due">
+      {words}
+    </p>
   )
 }
 
@@ -323,11 +368,12 @@ function Ledger({ board }: { board: Board }): React.JSX.Element {
   )
   return (
     <div className="min-h-0 flex-1 overflow-auto px-6 pb-10 pt-5">
-      <p className="mb-3 max-w-[70ch] text-[12.5px] leading-relaxed text-muted">
-        When each plot thread was last touched in the story (a clue, a step on, or a mention), and how many scenes it has been quiet
-        since. The AI writer gets a gentle reminder of an open thread that has been quiet for a while.
+      <p className="mb-3 max-w-[75ch] text-[12.5px] leading-relaxed text-muted">
+        Where each plot thread stands, when the story last moved it on (a clue, a step on, or a mention), and how many scenes it has been
+        quiet since. Choose a chapter to pay one off by, and the AI writer is told when it is due. It also gets a gentle reminder of an
+        open thread that has been quiet for a while.
       </p>
-      <table className="w-full min-w-[560px] border-separate border-spacing-0 text-left text-[13px]" data-testid="threads-ledger">
+      <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left text-[13px]" data-testid="threads-ledger">
         <thead>
           <tr className="text-[12px]">
             <th scope="col" aria-sort={ariaSort('name')} className="border-b border-line py-2 pr-4">
@@ -337,7 +383,13 @@ function Ledger({ board }: { board: Board }): React.JSX.Element {
               Status
             </th>
             <th scope="col" className="border-b border-line py-2 pr-4 font-medium text-muted">
-              Last touched
+              Set up in
+            </th>
+            <th scope="col" className="border-b border-line py-2 pr-4 font-medium text-muted">
+              Last moved on
+            </th>
+            <th scope="col" className="border-b border-line py-2 pr-4 font-medium text-muted">
+              Pay off by
             </th>
             <th scope="col" aria-sort={ariaSort('quiet')} className="border-b border-line py-2">
               {head('quiet', 'Quiet for')}
@@ -346,7 +398,7 @@ function Ledger({ board }: { board: Board }): React.JSX.Element {
         </thead>
         <tbody>
           {rows.map((t) => (
-            <LedgerRow key={t.id} thread={t} />
+            <LedgerRow key={t.id} thread={t} chapters={board.chapters ?? []} />
           ))}
         </tbody>
       </table>
@@ -354,8 +406,18 @@ function Ledger({ board }: { board: Board }): React.JSX.Element {
   )
 }
 
-function LedgerRow({ thread: t }: { thread: BoardThread }): React.JSX.Element {
+function LedgerRow({ thread: t, chapters }: { thread: BoardThread; chapters: { id: ID; label: string }[] }): React.JSX.Element {
   const quiet = quietWords(t)
+  const warn = warnWords(t)
+  const advanced = advancedWords(t)
+  const due = dueWords(t)
+  const chosen = payBy(t)
+  const [busy, setBusy] = useState(false)
+  const act = (run: () => Promise<boolean>): void => {
+    setBusy(true)
+    void run().finally(() => setBusy(false))
+  }
+  const short = (id: ID): string => chapters.find((c) => c.id === id)?.label.split(' · ')[0] ?? 'that chapter'
   return (
     <tr className="align-top">
       <td className="border-b border-line py-2.5 pr-4">
@@ -369,9 +431,50 @@ function LedgerRow({ thread: t }: { thread: BoardThread }): React.JSX.Element {
         </button>
         {t.promise ? <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-relaxed text-muted">{t.promise}</p> : null}
       </td>
-      <td className="border-b border-line py-2.5 pr-4 text-muted">{statusWords(t)}</td>
       <td className="border-b border-line py-2.5 pr-4 text-muted">
-        <PlaceLink place={t.lastTouched ?? null} />
+        <span className="block">{statusWords(t)}</span>
+        {warn ? (
+          <Badge tone="ai" className="mt-1 gap-1">
+            <Hourglass size={12} aria-hidden />
+            {warn}
+          </Badge>
+        ) : null}
+        {t.column === 'open' || t.column === 'dropped' ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => act(() => setDropped(t, t.column === 'open'))}
+            title={t.column === 'open' ? 'The story won’t pay this off: the AI stops bringing it up' : 'Open this plot thread again'}
+            className="mt-1 block rounded text-left text-[12px] font-medium text-accent underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-60"
+          >
+            {t.column === 'open' ? 'Mark as dropped' : 'Pick up again'}
+          </button>
+        ) : null}
+      </td>
+      <td className="border-b border-line py-2.5 pr-4 text-muted">
+        <PlaceLink place={t.setUp?.planned ? null : t.setUp} none={t.column === 'planned' ? 'Not yet' : 'Before the story begins'} />
+      </td>
+      <td className="border-b border-line py-2.5 pr-4 text-muted">
+        {t.advanced ? <PlaceLink place={t.advanced} /> : <span className="text-faint">{advanced || '—'}</span>}
+      </td>
+      <td className="w-[190px] border-b border-line py-2.5 pr-4 text-muted">
+        {canPlan(t) ? (
+          <>
+            <Select
+              value={chosen}
+              allowNone
+              noneLabel={t.due?.from === 'card' && t.due.sceneLabel ? `As the cards plan (${t.due.sceneLabel})` : 'No chapter'}
+              ariaLabel={`Pay off “${t.name}” by`}
+              onChange={(id) => act(() => setPayBy(t, id, id ? short(id) : ''))}
+              options={chapters.map((c) => ({ value: c.id, label: c.label }))}
+            />
+            {t.due && t.due.state !== 'later' ? <p className="mt-1 text-[12px] text-ai">{due}</p> : null}
+          </>
+        ) : (
+          <span className="text-faint" aria-label="Not to be paid off">
+            —
+          </span>
+        )}
       </td>
       <td className="whitespace-nowrap border-b border-line py-2.5 tabular-nums">
         {isQuiet(t) ? (
@@ -391,9 +494,9 @@ function LedgerRow({ thread: t }: { thread: BoardThread }): React.JSX.Element {
   )
 }
 
-/** A place on the story's line, linked to its scene; "Not yet" when nothing has touched the thread. */
-function PlaceLink({ place }: { place: BoardPlace | null }): React.JSX.Element {
-  if (!place) return <span className="text-faint">Not yet</span>
+/** A place on the story's line, linked to its scene; "Not yet" (or `none`) when there is none. */
+function PlaceLink({ place, none = 'Not yet' }: { place: BoardPlace | null; none?: string }): React.JSX.Element {
+  if (!place) return <span className="text-faint">{none}</span>
   const { sceneId, storyId } = place
   if (!sceneId || !storyId) return <span>{place.label || 'Before the story begins'}</span>
   return (

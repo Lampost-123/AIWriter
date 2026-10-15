@@ -27,6 +27,9 @@ import { ledgerOf, type Ledger } from './ledger'
 import * as mem from '../db/memory'
 import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
 import { threadTouches } from './threadQuiet'
+import { promiseLedger, threadWarnings, type ThreadWarning } from './promises'
+import { threadPlans } from '../db/threadPlans'
+import { sceneCards } from '../db/worldViews'
 import { DUE_SUMMARY_SCENES, MIN_SUMMARY_WORDS, summaryDue } from '../keeper/sceneChange'
 import { fieldValue, guessFields } from '../keeper/facts'
 import { lastWords } from '../keeper/text'
@@ -161,7 +164,7 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
     relationships: state.relationships,
     facts: state.facts,
     beliefs: state.beliefs,
-    threads: withQuiet(db, shape, line, changes, state.threads),
+    threads: withLedger(db, shape, line, changes, state.threads, story.id, sceneId),
     storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
     bringAbout: changes.byScene.get(sceneId) ?? []
   }
@@ -176,31 +179,98 @@ export function ledgerForScene(db: DB, sceneId: ID, opts: { forWriter?: boolean 
   return ledgerOf(sceneMemory(db, sceneId, opts))
 }
 
+/** The plot threads each scene's card plans to pay off (its "Pays off"), for the scenes that plan any. */
+function cardPayoffs(db: DB): Map<ID, ID[]> {
+  const out = new Map<ID, ID[]>()
+  for (const [id, c] of sceneCards(db)) if (c.paysOffIds.length) out.set(id, c.paysOffIds)
+  return out
+}
+
 /**
  * Each thread with how long it has been quiet on this scene's line (World Memory Overhaul B4): the scenes since a thread
- * change or words its facts rest on last touched it. Never stops the scene's memory: on a failure the threads go as they
- * are.
+ * change or words its facts rest on last touched it; and the promises ledger (long story memory fix 10,
+ * memory/promises.ts): where it stands, where it was set up, the last scene that moved it on, and when it is due as this
+ * scene is written. Never stops the scene's memory: on a failure the threads go as they are.
  */
-function withQuiet(db: DB, shape: WorldShape, line: Line, changes: ChangeIndex, threads: ThreadState[]): ThreadState[] {
+function withLedger(db: DB, shape: WorldShape, line: Line, changes: ChangeIndex, threads: ThreadState[], storyId: ID, sceneId: ID): ThreadState[] {
   if (!threads.length) return threads
   try {
     const ids = threads.map((t) => t.entryId)
     const touches = threadTouches(line, changes, ids, entryLinkScenes(db, ids))
+    const rows = promiseLedger({ storyId, shape, line, threads, touches, plans: threadPlans(db), paysOff: cardPayoffs(db), now: { sceneId } })
     const label = labeler(shape)
     return threads.map((t) => {
       const at = touches.get(t.entryId)
-      if (!at) return t
+      const row = rows.get(t.entryId)
       return {
         ...t,
-        quiet: at.quiet,
-        ...(at.storyId ? { lastStoryId: at.storyId } : {}),
-        lastWhere: at.storyId ? label({ storyId: at.storyId, sceneId: at.sceneId }) : ''
+        ...(at
+          ? { quiet: at.quiet, ...(at.storyId ? { lastStoryId: at.storyId } : {}), lastWhere: at.storyId ? label({ storyId: at.storyId, sceneId: at.sceneId }) : '' }
+          : {}),
+        ...(row
+          ? {
+              standing: row.standing,
+              ...(row.setUpSceneId ? { setUpSceneId: row.setUpSceneId } : {}),
+              ...(row.advanced
+                ? { advancedSceneId: row.advanced.sceneId, advancedWhere: label({ storyId: row.advanced.storyId, sceneId: row.advanced.sceneId }) }
+                : {}),
+              ...(row.due ? { due: row.due } : {})
+            }
+          : {})
       }
     })
   } catch (e) {
     console.warn('Could not work out how long the plot threads have been quiet', e)
     return threads
   }
+}
+
+/**
+ * One plot thread worth a look (overdueThreads), with its name, and where it was last touched (`touch`, for an overdue
+ * one too) in plain words.
+ */
+export interface OverdueThread extends ThreadWarning {
+  name: string
+  /** Where it was last touched ("Book 1, Ch 2, Sc 3"); '' for a story's start or never. */
+  lastWhere: string
+}
+
+/**
+ * The plot threads worth a look in a story (the promises ledger, long story memory fix 10): still open past the chapter
+ * they were due by, or untouched for a long stretch (memory/promises.ts threadWarnings: dropped threads and what Adam
+ * said Keep to are left out). As a scene begins (`asOfSceneId`: what counts for drafting it, told against its chapter),
+ * or as the story stands now (none: told against its latest scene with words). For Worth a look and for rule-based
+ * checks to come (fix 8).
+ */
+export function overdueThreads(db: DB, storyId: ID, asOfSceneId?: ID | null, read?: { shape: WorldShape; data: MemoryData }): OverdueThread[] {
+  const shape = read?.shape ?? loadShape(db)
+  if (!shape.stories.some((s) => s.id === storyId)) return []
+  if (asOfSceneId && storyOfScene(shape, asOfSceneId)?.id !== storyId) return []
+  const data = read?.data ?? loadMemoryData(db)
+  const changes = indexChanges(data.changes)
+  const line = buildLine(shape, asOfSceneId ? { storyId, before: asOfSceneId } : { storyId, through: 'end' })
+  const state = stateAt(data, shape, line, changes)
+  const threads = state.threads.filter((t) => t.status === 'open' && !t.planned)
+  if (!threads.length) return []
+  const cards = sceneCards(db)
+  const written = new Set([...cards].filter(([, c]) => c.words > 0).map(([id]) => id))
+  const ids = threads.map((t) => t.entryId)
+  const touches = threadTouches(line, changes, ids, entryLinkScenes(db, ids), written)
+  const plans = threadPlans(db)
+  const paysOff = new Map([...cards].filter(([, c]) => c.paysOffIds.length).map(([id, c]) => [id, c.paysOffIds] as const))
+  const rows = promiseLedger({ storyId, shape, line, threads, touches, plans, paysOff, now: asOfSceneId ? { sceneId: asOfSceneId } : { written } })
+  const inStory = new Set(shape.stories.find((s) => s.id === storyId)!.chapters.flatMap((c) => c.scenes.map((sc) => sc.id)))
+  const label = labeler(shape)
+  return threadWarnings({ storyId, threads, rows, touches, plans, written: [...written].filter((id) => inStory.has(id)).length }).map((w) => {
+    const e = state.entries.get(w.threadId)
+    const at = touches.get(w.threadId)
+    return {
+      ...w,
+      ...(at ? { touch: at } : {}),
+      name: e?.name.trim() || 'Unnamed plot thread',
+      lastWhere: at?.storyId ? label({ storyId: at.storyId, sceneId: at.sceneId }) : ''
+    }
+  })
 }
 
 /** The most recent scenes whose summary is being brought up to date that also get a short excerpt of how they now end. */

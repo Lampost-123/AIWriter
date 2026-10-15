@@ -18,7 +18,8 @@ export function Select({
   id,
   className,
   allowNone,
-  noneLabel = 'None'
+  noneLabel = 'None',
+  ariaLabel
 }: {
   value: string | null
   onChange: (v: string | null) => void
@@ -29,11 +30,14 @@ export function Select({
   /** Adds a "None" option that maps to null. */
   allowNone?: boolean
   noneLabel?: string
+  /** What a screen reader hears it is, when no label on the page names it. */
+  ariaLabel?: string
 }): React.JSX.Element {
   return (
     <S.Root value={value ?? (allowNone ? NONE : undefined)} onValueChange={(v) => onChange(v === NONE ? null : v)}>
       <S.Trigger
         id={id}
+        aria-label={ariaLabel}
         className={cn(
           'inline-flex h-8 w-full items-center justify-between gap-2 rounded-md border border-line bg-page px-2.5 text-left text-[13.5px] text-fg transition-colors hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 data-[placeholder]:text-faint',
           className

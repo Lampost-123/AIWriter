@@ -174,7 +174,7 @@ Reply with only a JSON object:
 - A piece of clothing: what is "wearing", and the value, from and to name the piece and how it is ("boots off, by the door"). A thing in the place: what is "thing", who is whoever changes it (or ""), and the value, from and to name the thing and how it is ("the door: barred from inside").
 - Keep to what must stay true and to where things stand: nothing changes unless it happens on the page, and each change starts from how things are now.
 - What is kept from someone stays kept: never have them learn, guess or be told it, unless the scene card says so.
-- Open plot threads stay open: plan no payoff for one unless the scene card or the author's direction asks for it. One may come in only where it fits what is asked.
+- Open plot threads stay open: plan no payoff for one unless the scene card or the author's direction asks for it, or its line says to pay it off now. One may come in only where it fits what is asked.
 - At most ${PLAN_MOST.relies} relies and ${PLAN_MOST.changes} changes, the ones that matter most. Keep each short.`
 
 /**

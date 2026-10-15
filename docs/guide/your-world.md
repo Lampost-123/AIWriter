@@ -138,7 +138,11 @@ Every entry has **Private notes (never sent to the AI)**, for ideas you're not r
 - The **Timeline** shows scenes and events in the order they happen in your world. Dates come from the **When** box
   on each scene card. Show lanes for **Characters** or **Plot threads**, by day or by chapter. It warns you if a character is in two places
   at once.
-- The **Plot threads board** (in the **Plan** room) shows every thread as **Open**, **Resolved** or **Planned**.
+- The **Plot threads board** (in the **Plan** room) shows every thread as **Open**, **Resolved** or **Planned**, and
+  **Dropped** once you decide the story won't pay one off. Each thread says where it was set up and the last scene that
+  moved it on. Choose a chapter in **Pay off by** and the AI is told when it is due: "Pay this off by the end of this
+  chapter" while you write that chapter. **Mark as dropped** stops the AI bringing a thread up, and **Pick up again**
+  opens it again. In the panels, the same is in the board's **Ledger**.
 
 ## Names in your scenes
 

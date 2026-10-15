@@ -4,8 +4,11 @@
 import type { Handlers } from './index'
 import type { WorldViewsApi } from '@shared/contracts/worldViews'
 import * as world from '../world'
+import * as repo from '../db/repo'
+import { emit } from '../events'
 import { timelineOf, threadsBoardOf, relationshipMapOf, moveMapCharacter, resetMapLayout } from '../worldViews'
 import { markAiIdea, readBoardMarks, storySceneCards } from '../db/worldViews'
+import { planThread } from '../keeper/checkQueue'
 
 export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
   getTimeline: (storyId) => timelineOf(world.db(), storyId),
@@ -13,6 +16,15 @@ export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
   moveMapCharacter: (id, x, y) => moveMapCharacter(world.db(), id, x, y),
   resetMapLayout: () => resetMapLayout(world.db()),
   getThreadsBoard: (storyId) => threadsBoardOf(world.db(), storyId),
+  // The promises ledger (long story memory fix 10): a thread's "Pay off by" and Mark as dropped, from the board or Worth
+  // a look. The board, Worth a look and the next briefing read it again (memory:changed).
+  planThread: (threadId, change) => {
+    const db = world.db()
+    const undo = db.transaction(() => planThread(db, threadId, change ?? {}))()
+    repo.touchWorld(db)
+    emit('memory:changed', { sceneId: null, entryIds: [threadId] })
+    return undo
+  },
   // The desk's story board (UI overhaul, D5.2).
   listSceneCards: (storyId) => storySceneCards(world.db(), storyId),
   getBoardMarks: () => readBoardMarks(world.db()),

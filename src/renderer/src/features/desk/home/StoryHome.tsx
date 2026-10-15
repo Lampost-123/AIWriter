@@ -554,7 +554,7 @@ function Thread({ t, delay }: { t: ThreadRow; delay: number }): React.JSX.Elemen
       type="button"
       className={cn('home-thread', `is-${t.state}`)}
       onClick={() => useApp.getState().navigate({ kind: 'threads' })}
-      aria-label={`${t.state === 'resolved' ? 'Resolved thread' : t.state === 'planned' ? 'Planned thread' : 'Open thread'}: ${t.name}. ${t.note}.`}
+      aria-label={`${t.state === 'resolved' ? 'Resolved thread' : t.state === 'planned' ? 'Planned thread' : t.state === 'dropped' ? 'Dropped thread' : 'Open thread'}: ${t.name}. ${t.note}.`}
     >
       <span className="home-th-q">{t.name}</span>
       <span className="home-th-row">

@@ -2,6 +2,7 @@
 // plain headings. Pure (no React, no API), so it is unit-tested (checkLogic.test.ts).
 
 import type { MemoryCheckGroup, MemoryCheckItem } from '@shared/types'
+import { droppedToast } from '@/features/threads/planWords'
 
 export interface CheckGroupInfo {
   id: MemoryCheckGroup
@@ -37,6 +38,12 @@ export const CHECK_GROUPS: CheckGroupInfo[] = [
     id: 'alias',
     title: 'Other names the story uses',
     help: 'Your story calls these characters something new. Add a name and the AI knows who it means in every scene. Ignore it and it’s never offered for them again.'
+  },
+  {
+    // Long story memory fix 10, the promises ledger: plot threads past their pay-off chapter or untouched for a long stretch.
+    id: 'promise',
+    title: 'Plot threads left waiting',
+    help: 'These are past the chapter you meant to pay them off by, or nothing in the story has touched them for a long stretch. Pay one off later, mark it as dropped, or keep it as it is.'
   }
 ]
 
@@ -106,9 +113,10 @@ export function ignoreTitle(item: MemoryCheckItem): string {
   return `Never offer “${offeredName(item)}” for ${name} again, and stop counting it as ${name} in this scene only. You can undo this.`
 }
 
-/** Keep and Remove say what they do for a name the story uses: Add name, Ignore. */
+/** Keep and Remove say what they do for a name the story uses (Add name, Ignore) and a plot thread (Keep, Mark as dropped). */
 export const keepLabel = (item: Pick<MemoryCheckItem, 'group'>): string => (item.group === 'alias' ? 'Add name' : 'Keep')
-export const removeLabel = (item: Pick<MemoryCheckItem, 'group'>): string => (item.group === 'alias' ? 'Ignore' : 'Remove')
+export const removeLabel = (item: Pick<MemoryCheckItem, 'group'>): string =>
+  item.group === 'alias' ? 'Ignore' : item.group === 'promise' ? 'Mark as dropped' : 'Remove'
 
 /** What the toast says after Keep (one item) or Keep all. */
 export function keptToast(items: MemoryCheckItem[]): string {
@@ -117,6 +125,8 @@ export function keptToast(items: MemoryCheckItem[]): string {
     const name = items[0].entryName.trim()
     return name ? `Added “${offeredName(items[0])}” to ${name}’s names.` : 'Added.'
   }
+  if (items.length && items.every((i) => i.group === 'promise'))
+    return items.length > 1 ? `Kept ${items.length} plot threads as they are.` : 'Kept as it is. You won’t be asked about it again for now.'
   if (items.length > 1) return `Kept ${items.length}. They're yours now.`
   switch (items[0]?.group) {
     case 'unconfirmed':
@@ -139,6 +149,7 @@ const quoted = (s: string, max = 60): string => {
 export function removedToast(item: MemoryCheckItem): string {
   const name = item.entryName.trim()
   if (item.group === 'alias') return name ? `Ignored “${offeredName(item)}” for ${name}.` : 'Ignored.'
+  if (item.group === 'promise') return droppedToast(name, true)
   const what = checkWhat(item)
   return name ? `Removed ${quoted(what)} from ${name}.` : `Removed ${quoted(what)}.`
 }

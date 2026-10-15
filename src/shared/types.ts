@@ -1346,6 +1346,52 @@ export interface ThreadState {
   quiet?: number
   lastStoryId?: ID
   lastWhere?: string
+  /**
+   * The promises ledger (long story memory fix 10, memory/promises.ts): where it stands (open, advanced since it was set
+   * up, paid off, or dropped by Adam), the scene it was set up in, the last scene after that which moved it on (where in
+   * plain words), and when it is due to be paid off, as of this point. Left out by anything older than the scene memory.
+   */
+  standing?: ThreadStanding
+  setUpSceneId?: ID
+  advancedSceneId?: ID
+  advancedWhere?: string
+  due?: ThreadDue
+}
+
+/** Where a plot thread stands (the promises ledger, long story memory fix 10). 'paid': paid off (resolved). */
+export type ThreadStanding = 'open' | 'advanced' | 'paid' | 'dropped'
+
+/**
+ * When a plot thread is due to be paid off (long story memory fix 10): by the end of a chapter Adam chose ('adam'), or
+ * the chapter of the first scene whose card plans its pay-off ('card', with that scene). `state` is as of a point: the
+ * chapter is over and it is still open ('overdue'), it is the chapter being written ('now'), or it is still to come.
+ */
+export interface ThreadDue {
+  chapterId: ID
+  /** "Ch 5" in the story being written, "Book 2, Ch 5" in another. */
+  label: string
+  from: 'adam' | 'card'
+  /** For 'card': the scene planned to pay it off, and where that is ("Ch 5, Sc 2"). */
+  sceneId?: ID
+  sceneLabel?: string
+  state: 'overdue' | 'now' | 'later'
+}
+
+/**
+ * Adam's plan for a plot thread (long story memory fix 10), kept in the world's meta table (`thread_plan:<thread id>`,
+ * db/threadPlans.ts): the chapter it should be paid off by, whether he dropped it, and what he said Keep to in Worth a
+ * look (an overdue thread for that due chapter; a quiet one while nothing has touched it since, for another stretch).
+ */
+export interface ThreadPlan {
+  payBy?: ID
+  dropped?: true
+  kept?: { due?: ID; touch?: ID | null; quiet?: number }
+}
+
+/** What the board or Worth a look can change of a plot thread's plan: the pay-off chapter (null: none) and dropped. */
+export interface ThreadPlanChange {
+  payBy?: ID | null
+  dropped?: boolean
 }
 
 // ---------- Summaries, pins, answers ----------
@@ -1459,8 +1505,11 @@ export interface FactVersion {
  * - 'note': a quiet note that one of Adam's own facts is no longer what the scene says;
  * - 'alias': something the story calls a character that could be another name for them (long story memory fix 12):
  *   Keep adds it to their other names, Remove ignores it.
+ * - 'promise': a plot thread still open past the chapter it was due by, or untouched for a long stretch (long story
+ *   memory fix 10, the promises ledger): Keep leaves it as it is, Remove marks it as dropped, and Pay off later
+ *   (planThread) moves its due chapter.
  */
-export type MemoryCheckGroup = 'unconfirmed' | 'guess' | 'summary' | 'note' | 'alias'
+export type MemoryCheckGroup = 'unconfirmed' | 'guess' | 'summary' | 'note' | 'alias' | 'promise'
 
 /** The fact a check is about, as Keep and Remove need it. */
 export type MemoryCheckFact =
@@ -1469,6 +1518,8 @@ export type MemoryCheckFact =
   | { kind: 'summary'; sceneId: ID }
   | { kind: 'note'; logId: ID }
   | { kind: 'alias'; logId: ID }
+  /** Overdue: `due` is the chapter it was due by. Quiet: `touch` is the scene that last touched it, `quiet` how long since. */
+  | { kind: 'promise'; threadId: ID; why: 'overdue' | 'quiet'; due?: ID; touch?: ID | null; quiet?: number }
 
 export interface MemoryCheckItem {
   /** Stable while the item stays in the list. */
@@ -1491,6 +1542,8 @@ export interface MemoryCheckItem {
   paragraphId: string | null
   /** False where Remove makes no sense (a summary is rewritten by itself). */
   canRemove: boolean
+  /** For a plot thread (group 'promise'): the chapters Pay off later can move it to, in order ("Ch 6 · The Ferry"). */
+  later?: { id: ID; label: string }[]
 }
 
 /** What Keep or Remove did, so Undo can put it back. Opaque to the window; handed back as it came. */

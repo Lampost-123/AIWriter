@@ -60,7 +60,7 @@ describe('the memory check list, grouped', () => {
       expect(g.title).not.toMatch(/entity|generation|LLM|origin|link/i)
       expect(g.help.length).toBeGreaterThan(20)
     }
-    expect(CHECK_GROUPS.map((g) => g.id)).toEqual(['unconfirmed', 'guess', 'summary', 'note', 'alias'])
+    expect(CHECK_GROUPS.map((g) => g.id)).toEqual(['unconfirmed', 'guess', 'summary', 'note', 'alias', 'promise'])
   })
 
   it('counts what is waiting for a look', () => {
@@ -131,5 +131,18 @@ describe('the memory check list, grouped', () => {
     expect(ignoreTitle(name)).toBe('Never offer “the Captain” for Mara Venn again, and stop counting it as Mara Venn in this scene only. You can undo this.')
     expect(countedChecks([name, item('guess')])).toBe(1)
     expect(foldedGroup('alias')).toBe(false)
+  })
+
+  it('a plot thread left waiting (long story memory fix 10): Keep and Mark as dropped, counted, and said plainly', () => {
+    const bell = item('promise', { entryName: 'The drowned bell', entryKind: 'thread', text: 'Still open, and due by the end of Ch 4' })
+    expect([keepLabel(bell), removeLabel(bell)]).toEqual(['Keep', 'Mark as dropped'])
+    expect(keptToast([bell])).toBe('Kept as it is. You won’t be asked about it again for now.')
+    expect(keptToast([bell, item('promise')])).toBe('Kept 2 plot threads as they are.')
+    expect(removedToast(bell)).toBe('Marked “The drowned bell” as dropped. The AI won’t bring it up again.')
+    expect(countedChecks([bell, item('guess')])).toBe(1)
+    expect(foldedGroup('promise')).toBe(false)
+    const g = CHECK_GROUPS.find((x) => x.id === 'promise')!
+    expect(g.title).toBe('Plot threads left waiting')
+    expect(g.help).toMatch(/Pay one off later, mark it as dropped, or keep it as it is/)
   })
 })

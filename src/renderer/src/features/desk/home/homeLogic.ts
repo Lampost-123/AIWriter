@@ -142,8 +142,8 @@ export function lastLines(text: string, words = 22): string {
 export interface ThreadRow {
   id: ID
   name: string
-  state: 'open' | 'resolved' | 'planned'
-  /** "Open for 2 chapters", "Resolved in Ch 2, Sc 1", "Planned on the cards". */
+  state: 'open' | 'resolved' | 'planned' | 'dropped'
+  /** "Open for 2 chapters", "Resolved in Ch 2, Sc 1", "Planned on the cards", "Dropped". */
   note: string
   /** Where along the story (0 at its first scene, 1 at its last) it was set up and paid off, for its little string. */
   from: number | null
@@ -166,7 +166,7 @@ export function threadRows(board: Pick<ThreadsBoard, 'threads'>, outline: Pick<O
     return i < 0 ? null : order.length > 1 ? i / (order.length - 1) : 0
   }
   const now = at(currentSceneId) ?? 1
-  const rank = { open: 0, planned: 1, resolved: 2 } as const
+  const rank = { open: 0, planned: 1, resolved: 2, dropped: 3 } as const
   return board.threads
     .map((t): ThreadRow => {
       const from = at(t.setUp?.sceneId) ?? (t.setUp ? 0 : null)
@@ -175,6 +175,8 @@ export function threadRows(board: Pick<ThreadsBoard, 'threads'>, outline: Pick<O
         return { id: t.id, name: t.name, state: 'resolved', note: where ? `Resolved in ${where}` : 'Resolved', from, to: at(t.paidOff?.sceneId), longOpen: false }
       }
       if (t.column === 'planned') return { id: t.id, name: t.name, state: 'planned', note: 'Planned on the cards', from, to: null, longOpen: false }
+      // Long story memory fix 10: Adam decided the story won't pay it off.
+      if (t.column === 'dropped') return { id: t.id, name: t.name, state: 'dropped', note: 'Dropped', from, to: null, longOpen: false }
       const ch = t.openChapters
       const note = ch == null ? 'Open' : ch === 0 ? 'Opened this chapter' : `Open for ${plural(ch, 'chapter')}`
       return { id: t.id, name: t.name, state: 'open', note, from, to: Math.max(now, from ?? 0), longOpen: t.longOpen }
