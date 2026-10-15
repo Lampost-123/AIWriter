@@ -33,9 +33,10 @@
 // 11 ties to people not in this scene: for each character present, the people they're tied to who aren't
 //    there, with where things stand and what has happened between them, newest first (names and relationship
 //    only; smaller: the closest few)
-// 11 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
-//    repeated from the briefing right above the closing instruction (the fewest lines that matter most, without the
-//    lead); kept longer than the ties, and back first
+//  2 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
+//    repeated from the briefing right above the closing instruction, the facts the scene is most likely to break first
+//    (the fewest lines that matter most, without the lead); since 2026-10-15 never left out, and short only once every
+//    block from 3 to 11 is
 // Story memory step 5 (src/main/retrieval/, with ContextInput.recall) adds candidates, never more room: entries from
 // the last two scenes and entries found by searching join block 9; what was said, word for word (fewer lines when
 // short), and earlier passages found by searching (the best two, then the best one) are blocks at priority 9,
@@ -157,6 +158,27 @@ export interface ContextInput {
 export const PLAN_BLOCK = { id: 'plan', title: 'The plan, made before writing' } as const
 /** The "must stay true" list's block (mustStay.ts), sent last before the closing instruction. */
 export const MUST_BLOCK = 'must-stay-true'
+/** Its priority: as the scene card's, never left out (2026-10-15), though it has a short form for when room is short. */
+export const MUST_PRIORITY = 2
+
+/**
+ * How much time has passed since the scene before, by both scene cards' When, for what must stay true (2026-10-15): "Time:
+ * the scene before was Day 3, dusk; this scene is Day 5". For a story's first scene after another story, its time gap.
+ * '' when the writing carries on inside the scene, when either When isn't known, or when it is the same.
+ */
+export function timeSince(input: Pick<ContextInput, 'scene' | 'memory' | 'options' | 'continuityAtSoFar'>, reach: StageReach): string {
+  if (reach === 'here' || input.continuityAtSoFar || input.options.addBelow) return ''
+  const prev = input.memory.previous
+  if (!prev) return ''
+  if (prev.otherStory && prev.storyId !== input.memory.storyId) {
+    const gap = clean(prev.otherStory.timeGap).replace(/\.$/, '')
+    return gap ? `Time since ${clean(prev.storyTitle) || 'the story before'}: ${gap}` : ''
+  }
+  const before = clean(prev.when)
+  const now = clean(input.scene.card.when)
+  if (!before || !now || sameWhen(before, now)) return ''
+  return `Time: the scene before was ${before}; this scene is ${now}`
+}
 
 /** What block 3b says first. */
 export const STAND_LEAD =
@@ -1532,10 +1554,12 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   }
 
   // What must stay true (mustStay.ts): a short list the app writes from where things stand and the codex entries of
-  // those in the scene, current values only, each with since when. Sent last, right above the closing instruction
-  // (prepareContext), with the full briefing above it. Capped; short: the fewest lines that matter most. Everything in
-  // it is in the briefing above as well, so where room is short it goes first, with the ties (block 11), and comes back
-  // first once everything else has its room.
+  // those in the scene, current values only, each with since when, what the scene is most likely to break first (who
+  // is dead, what is kept from someone here, injuries, how much time has passed). Sent last, right above the closing
+  // instruction (prepareContext), with the full briefing above it. Capped; short: the fewest lines that matter most.
+  // Since 2026-10-15 (the long story memory research: it was among the first parts left out when room was short, though
+  // models attend most to the end of a briefing) it is never left out: priority 2, short only once every block from 3
+  // to 11 is (finishContext).
   const reach = stageReach(input)
   const people = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character')
   const card = input.scene.card
@@ -1556,13 +1580,24 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
       .join('\n'),
     // The stage block right above says where things stand at this same moment: the list doesn't say it again.
     stageShown: !!full,
-    happened: happenedOf(input.memory.entries)
+    happened: happenedOf(input.memory.entries),
+    elapsed: timeSince(input, reach)
   }
   const must = mustStayTrue(mustFrom)
   if (must.length) {
-    // Short: the lines that matter most, without the lead (the title says it).
+    // Short: the lines that matter most, without the lead (the title says it); smallest: the first few of what the scene
+    // is most likely to break, said briefly (it is never left out, so it has to fit a model with very little room).
     const short = mustStayTrue({ ...mustFrom, short: true })
-    add(MUST_BLOCK, TIES_PRIORITY, MUST_TITLE, mustText(must, reach), short.length ? mustText(short, null) : null, [])
+    const smallest = mustStayTrue({ ...mustFrom, smallest: true })
+    add(
+      MUST_BLOCK,
+      MUST_PRIORITY,
+      MUST_TITLE,
+      mustText(must, reach),
+      short.length ? mustText(short, null) : null,
+      [],
+      smallest.length ? [mustText(smallest, null)] : []
+    )
   }
 
   // 4 Point-of-view character (short: without backstory; smaller: the core of the profile, then the least of it).
@@ -1833,7 +1868,7 @@ const STEADY_UNTIL = SEND_ORDER.indexOf('pov')
  * Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). Step 5's blocks
  * (earlier passages, then what was said) go before the other entries named.
  */
-const KEEP_ORDER = ['threads', 'setting', 'world-rules', MUST_BLOCK, 'recalled', 'said', RECALL_ENTRIES.id, 'mentioned']
+const KEEP_ORDER = ['threads', 'setting', 'world-rules', 'recalled', 'said', RECALL_ENTRIES.id, 'mentioned']
 const keepRank = (id: string): number => Math.max(0, KEEP_ORDER.indexOf(id))
 
 /**
@@ -2006,9 +2041,10 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // Least important first; within a priority, hard rules go last.
   const leastFirst = [...others].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
-  const shortenable = [...droppable, ...others.filter((x) => x.b.priority === 1)]
+  // What must stay true is never left out: it goes short only once every block from 3 to 11 is, before block 1.
+  const shortenable = [...droppable, ...others.filter((x) => x.b.id === MUST_BLOCK), ...others.filter((x) => x.b.priority === 1)]
 
-  /** Block 11 (the ties, and what must stay true): left out first when room is short, and put back last. */
+  /** Block 11 (the ties): left out first when room is short, and put back last. */
   const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
 
   /** Steps 4 to 6: what fits again is put back, and each block given back the longest form that fits. */
@@ -2031,7 +2067,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       }
     }
 
-    // 6. Block 11 back (what must stay true first, then the ties), if it fits once everything more important has its room.
+    // 6. Block 11 back (the ties), if it fits once everything more important has its room.
     for (const s of [...droppable].reverse()) {
       if (!s.dropped || !lowest(s)) continue
       s.dropped = false

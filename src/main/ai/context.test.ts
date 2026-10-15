@@ -48,6 +48,7 @@ import {
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_LEAD } from './openThreads'
 import { TIMELINE_LEAD } from './timeline'
+import { MUST_SMALLEST } from './mustStay'
 import { countRaw } from './tokens'
 
 // ---------- Fixtures ----------
@@ -653,7 +654,7 @@ describe('blocks', () => {
       ['ties', 11],
       ['mentioned', 9],
       ['scene-card', 2],
-      ['must-stay-true', 11]
+      ['must-stay-true', 2]
     ])
   })
 
@@ -1761,11 +1762,14 @@ describe('a small-context model and a large-context model both get a sensible br
   }
 
   /** What every briefing must hold, whatever the model. */
-  function sensible(b: ReturnType<typeof briefing>): void {
+  function sensible(b: ReturnType<typeof briefing>, o: { pov?: boolean } = {}): void {
     expect(b.p.budget.used).toBeLessThanOrEqual(b.p.budget.available)
     // Every part is listed, sent or not, so the Context tab and "What the AI saw" show what was left out.
     expect(b.p.blocks).toHaveLength(15)
-    for (const id of ['instructions', 'scene-card', 'pov', 'previous-scene']) expect(b.sent(id), id).toBe(true)
+    // What must stay true is never left out (2026-10-15).
+    for (const id of ['instructions', 'scene-card', 'previous-scene', MUST_BLOCK]) expect(b.sent(id), id).toBe(true)
+    if (o.pov === false) return
+    expect(b.sent('pov'), 'pov').toBe(true)
     expect(b.p.messages[0].content).toContain('Style guide\n- Point of view: Close third person')
     expect(b.p.messages[0].content).toContain('Sample passage')
     expect(b.p.messages[0].content).toContain('- suddenly')
@@ -1784,12 +1788,16 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(b.block('previous-scene').text).toMatch(/^["A-Z]/)
   }
 
-  it('a 4,000-token model writing 600 words: instructions, scene card, the end of the previous scene and the core of the point of view', () => {
+  it('a 4,000-token model writing 600 words: instructions, scene card, the end of the previous scene and what must stay true', () => {
     const b = briefing(4096, 600, 'typical')
-    sensible(b)
+    // Since 2026-10-15 what must stay true is never left out, so on a model this small the point of view's core no longer
+    // fits beside it (the models AI Write suggests read far more). The list is at its smallest: a few lines, said briefly.
+    sensible(b, { pov: false })
+    expect(b.sent('pov')).toBe(false)
+    expect(b.block(MUST_BLOCK).text.split('\n')).toHaveLength(MUST_SMALLEST)
     expect(b.block('instructions').short).toBe(true)
     expect(b.block('previous-scene').short).toBe(true)
-    // The least of the profile: no backstory, no long description, two sample lines.
+    // The least of the profile, were there room: no backstory, no long description, two sample lines.
     expect(b.block('pov').text).not.toContain('Backstory')
     expect(b.block('pov').text.match(/^ {4}"/gm)).toHaveLength(2)
     expect(b.block('pov').text).toContain('- Current motivation: ')
@@ -1903,9 +1911,9 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(lengthTooLong(b.p.budget)!.maxWords).toBeLessThan(AUTO_LENGTH.min)
   })
 
-  it('a model too small for the length asked: only the instructions and the scene card, and the draft is refused with a length that fits', () => {
+  it('a model too small for the length asked: only the instructions, the scene card and what must stay true, and the draft is refused with a length that fits', () => {
     const b = briefing(4096, 1500)
-    expect(b.p.blocks.filter((x) => !x.dropped).map((x) => x.id)).toEqual(['instructions', 'scene-card'])
+    expect(b.p.blocks.filter((x) => !x.dropped).map((x) => x.id)).toEqual(['instructions', 'scene-card', MUST_BLOCK])
     expect(lengthTooLong(b.p.budget)).toEqual({ maxWords: expect.any(Number) })
     expect(lengthTooLong(b.p.budget)!.maxWords).toBeGreaterThanOrEqual(500)
   })
