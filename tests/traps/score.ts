@@ -11,6 +11,8 @@ import type { JudgeAnswer } from './judge'
 import { firstBreak, patternVerdict } from './patterns'
 import { proseMarkdown, proseRows, type ProseMetrics, type ProseSummary } from './prose'
 import { TRAPS, type Check, type Probe, type ProbeKind, type Tripwire } from './story'
+import { BOOK_TRAPS, CONSTORY_KINDS, MEMORY_KINDS, type ConStoryKind, type MemoryKind } from './book'
+import { plantedCompareRows, plantedMarkdown, type PlantedResult, type PlantedSummary } from './planted'
 
 /** A story's traps, as the report lists them. */
 export type TrapList = { id: string; name: string }[]
@@ -257,6 +259,42 @@ export interface RunReport {
   prose?: ProseSummary
   /** The scores after check and repair (step 3), when the checkout has it; absent otherwise. */
   repaired?: Summary & { checked: number; fixes: number; made: number; questions: number }
+  /** The book (story version 4): scores by ConStory's kinds and by kind of memory, and the planted contradictions. */
+  book?: BookSummary
+}
+
+export interface BookSummary {
+  byKind: Record<ConStoryKind, Tally>
+  byMemory: Record<MemoryKind, Tally>
+  planted?: PlantedResult[]
+  plantedSummary?: PlantedSummary
+}
+
+/** The book's probe scores grouped by ConStory's five kinds of error and by kind of memory (each check by its trap). */
+export function summariseBook(probes: ProbeResult[]): Pick<BookSummary, 'byKind' | 'byMemory'> {
+  const all = probes.flatMap((p) => p.samples.filter((s) => s.status === 'complete').flatMap((s) => s.results))
+  const trap = (id: string) => BOOK_TRAPS.find((t) => t.id === id)
+  return {
+    byKind: Object.fromEntries(CONSTORY_KINDS.map((k) => [k.id, tally(all.filter((r) => trap(r.trap)?.kind === k.id))])) as Record<ConStoryKind, Tally>,
+    byMemory: Object.fromEntries(MEMORY_KINDS.map((k) => [k.id, tally(all.filter((r) => trap(r.trap)?.memory === k.id))])) as Record<MemoryKind, Tally>
+  }
+}
+
+/** The book's sections of the report: by kind of error, by kind of memory, then the planted contradictions. */
+function bookMarkdown(b: BookSummary | undefined): string[] {
+  if (!b) return []
+  const out = ['## By kind of error (ConStory-Bench’s five)', '', '| Kind | Covers | Kept | Broken | Consistency |', '|---|---|---:|---:|---:|']
+  for (const k of CONSTORY_KINDS) {
+    const x = b.byKind[k.id]
+    out.push(`| ${k.name} | ${k.covers} | ${x.kept} | ${x.broken} | ${pct(x.consistency)} |`)
+  }
+  out.push('', '## By kind of memory', '', '| Memory | Kept | Broken | Consistency |', '|---|---:|---:|---:|')
+  for (const k of MEMORY_KINDS) {
+    const x = b.byMemory[k.id]
+    out.push(`| ${k.name} | ${x.kept} | ${x.broken} | ${pct(x.consistency)} |`)
+  }
+  out.push('', ...plantedMarkdown(b.planted, b.plantedSummary))
+  return out
 }
 
 export interface Summary {
@@ -634,6 +672,7 @@ export function reportMarkdown(r: RunReport): string {
   }
   out.push('')
   out.push(...chainsMarkdown(r))
+  out.push(...bookMarkdown(r.book))
   out.push(...proseMarkdown(r.prose))
   out.push(r.chains ? '## By plant' : '## By trap')
   out.push('')
@@ -799,6 +838,13 @@ export function compareMarkdown(a: RunReport, b: RunReport): string {
   }
   const tokens = (r: RunReport): string => `${r.usage.total.promptTokens.toLocaleString('en-GB')} / ${r.usage.total.completionTokens.toLocaleString('en-GB')}`
   const per = (r: RunReport): string => (r.summary.total.brokenPerPassage == null ? '–' : r.summary.total.brokenPerPassage.toFixed(2))
+  if (a.book || b.book) {
+    const kc = (r: RunReport, k: ConStoryKind): string => (r.book ? cell(r.book.byKind[k]) : '–')
+    for (const k of CONSTORY_KINDS) out.push(`| ${k.name} | ${kc(a, k.id)} | ${kc(b, k.id)} |`)
+    const mc = (r: RunReport, k: MemoryKind): string => (r.book ? cell(r.book.byMemory[k]) : '–')
+    for (const k of MEMORY_KINDS) out.push(`| ${k.name} | ${mc(a, k.id)} | ${mc(b, k.id)} |`)
+    out.push(...plantedCompareRows(a.book?.plantedSummary, b.book?.plantedSummary))
+  }
   out.push(`| Broken per passage | ${per(a)} | ${per(b)} |`)
   out.push(`| Passages | ${a.summary.total.passages} | ${b.summary.total.passages} |`)
   out.push(`| Cost reported | ${usd(a.usage.total.cost)} | ${usd(b.usage.total.cost)} |`)

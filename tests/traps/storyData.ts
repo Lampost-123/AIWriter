@@ -1,10 +1,12 @@
-// The story a run uses, in one shape: version 2 (story.ts, nine short hand-written scenes) or version 3 (the long story
-// a live model wrote from story3.ts's outline, frozen in story-v3.json). Version 3's probe pages are worked out from
-// the written text: where each planted event is, and how far a Continue's page ends from it.
+// The story a run uses, in one shape: version 2 (story.ts, nine short hand-written scenes), version 3 (the long story
+// a live model wrote from story3.ts's outline, frozen in story-v3.json) or version 4, the book (story-v4.json, tested by
+// book.ts). Version 3's probe pages are worked out from the written text: where each planted event is, and how far a
+// Continue's page ends from it; the book's end before a marker sentence.
 
 import { readFileSync } from 'node:fs'
 import { CHAPTERS, ENTRIES, PROBES, SCENES, STORY, STORY_VERSION, TRAPS, type Probe } from './story'
 import { findPlace } from './patterns'
+import { BOOK_PROBES, BOOK_PROBES_VERSION, PLANTED, TRAPS4, type BookProbe, type Planted } from './book'
 import { CHAPTERS3, ENTRIES3, OUTLINE_VERSION, PROBES3, PROBES_VERSION, SCENES3, STORY3, TRAPS3, type Card3, type Entry3, type ProbeSpec3 } from './story3'
 
 export interface StoryScene {
@@ -27,6 +29,8 @@ export interface StoryData {
   scenes: StoryScene[]
   traps: { id: string; name: string; tests: string }[]
   probes: Probe[]
+  /** The book only: passages with planted slips (and controls) for the app's consistency checks. */
+  planted?: Planted[]
 }
 
 /** Version 2: the hand-written story in story.ts. */
@@ -175,6 +179,77 @@ export function storyV3(f: StoryFixture, source: string): StoryData {
     scenes: f.scenes,
     traps: TRAPS3,
     probes
+  }
+}
+
+// ---------- Version 4: the book ----------
+
+/** story-v4.json: the book, written by hand and frozen (book.ts holds what is tested in it). */
+export interface BookFixture {
+  format: 'aiwrite-trap-story'
+  version: 4
+  /** How it was made, for the report. */
+  written: string
+  writtenAt: string
+  story: { title: string; premise: string }
+  chapters: { title: string; goal: string }[]
+  entries: Entry3[]
+  scenes: (StoryScene & { words: number })[]
+}
+
+export function loadBook(path: string): BookFixture {
+  let f: BookFixture
+  try {
+    f = JSON.parse(readFileSync(path, 'utf8')) as BookFixture
+  } catch (e) {
+    throw new Error(`Can't read the book at ${path} (${e instanceof Error ? e.message : String(e)}).`)
+  }
+  if (f.format !== 'aiwrite-trap-story' || f.version !== 4) throw new Error(`${path} isn't the book (story version 4).`)
+  return f
+}
+
+/** How many of a scene's paragraphs are on the page for a book probe: none, or those before the marker's paragraph. */
+export function bookPage(spec: Pick<BookProbe, 'id' | 'at'>, scene: StoryScene): number {
+  if ('start' in spec.at) return 0
+  const marker = spec.at.before
+  const at = scene.paragraphs.findIndex((p) => p.startsWith(marker))
+  if (at < 0) throw new Error(`Probe ${spec.id}: no paragraph of ${scene.key} starts with “${marker}”.`)
+  if (at === 0) throw new Error(`Probe ${spec.id}: “${marker}” starts ${scene.key}; there is no page before it.`)
+  return at
+}
+
+/** The book with its probes' pages worked out, and its planted passages. */
+export function storyBook(f: BookFixture, source: string): StoryData {
+  const probes: Probe[] = BOOK_PROBES.map((spec) => {
+    const scene = f.scenes.find((s) => s.key === spec.scene)
+    if (!scene) throw new Error(`The book has no scene ${spec.scene}.`)
+    return {
+      id: spec.id,
+      scene: spec.scene,
+      kind: spec.kind,
+      paragraphs: bookPage(spec, scene),
+      ...(spec.beat ? { beat: spec.beat } : {}),
+      asks: spec.asks,
+      facts: spec.facts,
+      checks: spec.checks,
+      tripwires: spec.tripwires,
+      patterns: spec.patterns,
+      ...(spec.direction ? { direction: spec.direction } : {}),
+      ...(spec.beats ? { beats: spec.beats } : {}),
+      ...(spec.soFarEnds ? { soFarEnds: spec.soFarEnds } : {})
+    }
+  })
+  return {
+    version: 4,
+    probesVersion: BOOK_PROBES_VERSION,
+    source: `${source} (${f.written}, ${f.scenes.reduce((n, s) => n + s.words, 0).toLocaleString('en-GB')} words)`,
+    story: f.story,
+    chapters: f.chapters,
+    entries: f.entries,
+    scenes: f.scenes,
+    traps: TRAPS4,
+    probes,
+    planted: PLANTED
   }
 }
 

@@ -36,6 +36,10 @@ npm run traps -- --samples 5 --max-tokens-in 4000000 --root <other checkout> --o
 # Again, from the world an earlier run of the same app code saved: the story's memory build is skipped.
 npm run traps -- --samples 5 --root <other checkout> --from-world <earlier report folder> --out <report folder>
 
+# The book (story version 4, 61,000 words): check the harness, then a real score. See "The book" below.
+npm run traps -- --fake --story book --out <a folder of your own>
+npm run traps -- --story book --samples 3 --max-tokens-in 8000000 --out <report folder>
+
 # A chain run scored again with the checks as they are now: no model, no cost.
 npm run traps -- --rescore <report folder> --out <another folder>
 
@@ -79,7 +83,7 @@ skips saving it.
 harness never downloads them: it copies them from `--search-model <folder>` (default `traps-results/search-model`, not
 committed). Without them the run uses keyword search, sticky entries and what was said only, and the report says so.
 
-Other flags: `--probes-version 4|3` (4, chains, is the default), `--story v2` or `--story-file <file>`, `--samples N`
+Other flags: `--probes-version 4|3` (4, chains, is the default), `--story v2`, `--story book` (with `--check-samples N`) or `--story-file <file>`, `--samples N`
 (default 3), `--probes G1,C1` (probes v3), `--chain K1|K2|K3|both|all` or a list (`--chain K1,K3`; the chains to
 run, K1 alone by default; "both" is K1 and K2; instead of `--probes`), `--words N`, `--add-words N`, `--beat-scene-words N`, `--price-in X
 --price-cached Y --price-out Z` (USD per million tokens for the estimated cost; default DeepSeek's prices, 0.28, 0.028
@@ -235,8 +239,82 @@ Use the same models and the same story file for every run you compare.
   longer and have a live model write it. Every fact a probe tests is far from it: chapters back, or early in a long
   scene, beyond what Continue is shown.
 - **Version 2** (`--story v2`): "The Gannet", nine short hand-written scenes in `story.ts`.
+- **Version 4, the book** (`--story book`): "The Winter Ledger", 40 scenes in 10 chapters (61,442 words), written
+  by hand and frozen in `story-v4.json`; its probes and planted contradictions are in `book.ts`. See below.
 
 Scores from different story versions don't compare (`--compare` says so).
+
+## The book (story version 4)
+
+The research report "Long story memory and consistency" (2026-10-15, change 6) found that story version 3 is too short
+to show forgetting, and asked for a made-up test book of at least 50,000 words, scored four ways. `--story book` runs it.
+
+- **The story**: "The Winter Ledger", 40 scenes in 10 chapters, 61,442 words, all invented. A clockmaker's bookkeeper
+  finds a hidden debt in her dead father's ledger and travels north up a frozen river by dog-sledge to find the proof
+  that he paid it. Written by hand (Claude, 2026-10-15) from a bible of facts, never by a model being scored, then
+  checked by two readers for slips and frozen in `story-v4.json` (scenes, cards and codex). What is tested is in
+  `book.ts`: the facts and the exact sentence where each is set or changes, the probes, and the planted passages. The
+  unit tests (`tests/unit/trapsBook.test.ts`) check that every fact is set word for word where `book.ts` says, that the
+  story never breaks its own checks, and that each probe's page and the three scenes before it never mention what the
+  probe tests.
+- **1. Facts set early, asked about late in other words.** Facts are set in chapters 1 to 3 (Tamsin can't swim, Pim
+  can't read, Tamsin speaks Hollish and Kit doesn't, how her parents died, the sum, Slade's title and looks, the
+  sledge's name, how guild pigeons fly, which bank the Guildhall is on, which way home is). Thirteen probes in scenes 18
+  to 40 (45% to 100% of the book) aim at them the way Adam would aim a draft, without ever using the words that set the
+  fact (the unit tests check): "the only way on is through chest-deep water; show how each of them gets across", never
+  "she can't swim" (NoLiMa showed matching words hides forgetting).
+- **2. Facts that change**, probed before and after: the right wrist broken, splinted from day 3, the splint off on day
+  33; the debt's secret told to one person after another (Fane, Kit, overheard by Wilmot, Pim last); six dogs then five;
+  three pigeons sent one by one; the watch pawned, then sold; the key moved into a boot heel; the thaw bell closing the
+  river.
+- **3. Planted contradictions** (the FlawedFictions way): 18 short passages set just after the book ends, 12 with one
+  slip each (two or more of each ConStory kind) and 6 without (4 of them decoys: a real change a careless checker calls
+  a slip, like the healed wrist or the dog left behind). After the probes, each is put in a new scene on a fresh copy of
+  the world as the whole book left it and checked by the app's own consistency checker, as Adam's "Check this scene"
+  (every check; the memory reads the passage first, so its clash warnings count too). The report says how many slips
+  were caught (an issue whose quote is the planted sentence), how many false alarms there were, and how many were on a
+  decoy. `--check-samples N` checks each passage N times (default 1).
+- **4. ConStory-Bench's five kinds of error**: every check and every planted slip is one of timeline and plot logic,
+  characterisation, world-building and setting, factual and detail consistency, or narrative and style (whose eyes,
+  tense, register). The report scores them by kind, and by kind of memory (set early, changed, how the story is told).
+
+The probes run as probes v3 do (one passage each, Add below, Generate, Continue or a beat, with the judge and the
+deterministic checks, then check and repair), and `--probes B4,X1` picks probes and planted passages by id. The world
+before the first probe scene is saved (`world-before-s18.db`) for `--from-world`.
+
+### Scoring PR #116 before and after, with DeepSeek
+
+PR #116 (the five memory quick wins) merged as 405fc259; the commit before it is 8dc0dc27. Score both with this
+harness, on the same story and the same model:
+
+```powershell
+# Once: a second checkout of the app as it was before PR #116, with its own node_modules.
+git worktree add ..\AIWriter-before-116 8dc0dc27
+npm ci --prefix ..\AIWriter-before-116
+
+# The key, once, in a terminal of your own (never in a chat or a file); then open a new terminal.
+setx DEEPSEEK_API_KEY "<your key>"
+
+# After PR #116 (this checkout: main, with this harness), then before it (the other checkout), each into its own folder.
+npm run traps -- --story book --max-tokens-in 8000000 --max-tokens-out 1500000 --out traps-results\book-after-116
+npm run traps -- --story book --max-tokens-in 8000000 --max-tokens-out 1500000 --root ..\AIWriter-before-116 --out traps-results\book-before-116
+
+# Side by side (no model, no cost).
+npm run traps -- --compare traps-results\book-before-116 traps-results\book-after-116
+```
+
+Copy the search model's files into `traps-results\search-model` first (see "Recall by meaning") or both runs use
+keyword search only; the report says which. The before checkout guesses DeepSeek's reading limit at 16,000 tokens, as
+Adam's app did before PR #116; the after one knows it is 1,000,000.
+
+**What it costs** (an estimate: the book hasn't had a real run yet). A fake run of the book sends 1.39 million tokens
+in 516 calls (the fake memory writes much shorter notes than a real one, so real briefings are bigger). From that and
+version 3's real runs, a real run of the book should take about 4 to 6 million tokens in and 0.4 to 0.8 million out:
+about $1 to $1.50 at DeepSeek's prices (more of it read from DeepSeek's cache makes it cheaper), so about $2 to $3 for
+before and after together. The default budget (2 million in, 500,000 out) is too small for the book; the commands above
+set 8 million and 1.5 million, which caps a run at about $2.90 even with nothing read from the cache. A run takes about
+an hour or two, most of it the memory reading 61,000 words. A later run from the saved world (`--from-world <report
+folder>`, same checkout and models) skips that reading.
 
 ## Writing story version 3 (once)
 
@@ -407,3 +485,7 @@ Version 2 lives in `story.ts` (bump `STORY_VERSION`). Version 3's outline, probe
 `OUTLINE_VERSION`: a story written from another outline won't load, so write it again). The chain and its checks live
 in `chain.ts`. The checks' own tests are in `tests/unit/traps.test.ts`, `tests/unit/traps3.test.ts` and
 `tests/unit/trapsChain.test.ts` (K3's threads: `tests/unit/trapsThreads.test.ts`); add the exact lines a real run got wrong when you change a check.
+The book's probes, checks and planted passages live in `book.ts` (bump `BOOK_PROBES_VERSION`), the planted passages'
+run and scoring in `planted.ts`, and their tests in `tests/unit/trapsBook.test.ts`. The book's words are frozen in
+`story-v4.json`: change a fact there only together with `BOOK_PLANTS` and the probes that test it, and scores from
+before and after don't compare.
