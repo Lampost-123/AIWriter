@@ -91,6 +91,7 @@ import { MUST_TITLE, mustStayTrue, mustText, realSecrets, shortPlace, stageFor, 
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
+import type { Lesson } from '../checks/lessons'
 import { beatsOnPage, speechSamples } from './repetition'
 import { cleanKnows, happenedOf, pastDeathNote } from './knows'
 import { TIMELINE_LEVELS, timelineText, updatingNote, type TimelineContext } from './timeline'
@@ -164,6 +165,11 @@ export interface ContextInput {
    * prompt from one step to the next. Left out: the steady order alone.
    */
   sentOrder?: Record<string, ID[]>
+  /**
+   * Slips the checks found in earlier scenes and that were put right in the text, newest first (checks/lessons.ts): what
+   * must stay true says those about the people here. Left out: none.
+   */
+  slips?: Lesson[]
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -1628,7 +1634,8 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     // The stage block right above says where things stand at this same moment: the list doesn't say it again.
     stageShown: !!full,
     happened: happenedOf(input.memory.entries),
-    elapsed: timeSince(input, reach)
+    elapsed: timeSince(input, reach),
+    slips: input.slips
   }
   const must = mustStayTrue(mustFrom)
   if (must.length) {

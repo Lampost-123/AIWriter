@@ -32,6 +32,7 @@ import { keptStateBefore } from '../continuity/tracker'
 import { estimateTokens } from '../keeper/text'
 import { holdingLine, holdingsFirst, holdingsOf, itemHeads, namesOf, type Holding } from '../memory/items'
 import { isPerson, namesPerson } from '../ai/mustStay'
+import { lessonLine, lessonsBefore, type Lesson } from './lessons'
 
 type DB = Database.Database
 
@@ -43,6 +44,10 @@ const MOST_FACTS = 40
 const MOST_FULL = 24
 /** The most lines about what people here gave away, lost or got. */
 export const MOST_OWNED = 12
+/** The most findings from earlier scenes the author said are meant. */
+export const MOST_MEANT = 8
+/** Which check each kind of finding the author said is meant belongs to. */
+const MEANT_CHECK: Partial<Record<Lesson['kind'], CheckKind>> = { fact: 'facts', knowledge: 'knowledge', timeline: 'timeline' }
 
 /** One entry the check is told about. */
 export interface CheckEntry {
@@ -82,6 +87,11 @@ export interface SceneCheckContext {
   continuity: SceneState | null
   /** The story so far, as the writer gets it: in full (chapters and the last few scenes) and short (the most recent parts). */
   storySoFar: { full: string; short: string }
+  /**
+   * What Adam said is meant when the checks raised it in earlier scenes, about entries the check is told of, newest first
+   * (checks/lessons.ts): not raised again here. Left out: none.
+   */
+  meant?: Lesson[]
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').trim()
@@ -167,7 +177,8 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
       content: intensityLines(style.intensity)
     },
     continuity: keptStateBefore(db, sceneId),
-    storySoFar: sofar ? { full: storySoFarText(sofar, story.title, 1), short: storySoFarText(sofar, story.title, 3) } : { full: '', short: '' }
+    storySoFar: sofar ? { full: storySoFarText(sofar, story.title, 1), short: storySoFarText(sofar, story.title, 3) } : { full: '', short: '' },
+    meant: lessonsBefore(db, sceneId).meant.filter((l) => l.entryIds.some((id) => taken.has(id)))
   }
 }
 
@@ -373,6 +384,24 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
     if (owned.length) {
       out.push({ id: 'owned', title: 'What people here no longer have, or have now', text: owned.map((h) => `- ${holdingLine(h)}`).join('\n'), entryIds: [] })
     }
+  }
+
+  // What the author said is meant when a check raised it in an earlier scene (fix 7 of the long story memory research):
+  // the same thing here is no issue either. Only for the checks being run.
+  const meant = (ctx.meant ?? []).filter((l) => {
+    const check = MEANT_CHECK[l.kind]
+    return !!check && has(check)
+  })
+  if (meant.length) {
+    out.push({
+      id: 'meant',
+      title: 'What the author has said is meant',
+      text: meant
+        .slice(0, MOST_MEANT)
+        .map((l) => `- ${lessonLine(l)}`)
+        .join('\n'),
+      entryIds: []
+    })
   }
 
   // Where things stood as the previous scene ended: the continuity check's starting point.
