@@ -5,7 +5,8 @@
 // (Generate and Add below: the 'startDraft' handler; a beat: 'startBeat'; Continue: 'startEdit'), so the briefing, the
 // memory's catch-up and "where things stand" are exactly what Adam gets. What it writes is never saved into the story:
 // the next scenes are always the story's own words. The story is version 3 (the long story a live model wrote,
-// story-v3.json) unless --story v2 asks for the hand-written one.
+// story-v3.json) unless --story v2 asks for the hand-written one, or --story book for the book (version 4, story-v4.json),
+// whose planted contradictions are then checked by the app's consistency checker after its last scene (planted.ts).
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -18,6 +19,7 @@ import {
   reportMarkdown,
   scorePassage,
   summarise,
+  summariseBook,
   summariseRepair,
   type ProbeResult,
   type RepairResult,
@@ -26,13 +28,15 @@ import {
 } from './score'
 import { promptText, proseMetrics, sampleLines, summariseProse } from './prose'
 import type { Probe } from './story'
-import { loadFixture, storyV2, storyV3, type StoryData, type StoryScene } from './storyData'
+import { checkPlanted, summarisePlanted, type PlantedResult } from './planted'
+import { loadBook, loadFixture, storyBook, storyV2, storyV3, type StoryData, type StoryScene } from './storyData'
 import { storyHash, storyHashes } from './worldCode.mjs'
 
 export { configFromEnv, type TrapsConfig } from './app'
 
 /** The story the run uses. */
 export function storyFor(cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): StoryData {
+  if (cfg.story === 'book') return storyBook(loadBook(cfg.storyFile), cfg.storyFile)
   return cfg.story === 'v2' ? storyV2() : storyV3(loadFixture(cfg.storyFile), cfg.storyFile)
 }
 
@@ -199,14 +203,18 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
   if (cfg.out && existsSync(join(cfg.out, 'report.json'))) throw new Error(`${cfg.out} already has a report; give another --out folder.`)
   const data = storyFor(cfg)
   const chosen = data.probes.filter((p) => !cfg.probes || cfg.probes.includes(p.id))
-  if (!chosen.length) throw new Error(`No probe called ${cfg.probes?.join(', ')}. The probes are ${data.probes.map((p) => p.id).join(', ')}.`)
+  // The book's planted contradictions (checked after its last scene), chosen by id like the probes.
+  const plantedChosen = (data.planted ?? []).filter((x) => !cfg.probes || cfg.probes.includes(x.id))
+  if (!chosen.length && !plantedChosen.length) {
+    throw new Error(`No probe called ${cfg.probes?.join(', ')}. The probes are ${[...data.probes.map((p) => p.id), ...(data.planted ?? []).map((x) => x.id)].join(', ')}.`)
+  }
   const startedAt = new Date().toISOString()
   const tested = checkout(cfg.root)
   const stamp = startedAt.slice(0, 19).replace(/[-:T]/g, '').replace(/^(\d{8})/, '$1-')
   const outDir = cfg.out ?? join(cfg.harnessRoot, 'traps-results', `${stamp}-${tested.branch.replace(/[^\w.-]+/g, '-')}-${tested.commit.slice(0, 7)}${cfg.fake ? '-fake' : ''}`)
   const sceneIndex = (key: string): number => data.scenes.findIndex((s) => s.key === key)
-  const firstProbe = Math.min(...chosen.map((p) => sceneIndex(p.scene)))
-  const lastScene = Math.max(...chosen.map((p) => sceneIndex(p.scene)))
+  const firstProbe = chosen.length ? Math.min(...chosen.map((p) => sceneIndex(p.scene))) : data.scenes.length
+  const lastScene = plantedChosen.length ? data.scenes.length - 1 : Math.max(...chosen.map((p) => sceneIndex(p.scene)))
   const story = storyId(cfg)
   const srcTree = git(cfg.root, ['rev-parse', 'HEAD:src'])
 
@@ -337,6 +345,19 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
     await app.memoryIdle()
     if (!stopped && app.budget.hit) stopped = app.budget.hit
 
+    // The book's planted contradictions: each checked on a fresh copy of the world as the whole book left it. That world
+    // is saved first as the probes' evidence (the copies opened for the checks replace the open world).
+    let planted: PlantedResult[] = []
+    if (plantedChosen.length && !stopped) {
+      await app.quiet()
+      mkdirSync(outDir, { recursive: true })
+      const world = join(outDir, 'evidence-world.db')
+      await app.saveEvidence(world)
+      const got = await checkPlanted(app, cfg, plantedChosen, world, data.scenes[data.scenes.length - 1].chapter)
+      planted = got.results
+      if (got.stopped) stopped = got.stopped
+    }
+
     const used = app.budget.usedNow()
     const report: RunReport = {
       storyVersion: data.version,
@@ -362,7 +383,8 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
       prose: summariseProse(probeResults.flatMap((p) => p.samples.filter((s) => s.prose).map((s) => ({ where: `${p.id} sample ${s.index + 1} (${p.kind})`, kind: p.kind, text: s.text, prose: s.prose! })))),
       ...(probeResults.some((x) => x.recall) ? { recall: recallSummary(probeResults) } : {}),
       evidence: { world: join(outDir, 'evidence-world.db'), index: join(outDir, 'evidence-index.json') },
-      ...(app.repairMod ? { repaired: summariseRepair(probeResults, data.traps) } : {})
+      ...(app.repairMod ? { repaired: summariseRepair(probeResults, data.traps) } : {}),
+      ...(data.version === 4 ? { book: { ...summariseBook(probeResults), ...(planted.length ? { planted, plantedSummary: summarisePlanted(planted) } : {}) } } : {})
     }
 
     mkdirSync(outDir, { recursive: true })
