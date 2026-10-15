@@ -11,11 +11,16 @@
 // - "Leads into", when this story leads into a book.
 // Capped (TIMELINE_WORDS), the oldest detail going first. Made from what the app already has: no model call. Its words
 // depend only on scenes before this one, so it reads the same at every step of a scene (the cache). Pure.
+// Since 2026-10-15 (the long story memory research) it grows with how much the writer model can read (memoryRoom.ts):
+// up to MOST_SCALE times the words, more chapters told a scene at a time, longer chapter and story lines. With room,
+// every scene of the recent chapters is told as fully as the last five, so a new scene adds a line and changes none
+// before it, and the start of the briefing stays the same from one scene to the next (the cache).
 
 import type { EntryState, ID } from '@shared/types'
 import type { StorySoFar } from '../memory/types'
 import { deathOf } from './deaths'
 import { pastDeathNote } from './knows'
+import { MOST_SCALE } from './memoryRoom'
 
 /** How many forms the timeline has, as the story-so-far block's levels: full, short, then smaller. */
 export const TIMELINE_LEVELS = 6
@@ -43,6 +48,27 @@ export interface TimelineContext {
   name: (id: ID) => string | null
   /** The entries as of this scene, for what has happened to them (deaths, departures, things changing hands). */
   entries: (Pick<EntryState, 'kind' | 'name' | 'happened'> & Partial<Pick<EntryState, 'ended'>>)[]
+  /** How many times the smallest model's memory the writer model is given (memoryRoom.ts memoryScale); left out: 1. */
+  scale?: number
+}
+
+/** The timeline's sizes for a writer model given `scale` times the smallest model's memory (memoryRoom.ts). */
+export function timelineShape(scale = 1): { words: number[]; chapters: number; scenes: number; line: typeof WORDS } {
+  const f = Math.max(1, Math.min(MOST_SCALE, scale))
+  const g = Math.min(2, f)
+  return {
+    // The full and short forms grow; the smaller ones (Continue's, and only the most recent parts) stay as they were.
+    words: TIMELINE_WORDS.map((w, i) => (i < 2 ? Math.round(w * f) : w)),
+    chapters: DETAILED.chapters + Math.floor((f - 1) / 1.3),
+    scenes: DETAILED.scenes,
+    line: {
+      ...WORDS,
+      // Every scene of the recent chapters as fully as the most recent ones, once there is room for it (f of 2.25 or more).
+      scene: Math.min(WORDS.recent, Math.round(WORDS.scene * f)),
+      chapter: Math.round(WORDS.chapter * g),
+      story: Math.round(WORDS.story * g)
+    }
+  }
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -166,6 +192,8 @@ function chapterOrder(s: StorySoFar): ID[] {
  */
 export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): string {
   const lv = Math.max(0, Math.min(TIMELINE_LEVELS - 1, level))
+  const shape = timelineShape(ctx.scale)
+  const say = shape.line
   const marks = timelineMarks(ctx.entries, ctx.storyTitle)
   const place = (w: string): string => shortPlace(w, ctx.storyTitle)
   const parts: Part[] = []
@@ -177,18 +205,18 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
     const rollup = lv >= 2 ? s.series.find((r) => clean(r.text) && r.storyIds.includes(st.storyId)) : undefined
     if (rollup) {
       rollup.storyIds.forEach((id) => rolled.add(id))
-      parts.push({ head: rollup.name, detail: firstWords(rollup.text, WORDS.story), brief: firstWords(rollup.text, WORDS.brief), marks: [] })
+      parts.push({ head: rollup.name, detail: firstWords(rollup.text, say.story), brief: firstWords(rollup.text, say.brief), marks: [] })
       continue
     }
     const head = st.meanwhile ? `Meanwhile, ${st.title}` : st.cut ? `${st.title}, up to where this story starts` : st.title
-    parts.push({ head, detail: firstWords(st.text, WORDS.story), brief: firstWords(st.text, WORDS.brief), marks: [] })
+    parts.push({ head, detail: firstWords(st.text, say.story), brief: firstWords(st.text, say.brief), marks: [] })
   }
 
   // This story: older chapters a line each, the recent ones a line a scene.
   const scenes = s.scenes.filter((x) => clean(x.text))
   const order = chapterOrder(s)
-  const recentChapters = new Set(order.filter((id) => scenes.some((x) => x.chapterId === id)).slice(-DETAILED.chapters))
-  const lastScenes = new Set(scenes.slice(-DETAILED.scenes).map((x) => x.sceneId))
+  const recentChapters = new Set(order.filter((id) => scenes.some((x) => x.chapterId === id)).slice(-shape.chapters))
+  const lastScenes = new Set(scenes.slice(-shape.scenes).map((x) => x.sceneId))
   const chapters = new Map(s.chapters.filter((c) => clean(c.text)).map((c) => [c.chapterId, c]))
   const sceneMarks = (label: string): string[] => marks.get(clean(label)) ?? []
   for (const chapterId of order) {
@@ -196,7 +224,7 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
     const chapter = chapters.get(chapterId)
     if (chapter && !recentChapters.has(chapterId)) {
       const all = [...sceneMarks(chapter.label), ...own.flatMap((x) => sceneMarks(x.label))].slice(0, MOST_MARKS)
-      parts.push({ head: place(chapter.label), detail: firstWords(chapter.text, WORDS.chapter), brief: firstWords(chapter.text, WORDS.brief), marks: all })
+      parts.push({ head: place(chapter.label), detail: firstWords(chapter.text, say.chapter), brief: firstWords(chapter.text, say.brief), marks: all })
       continue
     }
     for (const x of own) {
@@ -208,8 +236,8 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
       const head = `${bits.join(', ')}${who.length ? ` (${who.join(', ')})` : ''}`
       parts.push({
         head,
-        detail: firstWords(x.text, lastScenes.has(x.sceneId) ? WORDS.recent : WORDS.scene),
-        brief: firstWords(x.text, WORDS.brief),
+        detail: firstWords(x.text, lastScenes.has(x.sceneId) ? say.recent : say.scene),
+        brief: firstWords(x.text, say.brief),
         marks: sceneMarks(x.label),
         updating: x.updating ? { updating: true, excerpt: x.excerpt } : undefined
       })
@@ -217,7 +245,7 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
   }
 
   // Within the cap, the oldest detail goes first: older lines made brief, then the oldest left out.
-  const cap = TIMELINE_WORDS[lv]
+  const cap = shape.words[lv]
   const keep = RECENT_PARTS[lv]
   let from = Math.max(0, parts.length - keep)
   const brief = parts.map(() => lv >= 3)
@@ -234,7 +262,7 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
   if (s.leadsInto && clean(s.leadsInto.text) && lv < 4) {
     const t = s.leadsInto.title
     out.push(
-      `### Leads into ${t}\nThis story leads into ${t}, which begins like this: a target to steer towards over the story, not events to mention or bring about in this scene.\n${firstWords(s.leadsInto.text, lv === 0 ? WORDS.leads * 2 : WORDS.leads)}`
+      `### Leads into ${t}\nThis story leads into ${t}, which begins like this: a target to steer towards over the story, not events to mention or bring about in this scene.\n${firstWords(s.leadsInto.text, lv === 0 ? say.leads * 2 : say.leads)}`
     )
   }
   return out.join('\n\n')

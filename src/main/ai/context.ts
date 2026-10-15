@@ -92,6 +92,7 @@ import { TIMELINE_LEVELS, timelineText, updatingNote, type TimelineContext } fro
 import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from './briefingFixes'
 import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
+import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -1720,7 +1721,8 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
 
   // Story memory step 5: what was said, word for word, and earlier passages found by searching (candidates at priority 9,
   // retrieval/briefing.ts).
-  for (const b of recallBlocks(input.recall)) add(b.id, b.priority, b.title, b.text, b.short, [], b.smaller)
+  // More earlier passages for a writer model that reads more (memoryRoom.ts).
+  for (const b of recallBlocks(input.recall, passagesShown(memoryScale(input.contextLength)))) add(b.id, b.priority, b.title, b.text, b.short, [], b.smaller)
 
   return blocks.sort((a, b) => sendRank(a) - sendRank(b))
 }
@@ -1919,7 +1921,9 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   let budget = computeBudget(prepared.contextLength, prepared.targetWords ?? prepared.autoMax ?? null, prepared.toolRoom)
   // A cap on the briefing (the editor chat's edits): no more room than that, however much the model has.
   if (prepared.briefingCap && prepared.briefingCap > 0) budget = { ...budget, available: Math.min(budget.available, prepared.briefingCap) }
-  const fits = (): boolean => measure() <= budget.available
+  /** Room held back while the rest is fitted: step 5's share (reserve, below). */
+  let held = 0
+  const fits = (): boolean => measure() <= budget.available - held
   const auto = prepared.targetWords == null && prepared.autoMax != null
   let ceiling = prepared.autoMax ?? AUTO_LENGTH.max
 
@@ -1929,59 +1933,31 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     return sent + (hasPrev ? finalTokens.withPrevious : finalTokens.withoutPrevious) + MESSAGE_OVERHEAD * 2
   }
 
-  // Story memory step 5's candidates (what was said, earlier passages, entries recalled: retrieval/briefing.ts) take no
-  // room from anything else: the briefing is fitted as if they weren't there, Auto's length included, and they go in
-  // afterwards, each in the longest form that fits in the room left (step 7). Unless Adam wants one in full.
+  // Story memory step 5's candidates (what was said, earlier passages, entries recalled: retrieval/briefing.ts) are
+  // fitted last: the briefing is fitted without them, Auto's length included, and they go in afterwards, each in the
+  // longest form that fits (step 7). Unless Adam wants one in full. Since 2026-10-15 (the long story memory research:
+  // searching was worth about as much as the story record itself, and got only what was left over) a share of the room
+  // is held for them while the rest is fitted (RECALL_SHARE of it, at most what they take in full), so they always have
+  // some room, and more beside a long briefing.
   const candidates = state.filter((s) => isRecallBlock(s.b.id) && s.mode !== 'full')
   const others = state.filter((s) => !candidates.includes(s))
   const leaveOutCandidates = (): void => {
     for (const s of candidates) s.dropped = true
   }
   leaveOutCandidates()
+  const wanted = candidates.reduce((n, s) => n + s.tokensAt[s.min], 0)
+  const reserve = (): number => Math.min(wanted, Math.floor(budget.available * RECALL_SHARE))
 
   // Least important first; within a priority, hard rules go last.
   const leastFirst = [...others].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
   const shortenable = [...droppable, ...others.filter((x) => x.b.priority === 1)]
 
-  /** Fits the briefing to the budget, starting again from every block as Adam set it. */
-  function fit(): void {
-    for (const s of state) {
-      s.level = s.min
-      s.dropped = false
-    }
-    leaveOutCandidates()
-    // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
-    for (const s of shortenable) {
-      if (fits()) break
-      while (!fits() && s.level < s.shortTo) s.level++
-    }
-    // 1b. Still too long: the ties to people not in the scene (block 11) go before any block is made smaller
-    //     than its short form, so a small model keeps what happened just before rather than a list of names.
-    const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
-    for (const s of droppable) {
-      if (fits()) break
-      if (lowest(s)) s.dropped = true
-    }
-    const shortest = (st: State): number => Math.max(1, st.shortTo)
-    // 2. Still too long with everything short: the smaller forms some blocks have (the story so far
-    //    down to its most recent parts, the point-of-view character down to the core of the profile),
-    //    a step at a time, from the bottom up.
-    for (let more = true; more && !fits(); ) {
-      more = false
-      for (const s of shortenable) {
-        if (fits()) break
-        if (s.level >= shortest(s) && s.level < s.max) {
-          s.level++
-          more = true
-        }
-      }
-    }
-    // 3. Then whole blocks, from 10 up to 3. Blocks Adam wants in full go only as a last resort.
-    for (const s of [...droppable.filter((x) => x.mode !== 'full'), ...droppable.filter((x) => x.mode === 'full')]) {
-      if (fits()) break
-      s.dropped = true
-    }
+  /** Block 11 (the ties, and what must stay true): left out first when room is short, and put back last. */
+  const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
+
+  /** Steps 4 to 6: what fits again is put back, and each block given back the longest form that fits. */
+  function giveBack(): void {
     // 4. Dropping one big block (often the previous scene) can free room for smaller, less
     //    important ones dropped before it. Put those back, most important first, while it fits.
     for (const s of [...droppable].reverse()) {
@@ -2012,8 +1988,51 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
         s.dropped = true
       }
     }
+  }
 
-    // 7. Step 5's candidates, most important first, each in the longest form that fits in the room left.
+  /** Fits the briefing to the budget, starting again from every block as Adam set it. */
+  function fit(): void {
+    for (const s of state) {
+      s.level = s.min
+      s.dropped = false
+    }
+    leaveOutCandidates()
+    held = reserve()
+    // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
+    for (const s of shortenable) {
+      if (fits()) break
+      while (!fits() && s.level < s.shortTo) s.level++
+    }
+    // 1b. Still too long: the ties to people not in the scene (block 11) go before any block is made smaller
+    //     than its short form, so a small model keeps what happened just before rather than a list of names.
+    for (const s of droppable) {
+      if (fits()) break
+      if (lowest(s)) s.dropped = true
+    }
+    const shortest = (st: State): number => Math.max(1, st.shortTo)
+    // 2. Still too long with everything short: the smaller forms some blocks have (the story so far
+    //    down to its most recent parts, the point-of-view character down to the core of the profile),
+    //    a step at a time, from the bottom up.
+    for (let more = true; more && !fits(); ) {
+      more = false
+      for (const s of shortenable) {
+        if (fits()) break
+        if (s.level >= shortest(s) && s.level < s.max) {
+          s.level++
+          more = true
+        }
+      }
+    }
+    // 3. Then whole blocks, from 10 up to 3. Blocks Adam wants in full go only as a last resort.
+    for (const s of [...droppable.filter((x) => x.mode !== 'full'), ...droppable.filter((x) => x.mode === 'full')]) {
+      if (fits()) break
+      s.dropped = true
+    }
+    giveBack()
+
+    // 7. Step 5's candidates, most important first, each in the longest form that fits in the room left (their share
+    //    with it).
+    held = 0
     for (const s of [...candidates].sort((a, b) => keepRank(b.b.id) - keepRank(a.b.id))) {
       s.dropped = false
       for (s.level = s.min; s.level <= s.max && !fits(); s.level++);
@@ -2022,12 +2041,14 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
         s.dropped = true
       }
     }
+    // 8. Room held for them that they didn't use goes back to the rest, as in steps 4 to 6.
+    if (candidates.length) giveBack()
   }
   // Auto, when the briefing as Adam set it leaves too little room for autoMax words: the briefing comes
   // first, so Auto's ceiling comes down to what fits beside it (to no less than a typical scene) before
   // any block is shortened.
   if (auto) {
-    const over = lengthTooLong({ ...budget, used: measure() })
+    const over = lengthTooLong({ ...budget, used: measure() + reserve() })
     if (over) {
       ceiling = Math.max(Math.min(AUTO_LENGTH.typical, ceiling), Math.min(ceiling, over.maxWords))
       budget = computeBudget(prepared.contextLength, ceiling, prepared.toolRoom)
@@ -2118,11 +2139,18 @@ export function sentEntryVersions(memory: Pick<SceneMemory, 'entries' | 'elsewhe
   return out
 }
 
-/** What the canon timeline (timeline.ts) needs from a briefing's input: names as of this scene, and what has happened. */
-export function timelineFrom(input: { memory: Pick<SceneMemory, 'entries' | 'elsewhere'>; story: { title: string } }): TimelineContext {
+/**
+ * What the canon timeline (timeline.ts) needs from a briefing's input: names as of this scene, what has happened, and
+ * how much the writer model can read (it grows with that: memoryRoom.ts; left out, as for Continue: the smallest).
+ */
+export function timelineFrom(input: {
+  memory: Pick<SceneMemory, 'entries' | 'elsewhere'>
+  story: { title: string }
+  contextLength?: number | null
+}): TimelineContext {
   const byId = new Map<ID, EntryState>([
     ...input.memory.elsewhere.map((x) => [x.entry.id, x.entry] as const),
     ...input.memory.entries.map((e) => [e.id, e] as const)
   ])
-  return { storyTitle: input.story.title, name: (id) => byId.get(id)?.name ?? null, entries: input.memory.entries }
+  return { storyTitle: input.story.title, name: (id) => byId.get(id)?.name ?? null, entries: input.memory.entries, scale: memoryScale(input.contextLength) }
 }

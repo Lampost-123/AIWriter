@@ -9,6 +9,7 @@ import type Database from 'better-sqlite3'
 import type { EntryState, FactState, ID, SceneCard, Summary } from '@shared/types'
 import type { ContextInput } from '../ai/context'
 import { sceneTail } from '../ai/context'
+import { memoryScale, passagesFound } from '../ai/memoryRoom'
 import { listAllChanges, listSummaries, loadShape } from '../db/memory'
 import { saidChanges, scenesCardsAndText, type SaidChange } from '../db/retrieval'
 import { buildLine, labeler, storyOfScene } from '../memory/line'
@@ -27,7 +28,10 @@ type DB = Database.Database
 /** Nothing added (switched off, or the scene isn't in the world). */
 export const NOTHING: RecallInput = { sticky: [], found: [], passages: [], said: [] }
 
-/** How many entries searching adds at most, and how many passages and summaries it offers. */
+/**
+ * How many entries searching adds at most, and how many passages and summaries it offers: more for a writer model that
+ * reads more (ai/memoryRoom.ts passagesFound: up to 12).
+ */
 export const FOUND_MOST = 6
 export const PASSAGES_MOST = 6
 /** Each ranked list keeps this many. */
@@ -332,6 +336,7 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
   const onLine = scenesOnLine(line)
   const memory = input.memory
   const card = input.scene.card
+  const passagesMost = Math.max(PASSAGES_MOST, passagesFound(memoryScale(input.contextLength)))
   const onCard = new Set([card.povId, ...card.presentIds, card.locationId].filter((x): x is ID => !!x))
   const people = new Set([card.povId, ...card.presentIds].filter((x): x is ID => !!x))
   const cardNames = memory.entries.filter((e) => onCard.has(e.id)).flatMap((e) => [e.name, ...(e.aliases ?? [])])
@@ -403,7 +408,7 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
   const summariesRanked = fuse(lists.summaries, (s) => s.key)
   const recalled = fuse<RecalledPassage>(
     [
-      passagesRanked.slice(0, PASSAGES_MOST).map((r) => {
+      passagesRanked.slice(0, passagesMost).map((r) => {
         const at = onLine.get(r.item.sceneId)!
         return { item: { kind: 'scene', where: label({ storyId: at.storyId, sceneId: r.item.sceneId }), text: r.item.text, order: at.at * 10_000 + r.item.n }, score: r.score }
       }),
@@ -411,7 +416,7 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
     ],
     (p) => `${p.kind}:${p.where}:${p.text.slice(0, 40)}`
   )
-    .slice(0, PASSAGES_MOST)
+    .slice(0, passagesMost)
     .map((r) => r.item)
 
   const factsRanked = fuse(lists.facts, (f) => f.key)

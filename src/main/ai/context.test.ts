@@ -1361,6 +1361,44 @@ describe('fitting the briefing to the model', () => {
     }
   })
 
+  it('holds a share of the room for what a search found, taken from the least important parts (2026-10-15)', () => {
+    const found = withoutMust(
+      prepareContext(
+        withoutTies(
+          richInput({ recall: { sticky: [], found: [], said: [], passages: [{ kind: 'scene', where: 'Ch 1, Sc 1', text: words(80, 'tide'), order: 1 }] } })
+        )
+      )
+    )
+    const withFound = counts(found, () => 1000)
+    // Everything else fits exactly: the passages used to wait for room left over, and got none.
+    const p = fit(found, total, withFound)
+    expect(p.blocks.find((b) => b.id === 'recalled')).toMatchObject({ dropped: false, short: false })
+    expect(p.budget.used).toBeLessThanOrEqual(total)
+    // Their room (RECALL_SHARE of it, no more than they need) came from the least important parts, shortened, never left out.
+    const shortened = p.blocks.filter((b) => b.short)
+    expect(shortened.length).toBeGreaterThan(0)
+    expect(shortened.every((b) => b.priority >= 9)).toBe(true)
+    expect(ids(p, (b) => b.dropped)).toEqual([])
+    // With room to spare, nothing else changes for them.
+    const roomy = fit(found, total + 1100, withFound)
+    expect(ids(roomy, (b) => b.dropped || b.short)).toEqual([])
+  })
+
+  it('gives back the room held for a search when it found nothing that fits in it', () => {
+    const found = withoutMust(
+      prepareContext(
+        withoutTies(
+          richInput({ recall: { sticky: [], found: [], said: [], passages: [{ kind: 'scene', where: 'Ch 1, Sc 1', text: words(80, 'tide'), order: 1 }] } })
+        )
+      )
+    )
+    // The passage is far bigger than its share: it doesn't go in, and nothing else is shortened for it.
+    const c2 = counts(found, (id) => (id === 'recalled' ? 50_000 : 1000))
+    const p = fit(found, total, c2)
+    expect(p.blocks.find((b) => b.id === 'recalled')?.dropped).toBe(true)
+    expect(ids(p, (b) => b.short || (b.dropped && b.id !== 'recalled'))).toEqual([])
+  })
+
   it('switches blocks to their short form from the bottom up before dropping anything', () => {
     const p = fit(prepared, total - 3 * 990, c)
     expect(ids(p, (b) => b.short)).toEqual(['themes', 'story-so-far', 'mentioned'])
@@ -2249,5 +2287,35 @@ describe('the open plot threads (the AI manages plot threads, 2026-10-08)', () =
     expect(SEND_ORDER.indexOf(OPEN_THREADS_BLOCK)).toBeLessThan(SEND_ORDER.indexOf('pov'))
     const { inp } = withThreads(0)
     expect(blockOf(inp, OPEN_THREADS_BLOCK)).toBeUndefined()
+  })
+})
+
+describe('the memory grows with how much the writer model reads (2026-10-15)', () => {
+  const wordsIn = (t: string): number => (t.match(/\S+/g) ?? []).length
+  const chapter = (i: number): number => Math.floor(i / 6) + 1
+  const scenes: StorySoFar['scenes'] = Array.from({ length: 60 }, (_, i) => ({
+    sceneId: `s${i}`,
+    chapterId: `c${chapter(i)}`,
+    label: `Book 2, Ch ${chapter(i)}, Sc ${(i % 6) + 1}`,
+    text: `Scene ${i + 1} happened. ${words(150, 'tide')}.`
+  }))
+  const sofar: StorySoFar = { scenes, chapters: [], stories: [], series: [], leadsInto: null }
+
+  it('tells much more of the story so far to a model that reads a lot, and the same as before when it isn’t known', () => {
+    const at = (contextLength: number | null): string => blockOf(input({ contextLength }, { storySoFar: sofar }), 'story-so-far')!.text
+    expect(at(null)).toBe(at(16_000))
+    expect(wordsIn(at(64_000))).toBeGreaterThan(wordsIn(at(null)) * 3)
+    // The same at every step of a scene: it depends on the model's reading limit only.
+    const a = input({ contextLength: 64_000, options: { direction: 'One thing', targetWords: 600, creativity: 'balanced' } }, { storySoFar: sofar })
+    const b = input({ contextLength: 64_000, options: { direction: 'Another', targetWords: null, creativity: 'balanced', addBelow: true } }, { storySoFar: sofar })
+    expect(blockOf(a, 'story-so-far')!.text).toBe(blockOf(b, 'story-so-far')!.text)
+  })
+
+  it('sends more earlier passages found by searching', () => {
+    const passages = Array.from({ length: 12 }, (_, i) => ({ kind: 'scene' as const, where: `Book 2, Ch 1, Sc ${i + 1}`, text: `Passage ${i + 1}. ${words(40, 'salt')}`, order: i }))
+    const recall = { sticky: [], found: [], said: [], passages }
+    const shown = (contextLength: number | null): number => (blockOf(input({ contextLength, recall }), 'recalled')!.text.match(/^### /gm) ?? []).length
+    expect(shown(null)).toBe(5)
+    expect(shown(64_000)).toBe(10)
   })
 })
