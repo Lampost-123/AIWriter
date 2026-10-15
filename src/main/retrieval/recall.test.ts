@@ -8,7 +8,7 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import { gatherContextInput } from '../ai/gather'
-import { assembleContext } from '../ai/context'
+import { assembleContext, EARLIER_BLOCK } from '../ai/context'
 import { countRaw } from '../ai/tokens'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { memorySearchIndex, type SearchIndex } from './store'
@@ -227,7 +227,7 @@ describe('a search that takes too long, or is stopped', () => {
   })
 })
 
-describe('a small model loses nothing more important for step 5', () => {
+describe('a small model gives step 5 a share of its room, and loses nothing more important for it', () => {
   it('keeps the end of the previous scene, the setting and the story so far as they are without it', async () => {
     const w = world()
     // More for blocks 3, 7 and 8 to hold: a place with a long description, scene summaries, more said.
@@ -257,8 +257,11 @@ describe('a small model loses nothing more important for step 5', () => {
       const a = assembleContext(off, countRaw)
       const b = assembleContext(on, countRaw)
       if (a.budget.used <= a.budget.available) expect(b.budget.used).toBeLessThanOrEqual(b.budget.available)
-      // Everything else is exactly as it is without step 5 (its blocks only take the room left).
+      // Since 2026-10-15 a share of the room is held for step 5 (RECALL_SHARE) while the rest is fitted, and what it
+      // doesn't use goes back: here everything else is still exactly as it is without step 5.
       for (const was of a.blocks) {
+        // The scenes before word for word take only the room left to spare once step 5 has its share.
+        if (was.id === EARLIER_BLOCK.id) continue
         const now = b.blocks.find((x) => x.id === was.id)
         expect({ length, id: was.id, text: now?.text, dropped: now?.dropped }).toEqual({ length, id: was.id, text: was.text, dropped: was.dropped })
       }
@@ -269,6 +272,8 @@ describe('a small model loses nothing more important for step 5', () => {
         expect({ length, id, dropped: now?.dropped }).toEqual({ length, id, dropped: false })
         expect({ length, id, kept: now!.text.length >= was.text.length }).toEqual({ length, id, kept: true })
       }
+      // With a little room, what was said gets in (short), where it used to wait for room left over.
+      if (length >= 10_000) expect(b.blocks.find((x) => x.id === 'said')?.dropped).toBe(false)
     }
   })
 })

@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import type { DeepPartial, Settings, ThemeName, WritingPrefs } from '@shared/types'
 import { DESK_READY, defaultSettings, defaultWritingPrefs } from '@shared/defaults'
+import { withReadingLimits } from '@shared/readingLimits'
 import { ARRANGEMENTS, LOOKS, arrangementNoteDue, lookNoteDue, lookOf, type Arrangement, type Look } from '@shared/contracts/look'
 import { defaultLibraryDir, userDataDir } from './paths'
 import { readJson, writeFileAtomic } from './util'
@@ -52,6 +53,7 @@ export function getSettings(): Settings {
       if (desk) cached.layout = { ...cached.layout, binderOpen: false, inspectorOpen: false }
       cached.arrangementNote = desk && !forced && arrangementNoteDue(existed ? (stored as Record<string, unknown>) : null)
     }
+    cached = withPublishedLimits(cached)
     // A library on a drive that isn't plugged in must not stop AI Write starting:
     // the welcome screen says so and offers to try again or choose another folder.
     ensureLibraryFolder(cached.libraryPath)
@@ -97,9 +99,19 @@ export function ensureLibraryFolder(path = getSettings().libraryPath): boolean {
   }
 }
 
+/**
+ * A model whose provider doesn't say how much it reads, but whose maker publishes it (DeepSeek's own API), reads that
+ * much, never the 16,000-token guess (shared/readingLimits.ts; Adam, 2026-10-15). A limit the provider gave, or Adam
+ * typed, stays as it is.
+ */
+function withPublishedLimits(s: Settings): Settings {
+  const models = withReadingLimits(s.models, s.providers ?? [])
+  return models === s.models ? s : { ...s, models }
+}
+
 export function updateSettings(patch: DeepPartial<Settings>): Settings {
   const current = getSettings()
-  const next = merge(current, patch)
+  const next = withPublishedLimits(merge(current, patch))
   const text = JSON.stringify(next, null, 2)
   // Opening a scene or a panel often changes nothing that is stored: don't rewrite the file then.
   if (text === JSON.stringify(current, null, 2)) return current

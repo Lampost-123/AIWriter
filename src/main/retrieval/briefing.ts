@@ -31,7 +31,10 @@ export const RECALLED_PRIORITY = 9
 const RECALL_BLOCK_IDS = new Set<string>([RECALL_ENTRIES.id, 'said', 'recalled'])
 export const isRecallBlock = (id: string): boolean => RECALL_BLOCK_IDS.has(id)
 
-/** How many passages each form of the passages block holds: full, short, smaller. */
+/**
+ * How many passages each form of the passages block holds: full, short, smaller. The full form holds more for a writer
+ * model that reads more (ai/memoryRoom.ts passagesShown: up to 10), and then the short form 5 and the smaller ones 2, 1.
+ */
 export const PASSAGES_SHOWN = { full: 5, short: 2, smaller: 1 }
 /** How many lines each form of the said block holds: short and smaller (the full form holds them all). */
 export const SAID_SHOWN = { short: 4, smaller: 2 }
@@ -81,9 +84,11 @@ function saidBlock(lines: SaidLine[]): RecallBlock | null {
   }
 }
 
-function passagesBlock(found: RecalledPassage[]): RecallBlock | null {
-  const best = found.slice(0, PASSAGES_SHOWN.full)
+function passagesBlock(found: RecalledPassage[], most: number): RecallBlock | null {
+  const best = found.slice(0, Math.max(PASSAGES_SHOWN.full, most))
   if (!best.length) return null
+  // Fewer each time, the best kept: 10, 5, 2, 1 for a model that reads a lot; 5, 2, 1 otherwise.
+  const sizes = [PASSAGES_SHOWN.full, PASSAGES_SHOWN.short, PASSAGES_SHOWN.smaller].filter((n) => n < best.length)
   // The best few are kept as the block shrinks; each form lists its passages oldest first, as the story tells them.
   const write = (list: RecalledPassage[]): string =>
     [PASSAGES_LEAD, ...[...list].sort((a, b) => a.order - b.order).map((p) => `### ${p.where}${p.kind === 'summary' ? ' (in short)' : ''}\n${p.text.trim()}`)].join(
@@ -94,13 +99,16 @@ function passagesBlock(found: RecalledPassage[]): RecallBlock | null {
     priority: RECALLED_PRIORITY,
     title: 'Earlier passages that may matter',
     text: write(best),
-    short: best.length > PASSAGES_SHOWN.short ? write(best.slice(0, PASSAGES_SHOWN.short)) : null,
-    smaller: best.length > PASSAGES_SHOWN.smaller ? [write(best.slice(0, PASSAGES_SHOWN.smaller))] : []
+    short: sizes.length ? write(best.slice(0, sizes[0])) : null,
+    smaller: sizes.slice(1).map((n) => write(best.slice(0, n)))
   }
 }
 
-/** Step 5's blocks for this briefing (none when it is switched off or found nothing). */
-export function recallBlocks(recall: RecallInput | null | undefined): RecallBlock[] {
+/**
+ * Step 5's blocks for this briefing (none when it is switched off or found nothing). `passages`: how many earlier
+ * passages the full form may hold (ai/memoryRoom.ts passagesShown; left out: PASSAGES_SHOWN.full).
+ */
+export function recallBlocks(recall: RecallInput | null | undefined, passages: number = PASSAGES_SHOWN.full): RecallBlock[] {
   if (!recall) return []
-  return [saidBlock(recall.said), passagesBlock(recall.passages)].filter((b): b is RecallBlock => !!b)
+  return [saidBlock(recall.said), passagesBlock(recall.passages, passages)].filter((b): b is RecallBlock => !!b)
 }

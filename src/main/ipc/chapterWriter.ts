@@ -33,6 +33,12 @@ import type { Page } from '../chapterWriter/page'
 
 /** How long a check waits for the memory to catch up before checking with what it has (as the checks do). */
 const CATCH_UP_MS = 60_000
+/**
+ * How long each scene's draft waits for the memory to read the scenes before it and write their summaries (2026-10-15:
+ * a draft that went ahead after a minute left the scene just written out of the next one's timeline). Longer than a
+ * Generate's minute: the run works on its own, and a scene drafted without the one before it in mind forgets it.
+ */
+const DRAFT_CATCH_UP_MS = 180_000
 
 const sources = () => ({ settings: getSettings(), getProvider: providers.getProvider, providerTarget: providers.providerTarget })
 
@@ -95,7 +101,7 @@ function deps(runId: ID): RunDeps {
         : []
       let b: Awaited<ReturnType<typeof draftBriefing>>
       try {
-        b = await draftBriefing(sceneId, options, { extras: { extraBlocks }, signal: o.signal })
+        b = await draftBriefing(sceneId, options, { extras: { extraBlocks }, signal: o.signal, catchUpMs: DRAFT_CATCH_UP_MS })
       } catch (e) {
         if (o.signal.aborted) return { status: 'stopped', text: '', error: null }
         if (e instanceof UserError) return { status: 'error', text: '', error: e.message }

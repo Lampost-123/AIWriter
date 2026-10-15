@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { EntryState } from '@shared/types'
 import type { StorySoFar } from '../memory/types'
-import { DETAILED, TIMELINE_LEAD, TIMELINE_LEVELS, TIMELINE_WORDS, timelineMarks, timelineText, type TimelineContext } from './timeline'
+import { DETAILED, TIMELINE_LEAD, TIMELINE_LEVELS, TIMELINE_WORDS, timelineMarks, timelineShape, timelineText, type TimelineContext } from './timeline'
+import { MOST_SCALE } from './memoryRoom'
 
 const names: Record<string, string> = { w: 'Wren', a: 'Ash', o: 'Oskar', inn: 'The inn', ferry: 'The Linn ferry' }
 const person = (name: string, happened: EntryState['happened'] = []) => ({ kind: 'character' as const, name, happened })
@@ -113,6 +114,62 @@ describe('the canon timeline', () => {
     const brief = timelineText(s, ctx(), 3)
     expect(brief).toContain('(This summary is being brought up to date.)')
     expect(brief).not.toContain('lamps went out')
+  })
+
+  describe('grows with how much the writer model reads (2026-10-15)', () => {
+    const NL = String.fromCharCode(10)
+    const wordsIn = (t: string): number => (t.match(/\S+/g) ?? []).length
+    const scaled = (scale: number, entries: TimelineContext['entries'] = []): TimelineContext => ({ ...ctx(entries), scale })
+
+    it('is exactly as before for the smallest model, and up to MOST_SCALE times longer for one that reads a lot', () => {
+      expect(timelineShape(1)).toEqual(timelineShape())
+      expect(timelineShape(1).words).toEqual(TIMELINE_WORDS)
+      expect(timelineShape(1).chapters).toBe(DETAILED.chapters)
+      const big = story(30, 6, 150)
+      expect(timelineText(big, scaled(1))).toBe(timelineText(big, ctx()))
+      const most = timelineShape(MOST_SCALE)
+      expect(most.words[0]).toBe(Math.round(TIMELINE_WORDS[0] * MOST_SCALE))
+      // Only the full and short forms grow; Continue's and the smallest forms stay as they were.
+      expect(most.words.slice(2)).toEqual(TIMELINE_WORDS.slice(2))
+      expect(most.chapters).toBe(4)
+      // Beyond the cap it is the same as the most.
+      expect(timelineShape(10)).toEqual(most)
+      const small = wordsIn(timelineText(big, ctx(), 0))
+      const large = wordsIn(timelineText(big, scaled(MOST_SCALE), 0))
+      expect(small).toBeLessThanOrEqual(TIMELINE_WORDS[0] + 60)
+      // Here everything fits: about twice as much, nothing left out.
+      expect(large).toBeGreaterThan(small * 1.8)
+      expect(large).toBeLessThanOrEqual(most.words[0] + 60)
+      // The smaller one had to make its oldest lines brief.
+      const ch1 = `- Ch 1: Chapter 1 in short. ${words(30)}`
+      expect(timelineText(big, ctx(), 0)).not.toContain(ch1)
+      expect(timelineText(big, scaled(MOST_SCALE), 0)).toContain(ch1)
+    })
+
+    it('tells more of each older chapter and more chapters a scene at a time, so less is left out', () => {
+      const big = story(12, 5, 150)
+      const small = timelineText(big, ctx(), 0)
+      const large = timelineText(big, scaled(MOST_SCALE), 0)
+      // Four chapters scene by scene, not two.
+      expect(small).not.toContain('- Ch 9, Sc 1,')
+      expect(large).toContain('- Ch 9, Sc 1, Day 91')
+      // Every older chapter still has its line, where the smaller one had to make them brief or leave them out.
+      for (let c = 1; c <= 8; c++) expect(large).toContain(`- Ch ${c}: Chapter ${c} in short.`)
+      expect(large).not.toContain('left out here to save space')
+    })
+
+    it('with room, a new scene adds a line and changes none before it (the cache)', () => {
+      const s = story(6, 6, 150)
+      const before = { ...s, scenes: s.scenes.slice(0, -1) }
+      const lines = (x: StorySoFar): string[] => timelineText(x, scaled(MOST_SCALE)).split(NL).filter((l) => l.startsWith('- '))
+      const was = lines(before)
+      const now = lines(s)
+      expect(now.slice(0, was.length)).toEqual(was)
+      expect(now).toHaveLength(was.length + 1)
+      // The smallest model's timeline tells the last five scenes in more detail, so a line changes as a scene drops out.
+      const small = (x: StorySoFar): string[] => timelineText(x, ctx()).split(NL).filter((l) => l.startsWith('- '))
+      expect(small(s).slice(0, small(before).length)).not.toEqual(small(before))
+    })
   })
 
   it('is empty when nothing came before', () => {

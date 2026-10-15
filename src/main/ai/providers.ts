@@ -136,7 +136,7 @@ export async function listModels(providerId: string): Promise<ModelInfo[]> {
       if (isKeyFailure(r.failure)) markCheck(p.id, false)
       throw new UserError(describeFailure(r.failure, refOf(p), { during: 'models' }))
     }
-    return parseModelList(r.json, p.kind)
+    return parseModelList(r.json, p.kind, p.baseUrl)
   }
   const load: Promise<ModelInfo[]> = fetchList().then((models) => {
     // Only cache if the provider wasn't changed while the list was loading.
@@ -186,7 +186,7 @@ async function runTest(id: string, modelId?: string): Promise<TestResult> {
     const r = await requestJson(target, 'models', { timeoutMs: 15_000 })
     if (r.ok) {
       reachedIn = r.ms
-      const models = parseModelList(r.json, p.kind)
+      const models = parseModelList(r.json, p.kind, p.baseUrl)
       modelCache.set(id, models)
       if (models.length) detail = `It offers ${models.length.toLocaleString('en-GB')} ${models.length === 1 ? 'model' : 'models'}.`
     } else {

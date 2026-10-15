@@ -8,10 +8,12 @@ import {
   MUST_CLOTHES,
   MUST_THINGS,
   MUST_GAPS,
+  MUST_KEY,
   MUST_ITEMS,
   MUST_LEAD,
   MUST_MOST,
   MUST_SHORT,
+  MUST_SMALLEST,
   mustStayTrue,
   mustText,
   shortPlace,
@@ -22,7 +24,7 @@ import {
 import { stageTold } from '../repair'
 import { stageLines } from '../repair/prompts'
 import type { Holding } from '../memory/items'
-import { assembleContext, MUST_BLOCK, PLAN_BLOCK, prepareContext, stageReach, WHY, type ContextInput } from './context'
+import { assembleContext, MUST_BLOCK, MUST_PRIORITY, PLAN_BLOCK, prepareContext, stageReach, timeSince, WHY, type ContextInput } from './context'
 import { countRaw } from './tokens'
 
 let seq = 0
@@ -109,8 +111,11 @@ describe('what must stay true', () => {
     expect(lines).toContain('Light: one tallow candle')
     // Mood and the last thing done aren't facts to keep to.
     expect(lines.join('\n')).not.toContain('wary')
-    // Person by person, then the scene.
-    expect(lines.findIndex((l) => l.startsWith('Osric'))).toBeGreaterThan(lines.findLastIndex((l) => l.includes('Wren')))
+    // What the scene is most likely to break first (2026-10-15: here the injuries), then person by person, then the scene.
+    expect(lines.slice(0, 2)).toEqual(['Wren: left arm in a sling (since Ch 2, Sc 4)', 'Osric Hale: a cut lip (since River Days, Ch 9, Sc 1)'])
+    const rest = lines.slice(2)
+    expect(rest[0]).toContain('Wren')
+    expect(rest.findIndex((l) => /^(Time|Light|Weather): /.test(l))).toBeGreaterThan(rest.findLastIndex((l) => l.includes('Wren')))
     expect(lines.at(-1)).toMatch(/^(Time|Light|Weather): /)
   })
 
@@ -193,7 +198,7 @@ describe('what must stay true', () => {
     expect(line.length).toBeLessThan(360)
   })
 
-  it(`is capped at ${MUST_MOST} lines, keeping what matters most; the short form holds ${MUST_SHORT}, none of who knows what`, () => {
+  it(`is capped at ${MUST_MOST} lines, keeping what matters most; the short form holds ${MUST_SHORT}, what is most likely broken first`, () => {
     const people = Array.from({ length: 8 }, (_, i) => entry('character', `Person ${i}`))
     const stand: SceneState = {
       time: 'noon',
@@ -209,9 +214,17 @@ describe('what must stay true', () => {
     expect(lines.join('\n')).not.toContain('sitting')
     expect(lines.join('\n')).not.toContain('Time: ')
     expect(lines.filter((l) => l.startsWith('Kept from '))).toHaveLength(1)
+    // The secret and the first injuries lead, in the full form and the short one (2026-10-15).
+    expect(lines.slice(0, MUST_KEY)).toEqual([
+      'Kept from Person 1, Person 2, Person 3, Person 4, Person 5, Person 6 and Person 7: The bridge is out (Person 0 knows it). Person 1, Person 2, Person 3, Person 4, Person 5, Person 6 and Person 7 must not learn, guess or think it here unless the scene card says so',
+      'Person 0: bruised 0',
+      'Person 1: bruised 1',
+      'Person 2: bruised 2',
+      'Person 3: bruised 3'
+    ])
     const short = mustStayTrue(base({ people, stand, facts, short: true }))
     expect(short).toHaveLength(MUST_SHORT)
-    expect(short.join('\n')).not.toContain('Kept from ')
+    expect(short.slice(0, MUST_KEY)).toEqual(lines.slice(0, MUST_KEY))
     // At most a few "does not know" lines.
     const many = Array.from({ length: 6 }, (_, i) => ({ factId: `k${i}`, fact: `Secret ${i}`, knownBy: [people[0].id] }))
     expect(mustStayTrue(base({ people: people.slice(0, 2), stand: null, reach: 'none', facts: many }))).toHaveLength(MUST_GAPS)
@@ -637,5 +650,99 @@ describe('what must stay true in a draft', () => {
     expect(p.entries?.find((e) => e.entryId === hidden.id)).toMatchObject({ hidden: true, blockId: null })
     // No plan: nothing after the closing instruction, whose last words are what happens now.
     expect(assembleContext(inp, countRaw).messages[1].content.trimEnd().endsWith('Osric climbs up')).toBe(true)
+  })
+})
+
+describe('what a scene is most likely to break comes first, and stays (2026-10-15)', () => {
+  // A scene crowded with what people wear and hold and the things in the place, beside someone dead, a secret, an
+  // injury and days gone by.
+  function crowded(over: Partial<MustInput> = {}): MustInput {
+    const wren = entry('character', 'Wren')
+    const osric = entry('character', 'Osric Hale')
+    const abbot = entry('character', 'Abbot Fen', { happened: [{ note: 'Died of the fever.', where: 'The Mill, Ch 2, Sc 1', changeId: 'd' }] })
+    const pieces = ['grey cloak', 'linen shirt', 'wool skirt', 'boots', 'gloves']
+    const stand: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [
+        { ...blank, name: 'Wren', holding: 'a lantern', condition: 'left arm in a sling', clothes: pieces.map((name) => ({ name, state: 'on' })) },
+        { ...blank, name: 'Osric Hale', holding: 'a ledger', clothes: pieces.map((name) => ({ name: `his ${name}`, state: 'on, wet through' })) }
+      ],
+      things: [
+        { name: 'the door', state: 'barred' },
+        { name: 'the lamp', state: 'lit' },
+        { name: 'the ledger box', state: 'open on the table' }
+      ]
+    }
+    const facts: FactState[] = [{ factId: 'f', fact: 'The flour tax was forged', knownBy: [wren.id] }]
+    return base({ stand, reach: 'start', people: [wren, osric], named: [abbot], facts, elapsed: 'Time: the scene before was Day 3, dusk; this scene is Day 5', ...over })
+  }
+
+  it('opens with who is dead, what is kept from someone here, injuries and how much time has passed', () => {
+    const lines = mustStayTrue(crowded())
+    expect(lines.slice(0, 4)).toEqual([
+      'Abbot Fen is dead: Died of the fever (since Ch 2, Sc 1)',
+      'Kept from Osric Hale: The flour tax was forged (Wren knows it). Osric Hale must not learn, guess or think it here unless the scene card says so',
+      'Wren: left arm in a sling',
+      'Time: the scene before was Day 3, dusk; this scene is Day 5'
+    ])
+    expect(lines.length).toBeLessThanOrEqual(MUST_MOST)
+    // The rest still follows: what people hold, the things in the place.
+    expect(lines).toContain('Wren is holding: a lantern')
+  })
+
+  it('keeps them in its short form, where who knows what used to be left out, and in a smallest form for very little room', () => {
+    const short = mustStayTrue(crowded({ short: true }))
+    expect(short).toHaveLength(MUST_SHORT)
+    expect(short.slice(0, 4)).toEqual(mustStayTrue(crowded()).slice(0, 4))
+    const smallest = mustStayTrue(crowded({ smallest: true }))
+    expect(smallest).toEqual([
+      'Abbot Fen is dead: Died of the fever (since Ch 2, Sc 1)',
+      'Kept from Osric Hale: The flour tax was forged (Wren knows it)',
+      'Wren: left arm in a sling'
+    ])
+    expect(smallest).toHaveLength(MUST_SMALLEST)
+  })
+
+  it(`holds ${MUST_KEY} of them at most, one of each kind first`, () => {
+    const people = Array.from({ length: 6 }, (_, i) => entry('character', `Person ${i}`))
+    const stand: SceneState = { time: '', weather: '', light: '', characters: people.map((p, i) => ({ ...blank, name: p.name, condition: `bruised ${i}` })) }
+    const lines = mustStayTrue(base({ people, stand, reach: 'later', elapsed: 'Time: the scene before was Day 1; this scene is Day 9' }))
+    const key = lines.slice(0, MUST_KEY)
+    expect(key[0]).toBe('Person 0: bruised 0')
+    // Time passing isn't crowded out by six injuries.
+    expect(key).toContain('Time: the scene before was Day 1; this scene is Day 9')
+    expect(lines).toHaveLength(7)
+  })
+
+  it('says how much time has passed only at a new scene whose When differs from the one before', () => {
+    const at = (when: string, before: string, over: Partial<ContextInput> = {}): string => {
+      const inp = draftInput({ continuityAtSoFar: false, options: { direction: '', targetWords: 800, creativity: 'balanced' }, ...over })
+      inp.scene.card.when = when
+      inp.memory.previous = { ...inp.memory.previous!, when: before }
+      return timeSince(inp, stageReach(inp))
+    }
+    expect(at('Day 5', 'Day 3, dusk')).toBe('Time: the scene before was Day 3, dusk; this scene is Day 5')
+    expect(at('Day 3, dusk', 'Day 3, dusk')).toBe('')
+    expect(at('', 'Day 3')).toBe('')
+    expect(at('Day 4', '')).toBe('')
+    // Carrying on inside the scene: no time has passed.
+    expect(at('Day 5', 'Day 3', { continuityAtSoFar: true })).toBe('')
+    // A story's first scene after another: that story's time gap.
+    const first = draftInput({ continuityAtSoFar: false, options: { direction: '', targetWords: 800, creativity: 'balanced' } })
+    first.memory.previous = { ...first.memory.previous!, storyId: 'river', storyTitle: 'River Days', otherStory: { ended: true, timeGap: 'Twenty years.' } }
+    expect(timeSince(first, stageReach(first))).toBe('Time since River Days: Twenty years')
+  })
+
+  it('is never left out of a draft, however little room there is', () => {
+    expect(MUST_PRIORITY).toBe(2)
+    for (const contextLength of [3_000, 4_096, 8_000, 64_000]) {
+      const inp = draftInput({ contextLength, options: { direction: '', targetWords: 600, creativity: 'balanced', addBelow: true } })
+      const p = assembleContext(inp, countRaw)
+      const must = p.blocks.find((b) => b.id === MUST_BLOCK)!
+      expect({ contextLength, dropped: must.dropped }).toEqual({ contextLength, dropped: false })
+      expect(p.messages[1].content).toContain('## Must stay true')
+    }
   })
 })

@@ -33,9 +33,10 @@
 // 11 ties to people not in this scene: for each character present, the people they're tied to who aren't
 //    there, with where things stand and what has happened between them, newest first (names and relationship
 //    only; smaller: the closest few)
-// 11 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
-//    repeated from the briefing right above the closing instruction (the fewest lines that matter most, without the
-//    lead); kept longer than the ties, and back first
+//  2 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
+//    repeated from the briefing right above the closing instruction, the facts the scene is most likely to break first
+//    (the fewest lines that matter most, without the lead); since 2026-10-15 never left out, and short only once every
+//    block from 3 to 11 is
 // Story memory step 5 (src/main/retrieval/, with ContextInput.recall) adds candidates, never more room: entries from
 // the last two scenes and entries found by searching join block 9; what was said, word for word (fewer lines when
 // short), and earlier passages found by searching (the best two, then the best one) are blocks at priority 9,
@@ -92,6 +93,7 @@ import { TIMELINE_LEVELS, timelineText, updatingNote, type TimelineContext } fro
 import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from './briefingFixes'
 import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
+import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -156,6 +158,27 @@ export interface ContextInput {
 export const PLAN_BLOCK = { id: 'plan', title: 'The plan, made before writing' } as const
 /** The "must stay true" list's block (mustStay.ts), sent last before the closing instruction. */
 export const MUST_BLOCK = 'must-stay-true'
+/** Its priority: as the scene card's, never left out (2026-10-15), though it has a short form for when room is short. */
+export const MUST_PRIORITY = 2
+
+/**
+ * How much time has passed since the scene before, by both scene cards' When, for what must stay true (2026-10-15): "Time:
+ * the scene before was Day 3, dusk; this scene is Day 5". For a story's first scene after another story, its time gap.
+ * '' when the writing carries on inside the scene, when either When isn't known, or when it is the same.
+ */
+export function timeSince(input: Pick<ContextInput, 'scene' | 'memory' | 'options' | 'continuityAtSoFar'>, reach: StageReach): string {
+  if (reach === 'here' || input.continuityAtSoFar || input.options.addBelow) return ''
+  const prev = input.memory.previous
+  if (!prev) return ''
+  if (prev.otherStory && prev.storyId !== input.memory.storyId) {
+    const gap = clean(prev.otherStory.timeGap).replace(/\.$/, '')
+    return gap ? `Time since ${clean(prev.storyTitle) || 'the story before'}: ${gap}` : ''
+  }
+  const before = clean(prev.when)
+  const now = clean(input.scene.card.when)
+  if (!before || !now || sameWhen(before, now)) return ''
+  return `Time: the scene before was ${before}; this scene is ${now}`
+}
 
 /** What block 3b says first. */
 export const STAND_LEAD =
@@ -553,16 +576,39 @@ function namedIn(h: { text: string; plain: string }, names: string[]): boolean {
 
 const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu
 
+/** How much of a scene's end block 3 sends: 400 to 800 words, aiming for about 600. */
+export const TAIL = { min: 400, target: 600, max: 800 }
+
 /**
  * The last 400 to 800 words of a scene, aiming for about 600, cut at the start
  * of a paragraph if possible, otherwise at the start of a sentence.
  */
-export function sceneTail(text: string, o: { min: number; target: number; max: number } = { min: 400, target: 600, max: 800 }): string {
+export function sceneTail(text: string, o: { min: number; target: number; max: number } = TAIL): string {
   const t = text.trim()
+  const cut = tailCut(t, o)
+  if (!cut) return t
+  return cut.mid ? `…${t.slice(cut.at)}`.trim() : t.slice(cut.at).trim()
+}
+
+/**
+ * What comes before a scene's end as sceneTail gives it (2026-10-15: the previous scene's opening, for the scenes
+ * before word for word); empty when the end is the whole scene. Cut where the end begins, with "…" when that is
+ * inside a sentence.
+ */
+export function sceneHead(text: string, o: { min: number; target: number; max: number } = TAIL): string {
+  const t = text.trim()
+  const cut = tailCut(t, o)
+  if (!cut) return ''
+  const head = t.slice(0, cut.at).trim()
+  return head && cut.mid ? `${head}…` : head
+}
+
+/** Where sceneTail cuts a (trimmed) text, and whether inside a sentence; null when it keeps the whole text. */
+function tailCut(t: string, o: { min: number; target: number; max: number }): { at: number; mid: boolean } | null {
   const starts: number[] = []
   for (const m of t.matchAll(WORD_RE)) starts.push(m.index ?? 0)
   const n = starts.length
-  if (n <= o.max) return t
+  if (n <= o.max) return null
 
   // Words from position p to the end.
   const wordsFrom = (p: number): number => {
@@ -591,14 +637,39 @@ export function sceneTail(text: string, o: { min: number; target: number; max: n
     return pick
   }
   const para = best(/\n\s*/g)
-  if (para != null) return t.slice(para).trim()
+  if (para != null) return { at: para, mid: false }
   const sentence = best(/[.!?…]["'”’)\]]*\s+/g)
-  if (sentence != null) return t.slice(sentence).trim()
-  return `…${t.slice(starts[n - o.target])}`.trim()
+  if (sentence != null) return { at: sentence, mid: false }
+  return { at: starts[n - o.target], mid: true }
 }
 
 /** Block 3's short form: about the last 200 words. */
 export const SHORT_TAIL = { min: 150, target: 200, max: 250 }
+
+/**
+ * The scenes before, word for word (2026-10-15, after the long story memory research: only one scene's end was ever sent
+ * as prose, so what was said two scenes back reached the writer as one line of summary): the scenes before the previous
+ * one (memory.earlier) and the previous scene up to where block 3's end begins, oldest first. Sent only in room to spare,
+ * once everything else has its room (finishContext), and only beside block 3 in full, so nothing is missing between.
+ */
+export const EARLIER_BLOCK = { id: 'earlier-scenes', priority: 8, title: 'The scenes before, word for word' } as const
+/** The most words of each scene it gives: the end of a longer one. */
+export const EARLIER_WORDS = { min: 2_500, target: 3_000, max: 3_000 }
+const EARLIER_LEAD =
+  'The scenes just before this one, word for word, oldest first, so what was said and done in them stays the same. They happened: never write them again.'
+
+/** The forms of the scenes-before block, longest first (each leaves out the oldest scene); empty when there are none. */
+function earlierForms(input: ContextInput): string[] {
+  const prev = input.memory.previous
+  if (!prev || !clean(prev.text) || previousStory(input)) return []
+  const place = (label: string): string => shortPlace(label, input.story.title)
+  const parts = (input.memory.earlier ?? [])
+    .filter((x) => clean(x.text))
+    .map((x) => `### ${place(x.label)}${clean(x.when) ? ` (${clean(x.when)})` : ''}\n${sceneTail(x.text, EARLIER_WORDS)}`)
+  const head = sceneHead(prev.text)
+  if (head) parts.push(`### ${prev.label ? place(prev.label) : 'The previous scene'}, up to where its end, below, begins\n${sceneTail(head, EARLIER_WORDS)}`)
+  return parts.map((_, i) => [EARLIER_LEAD, ...parts.slice(i)].join('\n\n'))
+}
 
 /** The story the previous scene is in, when it isn't this one (this story's first scene); null otherwise. */
 function previousStory(input: ContextInput): { title: string; ended: boolean; timeGap: string } | null {
@@ -1456,6 +1527,10 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     add('previous-scene', 3, title, `${lead}\n\n${sceneTail(prev)}`, `${lead}\n\n${sceneTail(prev, SHORT_TAIL)}`, [])
   } else if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
+  // 8 The scenes before, word for word (EARLIER_BLOCK): only where there is room to spare.
+  const earlier = earlierForms(input)
+  if (earlier.length) add(EARLIER_BLOCK.id, EARLIER_BLOCK.priority, EARLIER_BLOCK.title, earlier[0], earlier[1] ?? null, [], earlier.slice(2))
+
   // 3b Where things stand as the previous scene ended (continuity/tracker.ts): where each character is, what they
   //    wear and hold, how they are placed and how they are; or, carrying on from the scene so far (Add below, a later
   //    beat), at the end of it. Short: only the characters on the scene card. Sent last, right above the closing
@@ -1479,10 +1554,12 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   }
 
   // What must stay true (mustStay.ts): a short list the app writes from where things stand and the codex entries of
-  // those in the scene, current values only, each with since when. Sent last, right above the closing instruction
-  // (prepareContext), with the full briefing above it. Capped; short: the fewest lines that matter most. Everything in
-  // it is in the briefing above as well, so where room is short it goes first, with the ties (block 11), and comes back
-  // first once everything else has its room.
+  // those in the scene, current values only, each with since when, what the scene is most likely to break first (who
+  // is dead, what is kept from someone here, injuries, how much time has passed). Sent last, right above the closing
+  // instruction (prepareContext), with the full briefing above it. Capped; short: the fewest lines that matter most.
+  // Since 2026-10-15 (the long story memory research: it was among the first parts left out when room was short, though
+  // models attend most to the end of a briefing) it is never left out: priority 2, short only once every block from 3
+  // to 11 is (finishContext).
   const reach = stageReach(input)
   const people = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character')
   const card = input.scene.card
@@ -1503,13 +1580,24 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
       .join('\n'),
     // The stage block right above says where things stand at this same moment: the list doesn't say it again.
     stageShown: !!full,
-    happened: happenedOf(input.memory.entries)
+    happened: happenedOf(input.memory.entries),
+    elapsed: timeSince(input, reach)
   }
   const must = mustStayTrue(mustFrom)
   if (must.length) {
-    // Short: the lines that matter most, without the lead (the title says it).
+    // Short: the lines that matter most, without the lead (the title says it); smallest: the first few of what the scene
+    // is most likely to break, said briefly (it is never left out, so it has to fit a model with very little room).
     const short = mustStayTrue({ ...mustFrom, short: true })
-    add(MUST_BLOCK, TIES_PRIORITY, MUST_TITLE, mustText(must, reach), short.length ? mustText(short, null) : null, [])
+    const smallest = mustStayTrue({ ...mustFrom, smallest: true })
+    add(
+      MUST_BLOCK,
+      MUST_PRIORITY,
+      MUST_TITLE,
+      mustText(must, reach),
+      short.length ? mustText(short, null) : null,
+      [],
+      smallest.length ? [mustText(smallest, null)] : []
+    )
   }
 
   // 4 Point-of-view character (short: without backstory; smaller: the core of the profile, then the least of it).
@@ -1720,7 +1808,8 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
 
   // Story memory step 5: what was said, word for word, and earlier passages found by searching (candidates at priority 9,
   // retrieval/briefing.ts).
-  for (const b of recallBlocks(input.recall)) add(b.id, b.priority, b.title, b.text, b.short, [], b.smaller)
+  // More earlier passages for a writer model that reads more (memoryRoom.ts).
+  for (const b of recallBlocks(input.recall, passagesShown(memoryScale(input.contextLength)))) add(b.id, b.priority, b.title, b.text, b.short, [], b.smaller)
 
   return blocks.sort((a, b) => sendRank(a) - sendRank(b))
 }
@@ -1744,6 +1833,7 @@ export const SEND_ORDER = [
   'themes',
   'setting',
   'story-so-far',
+  EARLIER_BLOCK.id,
   'previous-scene',
   'threads',
   OPEN_THREADS_BLOCK,
@@ -1778,7 +1868,7 @@ const STEADY_UNTIL = SEND_ORDER.indexOf('pov')
  * Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). Step 5's blocks
  * (earlier passages, then what was said) go before the other entries named.
  */
-const KEEP_ORDER = ['threads', 'setting', 'world-rules', MUST_BLOCK, 'recalled', 'said', RECALL_ENTRIES.id, 'mentioned']
+const KEEP_ORDER = ['threads', 'setting', 'world-rules', 'recalled', 'said', RECALL_ENTRIES.id, 'mentioned']
 const keepRank = (id: string): number => Math.max(0, KEEP_ORDER.indexOf(id))
 
 /**
@@ -1919,7 +2009,9 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   let budget = computeBudget(prepared.contextLength, prepared.targetWords ?? prepared.autoMax ?? null, prepared.toolRoom)
   // A cap on the briefing (the editor chat's edits): no more room than that, however much the model has.
   if (prepared.briefingCap && prepared.briefingCap > 0) budget = { ...budget, available: Math.min(budget.available, prepared.briefingCap) }
-  const fits = (): boolean => measure() <= budget.available
+  /** Room held back while the rest is fitted: step 5's share (reserve, below). */
+  let held = 0
+  const fits = (): boolean => measure() <= budget.available - held
   const auto = prepared.targetWords == null && prepared.autoMax != null
   let ceiling = prepared.autoMax ?? AUTO_LENGTH.max
 
@@ -1929,20 +2021,65 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     return sent + (hasPrev ? finalTokens.withPrevious : finalTokens.withoutPrevious) + MESSAGE_OVERHEAD * 2
   }
 
-  // Story memory step 5's candidates (what was said, earlier passages, entries recalled: retrieval/briefing.ts) take no
-  // room from anything else: the briefing is fitted as if they weren't there, Auto's length included, and they go in
-  // afterwards, each in the longest form that fits in the room left (step 7). Unless Adam wants one in full.
+  // Story memory step 5's candidates (what was said, earlier passages, entries recalled: retrieval/briefing.ts) are
+  // fitted last: the briefing is fitted without them, Auto's length included, and they go in afterwards, each in the
+  // longest form that fits (step 7). Unless Adam wants one in full. Since 2026-10-15 (the long story memory research:
+  // searching was worth about as much as the story record itself, and got only what was left over) a share of the room
+  // is held for them while the rest is fitted (RECALL_SHARE of it, at most what they take in full), so they always have
+  // some room, and more beside a long briefing.
   const candidates = state.filter((s) => isRecallBlock(s.b.id) && s.mode !== 'full')
-  const others = state.filter((s) => !candidates.includes(s))
+  // The scenes before, word for word (EARLIER_BLOCK): only in room to spare, after everything else (step 9).
+  const spare = state.filter((s) => s.b.id === EARLIER_BLOCK.id && s.mode !== 'full')
+  const others = state.filter((s) => !candidates.includes(s) && !spare.includes(s))
   const leaveOutCandidates = (): void => {
-    for (const s of candidates) s.dropped = true
+    for (const s of [...candidates, ...spare]) s.dropped = true
   }
   leaveOutCandidates()
+  const wanted = candidates.reduce((n, s) => n + s.tokensAt[s.min], 0)
+  const reserve = (): number => Math.min(wanted, Math.floor(budget.available * RECALL_SHARE))
 
   // Least important first; within a priority, hard rules go last.
   const leastFirst = [...others].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
-  const shortenable = [...droppable, ...others.filter((x) => x.b.priority === 1)]
+  // What must stay true is never left out: it goes short only once every block from 3 to 11 is, before block 1.
+  const shortenable = [...droppable, ...others.filter((x) => x.b.id === MUST_BLOCK), ...others.filter((x) => x.b.priority === 1)]
+
+  /** Block 11 (the ties): left out first when room is short, and put back last. */
+  const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
+
+  /** Steps 4 to 6: what fits again is put back, and each block given back the longest form that fits. */
+  function giveBack(): void {
+    // 4. Dropping one big block (often the previous scene) can free room for smaller, less
+    //    important ones dropped before it. Put those back, most important first, while it fits.
+    for (const s of [...droppable].reverse()) {
+      if (!s.dropped || lowest(s)) continue
+      s.dropped = false
+      if (!fits()) s.dropped = true
+    }
+    // 5. Then give back the longest form that fits again to each block, most important first.
+    for (const s of [...leastFirst].reverse()) {
+      if (s.dropped) continue
+      const was = s.level
+      for (let l = s.min; l < was; l++) {
+        s.level = l
+        if (fits()) break
+        s.level = was
+      }
+    }
+
+    // 6. Block 11 back (the ties), if it fits once everything more important has its room.
+    for (const s of [...droppable].reverse()) {
+      if (!s.dropped || !lowest(s)) continue
+      s.dropped = false
+      if (fits()) continue
+      const was = s.level
+      for (s.level = Math.max(was, 1); s.level <= s.max && !fits(); s.level++);
+      if (s.level > s.max || !fits()) {
+        s.level = was
+        s.dropped = true
+      }
+    }
+  }
 
   /** Fits the briefing to the budget, starting again from every block as Adam set it. */
   function fit(): void {
@@ -1951,6 +2088,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       s.dropped = false
     }
     leaveOutCandidates()
+    held = reserve()
     // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
     for (const s of shortenable) {
       if (fits()) break
@@ -1958,7 +2096,6 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     }
     // 1b. Still too long: the ties to people not in the scene (block 11) go before any block is made smaller
     //     than its short form, so a small model keeps what happened just before rather than a list of names.
-    const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
     for (const s of droppable) {
       if (fits()) break
       if (lowest(s)) s.dropped = true
@@ -1982,39 +2119,27 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       if (fits()) break
       s.dropped = true
     }
-    // 4. Dropping one big block (often the previous scene) can free room for smaller, less
-    //    important ones dropped before it. Put those back, most important first, while it fits.
-    for (const s of [...droppable].reverse()) {
-      if (!s.dropped || lowest(s)) continue
-      s.dropped = false
-      if (!fits()) s.dropped = true
-    }
-    // 5. Then give back the longest form that fits again to each block, most important first.
-    for (const s of [...leastFirst].reverse()) {
-      if (s.dropped) continue
-      const was = s.level
-      for (let l = s.min; l < was; l++) {
-        s.level = l
-        if (fits()) break
-        s.level = was
-      }
-    }
+    giveBack()
 
-    // 6. Block 11 back (what must stay true first, then the ties), if it fits once everything more important has its room.
-    for (const s of [...droppable].reverse()) {
-      if (!s.dropped || !lowest(s)) continue
+    // 7. Step 5's candidates, most important first, each in the longest form that fits in the room left (their share
+    //    with it).
+    held = 0
+    for (const s of [...candidates].sort((a, b) => keepRank(b.b.id) - keepRank(a.b.id))) {
       s.dropped = false
-      if (fits()) continue
-      const was = s.level
-      for (s.level = Math.max(was, 1); s.level <= s.max && !fits(); s.level++);
-      if (s.level > s.max || !fits()) {
-        s.level = was
+      for (s.level = s.min; s.level <= s.max && !fits(); s.level++);
+      if (s.level > s.max) {
+        s.level = s.min
         s.dropped = true
       }
     }
+    // 8. Room held for them that they didn't use goes back to the rest, as in steps 4 to 6.
+    if (candidates.length) giveBack()
 
-    // 7. Step 5's candidates, most important first, each in the longest form that fits in the room left.
-    for (const s of [...candidates].sort((a, b) => keepRank(b.b.id) - keepRank(a.b.id))) {
+    // 9. The scenes before, word for word, in the longest form that fits in the room left to spare, and only beside the
+    //    end of the previous scene in full, so nothing is missing between them.
+    const prev = state.find((x) => x.b.id === 'previous-scene')
+    for (const s of spare) {
+      if (!prev || prev.dropped || prev.level > 0) continue
       s.dropped = false
       for (s.level = s.min; s.level <= s.max && !fits(); s.level++);
       if (s.level > s.max) {
@@ -2027,7 +2152,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // first, so Auto's ceiling comes down to what fits beside it (to no less than a typical scene) before
   // any block is shortened.
   if (auto) {
-    const over = lengthTooLong({ ...budget, used: measure() })
+    const over = lengthTooLong({ ...budget, used: measure() + reserve() })
     if (over) {
       ceiling = Math.max(Math.min(AUTO_LENGTH.typical, ceiling), Math.min(ceiling, over.maxWords))
       budget = computeBudget(prepared.contextLength, ceiling, prepared.toolRoom)
@@ -2118,11 +2243,18 @@ export function sentEntryVersions(memory: Pick<SceneMemory, 'entries' | 'elsewhe
   return out
 }
 
-/** What the canon timeline (timeline.ts) needs from a briefing's input: names as of this scene, and what has happened. */
-export function timelineFrom(input: { memory: Pick<SceneMemory, 'entries' | 'elsewhere'>; story: { title: string } }): TimelineContext {
+/**
+ * What the canon timeline (timeline.ts) needs from a briefing's input: names as of this scene, what has happened, and
+ * how much the writer model can read (it grows with that: memoryRoom.ts; left out, as for Continue: the smallest).
+ */
+export function timelineFrom(input: {
+  memory: Pick<SceneMemory, 'entries' | 'elsewhere'>
+  story: { title: string }
+  contextLength?: number | null
+}): TimelineContext {
   const byId = new Map<ID, EntryState>([
     ...input.memory.elsewhere.map((x) => [x.entry.id, x.entry] as const),
     ...input.memory.entries.map((e) => [e.id, e] as const)
   ])
-  return { storyTitle: input.story.title, name: (id) => byId.get(id)?.name ?? null, entries: input.memory.entries }
+  return { storyTitle: input.story.title, name: (id) => byId.get(id)?.name ?? null, entries: input.memory.entries, scale: memoryScale(input.contextLength) }
 }

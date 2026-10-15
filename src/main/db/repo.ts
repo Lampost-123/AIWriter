@@ -354,6 +354,20 @@ export function sceneCards(db: DB, ids: ID[]): Map<ID, SceneCard> {
   return out
 }
 
+/** How many words each of these live scenes has, by id, in one query a few hundred at a time (no text). */
+export function sceneWordCounts(db: DB, ids: ID[]): Map<ID, number> {
+  const out = new Map<ID, number>()
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500)
+    if (!chunk.length) continue
+    const rows = db
+      .prepare(`SELECT id, word_count FROM scenes WHERE deleted_at IS NULL AND id IN (${chunk.map(() => '?').join(',')})`)
+      .all(...chunk) as Row[]
+    for (const r of rows) out.set(r.id as string, (r.word_count as number) ?? 0)
+  }
+  return out
+}
+
 function sceneIds(db: DB, chapterId: ID): ID[] {
   return (db.prepare('SELECT id FROM scenes WHERE chapter_id = ? AND deleted_at IS NULL ORDER BY position').all(chapterId) as Row[]).map(
     (r) => r.id as string

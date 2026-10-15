@@ -11,7 +11,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import type { MemoryModel } from '../keeper/model'
 import type { Secret } from '../ai/mustStay'
-import { assembleContext, prepareContext, type ContextInput } from '../ai/context'
+import { assembleContext, EARLIER_BLOCK, prepareContext, type ContextInput } from '../ai/context'
 import { countRaw } from '../ai/tokens'
 import {
   checkPlan,
@@ -360,6 +360,14 @@ describe('room for the plan', () => {
     // Less room for the reply (Auto's ceiling came down), or over the budget where it wasn't: no plan.
     expect(keepsRoom(before, { blocks: before.blocks, budget: budget(680, 1000, 400) })).toBe(false)
     expect(keepsRoom(before, { blocks: before.blocks, budget: budget(1100) })).toBe(false)
+  })
+
+  it('may take the room the scenes before word for word had, which go only in room to spare (2026-10-15)', () => {
+    const spare = { ...before, blocks: [...before.blocks, block(EARLIER_BLOCK.id, 400)] }
+    const shorter = [...before.blocks, block(EARLIER_BLOCK.id, 300), block('plan', 80)]
+    expect(keepsRoom(spare, { blocks: shorter, budget: budget(880) })).toBe(true)
+    const gone = [...before.blocks, block(EARLIER_BLOCK.id, 400, true), block('plan', 80)]
+    expect(keepsRoom(spare, { blocks: gone, budget: budget(680) })).toBe(true)
   })
 })
 

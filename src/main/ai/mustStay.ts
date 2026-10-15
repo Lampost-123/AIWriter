@@ -8,7 +8,10 @@
 // Sc 7)", memory/items.ts), the items the scene names first. Piece by piece (step 2b, Adam 2026-10-07): each piece of
 // clothing is its own line ("Wren: boots off, by the door"), at most MUST_CLOTHES a person, those the scene names first;
 // so is each thing in the place ("The door: barred from inside"), at most MUST_THINGS; and, carrying on inside a scene,
-// who touches whom and who can see or hear whom. Pure.
+// who touches whom and who can see or hear whom. Since 2026-10-15 (the long story memory research) it is never left
+// out of a draft's briefing (ai/context.ts), and it opens with the few facts a scene is most likely to break (MUST_KEY):
+// who is dead, what is kept from someone here, how people are hurt, and how much time has passed since the scene before,
+// so they are never crowded out by clothes and things in the place, and its short form keeps them. Pure.
 
 import type { EntryState, FactState, ID } from '@shared/types'
 import {
@@ -35,6 +38,13 @@ import { animalNotPerson } from '../keeper/kinds'
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
 export const MUST_MOST = 12
 export const MUST_SHORT = 6
+/**
+ * The most lines it opens with that the scene is most likely to break (KEY_KINDS): one of each kind there is first, then
+ * more of them. The short form keeps them too.
+ */
+export const MUST_KEY = 5
+/** Its smallest form, for a model with very little room (it is never left out): the first few of those, said briefly. */
+export const MUST_SMALLEST = 3
 /** The most "does not know" lines among them. */
 export const MUST_GAPS = 3
 /** The most lines among them about what someone gave away, lost or got. */
@@ -88,9 +98,11 @@ export interface MustInput {
   about?: string
   /**
    * The short form, for a model with little room: at most MUST_SHORT lines, and none of who knows what or of the
-   * codex's changed looks (the briefing above has those).
+   * codex's changed looks (the briefing above has those) beyond what the scene is most likely to break.
    */
   short?: boolean
+  /** The smallest form, for a model with very little room: only the first MUST_SMALLEST of what the scene is most likely to break, said briefly. */
+  smallest?: boolean
   /**
    * The briefing's stage block says where things stand at this same moment, right above the list (carrying on inside a
    * scene): the list then leaves out what the stage says, and keeps what it doesn't (who is dead, marks, changed looks,
@@ -99,6 +111,11 @@ export interface MustInput {
   stageShown?: boolean
   /** What has happened so far, for telling a plan that has happened (realSecrets); left out: what has happened to `people` and `named`. */
   happened?: KnowsContext['happened']
+  /**
+   * How much time has passed since the scene before, as a line ("Time: the scene before was Day 3, dusk; this scene is
+   * Day 5"), at a new scene's start; '' or left out when it isn't known or no time has passed.
+   */
+  elapsed?: string
 }
 
 /**
@@ -113,6 +130,7 @@ export interface MustInput {
 const RANK = {
   dead: 0,
   condition: 1,
+  elapsed: 1.5,
   wearingNamed: 2,
   thingNamed: 3,
   holding: 4,
@@ -134,6 +152,11 @@ const RANK = {
   weather: 20
 } as const
 type Kind = keyof typeof RANK
+/**
+ * What a new scene is most likely to break, in the order the list gives them first (2026-10-15): someone dead acting
+ * alive, someone learning or thinking what is kept from them, an injury forgotten, and time passing unnoticed.
+ */
+const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'elapsed']
 
 /** Fields whose current value is a fact to keep to when a change set it during the story (a haircut in Ch 5). */
 const FACT_FIELDS = (FIELD_GROUPS.character ?? []).filter((g) => g.id === 'basics' || g.id === 'looks').flatMap((g) => g.fields)
@@ -477,10 +500,16 @@ export function mustStayTrue(o: MustInput): string[] {
     .forEach((s, i) => {
       const not = joinAnd(s.keptFrom)
       const knows = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
-      add('gap', 2000 + i, `Kept from ${not}: ${clipTo(s.fact, LONGEST_FACT)} (${knows}). ${not} must not learn, guess or think it here unless the scene card says so`, '', true)
+      const fact = clipTo(s.fact, LONGEST_FACT)
+      const rule = o.smallest ? '' : `. ${not} must not learn, guess or think it here unless the scene card says so`
+      add('gap', 2000 + i, `Kept from ${not}: ${fact} (${knows})${rule}`, '', true)
     })
 
-  // The most that matter, then in order: person by person, then the scene, then who knows what. The same line once only.
+  // How much time has passed since the scene before, at a new scene's start.
+  const elapsed = clean(o.elapsed)
+  if (elapsed) add('elapsed', 3000, elapsed, '', true)
+
+  // The same line once only.
   const seen = new Set<string>()
   const once = out.filter((l) => {
     const k = l.text.replace(/\s*\(since [^)]*\)$/, '').toLowerCase()
@@ -488,14 +517,25 @@ export function mustStayTrue(o: MustInput): string[] {
     seen.add(k)
     return true
   })
-  const room = o.short ? once.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.changed) : once
+  // First what the scene is most likely to break (KEY_KINDS): one of each kind there is, then more, MUST_KEY at most,
+  // kind by kind. The short form keeps them too.
+  const keyRank = (l: (typeof once)[number]): number => KEY_KINDS.findIndex((k) => RANK[k] === l.rank)
+  const keyed = once.filter((l) => keyRank(l) >= 0).sort((a, b) => keyRank(a) - keyRank(b) || a.who - b.who)
+  const key = KEY_KINDS.map((_, i) => keyed.find((l) => keyRank(l) === i)).filter((l): l is (typeof once)[number] => !!l)
+  for (const l of keyed) if (key.length < MUST_KEY && !key.includes(l)) key.push(l)
+  if (o.smallest) key.splice(MUST_SMALLEST)
+  key.sort((a, b) => keyRank(a) - keyRank(b) || a.who - b.who)
+  if (o.smallest) return key.map((l) => l.text)
+  // Then the most that matter of the rest, in order: person by person, then the scene, then who knows what.
+  const rest = once.filter((l) => !key.includes(l))
+  const room = o.short ? rest.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.changed) : rest
   // The short form: one piece of clothing a person at most, the one that matters most.
   const dressed = new Set<number>()
   const ranked = [...room]
     .sort((a, b) => a.rank - b.rank || a.who - b.who)
     .filter((l) => !o.short || !l.piece || (!dressed.has(l.who) && !!dressed.add(l.who)))
-  const chosen = ranked.slice(0, o.short ? MUST_SHORT : MUST_MOST)
-  return chosen.sort((a, b) => a.who - b.who || a.rank - b.rank).map((l) => l.text)
+  const chosen = ranked.slice(0, Math.max(0, (o.short ? MUST_SHORT : MUST_MOST) - key.length))
+  return [...key, ...chosen.sort((a, b) => a.who - b.who || a.rank - b.rank)].map((l) => l.text)
 }
 
 /**

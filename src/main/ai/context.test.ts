@@ -25,6 +25,7 @@ import {
   replyTokenLimit,
   replyTokens,
   THINKING_ROOM,
+  sceneHead,
   sceneTail,
   selectEntries,
   sentEntryIds,
@@ -36,6 +37,7 @@ import {
   type ContextInput,
   type PreparedContext,
   STAND_LEAD_SO_FAR,
+  EARLIER_BLOCK,
   MUST_BLOCK,
   DETAILS_LABEL,
   FACTS_LABEL,
@@ -46,6 +48,7 @@ import {
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_LEAD } from './openThreads'
 import { TIMELINE_LEAD } from './timeline'
+import { MUST_SMALLEST } from './mustStay'
 import { countRaw } from './tokens'
 
 // ---------- Fixtures ----------
@@ -642,6 +645,7 @@ describe('blocks', () => {
       ['themes', 10],
       ['setting', 7],
       ['story-so-far', 8],
+      ['earlier-scenes', 8],
       ['previous-scene', 3],
       ['threads', 7],
       ['pov', 4],
@@ -650,7 +654,7 @@ describe('blocks', () => {
       ['ties', 11],
       ['mentioned', 9],
       ['scene-card', 2],
-      ['must-stay-true', 11]
+      ['must-stay-true', 2]
     ])
   })
 
@@ -1308,9 +1312,12 @@ function counts(
   return [...out, 0, 0]
 }
 
-/** The briefing without what must stay true (its own tests are in mustStay.test.ts), so the numbers here stay simple. */
+/**
+ * The briefing without what must stay true (its own tests are in mustStay.test.ts) and the scenes before word for word
+ * (their own tests are below), so the numbers here stay simple.
+ */
 function withoutMust(p: PreparedContext): PreparedContext {
-  const blocks = p.blocks.filter((b) => b.id !== MUST_BLOCK)
+  const blocks = p.blocks.filter((b) => b.id !== MUST_BLOCK && b.id !== EARLIER_BLOCK.id)
   return { ...p, blocks, texts: [...blocks.flatMap((b) => formsOf(b).map((t) => blockAsSent(b, t))), p.finals.withPrevious, p.finals.withoutPrevious] }
 }
 
@@ -1359,6 +1366,44 @@ describe('fitting the briefing to the model', () => {
       expect(user.content.slice(0, user.cacheUpTo)).toContain('## The story so far')
       expect(p.messages[0].cacheUpTo).toBeUndefined()
     }
+  })
+
+  it('holds a share of the room for what a search found, taken from the least important parts (2026-10-15)', () => {
+    const found = withoutMust(
+      prepareContext(
+        withoutTies(
+          richInput({ recall: { sticky: [], found: [], said: [], passages: [{ kind: 'scene', where: 'Ch 1, Sc 1', text: words(80, 'tide'), order: 1 }] } })
+        )
+      )
+    )
+    const withFound = counts(found, () => 1000)
+    // Everything else fits exactly: the passages used to wait for room left over, and got none.
+    const p = fit(found, total, withFound)
+    expect(p.blocks.find((b) => b.id === 'recalled')).toMatchObject({ dropped: false, short: false })
+    expect(p.budget.used).toBeLessThanOrEqual(total)
+    // Their room (RECALL_SHARE of it, no more than they need) came from the least important parts, shortened, never left out.
+    const shortened = p.blocks.filter((b) => b.short)
+    expect(shortened.length).toBeGreaterThan(0)
+    expect(shortened.every((b) => b.priority >= 9)).toBe(true)
+    expect(ids(p, (b) => b.dropped)).toEqual([])
+    // With room to spare, nothing else changes for them.
+    const roomy = fit(found, total + 1100, withFound)
+    expect(ids(roomy, (b) => b.dropped || b.short)).toEqual([])
+  })
+
+  it('gives back the room held for a search when it found nothing that fits in it', () => {
+    const found = withoutMust(
+      prepareContext(
+        withoutTies(
+          richInput({ recall: { sticky: [], found: [], said: [], passages: [{ kind: 'scene', where: 'Ch 1, Sc 1', text: words(80, 'tide'), order: 1 }] } })
+        )
+      )
+    )
+    // The passage is far bigger than its share: it doesn't go in, and nothing else is shortened for it.
+    const c2 = counts(found, (id) => (id === 'recalled' ? 50_000 : 1000))
+    const p = fit(found, total, c2)
+    expect(p.blocks.find((b) => b.id === 'recalled')?.dropped).toBe(true)
+    expect(ids(p, (b) => b.short || (b.dropped && b.id !== 'recalled'))).toEqual([])
   })
 
   it('switches blocks to their short form from the bottom up before dropping anything', () => {
@@ -1717,11 +1762,14 @@ describe('a small-context model and a large-context model both get a sensible br
   }
 
   /** What every briefing must hold, whatever the model. */
-  function sensible(b: ReturnType<typeof briefing>): void {
+  function sensible(b: ReturnType<typeof briefing>, o: { pov?: boolean } = {}): void {
     expect(b.p.budget.used).toBeLessThanOrEqual(b.p.budget.available)
     // Every part is listed, sent or not, so the Context tab and "What the AI saw" show what was left out.
-    expect(b.p.blocks).toHaveLength(14)
-    for (const id of ['instructions', 'scene-card', 'pov', 'previous-scene']) expect(b.sent(id), id).toBe(true)
+    expect(b.p.blocks).toHaveLength(15)
+    // What must stay true is never left out (2026-10-15).
+    for (const id of ['instructions', 'scene-card', 'previous-scene', MUST_BLOCK]) expect(b.sent(id), id).toBe(true)
+    if (o.pov === false) return
+    expect(b.sent('pov'), 'pov').toBe(true)
     expect(b.p.messages[0].content).toContain('Style guide\n- Point of view: Close third person')
     expect(b.p.messages[0].content).toContain('Sample passage')
     expect(b.p.messages[0].content).toContain('- suddenly')
@@ -1740,12 +1788,16 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(b.block('previous-scene').text).toMatch(/^["A-Z]/)
   }
 
-  it('a 4,000-token model writing 600 words: instructions, scene card, the end of the previous scene and the core of the point of view', () => {
+  it('a 4,000-token model writing 600 words: instructions, scene card, the end of the previous scene and what must stay true', () => {
     const b = briefing(4096, 600, 'typical')
-    sensible(b)
+    // Since 2026-10-15 what must stay true is never left out, so on a model this small the point of view's core no longer
+    // fits beside it (the models AI Write suggests read far more). The list is at its smallest: a few lines, said briefly.
+    sensible(b, { pov: false })
+    expect(b.sent('pov')).toBe(false)
+    expect(b.block(MUST_BLOCK).text.split('\n')).toHaveLength(MUST_SMALLEST)
     expect(b.block('instructions').short).toBe(true)
     expect(b.block('previous-scene').short).toBe(true)
-    // The least of the profile: no backstory, no long description, two sample lines.
+    // The least of the profile, were there room: no backstory, no long description, two sample lines.
     expect(b.block('pov').text).not.toContain('Backstory')
     expect(b.block('pov').text.match(/^ {4}"/gm)).toHaveLength(2)
     expect(b.block('pov').text).toContain('- Current motivation: ')
@@ -1769,7 +1821,8 @@ describe('a small-context model and a large-context model both get a sensible br
   it('a 16,000-token model: the point of view in full, the story so far by chapters', () => {
     const b = briefing(16_000, 1500)
     sensible(b)
-    expect(b.p.blocks.filter((x) => x.dropped)).toEqual([])
+    // All but the scenes before word for word, which go only where there is room to spare.
+    expect(b.p.blocks.filter((x) => x.dropped).map((x) => x.id)).toEqual([EARLIER_BLOCK.id])
     expect(b.block('pov')).toMatchObject({ short: false })
     expect(b.block('pov').text).toContain('Backstory\n- Origin: ')
     const sofar = b.block('story-so-far').text
@@ -1791,6 +1844,10 @@ describe('a small-context model and a large-context model both get a sensible br
       expect(b.user).toContain('- Ch 11, Sc 3: ')
       expect(b.user).toContain('## Also relevant')
       expect(b.user).toContain('## Themes and tone')
+      // The previous scene from its start, word for word: its opening right before its end.
+      const earlier = `## ${EARLIER_BLOCK.title}`
+      expect(b.user).toContain(earlier)
+      expect(b.user.indexOf(earlier)).toBeLessThan(b.user.indexOf('## End of the previous scene'))
     }
   })
 
@@ -1854,9 +1911,9 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(lengthTooLong(b.p.budget)!.maxWords).toBeLessThan(AUTO_LENGTH.min)
   })
 
-  it('a model too small for the length asked: only the instructions and the scene card, and the draft is refused with a length that fits', () => {
+  it('a model too small for the length asked: only the instructions, the scene card and what must stay true, and the draft is refused with a length that fits', () => {
     const b = briefing(4096, 1500)
-    expect(b.p.blocks.filter((x) => !x.dropped).map((x) => x.id)).toEqual(['instructions', 'scene-card'])
+    expect(b.p.blocks.filter((x) => !x.dropped).map((x) => x.id)).toEqual(['instructions', 'scene-card', MUST_BLOCK])
     expect(lengthTooLong(b.p.budget)).toEqual({ maxWords: expect.any(Number) })
     expect(lengthTooLong(b.p.budget)!.maxWords).toBeGreaterThanOrEqual(500)
   })
@@ -2249,5 +2306,94 @@ describe('the open plot threads (the AI manages plot threads, 2026-10-08)', () =
     expect(SEND_ORDER.indexOf(OPEN_THREADS_BLOCK)).toBeLessThan(SEND_ORDER.indexOf('pov'))
     const { inp } = withThreads(0)
     expect(blockOf(inp, OPEN_THREADS_BLOCK)).toBeUndefined()
+  })
+})
+
+describe('the memory grows with how much the writer model reads (2026-10-15)', () => {
+  const wordsIn = (t: string): number => (t.match(/\S+/g) ?? []).length
+  const chapter = (i: number): number => Math.floor(i / 6) + 1
+  const scenes: StorySoFar['scenes'] = Array.from({ length: 60 }, (_, i) => ({
+    sceneId: `s${i}`,
+    chapterId: `c${chapter(i)}`,
+    label: `Book 2, Ch ${chapter(i)}, Sc ${(i % 6) + 1}`,
+    text: `Scene ${i + 1} happened. ${words(150, 'tide')}.`
+  }))
+  const sofar: StorySoFar = { scenes, chapters: [], stories: [], series: [], leadsInto: null }
+
+  it('tells much more of the story so far to a model that reads a lot, and the same as before when it isn’t known', () => {
+    const at = (contextLength: number | null): string => blockOf(input({ contextLength }, { storySoFar: sofar }), 'story-so-far')!.text
+    expect(at(null)).toBe(at(16_000))
+    expect(wordsIn(at(64_000))).toBeGreaterThan(wordsIn(at(null)) * 3)
+    // The same at every step of a scene: it depends on the model's reading limit only.
+    const a = input({ contextLength: 64_000, options: { direction: 'One thing', targetWords: 600, creativity: 'balanced' } }, { storySoFar: sofar })
+    const b = input({ contextLength: 64_000, options: { direction: 'Another', targetWords: null, creativity: 'balanced', addBelow: true } }, { storySoFar: sofar })
+    expect(blockOf(a, 'story-so-far')!.text).toBe(blockOf(b, 'story-so-far')!.text)
+  })
+
+  it('sends more earlier passages found by searching', () => {
+    const passages = Array.from({ length: 12 }, (_, i) => ({ kind: 'scene' as const, where: `Book 2, Ch 1, Sc ${i + 1}`, text: `Passage ${i + 1}. ${words(40, 'salt')}`, order: i }))
+    const recall = { sticky: [], found: [], said: [], passages }
+    const shown = (contextLength: number | null): number => (blockOf(input({ contextLength, recall }), 'recalled')!.text.match(/^### /gm) ?? []).length
+    expect(shown(null)).toBe(5)
+    expect(shown(64_000)).toBe(10)
+  })
+})
+
+describe('the scenes before, word for word (2026-10-15)', () => {
+  const para = (n: number, w: string): string => `${Array.from({ length: n }, () => w).join(' ')}.`
+  // A previous scene of 1,500 words in paragraphs of 100, and two scenes before it.
+  const previousText = Array.from({ length: 15 }, (_, i) => `Paragraph ${i + 1} ${para(98, 'tide')}`).join('\n\n')
+  const earlier = [
+    { sceneId: 'e1', title: 'The ford', text: `The ford scene. ${para(300, 'ford')}`, label: 'Book 2, Ch 3, Sc 1', when: 'Day 11' },
+    { sceneId: 'e2', title: 'The mill', text: `The mill scene. ${para(300, 'mill')}`, label: 'Book 2, Ch 3, Sc 2', when: '' }
+  ]
+  const withEarlier = (contextLength: number): ContextInput =>
+    input({ contextLength }, { previous: { sceneId: 'p', title: 'The docks', text: previousText, label: 'Book 2, Ch 3, Sc 3', ...inBook2 }, earlier })
+
+  it('gives the scenes before the previous one whole, and the previous one up to where its end begins, oldest first', () => {
+    const b = blockOf(withEarlier(128_000), EARLIER_BLOCK.id)!
+    expect(b.priority).toBe(8)
+    const heads = b.text.match(/^### .*$/gm)
+    expect(heads).toEqual(['### Ch 3, Sc 1 (Day 11)', '### Ch 3, Sc 2', '### Ch 3, Sc 3, up to where its end, below, begins'])
+    expect(b.text).toContain(earlier[0].text)
+    expect(b.text).toContain(earlier[1].text)
+    // Nothing missing or said twice between the opening and the end block 3 sends.
+    const end = blockOf(withEarlier(128_000), 'previous-scene')!.text
+    const opening = b.text.slice(b.text.indexOf('begins\n') + 'begins\n'.length)
+    expect(`${opening}\n\n${end}`).toBe(previousText)
+    expect(sceneHead(previousText)).toBe(opening)
+    // Shorter forms leave out the oldest scene first.
+    expect(b.short).toContain('### Ch 3, Sc 2')
+    expect(b.short).not.toContain('### Ch 3, Sc 1')
+    expect(b.smaller[0]).toContain('### Ch 3, Sc 3, up to')
+    expect(b.smaller[0]).not.toContain('### Ch 3, Sc 2')
+  })
+
+  it('goes in only where there is room to spare, and never in place of anything else', () => {
+    const small = assembleContext(withEarlier(5_000), countRaw)
+    expect(small.blocks.find((x) => x.id === EARLIER_BLOCK.id)?.dropped).toBe(true)
+    // Everything else is as it would be without it.
+    const bare = withEarlier(5_000)
+    const without = assembleContext({ ...bare, memory: { ...bare.memory, earlier: [], previous: { ...bare.memory.previous!, text: sceneTail(previousText) } } }, countRaw)
+    for (const x of without.blocks) {
+      if (x.id === 'previous-scene') continue
+      const y = small.blocks.find((z) => z.id === x.id)!
+      expect({ id: x.id, dropped: y.dropped, short: y.short }).toEqual({ id: x.id, dropped: x.dropped, short: x.short })
+    }
+    const big = assembleContext(withEarlier(128_000), countRaw)
+    expect(big.blocks.find((x) => x.id === EARLIER_BLOCK.id)).toMatchObject({ dropped: false, short: false })
+    expect(big.budget.used).toBeLessThanOrEqual(big.budget.available)
+  })
+
+  it('is left out with no scene before, and when the previous scene is another story’s', () => {
+    expect(blockOf(input({ contextLength: 128_000 }, { previous: null, earlier }), EARLIER_BLOCK.id)).toBeUndefined()
+    const other = input(
+      { contextLength: 128_000 },
+      { previous: { sceneId: 'p', title: 'The end', text: previousText, storyId: 'book-1', storyTitle: 'Book 1', otherStory: { ended: true, timeGap: '' } }, earlier }
+    )
+    expect(blockOf(other, EARLIER_BLOCK.id)).toBeUndefined()
+    // A short previous scene is sent whole by block 3: only the scenes before it.
+    const short = blockOf(input({ contextLength: 128_000 }, { previous: { sceneId: 'p', title: 'Brief', text: 'Mara waited.', ...inBook2 }, earlier }), EARLIER_BLOCK.id)!
+    expect(short.text.match(/^### .*$/gm)).toEqual(['### Ch 3, Sc 1 (Day 11)', '### Ch 3, Sc 2'])
   })
 })

@@ -1,6 +1,7 @@
 // Pure helpers for providers and their model lists.
 
 import type { ModelInfo, ProviderKind } from '@shared/types'
+import { publishedReadingLimit } from '@shared/readingLimits'
 
 const price = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN
@@ -16,8 +17,10 @@ const positiveInt = (v: unknown): number | null => {
 /**
  * Reads a GET /models reply. OpenRouter gives each model's context length and
  * prices (USD per token, as strings); other providers usually give only ids.
+ * `baseUrl`: the provider's address, so a model whose reading limit the list
+ * leaves out gets the one its maker publishes (shared/readingLimits.ts).
  */
-export function parseModelList(json: unknown, kind: ProviderKind): ModelInfo[] {
+export function parseModelList(json: unknown, kind: ProviderKind, baseUrl?: string): ModelInfo[] {
   const list = Array.isArray(json)
     ? json
     : json && typeof json === 'object'
@@ -49,11 +52,17 @@ export function parseModelList(json: unknown, kind: ProviderKind): ModelInfo[] {
         ...(params ? { sampling: params.includes('temperature') } : {})
       })
     } else {
-      // Some servers (Groq, Mistral, LM Studio...) say how much a model can read; use it when given.
+      // Some servers (Groq, Mistral, LM Studio, DeepSeek, vLLM...) say how much a model can read; use it when given,
+      // else what the model's maker publishes (DeepSeek's own API), else nothing (the 16,000-token guess).
+      const said =
+        positiveInt(m.context_length) ??
+        positiveInt(m.context_window) ??
+        positiveInt(m.max_context_length) ??
+        positiveInt(m.max_model_len)
       out.push({
         id,
         name,
-        contextLength: positiveInt(m.context_length) ?? positiveInt(m.context_window) ?? positiveInt(m.max_context_length) ?? null,
+        contextLength: said ?? publishedReadingLimit(baseUrl, id)?.tokens ?? null,
         promptPrice: null,
         completionPrice: null,
         maxOutput: positiveInt(m.max_completion_tokens) ?? positiveInt(m.max_output_tokens) ?? null
