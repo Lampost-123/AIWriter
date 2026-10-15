@@ -724,9 +724,10 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   tags go only to the paragraphs its draft added, and those it said of lines that never reached the page are dropped.
 - **Recall across scenes** (Adam, 2026-10-04: inconsistencies between scenes). Entries named in the card's goal,
   conflict, outcome or mood, or at the end of the previous scene (the part block 3 sends), are selected too
-  (`WHY.cardWords`, `WHY.previous`). Block 8's full form is every earlier scene of this story by its own summary
-  (level 0); chapter summaries with the last 5 scenes are its short form, and the fitting shortens it that far
-  (`shortTo`) before shortening anything above it.
+  (`WHY.cardWords`, `WHY.previous`). Block 8 was then every earlier scene of this story by its own summary; since
+  2026-10-08 it is the canon timeline (below, "The AI writer makes full use of the story memory"), and since 2026-10-15
+  it grows with the writer model's reading limit ("Long story memory: the quick wins"). The fitting still shortens it
+  two levels (`shortTo`) before shortening anything above it.
 - **A scene's summary follows its facts.** When a read finds the words a fact came from edited or deleted, the
   scene's summary is marked stale (`applyRead`) and written again after the run, however small the edit; otherwise
   it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it.
@@ -781,8 +782,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   sets where and when); on a later day, or when how long has passed isn't known (no When, "Three weeks later"), only
   injuries; nothing from another story. Mood and the last thing done are not facts to keep to. At most 12 lines, a
   long value cut short before its "(since …)"; the short form has 6, without who knows what, changed looks or the
-  lead. It repeats what the briefing says, so in the fitting it sits with block 11: it goes short, then out, first
-  when room is short, and comes back first (before the ties). AI edits and Continue get it too, right before the
+  lead. Since 2026-10-15 it opens with what the scene is most likely to break and is never left out ("Long story
+  memory: the quick wins"); before, it sat with block 11 and went out first when room was short. AI edits and Continue get it too, right before the
   closing ask (`edits/briefing.ts`; short when the people are left out to fit, and out on the last try): Continue
   with where things stand at the cursor; the other tools don't wait for the memory model, so only a checkpoint kept at
   exactly that point (`standKept`), else the codex's facts alone. Variants get it with the rest of Generate's briefing.
@@ -1019,11 +1020,11 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   when its name or alias was on the card, in the beats or direction, or at the end of the previous scene; "her
   brother", a carried item or a promise ten chapters back were missed, and earlier events came only as summaries.
   Step 5 adds three things to each briefing (`ContextInput.recall`, gathered in `ai/draftFlow.ts` `assemble`, so the
-  Context tab, Generate, Variants and Beat by beat all get it; it stops with the draft's Stop). They are only
-  candidates, and take no room from anything else: `finishContext` fits the briefing as if they weren't there (Auto's
-  length included), then puts each in, in the longest form that fits in the room left (step 7: the entries, then what
-  was said, then the passages). So a small model's briefing is exactly what it was without step 5, plus whatever of
-  step 5 fits (tested at 5,000 to 14,000 tokens). Adam can still set a block to Full in the Context tab.
+  Context tab, Generate, Variants and Beat by beat all get it; it stops with the draft's Stop). They are candidates:
+  `finishContext` fits the briefing without them (Auto's length included), then puts each in, in the longest form that
+  fits in the room left (step 7: the entries, then what was said, then the passages). Since 2026-10-15 a share of the
+  room is held for them while the rest is fitted (`RECALL_SHARE`, see "Long story memory: the quick wins"), and what
+  they don't use goes back. Adam can still set a block to Full in the Context tab.
   - **Sticky entries** (`sticky.ts`): whoever and whatever was on the cards of the last two scenes before this one on
     its story's line, or named in their words, stays in the briefing: block "Also in mind" (`recall-entries`, priority
     9), with entries found by searching; the Context tab says "In one of the last two scenes".
@@ -2318,6 +2319,69 @@ no cap on rounds, and every critic note is weighed. Contract `contracts/chapterW
   the chapter card, `ChapterWriterReport.tsx`) and Undo.
 - **Tests.** `chapterWriter/chapterWriter.test.ts` (the fake provider scripts the agent's calls, `tests/fake-provider/
   chapter.mjs`; the critic's fake finds a re-read ready).
+
+## Long story memory: the quick wins (2026-10-15)
+
+Adam: "AI Write forgets a lot between scenes and chapters." A research pass (outside the repo, read at 8dc0dc27) found
+the causes structural: a fixed ~1,850-word story so far whatever the model reads, one previous scene's end as the only
+prose, a 16,000-token guess when the provider doesn't say how much the model reads (DeepSeek's own API among them),
+summaries that keep their opening and lose their ending, late or missing summaries, and search finds given only what
+was left over. These five changes are its quick wins. A model whose reading limit is 16,000 tokens (or the guess) gets
+the same story so far and passages as before; what changes for it is the share for search, the summaries and the list.
+
+- **A real reading limit** (`shared/readingLimits.ts`). Where a custom provider's model list says nothing, a limit the
+  model's maker publishes stands in for the guess: DeepSeek's own API (api.deepseek.com), 1,000,000 tokens for
+  `deepseek-flash` and the `deepseek-v4…` names (its Models & Pricing page, read 2026-10-15), 64,000 for any other name
+  there (every model it has offered since V3 reads that much). Filled in when the list is read (`ai/models.ts`
+  `parseModelList` with the provider's address; vLLM's `max_model_len` is read too) and when settings load or change
+  (`settings.ts` `withPublishedLimits`), so a model chosen before works too; a limit the provider gave or Adam typed is
+  kept. Settings › Models says "DeepSeek says this model reads up to 1M tokens, so AI Write uses that", and clearing
+  the box goes back to it. When the app still guesses, the Context tab says so under the briefing size, with Set it
+  (`ContextPanel.tsx` `GuessNotice`).
+- **Memory that grows with the reading limit** (`ai/memoryRoom.ts`). `memoryScale`: 1 for 16,000 tokens or unknown, up
+  to `MOST_SCALE` (3.6) at 60,000 or more (15% of the limit for the story so far, against the 2,500 tokens it had).
+  The timeline's full and short caps grow by it, up to four chapters are told a scene at a time, and older chapter and
+  story lines say up to twice as much (`timeline.ts` `timelineShape`; Continue's and the smallest forms unchanged). It
+  depends on the reading limit only, so it reads the same at every step of a scene; with room (scale 2.25 or more)
+  every recent scene is told as fully as the last five, so a new scene adds a line and changes none before it (the
+  cache). A search offers up to 12 passages and the block shows up to 10 (`passagesFound`, `passagesShown`; short 5, 2,
+  1). Step 5's candidates get `RECALL_SHARE` (a tenth) of the room, no more than they take in full, held while the
+  rest is fitted (`finishContext` `held`, `reserve`, counted when Auto decides its length); room they don't use goes
+  back (`giveBack`, step 8).
+- **Summaries that lead with the ending, and are there when needed.** `SUMMARY_SYSTEM` asks every summary to begin "By
+  the end," with where people end up, injuries, who now knows what, who holds what, decisions and promises, then tell
+  what happened in order; chapter, story and series roll-ups begin with how things stand at their end, and a patched
+  summary keeps or gains that opening (`keeper/prompts.ts`). Before a draft, after the earlier scenes and the scene's
+  own words are read, the keeper writes the summaries the briefing can't do without and the draft waits for them
+  (`engine.ts` `summariesFirst`, `summaryNow`, waited on as `summary:<id>`): the scene just before when its summary is
+  due, and any of the last `DUE_SUMMARY_SCENES` with none at all; other due summaries are queued after as before. All
+  within the draft's usual wait (`CATCH_UP_LIMIT_MS`); "Write the whole chapter" waits up to three minutes
+  (`ipc/chapterWriter.ts` `DRAFT_CATCH_UP_MS`, `draftBriefing`'s `catchUpMs`). The writer's story so far carries a
+  scene of this story with `MIN_SUMMARY_WORDS` or more and no summary as `missing` (`memory/scene.ts` `withoutSummary`,
+  one word-count query, `repo.sceneWordCounts`), and its timeline line says "no summary yet, so what happens in it
+  isn't told here" (`NO_SUMMARY`), which the Context tab shows; checks, Ask and the rest see only the summaries there
+  are.
+- **The scenes before, word for word** (`ai/context.ts` `EARLIER_BLOCK`, "The scenes before, word for word", priority
+  8, sent between the timeline and the end of the previous scene). The writer's scene memory has `earlier`: up to
+  `EARLIER_SCENES` (2) scenes before the previous one, in its story, with their words (`memory/scene.ts`
+  `earlierScenes`), and `previous.label`. The block holds them (the last 3,000 words of each at most) and the previous
+  scene up to where block 3's end begins (`sceneHead`), oldest first; shorter forms leave out the oldest. It goes in
+  only in room to spare, after everything else and step 5's candidates have theirs (`finishContext` step 9), and only
+  beside block 3 in full, so nothing is missing between. The plan may take its room (`plan/plan.ts` `keepsRoom`). Its
+  level can change from one step of a scene to the next when room is tight, which costs some of the cache; with a
+  real reading limit there is room for it at every step.
+- **What must stay true, never left out, and sharper** (`ai/mustStay.ts`). It opens with what the scene is most
+  likely to break (`KEY_KINDS`: who is dead, what is kept from someone here, injuries, and how much time has passed
+  since the scene before, by both cards' When or a story's time gap: `ai/context.ts` `timeSince`), one of each kind
+  first, `MUST_KEY` (5) at most; the rest follow as before. Its short form keeps them, and a smallest form has
+  `MUST_SMALLEST` (3) of them, said briefly. The block is priority 2 (`MUST_PRIORITY`): never left out, shortened only
+  once every block from 3 to 11 is. On a 4,096-token model writing 600 words that leaves no room for the point of
+  view's core, which the list used to give way to; the models AI Write suggests read far more.
+
+Not done here (the research's later steps): a book-length test story, remembering what the checks found, rule-based
+checks, ledgers for who knows what, promises and time, spotting characters however they are named, and a continuity
+brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
+cover some of it.
 
 ## Milestone 1 scope
 
