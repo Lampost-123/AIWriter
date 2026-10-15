@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingJob, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
 import { isLocalUrl } from '@shared/urls'
+import { publishedReadingLimit } from '@shared/readingLimits'
 import { Badge, Button, Card, Field, Input, Notice, Select, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
@@ -988,7 +989,7 @@ export function ChosenModel({
         </div>
       </div>
       {provider.kind === 'custom' || choice.contextLength == null ? (
-        <ContextLengthField key={`${choice.providerId}/${choice.modelId}`} job={job} choice={choice} />
+        <ContextLengthField key={`${choice.providerId}/${choice.modelId}`} job={job} choice={choice} baseUrl={provider.baseUrl} />
       ) : null}
       {result ? (
         <div className="mt-3 pl-12">
@@ -999,16 +1000,20 @@ export function ChosenModel({
   )
 }
 
-function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoice }): React.JSX.Element {
+function ContextLengthField({ job, choice, baseUrl }: { job: ModelJob; choice: ModelChoice; baseUrl: string }): React.JSX.Element {
   const update = useApp((s) => s.updateSettings)
   const [text, setText] = useState(choice.contextLength != null ? String(choice.contextLength) : '')
   const [error, setError] = useState<string | null>(null)
+  // What the model's maker says it reads (DeepSeek's own API), when the provider's list doesn't: AI Write uses that.
+  const published = publishedReadingLimit(baseUrl, choice.modelId)
   const commit = (): void => {
     const digits = text.replace(/[^\d]/g, '')
     if (!digits) {
-      // Cleared: back to "not known", which AI Write treats as 16,000.
       setError(null)
-      if (choice.contextLength != null) void update(setModel(job, { ...choice, contextLength: null })).catch(() => undefined)
+      // Cleared: back to what the maker says, when it says; otherwise "not known", which AI Write treats as 16,000.
+      const back = published?.tokens ?? null
+      if (back != null) setText(String(back))
+      if (choice.contextLength !== back) void update(setModel(job, { ...choice, contextLength: back })).catch(() => undefined)
       return
     }
     const n = parseInt(digits, 10)
@@ -1028,7 +1033,9 @@ function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoic
         error={error}
         hint={
           choice.contextLength == null
-            ? "This provider doesn't say. Check the model's page; if you're not sure, leave it and AI Write will assume 16,000 tokens."
+            ? "This provider doesn't say, so AI Write assumes 16,000 tokens, and the AI is told less of your story than it could read. Check the model's page and type the number here."
+            : published && choice.contextLength === published.tokens
+              ? `${published.by} says this model reads up to ${formatContext(published.tokens)} tokens, so AI Write uses that. Type a smaller number if you'd like it to read less.`
             : job === 'writer'
               ? "AI Write fits each briefing to this. Change it if the model's page says it can read more or less."
               : job === 'memory'

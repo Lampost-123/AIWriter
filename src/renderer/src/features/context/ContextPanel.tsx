@@ -230,6 +230,7 @@ function Briefing({
 
       <div className="flex flex-col gap-2">
         <BudgetBar preview={preview} busy={showRefreshing} />
+        <GuessNotice preview={preview} />
         {error ? (
           <p className="text-[12px] leading-relaxed text-muted">
             Couldn't bring this up to date. {error}{' '}
@@ -390,7 +391,8 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
                 </button>
               </>
             ) : !known ? (
-              `How much ${writer.label || 'the writer model'} can read isn't known, so this assumes ${formatContext(contextLength)} tokens.`
+              `Guessing ${writer.label || 'the writer model'} reads ${formatContext(contextLength)} tokens; ` +
+              `${formatNumber(reserved)} of them are kept for its reply.`
             ) : (
               `${writer.label || 'The writer model'} reads ${formatContext(contextLength)} tokens; ` +
               `${formatNumber(reserved)} of them are kept for its reply.`
@@ -399,6 +401,29 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
         )}
       </p>
     </div>
+  )
+}
+
+/**
+ * When the writer model's reading limit isn't known, AI Write guesses 16,000 tokens, which squeezes the story's memory
+ * in every briefing (the long story memory research, 2026-10-15): said plainly, with the way to put it right.
+ */
+function GuessNotice({ preview }: { preview: ContextPreview }): React.JSX.Element | null {
+  const writer = useApp((s) => s.settings?.models.writer ?? null)
+  const navigate = useApp((s) => s.navigate)
+  if (!writer || writer.contextLength) return null
+  return (
+    <Notice
+      action={
+        <Button size="sm" onClick={() => navigate({ kind: 'settings', tab: 'models' })}>
+          Set it
+        </Button>
+      }
+    >
+      AI Write doesn&rsquo;t know how much {writer.label || 'the writer model'} can read, so it guesses{' '}
+      {formatContext(preview.budget.contextLength)} tokens and tells the AI less of your story than it could. Type the real number
+      from the model&rsquo;s page in Settings › Models.
+    </Notice>
   )
 }
 

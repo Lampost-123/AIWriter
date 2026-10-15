@@ -46,6 +46,26 @@ describe('parseModelList', () => {
     ])
   })
 
+  it("gives DeepSeek's own models the reading limit DeepSeek publishes when its list leaves it out", () => {
+    const list = parseModelList(
+      { object: 'list', data: [{ id: 'deepseek-flash', object: 'model' }, { id: 'deepseek-chat' }, { id: 'deepseek-v4-pro', context_window: 512000 }] },
+      'custom',
+      'https://api.deepseek.com/v1'
+    )
+    expect(list.map((m) => [m.id, m.contextLength])).toEqual([
+      ['deepseek-chat', 64000],
+      ['deepseek-flash', 1000000],
+      // What the provider says comes first.
+      ['deepseek-v4-pro', 512000]
+    ])
+    // Elsewhere, the same names say nothing.
+    expect(parseModelList({ data: [{ id: 'deepseek-flash' }] }, 'custom', 'http://localhost:1234/v1')[0].contextLength).toBeNull()
+  })
+
+  it("reads vLLM's max_model_len", () => {
+    expect(parseModelList({ data: [{ id: 'served', max_model_len: 131072 }] }, 'custom')[0].contextLength).toBe(131072)
+  })
+
   it('copes with odd shapes', () => {
     expect(parseModelList(null, 'custom')).toEqual([])
     expect(parseModelList({ nothing: true }, 'custom')).toEqual([])
