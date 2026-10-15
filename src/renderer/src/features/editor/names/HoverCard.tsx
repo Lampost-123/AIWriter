@@ -29,7 +29,8 @@ export function HoverCard({
   onLeave,
   hint,
   id,
-  instant
+  instant,
+  calledAs
 }: {
   entry: NamedEntry
   at: { left: number; top: number }
@@ -42,9 +43,12 @@ export function HoverCard({
   id?: string
   /** Shown at once, without fading in (opened from the keyboard). */
   instant?: boolean
+  /** The words, when the name is what this scene calls them ("her brother"), said under the name (fix 12). */
+  calledAs?: string
 }): React.JSX.Element {
   const lines = cardLines(entry.state, 3)
   const name = displayName(entry)
+  const called = calledAs?.replace(/\s+/g, ' ').trim()
   return createPortal(
     <div
       id={id}
@@ -66,7 +70,10 @@ export function HoverCard({
         <Portrait entry={entry} size={40} />
         <div className="min-w-0">
           <p className="truncate text-[14px] font-semibold leading-5 text-fg">{name}</p>
-          <p className="truncate text-[12px] leading-4 text-faint">{kindWord(entry.kind)}</p>
+          <p className="truncate text-[12px] leading-4 text-faint">
+            {kindWord(entry.kind)}
+            {called ? ` · “${called}” in this scene` : ''}
+          </p>
         </div>
       </div>
       <p className="mt-2 line-clamp-2 h-[38px] shrink-0 text-[12.5px] leading-[19px] text-muted">

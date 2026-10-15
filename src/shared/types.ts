@@ -1403,9 +1403,11 @@ export interface FactVersion {
  *   it out meanwhile);
  * - 'guess': a detail the AI filled in on an entry found in the story, with no words behind it;
  * - 'summary': a scene summary being brought up to date (the scene changed since it was written);
- * - 'note': a quiet note that one of Adam's own facts is no longer what the scene says.
+ * - 'note': a quiet note that one of Adam's own facts is no longer what the scene says;
+ * - 'alias': something the story calls a character that could be another name for them (long story memory fix 12):
+ *   Keep adds it to their other names, Remove ignores it.
  */
-export type MemoryCheckGroup = 'unconfirmed' | 'guess' | 'summary' | 'note'
+export type MemoryCheckGroup = 'unconfirmed' | 'guess' | 'summary' | 'note' | 'alias'
 
 /** The fact a check is about, as Keep and Remove need it. */
 export type MemoryCheckFact =
@@ -1413,6 +1415,7 @@ export type MemoryCheckFact =
   | { kind: 'change'; changeId: ID }
   | { kind: 'summary'; sceneId: ID }
   | { kind: 'note'; logId: ID }
+  | { kind: 'alias'; logId: ID }
 
 export interface MemoryCheckItem {
   /** Stable while the item stays in the list. */

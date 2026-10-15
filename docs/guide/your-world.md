@@ -138,6 +138,10 @@ Every entry has **Private notes (never sent to the AI)**, for ideas you're not r
 Names from your world are underlined in the page. Rest the pointer on one to see a short card about it.
 Ctrl+click a name to open its entry beside the page, without leaving the scene.
 
+What the memory has noticed a scene calls someone, such as "the Captain" or "her brother", is underlined too, and
+the card says so. A name you expect to see underlined that isn't may be misspelt, or not yet one of the character's
+**Aliases**.
+
 The **Cast** tab in the scene panel lists who's in the scene: the **Point of view** character, who's **Also in the
 scene**, and who's **Named in the text**.
 

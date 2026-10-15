@@ -5,11 +5,14 @@
 // - the memory's guesses: details the AI filled in on an entry it found in the story, with no words behind them (the
 //   world builder's drafts on Adam's own entries count as his, so they never appear);
 // - scene summaries being brought up to date (the scene changed enough since they were written);
-// - quiet notes that one of Adam's own facts is no longer what the scene says.
+// - quiet notes that one of Adam's own facts is no longer what the scene says;
+// - names the story calls a character by that could be other names for them (long story memory fix 12, settleNames in
+//   keeper/apply.ts: a nickname or a title, never "her brother").
 // Keep is Adam confirming: a fact becomes his and no longer rests on the words (as an Undo of a removal does in part
 // A), a guess becomes his, a summary counts as fitting the scene as it is now (it still follows later edits), a note is
-// dismissed. Remove takes the fact out. Both hand back what Undo needs. Runs inside the caller's transaction for
-// writes. No Electron imports.
+// dismissed, a name is added to the character's other names. Remove takes the fact out; for a name, it is ignored, and
+// no longer counts as the character even in its own scene (db/called.ts). Both hand back what Undo needs. Runs inside
+// the caller's transaction for writes. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { Change, Entry, ID, MemoryCheckFact, MemoryCheckItem, MemoryCheckUndo, Origin, SourceLink } from '@shared/types'
@@ -17,13 +20,14 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
+import { forgetCalled, keepCalled } from '../db/called'
 import { labeler } from '../memory/line'
 import { UserError } from '../util'
 import { changeInput, patchFor } from './apply'
 import { builderField, changeWords, fieldLabel, fieldValue, guessFields } from './facts'
 import { loadShapeSafe } from './places'
 import { DUE_SUMMARY_SCENES, memoryNames, sceneSourceHash, summaryDue } from './sceneChange'
-import { hashText } from './text'
+import { hashText, plain } from './text'
 
 type DB = Database.Database
 
@@ -56,6 +60,15 @@ export function noteFact(key: string): { kind: 'field'; entryId: ID; field: stri
 }
 
 const noteKey = (row: kdb.LogRow): string => String((row.undo as { key?: unknown } | null)?.key ?? '')
+
+/** The name a note offers (settleNames in keeper/apply.ts); '' for any other line. */
+const aliasOf = (row: kdb.LogRow): string => {
+  const a = (row.undo as { alias?: unknown } | null)?.alias
+  return noteKey(row).startsWith('alias:') && typeof a === 'string' ? a.trim() : ''
+}
+
+/** True when the entry already goes by this name. */
+const goesBy = (e: Entry, name: string): boolean => [e.name, ...e.aliases].some((n) => plain(n) === plain(name))
 
 /** Per world, whether each scene's summary was due, by what that was worked out from (see dueSummaries). */
 const dueSeen = new WeakMap<DB, Map<ID, { version: string; due: boolean }>>()
@@ -219,6 +232,28 @@ export function listMemoryChecks(db: DB): MemoryCheckItem[] {
       canRemove: true
     })
   }
+
+  // Names the story calls a character by, offered as other names (long story memory fix 12): while the character is
+  // there and doesn't go by it yet.
+  for (const row of kdb.openAliasNotes(db)) {
+    const alias = aliasOf(row)
+    const e = row.entryId ? entries.get(row.entryId) : undefined
+    if (!alias || !e || goesBy(e, alias)) continue
+    out.push({
+      key: `alias:${row.id}`,
+      group: 'alias',
+      fact: { kind: 'alias', logId: row.id },
+      entryId: e.id,
+      entryName: e.name,
+      entryKind: e.kind,
+      text: `Also called “${alias}”`,
+      sceneId: row.sceneId,
+      where: where(row.sceneId),
+      quote: row.quote,
+      paragraphId: null,
+      canRemove: true
+    })
+  }
   return out
 }
 
@@ -231,6 +266,8 @@ type Step =
   | { op: 'note'; logId: ID }
   | { op: 'change-removed'; changeId: ID }
   | { op: 'field-removed'; entryId: ID; field: string; value: string; origin: Origin | null; links: SourceLink[] }
+  | { op: 'alias-added'; entryId: ID; alias: string; origin: Origin | null }
+  | { op: 'called-forgotten'; sceneId: ID; entryId: ID; words: string }
 
 const fieldLinks = (db: DB, entryId: ID, field: string): SourceLink[] =>
   hist.linksForEntry(db, entryId).filter((l) => hist.isFieldLink(l, field))
@@ -268,7 +305,36 @@ function keepOne(db: DB, fact: MemoryCheckFact): Step[] {
       kdb.markUndone(db, row.id)
       return [{ op: 'note', logId: row.id }]
     }
+    case 'alias': {
+      // Added to the character's other names, as if Adam had typed it on their page.
+      const row = kdb.getLog(db, fact.logId)
+      const alias = row ? aliasOf(row) : ''
+      const e = row?.entryId ? liveEntry(db, row.entryId) : null
+      if (!row || row.undone || !alias || !e) return []
+      kdb.markUndone(db, row.id)
+      const steps: Step[] = [{ op: 'note', logId: row.id }]
+      if (!goesBy(e, alias)) {
+        const origin = e.fieldOrigins?.aliases ?? null
+        repo.updateEntry(db, e.id, { aliases: [...e.aliases, alias] }, ADAM)
+        steps.push({ op: 'alias-added', entryId: e.id, alias, origin })
+      }
+      return steps
+    }
   }
+}
+
+/** Ignore a name offered for a character: the note goes, and the scene's words no longer count as them by it. */
+function ignoreAlias(db: DB, logId: ID): Step[] {
+  const row = kdb.getLog(db, logId)
+  const alias = row ? aliasOf(row) : ''
+  if (!row || row.undone || !alias || !row.entryId) return []
+  kdb.markUndone(db, row.id)
+  const steps: Step[] = [{ op: 'note', logId: row.id }]
+  if (row.sceneId) {
+    forgetCalled(db, row.sceneId, row.entryId, alias)
+    steps.push({ op: 'called-forgotten', sceneId: row.sceneId, entryId: row.entryId, words: alias })
+  }
+  return steps
 }
 
 /** Keep: Adam confirms what the memory wasn't sure of (see the top of this file). */
@@ -301,6 +367,7 @@ function removeFact(db: DB, fact: { kind: 'field'; entryId: ID; field: string } 
 /** Remove: takes the fact out of the memory (for a note, Adam's own fact, and the note goes too). */
 export function removeMemoryCheck(db: DB, fact: MemoryCheckFact): MemoryCheckUndo {
   if (fact.kind === 'summary') throw new UserError("A scene's summary can't be removed here. Keep it, or edit it on the scene card.")
+  if (fact.kind === 'alias') return { steps: ignoreAlias(db, fact.logId) }
   if (fact.kind !== 'note') return { steps: removeFact(db, fact) }
   const row = kdb.getLog(db, fact.logId)
   const about = row ? noteFact(noteKey(row)) : null
@@ -345,6 +412,16 @@ function undoStep(db: DB, s: Step): void {
       for (const l of s.links) hist.putLinkBack(db, l)
       return
     }
+    case 'alias-added': {
+      const e = liveEntry(db, s.entryId)
+      if (!e || !goesBy(e, s.alias)) return
+      repo.updateEntry(db, e.id, { aliases: e.aliases.filter((a) => plain(a) !== plain(s.alias)) }, ADAM)
+      kdb.setFieldOrigins(db, e.id, { aliases: s.origin })
+      return
+    }
+    case 'called-forgotten':
+      keepCalled(db, s.sceneId, [{ entryId: s.entryId, words: s.words }])
+      return
   }
 }
 

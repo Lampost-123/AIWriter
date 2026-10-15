@@ -4,6 +4,7 @@ import * as mem from '../db/memory'
 import { emptySceneCard } from '@shared/defaults'
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { ABSENT, sceneNames, stateLines, voiceNotes } from './sceneNames'
+import { keepCalled } from '../db/called'
 
 describe("a scene's names, as of the scene", () => {
   const w = dbWorld()
@@ -50,6 +51,17 @@ describe("a scene's names, as of the scene", () => {
     expect(sceneNames(db, scene).cast.locationId).toBeNull()
     expect(sceneNames(db, scene).entries.some((e) => e.id === w.id('mill'))).toBe(false)
     repo.restoreDeleted(db, 'entry', w.id('mill'))
+  })
+
+  it('gives what the scene’s words call its characters, for live entries only (long story memory fix 12)', () => {
+    const scene = w.id('b1.c1.s2')
+    expect(sceneNames(db, scene).called).toEqual([])
+    keepCalled(db, scene, [
+      { entryId: w.id('tobin'), words: 'her brother' },
+      { entryId: 'gone', words: 'the Ghost' }
+    ])
+    expect(sceneNames(db, scene).called).toEqual([{ entryId: w.id('tobin'), words: 'her brother' }])
+    expect(sceneNames(db, w.id('b1.c2.s1')).called).toEqual([])
   })
 
   it('gives the relationships as of the scene', () => {

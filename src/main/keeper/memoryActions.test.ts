@@ -44,7 +44,8 @@ describe('the reading prompt', () => {
     ])
       expect(READING_SYSTEM).toContain(item)
     expect(READING_SYSTEM).toContain('Actions on the memory:')
-    expect(READING_SYSTEM.length).toBeLessThanOrEqual(6000)
+    // The most a 3,000-token model has room for (readingBudget: 3.5 characters a token, 1,750 tokens at most).
+    expect(READING_SYSTEM.length).toBeLessThanOrEqual(6125)
     expect(readingBudget({ contextLength: 3000, maxOutput: null })).not.toBeNull()
   })
 

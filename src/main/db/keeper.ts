@@ -470,6 +470,21 @@ export function openNoLongerNotes(db: DB, limit = 300): LogRow[] {
   ).map(toLog)
 }
 
+/**
+ * The quiet notes still offering something the story calls a character as another name for them (long story memory
+ * fix 12, keeper/apply.ts settleNames; for the memory check list), newest first.
+ */
+export function openAliasNotes(db: DB, limit = 300): LogRow[] {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM memory_log WHERE undone_at IS NULL AND json_extract(undo_json, '$.op') = 'note'
+         AND json_extract(undo_json, '$.key') LIKE 'alias:%' ORDER BY rowid DESC LIMIT ?`
+      )
+      .all(limit) as Row[]
+  ).map(toLog)
+}
+
 /** A live scene and its summary, as far as telling whether the summary is due needs, without the scene's words. */
 export interface SceneSummaryState {
   sceneId: ID

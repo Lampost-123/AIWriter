@@ -43,7 +43,8 @@ import {
   FACTS_LABEL,
   MENTIONED_TITLE,
   RELATIONSHIP_SECRETS,
-  SEND_ORDER
+  SEND_ORDER,
+  WHY
 } from './context'
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_LEAD } from './openThreads'
@@ -2395,5 +2396,107 @@ describe('the scenes before, word for word (2026-10-15)', () => {
     // A short previous scene is sent whole by block 3: only the scenes before it.
     const short = blockOf(input({ contextLength: 128_000 }, { previous: { sceneId: 'p', title: 'Brief', text: 'Mara waited.', ...inBook2 }, earlier }), EARLIER_BLOCK.id)!
     expect(short.text.match(/^### .*$/gm)).toEqual(['### Ch 3, Sc 1 (Day 11)', '### Ch 3, Sc 2'])
+  })
+})
+
+describe('characters however they are named (long story memory fix 12)', () => {
+  const happened = Array.from({ length: 5 }, (_, i) => ({ note: `happened ${i + 1}`, where: `Ch 1, Sc ${i + 1}`, changeId: `h${i}` }))
+  /** The scene as before, with Bryn Tally in the world: on no card, named in no beat, tied to no one. */
+  function withBryn(over: Partial<ContextInput> = {}, extra: Partial<EntryState> = {}) {
+    const inp = input(over)
+    const bryn = entry('character', 'Bryn Tally', {
+      aliases: ['Bryn'],
+      summary: 'A carter who owes nobody.',
+      fields: { hair: 'A grey braid', speech: 'Clipped, never more than five words.', fears: 'Deep water.' },
+      happened,
+      ...extra
+    })
+    inp.memory.entries = [...inp.memory.entries, bryn]
+    return { inp, bryn }
+  }
+  const why = (inp: ContextInput, id: string) => selectEntries(inp).chosen.get(id)?.why
+
+  it('someone named only in the scene so far comes in, in full, as those on the scene card do', () => {
+    const { inp, bryn } = withBryn({ soFar: "Bryn's cart rattled into the yard before anyone was up." })
+    expect(why(inp, bryn.id)).toBe(WHY.soFar)
+    const block = blockOf(inp, 'mentioned')!
+    expect(block.text).toContain('### Bryn Tally (character; named in the scene so far)')
+    // How they speak and what they fear, and all that has happened to them, as for those on the scene card.
+    expect(block.text).toContain('Clipped, never more than five words.')
+    expect(block.text).toContain('Deep water.')
+    expect(block.text).toContain('happened 1')
+    // Shorter forms: who they are and how they look, then a line.
+    expect(block.short).not.toContain('Clipped')
+    expect(block.short).toContain('A grey braid')
+    expect(block.smaller.at(-1)).toContain('- Bryn Tally (character; named in the scene so far): A carter who owes nobody.')
+    // Without the scene so far, not at all.
+    expect(why(withBryn().inp, bryn.id)).toBeUndefined()
+  })
+
+  it('a character named in the beats keeps the short card, and gets the full one once the scene so far names them', () => {
+    const beats = (soFar?: string) => {
+      const w = withBryn(soFar ? { soFar } : {})
+      w.inp.scene.card.beats = [...w.inp.scene.card.beats, 'Bryn arrives with the cart']
+      return w
+    }
+    const before = beats()
+    expect(why(before.inp, before.bryn.id)).toBe(WHY.beats)
+    expect(blockOf(before.inp, 'mentioned')!.text).not.toContain('Clipped')
+    const after = beats('Bryn tied up the horse.')
+    expect(why(after.inp, after.bryn.id)).toBe(WHY.beats)
+    expect(blockOf(after.inp, 'mentioned')!.text).toContain('Clipped')
+  })
+
+  it('by what this scene calls them, and the previous scene’s end by what that scene called them', () => {
+    const { inp, bryn } = withBryn({ soFar: 'The carter spat into the straw.' })
+    expect(why(inp, bryn.id)).toBeUndefined()
+    inp.called = { here: [{ entryId: bryn.id, words: 'the carter' }], previous: [] }
+    expect(why(inp, bryn.id)).toBe(WHY.soFar)
+    expect(blockOf(inp, 'mentioned')!.text).toContain('### Bryn Tally (character; named in the scene so far)')
+    // The previous scene called her "her sister": its end is read with its own words.
+    const prev = withBryn({}, {})
+    prev.inp.memory.previous = { ...prev.inp.memory.previous!, text: 'She left the docks at dusk, and her sister went with her.' }
+    expect(why(prev.inp, prev.bryn.id)).toBeUndefined()
+    prev.inp.called = { here: [{ entryId: prev.bryn.id, words: 'her sister' }], previous: [] }
+    expect(why(prev.inp, prev.bryn.id)).toBeUndefined()
+    prev.inp.called = { here: [], previous: [{ entryId: prev.bryn.id, words: 'her sister' }] }
+    expect(why(prev.inp, prev.bryn.id)).toBe(WHY.previous)
+    // Not named in this scene's own words: a line, not a card.
+    expect(blockOf(prev.inp, 'mentioned')!.text).toMatch(/^- Bryn Tally/m)
+  })
+
+  it('"will" is a word and "Will you…?" a question: neither brings Will in', () => {
+    const will = (soFar: string) => {
+      const inp = input({ soFar })
+      const w = entry('character', 'Will', { summary: 'The ferryman’s boy.' })
+      inp.memory.entries = [...inp.memory.entries, w]
+      return why(inp, w.id)
+    }
+    expect(will('She will not go back, and she said so.')).toBeUndefined()
+    expect(will('“Will you come?” Tobin asked.')).toBeUndefined()
+    expect(will('Will shook his head.')).toBe(WHY.soFar)
+    expect(will('“No,” said Will.')).toBe(WHY.soFar)
+  })
+
+  it('kept out when Adam kept them out; and the dead, thought of, are not brought in (the scene card says who is dead)', () => {
+    const { inp, bryn } = withBryn({ soFar: 'Bryn waited by the gate.' })
+    inp.pins = [pin(bryn.id, 'scene', 'hide')]
+    expect(why(inp, bryn.id)).toBeUndefined()
+    const dead = withBryn({ soFar: 'Mara thought of Bryn and wept.' }, { happened: [{ note: 'died this afternoon in the flood', where: 'Ch 2, Sc 1', changeId: 'd1' }] })
+    expect(why(dead.inp, dead.bryn.id)).toBeUndefined()
+    expect(blockOf(dead.inp, 'scene-card')!.text).toContain('Bryn Tally (died in the flood; Ch 2, Sc 1)')
+  })
+
+  it('the blocks before the entries named stay word for word the same (the cache), the ties to Bryn among them', () => {
+    const { inp, bryn } = withBryn()
+    const mara = named(inp, 'Mara Venn')
+    inp.memory.relationships = [...inp.memory.relationships, { aId: mara.id, bId: bryn.id, type: 'old debt', aFeels: 'wary', bFeels: '', where: '' }]
+    expect(selectEntries({ ...inp, soFar: 'Bryn waited by the gate.' }).ties.flatMap((p) => p.ties.map((t) => t.other.id))).toContain(bryn.id)
+    const later: ContextInput = { ...inp, soFar: 'Bryn waited by the gate.' }
+    expect(why(later, bryn.id)).toBe(WHY.soFar)
+    const steady = SEND_ORDER.slice(0, SEND_ORDER.indexOf('mentioned'))
+    const texts = (i: ContextInput) => buildBlocks(i).filter((b) => steady.includes(b.id)).map((b) => [b.id, b.text])
+    expect(texts(later).length).toBeGreaterThan(5)
+    expect(texts(later)).toEqual(texts(inp))
   })
 })

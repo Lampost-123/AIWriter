@@ -7,9 +7,9 @@ import { isMac } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cardPosition, HoverCard } from './HoverCard'
 import { HoverIntent, type HoverTarget } from './hoverIntent'
-import { EMPTY_INDEX, entriesNamedIn, updateNameIndex } from './nameMatch'
+import { EMPTY_INDEX, entriesNamedIn, updateNameIndex, withCalled } from './nameMatch'
 import { setNamedInScene, useSceneNames } from './sceneNames'
-import { NAMES_EXTENSION, NAME_CLASS, nameAt, nameIndex, setNameIndex, setNameOpener } from './underlines'
+import { CALLED_ATTR, NAMES_EXTENSION, NAME_CLASS, nameAt, nameIndex, setNameIndex, setNameOpener } from './underlines'
 
 /** How long after typing stops the Cast tab's "Named in the text" catches up. */
 const NAMED_DELAY = 400
@@ -33,10 +33,11 @@ export function NamesLayer({ editor, sceneId }: { editor: Editor; sceneId: ID | 
     }
   }, [worldId, editor])
 
-  // A name, alias or kind changed: underline again, without touching the document.
+  // A name, alias or kind changed, or what the scene's words call someone (long story memory fix 12): underline again,
+  // without touching the document.
   useEffect(() => {
     if (!data || editor.isDestroyed) return
-    if (setNameIndex(updateNameIndex(nameIndex(), data.entries))) {
+    if (setNameIndex(updateNameIndex(nameIndex(), withCalled(data)))) {
       editor.commands.updateDecorations(NAMES_EXTENSION)
       setIndexKey(nameIndex().key)
     }
@@ -139,6 +140,7 @@ export function NamesLayer({ editor, sceneId }: { editor: Editor; sceneId: ID | 
     <HoverCard
       entry={entry}
       at={at}
+      calledAs={target.anchor.getAttribute(CALLED_ATTR) ?? undefined}
       onEnter={() => intentRef.current?.enterCard()}
       onLeave={() => intentRef.current?.leaveCard()}
       onOpen={() => {

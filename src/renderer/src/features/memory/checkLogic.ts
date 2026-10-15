@@ -31,6 +31,12 @@ export const CHECK_GROUPS: CheckGroupInfo[] = [
     id: 'note',
     title: 'Your facts the story no longer says',
     help: 'You wrote these yourself, so they stay as you wrote them. The scene’s words no longer say the same.'
+  },
+  {
+    // Long story memory fix 12: what the story calls a character, offered as another name for them (keeper/names.ts).
+    id: 'alias',
+    title: 'Other names the story uses',
+    help: 'Your story calls these characters something new. Add a name and the AI knows who it means in every scene. Ignore it and it’s left alone.'
   }
 ]
 
@@ -86,8 +92,22 @@ export function dropChecks(items: MemoryCheckItem[], keys: string[]): MemoryChec
   return items.filter((i) => !gone.has(i.key))
 }
 
+/** The name a row offers ("the Captain" in “Also called “the Captain””); '' for any other row. */
+export function offeredName(item: MemoryCheckItem): string {
+  return item.group === 'alias' ? (/“(.+)”/.exec(item.text)?.[1] ?? '') : ''
+}
+
+/** Keep and Remove say what they do for a name the story uses: Add name, Ignore. */
+export const keepLabel = (item: Pick<MemoryCheckItem, 'group'>): string => (item.group === 'alias' ? 'Add name' : 'Keep')
+export const removeLabel = (item: Pick<MemoryCheckItem, 'group'>): string => (item.group === 'alias' ? 'Ignore' : 'Remove')
+
 /** What the toast says after Keep (one item) or Keep all. */
 export function keptToast(items: MemoryCheckItem[]): string {
+  if (items.length && items.every((i) => i.group === 'alias')) {
+    if (items.length > 1) return `Added ${items.length} names.`
+    const name = items[0].entryName.trim()
+    return name ? `Added “${offeredName(items[0])}” to ${name}’s names.` : 'Added.'
+  }
   if (items.length > 1) return `Kept ${items.length}. They're yours now.`
   switch (items[0]?.group) {
     case 'unconfirmed':
@@ -106,9 +126,10 @@ const quoted = (s: string, max = 60): string => {
   return `“${t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t}”`
 }
 
-/** What the toast says after Remove (it carries Undo). */
+/** What the toast says after Remove (it carries Undo); for a name the story uses, after Ignore. */
 export function removedToast(item: MemoryCheckItem): string {
   const name = item.entryName.trim()
+  if (item.group === 'alias') return name ? `Ignored “${offeredName(item)}” for ${name}.` : 'Ignored.'
   const what = checkWhat(item)
   return name ? `Removed ${quoted(what)} from ${name}.` : `Removed ${quoted(what)}.`
 }

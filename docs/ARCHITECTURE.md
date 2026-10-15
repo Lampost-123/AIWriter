@@ -182,6 +182,7 @@ again, with Undo).
   becomes text-born; withdrawn, it is cleared (never an entry's summary); only `guessFields` count, so Adam's fields and
   the world builder's drafts are never touched; each has Undo and a suppression. To make room, some examples were cut,
   so the prompt is 5,948 characters (about 1,700 tokens; 5,806 before round 2) and still fits a 3,000-token model.
+  (6,116 since long story memory fix 12 added the "name" item; 6,125 is the most a 3,000-token model has room for.)
 - *B8, re-read buttons.* "Re-read this scene" (the binder's scene menu, the palette) and "Re-read the whole story" (the
   story menu, the palette) open `features/memory/RereadDialog.tsx`, which first asks `estimateReread`
   (`ipc/keeper.ts` `rereadEstimate`: the reading requests as `importing/estimate.ts` `guessReread` reckons them, priced at
@@ -426,6 +427,9 @@ is built on migrations 1 and 2.
   `outlineRev` (that moves with every word count), and keeps the last 8 scenes.
 - `nameMatch.ts` copies `mentionAt` from `keeper/text.ts`: keep them in step. Underlines are
   decorations with class `aw-name` and `data-name-of` (never `data-entry`, which lists and tests use).
+  Since long story memory fix 12 it also underlines what the scene's words call a character (`SceneNames.called`,
+  marked `data-called` with the words, which the hover card says: "Character · “her brother” in this scene"), and
+  skips "Will" or "May" asking a question (`shared/names.ts` `askingAt`), as the writer's briefing does.
 - Code that selects words to show Adam where something is sets the `REVEALED` meta
   (`editor/reveal.ts`), as `controller.revealWords` does, so the "Selected words" bar ignores it.
 - The hover card (`role="tooltip"`, in a portal) closes on any key but a lone modifier and lets the key
@@ -2379,9 +2383,60 @@ the same story so far and passages as before; what changes for it is the share f
   view's core, which the list used to give way to; the models AI Write suggests read far more.
 
 Not done here (the research's later steps): a book-length test story, remembering what the checks found, rule-based
-checks, ledgers for who knows what, promises and time, spotting characters however they are named, and a continuity
+checks, ledgers for who knows what, promises and time, spotting characters however they are named (fix 12, below), and a continuity
 brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
 cover some of it.
+
+## Long story memory: spotting characters however they are named (fix 12, 2026-10-15)
+
+The research's fix 12: a character reached the writer in detail only when their exact name or alias was on the scene
+card, in the beats, notes or direction, or at the previous scene's end. Someone named only in the scene so far, or by a
+nickname, a title or "her brother", got one line or nothing (the scene so far was searched for items only).
+
+- **The scene so far is read for people** (`ai/context.ts` `selectEntries`). A living character it names, by name,
+  other name or what this scene's words call them, is brought in (`WHY.soFar`, "Named in the scene so far") and kept
+  in `Selection.inSoFar`: in "Also relevant" in full, as block 5 sends those on the card (`formatProfile` whole, how
+  they look now, everything that has happened to them), marked "named in the scene so far" (the words may have them
+  there or only thought of, so the mark says no more than that). The dead are left to the scene card's list of who is
+  dead by now (`deadBy`). Someone so named stays among block 11's ties: how they stand with those on the card is what
+  the writer needs of them, and block 11 comes before what a step brings in. The block's forms: that, then everyone as
+  before (who they are and how they look), then a line each; with no one in the scene so far the first two are the
+  same and only one is kept, so other briefings are unchanged. Only "Also relevant" changes from step to step, as it
+  already did; every block before it in `SEND_ORDER` stays word for word the same (the cache, tested).
+- **How a name is read** (`shared/names.ts`, shared by the briefing, the keeper and the page): a whole word or phrase,
+  so "Mara's" names Mara and "Marabel" doesn't; a single capitalised name only capitalised ("will" and "hope" are
+  words); a phrase or lower-case name whatever its case; and in prose `askingAt`: "Will" or "May" opening a sentence
+  with "you", "the", "not" and the like straight after is the word, not the name ("Will you come?"), while "Will drew
+  his knife" and "said Will" still name him. A name at the start of a sentence otherwise counts ("Hope smiled"): a
+  noun like "Hope was all she had" can't be told apart from the name there, and the beats, card and previous scene
+  keep the older `mentions` rule. Parts of a name ("Mara" for "Mara Venn") are not guessed at: the keeper offers them
+  (below), so Adam decides.
+- **What the words call someone** (`keeper/names.ts`, `db/called.ts`). The memory keeper's reading reply gains a
+  "name" item (`{"type": "name", "entry": "E1", "name": "the Captain", "quote": "..."}`; one rule line, no new call;
+  the prompt is now 6,116 characters). `apply.ts` `noteName` keeps it only for a character who exists here and words
+  that are in the scene (`cleanCalled`: no pronoun, no "the" alone, no single lower-case word, 60 characters and six
+  words at most); `settleNames` drops words the reply gives for two people, or that are already anyone's name or
+  alias. What is left is kept for the scene in meta (`called:<scene id>`, the newest `MOST_CALLED` (30); the same
+  words for someone else replace the old; emptied with the scene from the Trash, `db/trash.ts`). `ai/gather.ts` gives
+  the briefing this scene's (`ContextInput.called.here`: for its card, beats, notes, direction and the scene so far)
+  and the previous scene's (`called.previous`: for its end, block 3's tail), and `getSceneNames` gives the page the
+  scene's (`SceneNames.called`). The run reports the characters as changed, so the page underlines them at once.
+- **Offered as another name, never a relation** (the judgement call). A nickname or a title (`aliasWorthy`: a
+  capitalised word besides "the" and the like that isn't a family word: "the Captain", "Red", "Aunt Jo") also gets a
+  quiet note in What changed, "Also called “the Captain” here" (op `note`, key `alias:<entry>:<words>`, `alias`),
+  once per character and words, and a row in Worth a look under "Other names the story uses" (`checkQueue.ts`, group
+  `alias`, fact `{ kind: 'alias', logId }`; counted in the badge). **Add name** (Keep) adds it to the character's
+  aliases as Adam's own; **Ignore** (Remove; a plain toast, nothing is deleted) dismisses it and stops the words
+  counting as them in that scene too, as Dismiss in What changed does (`undo.ts`); both have Undo, and Add all is Keep
+  all. "her brother", "Mother" or "the old woman" depend on who is speaking or who "her" is, so nothing can promise they
+  mean the same person in another scene: they are kept for their own scene (its end included, as the next scene's
+  briefing reads it) and never offered as another name.
+- **The page** already underlined known names (milestone 3: a faint dotted `aw-name` underline, theme tokens, no room
+  taken, rebuilt only in the blocks a keystroke touches; Classic's screenshots have always shown it). It now underlines
+  what the scene calls someone too, and skips "Will you…?" (`nameMatch.ts`; the 300-word paragraph a keystroke
+  rescans still takes under 0.1 ms with 500 entries). The hover card says how the words name them ("Character · “her
+  brother” in this scene"). The sample world's scenes have no keeper reads, so Classic's screenshots are unchanged; no
+  View setting was needed.
 
 ## Milestone 1 scope
 

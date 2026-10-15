@@ -8,6 +8,8 @@
 // Since 2026-10-08 (World Memory Overhaul A2) it may revise an entry's or event's one-line summary ("summary" items), and
 // the facts whose words changed are told apart from the "nothing the memory already says" rule.
 // Since 2026-10-08 (World Memory Overhaul B1) it may end a fact that is no longer true ("end" items, keeper/apply.ts).
+// Since 2026-10-15 (long story memory fix 12) it reports what the words call a character that the memory doesn't list
+// ("name" items: a nickname, a title, "her brother" where it can only mean them; keeper/names.ts).
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -27,17 +29,18 @@ const keysLine = (kind: EntryKind, label: string): string => `${label}: ${fieldK
 
 /** The reading instructions. Stable, so providers that cache repeated prompts can reuse them. */
 export const READING_SYSTEM = `${READING_MARKER}
-You keep the memory of a novel's world up to date while the author writes. You are given what the memory holds at this point in the story, the facts already read from this scene, and the paragraphs of the scene that are new or changed. Reply with one JSON object and nothing else.
+You keep the memory of a novel's world up to date while the author writes. You are given what the memory holds at this point in the story, the facts already read from this scene, and the scene's new or changed paragraphs. Reply with one JSON object and nothing else.
 
 Rules
-- Read only the paragraphs labelled P1, P2 and so on. Lines labelled "Context" are there to help you understand them; take nothing from them.
+- Read only the paragraphs labelled P1, P2 ... Lines labelled "Context" only help you understand them; take nothing from them.
 - Report only what the words show happens, is said to be true, or becomes true. No guesses, no reading between the lines, and nothing the memory already says, in any words (facts whose words changed excepted).
 - Every fact needs "quote": words copied exactly, character for character, from one P paragraph: the shortest phrase or sentence that shows it.
 - Refer to entries by their ids (E1, E2 ...). If someone or something is listed under "Elsewhere in the world", use that id: never make a new entry with a name or alias already listed. A new entry can be referred to in later items by its "ref" (N1, N2 ...).
 - A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives or makes (a bead, a letter, a sword) is an item, however much it matters to them. Give a new entry only fields the words show.
 - Changes are what is now different: injuries, possessions, looks, where someone is, goals, someone's death. Write a "note" as a short phrase without the name, such as "lost her left hand". When a change ends what one of their fields says (a bandage off for good, a hat lost), give that field's new value in the change's "fields" too, without it.
-- Details are facts about an entry that don't change in the scene (a newcomer's eye colour, what a place smells like).
+- Details are facts about an entry that don't change in the scene (a newcomer's eye colour).
 - Said lines later scenes must keep to (a promise or vow, a threat, a secret told): a "said" item with who says it, who hears it, and the spoken line itself as the quote. A secret told is something the hearers now know: give it as "said" only, not also as "knows".
+- Names: a listed character called something the memory doesn't list (a nickname or title, "her brother" if here it can only mean them): a "name" item.
 - Plot threads: a promise, mystery, threat, goal, debt or secret the story must answer. "open" when the words set one up, with its "promise" (what the reader waits on); "clue" for a new hint; "developing" with a note when it moves on.
 - Actions on the memory: "end" a "So far" note or known fact no longer true (a lost thing found); "guess" to "confirm" or "withdraw" a detail marked (guess); "close" an open thread only when its payoff is on the page, never for a hint or plan; "summary" when the scene now tells an entry's summary otherwise.
 - Facts under "Facts whose words changed" need a verdict each: "keep" (the scene still says it; give the words that now show it), "update" (it now says something else; give the new value and words) or "remove" (the scene no longer says it).
@@ -62,6 +65,7 @@ New facts and actions, by "type":
 {"type": "thread", "entry": "E5, or leave it out and give a name", "name": "the question or promise", "status": "open|clue|developing", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
 {"type": "event", "name": "...", "summary": "what happened, in one line", "involved": ["E1", "E2"], "quote": "..."}
 {"type": "voice", "entry": "E1", "quote": "a line of dialogue typical of how they speak"}
+{"type": "name", "entry": "E1", "name": "the Captain", "quote": "..."}
 {"type": "end", "entry": "E1", "fact": "lost her knife, or K1", "when": "if the words say", "quote": "..."}
 {"type": "guess", "entry": "E1", "field": "eyes", "do": "confirm|withdraw", "quote": "..."}
 {"type": "close", "entry": "E5", "note": "the payoff", "quote": "..."}

@@ -1,9 +1,10 @@
 // "Worth a look" (World Memory Overhaul B3): the memory check list at the top of What changed. Everything the memory
 // isn't sure about, under plain headings: facts whose words Adam edited since, the AI's guesses, summaries being
-// updated, and his own facts the story no longer says. Each row: Show me (the words in the scene), Keep (it's his),
-// Fix (open the page to edit it), Remove (with Undo); Keep all for a group. Nothing here has to be done: the memory
-// settles most of it by itself as Adam writes. The AI's guesses start folded and don't count in the badge.
-import { ChevronRight, CircleCheck, Eye, PenLine, X } from '@/components/ui/icons'
+// updated, his own facts the story no longer says, and other names the story calls his characters by. Each row: Show
+// me (the words in the scene), Keep (it's his; for a name, Add name), Fix (open the page to edit it), Remove (with
+// Undo; for a name, Ignore); Keep all for a group (Add all). Nothing here has to be done: the memory settles most of it
+// by itself as Adam writes. The AI's guesses start folded and don't count in the badge.
+import { ChevronRight, CircleCheck, Eye, PenLine, Plus, X } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { Entry, ID, MemoryCheckItem, MemoryCheckUndo } from '@shared/types'
 import { Badge, Button, toast } from '@/components/ui'
@@ -20,8 +21,11 @@ import {
   foldedGroup,
   groupChecks,
   guessesOpen,
+  keepLabel,
   keptToast,
+  offeredName,
   rememberGuessesOpen,
+  removeLabel,
   removedToast,
   showsWords,
   type CheckGroup
@@ -77,7 +81,9 @@ export function CheckQueue({
     onChange(dropChecks(items, [row.key]))
     try {
       const undo = await api.removeMemoryCheck(row.fact)
-      announceDelete({ message: removedToast(row), noun: ['fact', 'facts'], undo: () => undoWith(undo) })
+      // Ignoring a name deletes nothing: a plain toast with Undo.
+      if (row.group === 'alias') toast(removedToast(row), { action: { label: 'Undo', run: () => void undoWith(undo) } })
+      else announceDelete({ message: removedToast(row), noun: ['fact', 'facts'], undo: () => undoWith(undo) })
     } catch (e) {
       onReload()
       toast(`That couldn't be removed. ${plainReason(e)}`, { tone: 'danger' })
@@ -193,8 +199,14 @@ function Group({
         )}
         <div className="flex-1" />
         {open && group.items.length > 1 ? (
-          <Button variant="ghost" size="sm" className="-mr-1.5 px-2" onClick={() => onKeep(group.items)} title="Keep every one of these as it is">
-            Keep all
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-mr-1.5 px-2"
+            onClick={() => onKeep(group.items)}
+            title={group.id === 'alias' ? 'Add every one of these names' : 'Keep every one of these as it is'}
+          >
+            {group.id === 'alias' ? 'Add all' : 'Keep all'}
           </Button>
         ) : null}
       </div>
@@ -271,18 +283,20 @@ function Row({
           variant="ghost"
           size="sm"
           className="px-2"
-          icon={<CircleCheck size={13} />}
+          icon={row.group === 'alias' ? <Plus size={13} /> : <CircleCheck size={13} />}
           onClick={() => onKeep([row])}
-          aria-label={`Keep: ${label}`}
+          aria-label={`${keepLabel(row)}: ${label}`}
           title={
             row.group === 'summary'
               ? 'This summary still fits the scene'
               : row.group === 'note'
                 ? 'Keep it as you wrote it'
-                : 'Keep it as it is. It becomes yours and stops depending on the words.'
+                : row.group === 'alias'
+                  ? `The AI will know ${name || 'them'} by “${offeredName(row)}” in every scene`
+                  : 'Keep it as it is. It becomes yours and stops depending on the words.'
           }
         >
-          Keep
+          {keepLabel(row)}
         </Button>
         {canOpen ? (
           <Button
@@ -304,10 +318,10 @@ function Row({
             className="px-2"
             icon={<X size={13} />}
             onClick={() => onRemove(row)}
-            aria-label={`Remove: ${label}`}
-            title="Take this out of the memory (you can undo it)"
+            aria-label={`${removeLabel(row)}: ${label}`}
+            title={row.group === 'alias' ? 'Don’t use this name for them (you can undo it)' : 'Take this out of the memory (you can undo it)'}
           >
-            Remove
+            {removeLabel(row)}
           </Button>
         ) : null}
       </div>

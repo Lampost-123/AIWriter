@@ -20,6 +20,12 @@ what it changed in the scene too.
 The memory adds what your story says, such as a character's new scar, a place they've been, or something they've
 just found out. It never overwrites what you typed into an entry yourself.
 
+It also notices when your story calls someone something new, such as a nickname, a title ("the Captain") or "her
+brother". In that scene the AI knows who you mean straight away. A nickname or a title is also offered as another
+name in **What changed**, under **Worth a look**, in **Other names the story uses**: click **Add name** and the AI
+knows them by it in every scene, or **Ignore**. Words like "her brother" or "Mother" depend on who is speaking, so
+they only ever count in the scene they're in.
+
 ## See and undo what the memory changed
 
 **What changed** lists everything the memory has done, newest first, grouped by the scene it read. Each line says
@@ -54,7 +60,8 @@ given these facts before it writes, so a character who took her boots off by the
 ## See and steer what the AI is given
 
 The **Context** tab shows the exact briefing the next draft of this scene would get: which entries, which earlier
-passages, the summary of the story so far.
+passages, the summary of the story so far. Anyone named in the words already in the scene is given in full, as the
+characters on the scene card are, whether by their name, another name, or what the scene calls them.
 
 - **Leave out of this scene** drops something the AI doesn't need.
 - **Pin for this scene**, **Pin for this story** or **Pin for every scene** makes sure something is always included.

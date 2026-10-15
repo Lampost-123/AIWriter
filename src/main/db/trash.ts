@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import { settlePlacements } from './memory'
 import { purgeActs } from './acts'
 import { CHAPTER_CARD_PREFIX } from '@shared/chapterCard'
+import { dropCalledOfGoneScenes } from './called'
 
 // The Trash: deleting a story, chapter, scene or entry only sets deleted_at, so it can be
 // restored for 30 days. After that, purgeTrash() removes it for good (run when a world opens).
@@ -55,6 +56,8 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     // Recently deleted they stay, so a restored scene has its beats; this also clears any left by a scene that
     // went for good another way (the outline helper's Undo, an imported story taking the empty first one's place).
     db.prepare("DELETE FROM meta WHERE substr(key, 1, 11) = 'beat_marks:' AND substr(key, 12) NOT IN (SELECT id FROM scenes)").run()
+    // So does what a scene's words call its characters (db/called.ts, long story memory fix 12).
+    dropCalledOfGoneScenes(db)
     const delChapter = db.prepare('DELETE FROM chapters WHERE id = ?')
     for (const id of chapterSet) delChapter.run(id)
     // Chapter cards (`chapter_card:<chapter id>` in meta, repo.ts) go with their chapter. While it is only in Recently

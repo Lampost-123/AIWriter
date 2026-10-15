@@ -1,6 +1,7 @@
 // Inside the manuscript: name underlines, hover cards, the entry side panel, the Cast tab and Add to memory (milestone 3). Owned by the Manuscript part.
 // See docs/ARCHITECTURE.md, "Milestone 3".
 import type { EntryKind, ID, RelationshipState } from '../types'
+import type { CalledName } from '../names'
 
 export interface ManuscriptApi {
   /**
@@ -67,4 +68,9 @@ export interface SceneNames {
   cast: { povId: ID | null; presentIds: ID[]; locationId: ID | null }
   /** Every relationship as of the scene, for the entry beside the page. */
   relationships: RelationshipState[]
+  /**
+   * What the scene's words call its characters ("the Captain", "her brother"), as the memory keeper read them (long
+   * story memory fix 12): underlined as the character. Live entries only; missing or empty when there are none.
+   */
+  called?: CalledName[]
 }

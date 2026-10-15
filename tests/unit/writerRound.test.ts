@@ -121,12 +121,13 @@ describe('blocks go in an order a provider can reuse from one step to the next',
     }
     const three = 'Ash shows Wren the brass compass, the survey case and the Linn ferry'
     const cards = (inp: ContextInput): string[] => [...block(inp, 'mentioned')!.text.matchAll(/^### ([^(]+) \(/gm)].map((m) => m[1].trim())
-    expect(cards(named(three))).toEqual(['The Linn ferry', 'The brass compass', 'The survey case'])
-    const [ferry, compass, survey] = prepareContext(named(three)).blocks.find((b) => b.id === 'mentioned')!.entryIds
-    // Last time the survey case and the compass were sent, in that order: they stay first, the ferry goes after.
+    // Oskar Venn too: the scene so far names him (long story memory fix 12); Edric Rone, dead, is on the scene card.
+    expect(cards(named(three))).toEqual(['Oskar Venn', 'The Linn ferry', 'The brass compass', 'The survey case'])
+    const [oskar, ferry, compass, survey] = prepareContext(named(three)).blocks.find((b) => b.id === 'mentioned')!.entryIds
+    // Last time the survey case and the compass were sent, in that order: they stay first, the rest go after.
     const kept = named(three, { mentioned: [survey, compass] })
-    expect(cards(kept)).toEqual(['The survey case', 'The brass compass', 'The Linn ferry'])
-    expect(sentOrderOf(prepareContext(kept).blocks).mentioned).toEqual([survey, compass, ferry])
+    expect(cards(kept)).toEqual(['The survey case', 'The brass compass', 'Oskar Venn', 'The Linn ferry'])
+    expect(sentOrderOf(prepareContext(kept).blocks).mentioned).toEqual([survey, compass, oskar, ferry])
     // The same cards, word for word: only their order changes.
     const sorted = (t: string): string => t.split(/\n\n(?=### )/).sort().join('|')
     expect(sorted(block(kept, 'mentioned')!.text)).toBe(sorted(block(named(three), 'mentioned')!.text))

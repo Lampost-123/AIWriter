@@ -147,6 +147,44 @@ test('a thing the memory finds is kept as an item, and only what the story says 
   }
 })
 
+test('a new name the story calls someone is underlined in its scene and offered as another name (long story memory fix 12)', async ({
+  launch
+}) => {
+  const fake = await fakeProvider()
+  try {
+    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '700' } })
+    await createWorldFromWelcome(win, 'Alpha')
+    await useModel(win, fake)
+    await prose(win).click()
+    await win.keyboard.type('Mara lost her hat. Mara, known as the Captain, waved from the deck. The Captain laughed.')
+
+    // Read by the memory: in this scene the words "the Captain" are Mara, underlined as her, and the card says so.
+    const called = prose(win).locator('.aw-name[data-called]')
+    await expect(called.first()).toHaveText('the Captain', { timeout: 30_000 })
+    await expect(called).toHaveCount(2)
+    await called.nth(1).hover()
+    const card = win.getByRole('tooltip', { name: 'Mara' })
+    await expect(card).toContainText('Character · “The Captain” in this scene')
+    await win.mouse.move(5, 5)
+
+    // Offered as another name in What changed, under Worth a look; Add name makes it one of hers, with Undo.
+    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    const list = win.locator('main')
+    const group = list.getByRole('group', { name: 'Other names the story uses' })
+    await expect(group).toContainText('Also called “the Captain”')
+    await group.getByRole('button', { name: 'Add name: Mara, Also called “the Captain”' }).click()
+    await expect(win.getByText('Added “the Captain” to Mara’s names.')).toBeVisible()
+    await expect(group).toHaveCount(0)
+    const aliases = async () => (await invoke(win, 'listEntries')).find((e) => e.name === 'Mara')?.aliases ?? []
+    await expect.poll(aliases).toEqual(['the Captain'])
+    await win.getByRole('button', { name: 'Undo', exact: true }).last().click()
+    await expect.poll(aliases).toEqual([])
+    await expect(list.getByRole('group', { name: 'Other names the story uses' })).toBeVisible()
+  } finally {
+    await fake.close()
+  }
+})
+
 test('without a model the memory waits, and says how to choose one', async ({ launch }) => {
   const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '500' } })
   await createWorldFromWelcome(win, 'Alpha')

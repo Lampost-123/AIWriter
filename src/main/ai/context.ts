@@ -7,6 +7,9 @@
 // - everything on the scene card: point of view, characters present, location, its plot threads;
 // - anything whose name or alias appears in the beats, the notes or Adam's direction; an item also by its own main word
 //   ("the compass" for "The brass compass", memory/items.ts), there or in the scene so far;
+// - a living character the scene so far names, in full (long story memory fix 12), and a character found by what this
+//   scene's words call them ("the Captain", "her brother": ContextInput.called), and at the end of the previous scene by
+//   what that scene's words called them;
 // - the places around the location and the groups the people present belong to, one line each;
 // - relationships and knowledge among the people present, as of this scene;
 // - lore flagged as a hard rule, always;
@@ -27,7 +30,8 @@
 //  7 setting (location, places around it, groups), hard-rule lore, open plot threads on the card (one line each)
 //  8 story so far: recent scenes, this story's chapters, earlier stories, "Leads into" (fewer scenes, series roll-ups;
 //    smaller: only the most recent parts)
-//  9 other entries named in the beats, notes or direction, and pins (one line each)
+//  9 other entries named in the beats, notes or direction, and pins; a character in the scene so far in full, as in
+//    block 5 (one line each; with someone in the scene so far, first a step between: everyone as the rest are sent)
 //  9 the other plot threads open here, a line each, kept alive gently (ai/openThreads.ts; short: the first 3)
 // 10 themes, tone and premise (one line)
 // 11 ties to people not in this scene: for each character present, the people they're tied to who aren't
@@ -94,6 +98,7 @@ import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from '
 import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
+import { calledFor, namedInProse, type CalledName } from '@shared/names'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -143,9 +148,16 @@ export interface ContextInput {
   recall?: RecallInput | null
   /**
    * The words already in the scene that the draft carries on from (Add below, a later beat), as the briefing sends them:
-   * an item they name, or name by its main word, is brought in, and what must stay true puts it first. Left out: none.
+   * an item they name, or name by its main word, is brought in, and what must stay true puts it first; so is a character
+   * they name, in full (long story memory fix 12). Left out: none.
    */
   soFar?: string
+  /**
+   * What this scene's words and the previous scene's call their characters ("the Captain", "her brother"), as the memory
+   * keeper read them (db/called.ts): the character is found by them in this scene's texts and at the previous scene's
+   * end, as by a name. Left out: none.
+   */
+  called?: { here: CalledName[]; previous: CalledName[] }
   /**
    * The order "Also relevant" and "Also in mind" listed their entries in when this scene was last briefed, by block id
    * (sentOrderOf): those still there keep it and new ones go after them (keptOrder), so a provider can reuse more of the
@@ -747,6 +759,11 @@ export interface Selection {
   recalled: EntryState[]
   /** For each character present, the people they're tied to who aren't in the scene, closest and most recent first. */
   ties: { person: EntryState; ties: Tie[] }[]
+  /**
+   * The living characters the scene so far names, by name, other name or what this scene's words call them (long story
+   * memory fix 12): those not on the card are sent in full, as those on it are.
+   */
+  inSoFar: Set<ID>
   label: (id: ID) => string | null
 }
 
@@ -838,12 +855,40 @@ export function selectEntries(input: ContextInput): Selection {
     [haystack([card.goal, card.conflict, card.outcome, card.mood].join('\n')), WHY.cardWords],
     [haystack(sceneTail(clean(input.memory.previous?.text))), WHY.previous]
   ] as const
-  const itemTexts = [...texts, [haystack(clean(input.soFar)), WHY.soFar] as const]
+  const soFar = haystack(clean(input.soFar))
+  const itemTexts = [...texts, [soFar, WHY.soFar] as const]
   const heads = itemHeads([...known.values()])
+  // People, however they are named (long story memory fix 12, 2026-10-15: someone named only in the scene so far, or only
+  // as "the Captain" or "her brother", got one line or nothing): also by what this scene's words call them (input.called,
+  // read by the memory keeper) in its own texts, by what the previous scene's words called them at its end, and in the
+  // scene so far by name, other name or what it calls them, as prose names people (shared/names.ts: "Will you…?" isn't
+  // Will). Not the dead: the scene card says who is dead by now (deadBy), and a dead man thought of is no one in the scene.
+  const calledHere = input.called?.here ?? []
+  const calledBefore = input.called?.previous ?? []
+  const inSoFar = new Set<ID>()
+  if (soFar.plain) {
+    for (const e of m.entries) {
+      if (e.kind !== 'character' || deathOf(e)) continue
+      const names = [e.name, ...(e.aliases ?? []), ...calledFor(calledHere, e.id)].map((n) => n.trim()).filter((n) => n.length >= 2)
+      if (names.some((n) => soFar.plain.includes(squash(n)) && namedInProse(soFar.text, n))) inSoFar.add(e.id)
+    }
+  }
+  const [ownTexts, previousTail] = [texts.slice(0, 4), texts[4]]
+  const personHit = (e: EntryState): (typeof itemTexts)[number] | undefined => {
+    const here = calledFor(calledHere, e.id)
+    const before = calledFor(calledBefore, e.id)
+    return (
+      (here.length ? ownTexts.find(([h]) => namedIn(h, here)) : undefined) ??
+      (before.length && namedIn(previousTail[0], before) ? previousTail : undefined) ??
+      (inSoFar.has(e.id) ? itemTexts[itemTexts.length - 1] : undefined)
+    )
+  }
   for (const e of m.entries) {
     if (chosen.has(e.id)) continue
     const names = [e.name, ...(e.aliases ?? [])]
-    const hit = texts.find(([h]) => namedIn(h, names)) ?? (e.kind === 'item' ? itemTexts.find(([h]) => namedIn(h, namesOf(e, heads))) : undefined)
+    const hit =
+      texts.find(([h]) => namedIn(h, names)) ??
+      (e.kind === 'item' ? itemTexts.find(([h]) => namedIn(h, namesOf(e, heads))) : e.kind === 'character' ? personHit(e) : undefined)
     const got = hit ? take(e.id, hit[1], false) : null
     if (got) others.push(got)
   }
@@ -863,6 +908,8 @@ export function selectEntries(input: ContextInput): Selection {
   // Story memory step 5: entries from the last two scenes, then those found by searching (retrieval/briefing.ts).
   const recalled = recalledEntries(input.recall, (id, why) => take(id, why, false))
 
+  // Someone the scene so far names stays among the ties (fix 12): how they stand with those on the card is what the
+  // writer needs of them, and block 11 is sent before what a step brings in, so it mustn't change as the words grow.
   const tiesAway = absentTies(input, [pov, ...present].filter(some), here, (id) => take(id, WHY.tie, false) ?? chosen.get(id)?.entry ?? null)
 
   const hidden: Selection['hidden'] = []
@@ -871,7 +918,7 @@ export function selectEntries(input: ContextInput): Selection {
     if (p.action === 'hide' && e) hidden.push({ entry: e, why: WHY.hide[p.scope] })
   }
 
-  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, recalled, ties: tiesAway, label }
+  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, recalled, ties: tiesAway, inSoFar, label }
 }
 
 /** One tie between a character in the scene and someone who isn't there, as of this scene. */
@@ -1734,11 +1781,17 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     const t = e.kind === 'thread' ? input.memory.threads.find((x) => x.entryId === e.id) : undefined
     return t?.status === 'resolved' ? `already paid off${clean(t.paidOff) ? ` in ${clean(t.paidOff)}` : ''}` : ''
   }
-  const note = (e: Entry, why = ''): string => [kindWord(e), why, paidOff(e), label(e)].filter(Boolean).join('; ')
-  const entriesText = (list: EntryState[], why: (e: Entry) => string = () => ''): string =>
+  // Someone the scene so far names (long story memory fix 12) says so: in it, or thought of, as its words have them.
+  const inScene = (e: Entry): boolean => e.kind === 'character' && sel.inSoFar.has(e.id)
+  const note = (e: Entry, why = ''): string =>
+    [kindWord(e), why, inScene(e) ? 'named in the scene so far' : '', paidOff(e), label(e)].filter(Boolean).join('; ')
+  /** `whole`: someone the scene so far names is sent as those on the card are (fix 12); the short form is without that. */
+  const entriesText = (list: EntryState[], why: (e: Entry) => string = () => '', whole = false): string =>
     list
       .map((e) => {
         const head = `### ${e.name} (${note(e, why(e))})`
+        // In the scene: the whole profile, how they look now, and all that has happened to them.
+        if (whole && inScene(e)) return [formatProfile(fresh(e), head, undefined, false, true), happenedText(e)].filter(Boolean).join('\n\n')
         // Lore and places are short, and their fields are the facts: send them whole.
         // Characters who aren't in the scene: who they are and how they look, not their whole inner life.
         const profile = e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks'], false, true) : formatProfile(e, head)
@@ -1757,21 +1810,28 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   const linked = linkedPlaces(card.locationId, [...sel.known.values()])
   // An entry Adam pinned, or the plan asked for, stays whole, wherever it is named.
   const wanted = (e: Entry): boolean => !!sel.chosen.get(e.id)?.pinned || sel.chosen.get(e.id)?.why === WHY.plan
-  const named = (e: Entry): boolean => wanted(e) || [e.name, ...(e.aliases ?? [])].some((n) => clean(n) && mentions(sceneOwn, n))
+  // Named by what this scene's words call them too, and in the scene so far as prose names people (fix 12).
+  const named = (e: Entry): boolean =>
+    wanted(e) ||
+    sel.inSoFar.has(e.id) ||
+    [e.name, ...(e.aliases ?? []), ...calledFor(input.called?.here, e.id)].some((n) => clean(n) && mentions(sceneOwn, n))
   const split = (list: EntryState[]): { full: EntryState[]; offstage: EntryState[] } => offScene(list, { named, linked })
   const offstageText = (list: EntryState[], why: (e: Entry) => string = () => ''): string =>
     list.length ? `${OFFSTAGE_LEAD}\n${list.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n')}` : ''
   if (sel.others.length) {
     const { full: others, offstage } = split(keptOrder(sel.others, input.sentOrder?.[MENTIONED_ID]))
     const all = [...others, ...offstage]
+    // Forms: those in the scene so far in full (fix 12); then everyone named as before (who they are and how they look);
+    // then a line each. With no one in the scene so far, the first two are the same and only one is kept.
     if (all.length)
       add(
         MENTIONED_ID,
         9,
         MENTIONED_TITLE,
+        [entriesText(others, undefined, true), offstageText(offstage)].filter(Boolean).join('\n\n'),
         [entriesText(others), offstageText(offstage)].filter(Boolean).join('\n\n'),
-        all.map((e) => `- ${oneLine(e, note(e))}`).join('\n'),
-        all.map((e) => e.id)
+        all.map((e) => e.id),
+        [all.map((e) => `- ${oneLine(e, note(e))}`).join('\n')]
       )
   }
   if (sel.recalled.length) {

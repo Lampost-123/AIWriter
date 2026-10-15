@@ -20,6 +20,8 @@ export const NAMES_EXTENSION = 'aiwriteNames'
 export const NAME_CLASS = 'aw-name'
 /** The attribute that holds an underlined name's entry id (not `data-entry`, which entry lists use for their rows). */
 export const NAME_ATTR = 'data-name-of'
+/** On a name found by what this scene's words call the character (long story memory fix 12): the words. */
+export const CALLED_ATTR = 'data-called'
 
 let index: NameIndex = EMPTY_INDEX
 let onOpen: ((entryId: ID) => void) | null = null
@@ -62,8 +64,10 @@ function underline(state: EditorState, view: EditorView | null, from: number, to
       const a = pos + 1 + m.start
       const b = pos + 1 + m.end
       if (composingAt >= a && composingAt <= b) continue
-      // data-kind: the desk underlines a name in its kind's ink (layout/desk/desk.css); elsewhere it is unused.
-      out.push(Decoration.Inline(a, b, { class: NAME_CLASS, [NAME_ATTR]: m.entryId, 'data-kind': m.kind }))
+      // data-kind: the desk underlines a name in its kind's ink (layout/desk/desk.css); elsewhere it is unused. Words
+      // that are what this scene calls the character (fix 12) carry themselves, for the hover card.
+      const called = m.called ? { [CALLED_ATTR]: text.slice(m.start, m.end) } : {}
+      out.push(Decoration.Inline(a, b, { class: NAME_CLASS, [NAME_ATTR]: m.entryId, 'data-kind': m.kind, ...called }))
     }
     return false
   })

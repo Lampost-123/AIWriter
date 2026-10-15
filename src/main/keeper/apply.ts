@@ -54,7 +54,10 @@ import {
   sameOneWords,
   type SceneFact
 } from './facts'
-import { findQuote, likeness, locateQuote, plain, sameFact, sceneParagraphs, type Para } from './text'
+import { findQuote, likeness, locateQuote, mentionAt, plain, sameFact, sceneParagraphs, type Para } from './text'
+import { aliasWorthy, cleanCalled } from './names'
+import { keepCalled } from '../db/called'
+import type { CalledName } from '@shared/names'
 
 type DB = Database.Database
 
@@ -157,7 +160,12 @@ export type Undo = (
    * A quiet note that changes nothing (World Memory Overhaul, 2026-10-08): "the scene no longer says this" under one of
    * Adam's own facts, or the tidy-up's summary line. Undoing it only dismisses it.
    */
-  | { op: 'note'; key: string }
+  | {
+      op: 'note'
+      key: string
+      /** What the words call someone, offered in Worth a look as another name for them (long story memory fix 12). */
+      alias?: string
+    }
   /** Where a fact stops being true was set or cleared (World Memory Overhaul B1): Undo puts back what it was before. */
   | { op: 'until-set'; changeId: ID; before: ChangeUntil | null }
 ) & { fingerprint?: string; words?: string }
@@ -252,6 +260,10 @@ class Run {
   readonly settled = new Set<string>()
   /** Entries with a fact this run kept for Adam (see keptForAdam): never moved to the Trash by it. */
   readonly keptForAdam = new Set<ID>()
+  /** What the words call someone, as the reply gives it ("name" items), settled once the whole reply is in (settleNames). */
+  readonly called: (CalledName & { s: Spot })[] = []
+  /** Characters this read found the words call something new: told as changed, so the page underlines it. */
+  readonly calledKept = new Set<ID>()
   /**
    * Summaries to remove once the Trash has been seen to (null after): an entry moved there keeps its summary, so its
    * Undo brings it back whole, and no "Summary" line comes before "Moved to Trash".
@@ -514,6 +526,11 @@ class Run {
   }
   wasOffered(entryId: ID, field: string, value: string): boolean {
     return this.offered.has(`${entryId}|${field}|${plain(value)}`)
+  }
+
+  /** True when the entry exists at this scene (or this read made it). */
+  isHere(id: ID): boolean {
+    return !this.here || this.here.has(id) || this.madeHere.has(id)
   }
 
   /** The entry as it is at this scene (with the changes that count here), or null. */
@@ -1667,6 +1684,57 @@ function settleEnds(run: Run): void {
   }
 }
 
+/**
+ * What the words call a character that the memory doesn't list (long story memory fix 12, keeper/names.ts): noted, and
+ * settled once the whole reply is in (settleNames), so the same words given for two people count for neither. Only a
+ * character who exists here, and only words that are in the scene where the model says.
+ */
+function noteName(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>, s: Spot): void {
+  const words = cleanCalled(a.name ?? a.called)
+  const e = run.resolve(a.entry, chunk.ids, refs)
+  if (!words || !e || e.kind !== 'character' || !run.isHere(e.id)) return
+  if (!mentionAt(run.paraText(s), words) && !mentionAt(s.quote, words)) return
+  run.called.push({ entryId: e.id, words, s })
+}
+
+/**
+ * Keeps what the words call each character for this scene (db/called.ts), so the writer's briefing and the page find
+ * them by it here; and offers one that would name them anywhere in the story (a nickname or a title, aliasWorthy) as
+ * another name, with a quiet note Adam can act on in Worth a look (checkQueue.ts), once per character and words. Words
+ * that are already a name of theirs or of anyone else's, or that the reply gives for two people, are left alone.
+ */
+function settleNames(run: Run): void {
+  if (!run.called.length) return
+  const byWords = new Map<string, Run['called']>()
+  for (const c of run.called) byWords.set(plain(c.words), [...(byWords.get(plain(c.words)) ?? []), c])
+  const named = (e: Entry, k: string): boolean => [e.name, ...e.aliases].some((n) => plain(n) === k)
+  const everyone = repo.listEntries(run.db)
+  const keep: CalledName[] = []
+  for (const [k, list] of byWords) {
+    if (new Set(list.map((c) => c.entryId)).size > 1) continue
+    const c = list[0]
+    const e = run.entry(c.entryId)
+    if (!e || everyone.some((x) => named(x, k))) continue
+    keep.push({ entryId: e.id, words: c.words })
+    run.calledKept.add(e.id)
+    if (!aliasWorthy(c.words)) continue
+    const key = `alias:${e.id}:${k}`
+    if (kdb.lineGiven(run.db, key) || run.lines.some((l) => (l.undo as { key?: string } | null)?.key === key)) continue
+    run.log({
+      action: 'updated',
+      what: 'entry',
+      entryId: e.id,
+      entryName: e.name,
+      text: `Also called “${c.words}” here`,
+      before: '',
+      after: '',
+      quote: c.s.quote,
+      undo: { op: 'note', key, alias: c.words }
+    })
+  }
+  keepCalled(run.db, run.scene.sceneId, keep)
+}
+
 function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
   const type = str(a.type, 20).toLowerCase()
   if (type === 'entry') return addEntry(run, a, chunk, refs)
@@ -1735,6 +1803,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     return
   }
   if (type === 'thread') return applyThread(run, a, chunk, refs, s)
+  if (type === 'name') return noteName(run, a, chunk, refs, s)
   // Close an open thread (B7): a resolve, under the same rules (the payoff on the page, not while the plan puts it later).
   if (type === 'close') return applyThread(run, { ...a, status: 'resolved' }, chunk, refs, s)
   const entry = run.resolve(a.entry, chunk.ids, refs)
@@ -2138,6 +2207,7 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
     for (const c of chunk.reply.clashes) applyClash(run, c, chunk, refs)
   }
   settleUnconfirmed(run, replies)
+  settleNames(run)
   settleEnds(run)
   trashForgotten(run)
   const later = run.laterSummaries ?? []
@@ -2155,5 +2225,6 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
     )
   }
   for (const l of run.lines) if (l.entryId) run.touched.add(l.entryId)
+  for (const id of run.calledKept) run.touched.add(id)
   return { lines: run.lines.length, entryIds: [...run.touched], newEntryIds: [...run.madeHere] }
 }

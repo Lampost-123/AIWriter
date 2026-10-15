@@ -8,8 +8,11 @@ import {
   foldedGroup,
   groupChecks,
   guessesOpen,
+  keepLabel,
   keptToast,
+  offeredName,
   rememberGuessesOpen,
+  removeLabel,
   removedToast,
   showsWords
 } from './checkLogic'
@@ -23,6 +26,8 @@ const item = (group: MemoryCheckItem['group'], extra: Partial<MemoryCheckItem> =
       ? { kind: 'summary', sceneId: 's1' }
       : group === 'note'
         ? { kind: 'note', logId: `l${n}` }
+        : group === 'alias'
+          ? { kind: 'alias', logId: `l${n}` }
         : group === 'guess'
           ? { kind: 'field', entryId: 'e1', field: 'hair' }
           : { kind: 'change', changeId: `c${n}` },
@@ -54,7 +59,7 @@ describe('the memory check list, grouped', () => {
       expect(g.title).not.toMatch(/entity|generation|LLM|origin|link/i)
       expect(g.help.length).toBeGreaterThan(20)
     }
-    expect(CHECK_GROUPS.map((g) => g.id)).toEqual(['unconfirmed', 'guess', 'summary', 'note'])
+    expect(CHECK_GROUPS.map((g) => g.id)).toEqual(['unconfirmed', 'guess', 'summary', 'note', 'alias'])
   })
 
   it('counts what is waiting for a look', () => {
@@ -110,5 +115,18 @@ describe('the memory check list, grouped', () => {
     expect(keptToast([item('guess'), item('guess'), item('guess')])).toBe("Kept 3. They're yours now.")
     expect(removedToast(item('guess', { text: 'Hair: black' }))).toBe('Removed “Hair: black” from Mara.')
     expect(removedToast(item('unconfirmed', { entryName: '' }))).toBe('Removed “Lost her knife in the river”.')
+  })
+
+  it('a name the story uses (long story memory fix 12): Add name and Ignore, counted, and said plainly', () => {
+    const name = item('alias', { entryName: 'Mara Venn', text: 'Also called “the Captain”' })
+    expect(offeredName(name)).toBe('the Captain')
+    expect(offeredName(item('note'))).toBe('')
+    expect([keepLabel(name), removeLabel(name)]).toEqual(['Add name', 'Ignore'])
+    expect([keepLabel(item('note')), removeLabel(item('note'))]).toEqual(['Keep', 'Remove'])
+    expect(keptToast([name])).toBe('Added “the Captain” to Mara Venn’s names.')
+    expect(keptToast([name, item('alias')])).toBe('Added 2 names.')
+    expect(removedToast(name)).toBe('Ignored “the Captain” for Mara Venn.')
+    expect(countedChecks([name, item('guess')])).toBe(1)
+    expect(foldedGroup('alias')).toBe(false)
   })
 })

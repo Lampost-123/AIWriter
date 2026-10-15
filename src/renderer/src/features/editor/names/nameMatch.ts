@@ -8,11 +8,15 @@
 // On top of that, for the page: plot threads aren't underlined, nor names the app gives new entries
 // before Adam names them, and a lower-case alias only when it has two words or more (so "boss" or
 // "smith" never light up across the page). Where names overlap, the longest wins.
+// Since long story memory fix 12 (2026-10-15), as the writer's briefing reads names (shared/names.ts): a character is
+// also found by what this scene's words call them ("the Captain", "her brother": SceneNames.called, read by the
+// memory keeper), and "Will" or "May" opening a question ("Will you come?") isn't the name.
 //
 // The index is built once per change to the list of names; scanning a paragraph is a lookup per
 // word, so it stays well within a keystroke even with hundreds of entries. Pure, so it is unit-tested.
 
 import type { EntryKind, ID } from '@shared/types'
+import { askingAt } from '@shared/names'
 import { isPlaceholderName } from '@/features/world/entryLogic'
 
 export interface NameSource {
@@ -20,6 +24,8 @@ export interface NameSource {
   kind: EntryKind
   name: string
   aliases: string[]
+  /** What this scene's words call it ("her brother"), when the page is a scene the memory has read (fix 12). */
+  called?: string[]
 }
 
 export interface NameMatch {
@@ -29,11 +35,14 @@ export interface NameMatch {
   entryId: ID
   /** The entry's kind (the desk underlines a name in its kind's ink). */
   kind: EntryKind
+  /** Found by what this scene's words call it, not by a name of its own (fix 12). */
+  called?: boolean
 }
 
 interface Candidate {
   entryId: ID
   kind: EntryKind
+  called: boolean
   /** Sticky: tried at the start of a word. */
   re: RegExp
   length: number
@@ -65,27 +74,34 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** True when a name is matched whatever its case (mentionAt: a phrase, or not capitalised). */
 export const ignoresCase = (name: string): boolean => /\s/.test(name) || !/^\p{Lu}/u.test(name)
 
-/** The names of an entry that are underlined on the page. */
+/** The names of an entry that are underlined on the page: its own, then what this scene's words call it. */
 export function namesToMatch(e: NameSource): string[] {
-  if (e.kind === 'thread') return []
-  const out: string[] = []
-  const add = (raw: string, alias: boolean): void => {
+  return namesOf(e).flat()
+}
+
+/** An entry's own names, and what this scene's words call it (as an alias is: never one of its own names again). */
+function namesOf(e: NameSource): [string[], string[]] {
+  if (e.kind === 'thread') return [[], []]
+  const own: string[] = []
+  const called: string[] = []
+  const add = (raw: string, alias: boolean, to: string[]): void => {
     const n = raw.trim()
     if (n.length < 2 || !FIRST_WORD.test(n) || isPlaceholderName(n)) return
     if (alias && !/^\p{Lu}/u.test(n) && !/\s/.test(n)) return
-    if (!out.includes(n)) out.push(n)
+    if (!own.includes(n) && !called.includes(n)) to.push(n)
   }
-  add(e.name, false)
-  for (const a of e.aliases) add(a, true)
-  return out
+  add(e.name, false, own)
+  for (const a of e.aliases) add(a, true, own)
+  for (const c of e.called ?? []) add(c, true, called)
+  return [own, called]
 }
 
-/** The key of a list of entries' names: it changes whenever any name, alias or kind does. */
+/** The key of a list of entries' names: it changes whenever any name, alias, kind or thing a scene calls it does. */
 export function nameKey(entries: NameSource[]): string {
   const keys: string[] = []
   for (const e of entries) {
-    const names = namesToMatch(e)
-    if (names.length) keys.push(`${e.id}\u0001${e.kind}\u0001${names.join('\u0002')}`)
+    const [own, called] = namesOf(e)
+    if (own.length || called.length) keys.push(`${e.id}\u0001${e.kind}\u0001${own.join('\u0002')}${called.length ? `\u0004${called.join('\u0002')}` : ''}`)
   }
   return keys.sort().join('\u0003')
 }
@@ -95,10 +111,11 @@ export function buildNameIndex(entries: NameSource[]): NameIndex {
   const byFirst = new Map<string, FirstWord>()
   let size = 0
   for (const e of entries) {
-    for (const n of namesToMatch(e)) {
+    const [own, called] = namesOf(e)
+    for (const n of [...own, ...called]) {
       const [first, second] = WORDS(n)
       const re = new RegExp(`${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, ignoresCase(n) ? 'iuy' : 'uy')
-      const c = { entryId: e.id, kind: e.kind, re, length: n.length }
+      const c = { entryId: e.id, kind: e.kind, called: called.includes(n), re, length: n.length }
       let slot = byFirst.get(first)
       if (!slot) byFirst.set(first, (slot = { one: [], bySecond: new Map() }))
       if (second === undefined) slot.one.push(c)
@@ -116,6 +133,14 @@ export function buildNameIndex(entries: NameSource[]): NameIndex {
     for (const list of slot.bySecond.values()) list.sort(longestFirst)
   }
   return { byFirst, size, key: nameKey(entries) }
+}
+
+/** A scene's entries with what its words call each of them (SceneNames.called), as the underlines read names. */
+export function withCalled(data: { entries: NameSource[]; called?: { entryId: ID; words: string }[] }): NameSource[] {
+  if (!data.called?.length) return data.entries
+  const by = new Map<ID, string[]>()
+  for (const c of data.called) by.set(c.entryId, [...(by.get(c.entryId) ?? []), c.words])
+  return data.entries.map((e) => (by.has(e.id) ? { ...e, called: by.get(e.id) } : e))
 }
 
 /** The index for a list of entries: `prev` itself when no name changed (entries change far more often than names). */
@@ -139,9 +164,10 @@ export function findNames(text: string, index: NameIndex): NameMatch[] {
     for (const c of list) {
       c.re.lastIndex = at
       const hit = c.re.exec(text)
-      if (!hit) continue
+      // "Will you come?" asks something; it doesn't name Will.
+      if (!hit || askingAt(text, at, at + hit[0].length)) continue
       after = at + hit[0].length
-      out.push({ start: at, end: after, entryId: c.entryId, kind: c.kind })
+      out.push({ start: at, end: after, entryId: c.entryId, kind: c.kind, ...(c.called ? { called: true } : {}) })
       return true
     }
     return false

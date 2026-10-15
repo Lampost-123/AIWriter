@@ -10,6 +10,7 @@ import { memoryAt } from '../memory/asOf'
 import { storyOfScene } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import { sceneCast } from '../db/manuscript'
+import { calledIn } from '../db/called'
 import { clip, upperFirst } from '../keeper/text'
 import { UserError } from '../util'
 
@@ -122,6 +123,8 @@ export function sceneNames(db: DB, sceneId: ID): SceneNames {
       presentIds: [...new Set(card.presentIds)].filter((id) => live.has(id) && id !== povId),
       locationId: card.locationId && live.has(card.locationId) ? card.locationId : null
     },
-    relationships: state.relationships.filter((r) => live.has(r.aId) && live.has(r.bId))
+    relationships: state.relationships.filter((r) => live.has(r.aId) && live.has(r.bId)),
+    // What the scene's words call its characters (long story memory fix 12), underlined as them.
+    called: calledIn(db, sceneId).filter((c) => live.has(c.entryId))
   }
 }

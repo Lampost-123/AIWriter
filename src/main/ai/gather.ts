@@ -9,6 +9,7 @@ import { cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
 import { effectiveStyle } from '@shared/style'
 import * as repo from '../db/repo'
 import { getBlockModes, pinsForScene } from '../db/memory'
+import { calledIn } from '../db/called'
 import { sceneMemory } from '../memory/scene'
 import { loadShapeSafe, sceneWords } from '../keeper/places'
 import type { ContextInput } from './context'
@@ -59,10 +60,13 @@ export function gatherContextInput(
   const { story } = repo.sceneLocation(db, sceneId)
   const series = story.seriesId ? repo.listSeries(db).find((s) => s.id === story.seriesId) : undefined
   const stand = keptStateBefore(db, sceneId)
+  const memory = sceneMemory(db, sceneId, { forWriter: true })
   return {
     style: effectiveStyle(extra.prefs, repo.getWorldStyle(db), story.style),
     scene: { title: scene.title, card: scene.card },
-    memory: sceneMemory(db, sceneId, { forWriter: true }),
+    memory,
+    // What this scene's words and the previous scene's call their characters (long story memory fix 12).
+    called: { here: calledIn(db, sceneId), previous: calledIn(db, memory.previous?.sceneId) },
     pins: pinsForScene(db, sceneId),
     blockModes: getBlockModes(db, sceneId),
     world: { themes: repo.getMeta(db, 'themes') ?? '', tone: repo.getMeta(db, 'tone') ?? '' },

@@ -105,7 +105,7 @@ describe('fitting the model', () => {
     expect(budget.reply).toBeGreaterThanOrEqual(400)
     expect(budget.available).toBeLessThan(3000)
     // Each paragraph short enough to fit a chunk whole beside the memory's instructions (which grow as it learns more).
-    const paras = textParas(Array.from({ length: 10 }, (_, i) => `Paragraph ${i}. ${'Words go on and on. '.repeat(30)}`).join('\n\n'))
+    const paras = textParas(Array.from({ length: 10 }, (_, i) => `Paragraph ${i}. ${'Words go on and on. '.repeat(25)}`).join('\n\n'))
     const chunks = planChunks(paras, paras, [], budget)
     expect(chunks.length).toBeGreaterThan(1)
     expect(chunks.flatMap((c) => c.paras)).toHaveLength(10)
