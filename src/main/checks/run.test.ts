@@ -11,7 +11,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
 import { UserError } from '../util'
-import { checkBudget, checkScene, type CheckOptions } from './run'
+import { CHECK_SECOND_MARKER, CHECK_SECOND_SYSTEM, checkBudget, checkScene, rankByMeaning, type CheckOptions } from './run'
 import { checkSections, gatherSceneCheck } from './context'
 import { sceneSystem } from './prompts'
 import { estimateTokens } from '../keeper/text'
@@ -471,5 +471,97 @@ describe('the scene’s contract after the review (fix 13)', () => {
     const unread = await ruled('I would rather not say.')
     expect(unread.rows.find((r) => r.part === 'keep')!.confirmed).toBeUndefined()
     expect(unread.review).toEqual([])
+  })
+})
+
+describe('a second opinion on what a whole check found (2026-10-16)', () => {
+  /** The note number the second opinion's request gives the finding quoting `words`. */
+  const noteOf = (user: string, words: string): number => Number(user.split('\n').find((l) => /^\d+\. Quote: /.test(l) && l.includes(words))!.match(/^(\d+)/)![1])
+  const ruled = async (answer: (user: string) => unknown, checks: CheckKind[] = DONE_CHECKS, check?: (system: string) => unknown) => {
+    const w = world()
+    const fetchImpl = stubbed((system, user) => (system.startsWith(CHECK_SECOND_MARKER) ? answer(user) : (check?.(system) ?? null)))
+    const out = await checkScene({ ...options(w.db), fetchImpl }, w.s2, checks)
+    const asked = fetchImpl.asked.filter((a) => a.system.startsWith(CHECK_SECOND_MARKER))
+    const quotes = cdb
+      .sceneIssueRows(w.db, w.s2)
+      .filter((r) => r.status === 'open')
+      .map((r) => r.quote as string)
+      .sort()
+    return { w, out, asked, quotes }
+  }
+
+  it('asks once, each finding citing its entry with what the memory and the scene say, and drops what it rules not real', async () => {
+    const r = await ruled((user) => ({ verdicts: [{ n: noteOf(user, 'eyes were green'), reason: 'Firelight can make blue eyes look green.', real: false }] }))
+    expect(r.asked).toHaveLength(1)
+    expect(r.asked[0].system).toBe(CHECK_SECOND_SYSTEM)
+    expect(r.asked[0].user).toMatch(/Quote: "Mara's eyes were green in the firelight\." · Line: \[E\d+\] Mara \(character; named in the scene\) \(its entry is above\) · The note: .*\(The memory says: blue\. The scene says: green\.\)/)
+    // What the checks were given, and the scene.
+    expect(r.asked[0].user).toContain('## What the check was given\n## The scene card')
+    expect(r.asked[0].user).toContain('"""\nMara pushed the door open.')
+    expect(r.out).toEqual({ status: 'done', found: 1 })
+    expect(r.quotes).toEqual(['"You took your time," said Tobin.'])
+  })
+
+  it('keeps every finding when the reply can’t be read or the call fails: never loses a real one', async () => {
+    const both = ['"You took your time," said Tobin.', "Mara's eyes were green in the firelight."]
+    expect((await ruled(() => 'I would rather not say.')).quotes).toEqual(both)
+    const w = world()
+    const failing = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { messages: { role: string; content: string }[] }
+      if (body.messages[0]?.content.startsWith(CHECK_SECOND_MARKER)) return new Response('down', { status: 500 })
+      return fetch(input, init)
+    }) as typeof fetch
+    expect(await checkScene({ ...options(w.db), fetchImpl: failing }, w.s2, DONE_CHECKS)).toEqual({ status: 'done', found: 2 })
+  })
+
+  it('keeps what it rules real, and never asks about voice or style, nor when nothing was found', async () => {
+    const real = await ruled(() => ({ verdicts: [{ n: 1, real: true }, { n: 2, real: true }] }))
+    expect(real.quotes).toHaveLength(2)
+    const voice = await ruled(
+      () => ({ verdicts: [{ n: 1, real: false }] }),
+      ['voice'],
+      (system) => (system.startsWith('[AIWRITE-CHECK v1] voice') ? { issues: [{ check: 'voice', quote: 'You took your time', message: 'Tobin never says that.' }], checked: [] } : null)
+    )
+    expect(voice.asked).toHaveLength(0)
+    // (The free rules still find the dead man speaking.)
+    expect(voice.quotes).toContain('You took your time')
+    const w = world()
+    const fetchImpl = stubbed(() => null)
+    await checkScene({ ...options(w.db), fetchImpl }, w.s1, DONE_CHECKS)
+    expect(fetchImpl.asked.some((a) => a.system.startsWith(CHECK_SECOND_MARKER))).toBe(false)
+  })
+})
+
+describe('the facts a scene touches, by meaning (2026-10-16)', () => {
+  it('ranks them by meaning too when the search model is on; by keyword alone when it is off, slow or failing', async () => {
+    const w = world()
+    mem.insertChange(w.db, {
+      entryId: w.maraId,
+      anchor: 'scene',
+      sceneId: w.s1,
+      kind: 'knowledge',
+      payload: { factId: 'f-oath', fact: 'Tobin swore an oath to wait at the ferry.' },
+      origin: 'text'
+    })
+    const ctx = gatherSceneCheck(w.db, w.s2, PREFS)
+    expect(ctx.factRank?.has('f-oath')).toBe(false)
+    const asked: { queries: string[]; docs: string[] }[] = []
+    await rankByMeaning(
+      {
+        byMeaning: async (queries, docs) => {
+          asked.push({ queries, docs: docs.map((d) => d.key) })
+          return new Map([['f-oath', 0.9]])
+        },
+        stopped: () => false
+      },
+      ctx
+    )
+    expect(asked).toEqual([{ queries: [SCENE_2], docs: ['f-oath'] }])
+    expect(ctx.factRank?.get('f-oath')).toBe(0.9)
+    for (const byMeaning of [async () => null, async () => Promise.reject(new Error('no model'))]) {
+      const again = gatherSceneCheck(w.db, w.s2, PREFS)
+      await rankByMeaning({ byMeaning, stopped: () => false }, again)
+      expect(again.factRank?.has('f-oath')).toBe(false)
+    }
   })
 })

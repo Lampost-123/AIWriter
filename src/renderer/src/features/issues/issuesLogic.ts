@@ -30,6 +30,12 @@ export const RULE_DETAIL = 'Found by a rule over the memory, at once and for fre
 export const CONTRACT_WORDS = 'Scene contract'
 export const CONTRACT_DETAIL = 'Checked against this scene’s contract: what had to be true at the start, what had to change and what must not change.'
 
+/** Said of an ignored issue "Write the whole chapter" set aside (2026-10-16), rather than "Ignored". */
+export const SET_ASIDE_WORDS = 'The chapter writer set this aside'
+
+/** What an ignored issue's card says of it: "Ignored", or who set it aside when it wasn't Adam. */
+export const ignoredWords = (issue: Pick<Issue, 'setAsideBy'>): string => (issue.setAsideBy === 'chapter' ? SET_ASIDE_WORDS : 'Ignored')
+
 /** "Found 2 things to look at in this scene." (or in the scene named, when Adam has moved on). */
 export function foundWords(found: number, where: string | null): string {
   const things = found === 1 ? '1 thing' : `${found} things`

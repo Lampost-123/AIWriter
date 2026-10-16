@@ -122,14 +122,18 @@ export interface MissingNote {
   text: string
 }
 
-/** The request for the second opinion on `slips`, then on what isn't shown yet (numbered from 1, in order). */
+/**
+ * The request for the second opinion on `slips`, then on what isn't shown yet (numbered from 1, in order). `system`: other
+ * instructions in the same reply format (a whole check's findings, checks/run.ts findingsRuling); a slip with no line
+ * cites none.
+ */
 export function secondRequest(
   slips: Claim[],
-  o: { material: string; leadIn: string; newWords: string },
+  o: { material: string; leadIn: string; newWords: string; system?: string },
   missing: MissingNote[] = []
 ): { messages: ChatMessage[]; blocks: ContextBlock[] } {
   const notes = [
-    ...slips.map((c) => `Quote: "${c.quote}" · Line: ${lineTextOf(c.line, o.material)} · The note: ${c.why || c.question || 'a slip'}`),
+    ...slips.map((c) => `Quote: "${c.quote}" · Line: ${c.line ? lineTextOf(c.line, o.material) : 'none given'} · The note: ${c.why || c.question || 'a slip'}`),
     ...missing.map((m) => `Not shown · Line: ${lineTextOf(m.line, o.material)} · The note: the new words don't show this happening.`)
   ]
     .map((n, i) => `${i + 1}. ${n}`)
@@ -143,7 +147,7 @@ export function secondRequest(
   const user = `${sections.map((s) => `## ${s.title}\n${s.text}`).join('\n\n')}\n\nReply with the JSON verdicts, one per note.`
   return {
     messages: [
-      { role: 'system', content: secondSystem(slips.some((c) => /^C\d+$/.test(c.line)) || missing.length > 0, missing.length > 0) },
+      { role: 'system', content: o.system ?? secondSystem(slips.some((c) => /^C\d+$/.test(c.line)) || missing.length > 0, missing.length > 0) },
       { role: 'user', content: user }
     ],
     blocks: sections.map((s, i) => ({ id: s.id, priority: Math.min(10, i + 1), title: s.title, text: s.text, tokens: estimateTokens(s.text), entryIds: [], dropped: false }))
@@ -189,7 +193,7 @@ export async function secondOpinion(
   o: { db: Database.Database; model: MemoryModel; signal?: AbortSignal; closed: () => boolean; fetchImpl?: typeof fetch; retryDelays?: number[] },
   sceneId: ID,
   claims: Claim[],
-  w: { newWords: string; leadIn: string; material: string; lines: ReadonlySet<string> },
+  w: { newWords: string; leadIn: string; material: string; lines: ReadonlySet<string>; system?: string },
   missing: MissingNote[] = []
 ): Promise<SecondOutcome> {
   const ground = groundedSlips(claims, w)

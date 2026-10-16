@@ -200,6 +200,45 @@ describe('the planted contradictions', () => {
     expect(s.issues[0].on).toBe('decoy')
   })
 
+  it('counts a catch only when its reason names the planted fact (2026-10-16: X7 was counted for something else)', () => {
+    for (const x of PLANTED.filter((p) => p.flaw)) expect(x.reason, x.id).toBeInstanceOf(RegExp)
+    const byId = (id: string) => PLANTED.find((x) => x.id === id)!
+    const issue = (quote: string, message: string, kind = 'fact') => ({ kind, severity: 'warning', quote, message })
+    // What the live run of 2026-10-16 raised on each slip's sentence (report.md), scored again.
+    const live: [string, string, string, boolean][] = [
+      ['X1', 'Kit’s brown eyes creased at the corners', 'Kit Ansel’s eyes: this scene says “brown”, but the memory says “grey”.', true],
+      ['X2', 'four hundred and twenty crowns, paid in full eleven years ago', 'The debt Tamsin paid off and had struck from the guild’s books was four hundred and twelve crowns, not four hundred and twenty.', true],
+      ['X4', byId('X4').flaw!, 'Pim cannot read words, as established when Orla Finch promised to read any message to him, yet here he reads the guild’s letter aloud.', true],
+      [
+        'X7',
+        'That afternoon Orla let one of the Callowmere birds go from the loft with a letter for Leckie, and it flew north for Hollin as straight as a thrown stone.',
+        'Orla Finch sends a bird with a letter for Leckie, but the memory says she does not know that Tamsin is fetching Edwin Leckie home for the Reckoning, nor that he is in Hollin, and nothing in the scene shows her learning it.',
+        false
+      ],
+      ['X7', 'That afternoon Orla let one of the Callowmere birds go from the loft with a letter for Leckie', 'The scene is set on Day 50, three days after Thaw Day, but the previous scene ended on Day 48; the scene’s ‘that afternoon’ places it on the same day as the loft visit.', false],
+      ['X10', byId('X10').flaw!, 'Tamsin pawned her father’s silver watch in Dunmere and the pawnbroker told her it had been sold to a drover and was gone for good, so she cannot have it in her pocket now.', true],
+      ['X11', byId('X11').flaw!, 'The scene is told in close third person from Tamsin’s point of view, but this paragraph slips into Corvin Slade’s head and reports his thoughts.', true],
+      ['X12', 'Okay, so the guild totally owes us a new bell rope', 'Pim’s speech is fast, eager and full of questions, but this line uses modern filler that doesn’t match his voice notes.', true]
+    ]
+    for (const [id, quote, message, caught] of live) {
+      const s = scorePlanted(byId(id), [issue(quote, message)])
+      expect(s.caught, `${id}: ${message}`).toBe(caught)
+      expect(s.issues[0].on).toBe(caught ? 'flaw' : 'wrong')
+      expect(s.falseAlarms).toBe(caught ? 0 : 1)
+    }
+    // The right reason on X7, and on X6 (Isla told Tamsin, not Kit).
+    expect(scorePlanted(byId('X7'), [issue(byId('X7').flaw!, 'Guild pigeons fly only home to their own loft, so a Callowmere bird can’t carry a letter to Hollin.')]).caught).toBe(true)
+    expect(scorePlanted(byId('X6'), [issue('‘The old woman told you his heart won’t last the summer,’ Kit said.', 'The memory has Isla Thorne telling Tamsin of Leckie’s failing heart, not Kit.', 'continuity')]).caught).toBe(true)
+    expect(scorePlanted(byId('X6'), [issue('‘The old woman told you his heart won’t last the summer,’ Kit said.', 'Kit was asleep when the scene before ended.', 'continuity')]).caught).toBe(false)
+  })
+
+  it('X2 has one slip only: the ledger stayed at the Guildhall and Kit sleeps on the bench by the stove', () => {
+    const x2 = PLANTED.find((x) => x.id === 'X2')!.paragraphs.join('\n\n')
+    expect(x2).not.toMatch(/ledger lay open|closed the ledger|on his pallet/)
+    expect(x2).toContain('her father’s last ledger had stayed at the Guildhall')
+    expect(x2).toContain('Kit turning over on the bench by the stove in the workshop')
+  })
+
   it('sums up catches, false alarms and decoys by kind', () => {
     const r = (id: string, planted: boolean, kind: PlantedResult['kind'], caught: boolean | null, alarms: number, decoy = false): PlantedResult => ({
       id,

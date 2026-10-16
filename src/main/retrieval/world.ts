@@ -7,7 +7,7 @@ import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
 import type { ContextInput } from '../ai/context'
 import { readPassages, syncNow, syncSlowly } from './indexing'
-import { recallFor } from './recall'
+import { meaningScores, recallFor } from './recall'
 import { openSearchIndex, type SearchIndex } from './store'
 import type { Embedder, RecallInput } from './types'
 import { Vectors } from './vectors'
@@ -151,6 +151,22 @@ export class WorldRecall {
     )
     // Passages new since the last search (a scene just written) are read for meaning shortly after.
     if (embedder) this.indexSoon(INDEX_AFTER_SEARCH_MS)
+    return this.live() ? result : null
+  }
+
+  /**
+   * How close in meaning each doc is to the queries (recall.ts meaningScores), for the consistency checks (2026-10-16);
+   * null when the world closed or there is no search model now.
+   */
+  async meaning(queries: string[], docs: { key: string; text: string }[], signal?: AbortSignal): Promise<Map<string, number> | null> {
+    if (!this.live()) return null
+    const embedder = this.deps.embedder()
+    if (!embedder) return null
+    const result = await meaningScores(
+      { index: this.indexOf(), embedder, vectors: this.vectors, signal, background: this.stop.signal, meaningWaitMs: this.deps.meaningWaitMs },
+      queries,
+      docs
+    )
     return this.live() ? result : null
   }
 

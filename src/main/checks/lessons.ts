@@ -7,10 +7,14 @@
 //   meant  a finding Adam ignored (he said it is intended). The same thing in the same scene is never raised again
 //          (db/checks.ts sameThing); a check of a later scene with the same people is told about it, so it doesn't
 //          raise it there either (checks/context.ts).
-// Only findings about facts, who knows what and the timeline: style and voice are not facts, continuity (clothes, who
+// Slips only about facts, who knows what and the timeline: style and voice are not facts, continuity (clothes, who
 // holds what) is about one moment, and a slip settled by Update the memory (the text was right) is no slip. A slip about
 // who knows what or the timeline is about its moment too, so only the last RECENT_SCENES scenes' count; a fact (a scar,
 // eye colour, who is dead) holds however long ago it was put right.
+// What Adam meant may also be about a character's voice or the style (2026-10-16: an ignored voice finding came back in
+// every later scene): a voice finding about its character however long ago, as a fact; a style finding from the last
+// RECENT_SCENES scenes, about its character, or about the scene's telling when it names no one. What the chapter writer
+// set aside (`setAsideBy`) is its own call, never what Adam meant.
 
 import type Database from 'better-sqlite3'
 import type { IssueKind } from '@shared/contracts/checks'
@@ -25,8 +29,12 @@ type Row = Record<string, unknown>
 
 /** The kinds of finding that are lessons. */
 export const LESSON_KINDS: IssueKind[] = ['fact', 'knowledge', 'timeline']
-/** How many scenes back a slip or a meant finding about who knows what or the timeline still counts. */
+/** The kinds that are lessons only as what Adam meant (2026-10-16): how someone speaks, and how the story is told. */
+export const MEANT_ONLY_KINDS: IssueKind[] = ['voice', 'style']
+/** How many scenes back a slip or a meant finding about who knows what, the timeline or the style still counts. */
 export const RECENT_SCENES = 6
+/** Kinds that hold however long ago they were settled: a fact, and how a character speaks. */
+const LASTING: IssueKind[] = ['fact', 'voice']
 
 /** One finding settled in an earlier scene. */
 export interface Lesson {
@@ -78,17 +86,20 @@ export function lessonsFrom(
     .sort((a, b) => a.back - b.back || String(b.r.updated_at).localeCompare(String(a.r.updated_at)))
   for (const { r, back } of ranked) {
     const kind = r.kind as IssueKind
-    if (!LESSON_KINDS.includes(kind)) continue
-    if (kind !== 'fact' && back > RECENT_SCENES) continue
+    const list = r.status === 'fixed' ? 'slips' : r.status === 'ignored' ? 'meant' : null
+    if (!list) continue
+    if (!LESSON_KINDS.includes(kind) && !(list === 'meant' && MEANT_ONLY_KINDS.includes(kind))) continue
+    if (!LASTING.includes(kind) && back > RECENT_SCENES) continue
     const p = cdb.payloadOf(r)
     // Something a scene's contract said must change and the draft didn't show yet (fix 13) is about that draft's plan,
     // never a fact for later scenes.
     if (p.contract?.part === 'change') continue
+    // Set aside by the chapter writer, not by Adam: never what he meant.
+    if (list === 'meant' && p.setAsideBy) continue
     const text = String(r.message ?? '').trim()
     const entryIds = entriesOf(p)
-    if (!text || !entryIds.length) continue
-    const list = r.status === 'fixed' ? 'slips' : r.status === 'ignored' ? 'meant' : null
-    if (!list) continue
+    // A style finding may be about the telling and no one in it; everything else is about someone or something.
+    if (!text || (!entryIds.length && kind !== 'style')) continue
     if (list === 'slips' && (p.fixedBy === 'memory' || settledByMemory(p))) continue
     const keys = [plain(text), ...(p.entryId && p.field ? [`${p.entryId}|${p.field}`] : [])]
     if (keys.some((k) => seen[list].has(k))) continue
@@ -113,7 +124,7 @@ export function lessonsBefore(db: DB, sceneId: ID): Lessons {
     const rows = cdb.settledRows(
       db,
       steps.map((s) => s.sceneId),
-      LESSON_KINDS
+      [...LESSON_KINDS, ...MEANT_ONLY_KINDS]
     )
     if (!rows.length) return NONE
     const label = labeler(shape)

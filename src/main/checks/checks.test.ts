@@ -535,7 +535,8 @@ describe('what a check of a scene is told', () => {
     const c = gatherSceneCheck(w.db, w.id('b1.c3.s1'), PREFS)
     const req = checkRequest(checkSections(c, ['facts', 'style']), 'Mara spoke.', { part: 1, parts: 1 })
     expect(req.user.endsWith('## The scene\nMara spoke.')).toBe(true)
-    expect(req.blocks.map((b) => b.id)).toEqual(['scene-card', 'memory', 'scene-text'])
+    // Since 2026-10-16 the entries tied to Mara come too (with how they are tied), and the plot threads still open.
+    expect(req.blocks.map((b) => b.id)).toEqual(['scene-card', 'memory', 'relationships', 'threads', 'scene-text'])
     expect(sceneSystem(['style', 'facts']).split('\n')[0]).toBe('[AIWRITE-CHECK v1] facts, style')
     const long = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} goes on for a while so that it takes up some room in the request.`).join('\n\n')
     const parts = splitScene(long, 200)

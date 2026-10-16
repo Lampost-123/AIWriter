@@ -13,7 +13,7 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useDelayed } from '@/features/generate/parts'
 import { checkThisScene, fixTheText, ignore, openSource, reopen, showWords, stopRun, updateTheMemory } from './actions'
-import { CONTRACT_DETAIL, CONTRACT_WORDS, KIND_WORDS, RULE_DETAIL, RULE_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIssues, usableFix } from './issuesLogic'
+import { CONTRACT_DETAIL, CONTRACT_WORDS, KIND_WORDS, RULE_DETAIL, RULE_WORDS, SEVERITY_WORDS, ignoredWords, memoryFixWords, openCount, runFor, splitIssues, usableFix } from './issuesLogic'
 import { useIssuesStore, useSceneIssues } from './issuesStore'
 import { revealLiveFlag, useLiveFlagCounts } from '@/features/liveChecks/liveFlags'
 import type { LiveFlagKind } from '@shared/liveChecks'
@@ -106,7 +106,10 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
             <ul aria-label="Ignored" className="mt-2 flex flex-col gap-1.5 animate-fade-in">
               {ignored.map((i) => (
                 <li key={i.id} className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2">
-                  <p className="min-w-0 flex-1 text-[12.5px] leading-[18px] text-muted">{i.message}</p>
+                  <p className="min-w-0 flex-1 text-[12.5px] leading-[18px] text-muted">
+                    {i.message}
+                    {i.setAsideBy ? <span className="block text-faint">{ignoredWords(i)}</span> : null}
+                  </p>
                   <Button size="sm" variant="ghost" className="-my-0.5" onClick={() => void reopen(i)}>
                     Reopen
                   </Button>
