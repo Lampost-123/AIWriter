@@ -752,6 +752,7 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
       model: o.model,
       targetId: o.sceneId,
       job: 'memory',
+      task: 'plan',
       messages,
       ...(kept ? { kept } : {}),
       blocks: [

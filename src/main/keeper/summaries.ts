@@ -9,6 +9,9 @@
 // chapter for a story or series), which the model is told to follow where a summary says otherwise. Each summary is tied to what it was made from (`sourceHash`: the
 // scenes, chapters or books by id with the revision of their summaries, and the record's part), so a change to one
 // scene makes only what rests on it out of date; markOutOfDate marks those, so the screen can say so.
+// A summary the memory model turns down (some won't read explicit scenes; keeper/model.ts tells a refusal apart) is never
+// saved: a refusal kept as a summary would be told to every later scene. The scene's words it turned down are
+// remembered (refusals.ts), so they aren't sent to the same model again and again.
 
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ContextBlock, ID, SummaryLevel } from '@shared/types'
@@ -24,6 +27,7 @@ import { SUMMARY_SYSTEM, cleanSummary, summaryPrompt, type SummaryAsk } from './
 import { estimateTokens, firstWords, hashText, splitLong, textParas } from './text'
 import type { Undo } from './apply'
 import { MIN_SUMMARY_WORDS, sameSource, sceneSourceHash, summaryDue } from './sceneChange'
+import { markRefused, modelKeyOf, wasRefused } from './refusals'
 
 type DB = Database.Database
 
@@ -35,6 +39,8 @@ export interface SummaryOptions {
   onRecord?: (generationId: ID) => void
   fetchImpl?: typeof fetch
   retryDelays?: number[]
+  /** Told when the memory model turned a summary down, so it isn't tried again and again. */
+  onRefused?: () => void
 }
 
 /** Too short to be worth a summary. */
@@ -64,7 +70,7 @@ export function suppressSummary(db: DB, level: SummaryLevel, targetId: ID, sourc
  * still writing, when about forty words changed or a changed paragraph names someone or something in the memory
  * (sceneChange.ts summaryDue), rather than only when the scene grew or shrank a good deal.
  */
-export function sceneSummaryDue(db: DB, sceneId: ID, done: boolean): boolean {
+export function sceneSummaryDue(db: DB, sceneId: ID, done: boolean, model: string | null = null): boolean {
   const scene = kdb.keeperScene(db, sceneId)
   if (!scene) return false
   const words = countWords(scene.text)
@@ -80,7 +86,10 @@ export function sceneSummaryDue(db: DB, sceneId: ID, done: boolean): boolean {
     if (words === 0 && row) kdb.deleteTextSummary(db, 'scene', sceneId)
     return notNeeded()
   }
-  if (suppressed(db, 'scene', sceneId, sceneSourceHash(scene.text, scene.doc))) return notNeeded()
+  const source = sceneSourceHash(scene.text, scene.doc)
+  if (suppressed(db, 'scene', sceneId, source)) return notNeeded()
+  // The memory model (`model`, its key) turned these words down: not asked again until they change or another is picked.
+  if (wasRefused(db, 'summary', sceneId, source, model)) return notNeeded()
   return summaryDue(db, sceneId, done)
 }
 
@@ -97,6 +106,7 @@ interface Written {
 
 /** One summary request. Null when it failed or was stopped (the old summary stays). */
 async function ask(o: SummaryOptions, targetId: ID, a: SummaryAsk, reply: number, calls: CallResult[]): Promise<Written | null> {
+  const rollUp = a.level === 'chapter' || a.level === 'story' || a.level === 'series'
   const prompt = summaryPrompt(a)
   const messages: ChatMessage[] = [
     { role: 'system', content: SUMMARY_SYSTEM },
@@ -116,6 +126,7 @@ async function ask(o: SummaryOptions, targetId: ID, a: SummaryAsk, reply: number
     model: o.model,
     targetId,
     job: 'summary',
+    task: rollUp ? 'rollup' : 'summary',
     messages,
     blocks: [
       block('instructions', 1, 'Instructions for the memory model', SUMMARY_SYSTEM),
@@ -129,6 +140,7 @@ async function ask(o: SummaryOptions, targetId: ID, a: SummaryAsk, reply: number
     retryDelays: o.retryDelays
   })
   calls.push(call)
+  if (call.failure?.type === 'refused') o.onRefused?.()
   if (call.status !== 'complete') return null
   const text = cleanSummary(call.text)
   return text ? { text, generationId: call.generationId } : null
@@ -139,7 +151,10 @@ function recordRun(db: DB, targetId: ID, version: number, model: MemoryModel, ca
   const runId = kdb.startRun(db, targetId, version)
   const sum = (k: 'promptTokens' | 'completionTokens' | 'cost'): number | null =>
     calls.some((c) => c[k] != null) ? calls.reduce((n, c) => n + (c[k] ?? 0), 0) : null
-  kdb.finishRun(db, runId, ok ? 'done' : 'failed', ok ? null : 'The summary could not be written this time.', {
+  const why = calls.some((c) => c.failure?.type === 'refused')
+    ? "The memory model turned the scene down, so the summary wasn't written. Some models won't read explicit scenes, so pick another memory model in Settings › Models."
+    : 'The summary could not be written this time.'
+  kdb.finishRun(db, runId, ok ? 'done' : 'failed', ok ? null : why, {
     providerId: model.target.id,
     modelId: model.choice.modelId,
     promptTokens: sum('promptTokens'),
@@ -262,7 +277,11 @@ export async function writeSceneSummary(
     }
   }
   if (!written) {
-    if (!o.closed() && o.db.open && calls.length) recordRun(o.db, sceneId, scene.textVersion, o.model, calls, false)
+    if (!o.closed() && o.db.open && calls.length) {
+      recordRun(o.db, sceneId, scene.textVersion, o.model, calls, false)
+      // Turned down: not asked for again with these words and this model.
+      if (calls.some((c) => c.failure?.type === 'refused')) markRefused(o.db, 'summary', sceneId, sourceHash, modelKeyOf(o.model))
+    }
     return false
   }
   const ch = kdb.keeperScene(o.db, sceneId)

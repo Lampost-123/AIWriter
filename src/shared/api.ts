@@ -247,6 +247,8 @@ export interface AppApi
    * asked of the model when nothing in the scene is unsure.
    */
   checkMemoryAgain(sceneId: ID): Promise<void>
+  /** Dismisses the top bar's note about scenes a model turned down (MemoryStatus.refused) until another is turned down. */
+  dismissRefusedNote(): Promise<void>
   /** "Re-read" (World Memory Overhaul B8): roughly what reading a scene, or a whole story, again in full would cost. */
   estimateReread(target: RereadTarget): Promise<RereadEstimate>
   /**

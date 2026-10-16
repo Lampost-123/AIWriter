@@ -18,13 +18,18 @@ import { setBeforeDraft, setStandAt, withStageRead } from '../ai/gather'
 import { emit } from '../events'
 import * as kdb from '../db/keeper'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
-import type { MemoryModel } from './model'
+import { setContentNote, contentNoteFor, type MemoryModel } from './model'
+import { effectiveStyle } from '@shared/style'
+import * as repo from '../db/repo'
 import { fieldsClearedByHand, removeScenes, restoreScenes, type ScenesOutcome } from './removed'
 import { fillFound } from '../builder/fill'
 import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
 import { stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
+import { jobModel } from '../ai/jobModel'
+import { dismissRefusals, modelKeyOf, onRefusal, refusalNote } from './refusals'
+import { loadShapeSafe, placeWords } from './places'
 import { rulesAfterDeleting, rulesAfterRead } from '../checks/ruleChecks'
 
 let keeper: Keeper | null = null
@@ -58,6 +63,16 @@ const quietMs = (): number | undefined => {
 }
 
 export function initKeeper(): void {
+  // Every memory job is told when the story means its content to be strong (model.ts contentNoteFor), from the scene's
+  // style guide as the writer has it.
+  setContentNote((db, sceneId) => {
+    const { story } = repo.sceneLocation(db, sceneId)
+    return contentNoteFor(effectiveStyle(getWritingPrefs(), repo.getWorldStyle(db), story.style).intensity)
+  })
+  // A model turned a scene down (refusals.ts): the top bar's note is brought up to date at once.
+  onRefusal((db) => {
+    if (currentKeeper()?.db === db) emit('memory:status', memoryStatus())
+  })
   onWorldOpened((w) => {
     keeper?.stop()
     // Scenes deleted while the keeper wasn't told (or emptied from the Trash) stop counting first.
@@ -295,7 +310,43 @@ export function memorySettingsChanged(): void {
 }
 
 export function memoryStatus(): MemoryStatus {
-  return currentKeeper()?.status() ?? idleStatus()
+  const k = currentKeeper()
+  const status = k?.status() ?? idleStatus()
+  const refused = k ? refusedNow(k.db) : null
+  return refused ? { ...status, refused } : status
+}
+
+/**
+ * The top bar's lasting note about scenes the memory model or the consistency check model turned down (refusals.ts):
+ * only what a model still in use turned down. Never throws.
+ */
+function refusedNow(db: Database.Database): MemoryStatus['refused'] | null {
+  try {
+    const m = memoryModel()
+    let check: string | null = null
+    try {
+      check = modelKeyOf(jobModel('check', { settings: getSettings(), getProvider, providerTarget }))
+    } catch {
+      check = null
+    }
+    const shape = loadShapeSafe(db)
+    const where = (sceneId: ID): string => {
+      const s = kdb.keeperScene(db, sceneId)
+      return s ? placeWords(db, shape, { storyId: s.storyId, chapterId: s.chapterId, sceneId }) : ''
+    }
+    return refusalNote(db, { memory: 'error' in m ? null : modelKeyOf(m), check }, where)
+  } catch (e) {
+    console.warn('Could not tell what the models turned down', e)
+    return null
+  }
+}
+
+/** Adam dismissed the note about scenes turned down: it comes back only with a new refusal. */
+export function dismissRefusedNote(): void {
+  const k = currentKeeper()
+  if (!k) return
+  dismissRefusals(k.db)
+  emit('memory:status', memoryStatus())
 }
 
 export function markSceneDone(sceneId: ID): SceneMeta | null {

@@ -3,7 +3,9 @@
 // in halves), repair or retry a reply that can't be read once, then apply everything in one
 // transaction and mark the scene version processed. A failure leaves the memory as it was, marks the
 // scene "Memory not updated" and lists it in What changed; it is tried again on the next trigger and
-// at app start. Re-running a processed version changes nothing.
+// at app start. Re-running a processed version changes nothing. A scene the memory model turns down (some models won't
+// read explicit scenes) says so, and its words are remembered (refusals.ts), so the engine doesn't ask again until they
+// change, another memory model is picked, or Adam presses Try again.
 // Never writes once the world has closed. No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -15,7 +17,8 @@ import { callModel, type CallResult, type MemoryModel } from './model'
 import { CUT_OFF, parseLenient, readingReply, type ReadingReply } from './json'
 import { retryMessage } from './prompts'
 import { buildRequest, planChunks, readingBudget, splitChunk, type ReadingChunk } from './request'
-import { estimateTokens } from './text'
+import { estimateTokens, hashText } from './text'
+import { markRefused, modelKeyOf } from './refusals'
 import { nothingToDo, planRead } from './track'
 import { loadShapeSafe, memoryAt, placeWords, sideClashesFor } from './places'
 
@@ -74,7 +77,7 @@ class Totals {
 }
 
 /** Common first words that start a sentence without being a name, so they can follow a colon or semicolon in lower case. */
-const COMMON_START = /^(The|It|Its|A|An|Add|Try|Pick|Choose|Check|Set|Wait|This|That|Your|You|Something|Nothing|There)\b/
+const COMMON_START = /^(The|It|Its|A|An|Add|Try|Pick|Choose|Check|Set|Wait|This|That|Your|You|Something|Some|Nothing|There)\b/
 
 const lowerStart = (s: string): string => s.replace(COMMON_START, (w) => w.toLowerCase())
 
@@ -188,6 +191,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
         model,
         targetId: sceneId,
         job: 'memory',
+        task: 'read',
         messages,
         blocks: req.blocks,
         maxTokens: budget.reply,
@@ -205,7 +209,10 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
       const call = await ask(messages)
       totals.add(call)
       if (o.closed() || call.status === 'stopped' || o.signal.aborted) return stopped()
-      if (call.status === 'error') return fail(call.error ?? 'Something went wrong.')
+      if (call.status === 'error') {
+        if (call.failure?.type === 'refused' && db.open && !o.closed()) markRefused(db, 'read', sceneId, hashText(scene.text), modelKeyOf(model))
+        return fail(call.error ?? 'Something went wrong.')
+      }
       const parsed = parseLenient(call.text)
       const checked = parsed.ok ? readingReply(parsed.value) : parsed
       if (checked.ok) {

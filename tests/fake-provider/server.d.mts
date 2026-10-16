@@ -25,6 +25,8 @@ export interface FakeProvider {
   close(): Promise<void>
 }
 
+/** What fake/prude says to anything with the word EXPLICIT in it. */
+export const PRUDE_REFUSAL: string
 export const FAKE_MODELS: { id: string; name: string; context_length: number; pricing: { prompt: string; completion: string } }[]
 export function fakeProse(words: number, sentences?: string[]): string
 /** A deterministic reply to a memory keeper reading request (its user message). */

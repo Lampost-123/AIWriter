@@ -6,13 +6,17 @@
 // before. Each request is a 'check' generation record made by the shared task runner, so "What the AI saw"
 // works for it. Never writes once stopped by the world closing. With the scene's contract (long story memory fix 13:
 // the chapter writer's checks of the scenes it drafted), the first request goes through it item by item as well, as
-// check and repair does when a draft lands (repair/contract.ts): no more requests. No Electron imports.
+// check and repair does when a draft lands (repair/contract.ts): no more requests. A check the model turns down (some
+// models won't read explicit scenes) stops with a plain-words reason and is noted for the top bar's lasting note
+// (keeper/refusals.ts), rather than being asked again as if the reply were in the wrong format. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { CheckKind, CheckReport } from '@shared/contracts/checks'
 import type { ChatMessage, Entry, EntryState, ID, WritingPrefs } from '@shared/types'
 import * as repo from '../db/repo'
 import { runTask, type Emit } from '../ai/tasks'
+import { looksLikeRefusalReply } from '../ai/errors'
+import { modelKeyOf, noteRefusal } from '../keeper/refusals'
 import type { JobModel } from '../ai/jobModel'
 import * as cdb from '../db/checks'
 import { CUT_OFF } from '../keeper/json'
@@ -245,6 +249,12 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
           stopped = true
           break
         }
+        // Turned down, by the provider or in so many words: asking again would be too.
+        if ((done.status === 'error' && /\bturned this down\b/.test(done.error ?? '')) || (done.status === 'complete' && looksLikeRefusalReply(done.text))) {
+          failure = CHECK_REFUSED
+          if (o.db.open) noteRefusal(o.db, { task: 'check', model: 'check', modelKey: modelKeyOf(o.model), sceneId })
+          break
+        }
         if (done.status === 'error') {
           failure = done.error ?? 'Something went wrong while checking. Try again.'
           break
@@ -334,6 +344,10 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   if (stopped) return { status: 'stopped', found: raised }
   return { status: 'done', found: raised }
 }
+
+/** Why a check stopped when the consistency check model turned the scene down. */
+export const CHECK_REFUSED =
+  "The consistency check model turned the scene down. Some models won't read explicit scenes, so pick another consistency check model in Settings › Models."
 
 /** How many of a scene's second opinions keep their whole prompt (as check and repair's own, repair/index.ts). */
 const KEEP_SECOND_PROMPTS = 10

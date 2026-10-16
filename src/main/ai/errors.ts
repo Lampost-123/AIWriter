@@ -2,7 +2,7 @@
 // step. Pure: every message Adam can see from the model connection is here.
 
 import type { ContentIntensity, ProviderKind } from '@shared/types'
-import { looksLikeRefusalReply } from '@shared/refusal'
+import { looksLikeRefusalReply, refusalIn } from '@shared/refusal'
 import { INTENSITY, intensityHigh, type IntensityScale } from '@shared/intensity'
 import { isLocalUrl } from '@shared/urls'
 
@@ -287,7 +287,7 @@ export function networkCode(err: unknown): string | null {
 
 // ---------- Refusals at strong content levels (the style guide's Content intensity) ----------
 
-export { looksLikeRefusalReply }
+export { looksLikeRefusalReply, refusalIn }
 
 /** What each content scale is called in the refusal note. */
 const SCALE_WORDS: Record<IntensityScale, string> = { romance: 'romance', violence: 'violence', language: 'swearing' }
@@ -331,8 +331,14 @@ export function strongContentRefusal(o: {
   ) {
     return `The writer model refused this scene. ${tip}${kept}`
   }
-  if (o.status === 'complete' && looksLikeRefusalReply(o.text)) {
-    return `The writer model wouldn't write this scene and sent back a refusal instead. ${tip}`
+  const where = o.status === 'complete' ? refusalIn(o.text) : null
+  // A draft that writes some way, then stops with a refusal: the words before it are kept, the refusal is Adam's to delete.
+  if (where === 'end') {
+    return `The writer model stopped partway through this scene and sent back a refusal instead of the rest. ${tip} The text before it is kept; delete the refusal at its end.`
   }
+  if (where === 'start') {
+    return `The writer model wouldn't write this scene as asked and sent back a refusal, perhaps with a toned-down version. ${tip}${kept}`
+  }
+  if (where) return `The writer model wouldn't write this scene and sent back a refusal instead. ${tip}`
   return null
 }

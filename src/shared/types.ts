@@ -1614,6 +1614,12 @@ export interface MemoryStatus {
   lastUpdate: { at: string; runId: ID; changes: number } | null
   /** A re-read Adam asked for (World Memory Overhaul B8): scenes still to be read, of how many. Missing when none. */
   rereading?: { left: number; total: number }
+  /**
+   * The memory model (or the consistency check model) turned scenes down, as some models do with explicit scenes: what
+   * went without, in plain words with the next step, until Adam dismisses it or picks another model (2026-10-16,
+   * main/keeper/refusals.ts). Missing when there is nothing to tell.
+   */
+  refused?: { title: string; message: string }
 }
 
 /** What to read again in full (World Memory Overhaul B8): one scene, or every scene of a story. */

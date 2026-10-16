@@ -15,6 +15,13 @@ export interface RecallView {
   current: boolean
   /** Adam changed something in it. */
   edited: boolean
+  /**
+   * Not read from this scene's words: carried on from the scene before, for Adam to put right (2026-10-16). Left out
+   * (false) when it was read.
+   */
+  unchecked?: boolean
+  /** Carried on because the memory model turned the scene down (some models won't read explicit scenes). */
+  refused?: boolean
 }
 
 /** Where things stand at a point in a scene (the cursor): the scene's words up to it. */
