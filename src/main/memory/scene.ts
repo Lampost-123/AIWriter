@@ -115,11 +115,22 @@ export function writerData(db: DB, data: MemoryData): MemoryData {
   }
 }
 
+/** What is true as a scene begins (sceneStart): the world read, the line, and the state there. */
+export interface SceneStart {
+  shape: WorldShape
+  story: StoryNode
+  loaded: MemoryData
+  data: MemoryData
+  changes: ChangeIndex
+  line: Line
+  state: MemoryStateAll
+}
+
 /**
- * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
- * briefing and the "must stay true" list.
+ * What is true as a scene begins, as `sceneMemory` works it out, without the story so far, the threads or the scenes
+ * before (the rule-based checks, long story memory fix 8, need only this). Throws (plain words) when the scene is gone.
  */
-export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
+export function sceneStart(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneStart {
   const shape = loadShape(db)
   const story = storyOfScene(shape, sceneId)
   if (!story) throw new UserError('That scene no longer exists.')
@@ -145,7 +156,15 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
       } else state.entries.set(id, { ...e, guesses: left.length ? left : undefined })
     }
   }
+  return { shape, story, loaded, data, changes, line, state }
+}
 
+/**
+ * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
+ * briefing and the "must stay true" list.
+ */
+export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
+  const { shape, story, loaded, data, changes, line, state } = sceneStart(db, sceneId, opts)
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
   const previous = previousScene(db, shape, story.id, line)
   const earlier = opts.forWriter && previous ? earlierScenes(db, shape, line, previous) : []

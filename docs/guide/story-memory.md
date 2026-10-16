@@ -129,9 +129,11 @@ Some slips need no AI at all, just what the memory already knows. Each time the 
 scene is checked, AI Write looks for these at once, for free:
 
 - A character who **died earlier speaks, acts, or is on the scene card** ("Tobin died in Ch 1, Sc 2, but speaks
-  here."). Remembering them or talking about them is fine, and so is a flashback.
+  here."). Remembering them or talking about them is fine, and so is a flashback, a dream, a ghost or a vision (when
+  the paragraph, the scene card or the **When** says so).
 - Something **destroyed or lost** turning up in someone's hand, or **one thing in two people's hands** at once.
-- The **point of view** character being somewhere else at the very same time, or never named in a long scene.
+- The **point of view** character being somewhere else at the very same clock time (both scenes saying "9pm", say),
+  or never named in a long scene.
 - **Time running backwards**: a scene dated before the one before it. If it's a flashback, start its **When** with
   "Flashback".
 - An **age** that doesn't fit the character's birth date or age in the memory.

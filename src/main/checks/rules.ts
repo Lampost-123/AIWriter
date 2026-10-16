@@ -2,29 +2,43 @@
 // critics over-flag (FlawedFictions), and Story Skills runs rules like these over its story files; as long as the record
 // is right, a rule never raises a false alarm. So each rule here is narrow, and says nothing when the record is unsure:
 // no date, no stage that still stands, a fact whose words were edited (the memory as the writer is given it), a death
-// only presumed. Each is read over one scene (RuleScene, gathered by ruleChecks.ts) with no AI call:
-//   dead          someone the memory has dead before this scene (in reading order) speaks a line, is up and about on the
-//                 stage, or is on the scene card. Being remembered or spoken of is fine; a flashback, or a scene dated
-//                 before the death, is exempt.
+// only presumed, a time of day that may be the same hour as another. Each is read over one scene (RuleScene, gathered by
+// ruleChecks.ts) with no AI call:
+//   dead          someone the memory has dead before this scene (in reading order: an undated scene after the death
+//                 counts) speaks a line, is up and about on the stage, or is on the scene card. Being remembered or spoken
+//                 of is fine; a flashback, a scene dated before the death, and a dream, a ghost, a memory or a vision (in
+//                 the line's paragraph, on the card or in the When) are exempt.
 //   gone-item     something the memory has destroyed or lost is held here (the stage, from this scene's words).
-//   two-hands     the same thing is in two people's hands at the end of the scene (the stage, from this scene's words).
-//   pov-elsewhere the card's point of view is on another scene's card or stage at this very moment, somewhere else.
+//   two-hands     the same thing is in two living people's hands at the end of the scene (the stage, this scene's words).
+//   pov-elsewhere the card's point of view is on another scene's card or stage at this very clock time, somewhere else.
 //   pov-unnamed   a scene of real length, told in the third person, never names its point of view.
 //   time-back     the scene is dated before the scene before it, and its When doesn't say it's a flashback.
 //   age           an age set in this scene, or given on its card, a year or more from what the memory works out.
-//   knows-early   someone tells a secret the memory has no sign they learned (only when the memory says they said it).
+//   knows-early   someone tells a secret the memory has no sign they learned (only when the memory says they said it),
+//                 in no scene before this one in reading order or dated before it; never in a flashback.
 // A promise long overdue is not here: Worth a look already asks about it (fix 10), and a rule finding would say it twice.
 // Pure.
 
 import type { IssueKind, IssueSeverity, IssueSource } from '@shared/contracts/checks'
 import type { Change, EntryState, FactState, ID, RelationshipState, SceneCard } from '@shared/types'
-import { calledFor, findName, type CalledName } from '@shared/names'
+import { calledFor, findName, foldApostrophes, type CalledName } from '@shared/names'
 import { saysGone, sourceKey, type CharacterState, type SceneState, type StateField } from '@shared/continuity'
 import { deathRecord, surelyDied } from '../ai/deaths'
 import { isPerson, namesPerson, namesUpTo } from '../ai/mustStay'
 import { itemHeads, itemName, nameIn, namesOf } from '../memory/items'
 import { learnedHow, type Ledger } from '../memory/ledger'
-import { ageWords, dateLabel, elapsedBetween, elapsedWords, readAge, type AgeAt, type AgeHere, type Elapsed, type StoryDate } from '../memory/calendar'
+import {
+  ageWords,
+  dateLabel,
+  elapsedBetween,
+  elapsedWords,
+  readAge,
+  timeOrder,
+  type AgeAt,
+  type AgeHere,
+  type Elapsed,
+  type StoryDate
+} from '../memory/calendar'
 import { findQuote, wordCount } from '../keeper/text'
 import { narratorI, spokenLines } from './speakers'
 
@@ -46,7 +60,7 @@ export interface RuleFinding {
   field?: string
 }
 
-/** Another scene at this very moment, somewhere else (both cards say their own day and time, and their places differ). */
+/** Another scene at this very clock time, somewhere else (both cards give their own day and the same exact time). */
 export interface Meanwhile {
   sceneId: ID
   /** Where it is, in plain words ("Ch 2, Sc 4"). */
@@ -61,7 +75,7 @@ export interface Meanwhile {
 export interface RuleScene {
   sceneId: ID
   text: string
-  card: Pick<SceneCard, 'povId' | 'presentIds' | 'notes' | 'beats' | 'goal' | 'conflict' | 'outcome'>
+  card: Pick<SceneCard, 'povId' | 'presentIds' | 'notes' | 'beats' | 'goal' | 'conflict' | 'outcome'> & Partial<Pick<SceneCard, 'when' | 'mood'>>
   /** Where the scene happens, in words ('' when the card doesn't say). */
   placeName: string
   /** Every entry that exists as the scene begins, as the writer is given it (facts whose words were edited left out). */
@@ -92,8 +106,13 @@ export interface RuleScene {
   back: { beforeId: ID; elapsed: Elapsed } | null
   /** How old a character is as the scene begins, worked out by the memory; null when it can't be told. */
   age: (e: EntryState) => AgeHere | null
-  /** Other scenes at this very moment, somewhere else. */
+  /** Other scenes at this very clock time, somewhere else. */
   meanwhile: Meanwhile[]
+  /**
+   * The other scenes where the memory has a character learn (or say) a fact, wherever they are in reading order, so one
+   * dated before this scene counts (knows-early). Left out: none.
+   */
+  learnedIn?: (entryId: ID, factId: ID) => ID[]
 }
 
 /** How long a scene must be before its point of view is expected to be named in it. */
@@ -123,14 +142,45 @@ function pronounOf(e: Pick<EntryState, 'fields'>): Pronoun | null {
 const namesHere = (s: Pick<RuleScene, 'called'>, e: { id: ID; name: string; aliases?: string[] }): string[] =>
   [e.name, ...(e.aliases ?? []), ...calledFor(s.called, e.id)].map(clean).filter((n) => n.length >= 2)
 
-/** The scene's own words for a quote, or '' when they aren't in it. */
-function wordsIn(text: string, quote: string | undefined): string {
+/** The scene's own words for a quote, and where they are; null when they aren't in it. */
+function placeOf(text: string, quote: string | undefined): { words: string; start: number } | null {
   const q = clean(quote)
   const at = q ? findQuote(text, q) : null
-  return at ? text.slice(at.start, at.end) : ''
+  return at ? { words: text.slice(at.start, at.end), start: at.start } : null
 }
 
 const entrySource = (e: Pick<EntryState, 'id' | 'name'>, field: string | null = null): IssueSource => ({ kind: 'entry', entryId: e.id, name: e.name, field })
+
+// ---------- Dreams, ghosts and memories ----------
+
+/** Words that say something isn't the waking present: a dream, a ghost, a memory, a vision, a flashback. */
+export const DREAMLIKE =
+  /\b(dream(?:s|ed|t|ing|like)?|nightmares?|ghost(?:s|ly)?|spirits?|shades?|apparitions?|phantoms?|haunt(?:s|ed|ing)?|visions?|memor(?:y|ies)|remember(?:s|ed|ing)?|recall(?:s|ed|ing)?|flashbacks?|hallucinat\w*|imagin(?:es|ed|ing)|s[ée]ances?)\b/i
+/** Words that make someone on the stage no one acting: a body, or any of those. */
+const NOT_ALIVE = new RegExp(
+  String.raw`\b(dead|died|death|body|corpse|lifeless|remains|grave|portrait|painting|statue|photograph)\b|${DREAMLIKE.source}`,
+  'i'
+)
+
+/** The paragraph the words at `at` are in. */
+export function paragraphOf(text: string, at: number): string {
+  const start = text.lastIndexOf('\n', Math.max(0, at - 1)) + 1
+  const end = text.indexOf('\n', at)
+  return text.slice(start, end < 0 ? text.length : end)
+}
+
+/** True when the scene card (its When, notes, beats, goal, conflict, outcome or mood) says it is a dream, a memory or the like. */
+export function dreamlikeCard(card: RuleScene['card']): boolean {
+  return DREAMLIKE.test([card.when, card.notes, ...(card.beats ?? []), card.goal, card.conflict, card.outcome, card.mood].filter(Boolean).join('\n'))
+}
+
+/** True when the scene isn't the waking present: a flashback (fix 11: its When says so), or a dream and the like on its card. */
+const notThePresent = (s: RuleScene): boolean => !!s.date?.back || dreamlikeCard(s.card)
+
+/** True when the words of a quote are in a paragraph that says it is a dream, a memory or the like. */
+function inDreamlike(text: string, start: number): boolean {
+  return DREAMLIKE.test(paragraphOf(text, start))
+}
 
 // ---------- Who is who on the stage ----------
 
@@ -153,13 +203,16 @@ function stageEntry(c: Pick<CharacterState, 'name'>, index: Map<string, ID[]>): 
   return ids?.length === 1 ? ids[0] : null
 }
 
+/** True when the stage has someone as no one acting: a body, a ghost, a dream or a memory. */
+const notAlive = (c: CharacterState): boolean => [c.condition, c.where, c.posture].some((v) => NOT_ALIVE.test(v ?? ''))
+
 /** Who the stage has in a scene by that scene's own words (any value of theirs read from them), as characters. */
 export function onStage(stage: SceneState, sceneId: ID, people: RuleScene['people']): ID[] {
   const index = nameIndex(people)
   const out = new Set<ID>()
   for (const c of stage.characters) {
     const id = stageEntry(c, index)
-    if (!id || [c.condition, c.where, c.posture].some((v) => NOT_ALIVE.test(v ?? ''))) continue
+    if (!id || notAlive(c)) continue
     const fields: StateField[] = ['where', 'posture', 'lastAction', 'holding', 'sees', 'touching', 'mood']
     if (fields.some((f) => ownValue(stage, sceneId, c, f))) out.add(id)
   }
@@ -174,21 +227,41 @@ function ownValue(stage: SceneState, sceneId: ID, c: CharacterState, field: Stat
   return { value, quote: said.quote }
 }
 
-/** Words that make someone on the stage no one acting: a body, a ghost, a memory. */
-const NOT_ALIVE =
-  /\b(dead|died|death|body|corpse|lifeless|remains|grave|ghost|spirit|shade|apparition|phantom|vision|dream(?:s|ed|t)?|memory|memories|remember(?:s|ed)?|imagin(?:es|ed|ing)|portrait|painting|statue|photograph)\b/i
 /** What someone does, not how they lie: what a body or a ghost can't do. */
 const DOING: StateField[] = ['lastAction', 'holding', 'sees', 'touching', 'mood']
 
-// ---------- The dead ----------
+// ---------- Dates ----------
 
-/** True when the scene is set before another scene: both dated, and this one earlier. */
+/**
+ * True when this scene is certainly set before another: both dated, an earlier day, or the same day with times of day
+ * whose spans don't meet (timeOrder: "night" and "11pm" may be the same hour, so neither is first).
+ */
 function setBefore(s: RuleScene, sceneId: ID): boolean {
-  const e = elapsedBetween(s.dateOf(sceneId), s.date)
-  return !!e && (e.days < 0 || (e.days === 0 && (e.minutes ?? 0) < 0))
+  const other = s.dateOf(sceneId)
+  const e = elapsedBetween(other, s.date)
+  if (!e) return false
+  if (e.days !== 0 || e.months !== undefined) return e.days < 0
+  return timeOrder(s.date, other) === 1
 }
 
-/** A death the memory is sure of, as the scene begins, unless the scene is set before it. */
+/** True when this scene is certainly set after another (the same rule the other way round). */
+function setAfter(s: RuleScene, sceneId: ID): boolean {
+  const other = s.dateOf(sceneId)
+  const e = elapsedBetween(other, s.date)
+  if (!e) return false
+  if (e.days !== 0 || e.months !== undefined) return e.days > 0
+  return timeOrder(other, s.date) === 1
+}
+
+/** True when the memory has someone surely dead as the scene begins (whatever its date). */
+const surelyDead = (e: EntryState): boolean => {
+  const d = deathRecord(e)
+  return !!d && surelyDied(d.note)
+}
+
+// ---------- The dead ----------
+
+/** A death the memory is sure of, as the scene begins, unless the scene is certainly set before it. */
 function deathHere(s: RuleScene, e: EntryState): { where: string; sceneId: ID | null } | null {
   const d = deathRecord(e)
   if (!d || !surelyDied(d.note)) return null
@@ -199,11 +272,12 @@ function deathHere(s: RuleScene, e: EntryState): { where: string; sceneId: ID | 
 
 /**
  * Someone the memory has dead speaks, is up and about on the stage, or is on the card. One finding a person, from the
- * strongest sign: a line they speak, the stage, the point of view, the card's list of who is there.
+ * strongest sign: a line they speak, the stage, the point of view, the card's list of who is there. With no dates, reading
+ * order decides: an undated scene after the death counts.
  */
 export function deadHere(s: RuleScene): RuleFinding[] {
-  // A flashback (fix 11: its When says so) may have anyone in it.
-  if (s.date?.back) return []
+  // A flashback, or a dream, a memory or a vision on the card or in the When, may have anyone in it.
+  if (notThePresent(s)) return []
   const dead = s.entries.flatMap((e) => {
     if (e.kind !== 'character') return []
     const d = deathHere(s, e)
@@ -221,17 +295,25 @@ export function deadHere(s: RuleScene): RuleFinding[] {
     const died = d.where ? `${e.name} died in ${s.place(d.where)}` : `${e.name} is dead from the start of the story`
     const verb = (one: string, many: string): string => (pro ? `; ${pro.they} ${pro.plural ? many : one}` : `, but ${one}`)
     let found: { quote: string; message: string; severity: IssueSeverity } | null = null
-    const line = spoken.find((l) => l.entryId === e.id)
+    // A line of theirs, outside a paragraph that says it is a dream, a memory or a ghost.
+    const line = spoken.find((l) => l.entryId === e.id && !inDreamlike(s.text, l.start))
     if (line) found = { quote: line.quote, message: `${died}${verb('speaks', 'speak')} here.`, severity: 'must-fix' }
     if (!found && s.stage) {
       const c = s.stage.characters.find((x) => stageEntry(x, index) === e.id)
-      const quiet = !c || [c.condition, c.where, c.posture].some((v) => NOT_ALIVE.test(v ?? ''))
-      const doing = quiet
-        ? null
-        : DOING.map((f) => ownValue(s.stage!, s.sceneId, c!, f)).find(
-            (v) => !!v && !NOT_ALIVE.test(v.value) && !/^(?:nothing|nobody|no one|none)\b/i.test(v.value) && !saysGone('holding', v.value)
-          )
-      if (doing) found = { quote: wordsIn(s.text, doing.quote), message: `${died}${verb('is up and about', 'are up and about')} here.`, severity: 'must-fix' }
+      const doing =
+        !c || notAlive(c)
+          ? null
+          : DOING.map((f) => ownValue(s.stage!, s.sceneId, c, f))
+              .map((v) => (v ? { ...v, at: placeOf(s.text, v.quote) } : null))
+              .find(
+                (v) =>
+                  !!v &&
+                  !NOT_ALIVE.test(v.value) &&
+                  !/^(?:nothing|nobody|no one|none)\b/i.test(v.value) &&
+                  !saysGone('holding', v.value) &&
+                  !(v.at && inDreamlike(s.text, v.at.start))
+              )
+      if (doing) found = { quote: doing.at?.words ?? '', message: `${died}${verb('is up and about', 'are up and about')} here.`, severity: 'must-fix' }
     }
     if (!found && s.card.povId === e.id) found = { quote: '', message: `${died}, but is this scene’s point of view.`, severity: 'warning' }
     if (!found && (s.card.presentIds ?? []).includes(e.id)) found = { quote: '', message: `${died}, but is on this scene’s card.`, severity: 'warning' }
@@ -249,6 +331,26 @@ export function deadHere(s: RuleScene): RuleFinding[] {
 }
 
 // ---------- Things in hand ----------
+
+const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu
+const wordsOf = (s: string): string[] => (foldApostrophes(s.toLowerCase()).match(WORD) ?? []).map((w) => w.replace(/'s$/, ''))
+
+/**
+ * The words each item is found by in what someone holds (memory/items.ts namesOf), less a bare one-word name in small
+ * letters that another item has in its own name: "letter" for "The letter" would find "Bryn's letter" too, and "key" "the
+ * cellar key". A name of its own ("Stormbringer") stays.
+ */
+export function itemWords(items: EntryState[], heads: Map<ID, string[]>): Map<ID, string[]> {
+  const out = new Map<ID, string[]>()
+  for (const item of items) {
+    const others = new Set(items.filter((o) => o.id !== item.id).flatMap((o) => [o.name, ...(o.aliases ?? [])].flatMap(wordsOf)))
+    out.set(
+      item.id,
+      namesOf(item, heads).filter((n) => /\s/.test(n.trim()) || /^\p{Lu}/u.test(n.trim()) || !others.has(wordsOf(n)[0] ?? ''))
+    )
+  }
+  return out
+}
 
 const BEFORE_NEXT = String.raw`(?=\s+(?:in|by|during|on|at|against|into|onto|under|when|while|after|before|beyond)\b|\s*[.;,:]|\s*$)`
 /** An item's own note that it was destroyed: "destroyed in the fire", "was smashed against the wall", "melted down". */
@@ -269,13 +371,13 @@ const GOT = /\b(got|gets|took|takes|picked\s+up|found|finds|has|holds|carries|ke
 
 /**
  * Whether the memory has an item destroyed or lost, to no one, as the scene begins: its own latest note saying so (or a
- * character's that they destroyed it), with nothing since bringing it back or giving it to anyone.
+ * character's that they destroyed it), with nothing since bringing it back or giving it to anyone. `words`: what the item
+ * is found by (itemWords).
  */
-export function goneItem(item: EntryState, entries: EntryState[], relationships: RelationshipState[], heads: Map<ID, string[]>): {
+export function goneItem(item: EntryState, entries: EntryState[], relationships: RelationshipState[], words: string[]): {
   how: 'destroyed' | 'lost'
   where: string
 } | null {
-  const words = namesOf(item, heads)
   const names = (note: string): boolean => words.some((w) => nameIn(note, w))
   type Note = { at: number; i: number; gone: 'destroyed' | 'lost' | null; back: boolean; where: string }
   const notes: Note[] = []
@@ -317,10 +419,11 @@ const TOGETHER = /\b(together|between them|both|one end|other end|shar(?:e|es|ed
 
 /**
  * The things in people's hands at the end of the scene (the stage, from this scene's own words): one the memory has
- * destroyed or lost, or one in two people's hands at once.
+ * destroyed or lost, or one in two people's hands at once. Never a body's grip, a ghost's or a dream's: someone dead,
+ * a holding in a dream or a memory, or a scene that is one.
  */
 export function inHand(s: RuleScene): RuleFinding[] {
-  if (!s.stage) return []
+  if (!s.stage || dreamlikeCard(s.card)) return []
   const items = s.entries.filter((e) => e.kind === 'item')
   if (!items.length) return []
   const index = nameIndex(s.people)
@@ -329,22 +432,29 @@ export function inHand(s: RuleScene): RuleFinding[] {
   for (const c of s.stage.characters) {
     const id = stageEntry(c, index)
     const own = id ? ownValue(s.stage, s.sceneId, c, 'holding') : null
-    if (!id || !own || saysGone('holding', own.value)) continue
+    if (!id || !own || saysGone('holding', own.value) || NOT_ALIVE.test(own.value) || notAlive(c)) continue
+    const person = byId.get(id)
+    if (person && surelyDead(person)) continue
+    const at = placeOf(s.text, own.quote)
+    if (at && inDreamlike(s.text, at.start)) continue
     const pieces = own.value.split(/\s*;\s*/).filter((p) => p && !saysGone('holding', p))
-    holders.push({ id, name: byId.get(id)?.name ?? clean(c.name), pieces, quote: wordsIn(s.text, own.quote) })
+    holders.push({ id, name: person?.name ?? clean(c.name), pieces, quote: at?.words ?? '' })
   }
   if (!holders.length) return []
-  const heads = itemHeads(s.entries)
+  const words = itemWords(items, itemHeads(s.entries))
   const out: RuleFinding[] = []
   for (const item of items) {
-    const words = namesOf(item, heads)
-    const holding = holders.filter((h) => h.pieces.some((p) => words.some((w) => nameIn(p, w))))
+    const names = words.get(item.id) ?? []
+    const holding = holders.filter((h) => h.pieces.some((p) => names.some((w) => nameIn(p, w))))
     if (!holding.length) continue
     const name = itemName(item.name)
-    const gone = goneItem(item, s.entries, s.relationships, heads)
-    // The memory says what happened to it here (found, mended): this scene brings it back.
-    const touched = s.here.some((c) => c.entryId === item.id || (c.kind === 'update' && words.some((w) => nameIn(c.payload.note, w))))
-    if (gone && !touched) {
+    const gone = goneItem(item, s.entries, s.relationships, names)
+    // The memory says what happened to it here (found, mended): this scene brings it back. A flashback, or a scene dated
+    // before it went, has it as it was.
+    const touched = s.here.some((c) => c.entryId === item.id || (c.kind === 'update' && names.some((w) => nameIn(c.payload.note, w))))
+    const goneAt = gone?.where ? s.sceneAt(gone.where) : null
+    const before = !!s.date?.back || (!!goneAt && setBefore(s, goneAt))
+    if (gone && !touched && !before) {
       const h = holding[0]
       const where = gone.where ? ` in ${s.place(gone.where)}` : ''
       out.push({
@@ -384,18 +494,16 @@ export function inHand(s: RuleScene): RuleFinding[] {
 // ---------- The point of view ----------
 
 /**
- * The card's point of view isn't in the scene: on another scene's card or stage at this very moment, somewhere else; or,
- * in a scene of real length told in the third person, never named. (Dead: `deadHere` says so.)
+ * The card's point of view isn't in the scene: on another scene's card or stage at this very clock time, somewhere else;
+ * or, in a scene of real length told in the third person, never named. (Dead: `deadHere` says so.)
  */
 export function povHere(s: RuleScene): RuleFinding[] {
   const id = s.card.povId
   const e = id ? s.entries.find((x) => x.id === id) : undefined
-  if (!e || e.kind !== 'character') return []
-  const d = deathRecord(e)
-  if (d && surelyDied(d.note)) return []
+  if (!e || e.kind !== 'character' || surelyDead(e)) return []
   const pro = pronounOf(e)
   const them = pro?.them ?? e.name
-  if (!s.date?.back) {
+  if (!notThePresent(s)) {
     const other = s.meanwhile.find((m) => m.people.includes(e.id))
     if (other) {
       const here = s.placeName ? `, at ${s.placeName}` : ''
@@ -533,10 +641,12 @@ export function agesHere(s: RuleScene): RuleFinding[] {
 /**
  * Someone tells a secret here that the memory has no sign they knew: they said it (the memory keeper's "said it"), and as
  * the scene begins others know it (who knows it rests on who was there: B5) and they don't, nor learn it earlier in the
- * scene. A secret about themselves, or one they believe wrongly, is never asked about; a promise or a threat starts
- * with whoever makes it.
+ * scene, nor in any scene dated before this one (a scene told later that happened first). A secret about themselves, or
+ * one they believe wrongly, is never asked about; a promise or a threat starts with whoever makes it; a flashback, a
+ * dream or a memory is never asked about.
  */
 export function knowsEarly(s: RuleScene): RuleFinding[] {
+  if (notThePresent(s)) return []
   const byId = new Map(s.entries.map((e) => [e.id, e]))
   const knowing = s.here.filter((c): c is Extract<Change, { kind: 'knowledge' }> => c.kind === 'knowledge')
   const out: RuleFinding[] = []
@@ -556,6 +666,10 @@ export function knowsEarly(s: RuleScene): RuleFinding[] {
     // Learned earlier in this scene: told, overheard, seen.
     if (knowing.slice(0, i).some((o) => o.entryId === x.id && o.payload.factId === p.factId && !o.payload.forgets && learnedHow(x.id, o.payload).how !== 'said'))
       return
+    // Learned in a scene told later that is dated before this one.
+    if ((s.learnedIn?.(x.id, p.factId) ?? []).some((id) => id !== s.sceneId && setAfter(s, id))) return
+    const quote = placeOf(s.text, p.said.words)
+    if (quote && inDreamlike(s.text, quote.start)) return
     done.add(`${x.id}|${p.factId}`)
     const pro = pronounOf(x)
     const names = knowers.map((k) => k.name)
@@ -564,7 +678,7 @@ export function knowsEarly(s: RuleScene): RuleFinding[] {
       about: `${x.id}:${p.factId}`,
       kind: 'knowledge',
       severity: 'warning',
-      quote: wordsIn(s.text, p.said.words),
+      quote: quote?.words ?? '',
       message: `${x.name} says “${fact}” here, but nothing in the memory shows ${pro?.them ?? x.name} learning it first. ${namesUpTo(names)} ${names.length === 1 ? 'knows' : 'know'} it.`,
       sources: [entrySource(x)],
       entryId: x.id

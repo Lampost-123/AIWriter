@@ -2870,28 +2870,35 @@ no new AI call; the memory keeper's prompt is unchanged (its 58 characters to sp
 - **The rules** (`checks/rules.ts`, pure, each over a `RuleScene`; `ruleFindings` runs them all, and one that fails says
   nothing while the rest still run). Each says nothing when the record is unsure: the memory is read as the writer is
   given it (a fact whose words were edited and not confirmed is left out, `writerData`; guesses dropped), a stage only
-  while it still stands (`storedState(...).current`), a date only where the calendar can tell.
-  - `dead`: someone the memory has dead as the scene begins (in reading order; `deaths.ts` `deathRecord`, and only a
-    death it is sure of, `surelyDied`: never "presumed dead", "reported drowned", "left for dead") speaks a line (below),
-    is up and about on the stage (a value of theirs from this scene's words that is something they do: last did, holding,
-    sees, touching, mood; never a body, a ghost, a vision or a memory, `NOT_ALIVE`), is the card's point of view, or is
-    on the card's list of who is there. Once a person, from the strongest sign, worded plainly: "Tobin died in Ch 1, Sc
-    2, but speaks here." ("Mara died in Ch 18, Sc 2; she speaks here." when the card gives pronouns). A line or the stage
-    is a must-fix; the card alone is worth a look. A flashback (the When says so, fix 11) is exempt, and so is a scene the
-    calendar dates before the death's scene; a scene with no date still counts by reading order. Being remembered or
-    spoken of is never flagged.
+  while it still stands (`storedState(...).current`), a date only where the calendar can tell, and the same day only
+  where the times of day certainly don't meet (`timeOrder` over their spans: "night" and "11pm" may be the same hour).
+  Nothing is said of a dream, a ghost, a memory or a vision (`DREAMLIKE`: in the paragraph a line or a value is in, on
+  the card, or in the When; `dreamlikeCard`, `paragraphOf`), nor of a flashback (the When says so, fix 11).
+  - `dead`: someone the memory has dead as the scene begins (`deaths.ts` `deathRecord`, and only a death it is sure of,
+    `surelyDied`: never "presumed dead", "reported drowned", "left for dead") speaks a line (below), is up and about on
+    the stage (a value of theirs from this scene's words that is something they do: last did, holding, sees, touching,
+    mood; never a body, a ghost, a vision or a memory, `NOT_ALIVE`), is the card's point of view, or is on the card's
+    list of who is there. Once a person, from the strongest sign, worded plainly: "Tobin died in Ch 1, Sc 2, but speaks
+    here." ("Mara died in Ch 18, Sc 2; she speaks here." when the card gives pronouns). A line or the stage is a must-fix;
+    the card alone is worth a look. A scene the calendar certainly dates before the death's is exempt. Decided in review:
+    with no dates, reading order decides, so an undated scene after the death is flagged; a dream, a ghost, a memory or a
+    flashback (in the line's paragraph, the card or the When) always exempts. Being remembered or spoken of is never
+    flagged.
   - `gone-item`: something the memory has destroyed or lost, to no one (its own latest note, "smashed against the
-    rocks", "lost in the river", not "lost to Bryn at cards"; or a character's own "smashed the brass compass"), with
-    nothing since bringing it back (found, mended, someone getting it, a holding tie), is held on the stage from this
-    scene's words, and the memory says nothing of it in this scene: "The brass compass was destroyed in Ch 3, Sc 2, but
-    Tobin holds it here."
-  - `two-hands`: the same codex item (by its names or main word, `memory/items.ts`) in two people's holding at the end of
-    the scene, both from this scene's words, unless either says it is held together ("both", "between them", the other's
-    name). Continuity, worth a look.
+    rocks", "lost in the river", not "lost to Bryn at cards", nor "lost … and found" in one note; or a character's own
+    "smashed the brass compass"), with nothing since bringing it back (found, mended, someone getting it, a holding tie),
+    is held on the stage from this scene's words, and the memory says nothing of it in this scene: "The brass compass was
+    destroyed in Ch 3, Sc 2, but Tobin holds it here." Not in a flashback, nor in a scene dated before it went.
+  - `two-hands`: the same codex item in two living people's holding at the end of the scene, both from this scene's
+    words, unless either says it is held together ("both", "between them", the other's name). Never a body's grip (someone
+    the memory has dead, or the stage has as a body), nor a holding in a dream or a memory. An item is found by its
+    names and main word (`memory/items.ts`), but never by a bare word in small letters another item has in its name
+    (`itemWords`: "letter" for "The letter" would find "Bryn's letter"; "key" "the cellar key"). Continuity, worth a look.
   - `pov-elsewhere`: the card's point of view is on another scene's card or stage (`onStage`: a value from that scene's
-    words) at this very moment somewhere else: both cards give their own day and time (neither leans on the scene before,
-    as "Later that evening" does, nor goes back) and `sameMoment` says so, and their places are apart (neither is the
-    other or inside it, `parentChain`). At most `MEANWHILE_MOST` (6) such scenes are looked at.
+    words) at this very clock time somewhere else: both cards give their own day and the same exact time ("9pm"; a time
+    of day such as "evening" lasts hours, so two evenings are never the same moment here), neither leans on the scene
+    before ("Later that evening") nor goes back nor is a dream, and their places are apart (neither is the other or
+    inside it, `parentChain`). At most `MEANWHILE_MOST` (6) such scenes are looked at.
   - `pov-unnamed`: a scene of `POV_NAMED_WORDS` (500) words or more never names its point of view (by name, other name
     or what the scene calls them, the one name rule), unless the style guide says first or second person or the
     narration says "I", "me" or "my" `FIRST_PERSON_I` (3) times. Minor.
@@ -2901,43 +2908,57 @@ no new AI call; the memory keeper's prompt is unchanged (its 58 characters to sp
   - `age`: an age the memory set in this scene (a bare age: the scene's words, "Mara, now twenty,") or the card gives
     someone on it ("Mara, 35,", "Mara (35)", "Mara is 35", "a 35-year-old Mara", `ageGiven`; never "Mara was 5 when…") a
     year or more from what the memory works out as the scene begins (`ageHere`; a year more either way when that is only
-    about right, `ageClashes`): "Mara is 35 here, but the memory says 34 at the story’s start, so 39 or 40 by now." Its
-    payload has the entry and field `age`, so a keeper's clash about the same age is the same thing.
+    about right, `ageClashes`): "Mara is 35 here, but the memory says 34 at the story’s start, so 39 or 40 by now."
   - `knows-early`: someone tells a secret here (the memory keeper's "said it": a `said` secret whose speaker they are, no
     `how` of their own), others knew it as the scene began (who knows it rests on who was there, `backed`), they didn't
-    (`Ledger.couldKnow`), nor believed it wrongly, nor learned it earlier in the scene, and it isn't about them: "Tobin
-    says “Mara is the heir” here, but nothing in the memory shows Tobin learning it first. Ash knows it." A promise or
-    a threat starts with whoever makes it, so it is never asked about.
+    (`Ledger.couldKnow`), nor believed it wrongly, nor learned it earlier in the scene, nor in a scene told later that the
+    calendar dates before this one (`RuleScene.learnedIn`, `db/memory.ts` `knowledgeScenes`), and it isn't about them:
+    "Tobin says “Mara is the heir” here, but nothing in the memory shows Tobin learning it first. Ash knows it." A promise
+    or a threat starts with whoever makes it, so it is never asked about; nor is anything in a flashback or a memory.
 - **Who speaks a line** (`checks/speakers.ts`, pure). Quotations paragraph by paragraph (`quoteSpans`: “…” and "…", and
-  ‘…’ or '…' where the marks aren't apostrophes; one left open runs to its paragraph's end). A line is someone's only in
-  the plain ways: `“…,” said Tobin.`, `“…,” Tobin said.`, `Tobin said, “…”` (opening the sentence), with one of the
-  speech verbs (`SAY`) straight after or before the name. A name inside a quotation is someone spoken of or to; "Tobin
-  had said", "She remembered how Tobin said", "said Tobin's sister" are never his line. Names by the one name rule
-  (fix 12), longest first with no overlaps (`namedPlaces`: "said Mara Venn" is Mara Venn, never Mara), and words two
-  people go by name neither. "He said" isn't read (no guessing who "he" is): a known limit.
-- **Reading a scene** (`checks/ruleChecks.ts` `ruleScene`): one `sceneMemory` as a check makes it (`forWriter`,
-  `dropGuesses`), its `bringAbout` (the changes pinned to the scene), the ledger, this scene's called words
-  (`db/called.ts`), the stage (`continuity/tracker.ts` `storedState`), the story calendar (kept until the world changes)
-  and, for the point of view, the other scenes' cards (`sceneCards`). No walk over every scene for each scene: the
-  calendar is read once, and the same-moment scenes are found in it.
+  ‘…’ or '…' where the marks aren't apostrophes; one of the same kind quoted inside counts as part of it, “She said
+  “never” to me,”; one left open runs to its paragraph's end). A line is someone's only in the plain ways: `“…,” said
+  Tobin.`, `“…,” Tobin said.`, `Tobin said, “…”` (opening a sentence or a paragraph), with one of the speech verbs (`SAY`)
+  straight after or before the name. Verbs that also mean something else (`LOOSE`: began, went on, continued, added,
+  called, told and the like) give a line after the name only when a pause follows (`PAUSE_AFTER`): "“I’ll go.” Mara began
+  to walk away" isn't hers; "Tobin said nothing" isn't either. A name inside a quotation is someone spoken of or to;
+  "Tobin had said", "She remembered how Tobin said", "said Tobin's sister" are never his line; the line before, in the
+  paragraph before, is someone else's. Names by the one name rule (fix 12), longest first with no overlaps
+  (`namedPlaces`: "said Mara Venn" is Mara Venn, never Mara), and words two people go by name neither. "He said" isn't
+  read (no guessing who "he" is): a known limit.
+- **Reading a scene** (`checks/ruleChecks.ts` `ruleScene`): a check passes the memory it has already read (`RuleOptions`
+  `memory`, its `SceneMemory`); otherwise one reading of what is true as the scene begins without the story so far,
+  threads or the scenes before (`memory/scene.ts` `sceneStart`, which `sceneMemory` now builds on), with its `bringAbout`,
+  the ledger, this scene's called words (`db/called.ts`), the stage (`continuity/tracker.ts` `storedState`), the story
+  calendar and, only when this scene gives a clock time and a place, the other scenes' cards
+  (`memory/storyCalendar.ts` `calendarCards`, kept as long as the calendar is: `calendarVersion`). Tested on a 500-scene
+  story.
 - **When they run**: after the memory keeper reads a scene, once where things stand at its end is brought up to date
-  (`keeper/index.ts` `standLater`, which runs them even while the memory waits for this month's spending limit: they cost
-  nothing), and in every check of a scene, right after the AI's findings are kept (`checks/run.ts`; counted in the run's
-  "Found 2 things to look at"). `ruleChecksQuietly` never throws. A card changed on its own (a When, a point of view)
-  is looked at again by the next read of the scene or the next check.
+  (`keeper/index.ts` `standLater` → `rulesAfterRead`, which runs them even while the memory waits for this month's
+  spending limit: they cost nothing), then over the later scenes on the line that still have a rule's finding open
+  (`laterRuleScenes`, nearest first, `LATER_MOST` (12)), as one may rest on the scene just read (a death taken back, a
+  learning added); and in every check of a scene, right after the AI's findings are kept (`checks/run.ts`; counted in
+  the run's "Found 2 things to look at"). A deleted scene keeps none of their findings open (`scenesDeleted` →
+  `rulesAfterDeleting` → `db/checks.ts` `clearDeletedRules`; what Adam ignored or fixed stays), and one brought back
+  from Recently deleted is looked at again at once (`scenesRestored`). Never throws. A card changed on its own (a When,
+  a point of view) is looked at again by the next read of the scene or the next check.
 - **Where the findings go**: the `issues` rows the checks keep (`db/checks.ts`), so the Issues tab, the badges, the
   Check room, Fix the text (the quoted words, when there are any), Ignore and Undo work as for any finding. Payload
   `by: 'rule'`, `rule`, `sources`, `entryId` (and `field` for an age), `fix` and `memoryFix` null; key
   `rule:<rule>:<scene>:<what it is about>` (`ruleKey`), so a finding is never raised twice. Each run replaces what the
   rules found there before (`saveFound` now takes away open `rule` rows too, when the caller's `replaces` says so; the
-  AI's `replaces` only ever names its own checks), and one found again just as it was isn't written or told to the window
-  again, so the Issues tab doesn't reload after every reading. A rule never raises what the AI or the memory keeper already raised
-  (`sameThing`: the same kind with overlapping words, or the same entry and field), and when the AI check finds what a
-  rule found, the AI's finding takes its place in the same row (its words, rewrite and advice), so whichever ran first
-  the same thing reads the same; a rule never takes over the AI's. If the AI stops finding it, the rule brings it back at
-  once. Fix 7's lessons work unchanged: an ignored rule finding is meant (never raised again, and told to later checks),
-  a fixed one is a slip later scenes' writers are warned of (`fact`, `knowledge` and `timeline` kinds; two in hand and
-  the point of view never named are `continuity`, about their moment).
+  AI's `replaces` only ever names its own checks), and one found again just as it was isn't written or told to the
+  window again, so the Issues tab doesn't reload after every reading. A rule's finding and the AI's or the keeper's are
+  the same thing (`sameThing`) when both are about the same entry (and field, or neither) and about what is so (facts,
+  who knows what, the timeline, continuity; never voice or style), whatever their kinds, unless both quote words, other
+  words, under other kinds; with no entry on one side, by the same kind and overlapping words; two rules' findings only
+  by their keys. A rule never raises what the AI or the keeper already raised; when the AI check finds what a rule found,
+  the AI's finding takes its place in the same row (its words, rewrite and advice); when the memory keeper raises its
+  clash about the same thing (it can update the memory), the rule's open finding gives way to it, and a rule's finding
+  never stops the keeper's (`db/keeper.ts` `raiseIssue`). If the AI stops finding it, the rule brings it back at once.
+  Fix 7's lessons work unchanged: an ignored rule finding is meant (never raised again, and told to later checks), a
+  fixed one is a slip later scenes' writers are warned of (`fact`, `knowledge` and `timeline` kinds; two in hand and the
+  point of view never named are `continuity`, about their moment).
 - **On the screen**: the card's kind line says "Facts · Found by a rule, not the AI" (`issuesLogic.ts` `RULE_WORDS`; on
   hover "Found by a rule over the memory, at once and for free: no AI was asked.") in the Issues tab (both looks), the
   Check room's issues and Classic's Consistency page; the margin note keeps its head and has the same hover. Nothing

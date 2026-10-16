@@ -20,12 +20,14 @@ const LETTER = /[\p{L}\p{N}]/u
 /**
  * Every quotation in the text, paragraph by paragraph: “…” and "…", and ‘…’ or '…' where the marks open and close a
  * quotation rather than stand for a missing letter ("don’t", "the boys’ coats" inside one, "’tis"). Marks inside a
- * quotation of the other kind are part of it. One left open runs to the end of its paragraph (speech over several
- * paragraphs leaves each but the last open).
+ * quotation of the other kind are part of it, and so is one of the same kind quoted inside it (“She said “never” to
+ * me,” is one quotation). One left open runs to the end of its paragraph (speech over several paragraphs leaves each but
+ * the last open).
  */
 export function quoteSpans(text: string): QuoteSpan[] {
   const out: QuoteSpan[] = []
-  let open: { at: number; double: boolean } | null = null
+  /** The quotation open now: where, which kind, opened with a curly mark or not, and the marks of its kind open inside it. */
+  let open: { at: number; double: boolean; curly: boolean; depth: number } | null = null
   for (let i = 0; i <= text.length; i++) {
     const c = text[i]
     if (i === text.length || c === '\n') {
@@ -36,12 +38,18 @@ export function quoteSpans(text: string): QuoteSpan[] {
     const before = i > 0 ? text[i - 1] : ''
     const after = text[i + 1] ?? ''
     if (c === '“' || c === '”' || c === '"') {
-      if (open?.double) {
-        if (c !== '“') {
+      if (!open) {
+        if (c !== '”') open = { at: i, double: true, curly: c === '“', depth: 0 }
+      } else if (open.double) {
+        if (c === '“') open.depth++
+        else if (c === '”' && open.depth > 0) open.depth--
+        // A straight pair quoted inside a curly quotation is part of it.
+        else if (c === '"' && open.curly) continue
+        else {
           out.push({ start: open.at, end: i + 1 })
           open = null
         }
-      } else if (!open && c !== '”') open = { at: i, double: true }
+      }
       continue
     }
     if (c === '‘' || c === '’' || c === "'") {
@@ -51,8 +59,8 @@ export function quoteSpans(text: string): QuoteSpan[] {
           out.push({ start: open.at, end: i + 1 })
           open = null
         }
-      } else if (!open && c !== '’' && !LETTER.test(before) && LETTER.test(after)) open = { at: i, double: false }
-      else if (!open && c === '’' && !LETTER.test(before) && /\p{Lu}/u.test(after)) open = { at: i, double: false }
+      } else if (!open && c !== '’' && !LETTER.test(before) && LETTER.test(after)) open = { at: i, double: false, curly: c === '‘', depth: 0 }
+      else if (!open && c === '’' && !LETTER.test(before) && /\p{Lu}/u.test(after)) open = { at: i, double: false, curly: true, depth: 0 }
     }
   }
   return out
@@ -61,8 +69,19 @@ export function quoteSpans(text: string): QuoteSpan[] {
 /** The verbs a line of dialogue is given to someone with. */
 const SAY =
   'said|says|asked|asks|replied|replies|answered|answers|whispered|whispers|shouted|shouts|called|calls|cried|cries|murmured|murmurs|muttered|mutters|snapped|snaps|added|adds|yelled|yells|hissed|hisses|barked|barks|demanded|demands|told|tells|continued|continues|went on|goes on|agreed|agrees|insisted|insists|repeated|repeats|began|begins|breathed|breathes|growled|growls|sighed|sighs|laughed|laughs|warned|warns|promised|promises|admitted|admits|explained|explains|offered|offers|pleaded|pleads|begged|begs|roared|roars|screamed|screams'
+/**
+ * Verbs that give a line only when nothing follows but a pause ("“And then?” Mara went on."), never with more after them:
+ * "“I’ll go.” Mara began to walk away" is no line of hers, nor "called him back", "told the truth", "laughed at it".
+ */
+const LOOSE = new Set(
+  `began begins continued continues went goes added adds called calls told tells offered offers promised promises warned warns
+  laughed laughs sighed sighs admitted admits explained explains agreed agrees insisted insists pleaded pleads begged begs
+  demanded demands repeated repeats breathed breathes`.split(/\s+/)
+)
+/** What may follow a loose verb when it gives a line: an adverb or not, then a pause or the end. */
+const PAUSE_AFTER = /^(?:\s+\p{L}+ly)?\s*(?:[,.;:!?—–-]|$)/u
 /** The verb straight after a name: "Tobin said". */
-const VERB_AFTER = new RegExp(`^\\s+(?:${SAY})(?![\\p{L}])`, 'iu')
+const VERB_AFTER = new RegExp(`^\\s+(${SAY})(?![\\p{L}])`, 'iu')
 /** The verb straight before a name, after a line: "…," said Tobin. */
 const VERB_BEFORE = new RegExp(`(?:^|[^\\p{L}])(?:${SAY})\\s+$`, 'iu')
 /** What may stand between a line's closing mark and what follows it in the same paragraph: spaces, a comma or a dash. */
@@ -158,6 +177,10 @@ export function spokenLines(text: string, people: readonly { id: ID; names: read
     if (!n.id || inside(n.start) || /^['’]s(?![\p{L}])/u.test(text.slice(n.end, n.end + 3))) continue
     let line: { start: number; end: number } | null = null
     const after = VERB_AFTER.exec(text.slice(n.end, n.end + 40))
+    const rest = after ? text.slice(n.end + after[0].length, n.end + after[0].length + 60) : ''
+    // "Tobin said nothing"; "Mara began to walk away".
+    if (after && (/^\s+(?:nothing|no more|little)\b/i.test(rest) || (LOOSE.has(after[1].split(/\s+/)[0].toLowerCase()) && !PAUSE_AFTER.test(rest))))
+      continue
     if (after) {
       const verbEnd = n.end + after[0].length
       const before = endingBefore(n.start)

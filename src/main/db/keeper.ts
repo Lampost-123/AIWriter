@@ -11,7 +11,7 @@ import { getChange } from './memory'
 import { linksForEntry, linksForFact, recordVersion } from './history'
 import { fingerprint, logLineWords } from '../keeper/facts'
 import { plain } from '../keeper/text'
-import { issuesTouched, sameThing } from './checks'
+import { issuesTouched, payloadOf, sameThing } from './checks'
 import type { IssueKind } from '@shared/contracts/checks'
 
 type DB = Database.Database
@@ -590,7 +590,8 @@ export function suppressionsInScene(db: DB, sceneId: ID): { fingerprint: string;
  * A consistency issue: the text disagrees with one of Adam's facts. Not raised twice for the same thing
  * while open, and never again once Adam has ignored it (milestone 5: "Ignored issues stay ignored"): the
  * same thing is the same key, the same entry and field, or the same kind with overlapping words, whoever
- * raised it (db/checks.ts sameThing).
+ * raised it (db/checks.ts sameThing). A rule's finding (long story memory fix 8) never stops the keeper's: an open one
+ * about the same thing gives way to it (the keeper's clash can update the memory), and one Adam ignored stays as it is.
  */
 export function raiseIssue(
   db: DB,
@@ -605,13 +606,18 @@ export function raiseIssue(
     payload: Record<string, unknown>
   }
 ): boolean {
-  const open = db.prepare("SELECT * FROM issues WHERE scene_id = ? AND status IN ('open', 'ignored')").all(i.sceneId) as Row[]
-  if (open.some((r) => sameThing(i.payload, r, { key: i.key, sceneId: i.sceneId, kind: i.kind as IssueKind, quote: i.quote }))) return false
+  const rows = db.prepare("SELECT * FROM issues WHERE scene_id = ? AND status IN ('open', 'ignored')").all(i.sceneId) as Row[]
+  const same = (r: Row): boolean => sameThing(i.payload, r, { key: i.key, sceneId: i.sceneId, kind: i.kind as IssueKind, quote: i.quote })
+  const rule = (r: Row): boolean => payloadOf(r).by === 'rule'
+  if (rows.some((r) => !rule(r) && same(r))) return false
   const t = now()
-  db.prepare(
-    `INSERT INTO issues (id, scene_id, story_id, kind, severity, status, quote, message, payload_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`
-  ).run(newId(), i.sceneId, i.storyId, i.kind, i.severity, i.quote, i.message, JSON.stringify({ ...i.payload, key: i.key }), t, t)
+  db.transaction(() => {
+    for (const r of rows) if (rule(r) && r.status === 'open' && same(r)) db.prepare('DELETE FROM issues WHERE id = ?').run(r.id)
+    db.prepare(
+      `INSERT INTO issues (id, scene_id, story_id, kind, severity, status, quote, message, payload_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`
+    ).run(newId(), i.sceneId, i.storyId, i.kind, i.severity, i.quote, i.message, JSON.stringify({ ...i.payload, key: i.key }), t, t)
+  })()
   issuesTouched(i.storyId, i.sceneId)
   return true
 }

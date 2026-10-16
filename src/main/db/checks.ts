@@ -397,9 +397,25 @@ export function sameThing(p: IssuePayload, row: Row, f: Pick<FoundIssue, 'key' |
   const q = json<IssuePayload>(row.payload_json, {})
   if (q.key && q.key === f.key) return true
   if ((row.scene_id || null) !== (f.sceneId || null)) return false
+  // A rule's finding (long story memory fix 8) and the AI's or the keeper's: the same thing when both are about the same
+  // entry (and the same field, or neither) and about what is so, whatever their kinds, unless both quote words and those
+  // are other words of another kind; with no entry on one side, by their words as below. Two rules' findings are the same
+  // only by their keys.
+  if (p.by === 'rule' || q.by === 'rule') {
+    if (p.by === 'rule' && q.by === 'rule') return false
+    if (p.entryId && q.entryId) {
+      const a = (row.quote as string) ?? ''
+      const words = row.kind === f.kind || !a.trim() || !f.quote.trim() || quotesOverlap(a, f.quote)
+      return q.entryId === p.entryId && (p.field ?? null) === (q.field ?? null) && RULE_KINDS.has(f.kind) && RULE_KINDS.has(row.kind as IssueKind) && words
+    }
+    return row.kind === f.kind && quotesOverlap((row.quote as string) ?? '', f.quote)
+  }
   if (p.entryId && q.entryId === p.entryId && p.field && q.field === p.field) return true
   return row.kind === f.kind && quotesOverlap((row.quote as string) ?? '', f.quote)
 }
+
+/** The kinds a rule's finding is matched with another's by entry: what is so, never how it reads (voice, style). */
+const RULE_KINDS = new Set<IssueKind>(['fact', 'knowledge', 'timeline', 'continuity'])
 
 /**
  * Saves what a check found in one transaction, replacing what the same check found there before:
@@ -558,6 +574,44 @@ export function storyKindRows(db: DB, storyId: ID): Row[] {
 
 /** The payload of a row. */
 export const payloadOf = (r: Row): IssuePayload => json<IssuePayload>(r.payload_json, {})
+
+/** A rule's row (fix 8): `by` 'rule' in its payload, as SQL. */
+const RULE_ROW = "json_valid(payload_json) AND json_extract(payload_json, '$.by') = 'rule'"
+
+/** The live scenes with a rule's finding open (fix 8: looked at again when a scene before them is read). */
+export function openRuleScenes(db: DB): ID[] {
+  return (
+    db
+      .prepare(
+        `SELECT DISTINCT i.scene_id AS id FROM issues i JOIN scenes sc ON sc.id = i.scene_id JOIN chapters c ON c.id = sc.chapter_id
+         JOIN stories st ON st.id = c.story_id
+         WHERE i.status = 'open' AND ${RULE_ROW} AND sc.deleted_at IS NULL AND c.deleted_at IS NULL AND st.deleted_at IS NULL`
+      )
+      .all() as Row[]
+  ).map((r) => r.id as ID)
+}
+
+/**
+ * Takes away the rules' open findings (fix 8) in scenes that are deleted (in Recently deleted, or in a chapter or story
+ * that is): they no longer count anywhere. What Adam ignored or fixed there stays, for if the scene comes back. Returns
+ * the scenes whose issues changed.
+ */
+export function clearDeletedRules(db: DB): ID[] {
+  const rows = db
+    .prepare(
+      `SELECT id, scene_id, story_id FROM issues WHERE status = 'open' AND ${RULE_ROW} AND scene_id IN (
+         SELECT sc.id FROM scenes sc LEFT JOIN chapters c ON c.id = sc.chapter_id LEFT JOIN stories st ON st.id = c.story_id
+         WHERE sc.deleted_at IS NOT NULL OR c.deleted_at IS NOT NULL OR st.deleted_at IS NOT NULL)`
+    )
+    .all() as Row[]
+  if (!rows.length) return []
+  const del = db.prepare('DELETE FROM issues WHERE id = ?')
+  db.transaction(() => {
+    for (const r of rows) del.run(r.id)
+  })()
+  for (const r of rows) issuesTouched(r.story_id as ID | null, r.scene_id as ID)
+  return [...new Set(rows.map((r) => r.scene_id as ID))]
+}
 
 /** How many open issues a scene has that were raised at or after `since` (by a check, or by the memory keeper). */
 export function openSince(db: DB, sceneId: ID, since: string): number {

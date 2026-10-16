@@ -25,7 +25,7 @@ import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
 import { stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
-import { ruleChecksQuietly } from '../checks/ruleChecks'
+import { rulesAfterDeleting, rulesAfterRead } from '../checks/ruleChecks'
 
 let keeper: Keeper | null = null
 
@@ -136,14 +136,15 @@ let standing: Promise<void> = Promise.resolve()
  * After the memory read a scene (a pause in typing, a draft, a beat, leaving the scene): where things stand as it
  * ends, read on from its last checkpoint, so only the new words are read (continuity/tracker.ts). Recall reloads when
  * it changed. Then the free rule checks run over the scene (long story memory fix 8, checks/ruleChecks.ts: no AI call),
- * with the memory and the stage as they now are. Never holds up the memory; never throws.
+ * with the memory and the stage as they now are, and over the later scenes whose open findings may rest on it. Never
+ * holds up the memory; never throws.
  */
 function standLater(db: Database.Database, sceneId: ID, model: MemoryModel): void {
   const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
   standing = standing.then(async () => {
     if (!live()) return
     if (!pausedNote()) await standUp(db, sceneId, model, live)
-    if (live()) ruleChecksQuietly(db, sceneId, getWritingPrefs())
+    if (live()) rulesAfterRead(db, sceneId, getWritingPrefs())
   })
 }
 
@@ -241,17 +242,25 @@ export function scenesDeleted(db: Database.Database): void {
   } catch (e) {
     console.warn('The memory keeper could not take a deleted scene out of the memory', e)
   }
+  // A deleted scene keeps none of the rule checks' findings open (long story memory fix 8).
+  rulesAfterDeleting(db)
 }
 
-/** After something is brought back from the Trash: its scenes' facts come back, and anything unread in them is read. */
+/**
+ * After something is brought back from the Trash: its scenes' facts come back, and anything unread in them is read. The
+ * rule checks look at each again at once (long story memory fix 8: free, so they don't wait for a read).
+ */
 export function scenesRestored(db: Database.Database): void {
+  let back: ID[] = []
   try {
     const out = db.transaction(() => restoreScenes(db))()
+    back = out.sceneIds
     for (const id of out.sceneIds) currentKeeper()?.sceneRestored(id)
     told(out)
   } catch (e) {
     console.warn('The memory keeper could not bring back a restored scene', e)
   }
+  rulesAfterDeleting(db, back, getWritingPrefs())
 }
 
 /** Adam edited an entry by hand: a field he emptied isn't filled again from the same words. Passes the result through. */
