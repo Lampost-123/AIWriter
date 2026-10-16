@@ -86,6 +86,17 @@ function ReportBody({ report }: { report: Report }): React.JSX.Element {
           </ul>
         </details>
       ) : null}
+      {report.notes?.length ? (
+        <details className={details} open>
+          <summary>Worth a look ({report.notes.length})</summary>
+          <p className="mt-1 text-faint">Things the AI couldn’t put right itself. It never changes scenes outside this chapter.</p>
+          <ul className="mt-1.5 list-disc space-y-1 pl-4">
+            {report.notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       {report.questions.length ? (
         <details className={details} open>
           <summary>Your scene cards and the memory ({report.questions.length})</summary>

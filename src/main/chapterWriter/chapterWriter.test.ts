@@ -193,6 +193,83 @@ describe('writing a whole chapter', () => {
     expect(repo.getScene(db, s1).text).toBe('Old words in the first scene.')
   })
 
+  it('checks the scene after one a review changed, and the next chapter’s first scene, noting what it finds there', { timeout: 30_000 }, async () => {
+    const { db, storyId, chapterId, s1, s2 } = world()
+    const next = repo.createChapter(db, storyId, { title: 'The road' })
+    // An empty scene first: the one after it looks back past it, so it is the one checked.
+    repo.createScene(db, next.id)
+    const road = repo.createScene(db, next.id).id
+    repo.saveSceneText(db, road, null, 'Mara walked on in the blue dress, wet through.')
+    const d = deps(db)
+    const real = { check: d.check, critique: d.critique }
+    const checked: ID[] = []
+    d.check = async (sceneId, signal) => {
+      checked.push(sceneId)
+      // The next chapter's scene: the check finds its opening no longer follows on.
+      if (sceneId === road) {
+        cdb.saveFound(
+          db,
+          cdb.sceneIssueRows(db, road),
+          [{ sceneId: road, storyId, kind: 'continuity', severity: 'warning', quote: 'in the blue dress', message: 'Mara took the blue dress off at the inn.', key: 'k-road', payload: { key: 'k-road', by: 'check', check: 'continuity' } }],
+          () => false
+        )
+        return { status: 'done' }
+      }
+      return real.check(sceneId, signal)
+    }
+    // The critic has notes for Sc 1 only, so only Sc 1's review changes anything.
+    d.critique = (target, again, signal) => {
+      if (target.scope === 'chapter' || target.id !== s1) {
+        return Promise.resolve({ status: 'complete', critique: { scope: target.scope, targetId: target.id, summary: '', strengths: [], notes: [], at: '', textHash: '', shortened: false } })
+      }
+      return real.critique(target, again, signal)
+    }
+    const run = new ChapterRun(d, 'run-5', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    // Round 1 checks both scenes, then the next chapter's first scene with words (its last scene was just written);
+    // round 2 checks Sc 2 again although only Sc 1 changed: its opening follows on from Sc 1's new end.
+    expect(checked).toEqual([s1, s2, road, s1, s2])
+    // The next chapter's scene is never changed: what its check found is noted for Adam.
+    expect(repo.getScene(db, road).text).toBe('Mara walked on in the blue dress, wet through.')
+    expect(report.notes).toEqual(['Ch 2, Sc 2 may no longer follow on: Mara took the blue dress off at the inn. (“in the blue dress”)'])
+  })
+
+  it('never keeps a cut-off draft or a refusal as the scene', async () => {
+    for (const [end, words] of [
+      [{ cutOff: true }, /stopped partway through Sc 1 “The ferry”: it ran out of room/],
+      [{ refused: true }, /wouldn't write Sc 1 “The ferry” and sent back a refusal/]
+    ] as const) {
+      const { db, chapterId, s1 } = world()
+      const d = deps(db)
+      d.draft = async () => ({ status: 'complete', text: 'Half a scene, cut off mid', error: null, ...end })
+      const run = new ChapterRun(d, 'run-6', chapterId)
+      run.prepare()
+      const report = await run.run()
+      expect(report.status).toBe('error')
+      expect(report.message).toMatch(words)
+      expect(repo.getScene(db, s1).text).toBe('Old words in the first scene.')
+    }
+  })
+
+  it('notes for Adam what a scene’s draft said about how it was written', async () => {
+    const { db, chapterId } = world()
+    const d = deps(db)
+    const draft = d.draft
+    d.draft = async (sceneId, o) => ({ ...(await draft(sceneId, o)), note: 'Where everyone was wasn’t ready in time.' })
+    const run = new ChapterRun(d, 'run-7', chapterId)
+    run.prepare()
+    // Stopped once both scenes are written: the notes are kept with the report.
+    const check = d.check
+    d.check = async (id, signal) => {
+      void run.stop()
+      return check(id, signal)
+    }
+    const report = await run.run()
+    expect(report.notes).toEqual(['Sc 1 “The ferry”: Where everyone was wasn’t ready in time.', 'Sc 2 “The inn”: Where everyone was wasn’t ready in time.'])
+  })
+
   it('refuses to start without a scene card to write from', () => {
     const { db, chapterId, s1, s2 } = world()
     for (const id of [s1, s2]) repo.updateSceneCard(db, id, { ...repo.getScene(db, id).card, goal: '', beats: [] })
