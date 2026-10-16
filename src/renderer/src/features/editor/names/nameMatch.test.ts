@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntryKind } from '@shared/types'
-import { buildNameIndex, entriesNamedIn, findNames, namesToMatch, updateNameIndex, type NameSource } from './nameMatch'
+import { buildNameIndex, entriesNamedIn, findNames, namesToMatch, updateNameIndex, withCalled, type NameSource } from './nameMatch'
 
 const entry = (id: string, name: string, aliases: string[] = [], kind: EntryKind = 'character'): NameSource => ({ id, kind, name, aliases })
 const found = (text: string, entries: NameSource[]): string[] =>
@@ -10,7 +10,8 @@ describe('the memory keeper’s rule for a mention', () => {
   it('a single capitalised word matches only capitalised, as a whole word', () => {
     const will = [entry('w', 'Will')]
     expect(found('Will said he will come.', will)).toEqual(['Will'])
-    expect(found('WILL. Willow. Will’s boat. Will-o’-the-wisp.', will)).toEqual(['Will', 'Will'])
+    // "Will’s" names him; "Will-o’-the-wisp" is another word, joined by a hyphen (long story memory fix 12).
+    expect(found('WILL. Willow. Will’s boat. Will-o’-the-wisp.', will)).toEqual(['Will'])
     expect(found('Will2 and 2Will', will)).toEqual([])
   })
 
@@ -78,6 +79,50 @@ describe('what is underlined', () => {
     // A new one-liner or state changes no name: the page keeps its underlines as they are.
     expect(updateNameIndex(a, [entry('t', 'Tobin'), entry('m', 'Mara')])).toBe(a)
     expect(updateNameIndex(a, [entry('t', 'Tobin'), entry('m', 'Mara'), entry('k', 'Kell')]).size).toBe(3)
+  })
+})
+
+describe('however a character is named (long story memory fix 12)', () => {
+  it('by what this scene calls them, marked as such; never a lower-case word alone, nor one of their own names again', () => {
+    const tobin: NameSource = { ...entry('t', 'Tobin', ['Toby']), called: ['her brother', 'boss', 'Toby', 'the Ferryman'] }
+    expect(namesToMatch(tobin)).toEqual(['Tobin', 'Toby', 'her brother', 'the Ferryman'])
+    const ms = findNames('Her brother waved to Tobin and the ferryman.', buildNameIndex([tobin]))
+    expect(ms.map((m) => [m.entryId, m.called ?? false])).toEqual([
+      ['t', true],
+      ['t', false],
+      ['t', true]
+    ])
+  })
+
+  it('a scene’s names give each entry what the scene calls it', () => {
+    const entries = [entry('m', 'Mara'), entry('t', 'Tobin')]
+    expect(withCalled({ entries })).toBe(entries)
+    const called = withCalled({ entries, called: [{ entryId: 't', words: 'her brother' }, { entryId: 't', words: 'the Ferryman' }] })
+    expect(called.map((e) => e.called)).toEqual([undefined, ['her brother', 'the Ferryman']])
+  })
+
+  it('any apostrophe for any, a hyphen joins words, and a dot must be there', () => {
+    expect(found("Ask O’Brien, then O‘Brien, then O'Brien.", [entry('o', "O'Brien")])).toEqual(['O’Brien', 'O‘Brien', "O'Brien"])
+    expect(found("Ask O'Brien.", [entry('o', 'O’Brien')])).toEqual(["O'Brien"])
+    expect(found('Jean-Luc met Jean. Mara-Jane waved.', [entry('j', 'Jean'), entry('m', 'Mara')])).toEqual(['Jean'])
+    expect(found('Jean-Luc came.', [entry('j', 'Jean-Luc')])).toEqual(['Jean-Luc'])
+    expect(found('Dr. Hale and Dr Hale.', [entry('h', 'Dr. Hale')])).toEqual(['Dr. Hale'])
+  })
+
+  it('"Will you come?" asks; "Will said" names him', () => {
+    const will = [entry('w', 'Will')]
+    expect(found('“Will you come?” she asked.', will)).toEqual([])
+    expect(found('She paused. Will the boat hold?', will)).toEqual([])
+    expect(found('Will said nothing. “Go,” said Will.', will)).toEqual(['Will', 'Will'])
+    expect(found('Will be there. Will never forget it. Will could see the shore. Will still had the knife.', will)).toEqual(['Will', 'Will'])
+  })
+
+  it('the key changes when what a scene calls someone does, or when it becomes one of their names', () => {
+    const plain = buildNameIndex([entry('m', 'Mara')])
+    const called = buildNameIndex([{ ...entry('m', 'Mara'), called: ['the Captain'] }])
+    const alias = buildNameIndex([{ ...entry('m', 'Mara', ['the Captain']), called: ['the Captain'] }])
+    expect(new Set([plain.key, called.key, alias.key]).size).toBe(3)
+    expect(findNames('The Captain nodded.', alias)[0].called).toBeUndefined()
   })
 })
 

@@ -754,3 +754,35 @@ test('a kind’s own page: a banner from its entries, its few cards grown to fil
   await expect(gallery(win).locator('.g-ghost')).toHaveCount(1)
   await expect(gallery(win).locator('.g-knew')).toHaveCount(0)
 })
+
+test('a character’s dossier says what they know as of the scene Adam is in, since when and how, and what they believe wrongly', async ({
+  launch
+}) => {
+  const { win } = await sampleWorld(launch)
+  const people = await invoke(win, 'listEntries', 'character')
+  const wren = people.find((e) => e.name === 'Wren Halloway')!
+  const ansel = people.find((e) => e.name === 'Ansel Crane')!
+  // Adam's own, from the start (the who-knows-what ledger, long story memory fix 9): heard from Ansel, and a belief.
+  await invoke(win, 'createChange', {
+    entryId: wren.id,
+    anchor: 'baseline',
+    kind: 'knowledge',
+    payload: { factId: 'f-ferry', fact: 'The night ferry runs late', how: 'told', from: ansel.id }
+  })
+  await invoke(win, 'createChange', {
+    entryId: wren.id,
+    anchor: 'baseline',
+    kind: 'knowledge',
+    payload: { factId: 'f-stairs', fact: 'Her father can still climb the stairs', wrong: true }
+  })
+  await win.reload()
+  await room(win, 'World').click()
+  await card(win, 'Wren Halloway').click()
+  const knows = dossier(win).locator('[data-dz-section="knows-now"]')
+  await expect(knows.getByRole('heading', { name: 'What they know' })).toBeVisible()
+  const ferry = knows.getByRole('listitem').filter({ hasText: 'The night ferry runs late' })
+  await expect(ferry).toContainText('heard it from Ansel Crane')
+  await expect(ferry).toContainText('from the start')
+  await expect(knows).toContainText('Believes wrongly')
+  await expect(knows.getByRole('listitem').filter({ hasText: 'Her father can still climb the stairs' })).toBeVisible()
+})

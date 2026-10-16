@@ -9,6 +9,7 @@
 
 import type {
   Answer,
+  BeliefState,
   Change,
   Entry,
   EntryState,
@@ -22,6 +23,7 @@ import type {
   Summary,
   ThreadState
 } from '@shared/types'
+import type { ChapterSnapshot } from './snapshot'
 
 // ---------- The shape of a world's stories (no text) ----------
 
@@ -140,6 +142,8 @@ export interface MemoryState {
   firstHere: Set<ID>
   relationships: RelationshipState[]
   facts: FactState[]
+  /** What characters believe here that isn't true (the who-knows-what ledger, long story memory fix 9). */
+  beliefs: BeliefState[]
   threads: ThreadState[]
 }
 
@@ -172,7 +176,18 @@ export interface StorySoFar {
     missing?: boolean
   }[]
   /** This story's chapters that ended before this scene, oldest first, with their summaries. */
-  chapters: { chapterId: ID; label: string; text: string }[]
+  chapters: {
+    chapterId: ID
+    label: string
+    text: string
+    /**
+     * For the writer (long story memory fix 15): the memory's summary was made from sources that have changed since (a
+     * scene's summary, or what the record says changed in the chapter); it is being brought up to date.
+     */
+    updating?: boolean
+    /** For the writer (fix 15): the chapter's end-of-chapter snapshot, worked out from the story record (memory/chapterRecord.ts). */
+    record?: ChapterSnapshot
+  }[]
   /**
    * One paragraph for each earlier story on the walk, oldest first. Side stories are marked
    * meanwhile. A story the line cuts short is summarised from its chapter summaries up to the cut
@@ -225,6 +240,11 @@ export interface SceneMemory {
   elsewhere: { entry: EntryState; label: string }[]
   relationships: RelationshipState[]
   facts: FactState[]
+  /**
+   * What characters believe here that isn't true (the who-knows-what ledger, long story memory fix 9; with `facts`,
+   * memory/ledger.ts). Left out: none.
+   */
+  beliefs?: BeliefState[]
   threads: ThreadState[]
   storySoFar: StorySoFar
   /** Changes pinned to this scene: never facts for drafting it; on a redraft the card shows them as "what this scene should bring about". */

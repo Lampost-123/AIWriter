@@ -7,12 +7,14 @@
 // paid off (each a jump to the scene), the words that paid it off, how long it has been open, and its actions: open it,
 // show it on the story board, plan its pay-off with the AI, Undo the memory's resolve. Filters by chapter and by
 // words; the header band has the threads weaving and the counts. Fills a big screen: the loom across the page, the
-// cards in as many columns as fit.
+// cards in as many columns as fit. The promises ledger (long story memory fix 10): each card says where its thread
+// stands (Open, Advanced, Resolved, Dropped), the last scene that moved it on, and "Pay off by" (a chapter picker), with
+// a calm amber note when it is due, overdue or untouched for a long stretch; Mark as dropped and Pick up again.
 import * as M from '@radix-ui/react-dropdown-menu'
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { BoardSceneCard, BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'
 import type { ID, Outline } from '@shared/types'
-import { ArrowUpRight, Check, Hourglass, Plus, Search, Sparkles, Spool, StickyNote, Undo2 } from '@/components/ui/icons'
+import { ArrowUpRight, Check, Hourglass, Plus, Search, Sparkles, Spool, StickyNote, Undo2, X } from '@/components/ui/icons'
 import { Button, Select, toast } from '@/components/ui'
 import { Motif } from '@/components/art/Motif'
 import { api } from '@/lib/api'
@@ -26,7 +28,9 @@ import { PlanBand } from '@/features/planning/PlanShell'
 import { useDealDelay } from '@/features/planning/deal'
 import { StoryFilter } from '@/features/timeline/viewParts'
 import { useEntryMotifs } from '@/features/world/art/artStore'
-import { columnsOf, openFor, paidOffWords, setUpWords, type PlaceWords } from './boardLogic'
+import { advancedWords, canPlan, columnsOf, dueWords, openFor, paidOffWords, payBy, setUpWords, statusWords, warnWords, type PlaceWords } from './boardLogic'
+import { setDropped, setPayBy } from './planActions'
+import { noChapterLabel } from './planWords'
 import { loomRuler, matchesWords, openMarks, sceneWords, strandOf, touchesChapter, type LoomRuler, type Strand } from './loomLogic'
 import { markPaidOff } from './payOff'
 import './threads.css'
@@ -208,6 +212,7 @@ function Loaded({
                           onBoard={onBoard}
                           storyId={storyId}
                           scenes={scenes}
+                          chapters={board.chapters ?? []}
                         />
                       </li>
                     ))}
@@ -371,7 +376,8 @@ function ThreadCard({
   setHover,
   onBoard,
   storyId,
-  scenes
+  scenes,
+  chapters
 }: {
   thread: BoardThread
   ruler: LoomRuler
@@ -383,6 +389,8 @@ function ThreadCard({
   storyId: ID | null
   /** The story's scenes in reading order. */
   scenes: { id: ID; where: string; title: string }[]
+  /** The story's chapters, for "Pay off by". */
+  chapters: { id: ID; label: string }[]
 }): React.JSX.Element {
   const deal = useDealDelay()
   const motifs = useEntryMotifs()
@@ -391,7 +399,16 @@ function ThreadCard({
   const paidOff = paidOffWords(t.paidOff)
   const open = openFor(t)
   const marks = openMarks(t.openChapters)
+  const due = dueWords(t)
+  const warn = warnWords(t)
+  const moved = advancedWords(t)
   const [undoing, setUndoing] = useState(false)
+  const [planning, setPlanning] = useState(false)
+  const plan = (run: () => Promise<boolean>): void => {
+    setPlanning(true)
+    void run().finally(() => setPlanning(false))
+  }
+  const chapterWords = (id: ID): string => chapters.find((c) => c.id === id)?.label.split(' · ')[0] ?? 'that chapter'
   const undoResolve = async (id: ID): Promise<void> => {
     setUndoing(true)
     try {
@@ -446,13 +463,44 @@ function ThreadCard({
             {t.resolved?.byAi ? <span className="th-chip">Resolved by AI</span> : null}
           </div>
         </div>
-        <span className={cn('th-state', `is-${t.column}`)}>{t.column === 'resolved' ? 'Resolved' : t.column === 'planned' ? 'Planned' : 'Open'}</span>
+        <span className={cn('th-state', `is-${t.column}`)}>{statusWords(t)}</span>
       </div>
       {t.promise ? <p className="th-promise">{t.promise}</p> : null}
       <div className="th-places">
         <Place label="Set up" words={setUp} short={sceneWords(ruler, t.setUp?.sceneId)} kind="set" />
+        {t.column === 'open' || t.column === 'dropped' ? (
+          <Place
+            label="Moved on"
+            words={{ before: moved, place: t.advanced?.label ?? '', link: t.advanced?.sceneId && t.advanced.storyId ? { sceneId: t.advanced.sceneId, storyId: t.advanced.storyId } : null }}
+            short={sceneWords(ruler, t.advanced?.sceneId)}
+            kind="moved"
+          />
+        ) : null}
         {paidOff ? <Place label="Paid off" words={paidOff} short={sceneWords(ruler, t.paidOff?.sceneId)} kind="paid" /> : null}
+        {canPlan(t) && chapters.length ? (
+          <div className="th-place is-due">
+            <span className="th-place-k" aria-hidden>
+              <Hourglass size={12} />
+            </span>
+            <span className="th-place-l">Pay off by</span>
+            <Select
+              className="th-due-pick"
+              value={payBy(t)}
+              allowNone
+              noneLabel={noChapterLabel(t.cardDue?.sceneLabel)}
+              ariaLabel={`Pay off “${t.name}” by`}
+              onChange={(id) => plan(() => setPayBy(t, id, id ? chapterWords(id) : ''))}
+              options={chapters.map((c) => ({ value: c.id, label: c.label }))}
+            />
+          </div>
+        ) : null}
       </div>
+      {(t.due && t.due.state !== 'later') || warn ? (
+        <p className="th-due" data-testid="thread-due">
+          <Hourglass size={12} aria-hidden />
+          {t.due && t.due.state !== 'later' ? due : warn}
+        </p>
+      ) : null}
       {t.resolved?.quote ? (
         <blockquote className="th-quote" title="The words that paid it off" data-testid="thread-payoff">
           {t.resolved.quote}
@@ -483,6 +531,25 @@ function ThreadCard({
           </button>
         ) : null}
         {t.column === 'open' && storyId && scenes.length ? <MarkPaidOff thread={t} scenes={scenes} storyId={storyId} /> : null}
+        {t.column === 'open' || t.column === 'dropped' ? (
+          <button
+            type="button"
+            className="plan-txt th-act"
+            disabled={planning}
+            onClick={() => plan(() => setDropped(t, t.column === 'open'))}
+            title={t.column === 'open' ? 'The story won’t pay this off: the AI stops bringing it up' : 'Open this plot thread again: the AI will keep it alive'}
+          >
+            {t.column === 'open' ? (
+              <>
+                <X size={13} aria-hidden /> Mark as dropped
+              </>
+            ) : (
+              <>
+                <Undo2 size={13} aria-hidden /> Pick up again
+              </>
+            )}
+          </button>
+        ) : null}
         {t.resolved?.undoId ? (
           <Button size="sm" variant="ghost" icon={<Undo2 size={13} />} loading={undoing} title="Open this plot thread again" onClick={() => void undoResolve(t.resolved!.undoId!)}>
             Undo
@@ -534,7 +601,7 @@ function MarkPaidOff({ thread: t, scenes, storyId }: { thread: BoardThread; scen
 }
 
 /** "Set up · Ch 2, Sc 1 ↗": a jump to the scene. */
-function Place({ label, words, short, kind }: { label: string; words: PlaceWords; short: string | null; kind: 'set' | 'paid' }): React.JSX.Element {
+function Place({ label, words, short, kind }: { label: string; words: PlaceWords; short: string | null; kind: 'set' | 'paid' | 'moved' }): React.JSX.Element {
   const link = words.link
   const planned = words.before.startsWith('To be')
   return (
@@ -544,6 +611,11 @@ function Place({ label, words, short, kind }: { label: string; words: PlaceWords
           <svg width="14" height="14" viewBox="0 0 14 14">
             <circle cx="7" cy="7" r="4.5" fill="var(--ink)" />
             <circle cx="7" cy="7" r="1.6" fill="var(--card)" />
+          </svg>
+        ) : kind === 'moved' ? (
+          // A bead on the strand, as the loom draws the scenes that touch it.
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <circle cx="7" cy="7" r="3.2" fill="var(--ink)" />
           </svg>
         ) : (
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">

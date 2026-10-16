@@ -214,8 +214,11 @@ export interface AppApi
   deleteChange(id: ID): Promise<void>
   /** Undoes deleteChange (for the Undo toast). */
   restoreChange(id: ID): Promise<void>
-  /** Every fact any character knows, for picking the same fact again. */
-  listFacts(): Promise<{ factId: ID; fact: string }[]>
+  /**
+   * Every fact any character knows, for picking the same fact again; `wrong` when it is believed but isn't true (long
+   * story memory fix 9).
+   */
+  listFacts(): Promise<{ factId: ID; fact: string; wrong?: true }[]>
   /** Where an entry first exists (shown on its page). */
   listExistsPoints(entryId: ID): Promise<ExistsPoint[]>
   /** Changes pinned to this scene: on a redraft the scene card shows them as "what this scene should bring about". */

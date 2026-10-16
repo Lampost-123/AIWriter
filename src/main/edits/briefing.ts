@@ -6,18 +6,21 @@
 // 2026-10-08 (Adam: Continue, his most used tool, got none of the story memory) a compact memory core: the canon
 // timeline's short form (ai/timeline.ts), a few entries recalled near the cursor, what was said word for word, the
 // point-of-view character's facts to keep, an optional "what happens next" from Adam, and the phrases the scene has
-// used already (ai/repetition.ts). What stays the same from one Continue to the next comes first (the cache).
+// used already (ai/repetition.ts). What stays the same from one Continue to the next comes first (the cache). Since long
+// story memory fix 13, Continue also gets the scene's contract (ai/contract.ts) built by the app alone (Continue has no
+// plan): what must not change, what must happen next when Adam says, and how much time has passed.
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
-import type { ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, RelationshipState, SceneCard, StyleGuide } from '@shared/types'
+import type { BeliefState, ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, RelationshipState, SceneCard, StyleGuide } from '@shared/types'
 import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
 import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defaults'
 import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
-import { MUST_TITLE, mustStayTrue, mustText, stageFor } from '../ai/mustStay'
+import { MUST_TITLE, mustLines, mustStayTrue, mustText, stageFor } from '../ai/mustStay'
+import { CONTRACT_BLOCK, contractSays, contractText, sceneContract, type SceneContract } from '../ai/contract'
 import { holdingsOf } from '../memory/items'
 import { freshLooks, pastProfile } from '../ai/briefingFixes'
 import { withLockLines } from '../ai/lockRule'
@@ -48,7 +51,15 @@ export interface EditWorld {
    * scene and its story, where the stage's words are (by scene id), and the relationships at the scene (with `entries`,
    * what those in the briefing gave away, lost or got: memory/items.ts). Left out: no list.
    */
-  must?: { facts: FactState[]; sceneId: ID; storyTitle: string; places: Record<ID, string>; relationships?: RelationshipState[] }
+  must?: {
+    facts: FactState[]
+    /** What characters believe that isn't true here (long story memory fix 9). */
+    beliefs?: BeliefState[]
+    sceneId: ID
+    storyTitle: string
+    places: Record<ID, string>
+    relationships?: RelationshipState[]
+  }
   /**
    * Continue's memory core (Adam, 2026-10-08), each part capped (CORE_MOST): the canon timeline's short form, entries
    * recalled for the words near the cursor (those found by searching first), and what was said word for word. Left out:
@@ -61,6 +72,11 @@ export interface EditWorld {
     /** The plot threads still open here (ai/openThreads.ts, 2026-10-08), kept alive gently; at most CORE_MOST.threads. */
     threads?: OpenThread[]
   }
+  /**
+   * Continue gets the scene's contract (long story memory fix 13, Settings › Models "Give each scene a contract"): made
+   * from what must stay true's lines and Adam's "what happens next". Left out or false: none, as before.
+   */
+  contract?: boolean
 }
 
 /** The most of each part of Continue's memory core. */
@@ -79,6 +95,8 @@ export type EditBriefing =
       topP: number
       /** A plain-words note for Adam about how it was set up, or null. */
       note: string | null
+      /** The scene's contract Continue was given (fix 13), for the check once its words are accepted; left out: none. */
+      contract?: SceneContract
     }
   | { ok: false; problem: string; entryId?: ID; entryName?: string }
 
@@ -284,21 +302,36 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   const holdings = world.must ? holdingsOf({ entries: world.entries, relationships: world.must.relationships ?? [], people: here.map((e) => e.id) }) : []
   const about = [near, card.goal, card.conflict, card.outcome, card.notes, ...(card.beats ?? []), direction].filter((t) => t?.trim()).join('\n')
   // Continue sends where things stand at this same moment right above the list: the list doesn't say it again.
-  const mustOf = (short: boolean): string[] =>
-    world.must
-      ? mustStayTrue({
-          stand: world.stand,
-          reach: world.stand ? 'here' : 'none',
-          // Their usual looks put right for this moment, and their profiles' relative times made past (ai/briefingFixes.ts).
-          people: here.map((e) => pastProfile(freshLooks(e, stageFor(e, world.stand)))),
-          named: away,
-          ...world.must,
-          holdings,
-          about,
-          short,
-          stageShown: isContinue && !!world.stand
+  const mustFrom = world.must
+    ? {
+        stand: world.stand,
+        reach: world.stand ? ('here' as const) : ('none' as const),
+        // Their usual looks put right for this moment, and their profiles' relative times made past (ai/briefingFixes.ts).
+        people: here.map((e) => pastProfile(freshLooks(e, stageFor(e, world.stand)))),
+        named: away,
+        ...world.must,
+        holdings,
+        about,
+        stageShown: isContinue && !!world.stand
+      }
+    : null
+  // The scene's contract (fix 13), Continue's: what must not change, and what must happen next when Adam says. What must
+  // stay true then leaves out what it says.
+  const contract =
+    isContinue && world.contract && mustFrom
+      ? sceneContract({
+          asks: 'continue',
+          must: mustLines({ ...mustFrom, stageShown: false }),
+          people: here,
+          card,
+          threads: [],
+          direction,
+          facts: mustFrom.facts,
+          storyTitle: mustFrom.storyTitle,
+          stageShown: !!world.stand
         })
-      : []
+      : null
+  const mustOf = (short: boolean): string[] => (mustFrom ? mustStayTrue({ ...mustFrom, short, ...(contract ? { leaveOut: contractSays(contract) } : {}) }) : [])
   const must = { full: mustOf(false), short: mustOf(true) }
 
   const o: PromptOptions = {
@@ -411,8 +444,11 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     // A door locked from inside with someone outside is said in one line after the stage (ai/lockRule.ts).
     const stand = isContinue && world.stand ? withLockLines(stateText(world.stand), world.stand) : ''
     if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
-    const mustLines = scale === 0 ? [] : withPeople ? must.full : must.short
-    if (mustLines.length) parts.push({ id: 'must', priority: 2, title: MUST_TITLE, text: mustText(mustLines, withPeople ? 'here' : null), entryIds: [] })
+    // The scene's contract, right above what must stay true (left out with it on the last try).
+    if (contract && scale > 0)
+      parts.push({ id: CONTRACT_BLOCK.id, priority: 2, title: CONTRACT_BLOCK.title, text: contractText(contract, { short: !withPeople }), entryIds: [] })
+    const listed = scale === 0 ? [] : withPeople ? must.full : must.short
+    if (listed.length) parts.push({ id: 'must', priority: 2, title: MUST_TITLE, text: mustText(listed, withPeople ? 'here' : null), entryIds: [] })
     parts.push({ id: 'ask', priority: 1, title: 'What the AI was asked', text: finalAsk(tool, o), entryIds: [] })
     return parts
   }
@@ -479,7 +515,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     // Continue is the writer carrying the scene on: the writer's temperature (writerTemperature). The edit tools: their own.
     temperature: tool === 'continue' ? writerTemperature(CREATIVITY[tool]) : preset.temperature,
     topP: preset.top_p,
-    note
+    note,
+    ...(contract && parts.some((p) => p.id === CONTRACT_BLOCK.id) ? { contract } : {})
   }
 }
 

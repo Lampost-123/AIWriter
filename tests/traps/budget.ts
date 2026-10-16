@@ -63,3 +63,8 @@ export const estimateTokens = (body: string): number => Math.ceil(body.length / 
 
 /** The defaults: well under $1 a command at DeepSeek Flash's prices (about $0.28 in, $0.42 out per million). */
 export const DEFAULT_BUDGET = { in: 2_000_000, out: 500_000 }
+/**
+ * A fake run's defaults: it costs nothing, and the book's plans read the whole book so far for their continuity brief
+ * (long story memory fix 14), tens of thousands of tokens each.
+ */
+export const FAKE_BUDGET = { in: 40_000_000, out: 4_000_000 }

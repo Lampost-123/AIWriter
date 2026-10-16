@@ -6,10 +6,14 @@
 //   - the memory as of the scene's start (checks/context.ts): who knows what, injuries, what people own, who is dead,
 //     and the scenes just before.
 // One call on the memory model (with its own Thinking, Off unless Adam changes it). The page mends the small slips
-// (repairsApplied tells which it could) and the rest are asked as questions in the Issues tab. No Electron imports.
+// (repairsApplied tells which it could) and the rest are asked as questions in the Issues tab. When the draft had a scene
+// contract (long story memory fix 13, ai/contract.ts; noteContract, kept by record as noteStage is), the same call goes
+// through it item by item (repair/contract.ts): what the words go against, and what must change that they don't show
+// yet, are asked; how each item came out is kept with the scene's check report. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { RepairFix, RepairInput, RepairOutcome } from '@shared/contracts/repair'
+import type { ContractCheckItem } from '@shared/contracts/checks'
 import type { CheckKind, IssueSource } from '@shared/contracts/checks'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import type { ID, Settings, WritingPrefs } from '@shared/types'
@@ -21,11 +25,14 @@ import { callModel, type MemoryModel } from '../keeper/model'
 import { gatherSceneCheck, type SceneCheckContext } from '../checks/context'
 import { issueKey, KIND_OF_CHECK, occurrenceAt } from '../checks/quote'
 import { findQuote } from '../keeper/text'
-import { newId } from '../util'
+import { newId, now } from '../util'
 import { judgeClaims, newWordsOf, readClaims, type Claim, type FoundFix, type FoundQuestion } from './claims'
 import { codexLines, REPAIR_MARKER, repairRequest, stageLines, type CodexLine, type StageLine } from './prompts'
 import { secondOpinion, SECOND_MARKER } from './second'
 import { SLOP_MARKER, withSlopFixes } from './slop'
+import type { SceneContract } from '../ai/contract'
+import { contractCounts, contractResults, contractSection, contractSources, judgeContract, notYetIssue, readContractAnswers } from './contract'
+import { saveContractCheck } from '../checks/report'
 
 type DB = Database.Database
 
@@ -68,6 +75,24 @@ export const stageTold = (
 function stageAt(input: RepairInput): SceneState | null {
   const noted = stages.get(input.stageOf ?? input.recordId) ?? stages.get(input.recordId)
   return noted && noted.sceneId === input.sceneId ? noted.stage : null
+}
+
+// ---------- The scene's contract each landing is checked against (long story memory fix 13) ----------
+
+/** The contract each draft, beat or Continue was written to, by its record: exactly what the writer was given. */
+const contracts = new Map<ID, { sceneId: ID; contract: SceneContract }>()
+
+/** Keeps the scene's contract the AI's words were asked for with (null: none, so none is checked). */
+export function noteContract(recordId: ID, sceneId: ID, contract: SceneContract | null): void {
+  contracts.delete(recordId)
+  if (contract?.items.length) contracts.set(recordId, { sceneId, contract })
+  while (contracts.size > MOST_STAGES) contracts.delete(contracts.keys().next().value!)
+}
+
+/** The contract the new words were written to, as noted when they were asked for; null when there was none. */
+function contractAt(input: RepairInput): SceneContract | null {
+  const noted = contracts.get(input.stageOf ?? input.recordId) ?? contracts.get(input.recordId)
+  return noted && noted.sceneId === input.sceneId ? noted.contract : null
 }
 
 // ---------- What the critic leaves to the repair ----------
@@ -222,16 +247,25 @@ function sourcesOf(code: string, codex: CodexLine[]): IssueSource[] {
   return []
 }
 
+interface IssueWhere {
+  sceneId: ID
+  storyId: ID
+  text: string
+  codex: CodexLine[]
+  stage: StageLine[]
+  base: number
+  /** The scene's contract the words were written to (fix 13), and the names of the entries its items are about. */
+  contract?: SceneContract | null
+  names?: ReadonlyMap<ID, string>
+  /** The second opinion ruled on what was found (fix 13's review): a broken item it kept is confirmed. */
+  confirmed?: boolean
+}
+
 /** One finding as an issue: a fixed slip (its words as the AI wrote them) or a question. */
-function asIssue(
-  ctx: { sceneId: ID; storyId: ID; text: string; codex: CodexLine[]; stage: StageLine[]; base: number },
-  c: Claim,
-  quote: string,
-  start: number,
-  message: string,
-  fix: string | null
-): cdb.FoundIssue {
-  const check = checkOf(c.line)
+function asIssue(ctx: IssueWhere, c: Claim, quote: string, start: number, message: string, fix: string | null): cdb.FoundIssue {
+  // A broken item of the scene's contract (fix 13): the check it belongs to, and the people or thing it is about.
+  const item = /^C\d+$/.test(c.line) ? ctx.contract?.items.find((i) => i.code === c.line) : undefined
+  const check = item ? item.check : checkOf(c.line)
   const who = c.who.trim().toLowerCase() || ctx.stage.find((l) => l.code === c.line)?.who?.toLowerCase() || ''
   // Which of the quote's places in the scene: the new words', never an earlier one (`start` is its place in them).
   const at = placeInScene(ctx.text, quote, ctx.base + start)
@@ -246,13 +280,15 @@ function asIssue(
     payload: {
       by: 'check',
       check,
-      sources: sourcesOf(c.line, ctx.codex),
+      sources: item ? contractSources(item.entryIds, ctx.names ?? new Map()) : sourcesOf(c.line, ctx.codex),
       fix,
       memoryFix: null,
+      ...(item ? { contract: { part: item.part, text: item.text, ...(ctx.confirmed ? { confirmed: true as const } : {}) } } : {}),
       ...(at >= 0 ? { occurrence: occurrenceAt(ctx.text, quote, at) } : {})
     }
   }
 }
+
 
 /**
  * Checks new words claim by claim (see the top of this file). Questions are raised at once; the fixes go back to the
@@ -308,7 +344,10 @@ async function checkWith(
   codex: ReturnType<typeof codexLines>,
   newWords: string
 ): Promise<RepairOutcome> {
-  const req = repairRequest({ stage, codex, card: cardText(ctx), leadIn: input.leadIn, newWords })
+  // The scene's contract the words were written to (fix 13): its items as C lines, answered in the same call.
+  const contract = contractAt(input)
+  const terms = contract ? contractSection(contract) : null
+  const req = repairRequest({ stage, codex, card: cardText(ctx), leadIn: input.leadIn, newWords, contract: terms?.section ?? null })
   const versions = new Map(ctx.entries.map((c) => [c.entry.id, c.entry.updatedAt]))
   const got = await callModel({
     db: o.db,
@@ -330,32 +369,55 @@ async function checkWith(
   if (got.status !== 'complete' || o.closed() || !o.db.open) return NOTHING
   const read = readClaims(got.text)
   if (!read) return NOTHING
+  // What the words did with each item of the scene's contract: a broken one goes on as a slip against its C line (so the
+  // second opinion and the usual judging have it too); something that must change and doesn't show yet is asked.
+  const kept = contract ? judgeContract(readContractAnswers(got.text), contract, newWords) : null
   // A second opinion before anything is mended or asked (repair/second.ts): a slip not grounded in what the check was
   // given, or taken back, is dropped, then one call rules on each slip left.
   const material = req.blocks
     .filter((b) => b.id !== 'new-words' && b.id !== 'lead-in')
     .map((b) => `## ${b.title}\n${b.text}`)
     .join('\n\n')
-  const lines = new Set([...stage.map((l) => l.code), ...codex.lines.map((l) => l.code)])
-  const second = await secondOpinion(o, input.sceneId, read, { newWords, leadIn: input.leadIn, material, lines })
+  const codexAll = [...codex.lines, ...(terms?.lines ?? [])]
+  const lines = new Set([...stage.map((l) => l.code), ...codexAll.map((l) => l.code)])
+  // What doesn't show yet goes to the same call (fix 13's review): it may be there in other words.
+  const missing = (kept?.notYet ?? []).map((i) => ({ line: i.code, text: i.text }))
+  const second = await secondOpinion(o, input.sceneId, [...read, ...(kept?.broken ?? [])], { newWords, leadIn: input.leadIn, material, lines }, missing)
   forgetPrompts(o, input.sceneId, SECOND_MARKER)
   if (o.closed() || !o.db.open) return NOTHING
   const claims = second.kept
-  const judged = judgeClaims(claims, { stage, codex: codex.lines, paragraphs: input.paragraphs, aiText, leadIn: input.leadIn })
-  const where = {
+  const judged = judgeClaims(claims, { stage, codex: codexAll, paragraphs: input.paragraphs, aiText, leadIn: input.leadIn })
+  const where: IssueWhere = {
     sceneId: input.sceneId,
     storyId: ctx.storyId,
     text: cdb.sceneTexts(o.db, [input.sceneId]).get(input.sceneId) ?? ctx.text,
-    codex: codex.lines,
+    codex: codexAll,
     stage,
-    base: input.beforeChars ?? 0
+    base: input.beforeChars ?? 0,
+    contract,
+    names: new Map([...ctx.memory.entries, ...ctx.memory.elsewhere.map((x) => x.entry)].map((e) => [e.id, e.name] as const)),
+    confirmed: second.ruled
   }
   // Anything Adam said is meant to be so (ignored) is neither mended nor asked again.
   const rows = cdb.rowsInScenes(o.db, [input.sceneId])
   const ignored = (f: cdb.FoundIssue): boolean => rows.some((r) => r.status === 'ignored' && cdb.sameThing({ ...f.payload, key: f.key }, r, f))
 
   const questions = judged.questions.map((q: FoundQuestion) => asIssue(where, q.claim, q.quote, q.start, q.message, q.fix)).filter((f) => !ignored(f))
-  const raised = questions.length ? cdb.saveFound(o.db, rows, questions, () => false) : 0
+  // The scene's contract (fix 13): what must change and doesn't show yet (the second opinion agreeing) is asked too.
+  // Such a question asked before goes only when this reply answered its item (fix 13's review: never on a reply that
+  // answered nothing): for a whole new draft of the scene, answered at all; otherwise, once the words show it.
+  const standing = new Set(second.missing.map((m) => m.line))
+  const notYetItems = (kept?.notYet ?? []).filter((i) => standing.has(i.code))
+  const notYet = contract ? notYetItems.map((i) => notYetIssue({ ...where, names: where.names ?? new Map() }, i, contract.asks)).filter((f) => !ignored(f)) : []
+  const shownAfterAll = new Set((kept?.notYet ?? []).filter((i) => !standing.has(i.code)).map((i) => i.code))
+  const answered = new Set(contract && kept ? contract.items.filter((i) => kept.said.has(i.code)).map((i) => i.text) : [])
+  const shown = new Set(
+    contract && kept ? contract.items.filter((i) => kept.said.get(i.code)?.result === 'kept' || shownAfterAll.has(i.code)).map((i) => i.text) : []
+  )
+  const settled = (p: cdb.IssuePayload): boolean =>
+    p.contract?.part === 'change' && (contract?.asks === 'scene' ? answered.has(p.contract.text) : shown.has(p.contract.text))
+  const found = [...questions, ...notYet]
+  const raised = found.length || answered.size ? cdb.saveFound(o.db, rows, found, settled) : 0
   const fixes = judged.fixes
     .map((f: FoundFix) => {
       const fix: RepairFix = { id: newId(), para: f.para, start: f.start, end: f.end, was: f.was, now: f.now, why: f.claim.why || 'This didn’t match where things stood.' }
@@ -368,7 +430,41 @@ async function checkWith(
     pending.set(repairId, { db: o.db, sceneId: input.sceneId, storyId: ctx.storyId, fixes })
     while (pending.size > MOST_PENDING) pending.delete(pending.keys().next().value!)
   }
-  return { repairId, fixes: fixes.map((x) => x.fix), questions: raised, claims: judged.claims, slips: judged.slips }
+  const items = contract && kept && answered.size ? keepContractCheck(o.db, where, contract, { ...kept, notYet: notYetItems }, judged.questions, shownAfterAll) : null
+  return {
+    repairId,
+    fixes: fixes.map((x) => x.fix),
+    questions: raised,
+    claims: judged.claims,
+    slips: judged.slips,
+    ...(items ? { contract: contractCounts(items) } : {})
+  }
+}
+
+/**
+ * How the words kept to the scene's contract, item by item, kept with the scene's check report (the Issues tab shows it);
+ * the window hears it as the scene's issues changing. Never stops the check.
+ */
+function keepContractCheck(
+  db: DB,
+  where: IssueWhere,
+  contract: SceneContract,
+  kept: ReturnType<typeof judgeContract>,
+  questions: FoundQuestion[],
+  shown: ReadonlySet<string> = new Set()
+): ContractCheckItem[] {
+  const items = contractResults(contract, kept, {
+    broken: new Set(questions.map((q) => q.claim.line).filter((l) => /^C\d+$/.test(l))),
+    notYet: new Set(kept.notYet.map((i) => i.code)),
+    shown
+  })
+  try {
+    saveContractCheck(db, where.sceneId, { at: now(), asks: contract.asks, items })
+    cdb.issuesTouched(where.storyId, where.sceneId)
+  } catch (e) {
+    console.warn('Could not keep how the draft kept to its contract', e)
+  }
+  return items
 }
 
 /**
@@ -412,6 +508,7 @@ const questionText = (why: string): string => `${why.trim().replace(/[.!?]?$/, '
 /** For tests: forget the stages, the repairs waiting for the page and when each scene was last repaired. */
 export function resetRepairsForTests(): void {
   stages.clear()
+  contracts.clear()
   pending.clear()
   checked.clear()
 }

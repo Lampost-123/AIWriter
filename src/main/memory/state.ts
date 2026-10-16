@@ -31,11 +31,16 @@
 //   before the scene's own changes: its note moves from what has happened to what has ended (history), a field it set
 //   goes back to what it was before it (unless something later set it again), a relationship it set ends, and what it
 //   taught is no longer known. Plot threads and full descriptions don't end this way (a thread is resolved instead).
+// - The who-knows-what ledger (long story memory fix 9, memory/ledger.ts): each character's knowing of a fact carries
+//   since when and how, from their first learning of it since they last forgot it (an end, a forgetting or a full
+//   description clears it). Something believed wrongly (`wrong`) is a belief, never knowledge: it goes in `beliefs`,
+//   not `facts`, so it is never a secret kept from anyone. The latest of the two wins for one character and fact.
 
-import type { Change, EntryState, FactState, ID, RelationshipPayload, RelationshipState, ThreadState } from '@shared/types'
+import type { BeliefState, Change, EntryState, FactState, ID, Learned, RelationshipPayload, RelationshipState, ThreadState } from '@shared/types'
 import type { Line, MemoryData, MemoryState, WorldShape } from './types'
 import { hostSpans, labeler } from './line'
 import { clothingAfter } from './looks'
+import { learnedHow } from './ledger'
 
 /** MemoryState, plus every entry that doesn't exist here, as of this point (for "not in the story yet" labels). */
 export interface MemoryStateAll extends MemoryState {
@@ -144,6 +149,12 @@ export function stateAt(
   const factText = new Map<ID, string>()
   /** Where on the line someone last learned each fact (a step index; -1 for the starting setup). */
   const learnedAt = new Map<ID, number>()
+  /** What each character believes that isn't true (fix 9), and where someone last came to believe each. */
+  const believes = new Map<ID, Set<ID>>()
+  const believedAt = new Map<ID, number>()
+  /** The ledger (fix 9): since when and how each character knows or believes each fact, by `${entryId}|${factId}`. */
+  const since = new Map<string, Learned>()
+  const sinceKey = (entryId: ID, factId: ID): string => `${entryId}|${factId}`
   const threads = new Map<ID, ThreadWork>()
 
   // ----- The clash rule: remember what each side story added whole changes, and settle clashes when it ends -----
@@ -272,15 +283,35 @@ export function stateAt(
   }
   /** Facts some learning of which wasn't backed by who was there or by Adam (B5): no "does not know" for them. */
   const unbacked = new Set<ID>()
-  const learn = (entryId: ID, factId: ID, fact: string | undefined, backed = true): void => {
+  /** Where the change being applied is, for since when (fix 9). */
+  let learning: Pick<Learned, 'where' | 'sceneId'> = { where: '' }
+  const learn = (
+    entryId: ID,
+    factId: ID,
+    fact: string | undefined,
+    backed = true,
+    how: Pick<Learned, 'how' | 'from'> = {},
+    wrong = false
+  ): void => {
     if (!factId) return
-    if (!backed) unbacked.add(factId)
-    let set = knows.get(entryId)
-    if (!set) knows.set(entryId, (set = new Set()))
+    // One character either knows a fact or believes it wrongly: the latest learning says which.
+    const [into, away] = wrong ? [believes, knows] : [knows, believes]
+    const key = sinceKey(entryId, factId)
+    if (away.get(entryId)?.delete(factId)) since.delete(key)
+    if (!wrong && !backed) unbacked.add(factId)
+    let set = into.get(entryId)
+    if (!set) into.set(entryId, (set = new Set()))
     set.add(factId)
-    learnedAt.set(factId, Math.max(learnedAt.get(factId) ?? -1, at))
+    const atOf = wrong ? believedAt : learnedAt
+    atOf.set(factId, Math.max(atOf.get(factId) ?? -1, at))
+    // Since their first learning of it, until they forget it.
+    if (!since.has(key)) since.set(key, { at, ...learning, ...how })
     if (fact) factText.set(factId, fact)
     else if (!factText.has(factId)) factText.set(factId, '')
+  }
+  /** A character no longer knows (or believes) a fact. */
+  const unlearn = (entryId: ID, factId: ID, wrong = false): void => {
+    if ((wrong ? believes : knows).get(entryId)?.delete(factId)) since.delete(sinceKey(entryId, factId))
   }
   const setRel = (a: ID, p: RelationshipPayload, where: string): void => {
     const b = p.otherId
@@ -329,7 +360,7 @@ export function stateAt(
         break
       }
       case 'knowledge':
-        if (!c.payload.forgets) knows.get(c.entryId)?.delete(c.payload.factId)
+        if (!c.payload.forgets) unlearn(c.entryId, c.payload.factId, !!c.payload.wrong)
         break
     }
   }
@@ -339,6 +370,7 @@ export function stateAt(
     const e = states.get(c.entryId)
     if (!e) return
     if (c.until) applied.add(c.id)
+    learning = c.anchor === 'scene' && c.sceneId ? { where, sceneId: c.sceneId } : { where }
     switch (c.kind) {
       case 'update': {
         const p = c.payload
@@ -392,8 +424,10 @@ export function stateAt(
           e.fields[k] = v
           addChanged(e, k, where)
         }
-        // What it knows and its relationships (on both sides) start again from this description.
+        // What it knows (and believes) and its relationships (on both sides) start again from this description.
+        for (const id of [...(knows.get(e.id) ?? []), ...(believes.get(e.id) ?? [])]) since.delete(sinceKey(e.id, id))
         knows.delete(e.id)
+        believes.delete(e.id)
         for (const [pk, r] of rels) {
           if (r.aId !== e.id && r.bId !== e.id) continue
           touchRel(r.aId, r.bId)
@@ -409,9 +443,17 @@ export function stateAt(
         break
       case 'knowledge': {
         const p = c.payload
-        if (p.forgets) knows.get(e.id)?.delete(p.factId)
+        if (p.forgets) unlearn(e.id, p.factId, !!p.wrong)
         // Backed (B5): Adam's own, or the memory marked everyone who was there (something said always names who heard it).
-        else learn(e.id, p.factId, p.fact, c.origin === 'adam' || Array.isArray(p.there) || Array.isArray(p.said?.heard))
+        else
+          learn(
+            e.id,
+            p.factId,
+            p.fact,
+            c.origin === 'adam' || Array.isArray(p.there) || Array.isArray(p.said?.heard),
+            learnedHow(e.id, p),
+            !!p.wrong
+          )
         break
       }
       case 'thread': {
@@ -523,15 +565,25 @@ export function stateAt(
   const relationships = [...rels.values()].filter((r) => entries.has(r.aId) && entries.has(r.bId))
 
   const facts = new Map<ID, FactState>()
+  const beliefs = new Map<ID, BeliefState>()
   for (const id of entries.keys()) {
     for (const factId of knows.get(id) ?? []) {
       let f = facts.get(factId)
       if (!f)
         facts.set(
           factId,
-          (f = { factId, fact: factText.get(factId) ?? '', knownBy: [], at: learnedAt.get(factId) ?? -1, backed: !unbacked.has(factId) })
+          (f = { factId, fact: factText.get(factId) ?? '', knownBy: [], at: learnedAt.get(factId) ?? -1, backed: !unbacked.has(factId), since: {} })
         )
       f.knownBy.push(id)
+      const s = since.get(sinceKey(id, factId))
+      if (s) f.since![id] = s
+    }
+    for (const factId of believes.get(id) ?? []) {
+      let b = beliefs.get(factId)
+      if (!b) beliefs.set(factId, (b = { factId, fact: factText.get(factId) ?? '', believedBy: [], since: {}, at: believedAt.get(factId) ?? -1 }))
+      b.believedBy.push(id)
+      const s = since.get(sinceKey(id, factId))
+      if (s) b.since[id] = s
     }
   }
 
@@ -549,7 +601,7 @@ export function stateAt(
     })
   }
 
-  return { entries, firstHere, relationships, facts: [...facts.values()], threads: threadStates, absent }
+  return { entries, firstHere, relationships, facts: [...facts.values()], beliefs: [...beliefs.values()], threads: threadStates, absent }
 }
 
 /** Changes pinned to a scene (never facts while drafting that scene). */

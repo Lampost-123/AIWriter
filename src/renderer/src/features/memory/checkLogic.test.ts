@@ -8,8 +8,12 @@ import {
   foldedGroup,
   groupChecks,
   guessesOpen,
+  ignoreTitle,
+  keepLabel,
   keptToast,
+  offeredName,
   rememberGuessesOpen,
+  removeLabel,
   removedToast,
   showsWords
 } from './checkLogic'
@@ -23,6 +27,8 @@ const item = (group: MemoryCheckItem['group'], extra: Partial<MemoryCheckItem> =
       ? { kind: 'summary', sceneId: 's1' }
       : group === 'note'
         ? { kind: 'note', logId: `l${n}` }
+        : group === 'alias'
+          ? { kind: 'alias', logId: `l${n}` }
         : group === 'guess'
           ? { kind: 'field', entryId: 'e1', field: 'hair' }
           : { kind: 'change', changeId: `c${n}` },
@@ -54,7 +60,7 @@ describe('the memory check list, grouped', () => {
       expect(g.title).not.toMatch(/entity|generation|LLM|origin|link/i)
       expect(g.help.length).toBeGreaterThan(20)
     }
-    expect(CHECK_GROUPS.map((g) => g.id)).toEqual(['unconfirmed', 'guess', 'summary', 'note'])
+    expect(CHECK_GROUPS.map((g) => g.id)).toEqual(['unconfirmed', 'guess', 'summary', 'note', 'alias', 'promise'])
   })
 
   it('counts what is waiting for a look', () => {
@@ -110,5 +116,33 @@ describe('the memory check list, grouped', () => {
     expect(keptToast([item('guess'), item('guess'), item('guess')])).toBe("Kept 3. They're yours now.")
     expect(removedToast(item('guess', { text: 'Hair: black' }))).toBe('Removed “Hair: black” from Mara.')
     expect(removedToast(item('unconfirmed', { entryName: '' }))).toBe('Removed “Lost her knife in the river”.')
+  })
+
+  it('a name the story uses (long story memory fix 12): Add name and Ignore, counted, and said plainly', () => {
+    const name = item('alias', { entryName: 'Mara Venn', text: 'Also called “the Captain”' })
+    expect(offeredName(name)).toBe('the Captain')
+    expect(offeredName(item('note'))).toBe('')
+    expect([keepLabel(name), removeLabel(name)]).toEqual(['Add name', 'Ignore'])
+    expect([keepLabel(item('note')), removeLabel(item('note'))]).toEqual(['Keep', 'Remove'])
+    expect(keptToast([name])).toBe('Added “the Captain” to Mara Venn’s names.')
+    expect(keptToast([name, item('alias')])).toBe('Added 2 names.')
+    expect(removedToast(name)).toBe('Ignored “the Captain” for Mara Venn.')
+    // Ignore's button says exactly what it does: never offered again, and no longer her in this scene only.
+    expect(ignoreTitle(name)).toBe('Never offer “the Captain” for Mara Venn again, and stop counting it as Mara Venn in this scene only. You can undo this.')
+    expect(countedChecks([name, item('guess')])).toBe(1)
+    expect(foldedGroup('alias')).toBe(false)
+  })
+
+  it('a plot thread left waiting (long story memory fix 10): Keep and Mark as dropped, counted, and said plainly', () => {
+    const bell = item('promise', { entryName: 'The drowned bell', entryKind: 'thread', text: 'Still open, and due by the end of Ch 4' })
+    expect([keepLabel(bell), removeLabel(bell)]).toEqual(['Keep', 'Mark as dropped'])
+    expect(keptToast([bell])).toBe('Kept as it is. You won’t be asked about it again for now.')
+    expect(keptToast([bell, item('promise')])).toBe('Kept 2 plot threads as they are.')
+    expect(removedToast(bell)).toBe('Marked “The drowned bell” as dropped. The AI won’t bring it up again.')
+    expect(countedChecks([bell, item('guess')])).toBe(1)
+    expect(foldedGroup('promise')).toBe(false)
+    const g = CHECK_GROUPS.find((x) => x.id === 'promise')!
+    expect(g.title).toBe('Plot threads left waiting')
+    expect(g.help).toMatch(/Pay one off later, mark it as dropped, or keep it as it is/)
   })
 })

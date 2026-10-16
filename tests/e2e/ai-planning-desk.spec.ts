@@ -203,6 +203,30 @@ test('the plot threads on the desk: a loom across the story, cards, and On the s
   await expect(win.locator(`.board-str[data-thread="${id}"]`)).toHaveClass(/is-lit/)
 })
 
+test('the promises ledger on a thread’s card: where it stands, Pay off by a chapter, and Mark as dropped with Undo', async ({ launch }) => {
+  const { win } = await sampleWorld(launch, null)
+  await room(win, 'Plan').click()
+  await links(win, 'Plan').getByRole('button', { name: 'Plot threads board' }).click()
+  const threads = page(win, 'threads')
+  const midwinter = threads.locator('article[data-thread]', { hasText: 'Will the light go dark at midwinter?' })
+  await expect(midwinter.locator('.th-state')).toHaveText(/Open|Advanced/)
+  await expect(midwinter.locator('.th-place', { hasText: 'Moved on' })).toBeVisible()
+  // Pay off by the chapter being written: the card says it is due.
+  await midwinter.getByRole('combobox', { name: 'Pay off “Will the light go dark at midwinter?” by' }).click()
+  await win.getByRole('option', { name: /^Ch 2/ }).click()
+  await expect(toastWith(win, 'is to be paid off by the end of Ch 2.')).toBeVisible()
+  await expect(midwinter.getByTestId('thread-due')).toHaveText('Due by the end of this chapter')
+  if (process.env.AIWRITE_SHOTS) await win.screenshot({ path: `${process.env.AIWRITE_SHOTS}/desk-thread-due.png` })
+  // Mark as dropped: its own section, and Undo opens it again.
+  await midwinter.getByRole('button', { name: 'Mark as dropped' }).click()
+  await expect(threads.getByRole('heading', { name: 'Dropped' })).toBeVisible()
+  await expect(midwinter.locator('.th-state')).toHaveText('Dropped')
+  await expect(midwinter.getByTestId('thread-due')).toHaveCount(0)
+  await toastWith(win, 'as dropped').getByRole('button', { name: 'Undo' }).click()
+  await expect(threads.getByRole('heading', { name: 'Dropped' })).toHaveCount(0)
+  await expect(midwinter.getByTestId('thread-due')).toHaveText('Due by the end of this chapter')
+})
+
 test('Mark paid off: a scene after the set-up, picked from a list, opens with the thread under Pays off; Undo takes it off', async ({ launch }) => {
   const { win } = await sampleWorld(launch, null)
   await room(win, 'Plan').click()

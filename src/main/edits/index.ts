@@ -21,14 +21,15 @@ import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
-import { catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
+import { calendarFor, catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
 import { sceneTail, stageScope, timelineFrom } from '../ai/context'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
 import type { SceneMemory } from '../memory/types'
 import { stageInScene } from '../ai/mustStay'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
-import { noteStage } from '../repair'
+import { noteContract, noteStage } from '../repair'
+import { contractWanted } from '../ai/contract'
 import { UserError } from '../util'
 
 /**
@@ -120,7 +121,10 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const core = tool === 'continue' ? await continueCore(db, input, memory, story.title, scene.card) : undefined
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
   // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07).
-  const stand = stageInScene(kept, stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after]))
+  const stand = stageInScene(
+    kept,
+    stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after], calendarFor(db, input.sceneId, memory, scene.card))
+  )
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
   const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)
@@ -131,8 +135,10 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     contextLength: model.choice.contextLength ?? null,
     speakerTags,
     stand,
-    must: { facts: memory.facts, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships },
-    ...(core ? { core } : {})
+    must: { facts: memory.facts, beliefs: memory.beliefs, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships },
+    ...(core ? { core } : {}),
+    // The scene's contract (long story memory fix 13), when Settings › Models says to.
+    ...(tool === 'continue' && contractWanted(settings) ? { contract: true } : {})
   })
   if (!briefing.ok) return briefing
 
@@ -155,7 +161,11 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     // Kept until Adam accepts the change (History's snapshot before it names this record).
     ...(speakerTags ? { onSpeakers: (speakers: WriterSpeaker[], id: string) => noteGenerationSpeakers(id, speakers) } : {})
   })
-  // Check and repair: once Adam accepts Continue's words, they are checked against where things stood at the cursor.
-  if (tool === 'continue') noteStage(generationId, input.sceneId, stand)
+  // Check and repair: once Adam accepts Continue's words, they are checked against where things stood at the cursor, and
+  // against the scene's contract Continue was given (fix 13).
+  if (tool === 'continue') {
+    noteStage(generationId, input.sceneId, stand)
+    noteContract(generationId, input.sceneId, briefing.contract ?? null)
+  }
   return { ok: true, generationId, note: briefing.note }
 }

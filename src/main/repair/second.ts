@@ -4,7 +4,9 @@
 // check was given, when its quote isn't in the new words, or when the model took it back in its own last sentence
 // ("...but that is not a contradiction."). Then one call, on the memory model at its 0.2, asks for each slip left:
 // reason first, one sentence citing what settles it, then a real yes or no. A slip ruled not real is dropped. A reply
-// that can't be read drops nothing. Pure except secondOpinion, which makes the call.
+// that can't be read drops nothing. The same call rules on what the scene's contract says must change and the words
+// don't show yet (long story memory fix 13's review): a note with no quote, ruled not real when the words show it after
+// all, in other words. Pure except secondOpinion, which makes the call.
 
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ContextBlock, ID } from '@shared/types'
@@ -97,10 +99,40 @@ export const SECOND_SYSTEM = `${SECOND_MARKER} verdicts
 You are checking another continuity editor's notes on newly written words of a novel, against the same material they read: where things stood just before the new words (W lines), the story's memory (E, K, O, D, S lines). For each numbered note, decide whether it is a real slip: the quoted new words and the line it cites cannot both be true at that moment, and nothing in the new words or the words just before shows the change happening. Reject a note that misreads the words, confuses two people, relies on something that is not in the material, flags something merely left out, flags details that can both be true on a natural reading, flags a change the new words themselves show, or is about style. What someone wears and how they are placed (boots, coat or anything else on or off; lying, sitting or standing; where they are, in the room or gone from it) change only when the new words or the words just before show it: never reject a note about those because the change could have happened off the page, or because someone may have put something back on or moved. Keep a note that is right even if it is worded badly.
 Reply with JSON only: {"verdicts": [{"n": 1, "reason": "...", "real": true}]}, one per note: reason first (one sentence, citing the line or the words that settle it), then real (true or false).`
 
-/** The request for the second opinion on `slips` (numbered from 1, in order). */
-export function secondRequest(slips: Claim[], o: { material: string; leadIn: string; newWords: string }): { messages: ChatMessage[]; blocks: ContextBlock[] } {
-  const notes = slips
-    .map((c, i) => `${i + 1}. Quote: "${c.quote}" · Line: ${lineTextOf(c.line, o.material)} · The note: ${c.why || c.question || 'a slip'}`)
+/** What the second opinion is told of a note that says something isn't shown yet (fix 13's review). */
+export const NOT_SHOWN_RULE =
+  'A note marked "Not shown" has no quote: it says the new words don\'t show something a C line says must change. It is real only when nothing in the new words shows that happening, in any wording; reject it when they show it, even in other words.'
+
+/**
+ * The instructions, with the scene's contract (long story memory fix 13) when a note cites one of its C lines; otherwise
+ * exactly as they always were.
+ */
+export const secondSystem = (contract = false, notShown = false): string =>
+  contract
+    ? SECOND_SYSTEM.replace(
+        "the story's memory (E, K, O, D, S lines).",
+        "the story's memory (E, K, O, D, S lines), and the scene's contract (C lines: what had to be true where the new words start, what had to change, and what must not change; a C note says the new words go against one)."
+      ).replace('\nReply with JSON only:', `${notShown ? ` ${NOT_SHOWN_RULE}` : ''}\nReply with JSON only:`)
+    : SECOND_SYSTEM
+
+/** Something the scene's contract says must change that the new words don't show yet (fix 13): a note with no quote. */
+export interface MissingNote {
+  /** Its C line. */
+  line: string
+  text: string
+}
+
+/** The request for the second opinion on `slips`, then on what isn't shown yet (numbered from 1, in order). */
+export function secondRequest(
+  slips: Claim[],
+  o: { material: string; leadIn: string; newWords: string },
+  missing: MissingNote[] = []
+): { messages: ChatMessage[]; blocks: ContextBlock[] } {
+  const notes = [
+    ...slips.map((c) => `Quote: "${c.quote}" · Line: ${lineTextOf(c.line, o.material)} · The note: ${c.why || c.question || 'a slip'}`),
+    ...missing.map((m) => `Not shown · Line: ${lineTextOf(m.line, o.material)} · The note: the new words don't show this happening.`)
+  ]
+    .map((n, i) => `${i + 1}. ${n}`)
     .join('\n')
   const sections = [
     { id: 'material', title: 'What the check was given', text: o.material },
@@ -111,7 +143,7 @@ export function secondRequest(slips: Claim[], o: { material: string; leadIn: str
   const user = `${sections.map((s) => `## ${s.title}\n${s.text}`).join('\n\n')}\n\nReply with the JSON verdicts, one per note.`
   return {
     messages: [
-      { role: 'system', content: SECOND_SYSTEM },
+      { role: 'system', content: secondSystem(slips.some((c) => /^C\d+$/.test(c.line)) || missing.length > 0, missing.length > 0) },
       { role: 'user', content: user }
     ],
     blocks: sections.map((s, i) => ({ id: s.id, priority: Math.min(10, i + 1), title: s.title, text: s.text, tokens: estimateTokens(s.text), entryIds: [], dropped: false }))
@@ -138,21 +170,33 @@ export function rejectedNotes(raw: string): Set<number> | null {
 /** Room for the verdicts: a sentence and a yes or no each. */
 export const secondTokens = (n: number): number => Math.min(2000, 200 + 120 * n)
 
+export interface SecondOutcome {
+  kept: Claim[]
+  dropped: { claim: Claim; why: SecondWhy }[]
+  /** What isn't shown yet that still stands (all of it when there was no ruling). */
+  missing: MissingNote[]
+  /** True when the call was made and its reply read: what is kept was ruled real (fix 13's review). */
+  ruled: boolean
+}
+
 /**
- * The claims with the second opinion's drops taken out (see the top of this file), and how many were dropped. One call
- * at most, only when slips are left after the checks that need none; a call that fails, or a reply that can't be read,
- * drops nothing more.
+ * The claims with the second opinion's drops taken out (see the top of this file), and how many were dropped; and what
+ * the scene's contract says must change that the words don't show, with what they do show after all taken out. One call
+ * at most, only when slips are left after the checks that need none or something isn't shown; a call that fails, or a
+ * reply that can't be read, drops nothing more.
  */
 export async function secondOpinion(
   o: { db: Database.Database; model: MemoryModel; signal?: AbortSignal; closed: () => boolean; fetchImpl?: typeof fetch; retryDelays?: number[] },
   sceneId: ID,
   claims: Claim[],
-  w: { newWords: string; leadIn: string; material: string; lines: ReadonlySet<string> }
-): Promise<{ kept: Claim[]; dropped: { claim: Claim; why: SecondWhy }[] }> {
+  w: { newWords: string; leadIn: string; material: string; lines: ReadonlySet<string> },
+  missing: MissingNote[] = []
+): Promise<SecondOutcome> {
   const ground = groundedSlips(claims, w)
   const slips = ground.kept.filter((c) => c.verdict === 'slip')
-  if (!slips.length) return ground
-  const req = secondRequest(slips, w)
+  const unruled: SecondOutcome = { ...ground, missing, ruled: false }
+  if (!slips.length && !missing.length) return unruled
+  const req = secondRequest(slips, w, missing)
   const got = await callModel({
     db: o.db,
     model: o.model,
@@ -160,17 +204,19 @@ export async function secondOpinion(
     job: 'memory',
     messages: req.messages,
     blocks: req.blocks,
-    maxTokens: secondTokens(slips.length),
+    maxTokens: secondTokens(slips.length + missing.length),
     signal: o.signal ?? new AbortController().signal,
     closed: o.closed,
     fetchImpl: o.fetchImpl,
     retryDelays: o.retryDelays
   }).catch(() => null)
   const rejected = got && got.status === 'complete' ? rejectedNotes(got.text) : null
-  if (!rejected?.size) return ground
+  if (!rejected) return unruled
   const out = slips.filter((_, i) => rejected.has(i))
   return {
     kept: ground.kept.filter((c) => !out.includes(c)),
-    dropped: [...ground.dropped, ...out.map((claim) => ({ claim, why: 'not-real' as const }))]
+    dropped: [...ground.dropped, ...out.map((claim) => ({ claim, why: 'not-real' as const }))],
+    missing: missing.filter((_, i) => !rejected.has(slips.length + i)),
+    ruled: true
   }
 }

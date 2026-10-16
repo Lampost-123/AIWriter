@@ -63,6 +63,36 @@ export interface CheckReport {
   after: 'draft' | 'done' | 'request'
   items: CheckReportItem[]
   found: number
+  /**
+   * How the latest draft kept to its scene's contract (long story memory fix 13), item by item, from the check as it
+   * landed or the chapter writer's checks. Kept until the next one; left out: no contract was checked.
+   */
+  contract?: ContractCheck
+}
+
+/**
+ * How an item of the scene's contract came out: kept (the words show it), broken (the words go against it: an issue),
+ * not yet (something that must change that the words don't show: an issue), untouched (the words don't touch it), or
+ * unchecked (the check said nothing of it).
+ */
+export type ContractResult = 'kept' | 'broken' | 'not yet' | 'untouched' | 'unchecked'
+
+export interface ContractCheckItem {
+  /** Must be true at the start, must change, or must not change. */
+  part: 'start' | 'change' | 'keep'
+  text: string
+  result: ContractResult
+  /** The words that show it kept or broken, when the check quoted them. */
+  quote?: string
+}
+
+/** One check of a draft against its scene's contract. */
+export interface ContractCheck {
+  /** ISO time it was checked. */
+  at: string
+  /** What the draft was asked to write: a whole scene, a stretch of one (Add below), a beat, or Continue's words. */
+  asks: 'scene' | 'stretch' | 'beat' | 'continue'
+  items: ContractCheckItem[]
 }
 
 /** What an issue conflicts with, for its links. */
@@ -105,6 +135,16 @@ export interface Issue {
   occurrence?: number
   /** A common AI phrase the live checks underlined (stored as a phrase when ignored): set only then. */
   aiPhrase?: true
+  /**
+   * Found by a free rule over the memory, with no AI asked (long story memory fix 8: the dead speaking, one thing in two
+   * hands, time running backwards): set only then.
+   */
+  byRule?: true
+  /**
+   * Found by checking a draft against its scene's contract (long story memory fix 13): something it had to keep to that
+   * the words go against, or something it had to bring about that they don't show yet. Set only then.
+   */
+  byContract?: true
   createdAt: string
   updatedAt: string
 }

@@ -17,6 +17,7 @@ import type { MemoryData, WorldShape } from '../memory/types'
 import { changesMade, readMapLayout, readMapMoved, sceneCards, storyGaps, writeMapLayout, writeMapMoved, writtenScenes, type CardInfo } from '../db/worldViews'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
+import { threadPlans } from '../db/threadPlans'
 import { UserError } from '../util'
 import { buildTimeline } from './timeline'
 import { buildBoard } from './threads'
@@ -101,7 +102,8 @@ export function threadsBoardOf(db: DB, storyId: ID): ThreadsBoard {
         cards,
         payoff: (ids) => payoffWords(db, ids),
         linkScenes: (ids) => hist.entryLinkScenes(db, ids),
-        written: writtenScenes(db)
+        written: writtenScenes(db),
+        plans: threadPlans(db)
       }))
     )
   }

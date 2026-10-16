@@ -358,9 +358,9 @@ async function expectHappened(win: Page, happened: [string, string][]): Promise<
   }
 }
 
-/** "Knows at this point": the facts, in the order they were learned. */
+/** "What they know" (called so since long story memory fix 9): the facts, in the order they were learned. */
 async function expectKnows(win: Page, facts: string[]): Promise<void> {
-  const section = part(win, 'Knows at this point')
+  const section = part(win, 'What they know')
   if (!facts.length) return expect(section.getByText('Nothing noted yet.', { exact: true })).toBeVisible()
   await expect(section.getByRole('listitem')).toHaveCount(facts.length)
   for (const [k, fact] of facts.entries()) await expect(section.getByRole('listitem').nth(k)).toContainText(fact)

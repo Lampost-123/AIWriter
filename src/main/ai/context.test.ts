@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { BlockMode, Change, EntryKind, EntryState, Pin, StyleGuide } from '@shared/types'
+import type { BlockMode, Change, EntryKind, EntryState, Pin, StyleGuide, ThreadDue } from '@shared/types'
 import { AUTO_LENGTH, cardLength, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import type { SceneState } from '@shared/continuity'
@@ -31,7 +31,6 @@ import {
   sentEntryIds,
   sentEntryVersions,
   storySoFarText,
-  timeSincePrevious,
   toldStage,
   deadBy,
   type ContextInput,
@@ -42,14 +41,16 @@ import {
   DETAILS_LABEL,
   FACTS_LABEL,
   MENTIONED_TITLE,
-  RELATIONSHIP_SECRETS,
-  SEND_ORDER
+  SEND_ORDER,
+  WHY
 } from './context'
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
-import { OPEN_THREADS_BLOCK, OPEN_THREADS_LEAD } from './openThreads'
+import { OPEN_THREADS_BLOCK, OPEN_THREADS_LEAD, OPEN_THREADS_MOST, openThreadsMost, openThreadsShort } from './openThreads'
 import { TIMELINE_LEAD } from './timeline'
 import { MUST_SMALLEST } from './mustStay'
+import { LEDGER_BLOCK, LEDGER_LEAD } from './whoKnows'
 import { countRaw } from './tokens'
+import { memoryScale } from './memoryRoom'
 
 // ---------- Fixtures ----------
 
@@ -620,7 +621,7 @@ describe('selection', () => {
     const inp = richInput()
     inp.scene.card.beats.push('Mara thinks of Lowtown, the Tide Guild and the Binding')
     const ids = buildBlocks(inp)
-      .filter((b) => b.id !== 'relationships')
+      .filter((b) => b.id !== 'relationships' && b.id !== LEDGER_BLOCK.id)
       .flatMap((b) => b.entryIds)
     expect(new Set(ids).size).toBe(ids.length)
   })
@@ -653,6 +654,7 @@ describe('blocks', () => {
       ['relationships', 6],
       ['ties', 11],
       ['mentioned', 9],
+      ['knowledge', 6],
       ['scene-card', 2],
       ['must-stay-true', 2]
     ])
@@ -923,19 +925,32 @@ describe('blocks', () => {
     expect(present.short).toBe('### Tobin\nIn short: A ferryman who owes Mara.\n\nVoice\n- How they speak: Rambling, warm.')
   })
 
-  it('block 6: relationships and who knows what among those present, with no short form', () => {
+  it('block 6: relationships among those present, with no short form', () => {
     const inp = richInput()
     const block = blockOf(inp, 'relationships')!
-    expect(block.title).toBe('Relationships and who knows what')
-    expect(block.text).toBe(
-      "- Mara Venn and Tobin: now enemies. Mara Venn feels: Contempt, but she needs his boat. Tobin feels: Guilt.\n\nFacts some of them know and others don't:\n- Tobin does not know: Mara is the heir. (Mara Venn knows it.)"
-    )
+    expect(block.title).toBe('Relationships')
+    expect(block.text).toBe('- Mara Venn and Tobin: now enemies. Mara Venn feels: Contempt, but she needs his boat. Tobin feels: Guilt.')
     expect(block.short).toBeNull()
     expect(block.entryIds).toEqual([named(inp, 'Mara Venn').id, named(inp, 'Tobin').id])
 
     // Alone, there is nobody to compare with.
     inp.scene.card.presentIds = [named(inp, 'Mara Venn').id]
     expect(blockOf(inp, 'relationships')).toBeUndefined()
+  })
+
+  it('who knows what (fix 9): what someone here doesn’t know yet that another here knows, sent late', () => {
+    const inp = richInput()
+    const block = blockOf(inp, LEDGER_BLOCK.id)!
+    expect(block).toMatchObject({ title: 'Who knows what', priority: 6 })
+    // What both know is Tobin's to know (the point of view's own list is block 4's).
+    expect(block.text).toBe(`${LEDGER_LEAD}\n\nTobin:\n- Doesn't know yet: Mara is the heir (Mara Venn knows it).\n- Knows: The ferry leaks.`)
+    expect(block.short).toBe(`${LEDGER_LEAD}\n\nTobin:\n- Doesn't know yet: Mara is the heir (Mara Venn knows it).`)
+    expect(block.entryIds).toEqual([named(inp, 'Mara Venn').id, named(inp, 'Tobin').id])
+    expect(SEND_ORDER.indexOf(LEDGER_BLOCK.id)).toBeGreaterThan(SEND_ORDER.indexOf('recalled'))
+    expect(SEND_ORDER.indexOf(LEDGER_BLOCK.id)).toBeLessThan(SEND_ORDER.indexOf('scene-card'))
+    // Alone, nothing is kept from anyone, and the point of view's own list is block 4's.
+    inp.scene.card.presentIds = [named(inp, 'Mara Venn').id]
+    expect(blockOf(inp, LEDGER_BLOCK.id)).toBeUndefined()
   })
 
   it('block 7: the setting with the places around it; short: one line each', () => {
@@ -1317,7 +1332,8 @@ function counts(
  * (their own tests are below), so the numbers here stay simple.
  */
 function withoutMust(p: PreparedContext): PreparedContext {
-  const blocks = p.blocks.filter((b) => b.id !== MUST_BLOCK && b.id !== EARLIER_BLOCK.id)
+  // Who knows what (fix 9) too: it has its own tests.
+  const blocks = p.blocks.filter((b) => b.id !== MUST_BLOCK && b.id !== EARLIER_BLOCK.id && b.id !== LEDGER_BLOCK.id)
   return { ...p, blocks, texts: [...blocks.flatMap((b) => formsOf(b).map((t) => blockAsSent(b, t))), p.finals.withPrevious, p.finals.withoutPrevious] }
 }
 
@@ -1551,7 +1567,7 @@ describe('fitting the briefing to the model', () => {
 
     const large = assembleContext(scene(128_000), countRaw)
     expect(large.blocks.filter((b) => b.dropped || b.short)).toEqual([])
-    expect(large.blocks).toHaveLength(14)
+    expect(large.blocks).toHaveLength(15)
     expect(large.messages[1].content).toContain('## Ties to people not in this scene')
     expect(large.messages[0].content).toContain(sample)
     expect(large.messages[1].content).toContain('Born in the Narrows')
@@ -1765,7 +1781,7 @@ describe('a small-context model and a large-context model both get a sensible br
   function sensible(b: ReturnType<typeof briefing>, o: { pov?: boolean } = {}): void {
     expect(b.p.budget.used).toBeLessThanOrEqual(b.p.budget.available)
     // Every part is listed, sent or not, so the Context tab and "What the AI saw" show what was left out.
-    expect(b.p.blocks).toHaveLength(15)
+    expect(b.p.blocks).toHaveLength(16)
     // What must stay true is never left out (2026-10-15).
     for (const id of ['instructions', 'scene-card', 'previous-scene', MUST_BLOCK]) expect(b.sent(id), id).toBe(true)
     if (o.pov === false) return
@@ -1865,24 +1881,27 @@ describe('a small-context model and a large-context model both get a sensible br
     const p = assembleContext(inp, countRaw)
     const block = (id: string) => p.blocks.find((b) => b.id === id)!
     expect(p.budget.used).toBeLessThanOrEqual(p.budget.available)
-    for (const id of ['pov', 'relationships', 'story-so-far', 'previous-scene']) expect(block(id).dropped, id).toBe(false)
+    for (const id of ['pov', 'relationships', 'story-so-far', 'previous-scene', LEDGER_BLOCK.id]) expect(block(id).dropped, id).toBe(false)
     const pov = block('pov').text
     // The fact about someone in the scene is kept, with the latest ones, and the rest are counted.
     expect(pov).toContain('- Tobin owes the Tide Guild forty crowns.')
     expect(pov).toContain('(149)')
     expect(pov).toMatch(/\(And 14\d more, left out here to save space\.\)/)
     expect(pov).toContain('- How they speak: Short, dry sentences.')
-    const rel = block('relationships')
-    expect(rel.text).toContain('- Mara Venn and Tobin: old friends, now uneasy.')
-    expect(rel.text).toContain("Facts some of them know and others don't:\n- Tobin does not know: ")
-    // Only the real secrets, at most three (Adam, 2026-10-08), and never one about Tobin himself.
-    expect(rel.text.match(/^- Tobin does not know: /gm)).toHaveLength(3)
-    expect(rel.text).not.toContain('forty crowns')
-    // A large model gets them all.
+    // Relationships only: what some know and others don't is in who knows what (fix 9).
+    const rel = block('relationships').text
+    expect(rel).toMatch(/^- Mara Venn and Tobin: old friends, now uneasy\. Mara Venn feels: /)
+    expect(rel).not.toContain('know')
+    // Who knows what: only the real secrets, a few on a small model (Adam, 2026-10-08; fix 9), never one about Tobin himself.
+    const kept = block(LEDGER_BLOCK.id)
+    expect(kept.text).toContain("Tobin:\n- Doesn't know yet: ")
+    expect(kept.text.match(/^- Doesn't know yet: /gm)).toHaveLength(3)
+    expect(kept.text).not.toContain('forty crowns')
+    // A large model gets them all, and twice as many of who knows what.
     const big = assembleContext({ ...inp, contextLength: 200_000 }, countRaw)
     expect(big.blocks.filter((b) => b.short || b.dropped)).toEqual([])
     expect(big.messages[1].content).not.toContain('left out here to save space')
-    expect(big.blocks.find((b) => b.id === 'relationships')!.text.match(/^- Tobin does not know: /gm)).toHaveLength(RELATIONSHIP_SECRETS)
+    expect(big.blocks.find((b) => b.id === LEDGER_BLOCK.id)!.text.match(/^- Doesn't know yet: /gm)).toHaveLength(6)
     // What must stay true repeats only the latest few, right above the closing instruction.
     expect(big.blocks.find((b) => b.id === MUST_BLOCK)!.text.match(/^- Kept from Tobin: /gm)).toHaveLength(3)
   })
@@ -1970,8 +1989,9 @@ describe('assembleContext', () => {
       '## Plot threads in this scene',
       '## Point-of-view character: Mara Venn',
       '## Also in the scene',
-      '## Relationships and who knows what',
+      '## Relationships',
       '## Also relevant',
+      '## Who knows what',
       '## Scene card',
       'Write the scene now.'
     ]
@@ -2206,26 +2226,6 @@ describe('ties to people not in this scene', () => {
   })
 })
 
-describe('the time since the previous scene', () => {
-  const at = (now: string, then: string | undefined, otherStory = false) =>
-    timeSincePrevious({
-      scene: { title: '', card: { ...emptySceneCard(), when: now } },
-      memory: { previous: { sceneId: 'p', title: '', text: 'x', storyId: 's', storyTitle: '', when: then, otherStory: otherStory ? { ended: true, timeGap: '' } : null } } as never
-    })
-  it('says how long after the previous scene this one is, from both cards', () => {
-    expect(at('Day 8, noon', 'Day 5, dusk')).toBe(
-      "The previous scene was Day 5, dusk. 3 days later. Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by."
-    )
-    expect(at('Day 10, dawn', 'Day 9, night')).toContain('The next day.')
-    expect(at('Day 13, dusk', 'Day 13, afternoon')).toContain('The same day.')
-    expect(at('Spring, the year after', 'Winter')).toBe(
-      "The previous scene was Winter. Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by."
-    )
-    expect(at('Day 8', '')).toBe('')
-    expect(at('Day 8', 'Day 5', true)).toBe('')
-  })
-})
-
 describe('who is dead by this point', () => {
   const who = (notes: string[]) =>
     deadBy([{ kind: 'character', name: 'Anselm', happened: notes.map((note, i) => ({ note, where: '', changeId: String(i) })) }])
@@ -2253,52 +2253,127 @@ describe('who is dead by this point', () => {
   })
 })
 
-describe('the open plot threads (the AI manages plot threads, 2026-10-08)', () => {
+describe('the open plot threads (the AI manages plot threads, 2026-10-08; the promises ledger, fix 10)', () => {
   /** An input with these threads open (or planned), with promises and clues. */
-  const withThreads = (n: number, cardOver: Partial<ContextInput['scene']['card']> = {}) => {
+  const withThreads = (n: number, cardOver: Partial<ContextInput['scene']['card']> = {}, over: Partial<ContextInput> = {}) => {
     const threads = Array.from({ length: n }, (_, i) =>
       entry('thread', `Thread ${i + 1}`, {
         fields: { promise: `Question ${i + 1}?`, clues: i === 0 ? 'a wet rope\na coin on the bell' : '' },
         happened: [{ note: 'moved on', where: '', changeId: `c${i}`, at: i }]
       })
     )
-    const inp = input()
+    const inp = input(over)
     inp.memory = { ...inp.memory, entries: [...inp.memory.entries, ...threads] }
     inp.memory.threads = threads.map((t) => ({ entryId: t.id, status: 'open' as const, setUp: 'Book 2, Ch 1, Sc 1', paidOff: '' }))
     inp.scene.card = { ...inp.scene.card, ...cardOver }
     return { inp, threads }
   }
+  const linesOf = (inp: ContextInput): string[] => blockOf(inp, OPEN_THREADS_BLOCK)!.text.split('\n').slice(1)
 
-  it('gives the writer every open thread, a line each with its promise and last clue, gently, at most 6, newest first', () => {
+  it('gives the writer every open thread, a line each with its promise and last clue, gently, the longest untouched first', () => {
     const { inp, threads } = withThreads(8)
     const b = blockOf(inp, OPEN_THREADS_BLOCK)!
     expect(b.title).toBe('Open plot threads')
     expect(b.text.split('\n')[0]).toBe(OPEN_THREADS_LEAD)
     expect(OPEN_THREADS_LEAD).toContain('Bring one in only where it fits naturally')
-    expect(OPEN_THREADS_LEAD).toContain("Don't pay a thread off unless the scene card or the author's direction asks for it")
-    const lines = b.text.split('\n').slice(1)
-    expect(lines).toHaveLength(6)
-    expect(lines[0]).toBe('- Thread 8 — Question 8?')
-    expect(b.short?.split('\n')).toHaveLength(4)
-    // The first thread's last clue shows once it is among the six.
-    const { inp: few } = withThreads(2)
-    expect(blockOf(few, OPEN_THREADS_BLOCK)!.text).toContain('- Thread 1 — Question 1? — last clue: a coin on the bell')
+    expect(OPEN_THREADS_LEAD).toContain("Don't pay a thread off unless the scene card or the author's direction asks for it, or its line below says it is due")
+    const lines = linesOf(inp)
+    expect(lines).toHaveLength(8)
+    // Thread 1 last moved on longest ago: it comes first, with its last clue.
+    expect(lines[0]).toBe('- Thread 1 — Question 1? — last clue: a coin on the bell')
+    expect(lines[7]).toBe('- Thread 8 — Question 8?')
     expect(threads).toHaveLength(8)
   })
 
-  it('puts a thread the scene card names first, leaves out threads on the card and those only planned', () => {
+  it('gives as many as the model has room for: 6 on the smallest, up to 22 (short: 3 up to 6)', () => {
+    expect(openThreadsMost(memoryScale(16_000))).toBe(OPEN_THREADS_MOST)
+    expect(openThreadsMost(memoryScale(32_000))).toBe(12)
+    expect(openThreadsMost(memoryScale(1_000_000))).toBe(22)
+    expect(openThreadsShort(memoryScale(16_000))).toBe(3)
+    expect(openThreadsShort(memoryScale(1_000_000))).toBe(6)
+    const block = (contextLength: number) => {
+      const { inp } = withThreads(30, {}, { contextLength })
+      return blockOf(inp, OPEN_THREADS_BLOCK)!
+    }
+    expect(block(16_000).text.split('\n').slice(1)).toHaveLength(6)
+    expect(block(16_000).short?.split('\n').slice(1)).toHaveLength(3)
+    expect(block(32_000).text.split('\n').slice(1)).toHaveLength(12)
+    expect(block(200_000).text.split('\n').slice(1)).toHaveLength(22)
+    expect(block(200_000).short?.split('\n').slice(1)).toHaveLength(6)
+  })
+
+  it('puts a thread the scene card names first, leaves out threads on the card, those only planned and those dropped', () => {
     const { inp, threads } = withThreads(8)
-    const bell = inp.memory.entries.find((e) => e.id === threads[0].id)!
+    const bell = inp.memory.entries.find((e) => e.id === threads[5].id)!
     bell.name = 'The drowned bell'
     bell.fields = { ...bell.fields, promise: 'Who rang the drowned bell?' }
     inp.scene.card.beats = [...inp.scene.card.beats, 'Mara hears the drowned bell again']
     inp.scene.card.paysOffIds = [threads[7].id]
     inp.memory.threads[6] = { ...inp.memory.threads[6], planned: true }
-    const lines = blockOf(inp, OPEN_THREADS_BLOCK)!.text.split('\n').slice(1)
-    expect(lines[0]).toMatch(/^- The drowned bell — Who rang the drowned bell\? — last clue: a coin on the bell$/)
-    expect(lines.join('\n')).not.toMatch(/Thread 8|Thread 7/)
+    inp.memory.threads[1] = { ...inp.memory.threads[1], standing: 'dropped' }
+    const lines = linesOf(inp)
+    expect(lines[0]).toBe('- The drowned bell — Who rang the drowned bell?')
+    expect(lines.join('\n')).not.toMatch(/Thread 8|Thread 7|Thread 2\b/)
     // The card's own thread is told as before: this scene pays it off.
     expect(blockOf(inp, 'threads')!.text).toContain('Thread 8 (this scene pays it off')
+  })
+
+  it('puts those due by the end of this chapter or overdue first, and says so plainly', () => {
+    const { inp, threads } = withThreads(6)
+    const due = (i: number, d: ThreadDue) => (inp.memory.threads[i] = { ...inp.memory.threads[i], due: d })
+    due(4, { chapterId: 'c5', label: 'Ch 5', from: 'adam', state: 'now' })
+    due(3, { chapterId: 'c4', label: 'Ch 4', from: 'adam', state: 'overdue' })
+    due(2, { chapterId: 'c9', label: 'Ch 9', from: 'adam', state: 'later' })
+    due(5, { chapterId: 'c7', label: 'Ch 7', from: 'card', sceneId: 's7', sceneLabel: 'Ch 7, Sc 2', state: 'later' })
+    const lines = linesOf(inp)
+    expect(lines[0]).toBe('- Thread 4 — Question 4? — Overdue: it was to be paid off by the end of Ch 4. Pay it off soon, where it fits.')
+    expect(lines[1]).toBe('- Thread 5 — Question 5? — Pay this off by the end of this chapter.')
+    expect(lines).toContain('- Thread 3 — Question 3? — to be paid off by the end of Ch 9, not yet')
+    expect(lines).toContain('- Thread 6 — Question 6? — its pay-off is planned for Ch 7, Sc 2, not yet')
+    expect(threads).toHaveLength(6)
+    // The short form keeps them first too.
+    const { inp: small } = withThreads(8, {}, { contextLength: 16_000 })
+    small.memory.threads[7] = { ...small.memory.threads[7], due: { chapterId: 'c5', label: 'Ch 5', from: 'adam', state: 'now' } }
+    expect(blockOf(small, OPEN_THREADS_BLOCK)!.short?.split('\n')[1]).toBe('- Thread 8 — Question 8? — Pay this off by the end of this chapter.')
+  })
+
+  it('then those that name someone on the card, the place, or what they hold (the one name rule)', () => {
+    const { inp, threads } = withThreads(5)
+    const debt = inp.memory.entries.find((e) => e.id === threads[4].id)!
+    debt.fields = { ...debt.fields, promise: "Will Tobin's debt be paid?" }
+    const tavern = inp.memory.entries.find((e) => e.id === threads[3].id)!
+    tavern.fields = { ...tavern.fields, promise: 'What lies under the Gilded Eel?' }
+    // Someone not in the scene doesn't count.
+    const duke = inp.memory.entries.find((e) => e.id === threads[2].id)!
+    duke.fields = { ...duke.fields, promise: 'What does the Duke want?' }
+    inp.memory.threads[0] = { ...inp.memory.threads[0], due: { chapterId: 'c1', label: 'Ch 1', from: 'adam', state: 'now' } }
+    const names = linesOf(inp).map((l) => l.split(' — ')[0])
+    expect(names).toEqual(['- Thread 1', '- Thread 4', '- Thread 5', '- Thread 2', '- Thread 3'])
+  })
+
+  it('a write to a thread between steps never reorders the block: ties go by when it was made, not its last edit', () => {
+    const { inp } = withThreads(4)
+    for (const e of inp.memory.entries) if (e.kind === 'thread') e.happened = [{ note: 'moved on', where: '', changeId: `x${e.id}`, at: 0 }]
+    const before = linesOf(inp)
+    // The memory (or Adam) writes to the first thread listed: it now has the newest last edit.
+    const first = inp.memory.entries.find((e) => before[0].startsWith(`- ${e.name} `))!
+    first.updatedAt = '2026-10-16T09:00:00.000Z'
+    expect(linesOf(inp)).toEqual(before)
+    const last = inp.memory.entries.find((e) => before[3].startsWith(`- ${e.name} `))!
+    last.updatedAt = '2025-01-01T00:00:00.000Z'
+    expect(linesOf(inp)).toEqual(before)
+    // Made later than the others: after them.
+    const second = inp.memory.entries.find((e) => before[1].startsWith(`- ${e.name} `))!
+    second.createdAt = '2026-10-16T09:00:00.000Z'
+    expect(linesOf(inp).at(-1)).toBe(before[1])
+  })
+
+  it('reads the same at every step of a scene (the cache)', () => {
+    const { inp } = withThreads(8)
+    inp.memory.threads[2] = { ...inp.memory.threads[2], due: { chapterId: 'c5', label: 'Ch 5', from: 'adam', state: 'now' } }
+    const before = blockOf(inp, OPEN_THREADS_BLOCK)!.text
+    const later = { ...inp, soFar: 'Tobin pushed the ferry off. The Duke watched from the bank.', options: { ...inp.options, direction: 'Now the storm' } }
+    expect(blockOf(later, OPEN_THREADS_BLOCK)!.text).toBe(before)
   })
 
   it('is sent in the steady part, just after the card’s threads, before the people', () => {
@@ -2395,5 +2470,172 @@ describe('the scenes before, word for word (2026-10-15)', () => {
     // A short previous scene is sent whole by block 3: only the scenes before it.
     const short = blockOf(input({ contextLength: 128_000 }, { previous: { sceneId: 'p', title: 'Brief', text: 'Mara waited.', ...inBook2 }, earlier }), EARLIER_BLOCK.id)!
     expect(short.text.match(/^### .*$/gm)).toEqual(['### Ch 3, Sc 1 (Day 11)', '### Ch 3, Sc 2'])
+  })
+})
+
+describe('characters however they are named (long story memory fix 12)', () => {
+  const happened = Array.from({ length: 5 }, (_, i) => ({ note: `happened ${i + 1}`, where: `Ch 1, Sc ${i + 1}`, changeId: `h${i}` }))
+  /** The scene as before, with Bryn Tally in the world: on no card, named in no beat, tied to no one. */
+  function withBryn(over: Partial<ContextInput> = {}, extra: Partial<EntryState> = {}) {
+    const inp = input(over)
+    const bryn = entry('character', 'Bryn Tally', {
+      aliases: ['Bryn'],
+      summary: 'A carter who owes nobody.',
+      fields: { hair: 'A grey braid', speech: 'Clipped, never more than five words.', fears: 'Deep water.' },
+      happened,
+      ...extra
+    })
+    inp.memory.entries = [...inp.memory.entries, bryn]
+    return { inp, bryn }
+  }
+  const why = (inp: ContextInput, id: string) => selectEntries(inp).chosen.get(id)?.why
+
+  it('someone named only in the scene so far comes in, in full, as those on the scene card do', () => {
+    const { inp, bryn } = withBryn({ soFar: "Bryn's cart rattled into the yard before anyone was up." })
+    expect(why(inp, bryn.id)).toBe(WHY.soFar)
+    const block = blockOf(inp, 'mentioned')!
+    expect(block.text).toContain('### Bryn Tally (character; named in the scene so far)')
+    // How they speak and what they fear, and all that has happened to them, as for those on the scene card.
+    expect(block.text).toContain('Clipped, never more than five words.')
+    expect(block.text).toContain('Deep water.')
+    expect(block.text).toContain('happened 1')
+    // Shorter forms: who they are and how they look, then a line.
+    expect(block.short).not.toContain('Clipped')
+    expect(block.short).toContain('A grey braid')
+    expect(block.smaller.at(-1)).toContain('- Bryn Tally (character; named in the scene so far): A carter who owes nobody.')
+    // Without the scene so far, not at all.
+    expect(why(withBryn().inp, bryn.id)).toBeUndefined()
+  })
+
+  it('a character named in the beats keeps the short card, and gets the full one once the scene so far names them', () => {
+    const beats = (soFar?: string) => {
+      const w = withBryn(soFar ? { soFar } : {})
+      w.inp.scene.card.beats = [...w.inp.scene.card.beats, 'Bryn arrives with the cart']
+      return w
+    }
+    const before = beats()
+    expect(why(before.inp, before.bryn.id)).toBe(WHY.beats)
+    expect(blockOf(before.inp, 'mentioned')!.text).not.toContain('Clipped')
+    const after = beats('Bryn tied up the horse.')
+    expect(why(after.inp, after.bryn.id)).toBe(WHY.beats)
+    expect(blockOf(after.inp, 'mentioned')!.text).toContain('Clipped')
+  })
+
+  it('by what this scene calls them, and the previous scene’s end by what that scene called them', () => {
+    const { inp, bryn } = withBryn({ soFar: 'The carter spat into the straw.' })
+    expect(why(inp, bryn.id)).toBeUndefined()
+    inp.called = { here: [{ entryId: bryn.id, words: 'the carter' }], previous: [] }
+    expect(why(inp, bryn.id)).toBe(WHY.soFar)
+    expect(blockOf(inp, 'mentioned')!.text).toContain('### Bryn Tally (character; named in the scene so far)')
+    // The previous scene called her "her sister": its end is read with its own words.
+    const prev = withBryn({}, {})
+    prev.inp.memory.previous = { ...prev.inp.memory.previous!, text: 'She left the docks at dusk, and her sister went with her.' }
+    expect(why(prev.inp, prev.bryn.id)).toBeUndefined()
+    prev.inp.called = { here: [{ entryId: prev.bryn.id, words: 'her sister' }], previous: [] }
+    expect(why(prev.inp, prev.bryn.id)).toBeUndefined()
+    prev.inp.called = { here: [], previous: [{ entryId: prev.bryn.id, words: 'her sister' }] }
+    expect(why(prev.inp, prev.bryn.id)).toBe(WHY.previous)
+    // Not named in this scene's own words: a line, not a card.
+    expect(blockOf(prev.inp, 'mentioned')!.text).toMatch(/^- Bryn Tally/m)
+  })
+
+  it('"will" is a word and "Will you…?" a question: neither brings Will in', () => {
+    const will = (soFar: string) => {
+      const inp = input({ soFar })
+      const w = entry('character', 'Will', { summary: 'The ferryman’s boy.' })
+      inp.memory.entries = [...inp.memory.entries, w]
+      return why(inp, w.id)
+    }
+    expect(will('She will not go back, and she said so.')).toBeUndefined()
+    expect(will('“Will you come?” Tobin asked.')).toBeUndefined()
+    expect(will('Will shook his head.')).toBe(WHY.soFar)
+    expect(will('“No,” said Will.')).toBe(WHY.soFar)
+  })
+
+  it('kept out when Adam kept them out; and the dead, thought of, are not brought in (the scene card says who is dead)', () => {
+    const { inp, bryn } = withBryn({ soFar: 'Bryn waited by the gate.' })
+    inp.pins = [pin(bryn.id, 'scene', 'hide')]
+    expect(why(inp, bryn.id)).toBeUndefined()
+    const dead = withBryn({ soFar: 'Mara thought of Bryn and wept.' }, { happened: [{ note: 'died this afternoon in the flood', where: 'Ch 2, Sc 1', changeId: 'd1' }] })
+    expect(why(dead.inp, dead.bryn.id)).toBeUndefined()
+    expect(blockOf(dead.inp, 'scene-card')!.text).toContain('Bryn Tally (died in the flood; Ch 2, Sc 1)')
+  })
+
+  it('the blocks before the entries named stay word for word the same (the cache), the ties to Bryn among them', () => {
+    const { inp, bryn } = withBryn()
+    const mara = named(inp, 'Mara Venn')
+    inp.memory.relationships = [...inp.memory.relationships, { aId: mara.id, bId: bryn.id, type: 'old debt', aFeels: 'wary', bFeels: '', where: '' }]
+    expect(selectEntries({ ...inp, soFar: 'Bryn waited by the gate.' }).ties.flatMap((p) => p.ties.map((t) => t.other.id))).toContain(bryn.id)
+    const later: ContextInput = { ...inp, soFar: 'Bryn waited by the gate.' }
+    expect(why(later, bryn.id)).toBe(WHY.soFar)
+    const steady = SEND_ORDER.slice(0, SEND_ORDER.indexOf('mentioned'))
+    const texts = (i: ContextInput) => buildBlocks(i).filter((b) => steady.includes(b.id)).map((b) => [b.id, b.text])
+    expect(texts(later).length).toBeGreaterThan(5)
+    expect(texts(later)).toEqual(texts(inp))
+  })
+})
+
+// ---------- Who knows what, for everyone in the scene (long story memory fix 9) ----------
+
+describe('who knows what, for everyone in the scene (fix 9)', () => {
+  const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
+  function scene(over: Partial<ContextInput> = {}) {
+    const inp = input(over)
+    const mara = named(inp, 'Mara Venn')
+    const bryn = entry('character', 'Bryn Tally', { aliases: ['Bryn'], summary: 'A carter.' })
+    inp.memory.entries = [...inp.memory.entries, bryn]
+    inp.memory.facts = [
+      { factId: 'will', fact: 'The will was burned', knownBy: [mara.id], at: 4, since: { [mara.id]: { at: 4, where: 'Book 2, Ch 1, Sc 2', how: 'saw' } } }
+    ]
+    inp.memory.beliefs = [{ factId: 'letter', fact: 'The letter is genuine', believedBy: [bryn.id], since: { [bryn.id]: { at: 3, where: 'Book 2, Ch 1, Sc 1' } }, at: 3 }]
+    return { inp, mara, bryn }
+  }
+
+  it('someone named in the scene so far gets their own section, and what must stay true keeps it from them too', () => {
+    const { inp } = scene({ soFar: 'Bryn waited by the gate.' })
+    const block = blockOf(inp, LEDGER_BLOCK.id)!
+    expect(block.text).toContain(
+      "Bryn Tally:\n- Doesn't know yet: The will was burned (Mara Venn knows it, since Ch 1, Sc 2; saw it).\n- Wrongly believes: The letter is genuine (since Ch 1, Sc 1). It isn't true."
+    )
+    const must = blockOf(inp, MUST_BLOCK)!.text
+    expect(must).toContain('- Kept from Tobin and Bryn Tally: The will was burned (Mara Venn knows it).')
+    expect(must).toContain("- Bryn Tally wrongly believes: The letter is genuine (it isn't true). Bryn Tally takes it as true here unless the scene card says otherwise")
+    // Not named yet: not in the scene, so nothing about Bryn.
+    expect(blockOf(scene().inp, LEDGER_BLOCK.id)!.text).not.toContain('Bryn')
+    expect(blockOf(scene().inp, MUST_BLOCK)!.text).not.toContain('Bryn')
+  })
+
+  it('someone where things stand puts in the scene gets a section too', () => {
+    const { inp } = scene()
+    // The same When as the scene before, so where things stood then still holds here.
+    inp.memory.previous = { ...inp.memory.previous!, when: 'Day 12, dusk' }
+    inp.continuity = { time: '', weather: '', light: '', characters: [{ ...blank, name: 'The Duke', where: 'the gallery' }] }
+    inp.options.direction = 'The Duke is watching from the gallery'
+    expect(blockOf(inp, LEDGER_BLOCK.id)!.text).toContain("The Duke:\n- Doesn't know yet: The will was burned (Mara Venn knows it, since Ch 1, Sc 2; saw it).")
+  })
+
+  it('what must stay true names the people the block covers, and a crowd only so far (fix 9 review)', () => {
+    const inp = input({ contextLength: 16_000 })
+    const mara = named(inp, 'Mara Venn')
+    const crowd = Array.from({ length: 7 }, (_, i) => entry('character', `Carter ${String.fromCharCode(65 + i)}`))
+    inp.memory.entries = [...inp.memory.entries, ...crowd]
+    inp.scene.card.presentIds = [...inp.scene.card.presentIds, ...crowd.map((e) => e.id)]
+    inp.memory.facts = [{ factId: 'will', fact: 'The will was burned', knownBy: [mara.id], at: 4 }]
+    const block = blockOf(inp, LEDGER_BLOCK.id)!.text
+    const must = blockOf(inp, MUST_BLOCK)!.text
+    // Six people at this size: Mara, Tobin and four of the carters, the same in both.
+    expect(block).toContain('Carter D:')
+    expect(block).not.toContain('Carter E')
+    expect(must).toContain('- Kept from Tobin, Carter A, Carter B and 2 more: The will was burned (Mara Venn knows it).')
+    expect(must).not.toContain('Carter E')
+  })
+
+  it('the earlier blocks stay word for word the same when someone new is named (the cache)', () => {
+    const { inp } = scene()
+    const later: ContextInput = { ...inp, soFar: 'Bryn waited by the gate.' }
+    const steady = SEND_ORDER.slice(0, SEND_ORDER.indexOf(LEDGER_BLOCK.id)).filter((id) => id !== 'mentioned')
+    const texts = (i: ContextInput) => buildBlocks(i).filter((b) => steady.includes(b.id)).map((b) => [b.id, b.text])
+    expect(texts(later)).toEqual(texts(inp))
+    expect(blockOf(later, LEDGER_BLOCK.id)!.text).not.toEqual(blockOf(inp, LEDGER_BLOCK.id)!.text)
   })
 })

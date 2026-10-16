@@ -1,9 +1,13 @@
 // "Worth a look" (World Memory Overhaul B3): the memory check list at the top of What changed. Everything the memory
 // isn't sure about, under plain headings: facts whose words Adam edited since, the AI's guesses, summaries being
-// updated, and his own facts the story no longer says. Each row: Show me (the words in the scene), Keep (it's his),
-// Fix (open the page to edit it), Remove (with Undo); Keep all for a group. Nothing here has to be done: the memory
-// settles most of it by itself as Adam writes. The AI's guesses start folded and don't count in the badge.
-import { ChevronRight, CircleCheck, Eye, PenLine, X } from '@/components/ui/icons'
+// updated, his own facts the story no longer says, other names the story calls his characters by, and plot threads
+// left waiting (long story memory fix 10). Each row: Show me (the words in the scene), Keep (it's his; for a name, Add
+// name), Fix (open the page to edit it; Open for a plot thread), Remove (with Undo; for a name, Ignore; for a plot
+// thread, Mark as dropped), and for a plot thread Pay off later (a later chapter to pay it off by); Keep all for a group
+// (Add all). Nothing here has to be done: the memory settles most of it by itself as Adam writes. The AI's guesses start
+// folded and don't count in the badge.
+import * as M from '@radix-ui/react-dropdown-menu'
+import { ChevronDown, ChevronRight, CircleCheck, Eye, Hourglass, PenLine, Plus, X } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { Entry, ID, MemoryCheckItem, MemoryCheckUndo } from '@shared/types'
 import { Badge, Button, toast } from '@/components/ui'
@@ -20,13 +24,18 @@ import {
   foldedGroup,
   groupChecks,
   guessesOpen,
+  ignoreTitle,
+  keepLabel,
   keptToast,
+  offeredName,
   rememberGuessesOpen,
+  removeLabel,
   removedToast,
   showsWords,
   type CheckGroup
 } from './checkLogic'
 import { openScene, showWords } from './openScene'
+import { payByToast } from '@/features/threads/planWords'
 
 /** Rows shown in a group before "Show all". */
 const FIRST_ROWS = 5
@@ -69,7 +78,9 @@ export function CheckQueue({
       toast(keptToast(rows), { action: { label: 'Undo', run: () => void undoWith(undo) } })
     } catch (e) {
       onReload()
-      toast(`That couldn't be kept. ${plainReason(e)}`, { tone: 'danger' })
+      toast(`${rows.every((r) => r.group === 'alias') ? 'That name couldn’t be added.' : "That couldn't be kept."} ${plainReason(e)}`, {
+        tone: 'danger'
+      })
     }
   }
 
@@ -77,10 +88,25 @@ export function CheckQueue({
     onChange(dropChecks(items, [row.key]))
     try {
       const undo = await api.removeMemoryCheck(row.fact)
-      announceDelete({ message: removedToast(row), noun: ['fact', 'facts'], undo: () => undoWith(undo) })
+      // Ignoring a name, or dropping a plot thread, deletes nothing: a plain toast with Undo.
+      if (row.group === 'alias' || row.group === 'promise') toast(removedToast(row), { action: { label: 'Undo', run: () => void undoWith(undo) } })
+      else announceDelete({ message: removedToast(row), noun: ['fact', 'facts'], undo: () => undoWith(undo) })
     } catch (e) {
       onReload()
       toast(`That couldn't be removed. ${plainReason(e)}`, { tone: 'danger' })
+    }
+  }
+
+  // Pay off later (long story memory fix 10): the plot thread gets a later chapter to be paid off by.
+  const later = async (row: MemoryCheckItem, chapter: { id: ID; label: string }): Promise<void> => {
+    if (row.fact.kind !== 'promise') return
+    onChange(dropChecks(items, [row.key]))
+    try {
+      const undo = await api.planThread(row.fact.threadId, { payBy: chapter.id })
+      toast(payByToast(row.entryName, chapter.label.split(' · ')[0]), { action: { label: 'Undo', run: () => void undoWith(undo) } })
+    } catch (e) {
+      onReload()
+      toast(`That couldn't be changed. ${plainReason(e)}`, { tone: 'danger' })
     }
   }
 
@@ -128,6 +154,7 @@ export function CheckQueue({
             onKeep={(rows) => void keep(rows)}
             onFix={fix}
             onRemove={(row) => void remove(row)}
+            onLater={(row, chapter) => void later(row, chapter)}
           />
         ))}
       </div>
@@ -135,13 +162,16 @@ export function CheckQueue({
   )
 }
 
+type Later = (row: MemoryCheckItem, chapter: { id: ID; label: string }) => void
+
 function Group({
   group,
   canOpen,
   onShow,
   onKeep,
   onFix,
-  onRemove
+  onRemove,
+  onLater
 }: {
   group: CheckGroup
   canOpen: (row: MemoryCheckItem) => boolean
@@ -149,6 +179,7 @@ function Group({
   onKeep: (rows: MemoryCheckItem[]) => void
   onFix: (row: MemoryCheckItem) => void
   onRemove: (row: MemoryCheckItem) => void
+  onLater: Later
 }): React.JSX.Element {
   const [all, setAll] = useState(false)
   // The AI's guesses start folded: only the heading and how many (remembered on this computer once opened).
@@ -193,8 +224,14 @@ function Group({
         )}
         <div className="flex-1" />
         {open && group.items.length > 1 ? (
-          <Button variant="ghost" size="sm" className="-mr-1.5 px-2" onClick={() => onKeep(group.items)} title="Keep every one of these as it is">
-            Keep all
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-mr-1.5 px-2"
+            onClick={() => onKeep(group.items)}
+            title={group.id === 'alias' ? 'Add every one of these names' : 'Keep every one of these as it is'}
+          >
+            {group.id === 'alias' ? 'Add all' : 'Keep all'}
           </Button>
         ) : null}
       </div>
@@ -203,7 +240,7 @@ function Group({
           <p className="mb-2 text-[12.5px] leading-snug text-muted">{group.help}</p>
           <ul className="overflow-hidden rounded-xl border border-line bg-surface">
             {shown.map((row) => (
-              <Row key={row.key} row={row} canOpen={canOpen(row)} onShow={onShow} onKeep={onKeep} onFix={onFix} onRemove={onRemove} />
+              <Row key={row.key} row={row} canOpen={canOpen(row)} onShow={onShow} onKeep={onKeep} onFix={onFix} onRemove={onRemove} onLater={onLater} />
             ))}
           </ul>
           {more > 0 ? (
@@ -223,7 +260,8 @@ function Row({
   onShow,
   onKeep,
   onFix,
-  onRemove
+  onRemove,
+  onLater
 }: {
   row: MemoryCheckItem
   canOpen: boolean
@@ -231,7 +269,9 @@ function Row({
   onKeep: (rows: MemoryCheckItem[]) => void
   onFix: (row: MemoryCheckItem) => void
   onRemove: (row: MemoryCheckItem) => void
+  onLater: Later
 }): React.JSX.Element {
+  const promise = row.group === 'promise'
   const name = row.entryName.trim()
   const what = checkWhat(row)
   const label = name ? `${name}, ${what}` : what
@@ -252,6 +292,8 @@ function Row({
         </p>
       ) : row.group === 'guess' && row.where ? (
         <p className="mt-0.5 text-[12px] text-faint">Found in {row.where}</p>
+      ) : promise ? (
+        <p className="mt-0.5 text-[12px] text-faint">{row.where ? `Last touched in ${row.where}` : 'Not touched in a scene yet'}</p>
       ) : null}
       <div className="-ml-2 mt-1.5 flex flex-wrap items-center gap-0.5">
         {showsWords(row) ? (
@@ -262,27 +304,38 @@ function Row({
             icon={<Eye size={13} />}
             onClick={() => onShow(row)}
             aria-label={`Show me: ${label}`}
-            title={row.group === 'guess' ? 'Show where this is in your story' : row.group === 'summary' ? 'Open this scene' : 'Show these words in the scene'}
+            title={
+              row.group === 'guess'
+                ? 'Show where this is in your story'
+                : row.group === 'summary' || promise
+                  ? 'Open this scene'
+                  : 'Show these words in the scene'
+            }
           >
             Show me
           </Button>
         ) : null}
+        {promise && row.later?.length ? <PayOffLater row={row} label={label} onLater={onLater} /> : null}
         <Button
           variant="ghost"
           size="sm"
           className="px-2"
-          icon={<CircleCheck size={13} />}
+          icon={row.group === 'alias' ? <Plus size={13} /> : <CircleCheck size={13} />}
           onClick={() => onKeep([row])}
-          aria-label={`Keep: ${label}`}
+          aria-label={`${keepLabel(row)}: ${label}`}
           title={
             row.group === 'summary'
               ? 'This summary still fits the scene'
               : row.group === 'note'
                 ? 'Keep it as you wrote it'
-                : 'Keep it as it is. It becomes yours and stops depending on the words.'
+                : row.group === 'alias'
+                  ? `The AI will know ${name || 'them'} by “${offeredName(row)}” in every scene`
+                  : promise
+                    ? 'Leave it open as it is. You won’t be asked about it again for now.'
+                    : 'Keep it as it is. It becomes yours and stops depending on the words.'
           }
         >
-          Keep
+          {keepLabel(row)}
         </Button>
         {canOpen ? (
           <Button
@@ -291,10 +344,12 @@ function Row({
             className="px-2"
             icon={<PenLine size={13} />}
             onClick={() => onFix(row)}
-            aria-label={`Fix: ${label}`}
-            title={row.group === 'summary' ? 'Edit this summary on the scene card' : `Open ${name || 'the page'} to edit it`}
+            aria-label={`${promise ? 'Open' : 'Fix'}: ${label}`}
+            title={
+              row.group === 'summary' ? 'Edit this summary on the scene card' : promise ? 'Open this plot thread' : `Open ${name || 'the page'} to edit it`
+            }
           >
-            Fix
+            {promise ? 'Open' : 'Fix'}
           </Button>
         ) : null}
         {row.canRemove ? (
@@ -304,13 +359,59 @@ function Row({
             className="px-2"
             icon={<X size={13} />}
             onClick={() => onRemove(row)}
-            aria-label={`Remove: ${label}`}
-            title="Take this out of the memory (you can undo it)"
+            aria-label={`${removeLabel(row)}: ${label}`}
+            title={
+              row.group === 'alias'
+                ? ignoreTitle(row)
+                : promise
+                  ? 'The story won’t pay this off: the AI stops bringing it up (you can undo it)'
+                  : 'Take this out of the memory (you can undo it)'
+            }
           >
-            Remove
+            {removeLabel(row)}
           </Button>
         ) : null}
       </div>
     </li>
+  )
+}
+
+/** "Pay off later" on a plot thread left waiting: the chapters it can be paid off by, the next first (fix 10). */
+function PayOffLater({ row, label, onLater }: { row: MemoryCheckItem; label: string; onLater: Later }): React.JSX.Element {
+  return (
+    <M.Root modal={false}>
+      <M.Trigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="px-2"
+          icon={<Hourglass size={13} />}
+          aria-label={`Pay off later: ${label}`}
+          title="Choose a later chapter to pay it off by. The AI is told when it is due."
+        >
+          Pay off later
+          <ChevronDown size={12} className="text-faint" aria-hidden />
+        </Button>
+      </M.Trigger>
+      <M.Portal>
+        <M.Content
+          align="start"
+          sideOffset={6}
+          collisionPadding={8}
+          className="z-50 max-h-[min(320px,var(--radix-dropdown-menu-content-available-height))] min-w-[220px] max-w-[320px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
+        >
+          <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Pay it off by the end of</M.Label>
+          {(row.later ?? []).map((c) => (
+            <M.Item
+              key={c.id}
+              onSelect={() => onLater(row, c)}
+              className="flex h-8 items-center rounded-md px-2 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2"
+            >
+              <span className="min-w-0 flex-1 truncate">{c.label}</span>
+            </M.Item>
+          ))}
+        </M.Content>
+      </M.Portal>
+    </M.Root>
   )
 }

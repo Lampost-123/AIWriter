@@ -8,6 +8,14 @@
 // Since 2026-10-08 (World Memory Overhaul A2) it may revise an entry's or event's one-line summary ("summary" items), and
 // the facts whose words changed are told apart from the "nothing the memory already says" rule.
 // Since 2026-10-08 (World Memory Overhaul B1) it may end a fact that is no longer true ("end" items, keeper/apply.ts).
+// Since 2026-10-15 (long story memory fix 12) it reports what the words call a character that the memory doesn't list
+// ("name" items: a nickname, a title, "her brother" where it can only mean them; keeper/names.ts).
+// Since 2026-10-15 (long story memory fix 9, the who-knows-what ledger) a "knows" item says how it was learned (saw, told,
+// overheard, read, guessed), from whom, and whether it is a belief that isn't true ("wrong"), which "end" can end
+// (keeper/apply.ts, memory/ledger.ts). The wording elsewhere was tightened to make room: 5,942 characters, under the
+// 6,000 the tests hold it to.
+// Since 2026-10-16 (long story memory fix 15) chapter, story and series summaries are told the story record's facts
+// (what changed in the chapter, how things stand at its end) and to follow them; a scene's summary is never patched.
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -27,29 +35,31 @@ const keysLine = (kind: EntryKind, label: string): string => `${label}: ${fieldK
 
 /** The reading instructions. Stable, so providers that cache repeated prompts can reuse them. */
 export const READING_SYSTEM = `${READING_MARKER}
-You keep the memory of a novel's world up to date while the author writes. You are given what the memory holds at this point in the story, the facts already read from this scene, and the paragraphs of the scene that are new or changed. Reply with one JSON object and nothing else.
+You keep a novel's memory up to date as the author writes. You get the memory at this point, the facts already read from this scene, and its new or changed paragraphs. Reply with one JSON object only.
 
 Rules
-- Read only the paragraphs labelled P1, P2 and so on. Lines labelled "Context" are there to help you understand them; take nothing from them.
-- Report only what the words show happens, is said to be true, or becomes true. No guesses, no reading between the lines, and nothing the memory already says, in any words (facts whose words changed excepted).
-- Every fact needs "quote": words copied exactly, character for character, from one P paragraph: the shortest phrase or sentence that shows it.
-- Refer to entries by their ids (E1, E2 ...). If someone or something is listed under "Elsewhere in the world", use that id: never make a new entry with a name or alias already listed. A new entry can be referred to in later items by its "ref" (N1, N2 ...).
-- A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives or makes (a bead, a letter, a sword) is an item, however much it matters to them. Give a new entry only fields the words show.
-- Changes are what is now different: injuries, possessions, looks, where someone is, goals, someone's death. Write a "note" as a short phrase without the name, such as "lost her left hand". When a change ends what one of their fields says (a bandage off for good, a hat lost), give that field's new value in the change's "fields" too, without it.
-- Details are facts about an entry that don't change in the scene (a newcomer's eye colour, what a place smells like).
-- Said lines later scenes must keep to (a promise or vow, a threat, a secret told): a "said" item with who says it, who hears it, and the spoken line itself as the quote. A secret told is something the hearers now know: give it as "said" only, not also as "knows".
+- Read only paragraphs P1, P2 ...; "Context" lines are only there to help: take nothing from them.
+- Report only what the words show happens, is said to be true or becomes true: no guesses or reading between the lines, and nothing the memory already says in any words (facts whose words changed excepted).
+- Every fact needs "quote": words copied character for character from one P paragraph: the shortest phrase or sentence that shows it.
+- Refer to entries by their ids (E1, E2 ...), those under "Elsewhere in the world" too: never make a new entry with a name or alias already listed. Later items can refer to a new entry by its "ref" (N1, N2 ...).
+- A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives or makes (a bead, a letter) is an item, however much it matters to them. Give a new entry only fields the words show.
+- Changes are what is now different: injuries, possessions, looks, where someone is, goals, a death. Write a "note" as a short phrase without the name. When a change ends what one of their fields says (a bandage off for good, a hat lost), also give that field's new value, without it, in "fields".
+- Details: facts about an entry that don't change in the scene (a newcomer's eye colour).
+- Said lines later scenes must keep to (a promise or vow, a threat, a secret told): a "said" item with who says it, who hears it, and the spoken line itself as the quote. A secret told is now known by the hearers: give it as "said" only, not also "knows".
+- Knows: give "how" and, if told or overheard, "from" whom; "wrong": true if what they believe isn't true.
+- Names: a listed character called something the memory doesn't list (a nickname or title, "her brother" if here it can only mean them): a "name" item.
 - Plot threads: a promise, mystery, threat, goal, debt or secret the story must answer. "open" when the words set one up, with its "promise" (what the reader waits on); "clue" for a new hint; "developing" with a note when it moves on.
-- Actions on the memory: "end" a "So far" note or known fact no longer true (a lost thing found); "guess" to "confirm" or "withdraw" a detail marked (guess); "close" an open thread only when its payoff is on the page, never for a hint or plan; "summary" when the scene now tells an entry's summary otherwise.
-- Facts under "Facts whose words changed" need a verdict each: "keep" (the scene still says it; give the words that now show it), "update" (it now says something else; give the new value and words) or "remove" (the scene no longer says it).
+- Actions on the memory: "end" a "So far" note, known fact or wrong belief no longer true (a lost thing found); "guess" to "confirm" or "withdraw" a detail marked (guess); "close" an open thread only when its payoff is on the page, never for a hint or plan; "summary" when the scene now tells an entry's summary otherwise.
+- Each fact under "Facts whose words changed" needs a verdict: "keep" (still said; give the words now showing it), "update" (it says something else now; give the new value and words) or "remove" (no longer said).
 - Don't repeat facts listed under "Facts from this scene".
-- If the scene contradicts the memory without it happening in the story (a different eye colour, a dead character walking about), put it under "clashes" rather than changing anything. A clash is only something that can't be true alongside what the memory says. A detail the memory doesn't have, a fuller or vaguer description, or the same thing in other words ("redder" for "red") is never a clash.
+- If the scene contradicts the memory without it happening in the story (a different eye colour, a dead character walking about), put it under "clashes", changing nothing. A clash is only something that can't be true alongside what the memory says. A detail the memory doesn't have, a fuller or vaguer description, or the same thing in other words ("redder" for "red") is never a clash.
 
 Reply with:
 {"facts": [verdicts], "add": [new facts], "clashes": [clashes]}
 
 Verdicts:
 {"id": "F1", "do": "keep", "quote": "..."}
-{"id": "F2", "do": "update", "quote": "...", and the fields of its type below with the new value}
+{"id": "F2", "do": "update", "quote": "...", plus its type's fields below, with the new value}
 {"id": "F3", "do": "remove"}
 
 New facts and actions, by "type":
@@ -57,11 +67,12 @@ New facts and actions, by "type":
 {"type": "change", "entry": "E1", "note": "lost her left hand", "fields": {"marks": "left hand missing"}, "quote": "..."}
 {"type": "detail", "entry": "E1", "field": "eyes", "value": "grey", "quote": "..."}
 {"type": "relationship", "entry": "E1", "other": "E2", "rel": "sister, rival, holds, member of...", "feels": "how E1 feels about E2", "otherFeels": "how E2 feels about E1", "ended": false, "quote": "..."}
-{"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 if listed under Facts", "forgets": false, "quote": "..."}
-{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "what it amounts to: Mara will be back before the snow", "factId": "K1 if listed under Facts", "quote": "the spoken line, copied exactly"}
-{"type": "thread", "entry": "E5, or leave it out and give a name", "name": "the question or promise", "status": "open|clue|developing", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
-{"type": "event", "name": "...", "summary": "what happened, in one line", "involved": ["E1", "E2"], "quote": "..."}
-{"type": "voice", "entry": "E1", "quote": "a line of dialogue typical of how they speak"}
+{"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 if listed", "how": "saw|told|overheard|read|guessed", "from": "E1", "wrong": false, "forgets": false, "quote": "..."}
+{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "Mara will be back before the snow", "factId": "K1 if listed", "quote": "the spoken line"}
+{"type": "thread", "entry": "E5, or none and a name", "name": "the question or promise", "status": "open|clue|developing", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
+{"type": "event", "name": "...", "summary": "one line", "involved": ["E1", "E2"], "quote": "..."}
+{"type": "voice", "entry": "E1", "quote": "a line of dialogue typical of them"}
+{"type": "name", "entry": "E1", "name": "the Captain", "quote": "..."}
 {"type": "end", "entry": "E1", "fact": "lost her knife, or K1", "when": "if the words say", "quote": "..."}
 {"type": "guess", "entry": "E1", "field": "eyes", "do": "confirm|withdraw", "quote": "..."}
 {"type": "close", "entry": "E5", "note": "the payoff", "quote": "..."}
@@ -89,15 +100,19 @@ export const retryMessage = (why: string): string =>
 export const SUMMARY_SYSTEM = `${SUMMARY_MARKER}
 You write short summaries of a novel's scenes, chapters and books, for the author's own notes and for the AI that drafts the next scenes. Write plain prose in the past tense and the third person, naming who does what. Begin with one or two sentences on how things stand at the end, starting "By the end,": where people end up, injuries, who now knows what, who holds what, decisions, promises made and questions left open. Then say what happens and what changes, in order. No headings, no lists, no comments on the writing, no quotes longer than a few words. Reply with the summary only.`
 
+/**
+ * What a summary is asked for. Since long story memory fix 15 a roll-up also gets the story record (keeper/summaries.ts,
+ * memory/chapterRecord.ts), as lines the model is told are facts: a chapter, `record`, what changed in it; a story or
+ * series, `end`, how things stand at the end of its last chapter. No summary is ever patched: a scene's is written again
+ * from its words (the patch World Memory Overhaul A3 added is gone).
+ */
 export type SummaryAsk =
   | { level: 'scene'; where: string; title: string; text: string; words: number }
   | { level: 'scene-part'; where: string; title: string; part: number; parts: number; text: string }
   | { level: 'scene-parts'; where: string; title: string; summaries: string[]; words: number }
-  /** A scene's summary patched from the paragraphs added or rewritten since (World Memory Overhaul A3). */
-  | { level: 'scene-patch'; where: string; title: string; summary: string; paragraphs: string[] }
-  | { level: 'chapter'; where: string; title: string; summaries: { label: string; text: string }[] }
-  | { level: 'story'; title: string; summaries: { label: string; text: string }[] }
-  | { level: 'series'; name: string; summaries: { label: string; text: string }[] }
+  | { level: 'chapter'; where: string; title: string; summaries: { label: string; text: string }[]; record?: string[] }
+  | { level: 'story'; title: string; summaries: { label: string; text: string }[]; end?: string[] }
+  | { level: 'series'; name: string; summaries: { label: string; text: string }[]; end?: string[] }
 
 /** How long a scene summary should be: 100 to 250 words, less for a short scene. */
 export function sceneSummaryLength(words: number): string {
@@ -105,6 +120,13 @@ export function sceneSummaryLength(words: number): string {
   if (words < 900) return 'in about 100 words'
   return 'in 100 to 250 words'
 }
+
+/** The story record's lines under a heading, or nothing when there are none. */
+const recordBlock = (heading: string, lines: string[] | undefined): string =>
+  lines?.length ? `\n\n${heading}\n${lines.map((l) => `- ${l}`).join('\n')}` : ''
+
+/** What a roll-up is told of the story record, when it has any: facts, which win over the summaries. */
+const RECORD_RULE = 'The story record below is fact: where a summary says otherwise, follow the record.'
 
 export function summaryPrompt(a: SummaryAsk): string {
   const list = (items: { label: string; text: string }[]): string => items.map((s) => `${s.label}: ${s.text}`).join('\n\n')
@@ -115,14 +137,14 @@ export function summaryPrompt(a: SummaryAsk): string {
       return `This is part ${a.part} of ${a.parts} of a long scene (${a.where}${a.title ? ` "${a.title}"` : ''}). Summarise this part in about 80 words.\n\n${a.text}`
     case 'scene-parts':
       return `These summarise the parts of one scene, in order (${a.where}${a.title ? ` "${a.title}"` : ''}). Join them into one summary of the scene ${sceneSummaryLength(a.words)}.\n\n${a.summaries.map((s, i) => `Part ${i + 1}: ${s}`).join('\n\n')}`
-    case 'scene-patch':
-      return `This is the summary of a scene (${a.where}${a.title ? ` "${a.title}"` : ''}), then the paragraphs of the scene that are new or rewritten since it was written. Edit the summary so it is true to the scene as it now reads, changing as little as you can and keeping about its length. Keep its opening on how things stand at the end true; if it doesn't open that way, begin it so ("By the end, …"). Reply with the whole edited summary.\n\nSummary: ${a.summary}\n\nNew or rewritten paragraphs:\n\n${a.paragraphs.join('\n\n')}`
-    case 'chapter':
-      return `Summarise this chapter (${a.where}${a.title ? `, "${a.title}"` : ''}) from its scene summaries, in 100 to 250 words. Begin with how things stand at the end of the chapter, which its last scenes say.\n\n${list(a.summaries)}`
+    case 'chapter': {
+      const facts = !!a.record?.length
+      return `Summarise this chapter (${a.where}${a.title ? `, "${a.title}"` : ''}) from its scene summaries, in 100 to 250 words. Begin with how things stand at the end of the chapter, which its last scenes${facts ? ' and the story record' : ''} say. Point to the scene where each big change happens, as (scene 2).${facts ? ` ${RECORD_RULE}` : ''}\n\n${list(a.summaries)}${recordBlock('What the story record says changed in this chapter:', a.record)}`
+    }
     case 'story':
-      return `Summarise the story "${a.title}" from its chapter summaries, in one paragraph of 150 to 300 words. Begin with how things stand at the end of it.\n\n${list(a.summaries)}`
+      return `Summarise the story "${a.title}" from its chapter summaries, in one paragraph of 150 to 300 words. Begin with how things stand at the end of it.${a.end?.length ? ` ${RECORD_RULE}` : ''}\n\n${list(a.summaries)}${recordBlock('How things stand at the end, by the story record:', a.end)}`
     case 'series':
-      return `Summarise the series "${a.name}" from the summaries of its books, in one paragraph of 150 to 300 words. Begin with how things stand at the end of it.\n\n${list(a.summaries)}`
+      return `Summarise the series "${a.name}" from the summaries of its books, in one paragraph of 150 to 300 words. Begin with how things stand at the end of it.${a.end?.length ? ` ${RECORD_RULE}` : ''}\n\n${list(a.summaries)}${recordBlock('How things stand at the end of the last book, by the story record:', a.end)}`
   }
 }
 

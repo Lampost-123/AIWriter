@@ -2,6 +2,9 @@ import type Database from 'better-sqlite3'
 import { settlePlacements } from './memory'
 import { purgeActs } from './acts'
 import { CHAPTER_CARD_PREFIX } from '@shared/chapterCard'
+import { dropCalledOfGoneScenes } from './called'
+import { clearGoneChapters, dropPlansOfGoneThreads } from './threadPlans'
+import { dropSnapshotsOfGoneChapters } from './snapshots'
 
 // The Trash: deleting a story, chapter, scene or entry only sets deleted_at, so it can be
 // restored for 30 days. After that, purgeTrash() removes it for good (run when a world opens).
@@ -55,6 +58,8 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     // Recently deleted they stay, so a restored scene has its beats; this also clears any left by a scene that
     // went for good another way (the outline helper's Undo, an imported story taking the empty first one's place).
     db.prepare("DELETE FROM meta WHERE substr(key, 1, 11) = 'beat_marks:' AND substr(key, 12) NOT IN (SELECT id FROM scenes)").run()
+    // So does what a scene's words call its characters (db/called.ts, long story memory fix 12).
+    dropCalledOfGoneScenes(db)
     const delChapter = db.prepare('DELETE FROM chapters WHERE id = ?')
     for (const id of chapterSet) delChapter.run(id)
     // Chapter cards (`chapter_card:<chapter id>` in meta, repo.ts) go with their chapter. While it is only in Recently
@@ -67,6 +72,8 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     for (const prefix of ['chapter_writer:', 'chapter_writer_before:']) {
       db.prepare(`DELETE FROM meta WHERE substr(key, 1, ${prefix.length}) = ? AND substr(key, ${prefix.length + 1}) NOT IN (SELECT id FROM chapters)`).run(prefix)
     }
+    // So does its end-of-chapter snapshot (db/snapshots.ts, long story memory fix 15).
+    dropSnapshotsOfGoneChapters(db)
     // Milestone 4: deleted acts too (a purged story's acts go with it).
     purgeActs(db, cutoff)
     const delStory = db.prepare('DELETE FROM stories WHERE id = ?')
@@ -81,6 +88,10 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
       delEntry.run(id)
       unlinkParent.run(id)
     }
+    // A plot thread's plan (db/threadPlans.ts, long story memory fix 10) goes with it, and a pay-off chapter gone for good
+    // leaves every plan.
+    dropPlansOfGoneThreads(db)
+    clearGoneChapters(db)
 
     return { stories: storySet.size, chapters: chapterSet.size, scenes: sceneSet.size, entries: entryIds.length, generations }
   })()

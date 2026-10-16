@@ -92,8 +92,13 @@ describe('the words a fact rests on', () => {
   })
 
   it('matches a name as a whole word, and a one-word name only with its capital', () => {
-    expect(mentionAt('Will you come?', 'Will')).toEqual({ start: 0, end: 4 })
+    expect(mentionAt('Will came in.', 'Will')).toEqual({ start: 0, end: 4 })
     expect(mentionAt('I will come.', 'Will')).toBeNull()
+    // The one rule the briefing and the page read names by (shared/names.ts, long story memory fix 12): "Will you…?"
+    // asks, a hyphen joins another word, and any apostrophe is any.
+    expect(mentionAt('Will you come? Will nodded.', 'Will')).toEqual({ start: 15, end: 19 })
+    expect(mentionAt('A will-o’-the-wisp. Will-o’-the-wisp.', 'Will')).toBeNull()
+    expect(mentionAt('Ask O’Brien.', "O'Brien")).toEqual({ start: 4, end: 11 })
     expect(mentionAt('Marama came.', 'Mara')).toBeNull()
     expect(mentionAt('the old woman laughed', 'The Old Woman')).toEqual({ start: 0, end: 13 })
   })

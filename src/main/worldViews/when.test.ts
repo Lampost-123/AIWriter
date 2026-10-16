@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareKeys, dayName, dayWords, parseWhen, placeWhens, type PlacedWhen, type WhenStory } from './when'
+import { compareKeys, dayName, dayWords, goesBack, parseWhen, placeWhens, type PlacedWhen, type WhenStory } from './when'
 
 const parts = (text: string) => {
   const p = parseWhen(text)
@@ -70,8 +70,44 @@ describe('reading a When box', () => {
     expect(parts('12/03/1204')).toEqual({ year: 1204, month: 3, day: 12, minute: null })
     expect(parts('03/25/1204')).toEqual({ year: 1204, month: 3, day: 25, minute: null })
     expect(parts('1204')).toEqual({ year: 1204, month: null, day: null, minute: null })
-    expect(parts('300 BC')).toEqual({ year: -300, month: null, day: null, minute: null })
+    // Years before Christ count through zero (1 BC is 0), so sums cross the line right; there is no AD 0.
+    expect(parts('300 BC')).toEqual({ year: -299, month: null, day: null, minute: null })
+    expect(parts('44 BC')?.year).toBe(-43)
+    expect(parseWhen('0 AD')).toBeNull()
+    expect(parts('Year 0')?.year).toBe(0)
+    expect(dayName('12 March 1 BC')).toBe('12 March 1 BC')
     expect(parts('Year 312 after the Founding')).toEqual({ year: 312, month: null, day: null, minute: null })
+  })
+
+  it('never reads a day its month doesn’t have, so it never rolls into the next month', () => {
+    for (const impossible of ['31 April 1820', '29 February 1821', '30 February', '1820-04-31', '31/06/1820'])
+      expect(parseWhen(impossible), impossible).toBeNull()
+    // A leap year has a 29 February, and with no year it may be one.
+    expect(parts('29 February 1820')).toEqual({ year: 1820, month: 2, day: 29, minute: null })
+    expect(parts('29 February 2000')?.day).toBe(29)
+    expect(parseWhen('29 February 1900')).toBeNull()
+    expect(parts('29 February')).toEqual({ year: null, month: 2, day: 29, minute: null })
+  })
+
+  it('reads half a day, half a year and a year and a half, and leaves a half it can’t place', () => {
+    expect(parseWhen('Half a day later')?.step).toMatchObject({ unit: 'day', n: 0 })
+    expect(parseWhen('half a year later')?.step).toMatchObject({ unit: 'month', n: 6 })
+    expect(parseWhen('A year and a half later')?.step).toMatchObject({ unit: 'month', n: 18 })
+    expect(parseWhen('half an hour later')?.step).toMatchObject({ unit: 'day', n: 0 })
+    expect(parseWhen('half a fortnight later')?.step).toMatchObject({ unit: 'day', n: 7 })
+    expect(parseWhen('half a year earlier')?.step).toMatchObject({ unit: 'month', n: -6 })
+    expect(parseWhen('half a week later')).toBeNull()
+    expect(parseWhen('a month and a half later')).toBeNull()
+    expect(parseWhen('two days and a half later')).toBeNull()
+  })
+
+  it('knows how far a time of day reaches, and that a clock time is exact', () => {
+    expect(parseWhen('Day 3, 11pm')?.span).toEqual([1380, 1380])
+    expect(parseWhen('Day 3, night')?.span).toEqual([1200, 1620])
+    expect(parseWhen('That night')?.span).toEqual([1200, 1620])
+    expect(parseWhen('Day 3, early morning')?.span).toEqual([300, 510])
+    expect(parseWhen('Day 3, late evening')?.span).toEqual([1200, 1380])
+    expect(parseWhen('Day 3')?.span).toBeNull()
   })
 
   it('reads clock times and seasons', () => {
@@ -309,6 +345,18 @@ describe('placing When boxes in reading order', () => {
     expect(ordered(['Day 2', 'Day 2', 'Day 1'])).toEqual(['Day 1', 'Day 2', 'Day 2'])
     const placed = placeWhens(['Day 2, dusk', 'Day 2'])
     expect(compareKeys(key(placed[0]), key(placed[1]))).toBe(0)
+  })
+
+  it('carries the present on from the present, never from a flashback; a flashback goes on from the one before', () => {
+    const same = (text: string): string | null => placeWhens([text])[0]!.day
+    const placed = placeWhens(['12 March 1820', 'Flashback: 2 February 1810', 'Flashback: the next day', 'The next morning'])
+    expect(placed[2]?.day).toBe(same('3 February 1810'))
+    expect(placed[3]?.day).toBe(same('13 March 1820'))
+    // "Earlier that day" and a step back go back too.
+    const steps = placeWhens(['Day 10', 'Three days earlier', 'The next day'])
+    expect([steps[1]?.day, steps[2]?.day]).toEqual([same('Day 7'), same('Day 11')])
+    expect(goesBack('Earlier that day')).toBe(true)
+    expect(goesBack('Earliest light')).toBe(false)
   })
 })
 

@@ -19,6 +19,7 @@ import { reducedMotion } from '@/features/look/motion'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { useChecks } from '../checkStore'
 import { issueSummary, KIND_WORDS, SEVERITY_WORDS, type IssueGroups } from '../consistencyLogic'
+import { CONTRACT_DETAIL, CONTRACT_WORDS, RULE_DETAIL, RULE_WORDS } from '@/features/issues/issuesLogic'
 import { ignoreIssue, reopenIssue } from '../IssuesTab'
 import { openEntry, openIssue, openThread } from '../open'
 import { EntryMark, ISSUE_KIND_ICONS, SeverityPill, useEntryLook } from './marks'
@@ -272,6 +273,16 @@ function DeskIssueCard({
           <KindIcon size={13} aria-hidden />
           {KIND_WORDS[i.kind] ?? ''}
         </span>
+        {i.byRule ? (
+          <span className="ck-kind" title={RULE_DETAIL}>
+            · {RULE_WORDS}
+          </span>
+        ) : null}
+        {i.byContract ? (
+          <span className="ck-kind" title={CONTRACT_DETAIL}>
+            · {CONTRACT_WORDS}
+          </span>
+        ) : null}
         {ignored ? <span className="ck-kind">· Ignored</span> : null}
         <span className="flex-1" />
         {ignored ? (

@@ -203,7 +203,7 @@ describe('drafting an earlier scene does not show later changes to the AI', () =
     expect(all).toContain('She left the docks at dusk')
     expect(all).toContain('What Mara knows:\n- Mara is the heir.')
     // Tobin learns it in scene 3.
-    expect(all).toContain('Tobin does not know: Mara is the heir. (Mara knows it.)')
+    expect(all).toContain("Tobin:\n- Doesn't know yet: Mara is the heir (Mara knows it")
     for (const later of ['Loses her left hand', 'No left hand', 'sworn enemies', 'Tobin learns', 'loses her hand', 'The blade came down']) {
       expect(all, later).not.toContain(later)
     }
@@ -223,7 +223,7 @@ describe('drafting an earlier scene does not show later changes to the AI', () =
     for (const aim of ['Loses her left hand', 'No left hand', 'sworn enemies', 'Tobin learns', 'loses her hand']) expect(facts, aim).not.toContain(aim)
     expect(facts).toContain('Cuts her hair short')
     // Until this scene brings it about, Tobin doesn't know.
-    expect(facts).toContain('Tobin does not know: Mara is the heir. (Mara knows it.)')
+    expect(facts).toContain("Tobin:\n- Doesn't know yet: Mara is the heir (Mara knows it")
     // Kell first appears here: named in the beats, and sent as such.
     expect(preview.entries!.find((e) => e.entryId === kell.id)).toMatchObject({ label: 'first appears in this scene' })
     expect(all).toContain('### Kell (character; first appears in this scene)')
@@ -236,6 +236,7 @@ describe('drafting an earlier scene does not show later changes to the AI', () =
     expect(all).toContain('- Distinguishing marks: No left hand')
     expect(all).toContain('Mara and Tobin: sworn enemies.')
     expect(all).not.toContain('does not know')
+    expect(all).not.toContain("Doesn't know yet")
     expect(all).toContain('Mara loses her hand; Tobin learns who she is.')
     expect(all).toContain('A drifter with a crossbow')
     expect(all).toContain('The blade came down.')

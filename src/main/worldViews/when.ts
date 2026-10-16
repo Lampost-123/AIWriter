@@ -6,7 +6,8 @@
 // season), a day, a time of day, or a step from the scene before ("the next day"). It never invents a
 // date: text it can't read is left undated and the timeline keeps it in reading order, marked "No date".
 // The text Adam typed is always what is shown. How each text leans on the scenes before it is in
-// placeWhens.
+// placeWhens. The story calendar (memory/calendar.ts, long story memory fix 11) reads the same states
+// (whenStates) to count days between scenes, a world's own months included where days are counted or stepped.
 //
 // Readings chosen (each is tested):
 // - "Day 12" is a count of days (no month); "the 12th" or a bare 12 is a day of the month, which can only
@@ -26,6 +27,11 @@
 //   left unread.
 // - "May", "March" and "fall" are everyday words too ("I may go", "after the fall"): they are a month or
 //   a season only beside a day or year, or among other date words ("early May", "the end of March").
+// - A day its month doesn't have ("31 April 1820", "29 February 1821") is no date, never the next month's;
+//   with no year, 29 February may be in a leap year. Years before Christ count through zero (1 BC is year 0,
+//   so sums cross the line right), and a bare year 0 is no year (a world's own "Year 0" is).
+// - "Half a year later" is six months and "a year and a half later" eighteen; "half a day later" is later the
+//   same day; a half that can't be placed ("half a week later") leaves the text unread.
 
 /** What a When text says, as far as it can be read. Unknown parts are null. */
 export interface WhenParts {
@@ -39,6 +45,10 @@ export interface WhenParts {
   dayCount: boolean
   /** Minutes after midnight: dawn 330, dusk 1110, midnight 1440. */
   minute: number | null
+  /** The words that named the time of day, as typed but in lower case ("late evening", "first light", "3pm"); '' for none. */
+  time: string
+  /** How far that time of day reaches, in minutes after midnight (SPANS: "night" is 20:00 to 03:00; "11pm" is exact); null for none. */
+  span: [number, number] | null
   /**
    * A step from the dated scene before: "the next day" is one day, "six months later" six months. Vague
    * steps ("days later") order the scene after the one before but don't name a day.
@@ -74,7 +84,7 @@ const MONTHS = lookup<number>({
   august: 8, aug: 8, september: 9, sep: 9, sept: 9, october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12
 })
 // prettier-ignore
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November',
+export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November',
   'December']
 
 const SEASONS = lookup<number>({ spring: 3.5, summer: 6.5, autumn: 9.5, fall: 9.5, winter: 12.5, midsummer: 6.5, midwinter: 12.5 })
@@ -93,6 +103,21 @@ const TIMES = lookup<number>({
   breakfast: 480, forenoon: 630, noon: 720, midday: 720, lunch: 750, lunchtime: 750, afternoon: 900, teatime: 1020, sunset: 1110,
   sundown: 1110, dusk: 1110, twilight: 1125, evening: 1170, dinner: 1140, supper: 1170, nightfall: 1200, 'after dark': 1230,
   night: 1320, nighttime: 1320, bedtime: 1350, midnight: 1440, 'after midnight': 60
+})
+
+/**
+ * How far each word for a time of day reaches, in minutes after midnight (night runs past midnight): a clock time is
+ * exact, but "night" after "11pm" may be the same hour, so the story calendar orders two times only when their spans
+ * don't meet (memory/calendar.ts timeOrder).
+ */
+// prettier-ignore
+const SPANS = lookup<[number, number]>({
+  'small hours': [60, 300], 'before dawn': [180, 330], 'first light': [270, 420], dawn: [270, 420], daybreak: [270, 420],
+  sunrise: [300, 450], sunup: [300, 450], morning: [300, 720], breakfast: [360, 600], forenoon: [540, 720], noon: [700, 740],
+  midday: [700, 740], lunch: [690, 840], lunchtime: [690, 840], afternoon: [720, 1080], teatime: [900, 1110],
+  sunset: [1020, 1230], sundown: [1020, 1230], dusk: [1020, 1230], twilight: [1020, 1260], evening: [1020, 1380],
+  dinner: [1020, 1320], supper: [1050, 1350], nightfall: [1080, 1290], 'after dark': [1110, 1500], night: [1200, 1620],
+  nighttime: [1200, 1620], bedtime: [1260, 1500], midnight: [1425, 1455], 'after midnight': [0, 240]
 })
 
 /** How early or late shifts a time of day or a season. */
@@ -217,18 +242,36 @@ const WEEKS = new Set(['week', 'fortnight'])
 const LATER = new Set(['later', 'after', 'afterwards', 'afterward', 'on'])
 const EARLIER = new Set(['earlier', 'before', 'previously', 'prior'])
 
+/** A time of day read: minutes after midnight, the tokens it took, and how far it reaches (SPANS; a clock time is exact). */
+interface Time {
+  minute: number
+  used: number
+  span: [number, number]
+}
+
 /** A time of day at tokens[i] ("dusk", "late evening", "first light", "3pm", "15:30", "12 noon"), with the tokens it took. */
-function readTime(tokens: string[], i: number): { minute: number; used: number } | null {
+function readTime(tokens: string[], i: number): Time | null {
   const t = tokens[i]
   const shift = EARLY_LATE.get(t)
   if (shift && tokens[i + 1]) {
     const inner = readTime(tokens, i + 1)
-    if (inner && !/\d/.test(tokens[i + 1])) return { minute: inner.minute + shift.time, used: inner.used + 1 }
+    if (inner && !/\d/.test(tokens[i + 1])) {
+      // Early is the first half of its span, late the second, mid the middle half.
+      const [lo, hi] = inner.span
+      const mid = (lo + hi) / 2
+      const span: [number, number] = t === 'early' ? [lo, mid] : t === 'late' ? [mid, hi] : [(lo + mid) / 2, (mid + hi) / 2]
+      return { minute: inner.minute + shift.time, used: inner.used + 1, span }
+    }
   }
-  const two = TIMES.get(`${t} ${tokens[i + 1] ?? ''}`)
-  if (two !== undefined) return { minute: two, used: 2 }
-  const one = TIMES.get(t)
-  if (one !== undefined) return { minute: one, used: 1 }
+  const words = (key: string, used: number): Time | null => {
+    const minute = TIMES.get(key)
+    return minute === undefined ? null : { minute, used, span: SPANS.get(key) ?? [minute, minute] }
+  }
+  const two = words(`${t} ${tokens[i + 1] ?? ''}`, 2)
+  if (two) return two
+  const one = words(t, 1)
+  if (one) return one
+  const exact = (minute: number, used: number): Time => ({ minute, used, span: [minute, minute] })
   const clock = /^(\d{1,2})(?::(\d{2}))?(am|pm)?$/.exec(t)
   if (clock && (clock[2] !== undefined || clock[3])) {
     let h = Number(clock[1])
@@ -236,18 +279,18 @@ function readTime(tokens: string[], i: number): { minute: number; used: number }
     if (h > 24 || m > 59) return null
     if (clock[3] === 'pm' && h < 12) h += 12
     if (clock[3] === 'am' && h === 12) h = 0
-    return { minute: h * 60 + m, used: 1 }
+    return exact(h * 60 + m, 1)
   }
   // "three o'clock", "3 o'clock", "12 noon"
   const n = readNumber(tokens, i)
   if (n && !n.ordinal && n.value >= 1 && n.value <= 12 && /^(o'clock|oclock)$/.test(tokens[i + n.used] ?? '')) {
-    return { minute: n.value * 60, used: n.used + 1 }
+    return exact(n.value * 60, n.used + 1)
   }
   if (n && !n.ordinal && n.value <= 12 && tokens[i + n.used] === 'o' && tokens[i + n.used + 1] === 'clock') {
-    return { minute: n.value * 60, used: n.used + 2 }
+    return exact(n.value * 60, n.used + 2)
   }
   if (n && !n.ordinal && n.value === 12 && (tokens[i + n.used] === 'noon' || tokens[i + n.used] === 'midnight')) {
-    return { minute: tokens[i + n.used] === 'noon' ? 720 : 1440, used: n.used + 1 }
+    return exact(tokens[i + n.used] === 'noon' ? 720 : 1440, n.used + 1)
   }
   return null
 }
@@ -272,7 +315,7 @@ const DATE_WORDS = new Set([
 /** Every word the reader knows: any other word is a name it doesn't know ("Frostmoon", "the siege", "Christmas"). */
 // prettier-ignore
 const KNOWN = new Set([
-  ...DATE_WORDS, ...AMBIGUOUS, ...STEP_UNITS.keys(), ...TIES, ...LATER, ...EARLIER, ...BIG, 'a', 'an', 'and', 'same', 'tomorrow',
+  ...DATE_WORDS, ...AMBIGUOUS, ...STEP_UNITS.keys(), ...TIES, ...LATER, ...EARLIER, ...BIG, 'a', 'an', 'and', 'half', 'same', 'tomorrow',
   'yesterday', 'just', 'eve'
 ])
 
@@ -313,6 +356,8 @@ function parseText(text: string): WhenParts | null {
     day: null,
     dayCount: false,
     minute: null,
+    time: '',
+    span: null,
     step: null,
     next: false,
     qual: ''
@@ -323,7 +368,15 @@ function parseText(text: string): WhenParts | null {
   }
   /** Whether the text or its clause ends at tokens[i]. */
   const end = (i: number): boolean => i >= tokens.length || tokens[i] === BREAK
+  /** Sets the time of day read at tokens[i], with its words. */
+  const timeAt = (i: number, t: Time): void => {
+    p.minute = t.minute
+    p.time = tokens.slice(i, i + t.used).join(' ')
+    p.span = t.span
+  }
   let found = false
+  // The year counts through zero: given as ISO gives it, or turned from BC (1 BC is year 0).
+  let astronomical = false
   // Where the day is among the words (for the words around it), where the text names a day or year of
   // its own, and where it ties itself to something else.
   let dayAt: [number, number] | null = null
@@ -341,6 +394,8 @@ function parseText(text: string): WhenParts | null {
     // ----- Whole dates -----
     const iso = /^(-?\d{1,6})-(\d{1,2})-(\d{1,2})$/.exec(t)
     if (iso && Number(iso[2]) >= 1 && Number(iso[2]) <= 12) {
+      // ISO years already count through zero.
+      astronomical = true
       p.year = Number(iso[1])
       p.month = Number(iso[2])
       p.day = Number(iso[3])
@@ -380,7 +435,7 @@ function parseText(text: string): WhenParts | null {
       const time = readTime(tokens, i + 1)
       if (next === 'day' || next === 'night' || time) {
         p.step = { unit: 'day', n: 1 }
-        if (time && next !== 'day') p.minute = time.minute
+        if (time && next !== 'day') timeAt(i + 1, time)
         take(i, 1 + (time ? time.used : 1))
         found = true
         continue
@@ -418,7 +473,7 @@ function parseText(text: string): WhenParts | null {
       const time = readTime(tokens, i + 2)
       if (tokens[i + 2] === 'day' || time) {
         p.step = { unit: 'day', n: 0 }
-        if (time) p.minute = time.minute
+        if (time) timeAt(i + 2, time)
         take(i, 2 + (time ? time.used : 1))
         found = true
         continue
@@ -428,24 +483,38 @@ function parseText(text: string): WhenParts | null {
       const time = readTime(tokens, i + 1)
       if (time) {
         p.step = { unit: 'day', n: 0 }
-        p.minute = time.minute
+        timeAt(i + 1, time)
         take(i, 1 + time.used)
         found = true
         continue
       }
     }
     {
-      // "two days later", "a week after", "six months later", "three years earlier", "hours later"
-      const n = readNumber(tokens, i)
+      // "two days later", "a week after", "six months later", "three years earlier", "hours later", "half a year later",
+      // "a year and a half later"
+      const half = t === 'half' ? { value: 0.5, ordinal: false, used: tokens[i + 1] === 'a' || tokens[i + 1] === 'an' ? 2 : 1 } : null
+      const n = half ?? readNumber(tokens, i)
       const at = n ? i + n.used : i
       const unit = STEP_UNITS.get(tokens[at])
-      const dir = tokens[at + 1]
+      const andHalf = tokens[at + 1] === 'and' && (tokens[at + 2] === 'a' || tokens[at + 2] === 'an') && tokens[at + 3] === 'half' ? 3 : 0
+      const dirAt = at + 1 + andHalf
+      const dir = tokens[dirAt]
       if (unit && dir && (LATER.has(dir) || EARLIER.has(dir)) && (n || /s$/.test(tokens[at]))) {
         // "the day after the battle": a tie to something unknown, not a step.
-        if (!(dir === 'after' || dir === 'before') || end(at + 2)) {
-          const count = n && !n.ordinal ? n.value : 1
-          p.step = { unit: unit.unit, n: unit.n * count * (EARLIER.has(dir) ? -1 : 1), vague: !n && unit.n !== 0 }
-          take(i, at + 2 - i)
+        if (!(dir === 'after' || dir === 'before') || end(dirAt + 1)) {
+          let count = ((n && !n.ordinal ? n.value : 1) + (andHalf ? 0.5 : 0)) * unit.n
+          let stepUnit = unit.unit
+          if (!Number.isInteger(count)) {
+            // A half: half a year is six months, a year and a half eighteen; half a day is later the same day. Half a
+            // week or a month and a half can't be placed: better no date than a wrong one.
+            if (stepUnit === 'year') {
+              stepUnit = 'month'
+              count *= 12
+            } else if (stepUnit === 'day' && count < 1) count = 0
+            else return null
+          }
+          p.step = { unit: stepUnit, n: count * (EARLIER.has(dir) ? -1 : 1), vague: !n && unit.n !== 0 }
+          take(i, dirAt + 1 - i)
           found = true
           continue
         }
@@ -457,7 +526,7 @@ function parseText(text: string): WhenParts | null {
       const dir = time ? tokens[i + 1 + time.used] : undefined
       if (time && (dir === 'after' || dir === 'before') && end(i + 2 + time.used)) {
         p.step = { unit: 'day', n: dir === 'after' ? 1 : -1 }
-        p.minute = time.minute
+        timeAt(i + 1, time)
         take(i, 2 + time.used)
         found = true
         continue
@@ -467,7 +536,7 @@ function parseText(text: string): WhenParts | null {
     // ----- Times of day -----
     const time = readTime(tokens, i)
     if (time && p.minute === null) {
-      p.minute = time.minute
+      timeAt(i, time)
       take(i, time.used)
       found = true
       continue
@@ -560,7 +629,8 @@ function parseText(text: string): WhenParts | null {
 
     // ----- Before Christ and the like, after a year -----
     if ((t === 'bc' || t === 'bce' || t === 'b') && p.year !== null && p.year > 0) {
-      p.year = -p.year
+      p.year = bc(p.year)
+      astronomical = true
       take(i, 1)
       continue
     }
@@ -585,7 +655,10 @@ function parseText(text: string): WhenParts | null {
       dayAt = [i, i]
     } else if (p.year === null && !n.ordinal) {
       p.year = n.value
-      if (/^(bc|bce)$/.test(tokens[i + 1] ?? '')) p.year = -p.year
+      if (/^(bc|bce)$/.test(tokens[i + 1] ?? '')) {
+        p.year = bc(p.year)
+        astronomical = true
+      }
     } else continue
     used[i] = true
     found = true
@@ -598,8 +671,26 @@ function parseText(text: string): WhenParts | null {
   tokens.forEach((t, i) => clause.push((clause[i - 1] ?? 0) + (t === BREAK ? 1 : 0)))
   const tied = ties.length > 0 && (!owns.length || ties.some((t) => owns.some((o) => o > t && clause[o] === clause[t])))
   if (!found || tied) return null
+  // No year 0 in the Common Era (1 BC is followed by AD 1), unless it is a year of the world's own ("Year 0").
+  if (p.year === 0 && !p.yearWord && !astronomical) return null
+  // A day its month doesn't have ("31 April 1820", "29 February 1821") is no date: it never rolls into the next month.
+  if (p.day !== null && !p.dayCount && !p.qual && p.month !== null && Number.isInteger(p.month)) {
+    if (p.day > monthLength(p.month, p.year)) return null
+  }
   p.qual = calendarWords(tokens, used, dayAt, p)
   return p
+}
+
+/** BC year n as a year counted through zero (1 BC is 0, 2 BC is -1), so sums cross the BC/AD line right. */
+const bc = (year: number): number => 1 - year
+
+/** Whether a year counted through zero is a leap year in the Common Era calendar. */
+export const isLeapYear = (year: number): boolean => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+
+/** How many days a month has; with no year known, February has 29 (it may be a leap year). */
+export function monthLength(month: number, year: number | null): number {
+  if (month === 2) return year === null || isLeapYear(year) ? 29 : 28
+  return [4, 6, 9, 11].includes(month) ? 30 : 31
 }
 
 /** Sets a labelled unit ("Day 12", "Year 3"); false when it is already set. */
@@ -696,6 +787,8 @@ export interface WhenStory {
 /** What is known at a dated text, for the texts after it to lean on. */
 interface State {
   year: number | null
+  /** The year is told with a word ("Year 3"), not as a bare number: only for saying it (the story calendar). */
+  yearWord: boolean
   month: number | null
   day: number | null
   dayCount: boolean
@@ -738,6 +831,8 @@ const dayOf = (k: State): string =>
  *   before at its end). So a book's scenes after a side story count on from the book's own, and a side
  *   story reads the same on its own timeline and its host's. Nothing wraps round: "March" after
  *   "December, Year 2" is March of Year 2, since only Adam knows whether a year went by.
+ * - A flashback (goesBack) leans on the dated text before it, a flashback or not; every other text leans
+ *   on the last that isn't one, so the present carries on from the present.
  * - A book that follows on may count its days afresh: its first text that names a day, month or year
  *   starts a calendar of its own and takes nothing from the book before, so books that each count from
  *   "Day 1" are kept apart. Until then its steps carry on from the book before ("The next morning"). A
@@ -761,17 +856,71 @@ export function placeWhens(
   items: readonly (string | WhenItem)[],
   stories: ReadonlyMap<string, WhenStory> = new Map()
 ): (PlacedWhen | null)[] {
+  const { states, named, aside, anchors } = readStates(items, stories)
+  // The first date with a year in each calendar (events aside), for the dates without one before it.
+  const firstYear = new Map<number, State>()
+  states.forEach((k, i) => {
+    if (k && !aside[i] && k.year !== null && k.vague < 2 && !firstYear.has(k.cal)) firstYear.set(k.cal, k)
+  })
+  const keyOf = (k: State, year: number | null): number[] => [
+    year ?? anchors.get(k.cal) ?? NONE,
+    year !== null ? NONE : k.cal,
+    k.month ?? NONE,
+    k.day ?? NONE,
+    k.minute
+  ]
+  return states.map((k, i) => {
+    if (!k) return null
+    const day = named[i] ? dayOf(k) : null
+    if (k.qual || (k.day !== null && !k.dayCount && k.month === null)) return { key: null, day }
+    let year = k.year
+    const first = year === null ? firstYear.get(k.cal) : undefined
+    if (first && compareKeys(keyOf(k, first.year), keyOf(first, first.year)) <= 0) year = first.year
+    return { key: keyOf(k, year), day }
+  })
+}
+
+/**
+ * Whether a When says it goes back in time on purpose: it starts "Flashback" or "Earlier" (the app has no other mark for
+ * a flashback), or steps back itself ("three days earlier", "the night before", "yesterday").
+ */
+export function goesBack(text: string, p: WhenParts | null = parseWhen(text)): boolean {
+  return /^\W*(?:(?:a|in\s+a)\s+)?(?:flash\s?-?back|earlier)\b/i.test(text) || (!!p?.step && p.step.n < 0)
+}
+
+/**
+ * What placeWhens works out at a text, for the story calendar (memory/calendar.ts): the in-world date as far as it is
+ * known, leaning on the texts before it as placeWhens does. `minute` is -1 when no time of day is known; `named` when
+ * the text names an in-world day (its own, or a step from one), not only an order.
+ */
+export type WhenState = Readonly<State> & { named: boolean }
+
+/** placeWhens' reading of each text (null where placeWhens has none): what the story calendar counts days from. */
+export function whenStates(items: readonly (string | WhenItem)[], stories: ReadonlyMap<string, WhenStory> = new Map()): (WhenState | null)[] {
+  const { states, named } = readStates(items, stories)
+  return states.map((k, i) => (k ? { ...k, named: named[i] } : null))
+}
+
+/** Each text's state as it leans on the ones before (placeWhens' rules), whether it names its day, and which are events. */
+function readStates(
+  items: readonly (string | WhenItem)[],
+  stories: ReadonlyMap<string, WhenStory>
+): { states: (State | null)[]; named: boolean[]; aside: boolean[]; anchors: Map<number, number | null> } {
   const states: (State | null)[] = items.map(() => null)
   const named: boolean[] = items.map(() => false)
   const aside: boolean[] = items.map((item) => typeof item !== 'string' && !!item.aside)
 
-  // Each story's dated texts so far (indexes in order), to lean on.
+  // Each story's dated texts so far (indexes in order), to lean on, and the ones that go back on purpose (goesBack: a
+  // flashback). A text that goes back leans on the dated text before it, whatever it is ("Flashback: the next day" after
+  // a flashback); any other leans on the last that doesn't, so the story's present goes on from its present, never from
+  // a flashback ("The next morning" after "Flashback: 2 February 1810" is the morning after the scene before that).
   const dated = new Map<string, number[]>()
-  const leanOn = (story: string, at: number, depth = 0): State | null => {
+  const back = new Set<number>()
+  const leanOn = (story: string, at: number, present: boolean, depth = 0): State | null => {
     const list = dated.get(story)
-    if (list) for (let j = list.length - 1; j >= 0; j--) if (list[j] < at) return states[list[j]]
+    if (list) for (let j = list.length - 1; j >= 0; j--) if (list[j] < at && !(present && back.has(list[j]))) return states[list[j]]
     const from = stories.get(story)?.from
-    return from && depth < 64 ? leanOn(from.story, from.at, depth + 1) : null
+    return from && depth < 64 ? leanOn(from.story, from.at, present, depth + 1) : null
   }
 
   // The calendar each story's dates without a year are counted in: a book that follows on starts one of
@@ -820,7 +969,7 @@ export function placeWhens(
         // A day carried over is only about right: "six months later" is around the same day.
         const day = p.day ?? prev.day
         const vague = vaguest(prev.vague, s.vague || (p.day === null && day !== null) ? 1 : 0)
-        return [{ year, month, day, dayCount: false, minute: p.minute ?? -1, qual: prev.qual, cal: prev.cal, vague }, true]
+        return [{ year, yearWord: prev.yearWord, month, day, dayCount: false, minute: p.minute ?? -1, qual: prev.qual, cal: prev.cal, vague }, true]
       }
       if (prev.year === null) return null
       // A year on: the month and day the text names, or else those of the scene before (only about right).
@@ -829,6 +978,7 @@ export function placeWhens(
       return [
         {
           year: prev.year + s.n,
+          yearWord: prev.yearWord,
           month: mine ? p.month : prev.month,
           day: mine ? p.day : prev.day,
           dayCount: mine ? p.dayCount : prev.dayCount,
@@ -846,6 +996,7 @@ export function placeWhens(
       const later = prev.month !== null && !prev.dayCount && p.month! > prev.month
       const k: State = {
         year: later ? prev.year : prev.year + 1,
+        yearWord: prev.yearWord,
         month: p.month,
         day: p.day,
         dayCount: false,
@@ -872,6 +1023,7 @@ export function placeWhens(
     } else if (lean && lean.cal !== group.cal) lean = null
     const k: State = {
       year: p.year,
+      yearWord: p.yearWord,
       month: p.month,
       day: p.day,
       dayCount: p.dayCount,
@@ -885,6 +1037,7 @@ export function placeWhens(
       // month, the month (a real month, not a season, in the same year).
       if (k.year === null && lean.year !== null) {
         k.year = lean.year
+        k.yearWord = lean.yearWord
         if (lean.vague === 2) k.vague = 2
       }
       // A count of days carries the season it counts in ("Day 12" after "Day 3 of spring").
@@ -901,11 +1054,13 @@ export function placeWhens(
     const { text, story = '' }: WhenItem = typeof item === 'string' ? { text: item } : item
     const p = parseWhen(text)
     if (!p) return
-    const prev = leanOn(story, i)
+    const goes = goesBack(text, p)
+    const prev = leanOn(story, i, !goes)
     if (aside[i]) {
       if (p.step || p.next || (p.year === null && p.month === null && p.day === null)) return
       const k: State = {
         year: p.year ?? prev?.year ?? null,
+        yearWord: p.year !== null ? p.yearWord : (prev?.yearWord ?? false),
         month: p.month,
         day: p.day,
         dayCount: p.dayCount,
@@ -928,30 +1083,10 @@ export function placeWhens(
     const list = dated.get(story)
     if (list) list.push(i)
     else dated.set(story, [i])
-    if (k.year !== null && k.vague < 2) lastYear = k.year
+    if (goes) back.add(i)
+    else if (k.year !== null && k.vague < 2) lastYear = k.year
   })
-
-  // The first date with a year in each calendar (events aside), for the dates without one before it.
-  const firstYear = new Map<number, State>()
-  states.forEach((k, i) => {
-    if (k && !aside[i] && k.year !== null && k.vague < 2 && !firstYear.has(k.cal)) firstYear.set(k.cal, k)
-  })
-  const keyOf = (k: State, year: number | null): number[] => [
-    year ?? anchors.get(k.cal) ?? NONE,
-    year !== null ? NONE : k.cal,
-    k.month ?? NONE,
-    k.day ?? NONE,
-    k.minute
-  ]
-  return states.map((k, i) => {
-    if (!k) return null
-    const day = named[i] ? dayOf(k) : null
-    if (k.qual || (k.day !== null && !k.dayCount && k.month === null)) return { key: null, day }
-    let year = k.year
-    const first = year === null ? firstYear.get(k.cal) : undefined
-    if (first && compareKeys(keyOf(k, first.year), keyOf(first, first.year)) <= 0) year = first.year
-    return { key: keyOf(k, year), day }
-  })
+  return { states, named, aside, anchors }
 }
 
 /**
@@ -989,7 +1124,7 @@ export function dayName(text: string): string | null {
   const p = parseWhen(text)
   if (!p || p.day === null) return null
   if (!p.qual) {
-    const year = p.year === null ? '' : p.yearWord ? `Year ${p.year}` : p.year < 0 ? `${-p.year} BC` : String(p.year)
+    const year = p.year === null ? '' : p.yearWord ? `Year ${p.year}` : p.year <= 0 ? `${1 - p.year} BC` : String(p.year)
     if (p.dayCount && p.month === null) return year ? `Day ${p.day}, ${year}` : `Day ${p.day}`
     if (!p.dayCount && p.month !== null && Number.isInteger(p.month) && p.day <= 31) {
       const date = `${p.day} ${MONTH_NAMES[p.month - 1]}`

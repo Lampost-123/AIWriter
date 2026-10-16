@@ -16,6 +16,7 @@ import { getProvider, providerTarget } from '../ai/providers'
 import { isLocalUrl, providerWho } from '../ai/errors'
 import { setBeforeDraft, setStandAt } from '../ai/gather'
 import { emit } from '../events'
+import * as kdb from '../db/keeper'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
 import type { MemoryModel } from './model'
 import { fieldsClearedByHand, removeScenes, restoreScenes, type ScenesOutcome } from './removed'
@@ -24,6 +25,7 @@ import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
 import { stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
+import { rulesAfterDeleting, rulesAfterRead } from '../checks/ruleChecks'
 
 let keeper: Keeper | null = null
 
@@ -90,9 +92,10 @@ export function initKeeper(): void {
   // Before a draft (and Continue), the memory catches up with earlier scenes on the line and reads the scene's own
   // unread words (waiting a few seconds at most), and then where things stand as the previous scene ends is brought up
   // to date (continuity/tracker.ts).
-  setBeforeDraft(async (db, sceneId) => {
+  setBeforeDraft(async (db, sceneId, limitMs) => {
     if (!keeper || keeper.db !== db) return
-    await keeper.beforeDraft(sceneId)
+    // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review).
+    await keeper.beforeDraft(sceneId, undefined, limitMs)
     await continuityBefore(db, sceneId)
   })
   // Add below, a later beat and Continue carry on from the scene so far: where things stand at its end.
@@ -132,25 +135,33 @@ let standing: Promise<void> = Promise.resolve()
 /**
  * After the memory read a scene (a pause in typing, a draft, a beat, leaving the scene): where things stand as it
  * ends, read on from its last checkpoint, so only the new words are read (continuity/tracker.ts). Recall reloads when
- * it changed. Never holds up the memory; never throws.
+ * it changed. Then the free rule checks run over the scene (long story memory fix 8, checks/ruleChecks.ts: no AI call),
+ * with the memory and the stage as they now are, and over the later scenes whose open findings may rest on it. Never
+ * holds up the memory; never throws.
  */
 function standLater(db: Database.Database, sceneId: ID, model: MemoryModel): void {
   const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
   standing = standing.then(async () => {
-    if (!live() || pausedNote()) return
-    try {
-      const o = { db, model, signal: new AbortController().signal, closed: () => !live() }
-      const was = storedState(db, sceneId)
-      if (was?.current) return
-      await stateBefore(o, sceneId)
-      await stateAfter(o, sceneId)
-      // Reloaded when it changed, even when a scene far back still waits to be read again (so it isn't current).
-      const now = live() ? storedState(db, sceneId) : null
-      if (now && (now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
-    } catch (e) {
-      console.warn('Could not bring where things stand up to date', e)
-    }
+    if (!live()) return
+    if (!pausedNote()) await standUp(db, sceneId, model, live)
+    if (live()) rulesAfterRead(db, sceneId, getWritingPrefs())
   })
+}
+
+/** Where things stand as a scene ends, brought up to date (standLater). Never throws. */
+async function standUp(db: Database.Database, sceneId: ID, model: MemoryModel, live: () => boolean): Promise<void> {
+  try {
+    const o = { db, model, signal: new AbortController().signal, closed: () => !live() }
+    const was = storedState(db, sceneId)
+    if (was?.current) return
+    await stateBefore(o, sceneId)
+    await stateAfter(o, sceneId)
+    // Reloaded when it changed, even when a scene far back still waits to be read again (so it isn't current).
+    const now = live() ? storedState(db, sceneId) : null
+    if (now && (now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
+  } catch (e) {
+    console.warn('Could not bring where things stand up to date', e)
+  }
 }
 
 /** Filling in what the memory found, one batch after another, never holding up the memory itself. */
@@ -188,6 +199,28 @@ export function sceneSaved<T>(sceneId: ID, result: T): T {
   return result
 }
 
+/**
+ * Adam changed the story record by hand (long story memory fix 15 review): a change on an entry page, an undo or answer in
+ * What changed, Keep or Remove in Worth a look, a scene card, a scene moved or deleted, an entry, where a story sits. The
+ * end-of-chapter snapshots and roll-ups resting on it are brought up to date while the keeper is idle, as after a read:
+ * of the stories of `at`'s scenes and stories, or of every story when none can be told. Never stops the edit.
+ */
+export function recordEdited(db: Database.Database, at: { sceneIds?: (ID | null | undefined)[]; storyIds?: (ID | null | undefined)[] } = {}): void {
+  try {
+    const k = currentKeeper()
+    if (!k || k.db !== db) return
+    const stories = new Set<ID>()
+    for (const id of at.storyIds ?? []) if (id) stories.add(id)
+    for (const id of at.sceneIds ?? []) {
+      const story = id ? kdb.anyKeeperScene(db, id)?.storyId : null
+      if (story) stories.add(story)
+    }
+    k.recordEdited(stories.size ? [...stories] : undefined)
+  } catch (e) {
+    console.warn('The memory keeper missed an edit to the record', e)
+  }
+}
+
 /** After a version of a scene is restored (its text replaced): the memory reads it now. */
 export function sceneRestored(sceneId: ID): void {
   currentKeeper()?.sceneRestored(sceneId)
@@ -209,17 +242,25 @@ export function scenesDeleted(db: Database.Database): void {
   } catch (e) {
     console.warn('The memory keeper could not take a deleted scene out of the memory', e)
   }
+  // A deleted scene keeps none of the rule checks' findings open (long story memory fix 8).
+  rulesAfterDeleting(db)
 }
 
-/** After something is brought back from the Trash: its scenes' facts come back, and anything unread in them is read. */
+/**
+ * After something is brought back from the Trash: its scenes' facts come back, and anything unread in them is read. The
+ * rule checks look at each again at once (long story memory fix 8: free, so they don't wait for a read).
+ */
 export function scenesRestored(db: Database.Database): void {
+  let back: ID[] = []
   try {
     const out = db.transaction(() => restoreScenes(db))()
+    back = out.sceneIds
     for (const id of out.sceneIds) currentKeeper()?.sceneRestored(id)
     told(out)
   } catch (e) {
     console.warn('The memory keeper could not bring back a restored scene', e)
   }
+  rulesAfterDeleting(db, back, getWritingPrefs())
 }
 
 /** Adam edited an entry by hand: a field he emptied isn't filled again from the same words. Passes the result through. */

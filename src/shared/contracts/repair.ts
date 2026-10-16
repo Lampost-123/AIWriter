@@ -59,6 +59,11 @@ export interface RepairOutcome {
   /** How many claims the new words made that touch what is known, and how many of them were slips. */
   claims: number
   slips: number
+  /**
+   * How the new words kept to the scene's contract (long story memory fix 13), when one was checked: its items, and how
+   * many were kept, broken (asked about) or not shown yet (asked about). Left out: no contract.
+   */
+  contract?: { items: number; kept: number; broken: number; notYet: number }
 }
 
 export interface RepairApi {

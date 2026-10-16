@@ -10,6 +10,7 @@ import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
 import type { LogRow } from '../db/keeper'
+import { forgetCalled } from '../db/called'
 import { UserError } from '../util'
 import { changeInput, MAX_SAMPLE_LINES, patchFor, sampleLines, type FieldUndo, type Undo } from './apply'
 import { fieldValue } from './facts'
@@ -334,6 +335,14 @@ export function undoItem(db: DB, id: ID, opts: { keepLinks?: boolean } = {}): Ou
       // Where the fact stopped being true goes back to what it was (B1): an end taken back, or a cleared one restored.
       if (liveChange(db, u.changeId)) mem.setChangeUntil(db, u.changeId, u.before, ADAM)
       break
+    case 'note': {
+      // Words that count as a character in this scene (long story memory fix 12), dismissed: they stop counting here,
+      // and a later read of the scene doesn't bring them back (the note stays undone: apply.ts settleNames). A name
+      // offered as another one is ignored too, as Ignore in Worth a look does.
+      const words = u.alias ?? u.called
+      if (words && row.entryId && row.sceneId) forgetCalled(db, row.sceneId, row.entryId, words)
+      break
+    }
   }
   if (u.fingerprint && u.words != null && row.sceneId) kdb.addSuppression(db, u.fingerprint, row.sceneId, u.words)
   kdb.markUndone(db, id)

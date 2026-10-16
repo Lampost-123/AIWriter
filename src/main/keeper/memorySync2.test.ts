@@ -52,7 +52,7 @@ const mustLines = (db: DB, sceneId: ID, names: string[]): string[] => {
   })
 }
 
-/** Summary calls the fake provider got, as sent (for telling a short patch from a full rewrite). */
+/** Summary calls the fake provider got, as sent (what each was made from). */
 function summaryOptions(db: DB, sent: { user: string; maxTokens: number }[] = []): SummaryOptions {
   return {
     db,
@@ -119,9 +119,10 @@ describe('A3: a scene summary follows its scene', () => {
     expect(sceneSummaryDue(w.db, w.s1, false)).toBe(true)
   })
 
-  it('is patched from the old summary and the changed paragraphs only, in a short reply', async () => {
+  it('is written again from the scene as it now reads, never patched from the old summary (long story memory fix 15)', async () => {
     const w = await setUp()
-    const before = kdb.summaryRow(w.db, 'scene', w.s1)!.text
+    const was = kdb.summaryRow(w.db, 'scene', w.s1)!
+    const before = was.text
     saveParas(w.db, w.s1, [
       ['p1', HARBOUR],
       ['p2', MARKET],
@@ -130,12 +131,18 @@ describe('A3: a scene summary follows its scene', () => {
     const sent: { user: string; maxTokens: number }[] = []
     expect(await writeSceneSummary(summaryOptions(w.db, sent), w.s1, null, 'Ch 1, Sc 1')).toBe(true)
     expect(sent).toHaveLength(1)
-    expect(sent[0].user).toContain(before)
+    // The whole scene, as it is now; never the old summary.
+    expect(sent[0].user).toContain(HARBOUR)
+    expect(sent[0].user).toContain(MARKET)
     expect(sent[0].user).toContain(CHAPEL_EDITED)
-    expect(sent[0].user).not.toContain(HARBOUR)
-    expect(sent[0].user).not.toContain(MARKET)
-    expect(kdb.summaryRow(w.db, 'scene', w.s1)!.text).not.toBe(before)
-    // With a paragraph deleted, the whole scene is summarised again.
+    expect(sent[0].user).not.toContain(before)
+    expect(sent[0].user).not.toMatch(/New or rewritten paragraphs/)
+    // Made from the scene as it now reads (the fake model sums up the opening, which this edit didn't touch).
+    const after = kdb.summaryRow(w.db, 'scene', w.s1)!
+    expect(after.sourceHash).not.toBe(was.sourceHash)
+    expect(after.stale).toBe(false)
+    expect(sceneSummaryDue(w.db, w.s1, false)).toBe(false)
+    // The same with a paragraph deleted, and with the same room for its reply.
     saveParas(w.db, w.s1, [
       ['p1', HARBOUR],
       ['p3', CHAPEL_EDITED]
@@ -143,8 +150,8 @@ describe('A3: a scene summary follows its scene', () => {
     const again: { user: string; maxTokens: number }[] = []
     expect(await writeSceneSummary(summaryOptions(w.db, again), w.s1, null, 'Ch 1, Sc 1')).toBe(true)
     expect(again[0].user).toContain(HARBOUR)
-    // The patch asked for a shorter reply than a full summary does (the thinking room on top is the same).
-    expect(again[0].maxTokens - sent[0].maxTokens).toBeGreaterThanOrEqual(250)
+    expect(again[0].user).not.toContain(after.text)
+    expect(again[0].maxTokens).toBe(sent[0].maxTokens)
   })
 
   it('goes to the writer marked as being updated until it is, with a short excerpt of how the scene now ends', async () => {
@@ -181,12 +188,14 @@ describe('A3: a scene summary follows its scene', () => {
     const quiet = new Keeper({ db: w.db, model: () => fakeModel(fake), emitStatus: () => {}, emitChanged: () => {}, quietMs: 60_000, summaries: false, retryDelays: [0], fetchImpl: shapedFetch({}) })
     await quiet.catchUpBefore(s3)
     quiet.stop()
-    const before = kdb.summaryRow(w.db, 'scene', s1)!.text
+    const before = kdb.summaryRow(w.db, 'scene', s1)!.sourceHash
     const k = new Keeper({ db: w.db, model: () => fakeModel(fake), emitStatus: () => {}, emitChanged: () => {}, quietMs: 60_000, retryDelays: [0], fetchImpl: shapedFetch({}) })
     await k.catchUpBefore(s3)
     await k.whenIdle()
     k.stop()
-    expect(kdb.summaryRow(w.db, 'scene', s1)!.text).not.toBe(before)
+    // Written again from the scene as it now reads.
+    expect(kdb.summaryRow(w.db, 'scene', s1)!.sourceHash).not.toBe(before)
+    expect(sceneSummaryDue(w.db, s1, false)).toBe(false)
     expect(writerMemory(w.db, s3).storySoFar.scenes.find((x) => x.sceneId === s1)!.updating).toBeFalsy()
   })
 })

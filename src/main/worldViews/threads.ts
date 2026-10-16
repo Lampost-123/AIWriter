@@ -6,7 +6,10 @@
 // story shows as resolved only in the stories that count that side story (spec, Multi-story rules).
 // A thread the memory has never seen opened or resolved on the line is planned: it may be set up on a
 // scene card (the plan), or nowhere yet. Scene cards also show where an open thread is meant to pay off.
-import type { Change, ID } from '@shared/types'
+// The promises ledger (long story memory fix 10, memory/promises.ts) adds, as of the story's latest scene with words:
+// where each stands (open, advanced, paid off, dropped: a dropped thread has its own column), the last scene that moved
+// it on, when it is due (Adam's "Pay off by", or a scene card's plan) and whether it is worth a look.
+import type { Change, ID, ThreadPlan } from '@shared/types'
 import type { BoardPlace, BoardThread, ThreadsBoard } from '@shared/contracts/worldViews'
 import type { Line, MemoryData, WorldShape } from '../memory/types'
 import { indexChanges, type MemoryStateAll } from '../memory/state'
@@ -14,6 +17,7 @@ import { labeler } from '../memory/line'
 import type { CardInfo } from '../db/worldViews'
 import { chaptersAfter, walkOf } from './walk'
 import { threadTouches } from '../memory/threadQuiet'
+import { chapterChoice, promiseLedger, threadWarnings, writtenUpTo } from '../memory/promises'
 
 /** A thread open for this many chapters or more is highlighted on the board, so it isn't forgotten. */
 export const LONG_OPEN_CHAPTERS = 10
@@ -39,9 +43,11 @@ export interface BoardInput {
   linkScenes?: (threadIds: ID[]) => Map<ID, Set<ID>>
   /** The scenes with words: only those count toward how long a thread has been quiet. Left out (a test): every scene. */
   written?: Set<ID>
+  /** Adam's plans for the threads (db/threadPlans.ts, fix 10). Left out (a test): none. */
+  plans?: Map<ID, ThreadPlan>
 }
 
-const COLUMN_ORDER: Record<BoardThread['column'], number> = { open: 0, resolved: 1, planned: 2 }
+const COLUMN_ORDER: Record<BoardThread['column'], number> = { open: 0, resolved: 1, dropped: 2, planned: 3 }
 
 export function buildBoard(input: BoardInput): ThreadsBoard {
   const { storyId, shape, data, line, state, cards } = input
@@ -103,6 +109,24 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
     return { label: label({ storyId: t.storyId, sceneId: t.sceneId }), storyId: t.storyId, sceneId: t.sceneId, planned: false }
   }
 
+  // The promises ledger (fix 10), as of the latest scene with words in this story.
+  const written = input.written ?? new Set(line.steps.flatMap((s) => (s.type === 'scene' ? [s.sceneId] : [])))
+  const plans = input.plans ?? new Map<ID, ThreadPlan>()
+  const paysOff = new Map([...cards].filter(([, c]) => c.paysOffIds?.length).map(([id, c]) => [id, c.paysOffIds] as const))
+  const promises = promiseLedger({ storyId, shape, line, threads: state.threads, touches, plans, paysOff, now: { written } })
+  const warnings = new Map(
+    threadWarnings({
+      storyId,
+      threads: state.threads.filter((t) => changed.has(t.entryId)),
+      rows: promises,
+      touches,
+      plans,
+      written: writtenUpTo(line, storyId, written)
+    }).map((w) => [w.threadId, w.why] as const)
+  )
+  const placeOf = (p: { sceneId: ID; storyId: ID } | undefined): BoardPlace | null =>
+    p ? { label: label({ storyId: p.storyId, sceneId: p.sceneId }), storyId: p.storyId, sceneId: p.sceneId, planned: false } : null
+
   const resolving = state.threads.filter((t) => t.status === 'resolved').flatMap((t) => resolvedBy.get(t.entryId) ?? [])
   const payoffs = input.payoff && resolving.length ? input.payoff(resolving.map((c) => c.id)) : new Map<ID, { quote: string; undoId: ID | null }>()
   const entryRows = new Map(data.entries.map((e) => [e.id, e]))
@@ -111,7 +135,14 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
     const entry = state.entries.get(t.entryId)
     if (!entry) continue
     const inStory = changed.has(t.entryId)
-    const column: BoardThread['column'] = !inStory ? 'planned' : t.status === 'resolved' ? 'resolved' : 'open'
+    const promise = promises.get(t.entryId)
+    const column: BoardThread['column'] = !inStory
+      ? 'planned'
+      : t.status === 'resolved'
+        ? 'resolved'
+        : promise?.standing === 'dropped'
+          ? 'dropped'
+          : 'open'
     const setUp = inStory ? fromWords(t.setUp) : fromStep(cardSetUp.get(t.entryId))
     const paidOff = column === 'resolved' ? fromWords(t.paidOff) : fromStep(cardPayOff.get(t.entryId))
     const setUpStep = inStory ? places.get(t.setUp)?.step : cardSetUp.get(t.entryId)
@@ -133,9 +164,16 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
       resolved: column === 'resolved' ? { quote: p?.quote ?? '', byAi, undoId: byAi ? (p?.undoId ?? null) : null } : null,
       lastTouched: touchedAt(t.entryId),
       quietScenes: column === 'open' ? (touches.get(t.entryId)?.quiet ?? null) : null,
+      standing: !inStory ? 'open' : (promise?.standing ?? (t.status === 'resolved' ? 'paid' : 'open')),
+      advanced: inStory ? placeOf(promise?.advanced) : null,
+      // A dropped thread isn't to be paid off: its chapter waits in Adam's plan in case he picks it up again.
+      due: column === 'resolved' || column === 'dropped' ? null : (promise?.due ?? null),
+      cardDue: column === 'resolved' || column === 'dropped' ? null : (promise?.cardDue ?? null),
+      warn: column === 'open' ? (warnings.get(t.entryId) ?? null) : null,
       order: setUpStep ?? Infinity
     })
   }
   threads.sort((a, b) => COLUMN_ORDER[a.column] - COLUMN_ORDER[b.column] || a.order - b.order || a.name.localeCompare(b.name))
-  return { storyId, threads: threads.map(({ order: _order, ...t }) => t) }
+  const chapters = (shape.stories.find((s) => s.id === storyId)?.chapters ?? []).map((c, i) => ({ id: c.id, label: chapterChoice(i + 1, c.title) }))
+  return { storyId, threads: threads.map(({ order: _order, ...t }) => t), chapters }
 }

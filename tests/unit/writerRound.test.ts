@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { finishContext, keptOrder, MENTIONED_TITLE, MUST_BLOCK, prepareContext, SEND_ORDER, sentOrderOf, type ContextInput } from '../../src/main/ai/context'
 import { RECALL_ENTRIES } from '../../src/main/retrieval/briefing'
+import { LEDGER_BLOCK, LEDGER_GAPS } from '../../src/main/ai/whoKnows'
 import { soFarBlock } from '../../src/main/beats/instructions'
 import { countRaw } from '../../src/main/ai/tokens'
 import { finalInstruction, writerInstructions } from '../../src/main/ai/prompts'
@@ -121,12 +122,13 @@ describe('blocks go in an order a provider can reuse from one step to the next',
     }
     const three = 'Ash shows Wren the brass compass, the survey case and the Linn ferry'
     const cards = (inp: ContextInput): string[] => [...block(inp, 'mentioned')!.text.matchAll(/^### ([^(]+) \(/gm)].map((m) => m[1].trim())
-    expect(cards(named(three))).toEqual(['The Linn ferry', 'The brass compass', 'The survey case'])
-    const [ferry, compass, survey] = prepareContext(named(three)).blocks.find((b) => b.id === 'mentioned')!.entryIds
-    // Last time the survey case and the compass were sent, in that order: they stay first, the ferry goes after.
+    // Oskar Venn too: the scene so far names him (long story memory fix 12); Edric Rone, dead, is on the scene card.
+    expect(cards(named(three))).toEqual(['Oskar Venn', 'The Linn ferry', 'The brass compass', 'The survey case'])
+    const [oskar, ferry, compass, survey] = prepareContext(named(three)).blocks.find((b) => b.id === 'mentioned')!.entryIds
+    // Last time the survey case and the compass were sent, in that order: they stay first, the rest go after.
     const kept = named(three, { mentioned: [survey, compass] })
-    expect(cards(kept)).toEqual(['The survey case', 'The brass compass', 'The Linn ferry'])
-    expect(sentOrderOf(prepareContext(kept).blocks).mentioned).toEqual([survey, compass, ferry])
+    expect(cards(kept)).toEqual(['The survey case', 'The brass compass', 'Oskar Venn', 'The Linn ferry'])
+    expect(sentOrderOf(prepareContext(kept).blocks).mentioned).toEqual([survey, compass, oskar, ferry])
     // The same cards, word for word: only their order changes.
     const sorted = (t: string): string => t.split(/\n\n(?=### )/).sort().join('|')
     expect(sorted(block(kept, 'mentioned')!.text)).toBe(sorted(block(named(three), 'mentioned')!.text))
@@ -145,12 +147,14 @@ describe('blocks go in an order a provider can reuse from one step to the next',
 
 describe('a cleaner briefing', () => {
   it('"does not know" only for real secrets: never about the person themselves, the same fact once, at most three', () => {
-    const rel = block(addBelowStep(0), 'relationships')!.text
-    expect(rel).not.toContain('Wren Hollis does not know: Wren will go up to the abbey')
-    const lines = rel.split('\n').filter((l) => l.includes(' does not know: '))
-    expect(lines.length).toBeLessThanOrEqual(3)
+    // In "Who knows what" since long story memory fix 9, a section for each person in the scene.
+    const known = block(addBelowStep(0), LEDGER_BLOCK.id)!.text
+    expect(block(addBelowStep(0), 'relationships')!.text).not.toContain('know')
+    expect(known).not.toContain('Wren will go up to the abbey')
+    const lines = known.split('\n').filter((l) => l.startsWith("- Doesn't know yet: "))
+    expect(lines.length).toBeLessThanOrEqual(LEDGER_GAPS)
     expect(lines.length).toBeGreaterThan(0)
-    expect(rel.match(/must be laid before the Assize/g) ?? []).toHaveLength(1)
+    expect(known.match(/must be laid before the Assize/g) ?? []).toHaveLength(1)
   })
 
   it('what the point of view knows: once each, no plan long past or already done', () => {

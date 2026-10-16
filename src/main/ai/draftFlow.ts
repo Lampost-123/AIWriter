@@ -22,11 +22,14 @@ import {
 } from './context'
 import { catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText } from './gather'
 import type { SceneState } from '../continuity/tracker'
-import { planBeforeWriting } from '../plan'
+import { planBeforeWriting, planWanted } from '../plan'
 import { keepsRoom } from '../plan/plan'
 import { countTokens } from './tokenService'
 import { isLocalUrl, providerWho } from './errors'
 import { recallForBriefing } from '../retrieval'
+import { contractWanted, type ContractAsks, type SceneContract } from './contract'
+import { BRIEF_BLOCK, briefWanted, readBriefText } from './brief'
+import * as gens from '../db/generations'
 
 /** The preview is made again as Adam edits the scene card: only the blocks that changed are counted again. */
 const countCached = cachedCounter(countTokens)
@@ -47,16 +50,28 @@ export function writerModel(): { choice: ModelChoice; target: ChatTarget & { id:
 }
 
 /**
+ * What the scene's contract is for (long story memory fix 13): a beat (`focus`, the beat being written), a stretch
+ * carried on from the scene so far (Add below), or the whole scene; null when Settings › Models turns contracts off.
+ */
+export function contractFor(options: Partial<DraftOptions> | undefined, focus?: string): { asks: ContractAsks; focus?: string } | null {
+  if (!contractWanted(getSettings())) return null
+  if (focus?.trim()) return { asks: 'beat', focus: focus.trim() }
+  return { asks: options?.addBelow ? 'stretch' : 'scene' }
+}
+
+/**
  * Assembles the briefing for a scene with the current writer model's context length. `stand`: where things stand at
  * the end of the scene so far, for a draft that carries on from it (in place of where the previous scene ended).
- * `signal`: the draft's Stop (step 5's search stops with it).
+ * `signal`: the draft's Stop (step 5's search stops with it). `focus`: for Beat by beat, the beat being written (the
+ * scene's contract asks for that beat alone).
  */
 export async function assemble(
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
   extras?: ContextExtras,
   stand?: SceneState | null,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  focus?: string
 ): Promise<{ input: ContextInput; preview: ContextPreview; prepared: PreparedContext }> {
   const settings = getSettings()
   const db = world.db()
@@ -71,6 +86,8 @@ export async function assemble(
     input.continuityAtSoFar = true
     input.stageWhere = stageWhere(db, stand)
   }
+  // The scene's contract (fix 13): what the draft is asked to write; Add below only when it carries on from words.
+  input.contract = contractFor(input.options, focus)
   // The scene so far a draft carries on from (Add below, a later beat): the items it names come into the briefing, and
   // first in what must stay true.
   const soFar = (extras?.extraBlocks ?? []).map((b) => b.text).join('\n\n')
@@ -115,8 +132,16 @@ export interface DraftBriefing {
   thinking: ThinkingLevel
   /** The version of each entry actually sent, for "What the AI saw". */
   entryVersions: Map<ID, string>
-  /** What the briefing was fitted from (its closing instructions), for planning it (withPlan). */
-  prepared?: Pick<PreparedContext, 'finals'>
+  /**
+   * What the briefing was fitted from (its closing instructions, the scene's contract, and its parts, for how much going
+   * short beside a continuity brief frees: plan/brief.ts briefFrees), for planning it (withPlan).
+   */
+  prepared?: Pick<PreparedContext, 'finals' | 'contract'> & Partial<Pick<PreparedContext, 'blocks'>>
+  /**
+   * The scene's contract the writer was given (long story memory fix 13), for the check as the draft lands
+   * (repair/index.ts noteContract) and the chapter writer's checks; null or left out: none (switched off, or nothing to say).
+   */
+  contract?: SceneContract | null
 }
 
 /**
@@ -133,7 +158,7 @@ export interface DraftBriefing {
 export async function draftBriefing(
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
-  o: { extras?: ContextExtras; signal?: AbortSignal; catchUp?: boolean; catchUpMs?: number; soFar?: string; plan?: boolean } = {}
+  o: { extras?: ContextExtras; signal?: AbortSignal; catchUp?: boolean; catchUpMs?: number; soFar?: string; plan?: boolean; focus?: string } = {}
 ): Promise<DraftBriefing> {
   const { choice, target, thinking } = writerModel()
   const db = world.db()
@@ -142,10 +167,17 @@ export async function draftBriefing(
   const stand = o.soFar?.trim() ? await standAtText(db, sceneId, o.soFar, undefined, o.signal) : null
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
-  const made = await assemble(sceneId, options, o.extras, stand, o.signal)
+  const made = await assemble(sceneId, options, o.extras, stand, o.signal, o.focus)
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
-  let b: DraftBriefing = { ...made, choice, target, thinking, entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks) }
+  let b: DraftBriefing = {
+    ...made,
+    choice,
+    target,
+    thinking,
+    entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks),
+    contract: made.prepared.contract ?? null
+  }
   if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal })
   const { input, preview } = b
   // A model whose window is known can't take a reply longer than what's left of it: say so
@@ -191,15 +223,43 @@ export async function withPlan(
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
   if (!plan) return b
-  const tries = plan.text && plan.needs.length ? [plan, { ...plan, needs: [] }] : [plan]
+  // With what it asked for, else without; with the continuity brief (fix 14), else without it. Each only if it says
+  // anything.
+  const briefs = plan.brief ? [plan.brief, null] : [null]
+  const tries = briefs
+    .flatMap((brief) => (plan.text && plan.needs.length ? [{ ...plan, brief }, { ...plan, needs: [], brief }] : [{ ...plan, brief }]))
+    .filter((p) => p.text || p.needs.length || p.must.length || p.brief)
   for (const p of tries) {
-    const input: ContextInput = { ...b.input, plan: { needs: p.needs, text: p.text } }
+    const input: ContextInput = { ...b.input, plan: { needs: p.needs, text: p.text }, ...(p.brief ? { brief: p.brief } : {}) }
+    // What the plan says must change takes the place of the card's own words in the scene's contract (fix 13).
+    if (b.input.contract && p.must.length) input.contract = { ...b.input.contract, planned: p.must }
     const again = await fitted(input, o.extras)
     if (keepsRoom(b.preview, again.preview)) {
-      return { ...b, input, preview: again.preview, prepared: again.prepared, entryVersions: sentEntryVersions(input.memory, again.preview.blocks) }
+      return {
+        ...b,
+        input,
+        preview: again.preview,
+        prepared: again.prepared,
+        entryVersions: sentEntryVersions(input.memory, again.preview.blocks),
+        contract: again.prepared.contract ?? null
+      }
     }
   }
   return b
+}
+
+/**
+ * The briefing for the Context tab: as a draft would have it before its plan, and, while drafts get a continuity brief
+ * (fix 14), with the last brief written for this scene (from its newest draft that had one) where it goes in, so the tab
+ * shows the brief and the parts that go short beside it. The next draft writes a new one.
+ */
+export async function previewBriefing(sceneId: ID, options: Partial<DraftOptions> | undefined): Promise<ContextPreview> {
+  const made = await assemble(sceneId, options)
+  if (!planWanted() || !briefWanted(getSettings())) return made.preview
+  const brief = readBriefText(gens.lastSentBlock(world.db(), sceneId, BRIEF_BLOCK.id))
+  if (!brief) return made.preview
+  const again = await fitted({ ...made.input, brief })
+  return keepsRoom(made.preview, again.preview) ? again.preview : made.preview
 }
 
 /** Provider bookkeeping every draft does: a key turned down shows in Settings; a provider that writes works again. */

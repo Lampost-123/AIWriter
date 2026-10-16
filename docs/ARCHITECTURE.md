@@ -27,7 +27,7 @@ src/main/        Electron main process
   memory/        The memory engine (milestone 2): types.ts is its contract; line.ts (which stories,
                  chapters and scenes come before a point), state.ts (what is true there), scene.ts
                  (reads the database: what counts for one scene), items.ts (who has what, and an item's
-                 main word). Pure where it can be.
+                 main word), calendar.ts and storyCalendar.ts (the story calendar, fix 11). Pure where it can be.
   keeper/        The memory keeper (milestone 2): reads scene text with the memory model and keeps
                  the memory in step with it, plus summaries at every level
   retrieval/     Story memory step 5: sticky entries, what was said, and searching the story so far by
@@ -162,9 +162,11 @@ again, with Undo).
   how many scenes it has been quiet since. The board gives each thread `lastTouched` and, while open, `quietScenes`
   (to the story's end); the Plot threads board has a Board / Ledger switch (`ThreadsBoard.tsx` `Ledger`, rows sortable by
   quiet-for or name, `boardLogic.ts` `ledgerRows`). The scene memory gives each thread `quiet`, `lastStoryId` and
-  `lastWhere` (`memory/scene.ts` `withQuiet`); the writer's open threads block (`ai/openThreads.ts`) always keeps the
+  `lastWhere` (`memory/scene.ts` `withLedger`, formerly `withQuiet`); the writer's open threads block (`ai/openThreads.ts`) always keeps the
   most overdue (quiet for `QUIET_SCENES`, 6, or more, and last touched in the story being written; at most 2) and ends
-  with one line, "Quiet for a while: … If it fits here, a passing mention keeps it alive; never force it."
+  with one line, "Quiet for a while: … If it fits here, a passing mention keeps it alive; never force it." The promises
+  ledger (long story memory fix 10, below) builds on it: `threadTouches` also gives where a thread change first opened
+  each thread (`opened`), so a later touch is a step on.
 - *B5, who knows what from who was there.* `keeper/presence.ts` `onStageAt`: on stage at a paragraph are the scene
   card's people and anyone named in that paragraph or the two before, less those a change in the scene says left or
   died earlier; people only. Something said is known by the speaker, those the model says heard it and everyone on
@@ -182,6 +184,8 @@ again, with Undo).
   becomes text-born; withdrawn, it is cleared (never an entry's summary); only `guessFields` count, so Adam's fields and
   the world builder's drafts are never touched; each has Undo and a suppression. To make room, some examples were cut,
   so the prompt is 5,948 characters (about 1,700 tokens; 5,806 before round 2) and still fits a 3,000-token model.
+  (5,875 since long story memory fix 12 added the "name" item and tightened the wording, to leave later fixes room;
+  5,942 since fix 9 gave "knows" its how, from and wrong, again with tighter wording.)
 - *B8, re-read buttons.* "Re-read this scene" (the binder's scene menu, the palette) and "Re-read the whole story" (the
   story menu, the palette) open `features/memory/RereadDialog.tsx`, which first asks `estimateReread`
   (`ipc/keeper.ts` `rereadEstimate`: the reading requests as `importing/estimate.ts` `guessReread` reckons them, priced at
@@ -426,6 +430,10 @@ is built on migrations 1 and 2.
   `outlineRev` (that moves with every word count), and keeps the last 8 scenes.
 - `nameMatch.ts` copies `mentionAt` from `keeper/text.ts`: keep them in step. Underlines are
   decorations with class `aw-name` and `data-name-of` (never `data-entry`, which lists and tests use).
+  Since long story memory fix 12 it also underlines what the scene's words call a character (`SceneNames.called`,
+  marked `data-called` with the words, which the hover card says: "Character · “her brother” in this scene"), and
+  reads names by the one rule `mentionAt`, the briefing and what must stay true share (`shared/names.ts`: any
+  apostrophe for any, no word joined on by a hyphen, and not "Will you…?"; see "Long story memory: spotting characters").
 - Code that selects words to show Adam where something is sets the `REVEALED` meta
   (`editor/reveal.ts`), as `controller.revealWords` does, so the "Selected words" bar ignores it.
 - The hover card (`role="tooltip"`, in a portal) closes on any key but a lone modifier and lets the key
@@ -730,7 +738,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   two levels (`shortTo`) before shortening anything above it.
 - **A scene's summary follows its facts.** When a read finds the words a fact came from edited or deleted, the
   scene's summary is marked stale (`applyRead`) and written again after the run, however small the edit; otherwise
-  it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it.
+  it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it. Since long story memory
+  fix 15 it is always written again from the scene's words, never patched, and the roll-ups are made from the level
+  below and the story record ("Long story memory: summaries rebuilt from the record", below).
 - **Where things stand** (`continuity/tracker.ts`, `@shared/continuity`): each character's where, wearing, position,
   holding, condition, mood and last action as a scene ends, and its time, weather and light; only the latest of each
   is kept. Worked out by the memory model before a draft (the last few scenes, oldest first) and kept in `meta`
@@ -776,17 +786,19 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   field a change set during the story (`EntryState.changedWhere`, memory/state.ts; when a side story added whole
   loses a clash, the host's place goes back with the host's value), anyone in the briefing who is dead, and up to
   three things kept from someone in the scene, the most lately learned first (`FactState.at`): "Kept from Tobin: …
-  (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so" (`secretsAmong`). How
+  (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so" (`secretsAmong`; since
+  long story memory fix 9, among everyone in the scene, and what someone here believes wrongly after them). How
   much of the stage (`stageReach`): all of it carrying on inside a scene (Add below, a later beat, Continue); at a
-  new scene's start on the same day by both cards' When ("Day 3"), injuries and what people wear and hold (the card
-  sets where and when); on a later day, or when how long has passed isn't known (no When, "Three weeks later"), only
-  injuries; nothing from another story. Mood and the last thing done are not facts to keep to. At most 12 lines, a
+  new scene's start on the same day ("Day 3"; since fix 11 read on the story calendar, so "That night" after "Day 3,
+  dusk" is the same day, else both cards' "Day N"), injuries and what people wear and hold (the card sets where and
+  when); on a later day, or when how long has passed isn't known (no When), only injuries; nothing from another story. Mood and the last thing done are not facts to keep to. At most 12 lines, a
   long value cut short before its "(since …)"; the short form has 6, without who knows what, changed looks or the
   lead. Since 2026-10-15 it opens with what the scene is most likely to break and is never left out ("Long story
   memory: the quick wins"); before, it sat with block 11 and went out first when room was short. AI edits and Continue get it too, right before the
   closing ask (`edits/briefing.ts`; short when the people are left out to fit, and out on the last try): Continue
   with where things stand at the cursor; the other tools don't wait for the memory model, so only a checkpoint kept at
   exactly that point (`standKept`), else the codex's facts alone. Variants get it with the rest of Generate's briefing.
+  Since long story memory fix 13 it leaves out what the scene's contract, right above it, says word for word.
 - **What someone gave away or lost stays known, and items are found by their main word** (Adam, 2026-10-07: in the
   trap story's real run, Wren gave her brass compass to Mother Agate in scene 7, and in scene 23 the writer had her take
   it out of her pocket. The codex had it, but only as about the nineteenth newest thing that had happened to her, and
@@ -825,8 +837,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
     and the words where it was put down or taken off.
   - **A new time starts fresh** (`sameWhen`, `withoutSceneTime`; tracker `startFrom`; `timeCarries` in ai/context.ts).
     "Morning, the sun has come up" from a "Day 23" scene was carried through "Day 23, night, rain" and the writer had
-    a man say "Morning". The time of day, light and weather carry into the next scene only when both cards give the same
-    When in the same story (stricter than `stageReach`'s same day); otherwise the scene starts without them, before its
+    a man say "Morning". The time of day, light and weather carry into the next scene only at the same moment in the
+    same story (stricter than `stageReach`'s same day): since fix 11 the same day and time of day on the story calendar
+    (`sameMoment`, tracker `sameTime`), else, where it can't tell, both cards giving the same When; otherwise the scene starts without them, before its
     first checkpoint, and that start is part of the state's hash (a When changed on a card means a fresh read). What is
     told also leaves out a time, light or weather whose words come from another scene unless it carries over, so a
     reading kept from before this fix is never told either.
@@ -945,7 +958,10 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   room (`keepsRoom`): with the entries it asked for, else without them, else not at all, never at the cost of a part
   the briefing had room for without it, the reply's room or the budget. Not for Variants (one plan for the set would
   make its drafts alike), Continue (a paragraph or two, and meant to be quick) or the AI edits (they keep what
-  happens). Settings › Models, "Plan before writing" (`settings.planFirst`, on by default; beside "Check new words
+  happens). With a scene contract (long story memory fix 13) it also says what must change, for the contract's list;
+  with a continuity brief (fix 14) it also reads the whole story record (and the book so far when it can) and writes a
+  short brief for the writer, with longer to do it (90 s, or 120 s with the book: `BRIEF_LIMIT_MS`).
+  Settings › Models, "Plan before writing" (`settings.planFirst`, on by default; beside "Check new words
   straight away"; `features/plan/PlanSettings.tsx`): off, no call, and the list still goes in. `AIWRITE_PLAN=off`
   always turns it off: app tests set it (tests/e2e/helpers.ts) and ask for planning with `AIWRITE_PLAN=on`; the fake
   provider answers in `tests/fake-provider/plan.mjs`.
@@ -1014,7 +1030,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   is made, and the critic after a draft checks all six as before (`criticChecks`). One rule (`repairWanted`):
   `AIWRITE_REPAIR=off` always turns it off, whatever the switch says; otherwise the switch decides. App tests set it off
   (tests/e2e/helpers.ts), since it is one more call after every draft, and ask for it with `AIWRITE_REPAIR=on`; the
-  fake provider answers it in `tests/fake-provider/repair.mjs`.
+  fake provider answers it in `tests/fake-provider/repair.mjs`. Since long story memory fix 13 the same call also goes
+  through the scene's contract the words were written to, item by item (see that section).
 - **Recall by meaning, sticky entries, and what was said** (Adam, 2026-10-07: step 5 of the consistency plan;
   `src/main/retrieval/`, `contracts/searchModel.ts`, `features/retrieval/`). Before, an entry reached the writer only
   when its name or alias was on the card, in the beats or direction, or at the end of the previous scene; "her
@@ -1212,7 +1229,8 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
 - **What a check sees** (`checks/context.ts`): the scene's memory as of its **start** (`sceneMemory`, the
   line up to just before it), so a clash with earlier scenes or Adam's notes is caught even though the keeper
   has already followed the scene's text. Entries on the card or named in the text (with what has happened to
-  them), hard rules, who knows what, the three scenes before (When, where, who), the end of the scene before,
+  them), hard rules, who knows what (since long story memory fix 9 with since when and how each knows it, and what
+  anyone there believes wrongly), the three scenes before (When, where, who), the end of the scene before,
   the style guide's point of view and tense, the card's mood. Entries and scenes get short ids (E1, S1).
 - **One request per scene** for every check asked for (`checks/run.ts`), split into parts for a small model;
   a reply that can't be read is asked for once more, one cut off is asked again in halves. `checks/parse.ts`
@@ -1237,6 +1255,9 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   to look at in this scene." Checking a story ends with `checks/stories.ts`: a side story against its host over
   `hostSpans`, a prequel's ending against the opening of `leadsIntoBook`, leaving out what "Which happened
   last?" already asks (`sideClashes`). Closing the world stops runs (`closeRunsFor`).
+- **Rule checks** (long story memory fix 8, below): free rules over the memory, the stage and the calendar (the dead
+  speaking, one thing in two hands, time running backwards…) run with no AI call after each read of a scene and in every
+  check; their rows (`by: 'rule'`) are issues like these, marked "Found by a rule, not the AI".
 - **Fix the text** shows the check's rewrite with `showReplacement` (`features/edits/session.ts`: a ready-made
   tracked change, no AI call), or starts Rewrite on the sentence; `onAccepted` marks the issue fixed.
 
@@ -1993,12 +2014,14 @@ lab's winners in the next section):
 - **Order for the cache** (`ai/context.ts` `SEND_ORDER`): what stays the same from one step of a scene to the next comes
   first (instructions, world rules, themes, setting, the story so far, the previous scene's end, plot threads), then the
   people (the same unless the memory learns something), then what a step brings in (entries named, recalled, what was
-  said, earlier passages), and last the scene card, the scene so far, the stage and what must stay true. Block 9's
+  said, earlier passages; since long story memory fix 9, who knows what, and since fix 14 the continuity brief), and
+  last the scene card, the scene so far, the stage and what must stay true. Block 9's
   entries and the recalled entries go in a steady order (kind, then name) under fixed titles (`MENTIONED_TITLE`). Claude's
   cache breakpoint ends before the people. Measured on an invented scene, two Add below steps in a row
   (`tests/unit/writerRound.test.ts`): the second step's prompt that the first already sent went from 29% to 69% with a
   short story so far, and from 11% to 71% with a long one (12,234 tokens down to 4,431, the timeline below included).
-- **A cleaner briefing**: "X does not know" only for real secrets (`ai/mustStay.ts` `realSecrets`: what one person here
+- **A cleaner briefing** (who knows what moved to its own block in long story memory fix 9, below, with the same
+  rules): "X does not know" only for real secrets (`ai/mustStay.ts` `realSecrets`: what one person here
   knows and another here doesn't, never kept from someone it is about, at most 3); "What X knows" gives each fact once
   and drops plans that happened or whose time has passed (`ai/knows.ts` `cleanKnows`: a later note with most of the
   plan's words; "tonight", "tomorrow", "in the morning" with two or more later scenes since); deaths told later lose
@@ -2037,7 +2060,8 @@ Each was tried first as a switch in a local lab (never pushed), on the trap harn
 below and Continue after a whole invented story) with DeepSeek Flash, Thinking off. Samples were small (2 to 5 chains a
 variant), so nearly every 95% interval overlaps; these went in because they cost little, fixed real faults seen in the
 prompts, and none did worse. Not taken: prefix completion, repeating key facts at the end, beat options, a thinking
-planner, a scene contract, quote-both-sides checks, logprobs, stop-string cuts, "coming later" and the loop guard.
+planner, a scene contract (built since as long story memory fix 13, below, to be judged on the long test book),
+quote-both-sides checks, logprobs, stop-string cuts, "coming later" and the loop guard.
 
 - **Temperature 1.0 for the writer** (`shared/defaults.ts` `writerTemperature`): Generate, Add below, beats and Continue
   write Balanced (the default preset) at 1.0, not 0.85. 1.0 kept canon and the judge's marks, with fewer stock phrases
@@ -2182,14 +2206,17 @@ only) with their source links, and the scene card's `setsUpIds` / `paysOffIds` i
 - **The board** (`worldViews/threads.ts`): "Found by AI" (text or AI origin, never edited by Adam) or "Yours"; a
   resolved thread shows the words that paid it off, "Resolved by AI" and Undo (the What changed line that added the
   resolve, `kdb.addedLines`), which reopens it and records a suppression.
-- **The writer** (`ai/openThreads.ts`): "Open plot threads" — the threads open here (not planned, not on the card),
-  one line each (name — promise — last clue), those the card's words name first, then the most recently moved; at most
-  6 (short: 3) for Generate and Add below, block `open-threads` at priority 9 in the steady part of `SEND_ORDER` (right
+- **The writer** (`ai/openThreads.ts`): "Open plot threads" — the threads open here (not planned, not on the card,
+  not dropped), one line each (name — promise — last clue — when it is due), those due or overdue first, then those the
+  card's words or people name, then the longest untouched (since the promises ledger, fix 10: before it, the card's
+  first, then the most recently moved, at most 6); 6 to 22 by `memoryScale` (short: 3 to 6) for Generate and Add
+  below, block `open-threads` at priority 9 in the steady part of `SEND_ORDER` (right
   after the card's `threads`, before the people, so it is cached); the planner gets the same block, in its steady part (after the
   world, before where things stand and the ask), and the rule to plan no payoff the card or direction doesn't ask for
-  (`plan/plan.ts`); Continue gets at most 4, short, next to the
+  or the thread's line doesn't say is due now (`plan/plan.ts`); Continue gets at most 4, short, next to the
   timeline (`edits/briefing.ts`). The lead: "Keep these alive. Bring one in only where it fits naturally. Don't pay a
-  thread off unless the scene card or the author's direction asks for it." The card's own threads keep their block
+  thread off unless the scene card or the author's direction asks for it, or its line below says it is due." The card's
+  own threads keep their block
   ("this scene pays it off").
 - **Outlines** (`outline/prompts.ts`, `outline/interview.ts`, `features/outline/parse.ts`): each scene may give
   "Sets up:" and "Pays off:" lines (thread names, semicolons); the suggestions show them, and keeping a scene puts them
@@ -2360,8 +2387,8 @@ the same story so far and passages as before; what changes for it is the share f
   back (`giveBack`, step 8).
 - **Summaries that lead with the ending, and are there when needed.** `SUMMARY_SYSTEM` asks every summary to begin "By
   the end," with where people end up, injuries, who now knows what, who holds what, decisions and promises, then tell
-  what happened in order; chapter, story and series roll-ups begin with how things stand at their end, and a patched
-  summary keeps or gains that opening (`keeper/prompts.ts`). Before a draft, after the earlier scenes and the scene's
+  what happened in order; chapter, story and series roll-ups begin with how things stand at their end (`keeper/prompts.ts`;
+  a patched summary kept or gained that opening until fix 15 stopped patching, below). Before a draft, after the earlier scenes and the scene's
   own words are read, the keeper writes the summaries the briefing can't do without and the draft waits for them
   (`engine.ts` `summariesFirst`, `summaryNow`, waited on as `summary:<id>`): the scene just before when its summary is
   due, and any of the last `DUE_SUMMARY_SCENES` with none at all; other due summaries are queued after as before. All
@@ -2381,8 +2408,10 @@ the same story so far and passages as before; what changes for it is the share f
   level can change from one step of a scene to the next when room is tight, which costs some of the cache; with a
   real reading limit there is room for it at every step.
 - **What must stay true, never left out, and sharper** (`ai/mustStay.ts`). It opens with what the scene is most
-  likely to break (`KEY_KINDS`: who is dead, what is kept from someone here, injuries, and how much time has passed
-  since the scene before, by both cards' When or a story's time gap: `ai/context.ts` `timeSince`), one of each kind
+  likely to break (`KEY_KINDS`: who is dead, what is kept from someone here, injuries, since fix 9 what someone here
+  believes wrongly, and how much time has passed
+  since the scene before, by both cards' When or a story's time gap: `ai/context.ts` `timeSince`; since fix 11 from the
+  story calendar, below), one of each kind
   first, `MUST_KEY` (5) at most; the rest follow as before. Its short form keeps them, and a smallest form has
   `MUST_SMALLEST` (3) of them, said briefly. The block is priority 2 (`MUST_PRIORITY`): never left out, shortened only
   once every block from 3 to 11 is. On a 4,096-token model writing 600 words that leaves no room for the point of
@@ -2402,11 +2431,812 @@ the same story so far and passages as before; what changes for it is the share f
   `MOST_MEANT` (8), only for the check it belongs to; the system prompt says the same thing there is no issue). The
   same thing in the same scene was already never raised again (`sameThing`).
 
-The book-length test story is the trap harness's story version 4 (`--story book`, see "Trap scores"). Not done here
-(the research's later steps): rule-based checks, ledgers for who knows what, promises and time, spotting characters
-however they are named, and a continuity
-brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
+The book-length test story is the trap harness's story version 4 (`--story book`, see "Trap scores"). The research's
+later steps each have a section below: spotting characters however they are named (fix 12), who knows what (fix 9),
+promises (fix 10), a story calendar (fix 11), rule-based checks (fix 8), summaries rebuilt from the record (fix 15),
+scene contracts (fix 13) and a continuity brief before each scene (fix 14). Who is absent (as opposed to dead) isn't
+among the key facts yet: the "Not in this scene" lines
 cover some of it.
+
+## Long story memory: spotting characters however they are named (fix 12, 2026-10-15)
+
+The research's fix 12: a character reached the writer in detail only when their exact name or alias was on the scene
+card, in the beats, notes or direction, or at the previous scene's end. Someone named only in the scene so far, or by a
+nickname, a title or "her brother", got one line or nothing (the scene so far was searched for items only).
+
+- **The scene so far is read for people** (`ai/context.ts` `selectEntries`). A living character it names, by name,
+  other name or what this scene's words call them, is brought in (`WHY.soFar`, "Named in the scene so far") and kept
+  in `Selection.inSoFar`: in "Also relevant" in full, as block 5 sends those on the card (`formatProfile` whole, how
+  they look now, everything that has happened to them), marked "named in the scene so far" (the words may have them
+  there or only thought of, so the mark says no more than that). The dead are left to the scene card's list of who is
+  dead by now (`deadBy`). Someone so named stays among block 11's ties: how they stand with those on the card is what
+  the writer needs of them, and block 11 comes before what a step brings in. The block's forms: that, then everyone as
+  before (who they are and how they look), then a line each; with no one in the scene so far the first two are the
+  same and only one is kept, so other briefings are unchanged. Only "Also relevant" changes from step to step, as it
+  already did; every block before it in `SEND_ORDER` stays word for word the same (the cache, tested).
+- **How a name is read** (`shared/names.ts` `findName`, `namedInProse`): one rule for the briefing (`ai/context.ts`
+  `mentions`, so the card, beats, notes, direction and the previous scene's end too), the keeper (`keeper/text.ts`
+  `mentionAt`), what must stay true (`memory/items.ts` `nameIn`) and the page (`nameMatch.ts`, with the same
+  `namePattern` and `NAME_AFTER`). A whole word or phrase, so "Mara's" names Mara and "Marabel" doesn't, nor a word
+  joined on by a hyphen ("Will" isn't in "Will-o’-the-wisp", "Mara" isn't in "Mara-Jane"; "Jean-Luc" as a name is
+  fine); any apostrophe for any ("O'Brien" is "O’Brien", as the keeper's quotes fold them); a dot must be there ("Dr.
+  Hale", not "Dr Hale"); a single capitalised name only capitalised ("will" and "hope" are words); a phrase or
+  lower-case name whatever its case. `askingAt`: "Will" or "May" opening a sentence as the verb is the word, not the
+  name: with "you", "the", "not" and the like after it, or a verb as it comes after "will" (`BARE_VERBS`: "Will be
+  there.", "May be the last time."), with "never", "still" and the like between or not ("Will never forget it.").
+  Only verbs whose past is another word count, so "Will let her go" still names him; and not "can", "could", "would"
+  or "must", which follow a name ("Will could see the shore"). A name at the start of a sentence otherwise counts
+  ("Hope smiled"): "Hope was all she had" can't be told apart from it. Parts of a name ("Mara" for "Mara Venn") are not
+  guessed at: the keeper offers them (below), so Adam decides. Known limit: scripts without capitals or spaces between
+  words (Arabic, Chinese, Japanese) aren't read this way.
+- **What the words call someone** (`keeper/names.ts`, `db/called.ts`). The memory keeper's reading reply gains a
+  "name" item (`{"type": "name", "entry": "E1", "name": "the Captain", "quote": "..."}`; one rule line, no new call;
+  with the wording tightened, the prompt is 5,875 characters, under the 6,000 the tests hold it to). `apply.ts`
+  `noteName` keeps it only for a character who exists here and words that are in the scene (`cleanCalled`: no pronoun,
+  no "the" alone, no single lower-case word, 60 characters and six words at most); `settleNames` drops words the reply
+  gives for two people, words that are already anyone's name or alias, and words Adam ignored or dismissed in this
+  scene before (their note is undone), so that sticks however often the scene is read again. What is left is kept
+  for the scene in meta (`called:<scene id>`, the newest `MOST_CALLED` (30); the same words for someone else replace
+  the old; words no longer in the scene's text go at its next read, `forgetCalledNotIn`; emptied with the scene from
+  the Trash, `db/trash.ts`). `ai/gather.ts` gives the briefing this scene's (`ContextInput.called.here`: for its card,
+  beats, notes, direction and the scene so far) and the previous scene's (`called.previous`: for its end, block 3's
+  tail), and `getSceneNames` gives the page the scene's (`SceneNames.called`). The run reports the characters as
+  changed, so the page underlines them at once.
+- **Every one has a note; only a nickname or a title is offered** (the judgement call). Each binding gets one quiet note
+  in What changed, once per scene, character and words; Dismiss takes it back in that scene for good (`undo.ts`). A
+  nickname or a title (`aliasWorthy`: a capitalised word besides "the" and the like that isn't a family word: "the
+  Captain", "Red", "Aunt Jo"), the first time it is found for that character, has the offer as its note, "Also called
+  “the Captain” here" (op `note`, key `alias:<entry>:<words>`, `alias`), and a row in Worth a look under "Other names
+  the story uses" (`checkQueue.ts`, group `alias`, fact `{ kind: 'alias', logId }`; counted in the badge; not shown
+  while anyone goes by it). Anything else ("her brother", "Mother", "the old woman", or a name offered before) has a
+  plain note, "Called “her brother” here" (key `called:<scene>:<entry>:<words>`, `called`). **Add name** (Keep) adds it
+  to the character's aliases as Adam's own, and is refused in plain words when someone else goes by it by then
+  ("“the Boss” is already Ana’s name, so it wasn’t added to Mara. …"). **Ignore** (Remove; a plain toast, nothing is
+  deleted) means two things, as its button says: the name is never offered for that character again anywhere in the
+  story, and it stops counting as them in the scene it was found in, for good. Other scenes keep their own reading,
+  as they may mean someone else by "the Boss". Dismiss on the offer's note in What changed does the same. Both have
+  Undo, and Add all is Keep all. "her brother" and the like depend on who is speaking or who "her" is, so nothing can
+  promise they mean the same person in another scene: they are kept for their own scene (its end included, as the next
+  scene's briefing reads it) and never offered as another name.
+- **The page** already underlined known names (milestone 3: a faint dotted `aw-name` underline, theme tokens, no room
+  taken, rebuilt only in the blocks a keystroke touches; Classic's screenshots have always shown it). It now underlines
+  what the scene calls someone too, by the rule above (`nameMatch.ts`; the 300-word paragraph a keystroke rescans
+  still takes under 0.1 ms with 500 entries). The hover card says how the words name them ("Character · “her
+  brother” in this scene"). The sample world's scenes have no keeper reads, so Classic's screenshots are unchanged; no
+  View setting was needed.
+
+## Long story memory: keeping track of who knows what (fix 9, 2026-10-15)
+
+The research's fix 9: characters acting on what they couldn't know yet is a named error type in story benchmarks
+(ConStory-Bench's "knowledge contradictions") and the most asked-for missing feature in other writing tools. The memory
+keeper already recorded what characters know, with quotes, but the writer was told the whole of it only for the point
+of view, up to three secrets among those on the card, and nothing said since when or how anyone knew. Now there is a
+ledger, built from what the memory already keeps (no new store, no migration, no new AI call).
+
+- **The ledger** (`memory/ledger.ts`, worked out in `memory/state.ts` `stateAt` with everything else true at a point,
+  so it is scene-scoped as every fact is: a redraft or a check of an earlier scene sees only what was known by then).
+  Each knower of a fact has `FactState.since[entryId]` (`Learned`: where on the line, the place in plain words, the
+  scene, and how): their first learning of it since they last forgot it (a forgetting, an end or a full description
+  clears it). How comes from the knowledge change: its own `how` and `from` (`KnowledgePayload`, JSON in
+  `changes.payload_json`), else something said (the speaker "said it", the rest heard it from the speaker), else an
+  event seen ("saw it") (`learnedHow`). Something believed that isn't true is a knowledge change with `wrong`: it goes
+  to `MemoryState.beliefs` / `SceneMemory.beliefs` (`BeliefState`), never into `facts`, so it is never a secret kept from
+  anyone; for one character and fact the latest learning says whether they know it or believe it wrongly. One fact id is
+  only ever one of the two, known or believed wrongly (decided in review: a belief is a fact that isn't true, so no one
+  can know it): the keeper, verdicts and Adam's own changes keep it so (below). `Ledger`
+  indexes a point so a question is one look-up: `couldKnow(character, fact)` (knows it since when and how, believes it
+  wrongly, or neither), `knows`, `believes`, `whoKnows`; `ledgerForScene(db, sceneId)` (`memory/scene.ts`) builds it as
+  a scene begins, for the rule-based checks (fix 8, below). Plain words for since and how are shared by the briefing, the
+  checks and the page (`shared/knowWords.ts`: "since Ch 2, Sc 3; heard it from Ash", "from the start").
+- **The memory keeper** (`keeper/prompts.ts`): the "knows" item gains `"how": "saw|told|overheard|read|guessed"`,
+  `"from"` and `"wrong"`, one rule line ("Knows: give how and, if told or overheard, from whom; wrong: true if what
+  they believe isn't true"), and "end" also ends a wrong belief they see through. Tighter wording elsewhere keeps the
+  prompt at 5,942 characters, under the 6,000 the tests hold it to. `keeper/apply.ts` keeps `how` (`knowHow` reads the
+  model's first word: "told by Ash" is told), `from` (a character other than themselves) and `wrong`. A K the reply
+  names says which kind it is, whatever the reply's own "wrong" (`Ids.wrong` marks a belief's K lines): a "knows" naming a
+  belief's K without "wrong" means they have learned the truth, so the belief ends there on its own id, as an "end"
+  item ends it (`seeThrough`: with Undo, Adam's own kept with a note; one come to in that same scene is forgotten
+  there); a "forgets" naming it forgets the belief; a known K stays known. The same words as something the character
+  already believes wrongly, before the scene or in it, are that belief again (`beliefIn`); other words match only facts
+  of the same kind (`listFacts` says which are beliefs). A verdict on a fact whose words changed never flips `wrong`;
+  Adam's own change taking a fact id used for the other kind gets an id of its own (`db/memory.ts` `factIsBelief`,
+  `cleanChangeInput`). The reading request lists beliefs first among the K lines, "wrongly believed by E2", with a seat of
+  their own (`BELIEF_LINES` 12, `BELIEF_TOKENS` 400) ahead of the facts' `FACT_LINES` (40), so in a long series a belief
+  can always be ended; should a fact id ever turn up as both, each still gets its own K (`Ids.knownFact`). `endTarget`
+  finds them. What changed says "Wrongly believes …", and "No longer believes …".
+- **The writer's briefing** (`ai/whoKnows.ts`, block `knowledge`, "Who knows what", priority 6). Everyone in the scene
+  (`ai/context.ts` `sceneKnowers`: the point of view, the others on the card, those where things stand puts there, and
+  the living characters the scene so far names, fix 12), point of view first, each with what they don't know yet that
+  someone else here knows ("Doesn't know yet: … (Tobin knows it, since Ch 2, Sc 1; saw it)"), what they believe wrongly
+  ("Wrongly believes: … It isn't true.") and what they know with since when and how ("Knows: …"; the point of view's
+  only for what they learned during the story, as block 4 lists all they know). What matters most goes in first:
+  every secret kept from someone here, then false beliefs, then what they know, the most lately learned first within
+  each, except that each believer's latest belief keeps its seat before any secret (review: four people and three
+  secrets filled the ten lines); a secret told as someone's "doesn't know yet" isn't told again as another's "knows".
+  A crowd who know something is named only so far ("Mara, Ash, Tobin and 2 more know it", `namesUpTo`). The same rules as before
+  for secrets (`cleanKnows`, only backed facts, never kept from someone it is about; `namesPerson` no longer takes "The"
+  of "The Duke" for a first name). Caps (`LEDGER_GAPS` 3 and `LEDGER_WRONG` 2 a person, `LEDGER_LINES` 10, `LEDGER_PEOPLE`
+  6) grow with `memoryScale`, at most twice; what they know (`LEDGER_KNOWS` 4, `LEDGER_POV_KNOWS` 2) comes only with more
+  room than the smallest model's, growing to those at twice it, so on a 16,000-token model the block is what block 6
+  used to give and doesn't push out the setting (the fitting shortens priority 7 before 6). Short form: only what they
+  don't know or believe wrongly, without since when (`LEDGER_SHORT_LINES` 6). Block 6 is now "Relationships" alone.
+  Who is in the scene can change from step to step (the stage, the scene so far), so the block is sent late
+  (`SEND_ORDER`: after what a step brings in, before the scene card); every block before it stays word for word the
+  same when someone new is named (tested). What must stay true keeps its key kind for secrets (`gap`, no second list):
+  `MustInput.knowers` works them out among the same people, the block's own capped list (`ledgerPeople`, so both name
+  the same people, and "Kept from" names at most `MUST_NAMES` (3) before "and 4 more"); what someone here believes
+  wrongly is a key kind of its own after injuries (`belief`, `MUST_BELIEFS` (2) lines, never taken by the secrets: "Tobin
+  wrongly believes: … (it isn't true). Tobin takes it as true here unless the scene card says otherwise"); AI edits and
+  Continue pass the beliefs too.
+- **The checks** (`checks/context.ts`): who knows what is the ledger as the scene begins, as before the memory as of
+  its start, now with each knower's since when and how (`knowsLine`: "Known by: Tobin (since Book 1, Ch 3, Sc 1)") and
+  "What some of them believe that isn't true" (`beliefLines`, `MOST_BELIEFS` 12). Check and repair's K lines are the
+  same, beliefs among them (`repair/prompts.ts` `codexLines`, 8 at most). The knowledge check's instructions add a
+  character "who acts on the truth of something the memory says they believe wrongly, with nothing showing them learn
+  it". No new call.
+- **The page**: an entry's view as of a scene (`AsOfView.tsx`, both looks) has "What they know" (it was "Knows at this
+  point"; its empty state, "Nothing noted yet.", and list are as they were), in the order they were learned as "What has
+  happened so far" is, each with since when and how in a quiet line beside it ("since Book 1, Ch 2, Sc 3 · heard it from
+  Ash", `asOfViewLogic.ts` `asOfKnowing`), and "Believes wrongly" when there is any. The New look's card has "What they
+  know" under "Where things stand", as of the scene Adam is in, the most lately learned first (`asOfKnowing`'s
+  `newestFirst`; `Dossier.tsx` `KnowingRows`, six at most, "and 3 more,
+  seen as of any scene"). "Changes over time" says how under a learning ("Heard it from Ash") and "Believes wrongly: …"
+  for a belief (`memoryLogic.ts` `describeChange`); removing either is the usual remove with Undo. "Knows at the start"
+  offers to add what was typed "as something {name} believes wrongly", and marks such a row. Classic's screens look as
+  they did until a world has such knowledge (the sample world's is unchanged).
+
+## Long story memory: a promises ledger with due dates (fix 10, 2026-10-15)
+
+The research's fix 10: setups (a planted clue, a promise, a threat, a mystery) get quietly dropped in long books
+(ConStory-Bench's "abandoned plot elements"). The memory already kept plot threads (open, clue, developing, resolved:
+"The AI manages plot threads") and B4 knew where each was last touched, but the writer got at most 6 open threads with
+no sense of timing, and nothing said when one was overdue. Now there is a ledger, built on the threads as they are (no
+parallel store) and no new AI call.
+
+- **Where each stands** (`memory/promises.ts` `promiseLedger`, pure). Open (set up, nothing since), advanced (touched
+  again in a scene after the thread change that first opened it: a clue, a step on, its words there; `threadTouches`
+  now gives `opened`; a story's start-of-story change has no scene, so it isn't a step on), paid off (resolved, as
+  before), or dropped (Adam's call). The set-up scene, and the last scene after it that moved it on. Status changes come from what the memory keeper already reads (`open`, `clue`,
+  `developing`, `close`), so its reading prompt is unchanged (5,942 characters; the 58 to spare are left for later
+  fixes); dropped is never read from the text, only set by Adam.
+- **When it is due** (`ThreadDue`). By the end of a chapter Adam chose ("Pay off by"), else the chapter of the first
+  scene whose card has it under "Pays off" (at or after its set-up; the scene card is the plan the app already has).
+  Scenes are read in the walk's order (`line.steps`: a side story's where it is added in its host, never after the
+  host's whole story), then the story's own scenes past the point in story order.
+  Told as of a point: `overdue` (the walk has passed that chapter's end and it is still open), `now` (the chapter being
+  written; a card's plan later in this chapter is still `later`, as that scene's card will say "this scene pays it
+  off"), or `later`. For the writer the point is the scene being drafted; for the board and Worth a look, the story's
+  latest scene with words. A Pay off by chapter in Recently deleted is read as none of Adam's (the cards' plan holds,
+  and a restore brings it back); one gone for good (`purgeTrash`, the outline helper's Undo, an imported story taking
+  the empty first one's place) is cleared from every plan, with what Keep remembered for it
+  (`db/threadPlans.ts` `clearGoneChapters`). The cards' plan is kept beside Adam's (`PromiseRow.cardDue`,
+  `BoardThread.cardDue`), so "Pay off by" offers "As the cards plan (Ch 4, Sc 2)" and clearing the chapter says
+  "will be paid off where the cards plan it: Ch 4, Sc 2".
+- **Adam's plan, in meta** (`db/threadPlans.ts`, `thread_plan:<thread id>`, JSON of `ThreadPlan`: `payBy`, `dropped`,
+  `kept`; no row for an empty plan; no migration). It travels with the world; `purgeTrash` drops the rows of threads
+  gone for good (one in Recently deleted keeps its row). `planThread` (`keeper/checkQueue.ts`; `AppApi.planThread`,
+  `ipc/worldViews.ts`, which emits `memory:changed`) sets the pay-off chapter or dropped, refused in plain words for a
+  thread or chapter that is gone, and returns a `MemoryCheckUndo` (`undoMemoryCheck` puts the plan back).
+- **The scene memory** (`memory/scene.ts` `withLedger`): each `ThreadState` gains `standing`, `setUpSceneId`,
+  `advancedSceneId`/`advancedWhere` and `due`, as the scene is written.
+- **The writer's briefing** (`ai/openThreads.ts`). Dropped threads are left out. Order: due by the end of this chapter
+  or overdue first (overdue before due now); then those that involve the scene (the card's words name them, as before,
+  or the thread's name, promise, clues, payoff or summary name the point of view, someone else on the card, the
+  location, or an item those people hold as the scene begins: `holdingsOf`, `namesOf`, `nameIn`, the one name rule of
+  fix 12); then the longest untouched (`quiet`, else the oldest last note); ties by when the thread was made, then its
+  id, never by its last edit, so a write to a thread between two steps of a scene doesn't reorder the block (the
+  cache). B4's two most quiet still always make the
+  list. The cap grows with room: `openThreadsMost(memoryScale)` 6 to 22 (`OPEN_THREADS_MOST` × the scale, at most
+  `MOST_SCALE`), short `openThreadsShort` 3 to 6; Continue keeps 4. Each line says when it is due (`dueWords`): "Pay
+  this off by the end of this chapter.", "Overdue: it was to be paid off by the end of Ch 4. Pay it off soon, where it
+  fits.", "to be paid off by the end of Ch 7, not yet", "its pay-off is planned for Ch 7, Sc 2, not yet". Only the
+  card, Adam's plans and the memory before the scene decide it, never what a step adds (the scene so far, the
+  direction), so the block stays in the steady part of `SEND_ORDER` and reads the same at every step (tested).
+- **Worth a look** (`memory/promises.ts` `threadWarnings`; `memory/scene.ts` `overdueThreads`; `keeper/checkQueue.ts`
+  group `promise`, "Plot threads left waiting"). An open or advanced thread (never dropped, paid off or only planned)
+  that is overdue, unless Adam kept it for that due chapter; or untouched for a long stretch. A thread with any due date
+  (Adam's Pay off by, or a scene card's plan, even one still to come) is never asked about as untouched: it is planned,
+  and the overdue warning covers it once its chapter is over. One with no due date at all is asked about when untouched
+  for `longQuiet(written)`: a quarter of the story's scenes with words and never fewer than `LONG_QUIET_MIN` (12, twice the
+  `QUIET_SCENES` after which the writer is reminded, so Adam is asked only once the reminders haven't brought it back):
+  12 up to 48 scenes, 25 at 100, 50 at 200 (`writtenUpTo`: only the story's scenes with words the line reaches, so as
+  of an earlier scene, writing after it never changes the count). Like the writer's reminder, only a thread last touched
+  in that story, or before any story began (a baseline change), which counts as this story's; one carried from an
+  earlier book isn't asked about until the story touches it. Every story with words is looked at, each
+  thread listed once (`promiseChecks`, kept while `changesMade` doesn't move). A row: "Still open, and due by the end of
+  Ch 1" (or "…though its scene card planned the pay-off for Ch 4, Sc 2"), "Untouched for 14 scenes", and "Last touched
+  in …". **Pay off later** (a menu of the chapters from the one being written to the story's end, `MemoryCheckItem.later`)
+  calls `planThread`; **Keep** records `kept` (an overdue one: not asked again for that due chapter; a quiet one: not
+  until something touches it, or another long stretch goes by); **Mark as dropped** is Remove; **Open** goes to the
+  thread; Show me opens the scene that last touched it. Each has Undo, and the rows count in the badge.
+- **`overdueThreads(db, storyId, asOfSceneId?)`** gives the same as a scene begins (told against its chapter) or as the
+  story stands now, with names and where each was last touched (the rule-based checks of fix 8, below, leave these to Worth
+  a look, so nothing is asked twice). What the story
+  says is as of that point; Adam's plans (Pay off by, dropped, what he kept) and the cards' planned pay-offs are read as
+  they stand now: they are his current plan, not facts of the story, so a check of an earlier scene uses today's plan.
+- **The board** (`worldViews/threads.ts`, as of the story's latest scene with words). `BoardThread` gains `standing`,
+  `advanced` (a place), `due` (none once resolved or dropped) and `warn`; a dropped thread has column `dropped`, shown
+  only when there is one ("You decided not to pay these off"); `ThreadsBoard.chapters` is the story's chapters for the
+  picker (`chapterChoice`: "Ch 6 · The Ferry", or "Ch 6" for a default title). In the panels (`ThreadsBoard.tsx`), the
+  **Ledger** has Status (Open, Advanced, Resolved, Dropped, Planned; "Overdue" or "Untouched for a long stretch" as a
+  calm amber badge; Mark as dropped or Pick up again), Set up in, Last moved on, **Pay off by** (the `Select`, with "No
+  chapter" or "As the cards plan (Ch 4, Sc 2)" as none) and Quiet for. A Board card shows its due date only when Adam
+  chose the chapter or it is due or overdue by a card's plan (`DueNote`), and a dropped one has Pick up again, so
+  Classic's screenshots of the sample world are unchanged. On the desk (`DeskThreads.tsx`) each card has its status,
+  "Moved on", "Pay off by" and the amber note, with Mark as dropped or Pick up again (`planActions.ts`, toasts with Undo
+  in `planWords.ts`). The world gallery, the story home, the story board's legend and the series bible say "Dropped".
+
+## Long story memory: a story calendar (fix 11, 2026-10-16)
+
+The research's fix 11: time slips are among the commonest errors in ConStory-Bench and the hardest questions in NovelQA,
+and models are bad at sums they must make for themselves ("three weeks since the siege", a character's age). The scene
+card had a When, the timeline read it to order scenes, the stage tracker compared the raw words to decide what carries,
+and fix 5's `timeSince` put both cards' When side by side; nothing did the sums. Now the app keeps a story calendar,
+worked out from the scene cards (no store, no migration, no new AI call; the memory keeper's prompt is unchanged, its 58
+characters to spare left for later fixes).
+
+- **Each scene's date** (`memory/calendar.ts`, pure; `StoryDate`). Read from Adam's When as the timeline reads it
+  (`worldViews/when.ts` `parseWhen`; `whenStates` gives `placeWhens`' reading of each text, with `WhenParts.time`, the
+  time-of-day words, and `yearWord` kept): absolute dates ("12 March 1820", "Day 3, evening", "Year 2 of the reign,
+  spring"), times of day, and steps from the dated scene before ("the next morning", "three weeks later", "that night").
+  Scenes are read in the line's walk order (`memory/storyCalendar.ts` `calendarItems`, the timeline's own rules: a side
+  story leans on its host where it starts, a book that follows on on the book before unless a time gap lies between,
+  and a book that follows on counts its days afresh), as the promises ledger reads them. A scene with no When takes only
+  a time of day from the memory's reading of its own words (`continuity/tracker.ts` `timeCues`: where things stand at
+  its end, the time's words from that scene and the reading still matching its words; `withCues`), never a day. Nothing
+  else is guessed: `reading` says how a When was read (`empty`, `read`, `unclear`, `unanchored`: a step with no dated
+  day before it, `vague`: "days later"). A day its month doesn't have is no date and never rolls into the next month
+  ("31 April 1820", "29 February 1821", or "29 February" after "1 January 1821": `monthLength`, leap-aware when the year
+  is known; with no year 29 February may be in a leap year and stays itself). Years before Christ count through zero (1
+  BC is year 0: `bc`), so "44 BC" to "AD 14" is 57 years, and a bare year 0 is no year (a world's own "Year 0" is).
+  "Half a year later" is six months and "a year and a half later" eighteen; "half a day later" is later the same day;
+  a half that can't be placed ("half a week later") is no date. After a step of months ("six months later") the day is
+  only about right but the month is known ("December 1820").
+- **Flashbacks** (review, 2026-10-16). The present carries on from the present: a When that doesn't go back leans on the
+  last dated scene before it that isn't a flashback (`worldViews/when.ts` `placeWhens`, `goesBack`), so "12 March
+  1820", "Flashback: 2 February 1810", "The next morning" is 13 March 1820, never 3 February 1810; a flashback leans on
+  the dated scene before it, a flashback or not ("Flashback: the next day" after one). The timeline places them the same
+  way.
+- **Sums** (`elapsedBetween`, `elapsedWords`). A date that names its day sits on an axis with a day number (`axis`,
+  `n`): real months with a year are one axis for every story (`daysFromCivil`: real month lengths and leap years, so "30
+  January 1820" and "five days later" is 4 February), "Day 41" counts an axis per year and calendar, a month the app
+  doesn't know ("the 3rd of Frostmoon") an axis of its own, so a world's own calendar still gets its sums from counted
+  or stepped days. Dates on one axis are exactly so many days apart ("3 weeks and 2 days", "about 4 months (121 days)");
+  a month or season and a year are about so many months apart, years alone about so many years (never for counted days,
+  which may run across years); otherwise it isn't known. `day` is the day since the story began: Adam's own count where
+  he counts days with a bare "Day 41" (day 41), else days since the first dated day of its calendar that isn't a
+  flashback ("day 21 of the story"; no day count for a scene read before that day, such as a story opening on a
+  flashback). Decided in review: "Day N" with a year or season ("Day 300, Year 1", "Day 3 of spring") is a day of that
+  year or season: within it the sums work ("Day 300" to "Day 310, Year 1" is 10 days) and its day since the story began
+  counts from the first day like any date; across years how far apart isn't known (no year length is assumed). A bare
+  "Day N" runs on as the story's own count. `sameDay` and `sameMoment` (the same day and time of day) say null where
+  they can't tell. A time of day has a span (`WhenParts.span`, `SPANS`: "night" is 20:00 to 03:00, "morning" 05:00 to
+  12:00; a clock time is exact), and `timeOrder` orders two times the same day only when their spans don't meet: "night"
+  after "11pm" may be the same hour, so it is "the same day as the scene before", never "earlier the same day".
+- **Going back** (`goingBack`, `goesBack`). A scene whose date comes before the last dated scene before it in its own
+  story that isn't a flashback (a side story read alongside is never compared; "5 March 1820" after "12 March 1820" and
+  a flashback is held to 12 March), where that is certain, and whose When doesn't say so: a When saying it goes back on
+  purpose starts "Flashback" or "Earlier" (the app had no other mark), or steps back itself ("three days earlier", "the
+  night before"). A When that leans on the scenes before is never counted ("March" after "December, Year 2" may be the
+  next year), nor an earlier time the same day unless both cards say the time and their spans don't meet (`timeOrder`:
+  "night" after "11pm" isn't), nor a time in the small hours after a night scene (`BACK_FROM_MINUTE`).
+- **Ages** (`readAge`, `ageFrom`, `memory/storyCalendar.ts` `ageHere`). From a character's "Age or birth date" as of the
+  scene: a birth date or year ("born 12 March 1790", "b. 1790": exact with both full dates, else "29 or 30"), an age at a
+  date ("17 in 1815", "34 at the start of the story"), or a bare age as of the scene the memory set it in
+  (`changedWhere.age`, matched to a scene by its place in words), the story's start (its first day that isn't a
+  flashback) for the starting setup. From an age at a real date, whole years by month and day as a birthday counts them
+  (34 on 1 March 1820 is 36 or 37 on 28 February 1823, 37 on 1 March, 37 or 38 on 2 March; review); from a month or
+  season, months / 12, about; from counted days, years of the Common Era's length. A guess
+  ("mid-thirties", "about 40", "34 or 35") is left alone. Years told with a word ("Year 312") are compared only with each
+  other.
+- **For the rule-based checks** (fix 8, below; `memory/storyCalendar.ts`): `storyCalendar(db, storyId)`, `storyDateAt(db,
+  sceneId)`, `elapsedBetweenScenes(db, a, b)`, `ageAt(db, characterId, sceneId)` and `scenesGoingBack(db, storyId)`.
+- **Kept until a date can move** (review: the stage tracker writes `meta` as it reads, and a cache on every write rebuilt
+  the calendar for every scene `stands()` looked at). `calendarVersion` counts only writes a date rests on: temp
+  triggers (`aiwrite_calendar_*`, made on first use on the connection, never inside another's transaction, as search's
+  are; nothing in the world file) on a scene's card, chapter, place or deletion, chapters, stories and answers; where they
+  can't be made, every write counts (`changesMade`). A scene's story is one look-up (`Read.storyOf`), going back is
+  worked out once per calendar (`backOf`), and the scene card's `getSceneDate` works out that one scene's view
+  (`sceneDateView`, kept with the calendar; where things stand is read only for a scene with no When). Tested with 500
+  scenes: built once, then the same calendar for each scene with `meta` written between.
+- **The writer's briefing** (`ai/storyDate.ts`; `ContextInput.calendar`, `ai/gather.ts` `calendarFor` →
+  `sceneCalendar`). The scene card (priority 2, late in `SEND_ORDER`) says, under When, "Story date: Day 41, evening (3
+  weeks since the start of Ch 4: The Siege; 2 days since the scene before)": earlier days to count from are dated events
+  that exist here, then the start of each chapter of the story so far, the latest first (`LANDMARKS_MOST` 4 worked out,
+  `storyDateMarks(memoryScale)` 1 to 3 told), never the scene before twice; a flashback says "8 days before the scene
+  before, a flashback". Then "Ages here: Mara 30 (born 12 March 1790); Tobin 37 or 38 (34 at the story's start)" for those
+  on the card whose age the sums change (a birth date, or a year or more after an age at a date; `storyDateAges` 3 to 6),
+  and the reminder to make the time that has passed fit. The story date is left out when it would only repeat the When
+  ("Day 8" with no sums). Without a calendar (a test, or the world couldn't be read) the two cards' When alone are placed
+  (`datesOf`). This replaces `timeSincePrevious` ("The previous scene was …"), which is said only when this scene's date
+  isn't known. What must stay true's `elapsed` key (`timeSince`, now `elapsedNote`) comes from the same sums ("Time: 3
+  weeks since the scene before (Day 4, morning); this scene is Day 25"), so there is one source of truth for elapsed time;
+  where nothing can be placed it keeps both cards' words, as before. Only the cards decide it, never what a step adds, so
+  every block before the scene card reads the same with or without it (tested).
+- **What carries between scenes** (the carry rules under "What must stay true" and "A new time starts fresh"). `stageReach`
+  reads the same day on the calendar ("That night" after "Day 3, dusk" is the same day; "The next day" twice is not;
+  "Day 4, noon" after "The next morning" that was Day 4 is), and where it can't tell, both cards' "Day N" as before.
+  The time of day, light and weather carry only at the same moment (`sameMoment`: the same day and time of day,
+  "Later that evening" after "Day 3, evening"), else, where the calendar can't tell, both cards giving the same When as
+  before: in the stage tracker (`startFrom`, `sameTime`) and for the writer (`timeCarries`, `stageScope`; AI edits pass the
+  calendar too). A scene whose start this changes (the same words on two days, or one moment told in other words) is read
+  again by the stage tracker once, as for any When changed on a card.
+- **On the screen** (`AppApi.getSceneDate`, `SceneDateView`; `BoardSceneCard.date`; `features/inspector/sceneDate.ts`
+  `useSceneDate`). The scene card (both looks) says under When, in the hint's own line, how it was read when that adds
+  to the words ("Reads as Day 4 · morning.", "Reads as 1 April 1820 · day 21 of the story · dusk."), or gently what it
+  couldn't tell ("AI Write can’t read a date in this.", "Nothing dated before this to count on from.", "Doesn’t say how
+  many days, so the count stops.", "No date yet. By the scene’s end it’s evening."), or that it goes back without saying
+  so ("Earlier than the scene before. A flashback?"); otherwise the usual hint. Each note is short and kept to one line
+  (cut short if the panel is narrow), so nothing below moves; `detail` says it in full on hover and to a screen reader
+  ("This comes before the scene before it (Day 6). If it’s a flashback, start the When with “Flashback” and AI Write
+  will know."). The story board's cards and the desk's page head put the worked-out day beside a When that leans on the
+  scenes before ("The next morning (Day 4)") in the line they already have (the page head reads it with the card, so
+  the line is drawn once). A When such as "Day 1, dusk" reads as itself, so the sample world's scenes keep the usual
+  hint and Classic's screenshots are unchanged; no View setting was needed.
+
+## Long story memory: summaries rebuilt from the record (fix 15, 2026-10-16)
+
+The research's fix 15: chapter, story and series summaries were summaries of summaries (a chapter's from its scenes', a
+story's from its chapters'), and a small edit patched a scene's old summary from the changed paragraphs (World Memory
+Overhaul A3), so summaries were built on summaries. Every round of re-summarising adds errors (FlawedFictions: the
+plot-hole rate in LLM summaries rose by about half), while summaries built in layers stay more coherent (BooookScore).
+So hard facts now come from the story record, summaries are signposts, and each is tied to what it is made from
+(the Qvink and MemoryBooks pattern). No migration, and no new AI call: the keeper's summary calls get new inputs.
+
+- **A scene's summary is never patched** (`keeper/summaries.ts` `writeSceneSummary`; the `scene-patch` ask, its prompt
+  and `patchable` are gone). When it is due (as before: `sceneChange.ts` `summaryDue`), it is first marked out of date
+  (`engine.ts` `markRebuilding`: `stale`, so the screen says so, and `memory:changed`), then written again from the
+  scene's words (a long scene in parts, then joined, as before). It costs a whole scene's words each time where the
+  patch sent only the changed paragraphs; the patch was what built summaries on summaries. Fix 3's "By the end, …"
+  opening is as it was. A summary marked out of date is always due (`summaryDue` looks at `stale` before the words, so
+  the mark is always cleared by a summary written again); one no longer needed (too short now, or Adam undid the one
+  made from these words) just loses its mark (`sceneSummaryDue`).
+- **A draft waits no longer than it waits for the memory at all** (review, 2026-10-16). Each summary a draft can't do
+  without is now a call on a whole scene, so `summariesFirst` races its wait against what is left of the draft's own
+  limit (`beforeDraft`'s `limitMs`, passed through the before-draft hook: `ai/gather.ts` `BeforeDraft`, `CATCH_UP_LIMIT_MS`
+  60 s; "Write the whole chapter" `DRAFT_CATCH_UP_MS` 180 s; `SUMMARY_WAIT_MS` 60 s when none is given), and the summary
+  goes on being written in the background.
+- **End-of-chapter snapshots** (`memory/chapterRecord.ts` `chapterSnapshot`, the snapshot and its words in
+  `memory/snapshot.ts`; no AI). As of the chapter's last scene with words, from what the memory keeps (as the writer is
+  given it, `writerData`): what changed in its scenes (the memory's notes, and ties between characters made or ended
+  there), who learned what in it and still knows it at its end, with how (`FactState.since`, fix 9; `how` "said" for the
+  speaker left out), and who came to believe something that isn't true (`beliefs`), grouped by fact and scene; the plot
+  threads it set up, moved on or paid off (thread changes and notes on threads in its scenes, set up where
+  `ThreadState.setUp` is its scene; fix 10), all from its scenes with words only (a change pinned to a scene still to be
+  written is what that scene should bring about, not something that has happened); when it runs (`span`, "Day 3, dusk to Day 5, morning (2 days)", and `days`,
+  "Day 3 to Day 5", from the story calendar, flashbacks left out: `spanOf`, fix 11); and how each character in it (on its
+  cards, in what changed or was learned) stands at its end: dead (`deathOf`), last at the place of the last scene whose
+  card has them, looks a change set during the story (marks, build, face, hair, eyes, skin), what they now hold
+  (`holdingsOf`), what they believe wrongly; and the threads still open, those it touched first. `SNAPSHOT_MOST` caps
+  each (changed 12, learned 6, threads 6, people 10, open 8). Entries are kept by id and named when it is said
+  (`entryNames`, the timeline's `name`), so a rename never makes one out of date.
+- **Kept in meta** (`db/snapshots.ts`, `chapter_snapshot:<chapter id>`, JSON of `{ key, snapshot }`, null for a chapter
+  with no words; `purgeTrash` drops those of chapters gone for good, `dropSnapshotsOfGoneChapters`). The memory keeper
+  keeps them in step (`keeper/snapshots.ts` `refreshSnapshots`): a snapshot is worked out again only when its key
+  changes, made of its chapter's scenes and every scene before them in the story, as one running hash (the version the
+  memory last read, the cards' people, place and day on the calendar, whether they have words, the changes pinned to
+  them or ended in them: `sceneStamps`), every change outside the story's own scenes and every entry's kind and whether
+  it is deleted (`outsideStamp`: the starting setup, the books before; a rename changes nothing). Every earlier scene,
+  not just how the chapter before ended (review: someone off every Ch 1 card given a key there and relieved of it again
+  changes nothing Ch 1's snapshot says, but Ch 2's), so an edit early on works out every later chapter again; with no
+  AI, and their summaries aren't tied to it. A few queries a story, however long; `SNAPSHOTS_AT_A_TIME` (3) worked out at a time, between `setImmediate` pauses,
+  while the keeper has nothing to read (`engine.ts` `snapshotsOnce`, before the roll-ups; on no model too), and
+  straight away when a world opens, so a world from before this has them soon after. In the speed test's big world (10
+  books of 200 scenes, 3,000 changes, 500 entries) a batch of three takes about 50 ms, and looking again with nothing
+  changed about 15 ms (`tests/unit/memoryPerf.test.ts`).
+- **Roll-ups from the level below and the record** (`keeper/summaries.ts` `storySources`, `seriesSources`,
+  `nextRollUp`; `keeper/prompts.ts`). A chapter's ask is its scenes' summaries, then "What the story record says
+  changed in this chapter:" (`changedLines`), within `RECORD_SHARE` (0.4) of its room, the summaries fitted into the
+  rest (so trimming them no longer loses facts). Decided in review: not how things stand at its end (`endLines`), which
+  an edit in an earlier chapter can change without its own chapter changing; that is the snapshot's, shown in the
+  timeline with no AI. Nor when it runs: an early When edit re-dates every later chapter, so the days are the
+  timeline's alone (`days`; `span` is kept in the snapshot, never told to a roll-up), and re-dating costs no AI calls. A story's is its chapters' summaries and how things stand at the end of its last summarised chapter; a
+  series', its books' and the end of the last book. Each is told "The story record below is fact: where a summary says
+  otherwise, follow the record", and a chapter "Point to the scene where each big change happens, as (scene 2)". None
+  is ever made from an older summary of itself. Default titles aren't repeated ("Scene 2", not Scene 2 "Scene 2").
+- **Tied to what it is made from** (`sourceHash`). A chapter's: `ch2|` the hash of what changed in it (`localPart`:
+  the changes, what was learned, the threads; not the days), then each scene by id with the revision of its summary (`<scene id>~<hash>`); a story's `st2|` and a series' `se2|`:
+  how things stand at the end (`endPart`), then each chapter or book the same way. A chapter isn't tied to how things
+  stand at its end, so an edit early in a book never has every later chapter summarised again (one AI call each): their
+  snapshots follow, and the writer reads those. A roll-up written before this (its hash is of its summaries alone) counts
+  as up to date until those summaries change (`upToDate`, the old hash), so no world has every roll-up written again at
+  once; one Adam undid counts as up to date (`suppressed`), before this version too (an undo then left no source and a
+  suppression of its summaries' hash: review).
+- **Out of date, not patched** (`markOutOfDate`). After the snapshots of a story are brought up to date, and after each
+  roll-up is written, every roll-up the memory wrote whose sources changed since is marked `stale`, and the mark is
+  cleared from one made from what is there now (`db/keeper.ts` `setTextSummaryStale`); Adam's own are never marked. So a
+  change to one scene makes its summary, its chapter's, the story's and the series' out of date, and nothing else, until
+  each is written again from its parts. Roll-ups still run only when the keeper has nothing to read (`rollUpOnce`).
+- **Hand edits too** (review, 2026-10-16). A read marks its story, but Adam's own edits to the record never came
+  through a read, so `Keeper.recordEdited` (through `keeper/index.ts` `recordEdited`, by the stories of the scenes or
+  stories touched, else every story) is called by the handlers that change it: a change added, edited, removed or
+  brought back (`ipc/memory.ts`), where a story sits, a summary Adam edits; an undo or answer in What changed and Keep,
+  Remove or Undo in Worth a look (`ipc/keeper.ts`); a scene card saved, a scene deleted or moved, a chapter deleted or
+  moved, a story deleted, an entry edited, deleted or brought back (`ipc/core.ts`). Every story marked (`storyChanged`)
+  brings the stories whose line goes through it along (`storiesReading`: a book that follows on, a side story in it;
+  never a prequel, which only starts before it), as their record rests on its.
+- **No mark left with nothing to clear it** (review). When a world opens, every scene summary the memory wrote that is
+  marked out of date (a world from before this, a write that didn't happen before it closed) goes on a backlog
+  (`db/keeper.ts` `staleSceneSummaries`), written again one at a time when there is nothing else to do and
+  `BACKLOG_GAP_MS` (20 s) apart, so there is never a burst of calls (`backlogOnce`; Try again refills it). A summary or
+  roll-up that can't be written is tried again after `RETRY_FIRST_MS` (a minute), then two, four… (`failed`, one timer,
+  `wakeIn`), `RETRY_TRIES` (6) times in all; then it is given up for the session and its mark cleared (a scene summary's
+  `stale`; a roll-up isn't marked again: `markOutOfDate`'s `givenUp`), until Try again or its sources change. The
+  writer is still told a scene summary is out of date (`summaryDue`).
+- **The writer's timeline** (`ai/timeline.ts`, `memory/scene.ts` `withRecords`, one query). An older chapter's line (one
+  rolled up a line each) says the days it runs ("- Ch 3, Day 3 to Day 5: …") and, in its full form, up to `RECORD_FACTS`
+  (2) of what its 60 words may have lost: who learned what, then threads paid off and set up (`timelineFacts`), after its
+  marks; a summary out of date says "(This summary is being brought up to date: the chapter has changed since it was
+  written.)". The snapshot is the one kept, never worked out for a briefing, so an older line reads the same from one
+  scene to the next until its chapter changes (tested). The prose story so far (`storySoFarText`: checks, Ask, the
+  interview) is as it was.
+- **On the screen** (`features/inspector/summaryText.ts`, both looks): a summary the memory wrote that is out of date
+  says, in the note under it on the scene card and in the Context tab's story so far, "Being brought up to date with the
+  chapter's latest changes." (scene's, story's, series'), in place of "Written by AI Write. It catches up with the
+  chapter's latest changes by itself.": shorter, in the note's own line, so nothing moves. The sample world's summaries
+  are up to date, so Classic's screenshots are unchanged.
+- The import estimate counts the record in each roll-up (`importing/estimate.ts` `RECORD_TOKENS`).
+
+## Long story memory: free rule-based checks (fix 8, 2026-10-16)
+
+The research's fix 8: some slips need no AI to spot, only the app's own records, and broad AI critics over-flag
+(FlawedFictions); Story Skills runs rules like these over its story files. A rule is instant and free, and as long as the
+record is right it never raises a false alarm. The earlier fixes left what the rules need (fix 9's ledger, fix 10's
+promises, fix 11's calendar); the stage tracker knows who holds what, and the memory who is dead. No store, no migration,
+no new AI call; the memory keeper's prompt is unchanged (its 58 characters to spare are still spare).
+
+- **The rules** (`checks/rules.ts`, pure, each over a `RuleScene`; `ruleFindings` runs them all, and one that fails says
+  nothing while the rest still run). Each says nothing when the record is unsure: the memory is read as the writer is
+  given it (a fact whose words were edited and not confirmed is left out, `writerData`; guesses dropped), a stage only
+  while it still stands (`storedState(...).current`), a date only where the calendar can tell, and the same day only
+  where the times of day certainly don't meet (`timeOrder` over their spans: "night" and "11pm" may be the same hour).
+  Nothing is said of a dream, a ghost, a memory or a vision (`DREAMLIKE`: in the paragraph a line or a value is in, on
+  the card, or in the When; `dreamlikeCard`, `paragraphOf`), nor of a flashback (the When says so, fix 11).
+  - `dead`: someone the memory has dead as the scene begins (`deaths.ts` `deathRecord`, and only a death it is sure of,
+    `surelyDied`: never "presumed dead", "reported drowned", "left for dead") speaks a line (below), is up and about on
+    the stage (a value of theirs from this scene's words that is something they do: last did, holding, sees, touching,
+    mood; never a body, a ghost, a vision or a memory, `NOT_ALIVE`), is the card's point of view, or is on the card's
+    list of who is there. Once a person, from the strongest sign, worded plainly: "Tobin died in Ch 1, Sc 2, but speaks
+    here." ("Mara died in Ch 18, Sc 2; she speaks here." when the card gives pronouns). A line or the stage is a must-fix;
+    the card alone is worth a look. A scene the calendar certainly dates before the death's is exempt. Decided in review:
+    with no dates, reading order decides, so an undated scene after the death is flagged; a dream, a ghost, a memory or a
+    flashback (in the line's paragraph, the card or the When) always exempts. Being remembered or spoken of is never
+    flagged.
+  - `gone-item`: something the memory has destroyed or lost, to no one (its own latest note, "smashed against the
+    rocks", "lost in the river", not "lost to Bryn at cards", nor "lost … and found" in one note; or a character's own
+    "smashed the brass compass"), with nothing since bringing it back (found, mended, someone getting it, a holding tie),
+    is held on the stage from this scene's words, and the memory says nothing of it in this scene: "The brass compass was
+    destroyed in Ch 3, Sc 2, but Tobin holds it here." Not in a flashback, nor in a scene dated before it went.
+  - `two-hands`: the same codex item in two living people's holding at the end of the scene, both from this scene's
+    words, unless either says it is held together ("both", "between them", the other's name). Never a body's grip (someone
+    the memory has dead, or the stage has as a body), nor a holding in a dream or a memory. An item is found by its
+    names and main word (`memory/items.ts`), but never by a bare word in small letters another item has in its name
+    (`itemWords`: "letter" for "The letter" would find "Bryn's letter"; "key" "the cellar key"). Continuity, worth a look.
+  - `pov-elsewhere`: the card's point of view is on another scene's card or stage (`onStage`: a value from that scene's
+    words) at this very clock time somewhere else: both cards give their own day and the same exact time ("9pm"; a time
+    of day such as "evening" lasts hours, so two evenings are never the same moment here), neither leans on the scene
+    before ("Later that evening") nor goes back nor is a dream, and their places are apart (neither is the other or
+    inside it, `parentChain`). At most `MEANWHILE_MOST` (6) such scenes are looked at.
+  - `pov-unnamed`: a scene of `POV_NAMED_WORDS` (500) words or more never names its point of view (by name, other name
+    or what the scene calls them, the one name rule), unless the style guide says first or second person or the
+    narration says "I", "me" or "my" `FIRST_PERSON_I` (3) times. Minor.
+  - `time-back`: `scenesGoingBack` (fix 11) lists the scene: "This scene is dated Day 4, 2 days before the scene before
+    it (Ch 3, Sc 1: Day 6). If it’s a flashback, start its When with “Flashback”." The card's note under When (fix 11)
+    says it too; the finding is what Ignore can settle for good.
+  - `age`: an age the memory set in this scene (a bare age: the scene's words, "Mara, now twenty,") or the card gives
+    someone on it ("Mara, 35,", "Mara (35)", "Mara is 35", "a 35-year-old Mara", `ageGiven`; never "Mara was 5 when…") a
+    year or more from what the memory works out as the scene begins (`ageHere`; a year more either way when that is only
+    about right, `ageClashes`): "Mara is 35 here, but the memory says 34 at the story’s start, so 39 or 40 by now."
+  - `knows-early`: someone tells a secret here (the memory keeper's "said it": a `said` secret whose speaker they are, no
+    `how` of their own), others knew it as the scene began (who knows it rests on who was there, `backed`), they didn't
+    (`Ledger.couldKnow`), nor believed it wrongly, nor learned it earlier in the scene, nor in a scene told later that the
+    calendar dates before this one (`RuleScene.learnedIn`, `db/memory.ts` `knowledgeScenes`), and it isn't about them:
+    "Tobin says “Mara is the heir” here, but nothing in the memory shows Tobin learning it first. Ash knows it." A promise
+    or a threat starts with whoever makes it, so it is never asked about; nor is anything in a flashback or a memory.
+- **Who speaks a line** (`checks/speakers.ts`, pure). Quotations paragraph by paragraph (`quoteSpans`: “…” and "…", and
+  ‘…’ or '…' where the marks aren't apostrophes; one of the same kind quoted inside counts as part of it, “She said
+  “never” to me,”; one left open runs to its paragraph's end). A line is someone's only in the plain ways: `“…,” said
+  Tobin.`, `“…,” Tobin said.`, `Tobin said, “…”` (opening a sentence or a paragraph), with one of the speech verbs (`SAY`)
+  straight after or before the name. Verbs that also mean something else (`LOOSE`: began, went on, continued, added,
+  called, told and the like) give a line after the name only when a pause follows (`PAUSE_AFTER`): "“I’ll go.” Mara began
+  to walk away" isn't hers; "Tobin said nothing" isn't either. A name inside a quotation is someone spoken of or to;
+  "Tobin had said", "She remembered how Tobin said", "said Tobin's sister" are never his line; the line before, in the
+  paragraph before, is someone else's. Names by the one name rule (fix 12), longest first with no overlaps
+  (`namedPlaces`: "said Mara Venn" is Mara Venn, never Mara), and words two people go by name neither. "He said" isn't
+  read (no guessing who "he" is): a known limit.
+- **Reading a scene** (`checks/ruleChecks.ts` `ruleScene`): a check passes the memory it has already read (`RuleOptions`
+  `memory`, its `SceneMemory`); otherwise one reading of what is true as the scene begins without the story so far,
+  threads or the scenes before (`memory/scene.ts` `sceneStart`, which `sceneMemory` now builds on), with its `bringAbout`,
+  the ledger, this scene's called words (`db/called.ts`), the stage (`continuity/tracker.ts` `storedState`), the story
+  calendar and, only when this scene gives a clock time and a place, the other scenes' cards
+  (`memory/storyCalendar.ts` `calendarCards`, kept as long as the calendar is: `calendarVersion`). Tested on a 500-scene
+  story.
+- **When they run**: after the memory keeper reads a scene, once where things stand at its end is brought up to date
+  (`keeper/index.ts` `standLater` → `rulesAfterRead`, which runs them even while the memory waits for this month's
+  spending limit: they cost nothing), then over the later scenes on the line that still have a rule's finding open
+  (`laterRuleScenes`, nearest first, `LATER_MOST` (12)), as one may rest on the scene just read (a death taken back, a
+  learning added); and in every check of a scene, right after the AI's findings are kept (`checks/run.ts`; counted in
+  the run's "Found 2 things to look at"). A deleted scene keeps none of their findings open (`scenesDeleted` →
+  `rulesAfterDeleting` → `db/checks.ts` `clearDeletedRules`; what Adam ignored or fixed stays), and one brought back
+  from Recently deleted is looked at again at once (`scenesRestored`). Never throws. A card changed on its own (a When,
+  a point of view) is looked at again by the next read of the scene or the next check.
+- **Where the findings go**: the `issues` rows the checks keep (`db/checks.ts`), so the Issues tab, the badges, the
+  Check room, Fix the text (the quoted words, when there are any), Ignore and Undo work as for any finding. Payload
+  `by: 'rule'`, `rule`, `sources`, `entryId` (and `field` for an age), `fix` and `memoryFix` null; key
+  `rule:<rule>:<scene>:<what it is about>` (`ruleKey`), so a finding is never raised twice. Each run replaces what the
+  rules found there before (`saveFound` now takes away open `rule` rows too, when the caller's `replaces` says so; the
+  AI's `replaces` only ever names its own checks), and one found again just as it was isn't written or told to the
+  window again, so the Issues tab doesn't reload after every reading. A rule's finding and the AI's or the keeper's are
+  the same thing (`sameThing`) when both are about the same entry (and field, or neither) and about what is so (facts,
+  who knows what, the timeline, continuity; never voice or style), whatever their kinds, unless both quote words, other
+  words, under other kinds; with no entry on one side, by the same kind and overlapping words; two rules' findings only
+  by their keys. A rule never raises what the AI or the keeper already raised; when the AI check finds what a rule found,
+  the AI's finding takes its place in the same row (its words, rewrite and advice); when the memory keeper raises its
+  clash about the same thing (it can update the memory), the rule's open finding gives way to it, and a rule's finding
+  never stops the keeper's (`db/keeper.ts` `raiseIssue`). If the AI stops finding it, the rule brings it back at once.
+  Fix 7's lessons work unchanged: an ignored rule finding is meant (never raised again, and told to later checks), a
+  fixed one is a slip later scenes' writers are warned of (`fact`, `knowledge` and `timeline` kinds; two in hand and the
+  point of view never named are `continuity`, about their moment).
+- **On the screen**: the card's kind line says "Facts · Found by a rule, not the AI" (`issuesLogic.ts` `RULE_WORDS`; on
+  hover "Found by a rule over the memory, at once and for free: no AI was asked.") in the Issues tab (both looks), the
+  Check room's issues and Classic's Consistency page; the margin note keeps its head and has the same hover. Nothing
+  else changes, so Classic's screens look as they did (the sample world raises nothing).
+- **Not a rule: a promise long overdue.** Fix 10 already asks about it in Worth a look (with Pay off later, Keep and
+  Mark as dropped), story-wide; as a rule finding it would be raised twice, in a scene it isn't about. So
+  `overdueThreads` stays Worth a look's alone.
+
+## Long story memory: each scene gets a contract (fix 13, 2026-10-16)
+
+The research's fix 13 (after ConWriter, 2026): drift from the plan and contradictions of what is already so are caught
+best by a narrow, planned checklist, not an open hunt for plot holes. ConWriter gives each scene a short transition
+(what must already be true, what must change, what must not change), puts it in the prompt, checks the draft against it
+item by item, rewrites only failing sentences, and cut contradictions 50–88%. The writer lab once tried "a scene
+contract" without clear gains on small samples (see "The writer lab's winners"); the long test book (fix 6) is where to
+judge it at length. No store, no migration, no new kind of AI call.
+
+- **The contract** (`ai/contract.ts`, pure; `SceneContract`: items with codes C1..., each `start`, `change` or `keep`,
+  the check a broken one belongs to, and the entries it is about). Three short lists, at most `CONTRACT_MOST` (4, 5, 4):
+  - *Must be true at the start*: from what must stay true's own lines (`mustStay.ts` `mustLines`, now with each line's
+    kind and entries; the full form, every stage line told): how much time has passed (fix 11), where people are, what
+    they hold, a piece of clothing off or named, how they are placed; and up to two things everyone in the scene knows
+    that the card or the change is about (fix 9's ledger, with since when). Carrying on inside a scene (Add below, a
+    later beat, Continue) the stage at that same moment is told right above, so the start keeps only the time.
+  - *Must change*: what the draft is asked to write (`ContractAsks`), strongest first, each left out when something
+    before it already says it (`saysFact`): the author's direction (a whole scene's too, so the list defers to it; Add
+    below's; Continue's "what happens next"), then what the plan before writing said must change (below), then the
+    card: a whole scene's beats (Generate, Variants, the chapter writer); Add below the next beat not on the page
+    (`beatsOnPage`) when there is no direction; a beat that beat with Adam's note for it (`beats/instructions.ts`
+    `beatFocus`, "… (the author’s note for it: …)"). A whole scene's outcome ("By the end: …", taken before the beats, so a
+    beat that only says it again is the one left out) and up to two plot threads it sets up or pays off (fix 10; left out
+    only when the direction or the plan names them) keep their own places, so the beats never push them out.
+  - *Must not change*: the dead stay dead, what is kept from someone here stays kept, injuries, what someone here believes
+    wrongly, what someone gave away or got, things in the place, marks; in that order. Never a line the change list
+    itself changes (`changedBy`, from what each line says, `MustLine.about`): the change names the item someone has or
+    gave away (`memory/items.ts` `namesItem`) or the thing in the place (`shared/stageItems.ts` `namesItem`), or says the
+    line's own words; a secret goes too when the one it's kept from learns, finds out or is told it (with a word of it, or
+    "the truth"), and a wrong belief when the one who holds it does. The line stays in what must stay true.
+- **The writer's briefing** (`ai/context.ts`, `ContextInput.contract`, set by `ai/draftFlow.ts` `contractFor`): block
+  `scene-contract`, "This scene’s contract", priority 2 (never left out; its short form without the lead), sent late
+  (`SEND_ORDER`: after where things stand, right above what must stay true), so every block before the scene card reads
+  the same with or without it (the cache, tested). What must stay true leaves out every line the contract says word for
+  word (`MustInput.leaveOut`, `contractSays`): nothing is said twice; with nothing left it goes. The planner is told
+  those lines with what must stay true (`plan.ts` `planMaterial`). Continue's own briefing gets the same block, built by
+  the app alone (`edits/briefing.ts`, `EditWorld.contract`). `PreparedContext.contract` and `DraftBriefing.contract` say
+  what was sent. The Context tab and "What the AI saw" show it as they show every block.
+- **The plan says what must change** (`plan/plan.ts`). With a contract the planner's instructions (`planSystem(true)`,
+  `SYSTEM_WITH_CONTRACT`) ask for `"must"`: at most `PLAN_MOST.must` (5) short statements a reader could check, from the
+  card's beats, goal and outcome, the direction, or a thread the card sets up or pays off. `checkPlan` keeps one only when
+  the card, the beat or the direction calls for it (`calledFor`) and it lets out no secret; `MadePlan.must`. `withPlan`
+  puts them in the contract (`ContractInput.planned`) and fits the briefing again; `keepsRoom` lets the contract's block
+  change size. The plan's lines stand for the card's where they say the same; the card's beats they don't say stay
+  (fix 13's review). Without a contract the plan's call is exactly as before.
+- **The check as a draft lands** (`repair/contract.ts`, `repair/index.ts`): the contract is kept by record as the stage is
+  (`noteContract`, beside `noteStage`: Generate, Add below, a beat, Continue). The same claims call gets the items as C
+  lines (section `contract`, "The scene’s contract (C ids)", right before where things stand in `REPAIR_SEND_ORDER`) and
+  `CONTRACT_RULES` after its own instructions; each item is answered kept, broken, not yet or untouched, with the
+  sentence that shows it (`readContractAnswers`). The app keeps only what it can stand behind (`judgeContract`): a
+  broken item only with words that are in the new words, and it goes on as a slip against its C line, through the second
+  opinion (whose instructions name C lines when a note cites one, `secondSystem`) and `judgeClaims`; a C line is never on
+  the stage, so it is never mended without asking: one question with the model's rewrite of that sentence to review
+  (Fix the text). Not yet: only for something that must change, never for Continue, and not when most of its words
+  (names aside) are in the new words (`mostlyIn`); then the same second opinion rules on it (a "Not shown" note with no
+  quote, `MissingNote`, `NOT_SHOWN_RULE`: rejected when the words show it in other words, which then counts as kept);
+  what stands is asked with no words to point at ("This scene was planned to show this, but the new words don’t yet: “…”
+  Write it in, or leave it for later?", `notYetIssue`, key `contract:change:<words>`, `contract.missing`). Such a
+  question goes only when the reply answered its item: for a whole new draft of the scene, answered at all; otherwise
+  once the words show it. A reply that answers no item of the contract settles nothing and leaves the report as it was
+  (`readClaims` no longer reads `{"contract": []}` as a check). Issues carry `IssuePayload.contract` (`Issue.byContract`;
+  `confirmed` when the second opinion ruled on a broken item and kept it); a contract's "not yet" is never a lesson for
+  later scenes (fix 7, `checks/lessons.ts`). How each item came out is kept with the scene's check report
+  (`checks/report.ts` `saveContractCheck`, `CheckReport.contract`; the critic's report after the draft keeps it) and
+  `RepairOutcome.contract` counts it. With "Check new words straight away" off, the contract is in the briefing but not
+  checked (the critic after a draft doesn't go through it).
+- **The chapter writer** (`ipc/chapterWriter.ts`, `checks/run.ts`): each scene's contract from its latest draft goes into
+  `checkScene` (`CheckOptions.contract`), in the request about what is so (facts, timeline, continuity), with
+  `CHECK_CONTRACT_RULES`. A long scene's first part gets every item, its later parts what must change and what must not
+  (what must be true at the start is judged on the opening alone); the parts' answers are put together (`mergeAnswers`).
+  A model with too little room for the contract checks the scene without it (the contract goes, never the check). Only a
+  reply that answered an item counts as a check through the contract. What it finds goes through the second opinion on
+  the check model (`contractRuling`, one call, only when something is broken or not shown; no room for it, a failed call
+  or an unreadable reply: nothing dropped, nothing confirmed). Decided with Adam: the agent may put right a broken item
+  like its other findings only once the second opinion agreed (`contract.confirmed`; `chapterWriter/run.ts`
+  `issueFindings` sends no other contract issue to the review, "scene contract"), rewritten by its `revise` within the
+  run's existing limit (`SAME_ROUNDS`); what isn't shown yet is never written in by itself and stays in the Issues tab
+  for Adam. Only a check through the contract replaces what one found (the critic's check, Mark done's and Check this
+  scene leave those rows be), unless contracts are switched off: then a whole check takes them away (`contractsOff`, from
+  `RunDeps.contractsOff` and the chapter writer; `db/checks.ts` `dropContractIssues`) and the report's contract with them
+  (`saveReport` with `contract: null`).
+- **AI calls per scene.** None new. Plan before writing: the same one call, with about 120 more tokens of instructions and
+  a few more lines back. The writer: the same call, the briefing a few dozen to a few hundred tokens longer (less what
+  must stay true no longer repeats). Check and repair: the same one call, with about 350 more tokens of instructions, the
+  C lines, and a short answer per item. Its second opinion, which already ran once when the check found a slip, now also
+  runs when only a contract item is broken or not shown yet (still at most once per landing). The chapter writer: the
+  contract rides in its first check request each round, and one second opinion follows a check that found something
+  broken or not shown. Continue and Variants: none.
+- **The switch** (Settings › Models, "Scene contracts", "Give each scene a contract", `settings.sceneContracts`, on by
+  default; `features/contract/ContractSettings.tsx`, between Plan before writing and Check new words straight away).
+  Off: no block, no `must` asked of the plan, no C lines in the check, as before. `AIWRITE_CONTRACT=off` always turns it
+  off (`contractWanted`); app tests set it (tests/e2e/helpers.ts) and ask for it with `AIWRITE_CONTRACT=on`
+  (`tests/e2e/contract.spec.ts`). The fake provider answers the plan's "must" (`tests/fake-provider/plan.mjs`), the
+  check's contract (`repair.mjs`) and the chapter writer's (`m5/check.mjs`). The trap harness goes through it with the
+  app's own code (contracts on unless `AIWRITE_CONTRACT=off`); its `--fake` run's stand-in check answers the contract
+  (`tests/traps/app.ts` `standInRepair`), each passage's repair records the counts (`RepairResult.contract`), and
+  passages.md says "Scene contract: 1 of 1 kept, 0 broken, 0 not shown yet" under each step. A real run of the long test
+  book (fix 6, `--story book`) with and without (`AIWRITE_CONTRACT=off` on one) judges the contract at length.
+- **On the screen**: the Issues tab's cards (both looks), the Check room and Classic's Consistency page say "… · Scene
+  contract" beside the kind (`issuesLogic.ts` `CONTRACT_WORDS`, hover `CONTRACT_DETAIL`); the check report (Issues tab)
+  has a "Scene contract" line with how many items were kept and each item's result ("Kept · Must change · …"), and says
+  "Checked against the scene contract · 3 of 4 kept · 1 not shown yet" when that is all it has so far
+  (`CheckReportCard.tsx`, `contractNote`). The sample world has no drafts, so Classic's screenshots are unchanged.
+- **Fix 14** (below) adds its continuity brief to the same plan step in the same way: a field each (`PlanMaterial.brief`,
+  `RawPlan.brief`).
+
+## Long story memory: a continuity brief before each scene (fix 14, 2026-10-16)
+
+The research's fix 14, the last of the series: the writer's briefing is put together by fixed rules and caps, so a fact
+that matters for this particular scene can still miss the writer, while a big dump reads worse than a focused slice (NWM
+2026: targeted records scored 0.89 against the full text; Chroma's "context rot"). Anthropic's advice for long work is a
+helper that reads widely and hands back a short brief, and InkOS's planner writes one per chapter. AI Write's plan before
+writing is already the memory model's call made before each draft, so it is that call that grows: no new AI call, no
+store, no migration; the memory keeper's prompt is unchanged (its 58 characters to spare are still spare).
+
+- **What the plan reads besides** (`plan/brief.ts` `briefMaterial`, pure; gathered on the open world by `plan/index.ts`
+  `withBrief`). Besides what the plan always read (the scene card, what must stay true, where things stand, the words just
+  before, the codex's names), in this order, the parts that stay the same from step to step first:
+  - *the book so far, word for word* (`bookPart`), this story's scenes before this one on its line, in reading order,
+    with where each is ("### Ch 2, Sc 3: The ferry"), only when the memory model reads at least `BOOK_READER` (200,000)
+    tokens, and never more than `BOOK_MOST` (150,000 tokens, about 110,000 words) nor `BOOK_SHARE` (half) of what the
+    model reads, all of the plan staying within nine tenths (`briefRoom`). A longer book leaves out its oldest chapters'
+    words, whole chapters at a time (`bookWithin`), and says so in its heading ("…, from Ch 5 (how the chapters before it
+    ended is in the record below)"): their story is in the record, how each chapter ended. Decided in review: the book
+    is sent with every plan that writes a brief, so it is held to what a provider's cache makes cheap;
+  - *how each chapter so far ended* (fix 15's kept snapshots, `db/snapshots.ts`, never worked out for a plan), each change
+    citing its scene the way the rest of the record does ("Wren: broke her left arm (Ch 1, Sc 2)", "At its end: …");
+  - *everyone and everything in the scene, in full*: the people in it (`sceneKnowers`: the card, the stage, the scene so
+    far), the place, the card's plot threads and the other entries the briefing names, each with all that has happened
+    to them (the writer gets the last few); one too long for the room left gives its most recent 12 changes, then 4, then
+    none (`fitParts` tries an item's shorter forms rather than stopping its part);
+  - *who knows what among everyone here*, uncapped: each fact someone here knows with since when and how, who here
+    doesn't (never someone it is about, nor where who knows it doesn't rest on who was there, as the writer's block), and
+    what someone believes wrongly (fix 9's ledger);
+  - *the story calendar*: this scene's date, how long since the scene before and since each earlier day worth counting
+    from, and ages (fix 11; the writer's card says at most three);
+  - *the slips put right in earlier scenes* (fix 7, all of them; the writer's list says two) and *the rule checks'
+    findings still open in this scene* (fix 8, `db/checks.ts` `openRuleFindings`), for a draft written again;
+  - the *open plot threads*, due or overdue first (fix 10: `planThreads`), as many as the memory model's room allows
+    (`openThreadsMost` of its `memoryScale`: 6 to 22), in place of the writer's list;
+  - *what Adam kept out*: the names of what a 'hide' pin keeps out of the scene's briefing, "Never name these in the
+    brief" (below);
+  - after the words just before, as they change from step to step: *every earlier passage the search found* (up to 12;
+    the writer gets 5 to 10) and *the scene's contract* (fix 13, never cut).
+  The record (all but the book) is fitted to `RECORD_SHARE` (half) of what the memory model reads, less the plan and its
+  reply, at most `RECORD_MOST` (40,000 tokens) (`fitParts`: each part first to its share of the room, whole lines or
+  entries from the first, then what is left by rank: who knows what, the calendar, the slips, the findings, the people,
+  the passages, the chapters). On the 16,000-token guess that is a few thousand tokens; a part that can't be read is left
+  out, and a brief that can't be put together at all leaves the plan as it was (`safely`). With no room for the plan
+  and a brief together (a memory model reading a few thousand tokens), no brief: the plan as it was.
+- **What Adam kept out stays out** (review). Someone or something kept out of the scene's briefing (a 'hide' pin) is
+  never in the record: not as an entry, nor a knower (`sceneKnowers` leaves them out, wherever they are on the stage or
+  named in the scene so far, so the writer's own who knows what does too), nor a thread (`openThreadsAt`'s `hidden`, the
+  writer's list too), nor in a line of the record naming them (chapters, who knows what, the calendar, slips, findings).
+  The book so far is the story's own words and keeps them; the planner is told their names and asked never to put them
+  in the brief, and `checkBrief` leaves out any line of the brief that names one (`BriefMaterial.hidden`).
+- **The request, for the cache** (`plan.ts` `planMessages`). The book goes first, after the instructions (which are the
+  same every time: how long the brief may be is said in the request's last line), under the same heading at every scene
+  (`BOOK_TITLE`; where it runs is said after its last scene, `BOOK_END`), so at the next scene a provider that reuses the
+  start of a prompt it has seen (DeepSeek, OpenAI) reads all of it but the newest scene from its cache, and every step of
+  a scene all of it; when a chapter drops out of a long book the start changes once. For Claude through OpenRouter the
+  user message's `cacheUpTo` marks the book up to its last scene, never its last line, which says where it ends and is
+  new every scene. Then the record that stays the same through a scene, the plan's own parts as before, the passages and
+  the contract, and last what the writer is asked. The record kept in the world has the book as a note ("Ch 1, Sc 1 to
+  Ch 10, Sc 3, 61,190 words, read whole. Not kept here…": `planMessages(m, false)`, `keeper/model.ts`
+  `CallOptions.kept`), as it is the scenes' own words and each scene keeps its newest 10 planning prompts; its size is
+  still counted as sent.
+- **The brief** (`planSystem(contract, true)`, `BRIEF_RULE`, `BRIEF_SHAPE`): one more field in the plan's reply,
+  `"brief"`, five short lists: what matters for this scene (`matters`), what must not be contradicted, each with where it
+  was set or last changed (`keep`), who knows what among the people here (`knows`), the promises due or in play
+  (`promises`), and how long since the events that matter, with ages (`time`); only what it was given, about the whole
+  scene even for a beat, nothing of what happens in it (the plan's), not the card again, nothing kept out. Its size
+  (`ai/brief.ts` `briefSize`): about as much as the parts going short beside it free (`briefFrees`, below), between
+  `BRIEF_LEAST` (1,000 tokens) and what the writer's room allows (`briefTokens`: 1,000 at the smallest `memoryScale`,
+  2,000 at `MOST_SCALE`); asked in words (tokens / 1.35) in the request's last line (`briefAsk`), so the instructions,
+  and the book after them, read the same every time. The reply's room grows by 1.3 times that (`BRIEF_REPLY_SHARE`), and
+  the draft waits longer for it (`BRIEF_LIMIT_MS`: 90 s, 120 s with the book; the plan alone keeps its 30 s). The app
+  checks it (`readBrief`, `checkBrief`): each line cleaned and at most 320 characters, said once, left out when it cites
+  a chapter or scene the planner wasn't given (`placesCited`: "Ch 9, Sc 9", "chapter 4, scene 1"; a chapter counts when
+  any of its scenes was given) or names something kept out, each list capped (`BRIEF_MOST`: 8, 12, 10, 6, 6), and the
+  whole kept to 1.2 times its size, lines going from promises, time, matters, then who knows what, what must not be
+  contradicted last; a brief with nothing on who knows what is held to what goes short without who knows what
+  (`tokensNoKnows`), as who knows what then stays whole beside it. The plan's own check is exactly as before: its facts
+  are taken only from its own parts, never from the book or the record (a scene long ago may say what no longer holds).
+  `MadePlan.brief`; a reply with only a brief is still a plan. Without a brief asked for, a brief in the reply is never
+  used.
+- **The writer's briefing** (`ai/brief.ts`, `ai/context.ts`; `ContextInput.brief`). Block `continuity-brief`, "Continuity
+  brief" (`BRIEF_BLOCK`), priority 2, never left out (it goes in only where there is room: `withPlan`), short form only
+  what matters and what must not be contradicted, shortened before the contract and what must stay true. It is written for
+  each step, so it is sent late (`SEND_ORDER`: after who knows what, right before the scene card), and every block before
+  it reads the same from one step to the next (tested). Its lead says whether the book was read. **Not said twice**
+  (`briefShortens`, `PreparedContext.briefShortens`, `finishContext`): with a brief, the story so far (its older detail),
+  the earlier passages found by searching (the planner read every one) and, when the brief says who knows what, block 6's
+  who knows what (its short form keeps who doesn't know and who believes wrongly) start in their short form unless Adam
+  chose Full in the Context tab (`ContextBlock.shortFor` 'brief'). The story so far stays whole for a story with earlier
+  books (or side stories) on its line (`hasEarlierBooks`): the brief's reader read only this book word for word, and the
+  story so far is where the writer hears of the books before (review). What must stay true, the scene's contract, the
+  scene card and the stage stay word for word. The brief is asked to be about the size of what that frees (`briefFrees`:
+  never counting a part Adam wants in full, a later book's story so far, or a part already short), so in a long book the
+  briefing doesn't grow; only a story so short that little goes short gets a brief longer than what it frees, by 1,000
+  tokens at most. `keepsRoom` lets those parts go short for it, and nothing else; `withPlan` tries the plan with its
+  entries and the brief, without the entries, then without the brief, each only if it says anything. Without a brief the
+  briefing is exactly as before (tested). Decided in review: a redraft whose plan brings no brief (it timed out, failed,
+  or had no room) has the story so far in full again, so the writer's cached prefix changes there, and for the redraft
+  after; one cache miss, accepted rather than holding the story so far short without a brief to stand for it.
+- **Where it goes**: wherever the plan before writing goes: Generate, Add below, Beat by beat, and each scene of "Write
+  the whole chapter" (`ipc/chapterWriter.ts` drafts through `draftBriefing`; its study notes stay their own block, "Notes
+  for this scene, from studying the chapter"; its review sessions and look-up tools, `chapterWriter/tools.ts`, don't use
+  the plan step, so they get none). **Beat by beat writes one brief a scene** (review, `plan/index.ts`): its first beat's
+  plan writes it, about the whole scene; each later beat's plan reads no more than it always did (no book, no record) and
+  the writer gets the scene's brief, while the scene card and the record it was made from read the same (`briefKey`: the
+  card, the record's parts and where the book ends; kept in memory for the 20 scenes planned most recently). A later beat
+  that finds them changed (someone new named in the scene so far, a new reading by the memory) writes a new one. Not
+  Continue, which has no plan step (it carries on a paragraph or two from the page, with its own small memory core), nor
+  Variants or the AI edits.
+- **AI calls and size per scene.** No new call. The plan's call reads more and writes more. Measured with the fake provider
+  on the test book (`--story book`, 30 plans from scene 18 to the end, the memory model reading 1,000,000 tokens): each
+  plan read about 2,200 tokens before and about 66,000 with the brief (the book so far, 30,000 to 61,000 words, is most
+  of it); the writer's own prompt came down by about 8% (10,700 tokens a draft against 11,600; the fake planner's brief
+  is short, a real one is about the size of what goes short); the number of calls was the same. A memory model that reads
+  less than 200,000 tokens never gets the book: its plan grows by the record only (a few thousand tokens on the 16,000
+  guess, at most 40,000). On DeepSeek's prices ($0.28 a million tokens read, $0.028 when read from its cache, $0.42
+  written), a plan with a brief reads at most 150,000 tokens of book: at the end of a 60,000-word book (about 82,000
+  tokens) the first plan after an early edit costs about $0.025 and then about half a cent a scene with the book read
+  from the cache (the record and the newest scene are new each time); at the ceiling, about $0.045 and then about $0.01,
+  however long the book (a chapter dropping out costs one miss); under $0.001 for the brief written; without the book
+  about $0.002 to $0.005. Before: about $0.001. Every plan that writes a brief sends the book: each draft of Generate or
+  Add below, each scene of Write the whole chapter (so a chapter's run grows with its scenes, not their square), the
+  first beat of a scene, and a call tried again after a provider's error (the retry sends it all again; tested in
+  `plan/brief.test.ts`). DeepSeek says what came from its cache (`prompt_cache_hit_tokens`, `client.ts` `cachedOf`), kept
+  with each call's record, so Settings › Usage and cost shows it. A draft starts later by the time the brief takes to
+  write (1,000 to 2,000 tokens).
+- **On the screen** (both looks): Settings › Models, "Continuity brief", "Write a continuity brief before each scene"
+  (`settings.continuityBrief`, on by default; `features/brief/BriefSettings.tsx`, right after the scene contract), with
+  one line on cost ("usually under a cent a scene on DeepSeek"), and when Plan before writing is off, that it needs it.
+  What the AI saw shows the brief as a part like any other, and the planner's call as a memory record titled "Planning
+  the scene and writing its continuity brief". The Context tab shows the last brief written for the scene, where it
+  would go, with the parts that go short beside it (`ai/draftFlow.ts` `previewBriefing`: from its newest draft that had
+  one, `db/generations.ts` `lastSentBlock`, read back by `readBriefText`, only where there is room), its note saying "The
+  memory model writes a new one just before each draft. This is the last one it wrote." and the shortened parts' "Short,
+  as the continuity brief says what of it matters for this scene." (`contextLogic.ts` `blockStateNote`). No new screen;
+  the sample world has no drafts, so Classic's screenshots are unchanged.
+- **The switch and the tests.** Off: no brief asked for, the plan's call and the briefing exactly as before (fix 13's
+  contract works as it did). `AIWRITE_BRIEF=off` always turns it off (`briefWanted`); app tests set it
+  (tests/e2e/helpers.ts) and ask for it with `AIWRITE_BRIEF=on` (`tests/e2e/brief.spec.ts`). The fake provider writes a
+  brief from what it was given, with a line citing a scene it never was (`tests/fake-provider/plan.mjs` `briefOf`). The
+  trap harness goes through it with the app's own code (on unless `AIWRITE_BRIEF=off`): passages.md says under each
+  passage (and each planned chain step) "Continuity brief: 9 lines (about 310 tokens); the plan read 66,000 tokens, the
+  book so far whole." (`score.ts` `briefNote`, `briefLine`); a fake run of the book gives the memory model 1,000,000
+  tokens to read (`FAKE_BOOK_READER`), so the book goes in as on DeepSeek, and a fake run's budget is 40 million tokens
+  in (`FAKE_BUDGET`: it costs nothing). A real run of the book with and without (`AIWRITE_BRIEF=off` on one) is what will
+  tell whether it pays off at length.
 
 ## Milestone 1 scope
 

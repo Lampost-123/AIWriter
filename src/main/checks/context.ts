@@ -7,7 +7,9 @@
 // Each check needs its own part of it:
 //   facts      every entry the scene card lists or the text names, with its state (looks, injuries, what
 //              has happened to it: "died in the fire"), and the world's absolute rules
-//   knowledge  who knows what at this point, and who among those present doesn't
+//   knowledge  who knows what at this point, and who among those present doesn't: the who-knows-what ledger as the
+//              scene begins (long story memory fix 9), each knower with since when and how, and what anyone here
+//              believes that isn't true
 //   timeline   the scenes just before on the line: when and where each was, and who was there; the end of
 //              the scene before; this scene's own When and place
 //   voice      each speaking character's voice notes and sample lines (in their profile)
@@ -16,7 +18,7 @@
 
 import type Database from 'better-sqlite3'
 import type { CheckKind } from '@shared/contracts/checks'
-import type { ContextBlock, EntryState, FactState, ID, SceneCard, WritingPrefs } from '@shared/types'
+import type { BeliefState, ContextBlock, EntryState, FactState, ID, SceneCard, WritingPrefs } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
 import { effectiveStyle } from '@shared/style'
 import { genreLabel, genresOf } from '@shared/genres'
@@ -33,6 +35,7 @@ import { estimateTokens } from '../keeper/text'
 import { holdingLine, holdingsFirst, holdingsOf, itemHeads, namesOf, type Holding } from '../memory/items'
 import { isPerson, namesPerson } from '../ai/mustStay'
 import { lessonLine, lessonsBefore, type Lesson } from './lessons'
+import { learnedWords } from '@shared/knowWords'
 
 type DB = Database.Database
 
@@ -44,6 +47,8 @@ const MOST_FACTS = 40
 const MOST_FULL = 24
 /** The most lines about what people here gave away, lost or got. */
 export const MOST_OWNED = 12
+/** The most lines saying what someone here believes that isn't true (long story memory fix 9). */
+export const MOST_BELIEFS = 12
 /** The most findings from earlier scenes the author said are meant. */
 export const MOST_MEANT = 8
 /** Which check each kind of finding the author said is meant belongs to. */
@@ -218,6 +223,51 @@ export function factsThatMatter(
 }
 
 /**
+ * One fact as a check is told it (the who-knows-what ledger, long story memory fix 9): who here knows it, each with since
+ * when and how ("Tobin (since Book 1, Ch 2, Sc 3; heard it from Mara)"), and who here doesn't. Never "not known by"
+ * someone the fact is about, nor an animal, nor at all when who knows it doesn't rest on who was there or on Adam (B5).
+ */
+export function knowsLine(f: FactState, people: EntryState[], nameOf: (id: ID) => string | null): string {
+  const knows = people
+    .filter((p) => f.knownBy.includes(p.id))
+    .map((p) => {
+      const how = learnedWords(f.since?.[p.id], nameOf)
+      return how ? `${p.name} (${how})` : p.name
+    })
+  const not =
+    f.backed === false ? [] : people.filter((p) => !f.knownBy.includes(p.id) && isPerson(p) && !namesPerson(f.fact, p)).map((p) => p.name)
+  return `${clean(f.fact)} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
+}
+
+/**
+ * What these people believe that isn't true as the scene begins (fix 9), the most lately come to first, at most `most`:
+ * "Tobin wrongly believes: The letter is genuine (since Book 1, Ch 1, Sc 2). It isn't true."
+ */
+export function beliefLines(beliefs: BeliefState[] | undefined, people: EntryState[], nameOf: (id: ID) => string | null, most = MOST_BELIEFS): string[] {
+  const byId = new Map(people.filter(isPerson).map((p) => [p.id, p]))
+  return (beliefs ?? [])
+    .flatMap((b) =>
+      b.believedBy.flatMap((id) => {
+        const p = byId.get(id)
+        const fact = clean(b.fact).replace(/[.]+$/, '')
+        return p && fact ? [{ p, fact, since: b.since[id] ?? null, at: b.since[id]?.at ?? b.at }] : []
+      })
+    )
+    .sort((a, b) => b.at - a.at)
+    .slice(0, most)
+    .map(({ p, fact, since }) => {
+      const how = learnedWords(since, nameOf)
+      return `${p.name} wrongly believes: ${fact}${how ? ` (${how})` : ''}. It isn't true.`
+    })
+}
+
+/** Names of anyone the memory knows at the scene, for who told whom. */
+export const namesAt = (memory: Pick<SceneMemory, 'entries' | 'elsewhere'>): ((id: ID) => string | null) => {
+  const names = new Map<ID, string>([...memory.elsewhere.map((x) => [x.entry.id, x.entry.name] as const), ...memory.entries.map((e) => [e.id, e.name] as const)])
+  return (id) => names.get(id) ?? null
+}
+
+/**
  * What these characters gave away, lost or got however long ago, as of the scene's start (memory/items.ts), the items
  * `text` names first.
  */
@@ -343,20 +393,20 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
       MOST_FACTS,
       headsAt(ctx.memory)
     )
-    const lines = facts.map((f) => {
-      const knows = people.filter((c) => f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
-      // Never "not known by" someone the fact is about, nor an animal (as repair/prompts.ts codexLines), nor when who knows
-      // it doesn't rest on who was there or on Adam (B5).
-      const not =
-        f.backed === false
-          ? []
-          : people.filter((c) => !f.knownBy.includes(c.entry.id) && isPerson(c.entry) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
-      return `- ${clean(f.fact)} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
-    })
+    // Each knower with since when and how, as the who-knows-what ledger has it (fix 9).
+    const nameOf = namesAt(ctx.memory)
+    const lines = facts.map((f) => `- ${knowsLine(f, people.map((c) => c.entry), nameOf)}`)
+    // What those here believe that isn't true: acting on the truth of it before the story shows them learning it is a slip.
+    const wrong = beliefLines(ctx.memory.beliefs, people.map((c) => c.entry), nameOf)
     out.push({
       id: 'knowledge',
       title: 'Who knows what at the start of this scene',
-      text: lines.length ? lines.join('\n') : 'The memory lists nothing that these characters know.',
+      text: [
+        lines.length ? lines.join('\n') : 'The memory lists nothing that these characters know.',
+        wrong.length ? `What some of them believe that isn't true:\n${wrong.map((l) => `- ${l}`).join('\n')}` : ''
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
       entryIds: []
     })
   }

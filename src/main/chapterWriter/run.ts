@@ -659,25 +659,33 @@ function nameOf(db: DB): (id: ID) => string {
 
 const SEVERITY_WORDS: Record<string, string> = { 'must-fix': 'must fix', warning: 'worth a look', minor: 'minor' }
 
-/** A scene's open issues from the checks (and the memory keeper's clashes), as findings. */
+/**
+ * A scene's open issues from the checks (and the memory keeper's clashes), as findings. Of what a check through the
+ * scene's contract found (long story memory fix 13), only what the words go against that a second opinion agreed with is
+ * put right without asking; what isn't shown yet, or wasn't confirmed, stays in the Issues tab for Adam.
+ */
 export function issueFindings(db: DB, sceneId: ID): Omit<Finding, 'id' | 'status'>[] {
+  const payloadOf = (r: Record<string, unknown>): IssuePayload => {
+    try {
+      return typeof r.payload_json === 'string' && r.payload_json ? (JSON.parse(r.payload_json) as IssuePayload) : {}
+    } catch {
+      return {}
+    }
+  }
+  const forReview = (r: Record<string, unknown>, p: IssuePayload): boolean => !p.contract || (!!p.contract.confirmed && !p.contract.missing && !!String(r.quote ?? '').trim())
   return cdb
     .sceneIssueRows(db, sceneId)
-    .filter((r) => r.status === 'open' && !isLiveKind(r.kind))
+    .filter((r) => r.status === 'open' && !isLiveKind(r.kind) && forReview(r, payloadOf(r)))
     .map((r) => {
-      let p: IssuePayload = {}
-      try {
-        p = typeof r.payload_json === 'string' && r.payload_json ? (JSON.parse(r.payload_json) as IssuePayload) : {}
-      } catch {
-        p = {}
-      }
+      const p = payloadOf(r)
       const fix = typeof p.fix === 'string' && p.fix.trim() ? `rewrite those words as “${p.fix.trim()}”` : ''
       const advice = [fix, typeof p.advice === 'string' ? p.advice.trim() : ''].filter(Boolean).join('; ')
       return {
         sceneId,
         from: 'check' as const,
         issueId: r.id as ID,
-        kind: `${SEVERITY_WORDS[r.severity as string] ?? 'worth a look'} · ${p.check ?? (r.kind as string)}`,
+        // Something the scene's contract asked for (fix 13): the review is told so.
+        kind: `${SEVERITY_WORDS[r.severity as string] ?? 'worth a look'} · ${p.contract ? 'scene contract' : (p.check ?? (r.kind as string))}`,
         what: (r.message as string) ?? '',
         quote: (r.quote as string) ?? '',
         advice

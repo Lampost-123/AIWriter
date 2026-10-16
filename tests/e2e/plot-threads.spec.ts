@@ -96,3 +96,69 @@ test('the memory opens a plot thread from the text and resolves it from the payo
     await fake.close()
   }
 })
+
+// The promises ledger (long story memory fix 10): a thread still open past the chapter it was to be paid off by shows
+// in Worth a look, where Pay off later gives it a later chapter (with Undo) and Mark as dropped drops it; the board shows
+// it in Dropped with Pick up again, says it is overdue, and the ledger's "Pay off by" sets its chapter. No AI is used.
+test('the promises ledger: an overdue thread in Worth a look, Pay off later and Mark as dropped, and Pay off by on the ledger', async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Marsh')
+  const [story] = await invoke(win, 'listStories')
+  const outline = await invoke(win, 'getOutline', story.id)
+  const first = outline.chapters[0]
+  const ferry = await invoke(win, 'createChapter', story.id, { title: 'The Ferry' })
+  const tower = await invoke(win, 'createChapter', story.id, { title: 'The Tower' })
+  const s1 = outline.scenes[0].id
+  const s2 = (await invoke(win, 'createScene', ferry.id, { title: 'Crossing' })).id
+  const s3 = (await invoke(win, 'createScene', tower.id, { title: 'The stair' })).id
+  await invoke(win, 'saveSceneText', s1, null, 'Nobody knew who rang the drowned bell.')
+  await invoke(win, 'saveSceneText', s2, null, 'The ferry crossed in fog.')
+  await invoke(win, 'saveSceneText', s3, null, 'Wet footprints went up the tower stair.')
+  const bell = await invoke(win, 'createEntry', 'thread', { name: 'The drowned bell', fields: { promise: 'Who rang it?' } })
+  await invoke(win, 'createChange', { kind: 'thread', payload: { status: 'open', note: 'the bell rang' }, entryId: bell.id, anchor: 'scene', storyId: story.id, sceneId: s1 })
+  await invoke(win, 'planThread', bell.id, { payBy: first.id })
+  const due = async () => (await threadsBoard(win, story.id)).find((t) => t.id === bell.id)?.due ?? null
+
+  // Worth a look: due by the end of Ch 1, and the story is written into Ch 3.
+  await binder(win).getByRole('button', { name: 'What changed' }).click()
+  const waiting = () => main(win).getByRole('group', { name: 'Plot threads left waiting' })
+  await expect(waiting()).toContainText('The drowned bell: Still open, and due by the end of Ch 1')
+  await expect(waiting()).toContainText('Last touched in')
+  await shot(win, 'promise-worth-a-look')
+
+  // Pay off later: Ch 3, so nothing is overdue; Undo puts Ch 1 back.
+  await waiting().getByRole('button', { name: /^Pay off later: / }).click()
+  await win.getByRole('menuitem', { name: 'Ch 3 · The Tower' }).click()
+  await expect(win.getByText('“The drowned bell” is to be paid off by the end of Ch 3.')).toBeVisible()
+  await expect(waiting()).toHaveCount(0)
+  await expect.poll(async () => (await due())?.chapterId).toBe(tower.id)
+  await win.getByRole('button', { name: 'Undo', exact: true }).last().click()
+  await expect.poll(async () => (await due())?.chapterId).toBe(first.id)
+  await expect(waiting()).toBeVisible()
+
+  // Mark as dropped: off the list; on the board in Dropped, where Pick up again opens it again.
+  await waiting().getByRole('button', { name: /^Mark as dropped: / }).click()
+  await expect(win.getByText('Marked “The drowned bell” as dropped. The AI won’t bring it up again.')).toBeVisible()
+  await expect(waiting()).toHaveCount(0)
+  await binder(win).getByRole('button', { name: 'Plot threads board', exact: true }).click()
+  const column = (name: string) => main(win).getByRole('region', { name, exact: true })
+  await expect(column('Dropped').getByRole('listitem').filter({ hasText: 'The drowned bell' })).toBeVisible()
+  await shot(win, 'board-dropped')
+  await column('Dropped').getByRole('button', { name: 'Pick up again' }).click()
+  const open = column('Open').getByRole('listitem').filter({ hasText: 'The drowned bell' })
+  await expect(open).toBeVisible()
+  await expect(open.getByTestId('thread-due')).toHaveText('Overdue: due by the end of Ch 1')
+
+  // The ledger: where it stands, where it was set up, and Pay off by.
+  await main(win).getByRole('radio', { name: 'Ledger' }).click()
+  const row = main(win).getByTestId('threads-ledger').getByRole('row').filter({ hasText: 'The drowned bell' })
+  await expect(row).toContainText('Open')
+  await expect(row).toContainText('Overdue')
+  await expect(row).toContainText('Not since it was set up')
+  await row.getByRole('combobox', { name: 'Pay off “The drowned bell” by' }).click()
+  await win.getByRole('option', { name: 'Ch 3 · The Tower' }).click()
+  await expect(win.getByText('“The drowned bell” is to be paid off by the end of Ch 3.')).toBeVisible()
+  await expect.poll(async () => (await due())?.state).toBe('now')
+  await expect(row).not.toContainText('Overdue')
+  await shot(win, 'ledger-pay-off-by')
+})

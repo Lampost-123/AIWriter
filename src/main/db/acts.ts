@@ -3,6 +3,7 @@ import type { Act, DeletedItem, ID, SceneCard } from '@shared/types'
 import type { ChapterPlace, KeptItem } from '@shared/contracts/outline'
 import { emptySceneCard } from '@shared/defaults'
 import { CHAPTER_CARD_PREFIX, follows, withMark } from '@shared/chapterCard'
+import { clearGoneChapters } from './threadPlans'
 import { newId, now, UserError } from '../util'
 
 // All SQL for acts (milestone 4: acts in the binder and the outline helper). An act gathers chapters
@@ -514,6 +515,8 @@ export function takeBackKept(
         db.prepare('DELETE FROM meta WHERE key = ?').run(`${CHAPTER_CARD_PREFIX}${id}`)
       }
     }
+    // A plot thread's pay-off chapter that went for good leaves its plan (long story memory fix 10).
+    clearGoneChapters(db)
     for (const id of of('act')) {
       const r = db.prepare('SELECT story_id, deleted_at, created_at, updated_at FROM acts WHERE id = ?').get(id) as Row | undefined
       if (!r || r.deleted_at) continue

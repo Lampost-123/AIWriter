@@ -8,6 +8,7 @@ import {
   afterBlock,
   sceneHead,
   beatDirection,
+  beatFocus,
   beatInstruction,
   beatWords,
   cardBeats,
@@ -229,5 +230,13 @@ describe('the beats and their length', () => {
     expect(beatDirection('', 'Make Tobin stall')).toBe('For this beat: Make Tobin stall')
     expect(beatDirection('Keep it tense', 'Make Tobin stall')).toBe('Keep it tense. For this beat: Make Tobin stall')
     expect(beatDirection('Keep it tense!', 'Slower')).toBe('Keep it tense! For this beat: Slower')
+  })
+
+  it('a steered beat’s scene contract asks for the beat with the note (long story memory fix 13’s review)', () => {
+    expect(beatFocus('Tobin tells her the letter is forged.', '')).toBe('Tobin tells her the letter is forged.')
+    expect(beatFocus('Tobin tells her the letter is forged.', 'He only hints at it.')).toBe(
+      'Tobin tells her the letter is forged (the author’s note for it: He only hints at it)'
+    )
+    expect(beatFocus('', 'Slower')).toBe('')
   })
 })

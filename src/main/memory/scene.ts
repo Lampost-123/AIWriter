@@ -23,9 +23,14 @@ import type { ExistsAt, Line, MemoryData, SceneMemory, StoryNode, StorySoFar, Su
 import { summaryKey } from './types'
 import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, storyOrder, storyOfScene } from './line'
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
+import { ledgerOf, type Ledger } from './ledger'
 import * as mem from '../db/memory'
 import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
 import { threadTouches } from './threadQuiet'
+import { promiseLedger, threadWarnings, writtenUpTo, type ThreadWarning } from './promises'
+import { threadPlans } from '../db/threadPlans'
+import { storedSnapshots } from '../db/snapshots'
+import { sceneCards } from '../db/worldViews'
 import { DUE_SUMMARY_SCENES, MIN_SUMMARY_WORDS, summaryDue } from '../keeper/sceneChange'
 import { fieldValue, guessFields } from '../keeper/facts'
 import { lastWords } from '../keeper/text'
@@ -110,11 +115,22 @@ export function writerData(db: DB, data: MemoryData): MemoryData {
   }
 }
 
+/** What is true as a scene begins (sceneStart): the world read, the line, and the state there. */
+export interface SceneStart {
+  shape: WorldShape
+  story: StoryNode
+  loaded: MemoryData
+  data: MemoryData
+  changes: ChangeIndex
+  line: Line
+  state: MemoryStateAll
+}
+
 /**
- * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
- * briefing and the "must stay true" list.
+ * What is true as a scene begins, as `sceneMemory` works it out, without the story so far, the threads or the scenes
+ * before (the rule-based checks, long story memory fix 8, need only this). Throws (plain words) when the scene is gone.
  */
-export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
+export function sceneStart(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneStart {
   const shape = loadShape(db)
   const story = storyOfScene(shape, sceneId)
   if (!story) throw new UserError('That scene no longer exists.')
@@ -140,7 +156,15 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
       } else state.entries.set(id, { ...e, guesses: left.length ? left : undefined })
     }
   }
+  return { shape, story, loaded, data, changes, line, state }
+}
 
+/**
+ * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
+ * briefing and the "must stay true" list.
+ */
+export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
+  const { shape, story, loaded, data, changes, line, state } = sceneStart(db, sceneId, opts)
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
   const previous = previousScene(db, shape, story.id, line)
   const earlier = opts.forWriter && previous ? earlierScenes(db, shape, line, previous) : []
@@ -159,37 +183,116 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
     elsewhere: elsewhere(shape, line, data, state),
     relationships: state.relationships,
     facts: state.facts,
-    threads: withQuiet(db, shape, line, changes, state.threads),
-    storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
+    beliefs: state.beliefs,
+    threads: withLedger(db, shape, line, changes, state.threads, story.id, sceneId),
+    storySoFar: opts.forWriter ? markUpdating(db, withRecords(db, sf, summaries), previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
     bringAbout: changes.byScene.get(sceneId) ?? []
   }
 }
 
 /**
- * Each thread with how long it has been quiet on this scene's line (World Memory Overhaul B4): the scenes since a thread
- * change or words its facts rest on last touched it. Never stops the scene's memory: on a failure the threads go as they
- * are.
+ * The who-knows-what ledger as this scene begins (long story memory fix 9): what each character knows here, since when and
+ * how, and what they believe that isn't true; `couldKnow(character, fact)` is then one look-up. As a draft is given it
+ * (`forWriter`: facts whose words were edited and not yet confirmed left out), or as the memory keeper reads it.
  */
-function withQuiet(db: DB, shape: WorldShape, line: Line, changes: ChangeIndex, threads: ThreadState[]): ThreadState[] {
+export function ledgerForScene(db: DB, sceneId: ID, opts: { forWriter?: boolean } = { forWriter: true }): Ledger {
+  return ledgerOf(sceneMemory(db, sceneId, opts))
+}
+
+/** The plot threads each scene's card plans to pay off (its "Pays off"), for the scenes that plan any. */
+function cardPayoffs(db: DB): Map<ID, ID[]> {
+  const out = new Map<ID, ID[]>()
+  for (const [id, c] of sceneCards(db)) if (c.paysOffIds.length) out.set(id, c.paysOffIds)
+  return out
+}
+
+/**
+ * Each thread with how long it has been quiet on this scene's line (World Memory Overhaul B4): the scenes since a thread
+ * change or words its facts rest on last touched it; and the promises ledger (long story memory fix 10,
+ * memory/promises.ts): where it stands, where it was set up, the last scene that moved it on, and when it is due as this
+ * scene is written. Never stops the scene's memory: on a failure the threads go as they are.
+ */
+function withLedger(db: DB, shape: WorldShape, line: Line, changes: ChangeIndex, threads: ThreadState[], storyId: ID, sceneId: ID): ThreadState[] {
   if (!threads.length) return threads
   try {
     const ids = threads.map((t) => t.entryId)
     const touches = threadTouches(line, changes, ids, entryLinkScenes(db, ids))
+    const rows = promiseLedger({ storyId, shape, line, threads, touches, plans: threadPlans(db), paysOff: cardPayoffs(db), now: { sceneId } })
     const label = labeler(shape)
     return threads.map((t) => {
       const at = touches.get(t.entryId)
-      if (!at) return t
+      const row = rows.get(t.entryId)
       return {
         ...t,
-        quiet: at.quiet,
-        ...(at.storyId ? { lastStoryId: at.storyId } : {}),
-        lastWhere: at.storyId ? label({ storyId: at.storyId, sceneId: at.sceneId }) : ''
+        ...(at
+          ? { quiet: at.quiet, ...(at.storyId ? { lastStoryId: at.storyId } : {}), lastWhere: at.storyId ? label({ storyId: at.storyId, sceneId: at.sceneId }) : '' }
+          : {}),
+        ...(row
+          ? {
+              standing: row.standing,
+              ...(row.setUpSceneId ? { setUpSceneId: row.setUpSceneId } : {}),
+              ...(row.advanced
+                ? { advancedSceneId: row.advanced.sceneId, advancedWhere: label({ storyId: row.advanced.storyId, sceneId: row.advanced.sceneId }) }
+                : {}),
+              ...(row.due ? { due: row.due } : {})
+            }
+          : {})
       }
     })
   } catch (e) {
     console.warn('Could not work out how long the plot threads have been quiet', e)
     return threads
   }
+}
+
+/**
+ * One plot thread worth a look (overdueThreads), with its name, and where it was last touched (`touch`, for an overdue
+ * one too) in plain words.
+ */
+export interface OverdueThread extends ThreadWarning {
+  name: string
+  /** Where it was last touched ("Book 1, Ch 2, Sc 3"); '' for a story's start or never. */
+  lastWhere: string
+}
+
+/**
+ * The plot threads worth a look in a story (the promises ledger, long story memory fix 10): still open past the chapter
+ * they were due by, or untouched for a long stretch (memory/promises.ts threadWarnings: dropped threads and what Adam
+ * said Keep to are left out). As a scene begins (`asOfSceneId`: what counts for drafting it, told against its chapter),
+ * or as the story stands now (none: told against its latest scene with words). What the story says is as of that point
+ * (only scenes with words the line reaches count, so writing later never changes an earlier point); Adam's plans (Pay
+ * off by, dropped, what he kept) and the scene cards' planned pay-offs are read as they stand now: they are his current
+ * plan, not facts of the story. For Worth a look (the rule-based checks of fix 8 leave overdue threads to it, so nothing
+ * is asked twice: checks/rules.ts).
+ */
+export function overdueThreads(db: DB, storyId: ID, asOfSceneId?: ID | null, read?: { shape: WorldShape; data: MemoryData }): OverdueThread[] {
+  const shape = read?.shape ?? loadShape(db)
+  if (!shape.stories.some((s) => s.id === storyId)) return []
+  if (asOfSceneId && storyOfScene(shape, asOfSceneId)?.id !== storyId) return []
+  const data = read?.data ?? loadMemoryData(db)
+  const changes = indexChanges(data.changes)
+  const line = buildLine(shape, asOfSceneId ? { storyId, before: asOfSceneId } : { storyId, through: 'end' })
+  const state = stateAt(data, shape, line, changes)
+  const threads = state.threads.filter((t) => t.status === 'open' && !t.planned)
+  if (!threads.length) return []
+  const cards = sceneCards(db)
+  const written = new Set([...cards].filter(([, c]) => c.words > 0).map(([id]) => id))
+  const ids = threads.map((t) => t.entryId)
+  const touches = threadTouches(line, changes, ids, entryLinkScenes(db, ids), written)
+  const plans = threadPlans(db)
+  const paysOff = new Map([...cards].filter(([, c]) => c.paysOffIds.length).map(([id, c]) => [id, c.paysOffIds] as const))
+  const rows = promiseLedger({ storyId, shape, line, threads, touches, plans, paysOff, now: asOfSceneId ? { sceneId: asOfSceneId } : { written } })
+  const label = labeler(shape)
+  return threadWarnings({ storyId, threads, rows, touches, plans, written: writtenUpTo(line, storyId, written) }).map((w) => {
+    const e = state.entries.get(w.threadId)
+    const at = touches.get(w.threadId)
+    return {
+      ...w,
+      ...(at ? { touch: at } : {}),
+      name: e?.name.trim() || 'Unnamed plot thread',
+      lastWhere: at?.storyId ? label({ storyId: at.storyId, sceneId: at.sceneId }) : ''
+    }
+  })
 }
 
 /** The most recent scenes whose summary is being brought up to date that also get a short excerpt of how they now end. */
@@ -225,6 +328,34 @@ function markUpdating(db: DB, s: StorySoFar, previousId: ID | null, entries: Ent
     excerpts++
   }
   return { ...s, scenes }
+}
+
+/**
+ * For the writer (long story memory fix 15): each earlier chapter of this story with its end-of-chapter snapshot as the
+ * memory keeper last worked it out (db/snapshots.ts, one query; nothing is worked out here, so a draft never waits for it
+ * and an older chapter's line reads the same until that chapter changes), and whether its summary is being brought up to
+ * date (the memory's own, made from sources that have changed since: keeper/summaries.ts markOutOfDate).
+ */
+function withRecords(db: DB, s: StorySoFar, summaries: SummaryIndex): StorySoFar {
+  if (!s.chapters.length) return s
+  let kept: ReturnType<typeof storedSnapshots>
+  try {
+    kept = storedSnapshots(
+      db,
+      s.chapters.map((c) => c.chapterId)
+    )
+  } catch (e) {
+    console.warn('Could not read the end-of-chapter snapshots', e)
+    kept = new Map()
+  }
+  return {
+    ...s,
+    chapters: s.chapters.map((c) => {
+      const row = summaries.get(summaryKey('chapter', c.chapterId))
+      const record = kept.get(c.chapterId)?.snapshot
+      return { ...c, ...(row && row.origin !== 'adam' && row.stale ? { updating: true } : {}), ...(record ? { record } : {}) }
+    })
+  }
 }
 
 /**

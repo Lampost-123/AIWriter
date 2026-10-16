@@ -57,7 +57,7 @@ export interface Bible {
 
 const byName = (a: { name: string }, b: { name: string }): number => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 
-const STATUS: Record<string, string> = { open: 'Open', resolved: 'Resolved', planned: 'Planned' }
+const STATUS: Record<string, string> = { open: 'Open', resolved: 'Resolved', planned: 'Planned', dropped: 'Dropped' }
 
 function fieldsOf(kind: EntryKind, fields: Record<string, string>): { label: string; value: string }[] {
   const out: { label: string; value: string }[] = []

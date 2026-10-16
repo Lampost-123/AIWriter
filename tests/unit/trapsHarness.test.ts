@@ -1,6 +1,7 @@
 // The trap harness's helpers (tests/traps): the held-out prose measures (slop-score's "not X, but Y" contrasts,
 // fragments, repeats, Holodeck's echo and loop detectors), which saved worlds a chain run may start from, and the
-// provider guard. Invented lines only, no model.
+// provider guard, and what passages.md says of each draft's continuity brief (long story memory fix 14). Invented lines
+// only, no model.
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,6 +11,7 @@ import { cutRepeat, echoesInScene, loopAt, looping, repeatedParas } from '../tra
 import { errorMessage, guardFetch, rateLimitWait, stopReason } from '../traps/guard'
 import { heldOut, isFragment, proseMetrics, proseRows, summariseProse } from '../traps/prose'
 import { contrastHits } from '../traps/slopScore'
+import { briefLine, briefNote } from '../traps/score'
 import { storyHash, storyHashes, WORLD_CODE, worldCodeFits } from '../traps/worldCode.mjs'
 
 describe('held-out prose measures', () => {
@@ -162,3 +164,20 @@ describe('the provider guard', () => {
   })
 })
 
+describe('the continuity brief in passages.md (long story memory fix 14)', () => {
+  const blocks = (text: string, dropped = false) => JSON.stringify([{ id: 'pov', text: 'x' }, { id: 'continuity-brief', text, tokens: 120, dropped }])
+  const brief = ['Written just before this draft.', 'What matters for this scene:\n- The case.', 'What must not be contradicted:\n- Her arm (since Ch 1, Sc 2).'].join('\n\n')
+  it('counts its lines and tokens, and what the plan read, the book so far too', () => {
+    const plan = { budget: JSON.stringify({ used: 96_000 }), messages: '[{"content":"## The book so far, word for word (Ch 1, Sc 1 to Ch 9, Sc 3)"}]' }
+    const note = briefNote(blocks(brief), plan)!
+    expect(note).toEqual({ lines: 2, tokens: 120, planTokens: 96_000, book: true })
+    expect(briefLine(note)).toBe('Continuity brief: 2 lines (about 120 tokens); the plan read 96,000 tokens, the book so far whole.')
+  })
+  it('a plan with no brief (a checkout before fix 14, or one left out), and no plan at all', () => {
+    const plan = { budget: JSON.stringify({ used: 4_000 }), messages: '[]' }
+    expect(briefNote(blocks(brief, true), plan)).toEqual({ lines: 0, tokens: 0, planTokens: 4_000, book: false })
+    expect(briefLine(briefNote(null, plan)!)).toBe('No continuity brief; the plan read 4,000 tokens.')
+    expect(briefNote(blocks(brief), null)).toBeNull()
+    expect(briefNote('not json', { budget: null, messages: null })).toEqual({ lines: 0, tokens: 0, planTokens: null, book: false })
+  })
+})

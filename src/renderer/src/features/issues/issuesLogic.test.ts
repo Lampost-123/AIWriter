@@ -1,12 +1,51 @@
 import { describe, expect, it } from 'vitest'
 import type { Issue } from '@shared/contracts/checks'
-import { disagreesWith, fieldWords, fixAgainNote, fixDirection, foundWords, memoryFixWords, occurrencesIn, openCount, pickOccurrence, reportHeadline, runFor, sentenceAround, splitIssues, usableFix } from './issuesLogic'
+import type { ContractCheck } from '@shared/contracts/checks'
+import {
+  contractNote,
+  contractOk,
+  disagreesWith,
+  fieldWords,
+  fixAgainNote,
+  fixDirection,
+  foundWords,
+  memoryFixWords,
+  occurrencesIn,
+  openCount,
+  pickOccurrence,
+  reportHeadline,
+  runFor,
+  sentenceAround,
+  splitIssues,
+  usableFix
+} from './issuesLogic'
 
 describe('the check report’s line', () => {
   it('says what the checks found, and never that all is well (the page may have words underlined)', () => {
     const items = new Array(6).fill(null) as never[]
     expect(reportHeadline({ after: 'draft', items, found: 0 })).toBe('Checked after the latest draft · 6 checks · no issues')
     expect(reportHeadline({ after: 'done', items, found: 2 })).toBe('Checked when marked done · 6 checks · 2 issues')
+  })
+
+  it('the scene’s contract (fix 13): how many items were kept, what went against it and what isn’t shown yet', () => {
+    const contract: ContractCheck = {
+      at: '2026-10-16T10:00:00.000Z',
+      asks: 'scene',
+      items: [
+        { part: 'start', text: 'Mara holds the case', result: 'kept' },
+        { part: 'change', text: 'Tobin tells her', result: 'not yet' },
+        { part: 'change', text: 'They reach the gate', result: 'kept' },
+        { part: 'keep', text: 'Ash is dead', result: 'broken', quote: 'Ash said' },
+        { part: 'keep', text: 'The door: barred', result: 'untouched' }
+      ]
+    }
+    expect(contractNote(contract)).toBe('2 of 5 kept · 1 goes against it · 1 not shown yet')
+    expect(contractOk(contract)).toBe(false)
+    expect(contractOk({ items: contract.items.filter((i) => i.result === 'kept' || i.result === 'untouched') })).toBe(true)
+    // Checked only against the contract so far (as the draft landed): the line says so.
+    expect(reportHeadline({ after: 'draft', items: [], found: 0, contract })).toBe('Checked against the scene contract · 2 of 5 kept · 1 goes against it · 1 not shown yet')
+    // With the checks too, their line as before.
+    expect(reportHeadline({ after: 'draft', items: [null, null] as never[], found: 1, contract })).toBe('Checked after the latest draft · 2 checks · 1 issue')
   })
 })
 

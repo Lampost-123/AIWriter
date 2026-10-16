@@ -107,8 +107,15 @@ Characters change. Wren may learn a secret in chapter three, and the AI shouldn'
 3. Move the slider to a scene. The page shows what was true at that point: what has happened so far, what the
    character knows, and what has changed.
 
+Under **What they know**, each thing a character knows says since when ("since Book 1, Ch 2, Sc 3") and how they
+learned it, if the story says: they saw it, heard it from someone, overheard it, read it or guessed it. **Believes
+wrongly** lists what they believe that isn't true, such as a forged letter they take for real. In the New look, a
+character's card shows the same as of the scene you're in, under **What they know**.
+
 Each entry also shows where it **First appears**, which scenes it **Appears in**, what it **Knows at the start**, and
-how it **Changes over time**.
+how it **Changes over time**. To give a character a mistaken belief from the start, type it under **Knows at the
+start** and pick **as something they believe wrongly**. To take one away, remove it there or under **Changes over
+time**; **Undo** brings it back.
 
 ## Rules the AI must never break
 
@@ -131,12 +138,20 @@ Every entry has **Private notes (never sent to the AI)**, for ideas you're not r
 - The **Timeline** shows scenes and events in the order they happen in your world. Dates come from the **When** box
   on each scene card. Show lanes for **Characters** or **Plot threads**, by day or by chapter. It warns you if a character is in two places
   at once.
-- The **Plot threads board** (in the **Plan** room) shows every thread as **Open**, **Resolved** or **Planned**.
+- The **Plot threads board** (in the **Plan** room) shows every thread as **Open**, **Resolved** or **Planned**, and
+  **Dropped** once you decide the story won't pay one off. Each thread says where it was set up and the last scene that
+  moved it on. Choose a chapter in **Pay off by** and the AI is told when it is due: "Pay this off by the end of this
+  chapter" while you write that chapter. **Mark as dropped** stops the AI bringing a thread up, and **Pick up again**
+  opens it again. In the panels, the same is in the board's **Ledger**.
 
 ## Names in your scenes
 
 Names from your world are underlined in the page. Rest the pointer on one to see a short card about it.
 Ctrl+click a name to open its entry beside the page, without leaving the scene.
+
+What the memory has noticed a scene calls someone, such as "the Captain" or "her brother", is underlined too, and
+the card says so. A name you expect to see underlined that isn't may be misspelt, or not yet one of the character's
+**Aliases**.
 
 The **Cast** tab in the scene panel lists who's in the scene: the **Point of view** character, who's **Also in the
 scene**, and who's **Named in the text**.

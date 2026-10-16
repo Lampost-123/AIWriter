@@ -11,13 +11,13 @@ import type Database from 'better-sqlite3'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
 import { appEvents } from './fakeElectron'
-import { Budget, DEFAULT_BUDGET } from './budget'
+import { Budget, DEFAULT_BUDGET, FAKE_BUDGET } from './budget'
 import { JUDGE_MARKER, judgeMessages, readJudgeProse, readJudgeReply, type ChatMessage, type JudgeAnswer, type RubricAsk } from './judge'
 import type { ProseRubric } from './prose'
 import { DEEPSEEK_BASE_URL, KEY_VARIABLE, pickFlash, PROVIDER_NAMES, type TrapProvider } from './models'
 import { guardFetch } from './guard'
 import type { Fix } from './page'
-import type { SampleResult, Usage } from './score'
+import { briefNote, type BriefNote, type SampleResult, type Usage } from './score'
 import type { Check } from './story'
 import type { StoryData, StoryScene } from './storyData'
 
@@ -87,6 +87,9 @@ export interface TrapsConfig {
 /** Where the search model's files are looked for when no --search-model is given: beside the reports, not committed. */
 const DEFAULT_SEARCH_MODEL = join('traps-results', 'search-model')
 
+/** How much a fake run of the book's memory model reads: DeepSeek's own (long story memory fix 14 reads the book whole). */
+export const FAKE_BOOK_READER = 1_000_000
+
 const num = (v: string | undefined, fallback: number): number => {
   const n = Math.round(Number(v))
   return Number.isFinite(n) && n > 0 ? n : fallback
@@ -122,8 +125,8 @@ export function configFromEnv(env = process.env): TrapsConfig {
     fromWorld: env.TRAPS_FROM_WORLD?.trim() ? resolve(env.TRAPS_FROM_WORLD.trim()) : null,
     storyFrom: env.TRAPS_STORY_FROM?.trim() || null,
     probesVersion: env.TRAPS_PROBES_VERSION === '3' || env.TRAPS_STORY === 'v2' || env.TRAPS_STORY === 'book' ? 3 : 4,
-    maxIn: num(env.TRAPS_MAX_TOKENS_IN, DEFAULT_BUDGET.in),
-    maxOut: num(env.TRAPS_MAX_TOKENS_OUT, DEFAULT_BUDGET.out),
+    maxIn: num(env.TRAPS_MAX_TOKENS_IN, env.TRAPS_FAKE === '1' ? FAKE_BUDGET.in : DEFAULT_BUDGET.in),
+    maxOut: num(env.TRAPS_MAX_TOKENS_OUT, env.TRAPS_FAKE === '1' ? FAKE_BUDGET.out : DEFAULT_BUDGET.out),
     log: (line) => console.log(`[traps] ${line}`)
   }
 }
@@ -261,6 +264,24 @@ function standInRepair(body: string): Response {
   if (codex && sentences[1]) {
     claims.push({ quote: sentences[1], who: '', about: 'other', line: codex[1], verdict: 'slip', why: 'A stand-in question (fake run).', question: 'Is this as the story has it? (fake run)' })
   }
+  // The scene's contract (long story memory fix 13), when the words were written to one: what must change kept (the
+  // first) or not shown yet (the rest), everything else untouched.
+  const at = content.indexOf('## The scene’s contract (C ids)')
+  if (at >= 0) {
+    let changing = false
+    let first = true
+    const contract: Record<string, unknown>[] = []
+    for (const line of content.slice(content.indexOf('\n', at) + 1).split('\n## ')[0].split('\n')) {
+      if (/^Must (?:change|happen)/.test(line)) changing = true
+      else if (/^Must /.test(line)) changing = false
+      const m = /^- \[(C\d+)\] /.exec(line)
+      if (!m) continue
+      if (changing && first && sentences[0]) contract.push({ item: m[1], result: 'kept', quote: sentences[0] })
+      else contract.push({ item: m[1], result: changing ? 'not yet' : 'untouched', quote: '' })
+      if (changing) first = false
+    }
+    return sse(JSON.stringify({ claims, contract }), content.length)
+  }
   return sse(JSON.stringify({ claims }), content.length)
 }
 
@@ -320,7 +341,15 @@ export interface RepairModule {
       recordId: string
       paragraphs: { text: string; from: number; to: number }[]
       leadIn: string
-    }): Promise<{ repairId: string | null; fixes: RepairFixLike[]; questions: number; claims: number; slips: number }>
+    }): Promise<{
+      repairId: string | null
+      fixes: RepairFixLike[]
+      questions: number
+      claims: number
+      slips: number
+      /** How the words kept to the scene's contract (long story memory fix 13), in checkouts that have it. */
+      contract?: { items: number; kept: number; broken: number; notYet: number }
+    }>
     repairsApplied(repairId: string, applied: string[]): Promise<Record<string, string>> | Record<string, string>
   }
 }
@@ -504,6 +533,11 @@ export interface App {
   recordsSince(row: number): CallRecord[]
   /** A record's request and reply. */
   record(id: string): { messages: string; response: string } | null
+  /**
+   * The continuity brief a draft was written with (long story memory fix 14) and the plan's call that wrote it, from the
+   * records since `row`; null when there was no plan (a checkout before fix 14 plans with no brief: 0 lines).
+   */
+  briefOf(generationId: string | null, row: number): BriefNote | null
   /** A consistent copy of the world's database (every record, with what was sent and what came back), as evidence. */
   saveEvidence(file: string): Promise<void>
   close(): Promise<void>
@@ -675,12 +709,16 @@ export async function openApp(
       }
     }
     const writer = choose(cfg.writer ?? flash())
-    const memory = choose(cfg.memory ?? writer.modelId)
+    const chosen = choose(cfg.memory ?? writer.modelId)
+    // A fake run of the book: the memory model reads as much as DeepSeek's (1,000,000 tokens), so the plan before writing
+    // reads the book so far whole for its continuity brief (long story memory fix 14), as it would on DeepSeek.
+    const memory = cfg.fake && cfg.story === 'book' ? { ...chosen, contextLength: FAKE_BOOK_READER } : chosen
     const judge = choose(cfg.judge ?? memory.modelId)
     settings.updateSettings({ models: { writer, memory } })
     if (repairMod) switchOnRepair(settings, cfg.log)
     if (retrieval) settings.updateSettings({ findByMeaning: true } as never)
     cfg.log(`writer ${writer.modelId}, memory ${memory.modelId}, judge ${judge.modelId}; budget ${cfg.maxIn.toLocaleString('en-GB')} tokens in, ${cfg.maxOut.toLocaleString('en-GB')} out`)
+    if (memory !== chosen) cfg.log(`fake run of the book: the memory model reads up to ${FAKE_BOOK_READER.toLocaleString('en-GB')} tokens, so the plan reads the book so far whole`)
 
     // The app as it starts: drafting, and the memory keeper (which registers the catch-up before a draft).
     initAi()
@@ -949,6 +987,13 @@ export async function openApp(
       record: (id: string) => {
         const r = db.prepare('SELECT messages_json AS m, response AS r FROM generations WHERE id = ?').get(id) as { m: string; r: string } | undefined
         return r ? { messages: r.m, response: r.r } : null
+      },
+      briefOf: (generationId: string | null, row: number) => {
+        const writer = generationId ? (db.prepare('SELECT blocks_json AS b FROM generations WHERE id = ?').get(generationId) as { b: string } | undefined) : undefined
+        const plan = db
+          .prepare("SELECT budget_json AS u, messages_json AS m FROM generations WHERE rowid > ? AND instr(messages_json, '[AIWRITE-PLAN v') > 0 ORDER BY rowid DESC LIMIT 1")
+          .get(row) as { u: string; m: string } | undefined
+        return briefNote(writer?.b ?? null, plan ? { budget: plan.u, messages: plan.m } : null)
       },
       saveEvidence: async (file: string) => {
         await db.backup(file)

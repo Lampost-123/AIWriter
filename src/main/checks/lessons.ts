@@ -81,6 +81,9 @@ export function lessonsFrom(
     if (!LESSON_KINDS.includes(kind)) continue
     if (kind !== 'fact' && back > RECENT_SCENES) continue
     const p = cdb.payloadOf(r)
+    // Something a scene's contract said must change and the draft didn't show yet (fix 13) is about that draft's plan,
+    // never a fact for later scenes.
+    if (p.contract?.part === 'change') continue
     const text = String(r.message ?? '').trim()
     const entryIds = entriesOf(p)
     if (!text || !entryIds.length) continue

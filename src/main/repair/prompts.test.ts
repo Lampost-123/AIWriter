@@ -25,7 +25,17 @@ describe("check and repair's request, in an order a provider can reuse", () => {
   it('sends the scenes just before, the scene card, the dead and the memory first, and where things stand, the words just before and the new words last', () => {
     const r = request('Wren picked up the lantern.')
     expect(r.blocks.map((b) => b.id)).toEqual(['earlier', 'scene-card', 'dead', 'memory', 'knowledge', 'owned', 'stage', 'lead-in', 'new-words'])
-    expect(r.blocks.map((b) => b.id)).toEqual(REPAIR_SEND_ORDER)
+    // The scene's contract (long story memory fix 13) goes right before where things stand, when the draft had one.
+    expect(r.blocks.map((b) => b.id)).toEqual(REPAIR_SEND_ORDER.filter((id) => id !== 'contract'))
+    const withContract = repairRequest({
+      stage,
+      codex,
+      card: 'Wren asks Hobb about the ferry.',
+      leadIn: 'Wren waited.',
+      newWords: 'Wren picked up the lantern.',
+      contract: { id: 'contract', title: 'The scene’s contract (C ids)', text: 'Must change by the end of the scene:\n- [C1] Wren asks about the ferry', entryIds: [] }
+    })
+    expect(withContract.blocks.map((b) => b.id)).toEqual(REPAIR_SEND_ORDER)
     const heads = r.messages[1].content.split('\n').filter((l) => l.startsWith('## '))
     expect(heads).toEqual(r.blocks.map((b) => `## ${b.title}`))
   })

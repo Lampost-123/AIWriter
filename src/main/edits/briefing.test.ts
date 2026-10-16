@@ -463,3 +463,46 @@ describe("Continue's memory core (Adam, 2026-10-08)", () => {
     expect(go().blocks.some((x) => x.id === 'threads')).toBe(false)
   })
 })
+
+describe('Continue’s scene contract (long story memory fix 13)', () => {
+  const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
+  const stand = {
+    time: 'night',
+    weather: '',
+    light: '',
+    characters: [{ ...blank, name: 'Mara', where: 'by the hearth', condition: 'soaked through' }],
+    said: { 'mara|condition': { quote: 'water ran off her', sceneId: 'earlier' } }
+  }
+  const must = { facts: [{ factId: 'f', fact: 'The ledger is forged', knownBy: ['mara'] }], sceneId: 's1', storyTitle: 'Book 1', places: { earlier: 'Book 1, Ch 2, Sc 1' } }
+  const cont = (o: Partial<EditInput> = {}, w: Partial<EditWorld> = {}) =>
+    ok(editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '', ...o }), { ...world(), stand, must, ...w }))
+
+  it('off (not asked for): no contract, and what must stay true is as before', () => {
+    const b = cont()
+    expect(b.blocks.some((x) => x.id === 'scene-contract')).toBe(false)
+    expect(b.contract).toBeUndefined()
+  })
+
+  it('right above what must stay true: what must not change, and what happens next when Adam says; nothing said twice', () => {
+    const b = cont({ direction: 'Tobin admits he lied about the ledger' }, { contract: true })
+    // Everything what must stay true had to say is in the contract here, so it goes.
+    expect(b.blocks.map((x) => x.id).slice(-3)).toEqual(['stand', 'scene-contract', 'ask'])
+    const text = b.blocks.find((x) => x.id === 'scene-contract')!.text
+    expect(text).toContain('Must happen next:\n1. Tobin admits he lied about the ledger')
+    // What happens next is about a lie, not the forgery: the secret stays kept.
+    expect(text).toContain('Must not change:\n- Kept from Tobin: The ledger is forged')
+    expect(text).toContain('- Mara: soaked through (since Ch 2, Sc 1)')
+    expect(cont().blocks.find((x) => x.id === 'must')!.text).toContain('Kept from Tobin')
+    // Where things stand at this same moment is right above: the start doesn't say it again.
+    expect(text).not.toContain('Where Mara is')
+    expect(b.contract!.asks).toBe('continue')
+    expect(b.contract!.items.map((i) => i.part)).toEqual(['change', 'keep', 'keep'])
+  })
+
+  it('Continue with nothing to bring about still keeps to what must not change; the other tools get none', () => {
+    const b = cont({}, { contract: true })
+    expect(b.contract!.items.every((i) => i.part === 'keep')).toBe(true)
+    const rewrite = ok(editBriefing(input('rewrite', { direction: 'Sadder' }), { ...world(), must, contract: true }))
+    expect(rewrite.blocks.some((x) => x.id === 'scene-contract')).toBe(false)
+  })
+})

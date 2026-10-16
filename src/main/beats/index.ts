@@ -14,9 +14,9 @@ import { getSettings } from '../settings'
 import { cleanOptions } from '../ai/gather'
 import { draftBriefing, providerNotes, withPlan, type DraftBriefing } from '../ai/draftFlow'
 import type { ContextExtras } from '../ai/context'
-import { noteStage, stageTold } from '../repair'
+import { noteContract, noteStage, stageTold } from '../repair'
 import { isDrafting, startDraftJob, type Emit } from '../ai/drafts'
-import { afterBlock, beatDirection, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
+import { afterBlock, beatDirection, beatFocus, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
 import { noteWriterSpeakers } from '../readAloud'
 
 const BUSY = 'A draft is already being written for this scene. Stop it first, or wait for it to finish.'
@@ -85,7 +85,16 @@ export async function startBeat(
         ...input.options,
         targetWords: beatWords(scene.targetWords ?? AUTO_LENGTH.typical, beats.length)
       }
-      return draftBriefing(sceneId, options, { extras: extras(), signal: stop.signal, catchUp, plan: false, ...(block ? { soFar: standText } : {}) })
+      // The scene's contract (long story memory fix 13) is this beat's: what must change is the beat itself, with the
+      // author's note for it when there is one (as the plan below is told).
+      return draftBriefing(sceneId, options, {
+        extras: extras(),
+        signal: stop.signal,
+        catchUp,
+        plan: false,
+        focus: beatFocus(beats[index - 1] ?? '', steer),
+        ...(block ? { soFar: standText } : {})
+      })
     }
     let b = await briefing(index === 1)
     // The beats were changed on the card while the memory caught up: ask for the beat as the card has it now.
@@ -113,8 +122,10 @@ export async function startBeat(
       onSpeakers: (speakers) => noteWriterSpeakers(sceneId, speakers),
       ...providerNotes(b.target.id)
     })
-    // Check and repair: the beat's words are checked against where things stood as the writer was told it.
+    // Check and repair: the beat's words are checked against where things stood as the writer was told it, and against
+    // the scene's contract it was given (fix 13).
     noteStage(generationId, sceneId, stageTold(b, !!block))
+    noteContract(generationId, sceneId, b.contract ?? null)
     return { generationId, of: beats.length }
   } finally {
     if (starting.get(sceneId) === stop) starting.delete(sceneId)

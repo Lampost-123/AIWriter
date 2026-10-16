@@ -5,25 +5,40 @@
 // - the memory's guesses: details the AI filled in on an entry it found in the story, with no words behind them (the
 //   world builder's drafts on Adam's own entries count as his, so they never appear);
 // - scene summaries being brought up to date (the scene changed enough since they were written);
-// - quiet notes that one of Adam's own facts is no longer what the scene says.
+// - quiet notes that one of Adam's own facts is no longer what the scene says;
+// - names the story calls a character by that could be other names for them (long story memory fix 12, settleNames in
+//   keeper/apply.ts: a nickname or a title, never "her brother");
+// - plot threads still open past the chapter they were due by, or untouched for a long stretch (long story memory fix
+//   10, the promises ledger: memory/promises.ts, overdueThreads in memory/scene.ts), in each story with words.
 // Keep is Adam confirming: a fact becomes his and no longer rests on the words (as an Undo of a removal does in part
 // A), a guess becomes his, a summary counts as fitting the scene as it is now (it still follows later edits), a note is
-// dismissed. Remove takes the fact out. Both hand back what Undo needs. Runs inside the caller's transaction for
-// writes. No Electron imports.
+// dismissed, a name is added to the character's other names (refused when someone else goes by it). Remove takes the
+// fact out; for a name, Ignore: it is never offered for that character again anywhere in the story, and stops counting
+// as them in the scene it was found in, for good (other scenes may mean someone else by it: db/called.ts, settleNames).
+// For a plot thread, Keep leaves it as it is and isn't asked about again (an overdue one for that due chapter; a quiet
+// one until something touches it, or another long stretch goes by), Remove is Mark as dropped, and Pay off later
+// (planThread, also the board's "Pay off by" and Mark as dropped) moves its due chapter: Adam's plan, kept in meta
+// (db/threadPlans.ts). Both hand back what Undo needs. Runs inside the caller's transaction for writes. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Change, Entry, ID, MemoryCheckFact, MemoryCheckItem, MemoryCheckUndo, Origin, SourceLink } from '@shared/types'
+import type { Change, Entry, ID, MemoryCheckFact, MemoryCheckItem, MemoryCheckUndo, Origin, SourceLink, ThreadPlan, ThreadPlanChange } from '@shared/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
+import { forgetCalled, keepCalled } from '../db/called'
+import { setThreadPlan, threadPlan } from '../db/threadPlans'
+import { changesMade, writtenScenes } from '../db/worldViews'
 import { labeler } from '../memory/line'
+import { loadMemoryData, overdueThreads } from '../memory/scene'
+import { chapterChoice } from '../memory/promises'
+import type { WorldShape } from '../memory/types'
 import { UserError } from '../util'
 import { changeInput, patchFor } from './apply'
 import { builderField, changeWords, fieldLabel, fieldValue, guessFields } from './facts'
 import { loadShapeSafe } from './places'
 import { DUE_SUMMARY_SCENES, memoryNames, sceneSourceHash, summaryDue } from './sceneChange'
-import { hashText } from './text'
+import { hashText, plain } from './text'
 
 type DB = Database.Database
 
@@ -56,6 +71,15 @@ export function noteFact(key: string): { kind: 'field'; entryId: ID; field: stri
 }
 
 const noteKey = (row: kdb.LogRow): string => String((row.undo as { key?: unknown } | null)?.key ?? '')
+
+/** The name a note offers (settleNames in keeper/apply.ts); '' for any other line. */
+const aliasOf = (row: kdb.LogRow): string => {
+  const a = (row.undo as { alias?: unknown } | null)?.alias
+  return noteKey(row).startsWith('alias:') && typeof a === 'string' ? a.trim() : ''
+}
+
+/** True when the entry already goes by this name. */
+const goesBy = (e: Entry, name: string): boolean => [e.name, ...e.aliases].some((n) => plain(n) === plain(name))
 
 /** Per world, whether each scene's summary was due, by what that was worked out from (see dueSummaries). */
 const dueSeen = new WeakMap<DB, Map<ID, { version: string; due: boolean }>>()
@@ -219,7 +243,92 @@ export function listMemoryChecks(db: DB): MemoryCheckItem[] {
       canRemove: true
     })
   }
+
+  // Names the story calls a character by, offered as other names (long story memory fix 12): while the character is
+  // there, and neither they nor anyone else goes by it yet.
+  for (const row of kdb.openAliasNotes(db)) {
+    const alias = aliasOf(row)
+    const e = row.entryId ? entries.get(row.entryId) : undefined
+    if (!alias || !e || [...entries.values()].some((x) => goesBy(x, alias))) continue
+    out.push({
+      key: `alias:${row.id}`,
+      group: 'alias',
+      fact: { kind: 'alias', logId: row.id },
+      entryId: e.id,
+      entryName: e.name,
+      entryKind: e.kind,
+      text: `Also called “${alias}”`,
+      sceneId: row.sceneId,
+      where: where(row.sceneId),
+      quote: row.quote,
+      paragraphId: null,
+      canRemove: true
+    })
+  }
+
+  // Plot threads left waiting (long story memory fix 10): overdue, or untouched for a long stretch.
+  if (shape) out.push(...promiseChecks(db, shape))
   return out
+}
+
+/** Per world, the plot threads worth a look, while nothing in it has changed (they take a walk of every story's line). */
+const promisesSeen = new WeakMap<DB, { changed: number; items: MemoryCheckItem[] }>()
+
+/**
+ * The plot threads worth a look in every story with words (memory/scene.ts overdueThreads, as each story stands now),
+ * each thread once (the first story that finds it), with the chapters Pay off later can move it to: from the one being
+ * written to the story's end.
+ */
+function promiseChecks(db: DB, shape: WorldShape): MemoryCheckItem[] {
+  const changed = changesMade(db)
+  const seen = promisesSeen.get(db)
+  if (seen && seen.changed === changed) return seen.items
+  const written = writtenScenes(db)
+  const stories = shape.stories.filter((s) => s.chapters.some((c) => c.scenes.some((sc) => written.has(sc.id))))
+  const items: MemoryCheckItem[] = []
+  if (stories.length) {
+    const read = { shape, data: loadMemoryData(db) }
+    const listed = new Set<ID>()
+    for (const story of stories) {
+      const current = Math.max(0, ...story.chapters.map((c, i) => (c.scenes.some((sc) => written.has(sc.id)) ? i : 0)))
+      const later = story.chapters.slice(current).map((c, i) => ({ id: c.id, label: chapterChoice(current + i + 1, c.title) }))
+      for (const w of overdueThreads(db, story.id, null, read)) {
+        if (listed.has(w.threadId)) continue
+        listed.add(w.threadId)
+        const touched = w.touch?.sceneId ?? null
+        items.push({
+          key: `promise:${w.threadId}:${w.why}`,
+          group: 'promise',
+          fact: {
+            kind: 'promise',
+            threadId: w.threadId,
+            why: w.why,
+            ...(w.due ? { due: w.due.chapterId } : {}),
+            ...(w.why === 'quiet' ? { touch: touched, quiet: w.quiet ?? 0 } : {})
+          },
+          entryId: w.threadId,
+          entryName: w.name,
+          entryKind: 'thread',
+          text: promiseWords(w),
+          sceneId: touched,
+          where: w.lastWhere,
+          quote: '',
+          paragraphId: null,
+          canRemove: true,
+          later
+        })
+      }
+    }
+  }
+  promisesSeen.set(db, { changed: changesMade(db), items })
+  return items
+}
+
+/** What a plot thread's row says: "Still open, and due by the end of Ch 4", "Untouched for 14 scenes". */
+function promiseWords(w: { why: 'overdue' | 'quiet'; due?: { label: string; from: 'adam' | 'card'; sceneLabel?: string }; quiet?: number }): string {
+  if (w.why === 'quiet') return `Untouched for ${w.quiet ?? 0} scenes`
+  if (w.due?.from === 'card' && w.due.sceneLabel) return `Still open, though its scene card planned the pay-off for ${w.due.sceneLabel}`
+  return `Still open, and due by the end of ${w.due?.label ?? 'an earlier chapter'}`
 }
 
 // ---------- Keep, Remove and Undo ----------
@@ -231,6 +340,9 @@ type Step =
   | { op: 'note'; logId: ID }
   | { op: 'change-removed'; changeId: ID }
   | { op: 'field-removed'; entryId: ID; field: string; value: string; origin: Origin | null; links: SourceLink[] }
+  | { op: 'alias-added'; entryId: ID; alias: string; origin: Origin | null }
+  | { op: 'called-forgotten'; sceneId: ID; entryId: ID; words: string }
+  | { op: 'thread-plan'; threadId: ID; before: ThreadPlan | null }
 
 const fieldLinks = (db: DB, entryId: ID, field: string): SourceLink[] =>
   hist.linksForEntry(db, entryId).filter((l) => hist.isFieldLink(l, field))
@@ -268,7 +380,75 @@ function keepOne(db: DB, fact: MemoryCheckFact): Step[] {
       kdb.markUndone(db, row.id)
       return [{ op: 'note', logId: row.id }]
     }
+    case 'alias': {
+      // Added to the character's other names, as if Adam had typed it on their page; never a name someone else has
+      // (it would name two people everywhere), which is refused in plain words.
+      const row = kdb.getLog(db, fact.logId)
+      const alias = row ? aliasOf(row) : ''
+      const e = row?.entryId ? liveEntry(db, row.entryId) : null
+      if (!row || row.undone || !alias || !e) return []
+      const other = repo.listEntries(db).find((x) => x.id !== e.id && goesBy(x, alias))
+      if (other)
+        throw new UserError(`“${alias}” is already ${other.name}’s name, so it wasn’t added to ${e.name}. To give it to ${e.name}, take it off ${other.name}’s page first.`)
+      kdb.markUndone(db, row.id)
+      const steps: Step[] = [{ op: 'note', logId: row.id }]
+      if (!goesBy(e, alias)) {
+        const origin = e.fieldOrigins?.aliases ?? null
+        repo.updateEntry(db, e.id, { aliases: [...e.aliases, alias] }, ADAM)
+        steps.push({ op: 'alias-added', entryId: e.id, alias, origin })
+      }
+      return steps
+    }
+    case 'promise': {
+      // Kept as it is: an overdue thread isn't asked about again for this due chapter; a quiet one while nothing touches
+      // it, until another long stretch has gone by (memory/promises.ts threadWarnings).
+      const before = threadPlan(db, fact.threadId)
+      if (!liveEntry(db, fact.threadId)) return []
+      const kept: NonNullable<ThreadPlan['kept']> =
+        fact.why === 'overdue'
+          ? { ...before?.kept, ...(fact.due ? { due: fact.due } : {}) }
+          : { ...before?.kept, touch: fact.touch ?? null, quiet: fact.quiet ?? 0 }
+      setThreadPlan(db, fact.threadId, { ...before, kept })
+      return [{ op: 'thread-plan', threadId: fact.threadId, before }]
+    }
   }
+}
+
+/**
+ * The promises ledger (long story memory fix 10): sets the chapter a plot thread should be paid off by (null: none), or
+ * marks it dropped (false: picks it up again). Refused in plain words for a thread or chapter that is gone.
+ */
+export function planThread(db: DB, threadId: ID, change: ThreadPlanChange): MemoryCheckUndo {
+  const e = liveEntry(db, threadId)
+  if (!e || e.kind !== 'thread') throw new UserError('That plot thread no longer exists.')
+  const before = threadPlan(db, threadId)
+  const next: ThreadPlan = { ...before }
+  if (change.payBy !== undefined) {
+    if (change.payBy && !db.prepare('SELECT 1 FROM chapters WHERE id = ? AND deleted_at IS NULL').get(change.payBy))
+      throw new UserError('That chapter no longer exists. Choose another one.')
+    if (change.payBy) next.payBy = change.payBy
+    else delete next.payBy
+  }
+  if (change.dropped !== undefined) {
+    if (change.dropped) next.dropped = true
+    else delete next.dropped
+  }
+  setThreadPlan(db, threadId, next)
+  return { steps: [{ op: 'thread-plan', threadId, before }] }
+}
+
+/** Ignore a name offered for a character: the note goes, and the scene's words no longer count as them by it. */
+function ignoreAlias(db: DB, logId: ID): Step[] {
+  const row = kdb.getLog(db, logId)
+  const alias = row ? aliasOf(row) : ''
+  if (!row || row.undone || !alias || !row.entryId) return []
+  kdb.markUndone(db, row.id)
+  const steps: Step[] = [{ op: 'note', logId: row.id }]
+  if (row.sceneId) {
+    forgetCalled(db, row.sceneId, row.entryId, alias)
+    steps.push({ op: 'called-forgotten', sceneId: row.sceneId, entryId: row.entryId, words: alias })
+  }
+  return steps
 }
 
 /** Keep: Adam confirms what the memory wasn't sure of (see the top of this file). */
@@ -301,6 +481,8 @@ function removeFact(db: DB, fact: { kind: 'field'; entryId: ID; field: string } 
 /** Remove: takes the fact out of the memory (for a note, Adam's own fact, and the note goes too). */
 export function removeMemoryCheck(db: DB, fact: MemoryCheckFact): MemoryCheckUndo {
   if (fact.kind === 'summary') throw new UserError("A scene's summary can't be removed here. Keep it, or edit it on the scene card.")
+  if (fact.kind === 'alias') return { steps: ignoreAlias(db, fact.logId) }
+  if (fact.kind === 'promise') return planThread(db, fact.threadId, { dropped: true })
   if (fact.kind !== 'note') return { steps: removeFact(db, fact) }
   const row = kdb.getLog(db, fact.logId)
   const about = row ? noteFact(noteKey(row)) : null
@@ -345,6 +527,19 @@ function undoStep(db: DB, s: Step): void {
       for (const l of s.links) hist.putLinkBack(db, l)
       return
     }
+    case 'alias-added': {
+      const e = liveEntry(db, s.entryId)
+      if (!e || !goesBy(e, s.alias)) return
+      repo.updateEntry(db, e.id, { aliases: e.aliases.filter((a) => plain(a) !== plain(s.alias)) }, ADAM)
+      kdb.setFieldOrigins(db, e.id, { aliases: s.origin })
+      return
+    }
+    case 'called-forgotten':
+      keepCalled(db, s.sceneId, [{ entryId: s.entryId, words: s.words }])
+      return
+    case 'thread-plan':
+      if (liveEntry(db, s.threadId)) setThreadPlan(db, s.threadId, s.before)
+      return
   }
 }
 

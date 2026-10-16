@@ -56,6 +56,12 @@ export interface CallOptions {
   targetId: ID
   job: 'memory' | 'summary'
   messages: ChatMessage[]
+  /**
+   * What the record keeps of the messages, when that is less than was sent (the plan before writing with the book so
+   * far read whole, long story memory fix 14: the book is kept as a note, as it is the scenes' own words). Left out: the
+   * messages as sent. Its size is still counted as sent.
+   */
+  kept?: ChatMessage[]
   blocks: ContextBlock[]
   /** Room for the reply. */
   maxTokens: number
@@ -170,7 +176,7 @@ export async function callModel(o: CallOptions): Promise<CallResult> {
     params,
     direction: '',
     blocks: o.blocks,
-    messages: o.messages,
+    messages: o.kept ?? o.messages,
     budget: { contextLength, reserved: limit, available: Math.max(0, contextLength - limit), used: promptTokens },
     entries: o.entries ?? [],
     createdAt: now()

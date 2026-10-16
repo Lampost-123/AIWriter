@@ -119,6 +119,8 @@ export function entryAsOf(db: DB, entryId: ID, at: AsOf, shape?: WorldShape, dat
     absent: entry ? null : 'Not in the story yet at this point',
     relationships: entry ? state.relationships.filter((r) => r.aId === entryId || r.bId === entryId) : [],
     knows: entry ? state.facts.filter((f) => f.knownBy.includes(entryId)) : [],
+    // What it believes that isn't true (the who-knows-what ledger, long story memory fix 9).
+    believes: entry ? state.beliefs.filter((b) => b.believedBy.includes(entryId)) : [],
     thread: entry ? (state.threads.find((t) => t.entryId === entryId) ?? null) : null
   }
 }

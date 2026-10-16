@@ -13,6 +13,7 @@ import type { MemoryModel } from '../keeper/model'
 import type { Secret } from '../ai/mustStay'
 import { assembleContext, EARLIER_BLOCK, prepareContext, type ContextInput } from '../ai/context'
 import { countRaw } from '../ai/tokens'
+import { CONTRACT_BLOCK } from '../ai/contract'
 import {
   checkPlan,
   contradicts,
@@ -26,6 +27,7 @@ import {
   PLAN_MOST,
   planMaterial,
   planMessages,
+  planSystem,
   planText,
   readPlan,
   type CheckWith,
@@ -113,9 +115,10 @@ describe('reading the plan', () => {
     expect(r).toEqual({
       relies: [{ who: 'Wren', what: 'wearing', value: 'linen shirt' }],
       changes: [{ who: 'Wren', what: '', from: '', to: '', how: 'She stands.' }],
-      needs: ['The weir', 'The tithe ledger']
+      needs: ['The weir', 'The tithe ledger'],
+      must: []
     })
-    expect(readPlan('{}')).toEqual({ relies: [], changes: [], needs: [] })
+    expect(readPlan('{}')).toEqual({ relies: [], changes: [], needs: [], must: [] })
     expect(readPlan('The scene should be tense.')).toBeNull()
     expect(readPlan('[1, 2]')).toBeNull()
   })
@@ -593,6 +596,7 @@ describe('making the plan', () => {
     expect(plan).toEqual({
       needs: [w.weir.id],
       text: `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren is wearing: linen shirt; boots off by the hatch\nWhat happens on the page, in order:\n1. Wren stands to meet him.\n${PLAN_GO.start}`,
+      must: [],
       checked: { corrected: 1, dropped: 0 }
     })
     expect(db.prepare('SELECT job, scene_id, status FROM generations').all()).toEqual([{ job: 'memory', scene_id: sceneId, status: 'complete' }])
@@ -627,5 +631,95 @@ describe('making the plan', () => {
     const f = answering('{}')
     expect(await call(f, { signal: already.signal }).done).toBeNull()
     expect(f.asked).toHaveLength(0)
+  })
+})
+
+// ---------- The scene's contract (long story memory fix 13) ----------
+
+describe('what must change, for the scene’s contract (fix 13)', () => {
+  it('is asked for only when the draft has a contract; otherwise the planner’s instructions are as they always were', () => {
+    expect(planSystem()).not.toContain('"must"')
+    expect(planSystem(true)).toContain('- must: what must be different by the end of the scene')
+    expect(planSystem(true)).toContain('"needs": [""], "must": [""]}')
+    expect(planSystem(true).replace(/\n- must: [^\n]*/, '').replace(', "must": [""]', '')).toBe(planSystem())
+    const plain = materialOf(draftInput())
+    expect(plain.contract).toBeUndefined()
+    expect(planMessages(plain)[0].content).toBe(planSystem())
+    const asked = materialOf(draftInput({ contract: { asks: 'scene' } }))
+    expect(asked.contract).toBe(true)
+    expect(planMessages(asked)[0].content).toBe(planSystem(true))
+  })
+
+  it('is read from the reply, and kept only when the card, the beat or the direction calls for it, never a secret let out', () => {
+    expect(readPlan('{"must": ["Osric reaches the loft", {"text": "They argue about the weir"}, 3, ""]}')!.must).toEqual([
+      'Osric reaches the loft',
+      'They argue about the weir'
+    ])
+    const must = [
+      'Osric reaches the loft',
+      'Osric and Wren argue about the failing weir',
+      'A stranger bursts in with a crossbow',
+      'Wren tells Osric the flour tax was forged',
+      'Osric reaches the loft'
+    ]
+    const p = checkPlan(raw({ must }), world())
+    expect(p.must).toEqual(['Osric reaches the loft', 'Osric and Wren argue about the failing weir'])
+    expect(p.checked.dropped).toBe(2)
+    // At most a handful.
+    const many = Array.from({ length: 9 }, (_, i) => `They argue about the weir, round ${i + 1}`)
+    expect(checkPlan(raw({ must: many }), world()).must).toHaveLength(PLAN_MOST.must)
+  })
+
+  it('the planner is told what the contract keeps to, which what must stay true no longer says', () => {
+    const input = draftInput({ contract: { asks: 'scene' } })
+    const m = materialOf(input)
+    // The injury went into the contract's list of what must not change: the planner still reads it.
+    expect(assembleContext(input, countRaw).blocks.find((b) => b.id === CONTRACT_BLOCK.id)!.text).toContain('Wren: left arm in a sling')
+    expect(m.must).toContain('Wren: left arm in a sling')
+  })
+
+  it('may change the contract’s block: what it says must change takes the place of the card’s words', () => {
+    const block = (id: string, tokens: number): ContextBlock => ({ id, priority: 2, title: id, text: id, tokens, entryIds: [], dropped: false })
+    const budget = { contextLength: 4000, reserved: 500, available: 1000, used: 600 }
+    const before = { blocks: [block('continuity', 100), block(CONTRACT_BLOCK.id, 120)], budget }
+    expect(keepsRoom(before, { blocks: [block('continuity', 100), block(CONTRACT_BLOCK.id, 90), block('plan', 80)], budget: { ...budget, used: 650 } })).toBe(true)
+  })
+
+  it('a plan that says only what must change is still a plan, with a contract; without one it says nothing', async () => {
+    const reply = '{"relies": [], "changes": [], "needs": [], "must": ["Osric reaches the loft"]}'
+    const db = memoryWorld()
+    const sceneId = repo.getOutline(db, repo.listStories(db)[0].id).scenes[0].id
+    const w = world()
+    const material: PlanMaterial = {
+      ask: 'Write the scene now.',
+      card: CARD,
+      direction: '',
+      focus: '',
+      must: '',
+      reach: 'here',
+      stand: '',
+      standTitle: 'Where things stand',
+      standNote: '',
+      before: null,
+      inBriefing: [],
+      others: [],
+      people: ['Wren', 'Osric Hale'],
+      secrets: [],
+      calls: CARD
+    }
+    const make = (contract: boolean) =>
+      makePlan({
+        db,
+        model,
+        sceneId,
+        material: { ...material, ...(contract ? { contract: true } : {}) },
+        check: { stand: w.stand, entries: w.entries, inBriefing: w.inBriefing, hidden: w.hidden },
+        carryingOn: false,
+        closed: () => false,
+        fetchImpl: answering(reply),
+        retryDelays: []
+      })
+    expect(await make(true)).toEqual({ needs: [], text: '', must: ['Osric reaches the loft'], checked: { corrected: 0, dropped: 0 } })
+    expect(await make(false)).toBeNull()
   })
 })

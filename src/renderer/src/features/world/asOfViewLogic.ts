@@ -2,7 +2,8 @@
 // point in the story, read-only, with what has changed by then marked. Tested in asOfViewLogic.test.ts.
 
 import { FIELD_GROUPS } from '@shared/fields'
-import type { AsOf, AsOfStop, ChangeView, EntryKind, EntryState, ID, Origin, RelationshipState } from '@shared/types'
+import type { AsOf, AsOfStop, BeliefState, ChangeView, EntryKind, EntryState, FactState, ID, Origin, RelationshipState } from '@shared/types'
+import { howWords, learnedWords, sinceWords } from '@shared/knowWords'
 import { stopForScene, stopIndex } from '@/features/views/asOfLogic'
 import { allAdams, relationPhrase, sourceNote, upperFirst, type SourceNote } from './memoryLogic'
 
@@ -136,6 +137,39 @@ export function knowsSource(entryId: ID, factId: ID, changes: ChangeView[]): AsO
   )
   const origins = new Set(learned.map((c) => c.origin))
   return learned.length === 1 || (origins.size === 1 && !origins.has('text')) ? (learned[learned.length - 1] ?? null) : null
+}
+
+export interface AsOfKnowing {
+  factId: ID
+  fact: string
+  /** Since when and how, in plain words ("since Book 1, Ch 2, Sc 3 · heard it from Ash"); '' when not known. */
+  learned: string
+  /** Each on its own: "since Book 1, Ch 2, Sc 3" or "from the start", and "heard it from Ash" ('' when not known). */
+  since: string
+  how: string
+}
+
+/**
+ * What a character knows (or believes wrongly) at a point, each with since when and how (the who-knows-what ledger,
+ * long story memory fix 9): in the order they were learned, as the memory lists them and as "What has happened so far"
+ * reads (the view as of a scene); or, `newestFirst`, the most lately learned first (the New look's card, which shows the
+ * latest few), those with no place after the rest.
+ */
+export function asOfKnowing(
+  rows: (FactState | BeliefState)[],
+  entryId: ID,
+  nameOf: (id: ID) => string | null,
+  newestFirst = false
+): AsOfKnowing[] {
+  const list = rows.map((f, i) => ({ f, i, since: f.since?.[entryId] ?? null })).filter((x) => x.f.fact.trim())
+  if (newestFirst) list.sort((a, b) => (b.since?.at ?? -2) - (a.since?.at ?? -2) || a.i - b.i)
+  return list.map(({ f, since }) => ({
+      factId: f.factId,
+      fact: f.fact.trim(),
+      learned: learnedWords(since, nameOf, undefined, ' · '),
+      since: sinceWords(since),
+      how: howWords(since, nameOf)
+    }))
 }
 
 /** The quiet line under a relationship or fact as of a point. Adam's own need none on an entry that is all his (see asOfLead). */

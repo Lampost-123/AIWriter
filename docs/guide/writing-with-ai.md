@@ -34,6 +34,14 @@ what you have in mind, but a few lines are enough.
 - **Plot threads**: which threads the scene **Sets up** or **Pays off**.
 - **How it reads**: **Mood or tone**, **Length**, and **Notes for the AI**.
 
+AI Write keeps a story calendar from the **When** on each card. Write it however you like: "Day 12, dusk", "3 March
+1820", "the next morning" or "three weeks later". AI Write counts on from the scenes before, so under **When** you may see
+how it read yours, such as "Reads as Day 4 · morning." On the story board, a When like "The next morning" shows its day
+beside it. Before each draft, the AI is told the date, how long it is since the scene before, and how old the people in
+the scene are when their **Age or birth date** says enough ("born 1790", or "34 at the start of the story"), so it
+doesn't have to work it out. If a scene goes back in time, start its When with "Flashback" (or "Earlier"). Otherwise
+the card asks "Earlier than the scene before. A flashback?"
+
 For "Lighting the Lamp" in Gullhaven, the beats might be: Wren climbs the hundred and twelve steps; the lamp
 won't catch; she sees the night ferry's lights early.
 
@@ -139,6 +147,33 @@ With **Check new words straight away** on (it is by default, in **Settings › M
 they land. Small slips, like a character's eye colour drifting, are fixed in amber with a note
 "Mended a slip in the new words, in amber", and an **Undo**. Anything bigger is raised for you to look at in
 the **Issues** tab.
+
+## Each scene keeps to its contract
+
+With **Give each scene a contract** on (it is by default, in **Settings › Models**), every draft is written to a short
+list: what must be true at the start (where people are, what they hold, how much time has passed), what must change
+(the scene card's beats, or what you asked for), and what must not change (who is dead, what is kept from someone,
+injuries). When the new words go against it, or don't yet show something the scene was meant to bring about, it is
+raised in the **Issues** tab, marked **Scene contract**, with a rewrite of just that sentence when one would put it
+right. Nothing changes without you. (**Write the whole chapter** puts right what goes against the list once a second
+look agrees, as it does its other fixes; something not shown yet is always left for you.) The check report at the top of
+the Issues tab says how the latest draft kept to the list, item by item, and the **Context** tab shows the list the AI
+was given.
+
+## A brief before each scene
+
+With **Write a continuity brief before each scene** on (it is by default, in **Settings › Models**), the memory model
+reads far more than the writer could just before each draft: everything the story's record says about the people,
+places and things in the scene, who knows what, the promises still open, the story calendar, how each chapter so far
+ended, the passages that may matter, and, when it can read that much (DeepSeek's models can), the book so far itself
+(in a long book, its latest chapters). It hands the writer a short brief: what matters for this scene, what must not be
+contradicted (with the chapter and scene it comes from), who knows what among the people there, the promises in play,
+and how long it has been since the events that matter. The parts of the briefing it covers, such as the older story so
+far and the earlier passages, go in their short form, so the briefing doesn't grow. Anything you keep out of a scene in
+the **Context** tab stays out of its brief too. It comes from the plan's own call, so it needs **Plan before writing**,
+and a draft may take a little longer to start. The **Context** tab shows the last brief written for the scene.
+Generate, Add below and **Write the whole chapter** get one for each draft; Beat by beat writes one for the scene with
+its first beat and uses it for the rest; Continue doesn't get one.
 
 ## See what the AI saw
 

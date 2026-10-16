@@ -1,0 +1,358 @@
+// Each scene's contract (long story memory fix 13, after ConWriter 2026: drift from the plan and contradictions of what
+// is already so are caught best by a narrow, planned checklist, not an open hunt for plot holes; it cut contradictions
+// 50–88%). Three short lists, written for the scene being drafted:
+//   - Must be true at the start: from the record as of this point (the stage, fix 11's time since the scene before,
+//     who knows what), only what the scene's people touch, a handful at most;
+//   - Must change: what this draft is asked for, strongest first: the author's direction for it (a whole scene's too),
+//     then what the plan before writing said must change, checked against the card (plan/plan.ts), then the scene card
+//     (its beats; for Add below the next beat, for a beat that beat with the author's note for it), each left out when
+//     something stronger already says it; the card's outcome and the plot threads it sets up or pays off keep a place of
+//     their own (fix 13's review: the plan never pushes the card out, nor the beats the outcome);
+//   - Must not change: the dead stay dead, what is kept from someone stays kept, injuries stay, what someone gave away
+//     stays gone and things stay where they were put; never what the change list itself changes (a key handed over, a
+//     secret told, someone learning the truth: changedBy), so the contract never goes against itself.
+// The first and last lists are written by the app from what must stay true's own lines (mustStay.ts mustLines), word for
+// word, so what must stay true leaves them out (`leaveOut`) and nothing is said twice. The contract goes in the writer's
+// briefing as a short late block (CONTRACT_BLOCK, after where things stand, before what must stay true), and the check
+// as the draft lands goes through it item by item (repair/contract.ts; the chapter writer's checks, checks/run.ts).
+// Settings › Models, "Give each scene a contract" (on by default) turns it off; AIWRITE_CONTRACT=off always does. Pure.
+
+import type { CheckKind } from '@shared/contracts/checks'
+import type { EntryState, FactState, ID, SceneCard, Settings } from '@shared/types'
+import { sinceWords } from '@shared/knowWords'
+import { beatsOnPage } from '@shared/beats'
+import { namesItem as namesStageItem } from '@shared/stageItems'
+import { nameIn, namesItem } from '../memory/items'
+import { isPerson, shortPlace, type MustKind, type MustLine } from './mustStay'
+
+/** What the draft is asked to write: a whole scene, a stretch of one (Add below), one beat, or Continue's few paragraphs. */
+export type ContractAsks = 'scene' | 'stretch' | 'beat' | 'continue'
+export type ContractPart = 'start' | 'change' | 'keep'
+
+export interface ContractItem {
+  /** Its id in the check (C1...). */
+  code: string
+  part: ContractPart
+  text: string
+  /** The check a broken item belongs to, for its issue's kind. */
+  check: CheckKind
+  /** The codex entries it is about (the people, the item), for the issue's links. */
+  entryIds: ID[]
+}
+
+export interface SceneContract {
+  asks: ContractAsks
+  items: ContractItem[]
+}
+
+/** What a draft's briefing is told to build the contract from (ContextInput.contract): null or left out, no contract. */
+export interface ContractInput {
+  asks: ContractAsks
+  /** For a beat: the beat, with Adam's note for it. */
+  focus?: string
+  /** What the plan before writing said must change, checked against the card (plan/plan.ts); left out: no plan. */
+  planned?: string[]
+}
+
+export const CONTRACT_BLOCK = { id: 'scene-contract', title: 'This scene’s contract' } as const
+/** The most items in each list: a handful, so the check stays narrow and the briefing short. */
+export const CONTRACT_MOST = { start: 4, change: 5, keep: 4 } as const
+/** The most "X knows: …" items at the start, and the plot threads among what must change. */
+const MOST_KNOWS = 2
+const MOST_THREADS = 2
+/** The longest an item's words are kept (since when it holds, inside them, is kept whole by mustStay.ts). */
+const LONGEST_ITEM = 320
+
+const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
+const clip = (s: string, most = LONGEST_ITEM): string => (s.length > most ? `${s.slice(0, most - 1).trimEnd()}…` : s)
+
+/**
+ * Whether drafts get a contract: Adam's switch (Settings › Models, "Give each scene a contract", on unless he turns it
+ * off), except that AIWRITE_CONTRACT=off always turns it off (app tests that aren't about it).
+ */
+export const contractWanted = (settings: Partial<Pick<Settings, 'sceneContracts'>>, env: Record<string, string | undefined> = process.env): boolean =>
+  env.AIWRITE_CONTRACT !== 'off' && settings.sceneContracts !== false
+
+// ---------- Words that say what happens ----------
+
+const LITTLE = new Set(
+  'that this with from into onto then than there what when where which while about over under after before still just only some more most very back down again once each other will would says said tells told their them they have been were also into upon must here scene beat'.split(
+    ' '
+  )
+)
+/** The words of a text that say what happens: four letters or more, no little words, endings taken off. */
+export function meaningWords(s: string): Set<string> {
+  return new Set(
+    clean(s)
+      .toLowerCase()
+      .replace(/[’']/g, '')
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((w) => w.length >= 4 && !LITTLE.has(w))
+      .map((w) => (w.length > 5 ? w.replace(/(ing|ed|es|s)$/, '') : w))
+  )
+}
+const shared = (a: Set<string>, b: Set<string>): number => [...a].filter((w) => b.has(w)).length
+
+/** True when `text` says the fact: enough of the fact's own words (two, or a third of them) are in it. */
+export function saysFact(text: string, fact: string): boolean {
+  const f = meaningWords(fact)
+  if (!f.size) return false
+  return shared(f, meaningWords(text)) >= Math.min(f.size, Math.max(2, Math.ceil(f.size / 3)))
+}
+
+/**
+ * True when most of an item's words (three in five, names aside: the people are named everywhere) are in `text`: it is
+ * likely there, in the words as written.
+ */
+export function mostlyIn(item: string, text: string): boolean {
+  const w = meaningWords(item.replace(/(?<![\p{L}\p{N}])\p{Lu}[\p{L}’'-]*/gu, ' '))
+  if (!w.size) return false
+  return shared(w, meaningWords(text)) >= Math.ceil(w.size * 0.6)
+}
+
+// ---------- Building it ----------
+
+export interface ContractFrom {
+  asks: ContractAsks
+  /**
+   * What must stay true's lines (mustStay.ts mustLines), the full form with every stage line told (stageShown off): the
+   * start and what must not change are taken from them, word for word.
+   */
+  must: MustLine[]
+  /** The characters in the scene (the card, point of view first). */
+  people: Pick<EntryState, 'id' | 'name' | 'kind' | 'aliases' | 'summary' | 'tags' | 'fields'>[]
+  card: Pick<SceneCard, 'beats' | 'outcome'>
+  /** The plot threads on the card still open here (ai/context.ts Selection.threads). */
+  threads: { entryId: ID; name: string; role: 'sets up' | 'pays off' }[]
+  /** Adam's direction (Add below), or Continue's "what happens next". */
+  direction: string
+  /** The words already in the scene the draft carries on from (Add below: the beats already written). */
+  soFar?: string
+  focus?: string
+  planned?: string[]
+  /** Who knows what at this point, and the story's title (since when, without it). */
+  facts: FactState[]
+  storyTitle: string
+  /**
+   * Where things stand at this same moment is told right above (carrying on inside a scene: Add below, a later beat,
+   * Continue): the start leaves out where people are and what they hold or have on, which the stage says word for word
+   * (the check of the new words compares with the stage itself).
+   */
+  stageShown?: boolean
+}
+
+/** Where a line of what must stay true goes in the contract, and in what order (lower first); null: not in it. */
+const START_ORDER: Partial<Record<MustKind, number>> = { elapsed: 0, where: 1, holding: 2, wearingNamed: 3, posture: 4 }
+const KEEP_ORDER: Partial<Record<MustKind, number>> = {
+  dead: 0,
+  gap: 1,
+  condition: 2,
+  belief: 3,
+  goneNamed: 4,
+  gotNamed: 5,
+  thingNamed: 6,
+  thing: 7,
+  gone: 8,
+  got: 9,
+  marks: 10
+}
+/** The check a broken item of each kind belongs to. */
+const CHECK_OF: Partial<Record<MustKind, CheckKind>> = {
+  elapsed: 'timeline',
+  where: 'continuity',
+  holding: 'continuity',
+  wearingNamed: 'continuity',
+  posture: 'continuity',
+  thingNamed: 'continuity',
+  thing: 'continuity',
+  gap: 'knowledge',
+  belief: 'knowledge'
+}
+
+/**
+ * What must change (see the top of this file): the author's direction, then the plan's words, then the card's (or the
+ * beat), each left out when something before it already says it; then the card's outcome and the plot threads, which
+ * keep their places however many beats there are (the most CONTRACT_MOST.change in all).
+ */
+export function mustChange(o: Pick<ContractFrom, 'asks' | 'card' | 'threads' | 'direction' | 'soFar' | 'focus' | 'planned'>): { text: string; entryIds: ID[] }[] {
+  type Item = { text: string; entryIds: ID[] }
+  const plain = (t: string): Item => ({ text: clip(clean(t)), entryIds: [] })
+  const beats = o.card.beats.map(clean).filter(Boolean)
+  const direction = clean(o.direction)
+  // What the draft is asked for in the author's own words (Continue's "what happens next", Add below's direction, a whole
+  // scene's direction), and what the card asks (a beat: that beat with the author's note for it).
+  const asked = o.asks !== 'beat' && direction ? [plain(direction)] : []
+  const card =
+    o.asks === 'beat'
+      ? clean(o.focus)
+        ? [plain(o.focus!)]
+        : []
+      : o.asks === 'stretch'
+        ? !direction && beats[beatsOnPage(beats, o.soFar)]
+          ? [plain(beats[beatsOnPage(beats, o.soFar)])]
+          : []
+        : o.asks === 'scene'
+          ? beats.map(plain)
+          : []
+  const outcome = o.asks === 'scene' && clean(o.card.outcome) ? [plain(`By the end: ${clean(o.card.outcome)}`)] : []
+  const threads =
+    o.asks === 'scene'
+      ? o.threads.slice(0, MOST_THREADS).map((t) => ({
+          text: `The plot thread “${clean(t.name)}” is ${t.role === 'pays off' ? 'paid off' : 'set up'}.`,
+          entryIds: [t.entryId]
+        }))
+      : []
+  const planned = (o.planned ?? []).map(clean).filter(Boolean).map(plain)
+  // Each source in turn, left out where an earlier one already says it (the plan's "They reach the gate by dusk" stands
+  // for the card's "They reach the gate."). A thread stands unless the author or the plan names it.
+  const said: string[] = []
+  const seen = new Set<string>()
+  const take = (list: Item[], against: () => string[] = () => said): Item[] => {
+    const out = list.filter((x) => {
+      const k = x.text.toLowerCase()
+      if (!x.text || seen.has(k) || against().some((p) => saysFact(p, x.text))) return false
+      seen.add(k)
+      return true
+    })
+    said.push(...out.map((x) => x.text))
+    return out
+  }
+  const fromAsked = take(asked)
+  const fromPlan = take(planned)
+  const named = [...said]
+  // The outcome before the beats: a beat that only says it again is the one left out.
+  const end = take(outcome)
+  const fromCard = take(card)
+  const extra = take(threads, () => named)
+  const own = [...fromAsked, ...fromPlan, ...fromCard]
+  // The outcome and the threads keep their places; the rest share what is left, the author's words first.
+  const room = Math.max(0, CONTRACT_MOST.change - end.length - extra.length)
+  return [...own.slice(0, room), ...end, ...extra]
+}
+
+/**
+ * The scene's contract (see the top of this file); null when it would say nothing. Codes run C1... through the start,
+ * what must change and what must not.
+ */
+export function sceneContract(o: ContractFrom): SceneContract | null {
+  const change = mustChange(o)
+  const changeText = change.map((c) => c.text).join('\n')
+  const order = (l: MustLine, by: Partial<Record<MustKind, number>>): number => by[l.kind] ?? Infinity
+  const pick = (by: Partial<Record<MustKind, number>>, most: number, drop: (l: MustLine) => boolean = () => false): MustLine[] =>
+    o.must
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => order(l, by) !== Infinity && !drop(l))
+      .sort((a, b) => order(a.l, by) - order(b.l, by) || a.i - b.i)
+      .slice(0, most)
+      .map(({ l }) => l)
+
+  // At the start: how much time has passed, where people are, what they hold or have off; then who knows what the scene
+  // is about (not a secret among those here: that is what must not change).
+  const startLines = pick(o.stageShown ? { elapsed: 0 } : START_ORDER, CONTRACT_MOST.start)
+  const about = [o.card.beats.join('\n'), o.card.outcome, o.direction, o.focus ?? '', changeText].map(clean).filter(Boolean).join('\n')
+  const here = o.people.filter(isPerson)
+  const knows: { text: string; entryIds: ID[] }[] = []
+  for (const f of [...o.facts].sort((a, b) => (b.at ?? -2) - (a.at ?? -2))) {
+    if (knows.length >= MOST_KNOWS) break
+    if (f.backed === false || !saysFact(about, f.fact)) continue
+    const knowers = here.filter((p) => f.knownBy.includes(p.id))
+    // Known by everyone here, or by no one: no secret, and the one who knows it is who it is about.
+    if (!knowers.length || knowers.length < here.length) continue
+    const who = knowers[0]
+    const since = sinceWords(f.since?.[who.id], (w) => shortPlace(w, o.storyTitle))
+    const name = knowers.length === 1 ? who.name : `${knowers.slice(0, -1).map((p) => p.name).join(', ')} and ${knowers[knowers.length - 1].name}`
+    knows.push({ text: clip(`${name} ${knowers.length === 1 ? 'knows' : 'know'}: ${clean(f.fact).replace(/[.]$/, '')}${since ? ` (${since})` : ''}`), entryIds: knowers.map((p) => p.id) })
+  }
+  const start = [
+    ...startLines.map((l) => ({ text: l.text, check: CHECK_OF[l.kind] ?? ('facts' as CheckKind), entryIds: l.entryIds })),
+    ...knows.map((k) => ({ ...k, check: 'knowledge' as CheckKind }))
+  ].slice(0, CONTRACT_MOST.start)
+
+  // Must not change: never what the change list itself changes (changedBy), so the contract never goes against itself.
+  const keep = pick(KEEP_ORDER, CONTRACT_MOST.keep, (l) => changedBy(l, change.map((c) => c.text)))
+
+  const items: ContractItem[] = []
+  const put = (part: ContractPart, text: string, check: CheckKind, entryIds: ID[]): void => {
+    if (!clean(text) || items.some((x) => x.text === text)) return
+    items.push({ code: `C${items.length + 1}`, part, text, check, entryIds })
+  }
+  for (const s of start) put('start', s.text, s.check, s.entryIds)
+  for (const c of change) put('change', c.text, 'facts', c.entryIds)
+  for (const k of keep) put('keep', k.text, CHECK_OF[k.kind] ?? 'facts', k.entryIds)
+  return items.length ? { asks: o.asks, items } : null
+}
+
+/** Words that say someone comes to know something: they learn it, find it out, are told it, see through it. */
+const LEARNS =
+  /\b(?:learn(?:s|ed|t)?|discover(?:s|ed)?|finds? out|found out|realis(?:e|es|ed)|realiz(?:e|es|ed)|works? out|worked out|is told|was told|hears?|heard|sees? through|saw through|guess(?:es|ed)|understands?|understood|uncovers?|uncovered)\b/i
+/** True when the words have someone tell `name` something ("Mara tells Tobin", "admits to Tobin"). */
+function toldTo(text: string, name: string): boolean {
+  const names = [...new Set([clean(name), clean(name).split(' ')[0]])].filter((n) => n.length >= 2)
+  return names.some((n) =>
+    new RegExp(
+      `\\b(?:tells?|told|shows?|showed|warns?|warned|(?:reveals?|revealed|admits?|admitted|confess(?:es|ed)?|explains?|explained) to)\\s+${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+      'i'
+    ).test(text)
+  )
+}
+/** Words that say a belief was wrong. */
+const TRUTH = /\b(?:truth|true|lie|lies|lied|lying|wrong|mistaken)\b/i
+
+/** A line's own words, without who it is about ("Mara: ") or since when it holds ("(since Ch 2, Sc 1)"). */
+const ownWords = (text: string): string => text.replace(/^[^:]{1,60}:\s*/, '').replace(/\s*\([^()]*\)[\s\S]*$/, '')
+
+/**
+ * True when what must change would change what a line of what must stay true says, so it can't also be something that
+ * must not change: the change names the item someone has or gave away, or the thing in the place; or it says the line's
+ * own words (saysFact); and for a secret or a wrong belief, it says the one it is kept from, or who believes it, learns or
+ * is told it (with a word of it), or learns the truth.
+ */
+export function changedBy(line: Pick<MustLine, 'text' | 'about'>, change: string[]): boolean {
+  const all = change.join('\n')
+  if (!clean(all)) return false
+  const a = line.about
+  if (a && 'holding' in a) return namesItem(all, a.holding)
+  if (a && 'thing' in a) return namesStageItem(all, a.thing)
+  const words = a ? a.words : ownWords(line.text)
+  if (saysFact(all, words)) return true
+  if (!a) return false
+  if (!a.learns) return false
+  const own = meaningWords(words)
+  return change.some(
+    (c) => a.who.some((n) => (nameIn(c, n) && LEARNS.test(c)) || toldTo(c, n)) && (shared(own, meaningWords(c)) >= 1 || TRUTH.test(c))
+  )
+}
+
+// ---------- How it is told ----------
+
+/** What the writer is told first. */
+export const CONTRACT_LEAD = 'What this scene must keep to and bring about. Once it is written, the draft is checked against it, item by item.'
+
+/** The heading of each list, by what the draft is asked to write. */
+export function partTitle(part: ContractPart, asks: ContractAsks): string {
+  if (part === 'start') return asks === 'scene' ? 'Must be true at the start' : 'Must be true where you carry on from'
+  if (part === 'keep') return 'Must not change'
+  return asks === 'scene'
+    ? 'Must change by the end of the scene'
+    : asks === 'beat'
+      ? 'Must change by the end of this beat'
+      : asks === 'continue'
+        ? 'Must happen next'
+        : 'Must happen in what you write now'
+}
+
+/** The lists as the writer reads them (short: without the lead), or with ids for a check (`codes`). */
+export function contractText(c: SceneContract, o: { short?: boolean; codes?: boolean } = {}): string {
+  const parts: string[] = []
+  if (!o.short && !o.codes) parts.push(CONTRACT_LEAD)
+  for (const part of ['start', 'change', 'keep'] as const) {
+    const list = c.items.filter((i) => i.part === part)
+    if (!list.length) continue
+    const lines = list.map((i, n) => (o.codes ? `- [${i.code}] ${i.text}` : part === 'change' ? `${n + 1}. ${i.text}` : `- ${i.text}`))
+    parts.push(`${partTitle(part, c.asks)}:\n${lines.join('\n')}`)
+  }
+  return parts.join('\n')
+}
+
+/** The lines of the start and what must not change, word for word: what must stay true leaves them out. */
+export const contractSays = (c: SceneContract | null | undefined): Set<string> => new Set((c?.items ?? []).filter((i) => i.part !== 'change').map((i) => i.text))

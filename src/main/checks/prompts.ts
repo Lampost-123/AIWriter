@@ -5,6 +5,7 @@
 import type { CheckKind } from '@shared/contracts/checks'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import { fieldKeys } from '../keeper/prompts'
+import { CHECK_CONTRACT_RULES } from '../repair/contract'
 
 export const CHECK_MARKER = '[AIWRITE-CHECK v1]'
 
@@ -13,7 +14,7 @@ const WHAT: Record<CheckKind, string> = {
   facts:
     "facts: the scene against each entry as the memory has it at the start of the scene: looks (eye and hair colour, scars, missing limbs, how many fingers), injuries, what someone carries or owns, where people and things are, and the world's rules. Above all, who is dead: a character who died earlier (in what has happened to them, or in the story so far) who speaks, acts or is treated as alive in this scene is a must-fix, unless the scene shows a ghost, a memory or a vision.",
   knowledge:
-    "knowledge: a character who acts on or mentions something they could not know yet: it happens in a later scene, or it happened where they were not and nothing (the story so far, the scenes before, this scene) shows them learning it. The memory's list of who knows what is far from complete: something it doesn't list is NOT a problem by itself, and things said or shown in the story so far or in this scene count as known by those who were there. Also a character who forgets something they clearly know.",
+    "knowledge: a character who acts on or mentions something they could not know yet: it happens in a later scene, or it happened where they were not and nothing (the story so far, the scenes before, this scene) shows them learning it. The memory's list of who knows what is far from complete: something it doesn't list is NOT a problem by itself, and things said or shown in the story so far or in this scene count as known by those who were there. Also a character who forgets something they clearly know, or who acts on the truth of something the memory says they believe wrongly, with nothing showing them learn it.",
   timeline:
     "timeline: where the characters were in the scenes before and when (the in-world dates and times), so someone is never in two places at once, travels further than the time allows, or has an age that doesn't add up.",
   continuity:
@@ -27,8 +28,15 @@ const WHAT: Record<CheckKind, string> = {
 /** The check names a reply may use, for the instructions. */
 const NAMES = ALL_CHECKS.join(', ')
 
-/** The instructions for checking a scene with these checks. */
-export function sceneSystem(checks: CheckKind[]): string {
+/**
+ * The instructions for checking a scene with these checks; with `contract`, through the scene's contract too (long
+ * story memory fix 13: the chapter writer's checks of the scenes it drafted).
+ */
+export function sceneSystem(checks: CheckKind[], contract = false): string {
+  return contract ? `${checksSystem(checks)}\n\n${CHECK_CONTRACT_RULES}` : checksSystem(checks)
+}
+
+function checksSystem(checks: CheckKind[]): string {
   const list = ALL_CHECKS.filter((c) => checks.includes(c))
   return `${CHECK_MARKER} ${list.join(', ')}
 You check a scene of a novel for consistency, for its author. You are given the memory of the story's world as it stands at the START of the scene (before anything in the scene happens), the story so far, where things stood as the previous scene ended, the scenes just before it, the style guide and the scene's text. Reply with one JSON object and nothing else.

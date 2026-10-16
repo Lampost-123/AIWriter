@@ -132,6 +132,46 @@ export interface SampleResult {
    * aren't the app's: their reply is `judge.raw` and what they were asked is `judge.asked`.
    */
   records?: { id: string; job: string; kind: string }[]
+  /** The continuity brief it was written with and the plan's call that wrote it (long story memory fix 14), when it was planned. */
+  brief?: BriefNote
+}
+
+/** A draft's continuity brief (long story memory fix 14), as passages.md tells it. */
+export interface BriefNote {
+  /** Its lines as sent to the writer (0: none). */
+  lines: number
+  /** Its tokens as sent (0: none). */
+  tokens: number
+  /** What the plan's call read, in tokens, as the app counted it (null when not known). */
+  planTokens: number | null
+  /** The plan read the book so far word for word. */
+  book: boolean
+}
+
+/** The brief from a draft's record and the plan's (pure, for the harness's own tests). */
+export function briefNote(writerBlocks: string | null, plan: { budget: string | null; messages: string | null } | null): BriefNote | null {
+  if (!plan) return null
+  const parse = <T>(s: string | null, fallback: T): T => {
+    try {
+      return s ? (JSON.parse(s) as T) : fallback
+    } catch {
+      return fallback
+    }
+  }
+  const block = parse<{ id?: string; text?: string; tokens?: number; dropped?: boolean }[]>(writerBlocks, []).find((b) => b?.id === 'continuity-brief' && !b.dropped)
+  const used = parse<{ used?: number }>(plan.budget, {}).used
+  return {
+    lines: block?.text ? block.text.split('\n').filter((l) => l.startsWith('- ')).length : 0,
+    tokens: block?.tokens ?? 0,
+    planTokens: typeof used === 'number' ? used : null,
+    book: !!plan.messages?.includes('## The book so far, word for word')
+  }
+}
+
+/** One line for passages.md: "Continuity brief: 9 lines (about 310 tokens); the plan read 96,000 tokens, the book so far whole." */
+export function briefLine(b: BriefNote): string {
+  const read = b.planTokens != null ? `; the plan read ${b.planTokens.toLocaleString('en-GB')} tokens${b.book ? ', the book so far whole' : ''}` : ''
+  return b.lines ? `Continuity brief: ${b.lines} line${b.lines === 1 ? '' : 's'} (about ${b.tokens.toLocaleString('en-GB')} tokens)${read}.` : `No continuity brief${read}.`
 }
 
 /**
@@ -197,6 +237,8 @@ export interface RepairResult {
   questions: string[]
   /** What the repair's reply held and what fell away before the app judged it (counted by the harness: the app reports only claims and slips). */
   drops?: RepairDrops
+  /** How the passage kept to the scene's contract it was written to (long story memory fix 13), in checkouts that have it. */
+  contract?: { items: number; kept: number; broken: number; notYet: number }
   /** The passage after the fixes the page made (the passage itself when none). */
   text: string
   judge: SampleResult['judge']
@@ -390,6 +432,8 @@ export interface ChainStepResult {
   records?: { id: string; job: string; kind: string }[]
   /** K3's plot threads at this step (left out for chains without threads). */
   threads?: ThreadStepNote
+  /** The continuity brief the step was written with (long story memory fix 14), when it was planned. */
+  brief?: BriefNote
 }
 
 /** What K3's thread checks measure: (a) premature, (b) payoff, (c) alive, (d) invented (README "K3"). */
@@ -787,8 +831,11 @@ export function passagesMarkdown(r: RunReport): string {
         if (st.repair?.checked) {
           for (const f of st.repair.fixes) out.push(`- Repair fix${f.made ? '' : ' (not made)'}: “${f.was}” → “${f.now}”: ${f.why}`)
           for (const q of st.repair.questions) out.push(`- Repair question: ${q}`)
+          const c = st.repair.contract
+          if (c) out.push(`- Scene contract: ${c.kept} of ${c.items} kept, ${c.broken} broken, ${c.notYet} not shown yet`)
         }
-        if (st.planted.length || bad.length || st.resolved.length || st.repair?.fixes.length || st.repair?.questions.length) out.push('')
+        if (st.brief) out.push(`- ${briefLine(st.brief)}`)
+        if (st.planted.length || bad.length || st.resolved.length || st.repair?.fixes.length || st.repair?.questions.length || st.repair?.contract || st.brief) out.push('')
       }
     }
   }
@@ -800,6 +847,7 @@ export function passagesMarkdown(r: RunReport): string {
         continue
       }
       out.push(m.text.trim(), '')
+      if (m.brief) out.push(`*${briefLine(m.brief)}*`, '')
       const x = m.repair
       if (!x) continue
       if (!x.checked) {
@@ -807,6 +855,7 @@ export function passagesMarkdown(r: RunReport): string {
         continue
       }
       out.push(`### Check and repair: ${x.claims} claim${x.claims === 1 ? '' : 's'} checked, ${x.slips} slip${x.slips === 1 ? '' : 's'}`, '')
+      if (x.contract) out.push(`Scene contract: ${x.contract.kept} of ${x.contract.items} kept, ${x.contract.broken} broken, ${x.contract.notYet} not shown yet.`, '')
       for (const f of x.fixes) out.push(`- Fix${f.made ? '' : ' (not made)'}: “${f.was}” → “${f.now}”: ${f.why}`)
       for (const q of x.questions) out.push(`- Question: ${q}`)
       if (x.fixes.length || x.questions.length) out.push('')

@@ -3,6 +3,12 @@
 // what it is made from has changed. Adam's own summaries are never replaced automatically: when the
 // scene changes under one, a question-marked line offers a new one. Every summary written is listed
 // in What changed with Undo. No Electron imports.
+// Since 2026-10-16 (long story memory fix 15) no summary is built on an older version of itself: a scene's is written
+// again from its words whenever it is due (never patched), and a roll-up is made from the level below plus the story
+// record (memory/chapterRecord.ts: what changed in a chapter for a chapter; how things stand at the end of the last
+// chapter for a story or series), which the model is told to follow where a summary says otherwise. Each summary is tied to what it was made from (`sourceHash`: the
+// scenes, chapters or books by id with the revision of their summaries, and the record's part), so a change to one
+// scene makes only what rests on it out of date; markOutOfDate marks those, so the screen can say so.
 
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ContextBlock, ID, SummaryLevel } from '@shared/types'
@@ -10,11 +16,14 @@ import { countWords } from '@shared/defaults'
 import * as mem from '../db/memory'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
+import { storedSnapshots } from '../db/snapshots'
+import { entryNames } from '../memory/chapterRecord'
+import { changedLines, endLines, endPart, localPart, type ChapterSnapshot } from '../memory/snapshot'
 import { callModel, DEFAULT_MEMORY_CONTEXT, type CallResult, type MemoryModel } from './model'
 import { SUMMARY_SYSTEM, cleanSummary, summaryPrompt, type SummaryAsk } from './prompts'
 import { estimateTokens, firstWords, hashText, splitLong, textParas } from './text'
 import type { Undo } from './apply'
-import { MIN_SUMMARY_WORDS, changeSince, sameSource, sceneSourceHash, summaryDue } from './sceneChange'
+import { MIN_SUMMARY_WORDS, sameSource, sceneSourceHash, summaryDue } from './sceneChange'
 
 type DB = Database.Database
 
@@ -32,11 +41,8 @@ export interface SummaryOptions {
 const MIN_WORDS = MIN_SUMMARY_WORDS
 const SCENE_REPLY = 700
 const ROLLUP_REPLY = 900
-/** A patched summary's reply: about its own length, never the full rewrite's room (World Memory Overhaul A3). */
-const PATCH_REPLY_MIN = 200
-const PATCH_REPLY_MAX = 450
-/** At most this many changed words (and less than half the scene) are patched in; more, and the scene is summarised again. */
-const PATCH_WORDS = 600
+/** The most of a roll-up's room the story record may take (the rest is the summaries it is made from). */
+const RECORD_SHARE = 0.4
 
 const summaryFingerprint = (level: SummaryLevel, targetId: ID): string => `summary:${level}:${targetId}`
 
@@ -64,23 +70,18 @@ export function sceneSummaryDue(db: DB, sceneId: ID, done: boolean): boolean {
   const words = countWords(scene.text)
   const row = kdb.summaryRow(db, 'scene', sceneId)
   if (row?.origin === 'adam') return false
-  if (words < MIN_WORDS) {
-    if (words === 0 && row) kdb.deleteTextSummary(db, 'scene', sceneId)
+  // Not needed (too short to sum up, or Adam undid the one made from these words): a mark that it is being brought up
+  // to date goes, as nothing will (long story memory fix 15, review).
+  const notNeeded = (): false => {
+    if (row?.stale) kdb.setTextSummaryStale(db, 'scene', sceneId, false)
     return false
   }
-  if (suppressed(db, 'scene', sceneId, sceneSourceHash(scene.text, scene.doc))) return false
+  if (words < MIN_WORDS) {
+    if (words === 0 && row) kdb.deleteTextSummary(db, 'scene', sceneId)
+    return notNeeded()
+  }
+  if (suppressed(db, 'scene', sceneId, sceneSourceHash(scene.text, scene.doc))) return notNeeded()
   return summaryDue(db, sceneId, done)
-}
-
-/** The edits a scene's summary can be patched with (a few changed paragraphs, none deleted), or null to write it again. */
-function patchable(db: DB, sceneId: ID, scene: { text: string; doc: unknown }): { summary: string; paragraphs: string[] } | null {
-  const row = kdb.summaryRow(db, 'scene', sceneId)
-  if (!row || row.origin === 'adam' || !row.text.trim()) return null
-  const c = changeSince(row.sourceHash, scene.text, scene.doc)
-  if (!c.known || c.removed > 0 || !c.changed.length) return null
-  const changedWords = c.changed.reduce((n, p) => n + countWords(p.text), 0)
-  if (changedWords > PATCH_WORDS || changedWords * 2 >= countWords(scene.text)) return null
-  return { summary: row.text, paragraphs: c.changed.map((p) => p.text) }
 }
 
 /** Room for the text to summarise in one request. */
@@ -228,12 +229,9 @@ export async function writeSceneSummary(
   const room = textRoom(o.model, SCENE_REPLY)
   const calls: CallResult[] = []
   let written: Written | null = null
-  // A few paragraphs edited or added: the old summary is patched from them alone, in a short reply (A3).
-  const patch = force ? null : patchable(o.db, sceneId, scene)
-  if (patch) {
-    const reply = Math.min(PATCH_REPLY_MAX, Math.max(PATCH_REPLY_MIN, Math.ceil(estimateTokens(patch.summary) * 1.4) + 40))
-    written = await ask(o, sceneId, { level: 'scene-patch', where, title: scene.title, ...patch }, reply, calls)
-  } else if (estimateTokens(text) <= room) {
+  // Always from the scene's words as they are now, never by patching the old summary (fix 15): every round of editing a
+  // summary rather than the scene adds errors.
+  if (estimateTokens(text) <= room) {
     written = await ask(o, sceneId, { level: 'scene', where, title: scene.title, text, words }, SCENE_REPLY, calls)
   } else {
     // A long scene: summarise it in parts, then join the parts.
@@ -348,15 +346,149 @@ function fit(items: { label: string; text: string }[], room: number): { label: s
   return items.map((i) => ({ label: i.label, text: firstWords(i.text, words) }))
 }
 
-const changedSince = (db: DB, level: SummaryLevel, targetId: ID, hash: string, skip: (key: string) => boolean): boolean => {
-  if (skip(`${level}:${targetId}:${hash}`) || suppressed(db, level, targetId, hash)) return false
-  const row = kdb.summaryRow(db, level, targetId)
+/** The record's lines that fit in `room` tokens, in order (the facts first, how things stand after). */
+function fitLines(lines: string[], room: number): string[] {
+  const out: string[] = []
+  let used = 0
+  for (const l of lines) {
+    const t = estimateTokens(`- ${l}\n`)
+    if (used + t > room) break
+    out.push(l)
+    used += t
+  }
+  return out
+}
+
+/** A part a roll-up is made from (a scene, chapter or book summary), with what it is. */
+interface Part {
+  id: ID
+  label: string
+  text: string
+}
+
+/**
+ * What one roll-up is made from now (fix 15): the summaries of the level below (signposts), and the story record's
+ * snapshot (the facts: a chapter's own, or the last chapter's for a story or series). `tag` ties it to them: the
+ * record's part, then each part by id with the revision of its summary. `legacy` is what a roll-up written before then
+ * says it was made from (its summaries alone): one whose summaries haven't changed since still counts as up to date, so
+ * a world never has every roll-up written again at once.
+ */
+interface Sources {
+  level: 'chapter' | 'story' | 'series'
+  targetId: ID
+  parts: Part[]
+  record: ChapterSnapshot | null
+  tag: string
+  legacy: string
+}
+
+const revisions = (parts: Part[]): string => parts.map((p) => `${p.id}~${hashText(p.text).slice(0, 12)}`).join(',')
+
+/** A chapter is tied to its scenes and to what changed in it; a story or series to its parts and how things stand at its end. */
+function sourcesOf(level: Sources['level'], targetId: ID, parts: Part[], record: ChapterSnapshot | null): Sources {
+  const prefix = { chapter: 'ch2', story: 'st2', series: 'se2' }[level]
+  const own = level === 'chapter' ? localPart(record) : endPart(record)
+  const legacy = level === 'series' ? parts.map((p) => `${p.label}\n${p.text}`).join('\n') : parts.map((p) => p.text).join('\n')
+  return { level, targetId, parts, record, tag: `${prefix}|${hashText(own)}|${revisions(parts)}`, legacy: hashText(legacy) }
+}
+
+/** What a story's roll-ups are made from now: each chapter with a summarised scene, then the story itself. */
+function storySources(
+  db: DB,
+  storyId: ID
+): { chapters: (Sources & { title: string; lastSceneId: ID })[]; story: (Sources & { lastSceneId: ID | null }) | null } {
+  const outline = repo.getOutline(db, storyId)
+  const snapshots = storedSnapshots(
+    db,
+    outline.chapters.map((c) => c.id)
+  )
+  const summaries = new Map(mem.storySummaries(db, storyId).map((x) => [`${x.level}:${x.targetId}`, x]))
+  const text = (level: SummaryLevel, id: ID): string => summaries.get(`${level}:${id}`)?.text.trim() ?? ''
+  const chapters: (Sources & { title: string; lastSceneId: ID })[] = []
+  const told: Part[] = []
+  let end: ChapterSnapshot | null = null
+  let lastSummarised: ID | null = null
+  for (const [ci, ch] of outline.chapters.entries()) {
+    const scenes = outline.scenes.filter((s) => s.chapterId === ch.id)
+    const parts = scenes
+      .map((s, i) => ({ id: s.id, label: numbered('Scene', i + 1, s.title), text: text('scene', s.id) }))
+      .filter((x) => x.text)
+    const snapshot = snapshots.get(ch.id)?.snapshot ?? null
+    if (parts.length) {
+      chapters.push({ ...sourcesOf('chapter', ch.id, parts, snapshot), title: ch.title, lastSceneId: parts[parts.length - 1].id })
+      lastSummarised = parts[parts.length - 1].id
+    }
+    const own = text('chapter', ch.id)
+    if (own) {
+      told.push({ id: ch.id, label: numbered('Chapter', ci + 1, ch.title), text: own })
+      end = snapshot
+    }
+  }
+  // A story's last scene with a summary (or its last scene): its calls are recorded against it.
+  const lastSceneId = lastSummarised ?? outline.scenes.at(-1)?.id ?? null
+  return { chapters, story: told.length ? { ...sourcesOf('story', storyId, told, end), lastSceneId } : null }
+}
+
+/** A part's label: Scene 2 "The Weir" with a title of its own, Scene 2 alone with none or the default one. */
+const numbered = (kind: 'Scene' | 'Chapter', n: number, title: string): string => {
+  const t = title.trim()
+  return t && !new RegExp(`^${kind}\\s*\\d+$`, 'i').test(t) ? `${kind} ${n} "${t}"` : `${kind} ${n}`
+}
+
+/** A series' roll-up sources: its books' summaries (never prequels and the like) and how things stand at the end of the last. */
+function seriesSources(db: DB, seriesId: ID, stories: ReturnType<typeof repo.listStories>): (Sources & { lastStoryId: ID }) | null {
+  const apart = apartFromBooks(stories)
+  const books = stories.filter((s) => s.seriesId === seriesId && !apart(s.id)).sort((a, b) => a.createdOrder - b.createdOrder)
+  const parts: Part[] = []
+  let lastStoryId: ID | null = null
+  let end: ChapterSnapshot | null = null
+  for (const s of books) {
+    const own = kdb.summaryRow(db, 'story', s.id)?.text.trim() ?? ''
+    if (!own) continue
+    parts.push({ id: s.id, label: s.title.trim() || 'Untitled story', text: own })
+    lastStoryId = s.id
+  }
+  if (!parts.length || !lastStoryId) return null
+  end = storySources(db, lastStoryId).story?.record ?? null
+  return { ...sourcesOf('series', seriesId, parts, end), lastStoryId }
+}
+
+/**
+ * True when a summary is made from what its sources are now, or Adam undid the one made from them: since fix 15 (by its
+ * tag), or before it (by its summaries alone: an undo then left the summary with no source and a suppression of that
+ * hash, review 2026-10-16), so a roll-up he undid isn't written again when a world first opens with this version.
+ */
+function upToDate(db: DB, s: Pick<Sources, 'level' | 'targetId' | 'tag' | 'legacy'>, row: { sourceHash: string }): boolean {
+  return (
+    row.sourceHash === s.tag ||
+    (!row.sourceHash.includes('|') && row.sourceHash === s.legacy) ||
+    suppressed(db, s.level, s.targetId, s.tag) ||
+    suppressed(db, s.level, s.targetId, s.legacy)
+  )
+}
+
+const changedSince = (db: DB, s: Sources, skip: (key: string) => boolean): boolean => {
+  if (skip(`${s.level}:${s.targetId}:${s.tag}`)) return false
+  const row = kdb.summaryRow(db, s.level, s.targetId)
   if (row?.origin === 'adam') return false
-  return !row || row.sourceHash !== hash
+  return !row || !upToDate(db, s, row)
 }
 
 /** The key a roll-up attempt is remembered by (so one that failed isn't tried again until its sources change). */
 export const rollUpKey = (r: Pick<RollUp, 'level' | 'targetId' | 'sourceHash'>): string => `${r.level}:${r.targetId}:${r.sourceHash}`
+
+/**
+ * The record's lines for a roll-up, within its share of the room: for a chapter, what changed in it (its summary is tied
+ * to that alone, so how things stand at its end, which an edit in an earlier chapter can change, is left to the snapshot
+ * the timeline shows, with no AI: review, 2026-10-16); for a story or series, how things stand at its end.
+ */
+function recordFor(s: Sources, names: ReturnType<typeof entryNames>, room: number): { record: string[]; end: string[]; tokens: number } {
+  if (!s.record) return { record: [], end: [], tokens: 0 }
+  const share = Math.floor(room * RECORD_SHARE)
+  const record = s.level === 'chapter' ? fitLines(changedLines(s.record, names), share) : []
+  const end = s.level === 'chapter' ? [] : fitLines(endLines(s.record, names), share)
+  return { record, end, tokens: estimateTokens([...record, ...end].map((l) => `- ${l}`).join('\n')) }
+}
 
 /** The next roll-up whose sources changed, for these stories (chapters first, then the story, then its series), or null. */
 export function nextRollUp(
@@ -370,90 +502,90 @@ export function nextRollUp(
   const stories = repo.listStories(db)
   const apart = apartFromBooks(stories)
   const seriesToCheck = new Set<ID>()
-  /** A story's last scene with a summary (or its last scene). */
-  const lastScene = (storyId: ID): ID | null => {
-    const scenes = repo.getOutline(db, storyId).scenes
-    return [...scenes].reverse().find((s) => kdb.summaryRow(db, 'scene', s.id))?.id ?? scenes.at(-1)?.id ?? null
+  let names: ReturnType<typeof entryNames> | null = null
+  const inputs = (s: Sources): { record: string[]; end: string[]; summaries: { label: string; text: string }[] } => {
+    names ??= entryNames(db)
+    const r = recordFor(s, names, room)
+    return { record: r.record, end: r.end, summaries: fit(s.parts.map(({ label, text }) => ({ label, text })), Math.max(200, room - r.tokens)) }
   }
   for (const storyId of storyIds) {
     const story = stories.find((s) => s.id === storyId)
     if (!story) continue
     if (story.seriesId && !apart(story.id)) seriesToCheck.add(story.seriesId)
-    const outline = repo.getOutline(db, storyId)
-    const chapterTexts: { label: string; text: string }[] = []
-    for (const ch of outline.chapters) {
-      const scenes = outline.scenes.filter((s) => s.chapterId === ch.id)
-      const items = scenes
-        .map((s, i) => ({
-          label: `Scene ${i + 1}${s.title.trim() ? ` "${s.title.trim()}"` : ''}`,
-          text: kdb.summaryRow(db, 'scene', s.id)?.text.trim() ?? ''
-        }))
-        .filter((x) => x.text)
-      if (items.length) {
-        const hash = hashText(items.map((x) => x.text).join('\n'))
-        if (changedSince(db, 'chapter', ch.id, hash, skip)) {
-          return {
-            level: 'chapter',
-            targetId: ch.id,
-            sceneId: [...scenes].reverse().find((s) => kdb.summaryRow(db, 'scene', s.id))!.id,
-            ask: { level: 'chapter', where: label({ storyId, chapterId: ch.id }), title: ch.title, summaries: fit(items, room) },
-            sourceHash: hash,
-            place: { storyId, chapterId: ch.id }
-          }
-        }
+    const src = storySources(db, storyId)
+    for (const ch of src.chapters) {
+      if (!changedSince(db, ch, skip)) continue
+      const a = inputs(ch)
+      return {
+        level: 'chapter',
+        targetId: ch.targetId,
+        sceneId: ch.lastSceneId,
+        ask: { level: 'chapter', where: label({ storyId, chapterId: ch.targetId }), title: ch.title, summaries: a.summaries, record: a.record },
+        sourceHash: ch.tag,
+        place: { storyId, chapterId: ch.targetId }
       }
-      const text = kdb.summaryRow(db, 'chapter', ch.id)?.text.trim()
-      if (text) chapterTexts.push({ label: `Chapter ${chapterTexts.length + 1}${ch.title.trim() ? ` "${ch.title.trim()}"` : ''}`, text })
     }
-    if (chapterTexts.length) {
-      const hash = hashText(chapterTexts.map((x) => x.text).join('\n'))
-      const sceneId = lastScene(storyId)
-      if (sceneId && changedSince(db, 'story', storyId, hash, skip)) {
-        return {
-          level: 'story',
-          targetId: storyId,
-          sceneId,
-          ask: { level: 'story', title: story.title, summaries: fit(chapterTexts, room) },
-          sourceHash: hash,
-          place: { storyId, chapterId: null }
-        }
+    const st = src.story
+    if (st?.lastSceneId && changedSince(db, st, skip)) {
+      const a = inputs(st)
+      return {
+        level: 'story',
+        targetId: storyId,
+        sceneId: st.lastSceneId,
+        ask: { level: 'story', title: story.title, summaries: a.summaries, end: a.end },
+        sourceHash: st.tag,
+        place: { storyId, chapterId: null }
       }
     }
   }
   for (const seriesId of seriesToCheck) {
     const series = repo.listSeries(db).find((s) => s.id === seriesId)
-    if (!series) continue
-    const items = stories
-      .filter((s) => s.seriesId === seriesId && !apart(s.id))
-      .sort((a, b) => a.createdOrder - b.createdOrder)
-      .map((s) => ({
-        storyId: s.id,
-        label: s.title.trim() || 'Untitled story',
-        text: kdb.summaryRow(db, 'story', s.id)?.text.trim() ?? ''
-      }))
-      .filter((x) => x.text)
-    if (!items.length) continue
-    const hash = hashText(items.map((x) => `${x.label}\n${x.text}`).join('\n'))
-    const sceneId = lastScene(items[items.length - 1].storyId)
-    if (sceneId && changedSince(db, 'series', seriesId, hash, skip)) {
+    const src = series ? seriesSources(db, seriesId, stories) : null
+    if (!series || !src) continue
+    const sceneId = storySources(db, src.lastStoryId).story?.lastSceneId ?? null
+    if (sceneId && changedSince(db, src, skip)) {
+      const a = inputs(src)
       return {
         level: 'series',
         targetId: seriesId,
         sceneId,
-        ask: {
-          level: 'series',
-          name: series.name,
-          summaries: fit(
-            items.map(({ label, text }) => ({ label, text })),
-            room
-          )
-        },
-        sourceHash: hash,
+        ask: { level: 'series', name: series.name, summaries: a.summaries, end: a.end },
+        sourceHash: src.tag,
         place: { storyId: null, chapterId: null }
       }
     }
   }
   return null
+}
+
+/**
+ * Marks which of a story's roll-ups (its chapters', its own, and its series') the memory wrote from sources that have
+ * changed since, so the screen can say each is being brought up to date, and clears the mark from those made from what
+ * is there now. Adam's own are left alone, and so is one Adam undid (it isn't written again until its sources change).
+ * `givenUp`: roll-ups the keeper has stopped trying to write this session (by rollUpKey), which aren't marked either, as
+ * nothing would bring them up to date. Reads only stored summaries and snapshots: no model. True when a mark changed.
+ */
+export function markOutOfDate(db: DB, storyId: ID, givenUp: (key: string) => boolean = () => false): boolean {
+  if (!db.open) return false
+  const stories = repo.listStories(db)
+  const story = stories.find((s) => s.id === storyId)
+  if (!story) return false
+  const src = storySources(db, storyId)
+  const all: Sources[] = [...src.chapters, ...(src.story ? [src.story] : [])]
+  if (story.seriesId && !apartFromBooks(stories)(story.id)) {
+    const series = seriesSources(db, story.seriesId, stories)
+    if (series) all.push(series)
+  }
+  let changed = false
+  for (const s of all) {
+    const row = kdb.summaryRow(db, s.level, s.targetId)
+    if (!row || row.origin === 'adam' || !row.text.trim()) continue
+    const current = upToDate(db, s, row) || givenUp(rollUpKey({ level: s.level, targetId: s.targetId, sourceHash: s.tag }))
+    if (current === !row.stale) continue
+    kdb.setTextSummaryStale(db, s.level, s.targetId, !current)
+    changed = true
+  }
+  return changed
 }
 
 /** Writes one roll-up. False when the call failed, was stopped, or Adam wrote his own meanwhile. */

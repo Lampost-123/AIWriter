@@ -131,12 +131,15 @@ describe('the writer’s gentle reminder', () => {
     expect(openThreadsText(open)).not.toContain('Quiet for a while')
   })
 
-  it('keeps an overdue thread in the list even when more recent ones would fill it', () => {
+  it('keeps an overdue thread in the list even when threads due now would fill it', () => {
     const entries = ['a', 'b', 'c'].map((id) => entry(id, `Thread ${id.toUpperCase()}`))
-    entries[1].happened = [{ note: 'moved on', where: '', changeId: 'x', at: 9 }]
-    entries[2].happened = [{ note: 'moved on', where: '', changeId: 'y', at: 8 }]
-    const threads = [thread('a', { quiet: 12, lastStoryId: 's1' }), thread('b', { quiet: 0, lastStoryId: 's1' }), thread('c', { quiet: 1, lastStoryId: 's1' })]
-    expect(openThreadsAt({ entries, threads, storyId: 's1' }, null, 2).map((t) => t.name)).toEqual(['Thread B', 'Thread A'])
+    const now = { chapterId: 'c1', label: 'Ch 1', from: 'adam' as const, state: 'now' as const }
+    const threads = [
+      thread('a', { quiet: 12, lastStoryId: 's1' }),
+      thread('b', { quiet: 0, lastStoryId: 's1', due: now }),
+      thread('c', { quiet: 1, lastStoryId: 's1', due: now })
+    ]
+    expect(openThreadsAt({ entries, threads, storyId: 's1' }, null, 2).map((t) => t.name)).toEqual(['Thread C', 'Thread A'])
   })
 
   it('goes to the writer in the open plot threads block', () => {

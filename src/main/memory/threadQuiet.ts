@@ -4,7 +4,7 @@
 // words in a scene that its facts rest on (a clue, its promise, a mention). Used by the plot threads ledger
 // (worldViews/threads.ts) and by the writer's gentle reminder (ai/openThreads.ts). Pure.
 
-import type { ID } from '@shared/types'
+import type { Change, ID } from '@shared/types'
 import type { Line } from './types'
 import type { ChangeIndex } from './state'
 
@@ -19,6 +19,11 @@ export interface ThreadTouch {
   storyId: ID
   /** Scenes on the line after that one (only those with words, when the caller says which have). */
   quiet: number
+  /**
+   * Where a thread change first opened it on the line (the promises ledger, long story memory fix 10): a touch after
+   * this one moved it on. Left out when no change on the line opens it.
+   */
+  opened?: { step: number; sceneId: ID | null; storyId: ID }
 }
 
 /**
@@ -36,19 +41,40 @@ export function threadTouches(
 ): Map<ID, ThreadTouch> {
   const ids = new Set(threadIds)
   const last = new Map<ID, { step: number; sceneId: ID | null; storyId: ID }>()
-  for (const c of changes.baseline) if (ids.has(c.entryId)) last.set(c.entryId, { step: -1, sceneId: null, storyId: '' })
+  const opened = new Map<ID, { step: number; sceneId: ID | null; storyId: ID }>()
+  const opens = (c: Change, at: { step: number; sceneId: ID | null; storyId: ID }): void => {
+    if (c.kind === 'thread' && c.payload.status === 'open' && !opened.has(c.entryId)) opened.set(c.entryId, at)
+  }
+  for (const c of changes.baseline) {
+    if (!ids.has(c.entryId)) continue
+    const at = { step: -1, sceneId: null, storyId: '' }
+    last.set(c.entryId, at)
+    opens(c, at)
+  }
   const sceneSteps: number[] = []
   line.steps.forEach((step, i) => {
     if (step.type === 'start-changes') {
-      for (const c of changes.byStory.get(step.storyId) ?? []) if (ids.has(c.entryId)) last.set(c.entryId, { step: i, sceneId: null, storyId: step.storyId })
+      const at = { step: i, sceneId: null, storyId: step.storyId }
+      for (const c of changes.byStory.get(step.storyId) ?? []) {
+        if (!ids.has(c.entryId)) continue
+        last.set(c.entryId, at)
+        opens(c, at)
+      }
     } else if (step.type === 'scene') {
       if (!written || written.has(step.sceneId)) sceneSteps.push(i)
       const at = { step: i, sceneId: step.sceneId, storyId: step.storyId }
-      for (const c of changes.byScene.get(step.sceneId) ?? []) if (ids.has(c.entryId)) last.set(c.entryId, at)
+      for (const c of changes.byScene.get(step.sceneId) ?? []) {
+        if (!ids.has(c.entryId)) continue
+        last.set(c.entryId, at)
+        opens(c, at)
+      }
       for (const id of ids) if (linkScenes.get(id)?.has(step.sceneId)) last.set(id, at)
     }
   })
   const out = new Map<ID, ThreadTouch>()
-  for (const [id, t] of last) out.set(id, { ...t, quiet: sceneSteps.filter((s) => s > t.step).length })
+  for (const [id, t] of last) {
+    const o = opened.get(id)
+    out.set(id, { ...t, quiet: sceneSteps.filter((s) => s > t.step).length, ...(o ? { opened: o } : {}) })
+  }
   return out
 }

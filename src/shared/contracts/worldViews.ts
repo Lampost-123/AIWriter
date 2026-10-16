@@ -5,7 +5,7 @@
 // (spec, Multi-story rules: "every as-of view uses it too"), and comes back in one call with everything
 // its screen needs. Places are in plain words ("Book 1, Ch 3, Sc 2").
 
-import type { AsOf, AsOfStop, EntryKind, ID, SceneStatus } from '../types'
+import type { AsOf, AsOfStop, EntryKind, ID, MemoryCheckUndo, SceneStatus, ThreadDue, ThreadPlanChange, ThreadStanding } from '../types'
 
 export interface WorldViewsApi {
   /**
@@ -30,10 +30,20 @@ export interface WorldViewsApi {
   /** The plot threads board as seen in a story, at its end: open, resolved and planned threads, with where each was set up and paid off. */
   getThreadsBoard(storyId: ID): Promise<ThreadsBoard>
   /**
+   * The promises ledger (long story memory fix 10): sets the chapter a plot thread should be paid off by (null: none), or
+   * marks it dropped (or picks it up again). Kept in the world; returns what Undo needs (undoMemoryCheck takes it back).
+   */
+  planThread(threadId: ID, change: ThreadPlanChange): Promise<MemoryCheckUndo>
+  /**
    * The desk's story board (UI overhaul, D5.2): each live scene's card in the story, by scene id, in one call. Titles,
    * status and words come from the outline; names and portraits from the timeline's entries.
    */
   listSceneCards(storyId: ID): Promise<Record<ID, BoardSceneCard>>
+  /**
+   * A scene's date on the story calendar (long story memory fix 11), worked out from the scene cards' When along the
+   * story's line: what the scene card says under When.
+   */
+  getSceneDate(sceneId: ID): Promise<SceneDateView>
   /** The story board's own marks, kept in the world (its `meta`): which scenes were planned from an AI idea. */
   getBoardMarks(): Promise<BoardMarks>
   /** Marks a scene as planned from an AI idea (or not); marks for scenes that are gone are dropped as it saves. */
@@ -287,8 +297,11 @@ export interface BoardThread {
   name: string
   /** What's promised to the reader (the thread's `promise` field). */
   promise: string
-  /** 'planned': set up on scene cards (or nowhere yet) but not yet opened in the story. */
-  column: 'open' | 'resolved' | 'planned'
+  /**
+   * 'planned': set up on scene cards (or nowhere yet) but not yet opened in the story. 'dropped': open in the story, and
+   * Adam decided it won't be paid off (long story memory fix 10).
+   */
+  column: 'open' | 'resolved' | 'planned' | 'dropped'
   setUp: BoardPlace | null
   paidOff: BoardPlace | null
   /** While open: how many chapters have gone by since it was set up. */
@@ -309,6 +322,18 @@ export interface BoardThread {
    */
   lastTouched?: BoardPlace | null
   quietScenes?: number | null
+  /**
+   * The promises ledger (long story memory fix 10), as of the latest scene with words in the story: where it stands
+   * (open, advanced, paid off, dropped), the last scene after its set-up that moved it on (null: none yet), when it is
+   * due to be paid off (null: no date and no scene card planning it), and what Worth a look says of it (overdue, or
+   * untouched for a long stretch; null: nothing). Left out by older boards.
+   */
+  standing?: ThreadStanding
+  advanced?: BoardPlace | null
+  due?: ThreadDue | null
+  /** A scene card's plan for its pay-off, whether or not Adam chose a chapter ("As the cards plan"); null for none. */
+  cardDue?: ThreadDue | null
+  warn?: 'overdue' | 'quiet' | null
 }
 
 /**
@@ -321,6 +346,8 @@ export interface ThreadsBoard {
   storyId: ID
   /** Ordered by where they were set up. */
   threads: BoardThread[]
+  /** The story's chapters, in order, for "Pay off by" (long story memory fix 10). Left out by older boards. */
+  chapters?: { id: ID; label: string }[]
 }
 
 // ---------- The desk's story board ----------
@@ -339,6 +366,30 @@ export interface BoardSceneCard {
   paysOffIds: ID[]
   /** Nothing yet on what happens (no beats, goal, conflict, outcome or notes): ideas can fill it. */
   empty: boolean
+  /** Its date on the story calendar (fix 11), said when the pointer rests on its When. Left out by anything older. */
+  date?: SceneDateView
+}
+
+/** A scene's date on the story calendar (long story memory fix 11), in plain words. */
+export interface SceneDateView {
+  /** The When it was worked out from, as saved ('' for none). */
+  when: string
+  /** The worked-out date: "Day 41 · evening", "1 April 1820 · day 21 of the story · dusk", "spring, Year 2"; '' when nothing is known. */
+  label: string
+  /**
+   * The worked-out day alone, when it adds to the words (a When that leans on the scenes before: "The next morning" is
+   * "Day 4"), for beside the When where scenes are listed; '' otherwise.
+   */
+  day: string
+  /**
+   * For under the card's When, short enough for one line: how the app read it when that adds to Adam's words ("Reads as
+   * Day 4 · morning."), or a gentle note when it couldn't tell ("Nothing dated before this to count on from.") or the
+   * scene goes back without saying so ("Earlier than the scene before. A flashback?"); '' to keep the usual hint ("Day 1,
+   * dusk" reads as itself).
+   */
+  note: string
+  /** The note in full, with what to do about it, for when the pointer rests on it; '' with no note. */
+  detail: string
 }
 
 export interface BoardMarks {

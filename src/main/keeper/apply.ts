@@ -16,7 +16,7 @@
 // The caller runs this inside one transaction. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Change, ChangeData, ChangeUntil, Entry, EntryKind, ID, Origin, SourceLink } from '@shared/types'
+import type { Change, ChangeData, ChangeUntil, Entry, EntryKind, ID, KnowHow, Origin, SourceLink } from '@shared/types'
 import type { SceneMemory, WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
@@ -54,7 +54,10 @@ import {
   sameOneWords,
   type SceneFact
 } from './facts'
-import { findQuote, likeness, locateQuote, plain, sameFact, sceneParagraphs, type Para } from './text'
+import { findQuote, likeness, locateQuote, mentionAt, plain, sameFact, sceneParagraphs, type Para } from './text'
+import { aliasWorthy, cleanCalled } from './names'
+import { forgetCalledNotIn, keepCalled } from '../db/called'
+import type { CalledName } from '@shared/names'
 
 type DB = Database.Database
 
@@ -155,9 +158,17 @@ export type Undo = (
   | { op: 'summary-refresh'; key: string; sceneId: ID; version: number; refreshed?: boolean }
   /**
    * A quiet note that changes nothing (World Memory Overhaul, 2026-10-08): "the scene no longer says this" under one of
-   * Adam's own facts, or the tidy-up's summary line. Undoing it only dismisses it.
+   * Adam's own facts, or the tidy-up's summary line. Undoing it only dismisses it; for words that count as someone in
+   * the scene (long story memory fix 12), it also stops them counting there (undo.ts).
    */
-  | { op: 'note'; key: string }
+  | {
+      op: 'note'
+      key: string
+      /** What the words call someone, offered in Worth a look as another name for them (long story memory fix 12). */
+      alias?: string
+      /** What the words call someone in this scene, not offered as another name ("her brother"; fix 12). */
+      called?: string
+    }
   /** Where a fact stops being true was set or cleared (World Memory Overhaul B1): Undo puts back what it was before. */
   | { op: 'until-set'; changeId: ID; before: ChangeUntil | null }
 ) & { fingerprint?: string; words?: string }
@@ -252,6 +263,10 @@ class Run {
   readonly settled = new Set<string>()
   /** Entries with a fact this run kept for Adam (see keptForAdam): never moved to the Trash by it. */
   readonly keptForAdam = new Set<ID>()
+  /** What the words call someone, as the reply gives it ("name" items), settled once the whole reply is in (settleNames). */
+  readonly called: (CalledName & { s: Spot })[] = []
+  /** Characters this read found the words call something new: told as changed, so the page underlines it. */
+  readonly calledKept = new Set<ID>()
   /**
    * Summaries to remove once the Trash has been seen to (null after): an entry moved there keeps its summary, so its
    * Undo brings it back whole, and no "Summary" line comes before "Moved to Trash".
@@ -516,6 +531,11 @@ class Run {
     return this.offered.has(`${entryId}|${field}|${plain(value)}`)
   }
 
+  /** True when the entry exists at this scene (or this read made it). */
+  isHere(id: ID): boolean {
+    return !this.here || this.here.has(id) || this.madeHere.has(id)
+  }
+
   /** The entry as it is at this scene (with the changes that count here), or null. */
   stateHere(id: ID): Entry | null {
     return this.ctx.memory?.entries.find((x) => x.id === id) ?? null
@@ -630,9 +650,21 @@ function updatedPayload(
     }
     case 'knowledge': {
       const fact = str(v.fact, 300)
+      // How they learned it and from whom (fix 9), when the verdict says. Whether it is a belief that isn't true is the
+      // fact's own: one fact id is either known or believed wrongly, never both, so a verdict never turns one into the
+      // other (it would share its id with the other kind).
+      const how = knowHow(v.how) ?? c.payload.how
+      const from = v.from !== undefined ? toldBy(run, v.from, ids, refs, c.entryId) : c.payload.from
+      const { how: _how, from: _from, ...rest } = c.payload
       return {
         kind: 'knowledge',
-        payload: { ...c.payload, fact: fact || c.payload.fact, forgets: v.forgets !== undefined ? bool(v.forgets) : c.payload.forgets }
+        payload: {
+          ...rest,
+          fact: fact || c.payload.fact,
+          forgets: v.forgets !== undefined ? bool(v.forgets) : c.payload.forgets,
+          ...(how ? { how } : {}),
+          ...(from ? { from } : {})
+        }
       }
     }
     case 'thread':
@@ -1504,6 +1536,58 @@ function applyThread(run: Run, a: Record<string, unknown>, chunk: ChunkReply, re
   }
 }
 
+// ---------- Who knows what: how they learned it (long story memory fix 9) ----------
+
+const KNOW_HOW: Record<string, KnowHow> = {
+  saw: 'saw',
+  seen: 'saw',
+  see: 'saw',
+  witnessed: 'saw',
+  told: 'told',
+  tell: 'told',
+  heard: 'told',
+  overheard: 'overheard',
+  overhear: 'overheard',
+  read: 'read',
+  guessed: 'guessed',
+  guess: 'guessed',
+  inferred: 'guessed',
+  deduced: 'guessed'
+}
+
+/** How the reply says they learned it, as one of the ledger's ways (its first word: "told by Ash" is told); else undefined. */
+export function knowHow(v: unknown): KnowHow | undefined {
+  const word = str(v, 40).toLowerCase().match(/[a-z]+/)?.[0] ?? ''
+  return KNOW_HOW[word]
+}
+
+/**
+ * A belief they see through (fix 9): the reply names its K as now known. It ends here, as an "end" item ends it (with the
+ * words, and Undo; Adam's own is kept, with a note); one they only came to in this scene is forgotten here instead.
+ */
+function seeThrough(run: Run, entry: Entry, k: string, factId: ID, chunk: ChunkReply, s: Spot): void {
+  const target = endTarget(run, run.entry(entry.id) ?? entry, k, chunk)
+  if (target?.kind === 'knowledge' && target.payload.wrong && target.payload.factId === factId) return endChange(run, target, '', s)
+  const fact = chunk.ids.knownText.get(k) ?? ''
+  addChange(run, entry, { kind: 'knowledge', payload: { factId, fact, forgets: true, wrong: true } }, s)
+}
+
+/** The fact id of something this character believes wrongly in these words, as this scene begins or in it; else undefined. */
+function beliefIn(run: Run, entryId: ID, fact: string): ID | undefined {
+  const before = run.ctx.memory?.beliefs?.find((b) => b.believedBy.includes(entryId) && plain(b.fact) === plain(fact))
+  if (before) return before.factId
+  for (const c of mem.changesInScene(run.db, run.scene.sceneId))
+    if (c.kind === 'knowledge' && c.entryId === entryId && c.payload.wrong && !c.payload.forgets && plain(c.payload.fact) === plain(fact)) return c.payload.factId
+  return undefined
+}
+
+/** Who told them (an E id or a new entry's ref): a character other than themselves; else undefined. */
+function toldBy(run: Run, v: unknown, ids: Ids, refs: Map<string, ID>, self: ID): ID | undefined {
+  if (!str(v, 20)) return undefined
+  const e = run.resolve(v, ids, refs)
+  return e && e.kind === 'character' && e.id !== self ? e.id : undefined
+}
+
 // ---------- Facts with an end (World Memory Overhaul B1) ----------
 
 const lowerFirst = (s: string): string => (s ? s[0].toLowerCase() + s.slice(1) : s)
@@ -1514,17 +1598,33 @@ const lowerFirst = (s: string): string => (s ? s[0].toLowerCase() + s.slice(1) :
  */
 function endTarget(run: Run, entry: Entry, fact: string, chunk: ChunkReply): Change | null {
   if (!fact) return null
-  const here = run.ctx.memory?.entries.find((x) => x.id === entry.id)
+  const memory = run.ctx.memory
+  const here = memory?.entries.find((x) => x.id === entry.id)
   const k = fact.toUpperCase()
+  const listed = /^K\d+$/.test(k) ? chunk.ids.known.get(k) : undefined
   const knownId =
-    (/^K\d+$/.test(k) ? chunk.ids.known.get(k) : undefined) ??
-    run.ctx.memory?.facts.find((f) => f.knownBy.includes(entry.id) && sameFact(f.fact, fact))?.factId
+    (listed && !chunk.ids.wrong.has(k) ? listed : undefined) ??
+    memory?.facts.find((f) => f.knownBy.includes(entry.id) && sameFact(f.fact, fact))?.factId
+  // A belief they see through (the who-knows-what ledger, long story memory fix 9) ends the same way.
+  const believedId =
+    (listed && chunk.ids.wrong.has(k) ? listed : undefined) ??
+    memory?.beliefs?.find((b) => b.believedBy.includes(entry.id) && sameFact(b.fact, fact))?.factId
+  const holds = (id: ID, wrong: boolean): boolean =>
+    wrong
+      ? !!memory?.beliefs?.some((b) => b.factId === id && b.believedBy.includes(entry.id))
+      : !!memory?.facts.some((f) => f.factId === id && f.knownBy.includes(entry.id))
   const own = mem.changesForEntry(run.db, entry.id).filter((c) => c.entryId === entry.id && c.sceneId !== run.scene.sceneId)
-  if (knownId && run.ctx.memory?.facts.some((f) => f.factId === knownId && f.knownBy.includes(entry.id))) {
+  for (const [id, wrong] of [
+    [knownId, false],
+    [believedId, true]
+  ] as const) {
+    if (!id || !holds(id, wrong)) continue
     // The learning that is true here: the latest before this scene on its line (one from a start of story counts first).
     const line = run.ctx.shape ? scenesBefore(run.ctx.shape, run.scene.sceneId) : []
     const pos = (c: Change): number => (c.sceneId ? line.indexOf(c.sceneId) : -1)
-    const learned = own.filter((c) => c.kind === 'knowledge' && c.payload.factId === knownId && !c.payload.forgets && (!c.sceneId || pos(c) >= 0))
+    const learned = own.filter(
+      (c) => c.kind === 'knowledge' && c.payload.factId === id && !c.payload.forgets && !!c.payload.wrong === wrong && (!c.sceneId || pos(c) >= 0)
+    )
     const last = learned.sort((a, b) => pos(b) - pos(a) || (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))[0]
     if (last) return last
   }
@@ -1667,6 +1767,74 @@ function settleEnds(run: Run): void {
   }
 }
 
+/**
+ * What the words call a character that the memory doesn't list (long story memory fix 12, keeper/names.ts): noted, and
+ * settled once the whole reply is in (settleNames), so the same words given for two people count for neither. Only a
+ * character who exists here, and only words that are in the scene where the model says.
+ */
+function noteName(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>, s: Spot): void {
+  const words = cleanCalled(a.name ?? a.called)
+  const e = run.resolve(a.entry, chunk.ids, refs)
+  if (!words || !e || e.kind !== 'character' || !run.isHere(e.id)) return
+  if (!mentionAt(run.paraText(s), words) && !mentionAt(s.quote, words)) return
+  run.called.push({ entryId: e.id, words, s })
+}
+
+/** The quiet note offering words as another name for a character: one per character and words, in the whole story. */
+export const aliasNoteKey = (entryId: ID, words: string): string => `alias:${entryId}:${plain(words)}`
+/** The quiet note saying words count as a character in one scene (any words not offered there as another name). */
+export const calledNoteKey = (sceneId: ID, entryId: ID, words: string): string => `called:${sceneId}:${entryId}:${plain(words)}`
+
+/**
+ * Keeps what the words call each character for this scene (db/called.ts), so the writer's briefing and the page find
+ * them by it here, each with a quiet note in What changed whose Dismiss takes it back in this scene. One that would
+ * name them anywhere in the story (a nickname or a title, aliasWorthy) is offered as another name the first time, with
+ * a note Adam can act on in Worth a look (checkQueue.ts); any other (a relation, "her brother", or a name offered
+ * before) gets a plain note. Words already a name of theirs or of anyone else's, given for two people, or dismissed or
+ * ignored in this scene before, are left alone, so Ignore sticks when the scene is read again. Words no longer in the
+ * scene stop counting there.
+ */
+function settleNames(run: Run): void {
+  if (run.ctx.removed) return
+  const db = run.db
+  const sceneId = run.scene.sceneId
+  forgetCalledNotIn(db, sceneId, run.plan.paras.map((p) => p.text).join('\n\n'))
+  if (!run.called.length) return
+  const byWords = new Map<string, Run['called']>()
+  for (const c of run.called) byWords.set(plain(c.words), [...(byWords.get(plain(c.words)) ?? []), c])
+  const named = (e: Entry, k: string): boolean => [e.name, ...e.aliases].some((n) => plain(n) === k)
+  const everyone = repo.listEntries(db)
+  const keep: CalledName[] = []
+  for (const [k, list] of byWords) {
+    if (new Set(list.map((c) => c.entryId)).size > 1) continue
+    const c = list[0]
+    const e = run.entry(c.entryId)
+    if (!e || everyone.some((x) => named(x, k))) continue
+    // This scene's note for these words: the offer, if it was made here, or the plain note.
+    const offers = kdb.linesWithKey(db, aliasNoteKey(e.id, c.words))
+    const here = [...offers.filter((l) => l.sceneId === sceneId), ...kdb.linesWithKey(db, calledNoteKey(sceneId, e.id, c.words))]
+    if (here.some((l) => l.undone)) continue
+    keep.push({ entryId: e.id, words: c.words })
+    run.calledKept.add(e.id)
+    if (here.length) continue
+    const offer = aliasWorthy(c.words) && !offers.length
+    run.log({
+      action: 'updated',
+      what: 'entry',
+      entryId: e.id,
+      entryName: e.name,
+      text: offer ? `Also called “${c.words}” here` : `Called “${c.words}” here`,
+      before: '',
+      after: '',
+      quote: c.s.quote,
+      undo: offer
+        ? { op: 'note', key: aliasNoteKey(e.id, c.words), alias: c.words }
+        : { op: 'note', key: calledNoteKey(sceneId, e.id, c.words), called: c.words }
+    })
+  }
+  keepCalled(db, sceneId, keep)
+}
+
 function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
   const type = str(a.type, 20).toLowerCase()
   if (type === 'entry') return addEntry(run, a, chunk, refs)
@@ -1714,7 +1882,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     const seen = (e.summary || e.name).trim()
     const stage = run.stageAt(s)
     if (seen && stage.length) {
-      const factId = mem.listFacts(db).find((x) => plain(x.fact) === plain(seen))?.factId ?? newId()
+      const factId = mem.listFacts(db).find((x) => !x.wrong && plain(x.fact) === plain(seen))?.factId ?? newId()
       const there = stage.map((p) => p.id)
       for (const p of stage) {
         const c = addChange(run, p, { kind: 'knowledge', payload: { factId, fact: seen, seen: true, there } }, s, `Saw it happen: ${seen}`)
@@ -1735,6 +1903,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     return
   }
   if (type === 'thread') return applyThread(run, a, chunk, refs, s)
+  if (type === 'name') return noteName(run, a, chunk, refs, s)
   // Close an open thread (B7): a resolve, under the same rules (the payoff on the page, not while the plan puts it later).
   if (type === 'close') return applyThread(run, { ...a, status: 'resolved' }, chunk, refs, s)
   const entry = run.resolve(a.entry, chunk.ids, refs)
@@ -1802,9 +1971,33 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     case 'knows': {
       const fact = str(a.fact, 300)
       if (!fact) return
+      // The who-knows-what ledger (long story memory fix 9): how they learned it, from whom, and whether it is a belief
+      // that isn't true. One fact id is either known or believed wrongly, never both. A K the reply names says which (a K
+      // line says "wrongly believed by" for a belief: request.ts), whatever the reply's own "wrong"; the same words count
+      // only when they are the same kind.
+      const forgets = bool(a.forgets)
+      const how = knowHow(a.how)
+      const from = how === 'told' || how === 'overheard' || (!how && a.from) ? toldBy(run, a.from, chunk.ids, refs, entry.id) : undefined
       const k = str(a.factId, 10).toUpperCase()
-      const factId = chunk.ids.known.get(k) ?? mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ?? newId()
-      addChange(run, entry, { kind: 'knowledge', payload: { factId, fact, forgets: bool(a.forgets) } }, s)
+      const listed = chunk.ids.known.get(k)
+      const listedWrong = !!listed && chunk.ids.wrong.has(k)
+      // A belief named and now known, not as a belief: they have learned the truth, so the belief ends here.
+      if (listed && listedWrong && !forgets && !bool(a.wrong)) return seeThrough(run, entry, k, listed, chunk, s)
+      // The same words as something they already believe wrongly, before this scene or in it: that belief (known again,
+      // or forgotten), never a fact they know in the same words.
+      const ownId = listed ? undefined : beliefIn(run, entry.id, fact)
+      const wrong = listed ? listedWrong : ownId ? true : bool(a.wrong)
+      const factId =
+        listed ?? ownId ?? mem.listFacts(db).find((x) => !!x.wrong === wrong && plain(x.fact) === plain(fact))?.factId ?? newId()
+      const payload = {
+        factId,
+        fact,
+        forgets,
+        ...(how ? { how } : {}),
+        ...(from ? { from } : {}),
+        ...(wrong ? { wrong: true as const } : {})
+      }
+      addChange(run, entry, { kind: 'knowledge', payload }, s)
       return
     }
     case 'said': {
@@ -1825,8 +2018,8 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const k = str(a.factId, 10).toUpperCase()
       const factId =
         (again?.kind === 'knowledge' ? again.payload.factId : null) ??
-        chunk.ids.known.get(k) ??
-        mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ??
+        (chunk.ids.wrong.has(k) ? undefined : chunk.ids.known.get(k)) ??
+        mem.listFacts(db).find((x) => !x.wrong && plain(x.fact) === plain(fact))?.factId ??
         newId()
       // Everyone on stage at those words heard them too (B5), unless they were whispered or said aside: then only those
       // the model names. Who was there is kept with the fact, so who doesn't know it can be told.
@@ -2138,6 +2331,7 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
     for (const c of chunk.reply.clashes) applyClash(run, c, chunk, refs)
   }
   settleUnconfirmed(run, replies)
+  settleNames(run)
   settleEnds(run)
   trashForgotten(run)
   const later = run.laterSummaries ?? []
@@ -2155,5 +2349,6 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
     )
   }
   for (const l of run.lines) if (l.entryId) run.touched.add(l.entryId)
+  for (const id of run.calledKept) run.touched.add(id)
   return { lines: run.lines.length, entryIds: [...run.touched], newEntryIds: [...run.madeHere] }
 }

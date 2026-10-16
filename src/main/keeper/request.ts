@@ -161,6 +161,8 @@ export class Ids {
   readonly facts = new Map<string, SceneFact>()
   readonly known = new Map<string, ID>()
   readonly knownText = new Map<string, string>()
+  /** K ids that stand for something believed wrongly (long story memory fix 9), not for a fact someone knows. */
+  readonly wrong = new Set<string>()
   private readonly fixed = new Map<ID, number>()
   private extra = 0
 
@@ -193,11 +195,16 @@ export class Ids {
     this.facts.set(id, f)
     return id
   }
-  knownFact(factId: ID, fact: string): string {
-    for (const [k, v] of this.known) if (v === factId) return k
+  /**
+   * The K id of a fact someone knows, or of a belief (`wrong`): one fact id is only ever one of the two (long story memory
+   * fix 9), but should both turn up, each still gets its own K, the belief's marked as one.
+   */
+  knownFact(factId: ID, fact: string, wrong = false): string {
+    for (const [k, v] of this.known) if (v === factId && this.wrong.has(k) === wrong) return k
     const k = `K${this.known.size + 1}`
     this.known.set(k, factId)
     this.knownText.set(k, fact)
+    if (wrong) this.wrong.add(k)
     return k
   }
 }
@@ -220,7 +227,7 @@ function describeFact(f: SceneFact, ids: Ids): string {
       const c = f.change
       if (c.kind === 'relationship')
         return `relationship ${e} with ${ids.entry(c.payload.otherId)}: ${c.payload.type}${c.payload.ended ? ' (ended)' : ''}`
-      if (c.kind === 'knowledge') return `${c.payload.forgets ? 'forgets' : 'knows'} ${e}: ${c.payload.fact}`
+      if (c.kind === 'knowledge') return `${c.payload.forgets ? 'forgets' : c.payload.wrong ? 'believes wrongly' : 'knows'} ${e}: ${c.payload.fact}`
       if (c.kind === 'thread') return `thread ${e}: ${c.payload.status}${c.payload.note ? ` (${c.payload.note})` : ''}`
       const fields = Object.entries(c.kind === 'update' ? (c.payload.fields ?? {}) : {})
         .map(([k, v]) => `${k}: ${v}`)
@@ -283,6 +290,15 @@ function mentioned(e: EntryState, text: string): boolean {
  * changed paragraphs need, never every name in a big world on each pause in typing.
  */
 export const NAMES_TOKENS = 1500
+
+/** The most "who knows what" lines a request lists. */
+export const FACT_LINES = 40
+/**
+ * Beliefs that aren't true (long story memory fix 9) have their own seat, ahead of the facts: at most this many lines and
+ * this many tokens of the room.
+ */
+export const BELIEF_LINES = 12
+export const BELIEF_TOKENS = 400
 
 /** Lines added while they fit the room left. */
 class Room {
@@ -363,12 +379,23 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     const line = `- ${ids.entry(rel.aId)} and ${ids.entry(rel.bId)}: ${rel.type}${rel.aFeels || rel.bFeels ? ` (${ids.entry(rel.aId)}: ${rel.aFeels || '-'}; ${ids.entry(rel.bId)}: ${rel.bFeels || '-'})` : ''}`
     if (room.take(line)) relLines.push(line)
   }
+  // What those shown believe that isn't true (the who-knows-what ledger, long story memory fix 9), first and with their own
+  // seat (BELIEF_LINES, BELIEF_TOKENS), so in a long series a belief they see through can still be ended and one already
+  // kept isn't reported again, however many facts there are.
+  const beliefLines: string[] = []
+  const beliefRoom = new Room(Math.min(room.left, BELIEF_TOKENS))
+  for (const b of sm?.beliefs ?? []) {
+    const by = b.believedBy.filter((k) => shown.has(k)).map((k) => ids.entry(k))
+    if (!by.length || beliefLines.length >= BELIEF_LINES) continue
+    const line = `- ${ids.knownFact(b.factId, b.fact, true)} ${q(b.fact)}: wrongly believed by ${by.join(', ')}`
+    if (beliefRoom.take(line) && room.take(line)) beliefLines.push(line)
+  }
   const factLines: string[] = []
   for (const f of sm?.facts ?? []) {
     if (!f.knownBy.some((k) => shown.has(k)) && !relevant.some((e) => mentionAt(f.fact, e.name))) continue
     const known = f.knownBy.filter((k) => shown.has(k)).map((k) => ids.entry(k))
     const line = `- ${ids.knownFact(f.factId, f.fact)} ${q(f.fact)}${known.length ? `: known by ${known.join(', ')}` : ''}`
-    if (factLines.length < 40 && room.take(line)) factLines.push(line)
+    if (factLines.length < FACT_LINES && room.take(line)) factLines.push(line)
   }
   // Each open thread with what it promises and its last clue (2026-10-08), so a clue or a payoff is told apart from news.
   const threadLines: string[] = []
@@ -419,7 +446,7 @@ export function buildRequest(r: RequestInput): ReadingRequest {
   const memoryText = [
     sm?.knows ? sm.knows : '',
     relLines.length ? ['Relationships:', ...relLines].join('\n') : '',
-    factLines.length ? ['Facts (who knows what):', ...factLines].join('\n') : '',
+    factLines.length || beliefLines.length ? ['Facts (who knows what):', ...beliefLines, ...factLines].join('\n') : '',
     memoryLines.length || nameLines.length
       ? ['## Memory at this point', ...byIdNumber([...memoryLines, ...nameLines])].join('\n')
       : '## Memory at this point\n(nothing yet)',

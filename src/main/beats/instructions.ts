@@ -223,6 +223,16 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
  * The direction kept with a beat's record (shown in "What the AI saw"): the scene's direction for the
  * draft, and Adam's note for this beat.
  */
+/**
+ * What a beat's scene contract asks for (long story memory fix 13): the beat, with Adam's note for it when he gave one, so
+ * a steered beat is checked against what he asked, not the card's words alone.
+ */
+export function beatFocus(beat: string, steer: string): string {
+  const b = beat.trim()
+  const s = steer.trim()
+  return b && s ? `${b.replace(/[.]$/, '')} (the author’s note for it: ${s.replace(/[.]$/, '')})` : b
+}
+
 export function beatDirection(direction: string, steer: string): string {
   const d = direction.trim()
   const s = steer.trim()

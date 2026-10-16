@@ -31,11 +31,23 @@ export const saysDied = (note: string): boolean => OWN_DEATH.some((re) => re.tes
  * later one says they live. Null for anyone alive, and for anything that isn't a character.
  */
 export function deathOf(e: Pick<EntryState, 'kind' | 'happened'>): { note: string; where: string } | null {
+  const d = deathRecord(e)
+  return d && { note: d.note, where: d.where }
+}
+
+/** The same, with the change that said it (`changeId`). */
+export function deathRecord(e: Pick<EntryState, 'kind' | 'happened'>): { note: string; where: string; changeId: string } | null {
   if (e.kind !== 'character') return null
-  let found: { note: string; where: string } | null = null
+  let found: { note: string; where: string; changeId: string } | null = null
   for (const h of e.happened ?? []) {
     if (ALIVE.test(h.note)) found = null
-    else if (saysDied(h.note)) found = { note: h.note.trim(), where: h.where }
+    else if (saysDied(h.note)) found = { note: h.note.trim(), where: h.where, changeId: h.changeId }
   }
   return found
 }
+
+/** Words that leave a death in doubt: "presumed dead", "reported drowned", "left for dead", "feared dead". */
+const DOUBTFUL = /\b(presumed|declared|reported|believed|thought|feared|rumou?red|supposed(?:ly)?|said to (?:be|have)|left for dead|missing)\b/i
+
+/** True when a note says for certain that its character died (the rule-based checks, long story memory fix 8). */
+export const surelyDied = (note: string): boolean => saysDied(note) && !DOUBTFUL.test(note)

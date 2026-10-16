@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { AppEvents } from '@shared/api'
-import type { CheckDone, CheckProgress } from '@shared/contracts/checks'
+import type { CheckDone, CheckKind, CheckProgress } from '@shared/contracts/checks'
 import { DONE_CHECKS } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import * as repo from '../db/repo'
@@ -11,7 +11,14 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
 import { UserError } from '../util'
-import { checkScene, type CheckOptions } from './run'
+import { checkBudget, checkScene, type CheckOptions } from './run'
+import { checkSections, gatherSceneCheck } from './context'
+import { sceneSystem } from './prompts'
+import { estimateTokens } from '../keeper/text'
+import { SECOND_MARKER } from '../repair/second'
+import { issueFindings } from '../chapterWriter/run'
+import type { SceneContract } from '../ai/contract'
+import { CHECK_CONTRACT_RULES, contractSection } from '../repair/contract'
 import { checkReport, reportItems } from './report'
 import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
 import { Keeper } from '../keeper/engine'
@@ -271,5 +278,198 @@ describe('the critic’s report', () => {
       { check: 'facts', ok: false, note: 'Found 2 things to look at.' },
       { check: 'timeline', ok: true, note: 'Nothing to report.' }
     ])
+  })
+})
+
+describe('the scene’s contract in the chapter writer’s checks (long story memory fix 13)', () => {
+  const contract = (tobinId: ID): SceneContract => ({
+    asks: 'scene',
+    items: [
+      { code: 'C1', part: 'change', text: 'Mara pushes the door open', check: 'facts', entryIds: [] },
+      { code: 'C2', part: 'change', text: 'Mara finds the ledger under the floor', check: 'facts', entryIds: [] },
+      { code: 'C3', part: 'keep', text: 'Tobin is dead: died in the fire (since Ch 1, Sc 1)', check: 'facts', entryIds: [tobinId] }
+    ]
+  })
+
+  it('goes through it in the request about what is so: no more requests; what it goes against and what isn’t shown yet are issues', async () => {
+    const w = world()
+    const out = await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    expect(out).toEqual({ status: 'done', found: 3 })
+    // Two requests, as without it; only the first has the contract.
+    const recs = checkRecords(w.db, w.s2).map((id) => gens.getGeneration(w.db, id))
+    expect(recs).toHaveLength(2)
+    expect(recs[0].messages[0].content).toContain(CHECK_CONTRACT_RULES)
+    expect(recs[0].messages[1].content).toContain('## The scene’s contract (C ids)\nMust change by the end of the scene:\n- [C1] Mara pushes the door open')
+    expect(recs[1].messages[0].content).not.toContain('contract')
+
+    const rows = cdb.sceneIssueRows(w.db, w.s2).map((r) => ({ ...r, p: cdb.payloadOf(r) }))
+    const dead = rows.find((r) => r.p.contract?.part === 'keep')!
+    expect(dead).toMatchObject({ kind: 'fact', severity: 'warning', quote: '"You took your time," said Tobin.', message: 'Tobin is dead, but speaks here.' })
+    expect(dead.p.sources).toEqual([{ kind: 'entry', entryId: w.tobinId, name: 'Tobin', field: null }])
+    const notYet = rows.find((r) => r.p.contract?.part === 'change')!
+    expect(notYet).toMatchObject({ quote: '', message: 'This scene was planned to show this, but the new words don’t yet: “Mara finds the ledger under the floor.” Write it in, or leave it for later?' })
+    expect(checkReport(w.db, w.s2)!.contract!.items.map((i) => i.result)).toEqual(['kept', 'not yet', 'broken'])
+  })
+
+  it('only a check through the contract replaces what one found: the critic after a draft leaves those issues be', async () => {
+    const w = world()
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    const fromContract = (): number => cdb.sceneIssueRows(w.db, w.s2).filter((r) => r.status === 'open' && cdb.payloadOf(r).contract).length
+    expect(fromContract()).toBe(2)
+    await checkScene(options(w.db), w.s2, DONE_CHECKS)
+    expect(fromContract()).toBe(2)
+    expect(checkReport(w.db, w.s2)!.contract!.items).toHaveLength(3)
+    // The scene put right and checked through the contract again: what it found goes.
+    repo.saveSceneText(w.db, w.s2, null, 'Mara pushed the door open and found the ledger under the floor.')
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    expect(fromContract()).toBe(0)
+  })
+})
+
+/** The stand-in model for some requests (`answer` gives the reply), the fake provider for the rest; keeps what was asked. */
+function stubbed(answer: (system: string, user: string) => unknown): typeof fetch & { asked: { system: string; user: string }[] } {
+  const asked: { system: string; user: string }[] = []
+  const f = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { messages: { role: string; content: string }[] }
+    const system = body.messages.find((m) => m.role === 'system')?.content ?? ''
+    const user = body.messages.find((m) => m.role === 'user')?.content ?? ''
+    asked.push({ system, user })
+    const a = answer(system, user)
+    if (a === null || a === undefined) return fetch(input, init)
+    const content = typeof a === 'string' ? a : JSON.stringify(a)
+    const chunk = { choices: [{ index: 0, delta: { content }, finish_reason: 'stop' }] }
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
+  }) as typeof fetch & { asked: { system: string; user: string }[] }
+  f.asked = asked
+  return f
+}
+
+/** The room a check request leaves for the scene, worked out as checkScene does. */
+function roomFor(db: CheckOptions['db'], sceneId: ID, checks: CheckKind[], contextLength: number, contract: SceneContract | null): number {
+  const ctx = gatherSceneCheck(db, sceneId, PREFS)
+  const { available } = checkBudget({ choice: { ...model().choice, contextLength } }, sceneSystem(checks, !!contract))
+  const terms = contract ? [contractSection(contract).section] : []
+  const size = (s: ReturnType<typeof checkSections>): number => s.reduce((n, x) => n + estimateTokens(x.text) + 8, 0)
+  let sections = [...checkSections(ctx, checks), ...terms]
+  if (size(sections) > available * 0.6) sections = [...checkSections(ctx, checks, true), ...terms]
+  return available - size(sections)
+}
+
+/** The smallest context length that leaves `room` for the scene. */
+function contextFor(db: CheckOptions['db'], sceneId: ID, checks: CheckKind[], room: number, contract: SceneContract | null): number {
+  let n = 1000
+  while (roomFor(db, sceneId, checks, n, contract) < room) n += 10
+  return n
+}
+
+describe('the scene’s contract after the review (fix 13)', () => {
+  const contract = (tobinId: ID): SceneContract => ({
+    asks: 'scene',
+    items: [
+      { code: 'C1', part: 'start', text: 'Mara holds the lamp', check: 'continuity', entryIds: [] },
+      { code: 'C2', part: 'change', text: 'Mara finds the ledger under the floor', check: 'facts', entryIds: [] },
+      { code: 'C3', part: 'keep', text: 'Tobin is dead: died in the fire (since Ch 1, Sc 1)', check: 'facts', entryIds: [tobinId] }
+    ]
+  })
+  const fromContract = (db: CheckOptions['db'], sceneId: ID) => cdb.sceneIssueRows(db, sceneId).filter((r) => r.status === 'open' && cdb.payloadOf(r).contract)
+  const sized = (contextLength: number): JobModel => ({ ...model(), choice: { ...model().choice, contextLength } })
+
+  it('a reply with no contract list isn’t a check through it: nothing it found before goes, and the report keeps what it had', async () => {
+    const w = world()
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    expect(fromContract(w.db, w.s2)).toHaveLength(2)
+    const had = checkReport(w.db, w.s2)!.contract
+    expect(had!.items.map((i) => i.result)).toEqual(['untouched', 'not yet', 'broken'])
+    for (const reply of [{ issues: [], checked: [] }, { issues: [], checked: [], contract: [] }, { issues: [], checked: [], contract: [{ item: 'C9', result: 'kept' }] }]) {
+      const fetchImpl = stubbed((system) => (system.includes(CHECK_CONTRACT_RULES) ? reply : null))
+      expect((await checkScene({ ...options(w.db), contract: contract(w.tobinId), fetchImpl }, w.s2, DONE_CHECKS)).status).toBe('done')
+      expect(fromContract(w.db, w.s2)).toHaveLength(2)
+      expect(checkReport(w.db, w.s2)!.contract).toEqual(had)
+    }
+  })
+
+  it('a long scene in parts: what must be true at the start goes with the first part only, and only its answer counts', async () => {
+    const w = world()
+    const opening = 'Mara pushed the door open with the lamp in her hand.'
+    const later = 'Later Mara set the lamp down and found the ledger under the floor.'
+    const filler = Array.from({ length: 40 }, (_, i) => `The rain kept on over the roofs of the town and the gutters ran with it, hour after hour, for the ${i + 1}th time.`)
+    repo.saveSceneText(w.db, w.s2, null, [opening, ...filler, later].join('\n\n'))
+    const c = contract(w.tobinId)
+    const fetchImpl = stubbed((system, user) => {
+      if (!system.includes(CHECK_CONTRACT_RULES)) return null
+      return user.includes('(part 1 of')
+        ? { issues: [], checked: [], contract: [{ item: 'C1', result: 'kept', quote: opening }, { item: 'C2', result: 'not yet' }, { item: 'C3', result: 'untouched' }] }
+        : { issues: [], checked: [], contract: [{ item: 'C1', result: 'broken', quote: later, why: 'She has put the lamp down.' }, { item: 'C2', result: 'kept', quote: later }] }
+    })
+    const out = await checkScene({ ...options(w.db, sized(contextFor(w.db, w.s2, ['facts'], 400, c))), contract: c, fetchImpl }, w.s2, ['facts'])
+    expect(out.status).toBe('done')
+    const parts = fetchImpl.asked.filter((a) => a.system.includes(CHECK_CONTRACT_RULES))
+    expect(parts.length).toBeGreaterThan(1)
+    expect(parts[0].user).toContain('- [C1] Mara holds the lamp')
+    for (const p of parts.slice(1)) {
+      expect(p.user).not.toContain('[C1]')
+      expect(p.user).toContain('- [C2] Mara finds the ledger under the floor')
+    }
+    // Putting the lamp down later in the scene doesn't go against how it starts; the ledger is found in a later part.
+    expect(fromContract(w.db, w.s2)).toHaveLength(0)
+    expect(checkReport(w.db, w.s2)!.contract!.items.map((i) => i.result)).toEqual(['kept', 'kept', 'untouched'])
+  })
+
+  it('too little room for the contract: it is left out, never the check', async () => {
+    const w = world()
+    const c = contract(w.tobinId)
+    const contextLength = contextFor(w.db, w.s2, ['facts'], 300, null)
+    // With the contract this model couldn't have checked the scene at all.
+    expect(roomFor(w.db, w.s2, ['facts'], contextLength, c)).toBeLessThan(250)
+    const fetchImpl = stubbed(() => null)
+    const out = await checkScene({ ...options(w.db, sized(contextLength)), contract: c, fetchImpl }, w.s2, ['facts'])
+    expect(out).toMatchObject({ status: 'done' })
+    expect(fetchImpl.asked[0].system).not.toContain(CHECK_CONTRACT_RULES)
+    expect(fetchImpl.asked[0].user).not.toContain('contract')
+    expect(fromContract(w.db, w.s2)).toHaveLength(0)
+  })
+
+  it('contracts switched off: a whole check takes away what one found, and the report’s contract', async () => {
+    const w = world()
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    expect(fromContract(w.db, w.s2)).toHaveLength(2)
+    // The critic after a draft, contracts still on: they stay.
+    await checkScene(options(w.db), w.s2, DONE_CHECKS)
+    expect(fromContract(w.db, w.s2)).toHaveLength(2)
+    await checkScene({ ...options(w.db), contractsOff: true }, w.s2, DONE_CHECKS)
+    expect(fromContract(w.db, w.s2)).toHaveLength(0)
+    expect(checkReport(w.db, w.s2)!.contract).toBeUndefined()
+    // The chapter writer's review is never sent them again.
+    expect(issueFindings(w.db, w.s2).some((f) => f.kind.includes('scene contract'))).toBe(false)
+  })
+
+  it('the chapter writer puts right only what a second opinion agreed goes against it; what isn’t shown yet is Adam’s', async () => {
+    const ruled = async (second: unknown) => {
+      const w = world()
+      const fetchImpl = stubbed((system) => (system.startsWith(SECOND_MARKER) ? second : null))
+      await checkScene({ ...options(w.db), contract: contract(w.tobinId), fetchImpl }, w.s2, DONE_CHECKS)
+      const asked = fetchImpl.asked.filter((a) => a.system.startsWith(SECOND_MARKER))
+      const rows = fromContract(w.db, w.s2).map((r) => ({ quote: r.quote, ...cdb.payloadOf(r).contract! }))
+      const review = issueFindings(w.db, w.s2).filter((f) => f.kind.includes('scene contract'))
+      return { asked, rows, review }
+    }
+    // Notes in order: the broken item (Tobin speaks), then what isn't shown (the ledger).
+    const agreed = await ruled({ verdicts: [{ n: 1, real: true }, { n: 2, real: true }] })
+    expect(agreed.asked).toHaveLength(1)
+    expect(agreed.asked[0].user).toContain('1. Quote: ""You took your time," said Tobin."')
+    expect(agreed.asked[0].user).toContain('2. Not shown · Line: [C2] Mara finds the ledger under the floor')
+    expect(agreed.rows.find((r) => r.part === 'keep')).toMatchObject({ confirmed: true, quote: '"You took your time," said Tobin.' })
+    expect(agreed.rows.find((r) => r.part === 'change')).toMatchObject({ missing: true })
+    expect(agreed.review.map((f) => f.quote)).toEqual(['"You took your time," said Tobin.'])
+
+    // Ruled not real: nothing to put right, and nothing asked about it.
+    const rejected = await ruled({ verdicts: [{ n: 1, real: false }, { n: 2, real: true }] })
+    expect(rejected.rows.map((r) => r.part)).toEqual(['change'])
+    expect(rejected.review).toEqual([])
+
+    // No ruling (a reply it can't read): asked, but never put right without Adam.
+    const unread = await ruled('I would rather not say.')
+    expect(unread.rows.find((r) => r.part === 'keep')!.confirmed).toBeUndefined()
+    expect(unread.review).toEqual([])
   })
 })

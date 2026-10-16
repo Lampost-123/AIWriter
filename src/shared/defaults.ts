@@ -91,6 +91,8 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off', recipe: 'off', chapter: 'off', sounds: 'off', sample: 'off', polish: 'off' },
   creativity: 'balanced',
   planFirst: true,
+  sceneContracts: true,
+  continuityBrief: true,
   // Dark, the desk's "Night harbour", for a new install or anyone who never chose a theme (Adam, 2026-10-08: "desk is new
   // default in dark mode"). A theme Adam picked (Light, Sepia, Dark or Match the system) is kept in his settings.
   theme: 'dark',

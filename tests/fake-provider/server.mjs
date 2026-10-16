@@ -59,6 +59,8 @@
 //                                                    "The next morning," and the like is its "when")
 //   - "<Name> told them a secret: <x>."             a secret told by <Name> ("said", heard by nobody named: the
 //                                                    app adds who was on stage)
+//   - "<Name>, known as <words>, <anything>."        the words call <Name> <words> (a "name" item, long story
+//                                                    memory fix 12)
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
@@ -260,6 +262,8 @@ function readSentence(s) {
   if (m) return { kind: 'thread-developing', note: m[1].trim() }
   m = s.match(/^At last the answer came: ([^.!?]+)[.!?]/)
   if (m) return { kind: 'thread-resolved', note: m[1].trim() }
+  m = s.match(/\b([A-Z][a-z]+), known as ([^,.!?]+),/)
+  if (m) return { kind: 'name', name: m[1], called: m[2].trim() }
   return null
 }
 
@@ -311,6 +315,7 @@ export function fakeMemoryReply(user) {
     if (r.kind === 'knows') add.push({ type: 'knows', entry, fact: r.fact, quote: s })
     if (r.kind === 'end') add.push({ type: 'end', entry, fact: r.fact, when: r.when, quote: s })
     if (r.kind === 'said') add.push({ type: 'said', kind: 'secret', entry, heard: [], fact: r.fact, quote: s })
+    if (r.kind === 'name') add.push({ type: 'name', entry, name: r.called, quote: s })
     if (r.kind === 'wants') {
       // Filed as a character, as a careless memory model once did with a bead (the app makes it an item).
       const name = `${r.name}'s ${r.what} ${r.thing}`
@@ -350,17 +355,11 @@ export function fakeMemoryReply(user) {
 }
 
 /**
- * A deterministic summary: the opening words of the text it was given. A scene summary to patch (World Memory Overhaul
- * A3: the old summary, then the paragraphs new or rewritten since) is edited the same way: the opening words of those
- * paragraphs, then of the old summary, so it never echoes the prompt's "Summary:" label back.
+ * A deterministic summary: the opening words of the text it was given (a roll-up's: of the summaries it is made from,
+ * which come before the story record's lines). Since long story memory fix 15 no summary is patched: a scene's is always
+ * written again from its words.
  */
 export function fakeSummary(user) {
-  const patch = String(user).match(/^This is the summary of a scene[\s\S]*?\n\nSummary: ([\s\S]*?)\n\nNew or rewritten paragraphs:\n\n([\s\S]*)$/)
-  if (patch) {
-    const old = patch[1].replace(/^This part of the story begins:\s*/, '')
-    const words = `${patch[2]} ${old}`.split(/\s+/).filter(Boolean).slice(0, 40).join(' ')
-    return `This part of the story begins: ${words.replace(/[.,;:!?"']+$/, '')}.`
-  }
   const text = String(user)
     .split('\n\n')
     .slice(1)

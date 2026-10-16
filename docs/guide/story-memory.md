@@ -20,6 +20,29 @@ what it changed in the scene too.
 The memory adds what your story says, such as a character's new scar, a place they've been, or something they've
 just found out. It never overwrites what you typed into an entry yourself.
 
+It keeps track of who knows what: what each character knows, since which scene, and how they found out (they saw
+it, someone told them, they read it or guessed it), and what they believe that isn't true. Before every scene, the
+AI is told this for everyone in the scene, including anyone your words bring in, so no one acts on something they
+haven't found out yet. You can see it on each character's page, under **What they know**.
+
+It also notices when your story calls someone something new, such as a nickname, a title ("the Captain") or "her
+brother". In that scene the AI knows who you mean straight away, and **What changed** says so: **Dismiss** there if
+it got it wrong. A nickname or a title is also offered as another name, under **Worth a look**, in **Other names the
+story uses**. Click **Add name** and the AI knows them by it in every scene. Click **Ignore** and it's never offered
+for them again, and stops counting as them in that scene. Words like "her brother" or "Mother" depend on who is
+speaking, so they only ever count in the scene they're in.
+
+It keeps a calendar of your story, too, from each scene card's **When**. AI Write works out the sums, such as "3 weeks
+since the start of Ch 4" or someone's age, so the AI doesn't have to guess them. It also uses the calendar to decide
+what carries into the next scene. Later the same evening, what people wear and hold carries over. On another day, only
+their injuries do. See [Writing with AI](writing-with-ai.md#plan-the-scene-on-its-card).
+
+It keeps track of the promises your story makes, too: each plot thread is open, moved on, resolved, or dropped. If a
+thread is still open after the chapter you chose to pay it off by, or nothing has touched it for a long stretch (a
+quarter of the story so far, and at least 12 scenes), it shows under **Worth a look**, in **Plot threads left
+waiting**. Click **Pay off later** to choose a later chapter, **Mark as dropped** if the story won't pay it off, or
+**Keep** to leave it as it is. Each one can be undone.
+
 ## See and undo what the memory changed
 
 **What changed** lists everything the memory has done, newest first, grouped by the scene it read. Each line says
@@ -54,7 +77,8 @@ given these facts before it writes, so a character who took her boots off by the
 ## See and steer what the AI is given
 
 The **Context** tab shows the exact briefing the next draft of this scene would get: which entries, which earlier
-passages, the summary of the story so far.
+passages, the summary of the story so far. Anyone named in the words already in the scene is given in full, as the
+characters on the scene card are, whether by their name, another name, or what the scene calls them.
 
 - **Leave out of this scene** drops something the AI doesn't need.
 - **Pin for this scene**, **Pin for this story** or **Pin for every scene** makes sure something is always included.
@@ -64,6 +88,14 @@ passages, the summary of the story so far.
 When a scene is marked done, AI Write writes its summary. Chapters and the whole story get summaries too. The AI
 reads these to remember the story so far without rereading every word, which keeps long books fast and affordable.
 You can edit any summary.
+
+Summaries are only signposts: the facts come from the story memory itself. A chapter's summary is written from its
+scenes' summaries together with what the memory recorded in that chapter (who was hurt or died, who learned what, which
+plot threads were set up or paid off), and the story's summary from its chapters' summaries and how everyone stood at
+the end. When you change a scene, or the memory by hand, its summary is written again from the scene itself, never
+patched, and only the summaries that rest on it are redone. Until then, the note under each one says **Being brought
+up to date**. For each older chapter the AI also sees the days it covers and a few key facts (who learned what, which
+plot threads were paid off), straight from the memory.
 
 ## Live checks as you type
 
@@ -82,13 +114,33 @@ accept or reject), or **Ignore** if it's meant to be that way.
 Deeper checks compare a scene with the memory. They look at:
 
 - **Facts**: does anything contradict what's already established?
-- **Who knows what**: does a character know something they haven't found out yet?
+- **Who knows what**: does a character know something they haven't found out yet, or act as if a mistaken belief
+  were already put right?
 - **Timeline and place**: could they really be here, at this time?
 - **Voice** and **Style and tone**: does everyone sound like themselves?
 
 They run by themselves shortly after a draft and when you mark a scene done. To check by hand, use
 **Check this scene**, **Check this chapter** or **Check this story** (from the binder, the Issues tab, the Check room, or search
 with Ctrl+K). They use the **Consistency check model**.
+
+### Free checks from the memory
+
+Some slips need no AI at all, just what the memory already knows. Each time the memory reads a scene, and whenever a
+scene is checked, AI Write looks for these at once, for free:
+
+- A character who **died earlier speaks, acts, or is on the scene card** ("Tobin died in Ch 1, Sc 2, but speaks
+  here."). Remembering them or talking about them is fine, and so is a flashback, a dream, a ghost or a vision (when
+  the paragraph, the scene card or the **When** says so).
+- Something **destroyed or lost** turning up in someone's hand, or **one thing in two people's hands** at once.
+- The **point of view** character being somewhere else at the very same clock time (both scenes saying "9pm", say),
+  or never named in a long scene.
+- **Time running backwards**: a scene dated before the one before it. If it's a flashback, start its **When** with
+  "Flashback".
+- An **age** that doesn't fit the character's birth date or age in the memory.
+- Someone **telling a secret** the memory has no sign they ever learned.
+
+They only speak up when the memory is sure, so they rarely cry wolf. They appear in the **Issues** tab like any other
+issue, marked **Found by a rule, not the AI**.
 
 ### Fix what's found
 

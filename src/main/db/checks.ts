@@ -6,7 +6,9 @@
 // Rows come from three places, and all read the same way:
 // - the memory keeper's clashes with Adam's facts: { entryId, field, memory, text, key };
 // - the world builder's, the same plus from: 'summary', with scene '' (story-wide);
-// - the AI checks': { key, by: 'check', check, sources, fix, memoryFix, entryId, field }.
+// - the AI checks': { key, by: 'check', check, sources, fix, memoryFix, entryId, field };
+// - the free rule checks' (long story memory fix 8, checks/ruleChecks.ts): { key, by: 'rule', rule, sources, entryId,
+//   field }.
 // A clash with one of Adam's own fields can be settled by updating the memory (memoryFix): the field
 // takes the text's value, as his.
 
@@ -42,9 +44,11 @@ export interface IssuePayload {
   text?: string
   /** The world builder's: found in Adam's summary of the world. */
   from?: 'summary'
-  /** The AI checks'. */
-  by?: 'check'
+  /** The AI checks' ('check'), or the free rule checks' ('rule': long story memory fix 8, no AI asked). */
+  by?: 'check' | 'rule'
   check?: CheckKind | 'story'
+  /** Which rule found it (checks/rules.ts RuleId). */
+  rule?: string
   sources?: IssueSource[]
   fix?: string | null
   /** The critic's suggestion in a sentence, when a rewrite of the quote alone can't fix it. */
@@ -56,6 +60,21 @@ export interface IssuePayload {
   occurrence?: number
   /** Settled by Update the memory (the text was right): never a slip later scenes are warned of (checks/lessons.ts). */
   fixedBy?: 'memory'
+  /**
+   * Found by checking a draft against its scene's contract (long story memory fix 13): which list the item was in and its
+   * words. Only a check that went through the contract replaces such a row (checks/run.ts).
+   */
+  contract?: {
+    part: 'start' | 'change' | 'keep'
+    text: string
+    /**
+     * Something the words go against that a second opinion agreed with (fix 13's review): only such an item may be put
+     * right without asking (the chapter writer's review; chapterWriter/run.ts issueFindings).
+     */
+    confirmed?: true
+    /** Something that must change the words don't show yet: asked, never written in by itself. */
+    missing?: true
+  }
 }
 
 // ---------- Telling the window ----------
@@ -156,6 +175,8 @@ export function readIssue(r: Row, names: IssueNames): Issue {
     ...(typeof p.occurrence === 'number' ? { occurrence: p.occurrence } : {}),
     // An ignored common AI phrase is a phrase row: the Issues tab names it as what it is.
     ...(r.kind === 'phrase' && typeof p.key === 'string' && isSlopKey(p.key) ? { aiPhrase: true as const } : {}),
+    ...(p.by === 'rule' ? { byRule: true as const } : {}),
+    ...(p.contract ? { byContract: true as const } : {}),
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string
   }
@@ -392,9 +413,25 @@ export function sameThing(p: IssuePayload, row: Row, f: Pick<FoundIssue, 'key' |
   const q = json<IssuePayload>(row.payload_json, {})
   if (q.key && q.key === f.key) return true
   if ((row.scene_id || null) !== (f.sceneId || null)) return false
+  // A rule's finding (long story memory fix 8) and the AI's or the keeper's: the same thing when both are about the same
+  // entry (and the same field, or neither) and about what is so, whatever their kinds, unless both quote words and those
+  // are other words of another kind; with no entry on one side, by their words as below. Two rules' findings are the same
+  // only by their keys.
+  if (p.by === 'rule' || q.by === 'rule') {
+    if (p.by === 'rule' && q.by === 'rule') return false
+    if (p.entryId && q.entryId) {
+      const a = (row.quote as string) ?? ''
+      const words = row.kind === f.kind || !a.trim() || !f.quote.trim() || quotesOverlap(a, f.quote)
+      return q.entryId === p.entryId && (p.field ?? null) === (q.field ?? null) && RULE_KINDS.has(f.kind) && RULE_KINDS.has(row.kind as IssueKind) && words
+    }
+    return row.kind === f.kind && quotesOverlap((row.quote as string) ?? '', f.quote)
+  }
   if (p.entryId && q.entryId === p.entryId && p.field && q.field === p.field) return true
   return row.kind === f.kind && quotesOverlap((row.quote as string) ?? '', f.quote)
 }
+
+/** The kinds a rule's finding is matched with another's by entry: what is so, never how it reads (voice, style). */
+const RULE_KINDS = new Set<IssueKind>(['fact', 'knowledge', 'timeline', 'continuity'])
 
 /**
  * Saves what a check found in one transaction, replacing what the same check found there before:
@@ -419,9 +456,24 @@ export function saveFound(db: DB, existing: Row[], found: FoundIssue[], replaces
       const mine = same.find((r) => json<IssuePayload>(r.payload_json, {}).key === f.key)
       const other = same.find((r) => r.status === 'open' && r !== mine)
       if (other && (!mine || mine.status !== 'open')) {
-        // Already raised (by the memory keeper, or another check): it stays, with the rewrite if it lacked one.
         kept.add(other.id as ID)
         const q = json<IssuePayload>(other.payload_json, {})
+        // A rule's finding (fix 8) the AI check found too becomes the check's, in its place: the check's words, with
+        // its rewrite or advice. So whichever ran first, the same thing reads the same (the rules never take over).
+        if (q.by === 'rule' && p.by === 'check' && !mine) {
+          db.prepare('UPDATE issues SET severity = ?, quote = ?, message = ?, payload_json = ?, kind = ?, updated_at = ? WHERE id = ?').run(
+            f.severity,
+            f.quote,
+            f.message,
+            JSON.stringify(p),
+            f.kind,
+            t,
+            other.id
+          )
+          issuesTouched(f.storyId, f.sceneId)
+          continue
+        }
+        // Already raised (by the memory keeper, or another check): it stays, with the rewrite if it lacked one.
         if (!q.fix && p.fix) {
           db.prepare('UPDATE issues SET payload_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify({ ...q, fix: p.fix }), t, other.id)
           issuesTouched(f.storyId, f.sceneId)
@@ -431,6 +483,15 @@ export function saveFound(db: DB, existing: Row[], found: FoundIssue[], replaces
       if (mine) {
         kept.add(mine.id as ID)
         const wasOpen = mine.status === 'open'
+        // Found again just as it was (the rules run after every reading of a scene): nothing to tell the window.
+        const unchanged =
+          wasOpen &&
+          mine.severity === f.severity &&
+          mine.quote === f.quote &&
+          mine.message === f.message &&
+          mine.kind === f.kind &&
+          mine.payload_json === JSON.stringify(p)
+        if (unchanged) continue
         db.prepare(
           "UPDATE issues SET status = 'open', severity = ?, quote = ?, message = ?, payload_json = ?, kind = ?, scene_id = ?, story_id = ?, updated_at = ? WHERE id = ?"
         ).run(f.severity, f.quote, f.message, JSON.stringify(p), f.kind, f.sceneId ?? '', f.storyId, t, mine.id)
@@ -448,11 +509,12 @@ export function saveFound(db: DB, existing: Row[], found: FoundIssue[], replaces
       raised++
       issuesTouched(f.storyId, f.sceneId)
     }
-    // What this check found before and not this time goes (only open ones: ignored stay ignored, fixed stay fixed).
+    // What this check (or the rules) found before and not this time goes (only open ones: ignored stay ignored, fixed
+    // stay fixed). The keeper's own clashes are never taken away here.
     for (const r of existing) {
       if (r.status !== 'open' || kept.has(r.id as ID)) continue
       const q = json<IssuePayload>(r.payload_json, {})
-      if (q.by !== 'check' || !replaces(q, r)) continue
+      if ((q.by !== 'check' && q.by !== 'rule') || !replaces(q, r)) continue
       db.prepare('DELETE FROM issues WHERE id = ?').run(r.id)
       issuesTouched(r.story_id as ID | null, (r.scene_id as ID) || null)
     }
@@ -492,6 +554,18 @@ export function saveFixed(db: DB, f: FoundIssue): ID {
 }
 
 /** Every issue row in these scenes (any status). */
+/**
+ * Takes away the open issues a check through a scene's contract raised (long story memory fix 13's review): with contracts
+ * switched off nothing would ever clear them. Ignored ones stay ignored.
+ */
+export function dropContractIssues(db: DB, sceneId: ID): void {
+  for (const r of rowsInScenes(db, [sceneId])) {
+    if (r.status !== 'open' || !json<IssuePayload>(r.payload_json, {}).contract) continue
+    db.prepare('DELETE FROM issues WHERE id = ?').run(r.id)
+    issuesTouched(r.story_id as ID | null, sceneId)
+  }
+}
+
 export function rowsInScenes(db: DB, sceneIds: ID[]): Row[] {
   if (!sceneIds.length) return []
   const out: Row[] = []
@@ -528,6 +602,58 @@ export function storyKindRows(db: DB, storyId: ID): Row[] {
 
 /** The payload of a row. */
 export const payloadOf = (r: Row): IssuePayload => json<IssuePayload>(r.payload_json, {})
+
+/** A rule's row (fix 8): `by` 'rule' in its payload, as SQL. */
+const RULE_ROW = "json_valid(payload_json) AND json_extract(payload_json, '$.by') = 'rule'"
+
+/** The live scenes with a rule's finding open (fix 8: looked at again when a scene before them is read). */
+export function openRuleScenes(db: DB): ID[] {
+  return (
+    db
+      .prepare(
+        `SELECT DISTINCT i.scene_id AS id FROM issues i JOIN scenes sc ON sc.id = i.scene_id JOIN chapters c ON c.id = sc.chapter_id
+         JOIN stories st ON st.id = c.story_id
+         WHERE i.status = 'open' AND ${RULE_ROW} AND sc.deleted_at IS NULL AND c.deleted_at IS NULL AND st.deleted_at IS NULL`
+      )
+      .all() as Row[]
+  ).map((r) => r.id as ID)
+}
+
+/**
+ * Takes away the rules' open findings (fix 8) in scenes that are deleted (in Recently deleted, or in a chapter or story
+ * that is): they no longer count anywhere. What Adam ignored or fixed there stays, for if the scene comes back. Returns
+ * the scenes whose issues changed.
+ */
+export function clearDeletedRules(db: DB): ID[] {
+  const rows = db
+    .prepare(
+      `SELECT id, scene_id, story_id FROM issues WHERE status = 'open' AND ${RULE_ROW} AND scene_id IN (
+         SELECT sc.id FROM scenes sc LEFT JOIN chapters c ON c.id = sc.chapter_id LEFT JOIN stories st ON st.id = c.story_id
+         WHERE sc.deleted_at IS NOT NULL OR c.deleted_at IS NOT NULL OR st.deleted_at IS NOT NULL)`
+    )
+    .all() as Row[]
+  if (!rows.length) return []
+  const del = db.prepare('DELETE FROM issues WHERE id = ?')
+  db.transaction(() => {
+    for (const r of rows) del.run(r.id)
+  })()
+  for (const r of rows) issuesTouched(r.story_id as ID | null, r.scene_id as ID)
+  return [...new Set(rows.map((r) => r.scene_id as ID))]
+}
+
+/**
+ * The rules' findings still open in a scene (fix 8), as Adam sees them, oldest first: the plan's reader of the record
+ * is told them before the scene is drafted again (long story memory fix 14), so the brief can say what not to repeat.
+ */
+export function openRuleFindings(db: DB, sceneId: ID, most = 12): string[] {
+  return (
+    db
+      .prepare(`SELECT message FROM issues WHERE scene_id = ? AND status = 'open' AND ${RULE_ROW} ORDER BY created_at, id LIMIT ?`)
+      .all(sceneId, Math.max(0, most)) as Row[]
+  )
+    .map((r) => String(r.message ?? '').trim())
+    .filter(Boolean)
+}
 
 /** How many open issues a scene has that were raised at or after `since` (by a check, or by the memory keeper). */
 export function openSince(db: DB, sceneId: ID, since: string): number {

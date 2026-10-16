@@ -36,12 +36,17 @@ export const blockState = (b: ContextBlock): BlockState => (b.dropped ? 'left-ou
 
 export const BLOCK_STATE_WORDS: Record<BlockState, string> = { full: 'Full', short: 'Short', 'left-out': 'Left out' }
 
+/** The continuity brief's part (long story memory fix 14): the memory model writes a new one before each draft. */
+export const BRIEF_PART_ID = 'continuity-brief'
+
 /** Why a part is the way it is, in plain words, for its tooltip. */
 export function blockStateNote(b: ContextBlock): string {
   const mode = b.mode ?? 'auto'
   if (b.dropped) return "Left out: there wasn't room for it in this model's briefing."
+  if (b.shortFor === 'brief') return 'Short, as the continuity brief says what of it matters for this scene.'
   if (b.short) return mode === 'short' ? 'Sent in its short form, as you chose.' : 'Shortened to fit the room this model has.'
   if (b.hasShort && mode === 'full') return 'Sent in full, as you chose.'
+  if (b.id === BRIEF_PART_ID) return 'The memory model writes a new one just before each draft. This is the last one it wrote.'
   return 'Sent in full.'
 }
 

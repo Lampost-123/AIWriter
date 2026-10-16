@@ -9,9 +9,11 @@ import { cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
 import { effectiveStyle } from '@shared/style'
 import * as repo from '../db/repo'
 import { getBlockModes, pinsForScene } from '../db/memory'
+import { calledIn } from '../db/called'
 import { sceneMemory } from '../memory/scene'
 import { loadShapeSafe, sceneWords } from '../keeper/places'
 import { lessonsBefore } from '../checks/lessons'
+import { sceneCalendar, type SceneCalendar } from '../memory/storyCalendar'
 import type { ContextInput } from './context'
 
 type DB = Database.Database
@@ -60,10 +62,13 @@ export function gatherContextInput(
   const { story } = repo.sceneLocation(db, sceneId)
   const series = story.seriesId ? repo.listSeries(db).find((s) => s.id === story.seriesId) : undefined
   const stand = keptStateBefore(db, sceneId)
+  const memory = sceneMemory(db, sceneId, { forWriter: true })
   return {
     style: effectiveStyle(extra.prefs, repo.getWorldStyle(db), story.style),
     scene: { title: scene.title, card: scene.card },
-    memory: sceneMemory(db, sceneId, { forWriter: true }),
+    memory,
+    // What this scene's words and the previous scene's call their characters (long story memory fix 12).
+    called: { here: calledIn(db, sceneId), previous: calledIn(db, memory.previous?.sceneId) },
     pins: pinsForScene(db, sceneId),
     blockModes: getBlockModes(db, sceneId),
     world: { themes: repo.getMeta(db, 'themes') ?? '', tone: repo.getMeta(db, 'tone') ?? '' },
@@ -76,7 +81,20 @@ export function gatherContextInput(
     continuity: stand,
     stageWhere: stageWhere(db, stand),
     // Slips the checks found in earlier scenes and that were put right: what must stay true warns of those about the people here.
-    slips: lessonsBefore(db, sceneId).slips
+    slips: lessonsBefore(db, sceneId).slips,
+    // The story calendar (long story memory fix 11): the scene's date, the sums since the scene before and earlier days,
+    // and the ages of those on its card.
+    calendar: calendarFor(db, sceneId, memory, scene.card)
+  }
+}
+
+/** The story calendar at a scene for its briefing (memory/storyCalendar.ts sceneCalendar); null rather than stopping a draft. */
+export function calendarFor(db: DB, sceneId: ID, memory: Parameters<typeof sceneCalendar>[2], card: Parameters<typeof sceneCalendar>[3]): SceneCalendar | null {
+  try {
+    return sceneCalendar(db, sceneId, memory, card)
+  } catch (e) {
+    console.warn('Could not work out the story calendar; the briefing goes by the scene cards’ When', e)
+    return null
   }
 }
 
@@ -101,7 +119,8 @@ export function stageWhere(db: DB, state: SceneState | null | undefined): Record
 // the story's line run first." The memory keeper registers how (setBeforeDraft); drafting waits for
 // it, but never for long, and drafts anyway with what the memory has if it fails.
 
-export type BeforeDraft = (db: DB, sceneId: ID) => Promise<unknown> | unknown
+/** `limitMs`: how long the draft waits for it at most, so the memory can keep to it (the summaries a draft needs). */
+export type BeforeDraft = (db: DB, sceneId: ID, limitMs?: number) => Promise<unknown> | unknown
 
 let beforeDraft: BeforeDraft | null = null
 
@@ -138,7 +157,7 @@ export async function catchUpBeforeDraft(
   })
   // A failure is noted even when it comes after the wait is over (timed out or stopped).
   const run = Promise.resolve()
-    .then(() => fn(db, sceneId))
+    .then(() => fn(db, sceneId, limitMs))
     .then(
       () => 'done' as const,
       (e: unknown) => {

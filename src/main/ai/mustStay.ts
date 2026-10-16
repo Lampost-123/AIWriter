@@ -13,9 +13,12 @@
 // who is dead, what is kept from someone here, how people are hurt, and how much time has passed since the scene before,
 // so they are never crowded out by clothes and things in the place, and its short form keeps them. Since fix 7 of that
 // research it also says the latest slips the checks found about these people in earlier scenes and that were put right
-// (MUST_SLIPS, checks/lessons.ts), so the writer doesn't make them again. Pure.
+// (MUST_SLIPS, checks/lessons.ts), so the writer doesn't make them again. Since fix 9 (the who-knows-what ledger) what is
+// kept from someone is worked out among everyone in the scene (the card, the stage, the scene so far: `knowers`), as the
+// "Who knows what" block has it (whoKnows.ts), and what someone here believes that isn't true is a key kind of its own,
+// with its own few lines (MUST_BELIEFS). Pure.
 
-import type { EntryState, FactState, ID } from '@shared/types'
+import type { BeliefState, EntryState, FactState, ID } from '@shared/types'
 import {
   clothesOf,
   heldNotPlaced,
@@ -49,6 +52,13 @@ export const MUST_KEY = 5
 export const MUST_SMALLEST = 3
 /** The most "does not know" lines among them. */
 export const MUST_GAPS = 3
+/**
+ * The most lines among them saying what someone here believes that isn't true (long story memory fix 9): a seat of their
+ * own, never taken by the secrets.
+ */
+export const MUST_BELIEFS = 2
+/** The most names a line gives before "and 3 more" (who something is kept from, who knows it). */
+export const MUST_NAMES = 3
 /** The most lines among them about what someone gave away, lost or got. */
 export const MUST_ITEMS = 4
 /** The most pieces of clothing a person, and things in the place, among them (those the scene names first). */
@@ -116,7 +126,7 @@ export interface MustInput {
   /** What has happened so far, for telling a plan that has happened (realSecrets); left out: what has happened to `people` and `named`. */
   happened?: KnowsContext['happened']
   /**
-   * How much time has passed since the scene before, as a line ("Time: the scene before was Day 3, dusk; this scene is
+   * How much time has passed since the scene before, as a line ("Time: 2 days since the scene before (Day 3, dusk); this scene is
    * Day 5"), at a new scene's start; '' or left out when it isn't known or no time has passed.
    */
   elapsed?: string
@@ -126,6 +136,18 @@ export interface MustInput {
    * short or smallest form. Left out: none.
    */
   slips?: { text: string; where: string; entryIds: ID[] }[]
+  /**
+   * Everyone in the scene for who knows what (long story memory fix 9: the card, the stage, the scene so far), point of
+   * view first: what is kept from one of them, and what one of them believes wrongly. Left out: `people`.
+   */
+  knowers?: EntryState[]
+  /** What characters believe that isn't true at this point (fix 9). Left out: none. */
+  beliefs?: BeliefState[]
+  /**
+   * Lines the scene's contract already says, word for word, right above the list (long story memory fix 13,
+   * contract.ts): left out of every form, so nothing is said twice. Left out: none.
+   */
+  leaveOut?: ReadonlySet<string>
 }
 
 /**
@@ -152,6 +174,7 @@ const RANK = {
   gone: 9,
   gotNamed: 10,
   gap: 11,
+  belief: 11.5,
   where: 12,
   posture: 13,
   touching: 14,
@@ -163,11 +186,14 @@ const RANK = {
   weather: 20
 } as const
 type Kind = keyof typeof RANK
+/** What a line of the list is about (RANK's names): the scene's contract (contract.ts) sorts them by it. */
+export type MustKind = Kind
 /**
  * What a new scene is most likely to break, in the order the list gives them first (2026-10-15): someone dead acting
- * alive, someone learning or thinking what is kept from them, an injury forgotten, and time passing unnoticed.
+ * alive, someone learning or thinking what is kept from them, an injury forgotten, someone acting on the truth of what
+ * they believe wrongly (fix 9), and time passing unnoticed.
  */
-const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'elapsed']
+const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'belief', 'elapsed']
 
 /** Fields whose current value is a fact to keep to when a change set it during the story (a haircut in Ch 5). */
 const FACT_FIELDS = (FIELD_GROUPS.character ?? []).filter((g) => g.id === 'basics' || g.id === 'looks').flatMap((g) => g.fields)
@@ -177,6 +203,10 @@ const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g
 const clipTo = (s: string, most: number): string => (s.length > most ? `${s.slice(0, most - 1).trimEnd()}…` : s)
 const joinAnd = (items: string[]): string =>
   items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+
+/** Names joined, at most `most` of them before "and 9 more" (all of them when only one more would be left out). */
+export const namesUpTo = (names: string[], most = MUST_NAMES): string =>
+  names.length > most + 1 ? `${names.slice(0, most).join(', ')} and ${names.length - most} more` : joinAnd(names)
 
 /** Something some of the people in a scene know and others don't. */
 export interface Secret {
@@ -242,11 +272,14 @@ export function realSecrets(
   return out
 }
 
-/** True when a text names this person: by name, another name, or a first name of three letters or more. */
+/**
+ * True when a text names this person: by name, another name, or a first name of three letters or more ("The" of "The
+ * Duke" is no first name: "The will was burned" isn't about him).
+ */
 export function namesPerson(text: string, p: Pick<EntryState, 'name' | 'aliases'>): boolean {
   const names = [p.name, ...(p.aliases ?? [])].map(clean).filter(Boolean)
   const first = clean(p.name).split(' ')[0] ?? ''
-  if (first.length >= 3 && /^\p{Lu}/u.test(first)) names.push(first)
+  if (first.length >= 3 && /^\p{Lu}/u.test(first) && !/^the$/i.test(first)) names.push(first)
   return names.some((n) => nameIn(text, n))
 }
 
@@ -389,12 +422,43 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
 
 /** The lines of the list, without their dashes, in the order they are sent. Empty when nothing is known. */
 export function mustStayTrue(o: MustInput): string[] {
-  const out: { rank: number; who: number; text: string; piece: boolean }[] = []
+  return mustLines(o).map((l) => l.text)
+}
+
+/**
+ * What a line says, for the scene's contract (contract.ts): what would have to be said of it to change it. The words that
+ * say it (a fact, an injury, a death) and the people it is about, or the item someone has or gave away, or the thing in
+ * the place. A contract leaves out of what must not change any line its own change list changes (long story memory fix
+ * 13's review: a key handed over must not also be kept).
+ */
+export type MustAbout = { words: string; who: string[]; learns?: true } | { holding: Pick<Holding, 'words'> } | { thing: StageItem }
+
+/** One line of the list: what it is about, its words, and the codex entries it names (the people, the item). */
+export interface MustLine {
+  kind: MustKind
+  text: string
+  entryIds: ID[]
+  /** What it says, for the scene's contract (left out: its words alone). */
+  about?: MustAbout
+}
+
+/** The list's lines with what each is about (mustStayTrue gives their words alone). */
+export function mustLines(o: MustInput): MustLine[] {
+  const out: { rank: number; who: number; text: string; piece: boolean; kind: Kind; ids: ID[]; about?: MustAbout }[] = []
   /** A line: its words (cut short when long, unless `whole`), then since when it holds, never cut. */
-  const add = (kind: Kind, who: number, text: string, where = '', whole = false): void => {
+  const add = (kind: Kind, who: number, text: string, where = '', whole = false, ids: ID[] = [], about?: MustAbout): void => {
     const since = where ? ` (since ${where})` : ''
-    out.push({ rank: RANK[kind], who, text: `${whole ? text : clipTo(text, LONGEST_LINE)}${since}`, piece: kind === 'wearing' || kind === 'wearingNamed' })
+    out.push({
+      rank: RANK[kind],
+      who,
+      text: `${whole ? text : clipTo(text, LONGEST_LINE)}${since}`,
+      piece: kind === 'wearing' || kind === 'wearingNamed',
+      kind,
+      ids,
+      ...(about ? { about } : {})
+    })
   }
+  const asLine = (l: (typeof out)[number]): MustLine => ({ kind: l.kind, text: l.text, entryIds: l.ids, ...(l.about ? { about: l.about } : {}) })
   /** Where a stage value's words are: this scene, or another one's place. */
   const sinceOf = (from: StateSource | undefined): string => {
     if (!from) return ''
@@ -415,6 +479,8 @@ export function mustStayTrue(o: MustInput): string[] {
   )
   const people = o.people.filter((e) => e.kind === 'character')
   const about = o.about ?? ''
+  /** The codex entry of the person a stage line is about (none for someone only on the stage). */
+  const idsOf = (who: number): ID[] => (people[who] ? [people[who].id] : [])
 
   // Each person in the scene: what the stage says of them now, their marks, and what changed in their codex entry.
   // Someone dead by now is said to be dead (below), and nothing else: no marks, no "no longer has".
@@ -426,13 +492,13 @@ export function mustStayTrue(o: MustInput): string[] {
     // The memory's guesses (World Memory Overhaul A4) are never facts to keep to.
     const guessed = new Set(e.guesses ?? [])
     const marks = guessed.has('marks') ? '' : clean(e.fields?.marks)
-    if (marks) add('marks', who, `${e.name}: ${marks}`, shortPlace(e.changedWhere?.marks ?? '', o.storyTitle))
+    if (marks) add('marks', who, `${e.name}: ${marks}`, shortPlace(e.changedWhere?.marks ?? '', o.storyTitle), false, [e.id], { words: marks, who: [e.name] })
     for (const k of e.changed ?? []) {
       const label = FIELD_LABEL.get(k)
       const v = clean(e.fields?.[k])
       const where = e.changedWhere?.[k]
       if (!label || k === 'marks' || !v || !where) continue
-      add('changed', who, `${e.name}, ${label.toLowerCase()}: ${v}`, shortPlace(where, o.storyTitle))
+      add('changed', who, `${e.name}, ${label.toLowerCase()}: ${v}`, shortPlace(where, o.storyTitle), false, [e.id])
     }
   })
   // Carrying on with no one on the scene card: everyone the stage has in the scene.
@@ -449,7 +515,7 @@ export function mustStayTrue(o: MustInput): string[] {
     .forEach((h) => {
       const named = namesItem(about, h)
       const kind: Kind = h.has ? (named ? 'gotNamed' : 'got') : named ? 'goneNamed' : 'gone'
-      add(kind, whoOf.get(h.personId)!, holdingLine(h, (w) => shortPlace(w, o.storyTitle)), '', true)
+      add(kind, whoOf.get(h.personId)!, holdingLine(h, (w) => shortPlace(w, o.storyTitle)), '', true, [h.personId, h.itemId], { holding: h })
     })
 
   function stageLines(c: CharacterState, who: number): void {
@@ -460,7 +526,7 @@ export function mustStayTrue(o: MustInput): string[] {
     const stand = o.stand ?? { things: [], characters: [] }
     for (const kind of ['condition', 'holding', 'where', 'posture', 'touching', 'sees'] as const) {
       const v = clean(kind === 'holding' ? heldNotPlaced(stand, name, c.holding) : c[kind])
-      if (v && keep.has(kind)) add(kind, who, stageLine(name, kind, v), stageSince(name, kind))
+      if (v && keep.has(kind)) add(kind, who, stageLine(name, kind, v), stageSince(name, kind), false, idsOf(who), { words: v, who: [name] })
     }
     // What they wear, piece by piece: those the scene names first, then what is off, then what is on in some way.
     if (!keep.has('wearing')) return
@@ -471,7 +537,7 @@ export function mustStayTrue(o: MustInput): string[] {
     const worn = all.filter((p, i) => !all.some((q, j) => j > i && (namesStageItem(clean(q.name), p) || namesStageItem(clean(p.name), q))))
     for (const p of namedFirst(worn, about, true).slice(0, MUST_CLOTHES)) {
       const line = pieceLine(name, p)
-      if (line) add(namesStageItem(about, p) || isOff(p.state) ? 'wearingNamed' : 'wearing', who, line, sinceOf(pieceSource(o.stand?.said, name, p.name)))
+      if (line) add(namesStageItem(about, p) || isOff(p.state) ? 'wearingNamed' : 'wearing', who, line, sinceOf(pieceSource(o.stand?.said, name, p.name)), false, idsOf(who))
     }
   }
 
@@ -491,7 +557,10 @@ export function mustStayTrue(o: MustInput): string[] {
             namesStageItem(about, t) ? 'thingNamed' : 'thing',
             1000,
             stageLine('', 'thing', text),
-            sinceOf(o.stand?.said?.[thingKey(t.name)])
+            sinceOf(o.stand?.said?.[thingKey(t.name)]),
+            false,
+            [],
+            { thing: t }
           )
       }
   }
@@ -501,19 +570,39 @@ export function mustStayTrue(o: MustInput): string[] {
   all.forEach((e, i) => {
     const died = deathOf(e)
     const note = clean(died?.note).replace(/[.]$/, '')
-    if (note) add('dead', i, `${e.name} is dead: ${pastDeathNote(note)}`, shortPlace(died?.where ?? '', o.storyTitle))
+    if (note) add('dead', i, `${e.name} is dead: ${pastDeathNote(note)}`, shortPlace(died?.where ?? '', o.storyTitle), false, [e.id], { words: note, who: [] })
   })
 
   // What some of those in the scene know and others don't, the most lately learned first: kept from the others, who
   // must not learn, guess or think it here (when the point-of-view character is one of them, not even in thought).
-  realSecrets(people, o.facts, { happened: o.happened ?? happenedOf([...people, ...o.named]) })
-    .slice(0, MUST_GAPS)
-    .forEach((s, i) => {
-      const not = joinAnd(s.keptFrom)
-      const knows = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
-      const fact = clipTo(s.fact, LONGEST_FACT)
-      const rule = o.smallest ? '' : `. ${not} must not learn, guess or think it here unless the scene card says so`
-      add('gap', 2000 + i, `Kept from ${not}: ${fact} (${knows})${rule}`, '', true)
+  // Everyone in the scene counts (fix 9), as in the "Who knows what" block.
+  const knowers = o.knowers ?? people
+  const secrets = realSecrets(knowers, o.facts, { happened: o.happened ?? happenedOf([...people, ...o.named]) }).slice(0, MUST_GAPS)
+  secrets.forEach((s, i) => {
+    // A crowd is named only so far ("Ash, Bryn, Cole and 4 more"): `knowers` is capped as the block is (whoKnows.ts).
+    const not = namesUpTo(s.keptFrom)
+    const knows = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${namesUpTo(s.knownBy)} know it`
+    const fact = clipTo(s.fact, LONGEST_FACT)
+    const rule = o.smallest ? '' : `. ${not} must not learn, guess or think it here unless the scene card says so`
+    const ids = knowers.filter((p) => s.keptFrom.includes(p.name)).map((p) => p.id)
+    add('gap', 2000 + i, `Kept from ${not}: ${fact} (${knows})${rule}`, '', true, ids, { words: s.fact, who: s.keptFrom, learns: true })
+  })
+  // Then what someone here believes that isn't true (fix 9), the most lately come to first: a key kind of its own, with
+  // its own few lines (MUST_BELIEFS), so secrets never take its seat.
+  const believers = knowers.filter((e) => isPerson(e) && !clean(deathOf(e)?.note))
+  ;(o.beliefs ?? [])
+    .flatMap((b) =>
+      b.believedBy.flatMap((id) => {
+        const p = believers.find((x) => x.id === id)
+        return p ? [{ p, b, at: b.since[id]?.at ?? b.at }] : []
+      })
+    )
+    .sort((x, y) => y.at - x.at)
+    .slice(0, MUST_BELIEFS)
+    .forEach(({ p, b }, i) => {
+      const fact = clipTo(clean(b.fact).replace(/[.]$/, ''), LONGEST_FACT)
+      const rule = o.smallest ? '' : `. ${p.name} takes it as true here unless the scene card says otherwise`
+      add('belief', 2500 + i, `${p.name} wrongly believes: ${fact} (it isn't true)${rule}`, '', true, [p.id], { words: b.fact, who: [p.name], learns: true })
     })
 
   // How much time has passed since the scene before, at a new scene's start.
@@ -529,13 +618,15 @@ export function mustStayTrue(o: MustInput): string[] {
     const slips = [...(o.slips ?? []).filter((s) => about(s, inScene)), ...(o.slips ?? []).filter((s) => !about(s, inScene) && about(s, inBriefing))]
     slips.slice(0, MUST_SLIPS).forEach((s, i) => {
       const where = shortPlace(s.where, o.storyTitle)
-      add('slip', 4000 + i, `Slipped ${where ? `in ${where} ` : 'before '}and put right, so don't repeat it: ${clean(s.text)}`)
+      add('slip', 4000 + i, `Slipped ${where ? `in ${where} ` : 'before '}and put right, so don't repeat it: ${clean(s.text)}`, '', false, s.entryIds)
     })
   }
 
   // The same line once only.
   const seen = new Set<string>()
   const once = out.filter((l) => {
+    // What the scene's contract already says, right above the list (contract.ts): not said twice.
+    if (o.leaveOut?.has(l.text)) return false
     const k = l.text.replace(/\s*\(since [^)]*\)$/, '').toLowerCase()
     if (seen.has(k)) return false
     seen.add(k)
@@ -549,17 +640,17 @@ export function mustStayTrue(o: MustInput): string[] {
   for (const l of keyed) if (key.length < MUST_KEY && !key.includes(l)) key.push(l)
   if (o.smallest) key.splice(MUST_SMALLEST)
   key.sort((a, b) => keyRank(a) - keyRank(b) || a.who - b.who)
-  if (o.smallest) return key.map((l) => l.text)
+  if (o.smallest) return key.map(asLine)
   // Then the most that matter of the rest, in order: person by person, then the scene, then who knows what.
   const rest = once.filter((l) => !key.includes(l))
-  const room = o.short ? rest.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.changed) : rest
+  const room = o.short ? rest.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.belief && l.rank !== RANK.changed) : rest
   // The short form: one piece of clothing a person at most, the one that matters most.
   const dressed = new Set<number>()
   const ranked = [...room]
     .sort((a, b) => a.rank - b.rank || a.who - b.who)
     .filter((l) => !o.short || !l.piece || (!dressed.has(l.who) && !!dressed.add(l.who)))
   const chosen = ranked.slice(0, Math.max(0, (o.short ? MUST_SHORT : MUST_MOST) - key.length))
-  return [...key, ...chosen.sort((a, b) => a.who - b.who || a.rank - b.rank)].map((l) => l.text)
+  return [...key, ...chosen.sort((a, b) => a.who - b.who || a.rank - b.rank)].map(asLine)
 }
 
 /**

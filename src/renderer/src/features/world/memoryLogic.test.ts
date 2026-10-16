@@ -447,6 +447,17 @@ describe('describeChange', () => {
   it('phrases knowledge and plot threads', () => {
     expect(say(knows('k', 'tobin', 'Mara is the heir', 'scene'), 'tobin')).toBe('Learns: Mara is the heir')
     expect(say(knows('k', 'tobin', 'Mara is the heir', 'scene', true), 'tobin')).toBe('Forgets: Mara is the heir')
+    // How they learned it, under it, and a belief that isn't true (the who-knows-what ledger, fix 9).
+    const learned = (payload: object): ChangeView =>
+      ({ ...knows('k', 'tobin', 'Mara is the heir', 'scene'), payload: { factId: 'f', fact: 'Mara is the heir', ...payload } }) as ChangeView
+    expect(describeChange(learned({ how: 'told', from: 'mara' }), 'tobin', nameOf, label)).toEqual({ text: 'Learns: Mara is the heir', detail: 'Heard it from Mara' })
+    expect(describeChange(learned({ how: 'read', there: ['tobin', 'mara'] }), 'tobin', nameOf, label)?.detail).toBe('Read it · Was there with Mara')
+    expect(describeChange(learned({ wrong: true, how: 'overheard' }), 'tobin', nameOf, label)).toEqual({
+      text: 'Believes wrongly: Mara is the heir',
+      detail: 'Overheard it'
+    })
+    expect(say(learned({ wrong: true, forgets: true }), 'tobin')).toBe('No longer believes: Mara is the heir')
+    expect(describeChange(learned({}), 'tobin', nameOf, label)?.detail).toBeNull()
     const thread = (status: 'open' | 'resolved', note: string): ChangeView => ({
       ...base,
       id: 't',

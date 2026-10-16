@@ -1,6 +1,7 @@
 // Speed: what counts for a scene is worked out before every draft and every memory update, and entry
 // pages list an entry's changes and history, so both must stay quick in a big world (10 books of 200
-// scenes, 3,000 changes with the words they came from, 500 entries, a summary for every scene).
+// scenes, 3,000 changes with the words they came from, 500 entries, a summary for every scene). Since long story memory
+// fix 15 the memory keeper also keeps each chapter's end-of-chapter snapshot, a few at a time while it is idle.
 
 import { describe, expect, it } from 'vitest'
 import type { ChangeData, ID } from '@shared/types'
@@ -8,6 +9,8 @@ import * as repo from '../../src/main/db/repo'
 import * as mem from '../../src/main/db/memory'
 import { addLink, entryHistory } from '../../src/main/db/history'
 import { changeViews, sceneMemory } from '../../src/main/memory/scene'
+import { refreshSnapshots, SNAPSHOTS_AT_A_TIME } from '../../src/main/keeper/snapshots'
+import { markOutOfDate } from '../../src/main/keeper/summaries'
 import { memoryWorld } from './helpers'
 
 /** A small, repeatable random number generator. */
@@ -149,4 +152,31 @@ describe('speed', () => {
     console.log(`an entry's ${changes.length} changes: ${t.toFixed(1)} ms`)
     expect(t).toBeLessThan(250)
   }, 60_000)
+
+  it('keeps end-of-chapter snapshots a few at a time without holding the keeper up, and looks again quickly', () => {
+    const story = repo.listStories(db).find((s) => s.title === 'Book 10')!
+    const chapters = repo.getOutline(db, story.id).chapters.length
+    // Each scene of the book has words, so every chapter has a snapshot.
+    for (const s of repo.getOutline(db, story.id).scenes) repo.saveSceneText(db, s.id, null, 'The river ran high under the bridge.')
+    const batches: number[] = []
+    let worked = 0
+    for (let more = true; more; ) {
+      const t = performance.now()
+      const r = refreshSnapshots(db, story.id)
+      batches.push(performance.now() - t)
+      worked += r.worked.length
+      more = r.more
+    }
+    expect(worked).toBe(chapters)
+    const slowest = Math.max(...batches)
+    // Nothing changed: only the keys are worked out, and the marks looked at.
+    const again = median(() => {
+      refreshSnapshots(db, story.id)
+      markOutOfDate(db, story.id)
+    })
+    console.log(`end-of-chapter snapshots in a big world: ${SNAPSHOTS_AT_A_TIME} at a time, the slowest batch ${slowest.toFixed(1)} ms (${batches.map((b) => b.toFixed(0)).join(', ')}); looking again ${again.toFixed(1)} ms`)
+    // Generous, so a slow test machine doesn't fail it; typically far less.
+    expect(slowest).toBeLessThan(1500)
+    expect(again).toBeLessThan(250)
+  }, 120_000)
 })

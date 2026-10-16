@@ -37,6 +37,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           'Creativity',
           'Thinking',
           'Plan before writing',
+          'Scene contract',
+          'Continuity brief',
           'Check and repair',
           'Find by meaning',
           'LM Studio',

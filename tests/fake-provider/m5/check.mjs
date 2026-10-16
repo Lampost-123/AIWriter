@@ -11,6 +11,10 @@
 //   other checks find nothing.
 //   story   (comparing two stories) finds nothing.
 //   Every reply also says what each check looked at ("checked"): "Looked at <check>.", ok unless it raised something.
+//   The scene's contract (long story memory fix 13, "## The scene’s contract (C ids)", the chapter writer's checks):
+//           "<Name> is dead: ..." is broken when <Name> speaks (quoting the line; the death isn't raised again as an
+//           issue); something that must change is kept when every word of four letters or more is in the scene, else
+//           not yet; anything else is untouched.
 // The model fake/check-bad-json answers its first check with words, not JSON (asked once more, it answers
 // properly). Returns null for any other request.
 
@@ -64,6 +68,45 @@ const sceneIn = (user) => user.match(/(?:^|\n)## The scene[^\n]*\n([\s\S]*)$/)?.
 
 const dead = (e) => [...e.happened, e.text].some((t) => /\b(died|dead|killed)\b/i.test(t))
 
+/** The contract's items in the request: id, which list, and words. */
+function contractIn(user) {
+  const at = user.indexOf('## The scene’s contract (C ids)')
+  if (at < 0) return []
+  const body = user.slice(user.indexOf('\n', at) + 1).split('\n## ')[0]
+  const out = []
+  let part = ''
+  for (const line of body.split('\n')) {
+    if (/^Must change/.test(line)) part = 'change'
+    else if (/^Must not change/.test(line)) part = 'keep'
+    else if (/^Must be true/.test(line)) part = 'start'
+    const m = line.match(/^- \[(C\d+)\] (.+)$/)
+    if (m) out.push({ item: m[1], part, text: m[2] })
+  }
+  return out
+}
+
+/** Each item of the contract answered against the scene (see the top of this file). */
+function contractAnswers(user) {
+  // The scene's own text: the last part, under "## The scene" (or "## The scene (part 1 of 2)").
+  const scene = user.match(/\n## The scene(?: \(part \d+ of \d+\))?\n([\s\S]*)$/)?.[1] ?? ''
+  const sentences = sentencesOf(scene)
+  const words = new Set((scene.toLowerCase().match(/[a-z’']{4,}/g) ?? []))
+  return contractIn(user).map((c) => {
+    const dead = c.text.match(/^([A-Z][a-z]+) is dead/)
+    if (dead) {
+      const says = new RegExp(`(?:said|asked|replied|whispered|shouted) ${dead[1]}\\b|\\b${dead[1]} (?:said|asked|replied|whispered|shouted)\\b`)
+      const s = sentences.find((x) => says.test(x))
+      return s ? { item: c.item, result: 'broken', quote: s, why: `${dead[1]} is dead, but speaks here.`, fix: '' } : { item: c.item, result: 'untouched', quote: '' }
+    }
+    if (c.part === 'change') {
+      const need = (c.text.toLowerCase().match(/[a-z’']{4,}/g) ?? []).filter((w) => !['must', 'with', 'from', 'that'].includes(w))
+      const shown = need.every((w) => words.has(w) || words.has(w.replace(/s$/, '')) || [...words].some((x) => x.startsWith(w.slice(0, 4))))
+      return shown ? { item: c.item, result: 'kept', quote: sentences[0] ?? '' } : { item: c.item, result: 'not yet', quote: '' }
+    }
+    return { item: c.item, result: 'untouched', quote: '' }
+  })
+}
+
 function checkIssues(system, user) {
   const checks = system.split('\n')[0].slice(MARKER.length).split(',').map((s) => s.trim())
   if (!checks.includes('facts')) return []
@@ -90,7 +133,8 @@ function checkIssues(system, user) {
         })
       }
     }
-    if (dead(e)) {
+    // Broken items of the contract aren't listed again as issues.
+    if (dead(e) && !contractIn(user).some((c) => c.text.startsWith(`${e.name.split(' ')[0]} is dead`))) {
       const says = new RegExp(`(?:said|says|asked|replied|whispered|shouted) ${name}\\b|\\b${name} (?:said|says|asked|replied|whispered|shouted)\\b`)
       const s = sentences.find((x) => says.test(x))
       if (s) {
@@ -118,5 +162,6 @@ export function checkReply(system, messages, model = '') {
   // What each check looked at (the critic's report): "Looked at <check>." with ok unless it raised something.
   const checks = system.split('\n')[0].slice(MARKER.length).split(',').map((c) => c.trim()).filter(Boolean)
   const checked = checks.map((check) => ({ check, ok: !issues.some((i) => i.check === check), note: `Looked at ${check}.` }))
-  return JSON.stringify({ issues, checked }, null, 1)
+  const contract = contractIn(users[0] ?? '').length ? contractAnswers(users[0] ?? '') : undefined
+  return JSON.stringify({ issues, checked, ...(contract ? { contract } : {}) }, null, 1)
 }

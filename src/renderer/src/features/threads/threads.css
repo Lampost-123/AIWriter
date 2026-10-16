@@ -456,7 +456,7 @@
   color: var(--success);
   background: var(--success-soft);
 }
-[data-arrangement='desk'][data-look='new'] .th-state.is-planned {
+[data-arrangement='desk'][data-look='new'] .th-state:is(.is-planned, .is-dropped) {
   color: var(--muted);
   background: var(--surface);
 }
@@ -556,6 +556,19 @@
   color: var(--faint);
 }
 [data-arrangement='desk'][data-look='new'] .th-meter.is-long .th-meter-l {
+  color: var(--ai);
+}
+/* The promises ledger (long story memory fix 10): "Pay off by", and a calm amber note when it is due or left waiting. */
+[data-arrangement='desk'][data-look='new'] .th-due-pick {
+  height: 26px;
+  max-width: 220px;
+  font-size: 12.5px;
+}
+[data-arrangement='desk'][data-look='new'] .th-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
   color: var(--ai);
 }
 [data-arrangement='desk'][data-look='new'] .th-actions {

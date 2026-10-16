@@ -18,6 +18,7 @@ import type {
   ExistsKind,
   ExistsPoint,
   ID,
+  KnowHow,
   Origin,
   Pin,
   PinScope,
@@ -95,6 +96,8 @@ const toChange = (r: Row): Change =>
 
 const ANCHORS: ChangeAnchor[] = ['baseline', 'story-start', 'scene']
 const KINDS: ChangeData['kind'][] = ['update', 'full', 'relationship', 'knowledge', 'thread']
+/** How a character can come to know something (KnowledgePayload.how). */
+const KNOW_HOWS: KnowHow[] = ['saw', 'told', 'overheard', 'read', 'guessed']
 
 /** The story a scene is in (live or not), or null. */
 function sceneStory(db: DB, sceneId: ID): ID | null {
@@ -264,7 +267,24 @@ const liveEntry = (db: DB, id: ID): boolean => !!db.prepare('SELECT 1 FROM entri
  * Checks a change Adam made on an entry page and tidies it, with plain-words reasons when it can't be
  * saved. A fact without an id gets a new one (a new fact); empty rows in a full description are dropped.
  */
-export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
+/**
+ * Whether a fact id is used for something believed wrongly (true), for something known (false), or not yet (null), by
+ * any live knowledge change but `except` (the change being edited). One fact id is only ever one of the two (long story
+ * memory fix 9).
+ */
+export function factIsBelief(db: DB, factId: ID, except: ID | null = null): boolean | null {
+  const rows = db
+    .prepare(
+      `SELECT json_extract(payload_json, '$.wrong') AS wrong FROM changes
+       WHERE deleted_at IS NULL AND kind = 'knowledge' AND json_extract(payload_json, '$.factId') = ? AND id IS NOT ?`
+    )
+    .all(factId, except) as { wrong: unknown }[]
+  if (!rows.length) return null
+  return rows.some((r) => !!r.wrong)
+}
+
+/** `changeId`: the change being edited, when it is an edit. */
+export function cleanChangeInput(db: DB, input: ChangeInput, changeId: ID | null = null): ChangeInput {
   if (!input || typeof input !== 'object') throw new UserError('That change is empty.')
   if (!liveEntry(db, input.entryId)) throw new UserError('That page no longer exists. It may have been deleted.')
   const other = (otherId: ID | undefined): ID => {
@@ -321,7 +341,14 @@ export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
               }
             }
           : {}
-      return { ...base, kind: 'knowledge', payload: { factId: p.factId || newId(), fact, ...(p.forgets ? { forgets: true } : {}), ...said } }
+      // How they learned it, from whom, and a belief that isn't true (the who-knows-what ledger, long story memory fix 9).
+      const how = KNOW_HOWS.includes(p.how as KnowHow) ? { how: p.how } : {}
+      const from = typeof p.from === 'string' && p.from && p.from !== input.entryId ? { from: p.from } : {}
+      const ledger = { ...how, ...from, ...(p.wrong ? { wrong: true as const } : {}) }
+      // One fact id is either known or believed wrongly, never both: a fact id used for the other kind gets one of its own.
+      const kind = p.factId ? factIsBelief(db, p.factId, changeId) : null
+      const factId = p.factId && (kind === null || kind === !!p.wrong) ? p.factId : newId()
+      return { ...base, kind: 'knowledge', payload: { factId, fact, ...(p.forgets ? { forgets: true } : {}), ...said, ...ledger } }
     }
     case 'thread': {
       const p = input.payload
@@ -343,6 +370,19 @@ export function entriesTouched(c: ChangeData & { entryId: ID }): ID[] {
 /** Every live change, in a stable order (the line decides which count where). */
 export function listAllChanges(db: DB): Change[] {
   return (db.prepare('SELECT * FROM changes WHERE deleted_at IS NULL ORDER BY position, created_at, rowid').all() as Row[]).map(toChange)
+}
+
+/**
+ * The scenes where a character learns (or says) a fact, wherever they are in reading order (the rule-based checks, long
+ * story memory fix 8: a learning in a scene told later that is dated earlier still counts). Not a forgetting.
+ */
+export function knowledgeScenes(db: DB, entryId: ID, factId: ID): ID[] {
+  const rows = db
+    .prepare("SELECT * FROM changes WHERE deleted_at IS NULL AND entry_id = ? AND kind = 'knowledge' AND anchor = 'scene' AND scene_id IS NOT NULL")
+    .all(entryId) as Row[]
+  const out = new Set<ID>()
+  for (const c of rows.map(toChange)) if (c.kind === 'knowledge' && c.payload.factId === factId && !c.payload.forgets && c.sceneId) out.add(c.sceneId)
+  return [...out]
 }
 
 /** An entry's changes, and changes on other entries that point at it (relationships from the other side). */
@@ -372,8 +412,12 @@ export function changesInScene(db: DB, sceneId: ID): Change[] {
 }
 
 /** Every fact any character knows (or knew), once each, for picking the same fact again. */
-export function listFacts(db: DB): { factId: ID; fact: string }[] {
-  const out = new Map<ID, string>()
+/**
+ * Every fact anyone knows, by id, in its latest wording. `wrong`: it is something believed that isn't true (the
+ * who-knows-what ledger, long story memory fix 9): its latest learning was a belief.
+ */
+export function listFacts(db: DB): { factId: ID; fact: string; wrong?: true }[] {
+  const out = new Map<ID, { fact: string; wrong: boolean }>()
   // Oldest first, so a fact's latest wording wins; facts only deleted entries knew are left out.
   for (const c of db
     .prepare(
@@ -382,14 +426,16 @@ export function listFacts(db: DB): { factId: ID; fact: string }[] {
     )
     .all() as Row[]) {
     if (c.kind === 'knowledge') {
-      const p = json<{ factId?: ID; fact?: string }>(c.payload_json, {})
-      if (p.factId && p.fact) out.set(p.factId, p.fact)
+      const p = json<{ factId?: ID; fact?: string; wrong?: boolean }>(c.payload_json, {})
+      if (p.factId && p.fact) out.set(p.factId, { fact: p.fact, wrong: !!p.wrong })
     } else {
       for (const k of json<{ knows?: { factId: ID; fact: string }[] }>(c.payload_json, {}).knows ?? [])
-        if (k.factId && k.fact) out.set(k.factId, k.fact)
+        if (k.factId && k.fact) out.set(k.factId, { fact: k.fact, wrong: false })
     }
   }
-  return [...out].map(([factId, fact]) => ({ factId, fact })).sort((a, b) => a.fact.localeCompare(b.fact))
+  return [...out]
+    .map(([factId, f]) => ({ factId, fact: f.fact, ...(f.wrong ? { wrong: true as const } : {}) }))
+    .sort((a, b) => a.fact.localeCompare(b.fact))
 }
 
 // ---------- Where entries first exist ----------

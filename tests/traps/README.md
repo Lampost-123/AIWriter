@@ -316,6 +316,19 @@ set 8 million and 1.5 million, which caps a run at about $2.90 even with nothing
 an hour or two, most of it the memory reading 61,000 words. A later run from the saved world (`--from-world <report
 folder>`, same checkout and models) skips that reading.
 
+**With the continuity brief** (long story memory fix 14, on unless `AIWRITE_BRIEF=off`), each plan before writing on
+DeepSeek also reads the whole book so far (up to about 82,000 tokens at the book's end; the app reads at most 150,000
+tokens of a book, its latest chapters) and the story record; Beat by beat's later beats reuse the scene's brief. A fake run
+of the book then sends 3.3 million tokens in the same 603 calls (1.4 million with `AIWRITE_BRIEF=off`): the 30 plans read
+about 66,000 tokens each against 2,200. On DeepSeek most of each plan's book is read from its cache (the book so far
+only grows at its end), so a real run should cost roughly $0.10 to $0.20 more, or about $0.60 more if nothing were
+read from the cache; set `--max-tokens-in 12000000` to leave room. To judge the brief, run the book twice on the same
+checkout and models, once with `AIWRITE_BRIEF=off` in the terminal's environment, and compare. A fake run of the book
+gives its memory model 1,000,000 tokens to read, as DeepSeek's, so the book goes in whole there too, and a fake run's
+budget is 40 million tokens in and 4 million out (it costs nothing). passages.md says under each passage what the brief
+held and what the plan read ("Continuity brief: 5 lines (about 194 tokens); the plan read 53,262 tokens, the book so far
+whole.").
+
 ## Writing story version 3 (once)
 
 ```powershell

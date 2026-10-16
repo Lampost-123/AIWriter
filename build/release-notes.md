@@ -1,7 +1,8 @@
-<!-- version: 0.7.1 -->
-What's new in 0.7.1:
+<!-- version: 0.7.2 -->
+What's new in 0.7.2:
 
-- Write a whole chapter with AI: it drafts each scene from its card, checks and fixes it, then proofreads. Undo puts the chapter back.
-- AI Write remembers far more of a long story, and always keeps the facts a scene is most likely to break.
-- A slip the checks found and you fixed isn't made again, and what you said is meant isn't raised again.
-- Beat by beat picks up where you left off with "Carry on from beat N".
+- AI Write keeps track of who knows what, promises and when they're due, and the story's dates and ages.
+- Characters are spotted however the story names them.
+- Free checks catch the dead speaking, one thing in two hands, and time running backwards.
+- Each scene gets a contract the draft is checked against, and a short continuity brief before it's written.
+- Chapter summaries are rebuilt from the scenes, so they don't drift.

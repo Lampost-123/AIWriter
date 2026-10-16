@@ -70,6 +70,7 @@ import { EntryMemorySections, type MemorySectionWrap } from '../memory/EntryMemo
 import { MadeByNote, YouWroteNote } from '../memory/EntryNotes'
 import { useEntryData } from '../memory/useEntryData'
 import { allAdams, splitChanges } from '../memoryLogic'
+import { asOfKnowing, type AsOfKnowing } from '../asOfViewLogic'
 import { dismissProfile } from '../reachLogic'
 import { AutoTextarea } from '../parts/AutoTextarea'
 import { SaveNote } from '../parts/SaveNote'
@@ -256,6 +257,30 @@ function Paras({ text, className }: { text: string; className?: string }): React
 }
 
 /** An empty section's line, inviting Adam to fill it in. */
+/** The most facts "What they know" shows; the rest are counted (all of them show as of any scene). */
+const KNOWING_SHOWN = 6
+
+/** What a character knows or believes wrongly, the most lately learned first: each with how, and since when on the right. */
+function KnowingRows({ rows }: { rows: AsOfKnowing[] }): React.JSX.Element {
+  const more = rows.length - KNOWING_SHOWN
+  return (
+    <>
+      <ul className="dz-state">
+        {rows.slice(0, KNOWING_SHOWN).map((k) => (
+          <li key={k.factId}>
+            <span className="dz-state-n">
+              {k.fact}
+              {k.how ? <span className="dz-state-how"> · {k.how}</span> : null}
+            </span>
+            {k.since ? <span className="dz-state-w">{k.since.replace(/^since (?:.*?(?=Ch \d))?/, '')}</span> : null}
+          </li>
+        ))}
+      </ul>
+      {more > 0 ? <p className="dz-state-more">and {more} more, seen as of any scene</p> : null}
+    </>
+  )
+}
+
 function Nothing({ children, onAdd, onSuggest }: { children: ReactNode; onAdd?: () => void; onSuggest?: () => void }): React.JSX.Element {
   return (
     <p className="dz-nothing">
@@ -471,6 +496,13 @@ export function Dossier({
   const changes = useEntryData(() => api.listChanges(entry.id), `dz-changes:${entry.id}`)
   const rels = useMemo(() => (changes.data ? splitChanges(changes.data, entry.id).relationships : null), [changes.data, entry.id])
   const byId = useMemo(() => new Map(others.map((e) => [e.id, e])), [others])
+  // What a character knows and believes wrongly as of the scene Adam is in, the most lately learned first, with since when
+  // and how (the who-knows-what ledger, long story memory fix 9).
+  const knowing = useMemo(() => {
+    if (kind !== 'character' || !now.data) return null
+    const nameOf = (id: ID): string | null => (id === entry.id ? draft.name.trim() || null : byId.get(id)?.name.trim() || null)
+    return { knows: asOfKnowing(now.data.knows, entry.id, nameOf, true), believes: asOfKnowing(now.data.believes ?? [], entry.id, nameOf, true) }
+  }, [kind, now.data, entry.id, draft.name, byId])
 
   // The memory's sections: relationships and "Appears in" open; the rest folded.
   const [folds, setFolds] = useState<Set<string>>(() => new Set())
@@ -1038,6 +1070,30 @@ export function Dossier({
                         </Nothing>
                       ) : (
                         <div className="h-5" aria-hidden />
+                      )
+                    }
+                  />
+                ) : null}
+                {at && kind === 'character' ? (
+                  <Sec
+                    id="knows-now"
+                    icon={Brain}
+                    title="What they know"
+                    read={
+                      !knowing ? (
+                        <div className="h-5" aria-hidden />
+                      ) : knowing.knows.length || knowing.believes.length ? (
+                        <>
+                          {knowing.knows.length ? <KnowingRows rows={knowing.knows} /> : null}
+                          {knowing.believes.length ? (
+                            <>
+                              <p className="dz-state-h">Believes wrongly</p>
+                              <KnowingRows rows={knowing.believes} />
+                            </>
+                          ) : null}
+                        </>
+                      ) : (
+                        <Nothing>Nothing yet. What they learn in your story is noted here, with when and how.</Nothing>
                       )
                     }
                   />

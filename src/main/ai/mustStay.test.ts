@@ -7,6 +7,7 @@ import { pieceKey, thingKey, type SceneState } from '@shared/continuity'
 import {
   MUST_CLOTHES,
   MUST_THINGS,
+  MUST_BELIEFS,
   MUST_GAPS,
   MUST_KEY,
   MUST_ITEMS,
@@ -14,8 +15,10 @@ import {
   MUST_MOST,
   MUST_SHORT,
   MUST_SMALLEST,
+  mustLines,
   mustStayTrue,
   mustText,
+  namesUpTo,
   shortPlace,
   stageFor,
   stageInScene,
@@ -24,8 +27,22 @@ import {
 import { stageTold } from '../repair'
 import { stageLines } from '../repair/prompts'
 import type { Holding } from '../memory/items'
-import { assembleContext, MUST_BLOCK, MUST_PRIORITY, PLAN_BLOCK, prepareContext, stageReach, timeSince, WHY, type ContextInput } from './context'
+import { changedBy } from './contract'
+import {
+  assembleContext,
+  MUST_BLOCK,
+  MUST_PRIORITY,
+  PLAN_BLOCK,
+  prepareContext,
+  SEND_ORDER,
+  stageReach,
+  stageScope,
+  timeSince,
+  WHY,
+  type ContextInput
+} from './context'
 import { countRaw } from './tokens'
+import { buildCalendar } from '../memory/calendar'
 
 let seq = 0
 const entry = (kind: EntryKind, name: string, extra: Partial<EntryState> = {}): EntryState => ({
@@ -191,6 +208,58 @@ describe('what must stay true', () => {
     expect(learned.map((l) => l.split(':')[1].trim())).toEqual(['The mill is mortgaged (Wren knows it). Osric Hale must not learn, guess or think it here unless the scene card says so', 'The flour tax was forged (Wren knows it). Osric Hale must not learn, guess or think it here unless the scene card says so', 'Osric owes the abbey (Osric Hale knows it). Wren must not learn, guess or think it here unless the scene card says so'])
   })
 
+  it('keeps a secret from anyone in the scene (fix 9), and says what someone here believes wrongly, after the secrets', () => {
+    const wren = entry('character', 'Wren')
+    const osric = entry('character', 'Osric Hale')
+    const bryn = entry('character', 'Bryn')
+    const facts: FactState[] = [{ factId: 'f1', fact: 'The flour tax was forged.', knownBy: [wren.id, osric.id], at: 3 }]
+    const beliefs = [{ factId: 'b1', fact: 'The abbot is alive', believedBy: [osric.id], since: { [osric.id]: { at: 5, where: 'The Mill, Ch 2, Sc 1' } }, at: 5 }]
+    const only = mustStayTrue(base({ people: [wren, osric], facts, beliefs, stand: null, reach: 'none' }))
+    expect(only).toEqual([
+      "Osric Hale wrongly believes: The abbot is alive (it isn't true). Osric Hale takes it as true here unless the scene card says otherwise"
+    ])
+    // Bryn is in the scene (named in it so far, or on the stage): the secret is kept from him too, and comes first.
+    const all = mustStayTrue(base({ people: [wren, osric], knowers: [wren, osric, bryn], facts, beliefs, stand: null, reach: 'none' }))
+    expect(all).toEqual([
+      'Kept from Bryn: The flour tax was forged (Wren and Osric Hale know it). Bryn must not learn, guess or think it here unless the scene card says so',
+      "Osric Hale wrongly believes: The abbot is alive (it isn't true). Osric Hale takes it as true here unless the scene card says otherwise"
+    ])
+    expect(mustStayTrue(base({ people: [wren, osric], knowers: [wren, osric, bryn], facts, beliefs, stand: null, reach: 'none', smallest: true }))).toEqual([
+      'Kept from Bryn: The flour tax was forged (Wren and Osric Hale know it)',
+      "Osric Hale wrongly believes: The abbot is alive (it isn't true)"
+    ])
+    // Beliefs have their own seat (MUST_BELIEFS): three secrets don't take it (fix 9 review), in the full form, the short
+    // one and the smallest.
+    const many = Array.from({ length: MUST_GAPS }, (_, i) => ({ factId: `k${i}`, fact: `Secret ${i}`, knownBy: [wren.id] }))
+    const crowd = base({ people: [wren, osric], facts: many, beliefs, stand: null, reach: 'none' })
+    for (const form of [{}, { short: true }, { smallest: true }]) {
+      const lines = mustStayTrue({ ...crowd, ...form })
+      expect(lines.filter((l) => l.startsWith('Kept from ')).length, JSON.stringify(form)).toBeGreaterThan(0)
+      expect(lines.some((l) => l.startsWith('Osric Hale wrongly believes: The abbot is alive')), JSON.stringify(form)).toBe(true)
+    }
+    const two = [
+      ...beliefs,
+      { factId: 'b2', fact: 'The mill is safe', believedBy: [wren.id], since: { [wren.id]: { at: 7, where: 'The Mill, Ch 3, Sc 1' } }, at: 7 },
+      { factId: 'b3', fact: 'The road is open', believedBy: [wren.id], since: { [wren.id]: { at: 1, where: 'The Mill, Ch 1, Sc 1' } }, at: 1 }
+    ]
+    const lines = mustStayTrue({ ...crowd, beliefs: two })
+    expect(lines.filter((l) => l.includes(' wrongly believes: '))).toEqual([
+      "Wren wrongly believes: The mill is safe (it isn't true). Wren takes it as true here unless the scene card says otherwise",
+      "Osric Hale wrongly believes: The abbot is alive (it isn't true). Osric Hale takes it as true here unless the scene card says otherwise"
+    ])
+    expect(lines.filter((l) => l.includes(' wrongly believes: '))).toHaveLength(MUST_BELIEFS)
+  })
+
+  it('names a crowd only so far, in a secret kept from many (fix 9 review)', () => {
+    const people = Array.from({ length: 6 }, (_, i) => entry('character', `Person ${i}`))
+    const facts = [{ factId: 'x', fact: 'The bridge is out', knownBy: [people[0].id, people[1].id, people[2].id, people[3].id, people[4].id] }]
+    expect(mustStayTrue(base({ people: [people[0], people[5]], knowers: people, facts, stand: null, reach: 'none' }))).toEqual([
+      'Kept from Person 5: The bridge is out (Person 0, Person 1, Person 2 and 2 more know it). Person 5 must not learn, guess or think it here unless the scene card says so'
+    ])
+    expect(namesUpTo(['A', 'B', 'C', 'D'])).toBe('A, B, C and D')
+    expect(namesUpTo(['A', 'B', 'C', 'D', 'E'])).toBe('A, B, C and 2 more')
+  })
+
   it('cuts a long value short, never since when it holds', () => {
     const wren = entry('character', 'Wren', { fields: { marks: `scars ${'and more scars '.repeat(40)}`.trim() }, changedWhere: { marks: 'The Mill, Ch 4, Sc 1' } })
     const [line] = mustStayTrue(base({ people: [wren], stand: null, reach: 'none' }))
@@ -216,7 +285,8 @@ describe('what must stay true', () => {
     expect(lines.filter((l) => l.startsWith('Kept from '))).toHaveLength(1)
     // The secret and the first injuries lead, in the full form and the short one (2026-10-15).
     expect(lines.slice(0, MUST_KEY)).toEqual([
-      'Kept from Person 1, Person 2, Person 3, Person 4, Person 5, Person 6 and Person 7: The bridge is out (Person 0 knows it). Person 1, Person 2, Person 3, Person 4, Person 5, Person 6 and Person 7 must not learn, guess or think it here unless the scene card says so',
+      // A crowd is named only so far (fix 9 review).
+      'Kept from Person 1, Person 2, Person 3 and 4 more: The bridge is out (Person 0 knows it). Person 1, Person 2, Person 3 and 4 more must not learn, guess or think it here unless the scene card says so',
       'Person 0: bruised 0',
       'Person 1: bruised 1',
       'Person 2: bruised 2',
@@ -276,6 +346,11 @@ describe('what must stay true', () => {
     const ranked = mustStayTrue(base({ people: [wren], holdings: [compass] }))
     expect(ranked.findIndex((l) => l.includes('no longer has'))).toBeGreaterThan(ranked.findIndex((l) => l.startsWith('Wren is holding')))
     expect(ranked.findIndex((l) => l.includes('no longer has'))).toBeLessThan(ranked.findIndex((l) => l.startsWith('Where Wren is')))
+    // Each line says what it is about, so a scene contract never also keeps what its change list changes (fix 13's review).
+    const [line] = mustLines(base({ people: [wren, osric], stand: null, reach: 'none', holdings: [compass] }))
+    expect(line.about).toEqual({ holding: compass })
+    expect(changedBy(line, ['Mother Agate hands the compass back to Wren'])).toBe(true)
+    expect(changedBy(line, ['Wren crosses the fell in the fog'])).toBe(false)
   })
 
   it('is told only the people in the scene, and a time that still holds; the stage as kept stays whole', () => {
@@ -575,6 +650,54 @@ describe('what must stay true in a draft', () => {
     expect(prepareContext(none).blocks.find((b) => b.id === MUST_BLOCK)).toBeUndefined()
   })
 
+  it('reads the same day on the story calendar, and keeps to the cards where it can’t tell (fix 11)', () => {
+    /** A draft of the last of `whens`, after the one before it, with the whole story's calendar or (`alone`) none. */
+    const at = (whens: string[], alone = false): ContextInput => {
+      const inp = draftInput({ continuityAtSoFar: false, options: { direction: '', targetWords: 800, creativity: 'balanced' } })
+      const n = whens.length
+      inp.scene.card.when = whens[n - 1]
+      inp.memory.previous = { ...inp.memory.previous!, when: whens[n - 2] }
+      if (!alone) {
+        const cal = buildCalendar(whens.map((when, i) => ({ id: `s${i + 1}`, story: 'mill', when })))
+        inp.calendar = { here: cal.dates.get(`s${n}`)!, previous: cal.dates.get(`s${n - 1}`)!, landmarks: [], ages: [] }
+      }
+      return inp
+    }
+    // "That night" is the same day as "Day 3, dusk": what people wear and hold carries.
+    expect(stageReach(at(['Day 3, dusk', 'That night'], true))).toBe('start')
+    // The same words on two days are two days.
+    expect(stageReach(at(['Day 3', 'The next day', 'The next day']))).toBe('later')
+    // Only the whole story's calendar knows "The next morning" is Day 4.
+    expect(stageReach(at(['Day 3, evening', 'The next morning', 'Day 4, noon']))).toBe('start')
+    expect(stageReach(at(['Day 3, evening', 'The next morning', 'Day 4, noon'], true))).toBe('later')
+    // Where the calendar can't tell, both cards' "Day N", as before.
+    expect(stageReach(at(['Day 3 of the voyage', 'Day 3 of the siege'], true))).toBe('start')
+    // The time of day carries at the same moment only.
+    const carries = (inp: ContextInput): boolean => stageScope(inp.scene.card, inp.memory, [], inp.calendar).timeCarries
+    expect(carries(at(['Day 3, evening', 'Later that evening']))).toBe(true)
+    expect(carries(at(['Day 3', 'The next day', 'The next day']))).toBe(false)
+    expect(carries(at(['Day 3, evening', 'That night']))).toBe(false)
+    expect(carries(at(['Day 5', 'Day 5'], true))).toBe(true)
+    expect(carries(at(['Spring', 'Spring'], true))).toBe(true)
+  })
+
+  it('tells the story date on the scene card and the time since in what must stay true from the same sums, late (fix 11)', () => {
+    const whens = ['Day 3, evening', 'The next morning', 'Three weeks later']
+    const cal = buildCalendar(whens.map((when, i) => ({ id: `s${i + 1}`, story: 'mill', when })))
+    const plain = draftInput({ continuityAtSoFar: false, options: { direction: '', targetWords: 800, creativity: 'balanced' } })
+    plain.scene.card.when = whens[2]
+    plain.memory.previous = { ...plain.memory.previous!, when: whens[1] }
+    const dated: ContextInput = { ...plain, calendar: { here: cal.dates.get('s3')!, previous: cal.dates.get('s2')!, landmarks: [], ages: [] } }
+    const p = assembleContext(dated, countRaw)
+    const text = (id: string, q = p): string => q.blocks.find((b) => b.id === id)?.text ?? ''
+    expect(text('scene-card')).toContain('When: Three weeks later\nStory date: Day 25 (3 weeks since the scene before)\nMake the time that has passed fit')
+    expect(text(MUST_BLOCK)).toContain('Time: 3 weeks since the scene before (Day 4, morning); this scene is Day 25')
+    // Every block sent before the scene card reads the same with the calendar or without it (the cache).
+    const q = assembleContext(plain, countRaw)
+    const before = SEND_ORDER.slice(0, SEND_ORDER.indexOf('scene-card'))
+    for (const id of before) expect(text(id), id).toBe(text(id, q))
+  })
+
   it('the compass case: given away in scene 7, still gone at scene 23, though it is long out of her last few events', () => {
     const inp = draftInput({ continuityAtSoFar: false, continuity: null })
     const [wren] = inp.memory.entries
@@ -723,7 +846,11 @@ describe('what a scene is most likely to break comes first, and stays (2026-10-1
       inp.memory.previous = { ...inp.memory.previous!, when: before }
       return timeSince(inp, stageReach(inp))
     }
-    expect(at('Day 5', 'Day 3, dusk')).toBe('Time: the scene before was Day 3, dusk; this scene is Day 5')
+    expect(at('Day 5', 'Day 3, dusk')).toBe('Time: 2 days since the scene before (Day 3, dusk); this scene is Day 5')
+    // Read on the story calendar: that night is the same day; a When it can't read keeps both cards' words.
+    expect(at('That night', 'Day 3, dusk')).toBe('Time: the same day as the scene before (Day 3, dusk); this scene is Day 3, night')
+    expect(at('Spring', 'Winter')).toBe('Time: the scene before was Winter; this scene is Spring')
+    expect(at('Day 3', 'Day 3')).toBe('')
     expect(at('Day 3, dusk', 'Day 3, dusk')).toBe('')
     expect(at('', 'Day 3')).toBe('')
     expect(at('Day 4', '')).toBe('')

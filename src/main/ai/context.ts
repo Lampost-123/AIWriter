@@ -7,6 +7,9 @@
 // - everything on the scene card: point of view, characters present, location, its plot threads;
 // - anything whose name or alias appears in the beats, the notes or Adam's direction; an item also by its own main word
 //   ("the compass" for "The brass compass", memory/items.ts), there or in the scene so far;
+// - a living character the scene so far names, in full (long story memory fix 12), and a character found by what this
+//   scene's words call them ("the Captain", "her brother": ContextInput.called), and at the end of the previous scene by
+//   what that scene's words called them;
 // - the places around the location and the groups the people present belong to, one line each;
 // - relationships and knowledge among the people present, as of this scene;
 // - lore flagged as a hard rule, always;
@@ -18,17 +21,24 @@
 //
 // Priorities, with each block's short form in brackets:
 //  1 instructions, style guide, sample passage, phrases to avoid (sample passage trimmed); never dropped
-//  2 scene card and Adam's direction, and on a redraft what the scene should bring about; never dropped
+//  2 scene card and Adam's direction, and on a redraft what the scene should bring about; with the story date, the time
+//    since the scene before and the ages of those on the card (the story calendar, long story memory fix 11,
+//    storyDate.ts); never dropped
 //  3 the end of the previous scene on the story's line, 400 to 800 words (the last 200 words)
 //  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory;
 //    smaller: the core of the profile, then less)
 //  5 others present as of this scene: profile and voice (summary plus voice)
-//  6 relationships and who knows what among those present (none; with many facts, the ones that matter here)
+//  6 relationships among those present (no short form)
+//  6 who knows what (long story memory fix 9, whoKnows.ts): everyone in the scene (the card, the stage, the scene so
+//    far), what they don't know yet that someone here knows, what they believe wrongly, and what they know with since
+//    when and how (short: only what they don't know or believe wrongly); sent late, as who is in the scene can change
 //  7 setting (location, places around it, groups), hard-rule lore, open plot threads on the card (one line each)
 //  8 story so far: recent scenes, this story's chapters, earlier stories, "Leads into" (fewer scenes, series roll-ups;
 //    smaller: only the most recent parts)
-//  9 other entries named in the beats, notes or direction, and pins (one line each)
-//  9 the other plot threads open here, a line each, kept alive gently (ai/openThreads.ts; short: the first 3)
+//  9 other entries named in the beats, notes or direction, and pins; a character in the scene so far in full, as in
+//    block 5 (one line each; with someone in the scene so far, first a step between: everyone as the rest are sent)
+//  9 the other plot threads open here, a line each, kept alive gently, those due or overdue first and saying so (the
+//    promises ledger, fix 10); 6 to 22 of them by memoryScale (ai/openThreads.ts; short: the first 3 to 6)
 // 10 themes, tone and premise (one line)
 // 11 ties to people not in this scene: for each character present, the people they're tied to who aren't
 //    there, with where things stand and what has happened between them, newest first (names and relationship
@@ -36,7 +46,14 @@
 //  2 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
 //    repeated from the briefing right above the closing instruction, the facts the scene is most likely to break first
 //    (the fewest lines that matter most, without the lead); since 2026-10-15 never left out, and short only once every
-//    block from 3 to 11 is
+//    block from 3 to 11 is; since long story memory fix 13 without the lines the scene's contract says
+//  2 the scene's contract (long story memory fix 13, contract.ts), when the draft has one: what must be true at the
+//    start, what must change and what must not, right above what must stay true; never left out (short: no lead)
+//  2 the continuity brief (long story memory fix 14, brief.ts), when the plan before writing wrote one: what matters for
+//    this scene, what must not be contradicted, who knows what here, promises in play, time since key events; sent late,
+//    right before the scene card; never left out (short: what matters and what must not be contradicted). With it, the
+//    story so far, the earlier passages and (when it says who knows what) block 6's who knows what start short
+//    (briefShortens), so the briefing doesn't grow by saying things twice
 // Story memory step 5 (src/main/retrieval/, with ContextInput.recall) adds candidates, never more room: entries from
 // the last two scenes and entries found by searching join block 9; what was said, word for word (fewer lines when
 // short), and earlier passages found by searching (the best two, then the best one) are blocks at priority 9,
@@ -80,10 +97,13 @@ import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { sameWhen, stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
-import { OPEN_THREADS_BLOCK, OPEN_THREADS_MOST, OPEN_THREADS_TITLE, openThreadsAt, openThreadsText } from './openThreads'
+import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost, openThreadsShort, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
-import { MUST_TITLE, mustStayTrue, mustText, realSecrets, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { CONTRACT_BLOCK, contractSays, contractText, sceneContract, type ContractInput, type SceneContract } from './contract'
+import { BRIEF_BLOCK, briefShortens, briefText, hasEarlierBooks, type ContinuityBrief } from './brief'
+import { LEDGER_BLOCK, ledgerPeople, ledgerText } from './whoKnows'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
@@ -95,6 +115,9 @@ import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from '
 import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
+import { calledFor, foldApostrophes, namedInProse, type CalledName } from '@shared/names'
+import { sameDay, sameMoment, type SceneCalendar } from '../memory/calendar'
+import { datesOf, elapsedNote, storyDateLines } from './storyDate'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -144,9 +167,16 @@ export interface ContextInput {
   recall?: RecallInput | null
   /**
    * The words already in the scene that the draft carries on from (Add below, a later beat), as the briefing sends them:
-   * an item they name, or name by its main word, is brought in, and what must stay true puts it first. Left out: none.
+   * an item they name, or name by its main word, is brought in, and what must stay true puts it first; so is a character
+   * they name, in full (long story memory fix 12). Left out: none.
    */
   soFar?: string
+  /**
+   * What this scene's words and the previous scene's call their characters ("the Captain", "her brother"), as the memory
+   * keeper read them (db/called.ts): the character is found by them in this scene's texts and at the previous scene's
+   * end, as by a name. Left out: none.
+   */
+  called?: { here: CalledName[]; previous: CalledName[] }
   /**
    * The order "Also relevant" and "Also in mind" listed their entries in when this scene was last briefed, by block id
    * (sentOrderOf): those still there keep it and new ones go after them (keptOrder), so a provider can reuse more of the
@@ -158,6 +188,24 @@ export interface ContextInput {
    * must stay true says those about the people here. Left out: none.
    */
   slips?: Lesson[]
+  /**
+   * The story calendar at this scene (long story memory fix 11, memory/storyCalendar.ts sceneCalendar): its date and the
+   * scene before's, earlier days worth counting from, and the ages of those on its card. The scene card says them, and
+   * how far the stage carries goes by them. Left out or null: the two scene cards' When alone (ai/storyDate.ts datesOf).
+   */
+  calendar?: SceneCalendar | null
+  /**
+   * Give the scene a contract (long story memory fix 13, contract.ts): what the draft is asked to write, the beat for a
+   * beat, and what the plan said must change. The briefing gets the contract as a short late block, and what must stay
+   * true leaves out what it says. Null or left out: no contract (switched off), exactly as before.
+   */
+  contract?: ContractInput | null
+  /**
+   * The continuity brief the plan before writing wrote for this draft (long story memory fix 14, brief.ts): a late block
+   * right before the scene card, and the story so far, the earlier passages and who knows what start short beside it.
+   * Null or left out: no brief (switched off, no plan, or it said nothing), exactly as before.
+   */
+  brief?: ContinuityBrief | null
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -168,22 +216,13 @@ export const MUST_BLOCK = 'must-stay-true'
 export const MUST_PRIORITY = 2
 
 /**
- * How much time has passed since the scene before, by both scene cards' When, for what must stay true (2026-10-15): "Time:
- * the scene before was Day 3, dusk; this scene is Day 5". For a story's first scene after another story, its time gap.
- * '' when the writing carries on inside the scene, when either When isn't known, or when it is the same.
+ * How much time has passed since the scene before, for what must stay true (2026-10-15; since long story memory fix 11
+ * from the story calendar, as the scene card's story date: ai/storyDate.ts elapsedNote): "Time: 2 days since the scene
+ * before (Day 3, dusk); this scene is Day 5". For a story's first scene after another story, its time gap. '' when the
+ * writing carries on inside the scene, when nothing is known, or at the same moment.
  */
-export function timeSince(input: Pick<ContextInput, 'scene' | 'memory' | 'options' | 'continuityAtSoFar'>, reach: StageReach): string {
-  if (reach === 'here' || input.continuityAtSoFar || input.options.addBelow) return ''
-  const prev = input.memory.previous
-  if (!prev) return ''
-  if (prev.otherStory && prev.storyId !== input.memory.storyId) {
-    const gap = clean(prev.otherStory.timeGap).replace(/\.$/, '')
-    return gap ? `Time since ${clean(prev.storyTitle) || 'the story before'}: ${gap}` : ''
-  }
-  const before = clean(prev.when)
-  const now = clean(input.scene.card.when)
-  if (!before || !now || sameWhen(before, now)) return ''
-  return `Time: the scene before was ${before}; this scene is ${now}`
+export function timeSince(input: Pick<ContextInput, 'scene' | 'memory' | 'options' | 'continuityAtSoFar' | 'calendar'>, reach: StageReach): string {
+  return elapsedNote(input, reach === 'here')
 }
 
 /** What block 3b says first. */
@@ -238,6 +277,13 @@ export interface PreparedContext {
   briefingCap?: number
   /** What each part's memory lines rest on, by part id (World Memory Overhaul B6), kept for the forms sent. */
   tags?: Map<string, DraftTag[]>
+  /** The scene's contract as the briefing tells it (long story memory fix 13); null or left out: none. */
+  contract?: SceneContract | null
+  /**
+   * The blocks given in their short form because the continuity brief says what of them bears on this scene (long story
+   * memory fix 14, brief.ts briefShortens), unless Adam chose Full; left out: none.
+   */
+  briefShortens?: string[]
 }
 
 // ---------- Budget ----------
@@ -552,22 +598,16 @@ export function parentChain(place: Entry, byId: Map<ID, Entry>): Entry[] {
   return out
 }
 
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
 /**
  * True when `name` appears in `text` as a whole word or phrase. A single
  * capitalised word ("Will", "Rose", "Red") must appear capitalised, so ordinary
  * words don't count; phrases and lower-case aliases ("The Duke", "the old
- * woman") ignore case.
+ * woman") ignore case. Since long story memory fix 12 it is the one rule the keeper and the page read names by too
+ * (shared/names.ts): any apostrophe for any, never joined by a hyphen to the next word, and not "Will you…?".
  */
-export function mentions(text: string, name: string): boolean {
-  const n = name.trim()
-  if (n.length < 2 || !text) return false
-  const flags = /\s/.test(n) || !/^\p{Lu}/u.test(n) ? 'iu' : 'u'
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, flags).test(text)
-}
+export const mentions = (text: string, name: string): boolean => namedInProse(text, name)
 
-const squash = (s: string): string => s.toLocaleLowerCase().replace(/\s+/g, ' ')
+const squash = (s: string): string => foldApostrophes(s.toLocaleLowerCase()).replace(/\s+/g, ' ')
 
 /** A text to look for names in, with a plain copy for a quick check first, so a big world stays fast. */
 const haystack = (text: string): { text: string; plain: string } => ({ text, plain: squash(text) })
@@ -753,6 +793,11 @@ export interface Selection {
   recalled: EntryState[]
   /** For each character present, the people they're tied to who aren't in the scene, closest and most recent first. */
   ties: { person: EntryState; ties: Tie[] }[]
+  /**
+   * The living characters the scene so far names, by name, other name or what this scene's words call them (long story
+   * memory fix 12): those not on the card are sent in full, as those on it are.
+   */
+  inSoFar: Set<ID>
   label: (id: ID) => string | null
 }
 
@@ -844,12 +889,40 @@ export function selectEntries(input: ContextInput): Selection {
     [haystack([card.goal, card.conflict, card.outcome, card.mood].join('\n')), WHY.cardWords],
     [haystack(sceneTail(clean(input.memory.previous?.text))), WHY.previous]
   ] as const
-  const itemTexts = [...texts, [haystack(clean(input.soFar)), WHY.soFar] as const]
+  const soFar = haystack(clean(input.soFar))
+  const itemTexts = [...texts, [soFar, WHY.soFar] as const]
   const heads = itemHeads([...known.values()])
+  // People, however they are named (long story memory fix 12, 2026-10-15: someone named only in the scene so far, or only
+  // as "the Captain" or "her brother", got one line or nothing): also by what this scene's words call them (input.called,
+  // read by the memory keeper) in its own texts, by what the previous scene's words called them at its end, and in the
+  // scene so far by name, other name or what it calls them, as prose names people (shared/names.ts: "Will you…?" isn't
+  // Will). Not the dead: the scene card says who is dead by now (deadBy), and a dead man thought of is no one in the scene.
+  const calledHere = input.called?.here ?? []
+  const calledBefore = input.called?.previous ?? []
+  const inSoFar = new Set<ID>()
+  if (soFar.plain) {
+    for (const e of m.entries) {
+      if (e.kind !== 'character' || deathOf(e)) continue
+      const names = [e.name, ...(e.aliases ?? []), ...calledFor(calledHere, e.id)].map((n) => n.trim()).filter((n) => n.length >= 2)
+      if (names.some((n) => soFar.plain.includes(squash(n)) && namedInProse(soFar.text, n))) inSoFar.add(e.id)
+    }
+  }
+  const [ownTexts, previousTail] = [texts.slice(0, 4), texts[4]]
+  const personHit = (e: EntryState): (typeof itemTexts)[number] | undefined => {
+    const here = calledFor(calledHere, e.id)
+    const before = calledFor(calledBefore, e.id)
+    return (
+      (here.length ? ownTexts.find(([h]) => namedIn(h, here)) : undefined) ??
+      (before.length && namedIn(previousTail[0], before) ? previousTail : undefined) ??
+      (inSoFar.has(e.id) ? itemTexts[itemTexts.length - 1] : undefined)
+    )
+  }
   for (const e of m.entries) {
     if (chosen.has(e.id)) continue
     const names = [e.name, ...(e.aliases ?? [])]
-    const hit = texts.find(([h]) => namedIn(h, names)) ?? (e.kind === 'item' ? itemTexts.find(([h]) => namedIn(h, namesOf(e, heads))) : undefined)
+    const hit =
+      texts.find(([h]) => namedIn(h, names)) ??
+      (e.kind === 'item' ? itemTexts.find(([h]) => namedIn(h, namesOf(e, heads))) : e.kind === 'character' ? personHit(e) : undefined)
     const got = hit ? take(e.id, hit[1], false) : null
     if (got) others.push(got)
   }
@@ -869,6 +942,8 @@ export function selectEntries(input: ContextInput): Selection {
   // Story memory step 5: entries from the last two scenes, then those found by searching (retrieval/briefing.ts).
   const recalled = recalledEntries(input.recall, (id, why) => take(id, why, false))
 
+  // Someone the scene so far names stays among the ties (fix 12): how they stand with those on the card is what the
+  // writer needs of them, and block 11 is sent before what a step brings in, so it mustn't change as the words grow.
   const tiesAway = absentTies(input, [pov, ...present].filter(some), here, (id) => take(id, WHY.tie, false) ?? chosen.get(id)?.entry ?? null)
 
   const hidden: Selection['hidden'] = []
@@ -877,7 +952,7 @@ export function selectEntries(input: ContextInput): Selection {
     if (p.action === 'hide' && e) hidden.push({ entry: e, why: WHY.hide[p.scope] })
   }
 
-  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, recalled, ties: tiesAway, label }
+  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, recalled, ties: tiesAway, inSoFar, label }
 }
 
 /** One tie between a character in the scene and someone who isn't there, as of this scene. */
@@ -986,9 +1061,6 @@ function relationshipLine(r: RelationshipState, name: (id: ID) => string): strin
   return parts.join(' ')
 }
 
-const joinAnd = (items: string[]): string =>
-  items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
-
 /** A change pinned to this scene, as an aim for the draft ("Mara: loses her left hand"). */
 export function bringAboutLine(c: Change, name: (id: ID) => string): string | null {
   const who = name(c.entryId)
@@ -1027,8 +1099,9 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   const lines: string[] = []
   if (clean(title)) lines.push(`Scene: ${clean(title)}`)
   if (clean(card.when)) lines.push(`When: ${clean(card.when)}`)
-  const gap = timeSincePrevious(input)
-  if (gap) lines.push(gap)
+  // The story calendar (long story memory fix 11): the story date, how long since the scene before and a few earlier
+  // days, the ages of those here, and the reminder to make the time that has passed fit.
+  lines.push(...storyDateLines(input, memoryScale(input.contextLength)))
   // Who is dead by now, so nobody dead walks or talks in the scene (except as a ghost, a memory or a vision).
   const dead = deadBy(input.memory.entries)
   if (dead.length) {
@@ -1075,27 +1148,7 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   return parts.join('\n\n')
 }
 
-/**
- * How long after the previous scene this one is, from both cards' When (Adam, 2026-10-04: a live run's writer said
- * "four days" where one night had passed): "The previous scene was Day 5, dusk: this is 3 days later." Only within
- * one story, and only when both have a When.
- */
-export function timeSincePrevious(input: Pick<ContextInput, 'scene' | 'memory'>): string {
-  const prev = input.memory.previous
-  const now = clean(input.scene.card.when)
-  const then = clean(prev?.when)
-  if (!prev || prev.otherStory || !now || !then) return ''
-  const day = (s: string): number | null => {
-    const m = /\bday\s+(\d+)\b/i.exec(s)
-    return m ? Number(m[1]) : null
-  }
-  const a = day(then)
-  const b = day(now)
-  const gap = a != null && b != null && b >= a ? (b === a ? ' The same day.' : b - a === 1 ? ' The next day.' : ` ${b - a} days later.`) : ''
-  return `The previous scene was ${then}.${gap} Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by.`
-}
-
-/** The day a When gives ("Day 3, dusk" is 3), or null. */
+/** The day a When gives ("Day 3, dusk" is 3), or null: how stageReach went before the story calendar, where it can't tell. */
 const dayOf = (when: string | undefined): number | null => {
   const m = /\bday\s+(\d+)\b/i.exec(clean(when))
   return m ? Number(m[1]) : null
@@ -1103,15 +1156,19 @@ const dayOf = (when: string | undefined): number | null => {
 
 /**
  * How much of where things stand the "must stay true" list and the plan keep to (mustStay.ts): all of it carrying on
- * inside the scene; at a new scene's start on the same day by both cards' When, how people are, what they wear and hold
- * (the card sets where and when); on a later day, or when how long has passed isn't known, only how they are; nothing
- * from another story, or when nothing is known.
+ * inside the scene; at a new scene's start on the same day, how people are, what they wear and hold (the card sets where
+ * and when); on a later day, or when how long has passed isn't known, only how they are; nothing from another story, or
+ * when nothing is known. The same day is read on the story calendar (long story memory fix 11: "That night" after "Day
+ * 3, dusk" is the same day, "The next day" twice is not); where it can't tell, both cards' "Day N", as before.
  */
-export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'continuityAtSoFar'>): StageReach {
+export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'continuityAtSoFar' | 'calendar'>): StageReach {
   if (!input.continuity) return 'none'
   if (input.continuityAtSoFar) return 'here'
   const prev = input.memory.previous
   if (!prev || prev.otherStory) return 'none'
+  const { here, previous } = datesOf(input)
+  const same = sameDay(previous, here)
+  if (same !== null) return same ? 'start' : 'later'
   const a = dayOf(prev.when)
   const b = dayOf(input.scene.card.when)
   return a != null && a === b ? 'start' : 'later'
@@ -1119,29 +1176,34 @@ export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'conti
 
 /**
  * Whether the time of day, the light and the weather as the previous scene ended still hold as this one starts (Adam,
- * 2026-10-07): only when both cards give the same When, in this story. Stricter than stageReach's "same day": "Day 23"
- * then "Day 23, night, rain" is the same day, but "morning" no longer holds. A new time starts fresh, as the continuity
- * tracker reads it (continuity/tracker.ts startFrom).
+ * 2026-10-07): only at the same moment, in this story. Stricter than stageReach's "same day": "Day 23" then "Day 23,
+ * night, rain" is the same day, but "morning" no longer holds. Read on the story calendar as the continuity tracker reads
+ * it (continuity/tracker.ts startFrom; memory/calendar.ts sameMoment): the same day and time of day, else, where it
+ * can't tell, both cards giving the same When.
  */
-export function timeCarries(card: Pick<SceneCard, 'when'>, previous: SceneMemory['previous']): boolean {
-  return !!previous && !previous.otherStory && sameWhen(previous.when, card.when)
+export function timeCarries(card: Pick<SceneCard, 'when'>, previous: SceneMemory['previous'], calendar?: SceneCalendar | null): boolean {
+  if (!previous || previous.otherStory) return false
+  const { here, previous: then } = datesOf({ scene: { card }, memory: { previous }, calendar })
+  return sameMoment(then, here) ?? sameWhen(previous.when, card.when)
 }
 
 /**
  * Who of where things stand is in this scene (mustStay.ts stageInScene): those on its card, and anyone its card's words,
- * Adam's direction or `words` (the scene so far, the words around an edit) name.
+ * Adam's direction or `words` (the scene so far, the words around an edit) name. `calendar`: the story calendar at the
+ * scene, for whether the time carries (timeCarries).
  */
 export function stageScope(
   card: SceneCard,
   memory: Pick<SceneMemory, 'sceneId' | 'entries' | 'elsewhere' | 'previous'>,
-  words: (string | null | undefined)[]
+  words: (string | null | undefined)[],
+  calendar?: SceneCalendar | null
 ): StageScope {
   const byId = new Map<ID, EntryState>([...memory.elsewhere.map((x) => [x.entry.id, x.entry] as const), ...memory.entries.map((e) => [e.id, e] as const)])
   const onCard = [...new Set([card.povId, ...card.presentIds])].map((id) => (id ? byId.get(id) : undefined)).filter((e): e is EntryState => !!e)
   const cast = [...byId.values()].filter((e) => e.kind === 'character')
   return {
     sceneId: memory.sceneId,
-    timeCarries: timeCarries(card, memory.previous),
+    timeCarries: timeCarries(card, memory.previous, calendar),
     onCard,
     cast,
     words: [...card.beats, card.notes, card.goal, card.conflict, card.outcome, card.mood, ...words].map(clean).filter(Boolean).join('\n'),
@@ -1155,9 +1217,9 @@ export function stageScope(
  * words): only the people in the scene, and a time, light and weather that still hold (stageInScene). Null when nothing
  * is known. `input.continuity` itself, as kept, is left whole.
  */
-export function toldStage(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'options' | 'soFar'>): SceneState | null {
+export function toldStage(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'options' | 'soFar' | 'calendar'>): SceneState | null {
   if (!input.continuity) return null
-  return stageInScene(input.continuity, stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar]))
+  return stageInScene(input.continuity, stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar], input.calendar))
 }
 
 /** The draft carries on from words already in the scene (Add below, a later beat), rather than writing it whole. */
@@ -1212,10 +1274,10 @@ function someFacts<T extends { fact: string }>(facts: T[], sel: Selection, cap: 
 const leftOutLine = (n: number): string => `(And ${n.toLocaleString('en-GB')} more, left out here to save space.)`
 
 /**
- * Relationships among the people present, and the facts some of them know and others don't. The
- * short form, used only when there are many such facts (a long series), keeps the ones that matter here.
+ * Relationships among the people present (no short form: these are short). What some of them know and others don't is
+ * the "Who knows what" block's since long story memory fix 9 (whoKnows.ts), for everyone in the scene.
  */
-function relationshipsText(input: ContextInput, sel: Selection): { text: string; short: string | null; entryIds: ID[] } {
+function relationshipsText(input: ContextInput, sel: Selection): { text: string; entryIds: ID[] } {
   const people = [sel.pov, ...sel.present].filter((x): x is EntryState => !!x && x.kind === 'character')
   const ids = new Set(people.map((p) => p.id))
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
@@ -1227,37 +1289,33 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
       used.add(r.bId)
       return `- ${relationshipLine(r, name)}`
     })
-  // Only real secrets (Adam, 2026-10-08: 37 "does not know" lines, many false, one "Wren does not know" a plan of
-  // Wren's own): what one of them knows that another here doesn't, never kept from someone it is about, at most
-  // RELATIONSHIP_SECRETS (mustStay.ts realSecrets).
-  const facts: { fact: string; line: string }[] = realSecrets(people, input.memory.facts, { happened: happenedOf(input.memory.entries) }, RELATIONSHIP_SECRETS).map(
-    (s) => {
-      for (const n of [...s.knownBy, ...s.keptFrom]) for (const p of people) if (p.name === n) used.add(p.id)
-      const knowersText = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
-      return {
-        fact: s.fact,
-        line: `- ${joinAnd(s.keptFrom)} ${s.keptFrom.length === 1 ? 'does' : 'do'} not know: ${sentence(s.fact)} (${knowersText}.)`
-      }
-    }
-  )
-  const write = (list: string[]): string => {
-    const parts: string[] = []
-    if (rels.length) parts.push(rels.join('\n'))
-    if (list.length) parts.push(`Facts some of them know and others don't:\n${list.join('\n')}`)
-    return parts.join('\n\n')
-  }
-  const { kept, left } = someFacts(facts, sel, RELATIONSHIP_FACTS_SHORT)
-  return {
-    text: write(facts.map((f) => f.line)),
-    short: left ? write([...kept.map((f) => f.line), leftOutLine(left)]) : null,
-    entryIds: people.map((p) => p.id).filter((id) => used.has(id))
-  }
+  return { text: rels.join('\n'), entryIds: people.map((p) => p.id).filter((id) => used.has(id)) }
 }
 
-/** Facts some of those present don't know, kept in block 6's short form. */
-const RELATIONSHIP_FACTS_SHORT = 10
-/** The most secrets block 6 gives. */
-export const RELATIONSHIP_SECRETS = 3
+/**
+ * Everyone in the scene, for who knows what (long story memory fix 9): the point of view, the others on the card, those
+ * where things stand puts there, and the living characters the scene so far names (fix 12); only people who exist here,
+ * each once, in that order (the stage's and the scene so far's in the steady order). Never anyone Adam kept out of the
+ * scene's briefing (a 'hide' pin), wherever they are on the stage or named (fix 14's review).
+ */
+export function sceneKnowers(
+  input: Pick<ContextInput, 'memory'>,
+  sel: Pick<Selection, 'pov' | 'present' | 'inSoFar'> & Partial<Pick<Selection, 'hidden'>>,
+  stage: SceneState | null
+): EntryState[] {
+  const here = new Map(input.memory.entries.map((e) => [e.id, e]))
+  const hidden = new Set((sel.hidden ?? []).map((h) => h.entry.id))
+  const out: EntryState[] = []
+  const add = (id: ID | undefined): void => {
+    const e = id ? here.get(id) : undefined
+    if (e && e.kind === 'character' && !hidden.has(e.id) && !out.includes(e)) out.push(e)
+  }
+  for (const e of [sel.pov, ...sel.present]) add(e?.id)
+  const characters = steadyOrder(input.memory.entries.filter((e) => e.kind === 'character'))
+  if (stage?.characters.length) for (const e of characters) if (stageFor(e, stage)) add(e.id)
+  for (const e of characters) if (sel.inSoFar.has(e.id)) add(e.id)
+  return out
+}
 
 /** How a tie stands: the relationship, and in full how each of them feels ("Brother, estranged. Mara feels: Guilt."). */
 function tieStanding(t: Tie, person: EntryState, short: boolean): string {
@@ -1479,6 +1537,11 @@ export function sentOrderOf(blocks: Pick<BlockDraft, 'id' | 'entryIds'>[]): Reco
 
 /** Builds every block that has something in it, in the order they are sent. */
 export function buildBlocks(input: ContextInput, chosen: Selection = selectEntries(input)): BlockDraft[] {
+  return buildBriefing(input, chosen).blocks
+}
+
+/** The blocks, and the scene's contract they tell (long story memory fix 13), when the input asks for one. */
+function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockDraft[]; contract: SceneContract | null } {
   // The people in the scene with their usual looks put right for this moment, and the relative times in their profiles
   // made past (briefingFixes.ts). The entries as kept are unchanged.
   const stage = toldStage(input)
@@ -1568,6 +1631,8 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   // to 11 is (finishContext).
   const reach = stageReach(input)
   const people = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character')
+  // Everyone in the scene, for who knows what (fix 9), as many as its block covers: what must stay true names the same.
+  const knowers = ledgerPeople(sceneKnowers(input, sel, stage), memoryScale(input.contextLength))
   const card = input.scene.card
   const mustFrom = {
     stand,
@@ -1588,14 +1653,44 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     stageShown: !!full,
     happened: happenedOf(input.memory.entries),
     elapsed: timeSince(input, reach),
-    slips: input.slips
+    slips: input.slips,
+    // What is kept from someone and what is believed wrongly, among everyone in the scene (fix 9: the card, the stage,
+    // the scene so far), as the "Who knows what" block has it.
+    knowers,
+    beliefs: input.memory.beliefs
   }
-  const must = mustStayTrue(mustFrom)
+  // The scene's contract (long story memory fix 13, contract.ts): the start and what must not change come from what must
+  // stay true's own lines (every stage line told, as the stage block above may not be), what must change from the card
+  // or the plan. Sent right above what must stay true, which then leaves out what it says (never said twice).
+  const contract = input.contract
+    ? sceneContract({
+        asks: input.contract.asks,
+        must: mustLines({ ...mustFrom, stageShown: false }),
+        people,
+        card,
+        threads: sel.threads.map((t) => ({ entryId: t.entry.id, name: t.entry.name, role: t.role })),
+        direction: clean(input.options.direction),
+        soFar: input.soFar,
+        focus: input.contract.focus,
+        planned: input.contract.planned,
+        facts: input.memory.facts,
+        storyTitle: input.story.title,
+        stageShown: !!full && reach === 'here'
+      })
+    : null
+  if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract), contractText(contract, { short: true }), [])
+  // The continuity brief (long story memory fix 14, brief.ts): what the plan's reader of the whole record found matters
+  // here. Never left out (it goes in only where there is room for it: draftFlow.ts withPlan); short: what matters and
+  // what must not be contradicted.
+  const brief = briefText(input.brief)
+  if (brief) add(BRIEF_BLOCK.id, MUST_PRIORITY, BRIEF_BLOCK.title, brief, briefText(input.brief, true), [])
+  const mustFor = contract ? { ...mustFrom, leaveOut: contractSays(contract) } : mustFrom
+  const must = mustStayTrue(mustFor)
   if (must.length) {
     // Short: the lines that matter most, without the lead (the title says it); smallest: the first few of what the scene
     // is most likely to break, said briefly (it is never left out, so it has to fit a model with very little room).
-    const short = mustStayTrue({ ...mustFrom, short: true })
-    const smallest = mustStayTrue({ ...mustFrom, smallest: true })
+    const short = mustStayTrue({ ...mustFor, short: true })
+    const smallest = mustStayTrue({ ...mustFor, smallest: true })
     add(
       MUST_BLOCK,
       MUST_PRIORITY,
@@ -1640,11 +1735,26 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     )
   }
 
-  // 6 Relationships and who knows what. The spec gives it no short form ("these are short"); in a long
-  //   series who-knows-what can run to many lines, so then a short form keeps the facts that matter
-  //   here rather than the whole block, relationships included, being left out.
+  // 6 Relationships among those present (the spec gives it no short form: "these are short").
   const rel = relationshipsText(input, sel)
-  add('relationships', 6, 'Relationships and who knows what', rel.text, rel.short, rel.entryIds)
+  add('relationships', 6, 'Relationships', rel.text, null, rel.entryIds)
+
+  // 6 Who knows what (long story memory fix 9, whoKnows.ts): everyone in the scene, what they don't know yet that
+  //   someone here knows, what they believe wrongly, and what they know with since when and how, as this scene begins
+  //   (short: only what they don't know or believe wrongly). Who is in the scene can change from step to step (the
+  //   stage, the scene so far), so it is sent late (SEND_ORDER).
+  const ledgerFrom = {
+    people: knowers,
+    povId: sel.pov?.id ?? null,
+    facts: input.memory.facts,
+    beliefs: input.memory.beliefs ?? [],
+    happened: happenedOf(input.memory.entries),
+    storyTitle: input.story.title,
+    nameOf: (id: ID): string | null => sel.known.get(id)?.name ?? null,
+    scale: memoryScale(input.contextLength)
+  }
+  const ledger = ledgerText(ledgerFrom)
+  if (ledger) add(LEDGER_BLOCK.id, LEDGER_BLOCK.priority, LEDGER_BLOCK.title, ledger, ledgerText(ledgerFrom, true), knowers.map((e) => e.id))
 
   // 7 Where the scene happens, the places around it and the groups of those present.
   const where = sel.location
@@ -1711,10 +1821,14 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     )
   }
 
-  // 9 The other plot threads still open here (2026-10-08, ai/openThreads.ts): a line each, kept alive gently. In the
-  //   steady part, after the card's threads: only the card and the memory before this scene decide it.
-  const openNow = openThreadsAt(input.memory, input.scene.card, OPEN_THREADS_MOST)
-  add(OPEN_THREADS_BLOCK, 9, OPEN_THREADS_TITLE, openThreadsText(openNow), openThreadsText(openNow.slice(0, 3), true), [])
+  // 9 The other plot threads still open here (2026-10-08, ai/openThreads.ts): a line each, kept alive gently; since the
+  //   promises ledger (fix 10) as many as the model has room for, those due by the end of this chapter or overdue first,
+  //   then those involving the card's people, place and what they hold, then the longest untouched. In the steady part,
+  //   after the card's threads: only the card, Adam's plans and the memory before this scene decide it. Never a thread
+  //   Adam kept out of the scene's briefing.
+  const threadScale = memoryScale(input.contextLength)
+  const openNow = openThreadsAt(input.memory, input.scene.card, openThreadsMost(threadScale), new Set(sel.hidden.map((h) => h.entry.id)))
+  add(OPEN_THREADS_BLOCK, 9, OPEN_THREADS_TITLE, openThreadsText(openNow), openThreadsText(openNow.slice(0, openThreadsShort(threadScale)), true), [])
 
   // 8 The story so far (short: fewer scenes, chapter summaries, series roll-ups; smaller: only the most recent parts).
   // Since 2026-10-08 (Adam: "a clear outline of what has happened so far, when, and involving who"): a timeline of
@@ -1741,11 +1855,17 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     const t = e.kind === 'thread' ? input.memory.threads.find((x) => x.entryId === e.id) : undefined
     return t?.status === 'resolved' ? `already paid off${clean(t.paidOff) ? ` in ${clean(t.paidOff)}` : ''}` : ''
   }
-  const note = (e: Entry, why = ''): string => [kindWord(e), why, paidOff(e), label(e)].filter(Boolean).join('; ')
-  const entriesText = (list: EntryState[], why: (e: Entry) => string = () => ''): string =>
+  // Someone the scene so far names (long story memory fix 12) says so: in it, or thought of, as its words have them.
+  const inScene = (e: Entry): boolean => e.kind === 'character' && sel.inSoFar.has(e.id)
+  const note = (e: Entry, why = ''): string =>
+    [kindWord(e), why, inScene(e) ? 'named in the scene so far' : '', paidOff(e), label(e)].filter(Boolean).join('; ')
+  /** `whole`: someone the scene so far names is sent as those on the card are (fix 12); the short form is without that. */
+  const entriesText = (list: EntryState[], why: (e: Entry) => string = () => '', whole = false): string =>
     list
       .map((e) => {
         const head = `### ${e.name} (${note(e, why(e))})`
+        // In the scene: the whole profile, how they look now, and all that has happened to them.
+        if (whole && inScene(e)) return [formatProfile(fresh(e), head, undefined, false, true), happenedText(e)].filter(Boolean).join('\n\n')
         // Lore and places are short, and their fields are the facts: send them whole.
         // Characters who aren't in the scene: who they are and how they look, not their whole inner life.
         const profile = e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks'], false, true) : formatProfile(e, head)
@@ -1764,21 +1884,28 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   const linked = linkedPlaces(card.locationId, [...sel.known.values()])
   // An entry Adam pinned, or the plan asked for, stays whole, wherever it is named.
   const wanted = (e: Entry): boolean => !!sel.chosen.get(e.id)?.pinned || sel.chosen.get(e.id)?.why === WHY.plan
-  const named = (e: Entry): boolean => wanted(e) || [e.name, ...(e.aliases ?? [])].some((n) => clean(n) && mentions(sceneOwn, n))
+  // Named by what this scene's words call them too, and in the scene so far as prose names people (fix 12).
+  const named = (e: Entry): boolean =>
+    wanted(e) ||
+    sel.inSoFar.has(e.id) ||
+    [e.name, ...(e.aliases ?? []), ...calledFor(input.called?.here, e.id)].some((n) => clean(n) && mentions(sceneOwn, n))
   const split = (list: EntryState[]): { full: EntryState[]; offstage: EntryState[] } => offScene(list, { named, linked })
   const offstageText = (list: EntryState[], why: (e: Entry) => string = () => ''): string =>
     list.length ? `${OFFSTAGE_LEAD}\n${list.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n')}` : ''
   if (sel.others.length) {
     const { full: others, offstage } = split(keptOrder(sel.others, input.sentOrder?.[MENTIONED_ID]))
     const all = [...others, ...offstage]
+    // Forms: those in the scene so far in full (fix 12); then everyone named as before (who they are and how they look);
+    // then a line each. With no one in the scene so far, the first two are the same and only one is kept.
     if (all.length)
       add(
         MENTIONED_ID,
         9,
         MENTIONED_TITLE,
+        [entriesText(others, undefined, true), offstageText(offstage)].filter(Boolean).join('\n\n'),
         [entriesText(others), offstageText(offstage)].filter(Boolean).join('\n\n'),
-        all.map((e) => `- ${oneLine(e, note(e))}`).join('\n'),
-        all.map((e) => e.id)
+        all.map((e) => e.id),
+        [all.map((e) => `- ${oneLine(e, note(e))}`).join('\n')]
       )
   }
   if (sel.recalled.length) {
@@ -1818,7 +1945,7 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   // More earlier passages for a writer model that reads more (memoryRoom.ts).
   for (const b of recallBlocks(input.recall, passagesShown(memoryScale(input.contextLength)))) add(b.id, b.priority, b.title, b.text, b.short, [], b.smaller)
 
-  return blocks.sort((a, b) => sendRank(a) - sendRank(b))
+  return { blocks: blocks.sort((a, b) => sendRank(a) - sendRank(b)), contract }
 }
 
 /**
@@ -1854,8 +1981,14 @@ export const SEND_ORDER = [
   RECALL_ENTRIES.id,
   'said',
   'recalled',
+  // Who knows what (fix 9): who is in the scene can change at every step (the stage, the scene so far).
+  LEDGER_BLOCK.id,
+  // The continuity brief (fix 14): written for each draft, so late; right before the scene card.
+  BRIEF_BLOCK.id,
   'scene-card',
   'continuity',
+  // The scene's contract (fix 13): what this draft must keep to and bring about, right above what must stay true.
+  CONTRACT_BLOCK.id,
   MUST_BLOCK
 ]
 const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
@@ -1928,18 +2061,23 @@ export interface ContextExtras {
 
 export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
   const sel = selectEntries(input)
-  const blocks = buildBlocks(input, sel)
+  const { blocks, contract } = buildBriefing(input, sel)
   for (const b of extras.extraBlocks ?? []) {
     if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
   }
-  // Where things stand goes last, after the scene so far too, then what must stay true, right above the closing
-  // instruction; the plan, if any, after that (finishContext sends it after the closing instruction).
-  for (const id of ['continuity', MUST_BLOCK]) {
+  // Where things stand goes last, after the scene so far too, then the scene's contract and what must stay true, right
+  // above the closing instruction; the plan, if any, after that (finishContext sends it after the closing instruction).
+  for (const id of ['continuity', CONTRACT_BLOCK.id, MUST_BLOCK]) {
     const at = blocks.findIndex((b) => b.id === id)
     if (at >= 0) blocks.push(...blocks.splice(at, 1))
   }
   const plan = clean(input.plan?.text)
   if (plan) blocks.push({ id: PLAN_BLOCK.id, priority: 2, title: PLAN_BLOCK.title, text: plan, short: null, smaller: [], entryIds: [] })
+  // With a continuity brief (fix 14), the blocks it says what matters of start short (those that have a short form); the
+  // story so far stays whole for a story with earlier books on its line, whose words the brief's reader never had.
+  const shortens = briefShortens(input.brief, { earlierBooks: hasEarlierBooks(input.memory) }).filter((id) =>
+    blocks.some((b) => b.id === id && b.short != null)
+  )
   const targetWords = input.options.targetWords
   // Auto: room is kept for the longest scene Auto allows this model (finishContext may lower it).
   const autoMax = targetWords == null ? autoCeiling(input.maxOutput) : undefined
@@ -1981,7 +2119,9 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     ...(autoMax != null ? { autoMax, autoFinals: (max: number) => finalsFor(max) } : {}),
     knows: input.memory.knows ?? '',
     entries: contextEntries(sel, blocks),
-    tags: draftMemoryTags(blocks, input.memory)
+    tags: draftMemoryTags(blocks, input.memory),
+    ...(contract ? { contract } : {}),
+    ...(shortens.length ? { briefShortens: shortens } : {})
   }
 }
 
@@ -1993,18 +2133,21 @@ const asMode = (m: unknown): BlockMode => (m === 'full' || m === 'short' ? m : '
  */
 export function finishContext(prepared: PreparedContext, rawCounts: number[]): ContextPreview {
   let at = 0
+  const shortens = new Set(prepared.briefShortens ?? [])
   const state = prepared.blocks.map((b) => {
     const mode = asMode(prepared.modes[b.id])
     const forms = formsOf(b)
     const tokensAt = forms.map(() => withAllowance(rawCounts[at++] ?? 0))
     const hasShort = forms.length > 1
+    // Short at most for the continuity brief (fix 14): it says what of this block bears on the scene. Unless Adam chose.
+    const forBrief = hasShort && mode === 'auto' && shortens.has(b.id)
     // Levels of shortening: 0 is the full form, 1 the short form, then any smaller ones.
-    const min = hasShort && mode === 'short' ? 1 : 0
+    const min = hasShort && (mode === 'short' || forBrief) ? 1 : 0
     const max = mode === 'full' ? 0 : forms.length - 1
     // How far step 1 shortens a block: its short form, and for the story so far the step after (chapters, the last
     // few scenes) too, since its full form (every scene) is much longer than the rest.
     const shortTo = Math.min(max, b.id === 'story-so-far' ? 2 : 1)
-    return { b, mode, forms, tokensAt, hasShort, min, max, shortTo, level: min, dropped: false }
+    return { b, mode, forms, tokensAt, hasShort, min, max, shortTo, level: min, dropped: false, forBrief }
   })
   type State = (typeof state)[number]
   const tokens = (s: State): number => s.tokensAt[s.level]
@@ -2048,8 +2191,15 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // Least important first; within a priority, hard rules go last.
   const leastFirst = [...others].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
-  // What must stay true is never left out: it goes short only once every block from 3 to 11 is, before block 1.
-  const shortenable = [...droppable, ...others.filter((x) => x.b.id === MUST_BLOCK), ...others.filter((x) => x.b.priority === 1)]
+  // What must stay true is never left out: it goes short only once every block from 3 to 11 is, before block 1; the
+  // scene's contract (fix 13) just before it, and the continuity brief (fix 14) before that.
+  const shortenable = [
+    ...droppable,
+    ...others.filter((x) => x.b.id === BRIEF_BLOCK.id),
+    ...others.filter((x) => x.b.id === CONTRACT_BLOCK.id),
+    ...others.filter((x) => x.b.id === MUST_BLOCK),
+    ...others.filter((x) => x.b.priority === 1)
+  ]
 
   /** Block 11 (the ties): left out first when room is short, and put back last. */
   const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
@@ -2195,6 +2345,8 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       short: s.level > 0,
       hasShort: s.hasShort,
       mode: s.mode,
+      // Short because the continuity brief says what of it matters, not for room (any shorter is for room).
+      ...(s.forBrief && !s.dropped && s.level === s.min ? { shortFor: 'brief' as const } : {}),
       ...(memory ? { memory } : {})
     }
   })

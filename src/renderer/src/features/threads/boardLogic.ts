@@ -1,14 +1,60 @@
 // Pure helpers for the plot threads board: its columns and the words on each card, and the ledger's rows (World Memory
-// Overhaul B4). Tested in boardLogic.test.ts.
-import type { ID } from '@shared/types'
+// Overhaul B4), with where each thread stands and when it is due (the promises ledger, long story memory fix 10).
+// Tested in boardLogic.test.ts.
+import type { ID, ThreadDue } from '@shared/types'
 import { QUIET_SCENES, type BoardPlace, type BoardThread, type ThreadsBoard } from '@shared/contracts/worldViews'
 
 // ---------- The ledger (B4) ----------
 
 export type LedgerSort = 'quiet' | 'name'
 
-const STATUS_WORDS: Record<Column, string> = { open: 'Open', resolved: 'Resolved', planned: 'Planned' }
-export const statusWords = (t: Pick<BoardThread, 'column'>): string => STATUS_WORDS[t.column]
+const STATUS_WORDS: Record<Column, string> = { open: 'Open', resolved: 'Resolved', planned: 'Planned', dropped: 'Dropped' }
+
+/**
+ * Where a thread stands, in a word (fix 10): Open, Advanced (moved on since it was set up), Resolved (paid off), Dropped,
+ * or Planned (not set up in the story yet).
+ */
+export function statusWords(t: Pick<BoardThread, 'column' | 'standing'>): string {
+  if (t.column === 'open' && t.standing === 'advanced') return 'Advanced'
+  return STATUS_WORDS[t.column]
+}
+
+// ---------- The promises ledger (fix 10) ----------
+
+/** The chapter a due date names: "Ch 5" (its own words, for a scene card's plan "Ch 5, Sc 2"). */
+const dueChapter = (due: ThreadDue): string => (due.from === 'card' && due.sceneLabel ? due.sceneLabel : due.label)
+
+/**
+ * When a thread is to be paid off, for its card and the ledger: "By the end of Ch 5", "Planned for Ch 5, Sc 2" (a scene
+ * card's Pays off), "Due by the end of this chapter", "Overdue: due by the end of Ch 4". '' when it has no date.
+ */
+export function dueWords(t: Pick<BoardThread, 'due'>): string {
+  const due = t.due
+  if (!due) return ''
+  const planned = due.from === 'card' && !!due.sceneLabel
+  if (due.state === 'overdue') return planned ? `Overdue: planned for ${dueChapter(due)}` : `Overdue: due by the end of ${due.label}`
+  if (due.state === 'now') return planned ? `Due now: planned for ${dueChapter(due)}` : 'Due by the end of this chapter'
+  return planned ? `Planned for ${dueChapter(due)}` : `By the end of ${due.label}`
+}
+
+/** The "Pay off by" chapter Adam chose, for the picker; null for none (a scene card's plan isn't his choice here). */
+export const payBy = (t: Pick<BoardThread, 'due'>): ID | null => (t.due?.from === 'adam' ? t.due.chapterId : null)
+
+/** True when the "Pay off by" picker belongs on a thread: one still to be paid off (open, or planned on the cards). */
+export const canPlan = (t: Pick<BoardThread, 'column'>): boolean => t.column === 'open' || t.column === 'planned'
+
+/** "Ch 3, Sc 2" when something moved it on after its set-up; "Not since it was set up" for an open thread; '' else. */
+export function advancedWords(t: Pick<BoardThread, 'column' | 'advanced'>): string {
+  if (t.advanced?.label) return t.advanced.label
+  return t.column === 'open' || t.column === 'dropped' ? 'Not since it was set up' : ''
+}
+
+/** What Worth a look says of a thread on the board too: "Overdue", "Untouched for a long stretch"; '' for nothing. */
+export function warnWords(t: Pick<BoardThread, 'warn'>): string {
+  if (t.warn === 'overdue') return 'Overdue'
+  if (t.warn === 'quiet') return 'Untouched for a long stretch'
+  return ''
+}
 
 /** True when an open thread has been quiet long enough to be worth a look (QUIET_SCENES or more). */
 export const isQuiet = (t: Pick<BoardThread, 'column' | 'quietScenes'>): boolean =>
@@ -43,13 +89,14 @@ export type Column = BoardThread['column']
 export const COLUMNS: { id: Column; title: string; hint: string; none: string }[] = [
   { id: 'open', title: 'Open', hint: 'Set up and still to be paid off', none: 'Nothing is open.' },
   { id: 'resolved', title: 'Resolved', hint: 'Set up and paid off', none: 'Nothing is resolved yet.' },
+  { id: 'dropped', title: 'Dropped', hint: 'You decided not to pay these off', none: '' },
   { id: 'planned', title: 'Planned', hint: 'Not yet set up in the story', none: '' }
 ]
 
-/** The board's columns with their threads. Planned shows only when a thread is planned. */
+/** The board's columns with their threads. Dropped and Planned show only when a thread is dropped or planned. */
 export function columnsOf(board: ThreadsBoard): { column: (typeof COLUMNS)[number]; threads: BoardThread[] }[] {
   return COLUMNS.map((column) => ({ column, threads: board.threads.filter((t) => t.column === column.id) })).filter(
-    (c) => c.column.id !== 'planned' || c.threads.length > 0
+    (c) => (c.column.id !== 'planned' && c.column.id !== 'dropped') || c.threads.length > 0
   )
 }
 

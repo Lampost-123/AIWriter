@@ -36,6 +36,8 @@ export interface RunDeps {
    */
   beforeScene?: (db: DB, sceneId: ID, signal: AbortSignal) => Promise<void>
   onKeyRejected?: (model: JobModel) => void
+  /** True when Settings › Models has scene contracts off (long story memory fix 13's review): checks clear their issues. */
+  contractsOff?: () => boolean
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -373,6 +375,7 @@ async function go(r: Run): Promise<void> {
     onTask: (id) => (r.taskId = id),
     onKeyRejected: () => d.onKeyRejected?.(model),
     after: r.after,
+    contractsOff: d.contractsOff?.() ?? false,
     fetchImpl: d.fetchImpl,
     retryDelays: d.retryDelays
   }
