@@ -40,6 +40,8 @@ extraResources:
       - '**/*'
       - '!**/__pycache__/**'
       - '!**/*.pyc'
+      # The worker's own checks (python tests/worker_checks.py) are for development only.
+      - '!tests/**'
 
 # The N-API prebuilds already work in Electron, so nothing is compiled while packaging.
 npmRebuild: false

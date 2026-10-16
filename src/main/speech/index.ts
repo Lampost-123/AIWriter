@@ -662,6 +662,18 @@ export function voicesInstalled(): boolean {
   }
 }
 
+/**
+ * Where the speech server looks for the studio voices, downloaded or not (the clip cache's key reads what is there,
+ * as the server does). Never throws.
+ */
+export function studioFolder(): string | null {
+  try {
+    return studioDir(paths().home)
+  } catch {
+    return null
+  }
+}
+
 /** The studio voices' folder (with their index.json) when they are downloaded on this computer, else null. Never throws. */
 export function studioVoicesDir(): string | null {
   try {

@@ -63,6 +63,8 @@ BREEZE_REPO = downloaded.BREEZE_REPO
 # Only what speaking needs: not the logo and leaderboard pictures.
 BREEZE_IGNORE = ["assets/*", "*.md", ".gitattributes"]
 BREEZE_MODULES = ("torch", "torchaudio", "librosa", "transformers", "qwen_tts", "huggingface_hub", "soundfile")
+# Triton compiles the depth decoder, about 15% off every line (triton-windows on Windows: src/main/speech/plan.ts).
+BREEZE_OPTIONAL = ("triton",)
 
 SOUND_REPO = downloaded.SOUND_REPO
 CLAP_REPO = downloaded.CLAP_REPO
@@ -361,6 +363,9 @@ def breeze_check(root: Path) -> int:
     failures = [m for m in BREEZE_MODULES if not can_import(sys.executable, m)]
     for module in BREEZE_MODULES:
         say(f"  {module}: {'missing' if module in failures else 'ok'}")
+    # Checked and reported, but the voices read without it, more slowly (app/workers/breeze.py, triton_ready).
+    for module in BREEZE_OPTIONAL:
+        say(f"  {module}: {'ok' if can_import(sys.executable, module) else 'missing (the voices read without it, more slowly)'}")
     try:
         out = subprocess.run(
             [sys.executable, "-c", "import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"],

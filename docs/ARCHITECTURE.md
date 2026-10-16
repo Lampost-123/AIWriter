@@ -657,6 +657,19 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   voice", and never cast by the AI), the four Expresso voices added to `index.json`, and the voices MCreader designed
   from descriptions in `voices/mcreader/` (listed "From MCreader ·" and the start of the description, which the server
   reads; also in `voices/breeze/` where that description wasn't designed here yet). `Remove downloads` removes them too.
+- **MCreader's faster, steadier Breeze (Adam, 16 October 2026).** The worker decodes each line once at its end
+  (`decode_once`, `bounded_decode` in `speech-server/app/workers/breeze.py`) instead of through Breeze's streaming codec,
+  whose cache was scrambled on CUDA; caps each line's frames by its length (`frame_cap`); and compiles the depth decoder
+  with Triton when it can (`triton-windows<3.6`, `BREEZE_WINDOWS_PACKAGES` in `speech/plan.ts`, Windows only; compiled,
+  then uncompiled CUDA graph, then none; caches in `models/breeze/compile-cache`; `AIWRITE_BREEZE_COMPILE=off` skips
+  it). MCreader measured about 0.63 to 0.44 of real time. A line that ends without Breeze's end-of-speech token is
+  tried once on another seed, then fails rather than being kept cut short. A worker that gives no answer in 180 s plus
+  0.3 s a character is stopped (`worker_engine.py`), and one with a CUDA error, or a second out-of-memory in a row,
+  exits (`_gpu_trouble`); the next line starts it fresh. The clip key (`readAloud/speak.ts`, v2) carries Breeze's
+  commit and switches (`engineFingerprint`) and what a studio voice has now (`studioKeyParts`, `readAloud/clipFacts.ts`:
+  gone, or no acted clip of the feeling), and only a WAV reply is kept (`isWav`). Audio kept before v2 is made again
+  as it is read; "Redo this line" choices made before it are let go. `python tests/worker_checks.py` (from
+  `speech-server/`) checks the safety nets without a graphics card.
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
   reads Adam's summary in parts that fit the model (at most `OVERVIEW_PART_TOKENS` each), reads each part again
   for what its list left out (`overviewMoreUser`, up to `MORE_LOOKS` times, stopping when a look finds nothing

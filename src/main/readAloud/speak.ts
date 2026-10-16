@@ -9,6 +9,7 @@ import type { ClipRequest } from '@shared/contracts/readAloud'
 import { speechFetch } from '../speech/client'
 import { UserError } from '../util'
 import { AudioCache } from './audioCache'
+import { engineFingerprint, isWav, studioKeyParts } from './clipFacts'
 
 /** The body sent to the speech server's OpenAI-style `POST /v1/audio/speech`. */
 export interface SpeechPayload {
@@ -66,8 +67,22 @@ export function speechPayload(clip: ClipRequest, engine = 'breeze'): SpeechPaylo
   return payload
 }
 
+/** Where the studio voices are (the speech server's voices/library/), for the key; readAloud/index.ts says where. */
+let studioFolder: () => string | null = () => null
+export function keyStudioVoicesFrom(folder: () => string | null): void {
+  studioFolder = folder
+}
+
+// v2 (from MCreader's v5): Breeze decodes a clip once at its end (speech-server/app/workers/breeze.py, decode_once),
+// no longer through its streaming codec, whose scrambled cache put every clip about 14 dB off the codec's own decode;
+// and its depth decoder is compiled. Breeze's code and switches join the key (`engine`), and a studio voice that can't
+// be copied from as asked (gone, or no acted clip of the feeling) too, only when it is (clipFacts.ts).
 /** The key a clip is kept under: the request as sent, so the same words in the same voice are spoken once. */
-export const clipKey = (clip: ClipRequest, engine = 'breeze'): string => AudioCache.keyOf({ payload: speechPayload(clip, engine), v: 1 })
+export const clipKey = (clip: ClipRequest, engine = 'breeze'): string => {
+  const payload = speechPayload(clip, engine)
+  const studio = studioKeyParts(payload.voice, payload.voice_design, payload.mood, studioFolder())
+  return AudioCache.keyOf({ payload, engine: engineFingerprint(), v: 2, ...studio })
+}
 
 export type Fetcher = (path: string, init: RequestInit & { timeoutMs?: number }) => Promise<Response>
 
@@ -112,7 +127,10 @@ async function synthesise(payload: SpeechPayload, fetcher: Fetcher): Promise<Buf
     console.warn('[read aloud] a clip from the speech server was cut off', e)
     throw new UserError(SPEECH_FAILED, 'speech-failed')
   }
-  // A WAV header alone is 44 bytes: anything less isn't a clip.
-  if (audio.length <= 44) throw new UserError(SPEECH_FAILED, 'speech-failed')
+  // A WAV header alone is 44 bytes: anything less, or anything not a WAV (a stray server's page), isn't a clip.
+  if (!isWav(audio)) {
+    console.warn(`[read aloud] the speech server sent ${audio.length} bytes that aren't a clip`)
+    throw new UserError(SPEECH_FAILED, 'speech-failed')
+  }
   return audio
 }
