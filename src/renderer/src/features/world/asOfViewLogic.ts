@@ -150,16 +150,20 @@ export interface AsOfKnowing {
 }
 
 /**
- * What a character knows (or believes wrongly) at a point, the most lately learned first (the who-knows-what ledger,
- * long story memory fix 9), each with since when and how. Those with no place (kept before the ledger) keep the
- * memory's order, after the rest.
+ * What a character knows (or believes wrongly) at a point, each with since when and how (the who-knows-what ledger,
+ * long story memory fix 9): in the order they were learned, as the memory lists them and as "What has happened so far"
+ * reads (the view as of a scene); or, `newestFirst`, the most lately learned first (the New look's card, which shows the
+ * latest few), those with no place after the rest.
  */
-export function asOfKnowing(rows: (FactState | BeliefState)[], entryId: ID, nameOf: (id: ID) => string | null): AsOfKnowing[] {
-  return rows
-    .map((f, i) => ({ f, i, since: f.since?.[entryId] ?? null }))
-    .filter((x) => x.f.fact.trim())
-    .sort((a, b) => (b.since?.at ?? -2) - (a.since?.at ?? -2) || a.i - b.i)
-    .map(({ f, since }) => ({
+export function asOfKnowing(
+  rows: (FactState | BeliefState)[],
+  entryId: ID,
+  nameOf: (id: ID) => string | null,
+  newestFirst = false
+): AsOfKnowing[] {
+  const list = rows.map((f, i) => ({ f, i, since: f.since?.[entryId] ?? null })).filter((x) => x.f.fact.trim())
+  if (newestFirst) list.sort((a, b) => (b.since?.at ?? -2) - (a.since?.at ?? -2) || a.i - b.i)
+  return list.map(({ f, since }) => ({
       factId: f.factId,
       fact: f.fact.trim(),
       learned: learnedWords(since, nameOf, undefined, ' · '),

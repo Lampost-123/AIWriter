@@ -2551,10 +2551,12 @@ ledger, built from what the memory already keeps (no new store, no migration, no
   same, beliefs among them (`repair/prompts.ts` `codexLines`, 8 at most). The knowledge check's instructions add a
   character "who acts on the truth of something the memory says they believe wrongly, with nothing showing them learn
   it". No new call.
-- **The page**: an entry's view as of a scene (`AsOfView.tsx`, both looks) has "What they know", the most lately
-  learned first, each with since when and how in a quiet line beside it ("since Book 1, Ch 2, Sc 3 · heard it from
+- **The page**: an entry's view as of a scene (`AsOfView.tsx`, both looks) has "What they know" (it was "Knows at this
+  point"; its empty state, "Nothing noted yet.", and list are as they were), in the order they were learned as "What has
+  happened so far" is, each with since when and how in a quiet line beside it ("since Book 1, Ch 2, Sc 3 · heard it from
   Ash", `asOfViewLogic.ts` `asOfKnowing`), and "Believes wrongly" when there is any. The New look's card has "What they
-  know" under "Where things stand", as of the scene Adam is in (`Dossier.tsx` `KnowingRows`, six at most, "and 3 more,
+  know" under "Where things stand", as of the scene Adam is in, the most lately learned first (`asOfKnowing`'s
+  `newestFirst`; `Dossier.tsx` `KnowingRows`, six at most, "and 3 more,
   seen as of any scene"). "Changes over time" says how under a learning ("Heard it from Ash") and "Believes wrongly: …"
   for a belief (`memoryLogic.ts` `describeChange`); removing either is the usual remove with Undo. "Knows at the start"
   offers to add what was typed "as something {name} believes wrongly", and marks such a row. Classic's screens look as

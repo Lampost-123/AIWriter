@@ -201,7 +201,7 @@ const AsOfContent = memo(function AsOfContent({
   }
 
   const happened = asOfHappened(state.happened)
-  // What they know and believe wrongly here, the most lately learned first, each with since when and how (fix 9).
+  // What they know and believe wrongly here, in the order they were learned, each with since when and how (fix 9).
   const knows = asOfKnowing(data.knows, entry.id, nameOf)
   const believes = asOfKnowing(data.believes ?? [], entry.id, nameOf)
   const knowingNote = (factId: ID): LineNote | null => asOfNote(knowsSource(entry.id, factId, changes), adamsEntry)

@@ -501,7 +501,7 @@ export function Dossier({
   const knowing = useMemo(() => {
     if (kind !== 'character' || !now.data) return null
     const nameOf = (id: ID): string | null => (id === entry.id ? draft.name.trim() || null : byId.get(id)?.name.trim() || null)
-    return { knows: asOfKnowing(now.data.knows, entry.id, nameOf), believes: asOfKnowing(now.data.believes ?? [], entry.id, nameOf) }
+    return { knows: asOfKnowing(now.data.knows, entry.id, nameOf, true), believes: asOfKnowing(now.data.believes ?? [], entry.id, nameOf, true) }
   }, [kind, now.data, entry.id, draft.name, byId])
 
   // The memory's sections: relationships and "Appears in" open; the rest folded.

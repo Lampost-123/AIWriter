@@ -229,24 +229,24 @@ describe('an entry as of a point', () => {
 
 describe('what a character knows and believes wrongly at a point (long story memory fix 9)', () => {
   const nameOf = (id: string): string | null => ({ ash: 'Ash' })[id] ?? null
-  it('the most lately learned first, each with since when and how; those with no place last, as the memory lists them', () => {
-    const rows = asOfKnowing(
-      [
-        { factId: 'a', fact: 'The ferry leaks', knownBy: ['m'] },
-        { factId: 'b', fact: 'The will was burned ', knownBy: ['m'], since: { m: { at: 2, where: 'Book 1, Ch 1, Sc 2', how: 'saw' } } },
-        { factId: 'c', fact: 'The toll doubled', knownBy: ['m'], since: { m: { at: 6, where: 'Book 1, Ch 2, Sc 1', how: 'told', from: 'ash' } } },
-        { factId: 'd', fact: 'The Binding holds', knownBy: ['m'], since: { m: { at: -1, where: '' } } },
-        { factId: 'e', fact: '  ', knownBy: ['m'] }
-      ],
-      'm',
-      nameOf
-    )
-    expect(rows).toEqual([
-      { factId: 'c', fact: 'The toll doubled', learned: 'since Book 1, Ch 2, Sc 1 · heard it from Ash', since: 'since Book 1, Ch 2, Sc 1', how: 'heard it from Ash' },
-      { factId: 'b', fact: 'The will was burned', learned: 'since Book 1, Ch 1, Sc 2 · saw it', since: 'since Book 1, Ch 1, Sc 2', how: 'saw it' },
-      { factId: 'd', fact: 'The Binding holds', learned: 'from the start', since: 'from the start', how: '' },
-      { factId: 'a', fact: 'The ferry leaks', learned: '', since: '', how: '' }
-    ])
+  const facts = [
+    { factId: 'a', fact: 'The ferry leaks', knownBy: ['m'] },
+    { factId: 'b', fact: 'The will was burned ', knownBy: ['m'], since: { m: { at: 2, where: 'Book 1, Ch 1, Sc 2', how: 'saw' as const } } },
+    { factId: 'c', fact: 'The toll doubled', knownBy: ['m'], since: { m: { at: 6, where: 'Book 1, Ch 2, Sc 1', how: 'told' as const, from: 'ash' } } },
+    { factId: 'd', fact: 'The Binding holds', knownBy: ['m'], since: { m: { at: -1, where: '' } } },
+    { factId: 'e', fact: '  ', knownBy: ['m'] }
+  ]
+  const a = { factId: 'a', fact: 'The ferry leaks', learned: '', since: '', how: '' }
+  const b = { factId: 'b', fact: 'The will was burned', learned: 'since Book 1, Ch 1, Sc 2 · saw it', since: 'since Book 1, Ch 1, Sc 2', how: 'saw it' }
+  const c = { factId: 'c', fact: 'The toll doubled', learned: 'since Book 1, Ch 2, Sc 1 · heard it from Ash', since: 'since Book 1, Ch 2, Sc 1', how: 'heard it from Ash' }
+  const d = { factId: 'd', fact: 'The Binding holds', learned: 'from the start', since: 'from the start', how: '' }
+
+  it('in the order the memory lists them (the order they were learned), each with since when and how', () => {
+    expect(asOfKnowing(facts, 'm', nameOf)).toEqual([a, b, c, d])
+  })
+
+  it('or the most lately learned first, for the New look’s card; those with no place last', () => {
+    expect(asOfKnowing(facts, 'm', nameOf, true)).toEqual([c, b, d, a])
   })
 
   it('reads beliefs the same way', () => {
