@@ -52,6 +52,11 @@ export interface ContractInput {
   focus?: string
   /** What the plan before writing said must change, checked against the card (plan/plan.ts); left out: no plan. */
   planned?: string[]
+  /**
+   * Carrying on from the scene so far without where things stand at its end (it wasn't worked out in time): the contract
+   * says nothing must be true where the draft carries on from (review, 2026-10-16), as what held before may not now.
+   */
+  noStart?: boolean
 }
 
 export const CONTRACT_BLOCK = { id: 'scene-contract', title: 'This scene’s contract' } as const
@@ -139,6 +144,8 @@ export interface ContractFrom {
    * (the check of the new words compares with the stage itself).
    */
   stageShown?: boolean
+  /** Nothing at the start: carrying on with no stage for the scene so far's end (ContractInput.noStart). */
+  noStart?: boolean
 }
 
 /** Where a line of what must stay true goes in the contract, and in what order (lower first); null: not in it. */
@@ -263,10 +270,12 @@ export function sceneContract(o: ContractFrom): SceneContract | null {
     const name = knowers.length === 1 ? who.name : `${knowers.slice(0, -1).map((p) => p.name).join(', ')} and ${knowers[knowers.length - 1].name}`
     knows.push({ text: clip(`${name} ${knowers.length === 1 ? 'knows' : 'know'}: ${clean(f.fact).replace(/[.]$/, '')}${since ? ` (${since})` : ''}`), entryIds: knowers.map((p) => p.id) })
   }
-  const start = [
-    ...startLines.map((l) => ({ text: l.text, check: CHECK_OF[l.kind] ?? ('facts' as CheckKind), entryIds: l.entryIds })),
-    ...knows.map((k) => ({ ...k, check: 'knowledge' as CheckKind }))
-  ].slice(0, CONTRACT_MOST.start)
+  const start = o.noStart
+    ? []
+    : [
+        ...startLines.map((l) => ({ text: l.text, check: CHECK_OF[l.kind] ?? ('facts' as CheckKind), entryIds: l.entryIds })),
+        ...knows.map((k) => ({ ...k, check: 'knowledge' as CheckKind }))
+      ].slice(0, CONTRACT_MOST.start)
 
   // Must not change: never what the change list itself changes (changedBy), so the contract never goes against itself.
   const keep = pick(KEEP_ORDER, CONTRACT_MOST.keep, (l) => changedBy(l, change.map((c) => c.text)))

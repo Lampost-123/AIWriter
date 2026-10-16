@@ -220,7 +220,7 @@ describe('writing a whole chapter', () => {
     // The critic has notes for Sc 1 only, so only Sc 1's review changes anything.
     d.critique = (target, again, signal) => {
       if (target.scope === 'chapter' || target.id !== s1) {
-        return Promise.resolve({ status: 'complete', critique: { scope: target.scope, targetId: target.id, summary: '', strengths: [], notes: [], at: '', textHash: '', shortened: false } })
+        return Promise.resolve({ status: 'complete', critique: { scope: target.scope, targetId: target.id, summary: '', strengths: [], notes: [], at: '', textHash: '', shortened: false, generationId: null } })
       }
       return real.critique(target, again, signal)
     }

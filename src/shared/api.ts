@@ -317,8 +317,11 @@ export interface AppApi
 
   // ----- Generation -----
   previewContext(sceneId: ID, options: DraftOptions): Promise<ContextPreview>
-  /** Starts a streamed draft. Text arrives as 'generation:chunk' events. */
-  startDraft(sceneId: ID, options: DraftOptions): Promise<{ generationId: ID }>
+  /**
+   * Starts a streamed draft. Text arrives as 'generation:chunk' events. `note`: something Adam should know about how it
+   * was briefed, in plain words (where things stand wasn't ready in time, say), or null.
+   */
+  startDraft(sceneId: ID, options: DraftOptions): Promise<{ generationId: ID; note?: string | null }>
   stopGeneration(generationId: ID): Promise<void>
   /**
    * Stops a draft of this scene that hasn't begun yet (the memory may still be catching up with

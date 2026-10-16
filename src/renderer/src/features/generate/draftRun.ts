@@ -231,7 +231,7 @@ export async function startDraft(
     const options = resolveDraftOptions(o.options(), cardLength(card), useApp.getState().settings?.creativity ?? 'balanced', usePolish.getState().on)
     r.polish = !!options.polish
     if (r.cancelled) return giveUp()
-    const { generationId } = await api.startDraft(sceneId, options)
+    const { generationId, note } = await api.startDraft(sceneId, options)
     // History keeps the scene as it is just before the draft goes in (linked to the draft, for What the AI saw).
     await snapshotBefore(sceneId, 'Before a new draft', { generationId })
     if (r.cancelled || run !== r) {
@@ -252,6 +252,8 @@ export async function startDraft(
     r.generationId = generationId
     useApp.getState().setActiveGeneration({ id: generationId, sceneId })
     useDraft.setState({ phase: 'streaming' })
+    // Written without where things stand (it wasn't ready in time): said once, so Adam checks the opening follows on.
+    if (note) toast(note)
     for (const c of r.early) if (c.generationId === generationId) bridge.appendStream(generationId, c.text)
     r.early = []
     if (r.earlyDone?.generationId === generationId) finish(r.earlyDone)

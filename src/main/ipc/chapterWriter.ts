@@ -127,7 +127,9 @@ function deps(runId: ID): RunDeps {
         emit: () => undefined,
         ...providerNotes(b.target.id)
       })
-      return withStop(o.signal, () => void stopDraft(started.generationId), () => started.done)
+      const end = await withStop(o.signal, () => void stopDraft(started.generationId), () => started.done)
+      // Written without where things stand (it wasn't ready in time): the report says so.
+      return { ...end, note: b.note ?? null }
     },
     save: (sceneId, page, label) => {
       const now = repo.getScene(db, sceneId)
