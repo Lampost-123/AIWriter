@@ -168,6 +168,9 @@ describe('the contract in the check', () => {
     expect(judgeContract([a('C2', 'not yet')], { ...CONTRACT, asks: 'continue' }, AI).notYet).toEqual([])
     // Most of its words are there after all: the model missed it.
     expect(judgeContract([a('C2', 'not yet')], CONTRACT, 'Tobin told Mara the letter was forged.').notYet).toEqual([])
+    // How the words should read (a tone-only direction in a contract kept from before): never asked as not shown yet.
+    const tone: SceneContract = { ...CONTRACT, items: CONTRACT.items.map((i) => (i.code === 'C2' ? { ...i, text: 'Make it darker' } : i)) }
+    expect(judgeContract([a('C2', 'not yet')], tone, AI).notYet).toEqual([])
   })
 
   it('asks in plain words, and says how each item came out', () => {

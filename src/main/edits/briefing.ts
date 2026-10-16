@@ -328,7 +328,10 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
           direction,
           facts: mustFrom.facts,
           storyTitle: mustFrom.storyTitle,
-          stageShown: !!world.stand
+          stageShown: !!world.stand,
+          // Carrying on from words with no stage worked out at their end (review, 2026-10-16): nothing is said must be
+          // true there.
+          noStart: !world.stand && !!input.before.trim()
         })
       : null
   const mustOf = (short: boolean): string[] => (mustFrom ? mustStayTrue({ ...mustFrom, short, ...(contract ? { leaveOut: contractSays(contract) } : {}) }) : [])

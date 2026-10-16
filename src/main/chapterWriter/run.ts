@@ -65,9 +65,14 @@ export interface RunDeps {
   sceneChanged: (sceneId: ID, page: Page) => void
   /**
    * Drafts a scene from its card with the app's writer (the memory caught up first), with the notes from the brief
-   * and, for a scene written again, a direction. Resolves with its words.
+   * and, for a scene written again, a direction. Resolves with its words; `cutOff`: the writer ran into its reply limit;
+   * `refused`: it sent back a refusal as words; `note`: something Adam should know about how it was written (where
+   * things stand wasn't ready, say), in plain words.
    */
-  draft: (sceneId: ID, o: { notes: string; direction: string; signal: AbortSignal }) => Promise<{ status: 'complete' | 'stopped' | 'error'; text: string; error: string | null }>
+  draft: (
+    sceneId: ID,
+    o: { notes: string; direction: string; signal: AbortSignal }
+  ) => Promise<{ status: 'complete' | 'stopped' | 'error'; text: string; error: string | null; cutOff?: boolean; refused?: boolean; note?: string | null }>
   /** Saves a scene's new page the way the editor's saves go, after keeping the page before in History. */
   save: (sceneId: ID, page: Page, label: string) => void
   /** Runs every consistency check on a scene (the memory caught up first); what they find is saved as issues. */
@@ -91,6 +96,10 @@ class Failed extends Error {
     super(message)
   }
 }
+
+/** Said under a later scene's notes from the study: its start comes from the scene before as written, not from them. */
+export const LATER_START =
+  'Where everyone is as this scene starts, what they wear and hold, and how they are placed, is where the scene before it ends, as written: keep to that, whatever these notes say of it.'
 
 /** A card says enough to write a scene from it. */
 export const cardReady = (c: SceneCard | null | undefined): boolean =>
@@ -126,6 +135,31 @@ export function chapterLabel(db: DB, chapterId: ID): string {
   return `Ch ${n}${title ? ` “${title}”` : ''}`
 }
 
+/**
+ * The scene after this one in its story that has words: the one whose opening follows on from this one's end. An empty
+ * scene between is passed over, as the scene after it looks back past it (memory/line.ts previousSceneStep). Null at
+ * the story's end.
+ */
+export function sceneAfter(db: DB, sceneId: ID): ID | null {
+  const { story } = repo.sceneLocation(db, sceneId)
+  const scenes = repo.getOutline(db, story.id).scenes
+  const at = scenes.findIndex((s) => s.id === sceneId)
+  if (at < 0) return null
+  return scenes.slice(at + 1).find((s) => s.wordCount > 0)?.id ?? null
+}
+
+/** Where a scene is in its story, for the report: "Ch 4, Sc 1 “The road”". */
+export function placeLabel(db: DB, sceneId: ID): string {
+  const { story } = repo.sceneLocation(db, sceneId)
+  const outline = repo.getOutline(db, story.id)
+  const scene = outline.scenes.find((s) => s.id === sceneId)
+  const ch = outline.chapters.findIndex((c) => c.id === scene?.chapterId)
+  const sc = outline.scenes.filter((s) => s.chapterId === scene?.chapterId).findIndex((s) => s.id === sceneId)
+  // A title that only says "Scene 2" isn't said twice.
+  const title = /^\s*scene\s+[\w-]+\s*$/i.test(scene?.title ?? '') ? '' : (scene?.title.trim() ?? '')
+  return `Ch ${ch + 1}, Sc ${sc + 1}${title ? ` “${title}”` : ''}`
+}
+
 /** A chapter's own title: '' for none, or one that only says "Chapter 3" (so it isn't said twice). */
 export const ownTitle = (title: string): string => (/^\s*chapter\s+[\w-]+\s*$/i.test(title) ? '' : title.trim())
 
@@ -148,6 +182,14 @@ export class ChapterRun {
   /** The critic's latest notes for each scene, and for the chapter. */
   private readonly sceneNotes = new Map<ID, CritiqueNote[]>()
   private chapterNotes: CritiqueNote[] = []
+  /** What Adam should know about how each scene was drafted (draft's `note`), by scene. */
+  private readonly draftNotes = new Map<ID, string>()
+  /**
+   * Scenes after the chapter's (or of it, without a card) that the run checks but never changes: the issues open there
+   * before the run first looked (the author's already), and what its checks found since, as lines for the report.
+   */
+  private readonly outsideBefore = new Map<ID, Set<ID>>()
+  private readonly outsideNotes = new Map<ID, string[]>()
   readonly report: ChapterWriterReport
 
   constructor(
@@ -168,6 +210,7 @@ export class ChapterRun {
       questions: [],
       scenes: [],
       left: [],
+      notes: [],
       summary: '',
       undone: false
     }
@@ -326,7 +369,10 @@ export class ChapterRun {
     const b = this.brief
     if (!b) return ''
     const mine = b.scenes.find((s) => s.sceneId === sceneId)?.notes.trim() ?? ''
-    return [b.overview.trim() && `The chapter: ${b.overview.trim()}`, mine].filter(Boolean).join('\n\n')
+    // The study is made before any scene is written, so where everyone is at a later scene's start is only its guess
+    // (review, 2026-10-16): the end of the scene before, as now written, says it (the briefing's "Where things stand").
+    const later = this.refs.findIndex((r) => r.id === sceneId) > 0 && !!mine
+    return [b.overview.trim() && `The chapter: ${b.overview.trim()}`, mine, later ? LATER_START : ''].filter(Boolean).join('\n\n')
   }
 
   // ---------- 2. Draft ----------
@@ -344,6 +390,20 @@ export class ChapterRun {
     const r = await this.d.draft(sceneId, { notes: this.notesFor(sceneId), direction, signal: this.controller.signal })
     if (r.status === 'stopped' || this.stopped) throw new Stopped()
     if (r.status === 'error') this.failed(r.error)
+    // A draft cut off at the writer's reply limit, or a refusal sent back as words, is never kept as the scene (review,
+    // 2026-10-16: both were saved, and the checks then worked on half a scene or on the refusal).
+    const label = this.refs.find((x) => x.id === sceneId)?.label ?? 'the scene'
+    if (r.cutOff) {
+      this.failed(
+        `The writer stopped partway through ${label}: it ran out of room to write. Set a shorter length on its scene card, or choose a writer model that can write more in one go in Settings › Models.`
+      )
+    }
+    if (r.refused) {
+      this.failed(`The writer model wouldn't write ${label} and sent back a refusal instead. Change its scene card, or choose a different writer model in Settings › Models.`)
+    }
+    if (r.note?.trim()) this.draftNotes.set(sceneId, `${label}: ${r.note.trim()}`)
+    else this.draftNotes.delete(sceneId)
+    this.notesNow()
     const prose = cleanProse(r.text)
     if (!prose) this.failed('The writer sent back no words for this scene.')
     const old = repo.getScene(this.d.db, sceneId).doc
@@ -416,21 +476,30 @@ export class ChapterRun {
     this.report.message = ''
   }
 
-  /** Checks and critiques the scenes changed, and the chapter when any did; returns every open finding, numbered. */
+  /**
+   * Checks and critiques the scenes changed, and the chapter when any did; returns every open finding, numbered. The
+   * scene after each one changed is checked too (review, 2026-10-16): a scene's checks look back at the stage before it,
+   * never forward, so an ending changed in a review (her dress back on) was never read against the opening after it (the
+   * dress still on the floor). One of this chapter's is checked like the rest (its findings go to its review); one the
+   * run doesn't write (the next chapter's first scene, a scene with no card) is checked and what it finds is noted for
+   * Adam, never changed.
+   */
   private async gather(changed: Set<ID>): Promise<Finding[]> {
     const { db } = this.d
     const again = this.round > 1
+    const after = new Set([...changed].map((id) => sceneAfter(db, id)).filter((id): id is ID => !!id && !changed.has(id)))
     for (const r of this.refs) {
-      if (!changed.has(r.id)) continue
+      const mine = changed.has(r.id)
+      if (!mine && !after.has(r.id)) continue
       this.check()
-      this.tell('checking', `Checking ${r.label}, round ${this.round}`, r.id)
-      const c = await this.d.check(r.id, this.controller.signal)
-      if (c.status === 'stopped') throw new Stopped()
-      if (c.status === 'error') this.failed(c.error)
+      this.tell('checking', mine ? `Checking ${r.label}, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id)
+      await this.checkScene(r.id)
+      if (!mine) continue
       this.check()
       this.tell('checking', `The critic is reading ${r.label}, round ${this.round}`, r.id)
       this.sceneNotes.set(r.id, await this.notes({ scope: 'scene', id: r.id }, again))
     }
+    for (const id of after) if (!this.sceneIds.includes(id)) await this.checkOutside(id)
     if (changed.size) {
       this.check()
       this.tell('checking', `The critic is reading ${this.label}, round ${this.round}`)
@@ -454,6 +523,36 @@ export class ChapterRun {
     }
     for (const n of this.chapterNotes) add(noteFinding(n, n.sceneId && this.sceneIds.includes(n.sceneId) ? n.sceneId : null))
     return out
+  }
+
+  private async checkScene(sceneId: ID): Promise<void> {
+    const c = await this.d.check(sceneId, this.controller.signal)
+    if (c.status === 'stopped') throw new Stopped()
+    if (c.status === 'error') this.failed(c.error)
+  }
+
+  /** Checks a scene the run never changes, after one it changed; what the checks find new there is noted (notesNow). */
+  private async checkOutside(sceneId: ID): Promise<void> {
+    const { db } = this.d
+    const where = placeLabel(db, sceneId)
+    this.check()
+    this.tell('checking', `Checking that ${where} still follows on, round ${this.round}`)
+    // What was open there before the run first looked is Adam's already: only what its checks find since is noted.
+    if (!this.outsideBefore.has(sceneId)) this.outsideBefore.set(sceneId, new Set(issueFindings(db, sceneId).map((f) => f.issueId!)))
+    await this.checkScene(sceneId)
+    cdb.sweepGone(db, { sceneId })
+    const before = this.outsideBefore.get(sceneId)!
+    const found = issueFindings(db, sceneId).filter((f) => !before.has(f.issueId!))
+    this.outsideNotes.set(
+      sceneId,
+      found.map((f) => `${where} may no longer follow on: ${squash(f.what)}${f.quote ? ` (“${clip(squash(f.quote), 160)}”)` : ''}`)
+    )
+    this.notesNow()
+  }
+
+  /** The report's notes for Adam: how scenes were drafted, then what the scenes after the run's may no longer follow. */
+  private notesNow(): void {
+    this.report.notes = [...this.refs.flatMap((r) => this.draftNotes.get(r.id) ?? []), ...[...this.outsideNotes.values()].flat()]
   }
 
   private async notes(target: CritiqueTarget, again: boolean): Promise<CritiqueNote[]> {

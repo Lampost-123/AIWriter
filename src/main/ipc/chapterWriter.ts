@@ -12,7 +12,7 @@ import * as providers from '../ai/providers'
 import { emit } from '../events'
 import { getSettings, getWritingPrefs } from '../settings'
 import { jobModel } from '../ai/jobModel'
-import { draftBriefing, providerNotes, writerModel } from '../ai/draftFlow'
+import { contractNow, draftBriefing, providerNotes, writerModel } from '../ai/draftFlow'
 import { isDrafting, startDraftJob, stopDraft } from '../ai/drafts'
 import { stopTask } from '../ai/tasks'
 import { catchUpBeforeDraft } from '../ai/gather'
@@ -84,8 +84,20 @@ function deps(runId: ID): RunDeps {
   }
   const closed = (): boolean => world.maybeCurrentWorld()?.db !== db
   const writer = writerModel()
-  // Each scene's contract as its latest draft was written to (long story memory fix 13): the checks go through it.
+  // Each scene's contract as its latest draft was written to (long story memory fix 13), and what that draft was asked
+  // for: the checks go through the contract made again from it (contractNow), as the scenes before may have changed.
   const contracts = new Map<ID, SceneContract>()
+  const asked = new Map<ID, Parameters<typeof contractNow>[1]>()
+  const contractFor = (sceneId: ID): SceneContract | null => {
+    const a = asked.get(sceneId)
+    if (!a) return contracts.get(sceneId) ?? null
+    try {
+      return contractNow(sceneId, a)
+    } catch (e) {
+      console.warn('Could not make the scene’s contract again; checking with the one its draft had', e)
+      return contracts.get(sceneId) ?? null
+    }
+  }
   return {
     db,
     agentModel: jobModel('chapter', sources()),
@@ -110,8 +122,13 @@ function deps(runId: ID): RunDeps {
         if (e instanceof UserError) return { status: 'error', text: '', error: e.message }
         throw e
       }
-      if (b.contract) contracts.set(sceneId, b.contract)
-      else contracts.delete(sceneId)
+      if (b.contract) {
+        contracts.set(sceneId, b.contract)
+        asked.set(sceneId, { options: b.input.options, planned: b.input.contract?.planned, extras: { extraBlocks } })
+      } else {
+        contracts.delete(sceneId)
+        asked.delete(sceneId)
+      }
       const started = startDraftJob({
         db,
         sceneId,
@@ -127,7 +144,9 @@ function deps(runId: ID): RunDeps {
         emit: () => undefined,
         ...providerNotes(b.target.id)
       })
-      return withStop(o.signal, () => void stopDraft(started.generationId), () => started.done)
+      const end = await withStop(o.signal, () => void stopDraft(started.generationId), () => started.done)
+      // Written without where things stand (it wasn't ready in time): the report says so.
+      return { ...end, note: b.note ?? null }
     },
     save: (sceneId, page, label) => {
       const now = repo.getScene(db, sceneId)
@@ -156,9 +175,10 @@ function deps(runId: ID): RunDeps {
               closed,
               onTask: (t) => (task = t),
               onKeyRejected: () => undefined,
-              // The scene's contract its draft was written to, checked item by item in the same request (fix 13); with
-              // contracts switched off, what an earlier one found is taken away.
-              contract: contracts.get(sceneId) ?? null,
+              // The scene's contract its draft was written to, made again now that the memory has caught up (an earlier
+              // scene may have changed what must be true at its start), checked item by item in the same request (fix
+              // 13); with contracts switched off, what an earlier one found is taken away.
+              contract: contractFor(sceneId),
               contractsOff: !contractWanted(getSettings())
             },
             sceneId,

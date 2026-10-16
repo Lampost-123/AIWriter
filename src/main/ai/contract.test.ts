@@ -19,6 +19,7 @@ import {
   partTitle,
   saysFact,
   sceneContract,
+  toneOnly,
   type ContractFrom
 } from './contract'
 import type { MustLine } from './mustStay'
@@ -93,6 +94,21 @@ describe('what must change', () => {
     expect(mustChange(from({ asks: 'stretch', card, threads, soFar })).map((c) => c.text)).toEqual(['Tobin tells her the letter is forged'])
     // Every beat on the page and no direction: nothing to bring about.
     expect(mustChange(from({ asks: 'stretch', card: { beats: ['Mara reaches the gate'], outcome: '' }, soFar }))).toEqual([])
+  })
+
+  it('a direction that only says how it should read is nothing that must change (review, 2026-10-16)', () => {
+    for (const d of ['Make it darker', 'more dialogue, a faster pace', 'Tone it down a bit.', 'Keep it tense and quiet', 'Less description'])
+      expect(toneOnly(d)).toBe(true)
+    for (const d of ['Make it darker: Tobin dies', 'Mara slams the gate', 'Tobin is angrier', '']) expect(toneOnly(d)).toBe(false)
+    expect(mustChange(from({ card, direction: 'Make it darker' })).map((c) => c.text)).toEqual([
+      'Mara reaches the gate',
+      'Tobin tells her the letter is forged',
+      'By the end: Mara turns back for the mill'
+    ])
+    // Add below: the next beat not on the page, as with no direction.
+    const soFar = 'Mara reached the gate at last, out of breath.'
+    expect(mustChange(from({ asks: 'stretch', card, soFar, direction: 'darker, and slower' })).map((c) => c.text)).toEqual(['Tobin tells her the letter is forged'])
+    expect(mustChange(from({ asks: 'continue', card, direction: 'more tension' }))).toEqual([])
   })
 
   it('a beat: that beat; Continue: what happens next, or nothing', () => {
@@ -239,6 +255,17 @@ describe('the contract', () => {
     line('thing', 'The door: barred from inside'),
     line('slip', 'Slipped in Ch 2, Sc 3 and put right, so don’t repeat it: Mara’s eyes are blue.')
   ]
+
+  it('carrying on with no stage for the end of the scene so far: nothing at the start (review, 2026-10-16)', () => {
+    const fact: FactState = { factId: 'f', fact: 'The letter is forged', knownBy: [mara.id, tobin.id], at: 3 }
+    const o = from({ asks: 'stretch', must, people: [mara, tobin], facts: [fact], direction: 'Mara and Tobin argue about the forged letter' })
+    expect(sceneContract(o)!.items.some((i) => i.part === 'start')).toBe(true)
+    const c = sceneContract({ ...o, noStart: true })!
+    expect(c.items.filter((i) => i.part === 'start')).toEqual([])
+    // What must happen and what must not change stay, and the codes start at C1.
+    expect(c.items[0]).toMatchObject({ code: 'C1', part: 'change', text: 'Mara and Tobin argue about the forged letter' })
+    expect(c.items.some((i) => i.part === 'keep' && /Ash is dead/.test(i.text))).toBe(true)
+  })
 
   it('the start and what must not change come from what must stay true, word for word; codes run in order', () => {
     const c = sceneContract(from({ must, people: [mara, tobin], card: { beats: ['Mara reaches the gate'], outcome: '' } }))!
