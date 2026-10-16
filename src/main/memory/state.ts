@@ -39,7 +39,7 @@
 import type { BeliefState, Change, EntryState, FactState, ID, Learned, RelationshipPayload, RelationshipState, ThreadState } from '@shared/types'
 import type { Line, MemoryData, MemoryState, WorldShape } from './types'
 import { hostSpans, labeler } from './line'
-import { clothingAfter, passingLook } from './looks'
+import { clothingAfter, passingLook, usualLook } from './looks'
 import { learnedHow } from './ledger'
 
 /** MemoryState, plus every entry that doesn't exist here, as of this point (for "not in the story yet" labels). */
@@ -379,9 +379,11 @@ export function stateAt(
       case 'update': {
         const p = c.payload
         if (p.note) e.happened.push({ note: p.note, where, changeId: c.id, at })
-        for (const [k, v] of Object.entries(p.fields ?? {})) {
-          // Clothes off for a while are where things stand, not what they typically wear (memory/looks.ts).
-          if (e.kind === 'character' && c.origin !== 'adam' && passingLook(k, v)) continue
+        for (const [k, given] of Object.entries(p.fields ?? {})) {
+          // Clothes off for a while, or worn just for the moment, are where things stand, not what they typically wear
+          // (memory/looks.ts): a value with only those leaves the field as it was.
+          const v = e.kind === 'character' && c.origin !== 'adam' ? usualLook(k, given) : given
+          if (!v || (v !== given && v === e.fields[k])) continue
           remember(c, e, k)
           touchField(e, k)
           e.fields[k] = v
@@ -424,9 +426,10 @@ export function stateAt(
           e.summary = p.summary
           addChanged(e, 'summary', where)
         }
-        for (const [k, v] of Object.entries(p.fields ?? {})) {
-          // Clothes off for a while are where things stand, not what they typically wear (memory/looks.ts).
-          if (e.kind === 'character' && c.origin !== 'adam' && passingLook(k, v)) continue
+        for (const [k, given] of Object.entries(p.fields ?? {})) {
+          // Clothes off for a while, or worn just for the moment, are where things stand (memory/looks.ts).
+          const v = e.kind === 'character' && c.origin !== 'adam' ? usualLook(k, given) : given
+          if (!v) continue
           remember(c, e, k)
           touchField(e, k)
           e.fields[k] = v

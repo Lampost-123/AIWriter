@@ -59,4 +59,46 @@ describe('the memory keeper and clothes off for a while', () => {
     const wren = repo.listEntries(w.db).find((e) => e.name === 'Wren')!
     expect(wren.fields).toEqual({ eyes: 'grey' })
   })
+
+  it('keeps Typical clothing to what they usually wear, never a moment’s coat and scarf (live test, 2026-10-16)', () => {
+    const w = world()
+    const DRESS = 'grey wool dress, laced boots, her grandmother’s brass key on a cord round her neck'
+    const nell = repo.createEntry(w.db, 'character', { name: 'Nell', fields: { clothing: DRESS } })
+    save(w.db, w.sceneId, [['p1', 'Nell sat with her coat buttoned to the chin and the red wool scarf up round her jaw.']])
+    const s = kdb.keeperScene(w.db, w.sceneId)!
+    const plan = planRead(w.db, s)
+    const ctx = { runId: kdb.startRun(w.db, w.sceneId, plan.version), memory: memoryAt(w.db, w.storyId, w.sceneId), shape: null, sideClashes: null }
+    const moment = 'grey wool dress, laced boots, coat buttoned to the chin, the red wool scarf up round her jaw, her grandmother’s brass key on a cord round her neck'
+    const reply = {
+      facts: [],
+      add: [
+        { type: 'change', entry: 'Nell', note: 'wears the red wool scarf up round her jaw', fields: { clothing: moment }, quote: 'the red wool scarf up round her jaw' },
+        { type: 'detail', entry: 'Nell', field: 'clothing', value: 'coat buttoned to the chin', quote: 'her coat buttoned to the chin' }
+      ],
+      clashes: []
+    }
+    w.db.transaction(() => applyRead(w.db, ctx, plan, [{ ids: new Ids(), reply, paras: plan.toRead }]))()
+    // The note is kept; the clothing, with only the moment's pieces new, is not changed at all.
+    const changes = mem.listAllChanges(w.db).filter((c) => c.entryId === nell.id)
+    expect(changes.map((c) => (c.kind === 'update' ? c.payload : null))).toEqual([{ note: 'wears the red wool scarf up round her jaw' }])
+    expect(repo.getEntry(w.db, nell.id).fields.clothing).toBe(DRESS)
+  })
+
+  it('reads an older change that kept a moment’s clothes as typical without them', () => {
+    const w = world()
+    const DRESS = 'grey wool dress, laced boots'
+    const nell = repo.createEntry(w.db, 'character', { name: 'Nell', fields: { clothing: DRESS } })
+    const next = repo.createScene(w.db, repo.getOutline(w.db, w.storyId).chapters[0].id, { title: 'Two' }).id
+    mem.insertChange(w.db, {
+      kind: 'update',
+      payload: { note: 'cold on the train', fields: { clothing: 'grey wool dress, laced boots, coat buttoned to the chin' } },
+      entryId: nell.id,
+      anchor: 'scene',
+      sceneId: w.sceneId,
+      origin: 'text'
+    })
+    const later = memoryAt(w.db, w.storyId, next).entries.find((e) => e.id === nell.id)!
+    expect(later.fields.clothing).toBe(DRESS)
+    expect(later.changed ?? []).not.toContain('clothing')
+  })
 })

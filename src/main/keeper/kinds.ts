@@ -26,7 +26,10 @@ const THINGS = new Set(
 const ANIMALS = new Set(
   `animal horse gelding mare stallion pony foal colt filly cob nag donkey mule ox cow bull calf dog hound puppy pup cat kitten wolf
   fox bird crow raven owl hawk falcon eagle rat mouse goat sheep ram ewe lamb pig boar bear deer stag hare rabbit snake serpent
-  toad frog`.split(/\s+/)
+  toad frog lurcher terrier spaniel collie sheepdog greyhound whippet wolfhound deerhound bloodhound foxhound beagle mastiff
+  retriever labrador setter poodle mongrel cur mutt tomcat moggy hen cockerel rooster chicken duck goose swan pigeon dove sparrow
+  robin magpie jackdaw rook parrot kestrel buzzard ferret badger otter squirrel hedgehog stoat weasel lizard tortoise turtle
+  steed palfrey destrier heifer bullock camel monkey lion tiger leopard panther`.split(/\s+/)
 )
 /** Words for people and animals: an entry named or summed up by one of these is someone, whatever else it says. */
 const BEINGS = new Set([

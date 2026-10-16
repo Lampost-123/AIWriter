@@ -16,7 +16,7 @@ import { syncNow, readPassages } from './indexing'
 import { factDocs, queryParts, recallFor, withoutNames } from './recall'
 import { Vectors } from './vectors'
 import { stubEmbedder } from './stub'
-import { RECALL_WHY } from './briefing'
+import { isRecallBlock, RECALL_WHY } from './briefing'
 
 const save = (db: Database.Database, id: ID, text: string): void => {
   repo.saveSceneText(db, id, null, text)
@@ -258,8 +258,14 @@ describe('a small model gives step 5 a share of its room, and loses nothing more
       const b = assembleContext(on, countRaw)
       if (a.budget.used <= a.budget.available) expect(b.budget.used).toBeLessThanOrEqual(b.budget.available)
       // Since 2026-10-15 a share of the room is held for step 5 (RECALL_SHARE) while the rest is fitted, and what it
-      // doesn't use goes back: here everything else is still exactly as it is without step 5.
-      for (const was of a.blocks) {
+      // doesn't use goes back: where what step 5 took fits in the room the briefing left to spare without it,
+      // everything else is exactly as it is without step 5. Where it took more (never more than its share), that came
+      // from the least important blocks by design, so only what is left out is compared (2026-10-16: a few more words
+      // on the scene card put one length here between the two).
+      const tookUp = b.blocks.filter((x) => isRecallBlock(x.id) && !x.dropped).reduce((n, x) => n + x.tokens, 0)
+      const earlier = a.blocks.find((x) => x.id === EARLIER_BLOCK.id)
+      const spareRoom = a.budget.available - a.budget.used + (earlier && !earlier.dropped ? earlier.tokens : 0) >= tookUp
+      for (const was of spareRoom ? a.blocks : []) {
         // The scenes before word for word take only the room left to spare once step 5 has its share.
         if (was.id === EARLIER_BLOCK.id) continue
         const now = b.blocks.find((x) => x.id === was.id)
@@ -270,7 +276,7 @@ describe('a small model gives step 5 a share of its room, and loses nothing more
         const now = b.blocks.find((x) => x.id === id)
         if (!was || was.dropped) continue
         expect({ length, id, dropped: now?.dropped }).toEqual({ length, id, dropped: false })
-        expect({ length, id, kept: now!.text.length >= was.text.length }).toEqual({ length, id, kept: true })
+        if (spareRoom) expect({ length, id, kept: now!.text.length >= was.text.length }).toEqual({ length, id, kept: true })
       }
       // With a little room, what was said gets in (short), where it used to wait for room left over.
       if (length >= 10_000) expect(b.blocks.find((x) => x.id === 'said')?.dropped).toBe(false)

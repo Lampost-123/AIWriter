@@ -111,7 +111,7 @@ import type { Lesson } from '../checks/lessons'
 import { beatsOnPage, speechSamples } from './repetition'
 import { cleanKnows, happenedOf, pastDeathNote } from './knows'
 import { TIMELINE_LEVELS, timelineText, updatingNote, type TimelineContext } from './timeline'
-import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from './briefingFixes'
+import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile, peopleWords, placeWords } from './briefingFixes'
 import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
@@ -751,6 +751,7 @@ export const WHY = {
   beats: 'Named in the beats',
   notes: 'Named in the scene notes',
   cardWords: 'Named on the scene card',
+  inPart: 'A place the scene card names in part',
   previous: 'Named at the end of the previous scene',
   direction: 'Named in your direction',
   soFar: 'Named in the scene so far',
@@ -760,6 +761,9 @@ export const WHY = {
   pin: { scene: 'Pinned for this scene', story: 'Pinned for this story', world: 'Pinned for every scene' },
   hide: { scene: 'Kept out of this scene', story: 'Kept out of this story', world: 'Kept out of every scene' }
 } as const
+
+/** How many places the scene card names only in part come in at most ("Ashby" for "The train to Ashby"). */
+export const PLACES_IN_PART = 4
 
 /** The label for an entry whose first appearance is the scene being drafted. */
 export const FIRST_HERE = 'first appears in this scene'
@@ -941,6 +945,24 @@ export function selectEntries(input: ContextInput): Selection {
       (e.kind === 'item' ? itemTexts.find(([h]) => namedIn(h, namesOf(e, heads))) : e.kind === 'character' ? personHit(e) : undefined)
     const got = hit ? take(e.id, hit[1], false) : null
     if (got) others.push(got)
+  }
+
+  // Places the card names in part (live test, 2026-10-16: "Ashby" in the beats never brought in "The train to Ashby",
+  // whose "most of a day away" the writer then made "an hour in a cart", nor "St Anne's church, Ashby", which the writer
+  // named St Chad's): a place whose name has a word that picks it out ("Ashby") named in the card's own words or in
+  // where the scene happens. Only from the card, never the scene so far, so the briefing reads the same at every step.
+  const nameWords = peopleWords(m.entries)
+  const partTexts = [...ownTexts.map(([h]) => h), ...(location ? [haystack(location.name)] : [])]
+  let inPart = 0
+  for (const e of m.entries) {
+    if (inPart >= PLACES_IN_PART || e.kind !== 'place' || chosen.has(e.id)) continue
+    const words = placeWords(e.name, nameWords)
+    if (!words.length || !partTexts.some((h) => namedIn(h, words))) continue
+    const got = take(e.id, WHY.inPart, false)
+    if (got) {
+      others.push(got)
+      inPart++
+    }
   }
 
   // Adam's pins.
@@ -1132,7 +1154,9 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   const others = names(card.presentIds.filter((id) => id !== card.povId))
   if (others.length) lines.push(`Also in the scene: ${others.join(', ')}`)
   const where = card.locationId ? name(card.locationId) : null
-  if (where) lines.push(`Where: ${where}`)
+  // The card's name for the place is the one to use (live test, 2026-10-16: the card's "St Anne's church, Ashby" was
+  // written "St Chad's", as the story so far had called it).
+  if (where) lines.push(`Where: ${where} (call it by this name, whatever the story so far has called it)`)
   const setsUp = names(card.setsUpIds ?? [])
   if (setsUp.length) lines.push(`Sets up: ${setsUp.join(', ')}`)
   const paysOff = names(card.paysOffIds ?? [])
@@ -1927,7 +1951,8 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
   const sceneOwn = [card.goal, card.conflict, card.outcome, card.mood, card.notes, ...card.beats, input.options.direction, input.soFar].map(clean).filter(Boolean).join('\n')
   const linked = linkedPlaces(card.locationId, [...sel.known.values()])
   // An entry Adam pinned, or the plan asked for, stays whole, wherever it is named.
-  const wanted = (e: Entry): boolean => !!sel.chosen.get(e.id)?.pinned || sel.chosen.get(e.id)?.why === WHY.plan
+  // A place the card names in part is named there too.
+  const wanted = (e: Entry): boolean => !!sel.chosen.get(e.id)?.pinned || [WHY.plan, WHY.inPart].includes(sel.chosen.get(e.id)?.why as never)
   // Named by what this scene's words call them too, and in the scene so far as prose names people (fix 12).
   const named = (e: Entry): boolean =>
     wanted(e) ||

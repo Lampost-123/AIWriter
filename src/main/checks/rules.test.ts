@@ -342,6 +342,14 @@ describe('the point of view', () => {
     expect(povHere(scene({ card, entries: [red, tobin], text: `${long(rain)} Red slept.` }))).toEqual([])
     expect(povHere(scene({ card, called: [{ entryId: 'mara', words: 'the girl' }], text: `${long(rain)} The girl slept.` }))).toEqual([])
     expect(povHere(scene({ card, text: rain }))).toEqual([])
+    // Her first name alone, when no one else in the codex shares it (the live test: "Nell" for Nell Harrow).
+    const nell = entry('mara', 'character', 'Nell Harrow', { fields: { pronouns: 'she/her' } })
+    expect(povHere(scene({ card, entries: [nell, tobin], text: `${long(rain)} Nell slept.` }))).toEqual([])
+    const nellie = entry('nell2', 'character', 'Nell Crane')
+    expect(povHere(scene({ card, entries: [nell, nellie, tobin], text: `${long(rain)} Nell slept.` }))).toMatchObject([
+      { rule: 'pov-unnamed', message: 'Nell Harrow is this scene’s point of view, but the scene never names her.' }
+    ])
+    expect(povHere(scene({ card, entries: [nell, { ...tobin, aliases: ['Nell'] }], text: `${long(rain)} Nell slept.` }))).toHaveLength(1)
     expect(povHere(scene({ card, text: `${long(rain)} I slept, and my dreams kept me up.` }))).toEqual([])
     expect(povHere(scene({ card, pov: 'First person, past tense', text: long(rain) }))).toEqual([])
     // Dead: the dead rule says it.

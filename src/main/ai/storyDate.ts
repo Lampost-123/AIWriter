@@ -3,8 +3,10 @@
 // before and since a few earlier days worth counting from ("Story date: Day 41, evening (3 weeks since the start of Ch
 // 4: The Siege; 2 days since the scene before)"), and how old the people on the card are where the memory says enough.
 // What must stay true says how much time has passed since the scene before from the same sums (elapsedNote), so there
-// is one source of truth for elapsed time. Both are worked out from the scene cards only, never from what a step of a
-// scene adds, so they read the same at every step (the cache); the scene card is sent late (SEND_ORDER). Pure.
+// is one source of truth for elapsed time. A count of days ("Day 3") is told on the real calendar too where a card
+// names a real day beside its count ("Day 25, Christmas Eve": Day 3 falls on 2 December), so the month holds. Both are
+// worked out from the scene cards only, never from what a step of a scene adds, so they read the same at every step
+// (the cache); the scene card is sent late (SEND_ORDER). Pure.
 
 import { sameWhen } from '@shared/continuity'
 import type { SceneCard } from '@shared/types'
@@ -90,7 +92,9 @@ export function storyDateLines(input: DateInput, scale = 1): string[] {
       })
       .slice(0, storyDateMarks(scale))
     if (before) since.push(before)
-    if (since.length || here.leans || storyDayWords(here)) lines.push(`Story date: ${label}${since.length ? ` (${since.join('; ')})` : ''}`)
+    // A counted day on the real calendar, where a card says which ("Day 25, Christmas Eve"): the month the writer must keep to.
+    const real = here.real ? `, which falls ${here.real.startsWith('about ') ? here.real : `on ${here.real}`}` : ''
+    if (since.length || here.leans || storyDayWords(here) || real) lines.push(`Story date: ${label}${real}${since.length ? ` (${since.join('; ')})` : ''}`)
   }
   const ages = (input.calendar?.ages ?? [])
     .filter((a) => a.age.born || a.age.age.lo !== a.age.given)

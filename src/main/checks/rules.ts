@@ -21,7 +21,7 @@
 
 import type { IssueKind, IssueSeverity, IssueSource } from '@shared/contracts/checks'
 import type { Change, EntryState, FactState, ID, RelationshipState, SceneCard } from '@shared/types'
-import { calledFor, findName, foldApostrophes, type CalledName } from '@shared/names'
+import { calledFor, findName, foldApostrophes, soleFirstName, type CalledName } from '@shared/names'
 import { saysGone, sourceKey, type CharacterState, type SceneState, type StateField } from '@shared/continuity'
 import { deathRecord, surelyDied } from '../ai/deaths'
 import { isPerson, namesPerson, namesUpTo } from '../ai/mustStay'
@@ -524,7 +524,10 @@ export function povHere(s: RuleScene): RuleFinding[] {
   }
   const firstPerson = /\b(first|second|1st|2nd)\b/i.test(s.pov) || narratorI(s.text) >= FIRST_PERSON_I
   if (firstPerson || wordCount(s.text) < POV_NAMED_WORDS) return []
-  if (namesHere(s, e).some((n) => findName(s.text, n))) return []
+  // Her first name counts when no one else in the codex goes by it ("Nell" for Nell Harrow).
+  const others = s.entries.filter((x) => x.id !== e.id && x.kind === 'character').flatMap((x) => [x.name, ...(x.aliases ?? [])])
+  const first = soleFirstName(e.name, others)
+  if ([...namesHere(s, e), ...(first ? [first] : [])].some((n) => findName(s.text, n))) return []
   return [
     {
       rule: 'pov-unnamed',

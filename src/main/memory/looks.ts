@@ -22,6 +22,19 @@ const NAKED = /^(?:naked|nude|undressed|unclothed)\b/i
 const OFF_PIECE = /(?<![\p{L}-])(?:off|removed|shed|discarded)(?![\p{L}-])|^(?:bare ?foot(?:ed)?|bare[- ]feet)$/iu
 const KEPT_ON = /\b(?:not|never|without)\b|n['’]t\b/i
 
+// ---------- Clothes as worn for a moment are not what someone typically wears ----------
+// The same live test's long run (2026-10-16): on a cold train Nell's "Typical clothing" became "grey wool dress, laced
+// boots, coat buttoned to the chin, the red wool scarf up round her jaw, …" and stayed so. A piece told as it is worn
+// just then (buttoned to the chin, pulled up round her jaw, soaked, muddy, against the cold) is where things stand. So
+// such pieces are left out of a Typical clothing value from the text (usualLook), unless the piece says it is usual
+// ("always buttoned to the chin"); a value with nothing else left is never taken at all.
+
+/** A piece told as worn for the moment: done up or undone, pulled up or round, wet or muddy, for the cold or the road. */
+const MOMENT_PIECE =
+  /\b(?:buttoned|unbuttoned|done up|undone|unlaced|half-laced|pulled|tugged|hitched|tucked|rolled up|turned up|wrapped|bundled|loosened|open at|up (?:round|around|over|to)|round (?:her|his|their) (?:jaw|chin|ears|face|mouth|nose)|to the (?:chin|throat|neck)|wet|soaked|sodden|damp|dripping|steaming|muddy|mud-|caked|splashed|dusty|snow-|rain-|torn|ripped|for the (?:cold|journey|train|road|weather|wedding|night)|against the (?:cold|wind|rain|frost|weather)|borrowed|lent)/i
+/** Words that make such a piece what they always do: "always buttoned to the chin". */
+const USUAL = /\b(?:always|usually|habitually|ever|every day|never without|as a rule)\b/i
+
 /** The Looks fields (shared/fields.ts) a passing undress may reach. */
 const LOOKS = new Set(['build', 'face', 'hair', 'eyes', 'skin', 'marks', 'clothing', 'movement'])
 
@@ -36,7 +49,23 @@ export function passingLook(field: string, value: string | null | undefined): bo
   if (field !== 'clothing') return NAKED.test(v)
   if (UNDRESSED.test(v)) return true
   const pieces = v.split(/\s*[,;]\s*/).filter(Boolean)
-  return pieces.length > 0 && pieces.every((p) => OFF_PIECE.test(p) && !KEPT_ON.test(p))
+  return pieces.length > 0 && pieces.every((p) => (OFF_PIECE.test(p) && !KEPT_ON.test(p)) || momentPiece(p))
+}
+
+const momentPiece = (piece: string): boolean => MOMENT_PIECE.test(piece) && !USUAL.test(piece)
+
+/**
+ * A Looks value from the text as kept for who someone is: Typical clothing without the pieces worn just for the moment
+ * ("coat buttoned to the chin", "the red wool scarf up round her jaw"); '' when nothing is left, or when the value only
+ * says they are undressed for now (passingLook). Other values as they are.
+ */
+export function usualLook(field: string, value: string | null | undefined): string {
+  const v = (value ?? '').replace(/\s+/g, ' ').trim()
+  if (passingLook(field, v)) return ''
+  if (field !== 'clothing') return v
+  const pieces = v.split(/\s*[,;]\s*/).filter(Boolean)
+  const kept = pieces.filter((p) => !momentPiece(p))
+  return kept.length === pieces.length ? v : kept.join(v.includes(';') ? '; ' : ', ')
 }
 
 /** A character's fields from the text without the Looks values a passing undress gave (passingLook). */

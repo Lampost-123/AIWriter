@@ -7,7 +7,9 @@
 // - and anyone named as there in that paragraph or the two before it (someone who walks in, or speaks),
 // - but not someone who left or died at an earlier paragraph of the scene (a change read there says so).
 // Named "as there": not only thought of, remembered, missed or dreamed of ("Mara thought of Anna"), nor told as far away
-// ("Anna, back home", "three hundred miles away"). Such a name doesn't make them a knower.
+// ("Anna, back home", "three hundred miles away"), nor talked or written of ("told him about Anna", "a letter to Anna"),
+// nor named in what someone says unless spoken to ("‘Anna, sit down.’"; live test, 2026-10-16: Theo's confession named
+// Victor Crane and his dead son, and both were kept as having heard it). Such a name doesn't make them a knower.
 // Only people: never an animal (mustStay.ts isPerson). Words said in a whisper or aside reach only those the memory
 // model says heard them. Pure.
 
@@ -47,7 +49,7 @@ export interface StageInput {
 const FILL = "(?:[\\p{L}'’-]+\\s+){0,2}"
 /** Just before a name, in its sentence: only thinking of them. */
 const THOUGHT_OF = new RegExp(
-  `\\b(?:(?:thought|thinks?|thinking|dream(?:ed|t|s|ing)?)\\s+(?:of|about)|remember(?:ed|s|ing)?|recall(?:ed|s|ing)?|miss(?:ed|es|ing)?|long(?:ed|s|ing)? for|pictur(?:ed|es|ing)|imagin(?:ed|es|ing)|wonder(?:ed|s|ing)?\\s+(?:about|where|whether|if|how|what)|no sign of)\\s+${FILL}$`,
+  `\\b(?:(?:thought|thinks?|thinking|dream(?:ed|t|s|ing)?)\\s+(?:of|about)|remember(?:ed|s|ing)?|recall(?:ed|s|ing)?|miss(?:ed|es|ing)?|long(?:ed|s|ing)? for|pictur(?:ed|es|ing)|imagin(?:ed|es|ing)|wonder(?:ed|s|ing)?\\s+(?:about|where|whether|if|how|what)|no sign of|(?:told|tells?|telling|spoke|speaks?|speaking|talk(?:ed|s|ing)?|ask(?:ed|s|ing)?|heard|hears?|hearing|wr(?:ote|ites?|iting|itten))\\s+${FILL}(?:of|about)|(?:letters?|note|message|word|news)\\s+(?:from|to|for|of|about)|wr(?:ote|ites?|iting|itten)(?:\\s+to)?)\\s+${FILL}$`,
   'iu'
 )
 /** After a name, anywhere in its sentence: told as somewhere far off. */
@@ -79,8 +81,50 @@ function namesOf(p: Person): string[] {
   return names
 }
 
-/** True when this mention only thinks of someone, or tells them as far away. */
+const LETTER = /[\p{L}\p{N}]/u
+
+/**
+ * Where the spoken words around `at` begin and end (just inside the quotes), or null when `at` is in the narration. A
+ * curly or straight single quote with a letter on both sides is an apostrophe ("don’t", "Crane’s"), as is one after a
+ * letter with no letter after it only when no speech is open.
+ */
+export function speechAround(text: string, at: number): { from: number; to: number } | null {
+  let open = -1
+  for (let i = 0; i < at; i++) {
+    const ch = text[i]
+    const before = LETTER.test(text[i - 1] ?? '')
+    const after = LETTER.test(text[i + 1] ?? '')
+    if (ch === '“') open = i
+    else if (ch === '”') open = -1
+    else if (ch === '"') open = open >= 0 ? -1 : i
+    else if (ch === '‘' || ch === "'" || ch === '’') {
+      if (before && after) continue
+      if (open < 0 && !before && after && ch !== '’') open = i
+      else if (open >= 0 && !after) open = -1
+    }
+  }
+  if (open < 0) return null
+  const rest = text.slice(at)
+  const close = rest.search(/[”"]|['’](?![\p{L}\p{N}])/u)
+  return { from: open + 1, to: close < 0 ? text.length : at + close }
+}
+
+/**
+ * True when a name in spoken words is the one spoken to: opening them, with more said after ("‘Anna, sit down.’"), or
+ * closing them ("‘Sit down, Anna.’", "‘Anna!’"). "‘Edmund Crane,’ he said" names him as an answer, not to him.
+ */
+function spokenTo(text: string, start: number, end: number, speech: { from: number; to: number }): boolean {
+  const before = text.slice(speech.from, start)
+  const after = text.slice(end, speech.to)
+  if (!before.trim() && /^\s*[,!?]\s*\S/u.test(after)) return true
+  if (!before.trim() && /^\s*[!?]\s*$/u.test(after)) return true
+  return /,\s*$/u.test(before) && /^\s*[.!?…]\s*$/u.test(after)
+}
+
+/** True when this mention only thinks of someone, tells them as far away, or talks of them in someone's words. */
 function absentMention(text: string, start: number, end: number): boolean {
+  const speech = speechAround(text, start)
+  if (speech) return !spokenTo(text, start, end, speech)
   const from = Math.max(text.slice(0, start).search(/[.!?…][^.!?…]*$/) + 1, 0)
   const tail = text.slice(end)
   const stop = tail.search(/[.!?…]/)
