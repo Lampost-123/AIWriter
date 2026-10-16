@@ -290,6 +290,28 @@ describe('in the writer’s briefing', () => {
     expect(block(full, 'story-so-far')!.shortFor).toBeUndefined()
   })
 
+  it('a later book keeps its story so far whole: the brief’s reader read only this book word for word (fix 14’s review)', () => {
+    expect(briefShortens(BRIEF, { earlierBooks: true })).toEqual(['recalled', LEDGER_BLOCK.id])
+    const book2 = briefingInput()
+    book2.memory.storySoFar = {
+      ...book2.memory.storySoFar,
+      stories: [
+        {
+          storyId: 'book-1',
+          title: 'Book 1',
+          meanwhile: false,
+          cut: false,
+          text: 'By the end, the weir was rebuilt and Wren had left the mill.'
+        }
+      ]
+    }
+    const off = assembleContext(book2, countRaw)
+    const on = assembleContext({ ...book2, brief: BRIEF }, countRaw)
+    expect(block(on, 'story-so-far')).toMatchObject({ short: false })
+    expect(block(on, 'story-so-far')!.text).toBe(block(off, 'story-so-far')!.text)
+    expect(block(on, 'recalled')!.shortFor).toBe('brief')
+  })
+
   it('doesn’t grow the briefing by saying things twice: in a long story it is smaller with the brief than without', () => {
     const off = assembleContext(briefingInput(), countRaw)
     const on = assembleContext(briefingInput({ brief: BRIEF }), countRaw)

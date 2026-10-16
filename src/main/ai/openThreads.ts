@@ -81,17 +81,21 @@ const URGENT: Record<ThreadDue['state'], number> = { overdue: 2, now: 1, later: 
 
 /**
  * The plot threads open at a scene (set up on the line, not yet resolved, not dropped), without those on its card, most
- * urgent first (see the top of this file), at most `most`.
+ * urgent first (see the top of this file), at most `most`. `hidden`: threads Adam kept out of this scene's briefing (a
+ * 'hide' pin), never listed.
  */
 export function openThreadsAt(
   memory: { entries: EntryState[]; threads: ThreadState[]; storyId?: ID; relationships?: RelationshipState[] },
   card: SceneCard | null,
-  most = OPEN_THREADS_MOST
+  most = OPEN_THREADS_MOST,
+  hidden: ReadonlySet<ID> = new Set()
 ): OpenThread[] {
   const byId = new Map(memory.entries.map((e) => [e.id, e]))
   const onCard = new Set([...(card?.setsUpIds ?? []), ...(card?.paysOffIds ?? [])])
   const near = cardWords(card)
-  const open = memory.threads.filter((t) => t.status === 'open' && !t.planned && t.standing !== 'dropped' && !onCard.has(t.entryId))
+  const open = memory.threads.filter(
+    (t) => t.status === 'open' && !t.planned && t.standing !== 'dropped' && !onCard.has(t.entryId) && !hidden.has(t.entryId)
+  )
   const here = open.length ? sceneNames(memory, card) : []
   const ranked = open
     .flatMap((t, order) => {

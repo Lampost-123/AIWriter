@@ -317,7 +317,8 @@ an hour or two, most of it the memory reading 61,000 words. A later run from the
 folder>`, same checkout and models) skips that reading.
 
 **With the continuity brief** (long story memory fix 14, on unless `AIWRITE_BRIEF=off`), each plan before writing on
-DeepSeek also reads the whole book so far (up to about 82,000 tokens at the book's end) and the story record. A fake run
+DeepSeek also reads the whole book so far (up to about 82,000 tokens at the book's end; the app reads at most 150,000
+tokens of a book, its latest chapters) and the story record; Beat by beat's later beats reuse the scene's brief. A fake run
 of the book then sends 3.3 million tokens in the same 603 calls (1.4 million with `AIWRITE_BRIEF=off`): the 30 plans read
 about 66,000 tokens each against 2,200. On DeepSeek most of each plan's book is read from its cache (the book so far
 only grows at its end), so a real run should cost roughly $0.10 to $0.20 more, or about $0.60 more if nothing were

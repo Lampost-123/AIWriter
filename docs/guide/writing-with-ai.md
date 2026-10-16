@@ -165,13 +165,15 @@ was given.
 With **Write a continuity brief before each scene** on (it is by default, in **Settings › Models**), the memory model
 reads far more than the writer could just before each draft: everything the story's record says about the people,
 places and things in the scene, who knows what, the promises still open, the story calendar, how each chapter so far
-ended, the passages that may matter, and, when it can read that much (DeepSeek's models can), the whole book so far.
-It hands the writer a short brief: what matters for this scene, what must not be contradicted (with the chapter and
-scene it comes from), who knows what among the people there, the promises in play, and how long it has been since the
-events that matter. The parts of the briefing it covers, such as the older story so far and the earlier passages, go
-in their short form, so the briefing doesn't grow. It comes from the plan's own call, so it needs **Plan before
-writing**, and a draft may take a little longer to start. The **Context** tab shows the last brief written for the
-scene. Generate, Add below, Beat by beat and **Write the whole chapter** get one; Continue doesn't.
+ended, the passages that may matter, and, when it can read that much (DeepSeek's models can), the book so far itself
+(in a long book, its latest chapters). It hands the writer a short brief: what matters for this scene, what must not be
+contradicted (with the chapter and scene it comes from), who knows what among the people there, the promises in play,
+and how long it has been since the events that matter. The parts of the briefing it covers, such as the older story so
+far and the earlier passages, go in their short form, so the briefing doesn't grow. Anything you keep out of a scene in
+the **Context** tab stays out of its brief too. It comes from the plan's own call, so it needs **Plan before writing**,
+and a draft may take a little longer to start. The **Context** tab shows the last brief written for the scene.
+Generate, Add below and **Write the whole chapter** get one for each draft; Beat by beat writes one for the scene with
+its first beat and uses it for the rest; Continue doesn't get one.
 
 ## See what the AI saw
 

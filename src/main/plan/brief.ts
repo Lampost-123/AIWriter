@@ -25,6 +25,7 @@
 
 import type { BeliefState, ContextPreview, EntryState, FactState, ID } from '@shared/types'
 import { learnedWords } from '@shared/knowWords'
+import { namedInProse } from '@shared/names'
 import {
   formatProfile,
   happenedText,
@@ -38,9 +39,11 @@ import {
 import { cleanKnows, happenedOf } from '../ai/knows'
 import { isPerson, namesPerson, shortPlace } from '../ai/mustStay'
 import { deathOf } from '../ai/deaths'
-import { openThreadsAt, openThreadsText } from '../ai/openThreads'
+import { openThreadsAt, openThreadsMost, openThreadsText } from '../ai/openThreads'
 import { contractText } from '../ai/contract'
 import { BRIEF_MAY_SHORTEN, BRIEF_PARTS, type BriefPart, type ContinuityBrief } from '../ai/brief'
+import { LEDGER_BLOCK } from '../ai/whoKnows'
+import { memoryScale } from '../ai/memoryRoom'
 import { lessonLine } from '../checks/lessons'
 import { ageWords, dateLabel, elapsedBetween, elapsedWords } from '../memory/calendar'
 import { changedLines, endLines, type ChapterSnapshot } from '../memory/snapshot'
@@ -48,14 +51,21 @@ import { estimateTokens } from '../keeper/text'
 
 /** The memory model reads at least this many tokens for the book so far to go in whole. */
 export const BOOK_READER = 200_000
-/** The book so far goes in whole only when it takes no more than this share of what the memory model reads. */
+/** The book so far goes in only as far as it takes no more than this share of what the memory model reads. */
 export const BOOK_SHARE = 0.5
+/**
+ * The most tokens of the book so far a plan reads, however much the memory model reads (fix 14's review): it is sent with
+ * every plan that writes a brief (each draft, the first beat of a scene, each scene of Write the whole chapter, and again
+ * on a retry), so it is held to what a provider's cache makes cheap. A longer book leaves out its oldest chapters' words
+ * (bookWithin); how they ended stays in the record.
+ */
+export const BOOK_MOST = 150_000
 /** The share of what the memory model reads that the plan's prompt may fill without the book (its own parts and the record). */
 export const RECORD_SHARE = 0.5
 /** The most tokens of story record the planner is given, however much it reads. */
 export const RECORD_MOST = 40_000
 /** All that the plan reads, the book included, stays within this share of what the memory model reads. */
-const WHOLE_SHARE = 0.9
+export const WHOLE_SHARE = 0.9
 /** The reply's room for the brief, as a share of the brief's own size (JSON and the odd longer line). */
 export const BRIEF_REPLY_SHARE = 1.3
 /** How long a draft waits for a plan with a brief (it writes more), and with the book so far in it too. */
@@ -71,6 +81,7 @@ const OVER = 1.2
 
 const PASSAGES_TITLE = 'Earlier passages found by searching the story (best first)'
 const CONTRACT_TITLE = 'This scene’s contract'
+const LEFT_OUT_TITLE = 'Left out by the author'
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 const plural = (n: number, one: string): string => `${n.toLocaleString('en-GB')} ${one}${n === 1 ? '' : 's'}`
@@ -83,7 +94,40 @@ export interface BookScene {
   label: string
   title: string
   text: string
+  /** Its chapter ("Ch 2"): the book is cut only between chapters (bookWithin). Left out: one chapter. */
+  chapter?: string
 }
+
+/**
+ * The book so far as the planner may read it, at most `most` tokens: the newest whole chapters that fit, the oldest left
+ * out first (their story is in the record: how each chapter ended), so what is sent changes at its start only when a
+ * chapter drops out and a provider's cache keeps it from scene to scene. `from`: the first chapter sent when earlier ones
+ * were left out, else null. Null when not even the chapter being written fits.
+ */
+export function bookWithin(scenes: BookScene[], most: number): { scenes: BookScene[]; from: string | null } | null {
+  if (!scenes.length) return null
+  const chapters: BookScene[][] = []
+  for (const s of scenes) {
+    const last = chapters[chapters.length - 1]
+    if (last && last[0].chapter === s.chapter) last.push(s)
+    else chapters.push([s])
+  }
+  const size = (list: BookScene[]): number => estimateTokens(list.map(sceneText).join('\n\n'))
+  let at = chapters.length
+  let total = 0
+  while (at > 0) {
+    const more = size(chapters[at - 1])
+    if (total + more > most) break
+    total += more
+    at--
+  }
+  if (at === chapters.length) return null
+  const kept = chapters.slice(at).flat()
+  return { scenes: kept, from: at > 0 ? (kept[0].chapter ?? kept[0].label) : null }
+}
+
+/** A scene as the book part sends it. */
+const sceneText = (s: BookScene): string => `### ${s.label}${clean(s.title) ? `: ${clean(s.title)}` : ''}\n${s.text.trim()}`
 
 /** An earlier chapter of this story and how it ended, from the story record (fix 15). */
 export interface ChapterRecord {
@@ -94,16 +138,20 @@ export interface ChapterRecord {
 
 /** What the world gives the brief besides the briefing's own input (plan/index.ts). */
 export interface BriefSources {
-  /** The book so far word for word, when it may go in whole (bookFits); null otherwise. */
+  /** The book so far word for word, as much of it as goes in (bookWithin, briefRoom); null otherwise. */
   book: BookScene[] | null
+  /** The book's first chapter sent, when earlier ones were left out (bookWithin); left out or null: from the start. */
+  bookFrom?: string | null
   /** How each earlier chapter of this story ended, oldest first. */
   chapters: ChapterRecord[]
   /** The rule checks' findings still open in this scene (fix 8), as Adam sees them. */
   findings: string[]
   /** Tokens the record may take (briefRoom). */
   room: number
-  /** About how many tokens the brief may take (ai/brief.ts briefTokens). */
+  /** About how many tokens the brief may take (ai/brief.ts briefSize). */
   tokens: number
+  /** The same, should the brief say nothing of who knows what (who knows what then stays whole); left out: `tokens`. */
+  tokensNoKnows?: number
 }
 
 export interface BriefPartText {
@@ -113,8 +161,10 @@ export interface BriefPartText {
 
 /** What the planner reads for the brief, and how long the brief may be. */
 export interface BriefMaterial {
-  /** The book so far, word for word, in reading order; null when it isn't read whole. */
+  /** The book so far, word for word, in reading order; null when it isn't read. */
   book: BookScene[] | null
+  /** Its first chapter, when earlier ones were left out for room (bookWithin); left out or null: from the start. */
+  bookFrom?: string | null
   /** The record that stays the same from one step of a scene to the next, sent before the scene card. */
   record: BriefPartText[]
   /** What changes from step to step (the earlier passages found, the scene's contract), sent after the words before. */
@@ -123,6 +173,10 @@ export interface BriefMaterial {
   words: number
   /** About how many tokens. */
   tokens: number
+  /** The most tokens should the brief say nothing of who knows what (checkBrief); left out: `tokens`. */
+  tokensNoKnows?: number
+  /** The names (and other names) of what Adam kept out of the scene's briefing: never in the brief (checkBrief). */
+  hidden?: string[]
 }
 
 /**
@@ -141,29 +195,40 @@ export function briefRoom(o: { contextLength: number; base: number; reply: numbe
 }
 
 /**
- * About how many tokens the parts that go short beside a brief free (ai/brief.ts BRIEF_MAY_SHORTEN: the story so far,
- * the earlier passages, who knows what), from the briefing as fitted before the plan: each sent in full, less its short
- * form. A part sent short already (for room, or as Adam chose) frees nothing. The brief is asked to be about this long
- * (ai/brief.ts briefSize), so the briefing doesn't grow.
+ * About how many tokens the parts that go short beside a brief free (ai/brief.ts BRIEF_MAY_SHORTEN), from the briefing as
+ * fitted before the plan: each sent in full, less its short form. A part sent short already (for room, or as Adam chose),
+ * one Adam wants in full (it never goes short), and the story so far of a story with earlier books on its line (it stays
+ * whole: `earlierBooks`) free nothing. Who knows what goes short only when the brief says who knows what, which isn't
+ * known until it is written, so it is counted apart (`knows`). The brief is asked to be about as long as all of it
+ * (ai/brief.ts briefSize), and held to `always` alone should it say nothing of who knows what (checkBrief).
  */
 export function briefFrees(
   preview: Pick<ContextPreview, 'blocks'>,
-  blocks: Pick<BlockDraft, 'id' | 'text' | 'short'>[] | undefined
-): number {
-  let n = 0
+  blocks: Pick<BlockDraft, 'id' | 'text' | 'short'>[] | undefined,
+  o: { earlierBooks?: boolean } = {}
+): { always: number; knows: number } {
+  const out = { always: 0, knows: 0 }
   for (const id of BRIEF_MAY_SHORTEN) {
-    const sent = preview.blocks.find((b) => b.id === id && !b.dropped && !b.short)
+    if (id === 'story-so-far' && o.earlierBooks) continue
+    const sent = preview.blocks.find((b) => b.id === id && !b.dropped && !b.short && b.mode !== 'full')
     const draft = blocks?.find((b) => b.id === id)
-    if (sent && draft?.short) n += Math.max(0, estimateTokens(draft.text) - estimateTokens(draft.short))
+    if (!sent || !draft?.short) continue
+    const n = Math.max(0, estimateTokens(draft.text) - estimateTokens(draft.short))
+    if (id === LEDGER_BLOCK.id) out.knows += n
+    else out.always += n
   }
-  return n
+  return out
 }
 
-/** A part of the record before fitting: its lines (or entries), most important first, and its share of the room. */
+/**
+ * A part of the record before fitting: its items (lines or entries), most important first, and its share of the room. An
+ * item may be given in several forms, longest first: when one doesn't fit, the next is tried (an entry with a long
+ * history then gives its most recent part).
+ */
 export interface Part {
   title: string
   lead?: string
-  items: string[]
+  items: (string | string[])[]
   /** Between items: one line, or a blank line for entries of several lines. */
   sep?: string
   share: number
@@ -171,30 +236,38 @@ export interface Part {
   rank?: number
 }
 
-const body = (p: Part, n: number): string => [p.lead ?? '', p.items.slice(0, n).join(p.sep ?? '\n')].filter(Boolean).join('\n')
+const formsOfItem = (item: string | string[]): string[] => (Array.isArray(item) ? item.filter(Boolean) : [item])
+const bodyOf = (p: Part, chosen: string[]): string => [p.lead ?? '', chosen.join(p.sep ?? '\n')].filter(Boolean).join('\n')
 
 /**
- * Fits the parts to `room` tokens: each first to its share of the room (whole items, from the first), then what is left
- * is given out by rank (the parts that matter most first), so a short part leaves its room to the others. A part with
- * nothing in it is left out.
+ * Fits the parts to `room` tokens: each first to its share of the room (whole items from the first, in full), then what is
+ * left is given out by rank (the parts that matter most first), each item now in the longest form that fits, so a short
+ * part leaves its room to the others and an item too long for what is left is given in a shorter form rather than
+ * stopping its part. A part with nothing in it is left out.
  */
 export function fitParts(parts: Part[], room: number): BriefPartText[] {
-  const cost = (p: Part, n: number): number => (n ? estimateTokens(`## ${p.title}\n${body(p, n)}`) : 0)
-  const take = parts.map(() => 0)
+  const cost = (p: Part, chosen: string[]): number => (chosen.length ? estimateTokens(`## ${p.title}\n${bodyOf(p, chosen)}`) : 0)
+  const taken: string[][] = parts.map(() => [])
   let used = 0
-  const grow = (i: number, limit: number): void => {
+  const grow = (i: number, limit: number, shorter: boolean): void => {
     const p = parts[i]
-    while (take[i] < p.items.length) {
-      const more = cost(p, take[i] + 1) - cost(p, take[i])
-      if (cost(p, take[i] + 1) > limit || used + more > room) break
-      take[i]++
-      used += more
+    const chosen = taken[i]
+    while (chosen.length < p.items.length) {
+      const was = cost(p, chosen)
+      const forms = formsOfItem(p.items[chosen.length])
+      const form = (shorter ? forms : forms.slice(0, 1)).find((f) => {
+        const now = cost(p, [...chosen, f])
+        return now <= limit && used + now - was <= room
+      })
+      if (form == null) break
+      chosen.push(form)
+      used += cost(p, chosen) - was
     }
   }
-  parts.forEach((p, i) => grow(i, Math.floor(room * p.share)))
+  parts.forEach((p, i) => grow(i, Math.floor(room * p.share), false))
   const byRank = parts.map((p, i) => ({ i, rank: p.rank ?? i })).sort((a, b) => a.rank - b.rank || a.i - b.i)
-  for (const { i } of byRank) grow(i, Infinity)
-  return parts.flatMap((p, i) => (take[i] ? [{ title: p.title, body: body(p, take[i]) }] : []))
+  for (const { i } of byRank) grow(i, Infinity, true)
+  return parts.flatMap((p, i) => (taken[i].length ? [{ title: p.title, body: bodyOf(p, taken[i]) }] : []))
 }
 
 /** "Ch 3, Sc 2" for the chapter's "scene 2", so every line of the record cites places the same way. */
@@ -264,18 +337,26 @@ function calendarLines(input: ContextInput): string[] {
   return out
 }
 
+/** How much of an entry's history a shorter form keeps: its most recent changes (fitParts tries these in turn). */
+const RECENT_HISTORY = [12, 4] as const
+
 /**
  * The record the planner reads for the brief, fitted to `sources.room` (see the top of this file). `prepared`: the
- * briefing as fitted before the plan, for the scene's contract.
+ * briefing as fitted before the plan, for the scene's contract. What Adam kept out of the scene's briefing (a 'hide' pin)
+ * is never in it: not as an entry, a knower, a thread, nor in a line naming it (the planner is told their names, so the
+ * brief leaves them out too: checkBrief); the book so far is the story's own words and keeps them.
  */
 export function briefMaterial(input: ContextInput, prepared: Pick<PreparedContext, 'contract'>, sources: BriefSources): BriefMaterial {
   const sel = selectEntries(input)
   const stage = toldStage(input)
+  const hiddenIds = new Set(sel.hidden.map((h) => h.entry.id))
+  const hiddenNames = hiddenNamesOf(sel.hidden.map((h) => h.entry))
+  const names = (line: string): boolean => hiddenNames.some((n) => namedInProse(line, n))
   const byId = new Map<ID, EntryState>([
     ...input.memory.elsewhere.map((x) => [x.entry.id, x.entry] as const),
     ...input.memory.entries.map((e) => [e.id, e] as const)
   ])
-  const nameOf = (id: ID): string | null => clean(byId.get(id)?.name) || null
+  const nameOf = (id: ID): string | null => (hiddenIds.has(id) ? null : clean(byId.get(id)?.name) || null)
   const place = (w: string): string => shortPlace(w, input.story.title)
   const happened = happenedOf(input.memory.entries)
   // Everyone in the scene (the card, the stage, the scene so far), as who knows what has them; the living people only.
@@ -283,12 +364,21 @@ export function briefMaterial(input: ContextInput, prepared: Pick<PreparedContex
   const living = people.filter((p) => isPerson(p) && !deathOf(p))
 
   // Everyone and everything in the scene, in full, each with all that has happened to them: the people here, then the
-  // place, the card's plot threads, and the other entries the briefing names.
-  const whole = (e: EntryState): string => [formatProfile(e, `### ${e.name} (${e.kind})`), happenedText(e)].filter(Boolean).join('\n\n')
+  // place, the card's plot threads, and the other entries the briefing names. An entry too long for the room left gives
+  // its most recent history (RECENT_HISTORY), then none, rather than leaving the part empty (fitParts).
+  const forms = (e: EntryState): string[] => {
+    const profile = formatProfile(e, `### ${e.name} (${e.kind})`)
+    const all = (e.happened ?? []).length
+    const told = (last?: number): string =>
+      [profile, happenedText(e, last), last != null && all > last ? `(The ${all - last} earlier changes are left out here.)` : '']
+        .filter(Boolean)
+        .join('\n\n')
+    return [told(), ...RECENT_HISTORY.filter((n) => all > n).map((n) => told(n)), ...(all ? [profile] : [])]
+  }
   const seen = new Set<ID>()
   const entries: EntryState[] = []
   const add = (e: EntryState | null | undefined): void => {
-    if (!e || seen.has(e.id)) return
+    if (!e || seen.has(e.id) || hiddenIds.has(e.id)) return
     seen.add(e.id)
     entries.push(e)
   }
@@ -298,32 +388,35 @@ export function briefMaterial(input: ContextInput, prepared: Pick<PreparedContex
   for (const c of sel.chosen.values()) if (c.entry.kind !== 'character') add(c.entry)
 
   const chapters = sources.chapters.flatMap((c) => {
-    const lines = [...changedLines(c.snapshot, nameOf), ...endLines(c.snapshot, nameOf).map((l) => `At its end: ${l}`)].map((l) =>
-      inChapter(l, c.label)
-    )
+    const lines = [...changedLines(c.snapshot, nameOf), ...endLines(c.snapshot, nameOf).map((l) => `At its end: ${l}`)]
+      .map((l) => inChapter(l, c.label))
+      .filter((l) => !names(l))
     if (!lines.length) return []
     const days = clean(c.snapshot.days)
     return [`### ${c.label}${days ? ` (${days})` : ''}\n${lines.map((l) => `- ${l}`).join('\n')}`]
   })
-  const slips = (input.slips ?? []).map((l) => `- ${lessonLine(l, place(l.where))}`)
+  const slips = (input.slips ?? [])
+    .filter((l) => !l.entryIds.some((id) => hiddenIds.has(id)))
+    .map((l) => `- ${lessonLine(l, place(l.where))}`)
   const findings = sources.findings
     .map(clean)
     .filter(Boolean)
     .map((f) => `- ${f}`)
+  const lines = (list: string[]): string[] => list.filter((l) => !names(l))
 
   // In the order they are sent (what stays the same from step to step first); `rank`: who gets room left over first.
   const parts: Part[] = [
     { title: 'How each chapter so far ended (from the story record)', items: chapters, sep: '\n\n', share: 0.2, rank: 6 },
-    { title: 'Everyone and everything in this scene, in full', items: entries.map(whole), sep: '\n\n', share: 0.3, rank: 4 },
+    { title: 'Everyone and everything in this scene, in full', items: entries.map(forms), sep: '\n\n', share: 0.3, rank: 4 },
     {
       title: 'Who knows what, among everyone here',
-      items: knowledgeLines(input.memory.facts, input.memory.beliefs ?? [], living, happened, nameOf, place).map((l) => `- ${l}`),
+      items: lines(knowledgeLines(input.memory.facts, input.memory.beliefs ?? [], living, happened, nameOf, place).map((l) => `- ${l}`)),
       share: 0.15,
       rank: 0
     },
-    { title: 'The story calendar', items: calendarLines(input).map((l) => `- ${l}`), share: 0.05, rank: 1 },
-    { title: 'Slips put right in earlier scenes (never repeat them)', items: slips, share: 0.05, rank: 2 },
-    { title: 'Still open in this scene (found by the rule checks)', items: findings, share: 0.03, rank: 3 },
+    { title: 'The story calendar', items: lines(calendarLines(input).map((l) => `- ${l}`)), share: 0.05, rank: 1 },
+    { title: 'Slips put right in earlier scenes (never repeat them)', items: lines(slips), share: 0.05, rank: 2 },
+    { title: 'Still open in this scene (found by the rule checks)', items: lines(findings), share: 0.03, rank: 3 },
     {
       title: PASSAGES_TITLE,
       items: (input.recall?.passages ?? []).map(
@@ -334,23 +427,45 @@ export function briefMaterial(input: ContextInput, prepared: Pick<PreparedContex
       rank: 5
     }
   ]
-  // The scene's contract is never cut: it is short, and the plan is checked against it. It takes its room first.
+  // The scene's contract is never cut: it is short, and the plan is checked against it; nor is the list of what Adam kept
+  // out. They take their room first.
   const contract = prepared.contract ? contractText(prepared.contract) : ''
   const contractPart = contract ? [{ title: CONTRACT_TITLE, body: contract }] : []
-  const fitted = fitParts(parts, Math.max(0, sources.room - (contract ? estimateTokens(`## ${CONTRACT_TITLE}\n${contract}`) : 0)))
+  const leftOut = hiddenNames.length ? [{ title: LEFT_OUT_TITLE, body: `Never name these in the brief: ${hiddenNames.join('; ')}.` }] : []
+  const fixed = [...contractPart, ...leftOut].reduce((n, p) => n + estimateTokens(`## ${p.title}\n${p.body}`), 0)
+  const fitted = fitParts(parts, Math.max(0, sources.room - fixed))
+  const tokens = sources.tokens
   return {
     book: sources.book?.length ? sources.book : null,
+    ...(sources.book?.length && sources.bookFrom ? { bookFrom: sources.bookFrom } : {}),
     // The earlier passages change from step to step (the search reads the scene so far): sent after the words before.
-    record: fitted.filter((p) => p.title !== PASSAGES_TITLE),
+    record: [...fitted.filter((p) => p.title !== PASSAGES_TITLE), ...leftOut],
     late: [...fitted.filter((p) => p.title === PASSAGES_TITLE), ...contractPart],
-    words: Math.round(sources.tokens / 1.35 / 50) * 50,
-    tokens: sources.tokens
+    words: Math.round(tokens / 1.35 / 50) * 50,
+    tokens,
+    ...(sources.tokensNoKnows != null && sources.tokensNoKnows !== tokens ? { tokensNoKnows: sources.tokensNoKnows } : {}),
+    ...(hiddenNames.length ? { hidden: hiddenNames } : {})
   }
 }
 
-/** Every open plot thread, due or overdue first, for the planner in place of the writer's capped list. */
-export const allOpenThreads = (input: ContextInput): string =>
-  openThreadsText(openThreadsAt(input.memory, input.scene.card, Number.MAX_SAFE_INTEGER))
+/** The names and other names of what Adam kept out, each once. */
+const hiddenNamesOf = (entries: Pick<EntryState, 'name' | 'aliases'>[]): string[] => [
+  ...new Set(
+    entries
+      .flatMap((e) => [e.name, ...(e.aliases ?? [])])
+      .map(clean)
+      .filter((n) => n.length >= 2)
+  )
+]
+
+/**
+ * The open plot threads, due or overdue first, for the planner in place of the writer's list: as many as the memory
+ * model's room allows (openThreadsMost of its memoryScale: 6 to 22), never one Adam kept out of the scene's briefing.
+ */
+export function planThreads(input: ContextInput, memoryContext: number): string {
+  const hidden = new Set(selectEntries(input).hidden.map((h) => h.entry.id))
+  return openThreadsText(openThreadsAt(input.memory, input.scene.card, openThreadsMost(memoryScale(memoryContext)), hidden))
+}
 
 // ---------- The prompt ----------
 
@@ -369,9 +484,9 @@ const BRIEF_ASK: Record<BriefPart, string> = {
  * said at the end of the request, `briefAsk`), so the instructions and the book so far after them stay in the cache.
  */
 export const BRIEF_RULE = [
-  '- brief: a continuity brief for the writer, from everything you were given (the book so far when it is there, how each chapter ended, everyone and everything here in full, who knows what, the plot threads, the story calendar, the slips, the earlier passages): only what bears on this scene (when you are asked to plan one beat, on that beat), no longer than the request’s last line says, each line short and plain.',
+  '- brief: a continuity brief for the writer, from everything you were given (the book so far when it is there, how each chapter ended, everyone and everything here in full, who knows what, the plot threads, the story calendar, the slips, the earlier passages): only what bears on this scene, the whole scene even when you are asked to plan one beat (the brief is kept for its later beats), no longer than the request’s last line says, each line short and plain.',
   ...BRIEF_PARTS.map((p) => `  - ${p}: ${BRIEF_ASK[p]}`),
-  '  Only what you were given, never a guess. Say nothing of what happens in this scene (that is the plan) and don’t repeat the scene card. A list with nothing for this scene is empty.'
+  '  Only what you were given, never a guess. Say nothing of what happens in this scene (that is the plan) and don’t repeat the scene card. Never name anything listed as left out by the author. A list with nothing for this scene is empty.'
 ].join('\n')
 
 /** The request's last line with a brief: what to do, and how long the brief may be. */
@@ -394,16 +509,16 @@ export const BOOK_TITLE = '## The book so far, word for word'
  * reads the same up to its end, where one scene is added, so nothing that changes comes before it. `whole` false: a note
  * in its place, for the record kept in the world (the book is the scenes' own words, kept already).
  */
-export function bookPart(book: BookScene[] | null, whole = true): string {
+export function bookPart(book: BookScene[] | null, whole = true, from: string | null = null): string {
   if (!book?.length) return ''
+  const title = from ? `${BOOK_TITLE}, from ${from} (how the chapters before it ended is in the record below)` : BOOK_TITLE
   if (!whole)
-    return `${BOOK_TITLE}\n(${bookSpan(book)}, ${plural(bookWords(book), 'word')}, read whole. Not kept here, to save space: they are the scenes’ own words.)`
-  return [
-    BOOK_TITLE,
-    ...book.map((s) => `### ${s.label}${clean(s.title) ? `: ${clean(s.title)}` : ''}\n${s.text.trim()}`),
-    `(The book so far ends here: ${bookSpan(book)}.)`
-  ].join('\n\n')
+    return `${title}\n(${bookSpan(book)}, ${plural(bookWords(book), 'word')}, read whole. Not kept here, to save space: they are the scenes’ own words.)`
+  return [title, ...book.map(sceneText), `${BOOK_END}${bookSpan(book)}.)`].join('\n\n')
 }
+
+/** How the book part's last line starts: it says where the book runs, so it changes at every scene (never cached). */
+export const BOOK_END = '(The book so far ends here: '
 
 // ---------- Reading and checking the brief ----------
 
@@ -435,13 +550,16 @@ export function placesCited(text: string): string[] {
 
 /**
  * The brief, checked: each line cleaned and kept short, said once, left out when it cites a chapter or scene the planner
- * wasn't given (`material`: all it was given), each list capped (BRIEF_MOST), and the whole kept to about `tokens`
- * (lines go from the least important lists first: TRIM_ORDER). Null when nothing is left.
+ * wasn't given (`material`: all it was given) or names something Adam kept out of the scene's briefing (`hidden`: names),
+ * each list capped (BRIEF_MOST), and the whole kept to about `tokens`, or `tokensNoKnows` when it says nothing of who
+ * knows what (who knows what then stays whole beside it, so the brief has less room: briefFrees). Lines go from the least
+ * important lists first (TRIM_ORDER). Null when nothing is left.
  */
 export function checkBrief(
   raw: RawBrief,
-  o: { material: string; tokens: number; book?: boolean }
+  o: { material: string; tokens: number; tokensNoKnows?: number; book?: boolean; hidden?: string[] }
 ): { brief: ContinuityBrief | null; dropped: number } {
+  const hidden = (o.hidden ?? []).filter((n) => n.trim().length >= 2)
   const known = new Set(placesCited(o.material))
   // A scene cited is known when it was given, or its chapter was (a chapter's record cites its scenes as "Ch 3, Sc 2").
   const knows = (ref: string): boolean => known.has(ref) || (!ref.includes('Sc') && [...known].some((k) => k.startsWith(`${ref},`)))
@@ -453,7 +571,7 @@ export function checkBrief(
       const text = line.length > LONGEST_LINE ? `${line.slice(0, LONGEST_LINE - 1).trimEnd()}…` : line
       const key = text.toLowerCase()
       if (seen.has(key)) continue
-      if (!placesCited(text).every(knows) || (parts[p]?.length ?? 0) >= BRIEF_MOST[p]) {
+      if (!placesCited(text).every(knows) || hidden.some((n) => namedInProse(text, n)) || (parts[p]?.length ?? 0) >= BRIEF_MOST[p]) {
         dropped++
         continue
       }
@@ -464,7 +582,7 @@ export function checkBrief(
   // Kept to its size: the last line of the least important list goes first, a list keeping its first line as long as
   // another has more.
   const size = (): number => estimateTokens(BRIEF_PARTS.flatMap((p) => parts[p] ?? []).join('\n'))
-  const most = Math.ceil(o.tokens * OVER)
+  const most = Math.ceil((parts.knows?.length ? o.tokens : (o.tokensNoKnows ?? o.tokens)) * OVER)
   while (size() > most) {
     const from = TRIM_ORDER.find((p) => (parts[p]?.length ?? 0) > 1) ?? TRIM_ORDER.find((p) => (parts[p]?.length ?? 0) > 0)
     if (!from) break

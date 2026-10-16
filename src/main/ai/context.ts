@@ -102,7 +102,7 @@ import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
 import { CONTRACT_BLOCK, contractSays, contractText, sceneContract, type ContractInput, type SceneContract } from './contract'
-import { BRIEF_BLOCK, briefShortens, briefText, type ContinuityBrief } from './brief'
+import { BRIEF_BLOCK, briefShortens, briefText, hasEarlierBooks, type ContinuityBrief } from './brief'
 import { LEDGER_BLOCK, ledgerPeople, ledgerText } from './whoKnows'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
@@ -1295,14 +1295,20 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
 /**
  * Everyone in the scene, for who knows what (long story memory fix 9): the point of view, the others on the card, those
  * where things stand puts there, and the living characters the scene so far names (fix 12); only people who exist here,
- * each once, in that order (the stage's and the scene so far's in the steady order).
+ * each once, in that order (the stage's and the scene so far's in the steady order). Never anyone Adam kept out of the
+ * scene's briefing (a 'hide' pin), wherever they are on the stage or named (fix 14's review).
  */
-export function sceneKnowers(input: Pick<ContextInput, 'memory'>, sel: Pick<Selection, 'pov' | 'present' | 'inSoFar'>, stage: SceneState | null): EntryState[] {
+export function sceneKnowers(
+  input: Pick<ContextInput, 'memory'>,
+  sel: Pick<Selection, 'pov' | 'present' | 'inSoFar'> & Partial<Pick<Selection, 'hidden'>>,
+  stage: SceneState | null
+): EntryState[] {
   const here = new Map(input.memory.entries.map((e) => [e.id, e]))
+  const hidden = new Set((sel.hidden ?? []).map((h) => h.entry.id))
   const out: EntryState[] = []
   const add = (id: ID | undefined): void => {
     const e = id ? here.get(id) : undefined
-    if (e && e.kind === 'character' && !out.includes(e)) out.push(e)
+    if (e && e.kind === 'character' && !hidden.has(e.id) && !out.includes(e)) out.push(e)
   }
   for (const e of [sel.pov, ...sel.present]) add(e?.id)
   const characters = steadyOrder(input.memory.entries.filter((e) => e.kind === 'character'))
@@ -1818,9 +1824,10 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
   // 9 The other plot threads still open here (2026-10-08, ai/openThreads.ts): a line each, kept alive gently; since the
   //   promises ledger (fix 10) as many as the model has room for, those due by the end of this chapter or overdue first,
   //   then those involving the card's people, place and what they hold, then the longest untouched. In the steady part,
-  //   after the card's threads: only the card, Adam's plans and the memory before this scene decide it.
+  //   after the card's threads: only the card, Adam's plans and the memory before this scene decide it. Never a thread
+  //   Adam kept out of the scene's briefing.
   const threadScale = memoryScale(input.contextLength)
-  const openNow = openThreadsAt(input.memory, input.scene.card, openThreadsMost(threadScale))
+  const openNow = openThreadsAt(input.memory, input.scene.card, openThreadsMost(threadScale), new Set(sel.hidden.map((h) => h.entry.id)))
   add(OPEN_THREADS_BLOCK, 9, OPEN_THREADS_TITLE, openThreadsText(openNow), openThreadsText(openNow.slice(0, openThreadsShort(threadScale)), true), [])
 
   // 8 The story so far (short: fewer scenes, chapter summaries, series roll-ups; smaller: only the most recent parts).
@@ -2066,8 +2073,11 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
   }
   const plan = clean(input.plan?.text)
   if (plan) blocks.push({ id: PLAN_BLOCK.id, priority: 2, title: PLAN_BLOCK.title, text: plan, short: null, smaller: [], entryIds: [] })
-  // With a continuity brief (fix 14), the blocks it says what matters of start short (those that have a short form).
-  const shortens = briefShortens(input.brief).filter((id) => blocks.some((b) => b.id === id && b.short != null))
+  // With a continuity brief (fix 14), the blocks it says what matters of start short (those that have a short form); the
+  // story so far stays whole for a story with earlier books on its line, whose words the brief's reader never had.
+  const shortens = briefShortens(input.brief, { earlierBooks: hasEarlierBooks(input.memory) }).filter((id) =>
+    blocks.some((b) => b.id === id && b.short != null)
+  )
   const targetWords = input.options.targetWords
   // Auto: room is kept for the longest scene Auto allows this model (finishContext may lower it).
   const autoMax = targetWords == null ? autoCeiling(input.maxOutput) : undefined

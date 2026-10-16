@@ -100,12 +100,22 @@ export const BRIEF_MAY_SHORTEN: readonly string[] = ['story-so-far', 'recalled',
  * so the briefing doesn't grow by saying things twice: the story so far (its older detail; the brief says what of it
  * bears on this scene), the earlier passages found by searching (the planner read every one found), and who knows what
  * when the brief has its own part for it (the short form still says what someone here doesn't know or believes wrongly).
- * What must stay true, the scene's contract and the scene card are never shortened for it.
+ * What must stay true, the scene's contract and the scene card are never shortened for it. `earlierBooks`: the story has
+ * earlier books (or side stories) on its line, which the brief's reader never read word for word (the book so far is
+ * this story's), so the story so far, which tells them, stays whole (fix 14's review).
  */
-export function briefShortens(b: ContinuityBrief | null | undefined): string[] {
+export function briefShortens(b: ContinuityBrief | null | undefined, o: { earlierBooks?: boolean } = {}): string[] {
   if (!briefSays(b)) return []
-  return BRIEF_MAY_SHORTEN.filter((id) => id !== LEDGER_BLOCK.id || linesOf(b, 'knows').length > 0)
+  return BRIEF_MAY_SHORTEN.filter(
+    (id) => (id !== LEDGER_BLOCK.id || linesOf(b, 'knows').length > 0) && (id !== STORY_SO_FAR || !o.earlierBooks)
+  )
 }
+
+const STORY_SO_FAR = 'story-so-far'
+
+/** True when a story has earlier books (or side stories added whole) on its line before this scene. */
+export const hasEarlierBooks = (memory: { storySoFar?: { stories: unknown[] } | null }): boolean =>
+  (memory.storySoFar?.stories.length ?? 0) > 0
 
 /** The fewest tokens a brief is asked for, whatever the room. */
 export const BRIEF_LEAST = 1_000

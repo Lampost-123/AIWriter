@@ -36,6 +36,7 @@ import {
   BRIEF_REPLY_SHARE,
   BRIEF_RULE,
   BRIEF_SHAPE,
+  BOOK_END,
   bookPart,
   briefAsk,
   checkBrief,
@@ -248,7 +249,7 @@ export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
   // With no scene card to go with, the direction stands as the card, as it always has.
   const direction = m.card.trim() ? m.direction.trim() : ''
   const b = m.brief
-  const book = b ? bookPart(b.book, bookWhole) : ''
+  const book = b ? bookPart(b.book, bookWhole, b.bookFrom ?? null) : ''
   const user = [
     book,
     ...(b?.record ?? []).map((p) => part(p.title, p.body)),
@@ -268,8 +269,9 @@ export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
     .filter(Boolean)
     .join('\n\n')
   // The book so far, the same from scene to scene but for what is added at its end: marked for a model that caches only
-  // where asked (client.ts sentMessages).
-  const cacheUpTo = book && bookWhole ? book.length : 0
+  // where asked (client.ts sentMessages), up to its last scene, never its last line (where it ends, new every scene).
+  const end = book.lastIndexOf(`\n\n${BOOK_END}`)
+  const cacheUpTo = book && bookWhole ? (end > 0 ? end : book.length) : 0
   return [
     { role: 'system', content: planSystem(!!m.contract, !!b) },
     { role: 'user', content: user, ...(cacheUpTo ? { cacheUpTo } : {}) }
@@ -787,8 +789,18 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     const plan = checkPlan(raw, { ...o.check, reach: m.reach, material, card: m.card, calls: m.calls, people: m.people, secrets: m.secrets })
     const text = planText(plan, o.carryingOn)
     const must = m.contract ? plan.must : []
-    // The brief cites only chapters and scenes the planner was given (all of it, the book so far too).
-    const brief = m.brief && raw.brief ? checkBrief(raw.brief, { material: user, tokens: m.brief.tokens, book: !!m.brief.book }).brief : null
+    // The brief cites only chapters and scenes the planner was given (all of it, the book so far too), and never names what
+    // Adam kept out of the scene's briefing.
+    const brief =
+      m.brief && raw.brief
+        ? checkBrief(raw.brief, {
+            material: user,
+            tokens: m.brief.tokens,
+            ...(m.brief.tokensNoKnows != null ? { tokensNoKnows: m.brief.tokensNoKnows } : {}),
+            book: !!m.brief.book,
+            hidden: m.brief.hidden ?? []
+          }).brief
+        : null
     if (!text && !plan.needs.length && !must.length && !brief) return null
     return { needs: plan.needs, text, must, checked: plan.checked, ...(brief ? { brief } : {}) }
   } catch (e) {

@@ -141,8 +141,8 @@ put in a world, a backup, a world file or an export, so you can share those safe
 Only the service you choose, and only what each job needs: for a draft, the scene card, the parts of the memory
 that matter for the scene, earlier passages it found, and your style guide. With **Write a continuity brief before
 each scene** on, the memory model also reads the story's record and, when it can read that much, the book so far. To
-see exactly what was sent for any
-draft, open **What the AI saw** (see [Writing with AI](writing-with-ai.md#see-what-the-ai-saw)). Notes you keep under
+see exactly what was sent for any draft, open **What the AI saw** (see
+[Writing with AI](writing-with-ai.md#see-what-the-ai-saw)). Notes you keep under
 **Private notes (never sent to the AI)** on an entry are never sent.
 
 ---
