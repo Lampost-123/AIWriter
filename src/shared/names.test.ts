@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { askingAt, calledFor, findName, ignoresCase, namedInProse, startsSentence } from './names'
+import { askingAt, calledFor, findName, firstNameOf, ignoresCase, namedInProse, soleFirstName, startsSentence } from './names'
 
 const at = (text: string, word: string): [number, number] => {
   const i = text.indexOf(word)
@@ -81,5 +81,20 @@ describe('names in prose', () => {
     ]
     expect(calledFor(list, 'a')).toEqual(['her brother', 'the boy'])
     expect(calledFor(undefined, 'a')).toEqual([])
+  })
+})
+
+describe('a first name alone', () => {
+  it('is the first word of a name of two or more, capitalised, never "The"', () => {
+    expect(firstNameOf('Nell Harrow')).toBe('Nell')
+    expect(firstNameOf('Nell')).toBe('')
+    expect(firstNameOf('The Duke')).toBe('')
+    expect(firstNameOf('old Tom')).toBe('')
+  })
+  it('counts only when no one else goes by it', () => {
+    expect(soleFirstName('Nell Harrow', ['Theo Marsh', 'Victor Crane'])).toBe('Nell')
+    expect(soleFirstName('Nell Harrow', ['Nell Crane'])).toBe('')
+    expect(soleFirstName('Nell Harrow', ['nell'])).toBe('')
+    expect(soleFirstName('Nell Harrow', ['Nellie Crane'])).toBe('Nell')
   })
 })

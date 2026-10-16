@@ -121,6 +121,23 @@ describe('who is on stage at a paragraph', () => {
     expect(at('Anna remembered the old road.')).toEqual(['m', 'a'])
   })
 
+  it('leaves out someone only talked or written of, or named in what is said unless spoken to (live test, 2026-10-16)', () => {
+    const at = (text: string) => onStageAt({ paras: scene([text, SAID]), index: 1, onCard: [], people, gone: [] })
+    // Theo's confession named Victor Crane and his dead son; neither was in the room.
+    expect(at('‘I was his major. His father, Anna, wrote a letter and the letter got him a place.’')).toEqual(['m'])
+    expect(at('‘Anna,’ he said. ‘You know who she was.’')).toEqual(['m'])
+    expect(at('‘I wrote Anna a letter that let her think the ground did it.’')).toEqual(['m'])
+    expect(at('Mara told him about Anna and the wedding.')).toEqual(['m'])
+    expect(at('Mara wrote to Anna that night.')).toEqual(['m'])
+    expect(at('There was a letter from Anna on the mat.')).toEqual(['m'])
+    // Spoken to, or named in the telling, they are there; an apostrophe is no quote.
+    expect(at('‘Anna, sit down.’')).toEqual(['m', 'a'])
+    expect(at('‘Sit down, Anna.’')).toEqual(['m', 'a'])
+    expect(at('‘Sit,’ Anna said, and didn’t.')).toEqual(['m', 'a'])
+    expect(at('Anna’s hand closed on the cane. ‘Don’t,’ she said.')).toEqual(['m', 'a'])
+    expect(at('“Come in,” said Mara, and Anna came.')).toEqual(['m', 'a'])
+  })
+
   it('counts the card’s people from when they come in, the point of view from the start', () => {
     const paras = scene(['The fire was low.', SAID, 'Rain on the glass.', 'Wind at the door.', 'Anna came in from the yard.', 'Tobin spoke.'])
     const card = { onCard: ['m', 't', 'a', 'w'], pov: 'm', people, gone: [] }
@@ -183,6 +200,25 @@ describe('something said', () => {
     })
     expect(knowers(w.db, 'the key is under the bell')).toEqual(['Mara', 'Tobin'])
     expect(knowers(w.db, 'the boat leaves at dawn')).toEqual(['Ash', 'Mara', 'Tobin'])
+  })
+
+  it('isn’t heard by someone the memory model names who isn’t there, nor by an animal (live test, 2026-10-16)', async () => {
+    const w = cast(1)
+    const [s1] = w.scenes
+    const MAJOR = '“I was his major, and I wrote Wren a letter,” Tobin said.'
+    saveParas(w.db, s1, [
+      ['p1', 'Cinder lay by the fire.'],
+      ['p2', MAJOR]
+    ])
+    repo.updateSceneCard(w.db, s1, { ...emptySceneCard(), povId: w.mara.id, presentIds: [w.tobin.id, w.cinder.id] })
+    await readScene(w.db, fake, s1, {
+      add: [
+        { type: 'said', kind: 'secret', entry: 'Tobin', heard: ['Mara', 'Wren', 'Cinder'], fact: 'Tobin was his major', quote: MAJOR },
+        { type: 'knows', entry: 'Cinder', fact: 'the key is under the bell', quote: 'Cinder lay by the fire.' }
+      ]
+    })
+    expect(knowers(w.db, 'Tobin was his major')).toEqual(['Mara', 'Tobin'])
+    expect(knowers(w.db, 'the key is under the bell')).toEqual([])
   })
 
   it('whispered, it reaches only those the memory model says heard it', async () => {

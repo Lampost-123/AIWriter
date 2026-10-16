@@ -528,8 +528,9 @@ export function planText(card: SceneCard, nameOf: (id: ID) => string | null): st
  * someone the fact is about, nor an animal, nor at all when who knows it doesn't rest on who was there or on Adam (B5).
  */
 export function knowsLine(f: FactState, people: EntryState[], nameOf: (id: ID) => string | null): string {
+  // An animal is never told as knowing anything, even where an older read kept it so.
   const knows = people
-    .filter((p) => f.knownBy.includes(p.id))
+    .filter((p) => f.knownBy.includes(p.id) && isPerson(p))
     .map((p) => {
       const how = learnedWords(f.since?.[p.id], nameOf)
       return how ? `${p.name} (${how})` : p.name

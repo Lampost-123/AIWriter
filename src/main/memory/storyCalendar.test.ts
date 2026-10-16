@@ -82,6 +82,13 @@ describe('a story’s calendar', () => {
     expect(storyDateViews(w.db, w.id('kr'))[w.id('kr.c1.s1')].note).toBe('Reads as Day 2.')
   })
 
+  it('says which real day a counted day is, once a card names one (live test, 2026-10-16)', () => {
+    const v = world({ 'b1.c1.s1': 'Day 1, dusk', 'b1.c1.s2': 'Day 3', 'b1.c2.s1': 'Day 25, Christmas Eve', 'b1.c2.s2': 'Day 26' })
+    const views = storyDateViews(v.db, v.id('b1'))
+    expect(views[v.id('b1.c1.s2')].note).toBe('Reads as Day 3 · 2 December.')
+    expect(views[v.id('b1.c2.s1')].note).toBe('Reads as Day 25 · 24 December.')
+  })
+
   it('notes gently what it couldn’t tell', () => {
     const v = world({ 'b1.c1.s1': 'The next day', 'b1.c1.s2': 'after the wedding', 'b1.c2.s1': 'Day 3', 'b1.c2.s2': 'Days later' })
     const views = storyDateViews(v.db, v.id('b1'))

@@ -3507,7 +3507,7 @@ in `meta` and the fixes are where it is read and laid over.
 - **Typical clothing is who someone is, not this moment.** A Looks value from the text that says only that someone is
   undressed for now ("none", "nothing", "naked but for her locket", "dress off, stockings off"; for other Looks fields,
   "naked") is never kept (`memory/looks.ts` `passingLook`): the memory keeper leaves it out of a change, a verdict's new
-  value, a detail and a new entry (`keeper/apply.ts` `passingFor`), and reading the memory skips one already kept, in a
+  value, a detail and a new entry (`keeper/apply.ts` `keptLook`), and reading the memory skips one already kept, in a
   change or on the entry, so older worlds are put right too (`memory/state.ts`); Adam's own words always stand. The
   reading prompt's rule says a change ends a field's value "for good … not clothes off for a while" (5,971 characters,
   under the 6,000 its tests hold it to). What must stay true never states Typical clothing as a fact of now
@@ -3547,6 +3547,64 @@ in `meta` and the fixes are where it is read and laid over.
   (by name, other name, or what this scene calls them), then the rest A to Z, at most `MOST_CAST` (80), one a line with
   their other names ("Zara Quill (also the Captain)"). It was the first 80 names A to Z, with no other names. The fake
   provider reads the list one a line.
+
+## The long live test's slips (2026-10-16)
+
+A live test wrote an invented 20-scene, 39,417-word story through the app on DeepSeek Flash. A strict judge found 16
+major and 28 minor slips, mostly time, and the app's own checks raised 26 issues, 12 of them false alarms from one
+rule. No migration, no new AI call; the memory keeper's prompt is unchanged.
+
+- **A point of view named by first name is named** (`checks/rules.ts` `povHere`; `shared/names.ts` `firstNameOf`,
+  `soleFirstName`). 12 of 20 scenes were flagged "Nell Harrow is this scene's point of view, but the scene never names
+  Nell Harrow" though they called her "Nell". Her first name counts when no other character in the codex goes by it
+  (another's first name, name or other name), as `namesFor`'s first-name rule in `ai/mustStay.ts`.
+- **Counted days on the real calendar** (`memory/calendar.ts` `feastsAsDates`, `splitCount`, `StoryDate.real`). The
+  cards said "Day 1" to "Day 25"; only "Day 25, Christmas Eve" said the month, and nothing read it. A fixed feast day
+  ("Christmas Eve", "Boxing Day", "Michaelmas"; not Easter, which moves) reads as its date, and a card that names a real
+  day beside its count ("Day 25, Christmas Eve", "Day 1, 28 November 1923", "Day 1, late November") is counted as the
+  count alone (so "28" is no longer read as a year), its real day placing every day of that bare count: Day 3 is "2
+  December", "Friday 30 November 1923" with a year (the day of the week too), "about early December" from a month alone.
+  The first such card in reading order decides. "Day 3 of spring" is a day of that season, as before. The writer's scene
+  card says it ("Story date: Day 3, evening, which falls on 2 December (2 days since the scene before)": `ai/storyDate.ts`),
+  and so does the When hint ("Reads as Day 3 · 2 December.": `memory/storyCalendar.ts`).
+- **Places the card names in part** (`ai/context.ts` `selectEntries`, `WHY.inPart`, `PLACES_IN_PART` 4;
+  `ai/briefingFixes.ts` `placeWords`, `peopleWords`). "Ashby" in the beats never brought in "The train to Ashby" ("Ashby
+  is most of a day away"; the writer made it "an hour in a cart") nor "St Anne's church, Ashby" (the writer named it St
+  Chad's, and the memory then kept that). A place whose name has a word that picks it out (capitalised, three letters or
+  more, not a word for a kind of place such as "Church" or "House", and no part of any character's name, so "Crane" of
+  "The Crane House library" isn't brought in by Victor Crane) is brought in when the card's own words (beats, notes,
+  direction, goal and the rest) or the name of where the scene happens name that word, in full under "Also relevant"
+  (never left out as a place away from the scene). Only from the card, so every step of a scene reads the same.
+- **The card's name for the place.** The scene card says "Where: St Anne's church, Ashby (call it by this name,
+  whatever the story so far has called it)". Kept short: those words are in every briefing. (`retrieval/recall.test.ts`
+  now compares a briefing with and without step 5 word for word only where what step 5 took fits in the room left
+  spare; past that, its share comes from the least important blocks by design, and a few more words on the card had put
+  one model size there.)
+- **Who heard it** (`keeper/presence.ts`, `keeper/apply.ts`). Theo's confession named Victor Crane ("his father wrote a
+  letter") and his dead son, and both were kept as having heard it. A name in someone's spoken words is talked of, not
+  there, unless spoken to ("‘Anna, sit down.’", "‘Sit down, Anna.’"; "‘Edmund Crane,’ he said" is an answer, not a
+  call: `speechAround`, `spokenTo`), and so is one talked or written of in the telling ("told him about Anna", "a letter
+  from Anna", "wrote to Anna"). The memory model's own list of who heard something is kept to those on stage at the
+  words.
+- **No animal knows anything** (`keeper/kinds.ts` `ANIMALS`, `keeper/apply.ts` `addChange`). "Nell's grey lurcher" was
+  a person, so the dog Bramble knew every secret said in front of her. Breeds and more animals are animals now, and the
+  keeper never keeps a knowledge change for anyone who isn't a person (`isPerson`), whatever the reply says; the checks
+  never tell one as knowing (`checks/context.ts` `knowsLine`).
+- **A planned payoff resolves its thread** (`keeper/apply.ts` `applyThread`, `cardPaysOffHere`). "Iris's wedding … on
+  Christmas Eve" stayed open after the wedding: the memory model read the wedding as a step on. Where this scene's card
+  lists the thread under "Pays off" and the words move it on (a step on or opening with a note, linked to its quote), it
+  is resolved, as a resolve read there would be (a later card's plan, or the thread's own "How it should pay off", still
+  keeps it open); read again in the same scene it stays resolved.
+- **Typical clothing is what they usually wear** (`memory/looks.ts` `usualLook`). On a cold train Nell's Typical
+  clothing became "…coat buttoned to the chin, the red wool scarf up round her jaw…". A piece told as worn just then
+  (done up or undone, pulled up or round, wet or muddy, for the cold or the journey) is left out of a Typical clothing
+  value from the text, unless it says it is usual ("always buttoned to the chin"); with nothing else new, the field
+  isn't changed at all. The keeper does this for a change, a verdict, a detail and a new entry (`keptLook`), and reading
+  the memory does it for a change already kept, so older worlds are put right too; Adam's own words always stand.
+
+Known limits: the judge's other time slips (a deed year, "twenty-nine next birthday" for a 29-year-old) were the writer's
+own inventions against facts it was given; nothing here can stop a model making those up. The judge's "late November"
+for Days 1 to 3 was its own: by the cards (Day 25 is Christmas Eve), Day 3 is 2 December.
 
 ## Milestone 1 scope
 

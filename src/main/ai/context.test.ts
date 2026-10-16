@@ -714,6 +714,37 @@ describe('blocks', () => {
     expect(trimPassage(words(50), 10)).toBe(`${words(10)}…`)
   })
 
+  it('brings in places the card names only in part, with their facts (live test, 2026-10-16)', () => {
+    const why = (inp: ContextInput) => Object.fromEntries(prepareContext(inp).entries.map((e) => [e.name, e.why]))
+    const train = entry('place', 'The train to Ashby', { summary: 'The slow line south; Ashby is most of a day away.' })
+    const church = entry('place', 'St Anne’s church, Ashby', { summary: 'Where Iris will be married.' })
+    const crane = entry('place', 'The Crane House library', { summary: 'Dark panelling.' })
+    const victor = entry('character', 'Victor Crane')
+    const inp = input()
+    inp.memory = { ...inp.memory, entries: [...inp.memory.entries, train, church, crane, victor] }
+    inp.scene.card.beats = [...inp.scene.card.beats, 'A letter: Iris is marrying in Ashby on Christmas Eve', 'Victor Crane watches']
+    const got = why(inp)
+    expect(got['The train to Ashby']).toBe('A place the scene card names in part')
+    expect(got['St Anne’s church, Ashby']).toBe('A place the scene card names in part')
+    // A word that is someone's name never picks a place out: "Crane" is Victor's.
+    expect(got['The Crane House library']).toBeUndefined()
+    // Sent whole, not left out as a place away from the scene, so the writer has "most of a day away".
+    expect(blockOf(inp, 'mentioned')!.text).toContain('most of a day away')
+    // Where the scene happens names them too.
+    const there = input()
+    there.memory = { ...there.memory, entries: [...there.memory.entries, train, church] }
+    there.scene.card.locationId = train.id
+    expect(why(there)['St Anne’s church, Ashby']).toBe('A place the scene card names in part')
+    // Nothing named: nothing brought in.
+    expect(why({ ...inp, scene: { ...inp.scene, card: { ...inp.scene.card, beats: [] } } })['The train to Ashby']).toBeUndefined()
+  })
+
+  it('says to call the place by the card’s name for it', () => {
+    expect(blockOf(input(), 'scene-card')!.text).toContain(
+      'Where: The Gilded Eel (call it by this name, whatever the story so far has called it)'
+    )
+  })
+
   it('block 2: the whole scene card and the direction, with no short form', () => {
     const block = blockOf(input(), 'scene-card')!
     for (const s of [

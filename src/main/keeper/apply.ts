@@ -36,6 +36,7 @@ import { thingNotCharacter } from './kinds'
 import { CLUE_NOTE, clueList, laterCardPaysOff, payoffLater, threadPlace, threadStatus, threadStep } from './threads'
 import { LEFT_OR_DIED, onStageAt, paraIndexOf, WHISPERED } from './presence'
 import { deathOf } from '../ai/deaths'
+import { isPerson } from '../ai/mustStay'
 import type { ThreadList } from '@shared/threadLinks'
 import {
   changeContent,
@@ -57,7 +58,7 @@ import {
 import { findQuote, likeness, locateQuote, mentionAt, plain, sameFact, sceneParagraphs, type Para } from './text'
 import { aliasWorthy, cleanCalled } from './names'
 import { forgetCalledNotIn, keepCalled } from '../db/called'
-import { passingLook } from '../memory/looks'
+import { usualLook } from '../memory/looks'
 import type { CalledName } from '@shared/names'
 
 type DB = Database.Database
@@ -219,10 +220,11 @@ function fieldKey(kind: EntryKind, v: unknown): string | null {
 }
 
 /**
- * True when a character's Looks value from the text only says they are undressed for now ("Typical clothing: none"
- * after an undressing scene; memory/looks.ts): clothes off for a while are where things stand, so it is never kept.
+ * A field's value from the text as kept ('' for none): a character's Looks without what is only for now (memory/looks.ts
+ * usualLook). "Typical clothing: none" after an undressing scene, or "coat buttoned to the chin" on a cold train, is
+ * where things stand, so it is never kept as who they are.
  */
-const passingFor = (kind: EntryKind, field: string, value: string): boolean => kind === 'character' && passingLook(field, value)
+const keptLook = (kind: EntryKind, field: string, value: string): string => (kind === 'character' ? usualLook(field, value) : value)
 
 export const patchFor = (e: Entry, field: string, value: string): Parameters<typeof repo.updateEntry>[2] =>
   field === 'summary' ? { summary: value } : field === 'description' ? { description: value } : { fields: { ...e.fields, [field]: value } }
@@ -636,7 +638,8 @@ function updatedPayload(
       const given = (v.fields && typeof v.fields === 'object' ? v.fields : {}) as Record<string, unknown>
       for (const [k, val] of Object.entries(given)) {
         const key = fieldKey(kind, k)
-        if (key && key !== 'summary' && key !== 'description' && str(val) && !passingFor(kind, key, str(val))) fields[key] = str(val)
+        const v2 = key && key !== 'summary' && key !== 'description' ? keptLook(kind, key, str(val)) : ''
+        if (key && v2) fields[key] = v2
       }
       const note = str(v.note, 200) || c.payload.note
       if (!note && !Object.keys(fields).length) return null
@@ -1209,7 +1212,7 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
   for (const [k, v] of Object.entries(given)) {
     const key = fieldKey(kind, k)
     if (key === 'description') description = str(v, 2000)
-    else if (key && key !== 'summary' && str(v) && !passingFor(kind, key, str(v))) fields[key] = str(v)
+    else if (key && key !== 'summary' && keptLook(kind, key, str(v))) fields[key] = keptLook(kind, key, str(v))
   }
   const aliases = strList(a.aliases).filter((x) => plain(x) !== plain(name))
   const e = repo.createEntry(
@@ -1248,6 +1251,9 @@ function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot, text?: str
     if (same.changeId) run.alsoSupports(same.changeId, s)
     return null
   }
+  // Only people know things: an animal is never kept as knowing, hearing or seeing anything (live test, 2026-10-16: the
+  // dog Bramble "knew" every secret told in front of her).
+  if (data.kind === 'knowledge' && !isPerson(entry)) return null
   const c = mem.insertChange(run.db, {
     ...data,
     entryId: entry.id,
@@ -1469,9 +1475,14 @@ function linkCard(run: Run, list: ThreadList, threadId: ID, change: Change): voi
   if (u?.op === 'change-added') u.cardLink = { sceneId: run.scene.sceneId, list, threadId }
 }
 
+/** True when this scene's card lists the thread under "Pays off" (Adam's plan, or a resolve read here before). */
+function cardPaysOffHere(run: Run, threadId: ID): boolean {
+  return !!repo.sceneCards(run.db, [run.scene.sceneId]).get(run.scene.sceneId)?.paysOffIds?.includes(threadId)
+}
+
 function applyThread(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>, s: Spot): void {
   const db = run.db
-  const step = threadStep(a.status ?? a.step)
+  let step = threadStep(a.status ?? a.step)
   let thread = a.entry ? run.resolve(a.entry, chunk.ids, refs) : null
   if (thread && thread.kind !== 'thread') thread = null
   const name = str(a.name, 200)
@@ -1509,6 +1520,14 @@ function applyThread(run: Run, a: Record<string, unknown>, chunk: ChunkReply, re
     })
   } else if (!run.ensureHere(thread, s)) return
   const now = run.threadNow(thread.id)
+  // The scene card plans the payoff here ("Pays off") and the words move the thread on: the payoff is on the page, so
+  // it is resolved, not left open (live test, 2026-10-16: "Iris's wedding … on Christmas Eve" stayed open after the
+  // wedding scene, the memory model reading the wedding as a step on). Read again later in the same scene, it stays
+  // resolved. A later card's plan or the thread's own "How it should pay off" still holds it open (the resolved case).
+  if ((step === 'open' || step === 'developing') && !made && note && cardPaysOffHere(run, thread.id)) {
+    if (now === 'resolved') return
+    if (now === 'open') step = 'resolved'
+  }
   switch (step) {
     case 'open': {
       if (!made && promise) fillField(run, thread, 'promise', promise, s)
@@ -1938,9 +1957,13 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     case 'change': {
       const fields: Record<string, string> = {}
       const given = (a.fields && typeof a.fields === 'object' ? a.fields : {}) as Record<string, unknown>
+      const now = run.entry(entry.id) ?? entry
       for (const [k, v] of Object.entries(given)) {
         const key = fieldKey(entry.kind, k)
-        if (key && key !== 'summary' && key !== 'description' && str(v) && !passingFor(entry.kind, key, str(v))) fields[key] = str(v)
+        if (!key || key === 'summary' || key === 'description') continue
+        // Clothes worn for the moment leave a typical clothing as it was: no change at all when nothing else is new.
+        const kept = keptLook(entry.kind, key, str(v))
+        if (kept && !(kept !== str(v) && plain(kept) === plain(now.fields[key] ?? ''))) fields[key] = kept
       }
       const note = str(a.note, 200)
       if (!note && !Object.keys(fields).length) return
@@ -1950,8 +1973,9 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     case 'detail': {
       const field = fieldKey(entry.kind, a.field)
       const value = str(a.value, 400)
-      if (!field || !value || passingFor(entry.kind, field, value)) return
-      addDetail(run, run.entry(entry.id) ?? entry, field, value, s)
+      const kept = field ? keptLook(entry.kind, field, value) : ''
+      if (!field || !kept) return
+      addDetail(run, run.entry(entry.id) ?? entry, field, kept, s)
       return
     }
     case 'relationship': {
@@ -2012,11 +2036,15 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       // with the spoken line (the quote, exactly as the scene has it) and who said it.
       const kind = str(a.kind, 20).toLowerCase()
       const fact = str(a.fact ?? a.about, 300)
-      if (!isSaidKind(kind) || !fact || entry.kind !== 'character') return
+      if (!isSaidKind(kind) || !fact || !isPerson(entry)) return
+      // Only those there at the words hear them (live test, 2026-10-16: a confession that named Victor Crane, far away,
+      // was kept as heard by him): the model's own list is kept to those on stage, and never an animal.
+      const stage = run.stageAt(s)
       const hearers: Entry[] = []
       for (const who of strList(a.heard ?? a.hearers, MAX_INVOLVED)) {
         const e = run.resolve(who, chunk.ids, refs)
-        if (e && e.kind === 'character' && e.id !== entry.id && !hearers.some((h) => h.id === e.id) && run.ensureHere(e, s)) hearers.push(e)
+        if (e && isPerson(e) && e.id !== entry.id && !hearers.some((h) => h.id === e.id) && stage.some((p) => p.id === e.id) && run.ensureHere(e, s))
+          hearers.push(e)
       }
       // The same line by the same speaker read again (however the model words the fact) is the fact already kept.
       const again = mem
@@ -2031,7 +2059,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       // Everyone on stage at those words heard them too (B5), unless they were whispered or said aside: then only those
       // the model names. Who was there is kept with the fact, so who doesn't know it can be told.
       if (!WHISPERED.test(run.paraText(s)))
-        for (const p of run.stageAt(s)) if (p.id !== entry.id && !hearers.some((h) => h.id === p.id) && hearers.length < MAX_INVOLVED * 2) hearers.push(p)
+        for (const p of stage) if (p.id !== entry.id && !hearers.some((h) => h.id === p.id) && hearers.length < MAX_INVOLVED * 2) hearers.push(p)
       const said = { kind, by: entry.id, words: s.quote.slice(0, MAX_SAID_CHARS), heard: hearers.map((h) => h.id) }
       const there = [entry.id, ...hearers.map((h) => h.id)]
       for (const who of [entry, ...hearers]) addChange(run, who, { kind: 'knowledge', payload: { factId, fact, said, there } }, s)
