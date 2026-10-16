@@ -2,13 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { CRITIQUE_CATEGORIES } from '@shared/contracts/critique'
 import {
   CATEGORY_WORDS,
+  CHANGED_WORDS,
+  STATUS_WORDS,
   askWords,
+  bringBackWords,
   changedWords,
   critiqueHeadline,
+  noteState,
   quoted,
+  readingNote,
   readingWords,
   rewriteDirection,
-  shortenedWords
+  shortenedWords,
+  wantsWords
 } from './critiqueLogic'
 
 describe('the Critique tab’s words', () => {
@@ -50,5 +56,29 @@ describe('the Critique tab’s words', () => {
   it('puts the words in quotation marks unless they bring their own', () => {
     expect(quoted('She left.')).toBe('“She left.”')
     expect(quoted('“Go,” he said.')).toBe('“Go,” he said.')
+  })
+
+  it('says how many notes Adam has dealt with, and how each stands', () => {
+    expect(critiqueHeadline({ at, notes: [{ status: 'done' }, {}, { status: 'dismissed' }] as never }, now)).toBe(
+      'Critiqued 5 minutes ago · 3 notes, 2 dealt with'
+    )
+    expect(noteState({ id: 'n1' }, [])).toBe('open')
+    expect(noteState({ id: 'n1' }, ['n1'])).toBe('changed')
+    expect(noteState({ id: 'n1', status: 'done' }, ['n1'])).toBe('done')
+    expect(STATUS_WORDS).toEqual({ done: 'Done', dismissed: 'Not needed', unwanted: 'Not for this story' })
+    expect(CHANGED_WORDS).toBe('These words have changed')
+    expect(bringBackWords('done')).toBe('Not done yet')
+    expect(bringBackWords('unwanted')).toBe('Bring back')
+  })
+
+  it('says when the chapter writer read it, and how many notes from last time are settled', () => {
+    expect(readingNote({})).toBe('')
+    expect(readingNote({ by: 'chapter-writer', reread: true })).toBe('Re-read after the chapter writer’s changes.')
+    expect(readingNote({ by: 'chapter-writer' })).toBe('Read during the chapter writer’s run.')
+    expect(readingNote({ reread: true, settledSince: 1 })).toBe('Since last time, 1 note is settled.')
+    expect(readingNote({ reread: true, settledSince: 3 })).toBe('Since last time, 3 notes are settled.')
+    expect(readingNote({ reread: true })).toBe('')
+    expect(wantsWords(1)).toBe('You told the critic 1 kind of note isn’t for this story.')
+    expect(wantsWords(2)).toBe('You told the critic 2 kinds of note aren’t for this story.')
   })
 })

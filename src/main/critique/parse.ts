@@ -4,17 +4,20 @@
 // marks, dashes, capitals or spacing), and what is kept is the scene's own words, with which scene and which of their
 // appearances. A quote that isn't in the text is taken off its note, which still shows, about the whole. Pure.
 
-import type { Critique, CritiqueCategory, CritiqueNote, CritiqueScope, CritiqueWeight } from '@shared/contracts/critique'
+import type { Critique, CritiqueCategory, CritiqueScope, CritiqueWeight } from '@shared/contracts/critique'
 import { CRITIQUE_CATEGORIES } from '@shared/contracts/critique'
 import type { ID } from '@shared/types'
 import { parseLenient, str } from '../keeper/json'
 import { findSceneQuote, occurrenceAt, plainQuote } from '../checks/quote'
+import { earlierIndex, type ReadNote } from './memory'
 import { MAX_NOTES, MAX_STRENGTHS } from './prompts'
 
 export interface RawCritique {
   summary: string
   strengths: string[]
   notes: Record<string, unknown>[]
+  /** On a re-read: the notes last time it says are settled, as it named them ("P1"). */
+  settled: unknown[]
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -32,7 +35,8 @@ export function readCritiqueReply(reply: string): { ok: true; value: RawCritique
     .map((s) => str(s, 300))
     .filter(Boolean)
   if (!summary && !notes.length) return { ok: false, why: 'it had no "summary" and no "notes"' }
-  return { ok: true, value: { summary, strengths, notes: notes.filter(isObj) } }
+  const settled = Array.isArray(v.settled) ? v.settled : typeof v.settled === 'string' || typeof v.settled === 'number' ? [v.settled] : []
+  return { ok: true, value: { summary, strengths, notes: notes.filter(isObj), settled } }
 }
 
 /** The words models use for each category, made plain (lower case, letters only). */
@@ -90,11 +94,12 @@ export function anchorQuote(texts: CritiqueText[], quote: unknown): { sceneId: I
 /**
  * The critique's notes from the reply's: each with a title or a suggestion, its quote anchored in the text (or taken
  * off), the same note twice kept once, at most eight, the ones that matter most first (otherwise as the model put
- * them).
+ * them). On a re-read with `earlierCount` notes last time, a note that says it gives one of them again ("earlier":
+ * "P2") carries which (`earlierRef`, for memory.ts guardNotes).
  */
-export function critiqueNotes(raw: Record<string, unknown>[], texts: CritiqueText[]): CritiqueNote[] {
+export function critiqueNotes(raw: Record<string, unknown>[], texts: CritiqueText[], earlierCount = 0): ReadNote[] {
   const seen = new Set<string>()
-  const notes: Omit<CritiqueNote, 'id'>[] = []
+  const notes: Omit<ReadNote, 'id'>[] = []
   for (const n of raw) {
     const title = str(n.title ?? n.name, 120)
     const suggestion = str(n.suggestion ?? n.fix ?? n.advice ?? n.note, 900)
@@ -103,6 +108,7 @@ export function critiqueNotes(raw: Record<string, unknown>[], texts: CritiqueTex
     const key = `${title.toLowerCase()}|${at ? plainQuote(at.quote) : ''}`
     if (seen.has(key)) continue
     seen.add(key)
+    const earlierRef = earlierCount ? earlierIndex(n.earlier ?? n.repeats ?? n.previous, earlierCount) : null
     notes.push({
       category: categoryOf(n.category),
       title: title || suggestion.split(/(?<=[.!?])\s/)[0].slice(0, 120),
@@ -110,7 +116,8 @@ export function critiqueNotes(raw: Record<string, unknown>[], texts: CritiqueTex
       quote: at?.quote ?? '',
       sceneId: at?.sceneId ?? null,
       occurrence: at?.occurrence ?? 0,
-      suggestion
+      suggestion,
+      ...(earlierRef != null ? { earlierRef } : {})
     })
   }
   return notes
@@ -120,17 +127,22 @@ export function critiqueNotes(raw: Record<string, unknown>[], texts: CritiqueTex
     .map(({ n }, i) => ({ id: `n${i + 1}`, ...n }))
 }
 
-/** The critique from a readable reply (the caller adds when, the fingerprint and the record). */
+/**
+ * The critique from a readable reply (the caller adds when, the fingerprint and the record, and keeps the notes to what
+ * Adam said: memory.ts guardNotes). On a re-read with `earlierCount` notes last time, which of them it says are settled.
+ */
 export function critiqueFrom(
   raw: RawCritique,
   texts: CritiqueText[],
-  target: { scope: CritiqueScope; id: ID }
-): Pick<Critique, 'scope' | 'targetId' | 'summary' | 'strengths' | 'notes'> {
+  target: { scope: CritiqueScope; id: ID },
+  earlierCount = 0
+): Pick<Critique, 'scope' | 'targetId' | 'summary' | 'strengths'> & { notes: ReadNote[]; settled: number[] } {
   return {
     scope: target.scope,
     targetId: target.id,
     summary: raw.summary,
     strengths: [...new Set(raw.strengths)].slice(0, MAX_STRENGTHS),
-    notes: critiqueNotes(raw.notes, texts)
+    notes: critiqueNotes(raw.notes, texts, earlierCount),
+    settled: [...new Set((raw.settled ?? []).map((v) => earlierIndex(v, earlierCount)).filter((i): i is number => i != null))]
   }
 }

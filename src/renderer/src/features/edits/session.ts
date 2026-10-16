@@ -120,10 +120,14 @@ let hooks: { focusPicker(): void; reveal(): void } | null = null
 /** The "Change rejected" message with its Undo, while it shows: it goes once the change is back or another starts. */
 let rejectedToast: number | null = null
 /**
- * What to do once a change is accepted, by its id (milestone 5: the issue it fixes is marked fixed; a polished draft's
- * words are checked), told where the new words are in the page.
+ * What to do once a change is accepted, told where the new words are in the page and the record of the AI's words (null
+ * for a ready-made change with none): Fix the text's issue marked fixed once checked, a polished draft's words checked,
+ * a critic's note marked done.
  */
-const onAccepted = new Map<ID, (words: { from: number; to: number }) => void>()
+export type OnAccepted = (words: { from: number; to: number }, recordId: ID | null) => void
+
+/** What to do once a change is accepted, by its id (OnAccepted). */
+const onAccepted = new Map<ID, OnAccepted>()
 /** History's label for the snapshot taken before a ready-made change goes in, by its id ("Before the polish pass"). */
 const snapshotLabels = new Map<ID, string>()
 /**
@@ -515,7 +519,7 @@ function continueFrom(state: EditorState): number {
  */
 export async function startTool(
   tool: EditTool,
-  o: { direction?: string; range?: Target; at?: number; onAccepted?: (words: { from: number; to: number }) => void; mustChange?: MustChange } = {}
+  o: { direction?: string; range?: Target; at?: number; onAccepted?: OnAccepted; mustChange?: MustChange } = {}
 ): Promise<boolean> {
   if (live?.away && !(await noneAway())) return false
   const v = view()
@@ -676,7 +680,7 @@ export async function accept(id?: ID): Promise<void> {
   const then = onAccepted.get(s.id)
   onAccepted.delete(s.id)
   snapshotLabels.delete(s.id)
-  then?.(words)
+  then?.(words, now.generationId ?? null)
   // Check and repair: Continue's words are checked claim by claim as they go in, slips mended in amber (features/repair).
   if (now.tool === 'continue' && now.generationId) repairLanded({ sceneId: now.sceneId, recordId: now.generationId, ...words })
 }
@@ -698,7 +702,7 @@ export function showReplacement(o: {
   to: number
   text: string
   note?: string | null
-  onAccepted?: (words: { from: number; to: number }) => void
+  onAccepted?: OnAccepted
   label?: string
   snapshot?: string
   generationId?: ID | null

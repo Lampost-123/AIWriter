@@ -32,3 +32,13 @@
   font-size: 13.5px;
   line-height: 19px;
 }
+/*
+  Both looks: a note Adam has dealt with (Done, Not needed, Not for this story), or one whose words have changed since
+  the critique, is dimmed in place (its tag says which), so nothing in the list moves.
+*/
+.crit-note .crit-body {
+  transition: opacity var(--dur-base) var(--motion-glide);
+}
+.crit-note:not([data-state='open']) .crit-body {
+  opacity: 0.55;
+}
