@@ -33,20 +33,20 @@ describe('roll-ups are made from the level below and the story record (long stor
     { label: 'Scene 2', text: 'By the end, Mara has the key.' }
   ]
 
-  it("gives a chapter what the record says changed and how things stand at its end, as facts that win over the summaries", () => {
+  it('gives a chapter what the record says changed in it, as facts that win over the summaries', () => {
     const p = summaryPrompt({
       level: 'chapter',
       where: 'Book 1, Ch 2',
       title: 'The Ferry',
       summaries: list,
-      record: ['When: Day 3, dusk to Day 5 (2 days)', 'Mara: lost her knife (scene 2)'],
-      end: ['Mara: last at the mill (scene 2); has the brass key']
+      record: ['Mara: lost her knife (scene 2)', 'Plot thread set up: The toll (scene 1)']
     })
-    expect(p).toContain('Begin with how things stand at the end of the chapter')
+    expect(p).toContain('Begin with how things stand at the end of the chapter, which its last scenes and the story record say.')
     expect(p).toContain('The story record below is fact: where a summary says otherwise, follow the record.')
     expect(p).toContain('Point to the scene where each big change happens, as (scene 2).')
-    expect(p).toContain('What the story record says changed in this chapter:\n- When: Day 3, dusk to Day 5 (2 days)\n- Mara: lost her knife (scene 2)')
-    expect(p).toContain('How things stand at the end of the chapter, by the story record:\n- Mara: last at the mill (scene 2); has the brass key')
+    expect(p).toContain('What the story record says changed in this chapter:\n- Mara: lost her knife (scene 2)\n- Plot thread set up: The toll (scene 1)')
+    // How things stand at its end is the snapshot's, shown in the writer's timeline with no AI (review, 2026-10-16).
+    expect(p).not.toContain('How things stand')
     // The summaries come first, right after the ask, and the record after them.
     expect(p.indexOf('Scene 1: By the end')).toBeLessThan(p.indexOf('What the story record says'))
     expect(p.split('\n\n')[1]).toBe('Scene 1: By the end, Mara is at the inn.')

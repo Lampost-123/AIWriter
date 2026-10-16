@@ -102,15 +102,15 @@ You write short summaries of a novel's scenes, chapters and books, for the autho
 
 /**
  * What a summary is asked for. Since long story memory fix 15 a roll-up also gets the story record (keeper/summaries.ts,
- * memory/chapterRecord.ts): `record`, what changed in a chapter, and `end`, how things stand at its end (a chapter's, or
- * the last chapter's for a story or series), as lines; the model is told they are facts. No summary is ever patched:
- * a scene's is written again from its words (the patch World Memory Overhaul A3 added is gone).
+ * memory/chapterRecord.ts), as lines the model is told are facts: a chapter, `record`, what changed in it; a story or
+ * series, `end`, how things stand at the end of its last chapter. No summary is ever patched: a scene's is written again
+ * from its words (the patch World Memory Overhaul A3 added is gone).
  */
 export type SummaryAsk =
   | { level: 'scene'; where: string; title: string; text: string; words: number }
   | { level: 'scene-part'; where: string; title: string; part: number; parts: number; text: string }
   | { level: 'scene-parts'; where: string; title: string; summaries: string[]; words: number }
-  | { level: 'chapter'; where: string; title: string; summaries: { label: string; text: string }[]; record?: string[]; end?: string[] }
+  | { level: 'chapter'; where: string; title: string; summaries: { label: string; text: string }[]; record?: string[] }
   | { level: 'story'; title: string; summaries: { label: string; text: string }[]; end?: string[] }
   | { level: 'series'; name: string; summaries: { label: string; text: string }[]; end?: string[] }
 
@@ -138,8 +138,8 @@ export function summaryPrompt(a: SummaryAsk): string {
     case 'scene-parts':
       return `These summarise the parts of one scene, in order (${a.where}${a.title ? ` "${a.title}"` : ''}). Join them into one summary of the scene ${sceneSummaryLength(a.words)}.\n\n${a.summaries.map((s, i) => `Part ${i + 1}: ${s}`).join('\n\n')}`
     case 'chapter': {
-      const facts = !!(a.record?.length || a.end?.length)
-      return `Summarise this chapter (${a.where}${a.title ? `, "${a.title}"` : ''}) from its scene summaries, in 100 to 250 words. Begin with how things stand at the end of the chapter, which ${facts ? 'the story record and ' : ''}its last scenes say. Point to the scene where each big change happens, as (scene 2).${facts ? ` ${RECORD_RULE}` : ''}\n\n${list(a.summaries)}${recordBlock('What the story record says changed in this chapter:', a.record)}${recordBlock('How things stand at the end of the chapter, by the story record:', a.end)}`
+      const facts = !!a.record?.length
+      return `Summarise this chapter (${a.where}${a.title ? `, "${a.title}"` : ''}) from its scene summaries, in 100 to 250 words. Begin with how things stand at the end of the chapter, which its last scenes${facts ? ' and the story record' : ''} say. Point to the scene where each big change happens, as (scene 2).${facts ? ` ${RECORD_RULE}` : ''}\n\n${list(a.summaries)}${recordBlock('What the story record says changed in this chapter:', a.record)}`
     }
     case 'story':
       return `Summarise the story "${a.title}" from its chapter summaries, in one paragraph of 150 to 300 words. Begin with how things stand at the end of it.${a.end?.length ? ` ${RECORD_RULE}` : ''}\n\n${list(a.summaries)}${recordBlock('How things stand at the end, by the story record:', a.end)}`

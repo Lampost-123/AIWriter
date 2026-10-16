@@ -69,7 +69,9 @@ export function chapterSnapshot(db: DB, chapterId: ID, read: RecordRead): Chapte
     const t = state.threads.find((x) => x.entryId === c.entryId)
     return c.kind === 'thread' && t && byLabel.get(clean(t.setUp)) === sceneId ? 'set up' : 'moved on'
   }
-  for (const s of scenes) {
+  // Only scenes with words: a change pinned to a scene still to be written is what that scene should bring about, not
+  // something that has happened (review, 2026-10-16).
+  for (const s of written) {
     const sc = scNo.get(s.id) ?? 0
     for (const c of changes.byScene.get(s.id) ?? []) {
       if (isKind(c.entryId, 'thread') && (c.kind === 'thread' || c.kind === 'update')) {
@@ -89,8 +91,9 @@ export function chapterSnapshot(db: DB, chapterId: ID, read: RecordRead): Chapte
 
   // Who learned what here, still known (or believed) at its end: grouped by fact, scene and how.
   const learned: ChapterSnapshot['learned'] = []
+  const hasWords = new Set(written.map((s) => s.id))
   const add = (who: ID, fact: string, sceneId: ID | undefined, how: KnowHow | 'said' | undefined, from: ID | undefined, wrong: boolean): void => {
-    if (!sceneId || !scNo.has(sceneId) || how === 'said' || !isKind(who, 'character') || !clean(fact)) return
+    if (!sceneId || !hasWords.has(sceneId) || how === 'said' || !isKind(who, 'character') || !clean(fact)) return
     const sc = scNo.get(sceneId)!
     const same = learned.find((l) => l.fact === clip(fact) && l.sc === sc && l.how === how && l.from === from && !!l.wrong === wrong)
     if (same) {

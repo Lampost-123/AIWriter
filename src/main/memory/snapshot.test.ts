@@ -51,9 +51,8 @@ const snapshot = (over: Partial<ChapterSnapshot> = {}): ChapterSnapshot => ({
 })
 
 describe('what changed in a chapter, from the record', () => {
-  it('says when it runs, each change with its scene, who learned what and how, and the plot threads', () => {
+  it('says each change with its scene, who learned what and how, and the plot threads; not when it runs', () => {
     expect(changedLines(snapshot(), nameOf)).toEqual([
-      'When: Day 3, dusk to Day 5, morning (2 days)',
       'Mara: lost her knife in the river (scene 1)',
       'Edric: died in his chair (scene 3)',
       'Mara and Tobin: rivals (scene 2)',
@@ -98,6 +97,8 @@ describe('an older chapter’s line in the writer’s timeline', () => {
 describe('what a summary is tied to', () => {
   it('a chapter’s own part changes with what changed in it, not with how things stand at its end; the end part the other way', () => {
     const a = snapshot()
+    // Nor with the days it runs: an early When edit re-dates every later chapter, for the timeline only (review).
+    expect(localPart(snapshot({ span: 'Day 9 to Day 11 (2 days)', days: 'Day 9 to Day 11' }))).toBe(localPart(a))
     const moved = snapshot({ people: [{ who: 'mara', at: 'mill', atSc: 2 }] })
     expect(localPart(moved)).toBe(localPart(a))
     expect(endPart(moved)).not.toBe(endPart(a))

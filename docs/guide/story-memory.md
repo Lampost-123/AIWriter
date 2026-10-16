@@ -91,10 +91,11 @@ You can edit any summary.
 
 Summaries are only signposts: the facts come from the story memory itself. A chapter's summary is written from its
 scenes' summaries together with what the memory recorded in that chapter (who was hurt or died, who learned what, which
-plot threads were set up or paid off, how many days passed) and how everyone stood at its end, and the story's summary
-the same way from its chapters. When you change a scene, its summary is written again from the scene itself, never
+plot threads were set up or paid off), and the story's summary from its chapters' summaries and how everyone stood at
+the end. When you change a scene, or the memory by hand, its summary is written again from the scene itself, never
 patched, and only the summaries that rest on it are redone. Until then, the note under each one says **Being brought
-up to date**.
+up to date**. For each older chapter the AI also sees the days it covers and a few key facts (who learned what, which
+plot threads were paid off), straight from the memory.
 
 ## Live checks as you type
 

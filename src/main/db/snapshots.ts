@@ -90,7 +90,8 @@ export function sceneStamps(db: DB, sceneIds: ID[]): Map<ID, string> {
 /**
  * What every snapshot of a story also rests on: the changes pinned anywhere but its own scenes (the starting setup,
  * story starts, and the scenes of other stories, such as the books before it), as a count, the latest time one changed,
- * and how many are deleted. One query.
+ * and how many are deleted; and every entry's kind and whether it is deleted (a character made an item, or deleted,
+ * changes who is in a snapshot; a rename changes nothing, as names are read when a snapshot is said). Two queries.
  */
 export function outsideStamp(db: DB, sceneIds: ID[]): string {
   const r = db
@@ -99,5 +100,10 @@ export function outsideStamp(db: DB, sceneIds: ID[]): string {
        WHERE scene_id IS NULL OR scene_id NOT IN (SELECT value FROM json_each(?))`
     )
     .get(JSON.stringify(sceneIds)) as Row
-  return `${r.n as number}:${(r.u as string) ?? ''}:${r.d as number}`
+  const e = db
+    .prepare(
+      `SELECT group_concat(id || ':' || kind || ':' || (deleted_at IS NOT NULL), ',') AS k FROM (SELECT id, kind, deleted_at FROM entries ORDER BY id)`
+    )
+    .get() as Row
+  return `${r.n as number}:${(r.u as string) ?? ''}:${r.d as number}|${(e.k as string) ?? ''}`
 }

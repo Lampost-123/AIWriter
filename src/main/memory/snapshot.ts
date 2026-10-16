@@ -24,7 +24,11 @@ export interface ChapterSnapshot {
   storyId: ID
   /** The chapter's last scene with words: how things stand is as of its end. */
   sceneId: ID
-  /** When the chapter runs on the story calendar ("Day 3, dusk to Day 5, morning (2 days)"); '' when the cards don't say. */
+  /**
+   * When the chapter runs on the story calendar ("Day 3, dusk to Day 5, morning (2 days)"); '' when the cards don't say.
+   * Kept for the record, but never told to a roll-up nor part of what a chapter summary is tied to (review, 2026-10-16):
+   * an early When edit re-dates every later chapter, and that should cost no AI calls. The timeline shows `days`.
+   */
   span: string
   /** The same, by day only ("Day 3 to Day 5"), for the writer's timeline. */
   days: string
@@ -83,10 +87,12 @@ function learnedLine(l: ChapterSnapshot['learned'][number], nameOf: NameOf): str
   return `${who} ${l.wrong ? 'came to believe wrongly' : 'learned'}: ${l.fact} (${how ? `${how}, ` : ''}scene ${l.sc})`
 }
 
-/** What changed in the chapter, from the record, as lines (no "- "): when it runs, then each change, what was learned, threads. */
+/**
+ * What changed in the chapter, from the record, as lines (no "- "): each change, what was learned, threads. Not when it
+ * runs (the calendar is the timeline's, with no AI: see `span`).
+ */
 export function changedLines(s: ChapterSnapshot, nameOf: NameOf): string[] {
   const out: string[] = []
-  if (s.span) out.push(`When: ${s.span}`)
   for (const c of s.changed) {
     const who = clean(nameOf(c.who))
     if (!who) continue
@@ -149,7 +155,10 @@ export function timelineFacts(s: ChapterSnapshot, nameOf: NameOf, most = 2): str
   return out.slice(0, most)
 }
 
-/** The chapter's own record (what changed in it), for telling whether its summary is still made from what is true. */
-export const localPart = (s: ChapterSnapshot | null): string => (s ? JSON.stringify([s.span, s.changed, s.learned, s.threads]) : '')
+/**
+ * The chapter's own record (what changed in it), for telling whether its summary is still made from what is true. Not
+ * the days it runs: a When edit early on re-dates every later chapter, and that is the timeline's to show, with no AI.
+ */
+export const localPart = (s: ChapterSnapshot | null): string => (s ? JSON.stringify([s.changed, s.learned, s.threads]) : '')
 /** How things stand at its end, for the story's roll-up and for whether the next chapter's snapshot is still true. */
 export const endPart = (s: ChapterSnapshot | null): string => (s ? JSON.stringify([s.people, s.open]) : '')

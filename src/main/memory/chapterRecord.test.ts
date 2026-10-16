@@ -19,7 +19,6 @@ describe('a chapter’s snapshot, from the record', () => {
     expect(s).toMatchObject({ chapterId: w.chapters[1], storyId: w.storyId, sceneId: w.scenes[1][2], span: 'Day 3, dusk to Day 5, morning (2 days)', days: 'Day 3 to Day 5' })
     const names = entryNames(w.db)
     expect(changedLines(s, names)).toEqual([
-      'When: Day 3, dusk to Day 5, morning (2 days)',
       'Mara: lost her left hand (scene 1)',
       'Mara and Tobin: rival (scene 2)',
       'Edric: died in his chair (scene 3)',
@@ -45,7 +44,8 @@ describe('a chapter’s snapshot, from the record', () => {
     const w = chapterWorld()
     const s = chapterSnapshot(w.db, w.chapters[0], readOf(w.db))!
     const names = entryNames(w.db)
-    expect(changedLines(s, names)).toEqual(['When: Day 1 to Day 2 (1 day)', 'Plot thread set up: The ferryman’s debt (scene 1)'])
+    expect(s.span).toBe('Day 1 to Day 2 (1 day)')
+    expect(changedLines(s, names)).toEqual(['Plot thread set up: The ferryman’s debt (scene 1)'])
     expect(endLines(s, names)).toEqual(['Mara: last at The Mill (scene 2)', 'Tobin: last at The Mill (scene 2)', 'Plot threads still open: The ferryman’s debt'])
   })
 
@@ -53,7 +53,7 @@ describe('a chapter’s snapshot, from the record', () => {
     const w = chapterWorld()
     const s = chapterSnapshot(w.db, w.chapters[2], readOf(w.db))!
     const names = entryNames(w.db)
-    expect(changedLines(s, names)).toEqual(['When: Day 6 to Day 7 (1 day)'])
+    expect(changedLines(s, names)).toEqual([])
     expect(endLines(s, names)).toEqual([
       'Mara: last at The Mill (scene 2); Distinguishing marks: left hand missing; has the brass key',
       'Tobin: last at The Mill (scene 2); wrongly believes: Ash sent the letter',
@@ -90,6 +90,18 @@ describe('a chapter’s snapshot, from the record', () => {
     for (const id of w.scenes[1]) setCard(w.db, id, { when: '' })
     const s = chapterSnapshot(w.db, w.chapters[1], readOf(w.db))!
     expect(s.span).toBe('')
+    expect(s.days).toBe('')
     expect(changedLines(s, entryNames(w.db))[0]).toBe('Mara: lost her left hand (scene 1)')
+  })
+
+  it('leaves out what is pinned to a scene with no words yet: what it should bring about hasn’t happened (review)', () => {
+    const w = chapterWorld()
+    const planned = repo.createScene(w.db, w.chapters[1], { afterId: w.scenes[1][0] }).id
+    change(w.db, w.ids.edric, planned, { kind: 'update', payload: { note: 'rode for the coast' } })
+    change(w.db, w.ids.letter, planned, { kind: 'thread', payload: { status: 'resolved', note: 'The letter was from Ash' } })
+    change(w.db, w.ids.mara, planned, { kind: 'knowledge', payload: { factId: 'coast', fact: 'Edric rode for the coast', how: 'saw' } })
+    const lines = changedLines(chapterSnapshot(w.db, w.chapters[1], readOf(w.db))!, entryNames(w.db))
+    expect(lines.join('\n')).not.toMatch(/rode for the coast|paid off: Who sent|Edric rode/)
+    expect(lines).toContain('Plot thread set up: Who sent the letter? (scene 1)')
   })
 })

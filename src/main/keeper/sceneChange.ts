@@ -158,9 +158,9 @@ export function memoryNames(db: DB): string[] {
 }
 
 /**
- * True when a scene's summary should be written again (Adam's own never is). `done`: Adam marked the scene done, so any
- * change counts. Otherwise: its words changed since and the summary was marked stale (a fact's words were edited or
- * deleted), or about forty words changed, or a changed paragraph names someone or something in the memory: one it didn't
+ * True when a scene's summary should be written again (Adam's own never is). Marked stale (a fact's words were edited or
+ * deleted, or a write is still to come): always. `done`: Adam marked the scene done, so any change counts. Otherwise: its
+ * words changed since and about forty words changed, or a changed paragraph names someone or something in the memory: one it didn't
  * name before, or with eight or more of its words changed (a typo fix or a word or two never counts). Reads only.
  */
 export function summaryDue(db: DB, sceneId: ID, done: boolean, names?: string[]): boolean {
@@ -170,8 +170,11 @@ export function summaryDue(db: DB, sceneId: ID, done: boolean, names?: string[])
   if (row?.origin === 'adam') return false
   if (countWords(scene.text) < MIN_SUMMARY_WORDS) return false
   if (!row) return true
+  // Marked out of date (a fact's words edited, or a write still to come: long story memory fix 15): due whatever its
+  // words, so the mark is always cleared by a summary written again (review, 2026-10-16).
+  if (row.stale) return true
   if (sameSource(row.sourceHash, `${hashText(scene.text)}|`)) return false
-  if (done || row.stale) return true
+  if (done) return true
   const c = changeSince(row.sourceHash, scene.text, scene.doc)
   if (c.changedWords >= DUE_WORDS) return true
   if (!c.known) return false

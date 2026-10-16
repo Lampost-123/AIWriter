@@ -16,6 +16,7 @@ import { getProvider, providerTarget } from '../ai/providers'
 import { isLocalUrl, providerWho } from '../ai/errors'
 import { setBeforeDraft, setStandAt } from '../ai/gather'
 import { emit } from '../events'
+import * as kdb from '../db/keeper'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
 import type { MemoryModel } from './model'
 import { fieldsClearedByHand, removeScenes, restoreScenes, type ScenesOutcome } from './removed'
@@ -90,9 +91,10 @@ export function initKeeper(): void {
   // Before a draft (and Continue), the memory catches up with earlier scenes on the line and reads the scene's own
   // unread words (waiting a few seconds at most), and then where things stand as the previous scene ends is brought up
   // to date (continuity/tracker.ts).
-  setBeforeDraft(async (db, sceneId) => {
+  setBeforeDraft(async (db, sceneId, limitMs) => {
     if (!keeper || keeper.db !== db) return
-    await keeper.beforeDraft(sceneId)
+    // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review).
+    await keeper.beforeDraft(sceneId, undefined, limitMs)
     await continuityBefore(db, sceneId)
   })
   // Add below, a later beat and Continue carry on from the scene so far: where things stand at its end.
@@ -186,6 +188,28 @@ export function sceneSaved<T>(sceneId: ID, result: T): T {
     console.warn('The memory keeper missed a save', e)
   }
   return result
+}
+
+/**
+ * Adam changed the story record by hand (long story memory fix 15 review): a change on an entry page, an undo or answer in
+ * What changed, Keep or Remove in Worth a look, a scene card, a scene moved or deleted, an entry, where a story sits. The
+ * end-of-chapter snapshots and roll-ups resting on it are brought up to date while the keeper is idle, as after a read:
+ * of the stories of `at`'s scenes and stories, or of every story when none can be told. Never stops the edit.
+ */
+export function recordEdited(db: Database.Database, at: { sceneIds?: (ID | null | undefined)[]; storyIds?: (ID | null | undefined)[] } = {}): void {
+  try {
+    const k = currentKeeper()
+    if (!k || k.db !== db) return
+    const stories = new Set<ID>()
+    for (const id of at.storyIds ?? []) if (id) stories.add(id)
+    for (const id of at.sceneIds ?? []) {
+      const story = id ? kdb.anyKeeperScene(db, id)?.storyId : null
+      if (story) stories.add(story)
+    }
+    k.recordEdited(stories.size ? [...stories] : undefined)
+  } catch (e) {
+    console.warn('The memory keeper missed an edit to the record', e)
+  }
 }
 
 /** After a version of a scene is restored (its text replaced): the memory reads it now. */

@@ -11,7 +11,7 @@ import { fakeModel, textOf } from '../../../tests/unit/keeperRead'
 import * as mem from '../db/memory'
 import * as kdb from '../db/keeper'
 import { SUMMARY_MARKER } from './prompts'
-import { markOutOfDate, nextRollUp, writeRollUp, type RollUp, type SummaryOptions } from './summaries'
+import { markOutOfDate, nextRollUp, suppressSummary, writeRollUp, type RollUp, type SummaryOptions } from './summaries'
 import { refreshSnapshots } from './snapshots'
 import { hashText } from './text'
 import { undoItem } from './undo'
@@ -68,7 +68,7 @@ async function rollAll(w: ChapterWorld, sent: string[] = []): Promise<RollUp[]> 
 const stale = (db: DB, level: 'chapter' | 'story' | 'series', id: ID): boolean | undefined => kdb.summaryRow(db, level, id)?.stale
 
 describe('a chapter summary is made from its scenes’ summaries and the story record', () => {
-  it('is asked with what the record says changed in it and how things stand at its end, and tied to its scenes', () => {
+  it('is asked with what the record says changed in it (not how things stand at its end, nor when), and tied to its scenes', () => {
     const w = summarised()
     const r = nextRollUp(w.db, [w.storyId], label, fakeModel(fake))!
     expect(r).toMatchObject({ level: 'chapter', targetId: w.chapters[0], sceneId: w.scenes[0][1] })
@@ -77,9 +77,9 @@ describe('a chapter summary is made from its scenes’ summaries and the story r
     expect(r.sourceHash).toContain(`${w.scenes[0][1]}~`)
     expect(r.ask).toMatchObject({
       level: 'chapter',
-      record: ['When: Day 1 to Day 2 (1 day)', 'Plot thread set up: The ferryman’s debt (scene 1)'],
-      end: ['Mara: last at The Mill (scene 2)', 'Tobin: last at The Mill (scene 2)', 'Plot threads still open: The ferryman’s debt']
+      record: ['Plot thread set up: The ferryman’s debt (scene 1)']
     })
+    expect(r.ask).not.toHaveProperty('end')
   })
 
   it('writes every roll-up from the level below and the record, never from an older summary of itself', async () => {
@@ -90,7 +90,8 @@ describe('a chapter summary is made from its scenes’ summaries and the story r
     const [, ch2, , story, series] = sent
     expect(ch2).toContain('- Edric: died in his chair (scene 3)')
     expect(ch2).toContain('- Ash and Tobin learned: Mara is the heir (saw it, scene 3)')
-    expect(ch2).toContain('How things stand at the end of the chapter, by the story record:\n- Mara: last at The Quay (scene 3); Distinguishing marks: left hand missing; has the brass key')
+    expect(ch2).not.toContain('How things stand')
+    expect(ch2).not.toContain('When:')
     expect(story).toContain("Chapter 2: This part of the story begins: Scene 1: By the end, chapter 2 scene 1 is over.")
     expect(story).toContain('How things stand at the end, by the story record:\n- Mara: last at The Mill (scene 2); Distinguishing marks: left hand missing; has the brass key')
     expect(series).toContain('How things stand at the end of the last book, by the story record:')
@@ -160,6 +161,34 @@ describe('only what rests on a change is out of date', () => {
     const sent: string[] = []
     await rollAll(w, sent)
     expect(sent[0]).toContain('- Ash: broke the ferry chain (scene 1)')
+  })
+
+  it('a roll-up Adam undid before this version (no source kept, its summaries’ hash suppressed) isn’t written again (review)', () => {
+    const w = summarised()
+    const texts = w.scenes[0].map((id) => kdb.summaryRow(w.db, 'scene', id)!.text)
+    // As an undo left it then: the older summary back with no source, and the undone one's summaries' hash suppressed.
+    mem.putSummary(w.db, { level: 'chapter', targetId: w.chapters[0], text: 'Chapter 1, in Adam’s chosen words.', origin: 'text' })
+    suppressSummary(w.db, 'chapter', w.chapters[0], hashText(texts.join('\n')))
+    expect(nextRollUp(w.db, [w.storyId], label, fakeModel(fake))!.targetId).not.toBe(w.chapters[0])
+    markOutOfDate(w.db, w.storyId)
+    expect(stale(w.db, 'chapter', w.chapters[0])).toBe(false)
+    // Once its summaries change, it is written again.
+    mem.putSummary(w.db, { level: 'scene', targetId: w.scenes[0][0], text: 'By the end, the ferry is gone.', origin: 'text' })
+    expect(nextRollUp(w.db, [w.storyId], label, fakeModel(fake))!.targetId).toBe(w.chapters[0])
+  })
+
+  it('a roll-up given up after failing isn’t marked, and one waiting to be tried again is skipped until then', async () => {
+    const w = summarised()
+    await rollAll(w)
+    mem.putSummary(w.db, { level: 'scene', targetId: w.scenes[1][0], text: 'By the end, the weir is broken.', origin: 'text' })
+    const r = nextRollUp(w.db, [w.storyId], label, fakeModel(fake))!
+    expect(r.targetId).toBe(w.chapters[1])
+    const key = `${r.level}:${r.targetId}:${r.sourceHash}`
+    expect(nextRollUp(w.db, [w.storyId], label, fakeModel(fake), (k) => k === key)?.targetId).not.toBe(w.chapters[1])
+    markOutOfDate(w.db, w.storyId)
+    expect(stale(w.db, 'chapter', w.chapters[1])).toBe(true)
+    markOutOfDate(w.db, w.storyId, (k) => k === key)
+    expect(stale(w.db, 'chapter', w.chapters[1])).toBe(false)
   })
 
   it('a roll-up Adam undid isn’t marked, as it won’t be written again until what it is made from changes', async () => {

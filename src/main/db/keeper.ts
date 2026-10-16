@@ -645,6 +645,18 @@ export function markTextSummaryStale(db: DB, level: SummaryLevel, targetId: ID):
 }
 
 /**
+ * Live scenes whose summary the keeper wrote is marked out of date, in reading order (long story memory fix 15: queued
+ * when a world opens, so no mark is left with nothing to clear it). One query.
+ */
+export function staleSceneSummaries(db: DB): ID[] {
+  return (
+    db
+      .prepare(`${LIVE_IDS} AND s.id IN (SELECT target_id FROM summaries WHERE level = 'scene' AND stale = 1 AND origin <> 'adam') ${READING_ORDER}`)
+      .all() as Row[]
+  ).map((r) => r.id as string)
+}
+
+/**
  * Marks a summary the keeper wrote as out of date, or as up to date again, without rewriting it (long story memory fix 15:
  * a roll-up whose sources changed is out of date until it is written again). Adam's own are left alone.
  */

@@ -5,8 +5,8 @@
 // in What changed with Undo. No Electron imports.
 // Since 2026-10-16 (long story memory fix 15) no summary is built on an older version of itself: a scene's is written
 // again from its words whenever it is due (never patched), and a roll-up is made from the level below plus the story
-// record (memory/chapterRecord.ts: what changed in the chapter, and how things stand at its end), which the model is
-// told to follow where a summary says otherwise. Each summary is tied to what it was made from (`sourceHash`: the
+// record (memory/chapterRecord.ts: what changed in a chapter for a chapter; how things stand at the end of the last
+// chapter for a story or series), which the model is told to follow where a summary says otherwise. Each summary is tied to what it was made from (`sourceHash`: the
 // scenes, chapters or books by id with the revision of their summaries, and the record's part), so a change to one
 // scene makes only what rests on it out of date; markOutOfDate marks those, so the screen can say so.
 
@@ -70,11 +70,17 @@ export function sceneSummaryDue(db: DB, sceneId: ID, done: boolean): boolean {
   const words = countWords(scene.text)
   const row = kdb.summaryRow(db, 'scene', sceneId)
   if (row?.origin === 'adam') return false
-  if (words < MIN_WORDS) {
-    if (words === 0 && row) kdb.deleteTextSummary(db, 'scene', sceneId)
+  // Not needed (too short to sum up, or Adam undid the one made from these words): a mark that it is being brought up
+  // to date goes, as nothing will (long story memory fix 15, review).
+  const notNeeded = (): false => {
+    if (row?.stale) kdb.setTextSummaryStale(db, 'scene', sceneId, false)
     return false
   }
-  if (suppressed(db, 'scene', sceneId, sceneSourceHash(scene.text, scene.doc))) return false
+  if (words < MIN_WORDS) {
+    if (words === 0 && row) kdb.deleteTextSummary(db, 'scene', sceneId)
+    return notNeeded()
+  }
+  if (suppressed(db, 'scene', sceneId, sceneSourceHash(scene.text, scene.doc))) return notNeeded()
   return summaryDue(db, sceneId, done)
 }
 
@@ -447,9 +453,18 @@ function seriesSources(db: DB, seriesId: ID, stories: ReturnType<typeof repo.lis
   return { ...sourcesOf('series', seriesId, parts, end), lastStoryId }
 }
 
-/** True when a summary is made from what its sources are now (or Adam undid the one made from them). */
+/**
+ * True when a summary is made from what its sources are now, or Adam undid the one made from them: since fix 15 (by its
+ * tag), or before it (by its summaries alone: an undo then left the summary with no source and a suppression of that
+ * hash, review 2026-10-16), so a roll-up he undid isn't written again when a world first opens with this version.
+ */
 function upToDate(db: DB, s: Pick<Sources, 'level' | 'targetId' | 'tag' | 'legacy'>, row: { sourceHash: string }): boolean {
-  return row.sourceHash === s.tag || (!row.sourceHash.includes('|') && row.sourceHash === s.legacy) || suppressed(db, s.level, s.targetId, s.tag)
+  return (
+    row.sourceHash === s.tag ||
+    (!row.sourceHash.includes('|') && row.sourceHash === s.legacy) ||
+    suppressed(db, s.level, s.targetId, s.tag) ||
+    suppressed(db, s.level, s.targetId, s.legacy)
+  )
 }
 
 const changedSince = (db: DB, s: Sources, skip: (key: string) => boolean): boolean => {
@@ -462,12 +477,16 @@ const changedSince = (db: DB, s: Sources, skip: (key: string) => boolean): boole
 /** The key a roll-up attempt is remembered by (so one that failed isn't tried again until its sources change). */
 export const rollUpKey = (r: Pick<RollUp, 'level' | 'targetId' | 'sourceHash'>): string => `${r.level}:${r.targetId}:${r.sourceHash}`
 
-/** The record's lines for a roll-up, within its share of the room: what changed (a chapter's), then how things stand. */
+/**
+ * The record's lines for a roll-up, within its share of the room: for a chapter, what changed in it (its summary is tied
+ * to that alone, so how things stand at its end, which an edit in an earlier chapter can change, is left to the snapshot
+ * the timeline shows, with no AI: review, 2026-10-16); for a story or series, how things stand at its end.
+ */
 function recordFor(s: Sources, names: ReturnType<typeof entryNames>, room: number): { record: string[]; end: string[]; tokens: number } {
   if (!s.record) return { record: [], end: [], tokens: 0 }
   const share = Math.floor(room * RECORD_SHARE)
-  const end = fitLines(endLines(s.record, names), Math.floor(share / (s.level === 'chapter' ? 2 : 1)))
-  const record = s.level === 'chapter' ? fitLines(changedLines(s.record, names), share - estimateTokens(end.map((l) => `- ${l}`).join('\n'))) : []
+  const record = s.level === 'chapter' ? fitLines(changedLines(s.record, names), share) : []
+  const end = s.level === 'chapter' ? [] : fitLines(endLines(s.record, names), share)
   return { record, end, tokens: estimateTokens([...record, ...end].map((l) => `- ${l}`).join('\n')) }
 }
 
@@ -501,7 +520,7 @@ export function nextRollUp(
         level: 'chapter',
         targetId: ch.targetId,
         sceneId: ch.lastSceneId,
-        ask: { level: 'chapter', where: label({ storyId, chapterId: ch.targetId }), title: ch.title, ...a },
+        ask: { level: 'chapter', where: label({ storyId, chapterId: ch.targetId }), title: ch.title, summaries: a.summaries, record: a.record },
         sourceHash: ch.tag,
         place: { storyId, chapterId: ch.targetId }
       }
@@ -543,9 +562,10 @@ export function nextRollUp(
  * Marks which of a story's roll-ups (its chapters', its own, and its series') the memory wrote from sources that have
  * changed since, so the screen can say each is being brought up to date, and clears the mark from those made from what
  * is there now. Adam's own are left alone, and so is one Adam undid (it isn't written again until its sources change).
- * Reads only stored summaries and snapshots: no model. True when a mark changed.
+ * `givenUp`: roll-ups the keeper has stopped trying to write this session (by rollUpKey), which aren't marked either, as
+ * nothing would bring them up to date. Reads only stored summaries and snapshots: no model. True when a mark changed.
  */
-export function markOutOfDate(db: DB, storyId: ID): boolean {
+export function markOutOfDate(db: DB, storyId: ID, givenUp: (key: string) => boolean = () => false): boolean {
   if (!db.open) return false
   const stories = repo.listStories(db)
   const story = stories.find((s) => s.id === storyId)
@@ -560,7 +580,7 @@ export function markOutOfDate(db: DB, storyId: ID): boolean {
   for (const s of all) {
     const row = kdb.summaryRow(db, s.level, s.targetId)
     if (!row || row.origin === 'adam' || !row.text.trim()) continue
-    const current = upToDate(db, s, row)
+    const current = upToDate(db, s, row) || givenUp(rollUpKey({ level: s.level, targetId: s.targetId, sourceHash: s.tag }))
     if (current === !row.stale) continue
     kdb.setTextSummaryStale(db, s.level, s.targetId, !current)
     changed = true

@@ -11,7 +11,7 @@ import { userDataDir } from '../paths'
 import { readJson, UserError, writeFileAtomicAsync } from '../util'
 import { resolveFlush } from '../flush'
 import { refreshDefaultExistsPoints } from '../db/memory'
-import { entryEditedByHand, memorySettingsChanged, sceneSaved, scenesDeleted, scenesRestored } from '../keeper'
+import { entryEditedByHand, memorySettingsChanged, recordEdited, sceneSaved, scenesDeleted, scenesRestored } from '../keeper'
 import { sceneTextSaved } from '../history'
 import { sceneSavedForMarks } from '../readAloud'
 import { syncSpelling } from '../spelling'
@@ -124,23 +124,33 @@ export const coreHandlers: Handlers<CoreMethods> = {
   listStories: () => repo.listStories(world.db()),
   createStory: (input) => write(() => repo.createStory(world.db(), input)),
   updateStory: (id, patch) => write(() => repo.updateStory(world.db(), id, patch)),
-  deleteStory: (id) =>
+  deleteStory: (id) => {
     write(() => {
       repo.deleteStory(world.db(), id)
       // The world's first story may have changed: entries that exist from its start follow it.
       refreshDefaultExistsPoints(world.db())
       scenesDeleted(world.db())
-    }),
+    })
+    // The record changed by hand: the end-of-chapter snapshots and roll-ups resting on it catch up (fix 15).
+    recordEdited(world.db())
+  },
 
   getOutline: (storyId) => repo.getOutline(world.db(), storyId),
   createChapter: (storyId, input) => write(() => repo.createChapter(world.db(), storyId, input)),
   updateChapter: (id, patch) => write(() => repo.updateChapter(world.db(), id, patch)),
-  deleteChapter: (id) =>
+  deleteChapter: (id) => {
+    const storyId = repo.getChapter(world.db(), id).storyId
     write(() => {
       repo.deleteChapter(world.db(), id)
       scenesDeleted(world.db())
-    }),
-  moveChapter: (id, index) => write(() => repo.moveChapter(world.db(), id, index)),
+    })
+    recordEdited(world.db(), { storyIds: [storyId] })
+  },
+  moveChapter: (id, index) => {
+    const moved = write(() => repo.moveChapter(world.db(), id, index))
+    recordEdited(world.db(), { storyIds: [repo.getChapter(world.db(), id).storyId] })
+    return moved
+  },
   createScene: (chapterId, input) => write(() => repo.createScene(world.db(), chapterId, input)),
   getScene: (id) => repo.getScene(world.db(), id),
   updateScene: (id, patch) => write(() => repo.updateScene(world.db(), id, patch)),
@@ -151,38 +161,57 @@ export const coreHandlers: Handlers<CoreMethods> = {
     return saved
   },
   // The panel's copy may predate a plot thread link the memory made or took back since: those stay as the memory left them.
-  updateSceneCard: (id, card) =>
-    write(() => {
+  updateSceneCard: (id, card) => {
+    const saved = write(() => {
       const db = world.db()
       return repo.updateSceneCard(db, id, mergeThreadLinks(repo.sceneCards(db, [id]).get(id) ?? null, card))
-    }),
-  deleteScene: (id) =>
+    })
+    // Who is there, where and when feed the end-of-chapter snapshots (fix 15).
+    recordEdited(world.db(), { sceneIds: [id] })
+    return saved
+  },
+  deleteScene: (id) => {
     write(() => {
       repo.deleteScene(world.db(), id)
       scenesDeleted(world.db())
-    }),
-  moveScene: (id, chapterId, index) => write(() => repo.moveScene(world.db(), id, chapterId, index)),
+    })
+    recordEdited(world.db(), { sceneIds: [id] })
+  },
+  moveScene: (id, chapterId, index) => {
+    const from = repo.sceneLocation(world.db(), id).story.id
+    const moved = write(() => repo.moveScene(world.db(), id, chapterId, index))
+    recordEdited(world.db(), { sceneIds: [id], storyIds: [from] })
+    return moved
+  },
 
   listEntries: (kind) => repo.listEntries(world.db(), kind),
   getEntry: (id) => repo.getEntry(world.db(), id),
   createEntry: (kind, input) => write(() => repo.createEntry(world.db(), kind, input)),
-  updateEntry: (id, patch) =>
-    write(() => {
+  updateEntry: (id, patch) => {
+    const entry = write(() => {
       const db = world.db()
       return db.transaction(() => {
         const before = repo.getEntry(db, id)
         return entryEditedByHand(db, before, repo.updateEntry(db, id, patch))
       })()
-    }),
-  deleteEntry: (id) => write(() => repo.deleteEntry(world.db(), id)),
-  restoreDeleted: (kind, id) =>
+    })
+    recordEdited(world.db())
+    return entry
+  },
+  deleteEntry: (id) => {
+    write(() => repo.deleteEntry(world.db(), id))
+    recordEdited(world.db())
+  },
+  restoreDeleted: (kind, id) => {
     write(() => {
       repo.restoreDeleted(world.db(), kind, id)
       if (kind === 'entry') return
       // A story brought back (with a chapter or scene of it, too) may be the world's first story again.
       refreshDefaultExistsPoints(world.db())
       scenesRestored(world.db())
-    }),
+    })
+    recordEdited(world.db())
+  },
   listDeleted: () => repo.listDeleted(world.db()),
 
   // Rewritten every half second or so while Adam types, so it never blocks the app: a file
