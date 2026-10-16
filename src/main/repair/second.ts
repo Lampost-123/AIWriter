@@ -202,6 +202,7 @@ export async function secondOpinion(
     model: o.model,
     targetId: sceneId,
     job: 'memory',
+    task: 'repair',
     messages: req.messages,
     blocks: req.blocks,
     maxTokens: secondTokens(slips.length + missing.length),

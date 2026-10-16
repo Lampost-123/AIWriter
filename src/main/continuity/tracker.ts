@@ -13,6 +13,12 @@
 // - Told to the writer as "Where things stand" (context.ts, block 3b) and to the consistency checks (checks/context).
 // - Piece by piece (step 2b, Adam 2026-10-07): each piece of clothing, each thing in the place (a door barred, a case
 //   on the windowsill), who touches whom and who can see or hear whom, each with its own words (@shared/stageItems).
+// - A scene the memory model turns down (some models won't read explicit scenes; 2026-10-16): the state before it is
+//   carried on through it, marked unchecked, so the scenes after it don't lose what was worn, held or hurt before it;
+//   Recall says so, and Adam can put right what the scene changed. The words it turned down are remembered with the
+//   model, so they aren't sent (and paid for) again before every draft: only once the words change, another memory
+//   model is picked, or Adam asks with Read again. With nothing kept for a scene at all, Recall starts from the state
+//   before it too, so Adam can fill it in by hand.
 // No Electron imports.
 
 import { createHash } from 'node:crypto'
@@ -40,6 +46,7 @@ import * as kdb from '../db/keeper'
 import { calledIn } from '../db/called'
 import { namedInProse } from '@shared/names'
 import { callModel, type MemoryModel } from '../keeper/model'
+import { modelKeyOf } from '../keeper/refusals'
 import { scenesBefore } from '../keeper/places'
 import { estimateTokens } from '../keeper/text'
 
@@ -61,6 +68,10 @@ interface Kept {
   /** As read, before Adam's edits. */
   state: SceneState
   edits?: StateEdits
+  /** Not read from the scene's words: carried on from the scene before (turned down, or started by hand in Recall). */
+  unchecked?: true
+  /** The memory model (its key, refusals.ts) that turned the scene's words down: not asked again with these words. */
+  refusedBy?: string
 }
 
 type Stored = Record<ID, Kept>
@@ -207,12 +218,24 @@ function stands(db: DB, all: Stored, sceneId: ID): boolean {
   return !!all[sceneId] && ok
 }
 
-/** The state kept for a scene's end (with Adam's edits), and whether it still stands. */
-export function storedState(db: DB, sceneId: ID): { state: SceneState; current: boolean; edited: boolean } | null {
+/**
+ * The state kept for a scene's end (with Adam's edits), and whether it still stands. `unchecked`: carried on from the
+ * scene before rather than read from this one's words; `refused`: because the memory model turned the scene down.
+ */
+export function storedState(
+  db: DB,
+  sceneId: ID
+): { state: SceneState; current: boolean; edited: boolean; unchecked: boolean; refused: boolean } | null {
   const all = load(db)
   const kept = all[sceneId]
   if (!kept) return null
-  return { state: withEdits(kept.state, kept.edits), current: stands(db, all, sceneId), edited: !!kept.edits }
+  return {
+    state: withEdits(kept.state, kept.edits),
+    current: stands(db, all, sceneId),
+    edited: !!kept.edits,
+    unchecked: !!kept.unchecked,
+    refused: !!kept.refusedBy
+  }
 }
 
 function save(db: DB, all: Stored): void {
@@ -221,22 +244,29 @@ function save(db: DB, all: Stored): void {
   repo.setMeta(db, META_KEY, JSON.stringify(all))
 }
 
+/** Nothing known yet. */
+const EMPTY: SceneState = { time: '', weather: '', light: '', things: [], characters: [] }
+
 /**
  * Adam changes a scene's state: a value, a piece of clothing or a thing, or a character taken out. Kept until the
- * scene's words change. `change` is given the state as he sees it (with his edits so far).
+ * scene's words change. `change` is given the state as he sees it (with his edits so far). With nothing kept for the
+ * scene (never read, or it couldn't be), his changes start from the state the scene starts from, marked unchecked, so
+ * he can fill it in by hand; the memory still reads the scene when it can. False only when the scene is gone.
  */
 export function editState(db: DB, sceneId: ID, change: (edits: StateEdits, state: SceneState) => void): boolean {
+  const scene = kdb.keeperScene(db, sceneId)
+  if (!scene) return false
   const all = load(db)
-  const k = all[sceneId]
-  if (!k) return false
+  const start = all[sceneId] ? null : startOf(db, all, sceneId)
+  const k = (all[sceneId] ??= { hash: hashOf(scene.text), base: stateHash(start), state: start ?? EMPTY, unchecked: true })
   const edits: StateEdits = k.edits ?? {}
   change(edits, withEdits(k.state, k.edits))
   k.edits = edits
   save(db, all)
-  // When the scene goes on from here, the reading starts from his version.
-  const scene = kdb.keeperScene(db, sceneId)
-  // Only when his version still stands: one laid over an old start would set aside the checkpoints that do.
-  if (scene && stands(db, all, sceneId)) keepPoint(db, sceneId, k.base, scene.text, withEdits(k.state, edits))
+  // When the scene goes on from here, the reading starts from his version. Only when his version still stands (one laid
+  // over an old start would set aside the checkpoints that do), and was read from the scene's words: one carried on
+  // from the scene before would stand in for the reading it is waiting for.
+  if (!k.unchecked && stands(db, all, sceneId)) keepPoint(db, sceneId, k.base, scene.text, withEdits(k.state, edits))
   return true
 }
 
@@ -249,6 +279,10 @@ export interface StateAsk {
    */
   after?: string
 }
+
+/** The memory model turned the words down (keeper/model.ts tells a refusal apart). */
+const REFUSED = 'refused'
+type Reading = SceneState | null | typeof REFUSED
 
 /** What the memory model is asked for one scene, or for the rest of a scene from a checkpoint. */
 export function stateMessages(before: SceneState | null, sceneText: string, cast: string[], ask: StateAsk = {}): ChatMessage[] {
@@ -308,26 +342,34 @@ export interface TrackOptions {
 /**
  * The state at the end of a scene, from its words as they are now: kept, or asked for (building on the state kept
  * for the scene before it on the story's line, and reading on from the scene's last checkpoint that still matches its
- * words). Null when the scene has no words or the model couldn't say.
+ * words). Null when the scene has no words or the model couldn't say. When the model turns the scene down, the state
+ * before it is kept for it, carried on and marked unchecked (and returned), so the scenes after it keep what came
+ * before; it isn't asked again with these words and this model unless `force` (Recall's Read again) says so. A state
+ * carried on for any other reason (started by hand in Recall) is read as soon as the model can.
  */
-export async function stateAfter(o: TrackOptions, sceneId: ID): Promise<SceneState | null> {
+export async function stateAfter(o: TrackOptions, sceneId: ID, force = false): Promise<SceneState | null> {
   const scene = kdb.keeperScene(o.db, sceneId)
   if (!scene || !scene.text.trim()) return null
   const hash = hashOf(scene.text)
+  const model = modelKeyOf(o.model)
   const all = load(o.db)
   const kept = all[sceneId]
-  if (kept && stands(o.db, all, sceneId)) return withEdits(kept.state, kept.edits)
+  if (kept && stands(o.db, all, sceneId) && !(kept.unchecked && (force || kept.refusedBy !== model))) return withEdits(kept.state, kept.edits)
   const before = startOf(o.db, all, sceneId)
-  const state = await readUpTo(o, sceneId, before, scene.text, false)
-  if (!state) return null
+  const read = await readUpTo(o, sceneId, before, scene.text, false, force)
+  if (!read) return null
   const now = load(o.db)
   // Adam's edits stay while the words are the ones he edited against; new words are read afresh (from the checkpoint
   // his edits were laid over, so what he put right carries on). Taken as they are now: he may have changed a value
   // while the model was reading.
   const edits = now[sceneId]?.hash === hash ? now[sceneId].edits : undefined
-  now[sceneId] = { hash, base: stateHash(before), state, ...(edits ? { edits } : {}) }
+  if (read === REFUSED) {
+    // Carried on through the scene: as it was at the latest point read in it, else as it began.
+    const carried = pointFor(o.db, sceneId, stateHash(before), scene.text)?.state ?? before ?? EMPTY
+    now[sceneId] = { hash, base: stateHash(before), state: carried, ...(edits ? { edits } : {}), unchecked: true, refusedBy: model }
+  } else now[sceneId] = { hash, base: stateHash(before), state: read, ...(edits ? { edits } : {}) }
   save(o.db, now)
-  return withEdits(state, now[sceneId].edits)
+  return withEdits(now[sceneId].state, now[sceneId].edits)
 }
 
 /** The most characters in the cast list the memory model is given. */
@@ -363,14 +405,15 @@ export function castFor(db: DB, sceneId: ID, text: string): string[] {
     .map((p) => p.line)
 }
 
-/** Asks the memory model where things stand after `text`, laid over `before`. Null when it couldn't say. */
-async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null, text: string, ask: StateAsk): Promise<SceneState | null> {
+/** Asks the memory model where things stand after `text`, laid over `before`. Null when it couldn't say; REFUSED when it turned the words down. */
+async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null, text: string, ask: StateAsk): Promise<Reading> {
   const messages = stateMessages(before, text, castFor(o.db, sceneId, text), ask)
   const got = await callModel({
     db: o.db,
     model: o.model,
     targetId: sceneId,
     job: 'memory',
+    task: 'stage',
     messages,
     blocks: [{ id: 'continuity', title: 'Where things stand', text: messages[1].content, tokens: estimateTokens(messages[1].content), priority: 1, dropped: false, short: false, entryIds: [] }],
     maxTokens: 3000,
@@ -379,8 +422,10 @@ async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null,
     fetchImpl: o.fetchImpl,
     retryDelays: o.retryDelays
   })
+  if (o.closed() || !o.db.open) return null
+  if (got.failure?.type === 'refused') return REFUSED
   // Nothing to go on: no state rather than one the words no longer support.
-  if (got.status !== 'complete' || o.closed() || !o.db.open) return null
+  if (got.status !== 'complete') return null
   // A value counts only with words it was given to read: the words before a checkpoint are already counted, and a
   // value quoted from them may since have changed again.
   const read = readChanges(got.text, text, sceneId)
@@ -445,18 +490,71 @@ function keepPoint(db: DB, sceneId: ID, base: string, text: string, state: Scene
 /**
  * Where things stand after `text` (a scene's words, or the first part of them), built on `before` (the state the
  * scene starts from): from the latest checkpoint that matches, reading only the words after it, and kept as a new
- * checkpoint. Null when the model couldn't say.
+ * checkpoint. Null when the model couldn't say; REFUSED when it turned the words down, now or before (the words it
+ * turned down are still there, and it is the same model), unless `force`.
  */
-async function readUpTo(o: TrackOptions, sceneId: ID, before: SceneState | null, text: string, soFar: boolean): Promise<SceneState | null> {
+async function readUpTo(o: TrackOptions, sceneId: ID, before: SceneState | null, text: string, soFar: boolean, force = false): Promise<Reading> {
   const base = stateHash(before)
   const from = pointFor(o.db, sceneId, base, text)
   if (from && !text.slice(from.at).trim()) return from.state
+  const model = modelKeyOf(o.model)
+  if (!force && refusedAt(o.db, sceneId, text, model)) return REFUSED
   const state = from
     ? await askState(o, sceneId, from.state, text.slice(from.at), { soFar, after: text.slice(Math.max(0, from.at - LEAD_IN), from.at) })
     : await askState(o, sceneId, before, text, { soFar })
+  if (state === REFUSED) {
+    keepRefused(o.db, sceneId, text, model)
+    return REFUSED
+  }
   if (!state) return null
   keepPoint(o.db, sceneId, base, text, state)
   return state
+}
+
+// ---------- Words the memory model turned down ----------
+// Kept in the world's `meta` under 'continuity-refused', by scene: how far into the scene's words the turned-down
+// reading went (and those words' hash), and the model. A later reading of words that still start with them, by the same
+// model, isn't asked for (whatever the scenes before now say: it is the words it turns down), as it would be turned
+// down again.
+
+export const REFUSED_KEY = 'continuity-refused'
+
+interface RefusedPoint {
+  at: number
+  hash: string
+  model: string
+}
+
+function loadRefused(db: DB): Record<ID, RefusedPoint> {
+  try {
+    const raw = JSON.parse(repo.getMeta(db, REFUSED_KEY) ?? '{}') as unknown
+    return raw && typeof raw === 'object' ? (raw as Record<ID, RefusedPoint>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** True when `model` turned down words that `text` still starts with. */
+function refusedAt(db: DB, sceneId: ID, text: string, model: string): boolean {
+  const r = loadRefused(db)[sceneId]
+  return !!r && r.model === model && r.at <= text.length && hashOf(text.slice(0, r.at)) === r.hash
+}
+
+/**
+ * True when the memory model (`model`, its key) turned down the words of the scene up to the end of `text`, or words
+ * `text` starts with: Recall at the cursor says so rather than "try again". No model is asked.
+ */
+export function turnedDown(db: DB, sceneId: ID, text: string, model: string): boolean {
+  return refusedAt(db, sceneId, text, model)
+}
+
+function keepRefused(db: DB, sceneId: ID, text: string, model: string): void {
+  if (!db.open) return
+  const all = loadRefused(db)
+  all[sceneId] = { at: text.length, hash: hashOf(text), model }
+  // Scenes that are gone take theirs with them.
+  for (const id of Object.keys(all)) if (!kdb.keeperScene(db, id)) delete all[id]
+  repo.setMeta(db, REFUSED_KEY, JSON.stringify(all))
 }
 
 /**
@@ -466,7 +564,7 @@ async function readUpTo(o: TrackOptions, sceneId: ID, before: SceneState | null,
  * latest checkpoint before it and kept as a checkpoint. With no words, the state the scene starts from. Null when the
  * memory model couldn't say (never the state before in its place: that would be told as the scene so far's).
  */
-export async function stateAtText(o: TrackOptions, sceneId: ID, text: string): Promise<SceneState | null> {
+export async function stateAtText(o: TrackOptions, sceneId: ID, text: string, force = false): Promise<SceneState | null> {
   // The scene before's end, just brought up to date: what the scene's own state builds on too (startOf), so both
   // readings, and Recall at the cursor, find the same checkpoints. Nothing when it couldn't be read from its words as
   // they are now: never a ghost.
@@ -476,9 +574,11 @@ export async function stateAtText(o: TrackOptions, sceneId: ID, text: string): P
   const before = startOf(o.db, all, sceneId)
   if (!text.trim() || o.signal.aborted || o.closed()) return before
   const scene = kdb.keeperScene(o.db, sceneId)
-  if (scene && scene.text.trim() === text.trim()) return stateAfter(o, sceneId)
+  if (scene && scene.text.trim() === text.trim()) return stateAfter(o, sceneId, force)
   try {
-    return await readUpTo(o, sceneId, before, text, true)
+    const read = await readUpTo(o, sceneId, before, text, true, force)
+    // Turned down: nothing is told as the scene so far's (never the state before in its place).
+    return read === REFUSED ? null : read
   } catch (e) {
     console.warn('Could not work out where things stand in the scene so far', e)
     return null

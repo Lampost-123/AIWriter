@@ -354,6 +354,7 @@ async function checkWith(
     model: o.model,
     targetId: input.sceneId,
     job: 'memory',
+    task: 'repair',
     messages: req.messages,
     blocks: req.blocks,
     entries: req.entryIds.map((id) => ({ entryId: id, version: versions.get(id) ?? '' })),

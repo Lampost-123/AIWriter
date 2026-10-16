@@ -10,6 +10,7 @@ import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import type { MemoryModel } from '../keeper/model'
+import { refusalsOf } from '../keeper/refusals'
 import type { Secret } from '../ai/mustStay'
 import { assembleContext, EARLIER_BLOCK, prepareContext, type ContextInput } from '../ai/context'
 import { countRaw } from '../ai/tokens'
@@ -637,6 +638,13 @@ describe('making the plan', () => {
     const f = answering('{}')
     expect(await call(f, { signal: already.signal }).done).toBeNull()
     expect(f.asked).toHaveLength(0)
+  })
+
+  it('no plan when the memory model turns the scene down, and the top bar is told the draft went without one', async () => {
+    const { db, sceneId, done } = call(answering("I'm sorry, but I can't help with this request. It involves explicit sexual content."))
+    expect(await done).toBeNull()
+    expect(db.prepare('SELECT status FROM generations').get()).toEqual({ status: 'error' })
+    expect(refusalsOf(db)).toMatchObject([{ task: 'plan', model: 'memory', sceneId }])
   })
 })
 
