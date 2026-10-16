@@ -4,6 +4,7 @@ import { cleanHuggingFaceKey, HF_KEY_SECRET } from './hfkey'
 import { speechPaths, venvPython } from './paths'
 import {
   BREEZE_PACKAGES,
+  BREEZE_WINDOWS_PACKAGES,
   DOWNLOAD_NAMES,
   DROP_ENV,
   planFor,
@@ -111,7 +112,15 @@ describe('the download steps', () => {
     expect(torch.command).toBe(venvPython(breeze, 'win32'))
     expect(torch.args).toEqual(expect.arrayContaining([...TORCH, '--index-url', TORCH_INDEX]))
     expect(steps[3].args).toEqual(expect.arrayContaining(BREEZE_PACKAGES))
+    expect(steps[3].args).toEqual(expect.arrayContaining(BREEZE_WINDOWS_PACKAGES))
     expect(steps[6].env?.HF_HOME).toBe(join(userData, 'speech', 'models', 'hf'))
+  })
+
+  it('add Triton for Windows only on Windows (Linux’s PyTorch brings its own, the Mac has none)', () => {
+    for (const platform of ['linux', 'darwin'] as const) {
+      const steps = planFor('voices', input({ platform, paths: speechPaths(userData, source, platform) }))
+      expect(steps.find((s) => s.id === 'packages')?.args).not.toContain(BREEZE_WINDOWS_PACKAGES[0])
+    }
   })
 
   it('use PyTorch’s own build on a Mac (no NVIDIA there)', () => {

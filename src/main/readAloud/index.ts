@@ -30,7 +30,7 @@ import * as providers from '../ai/providers'
 import { jobModel, type JobModel } from '../ai/jobModel'
 import { runTask, stopTask } from '../ai/tasks'
 import { isDrafting, type DraftActivity } from '../ai/drafts'
-import { studioVoicesDir, voicesInstalled } from '../speech'
+import { studioFolder, studioVoicesDir, voicesInstalled } from '../speech'
 import { speechFetch } from '../speech/client'
 import { AudioCache, GB } from './audioCache'
 import { everyone, type CastMember, type SceneCast } from './cast'
@@ -40,7 +40,7 @@ import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
 import { labelOf, labelSpeaker, markedEnough } from './labels'
 import { Marker, MarkStore, textHash, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
-import { clipKey, speak, VOICES_NOT_READY } from './speak'
+import { clipKey, keyStudioVoicesFrom, speak, VOICES_NOT_READY } from './speak'
 import { TakeStore } from './takes'
 import { quoteKey } from './speakers'
 import type { WriterSpeaker } from '../ai/speakerTags'
@@ -55,6 +55,9 @@ import { autoCaster, CastingStore, type AutoCaster } from './autocast'
 import { withoutDirectorTone } from './director'
 import { ruleKinds, withRuleKinds } from './kinds'
 import type { ParagraphMarks } from './types'
+
+// A clip's key reads what the studio voice it is copied from has now, where the speech server reads it.
+keyStudioVoicesFrom(studioFolder)
 
 /** Where reading aloud keeps its caches. */
 export const speechCacheDir = (): string => join(userDataDir(), 'speech-cache')

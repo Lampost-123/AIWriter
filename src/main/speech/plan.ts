@@ -51,6 +51,12 @@ export const TORCH = ['torch==2.9.1', 'torchaudio==2.9.1']
 export const TORCH_INDEX = 'https://download.pytorch.org/whl/cu128'
 /** Breeze's own requirements, less its test tools (MCreader's list). */
 export const BREEZE_PACKAGES = ['qwen-tts==0.1.1', 'transformers==4.57.3', 'numpy>=2.0', 'soundfile>=0.13', 'librosa', 'huggingface_hub']
+/**
+ * Triton for Windows, which compiles Breeze's depth decoder: about 15% off every line (MCreader). 3.5 is the Triton
+ * torch 2.9 is built against. Linux's PyTorch brings its own Triton, and the Mac has none. Without it the voices still
+ * read, uncompiled (speech-server/app/workers/breeze.py, triton_ready).
+ */
+export const BREEZE_WINDOWS_PACKAGES = ['triton-windows<3.6']
 /** The sound effects' PyTorch: the voices' own, with the torchvision built for it (diffusers imports it). */
 export const SOUND_TORCH = [...TORCH, 'torchvision==0.24.1']
 /**
@@ -214,7 +220,7 @@ function voicesPlan(i: PlanInput): Step[] {
     id: 'packages',
     label: 'Downloading the rest of the voice engine',
     command: python,
-    args: [...PIP, '--progress-bar', 'raw', ...BREEZE_PACKAGES],
+    args: [...PIP, '--progress-bar', 'raw', ...BREEZE_PACKAGES, ...(i.platform === 'win32' ? BREEZE_WINDOWS_PACKAGES : [])],
     progress: 'files',
     expect: 400e6,
     fails: `The voice engine didn’t finish downloading. ${TRY_AGAIN}`

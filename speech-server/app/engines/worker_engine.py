@@ -15,6 +15,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from typing import Any
 
 import numpy as np
@@ -24,6 +25,12 @@ from . import base
 from .base import GIVE_WAY, Engine, EngineBusy, EngineError
 
 log = logging.getLogger("aiwrite_speech.worker")
+
+# How long a worker has to answer one line before it is taken for hung (a CUDA hang, a driver reset) and stopped, so
+# the next line starts a fresh one instead of every clip waiting forever (from MCreader). Generous: a first use may
+# design a voice, or load the word check, before it answers.
+REPLY_SECONDS = 180.0
+REPLY_SECONDS_PER_CHAR = 0.3
 
 
 class WorkerEngine(Engine):
@@ -122,19 +129,46 @@ class WorkerEngine(Engine):
             except Exception:  # noqa: BLE001
                 proc.kill()
 
+    def _drop(self, proc) -> None:
+        """Let go of a worker that died, hung or asked to be restarted: ended for good, so it holds no graphics card
+        memory beside the one the next line starts."""
+        self._model = None
+        try:
+            proc.kill()
+            proc.wait(timeout=10)
+        except Exception:  # noqa: BLE001 - already gone
+            pass
+
     def _synth(self, proc, text: str, voice: str, speed: float, params: dict) -> tuple[np.ndarray, int]:
         req = json.dumps({"text": text, "voice": voice, "speed": speed, "params": params}, ensure_ascii=False)
+        limit = REPLY_SECONDS + REPLY_SECONDS_PER_CHAR * len(text)
+        hung = threading.Event()
+
+        def stuck() -> None:
+            hung.set()
+            proc.kill()
+
+        watchdog = threading.Timer(limit, stuck)
+        watchdog.daemon = True
         try:
             proc.stdin.write(req + "\n")
             proc.stdin.flush()
+            watchdog.start()
             line = proc.stdout.readline()
         except (OSError, ValueError) as exc:
-            self._model = None
+            self._drop(proc)
             raise EngineError(f"{self.name} stopped: {exc}") from exc
+        finally:
+            watchdog.cancel()
         if not line:
-            self._model = None
+            self._drop(proc)
+            if hung.is_set():
+                raise EngineError(f"{self.name} gave no answer in {limit:.0f} s, so it was stopped; it starts again with the next line.")
             raise EngineError(f"{self.name} stopped; it starts again with the next line.")
         out = json.loads(line)
+        # A worker whose graphics card state can't be trusted any more says so, then exits.
+        if out.get("restart"):
+            self._drop(proc)
         if out.get("error"):
             raise EngineError(out["error"])
         samples = np.frombuffer(base64.b64decode(out["b64"]), dtype=np.float32)

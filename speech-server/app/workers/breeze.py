@@ -24,11 +24,14 @@ Three things the model takes, and where each comes from:
   Reading aloud writes those before the text gets here.
 """
 
+import dataclasses
 import gc
+import math
 import os
 import re
 import sys
 import time
+import types
 import zlib
 from pathlib import Path
 
@@ -37,6 +40,15 @@ from ._common import serve
 
 # Where the server says things are (app/engines/worker_engine.py passes them in).
 CODE = Path(os.environ.get("AIWRITE_BREEZE_CODE", "") or Path.home() / ".aiwrite-speech" / "models" / "breeze" / "code")
+# Triton's and Inductor's caches for the compiled depth decoder (see load()), kept with Breeze in AI Write's own speech
+# folder: a warm cache halves the minute compiling adds to a cold start. Set before torch loads, and set, not defaulted:
+# another program's TORCHINDUCTOR_CACHE_DIR must not be shared with Breeze's kernels (MCreader).
+KERNELS = CODE.parent / "compile-cache"
+os.environ["TRITON_CACHE_DIR"] = str(KERNELS / "triton")
+os.environ["TORCHINDUCTOR_CACHE_DIR"] = str(KERNELS / "inductor")
+# Inductor's own kernel launcher in torch 2.9 passes a 64-bit value as a C long, which is 32 bits on Windows
+# ("OverflowError: Python int too large to convert to C long"); Triton's launcher has no such limit.
+os.environ["TORCHINDUCTOR_USE_STATIC_CUDA_LAUNCHER"] = "0"
 VOICES = Path(os.environ.get("AIWRITE_SPEECH_VOICES", "") or Path.home() / ".aiwrite-speech" / "voices")
 # Designed voices live with the voice clips, not with the weights.
 DESIGNS = VOICES / "breeze"
@@ -106,6 +118,10 @@ DESIGN_TAKES = 3
 LINE_SECONDS = (4.0, 20.0)
 # "off" reads with Breeze's plain eager loop, if the CUDA graphs below ever misbehave on a card.
 FAST = os.environ.get("AIWRITE_BREEZE_FAST", "on").strip().lower() not in ("0", "off", "no", "false")
+# "off" keeps the depth decoder uncompiled (still in its CUDA graph) even where Triton is installed.
+COMPILE = os.environ.get("AIWRITE_BREEZE_COMPILE", "on").strip().lower() not in ("0", "off", "no", "false")
+# The most frames (12.5 a second) any line may run to; frame_cap() gives each line a tighter one.
+MAX_FRAMES = 1500
 # The word check ("Check each line's words" in Settings): a speech recogniser listens back to a new clip, and a clip
 # with more of its words wrong than this (a skipped phrase, a repeat, babble) is voiced once more with another seed.
 CHECK_MODEL = os.environ.get("AIWRITE_CHECK_MODEL", "distil-whisper/distil-small.en")
@@ -242,8 +258,10 @@ def graphs_without_compile() -> None:
     Eagerly, each frame of audio is well over a thousand small GPU kernels, one launch at a time; on Windows
     each launch costs more, so the card sits well under half busy however fast it is. A CUDA graph replays a
     whole step as one launch. Breeze turns these on with --fast-backbone-decode and --fast-depth-decoder;
-    the second also compiles the depth decoder with torch.compile, which needs Triton, and PyTorch ships
-    no Triton for Windows. So the depth decoder is captured as it is: the same loop, uncompiled.
+    the second also compiles the depth decoder with torch.compile, which needs Triton (triton-windows, which
+    the voices' download adds: src/main/speech/plan.ts). Without Triton, or when compiling fails, the depth
+    decoder is captured as it is: the same loop, uncompiled, about 15% slower than compiled and still far
+    faster than no graphs.
     """
     import models.fast_streaming as fs
 
@@ -258,6 +276,117 @@ def graphs_without_compile() -> None:
             super().__init__(*args, **{**kwargs, "fast": False})
 
     fs.DepthDecoderGraph = DepthGraph
+
+
+def triton_ready() -> bool:
+    """Whether Triton imports, which torch.compile needs to compile the depth decoder."""
+    try:
+        import triton  # noqa: F401
+    except Exception:  # noqa: BLE001 — missing or broken, it only costs speed
+        print("Breeze: Triton isn't installed, so the depth decoder runs uncompiled (about 15% slower). "
+              "Downloading the voices again in Settings adds it.", file=sys.stderr)
+        return False
+    return True
+
+
+def uncompiled(model) -> None:
+    """Put back the depth decoder's own layers after a compile failed.
+
+    Breeze's compiled path swaps the model's depth layers and norm for compiled wrappers in place; left there, the
+    uncompiled graph would try to compile them again."""
+    import torch
+
+    depth = model.depth_decoder.model
+    for i, layer in enumerate(depth.layers):
+        depth.layers[i] = getattr(layer, "_orig_mod", layer)
+    depth.norm = getattr(depth.norm, "_orig_mod", depth.norm)
+    torch._dynamo.reset()
+
+
+def frame_cap(text: str) -> int:
+    """The most frames a line may run to: 1.6 a character plus 3 s, never under 6 s (75 frames) nor over MAX_FRAMES.
+
+    A normal line never comes near it (in MCreader's lab, of 20 lines the closest used 0.55 of it). A line that runs
+    away stops here instead of at MAX_FRAMES, 120 s of babble and over a minute of the card's time."""
+    return min(MAX_FRAMES, max(75, math.ceil(1.6 * len(text)) + 38))
+
+
+def bounded_decode(decoder, codes, chunk: int = 100, context: int = 8):
+    """The codec's one-pass decode of a clip's codes ([1, 16, T]) with bounded memory, and the same numbers.
+
+    The quantizer, the transformer (a 72-frame sliding window) and the two upsampling stages run over the whole clip:
+    they are small, at 12.5-50 steps a second. The convolution stack after them, where the memory goes (1536 channels
+    up to 24 kHz), runs `chunk` frames at a time with `context` frames before each piece. Every convolution there is
+    causal and together they reach back about 6 frames, so with 8 the kept samples are the one-pass decode's (to -96 dB
+    in MCreader's lab), in about 0.5 GB at any length where one pass takes 1.6 GB for 27 s."""
+    import torch
+
+    codes = codes.clamp(min=0)
+    hidden = decoder.quantizer.decode(codes)
+    hidden = decoder.pre_conv(hidden).transpose(1, 2)
+    hidden = decoder.pre_transformer(inputs_embeds=hidden).last_hidden_state.permute(0, 2, 1)
+    for blocks in decoder.upsample:
+        for block in blocks:
+            hidden = block(hidden)
+    up = hidden.shape[-1] // codes.shape[-1]  # 4 steps a frame at this point
+    per = int(decoder.total_upsample) // up  # samples each of those steps becomes (480)
+    pieces, step, left = [], chunk * up, context * up
+    for start in range(0, hidden.shape[-1], step):
+        first = max(0, start - left)
+        x = hidden[..., first:start + step]
+        for block in decoder.decoder:
+            x = block(x)
+        pieces.append(x[..., (start - first) * per:])
+    return torch.cat(pieces, dim=-1).clamp(min=-1, max=1)
+
+
+def decode_once(runtime, codec) -> None:
+    """Decode each clip once, at its end (bounded_decode), not with Breeze's streaming codec every 2 frames.
+
+    The streaming codec keeps its transformer's last 72 frames in StaticShiftKVCache, whose update() shifts them with a
+    copy between overlapping slices of one tensor. On CUDA that copy runs in parallel blocks and reads rows another
+    block has already overwritten, so every clip was decoded from a scrambled cache: -14 dB off the codec's own decode,
+    and different each time from the same frames. One decode at the end is also far faster than hundreds of small
+    ones (a fifth off every line's time), and the worker hands back whole clips, so nothing was streamed anyway."""
+    import torch
+    import models.fast_streaming as fs
+
+    decoder = codec.model.decoder
+    # iter_audio_chunks still opens and closes a request on the streaming codec, so it is built now at its usual
+    # 2 frames: built after the line below, it would size its buffers for a 2^30-frame step.
+    runtime._codec()
+    runtime._codec_chunk_frames = 1 << 30  # never "ready" mid-clip: every frame waits for the final flush
+
+    def decode(self, *, frames, request_id, reset, is_final, timing):
+        codes = torch.stack(frames).to(self.device, dtype=torch.long).transpose(0, 1).unsqueeze(0)
+        audio = fs._extract_audio_np(bounded_decode(decoder, codes))
+        return fs.FastStreamingChunk(audio=audio, sample_rate=self.sample_rate, codec_frames=len(frames),
+                                     is_final=is_final, timing=timing)
+
+    runtime._decode_codec_frames = types.MethodType(decode, runtime)
+
+
+# Whether the last line made ended on Breeze's end-of-speech token. The runtime stops just as quietly when a line runs
+# out of room (`max_seq_len`, which a long reference clip fills) or runs on past `frame_cap`, so its end check is watched.
+_ended = {"eos": False}
+
+
+def notice_endings() -> None:
+    """Watch Breeze's end-of-speech check, so a line cut short by its limits is told from one that ended."""
+    from models import fast_streaming
+
+    eos = fast_streaming.is_backbone_eos_token
+    if getattr(eos, "_aiwrite", False):
+        return
+
+    def watched(token, config) -> bool:
+        hit = eos(token, config)
+        if hit:
+            _ended["eos"] = True
+        return hit
+
+    watched._aiwrite = True
+    fast_streaming.is_backbone_eos_token = watched
 
 
 def reference_codes_once() -> None:
@@ -283,10 +412,12 @@ def make_runtime(state: dict, fast: bool):
     from models.fast_streaming import FastBreezeStreamingRuntime, FastStreamingConfig
 
     config = FastStreamingConfig(
-        max_new_tokens=1500, max_seq_len=2048, repetition_penalty=1.1,
+        max_new_tokens=MAX_FRAMES, max_seq_len=2048, repetition_penalty=1.1,
         fast_backbone_decode=fast, fast_depth_decoder=fast,
     )
-    return FastBreezeStreamingRuntime(state["model"], state["codec"], config, tokenizer=state["tok"])
+    runtime = FastBreezeStreamingRuntime(state["model"], state["codec"], config, tokenizer=state["tok"])
+    decode_once(runtime, state["codec"])
+    return runtime
 
 
 def load():
@@ -310,28 +441,40 @@ def load():
     tokenizer, model, audio_tokenizer = load_runtime(ckpt, device=resolve_device(), attn_implementation="eager")
     update_generation_config_for_breeze(model)
     reference_codes_once()
+    notice_endings()
     state = {"tok": tokenizer, "model": model, "codec": audio_tokenizer}
     DESIGNS.mkdir(parents=True, exist_ok=True)
 
     if gpu and FAST:
-        graphs_without_compile()
-        try:
-            state["runtime"] = make_runtime(state, True)
-            # Capture both shapes now (plain and with CFG), not in the middle of the first page read,
-            # and make sure what comes out is sound.
-            for note in ("", "Calm and even."):
-                t0 = time.perf_counter()
-                audio, sr = generate(state, "One, two, three.", instruction_text=note)
-                if not (0.2 * sr < audio.size < 20 * sr and np.isfinite(audio).all()):
-                    raise RuntimeError(f"a {audio.size / sr:.1f} s test clip")
-                print(f"Breeze: CUDA graphs ready ({'CFG' if note else 'plain'}: {time.perf_counter() - t0:.1f} s with capture).", file=sys.stderr)
-            return state
-        except Exception as exc:  # noqa: BLE001 — any failure here means reading without graphs, not not reading
-            print(f"Breeze: the fast path failed ({exc}); reading without it. AIWRITE_BREEZE_FAST=off skips trying.", file=sys.stderr)
-            state.pop("runtime", None)
-        # Outside the except: its traceback would keep the half-built graphs alive.
-        gc.collect()
-        torch.cuda.empty_cache()
+        # Fastest first: the depth decoder compiled (Triton) inside its CUDA graph, about 15% faster per line, then the
+        # same graph uncompiled. No graphs at all is far slower than either, so it is the last resort.
+        # Compiling adds about a minute to a cold start (30 s with its cache warm).
+        for compiled in ([True, False] if COMPILE and triton_ready() else [False]):
+            if not compiled:
+                graphs_without_compile()
+            how = "compiled" if compiled else "uncompiled"
+            try:
+                state["runtime"] = make_runtime(state, True)
+                # Capture both shapes now (plain and with CFG), not in the middle of the first page read,
+                # and make sure what comes out is sound.
+                for note in ("", "Calm and even."):
+                    t0 = time.perf_counter()
+                    audio, sr = generate(state, "One, two, three.", instruction_text=note)
+                    if not (0.2 * sr < audio.size < 20 * sr and np.isfinite(audio).all()):
+                        raise RuntimeError(f"a {audio.size / sr:.1f} s test clip")
+                    print(f"Breeze: CUDA graphs ready, depth decoder {how} ({'CFG' if note else 'plain'}: "
+                          f"{time.perf_counter() - t0:.1f} s with capture).", file=sys.stderr)
+                return state
+            except Exception as exc:  # noqa: BLE001 — any failure here means reading another way, not not reading
+                said = (str(exc).strip().splitlines() or [exc.__class__.__name__])[0][:300]
+                then = "trying it uncompiled. AIWRITE_BREEZE_COMPILE=off skips compiling" if compiled else \
+                    "reading without it. AIWRITE_BREEZE_FAST=off skips trying"
+                print(f"Breeze: the fast path with the depth decoder {how} failed ({said}); {then}.", file=sys.stderr)
+                state.pop("runtime", None)
+            # Outside the except: its traceback would keep the half-built graphs alive.
+            uncompiled(state["model"])
+            gc.collect()
+            torch.cuda.empty_cache()
     state["runtime"] = make_runtime(state, False)
     return state
 
@@ -352,7 +495,9 @@ def generate(state: dict, text: str, *, instruction_text: str = "", ref: tuple[P
         guidance_scale=cfg if instruction_text else 1.0, guidance_scale_ref=None, guidance_scale_ins=None,
     )
     runtime = state["runtime"]
-    chunks = [np.asarray(c.audio, dtype=np.float32).reshape(-1) for c in runtime.iter_audio_chunks(inputs, seed=seed)]
+    runtime.config = dataclasses.replace(runtime.config, max_new_tokens=frame_cap(text))
+    _ended["eos"] = False
+    chunks =[np.asarray(c.audio, dtype=np.float32).reshape(-1) for c in runtime.iter_audio_chunks(inputs, seed=seed)]
     audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
     return audio, int(runtime.sample_rate)
 
@@ -462,6 +607,13 @@ def synth(state, text: str, voice: str, speed: float, params: dict):
     take = max(0, int(params.get("take") or 0))
     key = f"{ref[0].name}|{text}" + (f"|{take}" if take else "")
     audio, sr = voiced(key)
+    if not _ended["eos"]:
+        # Out of room before the end of the line: another seed may say it in time. One still cut short fails, rather
+        # than playing (and being kept by the cache) without its end.
+        print(f"Breeze: a {len(text)}-character line ran out of room; trying another take.", file=sys.stderr)
+        audio, sr = voiced(f"{key}|whole")
+        if not _ended["eos"]:
+            raise RuntimeError(f"Breeze ran out of room before the end of this {len(text)}-character line, so it was not kept.")
     if params.get("check"):
         said = heard(state, audio, sr)
         wrong = misheard(text, said, spelling(state)) if said is not None else 0.0
@@ -470,7 +622,7 @@ def synth(state, text: str, voice: str, speed: float, params: dict):
             said2 = heard(state, again, sr2)
             wrong2 = misheard(text, said2, spelling(state)) if said2 is not None else 1.0
             print(f"Breeze: the word check heard {wrong:.0%} of a line wrong; the second take {wrong2:.0%}.", file=sys.stderr)
-            if wrong2 < wrong:
+            if wrong2 < wrong and _ended["eos"]:
                 audio, sr = again, sr2
     took, secs = time.perf_counter() - t0, audio.size / sr
     # Under 1 keeps up with reading aloud; above it, the reader waits between sentences. Samples at full scale were

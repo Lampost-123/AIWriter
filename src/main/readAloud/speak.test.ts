@@ -26,7 +26,14 @@ const clip: ClipRequest = {
   gentle: false,
   sounds: true
 }
-const wav = (): Response => new Response(new Uint8Array(400), { status: 200, headers: { 'content-type': 'audio/wav' } })
+/** 400 bytes that start as a WAV clip does. */
+const wavBytes = (): Uint8Array => {
+  const b = new Uint8Array(400)
+  b.set([...'RIFF'].map((c) => c.charCodeAt(0)), 0)
+  b.set([...'WAVE'].map((c) => c.charCodeAt(0)), 8)
+  return b
+}
+const wav = (): Response => new Response(wavBytes(), { status: 200, headers: { 'content-type': 'audio/wav' } })
 
 /** A speech server that answers each request with `answer`, and remembers what it was sent. */
 function server(answer: () => Response | Promise<Response>): { fetcher: Fetcher; sent: { path: string; body: unknown }[] } {
@@ -79,6 +86,9 @@ describe('asking the speech server for a clip', () => {
     })
     const empty = server(() => new Response(new Uint8Array(44)))
     await expect(speak({ ...clip, input: 'Third.' }, cache, 'breeze', empty.fetcher)).rejects.toMatchObject({ code: 'speech-failed' })
+    // Something on the server's port that isn't a clip (another program's page) is never kept as one.
+    const page = server(() => new Response('<html>'.padEnd(400, ' '), { status: 200 }))
+    await expect(speak({ ...clip, input: 'Fifth.' }, cache, 'breeze', page.fetcher)).rejects.toMatchObject({ code: 'speech-failed' })
     // The server stops partway through sending the audio.
     const cut = server(
       () =>
@@ -94,6 +104,17 @@ describe('asking the speech server for a clip', () => {
     })
     // Nothing failed is kept.
     expect((await cache.stats()).files).toBe(0)
+  })
+
+  it('keeps clips made another way apart: Breeze’s switches are in the key', () => {
+    const before = clipKey(clip)
+    vi.stubEnv('AIWRITE_BREEZE_COMPILE', 'off')
+    try {
+      expect(clipKey(clip)).not.toBe(before)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(clipKey(clip)).toBe(before)
   })
 })
 
