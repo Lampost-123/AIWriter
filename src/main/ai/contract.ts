@@ -3,11 +3,14 @@
 // 50–88%). Three short lists, written for the scene being drafted:
 //   - Must be true at the start: from the record as of this point (the stage, fix 11's time since the scene before,
 //     who knows what), only what the scene's people touch, a handful at most;
-//   - Must change: what the scene card asks of this draft (its beats and outcome, the plot threads it sets up or pays
-//     off; for Add below the author's direction or the next beat, for a beat that beat, for Continue "what happens
-//     next"), or, when the plan before writing ran, what it said must change, checked against the card (plan/plan.ts);
-//   - Must not change: the dead stay dead, what is kept from someone stays kept unless the change plans it, injuries
-//     stay, what someone gave away stays gone and things stay where they were put.
+//   - Must change: what this draft is asked for, strongest first: the author's direction for it (a whole scene's too),
+//     then what the plan before writing said must change, checked against the card (plan/plan.ts), then the scene card
+//     (its beats; for Add below the next beat, for a beat that beat with the author's note for it), each left out when
+//     something stronger already says it; the card's outcome and the plot threads it sets up or pays off keep a place of
+//     their own (fix 13's review: the plan never pushes the card out, nor the beats the outcome);
+//   - Must not change: the dead stay dead, what is kept from someone stays kept, injuries stay, what someone gave away
+//     stays gone and things stay where they were put; never what the change list itself changes (a key handed over, a
+//     secret told, someone learning the truth: changedBy), so the contract never goes against itself.
 // The first and last lists are written by the app from what must stay true's own lines (mustStay.ts mustLines), word for
 // word, so what must stay true leaves them out (`leaveOut`) and nothing is said twice. The contract goes in the writer's
 // briefing as a short late block (CONTRACT_BLOCK, after where things stand, before what must stay true), and the check
@@ -18,6 +21,8 @@ import type { CheckKind } from '@shared/contracts/checks'
 import type { EntryState, FactState, ID, SceneCard, Settings } from '@shared/types'
 import { sinceWords } from '@shared/knowWords'
 import { beatsOnPage } from '@shared/beats'
+import { namesItem as namesStageItem } from '@shared/stageItems'
+import { nameIn, namesItem } from '../memory/items'
 import { isPerson, shortPlace, type MustKind, type MustLine } from './mustStay'
 
 /** What the draft is asked to write: a whole scene, a stretch of one (Add below), one beat, or Continue's few paragraphs. */
@@ -164,9 +169,32 @@ const CHECK_OF: Partial<Record<MustKind, CheckKind>> = {
   belief: 'knowledge'
 }
 
-/** What must change, from the card and the draft's ask, or from the plan when it said something. */
+/**
+ * What must change (see the top of this file): the author's direction, then the plan's words, then the card's (or the
+ * beat), each left out when something before it already says it; then the card's outcome and the plot threads, which
+ * keep their places however many beats there are (the most CONTRACT_MOST.change in all).
+ */
 export function mustChange(o: Pick<ContractFrom, 'asks' | 'card' | 'threads' | 'direction' | 'soFar' | 'focus' | 'planned'>): { text: string; entryIds: ID[] }[] {
-  const plain = (t: string): { text: string; entryIds: ID[] } => ({ text: clip(clean(t)), entryIds: [] })
+  type Item = { text: string; entryIds: ID[] }
+  const plain = (t: string): Item => ({ text: clip(clean(t)), entryIds: [] })
+  const beats = o.card.beats.map(clean).filter(Boolean)
+  const direction = clean(o.direction)
+  // What the draft is asked for in the author's own words (Continue's "what happens next", Add below's direction, a whole
+  // scene's direction), and what the card asks (a beat: that beat with the author's note for it).
+  const asked = o.asks !== 'beat' && direction ? [plain(direction)] : []
+  const card =
+    o.asks === 'beat'
+      ? clean(o.focus)
+        ? [plain(o.focus!)]
+        : []
+      : o.asks === 'stretch'
+        ? !direction && beats[beatsOnPage(beats, o.soFar)]
+          ? [plain(beats[beatsOnPage(beats, o.soFar)])]
+          : []
+        : o.asks === 'scene'
+          ? beats.map(plain)
+          : []
+  const outcome = o.asks === 'scene' && clean(o.card.outcome) ? [plain(`By the end: ${clean(o.card.outcome)}`)] : []
   const threads =
     o.asks === 'scene'
       ? o.threads.slice(0, MOST_THREADS).map((t) => ({
@@ -174,30 +202,32 @@ export function mustChange(o: Pick<ContractFrom, 'asks' | 'card' | 'threads' | '
           entryIds: [t.entryId]
         }))
       : []
-  const planned = (o.planned ?? []).map(clean).filter(Boolean)
-  let own: { text: string; entryIds: ID[] }[]
-  if (planned.length) own = planned.map(plain)
-  else if (o.asks === 'beat') own = clean(o.focus) ? [plain(o.focus!)] : []
-  else if (o.asks === 'continue') own = clean(o.direction) ? [plain(o.direction)] : []
-  else if (o.asks === 'stretch') {
-    const beats = o.card.beats.map(clean).filter(Boolean)
-    const next = beats[beatsOnPage(beats, o.soFar)]
-    own = clean(o.direction) ? [plain(o.direction)] : next ? [plain(next)] : []
-  } else {
-    const beats = o.card.beats.map(clean).filter(Boolean)
-    own = beats.map(plain)
-    if (clean(o.card.outcome)) own.push(plain(`By the end: ${clean(o.card.outcome)}`))
-  }
-  // The plan's own words for a thread stand for it (it names the thread): the card's thread line isn't said again.
-  const extra = threads.filter((t) => !planned.length || !planned.some((p) => saysFact(p, t.text)))
-  const room = Math.max(0, CONTRACT_MOST.change - extra.length)
+  const planned = (o.planned ?? []).map(clean).filter(Boolean).map(plain)
+  // Each source in turn, left out where an earlier one already says it (the plan's "They reach the gate by dusk" stands
+  // for the card's "They reach the gate."). A thread stands unless the author or the plan names it.
+  const said: string[] = []
   const seen = new Set<string>()
-  return [...own.slice(0, room), ...extra].filter((x) => {
-    const k = x.text.toLowerCase()
-    if (!x.text || seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
+  const take = (list: Item[], against: () => string[] = () => said): Item[] => {
+    const out = list.filter((x) => {
+      const k = x.text.toLowerCase()
+      if (!x.text || seen.has(k) || against().some((p) => saysFact(p, x.text))) return false
+      seen.add(k)
+      return true
+    })
+    said.push(...out.map((x) => x.text))
+    return out
+  }
+  const fromAsked = take(asked)
+  const fromPlan = take(planned)
+  const named = [...said]
+  // The outcome before the beats: a beat that only says it again is the one left out.
+  const end = take(outcome)
+  const fromCard = take(card)
+  const extra = take(threads, () => named)
+  const own = [...fromAsked, ...fromPlan, ...fromCard]
+  // The outcome and the threads keep their places; the rest share what is left, the author's words first.
+  const room = Math.max(0, CONTRACT_MOST.change - end.length - extra.length)
+  return [...own.slice(0, room), ...end, ...extra]
 }
 
 /**
@@ -238,10 +268,8 @@ export function sceneContract(o: ContractFrom): SceneContract | null {
     ...knows.map((k) => ({ ...k, check: 'knowledge' as CheckKind }))
   ].slice(0, CONTRACT_MOST.start)
 
-  // Must not change: a secret the change plans telling (the card's or the plan's words say it) isn't kept. The secret's
-  // own words only: "Kept from Tobin: <fact> (Mara knows it). Tobin must not…".
-  const secretOf = (text: string): string => text.replace(/^Kept from [^:]*:\s*/, '').replace(/\s*\([^()]*\bknows? it\)[\s\S]*$/, '')
-  const keep = pick(KEEP_ORDER, CONTRACT_MOST.keep, (l) => l.kind === 'gap' && saysFact(changeText, secretOf(l.text)))
+  // Must not change: never what the change list itself changes (changedBy), so the contract never goes against itself.
+  const keep = pick(KEEP_ORDER, CONTRACT_MOST.keep, (l) => changedBy(l, change.map((c) => c.text)))
 
   const items: ContractItem[] = []
   const put = (part: ContractPart, text: string, check: CheckKind, entryIds: ID[]): void => {
@@ -252,6 +280,47 @@ export function sceneContract(o: ContractFrom): SceneContract | null {
   for (const c of change) put('change', c.text, 'facts', c.entryIds)
   for (const k of keep) put('keep', k.text, CHECK_OF[k.kind] ?? 'facts', k.entryIds)
   return items.length ? { asks: o.asks, items } : null
+}
+
+/** Words that say someone comes to know something: they learn it, find it out, are told it, see through it. */
+const LEARNS =
+  /\b(?:learn(?:s|ed|t)?|discover(?:s|ed)?|finds? out|found out|realis(?:e|es|ed)|realiz(?:e|es|ed)|works? out|worked out|is told|was told|hears?|heard|sees? through|saw through|guess(?:es|ed)|understands?|understood|uncovers?|uncovered)\b/i
+/** True when the words have someone tell `name` something ("Mara tells Tobin", "admits to Tobin"). */
+function toldTo(text: string, name: string): boolean {
+  const names = [...new Set([clean(name), clean(name).split(' ')[0]])].filter((n) => n.length >= 2)
+  return names.some((n) =>
+    new RegExp(
+      `\\b(?:tells?|told|shows?|showed|warns?|warned|(?:reveals?|revealed|admits?|admitted|confess(?:es|ed)?|explains?|explained) to)\\s+${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`,
+      'i'
+    ).test(text)
+  )
+}
+/** Words that say a belief was wrong. */
+const TRUTH = /\b(?:truth|true|lie|lies|lied|lying|wrong|mistaken)\b/i
+
+/** A line's own words, without who it is about ("Mara: ") or since when it holds ("(since Ch 2, Sc 1)"). */
+const ownWords = (text: string): string => text.replace(/^[^:]{1,60}:\s*/, '').replace(/\s*\([^()]*\)[\s\S]*$/, '')
+
+/**
+ * True when what must change would change what a line of what must stay true says, so it can't also be something that
+ * must not change: the change names the item someone has or gave away, or the thing in the place; or it says the line's
+ * own words (saysFact); and for a secret or a wrong belief, it says the one it is kept from, or who believes it, learns or
+ * is told it (with a word of it), or learns the truth.
+ */
+export function changedBy(line: Pick<MustLine, 'text' | 'about'>, change: string[]): boolean {
+  const all = change.join('\n')
+  if (!clean(all)) return false
+  const a = line.about
+  if (a && 'holding' in a) return namesItem(all, a.holding)
+  if (a && 'thing' in a) return namesStageItem(all, a.thing)
+  const words = a ? a.words : ownWords(line.text)
+  if (saysFact(all, words)) return true
+  if (!a) return false
+  if (!a.learns) return false
+  const own = meaningWords(words)
+  return change.some(
+    (c) => a.who.some((n) => (nameIn(c, n) && LEARNS.test(c)) || toldTo(c, n)) && (shared(own, meaningWords(c)) >= 1 || TRUTH.test(c))
+  )
 }
 
 // ---------- How it is told ----------

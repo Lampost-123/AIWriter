@@ -14,6 +14,7 @@ import {
   contractText,
   contractWanted,
   mostlyIn,
+  changedBy,
   mustChange,
   partTitle,
   saysFact,
@@ -102,7 +103,7 @@ describe('what must change', () => {
     expect(mustChange(from({ asks: 'continue', card }))).toEqual([])
   })
 
-  it('the plan’s words take the card’s place; a thread the plan doesn’t name is still there', () => {
+  it('the plan’s words stand for the card’s where they say the same; the rest of the card, and a thread the plan doesn’t name, stay', () => {
     const got = mustChange(
       from({
         card,
@@ -113,11 +114,115 @@ describe('what must change', () => {
         ]
       })
     )
+    // The second beat, the outcome and the first thread are what the plan says; reaching the gate it doesn't (fix 13's
+    // review: the plan never pushes the card out).
     expect(got.map((c) => c.text)).toEqual([
       'Tobin admits the letter is forged',
       'Mara heads back to the mill',
+      'Mara reaches the gate',
       'The plot thread “The miller’s debt” is set up.'
     ])
+  })
+})
+
+describe('what must change, after the review (fix 13)', () => {
+  const card = { beats: ['Mara reaches the gate', 'Tobin tells her the letter is forged'], outcome: 'Mara turns back for the mill' }
+
+  it('the outcome keeps its place however many beats there are', () => {
+    const beats = Array.from({ length: 9 }, (_, i) => `Beat number ${i + 1} happens here`)
+    const threads = [
+      { entryId: 't1', name: 'The debt', role: 'pays off' as const },
+      { entryId: 't2', name: 'The flood', role: 'sets up' as const }
+    ]
+    const got = mustChange(from({ card: { beats, outcome: 'Mara turns back for the mill' }, threads })).map((c) => c.text)
+    expect(got).toEqual([
+      'Beat number 1 happens here',
+      'Beat number 2 happens here',
+      'By the end: Mara turns back for the mill',
+      'The plot thread “The debt” is paid off.',
+      'The plot thread “The flood” is set up.'
+    ])
+    // A beat that only says the outcome again is the one left out, not the outcome.
+    const again = mustChange(from({ card: { beats: ['Mara reaches the gate', 'Mara turns back for the mill'], outcome: 'Mara turns back for the mill' } }))
+    expect(again.map((c) => c.text)).toEqual(['Mara reaches the gate', 'By the end: Mara turns back for the mill'])
+  })
+
+  it('a whole scene’s direction comes first, and stands for the beats it speaks to', () => {
+    const got = mustChange(from({ card, direction: 'They never reach the gate: Tobin turns them back at the bridge' })).map((c) => c.text)
+    expect(got).toEqual([
+      'They never reach the gate: Tobin turns them back at the bridge',
+      'Tobin tells her the letter is forged',
+      'By the end: Mara turns back for the mill'
+    ])
+    // The plan's line that says the direction again isn't said twice.
+    const planned = mustChange(from({ card, direction: 'Tobin tells her the letter is forged', planned: ['Tobin admits the letter is forged', 'Mara reaches the gate at dusk'] }))
+    expect(planned.map((c) => c.text)).toEqual(['Tobin tells her the letter is forged', 'Mara reaches the gate at dusk', 'By the end: Mara turns back for the mill'])
+  })
+
+  it('a steered beat is the beat with the author’s note for it', () => {
+    const got = mustChange(from({ asks: 'beat', card, focus: 'Mara reaches the gate (the author’s note for it: she arrives soaked and late)' }))
+    expect(got.map((c) => c.text)).toEqual(['Mara reaches the gate (the author’s note for it: she arrives soaked and late)'])
+  })
+})
+
+describe('what must not change never goes against what must change (fix 13’s review)', () => {
+  const mara = person('Mara')
+  const tobin = person('Tobin')
+  const key: MustLine = {
+    kind: 'gotNamed',
+    text: 'Mara: has the brass key (Tobin gave it to her; since Ch 2, Sc 1)',
+    entryIds: [mara.id, 'key'],
+    about: { holding: { words: ['brass key', 'key'] } }
+  }
+  const door: MustLine = { kind: 'thingNamed', text: 'The door: barred from inside', entryIds: [], about: { thing: { name: 'the door', state: 'barred from inside' } } }
+  const belief: MustLine = {
+    kind: 'belief',
+    text: 'Mara wrongly believes: Tobin is loyal to her (it isn’t true). Mara takes it as true here unless the scene card says otherwise',
+    entryIds: [mara.id],
+    about: { words: 'Tobin is loyal to her', who: ['Mara'], learns: true }
+  }
+  const secret: MustLine = {
+    kind: 'gap',
+    text: 'Kept from Tobin: The ledger is forged (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so',
+    entryIds: [tobin.id],
+    about: { words: 'The ledger is forged', who: ['Tobin'], learns: true }
+  }
+  const sling: MustLine = { kind: 'condition', text: 'Mara: left arm in a sling (since Ch 2, Sc 4)', entryIds: [mara.id], about: { words: 'left arm in a sling', who: ['Mara'] } }
+  const dead: MustLine = { kind: 'dead', text: 'Ash is dead: drowned at the weir (since Ch 1, Sc 2)', entryIds: ['ash'], about: { words: 'drowned at the weir', who: [] } }
+  const all = [key, door, belief, secret, sling, dead]
+  const keeps = (beats: string[]): string[] =>
+    sceneContract(from({ must: all, people: [mara, tobin], card: { beats, outcome: '' } }))!
+      .items.filter((i) => i.part === 'keep')
+      .map((i) => i.text.split(':')[0])
+
+  it('nothing changes: every line is kept', () => {
+    expect(keeps(['Mara waits by the window'])).toEqual(['Ash is dead', 'Kept from Tobin', 'Mara', 'Mara wrongly believes'])
+  })
+
+  it('a key handed over, a door unbarred, the sling taken off: not kept as well', () => {
+    expect(changedBy(key, ['Mara hands the brass key to Ash'])).toBe(true)
+    expect(changedBy(door, ['Tobin unbars the door and slips out'])).toBe(true)
+    expect(changedBy(sling, ['The sling comes off Mara’s left arm at last'])).toBe(true)
+    expect(keeps(['Mara hands the brass key to Ash', 'Tobin unbars the door', 'The sling comes off Mara’s left arm'])).toEqual([
+      'Ash is dead',
+      'Kept from Tobin',
+      'Mara wrongly believes'
+    ])
+  })
+
+  it('someone told the secret, or learning the truth of what they believe: not kept as well', () => {
+    expect(changedBy(secret, ['Mara tells Tobin the truth about the ledger'])).toBe(true)
+    expect(changedBy(secret, ['Tobin finds out about the ledger'])).toBe(true)
+    expect(changedBy(belief, ['Mara learns the truth about Tobin'])).toBe(true)
+    expect(changedBy(belief, ['Mara discovers Tobin was never loyal'])).toBe(true)
+    // Not about the secret, or not the one it's kept from: still kept.
+    expect(changedBy(secret, ['Tobin admits he lied about the ledger'])).toBe(false)
+    expect(changedBy(secret, ['Mara learns the ledger is in the safe'])).toBe(false)
+    expect(changedBy(belief, ['Mara learns to ride'])).toBe(false)
+    // Naming a dead man, or where he died, doesn't bring him back.
+    expect(changedBy(dead, ['Mara visits the weir where Ash died'])).toBe(false)
+    // The secret and the belief go; the sling, the key and the door take their places.
+    expect(keeps(['Mara tells Tobin the truth about the ledger', 'Mara learns the truth about Tobin'])).toEqual(['Ash is dead', 'Mara', 'Mara', 'The door'])
   })
 })
 
@@ -364,9 +469,13 @@ describe('in the writer’s briefing', () => {
     for (const id of before) expect(text(id, on), id).toBe(text(id, off))
   })
 
-  it('the plan’s words for what must change, and a beat’s own, take the card’s place', () => {
+  it('the plan’s words for what must change come first, the card’s beats the plan doesn’t say after; a beat’s own takes the card’s place', () => {
     const planned = prepareContext(briefingInput({ contract: { asks: 'scene', planned: ['Osric sees the case is empty'] } }))
-    expect(planned.contract!.items.filter((i) => i.part === 'change').map((i) => i.text)).toEqual(['Osric sees the case is empty'])
+    expect(planned.contract!.items.filter((i) => i.part === 'change').map((i) => i.text)).toEqual([
+      'Osric sees the case is empty',
+      'Osric climbs up to the loft',
+      'Wren shows him the case Ash left'
+    ])
     const beat = prepareContext(briefingInput({ contract: { asks: 'beat', focus: 'Wren shows him the case' } }))
     expect(beat.blocks.find((b) => b.id === CONTRACT_BLOCK.id)!.text).toContain('Must change by the end of this beat:\n1. Wren shows him the case')
   })

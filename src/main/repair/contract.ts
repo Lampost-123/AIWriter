@@ -172,7 +172,8 @@ export function notYetIssue(
       sources: contractSources(item.entryIds, where.names),
       fix: null,
       memoryFix: null,
-      contract: { part: item.part, text: item.text }
+      // Never written in by itself, not even by the chapter writer (fix 13's review): it is Adam's to decide.
+      contract: { part: item.part, text: item.text, missing: true }
     }
   }
 }
@@ -186,21 +187,27 @@ export function notYetMessage(text: string, asks: SceneContract['asks']): string
 
 /**
  * How each item came out, for the check report: broken when a question was raised for it (after the second opinion and
- * the judging), not yet when one was asked, else what the model said (a broken item not stood behind is untouched), or
- * unchecked when it said nothing.
+ * the judging), not yet when one was asked, kept when the second opinion found it shown after all (`shown`), else what
+ * the model said (a broken item not stood behind is untouched), or unchecked when it said nothing.
  */
-export function contractResults(c: SceneContract, j: JudgedContract, asked: { broken: ReadonlySet<string>; notYet: ReadonlySet<string> }): ContractCheckItem[] {
+export function contractResults(
+  c: SceneContract,
+  j: JudgedContract,
+  asked: { broken: ReadonlySet<string>; notYet: ReadonlySet<string>; shown?: ReadonlySet<string> }
+): ContractCheckItem[] {
   return c.items.map((i) => {
     const a = j.said.get(i.code)
     const result: ContractResult = asked.broken.has(i.code)
       ? 'broken'
       : asked.notYet.has(i.code)
         ? 'not yet'
-        : !a
-          ? 'unchecked'
-          : a.result === 'kept'
-            ? 'kept'
-            : 'untouched'
+        : asked.shown?.has(i.code)
+          ? 'kept'
+          : !a
+            ? 'unchecked'
+            : a.result === 'kept'
+              ? 'kept'
+              : 'untouched'
     const quote = (result === 'kept' || result === 'broken') && a?.quote ? a.quote : ''
     return { part: i.part, text: i.text, result, ...(quote ? { quote } : {}) }
   })

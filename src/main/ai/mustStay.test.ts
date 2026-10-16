@@ -15,6 +15,7 @@ import {
   MUST_MOST,
   MUST_SHORT,
   MUST_SMALLEST,
+  mustLines,
   mustStayTrue,
   mustText,
   namesUpTo,
@@ -26,6 +27,7 @@ import {
 import { stageTold } from '../repair'
 import { stageLines } from '../repair/prompts'
 import type { Holding } from '../memory/items'
+import { changedBy } from './contract'
 import {
   assembleContext,
   MUST_BLOCK,
@@ -344,6 +346,11 @@ describe('what must stay true', () => {
     const ranked = mustStayTrue(base({ people: [wren], holdings: [compass] }))
     expect(ranked.findIndex((l) => l.includes('no longer has'))).toBeGreaterThan(ranked.findIndex((l) => l.startsWith('Wren is holding')))
     expect(ranked.findIndex((l) => l.includes('no longer has'))).toBeLessThan(ranked.findIndex((l) => l.startsWith('Where Wren is')))
+    // Each line says what it is about, so a scene contract never also keeps what its change list changes (fix 13's review).
+    const [line] = mustLines(base({ people: [wren, osric], stand: null, reach: 'none', holdings: [compass] }))
+    expect(line.about).toEqual({ holding: compass })
+    expect(changedBy(line, ['Mother Agate hands the compass back to Wren'])).toBe(true)
+    expect(changedBy(line, ['Wren crosses the fell in the fog'])).toBe(false)
   })
 
   it('is told only the people in the scene, and a time that still holds; the stage as kept stays whole', () => {

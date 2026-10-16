@@ -64,7 +64,17 @@ export interface IssuePayload {
    * Found by checking a draft against its scene's contract (long story memory fix 13): which list the item was in and its
    * words. Only a check that went through the contract replaces such a row (checks/run.ts).
    */
-  contract?: { part: 'start' | 'change' | 'keep'; text: string }
+  contract?: {
+    part: 'start' | 'change' | 'keep'
+    text: string
+    /**
+     * Something the words go against that a second opinion agreed with (fix 13's review): only such an item may be put
+     * right without asking (the chapter writer's review; chapterWriter/run.ts issueFindings).
+     */
+    confirmed?: true
+    /** Something that must change the words don't show yet: asked, never written in by itself. */
+    missing?: true
+  }
 }
 
 // ---------- Telling the window ----------
@@ -544,6 +554,18 @@ export function saveFixed(db: DB, f: FoundIssue): ID {
 }
 
 /** Every issue row in these scenes (any status). */
+/**
+ * Takes away the open issues a check through a scene's contract raised (long story memory fix 13's review): with contracts
+ * switched off nothing would ever clear them. Ignored ones stay ignored.
+ */
+export function dropContractIssues(db: DB, sceneId: ID): void {
+  for (const r of rowsInScenes(db, [sceneId])) {
+    if (r.status !== 'open' || !json<IssuePayload>(r.payload_json, {}).contract) continue
+    db.prepare('DELETE FROM issues WHERE id = ?').run(r.id)
+    issuesTouched(r.story_id as ID | null, sceneId)
+  }
+}
+
 export function rowsInScenes(db: DB, sceneIds: ID[]): Row[] {
   if (!sceneIds.length) return []
   const out: Row[] = []

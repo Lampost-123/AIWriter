@@ -17,7 +17,7 @@ import { isStartingBeat, startBeat } from './index'
 const h = vi.hoisted(() => ({
   db: null as import('better-sqlite3').Database | null,
   url: '',
-  calls: [] as { sceneId: string; options: Partial<import('@shared/types').DraftOptions>; catchUp: boolean; plan: unknown }[],
+  calls: [] as { sceneId: string; options: Partial<import('@shared/types').DraftOptions>; catchUp: boolean; plan: unknown; focus?: string }[],
   /** Plans asked for (withPlan), with the beat each was for. */
   plans: [] as { sceneId: string; focus: string | undefined }[],
   /** Run once while the next briefing gets ready (the memory catching up), then forgotten. */
@@ -35,9 +35,9 @@ vi.mock('../ai/draftFlow', async () => {
     draftBriefing: async (
       sceneId: string,
       options: Partial<DraftOptions>,
-      o: { extras?: Parameters<typeof prepareContext>[1]; catchUp?: boolean; plan?: boolean }
+      o: { extras?: Parameters<typeof prepareContext>[1]; catchUp?: boolean; plan?: boolean; focus?: string }
     ) => {
-      h.calls.push({ sceneId, options, catchUp: o.catchUp !== false, plan: o.plan })
+      h.calls.push({ sceneId, options, catchUp: o.catchUp !== false, plan: o.plan, focus: o.focus })
       const run = h.whileBriefing
       h.whileBriefing = null
       run?.()
@@ -172,6 +172,8 @@ describe('starting a beat', () => {
     expect(h.calls.map((c) => c.catchUp)).toEqual([false])
     // Planned once, after the briefing (never by it), for this beat alone, with Adam's note for it.
     expect(h.calls.map((c) => c.plan)).toEqual([false])
+    // The beat's scene contract asks for the beat with Adam's note for it (long story memory fix 13's review).
+    expect(h.calls.map((c) => c.focus)).toEqual(['Tobin asks for the ledger (the author’s note for it: Make Tobin stall before he asks)'])
     expect(h.plans).toEqual([{ sceneId, focus: "Beat 2 of 3: Tobin asks for the ledger.\nThe author's note for it: Make Tobin stall before he asks." }])
     // The beat is listed with the scene's drafts (the Drafts tab), so its record can be opened from there.
     expect(gens.listGenerations(db, sceneId)).toEqual([expect.objectContaining({ id: generationId, job: 'beat', status: 'complete' })])
