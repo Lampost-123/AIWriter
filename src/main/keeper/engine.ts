@@ -11,7 +11,11 @@
 //   them, within the time it waits for the memory at all (Adam, 2026-10-15: "Write the whole chapter" drafted the next
 //   scene before the last one's summary was written).
 // - The first time a world opens with this version, its memory is tidied once against the text (tidy.ts, A7).
-// - When the queue is empty, summaries whose sources changed are rolled up (chapter, story, series).
+// - When the queue is empty, each chapter's end-of-chapter snapshot whose record changed is worked out again from the
+//   record (no AI, a few at a time: snapshots.ts), roll-ups made from sources that changed since are marked out of date,
+//   and they are rolled up (chapter, story, series) from the level below and the record (long story memory fix 15).
+// - A scene summary that is due is marked out of date first (the screen says it is being brought up to date), then
+//   written again from the scene's words, never patched (fix 15).
 // - After each read, where things stand as the scene ends is brought up to date as a follow-on (onSceneRead).
 // - Closing the world stops everything cleanly: nothing is written to a closed database.
 // No Electron imports: the window and settings are reached through KeeperDeps (see index.ts).
@@ -22,7 +26,17 @@ import * as kdb from '../db/keeper'
 import * as repo from '../db/repo'
 import type { MemoryModel } from './model'
 import { runScene, failScene, type RunOutcome } from './run'
-import { askSummaryRefresh, nextRollUp, rollUpKey, sceneSummaryDue, writeRollUp, writeSceneSummary, type SummaryOptions } from './summaries'
+import {
+  askSummaryRefresh,
+  markOutOfDate,
+  nextRollUp,
+  rollUpKey,
+  sceneSummaryDue,
+  writeRollUp,
+  writeSceneSummary,
+  type SummaryOptions
+} from './summaries'
+import { refreshSnapshots } from './snapshots'
 import { DUE_SUMMARY_SCENES } from './sceneChange'
 import { summaryRefreshed } from './undo'
 import { loadShapeSafe, placeWords, scenesBefore } from './places'
@@ -84,6 +98,8 @@ export class Keeper {
   /** Scenes whose summary a draft is waiting for (summariesFirst), written before any other summary. */
   private summaryNow: ID[] = []
   private readonly dirtyStories = new Set<ID>()
+  /** Stories whose end-of-chapter snapshots may be out of date (fix 15), brought up to date before their roll-ups. */
+  private readonly recordStories = new Set<ID>()
   private readonly failedRollUps = new Set<string>()
   private current: { sceneId: ID; controller: AbortController; records: Set<ID> } | null = null
   private reading: MemoryStatus['reading'] = null
@@ -145,10 +161,14 @@ export class Keeper {
     this.emitStatus()
   }
 
-  /** At start: every story's roll-ups are looked at, and scenes left behind are queued. */
+  /**
+   * At start: every story's roll-ups are looked at, and scenes left behind are queued. Its end-of-chapter snapshots
+   * (fix 15) are looked at straight away, a few at a time, so a world from before them has them soon after it opens.
+   */
   private queueLeftBehind(): void {
-    for (const s of repo.listStories(this.db)) this.dirtyStories.add(s.id)
+    for (const s of repo.listStories(this.db)) this.storyChanged(s.id)
     for (const id of kdb.scenesToRead(this.db)) this.enqueue(id)
+    if (this.recordStories.size) this.kick()
   }
 
   /** A save: the scene is read once there has been no save for a while. */
@@ -349,6 +369,7 @@ export class Keeper {
   private async summariesFirst(before: ID[]): Promise<void> {
     const ids = this.summariesNeeded(before)
     if (!ids.length || 'error' in this.deps.model()) return
+    for (const id of ids) this.markRebuilding(id)
     this.summaryDue = this.summaryDue.filter((x) => !ids.includes(x))
     for (const id of ids) if (!this.summaryNow.includes(id)) this.summaryNow.push(id)
     const wait = new Promise<void>((resolve) => this.waiters.push({ ids: new Set(ids.map(summaryWait)), resolve }))
@@ -361,7 +382,10 @@ export class Keeper {
     if (this.closed || this.deps.summaries === false) return
     try {
       for (const id of before.slice(-DUE_SUMMARY_SCENES)) {
-        if (!this.summaryDue.includes(id) && sceneSummaryDue(this.db, id, false)) this.summaryDue.push(id)
+        if (!this.summaryDue.includes(id) && sceneSummaryDue(this.db, id, false)) {
+          this.summaryDue.push(id)
+          this.markRebuilding(id)
+        }
       }
     } catch (e) {
       console.warn('Could not tell which summaries are due', e)
@@ -411,6 +435,7 @@ export class Keeper {
     this.summaryAsks = []
     this.summaryDue = []
     this.summaryNow = []
+    this.recordStories.clear()
     this.rereads.clear()
     const cur = this.current
     if (cur) {
@@ -522,6 +547,7 @@ export class Keeper {
         await this.writeDueSummary(due)
         continue
       }
+      if (await this.snapshotsOnce()) continue
       if (await this.rollUpOnce()) continue
       break
     }
@@ -658,7 +684,7 @@ export class Keeper {
             this.deps.emitChanged({ sceneId: id, entryIds: [] })
         }
         const scene = kdb.keeperScene(this.db, id)
-        if (scene) this.dirtyStories.add(scene.storyId)
+        if (scene) this.storyChanged(scene.storyId)
         if (model && scene)
           try {
             this.deps.onSceneRead?.(id, model)
@@ -669,6 +695,7 @@ export class Keeper {
         this.done.delete(id)
         if (this.deps.summaries === false || !model || !scene) return
         if (!sceneSummaryDue(this.db, id, done)) return
+        this.markRebuilding(id)
         const logRunId = outcome.status === 'done' && outcome.lines ? outcome.runId : null
         if (await writeSceneSummary(this.summaryOptions(model, controller, records), id, logRunId, this.where(id))) {
           this.deps.emitChanged({ sceneId: id, entryIds: [] })
@@ -690,6 +717,8 @@ export class Keeper {
       if (await writeSceneSummary(this.summaryOptions(m, controller, records), sceneId, null, this.where(sceneId), true)) {
         if (!this.closed) {
           this.db.transaction(() => summaryRefreshed(this.db, logId))()
+          const scene = kdb.keeperScene(this.db, sceneId)
+          if (scene) this.storyChanged(scene.storyId)
           this.deps.emitChanged({ sceneId, entryIds: [] })
         }
       }
@@ -698,22 +727,65 @@ export class Keeper {
     }
   }
 
-  /** Brings a scene's summary up to date, if it is still due (a short patch when it can be: summaries.ts). */
+  /** Writes a scene's summary again from its words, if it is still due (never a patch of the old one: fix 15). */
   private async writeDueSummary(sceneId: ID): Promise<void> {
     const m = this.deps.model()
     if ('error' in m || !sceneSummaryDue(this.db, sceneId, false)) return
+    this.markRebuilding(sceneId)
     const controller = new AbortController()
     const records = new Set<ID>()
     this.current = { sceneId, controller, records }
     try {
       if (await writeSceneSummary(this.summaryOptions(m, controller, records), sceneId, null, this.where(sceneId))) {
         const scene = kdb.keeperScene(this.db, sceneId)
-        if (scene) this.dirtyStories.add(scene.storyId)
+        if (scene) this.storyChanged(scene.storyId)
         if (!this.closed) this.deps.emitChanged({ sceneId, entryIds: [] })
       }
     } finally {
       if (!this.closed) this.current = null
     }
+  }
+
+  /** Something a story's summaries rest on changed: its snapshots are looked at, then its roll-ups. */
+  private storyChanged(storyId: ID): void {
+    this.dirtyStories.add(storyId)
+    this.recordStories.add(storyId)
+  }
+
+  /**
+   * A scene's summary is due: it is marked out of date until it is written again from the scene's words (fix 15), so the
+   * scene card and the Context tab say it is being brought up to date. Adam's own are never marked.
+   */
+  private markRebuilding(sceneId: ID): void {
+    try {
+      const row = kdb.summaryRow(this.db, 'scene', sceneId)
+      if (!row || row.origin === 'adam' || row.stale || !row.text.trim()) return
+      kdb.markTextSummaryStale(this.db, 'scene', sceneId)
+      this.deps.emitChanged({ sceneId, entryIds: [] })
+    } catch (e) {
+      console.warn('Could not mark a summary as being brought up to date', e)
+    }
+  }
+
+  /**
+   * Brings the end-of-chapter snapshots of one story whose record changed up to date, a few at a time (fix 15: no AI),
+   * then marks which of its roll-ups are out of date. False when there is nothing to do (or scenes are waiting to be read).
+   */
+  private async snapshotsOnce(): Promise<boolean> {
+    if (this.closed || this.deps.summaries === false || !this.recordStories.size || this.queue.length || this.urgent.length) return false
+    const storyId = this.recordStories.values().next().value as ID
+    let more = false
+    try {
+      more = refreshSnapshots(this.db, storyId).more
+      if (!more && markOutOfDate(this.db, storyId)) this.deps.emitChanged({ sceneId: null, entryIds: [] })
+    } catch (e) {
+      console.warn('Could not bring the end-of-chapter snapshots up to date', e)
+      more = false
+    }
+    if (!more) this.recordStories.delete(storyId)
+    // Lets anything waiting (a save, the window) go first before the next few.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    return !this.closed
   }
 
   /** Writes one roll-up whose sources changed; false when there is none (or no model, or scenes waiting). */
@@ -732,8 +804,15 @@ export class Keeper {
     const records = new Set<ID>()
     this.current = { sceneId: r.targetId, controller, records }
     try {
-      if (await writeRollUp(this.summaryOptions(m, controller, records), r)) this.deps.emitChanged({ sceneId: null, entryIds: [] })
-      else this.failedRollUps.add(rollUpKey(r))
+      if (await writeRollUp(this.summaryOptions(m, controller, records), r)) {
+        // What rests on it (the story's roll-up, the series') is out of date now, until it is written again in turn.
+        try {
+          if (!this.closed) for (const id of this.dirtyStories) markOutOfDate(this.db, id)
+        } catch (e) {
+          console.warn('Could not mark which summaries are out of date', e)
+        }
+        this.deps.emitChanged({ sceneId: null, entryIds: [] })
+      } else this.failedRollUps.add(rollUpKey(r))
     } finally {
       if (!this.closed) this.current = null
     }

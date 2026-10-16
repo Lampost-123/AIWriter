@@ -15,10 +15,6 @@ describe('summaries lead with how things stand at the end', () => {
     )
     expect(summaryPrompt({ level: 'story', title: 'Book 1', summaries: list })).toContain('Begin with how things stand at the end of it.')
     expect(summaryPrompt({ level: 'series', name: 'The Salt Road', summaries: list })).toContain('Begin with how things stand at the end of it.')
-    // A patched summary keeps its opening true, or gains one.
-    expect(summaryPrompt({ level: 'scene-patch', where: 'Book 1, Ch 2, Sc 1', title: '', summary: 'Mara went to the inn.', paragraphs: ['She cut her hand.'] })).toContain(
-      'Keep its opening on how things stand at the end true'
-    )
   })
 
   it("so the timeline's opening words keep the ending, which a summary told in order lost first", () => {
@@ -28,5 +24,46 @@ describe('summaries lead with how things stand at the end', () => {
     expect(firstWords(inOrder, 40)).not.toContain('cut her hand')
     expect(firstWords(endFirst, 40)).toContain('cut hand')
     expect(firstWords(endFirst, 18)).toContain('Tobin knows she lied')
+  })
+})
+
+describe('roll-ups are made from the level below and the story record (long story memory fix 15)', () => {
+  const list = [
+    { label: 'Scene 1', text: 'By the end, Mara is at the inn.' },
+    { label: 'Scene 2', text: 'By the end, Mara has the key.' }
+  ]
+
+  it("gives a chapter what the record says changed and how things stand at its end, as facts that win over the summaries", () => {
+    const p = summaryPrompt({
+      level: 'chapter',
+      where: 'Book 1, Ch 2',
+      title: 'The Ferry',
+      summaries: list,
+      record: ['When: Day 3, dusk to Day 5 (2 days)', 'Mara: lost her knife (scene 2)'],
+      end: ['Mara: last at the mill (scene 2); has the brass key']
+    })
+    expect(p).toContain('Begin with how things stand at the end of the chapter')
+    expect(p).toContain('The story record below is fact: where a summary says otherwise, follow the record.')
+    expect(p).toContain('Point to the scene where each big change happens, as (scene 2).')
+    expect(p).toContain('What the story record says changed in this chapter:\n- When: Day 3, dusk to Day 5 (2 days)\n- Mara: lost her knife (scene 2)')
+    expect(p).toContain('How things stand at the end of the chapter, by the story record:\n- Mara: last at the mill (scene 2); has the brass key')
+    // The summaries come first, right after the ask, and the record after them.
+    expect(p.indexOf('Scene 1: By the end')).toBeLessThan(p.indexOf('What the story record says'))
+    expect(p.split('\n\n')[1]).toBe('Scene 1: By the end, Mara is at the inn.')
+  })
+
+  it('says nothing of a record it has none of', () => {
+    const p = summaryPrompt({ level: 'chapter', where: 'Book 1, Ch 2', title: '', summaries: list })
+    expect(p).not.toMatch(/story record/)
+    expect(summaryPrompt({ level: 'story', title: 'Book 1', summaries: list, end: [] })).not.toMatch(/story record/)
+  })
+
+  it('gives a story and a series how things stand at the end, by the record, never an older summary of themselves', () => {
+    const story = summaryPrompt({ level: 'story', title: 'Book 1', summaries: list, end: ['Edric: dead', 'Plot threads still open: The toll'] })
+    expect(story).toContain('Begin with how things stand at the end of it.')
+    expect(story).toContain('How things stand at the end, by the story record:\n- Edric: dead\n- Plot threads still open: The toll')
+    const series = summaryPrompt({ level: 'series', name: 'The Salt Road', summaries: list, end: ['Edric: dead'] })
+    expect(series).toContain('How things stand at the end of the last book, by the story record:\n- Edric: dead')
+    expect(series).toContain('follow the record')
   })
 })

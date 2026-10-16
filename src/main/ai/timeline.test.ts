@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { EntryState } from '@shared/types'
 import type { StorySoFar } from '../memory/types'
-import { DETAILED, TIMELINE_LEAD, TIMELINE_LEVELS, TIMELINE_WORDS, timelineMarks, timelineShape, timelineText, type TimelineContext } from './timeline'
+import { DETAILED, RECORD_FACTS, TIMELINE_LEAD, TIMELINE_LEVELS, TIMELINE_WORDS, timelineMarks, timelineShape, timelineText, type TimelineContext } from './timeline'
+import type { ChapterSnapshot } from '../memory/snapshot'
 import { MOST_SCALE } from './memoryRoom'
 
-const names: Record<string, string> = { w: 'Wren', a: 'Ash', o: 'Oskar', inn: 'The inn', ferry: 'The Linn ferry' }
+const names: Record<string, string> = { w: 'Wren', a: 'Ash', o: 'Oskar', inn: 'The inn', ferry: 'The Linn ferry', toll: 'The toll', bell: 'Who rang the bell?' }
 const person = (name: string, happened: EntryState['happened'] = []) => ({ kind: 'character' as const, name, happened })
 const ctx = (entries: TimelineContext['entries'] = []): TimelineContext => ({ storyTitle: 'Fell Road', name: (id) => names[id] ?? null, entries })
 const words = (n: number, w = 'rain'): string => `${Array.from({ length: n }, () => w).join(' ')}.`
@@ -174,5 +175,68 @@ describe('the canon timeline', () => {
 
   it('is empty when nothing came before', () => {
     expect(timelineText({ scenes: [], chapters: [], stories: [], series: [], leadsInto: null }, ctx())).toBe('')
+  })
+})
+
+describe('an older chapter’s line, from the story record (long story memory fix 15)', () => {
+  const record = (over: Partial<ChapterSnapshot> = {}): ChapterSnapshot => ({
+    v: 1,
+    chapterId: 'c1',
+    storyId: 'b1',
+    sceneId: 's13',
+    span: 'Day 11 to Day 13 (2 days)',
+    days: 'Day 11 to Day 13',
+    changed: [{ who: 'w', note: 'cut her hand', sc: 1 }],
+    learned: [{ who: ['a'], fact: 'Wren is the heir', sc: 2, how: 'saw' }],
+    threads: [
+      { thread: 'toll', step: 'paid off', sc: 3 },
+      { thread: 'bell', step: 'set up', sc: 3 }
+    ],
+    people: [{ who: 'w', at: 'inn', atSc: 3 }],
+    open: ['bell'],
+    ...over
+  })
+  const lineOf = (t: string, head: string): string => t.split('\n').find((l) => l.startsWith(head)) ?? ''
+
+  it('says the days it runs, and in full what its opening words may have lost: who learned what, threads paid off', () => {
+    const s = story()
+    s.chapters[0] = { ...s.chapters[0], record: record() }
+    expect(RECORD_FACTS).toBe(2)
+    expect(lineOf(timelineText(s, ctx()), '- Ch 1')).toBe(
+      `- Ch 1, Day 11 to Day 13: Chapter 1 in short. ${words(30)} [Ash learned: Wren is the heir; paid off: The toll]`
+    )
+    // A chapter whose record says nothing of time or of these keeps its line as it was.
+    s.chapters[1] = { ...s.chapters[1], record: record({ span: '', days: '', learned: [], threads: [] }) }
+    expect(lineOf(timelineText(s, ctx()), '- Ch 2')).toBe(`- Ch 2: Chapter 2 in short. ${words(30)}`)
+  })
+
+  it('in its brief form keeps the days but not the facts, so a line made brief to fit grows no longer', () => {
+    const big = story(20, 5, 120)
+    big.chapters[0] = { ...big.chapters[0], record: record() }
+    const t = timelineText(big, ctx(), 1)
+    expect(t).not.toContain('left out here')
+    const line = lineOf(t, '- Ch 1')
+    expect(line.startsWith('- Ch 1, Day 11 to Day 13: Chapter 1 in short.')).toBe(true)
+    expect(line).not.toContain('learned')
+  })
+
+  it('says when a chapter summary is being brought up to date, of the chapter', () => {
+    const s = story()
+    s.chapters[0] = { ...s.chapters[0], updating: true }
+    expect(lineOf(timelineText(s, ctx()), '- Ch 1')).toMatch(/\(This summary is being brought up to date: the chapter has changed since it was written\.\)$/)
+    expect(lineOf(timelineText(s, ctx()), '- Ch 2')).not.toContain('brought up to date')
+  })
+
+  it('reads the same from one scene to the next: a new scene in a later chapter changes no older line', () => {
+    const s = story()
+    s.chapters[0] = { ...s.chapters[0], record: record() }
+    const before = timelineText(s, ctx())
+    const next: StorySoFar = {
+      ...s,
+      scenes: [...s.scenes, { sceneId: 's44', chapterId: 'c4', label: 'Fell Road, Ch 4, Sc 4', text: 'Scene 4.4 happened.', when: 'Day 44', whereId: 'inn', whoIds: ['w'] }]
+    }
+    const after = timelineText(next, ctx())
+    expect(after.startsWith(before.slice(0, before.indexOf('- Ch 3')))).toBe(true)
+    expect(lineOf(after, '- Ch 1')).toBe(lineOf(before, '- Ch 1'))
   })
 })

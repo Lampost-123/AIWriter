@@ -2,8 +2,9 @@
 // source hash says what it was made from: the scene's words (a hash and a count) and, since this change, each
 // paragraph (its id, a hash and a short sketch of its words), so a later read can tell which paragraphs changed and
 // about how many words. A summary is due again when about forty words changed, or a changed paragraph names someone or
-// something in the memory (newly, or with eight or more of its words changed: never for a typo); a few edited paragraphs can be patched into the old summary instead of summarising the scene
-// again. Older hashes (words only) still work: they are compared by the scene's words. Reads only; no Electron imports.
+// something in the memory (newly, or with eight or more of its words changed: never for a typo). The summary is then
+// written again from the scene's words, never patched (long story memory fix 15: patching built summaries on summaries).
+// Older hashes (words only) still work: they are compared by the scene's words. Reads only; no Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'

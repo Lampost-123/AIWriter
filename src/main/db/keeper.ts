@@ -644,6 +644,14 @@ export function markTextSummaryStale(db: DB, level: SummaryLevel, targetId: ID):
   db.prepare("UPDATE summaries SET stale = 1 WHERE level = ? AND target_id = ? AND origin <> 'adam' AND stale = 0").run(level, targetId)
 }
 
+/**
+ * Marks a summary the keeper wrote as out of date, or as up to date again, without rewriting it (long story memory fix 15:
+ * a roll-up whose sources changed is out of date until it is written again). Adam's own are left alone.
+ */
+export function setTextSummaryStale(db: DB, level: SummaryLevel, targetId: ID, stale: boolean): void {
+  db.prepare("UPDATE summaries SET stale = ? WHERE level = ? AND target_id = ? AND origin <> 'adam'").run(stale ? 1 : 0, level, targetId)
+}
+
 /** Records what a summary stands for without rewriting it (after an undo, so it isn't written again until that changes). */
 export function setSummarySourceHash(db: DB, level: SummaryLevel, targetId: ID, sourceHash: string): void {
   db.prepare('UPDATE summaries SET source_hash = ?, stale = 0 WHERE level = ? AND target_id = ?').run(sourceHash, level, targetId)

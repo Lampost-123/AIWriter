@@ -355,17 +355,11 @@ export function fakeMemoryReply(user) {
 }
 
 /**
- * A deterministic summary: the opening words of the text it was given. A scene summary to patch (World Memory Overhaul
- * A3: the old summary, then the paragraphs new or rewritten since) is edited the same way: the opening words of those
- * paragraphs, then of the old summary, so it never echoes the prompt's "Summary:" label back.
+ * A deterministic summary: the opening words of the text it was given (a roll-up's: of the summaries it is made from,
+ * which come before the story record's lines). Since long story memory fix 15 no summary is patched: a scene's is always
+ * written again from its words.
  */
 export function fakeSummary(user) {
-  const patch = String(user).match(/^This is the summary of a scene[\s\S]*?\n\nSummary: ([\s\S]*?)\n\nNew or rewritten paragraphs:\n\n([\s\S]*)$/)
-  if (patch) {
-    const old = patch[1].replace(/^This part of the story begins:\s*/, '')
-    const words = `${patch[2]} ${old}`.split(/\s+/).filter(Boolean).slice(0, 40).join(' ')
-    return `This part of the story begins: ${words.replace(/[.,;:!?"']+$/, '')}.`
-  }
   const text = String(user)
     .split('\n\n')
     .slice(1)

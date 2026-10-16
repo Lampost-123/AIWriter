@@ -23,6 +23,7 @@ import type {
   Summary,
   ThreadState
 } from '@shared/types'
+import type { ChapterSnapshot } from './snapshot'
 
 // ---------- The shape of a world's stories (no text) ----------
 
@@ -175,7 +176,18 @@ export interface StorySoFar {
     missing?: boolean
   }[]
   /** This story's chapters that ended before this scene, oldest first, with their summaries. */
-  chapters: { chapterId: ID; label: string; text: string }[]
+  chapters: {
+    chapterId: ID
+    label: string
+    text: string
+    /**
+     * For the writer (long story memory fix 15): the memory's summary was made from sources that have changed since (a
+     * scene's summary, or what the record says changed in the chapter); it is being brought up to date.
+     */
+    updating?: boolean
+    /** For the writer (fix 15): the chapter's end-of-chapter snapshot, worked out from the story record (memory/chapterRecord.ts). */
+    record?: ChapterSnapshot
+  }[]
   /**
    * One paragraph for each earlier story on the walk, oldest first. Side stories are marked
    * meanwhile. A story the line cuts short is summarised from its chapter summaries up to the cut

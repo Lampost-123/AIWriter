@@ -21,10 +21,12 @@ describe('summaryNote', () => {
     expect(summaryNote(summary('adam', true), 'chapter')).toBe('Your own words. The chapter has changed since you wrote them.')
   })
 
-  it('says when AI Write wrote it, and that it keeps up by itself', () => {
+  it('says when AI Write wrote it, and plainly when it is being brought up to date', () => {
     expect(summaryNote(summary('text', false), 'scene')).toBe('Written by AI Write. Edit it to make it your own.')
-    expect(summaryNote(summary('text', true), 'story')).toBe(
-      "Written by AI Write. It catches up with the story's latest changes by itself."
-    )
+    expect(summaryNote(summary('text', true), 'story')).toBe("Being brought up to date with the story's latest changes.")
+    expect(summaryNote(summary('text', true), 'chapter')).toBe("Being brought up to date with the chapter's latest changes.")
+    // No longer than the note it replaces, so it takes no more room under the box.
+    expect(summaryNote(summary('text', true), 'series')).toBe("Being brought up to date with the series' latest changes.")
+    expect(summaryNote(summary('text', true), 'series').length).toBeLessThan("Written by AI Write. It catches up with the series's latest changes by itself.".length)
   })
 })

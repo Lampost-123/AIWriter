@@ -738,7 +738,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   two levels (`shortTo`) before shortening anything above it.
 - **A scene's summary follows its facts.** When a read finds the words a fact came from edited or deleted, the
   scene's summary is marked stale (`applyRead`) and written again after the run, however small the edit; otherwise
-  it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it.
+  it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it. Since long story memory
+  fix 15 it is always written again from the scene's words, never patched, and the roll-ups are made from the level
+  below and the story record ("Long story memory: summaries rebuilt from the record", below).
 - **Where things stand** (`continuity/tracker.ts`, `@shared/continuity`): each character's where, wearing, position,
   holding, condition, mood and last action as a scene ends, and its time, weather and light; only the latest of each
   is kept. Worked out by the memory model before a draft (the last few scenes, oldest first) and kept in `meta`
@@ -2366,8 +2368,8 @@ the same story so far and passages as before; what changes for it is the share f
   back (`giveBack`, step 8).
 - **Summaries that lead with the ending, and are there when needed.** `SUMMARY_SYSTEM` asks every summary to begin "By
   the end," with where people end up, injuries, who now knows what, who holds what, decisions and promises, then tell
-  what happened in order; chapter, story and series roll-ups begin with how things stand at their end, and a patched
-  summary keeps or gains that opening (`keeper/prompts.ts`). Before a draft, after the earlier scenes and the scene's
+  what happened in order; chapter, story and series roll-ups begin with how things stand at their end (`keeper/prompts.ts`;
+  a patched summary kept or gained that opening until fix 15 stopped patching, below). Before a draft, after the earlier scenes and the scene's
   own words are read, the keeper writes the summaries the briefing can't do without and the draft waits for them
   (`engine.ts` `summariesFirst`, `summaryNow`, waited on as `summary:<id>`): the scene just before when its summary is
   due, and any of the last `DUE_SUMMARY_SCENES` with none at all; other due summaries are queued after as before. All
@@ -2412,7 +2414,7 @@ the same story so far and passages as before; what changes for it is the share f
 
 Not done here (the research's later steps): a book-length test story, rule-based checks, a ledger for time (fix 11,
 below), a ledger for promises (fix 10, below), a ledger for who knows what (fix 9, below), spotting characters however they are named
-(fix 12, below), and a continuity brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
+(fix 12, below), summaries rebuilt from the record (fix 15, below), and a continuity brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
 cover some of it.
 
 ## Long story memory: spotting characters however they are named (fix 12, 2026-10-15)
@@ -2749,6 +2751,80 @@ characters to spare left for later fixes).
   scenes before ("The next morning (Day 4)") in the line they already have (the page head reads it with the card, so
   the line is drawn once). A When such as "Day 1, dusk" reads as itself, so the sample world's scenes keep the usual
   hint and Classic's screenshots are unchanged; no View setting was needed.
+
+## Long story memory: summaries rebuilt from the record (fix 15, 2026-10-16)
+
+The research's fix 15: chapter, story and series summaries were summaries of summaries (a chapter's from its scenes', a
+story's from its chapters'), and a small edit patched a scene's old summary from the changed paragraphs (World Memory
+Overhaul A3), so summaries were built on summaries. Every round of re-summarising adds errors (FlawedFictions: the
+plot-hole rate in LLM summaries rose by about half), while summaries built in layers stay more coherent (BooookScore).
+So hard facts now come from the story record, summaries are signposts, and each is tied to what it is made from
+(the Qvink and MemoryBooks pattern). No migration, and no new AI call: the keeper's summary calls get new inputs.
+
+- **A scene's summary is never patched** (`keeper/summaries.ts` `writeSceneSummary`; the `scene-patch` ask, its prompt
+  and `patchable` are gone). When it is due (as before: `sceneChange.ts` `summaryDue`), it is first marked out of date
+  (`engine.ts` `markRebuilding`: `stale`, so the screen says so, and `memory:changed`), then written again from the
+  scene's words (a long scene in parts, then joined, as before). It costs a whole scene's words each time where the
+  patch sent only the changed paragraphs; the patch was what built summaries on summaries. Fix 3's "By the end, …"
+  opening and `summariesFirst` waiting are as they were.
+- **End-of-chapter snapshots** (`memory/chapterRecord.ts` `chapterSnapshot`, the snapshot and its words in
+  `memory/snapshot.ts`; no AI). As of the chapter's last scene with words, from what the memory keeps (as the writer is
+  given it, `writerData`): what changed in its scenes (the memory's notes, and ties between characters made or ended
+  there), who learned what in it and still knows it at its end, with how (`FactState.since`, fix 9; `how` "said" for the
+  speaker left out), and who came to believe something that isn't true (`beliefs`), grouped by fact and scene; the plot
+  threads it set up, moved on or paid off (thread changes and notes on threads in its scenes, set up where
+  `ThreadState.setUp` is its scene; fix 10); when it runs (`span`, "Day 3, dusk to Day 5, morning (2 days)", and `days`,
+  "Day 3 to Day 5", from the story calendar, flashbacks left out: `spanOf`, fix 11); and how each character in it (on its
+  cards, in what changed or was learned) stands at its end: dead (`deathOf`), last at the place of the last scene whose
+  card has them, looks a change set during the story (marks, build, face, hair, eyes, skin), what they now hold
+  (`holdingsOf`), what they believe wrongly; and the threads still open, those it touched first. `SNAPSHOT_MOST` caps
+  each (changed 12, learned 6, threads 6, people 10, open 8). Entries are kept by id and named when it is said
+  (`entryNames`, the timeline's `name`), so a rename never makes one out of date.
+- **Kept in meta** (`db/snapshots.ts`, `chapter_snapshot:<chapter id>`, JSON of `{ key, snapshot }`, null for a chapter
+  with no words; `purgeTrash` drops those of chapters gone for good, `dropSnapshotsOfGoneChapters`). The memory keeper
+  keeps them in step (`keeper/snapshots.ts` `refreshSnapshots`): a snapshot is worked out again only when its key
+  changes, made of its chapter's scenes (the version the memory last read, the cards' people, place and day on the
+  calendar, whether they have words), the changes pinned to them or ended in them (`sceneStamps`), every change outside
+  the story's own scenes (`outsideStamp`: the starting setup, the books before), and the chapter before's end (`endPart`,
+  so an edit early on is carried forward only as far as it changes how things stand; an empty chapter passes it on).
+  A few queries a story, however long; `SNAPSHOTS_AT_A_TIME` (3) worked out at a time, between `setImmediate` pauses,
+  while the keeper has nothing to read (`engine.ts` `snapshotsOnce`, before the roll-ups; on no model too), and
+  straight away when a world opens, so a world from before this has them soon after. In the speed test's big world (10
+  books of 200 scenes, 3,000 changes) a batch of three takes about 50 ms, and looking again with nothing changed about
+  15 ms (`tests/unit/memoryPerf.test.ts`).
+- **Roll-ups from the level below and the record** (`keeper/summaries.ts` `storySources`, `seriesSources`,
+  `nextRollUp`; `keeper/prompts.ts`). A chapter's ask is its scenes' summaries, then "What the story record says
+  changed in this chapter:" (`changedLines`) and "How things stand at the end of the chapter, by the story record:"
+  (`endLines`), within `RECORD_SHARE` (0.4) of its room, the summaries fitted into the rest (so trimming them no longer
+  loses facts). A story's is its chapters' summaries and how things stand at the end of its last summarised chapter; a
+  series', its books' and the end of the last book. Each is told "The story record below is fact: where a summary says
+  otherwise, follow the record", and a chapter "Point to the scene where each big change happens, as (scene 2)". None
+  is ever made from an older summary of itself. Default titles aren't repeated ("Scene 2", not Scene 2 "Scene 2").
+- **Tied to what it is made from** (`sourceHash`). A chapter's: `ch2|` the hash of what changed in it (`localPart`),
+  then each scene by id with the revision of its summary (`<scene id>~<hash>`); a story's `st2|` and a series' `se2|`:
+  how things stand at the end (`endPart`), then each chapter or book the same way. A chapter isn't tied to how things
+  stand at its end, so an edit early in a book never has every later chapter summarised again (one AI call each): their
+  snapshots follow, and the writer reads those. A roll-up written before this (its hash is of its summaries alone) counts
+  as up to date until those summaries change (`upToDate`, the old hash), so no world has every roll-up written again at
+  once; one Adam undid counts as up to date (`suppressed`).
+- **Out of date, not patched** (`markOutOfDate`). After the snapshots of a story are brought up to date, and after each
+  roll-up is written, every roll-up the memory wrote whose sources changed since is marked `stale`, and the mark is
+  cleared from one made from what is there now (`db/keeper.ts` `setTextSummaryStale`); Adam's own are never marked. So a
+  change to one scene makes its summary, its chapter's, the story's and the series' out of date, and nothing else, until
+  each is written again from its parts. Roll-ups still run only when the keeper has nothing to read (`rollUpOnce`).
+- **The writer's timeline** (`ai/timeline.ts`, `memory/scene.ts` `withRecords`, one query). An older chapter's line (one
+  rolled up a line each) says the days it runs ("- Ch 3, Day 3 to Day 5: …") and, in its full form, up to `RECORD_FACTS`
+  (2) of what its 60 words may have lost: who learned what, then threads paid off and set up (`timelineFacts`), after its
+  marks; a summary out of date says "(This summary is being brought up to date: the chapter has changed since it was
+  written.)". The snapshot is the one kept, never worked out for a briefing, so an older line reads the same from one
+  scene to the next until its chapter changes (tested). The prose story so far (`storySoFarText`: checks, Ask, the
+  interview) is as it was.
+- **On the screen** (`features/inspector/summaryText.ts`, both looks): a summary the memory wrote that is out of date
+  says, in the note under it on the scene card and in the Context tab's story so far, "Being brought up to date with the
+  chapter's latest changes." (scene's, story's, series'), in place of "Written by AI Write. It catches up with the
+  chapter's latest changes by itself.": shorter, in the note's own line, so nothing moves. The sample world's summaries
+  are up to date, so Classic's screenshots are unchanged.
+- The import estimate counts the record in each roll-up (`importing/estimate.ts` `RECORD_TOKENS`).
 
 ## Milestone 1 scope
 
