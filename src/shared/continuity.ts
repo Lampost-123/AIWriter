@@ -8,6 +8,7 @@
 // is read as pieces with nothing lost (clothesOf). Shared by the main process and the Recall panel. Pure.
 
 import {
+  allOff,
   isGone,
   isOff,
   itemKey,
@@ -19,6 +20,7 @@ import {
   offState,
   pieceText,
   readItem,
+  sameGarment,
   singular,
   thingText,
   type StageItem
@@ -548,7 +550,8 @@ export function readChanges(reply: string, words: string, sceneId: string): (Par
       if (nameKey === 'item') it.state = offState(it.state)
       if (!it.state) continue
       const q = quoted(raw)
-      if (!q && !isGone(it.state, nameKey === 'item') && !(nameKey === 'item' && isOff(it.state))) continue
+      // Everything off at once ("nothing", "naked") says only that something came off, as a piece off does.
+      if (!q && !isGone(it.state, nameKey === 'item') && !(nameKey === 'item' && (isOff(it.state) || allOff(it)))) continue
       // "the door", when two doors are named just before it, is not the nearer one's name (unnamed).
       if (q && nameKey === 'thing') it.name = unnamed(it.name, q, words)
       if (q) said[keyOf(it.name)] = { quote: q, sceneId }
@@ -743,8 +746,33 @@ const placeWords = (s: string): string =>
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
 
-/** True when someone known to be somewhere is now said to be somewhere else (never for a first where). */
-const movedOn = (was: string, now: string | undefined): boolean => !!now && !!placeWords(was) && placeWords(was) !== placeWords(now)
+/** Little words in a place's words that never say which place: "the", "her". */
+const PLACE_LITTLE = new Set('a an the his her their its my your our'.split(' '))
+/** A place's words as compared, without the little words: "on bed" for "on the bed". */
+const placeCore = (s: string): string =>
+  placeWords(s)
+    .split(' ')
+    .filter((w) => w && !PLACE_LITTLE.has(w))
+    .join(' ')
+/** The place itself, before any words on where in it: "upstairs room" for "the upstairs room, on the bed". */
+const placeHead = (s: string): string => placeCore(s.split(/[,;(:]|\s[–—-]\s/)[0] ?? '')
+/** True when one place's words end with the other's, two words or more ("on her back on the bed" and "on the bed"). */
+const endsWith = (a: string, b: string): boolean => b.includes(' ') && ` ${a}`.endsWith(` ${b}`)
+
+/**
+ * True when someone known to be somewhere is now said to be somewhere else (never for a first where). The same place said
+ * more or less fully is no move (Adam, 2026-10-16: "on the bed" becoming "on the bed, on her back" cleared who touched
+ * whom for both): the same place before any words on where in it, or one's words ending with the other's.
+ */
+function movedOn(was: string, now: string | undefined): boolean {
+  if (!now) return false
+  const a = placeCore(was)
+  const b = placeCore(now)
+  if (!a || a === b) return false
+  const ha = placeHead(was)
+  if (ha && ha === placeHead(now)) return false
+  return !endsWith(a, b) && !endsWith(b, a)
+}
 
 /** True when a value names this person: any word of their name, capitalised as names are ("Ash" in "looking at Ash"). */
 function namesPerson(value: string, name: string): boolean {
@@ -774,6 +802,68 @@ function placedAfterMove(out: SceneState, said: StateSources, moved: CharacterSt
   }
 }
 
+// ---------- Everything off at once ----------
+// Nudity couldn't be recorded (Adam, 2026-10-16): a reply's {"item": "clothes", "state": "off"} was kept as one more
+// piece beside "dress on", and "nothing" only counted as one line of clothes. Now a piece that means everything someone
+// has on, said off ("clothes", "everything", "all her clothes"), or one that says nothing is worn ("nothing", "naked"),
+// takes every piece listed for them off, with where they went when it says, and its words; with nothing listed, one
+// piece says so ("clothes off"). The first piece put on again after that ends it.
+
+/**
+ * What someone wears once everything came off (see above): each piece that was on is off, with `state`'s where ("off, on
+ * the floor"); one already off stays as it was. `changed`: the pieces it took off, for their words.
+ */
+function allTakenOff(worn: StageItem[], state: string): { items: StageItem[]; changed: string[] } {
+  const where = isOff(state) ? state.replace(/^\s*off\b[\s,;:-]*/i, '').trim() : ''
+  const off = where ? `off, ${where}` : 'off'
+  const changed: string[] = []
+  const items = worn
+    .filter((p) => !allOff(p))
+    .map((p) => {
+      if (!isOn(p)) return p
+      changed.push(p.name)
+      return { name: p.name, state: off }
+    })
+  if (!items.length) {
+    items.push({ name: 'clothes', state: off })
+    changed.push('clothes')
+  }
+  return { items, changed }
+}
+
+// ---------- Clothing listed as a thing in the place ----------
+// The memory model lists worn clothes under "things" too (Adam, 2026-10-16), and a dress "on, unbuttoned" read as a thing
+// put somewhere took the dress off her (onePlace: "on" starts a place). A thing that is a piece of clothing someone has
+// (the same garment by its main word, and theirs when its name says whose), said as worn ("on", "worn", "on her feet")
+// or off, is that piece, which says it: it is not kept as a thing. One put somewhere ("Ash's coat: on the peg") stays a
+// thing, as before: put down means not worn (onePlace).
+
+/**
+ * A thing's state that says it is worn or taken off, as a piece's would: "on", "on, unbuttoned", "worn", "on her", "off",
+ * "on Ash's feet" (never "draped over the back of the chair": that is somewhere).
+ */
+const WORN_STATE =
+  /^(?:worn\b|being worn\b|off\b|on\s*(?:$|[,;(])|on (?:him|her|them)$|on (?:\p{Lu}[\p{L}-]*['’]s|his|her|their) (?:feet|foot|head|back|shoulders?|hands?|arms?|wrists?|fingers?|neck|hips?|waist|body)\b)/iu
+
+/** The change set without any piece of clothing given as a thing in the place, worn or off (see above). */
+function garmentsAsPieces(out: SceneState, now: Partial<SceneState> & { gone?: string[] }): Partial<SceneState> & { gone?: string[] } {
+  if (!now.things?.length) return now
+  const people = [...out.characters, ...(now.characters ?? [])]
+  const names = [...new Set(people.map((c) => c.name.toLowerCase()))]
+  const clothesFor = (n: string): StageItem[] => people.filter((c) => c.name.toLowerCase() === n).flatMap((c) => clothesOf(c))
+  const said: StateSources = { ...(now.said ?? {}) }
+  const things = now.things.filter((t) => {
+    const state = t.state.trim()
+    if (!WORN_STATE.test(state)) return true
+    const owner = ownerOf(t.name)
+    const name = t.name.replace(/^(?:the\s+)?\p{Lu}[\p{L}-]*['’]s\s+/u, '')
+    if (!names.some((n) => (!owner || tokens(n).includes(owner)) && clothesFor(n).some((p) => sameGarment(name, p)))) return true
+    delete said[thingKey(t.name)]
+    return false
+  })
+  return things.length === now.things.length ? now : { ...now, things, said }
+}
+
 /**
  * The state after a scene: the one before it with what the scene says laid over it. A value the scene gives
  * replaces the old one (Adam: the old is discarded, not kept beside it); what it doesn't mention carries on, except how
@@ -784,11 +874,13 @@ function placedAfterMove(out: SceneState, said: StateSources, moved: CharacterSt
  * Each thing is in one place (onePlace): a thing put somewhere is no longer worn or held, and one taken up is no longer
  * where it was. The result is always kept piece by piece, whatever the state before was.
  */
-export function mergeState(before: SceneState | null, now: Partial<SceneState> & { gone?: string[] }): SceneState {
+export function mergeState(before: SceneState | null, change: Partial<SceneState> & { gone?: string[] }): SceneState {
   const said: StateSources = { ...(before?.said ?? {}) }
   const out: SceneState = before
     ? { ...before, things: thingsOf(before).map((t) => ({ ...t })), characters: before.characters.map((c) => asPieces({ ...c }, said)) }
     : empty()
+  // A piece of clothing given as a thing in the place is that piece (garmentsAsPieces).
+  const now = garmentsAsPieces(out, change)
   // A new value takes its own words, or none: never the old value's.
   const take = (key: string, as = key): void => {
     const from = now.said?.[key]
@@ -838,14 +930,35 @@ export function mergeState(before: SceneState | null, now: Partial<SceneState> &
       take(key, sourceKey(had.name, f))
     }
     const who = had.name
-    const worn = clothesOf(had)
+    let worn = clothesOf(had)
+    /** Everything they had on came off at once (allTakenOff), with these words, or none. */
+    const allCameOff = (state: string, from: StateSource | undefined): void => {
+      const t = allTakenOff(worn, state)
+      for (const p of worn) if (allOff(p)) delete said[pieceKey(who, p.name)]
+      for (const name of t.changed) {
+        if (from) said[pieceKey(who, name)] = from
+        else delete said[pieceKey(who, name)]
+      }
+      worn = t.items
+    }
     if (c.clothes?.length) {
-      const m = mergeItems(worn, c.clothes, true, MOST_CLOTHES)
+      const all = c.clothes.find(allOff)
+      if (all) allCameOff(all.state, now.said?.[pieceKey(c.name, all.name)])
+      const m = mergeItems(worn, c.clothes.filter((p) => !allOff(p)), true, MOST_CLOTHES)
       had.clothes = m.items
       for (const { from, to } of m.changed) {
         take(pieceKey(c.name, from), pieceKey(who, to))
         mine.pieces.add(to)
       }
+      // Something put on again: what said everything was off no longer holds.
+      if (!all && m.changed.some(({ to }) => had!.clothes!.some((p) => p.name === to && isOn(p) && !allOff(p)))) {
+        for (const p of had.clothes.filter(allOff)) delete said[pieceKey(who, p.name)]
+        had.clothes = had.clothes.filter((p) => !allOff(p))
+      }
+    } else if (c.wearing && gone.has(sourceKey(c.name, 'wearing')) && allGone('wearing', c.wearing) && worn.some((p) => !allOff(p))) {
+      // Given the old way, "nothing" or "naked" with pieces listed: each comes off, rather than one piece "nothing".
+      allCameOff('off', now.said?.[sourceKey(c.name, 'wearing')])
+      had.clothes = worn
     } else if (c.wearing) {
       // Given the old way: the whole outfit in one line, or only what came off (laid over what was worn).
       const key = sourceKey(c.name, 'wearing')
@@ -949,8 +1062,21 @@ function capped(lines: string[], most: number): string[] {
   return out
 }
 
-/** What someone wears as lines under them, as much as fits (TOLD_WORN). */
-const wornLines = (pieces: StageItem[]): string[] => capped(pieces.map(pieceText), TOLD_WORN).map((p) => `  - wearing: ${p}`)
+/** A piece told short: its name and whether it is on or off ("grey coat on"); one read from an old line as it was. */
+const shortPiece = (p: StageItem): string => (p.state ? `${p.name} ${isOff(p.state) ? 'off' : 'on'}` : p.name)
+
+/**
+ * What someone wears as lines under them, every piece (Adam, 2026-10-16: past TOLD_WORN the pieces changed longest ago
+ * were dropped without a word, so a writer told "boots off" was never told the shirt was still on). When they don't all
+ * fit, those changed longest ago are told short first ("grey coat on"); none is left out.
+ */
+function wornLines(pieces: StageItem[]): string[] {
+  const one = (l: string): string => (l.length > TOLD_ONE ? `${l.slice(0, TOLD_ONE - 1).trimEnd()}…` : l)
+  const lines = pieces.map((p) => one(pieceText(p)))
+  const size = (): number => lines.reduce((n, l) => n + l.length, 0)
+  for (let i = 0; i < lines.length && size() > TOLD_WORN; i++) lines[i] = one(shortPiece(pieces[i]))
+  return lines.map((p) => `  - wearing: ${p}`)
+}
 
 /**
  * The state as lines: for the writer, the checks and What the AI saw. `only`: just these characters (names). Each piece

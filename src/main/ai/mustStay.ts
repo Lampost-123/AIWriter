@@ -24,7 +24,9 @@ import {
   heldNotPlaced,
   pieceClashes,
   pieceSource,
+  saysGone,
   sourceKey,
+  STATE_FIELDS,
   thingKey,
   thingsOf,
   type CharacterState,
@@ -33,7 +35,7 @@ import {
   type StateSource
 } from '@shared/continuity'
 import { FIELD_GROUPS } from '@shared/fields'
-import { isOff, namesItem as namesStageItem, pieceText, thingText, type StageItem } from '@shared/stageItems'
+import { isOff, itemKey, namesItem as namesStageItem, pieceText, thingText, type StageItem } from '@shared/stageItems'
 import { holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
 import { deathOf } from './deaths'
 import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './knows'
@@ -330,6 +332,41 @@ export interface StageScope {
   previousSceneId?: ID | null
   /** The characters dead by now (their names and other names): only ever dead on the stage, never "burning in his chair". */
   dead?: string[]
+  /**
+   * How far what the scene before left still holds here, for every value whose words aren't this scene's own (Adam,
+   * 2026-10-16: a "Day 2, morning, kitchen" scene was told "lying on her side under the quilt… dress off, trousers off,
+   * keep to this", and the writer spent its opening on waking and dressing). 'moment': this scene starts as the one before
+   * ended, so all of it. 'day': later the same day: how people are, what they hold, what they still had on and the things
+   * in the place; not where they are, how they are placed, who they touch or see, their mood or what they last did, nor a
+   * piece they had taken off (they may have dressed since). 'later': a later day, or how long has passed isn't known: how
+   * people are, and anything they hold. Left out (older callers): no such rule.
+   */
+  carried?: 'moment' | 'day' | 'later'
+  /**
+   * Where things stood as this scene began (at its start, the stage itself): a value kept without words that is as it was
+   * then is from before, under `carried`. Left out: such a value is taken as this scene's own.
+   */
+  began?: SceneState | null
+}
+
+/**
+ * Words for how someone is that last only a moment: out of breath, flushed, asleep, spent (Adam, 2026-10-16: "breath
+ * ragged, came" from a night scene was told to the next morning as how they are, and as what must not change).
+ */
+const PASSING =
+  /\b(?:breath(?:less|ing hard)?|panting|out of breath|ragged|flushed|blushing|sweat(?:y|ing)?|came|climaxed|spent|sated|aroused|slick|sticky|wet|damp|soaked|glistening|naked|nude|undressed|trembling|shaking|shivering|tingling|giddy|dizzy|light-headed|sleepy|drowsy|asleep|half[- ]asleep|dozing|tired|weary|exhausted|drained|hungry|thirsty|cold|chilled|warm|tipsy|drunk)\b/i
+/** Words that say a hurt, which lasts, whatever passing words come with it ("bleeding and out of breath"). */
+const HURT = /\b(?:wound|cut|broken|bruis|sling|bandag|burn|scar|bleed|blood|sprain|limp|fever|sick|ill\b|fractur|stitch)/i
+
+/**
+ * How someone is, without what lasts only a moment (PASSING), for a later moment than the one it was said at: each part
+ * (between commas, semicolons and "and") that says only a passing state goes; '' when nothing lasting is left. "Left arm
+ * in a sling, out of breath" is "left arm in a sling".
+ */
+export function lastingCondition(v: string): string {
+  const parts = v.split(/\s*(?:[,;]|\band\b)\s*/i).filter(Boolean)
+  const kept = parts.filter((p) => !PASSING.test(p) || HURT.test(p))
+  return kept.length === parts.length ? v : kept.join(', ')
 }
 
 /** The names a stage person goes by: as the stage has them, their codex entry's names, and their first name when no one else here shares it. */
@@ -384,40 +421,99 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
     // How they are placed, who they touch and who they see no longer hold once they have moved since those were said
     // (ai/briefingFixes.ts).
     const placed = (x: CharacterState): CharacterState => clearStalePlacing(x, stand.said, scope.sceneId, scope.words)
-    if (!ruled) {
+    if (!ruled && !scope.carried) {
       characters.push(placed(c))
       continue
     }
-    // Words from an older scene no longer hold, except how they are (injuries) and what they hold.
-    const field = (f: StateField): string => (f === 'condition' || f === 'holding' || fresh(stand.said?.[sourceKey(c.name, f)]?.sceneId) ? (c[f] ?? '') : '')
+    const then = scope.began?.characters.find((x) => x.name.toLowerCase() === c.name.toLowerCase())
+    // Words from an older scene no longer hold, except how they are (injuries) and what they hold; then what the scene
+    // before left holds only as far as it carries here (scope.carried).
+    const field = (f: StateField): string => {
+      const v = c[f] ?? ''
+      const from = stand.said?.[sourceKey(c.name, f)]
+      if (ruled && f !== 'condition' && f !== 'holding' && !fresh(from?.sceneId)) return ''
+      if (!v || !before(from, v, then?.[f]) || scope.carried === 'moment') return v
+      // How they are: only what lasts; a passing state (out of breath, asleep) is over by another moment.
+      if (f === 'condition') return lastingCondition(v)
+      return carries(f, v) ? v : ''
+    }
     const kept: CharacterState = {
       ...c,
       where: field('where'),
       posture: field('posture'),
+      holding: field('holding'),
+      condition: field('condition'),
       mood: field('mood'),
       lastAction: field('lastAction'),
       ...(c.touching !== undefined ? { touching: field('touching') } : {}),
       ...(c.sees !== undefined ? { sees: field('sees') } : {})
     }
-    if (c.clothes) kept.clothes = c.clothes.filter((p) => fresh(pieceSource(stand.said, c.name, p.name)?.sceneId))
+    if (c.clothes || (scope.carried && c.wearing)) {
+      const was = clothesOf(then)
+      kept.clothes = clothesOf(c).filter((p) => {
+        const from = pieceSource(stand.said, c.name, p.name)
+        if (ruled && !fresh(from?.sceneId)) return false
+        const old = was.find((x) => itemKey(x.name) === itemKey(p.name))
+        return !before(from, pieceText(p), old && pieceText(old)) || carriesPiece(p)
+      })
+      if (!c.clothes) delete kept.wearing
+    }
     characters.push(placed(kept))
   }
   const out: SceneState = { ...stand, characters }
   for (const f of ['time', 'weather', 'light'] as const) {
     if (!scope.timeCarries && stand.said?.[sourceKey(null, f)]?.sceneId !== scope.sceneId) out[f] = ''
   }
+  // The things in the place: at a later day, only those this scene's own words put there.
+  if (scope.carried === 'later' && stand.things) {
+    const was = thingsOf(scope.began)
+    out.things = stand.things.filter((t) => {
+      const old = was.find((x) => itemKey(x.name) === itemKey(t.name))
+      return !before(stand.said?.[thingKey(t.name)], thingText(t), old && thingText(old))
+    })
+  }
   if (stand.said) {
     const names = new Set(['', ...characters.map((c) => c.name.toLowerCase())])
+    const people = new Map(characters.map((c) => [c.name.toLowerCase(), c]))
+    const things = new Set(thingsOf(out).map((t) => itemKey(t.name)))
     out.said = Object.fromEntries(
       Object.entries(stand.said).filter(([k]) => {
         const who = k.slice(0, k.lastIndexOf('|'))
         const field = k.slice(k.lastIndexOf('|') + 1)
-        // A thing in the place keeps its words (step 2b).
-        return names.has(who) && (who || field.startsWith('thing:') || out[field as 'time' | 'weather' | 'light'])
+        if (!names.has(who)) return false
+        // A thing in the place keeps its words (step 2b), while it is told.
+        if (!who) return field.startsWith('thing:') ? things.has(field.slice(6)) : !!out[field as 'time' | 'weather' | 'light']
+        // A value no longer told takes its words with it.
+        const c = people.get(who)!
+        if (field.startsWith('clothes:')) return clothesOf(c).some((p) => itemKey(p.name) === field.slice(8))
+        if (field === 'wearing') return clothesOf(c).length > 0
+        return !(STATE_FIELDS as readonly string[]).includes(field) || !!c[field as StateField]
       })
     )
   }
   return out.time || out.weather || out.light || characters.length || thingsOf(out).length ? out : null
+
+  /**
+   * True when a value is from before this scene (scope.carried): its words are another scene's; or, kept without words, it
+   * is as it was when the scene began. Without the rule, never.
+   */
+  function before(from: StateSource | undefined, now: string, was: string | undefined): boolean {
+    if (!scope.carried) return false
+    if (from?.sceneId) return from.sceneId !== scope.sceneId
+    return was !== undefined && clean(was) === clean(now)
+  }
+  /** Whether a value from before still holds here (scope.carried). */
+  function carries(f: StateField, v: string): boolean {
+    if (scope.carried === 'moment') return true
+    // Something in hand carries; an empty hand from before says nothing worth telling.
+    if (f === 'holding') return !saysGone('holding', v)
+    return false
+  }
+  /** Whether a piece of clothing from before is still told here: at the same moment; later the same day, only one still on. */
+  function carriesPiece(p: StageItem): boolean {
+    if (scope.carried === 'moment') return true
+    return scope.carried === 'day' && (p.state ? !isOff(p.state) : !/\boff\b/i.test(p.name))
+  }
 }
 
 /** The lines of the list, without their dashes, in the order they are sent. Empty when nothing is known. */
@@ -497,7 +593,9 @@ export function mustLines(o: MustInput): MustLine[] {
       const label = FIELD_LABEL.get(k)
       const v = clean(e.fields?.[k])
       const where = e.changedWhere?.[k]
-      if (!label || k === 'marks' || !v || !where) continue
+      // What someone typically wears is never a fact of this moment: what they have on now is the stage's, piece by piece
+      // (Adam, 2026-10-16: "Mara Venn, typical clothing: nothing (since Ch 1, Sc 2)" after an undressing scene).
+      if (!label || k === 'marks' || k === 'clothing' || !v || !where) continue
       add('changed', who, `${e.name}, ${label.toLowerCase()}: ${v}`, shortPlace(where, o.storyTitle), false, [e.id])
     }
   })

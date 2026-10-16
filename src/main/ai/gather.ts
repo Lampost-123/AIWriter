@@ -196,6 +196,8 @@ export async function catchUpBeforeDraft(
  */
 export function carryOnFrom(db: DB, input: ContextInput, stand: SceneState | null): void {
   if (stand) {
+    // Where things stood as the scene began, so what of it is unchanged holds only as far as it carries here (toldStage).
+    input.continuityAtStart = input.continuityAtSoFar ? (input.continuityAtStart ?? null) : input.continuity
     input.continuity = stand
     input.continuityAtSoFar = true
     input.stageWhere = stageWhere(db, stand)
@@ -203,6 +205,7 @@ export function carryOnFrom(db: DB, input: ContextInput, stand: SceneState | nul
   }
   input.continuity = null
   input.continuityAtSoFar = false
+  input.continuityAtStart = null
   input.stageWhere = {}
   if (input.contract) input.contract = { ...input.contract, noStart: true }
 }
