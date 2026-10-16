@@ -3238,6 +3238,56 @@ store, no migration; the memory keeper's prompt is unchanged (its 58 characters 
   in (`FAKE_BUDGET`: it costs nothing). A real run of the book with and without (`AIWRITE_BRIEF=off` on one) is what will
   tell whether it pays off at length.
 
+## Clothes, positions and typical clothing from one scene to the next (code review, 2026-10-16)
+
+A review with live DeepSeek Flash runs of an undressing scene followed by a "Day 2, morning, kitchen" scene found the
+morning scene told "lying on her side under the quilt… dress off, trousers off, keep to this", and every later scene told
+"Mara Venn, typical clothing: nothing (since Ch 1, Sc 2)" as something that must stay true. No migration: the stage stays
+in `meta` and the fixes are where it is read and laid over.
+
+- **Typical clothing is who someone is, not this moment.** A Looks value from the text that says only that someone is
+  undressed for now ("none", "nothing", "naked but for her locket", "dress off, stockings off"; for other Looks fields,
+  "naked") is never kept (`memory/looks.ts` `passingLook`): the memory keeper leaves it out of a change, a verdict's new
+  value, a detail and a new entry (`keeper/apply.ts` `passingFor`), and reading the memory skips one already kept, in a
+  change or on the entry, so older worlds are put right too (`memory/state.ts`); Adam's own words always stand. The
+  reading prompt's rule says a change ends a field's value "for good … not clothes off for a while" (5,971 characters,
+  under the 6,000 its tests hold it to). What must stay true never states Typical clothing as a fact of now
+  (`ai/mustStay.ts` `mustLines`): what someone has on now is the stage's, piece by piece.
+- **What the scene before left is told only as far as it carries here** (`StageScope.carried` and `began`,
+  `ai/mustStay.ts` `stageInScene`; `ai/context.ts` `carriedFrom`, `toldStage`). At the same moment (`timeCarries`): all
+  of it. Later the same day: how people are, what they hold, the pieces still on and the things in the place; not where
+  they are, how they are placed, who they touch or see, their mood or last action, nor a piece taken off. A later day, or
+  a gap not known: how people are and anything in hand. Past the same moment, how people are keeps only what lasts
+  (`lastingCondition`: "breath ragged, came" from a night scene is not told the next morning; a wound is). So the stage
+  block (block 3, with a lead for each: `STAND_LEADS`), what must stay true, the scene's contract, the plan, the
+  continuity brief and repair's W lines all follow the same reach; the brief is also asked never to keep to what people
+  wore, where they were or how they lay as an earlier scene ended unless where things stand says it still holds
+  (`plan/brief.ts` `BRIEF_ASK.keep`: the first live run's brief still said "Mara undressed to grey stockings and locket").
+  Carrying on inside a scene (Add below, a later beat, Continue), a value whose words are another scene's, or kept
+  without words and as it was when the scene began (`ContextInput.continuityAtStart`, set in `ai/draftFlow.ts`), holds
+  only as far as that; what this scene's words said is always told.
+- **Everything off at once** (`shared/stageItems.ts` `isAllClothes`, `allOff`; `shared/continuity.ts` `allTakenOff`). A
+  piece that means everything someone has on, said off ("everything", "clothes", "all her clothes"), or that says nothing
+  is worn ("nothing", "naked"), takes every piece listed for them off, with where they went and the words; with none
+  listed, one piece says it ("clothes off"), and it goes once something is put on again. "Naked" given the old way, as
+  one line, does the same. The tracker's prompt asks for `"item": "everything", "state": "off"`.
+- **A move is a change of place.** Where someone is said more or less fully ("on the bed", "on the bed, on her back",
+  "on her back on the bed") is no move, so who touches whom and how they are placed stay (`movedOn`: the same place
+  before any words on where in it, or one's words ending with the other's); "the inn" to "the inn's yard" is a move.
+- **One garment, other words.** Pieces of clothing are compared with one word for each garment (`pieceName`: knickers,
+  panties, briefs and underwear; trousers and breeches; gown and dress; a dressing gown is a robe), so "knickers" taken
+  off is the "panties" that were on. "Pants" is left alone (trousers to some, underwear to others).
+- **Clothes are never things in the place.** A thing the tracker gives that is a piece someone has (`sameGarment`), said
+  worn or off, is dropped (`garmentsAsPieces`): "her dress: on, unlaced" no longer reads as a dress put somewhere and
+  taken off her. One put somewhere ("Ash's coat: on the peg") is still a thing, as one place for each thing has it. The
+  prompt says clothing, on or off, goes under its person's clothes.
+- **Every piece told.** The stage block tells every piece someone wears; when they don't fit in about 400 characters,
+  those changed longest ago are told short ("grey coat on") rather than left out (`wornLines`).
+- **The tracker's cast** (`continuity/tracker.ts` `castFor`): those on the scene card first, then those the words name
+  (by name, other name, or what this scene calls them), then the rest A to Z, at most `MOST_CAST` (80), one a line with
+  their other names ("Zara Quill (also the Captain)"). It was the first 80 names A to Z, with no other names. The fake
+  provider reads the list one a line.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

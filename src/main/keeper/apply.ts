@@ -57,6 +57,7 @@ import {
 import { findQuote, likeness, locateQuote, mentionAt, plain, sameFact, sceneParagraphs, type Para } from './text'
 import { aliasWorthy, cleanCalled } from './names'
 import { forgetCalledNotIn, keepCalled } from '../db/called'
+import { passingLook } from '../memory/looks'
 import type { CalledName } from '@shared/names'
 
 type DB = Database.Database
@@ -216,6 +217,12 @@ function fieldKey(kind: EntryKind, v: unknown): string | null {
   const lower = raw.toLowerCase().replace(/[\s_-]+/g, '')
   return keys.find((k) => k.toLowerCase() === lower) ?? null
 }
+
+/**
+ * True when a character's Looks value from the text only says they are undressed for now ("Typical clothing: none"
+ * after an undressing scene; memory/looks.ts): clothes off for a while are where things stand, so it is never kept.
+ */
+const passingFor = (kind: EntryKind, field: string, value: string): boolean => kind === 'character' && passingLook(field, value)
 
 export const patchFor = (e: Entry, field: string, value: string): Parameters<typeof repo.updateEntry>[2] =>
   field === 'summary' ? { summary: value } : field === 'description' ? { description: value } : { fields: { ...e.fields, [field]: value } }
@@ -629,7 +636,7 @@ function updatedPayload(
       const given = (v.fields && typeof v.fields === 'object' ? v.fields : {}) as Record<string, unknown>
       for (const [k, val] of Object.entries(given)) {
         const key = fieldKey(kind, k)
-        if (key && key !== 'summary' && key !== 'description' && str(val)) fields[key] = str(val)
+        if (key && key !== 'summary' && key !== 'description' && str(val) && !passingFor(kind, key, str(val))) fields[key] = str(val)
       }
       const note = str(v.note, 200) || c.payload.note
       if (!note && !Object.keys(fields).length) return null
@@ -1202,7 +1209,7 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
   for (const [k, v] of Object.entries(given)) {
     const key = fieldKey(kind, k)
     if (key === 'description') description = str(v, 2000)
-    else if (key && key !== 'summary' && str(v)) fields[key] = str(v)
+    else if (key && key !== 'summary' && str(v) && !passingFor(kind, key, str(v))) fields[key] = str(v)
   }
   const aliases = strList(a.aliases).filter((x) => plain(x) !== plain(name))
   const e = repo.createEntry(
@@ -1933,7 +1940,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const given = (a.fields && typeof a.fields === 'object' ? a.fields : {}) as Record<string, unknown>
       for (const [k, v] of Object.entries(given)) {
         const key = fieldKey(entry.kind, k)
-        if (key && key !== 'summary' && key !== 'description' && str(v)) fields[key] = str(v)
+        if (key && key !== 'summary' && key !== 'description' && str(v) && !passingFor(entry.kind, key, str(v))) fields[key] = str(v)
       }
       const note = str(a.note, 200)
       if (!note && !Object.keys(fields).length) return
@@ -1943,7 +1950,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     case 'detail': {
       const field = fieldKey(entry.kind, a.field)
       const value = str(a.value, 400)
-      if (!field || !value) return
+      if (!field || !value || passingFor(entry.kind, field, value)) return
       addDetail(run, run.entry(entry.id) ?? entry, field, value, s)
       return
     }

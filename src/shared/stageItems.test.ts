@@ -2,6 +2,8 @@
 // finds the piece it is about, and an old one-line "wearing" reads as pieces with nothing lost. Invented text only.
 import { describe, expect, it } from 'vitest'
 import {
+  allOff,
+  isAllClothes,
   itemKey,
   isGone,
   itemsFromText,
@@ -11,7 +13,9 @@ import {
   namesItem,
   parsePiece,
   parseThing,
+  pieceName,
   pieceText,
+  sameGarment,
   singular,
   thingText,
   type StageItem
@@ -180,5 +184,43 @@ describe('the stage piece by piece', () => {
     expect(matching(pair, 'boot', true)).toEqual([])
     expect(matching(pair, 'boots', true)).toEqual([0, 1])
     expect(mergeItems(pair, [piece('boot', 'off')], true, MOST_CLOTHES).items.map((x) => x.name)).toEqual(['left boot', 'right boot', 'boot'])
+  })
+})
+
+describe('one garment under other words, and everything at once (2026-10-16)', () => {
+  it('finds a piece by another word for the same garment, never another garment', () => {
+    const worn = [piece('black panties', 'on'), piece('wool breeches', 'on'), piece('green gown', 'on'), piece('dressing gown', 'off, on the hook')]
+    expect(matching(worn, 'knickers', true)).toEqual([0])
+    expect(matching(worn, 'underwear', true)).toEqual([0])
+    expect(matching(worn, 'black knickers', true)).toEqual([0])
+    expect(matching(worn, 'trousers', true)).toEqual([1])
+    expect(matching(worn, 'dress', true)).toEqual([2])
+    expect(matching(worn, 'robe', true)).toEqual([3])
+    // Another of its kind is another piece; "pants" could be either, so is neither.
+    expect(matching(worn, 'red knickers', true)).toEqual([])
+    expect(matching(worn, 'pants', true)).toEqual([])
+    // Only clothing: things keep their own words.
+    expect(matching([piece('the gown', 'on the bed')], 'the dress', false)).toEqual([])
+    expect(pieceName('silk knickers')).toBe('silk underwear')
+    // Taken off under one word, put on under another: one piece, not two.
+    const m = mergeItems([piece('panties', 'on')], [piece('knickers', 'off, on the floor')], true, MOST_CLOTHES)
+    expect(m.items).toEqual([piece('panties', 'off, on the floor')])
+  })
+
+  it('reads a piece that means everything someone has on, or nothing', () => {
+    for (const name of ['clothes', 'her clothes', 'all her clothes', 'everything', 'clothing', 'all of the clothes', 'nothing', 'naked'])
+      expect(isAllClothes(name), name).toBe(true)
+    for (const name of ['clothes peg', 'riding clothes', 'everything else', 'cloak']) expect(isAllClothes(name), name).toBe(false)
+    expect(allOff(piece('everything', 'off, on the floor'))).toBe(true)
+    expect(allOff(piece('nothing', 'on'))).toBe(true)
+    expect(allOff(piece('clothes', 'on'))).toBe(false)
+  })
+
+  it('knows a garment by its main word: the dress is the green dress, the bed is no bed jacket', () => {
+    expect(sameGarment('the dress', piece('green dress', 'on'))).toBe(true)
+    expect(sameGarment('her knickers', piece('silk panties', 'on'))).toBe(true)
+    expect(sameGarment('the bed', piece('bed jacket', 'on'))).toBe(false)
+    expect(sameGarment('blue dress', piece('green dress', 'on'))).toBe(false)
+    expect(sameGarment('boots', piece('boots off (by the door)', ''))).toBe(true)
   })
 })

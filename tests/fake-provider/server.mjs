@@ -124,7 +124,11 @@ const SENTENCES = [
  */
 function continuityReply(system, user) {
   if (!system.includes('[AIWRITE-CONTINUITY v3]')) return null
-  const cast = (/^Characters in this story: (.+)$/m.exec(user)?.[1] ?? '').split(', ').filter(Boolean)
+  const list = /^Characters in this story[^\n]*:\n((?:- .+\n?)+)/m.exec(user)?.[1] ?? ''
+  const cast = list
+    .split('\n')
+    .map((l) => l.replace(/^- /, '').replace(/ \(also .*\)$/, '').trim())
+    .filter(Boolean)
   const scene = /The scene[^\n]*:\n"""\n([\s\S]*?)\n"""/.exec(user)?.[1] ?? ''
   const sentences = scene.split(/(?<=[.!?])\s+/)
   const cloak = /in (?:her|his) ([a-z ]+cloak)/.exec(scene)

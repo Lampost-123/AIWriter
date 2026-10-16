@@ -82,6 +82,7 @@ export async function assemble(
     creativity: settings.creativity
   })
   if (stand) {
+    input.continuityAtStart = input.continuity
     input.continuity = stand
     input.continuityAtSoFar = true
     input.stageWhere = stageWhere(db, stand)

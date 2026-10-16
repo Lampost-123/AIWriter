@@ -15,6 +15,7 @@ import {
   MUST_MOST,
   MUST_SHORT,
   MUST_SMALLEST,
+  lastingCondition,
   mustLines,
   mustStayTrue,
   mustText,
@@ -35,9 +36,11 @@ import {
   PLAN_BLOCK,
   prepareContext,
   SEND_ORDER,
+  STAND_LEAD,
   stageReach,
   stageScope,
   timeSince,
+  toldStage,
   WHY,
   type ContextInput
 } from './context'
@@ -871,5 +874,185 @@ describe('what a scene is most likely to break comes first, and stays (2026-10-1
       expect({ contextLength, dropped: must.dropped }).toEqual({ contextLength, dropped: false })
       expect(p.messages[1].content).toContain('## Must stay true')
     }
+  })
+})
+
+// ---------- Clothes and positions across a time jump (code review, 2026-10-16) ----------
+// Live on DeepSeek Flash: after a night scene in the inn's upstairs room, a "Day 2, morning, kitchen" scene was told
+// "lying on her side under the quilt… dress off, trousers off, keep to this", and every later scene "Mara Venn, typical
+// clothing: nothing (since Ch 1, Sc 2)". Invented test text only.
+
+describe('what the scene before left, told only as far as it carries here (2026-10-16)', () => {
+  const blankOf = { where: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
+  /** Where things stand as the night scene ended ('night'): both in bed, most of their clothes off. */
+  const night = (): SceneState => ({
+    time: 'night',
+    weather: 'rain',
+    light: 'a candle burning down',
+    things: [{ name: 'the candle', state: 'on the washstand, burnt low' }],
+    characters: [
+      {
+        ...blankOf,
+        name: 'Mara Venn',
+        where: 'the upstairs room, in the narrow bed',
+        posture: 'lying on her side under the quilt, her head on his chest',
+        touching: 'her head on Ash Penrose’s chest',
+        holding: 'nothing',
+        condition: 'a bruise on her left knee',
+        mood: 'content',
+        lastAction: 'fell asleep',
+        clothes: [
+          { name: 'green dress', state: 'off, over the chair' },
+          { name: 'grey stockings', state: 'off, at the foot of the bed' },
+          { name: 'silver locket', state: 'on' }
+        ]
+      },
+      {
+        ...blankOf,
+        name: 'Ash Penrose',
+        where: 'the upstairs room, in the narrow bed',
+        posture: 'lying on his back, his arm round her shoulders',
+        holding: 'his pocket watch',
+        clothes: [
+          { name: 'trousers', state: 'off, on the floor' },
+          { name: 'linen shirt', state: 'off, on the floor' }
+        ]
+      }
+    ],
+    said: {
+      'mara venn|where': { quote: 'they lay back together on the narrow bed', sceneId: 'night' },
+      'mara venn|posture': { quote: 'she lay on her side under the quilt', sceneId: 'night' },
+      'mara venn|touching': { quote: 'her head on his chest', sceneId: 'night' },
+      'mara venn|condition': { quote: 'a bruise coming up on her knee', sceneId: 'night' },
+      'mara venn|clothes:green dress': { quote: 'she stepped out of it and laid it over the chair', sceneId: 'night' },
+      'ash penrose|where': { quote: 'they lay back together on the narrow bed', sceneId: 'night' },
+      'ash penrose|holding': { quote: 'his watch still in his hand', sceneId: 'night' },
+      'ash penrose|clothes:trousers': { quote: 'then his trousers', sceneId: 'night' },
+      '|time': { quote: 'the candle burned down', sceneId: 'night' },
+      '|thing:candle': { quote: 'the candle burned down', sceneId: 'night' }
+    }
+  })
+  const mara = (): EntryState =>
+    entry('character', 'Mara Venn', {
+      origin: 'text',
+      fields: { clothing: 'nothing', hair: 'loose' },
+      changed: ['clothing', 'hair'],
+      changedWhere: { clothing: 'The Lantern Inn, Ch 1, Sc 2', hair: 'The Lantern Inn, Ch 1, Sc 2' }
+    })
+  /** A draft of the scene after the night scene, with these cards' When; `soFar`: carrying on from this stage. */
+  const after = (when: string, then: string, soFar?: SceneState): ContextInput => {
+    const m = mara()
+    const ash = entry('character', 'Ash Penrose')
+    const inp = draftInput({
+      continuity: soFar ?? night(),
+      continuityAtSoFar: !!soFar,
+      continuityAtStart: soFar ? night() : undefined,
+      stageWhere: { night: 'The Lantern Inn, Ch 1, Sc 2' },
+      story: { title: 'The Lantern Inn', premise: '', themes: '', tone: '' },
+      options: { direction: '', targetWords: 800, creativity: 'balanced', addBelow: !!soFar }
+    })
+    inp.memory.entries = [m, ash]
+    inp.memory.previous = { ...inp.memory.previous!, sceneId: 'night', when: then }
+    inp.scene.card = { ...inp.scene.card, povId: m.id, presentIds: [m.id, ash.id], locationId: null, when, beats: ['Mara helps with breakfast'] }
+    return inp
+  }
+  const blockText = (inp: ContextInput, id: string): string => assembleContext(inp, countRaw).blocks.find((b) => b.id === id)?.text ?? ''
+
+  it('a later day: only injuries and what is in hand; no bed, no pose, no clothes off', () => {
+    const inp = after('Day 2, morning', 'Day 1, night')
+    expect(stageReach(inp)).toBe('later')
+    const stand = blockText(inp, 'continuity')
+    expect(stand).toContain('time has passed since')
+    expect(stand).toContain('a bruise on her left knee')
+    expect(stand).toContain('his pocket watch')
+    for (const gone of ['narrow bed', 'lying', 'quilt', 'dress', 'stockings', 'locket', 'trousers', 'content', 'fell asleep', 'candle', 'nothing'])
+      expect(stand, gone).not.toContain(gone)
+    // Nor the plan's or the check's view of it: the same stage.
+    const told = toldStage(inp)!
+    expect(told.characters.flatMap((c) => c.clothes ?? [])).toEqual([])
+    expect(Object.keys(told.said ?? {}).sort()).toEqual(['ash penrose|holding', 'mara venn|condition'])
+    const must = blockText(inp, MUST_BLOCK)
+    expect(must).not.toContain('typical clothing')
+    expect(must).not.toContain('nothing')
+  })
+
+  it('later the same day: how people are, what they hold and what is still on; not where, how placed or what came off', () => {
+    const inp = after('Day 1, late night', 'Day 1, night')
+    expect(stageReach(inp)).toBe('start')
+    const stand = blockText(inp, 'continuity')
+    expect(stand).toContain('earlier the same day')
+    expect(stand).toContain('a bruise on her left knee')
+    expect(stand).toContain('silver locket on')
+    expect(stand).toContain('the candle: on the washstand')
+    for (const gone of ['narrow bed', 'lying', 'chest', 'dress', 'stockings', 'trousers', 'linen shirt', 'content', 'fell asleep'])
+      expect(stand, gone).not.toContain(gone)
+    const must = blockText(inp, MUST_BLOCK)
+    expect(must).toContain('Mara Venn is wearing: silver locket on')
+    expect(must).not.toContain('green dress')
+  })
+
+  it('the same moment: all of it', () => {
+    const inp = after('Day 1, night', 'Day 1, night')
+    const stand = blockText(inp, 'continuity')
+    expect(stand.startsWith(STAND_LEAD)).toBe(true)
+    for (const kept of ['narrow bed', 'lying on her side', 'green dress off', 'trousers off', 'silver locket on', 'fell asleep']) expect(stand, kept).toContain(kept)
+  })
+
+  it('carrying on in the morning scene: what the night left and the morning’s words haven’t said again stays out', () => {
+    // The morning's words put Mara in the kitchen and her dress on; the night's stockings, and Ash's clothes, were never
+    // said again. The stockings came off without words kept, as they were when the scene began.
+    const now = night()
+    now.characters[0] = {
+      ...now.characters[0],
+      where: 'the inn kitchen, by the range',
+      posture: 'standing at the table',
+      touching: '',
+      clothes: [
+        { name: 'grey stockings', state: 'off, at the foot of the bed' },
+        { name: 'silver locket', state: 'on' },
+        { name: 'green dress', state: 'on, laced to the throat' },
+        { name: 'apron', state: 'on, borrowed from Mrs Dunn' }
+      ]
+    }
+    now.said = {
+      ...now.said,
+      'mara venn|where': { quote: 'Mara came down to the kitchen', sceneId: 'here' },
+      'mara venn|posture': { quote: 'she stood at the table', sceneId: 'here' },
+      'mara venn|clothes:green dress': { quote: 'her green dress laced to the throat', sceneId: 'here' }
+    }
+    delete now.said['mara venn|touching']
+    const inp = after('Day 2, morning', 'Day 1, night', now)
+    const stand = blockText(inp, 'continuity')
+    expect(stand).toContain('the inn kitchen, by the range')
+    expect(stand).toContain('green dress on, laced to the throat')
+    // Changed in this scene without words (not as it was when the scene began): this scene's own.
+    expect(stand).toContain('apron on')
+    for (const gone of ['stockings', 'locket', 'narrow bed', 'trousers', 'linen shirt', 'lying']) expect(stand, gone).not.toContain(gone)
+  })
+
+  it('says how people are only as far as it lasts: out of breath or spent is over by another moment', () => {
+    // Live, 2026-10-16: "breath ragged, came" was told to the next morning, and kept by the contract as must not change.
+    expect(lastingCondition('breath ragged, came')).toBe('')
+    // The second live run: "slick", and a wet stocking kept as how she is.
+    expect(lastingCondition('slick, catching her breath, asleep')).toBe('')
+    expect(lastingCondition('stockings still damp at the ankle from the road')).toBe('')
+    expect(lastingCondition('thighs burned, came')).toBe('thighs burned')
+    expect(lastingCondition('left arm in a sling and out of breath')).toBe('left arm in a sling')
+    expect(lastingCondition('bleeding from the scalp, dizzy')).toBe('bleeding from the scalp')
+    expect(lastingCondition('a bruise on her left knee')).toBe('a bruise on her left knee')
+    const later = after('Day 2, morning', 'Day 1, night')
+    later.continuity!.characters[1].condition = 'breath ragged, a cut on his lip'
+    const stand = blockText(later, 'continuity')
+    expect(stand).toContain('condition: a cut on his lip')
+    expect(stand).not.toContain('ragged')
+    const now = after('Day 1, night', 'Day 1, night')
+    now.continuity!.characters[1].condition = 'breath ragged, a cut on his lip'
+    expect(blockText(now, 'continuity')).toContain('breath ragged, a cut on his lip')
+  })
+
+  it('never states typical clothing as a fact of now, though a look changed in the story still is', () => {
+    const lines = mustStayTrue(base({ people: [mara()], storyTitle: 'The Lantern Inn' })).join('\n')
+    expect(lines).not.toContain('typical clothing')
+    expect(lines).toContain('Mara Venn, hair: loose (since Ch 1, Sc 2)')
   })
 })

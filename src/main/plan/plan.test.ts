@@ -420,7 +420,13 @@ describe('what the planner reads', () => {
     expect(m.must).toContain('Wren: left arm in a sling')
     expect(m.reach).toBe('start')
     expect(m.standTitle).toBe('Where things stand as the previous scene ended')
-    expect(m.stand).toContain('- Wren: where: the mill loft')
+    // Later the same day (Adam, 2026-10-16): injuries and what is still on, not where people were or how placed, nor the
+    // boots taken off.
+    expect(m.stand).toContain('- Wren: condition: left arm in a sling')
+    expect(m.stand).toContain('linen shirt')
+    expect(m.stand).not.toContain('the mill loft')
+    expect(m.stand).not.toContain('sitting on a sack')
+    expect(m.stand).not.toContain('boots off')
     expect(m.before).toEqual({ title: 'The end of the previous scene', text: 'The sleet came on, and the wheel stopped.' })
     expect(m.ask.startsWith('Write the scene now.')).toBe(true)
     // Not the reading-aloud tags: the planner writes none of the prose.

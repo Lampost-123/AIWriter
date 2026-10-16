@@ -37,6 +37,16 @@ export const isGone = (state: string, clothing = false): boolean =>
   (clothing ? /^(?:gone|no longer theirs)\b/i : /^(?:gone|no longer (?:here|there)|removed)\b/i).test(state.trim())
 /** True when a piece of clothing is off (taken off, wherever it is now). */
 export const isOff = (state: string): boolean => /^off\b/i.test(state.trim())
+
+/**
+ * True when a piece's name means everything someone has on ("clothes", "all her clothes", "everything"), or that nothing
+ * is ("nothing", "naked"): said with "off", or as a name alone, every piece listed for them comes off (Adam, 2026-10-16:
+ * "clothes: off" was kept as one more piece beside "dress on", so nudity couldn't be recorded).
+ */
+export const isAllClothes = (name: string): boolean =>
+  /^(?:(?:all(?: of)?(?: (?:his|her|their|the))? )?(?:clothes|clothing|garments|outfit)|everything|all|nothing|naked|nude)$/.test(itemKey(name))
+/** True when a piece says everything someone wore came off: "clothes: off", "everything: off", "nothing", "naked". */
+export const allOff = (x: StageItem): boolean => isAllClothes(x.name) && (isOff(x.state) || /^(?:nothing|naked|nude)$/.test(itemKey(x.name)))
 /** A piece's state with "removed", "taken off" or "no longer worn" said as "off" ("removed, by the door" is "off, by the door"). */
 export const offState = (state: string): string => state.replace(/^\s*(?:removed|taken off|pulled off|kicked off|no longer worn)\b/i, 'off')
 
@@ -73,6 +83,41 @@ const wordSet = (key: string): Set<string> => new Set(key.split(' ').map(singula
 const within = (a: Set<string>, b: Set<string>): boolean => [...a].every((w) => b.has(w))
 
 /**
+ * Words for one garment that stories and models use for the same piece, by the last word of its name as compared (Adam,
+ * 2026-10-16: "panties" taken off and "knickers" still on were kept as two pieces, one on and one off). Only words that
+ * can't mean another garment: "pants" is left alone (trousers to some, underwear to others), and so are "jeans", "shift"
+ * and "slip".
+ */
+const SAME_PIECE: Record<string, string> = {
+  knicker: 'underwear',
+  pantie: 'underwear',
+  panty: 'underwear',
+  underpant: 'underwear',
+  undie: 'underwear',
+  brief: 'underwear',
+  drawer: 'underwear',
+  trouser: 'trousers',
+  breech: 'trousers',
+  britch: 'trousers',
+  slack: 'trousers',
+  brassiere: 'bra',
+  gown: 'dress',
+  frock: 'dress',
+  nightdress: 'nightgown',
+  nightie: 'nightgown',
+  nighty: 'nightgown',
+  bathrobe: 'robe'
+}
+
+/** A piece's name as compared, with its last word said as SAME_PIECE has it ("silk knickers" is "silk underwear"). */
+export function pieceName(key: string): string {
+  const ws = key.replace(/\bdressing gowns?$/, 'robe').split(' ')
+  const same = SAME_PIECE[singular(ws.at(-1) ?? '')]
+  if (same) ws[ws.length - 1] = same
+  return ws.join(' ')
+}
+
+/**
  * Which of `list` a change named `name` is about: the one with the same name; else one that has the change's last word
  * and says no more or no less than it ("cloak" is the "grey cloak", and "grey cloak" the "cloak"; "boots" is "boots off
  * (by the door)" read from an old line), but never another of its kind ("blue cloak" is not the "grey cloak": changing
@@ -82,9 +127,11 @@ const within = (a: Set<string>, b: Set<string>): boolean => [...a].every((w) => 
  * door" in one reply is another door, not the stable door).
  */
 export function matching(list: readonly StageItem[], name: string, clothing: boolean, apart?: ReadonlySet<StageItem>): number[] {
-  const key = itemKey(name)
+  // Clothing is compared with one word for each garment ("knickers" is the "panties": pieceName).
+  const keyOf = (n: string): string => (clothing ? pieceName(itemKey(n)) : itemKey(n))
+  const key = keyOf(name)
   if (!key) return []
-  const same = list.findIndex((x) => itemKey(x.name) === key)
+  const same = list.findIndex((x) => keyOf(x.name) === key)
   if (same >= 0) return [same]
   const head = headOf(key)
   const side = sideOf(key)
@@ -92,7 +139,7 @@ export function matching(list: readonly StageItem[], name: string, clothing: boo
   const near: number[] = []
   list.forEach((x, i) => {
     if (apart?.has(x)) return
-    const k = itemKey(x.name)
+    const k = keyOf(x.name)
     const theirs = wordSet(k)
     if (!theirs.has(head)) return
     if (side && sideOf(k) !== side) return
@@ -285,4 +332,16 @@ export function readItem(v: unknown, nameKey: 'item' | 'thing'): StageItem | nul
   const name = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim().slice(0, LONGEST_NAME) : ''
   const state = typeof o.state === 'string' ? o.state.replace(/\s+/g, ' ').trim().slice(0, LONGEST_STATE) : ''
   return name ? { name, state } : null
+}
+
+/**
+ * True when a name is the same garment as a piece of clothing (shared/continuity.ts garmentsAsPieces): the same main word,
+ * one word for each garment (pieceName), and the piece itself by `matching` ("the dress" is the "green dress"; "the bed"
+ * is never a "bed jacket", nor a "blue dress" the "green dress").
+ */
+export function sameGarment(name: string, piece: StageItem): boolean {
+  const core = piece.state ? piece.name : (piece.name.split(/\s+(?:on|off)\b|[(,;]/i)[0] ?? '')
+  const a = pieceName(itemKey(name))
+  const b = pieceName(itemKey(core))
+  return !!a && !!b && headOf(a) === headOf(b) && matching([{ name: core, state: piece.state || 'on' }], name, true).length > 0
 }
