@@ -29,7 +29,7 @@
 //
 // Going back. A scene whose date comes before the last scene before it that isn't a flashback, where that is certain
 // (same axis, or the same day with times of day whose spans don't meet: "night" after "11pm" may be the same hour), and
-// whose When doesn't say it goes back on purpose, is listed by `goingBack`, for rule-based checks to come (fix 8). A When
+// whose When doesn't say it goes back on purpose, is listed by `goingBack`, for the rule-based checks (fix 8, checks/rules.ts). A When
 // saying it goes back on purpose (worldViews/when.ts goesBack) starts "Flashback" or "Earlier" (the app has no other
 // mark for a flashback), or steps back itself ("three days earlier", "the night before"). The present carries on from
 // the present: a scene after a flashback is dated from the scene before the flashback.
@@ -490,8 +490,8 @@ export interface GoingBack {
 const BACK_FROM_MINUTE = 300
 
 /**
- * The scenes whose date goes backwards in reading order without saying so (see above), for rule-based checks to come
- * (fix 8). Each is compared with the last dated scene before it in its own story that isn't a flashback (`stories`: each
+ * The scenes whose date goes backwards in reading order without saying so (see above), for the rule-based checks
+ * (fix 8, checks/rules.ts). Each is compared with the last dated scene before it in its own story that isn't a flashback (`stories`: each
  * scene's story; a side story added whole runs alongside its host, so a host scene after it is never compared with it),
  * so the present after a flashback is held to the present before it. Only where it is certain: both name their day on
  * the same axis, or a month or year of their own. A When that leans on the scenes before is never counted: a step forward

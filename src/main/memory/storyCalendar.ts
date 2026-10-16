@@ -7,7 +7,8 @@
 //
 // For the writer's briefing (`sceneCalendar`, ai/gather.ts), the stage tracker's carry rules (continuity/tracker.ts
 // startFrom, ai/context.ts stageReach and timeCarries), the screen (`storyDateViews`: the scene card and the story
-// board), and rule-based checks to come (fix 8): `storyDateAt`, `elapsedBetweenScenes`, `ageAt` and `scenesGoingBack`.
+// board), and the rule-based checks (fix 8, checks/ruleChecks.ts): `storyDateAt`, `elapsedBetweenScenes`, `ageAt`,
+// `ageHere` and `scenesGoingBack`.
 // No Electron imports.
 
 import type Database from 'better-sqlite3'

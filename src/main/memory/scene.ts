@@ -243,7 +243,8 @@ export interface OverdueThread extends ThreadWarning {
  * or as the story stands now (none: told against its latest scene with words). What the story says is as of that point
  * (only scenes with words the line reaches count, so writing later never changes an earlier point); Adam's plans (Pay
  * off by, dropped, what he kept) and the scene cards' planned pay-offs are read as they stand now: they are his current
- * plan, not facts of the story. For Worth a look and for rule-based checks to come (fix 8).
+ * plan, not facts of the story. For Worth a look (the rule-based checks of fix 8 leave overdue threads to it, so nothing
+ * is asked twice: checks/rules.ts).
  */
 export function overdueThreads(db: DB, storyId: ID, asOfSceneId?: ID | null, read?: { shape: WorldShape; data: MemoryData }): OverdueThread[] {
   const shape = read?.shape ?? loadShape(db)

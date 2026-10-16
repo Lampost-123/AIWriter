@@ -22,6 +22,10 @@ export const KIND_WORDS: Record<IssueKind, string> = {
   spelling: 'Name spelling'
 }
 
+/** The small note on an issue a free rule found (long story memory fix 8), and what it says in full on hover. */
+export const RULE_WORDS = 'Found by a rule, not the AI'
+export const RULE_DETAIL = 'Found by a rule over the memory, at once and for free: no AI was asked.'
+
 /** "Found 2 things to look at in this scene." (or in the scene named, when Adam has moved on). */
 export function foundWords(found: number, where: string | null): string {
   const things = found === 1 ? '1 thing' : `${found} things`

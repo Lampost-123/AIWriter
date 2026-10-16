@@ -6,8 +6,9 @@
 // how, from whom and whether a belief is wrong (keeper/prompts.ts); older knowledge says what `said` and `seen` can.
 //
 // `Ledger` answers "could character C know fact F at this point?" in one look-up, for the briefing (ai/whoKnows.ts), the
-// checks (checks/context.ts, repair/prompts.ts) and rule-based checks to come (fix 8): build it once per scene from the
-// scene's memory (`ledgerOf(sceneMemory(...))`, or `ledgerForScene` in memory/scene.ts), then ask as often as needed.
+// checks (checks/context.ts, repair/prompts.ts) and the rule-based checks (fix 8, checks/rules.ts): build it once per
+// scene from the scene's memory (`ledgerOf(sceneMemory(...))`, or `ledgerForScene` in memory/scene.ts), then ask as
+// often as needed.
 // Pure.
 
 import type { BeliefState, FactState, ID, KnowledgePayload, Learned } from '@shared/types'
