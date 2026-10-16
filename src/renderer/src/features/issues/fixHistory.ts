@@ -119,6 +119,12 @@ export const fixHistoryPlugin = new Plugin<FixState>({
   })
 })
 
+/** True when Ctrl+Z took this issue's accepted fix back in the page showing now (it waits for a redo). */
+export function fixUndone(issueId: ID): boolean {
+  const state = editorBridge()?.editor?.state
+  return !!state && (fixHistoryKey.getState(state)?.undone ?? []).some((f) => f.issueId === issueId)
+}
+
 /** The fixes followed in the page now (for tests). */
 export const issueFixes = (state: EditorState): IssueFix[] => fixHistoryKey.getState(state)?.fixes ?? []
 

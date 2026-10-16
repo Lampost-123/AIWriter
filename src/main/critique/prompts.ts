@@ -1,12 +1,15 @@
 // What the writer model is told when Adam asks for a critique of a scene or a chapter (contracts/critique.ts). Every
 // system prompt starts with "[AIWRITE-CRITIQUE v1] <scene|chapter>", so the fake provider in tests recognises it. The
-// briefing is lean: how the story is written (genre, tone, point of view, tense), the card, who is in it, where it
-// sits, and the words themselves; each part has shorter forms (outline/brief.ts fitBlocks), and a chapter too long for
-// the model is sent with its scenes shortened to their openings and endings, then to their summaries, rather than
-// refused. Pure, so it is unit-tested.
+// briefing is lean: how the story is written (genre, tone, point of view, tense, the author's notes), the facts it must
+// respect (premise, themes, the content level and limits, what the card plans, the chapter's goal, the plot threads and
+// when each is due, the scene's contract, the open must-fix problems), what the author has said he wants (memory.ts),
+// who is in it, where it sits, and the words themselves; each part has shorter forms (outline/brief.ts fitBlocks), and a
+// chapter too long for the model is sent with its scenes shortened to their openings and endings, then to their
+// summaries, rather than refused. Pure, so it is unit-tested.
 
 import type { CritiqueScope } from '@shared/contracts/critique'
-import type { Entry, ID, StyleGuide } from '@shared/types'
+import type { ContractCheckItem } from '@shared/contracts/checks'
+import type { Entry, ID, StyleGuide, ThreadDue } from '@shared/types'
 import { countWords } from '@shared/defaults'
 import { genresOf } from '@shared/genres'
 
@@ -59,6 +62,11 @@ Rules
 - At most ${MAX_NOTES} notes: the ones that would improve the ${scope} most, the most important first. Each note is about one thing.
 - Write to the author in plain English, as "you": short sentences, no jargon, no grades or scores.
 - Keep to the story's genre, tone, point of view and tense as given: never ask for a different kind of book.
+- Respect the "Facts to respect": never suggest cutting or changing what the scene card, the chapter's goal, the scene's contract or a plot thread due now requires (a beat it lists, the outcome it plans, a thread it sets up or pays off). Say how to do it better instead.
+- A set-up whose pay-off is planned for later is not a missing pay-off: never ask for it to be paid off or explained here.
+- Respect the content level the author chose: never ask to tone down, cut, fade out or soften the sex, violence or language it allows. Judge those passages only as writing.
+- Respect "What the author has said he wants": never raise a note he said isn't needed, or a kind of note he said isn't for this story, and never give the opposite of a note he acted on.
+- The open consistency problems listed are being fixed elsewhere: don't repeat them as notes, and never suggest anything that keeps them.
 - "quote": words copied exactly, character for character, from the ${scope === 'scene' ? 'scene' : "chapter's scenes (from one scene)"}: the sentence or short passage the note is about, at most about 40 words. Use "" when the note is about the ${scope} as a whole.${
     scope === 'chapter'
       ? '\n- Some scenes may be shortened, with [… words left out …] where words were cut: quote only words that are shown.'
@@ -81,18 +89,31 @@ export const retryMessage = (why: string, cutOff: boolean): string =>
     cutOff ? ' Keep it shorter: fewer notes, and a sentence or two for each.' : ''
   }`
 
-/** What the last part of the briefing asks for. */
-export function critiqueAsk(scope: CritiqueScope, title: string, again = false): string {
+/**
+ * What the last part of the briefing asks for. On a re-read (`again`), the chapter writer's (AGAIN_LINE) or Adam's
+ * Critique again (`o.adam`, SECOND_LINE); with the notes last time sent (`o.earlier`), which are settled and which a
+ * note gives again (EARLIER_REPLY).
+ */
+export function critiqueAsk(scope: CritiqueScope, title: string, again = false, o: { adam?: boolean; earlier?: boolean } = {}): string {
   const named = clean(title) ? ` “${clean(title)}”` : ''
-  const ask = `Critique the ${scope}${named} now, as one JSON object.`
-  return again ? `${AGAIN_LINE(scope)}
+  const ask = `Critique the ${scope}${named} now, as one JSON object.${o.earlier ? ` ${EARLIER_REPLY}` : ''}`
+  if (!again) return ask
+  return `${o.adam ? SECOND_LINE(scope) : AGAIN_LINE(scope)}
 
-${ask}` : ask
+${ask}`
 }
 
 /** Said on a re-read after revisions (the chapter writer): the critic may find it ready. */
 export const AGAIN_LINE = (scope: CritiqueScope): string =>
   `This is a re-read: the ${scope} has been revised since your last notes. Give only notes still clearly worth fixing, the kind a good editor would insist on. If the ${scope} is ready, give no notes at all ("notes": []).`
+
+/** Said when Adam asks for a critique again: it builds on the notes before rather than hunting afresh. */
+export const SECOND_LINE = (scope: CritiqueScope): string =>
+  `This is a second reading: you critiqued this ${scope} before, and the author has worked on it since. Your notes from last time are under "Your notes last time", with what became of each. Never reverse a note he acted on (if he tightened a passage you said dragged, don't now say it rushes), never raise again what he set aside, and give a note from last time again only if the words still clearly have that problem. New notes are welcome where they matter. If the ${scope} is ready, give no notes ("notes": []).`
+
+/** The reply's extra fields when the notes last time were sent. */
+export const EARLIER_REPLY =
+  'Also give "settled": the ids of your notes last time that are dealt with now (such as ["P1", "P3"]), and on a note that gives one of them again because it still stands, "earlier": its id (such as "P2").'
 
 // ---------- How the story is written ----------
 
@@ -109,7 +130,147 @@ export function storyLines(o: { title: string; style: StyleGuide; tone: string }
   add('Point of view', o.style.pov, 120)
   add('Tense', o.style.tense, 60)
   add('Prose style', o.style.proseStyle)
+  add("The author's other notes", o.style.notes ?? '', 400)
   return lines.join('\n')
+}
+
+// ---------- Facts to respect ----------
+
+/** A plot thread in the facts: its name, what it promises, and when it is due in plain words. */
+export interface FactsThread {
+  name: string
+  promise: string
+  when: string
+}
+
+/** What the critic must respect (critique/run.ts gathers it). Empty strings and lists are left out. */
+export interface CritiqueFacts {
+  premise: string
+  themes: string
+  /** One line per content scale the author set (shared/intensity.ts intensityLines). */
+  content: string[]
+  limits: string
+  /** What the scene card plans (a scene's critique), or the chapter card's notes (a chapter's, as `notes`). */
+  card: { goal: string; conflict: string; outcome: string; beats: string[]; notes: string; setsUp: string[]; paysOff: string[] } | null
+  chapterGoal: string
+  /** A chapter's critique: what each scene's card plans, a line each. */
+  scenes: string[]
+  threads: FactsThread[]
+  /** The scene's contract, from its latest draft that had one. */
+  contract: Pick<ContractCheckItem, 'part' | 'text'>[]
+  /** Open must-fix problems the consistency check found (`where`: a chapter's scene, by its title). */
+  mustFix: { where: string; quote: string; message: string }[]
+}
+
+export const NO_FACTS: CritiqueFacts = {
+  premise: '',
+  themes: '',
+  content: [],
+  limits: '',
+  card: null,
+  chapterGoal: '',
+  scenes: [],
+  threads: [],
+  contract: [],
+  mustFix: []
+}
+
+/** When a thread is due, in the critic's words: a set-up for later is not a missing pay-off. */
+export function dueForCritic(due: ThreadDue | undefined): string {
+  if (!due) return 'still open, with no pay-off planned yet'
+  const card = due.from === 'card' && !!due.sceneLabel
+  switch (due.state) {
+    case 'now':
+      return 'due to be paid off by the end of this chapter'
+    case 'overdue':
+      return card ? `overdue: its pay-off was planned for ${due.sceneLabel}` : `overdue: it was to be paid off by the end of ${due.label}`
+    case 'later':
+      return `${card ? `its pay-off is planned for ${due.sceneLabel}` : `to be paid off by the end of ${due.label}`}, later: not a missing pay-off here`
+  }
+}
+
+const CONTRACT_PARTS: Record<ContractCheckItem['part'], string> = {
+  start: 'Must be true at the start',
+  change: 'Must change',
+  keep: 'Must not change'
+}
+
+/** How many of each list each form keeps: full, short, smallest. */
+const FACT_MOST = {
+  threads: [10, 4, 3],
+  contract: [12, 6, 4],
+  mustFix: [6, 3, 0],
+  scenes: [12, 6, 0],
+  beats: [16, 10, 6]
+} as const
+
+/** A thread the scene itself sets up or pays off, or one due now or overdue: kept in the smallest form. */
+const urgent = (t: FactsThread): boolean => /^(this scene|due|overdue)/.test(t.when)
+
+/**
+ * "Facts to respect" in its forms, longest first: the full form, a short one (the main facts, fewer threads and
+ * problems), and the smallest (the content level, what the card plans, what the contract says must change, the threads
+ * the scene sets up or pays off and those due now). The block is never left out (critique/run.ts). [''] only when
+ * there is nothing at all to say.
+ */
+export function factsForms(f: CritiqueFacts, scope: CritiqueScope): string[] {
+  const form = (level: 0 | 1 | 2): string => {
+    const lines: string[] = []
+    const add = (label: string, v: string, n: number): void => {
+      if (clean(v)) lines.push(`${label}: ${cap(clean(v), n)}`)
+    }
+    if (level < 2) {
+      add('Premise', f.premise, level ? 200 : 500)
+      add('Themes', f.themes, level ? 160 : 300)
+    }
+    if (f.content.length) lines.push(`The content level the author chose:\n${f.content.map((l) => `- ${cap(clean(l), 240)}`).join('\n')}`)
+    add('Content limits (always respect these)', f.limits, level === 2 ? 240 : 500)
+    if (f.card) {
+      const c = f.card
+      const card: string[] = []
+      const put = (label: string, v: string, n: number): void => {
+        if (clean(v)) card.push(`- ${label}: ${cap(clean(v), n)}`)
+      }
+      put('Goal', c.goal, 300)
+      if (level < 2) put('Conflict', c.conflict, 300)
+      put('Outcome', c.outcome, 300)
+      const beats = c.beats.map(clean).filter(Boolean).slice(0, FACT_MOST.beats[level])
+      if (beats.length) card.push(`- Beats: ${beats.map((b, i) => `(${i + 1}) ${cap(b, level === 2 ? 120 : 200)}`).join('; ')}`)
+      put('Notes', c.notes, level === 2 ? 200 : level ? 400 : 700)
+      put('Sets up', c.setsUp.join(', '), 200)
+      put('Pays off', c.paysOff.join(', '), 200)
+      if (card.length) lines.push(`${scope === 'scene' ? 'What the scene card plans' : 'What the chapter card plans'}:\n${card.join('\n')}`)
+    }
+    add("The chapter's goal", f.chapterGoal, level === 2 ? 200 : 300)
+    const scenes = f.scenes.slice(0, FACT_MOST.scenes[level])
+    if (scenes.length) lines.push(`What each scene's card plans:\n${scenes.map((l) => `- ${cap(clean(l), 240)}`).join('\n')}`)
+    const threads = (level === 2 ? f.threads.filter(urgent) : f.threads).slice(0, FACT_MOST.threads[level])
+    if (threads.length) {
+      lines.push(
+        `Plot threads, and when each is due:\n${threads
+          .map((t) => `- ${cap(clean(t.name), 80)}${level < 2 && clean(t.promise) ? ` (${cap(clean(t.promise), level ? 80 : 160)})` : ''}: ${t.when}`)
+          .join('\n')}`
+      )
+    }
+    const contract = (level === 2 ? f.contract.filter((i) => i.part === 'change') : f.contract).slice(0, FACT_MOST.contract[level])
+    if (contract.length) {
+      lines.push(
+        `This scene's contract (what its latest draft was written to):\n${contract.map((i) => `- ${CONTRACT_PARTS[i.part]}: ${cap(clean(i.text), 200)}`).join('\n')}`
+      )
+    }
+    const problems = f.mustFix.slice(0, FACT_MOST.mustFix[level])
+    if (problems.length) {
+      lines.push(
+        `Problems the consistency check found that must be fixed (being dealt with elsewhere):\n${problems
+          .map((p) => `- ${p.where ? `In ${p.where}: ` : ''}${p.quote.trim() ? `“${cap(clean(p.quote), 120)}”: ` : ''}${cap(clean(p.message), 220)}`)
+          .join('\n')}`
+      )
+    }
+    return lines.join('\n')
+  }
+  const full = form(0)
+  if (!full) return ['']
+  return [full, form(1), form(2)]
 }
 
 // ---------- Who is in it ----------

@@ -14,9 +14,10 @@ import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { findTextRange } from '@/features/editor/findText'
 import { requestReveal } from '@/features/editor/reveal'
-import { showReplacement, startTool } from '@/features/edits/session'
+import { showReplacement, startTool, type OnAccepted } from '@/features/edits/session'
 import { wordsIn } from '@/features/edits/text'
 import { openScene } from '@/features/memory/openScene'
+import { fixedOnceChecked } from '@/features/repair/checkedFix'
 import { openStorySettings } from '@/features/stories/storyActions'
 import {
   fieldWords,
@@ -31,7 +32,7 @@ import {
   usableFix
 } from './issuesLogic'
 import { loadIssues, patchIssue, useIssuesStore } from './issuesStore'
-import { noteIssueFix, onFixHistory } from './fixHistory'
+import { fixUndone, noteIssueFix, onFixHistory } from './fixHistory'
 
 const WORDS_GONE = 'Those words aren’t in the scene any more.'
 
@@ -48,19 +49,36 @@ export function openSource(s: IssueSource): void {
 }
 
 /**
- * Marked fixed once its tracked change is accepted (`was`: the words it replaced). The page is saved first, so the
- * scene's other issues on the same words are put away with it (the save sweeps them, ipc/core.ts), then the issues are
- * read again. Ctrl+Z taking the change back reopens it (fixHistory.ts).
+ * Marked fixed once its tracked change is accepted (`was`: the words it replaced): the check's own rewrite. The page is
+ * saved first, so the scene's other issues on the same words are put away with it (the save sweeps them, ipc/core.ts),
+ * then the issues are read again. Ctrl+Z taking the change back reopens it (fixHistory.ts).
  */
 const markFixed =
   (issue: Issue, was: string) =>
   (words: { from: number; to: number }): void => {
-    if (!issue.sceneId) return
-    const sceneId = issue.sceneId
-    patchIssue(sceneId, issue.id, { status: 'fixed' })
     noteIssueFix(issue, words, was)
-    void settleFix(sceneId, issue.id)
+    fixedNow(issue)
   }
+
+/**
+ * The writer model's rewrite, once accepted: followed in the page at once (Ctrl+Z reopens the issue), its new words
+ * checked as a draft's are (repair/checkedFix.ts; the check saves the page first), and the issue marked fixed only once
+ * that check passes, saved again first (settleFix).
+ */
+const checkedFix = (issue: Issue, was: string): OnAccepted => {
+  const checked = fixedOnceChecked(issue, () => fixedNow(issue))
+  return (words, recordId) => {
+    noteIssueFix(issue, words, was)
+    checked(words, recordId)
+  }
+}
+
+/** Fixed: at once in the list, then saved, marked in the main process and read again; not once Ctrl+Z took the fix back. */
+function fixedNow(issue: Issue): void {
+  if (!issue.sceneId || fixUndone(issue.id)) return
+  patchIssue(issue.sceneId, issue.id, { status: 'fixed' })
+  void settleFix(issue.sceneId, issue.id)
+}
 
 /** After a fix went into the page: saved, the issue marked fixed, and the scene's issues read as they are now. */
 export async function settleFix(sceneId: ID, issueId: ID): Promise<void> {
@@ -102,7 +120,8 @@ export function placesInPage(doc: PMNode, quote: string): { from: number; to: nu
 /**
  * Fix the text: the check's suggested rewrite shows in the page as a tracked change (no AI call) when its
  * words are found whole, in one place it can be sure of; otherwise the AI tools' Rewrite works on the
- * sentence the words are in, told what the problem is. Accepting the change marks the issue fixed;
+ * sentence the words are in, told what the problem is. Accepting the change marks the issue fixed (the
+ * writer model's rewrite only once its new words pass the check a draft gets: repair/checkedFix.ts);
  * rejecting it leaves the issue as it was.
  */
 export function fixTheText(issue: Issue): void {
@@ -137,10 +156,11 @@ export function fixTheText(issue: Issue): void {
   const s = sentenceAround(text, range.from - start, Math.min(range.to, $from.end()) - start)
   const target = wordsIn(doc, start + s.from, start + s.to) ?? range
   // The words must change: a reply that sends them back as they were is asked for again, once, then said plainly.
+  // Accepted, the new words are checked as a draft's are, and the issue is fixed only once that check passes.
   void startTool('rewrite', {
     direction: fixDirection(issue),
     range: target,
-    onAccepted: markFixed(issue, doc.textBetween(target.from, target.to, '\n', '\n')),
+    onAccepted: checkedFix(issue, doc.textBetween(target.from, target.to, '\n', '\n')),
     mustChange: { again: fixAgainNote(issue), giveUp: NO_FIX_FOUND }
   })
 }

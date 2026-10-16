@@ -1,6 +1,7 @@
 // Check and repair in the page (step 3 of the consistency plan, Adam, 2026-10-07; contracts/repair.ts). As soon as a
-// draft, Add below, a beat or Continue lands (and a polished draft Adam accepts), its words go to the memory model to
-// be checked claim by claim against where things stood. What comes back:
+// draft, Add below, a beat or Continue lands (and a polished draft, a critic note's rewrite or Fix the text's rewrite
+// Adam accepts), its words go to the memory model to be checked claim by claim against where things stood. What comes
+// back:
 //   - small slips are mended in place: tiny edits of the AI's own words, all in one undo step, shown in amber
 //     (marks.ts), with Undo in a message (it puts the AI's words back, and that slip is never mended again);
 //   - anything that needs Adam's choice is a question in the Issues tab, and a message says so.
@@ -89,17 +90,39 @@ export function repairLanded(l: Landing): void {
   void run(l).catch((e) => console.warn('Could not check the new words', e))
 }
 
-async function run(l: Landing): Promise<void> {
+/**
+ * How a check of new words went: not checked at all (switched off, no memory model, Adam in another scene, a failed
+ * call), or checked, with how many slips were mended in place and how many things are asked in the Issues tab.
+ */
+export type LandedCheck = { checked: false } | { checked: true; mended: number; asked: number }
+
+const NOT_CHECKED: LandedCheck = { checked: false }
+
+/**
+ * Checks new words that just landed, as repairLanded does (mending and asking as usual), and says how it went: for an
+ * action that waits on the check (Fix the text's rewrite is marked fixed only once checked with nothing asked). Never
+ * throws: a check that fails is "not checked".
+ */
+export async function checkLanded(l: Landing): Promise<LandedCheck> {
+  try {
+    return await run(l)
+  } catch (e) {
+    console.warn('Could not check the new words', e)
+    return NOT_CHECKED
+  }
+}
+
+async function run(l: Landing): Promise<LandedCheck> {
   // Adam's switch (Settings › Models, "Check new words straight away"): off, nothing is checked.
-  if (useApp.getState().settings?.checkNewWords === false) return
+  if (useApp.getState().settings?.checkNewWords === false) return NOT_CHECKED
   const bridge = editorBridge()
   const ed = bridge?.editor
-  if (!bridge || !ed || ed.isDestroyed || bridge.sceneId !== l.sceneId) return
+  if (!bridge || !ed || ed.isDestroyed || bridge.sceneId !== l.sceneId) return NOT_CHECKED
   const doc = ed.state.doc
   const to = Math.min(l.to, doc.content.size)
   // Paragraphs Adam typed in while the words streamed in are marked: nothing in them is mended.
   const parts = landedParts(doc, Math.max(0, l.from), to, typedWhileStreaming(ed.state))
-  if (!parts.length) return
+  if (!parts.length) return NOT_CHECKED
   // Everything before the new words' first paragraph, a scene break put in before them included (the check tells a
   // slip from a change across a scene break by it).
   const before = sceneText(doc.cut(0, parts[0].at))
@@ -114,11 +137,13 @@ async function run(l: Landing): Promise<void> {
     leadIn,
     beforeChars: before.length
   })
-  if (!outcome.repairId) return
+  if (!outcome.repairId) return NOT_CHECKED
   const landing = newId()
   const made = outcome.fixes.length ? await mend(l, parts, outcome.fixes, landing) : []
   if (outcome.fixes.length) issuesKept(await api.repairsApplied(outcome.repairId, made.map((m) => m.id)).catch(() => ({}) as Record<ID, ID>))
-  tell(l.sceneId, landing, made, outcome.fixes.length - made.length + outcome.questions)
+  const asked = outcome.fixes.length - made.length + outcome.questions
+  tell(l.sceneId, landing, made, asked)
+  return { checked: true, mended: made.length, asked }
 }
 
 /** Makes the fixes that can be made now, in one undo step of their own, shown in amber. */

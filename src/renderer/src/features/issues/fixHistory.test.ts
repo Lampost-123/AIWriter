@@ -8,7 +8,7 @@ import { closeHistory, history, redo, undo } from '@tiptap/pm/history'
 import type { EditorView } from '@tiptap/pm/view'
 import { sceneExtensions } from '@/features/editor/extensions'
 import { setEditorBridge, type EditorBridge } from '@/lib/editorBridge'
-import { fixHistoryKey, fixHistoryPlugin, issueFixes, noteIssueFix, onFixHistory, type FixHistory } from './fixHistory'
+import { fixHistoryKey, fixHistoryPlugin, fixUndone, issueFixes, noteIssueFix, onFixHistory, type FixHistory } from './fixHistory'
 
 const schema = getSchema(sceneExtensions())
 const BEFORE = 'Mara’s eyes were green in the lamplight.'
@@ -31,7 +31,15 @@ function openPage(texts: string[]) {
     state = state.apply(tr)
     hook.update?.(view, prev)
   }
-  setEditorBridge({ sceneId: 'sc1', editor: { view, state } } as unknown as EditorBridge)
+  setEditorBridge({
+    sceneId: 'sc1',
+    editor: {
+      view,
+      get state() {
+        return state
+      }
+    }
+  } as unknown as EditorBridge)
   return {
     view,
     text: () => state.doc.textContent,
@@ -69,10 +77,14 @@ describe('an accepted fix in the page', () => {
     const made = accept(p, 'green', 'blue')
     noteIssueFix({ id: 'i1', sceneId: 'sc1' }, made, made.was)
     expect(issueFixes(p.view.state).map((f) => [f.issueId, f.now, f.was])).toEqual([['i1', 'blue', 'green']])
+    expect(fixUndone('i1')).toBe(false)
     expect(p.run(undo)).toBe(true)
     expect(p.text()).toContain('eyes were green')
     expect(told.map((h) => [h.undone.map((f) => f.issueId), h.redone.map((f) => f.issueId)])).toEqual([[['i1'], []]])
+    // A check of the rewrite finishing now doesn't mark it fixed (actions.ts fixedNow).
+    expect(fixUndone('i1')).toBe(true)
     expect(p.run(redo)).toBe(true)
+    expect(fixUndone('i1')).toBe(false)
     expect(p.text()).toContain('eyes were blue')
     expect(told.map((h) => [h.undone.map((f) => f.issueId), h.redone.map((f) => f.issueId)])).toEqual([
       [['i1'], []],

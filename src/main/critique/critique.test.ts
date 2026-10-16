@@ -146,7 +146,7 @@ describe('reading the reply', () => {
 
   it('reads the JSON object, forgiving a fence, and says what was wrong otherwise', () => {
     const ok = readCritiqueReply('```json\n{"summary": "Fine.", "strengths": "The rope.", "notes": []}\n```')
-    expect(ok).toEqual({ ok: true, value: { summary: 'Fine.', strengths: ['The rope.'], notes: [] } })
+    expect(ok).toEqual({ ok: true, value: { summary: 'Fine.', strengths: ['The rope.'], notes: [], settled: [] } })
     expect(readCritiqueReply('I liked it.').ok).toBe(false)
     expect(readCritiqueReply('{"notes": "lots"}')).toEqual({ ok: false, why: 'its "notes" was not a list' })
     expect(readCritiqueReply('{"other": 1}')).toEqual({ ok: false, why: 'it had no "summary" and no "notes"' })
@@ -278,7 +278,7 @@ describe('a critique, end to end', () => {
       sceneId: ID
     }
     expect(rec).toEqual({ job: 'critique', sceneId: s1 })
-    expect(savedCritique(db, { scope: 'scene', id: s1 })).toEqual({ critique: c, changed: false })
+    expect(savedCritique(db, { scope: 'scene', id: s1 })).toEqual({ critique: c, changed: false, gone: [], wants: [] })
   })
 
   it('a chapter’s notes point into the scene their words are in', async () => {

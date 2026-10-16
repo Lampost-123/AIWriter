@@ -1,6 +1,6 @@
 // The Critique tab's words and small decisions (the scene and chapter critic, contracts/critique.ts), kept pure so
 // they are unit-tested.
-import type { Critique, CritiqueCategory, CritiqueNote, CritiqueScope, CritiqueWeight } from '@shared/contracts/critique'
+import type { Critique, CritiqueCategory, CritiqueNote, CritiqueNoteStatus, CritiqueScope, CritiqueWeight } from '@shared/contracts/critique'
 import { relativeTime } from '@/features/generate/format'
 
 /** How much a note matters, as the tab says it. */
@@ -23,12 +23,43 @@ export const CATEGORY_WORDS: Record<CritiqueCategory, string> = {
   other: 'Craft'
 }
 
-/** "Critiqued 5 minutes ago · 3 notes". */
+/** "Critiqued 5 minutes ago · 3 notes" (", 1 dealt with" once Adam has acted on or set aside any). */
 export function critiqueHeadline(c: Pick<Critique, 'at' | 'notes'>, nowMs: number = Date.now()): string {
   const when = relativeTime(c.at, nowMs)
   const notes = c.notes.length === 0 ? 'no notes' : c.notes.length === 1 ? '1 note' : `${c.notes.length} notes`
-  return `Critiqued ${when || 'earlier'} · ${notes}`
+  const dealt = c.notes.filter((n) => n.status).length
+  return `Critiqued ${when || 'earlier'} · ${notes}${dealt ? `, ${dealt} dealt with` : ''}`
 }
+
+/** What a note's tag says once Adam has done something about it. */
+export const STATUS_WORDS: Record<CritiqueNoteStatus, string> = { done: 'Done', dismissed: 'Not needed', unwanted: 'Not for this story' }
+
+/** Said on a note still to do whose words are no longer in the scene. */
+export const CHANGED_WORDS = 'These words have changed'
+
+/** How a note stands: still to do, its words changed since, or what Adam did about it. */
+export type NoteState = 'open' | 'changed' | CritiqueNoteStatus
+
+export function noteState(note: Pick<CritiqueNote, 'id' | 'status'>, gone: readonly string[]): NoteState {
+  return note.status ?? (gone.includes(note.id) ? 'changed' : 'open')
+}
+
+/** What the button that brings a settled note back says. */
+export const bringBackWords = (status: CritiqueNoteStatus): string => (status === 'done' ? 'Not done yet' : 'Bring back')
+
+/**
+ * The line about how the critique came about, under its summary ('' for a first reading Adam asked for): the chapter
+ * writer's reading (a re-read after its changes, from its second round), or how many notes from last time are settled.
+ */
+export function readingNote(c: Pick<Critique, 'reread' | 'by' | 'settledSince'>): string {
+  if (c.by === 'chapter-writer') return c.reread ? 'Re-read after the chapter writer’s changes.' : 'Read during the chapter writer’s run.'
+  const n = c.settledSince ?? 0
+  return c.reread && n ? `Since last time, ${n === 1 ? '1 note is' : `${n} notes are`} settled.` : ''
+}
+
+/** The quiet line under the notes when Adam has said some kinds of note aren't for this story. */
+export const wantsWords = (n: number): string =>
+  n === 1 ? 'You told the critic 1 kind of note isn’t for this story.' : `You told the critic ${n} kinds of note aren’t for this story.`
 
 /** Said over a critique whose words have changed since it was written. */
 export const changedWords = (scope: CritiqueScope): string =>

@@ -1260,7 +1260,8 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   speaking, one thing in two hands, time running backwards…) run with no AI call after each read of a scene and in every
   check; their rows (`by: 'rule'`) are issues like these, marked "Found by a rule, not the AI".
 - **Fix the text** shows the check's rewrite with `showReplacement` (`features/edits/session.ts`: a ready-made
-  tracked change, no AI call), or starts Rewrite on the sentence; `onAccepted` marks the issue fixed.
+  tracked change, no AI call), or starts Rewrite on the sentence; `onAccepted` marks the issue fixed (Rewrite's words
+  only once they pass check and repair: "The critic knows the story and remembers").
 
 ### Who builds what (parallel build, milestone 5)
 
@@ -2295,6 +2296,53 @@ main side `src/main/critique/`, handlers `ipc/critique.ts`, the tab `features/cr
   hands the words, widened to whole sentences, and the note to the AI tools' Rewrite (`startTool('rewrite')`, with
   `mustChange`), so the rewrite waits in the page as a tracked change like any other.
 
+## The critic knows the story and remembers (2026-10-16)
+
+Adam: the critic should work with the story. Its notes went stale (a note acted on still offered Rewrite), it had no
+Dismiss, each run hunted afresh and could reverse itself ("drags", then "rushed"), it knew little of the story, and a
+rewrite it suggested skipped every consistency check. No migration; everything new is in `meta`.
+
+- **Facts to respect** (`critique/prompts.ts` `factsForms`, gathered by `run.ts`): the premise, the themes (the story's,
+  else its series', else the world's), the content level (`intensityLines`) and limits, what the card plans (goal,
+  conflict, outcome, beats, notes, the threads it sets up or pays off; for a chapter, the chapter card's notes and a line
+  per scene's card), the chapter's goal, plot threads with when each is due (`dueForCritic`, from the promises ledger:
+  "later: not a missing pay-off here"; those on the card first, then `openThreadsAt`), the scene's contract from its
+  latest checked draft (`checks/report.ts` `checkReport`), and the open must-fix problems whose words are still there.
+  Three forms; the block is priority 3 with `BlockDraft.keep` (outline/brief.ts `fitBlocks`: shortened to its last form,
+  never left out), so it shortens before the words and is never dropped first. The card block keeps only who, where,
+  when and mood. "How the story is written" adds the style guide's notes; the scene before is about 350 words (then
+  120). New rules: never suggest cutting what the card, the contract or a due thread requires; a set-up paid off later
+  isn't missing; never ask to tone down content the level allows; never repeat the open problems.
+- **What Adam did about a note** (`CritiqueNote.status`, kept in the critique: `critique/store.ts` `settleNote`,
+  `AppApi.settleCritiqueNote`): **Done** when its rewrite is accepted (with `newWords`, the words put in; `at` guards a
+  critique replaced since), **Not needed** (this scene or chapter), **Not for this story** (also kept per story,
+  `critique_wants:<story id>`, a list of `CritiqueWant`, `critique/memory.ts`, SQL in `db/critiques.ts`). Each has Undo
+  (a toast) or "Not done yet" / "Bring back" on the card; the tab lists the story's kinds under the notes with Allow
+  again (`dropCritiqueWant`). Notes acted on or not needed carry to the next critique of the target
+  (`Critique.earlier`, `carryEarlier`, at most 12). Critiques and the story's list go in `purgeTrash`
+  (`dropCritiquesOfGone`).
+- **Told to the critic** as "What the author has said he wants" (`saidForms`: the story's kinds, at most 12; notes not
+  needed here and those acted on, at most 8 each), keep. **Critique again** (the tab sends `again` whenever a critique
+  is kept; the chapter writer passes `by: 'chapter-writer'`, keeping its lenient `AGAIN_LINE`) sends "Your notes last
+  time" (`earlierForms`: P1… with what became of each, "its words have changed since" included) and `SECOND_LINE`; the
+  reply may say `"settled": ["P1"]` and a note `"earlier": "P2"`. **The guard** (`guardNotes`), whatever the model says:
+  a note like one set aside, of a kind not for the story (same title), giving again one set aside, or the same kind on
+  the words of one acted on (unless it says it is that note still standing) is left out. `Critique.reread`,
+  `settledSince` ("Since last time, 2 notes are settled."), `repeated` ("Still stands from last time").
+- **Stale notes** (`SavedCritique.gone`, `goneNotes`: still-to-do notes whose quote `findSceneQuote` no longer finds): the
+  card dims its body (opacity, `critique.css`) and its tag says "These words have changed"; Rewrite this and Show stay,
+  disabled, so nothing moves. The tab keeps checking while any note still to do has words, not only until the banner.
+- **A critic rewrite is checked** (`features/critique/actions.ts`): on Accept, the note is marked done and the new words
+  go through check and repair as a landing draft's do (`repairLanded`, with the edit's record from
+  `OnAccepted(words, recordId)`, `edits/session.ts`). **Fix the text's Rewrite** (no ready-made fix) does the same
+  through `repair/checkedFix.ts` `fixedOnceChecked`: the issue leaves the list at once, and is marked fixed only when the
+  check ran and asked nothing (`checkLanded`, `LandedCheck`); otherwise the list is read again and the issue, its words
+  gone, is put away as gone, so an unchecked fix is never taught as a slip (fix 7).
+- **The chapter writer's critiques** keep `by: 'chapter-writer'`; the tab says "Re-read after the chapter writer’s
+  changes." (or "Read during the chapter writer’s run.") under the summary.
+- **Tests**: `critique/memory.test.ts`, `features/critique/critiqueLogic.test.ts`, `repair/checkedFix.test.ts`,
+  `tests/e2e/critique.spec.ts` (the fake answers Critique again: `tests/fake-provider/critique.mjs` `earlierNotes`).
+
 ## Write the whole chapter (Adam, 2026-10-10)
 
 One action writes a whole chapter from its scene cards and keeps working on it until it is right: in line with the
@@ -3263,7 +3311,9 @@ critic's notes (`critique/`) and what the checks send to the model are unchanged
   whose quote runs across two paragraphs stays as it is.
 - **Accepting a fix saves first** (`features/issues/actions.ts` `settleFix`, also the editor chat's issue fix,
   `ask/applyProposal.ts`): the page is saved (so its sweep puts away the scene's other issues on the same words), then
-  the issue is marked fixed, then the issues are read again.
+  the issue is marked fixed, then the issues are read again. The writer model's rewrite (no ready-made fix) goes through
+  the critic's `fixedOnceChecked` first (its check saves the page too): marked fixed, in the same way, only once its new
+  words pass, and not when Ctrl+Z took it back meanwhile (`fixHistory.ts` `fixUndone`).
 - **Undo** (`features/issues/fixHistory.ts`, a plugin in the editor's list, kept out of the document as the repair marks
   are): an accepted fix is followed in the page; Ctrl+Z taking it back reopens its issue, Ctrl+Y marks it fixed again; a
   fix Adam edits by hand is no longer followed. And a row the sweep put away comes back open when its words are back in
