@@ -29,7 +29,7 @@ export function planWanted(): boolean {
 export async function planBeforeWriting(
   db: Database.Database,
   sceneId: ID,
-  b: { input: ContextInput; preview: ContextPreview; prepared: Pick<PreparedContext, 'finals'> },
+  b: { input: ContextInput; preview: ContextPreview; prepared: Pick<PreparedContext, 'finals' | 'contract'> },
   signal?: AbortSignal,
   focus = ''
 ): Promise<MadePlan | null> {

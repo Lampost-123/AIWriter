@@ -2,7 +2,7 @@
 // and where there were issues, one item per check, shown collapsed in the Issues tab. Kept in the world's `meta`
 // under 'check_reports', by scene (only the latest), so it goes with the world. No Electron imports.
 import type Database from 'better-sqlite3'
-import type { CheckKind, CheckReport, CheckReportItem } from '@shared/contracts/checks'
+import type { CheckKind, CheckReport, CheckReportItem, ContractCheck } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import * as repo from '../db/repo'
 import { now } from '../util'
@@ -40,9 +40,24 @@ export function reportItems(checks: CheckKind[], said: Record<string, unknown>[]
   })
 }
 
-/** Keeps a scene's latest report (replacing the one before). */
+/**
+ * Keeps a scene's latest report (replacing the one before). How the latest draft kept to its scene's contract (fix 13)
+ * stays with it unless this report has its own: the critic after a draft doesn't check the contract again.
+ */
 export function saveReport(db: DB, report: Omit<CheckReport, 'at'>): void {
   const all = load(db)
-  all[report.sceneId] = { ...report, at: now() }
+  const contract = report.contract ?? all[report.sceneId]?.contract
+  all[report.sceneId] = { ...report, at: now(), ...(contract ? { contract } : {}) }
+  repo.setMeta(db, META_KEY, JSON.stringify(all))
+}
+
+/**
+ * Keeps how a draft kept to its scene's contract (long story memory fix 13) with the scene's report, in place of the
+ * one before; a scene with no report yet gets one with only this (no checks, nothing else found).
+ */
+export function saveContractCheck(db: DB, sceneId: ID, contract: ContractCheck): void {
+  const all = load(db)
+  const was = all[sceneId]
+  all[sceneId] = was ? { ...was, contract } : { sceneId, at: contract.at, after: 'draft', items: [], found: 0, contract }
   repo.setMeta(db, META_KEY, JSON.stringify(all))
 }

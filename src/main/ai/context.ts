@@ -46,7 +46,9 @@
 //  2 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
 //    repeated from the briefing right above the closing instruction, the facts the scene is most likely to break first
 //    (the fewest lines that matter most, without the lead); since 2026-10-15 never left out, and short only once every
-//    block from 3 to 11 is
+//    block from 3 to 11 is; since long story memory fix 13 without the lines the scene's contract says
+//  2 the scene's contract (long story memory fix 13, contract.ts), when the draft has one: what must be true at the
+//    start, what must change and what must not, right above what must stay true; never left out (short: no lead)
 // Story memory step 5 (src/main/retrieval/, with ContextInput.recall) adds candidates, never more room: entries from
 // the last two scenes and entries found by searching join block 9; what was said, word for word (fewer lines when
 // short), and earlier passages found by searching (the best two, then the best one) are blocks at priority 9,
@@ -93,7 +95,8 @@ import { finalInstruction, indentMore, instructionsText, type FinalOptions } fro
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost, openThreadsShort, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
-import { MUST_TITLE, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { CONTRACT_BLOCK, contractSays, contractText, sceneContract, type ContractInput, type SceneContract } from './contract'
 import { LEDGER_BLOCK, ledgerPeople, ledgerText } from './whoKnows'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
@@ -185,6 +188,12 @@ export interface ContextInput {
    * how far the stage carries goes by them. Left out or null: the two scene cards' When alone (ai/storyDate.ts datesOf).
    */
   calendar?: SceneCalendar | null
+  /**
+   * Give the scene a contract (long story memory fix 13, contract.ts): what the draft is asked to write, the beat for a
+   * beat, and what the plan said must change. The briefing gets the contract as a short late block, and what must stay
+   * true leaves out what it says. Null or left out: no contract (switched off), exactly as before.
+   */
+  contract?: ContractInput | null
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -256,6 +265,8 @@ export interface PreparedContext {
   briefingCap?: number
   /** What each part's memory lines rest on, by part id (World Memory Overhaul B6), kept for the forms sent. */
   tags?: Map<string, DraftTag[]>
+  /** The scene's contract as the briefing tells it (long story memory fix 13); null or left out: none. */
+  contract?: SceneContract | null
 }
 
 // ---------- Budget ----------
@@ -1503,6 +1514,11 @@ export function sentOrderOf(blocks: Pick<BlockDraft, 'id' | 'entryIds'>[]): Reco
 
 /** Builds every block that has something in it, in the order they are sent. */
 export function buildBlocks(input: ContextInput, chosen: Selection = selectEntries(input)): BlockDraft[] {
+  return buildBriefing(input, chosen).blocks
+}
+
+/** The blocks, and the scene's contract they tell (long story memory fix 13), when the input asks for one. */
+function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockDraft[]; contract: SceneContract | null } {
   // The people in the scene with their usual looks put right for this moment, and the relative times in their profiles
   // made past (briefingFixes.ts). The entries as kept are unchanged.
   const stage = toldStage(input)
@@ -1620,12 +1636,33 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
     knowers,
     beliefs: input.memory.beliefs
   }
-  const must = mustStayTrue(mustFrom)
+  // The scene's contract (long story memory fix 13, contract.ts): the start and what must not change come from what must
+  // stay true's own lines (every stage line told, as the stage block above may not be), what must change from the card
+  // or the plan. Sent right above what must stay true, which then leaves out what it says (never said twice).
+  const contract = input.contract
+    ? sceneContract({
+        asks: input.contract.asks,
+        must: mustLines({ ...mustFrom, stageShown: false }),
+        people,
+        card,
+        threads: sel.threads.map((t) => ({ entryId: t.entry.id, name: t.entry.name, role: t.role })),
+        direction: clean(input.options.direction),
+        soFar: input.soFar,
+        focus: input.contract.focus,
+        planned: input.contract.planned,
+        facts: input.memory.facts,
+        storyTitle: input.story.title,
+        stageShown: !!full && reach === 'here'
+      })
+    : null
+  if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract), contractText(contract, { short: true }), [])
+  const mustFor = contract ? { ...mustFrom, leaveOut: contractSays(contract) } : mustFrom
+  const must = mustStayTrue(mustFor)
   if (must.length) {
     // Short: the lines that matter most, without the lead (the title says it); smallest: the first few of what the scene
     // is most likely to break, said briefly (it is never left out, so it has to fit a model with very little room).
-    const short = mustStayTrue({ ...mustFrom, short: true })
-    const smallest = mustStayTrue({ ...mustFrom, smallest: true })
+    const short = mustStayTrue({ ...mustFor, short: true })
+    const smallest = mustStayTrue({ ...mustFor, smallest: true })
     add(
       MUST_BLOCK,
       MUST_PRIORITY,
@@ -1879,7 +1916,7 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   // More earlier passages for a writer model that reads more (memoryRoom.ts).
   for (const b of recallBlocks(input.recall, passagesShown(memoryScale(input.contextLength)))) add(b.id, b.priority, b.title, b.text, b.short, [], b.smaller)
 
-  return blocks.sort((a, b) => sendRank(a) - sendRank(b))
+  return { blocks: blocks.sort((a, b) => sendRank(a) - sendRank(b)), contract }
 }
 
 /**
@@ -1919,6 +1956,8 @@ export const SEND_ORDER = [
   LEDGER_BLOCK.id,
   'scene-card',
   'continuity',
+  // The scene's contract (fix 13): what this draft must keep to and bring about, right above what must stay true.
+  CONTRACT_BLOCK.id,
   MUST_BLOCK
 ]
 const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
@@ -1991,13 +2030,13 @@ export interface ContextExtras {
 
 export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
   const sel = selectEntries(input)
-  const blocks = buildBlocks(input, sel)
+  const { blocks, contract } = buildBriefing(input, sel)
   for (const b of extras.extraBlocks ?? []) {
     if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
   }
-  // Where things stand goes last, after the scene so far too, then what must stay true, right above the closing
-  // instruction; the plan, if any, after that (finishContext sends it after the closing instruction).
-  for (const id of ['continuity', MUST_BLOCK]) {
+  // Where things stand goes last, after the scene so far too, then the scene's contract and what must stay true, right
+  // above the closing instruction; the plan, if any, after that (finishContext sends it after the closing instruction).
+  for (const id of ['continuity', CONTRACT_BLOCK.id, MUST_BLOCK]) {
     const at = blocks.findIndex((b) => b.id === id)
     if (at >= 0) blocks.push(...blocks.splice(at, 1))
   }
@@ -2044,7 +2083,8 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     ...(autoMax != null ? { autoMax, autoFinals: (max: number) => finalsFor(max) } : {}),
     knows: input.memory.knows ?? '',
     entries: contextEntries(sel, blocks),
-    tags: draftMemoryTags(blocks, input.memory)
+    tags: draftMemoryTags(blocks, input.memory),
+    ...(contract ? { contract } : {})
   }
 }
 
@@ -2111,8 +2151,14 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // Least important first; within a priority, hard rules go last.
   const leastFirst = [...others].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
-  // What must stay true is never left out: it goes short only once every block from 3 to 11 is, before block 1.
-  const shortenable = [...droppable, ...others.filter((x) => x.b.id === MUST_BLOCK), ...others.filter((x) => x.b.priority === 1)]
+  // What must stay true is never left out: it goes short only once every block from 3 to 11 is, before block 1; the
+  // scene's contract (fix 13) just before it.
+  const shortenable = [
+    ...droppable,
+    ...others.filter((x) => x.b.id === CONTRACT_BLOCK.id),
+    ...others.filter((x) => x.b.id === MUST_BLOCK),
+    ...others.filter((x) => x.b.priority === 1)
+  ]
 
   /** Block 11 (the ties): left out first when room is short, and put back last. */
   const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'

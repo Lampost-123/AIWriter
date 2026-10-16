@@ -5,6 +5,7 @@
 import type { CheckKind } from '@shared/contracts/checks'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import { fieldKeys } from '../keeper/prompts'
+import { CHECK_CONTRACT_RULES } from '../repair/contract'
 
 export const CHECK_MARKER = '[AIWRITE-CHECK v1]'
 
@@ -27,8 +28,15 @@ const WHAT: Record<CheckKind, string> = {
 /** The check names a reply may use, for the instructions. */
 const NAMES = ALL_CHECKS.join(', ')
 
-/** The instructions for checking a scene with these checks. */
-export function sceneSystem(checks: CheckKind[]): string {
+/**
+ * The instructions for checking a scene with these checks; with `contract`, through the scene's contract too (long
+ * story memory fix 13: the chapter writer's checks of the scenes it drafted).
+ */
+export function sceneSystem(checks: CheckKind[], contract = false): string {
+  return contract ? `${checksSystem(checks)}\n\n${CHECK_CONTRACT_RULES}` : checksSystem(checks)
+}
+
+function checksSystem(checks: CheckKind[]): string {
   const list = ALL_CHECKS.filter((c) => checks.includes(c))
   return `${CHECK_MARKER} ${list.join(', ')}
 You check a scene of a novel for consistency, for its author. You are given the memory of the story's world as it stands at the START of the scene (before anything in the scene happens), the story so far, where things stood as the previous scene ended, the scenes just before it, the style guide and the scene's text. Reply with one JSON object and nothing else.

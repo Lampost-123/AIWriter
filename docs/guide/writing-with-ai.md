@@ -148,6 +148,16 @@ they land. Small slips, like a character's eye colour drifting, are fixed in amb
 "Mended a slip in the new words, in amber", and an **Undo**. Anything bigger is raised for you to look at in
 the **Issues** tab.
 
+## Each scene keeps to its contract
+
+With **Give each scene a contract** on (it is by default, in **Settings › Models**), every draft is written to a short
+list: what must be true at the start (where people are, what they hold, how much time has passed), what must change
+(the scene card's beats, or what you asked for), and what must not change (who is dead, what is kept from someone,
+injuries). When the new words go against it, or don't yet show something the scene was meant to bring about, it is
+raised in the **Issues** tab, marked **Scene contract**, with a rewrite of just that sentence when one would put it
+right. Nothing changes without you. The check report at the top of the Issues tab says how the latest draft kept to the
+list, item by item, and the **Context** tab shows the list the AI was given.
+
 ## See what the AI saw
 
 **What the AI saw** shows exactly what was sent for a draft or a change: the model, how many tokens it read and

@@ -30,6 +30,7 @@ import { ChapterRun, chapterScenes, ownTitle, type RunDeps } from '../chapterWri
 import { activeRun, setActiveRun } from '../chapterWriter/active'
 import { loadBefore, loadReport, saveReport } from '../chapterWriter/store'
 import type { Page } from '../chapterWriter/page'
+import type { SceneContract } from '../ai/contract'
 
 /** How long a check waits for the memory to catch up before checking with what it has (as the checks do). */
 const CATCH_UP_MS = 60_000
@@ -83,6 +84,8 @@ function deps(runId: ID): RunDeps {
   }
   const closed = (): boolean => world.maybeCurrentWorld()?.db !== db
   const writer = writerModel()
+  // Each scene's contract as its latest draft was written to (long story memory fix 13): the checks go through it.
+  const contracts = new Map<ID, SceneContract>()
   return {
     db,
     agentModel: jobModel('chapter', sources()),
@@ -107,6 +110,8 @@ function deps(runId: ID): RunDeps {
         if (e instanceof UserError) return { status: 'error', text: '', error: e.message }
         throw e
       }
+      if (b.contract) contracts.set(sceneId, b.contract)
+      else contracts.delete(sceneId)
       const started = startDraftJob({
         db,
         sceneId,
@@ -150,7 +155,9 @@ function deps(runId: ID): RunDeps {
               stopped: () => signal.aborted || closed(),
               closed,
               onTask: (t) => (task = t),
-              onKeyRejected: () => undefined
+              onKeyRejected: () => undefined,
+              // The scene's contract its draft was written to, checked item by item in the same request (fix 13).
+              contract: contracts.get(sceneId) ?? null
             },
             sceneId,
             ALL_CHECKS

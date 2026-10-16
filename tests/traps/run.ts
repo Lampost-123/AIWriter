@@ -149,6 +149,7 @@ export async function repairLanded(
       checked: true,
       claims: outcome.claims,
       slips: outcome.slips,
+      ...(outcome.contract ? { contract: outcome.contract } : {}),
       fixes: outcome.fixes.map((f) => ({ was: f.was, now: f.now, why: f.why, made: made.includes(f.id) })),
       questions: raised.filter((r) => r.status === 'open').map((r) => r.message),
       text: made.length ? text : written.text,

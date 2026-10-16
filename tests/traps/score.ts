@@ -195,6 +195,8 @@ export interface RepairResult {
   questions: string[]
   /** What the repair's reply held and what fell away before the app judged it (counted by the harness: the app reports only claims and slips). */
   drops?: RepairDrops
+  /** How the passage kept to the scene's contract it was written to (long story memory fix 13), in checkouts that have it. */
+  contract?: { items: number; kept: number; broken: number; notYet: number }
   /** The passage after the fixes the page made (the passage itself when none). */
   text: string
   judge: SampleResult['judge']
@@ -748,8 +750,10 @@ export function passagesMarkdown(r: RunReport): string {
         if (st.repair?.checked) {
           for (const f of st.repair.fixes) out.push(`- Repair fix${f.made ? '' : ' (not made)'}: “${f.was}” → “${f.now}”: ${f.why}`)
           for (const q of st.repair.questions) out.push(`- Repair question: ${q}`)
+          const c = st.repair.contract
+          if (c) out.push(`- Scene contract: ${c.kept} of ${c.items} kept, ${c.broken} broken, ${c.notYet} not shown yet`)
         }
-        if (st.planted.length || bad.length || st.resolved.length || st.repair?.fixes.length || st.repair?.questions.length) out.push('')
+        if (st.planted.length || bad.length || st.resolved.length || st.repair?.fixes.length || st.repair?.questions.length || st.repair?.contract) out.push('')
       }
     }
   }
@@ -768,6 +772,7 @@ export function passagesMarkdown(r: RunReport): string {
         continue
       }
       out.push(`### Check and repair: ${x.claims} claim${x.claims === 1 ? '' : 's'} checked, ${x.slips} slip${x.slips === 1 ? '' : 's'}`, '')
+      if (x.contract) out.push(`Scene contract: ${x.contract.kept} of ${x.contract.items} kept, ${x.contract.broken} broken, ${x.contract.notYet} not shown yet.`, '')
       for (const f of x.fixes) out.push(`- Fix${f.made ? '' : ' (not made)'}: “${f.was}” → “${f.now}”: ${f.why}`)
       for (const q of x.questions) out.push(`- Question: ${q}`)
       if (x.fixes.length || x.questions.length) out.push('')

@@ -12,7 +12,7 @@ import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { issueSummary, KIND_WORDS, SEVERITY_WORDS, type IssueGroups } from './consistencyLogic'
-import { RULE_DETAIL, RULE_WORDS } from '@/features/issues/issuesLogic'
+import { CONTRACT_DETAIL, CONTRACT_WORDS, RULE_DETAIL, RULE_WORDS } from '@/features/issues/issuesLogic'
 import { openEntry, openIssue, openThread } from './open'
 
 export function IssuesTab({
@@ -181,6 +181,11 @@ function IssueCard({ issue: i, storyId, storyScenes, onChanged }: ListProps & { 
             {i.byRule ? (
               <span className="text-faint" title={RULE_DETAIL}>
                 · {RULE_WORDS}
+              </span>
+            ) : null}
+            {i.byContract ? (
+              <span className="text-faint" title={CONTRACT_DETAIL}>
+                · {CONTRACT_WORDS}
               </span>
             ) : null}
             {ignored ? <span className="text-faint">· Ignored</span> : null}

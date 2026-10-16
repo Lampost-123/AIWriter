@@ -257,6 +257,24 @@ function standInRepair(body: string): Response {
   if (codex && sentences[1]) {
     claims.push({ quote: sentences[1], who: '', about: 'other', line: codex[1], verdict: 'slip', why: 'A stand-in question (fake run).', question: 'Is this as the story has it? (fake run)' })
   }
+  // The scene's contract (long story memory fix 13), when the words were written to one: what must change kept (the
+  // first) or not shown yet (the rest), everything else untouched.
+  const at = content.indexOf('## The scene’s contract (C ids)')
+  if (at >= 0) {
+    let changing = false
+    let first = true
+    const contract: Record<string, unknown>[] = []
+    for (const line of content.slice(content.indexOf('\n', at) + 1).split('\n## ')[0].split('\n')) {
+      if (/^Must (?:change|happen)/.test(line)) changing = true
+      else if (/^Must /.test(line)) changing = false
+      const m = /^- \[(C\d+)\] /.exec(line)
+      if (!m) continue
+      if (changing && first && sentences[0]) contract.push({ item: m[1], result: 'kept', quote: sentences[0] })
+      else contract.push({ item: m[1], result: changing ? 'not yet' : 'untouched', quote: '' })
+      if (changing) first = false
+    }
+    return sse(JSON.stringify({ claims, contract }), content.length)
+  }
   return sse(JSON.stringify({ claims }), content.length)
 }
 
@@ -316,7 +334,15 @@ export interface RepairModule {
       recordId: string
       paragraphs: { text: string; from: number; to: number }[]
       leadIn: string
-    }): Promise<{ repairId: string | null; fixes: RepairFixLike[]; questions: number; claims: number; slips: number }>
+    }): Promise<{
+      repairId: string | null
+      fixes: RepairFixLike[]
+      questions: number
+      claims: number
+      slips: number
+      /** How the words kept to the scene's contract (long story memory fix 13), in checkouts that have it. */
+      contract?: { items: number; kept: number; broken: number; notYet: number }
+    }>
     repairsApplied(repairId: string, applied: string[]): Promise<Record<string, string>> | Record<string, string>
   }
 }

@@ -28,7 +28,8 @@ import { recallForBriefing } from '../retrieval'
 import type { SceneMemory } from '../memory/types'
 import { stageInScene } from '../ai/mustStay'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
-import { noteStage } from '../repair'
+import { noteContract, noteStage } from '../repair'
+import { contractWanted } from '../ai/contract'
 import { UserError } from '../util'
 
 /**
@@ -135,7 +136,9 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     speakerTags,
     stand,
     must: { facts: memory.facts, beliefs: memory.beliefs, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships },
-    ...(core ? { core } : {})
+    ...(core ? { core } : {}),
+    // The scene's contract (long story memory fix 13), when Settings › Models says to.
+    ...(tool === 'continue' && contractWanted(settings) ? { contract: true } : {})
   })
   if (!briefing.ok) return briefing
 
@@ -158,7 +161,11 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     // Kept until Adam accepts the change (History's snapshot before it names this record).
     ...(speakerTags ? { onSpeakers: (speakers: WriterSpeaker[], id: string) => noteGenerationSpeakers(id, speakers) } : {})
   })
-  // Check and repair: once Adam accepts Continue's words, they are checked against where things stood at the cursor.
-  if (tool === 'continue') noteStage(generationId, input.sceneId, stand)
+  // Check and repair: once Adam accepts Continue's words, they are checked against where things stood at the cursor, and
+  // against the scene's contract Continue was given (fix 13).
+  if (tool === 'continue') {
+    noteStage(generationId, input.sceneId, stand)
+    noteContract(generationId, input.sceneId, briefing.contract ?? null)
+  }
   return { ok: true, generationId, note: briefing.note }
 }

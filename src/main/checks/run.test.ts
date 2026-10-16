@@ -12,6 +12,8 @@ import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provid
 import type { JobModel } from '../ai/jobModel'
 import { UserError } from '../util'
 import { checkScene, type CheckOptions } from './run'
+import type { SceneContract } from '../ai/contract'
+import { CHECK_CONTRACT_RULES } from '../repair/contract'
 import { checkReport, reportItems } from './report'
 import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
 import { Keeper } from '../keeper/engine'
@@ -271,5 +273,50 @@ describe('the critic’s report', () => {
       { check: 'facts', ok: false, note: 'Found 2 things to look at.' },
       { check: 'timeline', ok: true, note: 'Nothing to report.' }
     ])
+  })
+})
+
+describe('the scene’s contract in the chapter writer’s checks (long story memory fix 13)', () => {
+  const contract = (tobinId: ID): SceneContract => ({
+    asks: 'scene',
+    items: [
+      { code: 'C1', part: 'change', text: 'Mara pushes the door open', check: 'facts', entryIds: [] },
+      { code: 'C2', part: 'change', text: 'Mara finds the ledger under the floor', check: 'facts', entryIds: [] },
+      { code: 'C3', part: 'keep', text: 'Tobin is dead: died in the fire (since Ch 1, Sc 1)', check: 'facts', entryIds: [tobinId] }
+    ]
+  })
+
+  it('goes through it in the request about what is so: no more requests; what it goes against and what isn’t shown yet are issues', async () => {
+    const w = world()
+    const out = await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    expect(out).toEqual({ status: 'done', found: 3 })
+    // Two requests, as without it; only the first has the contract.
+    const recs = checkRecords(w.db, w.s2).map((id) => gens.getGeneration(w.db, id))
+    expect(recs).toHaveLength(2)
+    expect(recs[0].messages[0].content).toContain(CHECK_CONTRACT_RULES)
+    expect(recs[0].messages[1].content).toContain('## The scene’s contract (C ids)\nMust change by the end of the scene:\n- [C1] Mara pushes the door open')
+    expect(recs[1].messages[0].content).not.toContain('contract')
+
+    const rows = cdb.sceneIssueRows(w.db, w.s2).map((r) => ({ ...r, p: cdb.payloadOf(r) }))
+    const dead = rows.find((r) => r.p.contract?.part === 'keep')!
+    expect(dead).toMatchObject({ kind: 'fact', severity: 'warning', quote: '"You took your time," said Tobin.', message: 'Tobin is dead, but speaks here.' })
+    expect(dead.p.sources).toEqual([{ kind: 'entry', entryId: w.tobinId, name: 'Tobin', field: null }])
+    const notYet = rows.find((r) => r.p.contract?.part === 'change')!
+    expect(notYet).toMatchObject({ quote: '', message: 'This scene was planned to show this, but the new words don’t yet: “Mara finds the ledger under the floor.” Write it in, or leave it for later?' })
+    expect(checkReport(w.db, w.s2)!.contract!.items.map((i) => i.result)).toEqual(['kept', 'not yet', 'broken'])
+  })
+
+  it('only a check through the contract replaces what one found: the critic after a draft leaves those issues be', async () => {
+    const w = world()
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    const fromContract = (): number => cdb.sceneIssueRows(w.db, w.s2).filter((r) => r.status === 'open' && cdb.payloadOf(r).contract).length
+    expect(fromContract()).toBe(2)
+    await checkScene(options(w.db), w.s2, DONE_CHECKS)
+    expect(fromContract()).toBe(2)
+    expect(checkReport(w.db, w.s2)!.contract!.items).toHaveLength(3)
+    // The scene put right and checked through the contract again: what it found goes.
+    repo.saveSceneText(w.db, w.s2, null, 'Mara pushed the door open and found the ledger under the floor.')
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    expect(fromContract()).toBe(0)
   })
 })

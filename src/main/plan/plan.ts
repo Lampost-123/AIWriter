@@ -28,6 +28,7 @@ import { deathOf } from '../ai/deaths'
 import { pieceLine, secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 import { SO_FAR_BLOCK } from '../beats/instructions'
+import { CONTRACT_BLOCK, contractSays } from '../ai/contract'
 import { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
 
 export { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
@@ -39,8 +40,8 @@ export const PLAN_MARKER = '[AIWRITE-PLAN v1]'
 export const PLAN_LIMIT_MS = 30_000
 /** Room for the planner's reply. */
 export const PLAN_REPLY_TOKENS = 900
-/** The most of each the plan keeps. */
-export const PLAN_MOST = { relies: 10, changes: 8, needs: 4 }
+/** The most of each the plan keeps (`must`: what must change, for the scene's contract, long story memory fix 13). */
+export const PLAN_MOST = { relies: 10, changes: 8, needs: 4, must: 5 }
 /** Only a scene's newest few planning calls keep their whole prompt (each holds much of the briefing). */
 export const KEEP_PLAN_PROMPTS = 10
 /** The most entries named for the planner: those in the briefing, and those it may ask for. */
@@ -82,6 +83,11 @@ export interface PlanMaterial {
    * never paid off unless the card or the direction asks. '' or left out: none.
    */
   threads?: string
+  /**
+   * The draft has a contract (long story memory fix 13, ai/contract.ts): the planner also says what must change by the
+   * end, for its "Must change" list. Left out: the plan as it always was.
+   */
+  contract?: boolean
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -100,7 +106,7 @@ const STAND_NOTE: Record<StageReach, string> = {
  * What the planner reads, from the writer's briefing as it stands (before the plan). `focus`: for Beat by beat, the
  * one beat to plan.
  */
-export function planMaterial(input: ContextInput, preview: ContextPreview, prepared: Pick<PreparedContext, 'finals'>, focus = ''): PlanMaterial {
+export function planMaterial(input: ContextInput, preview: ContextPreview, prepared: Pick<PreparedContext, 'finals' | 'contract'>, focus = ''): PlanMaterial {
   const sent = preview.blocks.filter((b) => !b.dropped)
   const block = (id: string) => sent.find((b) => b.id === id)
   const text = (id: string): string => block(id)?.text.trim() ?? ''
@@ -139,12 +145,16 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
   const direction = clean(input.options.direction)
   const directionText = input.options.addBelow && direction ? `The author's direction for this stretch:\n${direction}` : ''
   const cardText = [text('scene-card'), directionText].filter(Boolean).join('\n\n')
+  // With a contract (fix 13), what must stay true leaves out what the contract says at the start and must not change:
+  // the planner is told those lines with the rest of it.
+  const contractLines = sent.some((b) => b.id === CONTRACT_BLOCK.id) ? [...contractSays(prepared.contract)].map((l) => `- ${l}`) : []
+  const must = [text(MUST_BLOCK), ...contractLines].filter(Boolean).join('\n')
   return {
     ask,
     card: text('scene-card'),
     direction: directionText,
     focus: clean(focus),
-    must: text(MUST_BLOCK),
+    must,
     reach,
     stand: stand?.text.trim() ?? '',
     standTitle: stand?.title ?? 'Where things stand',
@@ -155,7 +165,8 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
     people: people.map((e) => e.name),
     secrets: secretsAmong(people, input.memory.facts),
     calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : cardText,
-    threads: text(OPEN_THREADS_BLOCK)
+    threads: text(OPEN_THREADS_BLOCK),
+    ...(input.contract ? { contract: true } : {})
   }
 }
 
@@ -176,6 +187,19 @@ Reply with only a JSON object:
 - What is kept from someone stays kept: never have them learn, guess or be told it, unless the scene card says so.
 - Open plot threads stay open: plan no payoff for one unless the scene card or the author's direction asks for it, or its line says to pay it off now. One may come in only where it fits what is asked.
 - At most ${PLAN_MOST.relies} relies and ${PLAN_MOST.changes} changes, the ones that matter most. Keep each short.`
+
+/**
+ * The instructions with the scene's contract (long story memory fix 13): the plan also says what must change by the end,
+ * as short statements the check after the draft can find in the words. The plan's own call, a little longer: no new call.
+ */
+const SYSTEM_WITH_CONTRACT = SYSTEM.replace(
+  '- needs: the names of entries',
+  `- must: what must be different by the end of the scene (when you are asked to plan one beat, by the end of that beat) for it to do what is asked: at most ${PLAN_MOST.must} short statements a reader could check in the finished words ("Mara tells Tobin the letter is forged"). Only what the scene card's beats, goal and outcome, the author's direction, or a plot thread the card sets up or pays off call for, never the moves on the way. Nothing of your own.
+- needs: the names of entries`
+).replace('"needs": [""]}', '"needs": [""], "must": [""]}')
+
+/** The planner's instructions: with "must" when the draft has a contract, otherwise as they always were. */
+export const planSystem = (contract = false): string => (contract ? SYSTEM_WITH_CONTRACT : SYSTEM)
 
 /**
  * What the memory model is asked. In an order a provider that reuses the start of a prompt it has seen (DeepSeek,
@@ -204,7 +228,7 @@ export function planMessages(m: PlanMaterial): ChatMessage[] {
     .filter(Boolean)
     .join('\n\n')
   return [
-    { role: 'system', content: SYSTEM },
+    { role: 'system', content: planSystem(!!m.contract) },
     { role: 'user', content: user }
   ]
 }
@@ -215,6 +239,8 @@ export interface RawPlan {
   relies: { who: string; what: string; value: string }[]
   changes: { who: string; what: string; from: string; to: string; how: string }[]
   needs: string[]
+  /** What must change by the end (the scene's contract, fix 13); empty or left out when not asked for or not given. */
+  must?: string[]
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? clean(v).slice(0, 400) : '')
@@ -237,6 +263,9 @@ export function readPlan(reply: string): RawPlan | null {
     changes: list(o.changes).map((c) => ({ who: str(c.who), what: str(c.what), from: str(c.from), to: str(c.to), how: str(c.how) })),
     needs: (Array.isArray(o.needs) ? o.needs : [])
       .map((n) => (typeof n === 'string' ? str(n) : n && typeof n === 'object' ? str((n as Record<string, unknown>).name) : ''))
+      .filter(Boolean),
+    must: (Array.isArray(o.must) ? o.must : [])
+      .map((n) => (typeof n === 'string' ? str(n) : n && typeof n === 'object' ? str((n as Record<string, unknown>).text ?? (n as Record<string, unknown>).what) : ''))
       .filter(Boolean)
   }
 }
@@ -433,6 +462,8 @@ export interface ScenePlan {
   changes: string[]
   /** The codex entries to bring into the briefing. */
   needs: ID[]
+  /** What must change by the end, for the scene's contract (fix 13): only what the card, the beat or the direction calls for. */
+  must: string[]
   /** How the check went: values put right from the stage, and things left out. */
   checked: { corrected: number; dropped: number }
 }
@@ -567,7 +598,21 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
     const e = byName.get(bare(n))
     if (e && !needs.includes(e.id)) needs.push(e.id)
   }
-  return { keep, changes, needs, checked: { corrected, dropped } }
+
+  // What must change by the end (the scene's contract, fix 13): only what the card, the beat or the author's direction
+  // calls for (a third of its words there), never something kept from someone here that the card doesn't bring up.
+  const must: string[] = []
+  for (const m of raw.must ?? []) {
+    if (must.length >= PLAN_MOST.must) break
+    const text = clean(m).slice(0, 240)
+    if (!text || must.some((x) => x.toLowerCase() === text.toLowerCase())) continue
+    if (!calledFor(text, w.calls, names) || tellsSecret(text)) {
+      dropped++
+      continue
+    }
+    must.push(text)
+  }
+  return { keep, changes, needs, must, checked: { corrected, dropped } }
 }
 
 /** The plan as the writer's own notes, leading into the prose; '' when it says nothing. */
@@ -588,8 +633,9 @@ export function planText(p: Pick<ScenePlan, 'keep' | 'changes'>, carryingOn: boo
 export function keepsRoom(before: Pick<ContextPreview, 'blocks' | 'budget'>, after: Pick<ContextPreview, 'blocks' | 'budget'>): boolean {
   const now = new Map(after.blocks.map((x) => [x.id, x]))
   for (const x of before.blocks) {
-    // The scenes before word for word go only in room to spare: the plan may have that room (2026-10-15).
-    if (x.dropped || x.id === EARLIER_BLOCK.id) continue
+    // The scenes before word for word go only in room to spare: the plan may have that room (2026-10-15). The scene's
+    // contract (fix 13) is the plan's to change: what it says must change takes the place of the card's own words.
+    if (x.dropped || x.id === EARLIER_BLOCK.id || x.id === CONTRACT_BLOCK.id) continue
     const y = now.get(x.id)
     if (!y || y.dropped || y.tokens < x.tokens) return false
   }
@@ -620,6 +666,8 @@ export interface MadePlan {
   needs: ID[]
   /** The writer's notes; '' when the plan only asked for entries. */
   text: string
+  /** What must change by the end, for the scene's contract (fix 13); empty without a contract. */
+  must: string[]
   checked: ScenePlan['checked']
 }
 
@@ -669,8 +717,9 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     const material = m.reach === 'here' ? user : planMessages({ ...m, stand: '' })[1].content
     const plan = checkPlan(raw, { ...o.check, reach: m.reach, material, card: m.card, calls: m.calls, people: m.people, secrets: m.secrets })
     const text = planText(plan, o.carryingOn)
-    if (!text && !plan.needs.length) return null
-    return { needs: plan.needs, text, checked: plan.checked }
+    const must = m.contract ? plan.must : []
+    if (!text && !plan.needs.length && !must.length) return null
+    return { needs: plan.needs, text, must, checked: plan.checked }
   } catch (e) {
     console.warn('Could not plan the scene; writing without a plan', e)
     return null

@@ -1,5 +1,5 @@
 // The Issues tab's words and small decisions, kept pure so they are unit-tested (milestone 5, AI checks).
-import type { CheckKind, CheckProgress, CheckReport, Issue, IssueKind, IssueSeverity } from '@shared/contracts/checks'
+import type { CheckKind, CheckProgress, CheckReport, ContractCheck, ContractResult, Issue, IssueKind, IssueSeverity } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { FIELD_GROUPS } from '@shared/fields'
 import { sameWords } from '@/features/edits/text'
@@ -25,6 +25,10 @@ export const KIND_WORDS: Record<IssueKind, string> = {
 /** The small note on an issue a free rule found (long story memory fix 8), and what it says in full on hover. */
 export const RULE_WORDS = 'Found by a rule, not the AI'
 export const RULE_DETAIL = 'Found by a rule over the memory, at once and for free: no AI was asked.'
+
+/** Said beside the kind of an issue found by checking a draft against its scene's contract (long story memory fix 13). */
+export const CONTRACT_WORDS = 'Scene contract'
+export const CONTRACT_DETAIL = 'Checked against this scene’s contract: what had to be true at the start, what had to change and what must not change.'
 
 /** "Found 2 things to look at in this scene." (or in the scene named, when Adam has moved on). */
 export function foundWords(found: number, where: string | null): string {
@@ -186,10 +190,42 @@ const AFTER_WORDS: Record<CheckReport['after'], string> = {
 
 /**
  * The report's line while it is closed: "Checked after the latest draft · 6 checks · 2 issues". With none it says
- * "no issues" (what the checks found), never that all is well: the page may still have words underlined.
+ * "no issues" (what the checks found), never that all is well: the page may still have words underlined. With only the
+ * scene's contract checked so far (fix 13, as the draft landed): "Checked against the scene contract · 3 of 4 kept".
  */
-export function reportHeadline(r: Pick<CheckReport, 'after' | 'items' | 'found'>): string {
+export function reportHeadline(r: Pick<CheckReport, 'after' | 'items' | 'found' | 'contract'>): string {
+  if (!r.items.length && r.contract) return `Checked against the scene contract · ${contractNote(r.contract)}`
   const checks = r.items.length === 1 ? '1 check' : `${r.items.length} checks`
   const how = r.found ? (r.found === 1 ? '1 issue' : `${r.found} issues`) : 'no issues'
   return `${AFTER_WORDS[r.after]} · ${checks} · ${how}`
+}
+
+// ---------- The scene's contract (long story memory fix 13) ----------
+
+/** How each item of the scene's contract came out, in a word or two. */
+export const CONTRACT_RESULT_WORDS: Record<ContractResult, string> = {
+  kept: 'Kept',
+  broken: 'Goes against it',
+  'not yet': 'Not shown yet',
+  untouched: 'Not touched',
+  unchecked: 'Not checked'
+}
+
+/** What each list of the contract is called. */
+export const CONTRACT_PART_WORDS: Record<ContractCheck['items'][number]['part'], string> = {
+  start: 'At the start',
+  change: 'Must change',
+  keep: 'Must not change'
+}
+
+/** True when nothing in the contract was gone against or left unshown. */
+export const contractOk = (c: Pick<ContractCheck, 'items'>): boolean => !c.items.some((i) => i.result === 'broken' || i.result === 'not yet')
+
+/** "3 of 4 kept", then what went against it and what isn't shown yet: "3 of 5 kept · 1 goes against it · 1 not shown yet". */
+export function contractNote(c: Pick<ContractCheck, 'items'>): string {
+  const n = (r: ContractResult): number => c.items.filter((i) => i.result === r).length
+  const parts = [`${n('kept')} of ${c.items.length} kept`]
+  if (n('broken')) parts.push(n('broken') === 1 ? '1 goes against it' : `${n('broken')} go against it`)
+  if (n('not yet')) parts.push(`${n('not yet')} not shown yet`)
+  return parts.join(' · ')
 }

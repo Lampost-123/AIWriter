@@ -7,6 +7,8 @@
 //   O1...  what the people here gave away, lost or got, however long ago (memory/items.ts), as it is now
 //   D1...  who is dead by now
 //   S1...  the scenes just before (when and where, who was there)
+//   C1...  the scene's contract, when the draft had one (long story memory fix 13, repair/contract.ts): each item is
+//          answered kept, broken, not yet or untouched
 // The system prompt starts with "[AIWRITE-REPAIR v1]", so the fake provider in tests recognises it. Pure.
 
 import type { ChatMessage, ContextBlock, ID } from '@shared/types'
@@ -17,6 +19,7 @@ import type { SceneCheckContext } from '../checks/context'
 import { beliefLines, entryText, factsThatMatter, headsAt, holdingsHere, knowsLine, namesAt } from '../checks/context'
 import { estimateTokens } from '../keeper/text'
 import { holdingLine, nameIn, namesOf } from '../memory/items'
+import { CONTRACT_RULES } from './contract'
 
 export const REPAIR_MARKER = '[AIWRITE-REPAIR v1]'
 
@@ -40,7 +43,7 @@ export interface StageLine {
 /** One fact from the memory a claim may be compared with. */
 export interface CodexLine {
   code: string
-  kind: 'entry' | 'knows' | 'owns' | 'dead' | 'scene'
+  kind: 'entry' | 'knows' | 'owns' | 'dead' | 'scene' | 'contract'
   /** The entry it is about (an E line; the item, for an O line), or the scene (an S line). */
   entryId?: ID
   sceneId?: ID
@@ -184,8 +187,15 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
   return { lines, sections }
 }
 
-/** The instructions: the same every time, so providers that cache repeated prompts can reuse them. */
-export function repairSystem(): string {
+/**
+ * The instructions: the same every time, so providers that cache repeated prompts can reuse them. `contract`: the new
+ * words had a scene contract (long story memory fix 13), whose items are answered too.
+ */
+export function repairSystem(contract = false): string {
+  return contract ? `${repairBase()}\n\n${CONTRACT_RULES}` : repairBase()
+}
+
+function repairBase(): string {
   return `${REPAIR_MARKER} claims
 You check newly written words of a novel, claim by claim, against what is already known, for the author. You are given where things stand just before the new words (each line with an id, W1..., and the story's own words that show it: where each person is and how they are placed, each piece of clothing on its own line, what they hold, who they touch and who they can see or hear, and each thing in the place), facts from the story's memory (E entries, K who knows what, O what people here gave away, lost or got, D who is dead, S the scenes just before), the words just before the new ones, and the new words. Reply with one JSON object and nothing else.
 
@@ -223,15 +233,19 @@ export interface RepairRequest {
  * is dead, then the memory's facts (which depend on what the new words name), and last where things stand, the words
  * just before and the new words, which change at every check.
  */
-export const REPAIR_SEND_ORDER = ['earlier', 'scene-card', 'dead', 'memory', 'knowledge', 'owned', 'stage', 'lead-in', 'new-words']
+export const REPAIR_SEND_ORDER = ['earlier', 'scene-card', 'dead', 'memory', 'knowledge', 'owned', 'contract', 'stage', 'lead-in', 'new-words']
 
-/** The request: the memory's facts, the scene card, where things stand, the words just before, and the new words. */
+/**
+ * The request: the memory's facts, the scene card, where things stand, the words just before, and the new words; with
+ * the scene's contract (C ids) when the draft had one (fix 13).
+ */
 export function repairRequest(o: {
   stage: StageLine[]
   codex: ReturnType<typeof codexLines>
   card: string
   leadIn: string
   newWords: string
+  contract?: { id: string; title: string; text: string; entryIds: ID[] } | null
 }): RepairRequest {
   // Each section's priority is its place in the order "What the AI saw" has always listed them in (where things stand
   // first); only the order sent changes.
@@ -243,6 +257,7 @@ export function repairRequest(o: {
       entryIds: [] as ID[]
     },
     ...o.codex.sections,
+    ...(o.contract ? [o.contract] : []),
     ...(o.card.trim() ? [{ id: 'scene-card', title: 'The scene card', text: o.card.trim(), entryIds: [] as ID[] }] : []),
     ...(o.leadIn.trim()
       ? [{ id: 'lead-in', title: 'The words just before the new ones (already counted in where things stand; not to be checked)', text: `"""\n…${o.leadIn.trim()}\n"""`, entryIds: [] as ID[] }]
@@ -263,7 +278,7 @@ export function repairRequest(o: {
   }))
   return {
     messages: [
-      { role: 'system', content: repairSystem() },
+      { role: 'system', content: repairSystem(!!o.contract) },
       { role: 'user', content: user }
     ],
     blocks,

@@ -60,6 +60,11 @@ export interface IssuePayload {
   occurrence?: number
   /** Settled by Update the memory (the text was right): never a slip later scenes are warned of (checks/lessons.ts). */
   fixedBy?: 'memory'
+  /**
+   * Found by checking a draft against its scene's contract (long story memory fix 13): which list the item was in and its
+   * words. Only a check that went through the contract replaces such a row (checks/run.ts).
+   */
+  contract?: { part: 'start' | 'change' | 'keep'; text: string }
 }
 
 // ---------- Telling the window ----------
@@ -161,6 +166,7 @@ export function readIssue(r: Row, names: IssueNames): Issue {
     // An ignored common AI phrase is a phrase row: the Issues tab names it as what it is.
     ...(r.kind === 'phrase' && typeof p.key === 'string' && isSlopKey(p.key) ? { aiPhrase: true as const } : {}),
     ...(p.by === 'rule' ? { byRule: true as const } : {}),
+    ...(p.contract ? { byContract: true as const } : {}),
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string
   }

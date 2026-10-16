@@ -79,5 +79,34 @@ export function repairReply(system, user) {
       claims.push({ quote: 'the bells of the Narrows began the hour', who: '', about: 'time', line: l.code, verdict: 'fits', why: '' })
     }
   }
-  return JSON.stringify({ claims })
+  const contract = contractAnswers(text, words)
+  return JSON.stringify(contract ? { claims, contract } : { claims })
+}
+
+/**
+ * The scene's contract (long story memory fix 13, "## The scene’s contract (C ids)"): something that must change or
+ * happen is kept when every word of four letters or more in it is in the new words, else not yet; anything else is
+ * untouched. Null when the request has no contract.
+ */
+function contractAnswers(text, words) {
+  const at = text.indexOf('## The scene’s contract (C ids)')
+  if (at < 0) return null
+  const body = text.slice(text.indexOf('\n', at) + 1).split('\n## ')[0]
+  const have = new Set(words.toLowerCase().match(/[a-z’']{4,}/g) ?? [])
+  const out = []
+  let changing = false
+  for (const line of body.split('\n')) {
+    if (/^Must (?:change|happen)/.test(line)) changing = true
+    else if (/^Must /.test(line)) changing = false
+    const m = line.match(/^- \[(C\d+)\] (.+)$/)
+    if (!m) continue
+    if (!changing) {
+      out.push({ item: m[1], result: 'untouched', quote: '' })
+      continue
+    }
+    const need = m[2].toLowerCase().match(/[a-z’']{4,}/g) ?? []
+    const shown = need.every((w) => have.has(w) || [...have].some((x) => x.startsWith(w.slice(0, 4))))
+    out.push(shown ? { item: m[1], result: 'kept', quote: words.split(/(?<=[.!?])\s+/)[0] ?? '' } : { item: m[1], result: 'not yet', quote: '' })
+  }
+  return out
 }

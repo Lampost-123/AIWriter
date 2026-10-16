@@ -103,6 +103,9 @@ longer and cost more. Models that don't think aren't affected.
 ## Other settings on the Models page
 
 - **Plan before writing** (on): before each draft, the memory model plans what the scene keeps to and what changes.
+- **Give each scene a contract** (on): each draft gets a short list of what must be true at the start, what must
+  change and what must not change. The plan fills in what must change, and the check of new words goes through the
+  list. The AI reads a little more each time.
 - **Check new words straight away** (on): after a draft, a beat or Continue, small slips are fixed in amber and
   the rest are raised for you to look at. It uses the memory model once each time.
 - **Find by meaning** (on): before each draft, AI Write finds earlier scenes, facts and summaries that matter,

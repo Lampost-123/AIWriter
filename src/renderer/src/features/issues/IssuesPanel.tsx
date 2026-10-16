@@ -13,7 +13,7 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useDelayed } from '@/features/generate/parts'
 import { checkThisScene, fixTheText, ignore, openSource, reopen, showWords, stopRun, updateTheMemory } from './actions'
-import { KIND_WORDS, RULE_DETAIL, RULE_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIssues, usableFix } from './issuesLogic'
+import { CONTRACT_DETAIL, CONTRACT_WORDS, KIND_WORDS, RULE_DETAIL, RULE_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIssues, usableFix } from './issuesLogic'
 import { useIssuesStore, useSceneIssues } from './issuesStore'
 import { revealLiveFlag, useLiveFlagCounts } from '@/features/liveChecks/liveFlags'
 import type { LiveFlagKind } from '@shared/liveChecks'
@@ -289,9 +289,10 @@ function IssueCard({ issue, leaving = false, onIgnore }: { issue: Issue; leaving
     >
       <div className="flex items-center gap-2">
         {desk ? <SeverityPill severity={issue.severity}>{SEVERITY_WORDS[issue.severity]}</SeverityPill> : <SeverityMark issue={issue} />}
-        <span className="min-w-0 truncate text-[11.5px] text-faint" title={issue.byRule ? RULE_DETAIL : undefined}>
+        <span className="min-w-0 truncate text-[11.5px] text-faint" title={issue.byRule ? RULE_DETAIL : issue.byContract ? CONTRACT_DETAIL : undefined}>
           {issue.aiPhrase ? 'Common AI phrase' : KIND_WORDS[issue.kind]}
           {issue.byRule ? ` · ${RULE_WORDS}` : null}
+          {issue.byContract ? ` · ${CONTRACT_WORDS}` : null}
         </span>
       </div>
       {issue.quote.trim() ? (

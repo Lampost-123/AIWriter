@@ -4,7 +4,9 @@
 // for once more, saying what was wrong, as the memory keeper does; one cut off by the reply limit is asked
 // again in two halves), and saves what it found in one go, replacing what the same checks found there
 // before. Each request is a 'check' generation record made by the shared task runner, so "What the AI saw"
-// works for it. Never writes once stopped by the world closing. No Electron imports.
+// works for it. Never writes once stopped by the world closing. With the scene's contract (long story memory fix 13:
+// the chapter writer's checks of the scenes it drafted), the first request goes through it item by item as well, as
+// check and repair does when a draft lands (repair/contract.ts): no more requests. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { CheckKind, CheckReport } from '@shared/contracts/checks'
@@ -22,6 +24,20 @@ import { foundIssues, orderedChecks, readCheckReply, type ReadContext } from './
 import { retryMessage, sceneSystem } from './prompts'
 import { reportItems, saveReport } from './report'
 import { ruleChecksQuietly } from './ruleChecks'
+import { findSceneQuote, issueKey, KIND_OF_CHECK, occurrenceAt } from './quote'
+import type { ContractCheck } from '@shared/contracts/checks'
+import type { SceneContract } from '../ai/contract'
+import {
+  contractResults,
+  contractSection,
+  contractSources,
+  judgeContract,
+  mergeAnswers,
+  notYetIssue,
+  readContractAnswers,
+  type ContractAnswer
+} from '../repair/contract'
+import { now } from '../util'
 
 type DB = Database.Database
 
@@ -51,6 +67,11 @@ export interface CheckOptions {
   onKeyRejected?: () => void
   /** Why the scene is checked, for its report (the critic's, in the Issues tab): 'request' when left out. */
   after?: CheckReport['after']
+  /**
+   * The scene's contract its draft was written to (long story memory fix 13): the chapter writer's checks go through it
+   * too, in the first request. Null or left out: no contract, as before.
+   */
+  contract?: SceneContract | null
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -128,14 +149,20 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   // The checks in two focused requests (a live run found one request for all six spread the model thin and missed
   // plain contradictions): what is so (facts, timeline, continuity), then who knows what and how it reads.
   const groups = CHECK_GROUPS.map((g) => checks.filter((c) => g.includes(c))).filter((g) => g.length)
+  // The scene's contract (fix 13) rides in the request about what is so (or the only one), item by item.
+  const contract = o.contract?.items.length ? o.contract : null
+  const contractGroup = contract ? (groups.find((g) => g.includes('facts')) ?? groups[0]) : null
+  const answers: ContractAnswer[][] = []
   for (const group of groups) {
     if (stopped || failure) break
-    const system = sceneSystem(group)
+    const withContract = group === contractGroup
+    const system = sceneSystem(group, withContract)
     const budget = checkBudget(o.model, system)
-    let sections = checkSections(ctx, group)
+    const terms = withContract && contract ? [contractSection(contract).section] : []
+    let sections = [...checkSections(ctx, group), ...terms]
     const size = (s: typeof sections): number => s.reduce((n, x) => n + estimateTokens(x.text) + 8, 0)
     // A big memory leaves too little room for the scene: its entries are told in a line each.
-    if (size(sections) > budget.available * 0.6) sections = checkSections(ctx, group, true)
+    if (size(sections) > budget.available * 0.6) sections = [...checkSections(ctx, group, true), ...terms]
     const room = budget.available - size(sections)
     if (room < 250) {
       return {
@@ -201,6 +228,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
         if (reply.ok) {
           got = reply.items
           checked.push(...(reply.checked ?? []))
+          if (withContract) answers.push(readContractAnswers(done.text))
           if (!reply.complete) partial = true
           break
         }
@@ -227,10 +255,15 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   if (!o.db.open || o.closed?.() || (stopped && !items.length)) return { status: 'stopped', found: 0 }
   // The scene may have been deleted while it was checked.
   if (!cdb.sceneTexts(o.db, [sceneId]).has(sceneId)) return { status: 'stopped', found: 0 }
-  const found = foundIssues(items, read)
   const whole = !stopped && !failure && !partial
-  // A whole check replaces what the same checks found here before; a check cut short only adds.
-  const replaces = whole ? (p: cdb.IssuePayload) => !!p.check && (checks as string[]).includes(p.check) : () => false
+  // The scene's contract (fix 13): what the scene goes against, or doesn't show yet, as issues like the rest.
+  const kept = contract && answers.length ? contractFindings(contract, mergeAnswers(answers), ctx) : null
+  const found = [...foundIssues(items, read), ...(kept?.found ?? [])]
+  // A whole check replaces what the same checks found here before; a check cut short only adds. What a check through the
+  // scene's contract found is replaced only by another check through it (the critic after a draft never is one).
+  const replaces = whole
+    ? (p: cdb.IssuePayload) => !!p.check && (checks as string[]).includes(p.check) && (!p.contract || !!kept)
+    : () => false
   let raised = cdb.saveFound(o.db, cdb.rowsInScenes(o.db, [sceneId]), found, replaces)
   // The free rule checks (long story memory fix 8), after the AI's findings are kept, so the rules never raise what the
   // AI just found, and bring back at once one the AI didn't find again.
@@ -243,7 +276,13 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
       if (c && c !== 'story') foundBy.set(c, (foundBy.get(c) ?? 0) + 1)
     }
     try {
-      saveReport(o.db, { sceneId, after: o.after ?? 'request', items: reportItems(checks, checked, foundBy), found: found.length })
+      saveReport(o.db, {
+        sceneId,
+        after: o.after ?? 'request',
+        items: reportItems(checks, checked, foundBy),
+        found: found.length,
+        ...(kept ? { contract: kept.check } : {})
+      })
     } catch (e) {
       console.warn('Could not keep the check report', e)
     }
@@ -251,4 +290,50 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   if (failure) return { status: 'error', error: failure, found: raised }
   if (stopped) return { status: 'stopped', found: raised }
   return { status: 'done', found: raised }
+}
+
+/**
+ * What a check of the whole scene found against its contract (fix 13): an item the scene goes against, on the scene's own
+ * words, with its rewrite when the model gave one; something that must change that the scene doesn't show, asked with no
+ * words to point at (repair/contract.ts notYetIssue). And how each item came out, for the scene's report.
+ */
+export function contractFindings(
+  contract: SceneContract,
+  answers: ContractAnswer[],
+  ctx: Pick<SceneCheckContext, 'sceneId' | 'storyId' | 'text' | 'memory'>
+): { found: cdb.FoundIssue[]; check: ContractCheck } {
+  const j = judgeContract(answers, contract, ctx.text)
+  const names = new Map([...ctx.memory.entries, ...ctx.memory.elsewhere.map((x) => x.entry)].map((e) => [e.id, e.name] as const))
+  const found: cdb.FoundIssue[] = []
+  const broken = new Set<string>()
+  for (const c of j.broken) {
+    const item = contract.items.find((i) => i.code === c.line)
+    const at = findSceneQuote(ctx.text, c.quote)
+    if (!item || !at) continue
+    const said = j.said.get(c.line)
+    const rewrite = said?.rewrite && plain(said.rewrite) !== plain(at.quote) ? said.rewrite : c.fix && at.quote.includes(c.fix.replace) ? at.quote.replace(c.fix.replace, c.fix.with) : null
+    broken.add(c.line)
+    found.push({
+      sceneId: ctx.sceneId,
+      storyId: ctx.storyId,
+      kind: KIND_OF_CHECK[item.check],
+      severity: 'warning',
+      quote: at.quote,
+      message: c.why || `This goes against the scene’s contract: ${item.text}`,
+      key: issueKey(item.check, 'contract', at.quote),
+      payload: {
+        by: 'check',
+        check: item.check,
+        sources: contractSources(item.entryIds, names),
+        fix: rewrite,
+        memoryFix: null,
+        ...(c.question ? { advice: c.question } : {}),
+        contract: { part: item.part, text: item.text },
+        occurrence: occurrenceAt(ctx.text, at.quote, at.start)
+      }
+    })
+  }
+  for (const item of j.notYet) found.push(notYetIssue({ sceneId: ctx.sceneId, storyId: ctx.storyId, names }, item, contract.asks))
+  const items = contractResults(contract, j, { broken, notYet: new Set(j.notYet.map((i) => i.code)) })
+  return { found, check: { at: now(), asks: contract.asks, items } }
 }

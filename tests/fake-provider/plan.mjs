@@ -4,8 +4,9 @@
 // something they hold that the stage doesn't know ("a silver knife": left out); it plans them taking off what the stage
 // says they wear (kept), putting on what they already wear (already so: left out), and a stranger bursting in that the
 // scene card never asks for (left out). With no one on the stage it plans a knock at the door. It asks for the first
-// entry under "Also in the world". A scene card with "PLAN-BROKEN" in it gets an answer that isn't JSON. Null for any
-// other request.
+// entry under "Also in the world". A scene card with "PLAN-BROKEN" in it gets an answer that isn't JSON. Asked what must
+// change (a scene contract), it says the card's beats and a dragon the card never asks for. Null for any other
+// request.
 
 export const PLAN_MARKER = '[AIWRITE-PLAN v1]'
 
@@ -41,5 +42,12 @@ export function planReply(system, user) {
           { who: '', what: 'fact', from: '', to: '', how: 'A stranger bursts in with a crossbow.' }
         ]
       : [{ who: '', what: 'fact', from: '', to: '', how: 'Someone knocks at the door.' }]
+  // Asked what must change (the scene's contract, long story memory fix 13): the card's beats in their own words, and a
+  // dragon the card never asks for (left out).
+  if (system.includes('"must": [""]')) {
+    const beats = [...part(user, 'The scene card').matchAll(/^\d+\. (.+)$/gm)].map((m) => m[1].trim().replace(/[.]$/, ''))
+    const must = [...beats, 'A dragon lands in the yard']
+    return JSON.stringify({ relies, changes, needs: other ? [other] : [], must })
+  }
   return JSON.stringify({ relies, changes, needs: other ? [other] : [] })
 }

@@ -440,6 +440,13 @@ export interface Settings {
    * stay true" list still goes in.
    */
   planFirst: boolean
+  /**
+   * Give each scene a contract (Settings › Models; on by default; long story memory fix 13): a draft's briefing gets a
+   * short list of what must be true at the start, what must change and what must not (src/main/ai/contract.ts), the
+   * plan says what must change, and the check of new words goes through the list item by item. Off: none of it, as
+   * before. Left out (settings saved before it): on.
+   */
+  sceneContracts?: boolean
   theme: ThemeName
   editor: EditorSettings
   /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */

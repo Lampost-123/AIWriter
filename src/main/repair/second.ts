@@ -97,6 +97,18 @@ export const SECOND_SYSTEM = `${SECOND_MARKER} verdicts
 You are checking another continuity editor's notes on newly written words of a novel, against the same material they read: where things stood just before the new words (W lines), the story's memory (E, K, O, D, S lines). For each numbered note, decide whether it is a real slip: the quoted new words and the line it cites cannot both be true at that moment, and nothing in the new words or the words just before shows the change happening. Reject a note that misreads the words, confuses two people, relies on something that is not in the material, flags something merely left out, flags details that can both be true on a natural reading, flags a change the new words themselves show, or is about style. What someone wears and how they are placed (boots, coat or anything else on or off; lying, sitting or standing; where they are, in the room or gone from it) change only when the new words or the words just before show it: never reject a note about those because the change could have happened off the page, or because someone may have put something back on or moved. Keep a note that is right even if it is worded badly.
 Reply with JSON only: {"verdicts": [{"n": 1, "reason": "...", "real": true}]}, one per note: reason first (one sentence, citing the line or the words that settle it), then real (true or false).`
 
+/**
+ * The instructions, with the scene's contract (long story memory fix 13) when a note cites one of its C lines; otherwise
+ * exactly as they always were.
+ */
+export const secondSystem = (contract = false): string =>
+  contract
+    ? SECOND_SYSTEM.replace(
+        "the story's memory (E, K, O, D, S lines).",
+        "the story's memory (E, K, O, D, S lines), and the scene's contract (C lines: what had to be true where the new words start, what had to change, and what must not change; a C note says the new words go against one)."
+      )
+    : SECOND_SYSTEM
+
 /** The request for the second opinion on `slips` (numbered from 1, in order). */
 export function secondRequest(slips: Claim[], o: { material: string; leadIn: string; newWords: string }): { messages: ChatMessage[]; blocks: ContextBlock[] } {
   const notes = slips
@@ -111,7 +123,7 @@ export function secondRequest(slips: Claim[], o: { material: string; leadIn: str
   const user = `${sections.map((s) => `## ${s.title}\n${s.text}`).join('\n\n')}\n\nReply with the JSON verdicts, one per note.`
   return {
     messages: [
-      { role: 'system', content: SECOND_SYSTEM },
+      { role: 'system', content: secondSystem(slips.some((c) => /^C\d+$/.test(c.line))) },
       { role: 'user', content: user }
     ],
     blocks: sections.map((s, i) => ({ id: s.id, priority: Math.min(10, i + 1), title: s.title, text: s.text, tokens: estimateTokens(s.text), entryIds: [], dropped: false }))

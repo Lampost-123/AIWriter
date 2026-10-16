@@ -13,7 +13,7 @@ import { soFarBlock } from '../beats/instructions'
 import * as repo from '../db/repo'
 import { getSettings } from '../settings'
 import { assemble, draftBriefing, providerNotes } from '../ai/draftFlow'
-import { noteStage, stageTold } from '../repair'
+import { noteContract, noteStage, stageTold } from '../repair'
 import { memorySettingsChanged } from '../keeper'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
 import { noteWriterSpeakers } from '../readAloud'
@@ -82,8 +82,10 @@ export const aiHandlers: Handlers<AiMethods> = {
         onSpeakers: (speakers) => noteWriterSpeakers(sceneId, speakers),
         ...providerNotes(b.target.id)
       })
-      // Check and repair: the draft's words are checked against where things stood as the writer was told it.
+      // Check and repair: the draft's words are checked against where things stood as the writer was told it, and against
+      // the scene's contract it was given (long story memory fix 13).
       noteStage(started.generationId, sceneId, stageTold(b, !!block))
+      noteContract(started.generationId, sceneId, b.contract ?? null)
       // Only the record's id goes back to the window (its `done` promise can't cross IPC).
       return { generationId: started.generationId }
     } finally {

@@ -677,7 +677,8 @@ export function issueFindings(db: DB, sceneId: ID): Omit<Finding, 'id' | 'status
         sceneId,
         from: 'check' as const,
         issueId: r.id as ID,
-        kind: `${SEVERITY_WORDS[r.severity as string] ?? 'worth a look'} · ${p.check ?? (r.kind as string)}`,
+        // Something the scene's contract asked for (fix 13): the review is told so.
+        kind: `${SEVERITY_WORDS[r.severity as string] ?? 'worth a look'} · ${p.contract ? 'scene contract' : (p.check ?? (r.kind as string))}`,
         what: (r.message as string) ?? '',
         quote: (r.quote as string) ?? '',
         advice
