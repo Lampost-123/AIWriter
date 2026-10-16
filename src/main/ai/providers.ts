@@ -10,8 +10,11 @@ import { newId, UserError } from '../util'
 import { knownParams, rememberParams, requestJson, type ChatTarget } from './client'
 import { describeFailure, isKeyFailure, looksLikeTokenParamRejected, providerWho, type Failure, type ProviderRef } from './errors'
 import { normalizeBaseUrl, parseModelList } from './models'
+import { isAnthropicApi } from '@shared/urls'
 
 const keyName = (id: string): string => `provider:${id}`
+/** Where the provider lists its models. Anthropic's own API gives 20 at a time unless asked for more. */
+const modelsPath = (p: Pick<ProviderConfig, 'baseUrl'>): string => (isAnthropicApi(p.baseUrl) ? 'models?limit=1000' : 'models')
 const JOBS: Job[] = ['writer', 'memory', 'chat', 'builder', 'speech', 'world', 'check', 'recipe', 'chapter']
 
 /** Model lists, fetched once per provider per session. */
@@ -131,7 +134,7 @@ export async function listModels(providerId: string): Promise<ModelInfo[]> {
   if (inFlight) return inFlight
   const p = requireProvider(providerId)
   const fetchList = async (): Promise<ModelInfo[]> => {
-    const r = await requestJson(providerTarget(p), 'models', { timeoutMs: 20_000 })
+    const r = await requestJson(providerTarget(p), modelsPath(p), { timeoutMs: 20_000 })
     if (!r.ok) {
       if (isKeyFailure(r.failure)) markCheck(p.id, false)
       throw new UserError(describeFailure(r.failure, refOf(p), { during: 'models' }))
@@ -183,7 +186,7 @@ async function runTest(id: string, modelId?: string): Promise<TestResult> {
     const data = (r.json as { data?: { limit_remaining?: unknown } } | null)?.data
     if (typeof data?.limit_remaining === 'number') detail += ` Credit left on this key: ${usd(data.limit_remaining)}.`
   } else {
-    const r = await requestJson(target, 'models', { timeoutMs: 15_000 })
+    const r = await requestJson(target, modelsPath(p), { timeoutMs: 15_000 })
     if (r.ok) {
       reachedIn = r.ms
       const models = parseModelList(r.json, p.kind, p.baseUrl)

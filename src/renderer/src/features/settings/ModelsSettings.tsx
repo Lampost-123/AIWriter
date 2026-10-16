@@ -28,6 +28,7 @@ export type TestResult = { state: 'testing' } | { state: 'done'; ok: boolean; me
 export const PRESETS: { name: string; baseUrl: string; needsKey: boolean }[] = [
   { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', needsKey: true },
   { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', needsKey: true },
+  { name: 'Anthropic', baseUrl: 'https://api.anthropic.com/v1', needsKey: true },
   { name: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', needsKey: true },
   { name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', needsKey: true },
   { name: 'LM Studio', baseUrl: 'http://localhost:1234/v1', needsKey: false },

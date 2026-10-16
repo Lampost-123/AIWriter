@@ -62,6 +62,18 @@ describe('parseModelList', () => {
     expect(parseModelList({ data: [{ id: 'deepseek-flash' }] }, 'custom', 'http://localhost:1234/v1')[0].contextLength).toBeNull()
   })
 
+  it("reads Anthropic's list: its plain names and reading limits", () => {
+    const list = parseModelList(
+      { data: [{ type: 'model', id: 'claude-sonnet-4-5', display_name: 'Claude Sonnet 4.5' }, { type: 'model', id: 'claude-x', display_name: ' ', max_input_tokens: 1_000_000 }], has_more: false },
+      'custom',
+      'https://api.anthropic.com/v1'
+    )
+    expect(list.map((m) => [m.id, m.name, m.contextLength])).toEqual([
+      ['claude-sonnet-4-5', 'Claude Sonnet 4.5', 200_000],
+      ['claude-x', 'claude-x', 1_000_000]
+    ])
+  })
+
   it("reads vLLM's max_model_len", () => {
     expect(parseModelList({ data: [{ id: 'served', max_model_len: 131072 }] }, 'custom')[0].contextLength).toBe(131072)
   })

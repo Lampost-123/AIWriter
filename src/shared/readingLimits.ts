@@ -7,6 +7,7 @@
 // ai/models.ts), and Settings › Models says where the number came from.
 
 import type { ModelChoice, ProviderConfig } from './types'
+import { isAnthropicApi } from './urls'
 
 /** A reading limit the model's maker publishes, in tokens, with who publishes it ("DeepSeek"). */
 export interface PublishedLimit {
@@ -29,11 +30,18 @@ export const DEEPSEEK_V4_LIMIT = 1_000_000
  */
 export const DEEPSEEK_OTHER_LIMIT = 64_000
 
+/**
+ * Anthropic's models overview (docs.claude.com): every Claude model on its own API reads at least 200,000 tokens
+ * (some read more with a beta switch AI Write doesn't send).
+ */
+export const CLAUDE_LIMIT = 200_000
+
 /** The reading limit the maker publishes for this model on this provider address; null when not known here. */
 export function publishedReadingLimit(baseUrl: string | null | undefined, modelId: string): PublishedLimit | null {
-  if (!baseUrl || !DEEPSEEK_API.test(baseUrl.trim())) return null
   const id = modelId.trim()
-  if (!id) return null
+  if (!baseUrl || !id) return null
+  if (isAnthropicApi(baseUrl)) return /^claude-/i.test(id) ? { tokens: CLAUDE_LIMIT, by: 'Anthropic' } : null
+  if (!DEEPSEEK_API.test(baseUrl.trim())) return null
   return { tokens: DEEPSEEK_V4.test(id) ? DEEPSEEK_V4_LIMIT : DEEPSEEK_OTHER_LIMIT, by: 'DeepSeek' }
 }
 

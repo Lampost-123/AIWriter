@@ -1,5 +1,14 @@
 // Address helpers shared by the main process and the interface.
 
+/**
+ * True for Anthropic's own API (the Anthropic preset in Settings › Models). It takes OpenAI's way of asking for a reply
+ * (docs.claude.com, "OpenAI SDK compatibility"), but its model list wants the key as x-api-key with an API version, and
+ * its newer models turn down temperature and top_p together.
+ */
+export function isAnthropicApi(baseUrl: string | null | undefined): boolean {
+  return !!baseUrl && /^https?:\/\/api\.anthropic\.com(\/|$)/i.test(baseUrl.trim())
+}
+
 /** True for a server on this computer or the local network (LM Studio, Ollama...). */
 export function isLocalUrl(url: string): boolean {
   let host: string

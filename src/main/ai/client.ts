@@ -5,6 +5,7 @@
 // fake provider in tests/fake-provider.
 
 import type { ChatMessage, ProviderKind, ThinkingLevel, ToolCall, ToolSpec } from '@shared/types'
+import { isAnthropicApi } from '@shared/urls'
 import {
   describeFailure,
   extractProviderMessage,
@@ -61,15 +62,22 @@ export const looksLikeToolChoiceRejected = (status: number, message: string): bo
 
 export const APP_REFERER = 'https://github.com/lampost-123/aiwriter'
 export const APP_TITLE = 'AI Write'
+/** The API version Anthropic's own API is asked with (its only stable one). */
+export const ANTHROPIC_VERSION = '2023-06-01'
 
 export function endpoint(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
 }
 
-export function requestHeaders(t: Pick<ChatTarget, 'kind' | 'apiKey'>, json = true): Record<string, string> {
+export function requestHeaders(t: Pick<ChatTarget, 'kind' | 'apiKey'> & { baseUrl?: string }, json = true): Record<string, string> {
   const h: Record<string, string> = {}
   if (json) h['Content-Type'] = 'application/json'
   if (t.apiKey) h.Authorization = `Bearer ${t.apiKey}`
+  if (isAnthropicApi(t.baseUrl)) {
+    // Anthropic's model list reads the key only from x-api-key, and every request there names an API version.
+    if (t.apiKey) h['x-api-key'] = t.apiKey
+    h['anthropic-version'] = ANTHROPIC_VERSION
+  }
   if (t.kind === 'openrouter') {
     h['HTTP-Referer'] = APP_REFERER
     h['X-Title'] = APP_TITLE
@@ -519,7 +527,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       const toolChoiceSent = !!tools?.length && !!toolChoice && sent.toolChoice !== false
       if (toolChoiceSent) payload.tool_choice = toolChoice
       payload[sent.tokenParam] = maxTokens
-      if (sent.sampling) Object.assign(payload, { temperature, top_p })
+      // Anthropic's newer models turn down temperature and top_p together, so it is sent creativity as temperature alone.
+      if (sent.sampling) Object.assign(payload, isAnthropicApi(o.target.baseUrl) ? { temperature } : { temperature, top_p })
       // TODO(Adam, 2026-10-08): presence_penalty / frequency_penalty would also curb repeated phrases, but only send one
       // once the provider is known to honour it (DeepSeek's docs list it, but whether its current models act on it is
       // not checked; some providers reject or ignore it). Until then the closing instruction lists phrases the scene has
