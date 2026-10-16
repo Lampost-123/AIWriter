@@ -8,7 +8,7 @@ import * as kdb from '../db/keeper'
 import * as world from '../world'
 import { emit } from '../events'
 import { labeler } from '../memory/line'
-import { currentKeeper, markSceneDone, memoryModel, memoryStatus } from '../keeper'
+import { currentKeeper, markSceneDone, memoryModel, memoryStatus, recordEdited } from '../keeper'
 import { guessReread, rereadCost } from '../importing/estimate'
 import { getSettings } from '../settings'
 import { isLocalUrl } from '../ai/errors'
@@ -51,6 +51,9 @@ function write<T>(fn: () => T): T {
 function changed(o: Outcome): void {
   emit('memory:changed', { sceneId: o.sceneId, entryIds: [...new Set(o.entryIds)] })
   emit('memory:status', memoryStatus())
+  // An undo or an answer changes the record: the end-of-chapter snapshots and roll-ups resting on it catch up (fix 15
+  // review), of the scene's story, or of every story when it was about no one scene.
+  recordEdited(world.db(), o.sceneId ? { sceneIds: [o.sceneId] } : {})
 }
 
 /** Where each line's change comes from, in plain words: "Book 1, Ch 2, Sc 3"; for a roll-up "Book 1, Ch 2", "Book 1" or the series. */
@@ -166,4 +169,5 @@ export function rereadEstimate(db: Database.Database, target: RereadTarget): Rer
 function checksChanged(): void {
   emit('memory:changed', { sceneId: null, entryIds: [] })
   emit('memory:status', memoryStatus())
+  recordEdited(world.db())
 }

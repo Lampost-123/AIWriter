@@ -15,12 +15,18 @@
 // up to MOST_SCALE times the words, more chapters told a scene at a time, longer chapter and story lines. With room,
 // every scene of the recent chapters is told as fully as the last five, so a new scene adds a line and changes none
 // before it, and the start of the briefing stays the same from one scene to the next (the cache).
+// Since 2026-10-16 (long story memory fix 15) an older chapter's line also has what its 60 words may have lost, from its
+// end-of-chapter snapshot (the story record, memory/chapterRecord.ts): the days it runs ("Ch 3, Day 3 to Day 5"), and up
+// to RECORD_FACTS of who learned what and the plot threads it paid off or set up, in its full form; and a chapter summary
+// made from sources that have changed since says it is being brought up to date. The snapshot is the one the memory
+// keeper kept, never worked out here, so an older line reads the same from scene to scene until its chapter changes.
 
 import type { EntryState, ID } from '@shared/types'
 import type { StorySoFar } from '../memory/types'
 import { deathOf } from './deaths'
 import { pastDeathNote } from './knows'
 import { MOST_SCALE } from './memoryRoom'
+import { timelineFacts } from '../memory/snapshot'
 
 /** How many forms the timeline has, as the story-so-far block's levels: full, short, then smaller. */
 export const TIMELINE_LEVELS = 6
@@ -36,6 +42,8 @@ export const DETAILED = { chapters: 2, scenes: 5 }
 const WORDS = { recent: 90, scene: 40, chapter: 60, story: 70, brief: 18, leads: 60 }
 /** The most marks on a scene or a chapter. */
 const MOST_MARKS = 3
+/** The most facts from an older chapter's snapshot on its line, in full form (fix 15). */
+export const RECORD_FACTS = 2
 
 /** What a scene with words but no summary yet says in place of one (2026-10-15), so it isn't left out without a word. */
 export const NO_SUMMARY = "no summary yet, so what happens in it isn't told here"
@@ -143,28 +151,36 @@ export function timelineMarks(entries: TimelineContext['entries'], storyTitle = 
  * What follows an earlier scene's summary that is being brought up to date (World Memory Overhaul A3: the scene changed
  * since it was written, and is among the most recent scenes a draft refreshes, memory/scene.ts markUpdating): said in
  * full, with how the scene now ends when the memory gave it, or briefly. Empty for any other summary. The writer's story
- * so far, in both its forms (this timeline and ai/context.ts storySoFarText), says it the same way.
+ * so far, in both its forms (this timeline and ai/context.ts storySoFarText), says it the same way. A chapter's summary
+ * made from sources that have changed since (fix 15) says it of the chapter.
  */
-export function updatingNote(x: Pick<StorySoFar['scenes'][number], 'updating' | 'excerpt'>, brief = false): string {
+export function updatingNote(x: Pick<StorySoFar['scenes'][number], 'updating' | 'excerpt'>, brief = false, what: 'scene' | 'chapter' = 'scene'): string {
   if (!x.updating) return ''
   if (brief) return ' (This summary is being brought up to date.)'
   const ends = x.excerpt && clean(x.excerpt) ? ` The scene now ends: “…${clean(x.excerpt)}”` : ''
-  return ` (This summary is being brought up to date: the scene has changed since it was written.${ends})`
+  return ` (This summary is being brought up to date: the ${what} has changed since it was written.${ends})`
 }
 
-/** One line of the timeline, with a fuller and a briefer form; `marks` are kept in both, and `updating` in its own form. */
+/**
+ * One line of the timeline, with a fuller and a briefer form; `marks` are kept in both, `more` (an older chapter's facts
+ * from the record) only in the fuller, and `updating` in its own form.
+ */
 interface Part {
   head: string
   detail: string
   brief: string
   marks: string[]
+  more?: string[]
   updating?: Pick<StorySoFar['scenes'][number], 'updating' | 'excerpt'>
+  /** What `updating` is said of. */
+  of?: 'scene' | 'chapter'
 }
 
 const lineOf = (p: Part, brief: boolean): string => {
   const text = brief ? p.brief : p.detail
-  const marks = p.marks.length ? ` [${p.marks.join('; ')}]` : ''
-  const note = p.updating ? updatingNote(p.updating, brief) : ''
+  const all = brief || !p.more?.length ? p.marks : [...p.marks, ...p.more]
+  const marks = all.length ? ` [${all.join('; ')}]` : ''
+  const note = p.updating ? updatingNote(p.updating, brief, p.of) : ''
   return `- ${p.head}${text ? `: ${text}` : ''}${marks}${note}`
 }
 
@@ -227,7 +243,17 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
     const chapter = chapters.get(chapterId)
     if (chapter && !recentChapters.has(chapterId)) {
       const all = [...sceneMarks(chapter.label), ...own.flatMap((x) => sceneMarks(x.label))].slice(0, MOST_MARKS)
-      parts.push({ head: place(chapter.label), detail: firstWords(chapter.text, say.chapter), brief: firstWords(chapter.text, say.brief), marks: all })
+      // What the record says of it (fix 15): the days it runs, and what its summary's opening may have lost.
+      const days = clean(chapter.record?.days)
+      const more = chapter.record ? timelineFacts(chapter.record, ctx.name, RECORD_FACTS) : []
+      parts.push({
+        head: days ? `${place(chapter.label)}, ${days}` : place(chapter.label),
+        detail: firstWords(chapter.text, say.chapter),
+        brief: firstWords(chapter.text, say.brief),
+        marks: all,
+        ...(more.length ? { more } : {}),
+        ...(chapter.updating ? { updating: { updating: true }, of: 'chapter' as const } : {})
+      })
       continue
     }
     for (const x of own) {

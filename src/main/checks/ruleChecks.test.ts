@@ -10,7 +10,9 @@ import * as kdb from '../db/keeper'
 import * as mem from '../db/memory'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { lessonsBefore } from './lessons'
-import { ruleKey, runRuleChecks } from './ruleChecks'
+import { laterRuleScenes, ruleKey, rulesAfterDeleting, rulesAfterRead, runRuleChecks } from './ruleChecks'
+import { calendarCards } from '../memory/storyCalendar'
+import { emptySceneCard } from '@shared/defaults'
 
 /** A story with three scenes in one chapter, Mara and Tobin in the codex. */
 function world() {
@@ -150,18 +152,23 @@ describe('rules over the cards and the stage', () => {
     expect(open(scenes[2])).toEqual([])
   })
 
-  it('flags a point of view another scene has somewhere else at the same moment, never in a place inside this one', () => {
+  it('flags a point of view another scene has somewhere else at the same clock time, never a time of day or a place inside this one', () => {
     const { db, scenes, mara, card, write, open } = world()
     const inn = repo.createEntry(db, 'place', { name: 'the Inn' })
     const room = repo.createEntry(db, 'place', { name: 'the back room', parentId: inn.id })
     const castle = repo.createEntry(db, 'place', { name: 'the Castle' })
     write(scenes[0], 'The inn was loud.')
     write(scenes[1], 'Rain fell on the castle walls.')
+    // "Evening" lasts hours: she may have ridden from the Inn to the Castle.
     card(scenes[0], { when: 'Day 3, evening', locationId: inn.id, presentIds: [mara.id] })
     card(scenes[1], { when: 'Day 3, evening', locationId: castle.id, povId: mara.id })
     runRuleChecks(db, scenes[1])
+    expect(open(scenes[1])).toEqual([])
+    card(scenes[0], { when: 'Day 3, 9pm' })
+    card(scenes[1], { when: 'Day 3, 9pm' })
+    runRuleChecks(db, scenes[1])
     expect(open(scenes[1]).map((r) => r.message)).toEqual([
-      'Mara is the point of view here, at the Castle, but Ch 1, Sc 1 has Mara at the Inn at the same moment (Day 3 · evening).'
+      'Mara is the point of view here, at the Castle, but Ch 1, Sc 1 has Mara at the Inn at the same moment (Day 3 · 9pm).'
     ])
     // A place inside the other: the same place.
     card(scenes[1], { locationId: room.id })
@@ -203,5 +210,106 @@ describe('rules over the cards and the stage', () => {
     write(scene, 'Mara held the brass compass. Tobin watched.')
     runRuleChecks(db, scene)
     expect(open(scene)).toEqual([])
+  })
+})
+
+describe('keeping the rules’ findings in step', () => {
+  it('looks again at later scenes with a finding open after a scene before them is read: one resting on it goes', () => {
+    const { db, scenes, tobin, open } = deadSpeaks()
+    runRuleChecks(db, scenes[1])
+    expect(open(scenes[1])).toHaveLength(1)
+    expect(laterRuleScenes(db, scenes[0])).toEqual([scenes[1]])
+    expect(laterRuleScenes(db, scenes[2])).toEqual([])
+    // The death is taken back in Scene 1: once Scene 1 is read, Scene 2's finding goes.
+    const death = mem.listAllChanges(db).find((c) => c.entryId === tobin.id)!
+    mem.deleteChange(db, death.id)
+    rulesAfterRead(db, scenes[0])
+    expect(open(scenes[1])).toEqual([])
+  })
+
+  it('takes a deleted scene’s open findings away, keeps what Adam ignored, and looks again when it comes back', () => {
+    const { db, scenes, open } = deadSpeaks()
+    runRuleChecks(db, scenes[1])
+    repo.deleteScene(db, scenes[1])
+    rulesAfterDeleting(db)
+    expect(cdb.rowsInScenes(db, [scenes[1]])).toEqual([])
+    repo.restoreDeleted(db, 'scene', scenes[1])
+    rulesAfterDeleting(db, [scenes[1]])
+    expect(open(scenes[1])).toHaveLength(1)
+    // Ignored, then deleted: it stays ignored, and coming back doesn't raise it again.
+    cdb.setIssueStatus(db, open(scenes[1])[0].id as ID, 'ignored')
+    repo.deleteScene(db, scenes[1])
+    rulesAfterDeleting(db)
+    repo.restoreDeleted(db, 'scene', scenes[1])
+    rulesAfterDeleting(db, [scenes[1]])
+    expect(cdb.rowsInScenes(db, [scenes[1]]).map((r) => r.status)).toEqual(['ignored'])
+  })
+
+  it('matches a rule’s finding with the AI’s or the keeper’s by the entry, and gives way to the keeper’s clash about the same field', () => {
+    const { db, story, scenes, mara, card, write, open } = world()
+    repo.updateEntry(db, mara.id, { fields: { age: '34' } })
+    write(scenes[1], 'Mara waited by the gate.')
+    card(scenes[1], { when: 'Day 1', povId: mara.id, notes: 'Mara, 40, waits by the gate.' })
+    runRuleChecks(db, scenes[1])
+    expect(open(scenes[1]).map((r) => [cdb.payloadOf(r).rule, r.message])).toEqual([
+      ['age', 'The scene card says Mara is 40, but the memory says 34 at the story’s start, so 34 by now.']
+    ])
+    // The keeper's clash about Mara's age (it can update the memory) takes the rule's place, and the rule leaves it be.
+    const clash = {
+      sceneId: scenes[1],
+      storyId: story.id,
+      kind: 'fact',
+      severity: 'warning',
+      quote: '',
+      message: 'Mara’s age: this scene says “40”, but the memory says “34”.',
+      key: `clash:${mara.id}:age:40`,
+      payload: { entryId: mara.id, field: 'age', memory: '34', text: '40' }
+    }
+    expect(kdb.raiseIssue(db, clash)).toBe(true)
+    expect(open(scenes[1]).map((r) => r.message)).toEqual([clash.message])
+    expect(runRuleChecks(db, scenes[1])).toBe(0)
+    expect(open(scenes[1]).map((r) => r.message)).toEqual([clash.message])
+  })
+
+  it('keeps a rule’s finding beside the AI’s about the same person when the two are other things in other words', () => {
+    const { db, story, scenes, tobin, open } = deadSpeaks()
+    runRuleChecks(db, scenes[1])
+    const other = (kind: 'voice' | 'knowledge', quote: string): cdb.FoundIssue => ({
+      sceneId: scenes[1],
+      storyId: story.id,
+      kind,
+      severity: 'warning',
+      quote,
+      message: `${kind} about Tobin.`,
+      key: `check:${kind}:${tobin.id}:${quote}`,
+      payload: { by: 'check', check: kind, sources: [], fix: null, memoryFix: null, entryId: tobin.id }
+    })
+    expect(cdb.saveFound(db, cdb.rowsInScenes(db, [scenes[1]]), [other('voice', '"You took your time,"')], () => false)).toBe(1)
+    expect(cdb.saveFound(db, cdb.rowsInScenes(db, [scenes[1]]), [other('knowledge', 'Mara pushed the door open.')], () => false)).toBe(1)
+    expect(open(scenes[1]).map((r) => r.kind).sort()).toEqual(['fact', 'knowledge', 'voice'])
+  })
+
+  it('stays cheap in a 500-scene story: the cards read once, and each scene’s rules quickly', () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const first = repo.getOutline(db, story.id).chapters[0]
+    const ids: ID[] = [repo.getOutline(db, story.id).scenes[0].id]
+    for (let c = 0; c < 25; c++) {
+      const chapter = c === 0 ? first : repo.createChapter(db, story.id, { title: `Chapter ${c + 1}` })
+      for (let i = c === 0 ? 1 : 0; i < 20; i++) ids.push(repo.createScene(db, chapter.id, { title: `Scene ${i + 1}` }).id)
+    }
+    expect(ids).toHaveLength(500)
+    const mara = repo.createEntry(db, 'character', { name: 'Mara' })
+    const inn = repo.createEntry(db, 'place', { name: 'the Inn' })
+    ids.forEach((id, i) => {
+      repo.updateSceneCard(db, id, { ...emptySceneCard(), povId: mara.id, locationId: inn.id, when: i === 0 ? 'Day 1, 9pm' : i % 2 ? 'The next day' : 'Day 1, 9pm' })
+      repo.saveSceneText(db, id, null, 'Mara waited by the gate.')
+    })
+    const cards = calendarCards(db)
+    const t0 = performance.now()
+    for (let i = 0; i < 500; i += 25) runRuleChecks(db, ids[i])
+    const took = performance.now() - t0
+    expect(calendarCards(db)).toBe(cards)
+    expect(took / 20).toBeLessThan(150)
   })
 })

@@ -372,6 +372,19 @@ export function listAllChanges(db: DB): Change[] {
   return (db.prepare('SELECT * FROM changes WHERE deleted_at IS NULL ORDER BY position, created_at, rowid').all() as Row[]).map(toChange)
 }
 
+/**
+ * The scenes where a character learns (or says) a fact, wherever they are in reading order (the rule-based checks, long
+ * story memory fix 8: a learning in a scene told later that is dated earlier still counts). Not a forgetting.
+ */
+export function knowledgeScenes(db: DB, entryId: ID, factId: ID): ID[] {
+  const rows = db
+    .prepare("SELECT * FROM changes WHERE deleted_at IS NULL AND entry_id = ? AND kind = 'knowledge' AND anchor = 'scene' AND scene_id IS NOT NULL")
+    .all(entryId) as Row[]
+  const out = new Set<ID>()
+  for (const c of rows.map(toChange)) if (c.kind === 'knowledge' && c.payload.factId === factId && !c.payload.forgets && c.sceneId) out.add(c.sceneId)
+  return [...out]
+}
+
 /** An entry's changes, and changes on other entries that point at it (relationships from the other side). */
 export function changesForEntry(db: DB, entryId: ID): Change[] {
   return (

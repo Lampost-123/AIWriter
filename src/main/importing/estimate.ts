@@ -21,6 +21,8 @@ const SUMMARY_REPLY = 160
 const ROLL_UP_REPLY = 260
 /** Scenes shorter than this get no summary (keeper/summaries.ts). */
 const SUMMARY_MIN_WORDS = 40
+/** About how much of the story record goes with a roll-up (long story memory fix 15: what changed, how things stand). */
+const RECORD_TOKENS = 300
 
 export interface CatchUpGuess {
   input: number
@@ -50,8 +52,11 @@ export function guessCatchUp(
       output += SUMMARY_REPLY
     }
   }
-  // A summary for each chapter from its scenes', and one for the story from its chapters'.
-  input += chapters * (summarySystem + 200) + Math.round(scenes.length * SUMMARY_REPLY * 1.1) + (summarySystem + chapters * ROLL_UP_REPLY)
+  // A summary for each chapter from its scenes' and the story record, and one for the story from its chapters' and the record.
+  input +=
+    chapters * (summarySystem + 200 + RECORD_TOKENS) +
+    Math.round(scenes.length * SUMMARY_REPLY * 1.1) +
+    (summarySystem + chapters * ROLL_UP_REPLY + RECORD_TOKENS)
   output += (chapters + 1) * ROLL_UP_REPLY
   return { input, output: Math.round(output * THINKING_COST[thinking]) }
 }

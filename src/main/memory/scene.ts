@@ -29,6 +29,7 @@ import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
 import { threadTouches } from './threadQuiet'
 import { promiseLedger, threadWarnings, writtenUpTo, type ThreadWarning } from './promises'
 import { threadPlans } from '../db/threadPlans'
+import { storedSnapshots } from '../db/snapshots'
 import { sceneCards } from '../db/worldViews'
 import { DUE_SUMMARY_SCENES, MIN_SUMMARY_WORDS, summaryDue } from '../keeper/sceneChange'
 import { fieldValue, guessFields } from '../keeper/facts'
@@ -114,11 +115,22 @@ export function writerData(db: DB, data: MemoryData): MemoryData {
   }
 }
 
+/** What is true as a scene begins (sceneStart): the world read, the line, and the state there. */
+export interface SceneStart {
+  shape: WorldShape
+  story: StoryNode
+  loaded: MemoryData
+  data: MemoryData
+  changes: ChangeIndex
+  line: Line
+  state: MemoryStateAll
+}
+
 /**
- * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
- * briefing and the "must stay true" list.
+ * What is true as a scene begins, as `sceneMemory` works it out, without the story so far, the threads or the scenes
+ * before (the rule-based checks, long story memory fix 8, need only this). Throws (plain words) when the scene is gone.
  */
-export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
+export function sceneStart(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneStart {
   const shape = loadShape(db)
   const story = storyOfScene(shape, sceneId)
   if (!story) throw new UserError('That scene no longer exists.')
@@ -144,7 +156,15 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
       } else state.entries.set(id, { ...e, guesses: left.length ? left : undefined })
     }
   }
+  return { shape, story, loaded, data, changes, line, state }
+}
 
+/**
+ * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
+ * briefing and the "must stay true" list.
+ */
+export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
+  const { shape, story, loaded, data, changes, line, state } = sceneStart(db, sceneId, opts)
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
   const previous = previousScene(db, shape, story.id, line)
   const earlier = opts.forWriter && previous ? earlierScenes(db, shape, line, previous) : []
@@ -165,7 +185,7 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
     facts: state.facts,
     beliefs: state.beliefs,
     threads: withLedger(db, shape, line, changes, state.threads, story.id, sceneId),
-    storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
+    storySoFar: opts.forWriter ? markUpdating(db, withRecords(db, sf, summaries), previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
     bringAbout: changes.byScene.get(sceneId) ?? []
   }
 }
@@ -308,6 +328,34 @@ function markUpdating(db: DB, s: StorySoFar, previousId: ID | null, entries: Ent
     excerpts++
   }
   return { ...s, scenes }
+}
+
+/**
+ * For the writer (long story memory fix 15): each earlier chapter of this story with its end-of-chapter snapshot as the
+ * memory keeper last worked it out (db/snapshots.ts, one query; nothing is worked out here, so a draft never waits for it
+ * and an older chapter's line reads the same until that chapter changes), and whether its summary is being brought up to
+ * date (the memory's own, made from sources that have changed since: keeper/summaries.ts markOutOfDate).
+ */
+function withRecords(db: DB, s: StorySoFar, summaries: SummaryIndex): StorySoFar {
+  if (!s.chapters.length) return s
+  let kept: ReturnType<typeof storedSnapshots>
+  try {
+    kept = storedSnapshots(
+      db,
+      s.chapters.map((c) => c.chapterId)
+    )
+  } catch (e) {
+    console.warn('Could not read the end-of-chapter snapshots', e)
+    kept = new Map()
+  }
+  return {
+    ...s,
+    chapters: s.chapters.map((c) => {
+      const row = summaries.get(summaryKey('chapter', c.chapterId))
+      const record = kept.get(c.chapterId)?.snapshot
+      return { ...c, ...(row && row.origin !== 'adam' && row.stale ? { updating: true } : {}), ...(record ? { record } : {}) }
+    })
+  }
 }
 
 /**

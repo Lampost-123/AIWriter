@@ -119,7 +119,8 @@ export function stageWhere(db: DB, state: SceneState | null | undefined): Record
 // the story's line run first." The memory keeper registers how (setBeforeDraft); drafting waits for
 // it, but never for long, and drafts anyway with what the memory has if it fails.
 
-export type BeforeDraft = (db: DB, sceneId: ID) => Promise<unknown> | unknown
+/** `limitMs`: how long the draft waits for it at most, so the memory can keep to it (the summaries a draft needs). */
+export type BeforeDraft = (db: DB, sceneId: ID, limitMs?: number) => Promise<unknown> | unknown
 
 let beforeDraft: BeforeDraft | null = null
 
@@ -156,7 +157,7 @@ export async function catchUpBeforeDraft(
   })
   // A failure is noted even when it comes after the wait is over (timed out or stopped).
   const run = Promise.resolve()
-    .then(() => fn(db, sceneId))
+    .then(() => fn(db, sceneId, limitMs))
     .then(
       () => 'done' as const,
       (e: unknown) => {

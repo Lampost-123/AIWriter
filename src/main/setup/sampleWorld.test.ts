@@ -14,7 +14,8 @@ import { memoryAt } from '../memory/asOf'
 import { buildLine, knowsSentence } from '../memory/line'
 import { loadShape } from '../memory/scene'
 import { planRead } from '../keeper/track'
-import { nextRollUp, sceneSummaryDue } from '../keeper/summaries'
+import { markOutOfDate, nextRollUp, sceneSummaryDue } from '../keeper/summaries'
+import { refreshSnapshots } from '../keeper/snapshots'
 import type { MemoryModel } from '../keeper/model'
 import { fillSampleWorld, isSampleWorld } from './sampleWorld'
 import { SAMPLE_CHAPTERS, SAMPLE_ENTRIES, SAMPLE_NAME } from './sampleContent'
@@ -142,6 +143,13 @@ describe('the sample world', () => {
     }
     const model = { choice: { contextLength: 32000 } } as unknown as MemoryModel
     expect(nextRollUp(db, [storyId], () => '', model)).toBeNull()
+    // Long story memory fix 15: once its end-of-chapter snapshots are worked out, its roll-ups (written before, from
+    // their summaries alone) still count as up to date, so none is written again and none says it is being brought up to
+    // date (Classic's screenshots stay as they were).
+    expect(refreshSnapshots(db, storyId, 10).worked).toHaveLength(SAMPLE_CHAPTERS.length)
+    expect(nextRollUp(db, [storyId], () => '', model)).toBeNull()
+    expect(markOutOfDate(db, storyId)).toBe(false)
+    expect(mem.listSummaries(db).filter((s) => s.stale)).toEqual([])
   })
 
   it('leaves no row pointing at nothing', () => {

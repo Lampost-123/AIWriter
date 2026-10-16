@@ -16,8 +16,10 @@ describe('quotations', () => {
     expect(spans('“Go,” she said. "Now," he said.')).toEqual(['“Go,”', '"Now,"'])
     expect(spans("‘I can’t,’ said Mara. The boys’ coats hung by the door.")).toEqual(['‘I can’t,’'])
     expect(spans("'Don't,' Tobin said. It's late.")).toEqual(["'Don't,'"])
-    // Marks of the other kind inside one are part of it.
+    // Marks of the other kind inside one are part of it, and so are marks of its own kind quoted inside it.
     expect(spans('“She said ‘never’ to me,” Mara said.')).toEqual(['“She said ‘never’ to me,”'])
+    expect(spans('“She said “never” to Tobin,” Mara said.')).toEqual(['“She said “never” to Tobin,”'])
+    expect(spans('“She said "never" to Tobin,” Mara said.')).toEqual(['“She said "never" to Tobin,”'])
   })
 
   it('runs one left open to the end of its paragraph (speech over several paragraphs)', () => {
@@ -49,6 +51,19 @@ describe('who speaks a line', () => {
     expect(said('“Go,” said Tobin’s sister.')).toEqual([])
     // No line next to it.
     expect(said('Tobin said nothing at all.')).toEqual([])
+    expect(said('“Well?” Tobin said nothing.')).toEqual([])
+    // Someone named inside a quotation within a quotation is still inside it.
+    expect(said('“She said “never” to Tobin,” Mara said.')).toEqual([['mara', '“She said “never” to Tobin,” Mara said.']])
+  })
+
+  it('reads began, went on, added, called and the like as giving a line only when a pause follows', () => {
+    expect(said('“I’ll go.” Mara began to walk away.')).toEqual([])
+    expect(said('“I’ll go.” Mara continued down the stairs.')).toEqual([])
+    expect(said('“Wait!” Tobin called him back.')).toEqual([])
+    expect(said('“Go,” Tobin added. “Now.”')).toEqual([['tobin', '“Go,” Tobin added.']])
+    expect(said('“And then?” Mara went on quietly.')).toEqual([['mara', '“And then?” Mara went on quietly.']])
+    expect(said('“Hold fast,” called Tobin.')).toEqual([['tobin', '“Hold fast,” called Tobin.']])
+    expect(said('Tobin added, “Now.”')).toEqual([['tobin', 'Tobin added, “Now.”']])
   })
 
   it('tells two people named alike apart: the longest name, and never words two people go by', () => {

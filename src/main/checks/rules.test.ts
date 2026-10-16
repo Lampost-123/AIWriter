@@ -13,6 +13,7 @@ import {
   deadHere,
   goneItem,
   inHand,
+  itemWords,
   knowsEarly,
   POV_NAMED_WORDS,
   povHere,
@@ -140,6 +141,33 @@ describe('the dead', () => {
     expect(deadHere(scene({ entries: [deadTobin], text }))).toHaveLength(1)
   })
 
+  it('leaves a dream, a ghost, a memory or a vision alone: in the line’s paragraph, on the card or in the When', () => {
+    const line = '“You took your time,” said Tobin.'
+    for (const text of [`In the dream, the stairs went on forever. ${line}`, `She remembered that night. ${line}`, `Tobin’s ghost stood by the fire. ${line}`])
+      expect(deadHere(scene({ entries: [mara, deadTobin], text }))).toEqual([])
+    // A paragraph of its own: the dream ends, and he speaks in the next.
+    expect(deadHere(scene({ entries: [mara, deadTobin], text: `In the dream, the stairs went on forever.\nMara woke. ${line}` }))).toHaveLength(1)
+    const card = (c: object) => ({ povId: 'tobin', presentIds: ['tobin'], notes: '', beats: [], goal: '', conflict: '', outcome: '', ...c })
+    expect(deadHere(scene({ entries: [mara, deadTobin], text: line, card: card({ notes: 'Tobin’s ghost visits Mara.' }) }))).toEqual([])
+    expect(deadHere(scene({ entries: [mara, deadTobin], text: line, card: card({ beats: ['Mara has a vision of the fire'] }) }))).toEqual([])
+    expect(deadHere(scene({ entries: [mara, deadTobin], text: 'Rain.', card: card({ when: 'In a dream, Day 9' }) }))).toEqual([])
+    expect(deadHere(scene({ entries: [mara, deadTobin], text: 'Rain.', card: card({}) }))).toHaveLength(1)
+  })
+
+  it('counts a scene the same day as the death as before it only when its time certainly comes first', () => {
+    const text = '“You took your time,” said Tobin.'
+    const at = (when: string) => {
+      const cal = buildCalendar([
+        { id: 's2', story: 'b', when: 'Day 3, 11pm' },
+        { id: 'here', story: 'b', when }
+      ])
+      return scene({ entries: [deadTobin], text, date: cal.dates.get('here')!, dateOf: (id) => cal.dates.get(id) ?? null })
+    }
+    // "Night" may be the same hour as 11pm: not certainly before, so it still counts.
+    expect(deadHere(at('Day 3, night'))).toHaveLength(1)
+    expect(deadHere(at('Day 3, morning'))).toEqual([])
+  })
+
   it('says nothing of a death the memory isn’t sure of, or one undone since', () => {
     const text = '“You took your time,” said Tobin.'
     const presumed = entry('tobin', 'character', 'Tobin', { did: [{ note: 'presumed dead after the wreck', where: 'Book 1, Ch 1, Sc 2' }] })
@@ -223,8 +251,49 @@ describe('things in hand', () => {
     expect(inHand(scene({ entries: [mara, tobin, lost], stage: st, here, text: 'x' }))).toEqual([])
   })
 
+  it('never counts a body’s grip, a ghost’s or a dream’s as a hand', () => {
+    const dagger = entry('dagger', 'item', 'The bone dagger')
+    const both = (tobinHolds: string, more: object = {}) =>
+      inHand(scene({ entries: [mara, deadTobin, dagger], stage: stage([{ name: 'Mara', holding: 'the bone dagger' }, { name: 'Tobin', holding: tobinHolds, ...more }]), text: 'x' }))
+    expect(both('the bone dagger, still gripped')).toEqual([])
+    const living = [mara, tobin, dagger]
+    const run = (tobinHolds: string, more: object = {}) =>
+      inHand(scene({ entries: living, stage: stage([{ name: 'Mara', holding: 'the bone dagger' }, { name: 'Tobin', holding: tobinHolds, ...more }]), text: 'x' }))
+    expect(run('the bone dagger', { condition: 'dead, slumped over the table' })).toEqual([])
+    expect(run('the bone dagger, in a dream')).toEqual([])
+    expect(run('the bone dagger')).toHaveLength(1)
+  })
+
+  it('never finds one thing by a bare word another thing has in its name', () => {
+    const letter = entry('letter', 'item', 'The letter')
+    const bryns = entry('bryns', 'item', 'Bryn’s letter')
+    expect(itemWords([letter, bryns], new Map()).get('letter')).toEqual(['The letter'])
+    const st = stage([
+      { name: 'Mara', holding: 'the letter' },
+      { name: 'Tobin', holding: 'Bryn’s letter' }
+    ])
+    expect(inHand(scene({ entries: [mara, tobin, letter, bryns], stage: st, text: 'x' }))).toEqual([])
+    const key = entry('key', 'item', 'The key')
+    const cellar = entry('cellar', 'item', 'The cellar key')
+    const keys = stage([
+      { name: 'Mara', holding: 'the key' },
+      { name: 'Tobin', holding: 'the cellar key' }
+    ])
+    expect(inHand(scene({ entries: [mara, tobin, key, cellar], stage: keys, text: 'x' }))).toEqual([])
+  })
+
+  it('leaves a thing destroyed later alone in a flashback, or a scene dated before it went', () => {
+    const smashed = entry('compass', 'item', 'The brass compass', { did: [{ note: 'smashed against the rocks', where: 'Book 1, Ch 1, Sc 2' }] })
+    const st = stage([{ name: 'Tobin', holding: 'the brass compass' }])
+    const cal = buildCalendar([
+      { id: 's2', story: 'b', when: 'Day 5' },
+      { id: 'here', story: 'b', when: 'Flashback: Day 1' }
+    ])
+    expect(inHand(scene({ entries: [mara, tobin, smashed], stage: st, text: 'x', date: cal.dates.get('here')!, dateOf: (id) => cal.dates.get(id) ?? null }))).toEqual([])
+  })
+
   it('reads a character’s own note that they destroyed it, and someone getting it later', () => {
-    const heads = new Map<ID, string[]>([['compass', ['compass']]])
+    const heads = ['The brass compass', 'brass compass', 'compass']
     const smasher = entry('mara', 'character', 'Mara', { did: [{ note: 'smashed the brass compass on the hearth', where: 'Book 1, Ch 1, Sc 2', at: 1 }] })
     expect(goneItem(compass, [smasher, compass], [], heads)).toEqual({ how: 'destroyed', where: 'Book 1, Ch 1, Sc 2' })
     const finder = entry('ash', 'character', 'Ash', { did: [{ note: 'took the compass from the ruins', at: 2 }] })
@@ -238,14 +307,14 @@ describe('the point of view', () => {
   const card = { povId: 'mara', presentIds: [], notes: '', beats: [], goal: '', conflict: '', outcome: '' }
   const long = (body: string) => Array.from({ length: Math.ceil(POV_NAMED_WORDS / 10) + 1 }, () => body).join(' ')
 
-  it('flags a point of view another scene has somewhere else at the same moment', () => {
-    const cal = buildCalendar([{ id: 'here', story: 'b', when: 'Day 3, evening' }])
+  it('flags a point of view another scene has somewhere else at the same clock time', () => {
+    const cal = buildCalendar([{ id: 'here', story: 'b', when: 'Day 3, 9pm' }])
     const s = scene({ card, placeName: 'the Castle', date: cal.dates.get('here')!, meanwhile: [{ sceneId: 's4', label: 'Ch 2, Sc 4', people: ['mara'], place: 'the Inn' }] })
     expect(povHere(s)).toMatchObject([
       {
         rule: 'pov-elsewhere',
         kind: 'timeline',
-        message: 'Mara is the point of view here, at the Castle, but Ch 2, Sc 4 has her at the Inn at the same moment (Day 3 · evening).',
+        message: 'Mara is the point of view here, at the Castle, but Ch 2, Sc 4 has her at the Inn at the same moment (Day 3 · 9pm).',
         sources: [
           { kind: 'entry', entryId: 'mara' },
           { kind: 'scene', sceneId: 's4' }
@@ -254,8 +323,10 @@ describe('the point of view', () => {
     ])
     // Not when she isn't there, nor in a flashback.
     expect(povHere({ ...s, meanwhile: [{ ...s.meanwhile[0], people: ['tobin'] }] })).toEqual([])
-    const back = buildCalendar([{ id: 'here', story: 'b', when: 'Flashback: Day 3, evening' }])
+    const back = buildCalendar([{ id: 'here', story: 'b', when: 'Flashback: Day 3, 9pm' }])
     expect(povHere({ ...s, date: back.dates.get('here')! })).toEqual([])
+    // Nor in a dream.
+    expect(povHere({ ...s, card: { ...card, notes: 'Mara dreams she is in the Castle.' } })).toEqual([])
   })
 
   it('flags a long third-person scene that never names its point of view, as minor', () => {
@@ -368,6 +439,22 @@ describe('knowing too soon', () => {
         entryId: 'tobin'
       }
     ])
+  })
+
+  it('counts a learning in a scene told later but dated before this one, and never asks in a flashback or a memory', () => {
+    const cal = buildCalendar([
+      { id: 'here', story: 'b', when: 'Day 5' },
+      { id: 'later', story: 'b', when: 'Flashback: Day 2' },
+      { id: 'after', story: 'b', when: 'Day 9' }
+    ])
+    const dated = { date: cal.dates.get('here')!, dateOf: (id: ID) => cal.dates.get(id) ?? null }
+    expect(knowsEarly(s({ ...dated, learnedIn: () => ['later'] }))).toEqual([])
+    expect(knowsEarly(s({ ...dated, learnedIn: () => ['after'] }))).toHaveLength(1)
+    // Undated: reading order decides, as the ledger does.
+    expect(knowsEarly(s({ learnedIn: () => ['later'] }))).toHaveLength(1)
+    const back = buildCalendar([{ id: 'here', story: 'b', when: 'Flashback: Day 5' }])
+    expect(knowsEarly(s({ date: back.dates.get('here')! }))).toEqual([])
+    expect(knowsEarly(s({ text: 'She remembered it all. “Mara is the heir,” Tobin said.' }))).toEqual([])
   })
 
   it('never flags someone who knew it, learned it earlier in the scene, or a record that isn’t sure', () => {

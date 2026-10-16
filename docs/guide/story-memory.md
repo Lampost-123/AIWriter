@@ -89,6 +89,14 @@ When a scene is marked done, AI Write writes its summary. Chapters and the whole
 reads these to remember the story so far without rereading every word, which keeps long books fast and affordable.
 You can edit any summary.
 
+Summaries are only signposts: the facts come from the story memory itself. A chapter's summary is written from its
+scenes' summaries together with what the memory recorded in that chapter (who was hurt or died, who learned what, which
+plot threads were set up or paid off), and the story's summary from its chapters' summaries and how everyone stood at
+the end. When you change a scene, or the memory by hand, its summary is written again from the scene itself, never
+patched, and only the summaries that rest on it are redone. Until then, the note under each one says **Being brought
+up to date**. For each older chapter the AI also sees the days it covers and a few key facts (who learned what, which
+plot threads were paid off), straight from the memory.
+
 ## Live checks as you type
 
 Some checks run all the time, with no AI and no cost. They underline:
@@ -121,9 +129,11 @@ Some slips need no AI at all, just what the memory already knows. Each time the 
 scene is checked, AI Write looks for these at once, for free:
 
 - A character who **died earlier speaks, acts, or is on the scene card** ("Tobin died in Ch 1, Sc 2, but speaks
-  here."). Remembering them or talking about them is fine, and so is a flashback.
+  here."). Remembering them or talking about them is fine, and so is a flashback, a dream, a ghost or a vision (when
+  the paragraph, the scene card or the **When** says so).
 - Something **destroyed or lost** turning up in someone's hand, or **one thing in two people's hands** at once.
-- The **point of view** character being somewhere else at the very same time, or never named in a long scene.
+- The **point of view** character being somewhere else at the very same clock time (both scenes saying "9pm", say),
+  or never named in a long scene.
 - **Time running backwards**: a scene dated before the one before it. If it's a flashback, start its **When** with
   "Flashback".
 - An **age** that doesn't fit the character's birth date or age in the memory.

@@ -196,7 +196,7 @@ const summaryOptions = (db: DB): SummaryOptions => ({
 })
 
 describe('a scene summary', () => {
-  it('patched after a new opening line reads as the scene now opens, never echoing the prompt’s label (the fake model, as the app tests use it)', async () => {
+  it('written again after a new opening line reads as the scene now opens, never echoing the prompt’s label (the fake model, as the app tests use it)', async () => {
     const w = testWorld(1)
     const [s1] = w.scenes
     const paras = (opening: string): [string, string][] => [
@@ -209,8 +209,9 @@ describe('a scene summary', () => {
     expect(kdb.summaryRow(w.db, 'scene', s1)!.text).toMatch(/^This part of the story begins: The harbour lay grey/)
     saveParas(w.db, s1, paras(`Dawn came grey over the Narrows. ${HARBOUR}`))
     expect(await writeSceneSummary(summaryOptions(w.db), s1, null, 'Ch 1, Sc 1')).toBe(true)
-    // It was patched (A3), from the rewritten paragraph alone.
-    expect(JSON.stringify(fake.lastRequest()!.body)).toContain('New or rewritten paragraphs')
+    // Written again from the whole scene (long story memory fix 15), never patched from the old summary.
+    expect(JSON.stringify(fake.lastRequest()!.body)).not.toContain('New or rewritten paragraphs')
+    expect(JSON.stringify(fake.lastRequest()!.body)).toContain('Up the hill the market')
     const text = kdb.summaryRow(w.db, 'scene', s1)!.text
     expect(text).toMatch(/^This part of the story begins: Dawn came grey over the Narrows\. The harbour lay grey/)
     expect(text).not.toContain('Summary:')

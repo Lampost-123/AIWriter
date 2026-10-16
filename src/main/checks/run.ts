@@ -267,7 +267,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   let raised = cdb.saveFound(o.db, cdb.rowsInScenes(o.db, [sceneId]), found, replaces)
   // The free rule checks (long story memory fix 8), after the AI's findings are kept, so the rules never raise what the
   // AI just found, and bring back at once one the AI didn't find again.
-  raised += ruleChecksQuietly(o.db, sceneId, o.prefs)
+  raised += ruleChecksQuietly(o.db, sceneId, { prefs: o.prefs, memory: ctx.memory })
   // The report: what each check looked at, what was good and where there were issues (a whole check only).
   if (whole) {
     const foundBy = new Map<CheckKind, number>()

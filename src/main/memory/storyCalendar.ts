@@ -19,7 +19,7 @@ import { buildLine, labeler } from './line'
 import { sceneMemory } from './scene'
 import type { Line, WorldShape } from './types'
 import * as mem from '../db/memory'
-import { changesMade, sceneCards, storyGaps } from '../db/worldViews'
+import { changesMade, sceneCards, storyGaps, type CardInfo } from '../db/worldViews'
 import { walkOf } from '../worldViews/walk'
 import { sideStart } from '../worldViews/timeline'
 import type { WhenStory } from '../worldViews/when'
@@ -67,6 +67,8 @@ interface Read {
   /** Each live scene's story. */
   storyOf: Map<ID, ID>
   byStory: Map<ID, StoryCalendar>
+  /** Every live scene's card, read once while nothing a date rests on is written (calendarCards). */
+  cards?: Map<ID, CardInfo>
 }
 
 const reads = new WeakMap<DB, Read>()
@@ -186,6 +188,17 @@ export function storyCalendar(db: DB, storyId: ID): StoryCalendar | null {
   const cal: StoryCalendar = { ...buildCalendar(items, stories), storyId, where, byLabel, shape: r.shape }
   r.byStory.set(storyId, cal)
   return cal
+}
+
+/**
+ * Every live scene's card (who, where, when), kept as long as the calendar is: a card, a scene's place or deletion and the
+ * rest are what it rests on (the rule-based checks, fix 8: the scenes at the same moment, without reading every card for
+ * every scene). Its word counts are as they were when it was read: ask `sceneCards` for those.
+ */
+export function calendarCards(db: DB): Map<ID, CardInfo> {
+  const r = readWorld(db)
+  r.cards ??= sceneCards(db)
+  return r.cards
 }
 
 /** The calendar a scene is read on: its own story's. */

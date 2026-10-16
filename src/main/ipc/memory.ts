@@ -11,6 +11,7 @@ import { changeViews } from '../memory/scene'
 import { emit } from '../events'
 import { UserError } from '../util'
 import { suppressFact } from '../db/keeper'
+import { recordEdited } from '../keeper'
 
 // prettier-ignore
 type MemoryMethods =
@@ -32,6 +33,13 @@ function write<T>(fn: () => T): T {
 /** Tells every window the memory changed, so lists, the scene card and the Context tab reload. */
 const changed = (sceneId: ID | null, entryIds: ID[]): void => emit('memory:changed', { sceneId, entryIds: [...new Set(entryIds)] })
 
+/**
+ * Adam's change to the record: the end-of-chapter snapshots and roll-ups resting on it catch up (long story memory fix 15
+ * review), of the story it is pinned in (every story for one before any story).
+ */
+const edited = (...cs: Pick<Change, 'sceneId' | 'storyId'>[]): void =>
+  recordEdited(world.db(), cs.some((c) => !c.sceneId && !c.storyId) ? {} : { sceneIds: cs.map((c) => c.sceneId), storyIds: cs.map((c) => c.storyId) })
+
 const view = (c: Change): ChangeView =>
   changeViews(world.db(), [c])[0] ?? { ...c, where: '', links: history.linksForFact(world.db(), 'change', c.id) }
 
@@ -43,8 +51,9 @@ function checkLevel(level: SummaryLevel): void {
 export const memoryHandlers: Handlers<MemoryMethods> = {
   setStoryPlacement: (id, placement) => {
     const entryIds = write(() => mem.setStoryPlacement(world.db(), id, placement))
-    // What counts everywhere may have changed: every view of the memory reloads.
+    // What counts everywhere may have changed: every view of the memory reloads, and every story's snapshots catch up.
     changed(null, entryIds)
+    recordEdited(world.db())
     return repo.getStory(world.db(), id)
   },
 
@@ -59,6 +68,7 @@ export const memoryHandlers: Handlers<MemoryMethods> = {
       return mem.insertChange(world.db(), { ...clean, origin: 'adam' })
     })
     changed(c.sceneId, mem.entriesTouched(c))
+    edited(c)
     return view(c)
   },
   updateChange: (id, input) => {
@@ -70,6 +80,7 @@ export const memoryHandlers: Handlers<MemoryMethods> = {
     })
     changed(after.sceneId, [...mem.entriesTouched(before), ...mem.entriesTouched(after)])
     if (before.sceneId && before.sceneId !== after.sceneId) changed(before.sceneId, [])
+    edited(before, after)
     return view(after)
   },
   deleteChange: (id) => {
@@ -85,11 +96,13 @@ export const memoryHandlers: Handlers<MemoryMethods> = {
       mem.deleteChange(db, id, { origin: 'adam' })
     })
     changed(old.sceneId, mem.entriesTouched(old))
+    edited(old)
   },
   restoreChange: (id) => {
     write(() => mem.restoreChange(world.db(), id, { origin: 'adam' }))
     const c = mem.getChange(world.db(), id)
     changed(c.sceneId, mem.entriesTouched(c))
+    edited(c)
   },
   listFacts: () => mem.listFacts(world.db()),
   listExistsPoints: (entryId) => mem.listExistsPoints(world.db(), entryId),
@@ -116,6 +129,8 @@ export const memoryHandlers: Handlers<MemoryMethods> = {
       return mem.getSummary(db, level, targetId)!
     })
     changed(level === 'scene' ? targetId : null, [])
+    // A summary the roll-ups above it are made from: they are looked at again (fix 15).
+    recordEdited(db, level === 'scene' ? { sceneIds: [targetId] } : level === 'story' ? { storyIds: [targetId] } : level === 'chapter' ? { storyIds: [repo.getChapter(db, targetId).storyId] } : {})
     return summary
   },
   listStorySummaries: (storyId) => {
