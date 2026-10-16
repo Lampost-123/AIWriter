@@ -368,7 +368,8 @@ export class ChapterSession {
     f.status = 'set-aside'
     if (f.issueId) {
       try {
-        cdb.setIssueStatus(this.d.db, f.issueId, 'ignored')
+        // Marked as the chapter writer's, so later checks never take it for what the author meant (2026-10-16).
+        cdb.setAsideByChapter(this.d.db, f.issueId)
       } catch (e) {
         console.warn('Could not set an issue aside', e)
       }

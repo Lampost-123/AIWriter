@@ -72,6 +72,12 @@ export interface IssuePayload {
   /** Settled by Update the memory (the text was right): never a slip later scenes are warned of (checks/lessons.ts). */
   fixedBy?: 'memory'
   /**
+   * Set aside by "Write the whole chapter" (chapterWriter/tools.ts), not by Adam (2026-10-16): ignored like any other, but
+   * never told to later checks as what the author meant (checks/lessons.ts), and the Issues tab says who set it aside.
+   * Gone once the issue's status changes again.
+   */
+  setAsideBy?: 'chapter'
+  /**
    * Found by checking a draft against its scene's contract (long story memory fix 13): which list the item was in and its
    * words. Only a check that went through the contract replaces such a row (checks/run.ts).
    */
@@ -189,6 +195,7 @@ export function readIssue(r: Row, names: IssueNames): Issue {
     ...(p.by === 'rule' ? { byRule: true as const } : {}),
     ...(p.contract ? { byContract: true as const } : {}),
     ...(p.later && status === 'open' ? { later: true as const } : {}),
+    ...(p.setAsideBy === 'chapter' && status === 'ignored' ? { setAsideBy: 'chapter' as const } : {}),
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string
   }
@@ -550,8 +557,10 @@ export function sweepGone(db: DB, where: { sceneId: ID } | { storyId: ID }, page
 export function setLater(db: DB, id: ID): Row | null {
   const r = issueRow(db, id)
   if (!r) return null
-  if (r.status !== 'open') return r
   const p = json<IssuePayload>(r.payload_json, {})
+  // Open, or set aside by Write the whole chapter (Adam's own say takes its place: open again, put off).
+  if (r.status !== 'open' && !(r.status === 'ignored' && p.setAsideBy === 'chapter')) return r
+  delete p.setAsideBy
   let words: string | undefined
   const quote = String(r.quote ?? '')
   if (quote.trim() && r.scene_id) {
@@ -560,7 +569,7 @@ export function setLater(db: DB, id: ID): Row | null {
     if (place?.para !== undefined) words = wordsPrint(place.para)
   }
   const later: NonNullable<IssuePayload['later']> = { since: now(), ...(words ? { words } : {}) }
-  db.prepare('UPDATE issues SET payload_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify({ ...p, later }), now(), id)
+  db.prepare("UPDATE issues SET status = 'open', payload_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify({ ...p, later }), now(), id)
   issuesTouched(r.story_id as ID | null, (r.scene_id as ID) || null)
   return issueRow(db, id)
 }
@@ -588,14 +597,35 @@ export function issueRow(db: DB, id: ID): Row | null {
   return (db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as Row | undefined) ?? null
 }
 
-/** Changes an issue's status. Returns the row as it is now, or null when there is no such issue. */
+/**
+ * Changes an issue's status. Returns the row as it is now, or null when there is no such issue. A set-aside by the chapter
+ * writer (`setAsideBy`) ends with any change: what Adam does next is his own.
+ */
 export function setIssueStatus(db: DB, id: ID, status: IssueStatus): Row | null {
   const r = issueRow(db, id)
   if (!r) return null
   if (r.status !== status) {
-    db.prepare('UPDATE issues SET status = ?, updated_at = ? WHERE id = ?').run(status, now(), id)
+    const p = json<IssuePayload>(r.payload_json, {})
+    if (p.setAsideBy) {
+      delete p.setAsideBy
+      db.prepare('UPDATE issues SET status = ?, payload_json = ?, updated_at = ? WHERE id = ?').run(status, JSON.stringify(p), now(), id)
+    } else db.prepare('UPDATE issues SET status = ?, updated_at = ? WHERE id = ?').run(status, now(), id)
     issuesTouched(r.story_id as ID | null, (r.scene_id as ID) || null)
   }
+  return issueRow(db, id)
+}
+
+/**
+ * Sets an issue aside for "Write the whole chapter" (chapterWriter/tools.ts, 2026-10-16): ignored, and marked as the chapter
+ * writer's (`setAsideBy`), so it is never taken for what Adam meant. Returns the row as it is now, or null.
+ */
+export function setAsideByChapter(db: DB, id: ID): Row | null {
+  const r = issueRow(db, id)
+  if (!r) return null
+  if (r.status === 'ignored') return r
+  const p = json<IssuePayload>(r.payload_json, {})
+  db.prepare("UPDATE issues SET status = 'ignored', payload_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify({ ...p, setAsideBy: 'chapter' }), now(), id)
+  issuesTouched(r.story_id as ID | null, (r.scene_id as ID) || null)
   return issueRow(db, id)
 }
 

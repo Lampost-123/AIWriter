@@ -674,6 +674,11 @@ export interface Planted {
   kind: ConStoryKind
   trap: string
   flaw?: string
+  /**
+   * Words an issue's message must have to count as a catch: the planted fact it breaks (2026-10-16: X7 was counted caught
+   * for an issue on its sentence about something else). Every passage with a flaw has one.
+   */
+  reason?: RegExp
   decoy?: string
   /** Why the flaw is a slip, or why the decoy isn't. */
   why: string
@@ -690,6 +695,7 @@ export const PLANTED: Planted[] = [
     kind: 'detail',
     trap: 'looks',
     flaw: 'Kit’s brown eyes creased at the corners when he saw the tea.',
+    reason: /\bgr[ae]y\b/i,
     why: 'Kit’s eyes are grey (his codex entry and scene 8).',
     card: { present: ['tamsin', 'kit'], location: 'clockhouse', when: `${AFTER}, morning`, title: 'Harness' },
     paragraphs: [
@@ -705,13 +711,16 @@ export const PLANTED: Planted[] = [
     name: 'The sum',
     kind: 'detail',
     trap: 'sum',
-    flaw: 'She wrote it in her own hand beneath her father’s: four hundred and twenty crowns, paid in full eleven years ago, struck from the guild’s books on Thaw Day.',
+    flaw: 'She wrote it in her own hand at the head of a clean page: four hundred and twenty crowns, paid in full eleven years ago, struck from the guild’s books on Thaw Day.',
+    reason: /\btwelve\b|\b412\b/i,
     why: 'The debt was four hundred and twelve crowns (scene 2, the receipt in scene 27).',
     card: { present: ['tamsin'], location: 'clockhouse', when: `${AFTER}, evening`, title: 'The last entry' },
+    // Her father's ledger stayed at the Guildhall (the under-clerk took it at the door in scene 39), and Kit sleeps on the
+    // bench by the stove (scene 33): the passage says neither otherwise, so its one slip is the sum (2026-10-16).
     paragraphs: [
-      'The counting room was cold, as it always was, and Tamsin lit only the one lamp. Her father’s last ledger lay open on the desk at the page she had cut free on Lantern Night, its stitches still hanging from the margin like loose threads from a hem.',
-      'She dipped the pen and held it a moment over the page. Then she wrote. She wrote it in her own hand beneath her father’s: four hundred and twenty crowns, paid in full eleven years ago, struck from the guild’s books on Thaw Day.',
-      'Her letters were steadier now than they had been all winter. She blotted the line, closed the ledger and sat with her hands flat on its cover, listening to the house: Pim snoring overhead, Kit turning over on his pallet in the workshop, the clocks on the wall all ticking a little apart from one another, the way they always had.'
+      'The counting room was cold, as it always was, and Tamsin lit only the one lamp. The house’s new daybook lay open on the desk; her father’s last ledger had stayed at the Guildhall with the under-clerk who had taken it from her at the door.',
+      'She dipped the pen and held it a moment over the page. Then she wrote. She wrote it in her own hand at the head of a clean page: four hundred and twenty crowns, paid in full eleven years ago, struck from the guild’s books on Thaw Day.',
+      'Her letters were steadier now than they had been all winter. She blotted the line, closed the daybook and sat with her hands flat on its cover, listening to the house: Pim snoring overhead, Kit turning over on the bench by the stove in the workshop, the clocks on the wall all ticking a little apart from one another, the way they always had.'
     ]
   },
   {
@@ -720,6 +729,7 @@ export const PLANTED: Planted[] = [
     kind: 'detail',
     trap: 'sledge',
     flaw: 'The Steady Hope stood on its runners in the yard behind the clock-house, its backboard scrubbed for the journey home.',
+    reason: /Long Patience/i,
     why: 'Kit’s sledge is the Long Patience (scenes 8 and 33).',
     card: { present: ['tamsin', 'kit'], location: 'clockhouse', when: `${AFTER}, afternoon`, title: 'The yard' },
     paragraphs: [
@@ -735,6 +745,7 @@ export const PLANTED: Planted[] = [
     kind: 'character',
     trap: 'read',
     flaw: 'Pim broke the seal and read the guild’s letter aloud to them, quick and sure, without stumbling over a single word.',
+    reason: /\bread(?:s|ing)?\b|illiterate|\bletters\b/i,
     why: 'Pim never learned to read a word (scene 1); Orla reads his letters to him (scenes 7 and 35).',
     card: { present: ['tamsin', 'pim', 'kit'], location: 'clockhouse', when: `${AFTER}, morning`, title: 'A letter from the Guildhall' },
     paragraphs: [
@@ -749,6 +760,7 @@ export const PLANTED: Planted[] = [
     kind: 'character',
     trap: 'father',
     flaw: 'She thought of her father in his last illness, the fever that had kept him in his bed all that winter until it took him.',
+    reason: /drown|\bice\b|\bweir\b|\bmother\b/i,
     why: 'Her father drowned through the ice below Corran Weir (scenes 2, 13, 31); it was her mother who died of a fever.',
     card: { present: ['tamsin'], location: 'clockhouse', when: `${AFTER}, night`, title: 'The workshop at night' },
     paragraphs: [
@@ -763,6 +775,7 @@ export const PLANTED: Planted[] = [
     kind: 'character',
     trap: 'secret',
     flaw: '‘The old woman told you his heart won’t last the summer,’ Kit said. ‘I heard her. I’m sorry.’',
+    reason: /\bIsla\b|old woman|healer|Hollish|secre|understand|language|told (?:only )?Tamsin|(?:wasn['’]t|was not|weren['’]t|not) (?:there|present)/i,
     why: 'Isla told Tamsin in Hollish, and Kit understood not a word (scene 27); Tamsin has told no one.',
     card: { present: ['tamsin', 'kit'], location: 'clockhouse', when: `${AFTER}, evening`, title: 'Leckie’s share' },
     paragraphs: [
@@ -778,6 +791,9 @@ export const PLANTED: Planted[] = [
     kind: 'world',
     trap: 'rule',
     flaw: 'That afternoon Orla let one of the Callowmere birds go from the loft with a letter for Leckie, and it flew north for Hollin as straight as a thrown stone.',
+    // The rule the bird breaks, never Orla's knowing of Leckie or the time of day (what the live run's catch was about).
+    reason:
+      /homing|(?:their|its) own loft|(?:fly|flies|flew|return\w*|go|goes|come|comes|head\w*)\s+(?:only\s+)?(?:straight\s+)?(?:back\s+)?(?:home\b|to (?:their|its|the) (?:own |home )?loft)|only (?:ever )?(?:fly|flies|go|goes|return)\b|can(?:no|['’])t (?:fly|carry|take|reach)\b[^.]*\bHollin/i,
     why: 'Guild pigeons fly only home to their own loft (scene 7): a Callowmere bird can’t carry a letter to Hollin.',
     card: { present: ['tamsin', 'orla'], location: 'loft', when: `${AFTER}, afternoon`, title: 'Word for Leckie' },
     paragraphs: [
@@ -792,6 +808,7 @@ export const PLANTED: Planted[] = [
     kind: 'world',
     trap: 'river',
     flaw: 'Somewhere four days south of them, beyond Dunmere and the lake, Leckie would be sitting by Bettany’s stove.',
+    reason: /\bnorth\b|up ?river|upstream/i,
     why: 'Hollin is four days north, upriver (scenes 4 and 8).',
     card: { present: ['tamsin', 'kit'], location: 'clockhouse', when: `${AFTER}, dusk`, title: 'The river stairs' },
     paragraphs: [
@@ -807,6 +824,7 @@ export const PLANTED: Planted[] = [
     kind: 'timeline',
     trap: 'river',
     flaw: 'It seemed impossible now that a single day on the ice had carried her all the way to Hollin, back in midwinter.',
+    reason: /\b(?:four|five|six|several|many|\d+)\s+days\b|\bdays (?:on the ice|of travel|to reach)/i,
     why: 'Hollin is four days north on the ice (scene 8); the journey took five (scenes 9 to 21).',
     card: { present: ['tamsin'], location: 'clockhouse', when: `${AFTER}, morning`, title: 'The map' },
     paragraphs: [
@@ -821,6 +839,7 @@ export const PLANTED: Planted[] = [
     kind: 'timeline',
     trap: 'watch',
     flaw: 'She took her father’s silver watch from her pocket, wound it, and set it by the great clock across the river.',
+    reason: /pawn|\bsold\b|drover|no longer (?:has|had|have)|(?:doesn['’]t|does not|didn['’]t|did not) have|parted with|gone for good/i,
     why: 'She pawned the watch at Dunmere (scene 18) and it was sold (scene 30): she has no watch.',
     card: { present: ['tamsin', 'pim'], location: 'clockhouse', when: `${AFTER}, noon`, title: 'Noon' },
     paragraphs: [
@@ -835,6 +854,7 @@ export const PLANTED: Planted[] = [
     kind: 'style',
     trap: 'pov',
     flaw: 'Across the river, in his shuttered house, Corvin Slade sat by a dead fire and thought that he had never hated anyone as much as he hated Aldous Orr’s daughter.',
+    reason: /point of view|\bPOV\b|\bhead\b|\bthoughts?\b|\bmind\b|close third|Tamsin['’]s (?:view|eyes)|can(?:no|['’])t know/i,
     why: 'The whole book is told from Tamsin’s view only: she can’t know what Slade thinks alone in his house.',
     card: { present: ['tamsin'], location: 'clockhouse', when: `${AFTER}, night`, title: 'Shutters' },
     paragraphs: [
@@ -849,6 +869,7 @@ export const PLANTED: Planted[] = [
     kind: 'style',
     trap: 'register',
     flaw: '‘Okay, so the guild totally owes us a new bell rope,’ Pim said. ‘Like, at the very least.’',
+    reason: /modern|slang|\bokay\b|totally|anachron|register|filler|out of (?:place|period)|\bera\b/i,
     why: 'The story’s speech has no modern slang anywhere.',
     card: { present: ['tamsin', 'pim'], location: 'clockhouse', when: `${AFTER}, morning`, title: 'The bell rope' },
     paragraphs: [
@@ -951,4 +972,5 @@ export const PLANTED: Planted[] = [
 // The decoy passage N1 must have its decoy sentence; the code reads `flaw ?? decoy` as the sentence to look for.
 for (const x of PLANTED) {
   if (!x.flaw && !x.decoy && x.id !== 'N5') throw new Error(`Planted passage ${x.id} has neither a flaw nor a decoy.`)
+  if (x.flaw && !x.reason) throw new Error(`Planted passage ${x.id} has a flaw but no words for the reason a catch must give.`)
 }

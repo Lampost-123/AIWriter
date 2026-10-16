@@ -26,7 +26,8 @@ describe("check and repair's request, in an order a provider can reuse", () => {
     const r = request('Wren picked up the lantern.')
     expect(r.blocks.map((b) => b.id)).toEqual(['earlier', 'scene-card', 'dead', 'memory', 'knowledge', 'owned', 'stage', 'lead-in', 'new-words'])
     // The scene's contract (long story memory fix 13) goes right before where things stand, when the draft had one.
-    expect(r.blocks.map((b) => b.id)).toEqual(REPAIR_SEND_ORDER.filter((id) => id !== 'contract'))
+    // (What the author said is meant goes with the steady part, after who is dead, when there is any: 2026-10-16.)
+    expect(r.blocks.map((b) => b.id)).toEqual(REPAIR_SEND_ORDER.filter((id) => id !== 'contract' && id !== 'meant'))
     const withContract = repairRequest({
       stage,
       codex,
@@ -35,7 +36,15 @@ describe("check and repair's request, in an order a provider can reuse", () => {
       newWords: 'Wren picked up the lantern.',
       contract: { id: 'contract', title: 'The scene’s contract (C ids)', text: 'Must change by the end of the scene:\n- [C1] Wren asks about the ferry', entryIds: [] }
     })
-    expect(withContract.blocks.map((b) => b.id)).toEqual(REPAIR_SEND_ORDER)
+    expect(withContract.blocks.map((b) => b.id)).toEqual(REPAIR_SEND_ORDER.filter((id) => id !== 'meant'))
+    const withMeant = repairRequest({
+      stage,
+      codex: { ...codex, sections: [...codex.sections, section('meant', 'What the author has said is meant', '- In Ch 1, Sc 1: Wren knows of the toll.')] },
+      card: 'Wren asks Hobb about the ferry.',
+      leadIn: 'Wren waited.',
+      newWords: 'Wren picked up the lantern.'
+    })
+    expect(withMeant.blocks.map((b) => b.id)).toEqual(REPAIR_SEND_ORDER.filter((id) => id !== 'contract'))
     const heads = r.messages[1].content.split('\n').filter((l) => l.startsWith('## '))
     expect(heads).toEqual(r.blocks.map((b) => `## ${b.title}`))
   })

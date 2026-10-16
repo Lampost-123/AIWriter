@@ -31,6 +31,7 @@ import { activeRun, setActiveRun } from '../chapterWriter/active'
 import { loadBefore, loadReport, saveReport } from '../chapterWriter/store'
 import type { Page } from '../chapterWriter/page'
 import { contractWanted, type SceneContract } from '../ai/contract'
+import { meaningForCheck } from '../retrieval'
 
 /** How long a check waits for the memory to catch up before checking with what it has (as the checks do). */
 const CATCH_UP_MS = 60_000
@@ -179,7 +180,9 @@ function deps(runId: ID): RunDeps {
               // scene may have changed what must be true at its start), checked item by item in the same request (fix
               // 13); with contracts switched off, what an earlier one found is taken away.
               contract: contractFor(sceneId),
-              contractsOff: !contractWanted(getSettings())
+              contractsOff: !contractWanted(getSettings()),
+              // The facts the scene touches, by meaning too when the search model is on (2026-10-16).
+              byMeaning: (queries, docs, s) => meaningForCheck(db, queries, docs, s)
             },
             sceneId,
             ALL_CHECKS

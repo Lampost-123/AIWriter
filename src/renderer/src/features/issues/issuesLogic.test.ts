@@ -9,6 +9,8 @@ import {
   fixAgainNote,
   fixDirection,
   foundWords,
+  ignoredWords,
+  SET_ASIDE_WORDS,
   memoryFixWords,
   occurrencesIn,
   openCount,
@@ -204,5 +206,13 @@ describe('Fix the text', () => {
     expect(usableFix({ ...premise, fix: 'Mara had never left the city.' })).toBeNull()
     expect(usableFix({ ...premise, fix: '  mara had never  left the city. ' })).toBeNull()
     expect(usableFix({ ...premise, fix: 'Mara had left the farm only once.' })).toBe('Mara had left the farm only once.')
+  })
+})
+
+describe('an issue the chapter writer set aside (2026-10-16)', () => {
+  it('says who set it aside, where an issue Adam ignored says "Ignored"', () => {
+    expect(ignoredWords({ setAsideBy: 'chapter' })).toBe(SET_ASIDE_WORDS)
+    expect(SET_ASIDE_WORDS).toBe('The chapter writer set this aside')
+    expect(ignoredWords({})).toBe('Ignored')
   })
 })

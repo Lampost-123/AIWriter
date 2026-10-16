@@ -2469,7 +2469,8 @@ the same story so far and passages as before; what changes for it is the share f
 - **Remembering what the checks found** (fix 7, `checks/lessons.ts`; no migration: it reads the `issues` rows the checks
   already keep). Two kinds of lesson from every scene before this one on its line: a *slip*, a finding about facts, who
   knows what or the timeline that was put right in the text (Fix the text, Ask, the chapter writer, check and repair as a
-  draft lands), and a finding Adam *meant* (ignored). Not style, voice or continuity (about one moment), and not a
+  draft lands), and a finding Adam *meant* (ignored; since "The checker catches more", below, never the chapter writer's
+  set-aside, and voice and style too). Not style, voice or continuity (about one moment), and not a
   finding settled by Update the memory (the text was right: `IssuePayload.fixedBy` 'memory', set by `setFixedByMemory`
   and cleared on Reopen; an older row counts as settled when the memory's value now is its text's). Who knows what and
   the timeline only from the last `RECENT_SCENES` (6) scenes; a fact however long ago. The newest once for the same
@@ -3341,7 +3342,9 @@ critic's notes (`critique/`) and what the checks send to the model are unchanged
   issue stays open but is hidden, and not counted on the badges or the tab, until the paragraph its words are in changes
   (`IssuePayload.later.words`, a fingerprint of that paragraph) or the next check of the scene (`checks/run.ts` →
   `clearLater`; the rules finding it again after a read keep it). One with no words to point at waits for the next check.
-  Unlike Ignore it is never taken as meant (fix 7's lessons read only fixed and ignored rows). Toast: "Saved for later.
+  Unlike Ignore it is never taken as meant (fix 7's lessons read only fixed and ignored rows), and like any choice of
+  Adam's it ends the chapter writer's set-aside tag (`setLater` drops `setAsideBy`; one it set aside becomes open and
+  put off). Toast: "Saved for later.
   It comes back when you change that part of the scene, or when the scene is checked again." with Undo (Reopen, which
   ends Later). The Issues tab folds them under "Show for later (n)" with Show now; the story's lists leave them out and
   say "· 1 saved for later". The sample world raises nothing, so Classic's screenshots are unchanged.
@@ -3351,6 +3354,59 @@ critic's notes (`critique/`) and what the checks send to the model are unchanged
   `features/issues/issuesStore.test.ts` (read again on coming back),
   `ask/applyStory.test.ts` (saved before marked fixed), and the app test "findings stay current" in
   `tests/e2e/issues.spec.ts` (Later, words rewritten by hand, Ctrl+Z, the report's count and its "changed" line).
+
+## The checker catches more (2026-10-16)
+
+A live run of the long test book's planted slips (fix 6) found "Check this scene" caught about 6 or 7 of 12. A replay of
+its real prompts and replies said why; each cause has a fix. No migration, no new kind of AI call; one more call per check,
+and only when the checks found something (the second opinion below).
+
+- **Continuity findings are kept** (`checks/parse.ts` `checkOf`): "continuity" (and "staging", "where things stand",
+  "clothing"…) had no reading, so with more than one check asked every continuity finding was thrown away; it is read
+  before the timeline, as "stage" has "age" in it. The X6 reply's two findings: none kept before, both now.
+- **The facts a scene touches, however old** (`checks/context.ts` `factRelevance`, `factsThatMatter`'s `rank`). Who knows
+  what was cut to the 40 most lately learned facts. Each fact is now scored by the scene's own words (keyword search,
+  `retrieval/rank.ts`, without the names of the people here) and, when the search model is on, by meaning
+  (`checks/run.ts` `rankByMeaning` → `RunDeps.byMeaning` → `retrieval/index.ts` `meaningForCheck` → `recall.ts`
+  `meaningScores`, the scene's passages against the facts, within the usual wait; off, slow or failing: keyword alone).
+  That counts for more than naming something there (`RANK_WEIGHT`: on the live run's world, facts naming the clock-house
+  crowded out "Leckie's heart is failing" from the scene about it), before recency; entries only tied to the scene
+  (below) don't count as named. The facts check, in its own request, now gets the ten facts the words touch most
+  (`factsTheWordsTouch`, "What people here know that this scene touches").
+- **Entries tied to the scene though it doesn't name them** (`relatedEntries`, `MOST_RELATED` 8): the point of view's
+  family the words speak of ("her father": a relationship or a summary that says so), then, scored, what people here
+  hold, entries an entry already told names (one step: the town a named person lives in; most when the scene names that
+  entry), entries sharing the scene's distinctive words, and entries whose own words name someone here (half for naming
+  only the point of view unless it is an item, an event half again). Each says why ("tied to someone here"). Never a plot
+  thread; check and repair leaves them out unless its new words name them. On the live run's world the X3 scene now gets
+  the Long Patience and the X8 scene Hollin.
+- **The author's plan and records** (`checkSections`). The card's goal, conflict, beats, outcome and notes, and the threads
+  it sets up or pays off, as "The author's plan for this scene" (`planText`; the instructions: what the plan asks for, a
+  lie or a mistake, is not a slip); under When, the story calendar's "Story date: … (2 days since the scene before)" and
+  ages (fix 11, `storyDateLines`; with a rule that where things stood need not carry over hours or days); and "Plot
+  threads still open" with when each is due (fix 10, `openThreadsAt`, `threadDueWords`, 6 at most), for the checks of
+  what is so.
+- **What a scene says about the past** (`checks/prompts.ts`): the facts check also compares names, numbers, which way a
+  place lies, how long a journey took, how someone died and who heard or saw what, in the narration, a memory or a line,
+  unless the scene shows the character is mistaken or lying.
+- **A second opinion before keeping** (`checks/run.ts` `findingsRuling`, `CHECK_SECOND_MARKER`): what a whole check (Check
+  this scene, Mark done, the critic, the chapter writer) found about facts, who knows what, the timeline and continuity
+  goes through check and repair's second opinion (`repair/second.ts`, with its own instructions for a whole scene and its
+  material, each note citing its E or S line and what the memory and the scene say). One call, only when something was
+  found; what it rules not real goes. A failed call, a reply it can't read, no room or a stop keeps every finding. Voice,
+  style and the contract's own findings (`contractRuling`) aren't put to it.
+- **The chapter writer's set-asides are its own** (`db/checks.ts` `setAsideByChapter`, `IssuePayload.setAsideBy`):
+  ignored as before, but never told to later checks as what the author meant (`checks/lessons.ts`); any status change
+  after clears the mark. The Issues tab says "The chapter writer set this aside" in place of "Ignored"
+  (`issuesLogic.ts` `ignoredWords`, `Issue.setAsideBy`).
+- **What the author meant travels** (`checks/lessons.ts` `MEANT_ONLY_KINDS`): an ignored voice finding about its character
+  however long ago, a style finding from the last `RECENT_SCENES` (about its character, or about the telling when it
+  names no one), told to later voice and style checks; check and repair is told what was meant about what is so
+  (`repair/prompts.ts`, "What the author has said is meant", `MOST_MEANT` 6, in the steady part of `REPAIR_SEND_ORDER`).
+- **The harness** (`tests/traps`): X2 no longer puts the ledger handed over at the Guildhall on Tamsin's desk, nor Kit
+  on a pallet (both real slips the checker rightly raised); a catch needs the issue's message to name the planted fact
+  (`Planted.reason`; one on the slip's sentence for another reason is a false alarm, "for another reason"), so X7 is no
+  longer counted for the wrong one.
 
 ## Scenes that hand off to each other (review, 2026-10-16)
 

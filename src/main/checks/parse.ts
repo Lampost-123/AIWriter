@@ -77,22 +77,28 @@ function topLevelList(text: string): string | null {
   return null
 }
 
-/** A check's name as the model may write it. */
+/**
+ * A check's name as the model may write it. Continuity (clothes, who is where, who holds what) is read before the timeline,
+ * as "stage" has "age" in it: before 2026-10-16 it had no reading at all, so every continuity finding of a check of more
+ * than one kind was thrown away (the long test book's X6 reply: two raised, none kept).
+ */
 export function checkOf(v: unknown, asked: CheckKind[]): CheckKind | null {
-  const s = str(v, 40).toLowerCase()
+  const s = str(v, 40).toLowerCase().trim()
   const named: CheckKind | null = !s
     ? null
     : /^fact/.test(s)
       ? 'facts'
-      : /^know/.test(s)
+      : /^know|^who knows/.test(s)
         ? 'knowledge'
-        : /time|place|travel|age/.test(s)
-          ? 'timeline'
-          : /voice|dialogue|speech/.test(s)
-            ? 'voice'
-            : /style|tone|tense|point of view|pov/.test(s)
-              ? 'style'
-              : null
+        : /contin|^stag(?:e|ing)\b|^blocking|^carr(?:y|ied)|^where things|^clothes|^clothing|^props?\b/.test(s)
+          ? 'continuity'
+          : /time|place|travel|age/.test(s)
+            ? 'timeline'
+            : /voice|dialogue|speech/.test(s)
+              ? 'voice'
+              : /style|tone|tense|point of view|pov/.test(s)
+                ? 'style'
+                : null
   if (named) return asked.includes(named) ? named : null
   // Not said: the only check asked for, if there was one.
   return asked.length === 1 ? asked[0] : null

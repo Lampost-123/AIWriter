@@ -162,6 +162,11 @@ export interface Issue {
    * or until the paragraph its words are in changes. Not counted on the badges. Set only then.
    */
   later?: true
+  /**
+   * Ignored by "Write the whole chapter", which set it aside with its reason, not by Adam (2026-10-16): never told to later
+   * checks as what he meant. Set only then.
+   */
+  setAsideBy?: 'chapter'
   createdAt: string
   updatedAt: string
 }

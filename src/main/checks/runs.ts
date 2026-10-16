@@ -39,6 +39,11 @@ export interface RunDeps {
   onKeyRejected?: (model: JobModel) => void
   /** True when Settings › Models has scene contracts off (long story memory fix 13's review): checks clear their issues. */
   contractsOff?: () => boolean
+  /**
+   * How close in meaning each doc is to the queries, by the search model (retrieval/index.ts meaningForCheck), so a check
+   * is told the facts its scene touches (2026-10-16). Left out, or null: by keyword alone.
+   */
+  byMeaning?: (db: DB, queries: string[], docs: { key: string; text: string }[], signal: AbortSignal) => Promise<Map<string, number> | null>
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -377,6 +382,7 @@ async function go(r: Run): Promise<void> {
     onKeyRejected: () => d.onKeyRejected?.(model),
     after: r.after,
     contractsOff: d.contractsOff?.() ?? false,
+    ...(d.byMeaning ? { byMeaning: (queries: string[], docs: { key: string; text: string }[], signal: AbortSignal) => d.byMeaning!(r.db, queries, docs, signal) } : {}),
     fetchImpl: d.fetchImpl,
     retryDelays: d.retryDelays
   }

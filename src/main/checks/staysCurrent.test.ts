@@ -245,6 +245,25 @@ describe('Later', () => {
   })
 })
 
+describe('Later and the chapter writer', () => {
+  it('ends the chapter writer’s set-aside tag: the issue is Adam’s again, open and put off; one Adam ignored stays as it is', () => {
+    const { db, storyId, sceneId } = world([['p1', 'Mara’s eyes were green in the lamplight.']])
+    cdb.saveFound(db, [], [found(sceneId, storyId, 'k', 'Mara’s eyes were green'), { ...found(sceneId, storyId, 'k2', 'lamplight', { check: 'style' }), kind: 'style' }], () => false)
+    const id = rowOf(db, sceneId, 'k').id as ID
+    cdb.setAsideByChapter(db, id)
+    expect(cdb.payloadOf(rowOf(db, sceneId, 'k')).setAsideBy).toBe('chapter')
+    const now = cdb.setLater(db, id)!
+    expect(now.status).toBe('open')
+    expect(cdb.payloadOf(now).setAsideBy).toBeUndefined()
+    expect(cdb.payloadOf(now).later).toBeDefined()
+    // Ignored by Adam himself: Later doesn't touch it.
+    const mine = rowOf(db, sceneId, 'k2').id as ID
+    cdb.setIssueStatus(db, mine, 'ignored')
+    expect(cdb.setLater(db, mine)!.status).toBe('ignored')
+    expect(cdb.payloadOf(rowOf(db, sceneId, 'k2')).later).toBeUndefined()
+  })
+})
+
 describe('an entry saved by hand settles the clashes it answers', () => {
   it('fixes, by the memory, an open clash whose field now says what the scene says; leaves the rest', () => {
     const { db, storyId, sceneId } = world([['p1', 'Mara’s eyes were green.']])
