@@ -3,6 +3,7 @@
 
 import * as P from '@radix-ui/react-popover'
 import { useState } from 'react'
+import { CHAPTER_WRITER_LIMITS } from '@shared/contracts/chapterWriter'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { PopoverPanel } from '@/features/generate/parts'
@@ -41,7 +42,7 @@ export function ChapterWriterStatus(): React.JSX.Element | null {
           <h3 className="text-[13.5px] font-semibold text-fg">Writing the chapter</h3>
           <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{progressLine(progress)}</p>
           <p className="mt-2 text-[12px] leading-relaxed text-faint">
-            {progress.round ? `Round ${progress.round} of checks. ` : ''}It keeps going until the checks and the critic find nothing more.
+            {progress.round ? `Round ${progress.round} of checks. ` : ''}It keeps going until the checks find nothing more, for at most {CHAPTER_WRITER_LIMITS.fixRounds} rounds of fixes.
             {spent ? ` Spent ${spent}.` : ''} The scenes it is working on can be read but not typed in until it finishes.
           </p>
           <div className="mt-3 flex items-center gap-2">

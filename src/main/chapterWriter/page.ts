@@ -129,3 +129,62 @@ export function cleanProse(reply: string): string {
   if (fence) t = fence[1].trim()
   return t
 }
+
+/** A sentence this long or longer, printed twice in a row, is taken out the second time (shorter ones may be meant). */
+const REPEAT_WORDS = 6
+
+/** A sentence within one line: up to its stop and any closing quotes, brackets or asterisks; or the line's last words. */
+const SENTENCE = /[^.!?…\n]*[.!?…]+[’'"”)\]*]*|[^.!?…\n]+/g
+
+const sentenceKey = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/\*/g, '')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/**
+ * Prose (*asterisks* for italics, paragraphs a blank line apart) with each sentence printed twice in a row taken out the
+ * second time, within a paragraph or from the start of the next (live test, 2026-10-16: the checks and the critic both
+ * found one, and the AI's revise couldn't name one copy of words found twice, so it stayed to the end). Only exact
+ * copies of REPEAT_WORDS words or more, and never one whose taking out would leave italics half open. `dropped`: each
+ * sentence taken out.
+ */
+export function dropRepeats(prose: string): { text: string; dropped: string[] } {
+  const spans = [...prose.matchAll(SENTENCE)]
+    .map((m) => {
+      const lead = m[0].length - m[0].trimStart().length
+      const words = m[0].trim()
+      return { from: m.index + lead, to: m.index + lead + words.length, words, key: sentenceKey(words) }
+    })
+    .filter((s) => s.words)
+  const cuts: { from: number; to: number; words: string }[] = []
+  let kept: (typeof spans)[number] | null = null
+  // Where the words kept (or the last copy taken out) end: a third copy follows on from the second's place.
+  let end = 0
+  for (const s of spans) {
+    const gap = prose.slice(end, s.from)
+    const words = s.key.split(' ').filter((w) => /[\p{L}\p{N}]/u.test(w)).length
+    if (kept && s.key === kept.key && words >= REPEAT_WORDS && /^\s*$/.test(gap) && !/\n\s*\n\s*\n/.test(gap)) {
+      // In the same paragraph, the space before it goes too; at the start of the next, the space after it.
+      const sameParagraph = !gap.includes('\n')
+      const from = sameParagraph ? end : s.from
+      let to = s.to
+      if (!sameParagraph) while (to < prose.length && (prose[to] === ' ' || prose[to] === '\t')) to++
+      if ((prose.slice(from, to).match(/\*/g) ?? []).length % 2 === 0) {
+        cuts.push({ from, to, words: s.words })
+        end = to
+        continue
+      }
+    }
+    kept = s
+    end = s.to
+  }
+  if (!cuts.length) return { text: prose, dropped: [] }
+  let text = prose
+  for (const c of [...cuts].reverse()) text = text.slice(0, c.from) + text.slice(c.to)
+  text = text.replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, '\n\n')
+  return { text, dropped: cuts.map((c) => c.words) }
+}
