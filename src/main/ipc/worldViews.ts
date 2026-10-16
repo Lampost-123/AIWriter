@@ -9,7 +9,7 @@ import { emit } from '../events'
 import { timelineOf, threadsBoardOf, relationshipMapOf, moveMapCharacter, resetMapLayout } from '../worldViews'
 import { markAiIdea, readBoardMarks, storySceneCards } from '../db/worldViews'
 import { planThread } from '../keeper/checkQueue'
-import { storyDateViews } from '../memory/storyCalendar'
+import { sceneDateView, storyDateViews } from '../memory/storyCalendar'
 import { timeCues } from '../continuity/tracker'
 
 export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
@@ -36,11 +36,11 @@ export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
     for (const [id, card] of Object.entries(cards)) if (dates[id]) card.date = dates[id]
     return cards
   },
-  // The story calendar (long story memory fix 11): what the scene card says under When.
+  // The story calendar (long story memory fix 11): what the scene card says under When, for that scene alone (kept with
+  // the calendar; the memory's time of day read only for a scene with no When).
   getSceneDate: (sceneId) => {
     const db = world.db()
-    const { story } = repo.sceneLocation(db, sceneId)
-    return storyDateViews(db, story.id, timeCues(db, [sceneId]))[sceneId] ?? { when: '', label: '', day: '', note: '', detail: '' }
+    return sceneDateView(db, sceneId, (id) => timeCues(db, [id]))
   },
   getBoardMarks: () => readBoardMarks(world.db()),
   markAiIdea: (sceneId, on) => markAiIdea(world.db(), sceneId, on)

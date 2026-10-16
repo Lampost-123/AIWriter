@@ -21,13 +21,18 @@
 // Frostmoon") is an axis of its own. Two dates on one axis are a sum of days apart; dates that only name a month or
 // season and a year, or only a year, are about so many months or years apart (`elapsedBetween`). So a world with
 // months of its own still gets its sums, as long as its days are counted or stepped ("two days later"). Each date also
-// has its day since the story began (`day`): Adam's own count where the story counts its days ("Day 41" is day 41),
-// else days since the first dated day of its calendar (that day is day 1).
+// has its day since the story began (`day`): Adam's own count where the story counts its days with a bare "Day 41" (day
+// 41), else days since the first dated day of its calendar that isn't a flashback (that day is day 1; none before it).
+// A count with a year or season ("Day 300, Year 1") is a day of that year: within the year the sums work, but across
+// years how far apart isn't known. Impossible dates ("31 April 1820", "29 February 1821") are no dates, and years before
+// Christ count through zero (1 BC is year 0), so sums cross the BC/AD line right.
 //
-// Going back. A scene whose date comes before the dated scene before it, where it can be told (same axis, or the same
-// day and both say the time), and whose When doesn't say it goes back on purpose, is listed by `goingBack`, for rule-based
-// checks to come (fix 8). A When saying it goes back on purpose starts "Flashback" or "Earlier" (the app has no other
-// mark for a flashback), or steps back itself ("three days earlier", "the night before").
+// Going back. A scene whose date comes before the last scene before it that isn't a flashback, where that is certain
+// (same axis, or the same day with times of day whose spans don't meet: "night" after "11pm" may be the same hour), and
+// whose When doesn't say it goes back on purpose, is listed by `goingBack`, for rule-based checks to come (fix 8). A When
+// saying it goes back on purpose (worldViews/when.ts goesBack) starts "Flashback" or "Earlier" (the app has no other
+// mark for a flashback), or steps back itself ("three days earlier", "the night before"). The present carries on from
+// the present: a scene after a flashback is dated from the scene before the flashback.
 //
 // Ages (`readAge`, `ageFrom`): from a character's "Age or birth date" field, a birth date or year ("born 12 March 1790",
 // "b. 1790"), or an age at a date ("17 in 1815", "34 at the start of the story", or a bare "34" as of where it was set),
@@ -35,7 +40,20 @@
 // calendar.test.ts.
 
 import type { ID } from '@shared/types'
-import { MONTH_NAMES, dayName, parseWhen, placeWhens, whenStates, type WhenParts, type WhenState, type WhenStory } from '../worldViews/when'
+import {
+  MONTH_NAMES,
+  dayName,
+  goesBack,
+  monthLength,
+  parseWhen,
+  placeWhens,
+  whenStates,
+  type WhenParts,
+  type WhenState,
+  type WhenStory
+} from '../worldViews/when'
+
+export { goesBack } from '../worldViews/when'
 
 /** A scene to place on the calendar, in reading order. */
 export interface CalendarItem {
@@ -83,6 +101,8 @@ export interface StoryDate {
   minute: number | null
   /** The time of day in words, as typed but in lower case ("evening", "first light", "3pm"); '' for none. */
   time: string
+  /** How far that time of day reaches (worldViews/when.ts SPANS: "night" is 20:00 to 03:00, "11pm" exact); null for none. */
+  span: [number, number] | null
   /** Where the time of day came from: the card's When, or the memory's reading of the scene's words. */
   timeFrom: 'card' | 'memory' | null
   /** The day in plain words: "Day 41", "Day 41, Year 3", "12 March 1820", "the 3rd of Frostmoon"; '' when it can't be said. */
@@ -128,13 +148,14 @@ export function civilFromDays(n: number): [number, number, number] {
   return [yoe + era * 400 + (m <= 2 ? 1 : 0), m, d]
 }
 
-/** A year with no leap day, for dates whose year is never told. */
-const PLAIN_YEAR = 2001
+/** A leap year, for dates whose year is never told: "29 February" may be in one, and never becomes 1 March. */
+const PLAIN_YEAR = 2000
 const PLAIN_START = daysFromCivil(PLAIN_YEAR, 1, 1)
 
 // ---------- Saying a date ----------
 
-const yearText = (year: number, word: boolean): string => (word ? `Year ${year}` : year < 0 ? `${-year} BC` : String(year))
+/** A year in words: "Year 3", "1820", "44 BC" (years before Christ count through zero: 1 BC is year 0). */
+const yearText = (year: number, word: boolean): string => (word ? `Year ${year}` : year <= 0 ? `${1 - year} BC` : String(year))
 
 /** A season's name from its place among the months (spring 3.5 ... winter 12.5, early or late by 0.6). */
 function seasonName(month: number): string {
@@ -167,8 +188,11 @@ function axisOf(s: WhenState): { axis: string; n: number } | null {
   return null
 }
 
-/** Whether an axis counts Adam's own days ("Day 41"): its day since the story began is his count. */
-const counted = (axis: string): boolean => axis.startsWith('n|')
+/**
+ * Whether an axis counts Adam's own days with a bare "Day 41": its day since the story began is his count. A count with a
+ * year or season ("Day 300, Year 1") is a day of that year, counted from the story's first day like any other date.
+ */
+const counted = (axis: string): boolean => /^n\|~\d+\|$/.test(axis)
 
 /** The day in words, for a state on an axis (or '' when it can't be said). */
 function dateText(s: WhenState, at: { axis: string; n: number }, own: WhenParts | null, text: string): string {
@@ -178,7 +202,7 @@ function dateText(s: WhenState, at: { axis: string; n: number }, own: WhenParts 
     return `Day ${at.n}${season}${year ? `, ${year}` : ''}`
   }
   if (at.axis.startsWith('g|~')) {
-    if (at.n < 0 || at.n > 364) return ''
+    if (at.n < 0 || at.n > 365) return ''
     const [, m, d] = civilFromDays(PLAIN_START + at.n)
     return `${d} ${MONTH_NAMES[m - 1]}`
   }
@@ -192,16 +216,11 @@ function dateText(s: WhenState, at: { axis: string; n: number }, own: WhenParts 
 }
 
 /** What is known of a date that names no day: a month or season, a year ("spring, Year 2", "June 1820", "1820"). */
-function roughText(s: WhenState): string {
-  if (s.vague === 2 || (s.year === null && (s.month === null || s.vague))) return ''
+function roughText(s: WhenState, monthKnown: boolean): string {
+  if (s.vague === 2 || (s.year === null && (s.month === null || !monthKnown))) return ''
   const year = s.year === null ? '' : yearText(s.year, s.yearWord)
-  const month = s.month !== null && !s.vague && !s.dayCount ? monthText(s.month) : ''
+  const month = s.month !== null && monthKnown && !s.dayCount ? monthText(s.month) : ''
   return [month, year].filter(Boolean).join(s.yearWord ? ', ' : ' ')
-}
-
-/** Whether a When says it goes back in time on purpose. */
-export function goesBack(when: string, p: WhenParts | null = parseWhen(when)): boolean {
-  return /^\W*(?:(?:a|in\s+a)\s+)?(?:flash\s?-?back|earlier)\b/i.test(when) || (!!p?.step && p.step.n < 0)
 }
 
 // ---------- The calendar ----------
@@ -215,18 +234,38 @@ export function buildCalendar(items: readonly CalendarItem[], stories: ReadonlyM
   const states = whenStates(texts, stories)
   const placed = placeWhens(texts, stories)
   const dates = new Map<ID, StoryDate>()
-  /** The first day of each calendar that names one: day 1 of the story, unless it counts its own days. */
+  /**
+   * The first day of each calendar that names one and isn't a flashback: day 1 of the story. Dates read before it (a
+   * story opening on a flashback) have no day since the story began.
+   */
   const origins = new Map<number, { axis: string; n: number }>()
+  const before = new Set<ID>()
   items.forEach((item, i) => {
     const text = texts[i].text
     const p = text ? parseWhen(text) : null
     const s = states[i]
-    const at = s ? axisOf(s) : null
-    if (s && at && !origins.has(s.cal)) origins.set(s.cal, at)
+    const back = !!text && goesBack(text, p)
+    // A day its month doesn't have in the year it takes from the scenes before ("29 February" after "1 January 1821")
+    // is no day: it never rolls into the next month.
+    const impossible =
+      !!p &&
+      !!s &&
+      p.day !== null &&
+      !p.step &&
+      !p.next &&
+      !p.dayCount &&
+      !p.qual &&
+      s.year !== null &&
+      s.month !== null &&
+      Number.isInteger(s.month) &&
+      p.day > monthLength(s.month, s.year)
+    const at = s && !impossible ? axisOf(s) : null
+    if (s && at && !back && !origins.has(s.cal)) origins.set(s.cal, at)
+    else if (s && at && !origins.has(s.cal)) before.add(item.id)
     const timeOnly = !!p && !p.step && !p.next && p.year === null && p.month === null && p.day === null
     const reading: DateReading = !text
       ? 'empty'
-      : !p
+      : !p || impossible
         ? 'unclear'
         : !s
           ? timeOnly
@@ -235,7 +274,10 @@ export function buildCalendar(items: readonly CalendarItem[], stories: ReadonlyM
           : p.step?.vague
             ? 'vague'
             : 'read'
-    const rough = !!s && !at && !timeOnly
+    const rough = !!s && !at && !timeOnly && !impossible
+    // The month is known unless a vague step lost it: after "six months later" (or "half a year later") the day is only
+    // about right, but the month is the one stepped to.
+    const monthKnown = !!s && (!s.vague || (s.vague === 1 && !!p?.step && p.step.unit !== 'day' && !p.step.vague))
     dates.set(item.id, {
       id: item.id,
       when: text,
@@ -244,27 +286,29 @@ export function buildCalendar(items: readonly CalendarItem[], stories: ReadonlyM
       n: at?.n ?? null,
       day: null,
       year: s && s.vague < 2 && (at || rough) ? s.year : null,
-      month: s && !s.vague && (at || rough) ? s.month : null,
+      month: s && monthKnown && (at || rough) ? s.month : null,
       yearWord: !!s?.yearWord,
       dayCount: !!s?.dayCount,
       cal: s?.cal ?? 0,
       minute: p?.minute ?? null,
       time: p?.time ?? '',
+      span: p?.span ?? null,
       timeFrom: p?.minute != null ? 'card' : null,
-      date: s && at ? dateText(s, at, p, text) : s && rough ? roughText(s) : '',
+      date: s && at ? dateText(s, at, p, text) : s && rough ? roughText(s, monthKnown) : '',
       leans:
         !!p &&
         (!!p.step || p.next || timeOnly || (!!s && ((p.year === null && s.year !== null) || (p.month === null && s.month !== null)))),
-      back: !!text && goesBack(text, p),
+      back,
       key: placed[i]?.key ?? null
     })
   })
-  // Each date's day since the story began, now that every calendar's first day is known.
+  // Each date's day since the story began, now that every calendar's first day is known: Adam's own bare count, or days
+  // since that first day (none for a date read before it).
   for (const d of dates.values()) {
     const origin = origins.get(d.cal)
     if (d.axis === null || d.n === null) continue
     if (counted(d.axis)) d.day = d.n
-    else if (origin && origin.axis === d.axis) d.day = d.n - origin.n + 1
+    else if (origin && origin.axis === d.axis && !before.has(d.id)) d.day = d.n - origin.n + 1
   }
   return { dates, order: items.map((x) => x.id) }
 }
@@ -282,7 +326,7 @@ export function withCues(cal: Calendar, cues: ReadonlyMap<ID, string>): Calendar
     if (!d || d.when || d.minute !== null) continue
     const p = parseWhen(words)
     if (p?.minute == null) continue
-    dates.set(id, { ...d, minute: p.minute, time: p.time, timeFrom: 'memory' })
+    dates.set(id, { ...d, minute: p.minute, time: p.time, span: p.span, timeFrom: 'memory' })
   }
   return { ...cal, dates }
 }
@@ -317,7 +361,7 @@ export function dateOfText(cal: Calendar, text: string, at: ID | null): StoryDat
   }
   const ax = axisOf(s)
   const rough = !ax
-  const origin = lean ? [...cal.dates.values()].find((d) => d.cal === s.cal && d.axis !== null) : undefined
+  const origin = lean ? [...cal.dates.values()].find((d) => d.cal === s.cal && d.axis !== null && !d.back) : undefined
   return {
     id: '',
     when: text.trim(),
@@ -332,8 +376,9 @@ export function dateOfText(cal: Calendar, text: string, at: ID | null): StoryDat
     cal: s.cal,
     minute: p.minute,
     time: p.time,
+    span: p.span,
     timeFrom: p.minute !== null ? 'card' : null,
-    date: ax ? dateText(s, ax, p, text.trim()) : rough ? roughText(s) : '',
+    date: ax ? dateText(s, ax, p, text.trim()) : rough ? roughText(s, true) : '',
     leans: p.year === null && s.year !== null,
     back: false,
     key: null
@@ -420,6 +465,18 @@ export function sameMoment(a: StoryDate | null | undefined, b: StoryDate | null 
   return a!.minute === b!.minute
 }
 
+/**
+ * Which of two times of day the same day comes first, only where that is certain: 1 when `b` is later than `a`, -1 when
+ * earlier, 0 when their spans meet ("night" after "11pm" may be the same hour, "evening" and "7pm" overlap); null when
+ * either says no time.
+ */
+export function timeOrder(a: StoryDate | null | undefined, b: StoryDate | null | undefined): -1 | 0 | 1 | null {
+  if (!a?.span || !b?.span) return null
+  if (a.span[1] < b.span[0]) return 1
+  if (b.span[1] < a.span[0]) return -1
+  return 0
+}
+
 /** A scene whose date comes before the dated scene before it, and whose When doesn't say it goes back on purpose. */
 export interface GoingBack {
   sceneId: ID
@@ -434,12 +491,13 @@ const BACK_FROM_MINUTE = 300
 
 /**
  * The scenes whose date goes backwards in reading order without saying so (see above), for rule-based checks to come
- * (fix 8). Each is compared with the dated scene before it in its own story (`stories`: each scene's story; a side
- * story added whole runs alongside its host, so a host scene after it is never compared with it), and only where it can
- * be told: both name their day on the same axis, or a month or year of their own. A When that leans on the scenes
- * before is never counted: a step forward can't go back, and one that takes its year or month from them ("March" after
- * "December, Year 2") may be the next year, which only Adam knows. The same day with an earlier time counts only when
- * both cards say the time, and not for a time in the small hours.
+ * (fix 8). Each is compared with the last dated scene before it in its own story that isn't a flashback (`stories`: each
+ * scene's story; a side story added whole runs alongside its host, so a host scene after it is never compared with it),
+ * so the present after a flashback is held to the present before it. Only where it is certain: both name their day on
+ * the same axis, or a month or year of their own. A When that leans on the scenes before is never counted: a step forward
+ * can't go back, and one that takes its year or month from them ("March" after "December, Year 2") may be the next year,
+ * which only Adam knows. The same day with an earlier time counts only when both cards say the time, the two times
+ * can't be the same hour (timeOrder: "night" after "11pm" may be), and not for a time in the small hours.
  */
 export function goingBack(cal: Calendar, stories?: ReadonlyMap<ID, ID>): GoingBack[] {
   const out: GoingBack[] = []
@@ -449,12 +507,12 @@ export function goingBack(cal: Calendar, stories?: ReadonlyMap<ID, ID>): GoingBa
     if (!d || (d.axis === null && d.year === null)) continue
     const story = stories?.get(id) ?? ''
     const before = last.get(story)
-    last.set(story, d)
+    if (!d.back) last.set(story, d)
     if (!before || d.back || d.leans) continue
     const e = elapsedBetween(before, d)
     if (!e) continue
     const earlierToday =
-      e.days === 0 && (e.minutes ?? 0) < 0 && d.timeFrom === 'card' && before.timeFrom === 'card' && d.minute! >= BACK_FROM_MINUTE
+      e.days === 0 && d.timeFrom === 'card' && before.timeFrom === 'card' && timeOrder(before, d) === -1 && d.minute! >= BACK_FROM_MINUTE
     if (e.days < 0 || earlierToday) out.push({ sceneId: id, beforeId: before.id, elapsed: e })
   }
   return out
@@ -576,16 +634,36 @@ export function ageFrom(base: { born: StoryDate } | { years: number; then: Story
     }
     return years >= 1 ? { lo: years - 1, hi: years, about: false } : years === 0 ? { lo: 0, hi: 0, about: false } : null
   }
-  const e = elapsedBetween(base.then, now)
+  const then = base.then
+  const e = elapsedBetween(then, now)
   if (!e) return null
-  const span = e.days / YEAR_DAYS
-  if (e.months !== undefined) {
-    const lo = base.years + Math.floor(span)
-    return lo >= 0 ? { lo, hi: lo + 1, about: true } : null
+  // Someone who is N at `then` turns N + 1 on a day after it, within the year: N + the whole years since then, or one
+  // more once a birthday may have come.
+  const range = (whole: number, past: boolean, about: boolean): AgeAt | null => {
+    const lo = base.years + whole
+    return lo >= 0 ? { lo, hi: past ? lo + 1 : lo, about } : null
   }
-  const lo = base.years + Math.floor(span)
-  const hi = Number.isInteger(span) ? lo : lo + 1
-  return lo >= 0 ? { lo, hi, about: false } : null
+  if (then.axis !== null && then.axis === now.axis && then.axis.startsWith('g')) {
+    // Real dates: whole years by month and day, as a birthday counts them (1 March 1820 to 1 March 1823 is three).
+    const [ty, tm, td] = civilFromDays(then.n!)
+    const [ny, nm, nd] = civilFromDays(now.n!)
+    const later = (m1: number, d1: number, m2: number, d2: number): boolean => m1 > m2 || (m1 === m2 && d1 > d2)
+    if (e.days >= 0) {
+      const whole = ny - ty - (later(tm, td, nm, nd) ? 1 : 0)
+      return range(whole, !(nm === tm && nd === td), false)
+    }
+    // Back in time: as many whole years back, and one fewer before a birthday may have come.
+    const whole = ny - ty + (later(nm, nd, tm, td) ? 1 : 0)
+    return range(whole - (nm === tm && nd === td ? 0 : 1), !(nm === tm && nd === td), false)
+  }
+  if (e.months !== undefined) {
+    // Only the months are known (a season, a month without its day): about right.
+    const years = e.months / 12
+    return range(Math.floor(years), true, true)
+  }
+  // Counted days ("Day 1" to "Day 1101") in years of the Common Era's length.
+  const years = e.days / YEAR_DAYS
+  return range(Math.floor(years), !Number.isInteger(years), false)
 }
 
 /** An age in words: "30", "36 or 37", "about 40". */

@@ -1,7 +1,9 @@
 // The story calendar, read from the world (long story memory fix 11; the rules are in memory/calendar.ts). Each story's
 // calendar is worked out from its line (every scene it follows on from, and the side stories it knows of, in the walk's
-// order) and the scene cards' When, and kept until anything is written to the world (`changesMade`, as the world views
-// keep what they read), so the stage tracker can ask about every scene on a line without reading it all again.
+// order) and the scene cards' When, and kept until something a date rests on is written: a scene's card, place or
+// deletion, a chapter, a story or one of Adam's answers (`calendarVersion`, counted by triggers on those tables that live
+// only as long as the connection, so the world file is unchanged). The stage tracker writes where things stand to `meta`
+// as it reads, which leaves the calendar as it is, so it can ask about every scene on a line without reading it all again.
 //
 // For the writer's briefing (`sceneCalendar`, ai/gather.ts), the stage tracker's carry rules (continuity/tracker.ts
 // startFrom, ai/context.ts stageReach and timeCarries), the screen (`storyDateViews`: the scene card and the story
@@ -12,7 +14,7 @@ import type Database from 'better-sqlite3'
 import type { EntryState, ID } from '@shared/types'
 import type { SceneDateView } from '@shared/contracts/worldViews'
 import { chapterChoice } from './promises'
-import { buildLine, labeler, storyOfScene } from './line'
+import { buildLine, labeler } from './line'
 import { sceneMemory } from './scene'
 import type { Line, WorldShape } from './types'
 import * as mem from '../db/memory'
@@ -52,21 +54,78 @@ export interface StoryCalendar extends Calendar {
   /** Each scene on the line, by where it is in plain words ("Book 1, Ch 3, Sc 2"), as the memory says where a change was. */
   byLabel: Map<string, ID>
   shape: WorldShape
+  /** The scenes that go back without saying so (goingBack), worked out once when first asked. */
+  back?: Map<ID, GoingBack>
+  /** What the screen says of each scene with a When (dateView), worked out once each. */
+  views?: Map<ID, SceneDateView>
 }
 
 interface Read {
-  changed: number
+  version: number
   shape: WorldShape
+  /** Each live scene's story. */
+  storyOf: Map<ID, ID>
   byStory: Map<ID, StoryCalendar>
 }
 
 const reads = new WeakMap<DB, Read>()
 
+/** The SQL function the calendar's triggers call: each call is a write a date may rest on. */
+const TOUCH = 'aiwrite_calendar_touch'
+/** The writes a date rests on (what loadShape, sceneCards and storyGaps read). */
+// prettier-ignore
+const TRIGGERS: [string, string][] = [
+  ['scenes_new', 'AFTER INSERT ON main.scenes'],
+  ['scenes_change', 'AFTER UPDATE OF card_json, chapter_id, position, deleted_at ON main.scenes'],
+  ['scenes_gone', 'AFTER DELETE ON main.scenes'],
+  ['chapters_new', 'AFTER INSERT ON main.chapters'], ['chapters_change', 'AFTER UPDATE ON main.chapters'],
+  ['chapters_gone', 'AFTER DELETE ON main.chapters'],
+  ['stories_new', 'AFTER INSERT ON main.stories'], ['stories_change', 'AFTER UPDATE ON main.stories'],
+  ['stories_gone', 'AFTER DELETE ON main.stories'],
+  ['answers_new', 'AFTER INSERT ON main.answers'], ['answers_change', 'AFTER UPDATE ON main.answers'],
+  ['answers_gone', 'AFTER DELETE ON main.answers']
+]
+
+/** Each connection's count of those writes; null where the triggers couldn't be made (then every write counts). */
+const touched = new WeakMap<DB, { n: number } | null>()
+
+/**
+ * How many writes a date may rest on this connection has made (a count only ever goes up, rollbacks too, so a calendar
+ * read before one is never taken for one read after). The triggers are made on first use, never inside someone else's
+ * transaction (a rollback would take them away); until then, and if they can't be made, every write counts
+ * (`changesMade`, as negative numbers, so the two never meet).
+ */
+export function calendarVersion(db: DB): number {
+  let box = touched.get(db)
+  if (box === undefined && !db.inTransaction) {
+    const count = { n: 0 }
+    try {
+      db.function(TOUCH, { deterministic: false }, () => {
+        count.n++
+        return null
+      })
+      db.transaction(() => {
+        for (const [name, when] of TRIGGERS)
+          db.exec(`CREATE TEMP TRIGGER IF NOT EXISTS aiwrite_calendar_${name} ${when} BEGIN SELECT ${TOUCH}(); END`)
+      })()
+      box = count
+    } catch (e) {
+      console.warn('The story calendar could not follow the writes it rests on; it is read again after every write', e)
+      box = null
+    }
+    touched.set(db, box)
+  }
+  return box ? box.n : -1 - changesMade(db)
+}
+
 function readWorld(db: DB): Read {
-  const changed = changesMade(db)
+  const version = calendarVersion(db)
   let r = reads.get(db)
-  if (!r || r.changed !== changed) {
-    r = { changed, shape: mem.loadShape(db), byStory: new Map() }
+  if (!r || r.version !== version) {
+    const shape = mem.loadShape(db)
+    const storyOf = new Map<ID, ID>()
+    for (const st of shape.stories) for (const c of st.chapters) for (const sc of c.scenes) storyOf.set(sc.id, st.id)
+    r = { version, shape, storyOf, byStory: new Map() }
     reads.set(db, r)
   }
   return r
@@ -130,8 +189,17 @@ export function storyCalendar(db: DB, storyId: ID): StoryCalendar | null {
 
 /** The calendar a scene is read on: its own story's. */
 export function calendarOfScene(db: DB, sceneId: ID): StoryCalendar | null {
-  const story = storyOfScene(readWorld(db).shape, sceneId)
-  return story ? storyCalendar(db, story.id) : null
+  const story = readWorld(db).storyOf.get(sceneId)
+  return story ? storyCalendar(db, story) : null
+}
+
+/** The scenes on a calendar that go back without saying so, by scene, each compared within its own story. */
+function backOf(cal: StoryCalendar): Map<ID, GoingBack> {
+  if (!cal.back) {
+    const stories = new Map([...cal.where].map(([id, w]) => [id, w.storyId] as const))
+    cal.back = new Map(goingBack(cal, stories).map((b) => [b.sceneId, b]))
+  }
+  return cal.back
 }
 
 /**
@@ -154,17 +222,16 @@ export function elapsedBetweenScenes(db: DB, a: ID, b: ID): Elapsed | null {
 export function scenesGoingBack(db: DB, storyId: ID): GoingBack[] {
   const cal = storyCalendar(db, storyId)
   if (!cal) return []
-  const stories = new Map([...cal.where].map(([id, w]) => [id, w.storyId] as const))
-  return goingBack(cal, stories).filter((b) => cal.where.get(b.sceneId)?.storyId === storyId)
+  return [...backOf(cal).values()].filter((b) => cal.where.get(b.sceneId)?.storyId === storyId)
 }
 
 // ---------- Ages ----------
 
-/** The first day its calendar names: where "at the story's start" is. */
+/** The first day its calendar names that isn't a flashback: where "at the story's start" is. */
 function startOf(cal: Calendar, here: StoryDate): StoryDate | null {
   for (const id of cal.order) {
     const d = cal.dates.get(id)
-    if (d && d.cal === here.cal && d.axis !== null) return d
+    if (d && d.cal === here.cal && d.axis !== null && !d.back) return d
   }
   return null
 }
@@ -303,7 +370,10 @@ export function dateView(cal: Calendar, sceneId: ID, back: ReadonlyMap<ID, Going
     case 'unclear':
       return view('AI Write can’t read a date in this.', 'AI Write can’t tell the date from this, so the AI gets your words as they are.')
     case 'unanchored':
-      return view('Nothing dated before this to count on from.', 'No scene before this one names its day, so AI Write can’t work out which day this is.')
+      return view(
+        'Nothing dated before this to count on from.',
+        'No scene before this one names its day, so AI Write can’t work out which day this is.'
+      )
     case 'vague':
       return view(
         'Doesn’t say how many days, so the count stops.',
@@ -318,10 +388,26 @@ export function dateView(cal: Calendar, sceneId: ID, back: ReadonlyMap<ID, Going
 export function storyDateViews(db: DB, storyId: ID, cues?: ReadonlyMap<ID, string>): Record<ID, SceneDateView> {
   const kept = storyCalendar(db, storyId)
   if (!kept) return {}
-  const cal = cues ? withCues(kept, cues) : kept
-  const stories = new Map([...kept.where].map(([id, w]) => [id, w.storyId] as const))
-  const back = new Map(goingBack(cal, stories).map((b) => [b.sceneId, b]))
+  // The memory's times of day never make a scene go back (they name no day), so the kept calendar's answer stands.
+  const cal = cues?.size ? withCues(kept, cues) : kept
+  const back = backOf(kept)
   const out: Record<ID, SceneDateView> = {}
   for (const [id, w] of kept.where) if (w.storyId === storyId) out[id] = dateView(cal, id, back)
   return out
+}
+
+/**
+ * What the scene card says of one scene's date (dateView), worked out for that scene alone and kept with its calendar;
+ * for a scene with no When, the time of day the memory read from its words (`cuesOf`: continuity/tracker.ts timeCues),
+ * read only then, as it changes with every reading.
+ */
+export function sceneDateView(db: DB, sceneId: ID, cuesOf: (sceneId: ID) => ReadonlyMap<ID, string>): SceneDateView {
+  const cal = calendarOfScene(db, sceneId)
+  const d = cal?.dates.get(sceneId)
+  if (!cal || !d) return { when: '', label: '', day: '', note: '', detail: '' }
+  if (!d.when) return dateView(withCues(cal, cuesOf(sceneId)), sceneId, backOf(cal))
+  const views = (cal.views ??= new Map())
+  let view = views.get(sceneId)
+  if (!view) views.set(sceneId, (view = dateView(cal, sceneId, backOf(cal))))
+  return view
 }

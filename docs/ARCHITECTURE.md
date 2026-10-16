@@ -2661,7 +2661,18 @@ characters to spare left for later fixes).
   a time of day from the memory's reading of its own words (`continuity/tracker.ts` `timeCues`: where things stand at
   its end, the time's words from that scene and the reading still matching its words; `withCues`), never a day. Nothing
   else is guessed: `reading` says how a When was read (`empty`, `read`, `unclear`, `unanchored`: a step with no dated
-  day before it, `vague`: "days later").
+  day before it, `vague`: "days later"). A day its month doesn't have is no date and never rolls into the next month
+  ("31 April 1820", "29 February 1821", or "29 February" after "1 January 1821": `monthLength`, leap-aware when the year
+  is known; with no year 29 February may be in a leap year and stays itself). Years before Christ count through zero (1
+  BC is year 0: `bc`), so "44 BC" to "AD 14" is 57 years, and a bare year 0 is no year (a world's own "Year 0" is).
+  "Half a year later" is six months and "a year and a half later" eighteen; "half a day later" is later the same day;
+  a half that can't be placed ("half a week later") is no date. After a step of months ("six months later") the day is
+  only about right but the month is known ("December 1820").
+- **Flashbacks** (review, 2026-10-16). The present carries on from the present: a When that doesn't go back leans on the
+  last dated scene before it that isn't a flashback (`worldViews/when.ts` `placeWhens`, `goesBack`), so "12 March
+  1820", "Flashback: 2 February 1810", "The next morning" is 13 March 1820, never 3 February 1810; a flashback leans on
+  the dated scene before it, a flashback or not ("Flashback: the next day" after one). The timeline places them the same
+  way.
 - **Sums** (`elapsedBetween`, `elapsedWords`). A date that names its day sits on an axis with a day number (`axis`,
   `n`): real months with a year are one axis for every story (`daysFromCivil`: real month lengths and leap years, so "30
   January 1820" and "five days later" is 4 February), "Day 41" counts an axis per year and calendar, a month the app
@@ -2669,22 +2680,41 @@ characters to spare left for later fixes).
   or stepped days. Dates on one axis are exactly so many days apart ("3 weeks and 2 days", "about 4 months (121 days)");
   a month or season and a year are about so many months apart, years alone about so many years (never for counted days,
   which may run across years); otherwise it isn't known. `day` is the day since the story began: Adam's own count where
-  he counts days ("Day 41" is day 41), else days since the first dated day of its calendar ("day 21 of the story").
-  `sameDay` and `sameMoment` (the same day and time of day) say null where they can't tell.
-- **Going back** (`goingBack`, `goesBack`). A scene whose date comes before the dated scene before it in its own story
-  (a side story read alongside is never compared), where that can be told, and whose When doesn't say so: a When saying
-  it goes back on purpose starts "Flashback" or "Earlier" (the app had no other mark), or steps back itself ("three days
-  earlier", "the night before"). A When that leans on the scenes before is never counted ("March" after "December, Year
-  2" may be the next year), nor a time in the small hours after a night scene (`BACK_FROM_MINUTE`).
+  he counts days with a bare "Day 41" (day 41), else days since the first dated day of its calendar that isn't a
+  flashback ("day 21 of the story"; no day count for a scene read before that day, such as a story opening on a
+  flashback). Decided in review: "Day N" with a year or season ("Day 300, Year 1", "Day 3 of spring") is a day of that
+  year or season: within it the sums work ("Day 300" to "Day 310, Year 1" is 10 days) and its day since the story began
+  counts from the first day like any date; across years how far apart isn't known (no year length is assumed). A bare
+  "Day N" runs on as the story's own count. `sameDay` and `sameMoment` (the same day and time of day) say null where
+  they can't tell. A time of day has a span (`WhenParts.span`, `SPANS`: "night" is 20:00 to 03:00, "morning" 05:00 to
+  12:00; a clock time is exact), and `timeOrder` orders two times the same day only when their spans don't meet: "night"
+  after "11pm" may be the same hour, so it is "the same day as the scene before", never "earlier the same day".
+- **Going back** (`goingBack`, `goesBack`). A scene whose date comes before the last dated scene before it in its own
+  story that isn't a flashback (a side story read alongside is never compared; "5 March 1820" after "12 March 1820" and
+  a flashback is held to 12 March), where that is certain, and whose When doesn't say so: a When saying it goes back on
+  purpose starts "Flashback" or "Earlier" (the app had no other mark), or steps back itself ("three days earlier", "the
+  night before"). A When that leans on the scenes before is never counted ("March" after "December, Year 2" may be the
+  next year), nor an earlier time the same day unless both cards say the time and their spans don't meet (`timeOrder`:
+  "night" after "11pm" isn't), nor a time in the small hours after a night scene (`BACK_FROM_MINUTE`).
 - **Ages** (`readAge`, `ageFrom`, `memory/storyCalendar.ts` `ageHere`). From a character's "Age or birth date" as of the
   scene: a birth date or year ("born 12 March 1790", "b. 1790": exact with both full dates, else "29 or 30"), an age at a
   date ("17 in 1815", "34 at the start of the story"), or a bare age as of the scene the memory set it in
-  (`changedWhere.age`, matched to a scene by its place in words), the story's start for the starting setup. A guess
+  (`changedWhere.age`, matched to a scene by its place in words), the story's start (its first day that isn't a
+  flashback) for the starting setup. From an age at a real date, whole years by month and day as a birthday counts them
+  (34 on 1 March 1820 is 36 or 37 on 28 February 1823, 37 on 1 March, 37 or 38 on 2 March; review); from a month or
+  season, months / 12, about; from counted days, years of the Common Era's length. A guess
   ("mid-thirties", "about 40", "34 or 35") is left alone. Years told with a word ("Year 312") are compared only with each
   other.
-- **For rule-based checks to come** (fix 8; `memory/storyCalendar.ts`, read from the world and kept until anything is
-  written to it, `changesMade`): `storyCalendar(db, storyId)`, `storyDateAt(db, sceneId)`, `elapsedBetweenScenes(db, a,
-  b)`, `ageAt(db, characterId, sceneId)` and `scenesGoingBack(db, storyId)`.
+- **For rule-based checks to come** (fix 8; `memory/storyCalendar.ts`): `storyCalendar(db, storyId)`, `storyDateAt(db,
+  sceneId)`, `elapsedBetweenScenes(db, a, b)`, `ageAt(db, characterId, sceneId)` and `scenesGoingBack(db, storyId)`.
+- **Kept until a date can move** (review: the stage tracker writes `meta` as it reads, and a cache on every write rebuilt
+  the calendar for every scene `stands()` looked at). `calendarVersion` counts only writes a date rests on: temp
+  triggers (`aiwrite_calendar_*`, made on first use on the connection, never inside another's transaction, as search's
+  are; nothing in the world file) on a scene's card, chapter, place or deletion, chapters, stories and answers; where they
+  can't be made, every write counts (`changesMade`). A scene's story is one look-up (`Read.storyOf`), going back is
+  worked out once per calendar (`backOf`), and the scene card's `getSceneDate` works out that one scene's view
+  (`sceneDateView`, kept with the calendar; where things stand is read only for a scene with no When). Tested with 500
+  scenes: built once, then the same calendar for each scene with `meta` written between.
 - **The writer's briefing** (`ai/storyDate.ts`; `ContextInput.calendar`, `ai/gather.ts` `calendarFor` →
   `sceneCalendar`). The scene card (priority 2, late in `SEND_ORDER`) says, under When, "Story date: Day 41, evening (3
   weeks since the start of Ch 4: The Siege; 2 days since the scene before)": earlier days to count from are dated events
