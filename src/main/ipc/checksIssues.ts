@@ -11,6 +11,7 @@ import * as providers from '../ai/providers'
 import { getSettings, getWritingPrefs } from '../settings'
 import { emit } from '../events'
 import { jobModel } from '../ai/jobModel'
+import { contractWanted } from '../ai/contract'
 import { catchUpBeforeDraft } from '../ai/gather'
 import { currentKeeper, entryEditedByHand, memoryStatus } from '../keeper'
 import { loadShapeSafe } from '../keeper/places'
@@ -51,7 +52,9 @@ setRunDeps({
     const k = currentKeeper()
     if (k && k.db === db && !signal.aborted) await within(k.whenRead(sceneId), CATCH_UP_MS, signal)
   },
-  onKeyRejected: (model) => providers.markCheck(model.target.id, false)
+  onKeyRejected: (model) => providers.markCheck(model.target.id, false),
+  // Scene contracts switched off (long story memory fix 13): a check takes away what one found.
+  contractsOff: () => !contractWanted(getSettings())
 })
 
 // Issues that change (a check, an ignore, the memory keeper raising one) are told to the window.

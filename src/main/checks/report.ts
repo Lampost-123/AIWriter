@@ -42,12 +42,14 @@ export function reportItems(checks: CheckKind[], said: Record<string, unknown>[]
 
 /**
  * Keeps a scene's latest report (replacing the one before). How the latest draft kept to its scene's contract (fix 13)
- * stays with it unless this report has its own: the critic after a draft doesn't check the contract again.
+ * stays with it unless this report has its own: the critic after a draft doesn't check the contract again. `contract:
+ * null` takes it away (contracts switched off).
  */
-export function saveReport(db: DB, report: Omit<CheckReport, 'at'>): void {
+export function saveReport(db: DB, report: Omit<CheckReport, 'at' | 'contract'> & { contract?: ContractCheck | null }): void {
   const all = load(db)
-  const contract = report.contract ?? all[report.sceneId]?.contract
-  all[report.sceneId] = { ...report, at: now(), ...(contract ? { contract } : {}) }
+  const { contract: own, ...rest } = report
+  const contract = own === null ? undefined : (own ?? all[report.sceneId]?.contract)
+  all[report.sceneId] = { ...rest, at: now(), ...(contract ? { contract } : {}) }
   repo.setMeta(db, META_KEY, JSON.stringify(all))
 }
 

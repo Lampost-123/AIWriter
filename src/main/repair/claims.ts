@@ -61,8 +61,9 @@ export function readClaims(reply: string): Claim[] | null {
   if (!parsed.ok) return null
   const v = parsed.value
   const list = Array.isArray(v) ? v : isObj(v) ? (v.claims ?? v.issues ?? null) : null
-  // A reply with only the scene's contract answered (fix 13, repair/contract.ts) makes no claims.
-  if (list === null) return isObj(v) && ('claims' in v || 'contract' in v) ? [] : null
+  // A reply with only the scene's contract answered (fix 13, repair/contract.ts) makes no claims; one that answers
+  // nothing at all can't be read (fix 13's review).
+  if (list === null) return isObj(v) && ('claims' in v || (Array.isArray(v.contract) && v.contract.length > 0)) ? [] : null
   if (!Array.isArray(list)) return null
   return list.filter(isObj).map((c) => {
     const about = str(c.about, 20).toLowerCase()

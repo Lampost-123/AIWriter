@@ -257,6 +257,8 @@ interface IssueWhere {
   /** The scene's contract the words were written to (fix 13), and the names of the entries its items are about. */
   contract?: SceneContract | null
   names?: ReadonlyMap<ID, string>
+  /** The second opinion ruled on what was found (fix 13's review): a broken item it kept is confirmed. */
+  confirmed?: boolean
 }
 
 /** One finding as an issue: a fixed slip (its words as the AI wrote them) or a question. */
@@ -281,7 +283,7 @@ function asIssue(ctx: IssueWhere, c: Claim, quote: string, start: number, messag
       sources: item ? contractSources(item.entryIds, ctx.names ?? new Map()) : sourcesOf(c.line, ctx.codex),
       fix,
       memoryFix: null,
-      ...(item ? { contract: { part: item.part, text: item.text } } : {}),
+      ...(item ? { contract: { part: item.part, text: item.text, ...(ctx.confirmed ? { confirmed: true as const } : {}) } } : {}),
       ...(at >= 0 ? { occurrence: occurrenceAt(ctx.text, quote, at) } : {})
     }
   }
@@ -378,7 +380,9 @@ async function checkWith(
     .join('\n\n')
   const codexAll = [...codex.lines, ...(terms?.lines ?? [])]
   const lines = new Set([...stage.map((l) => l.code), ...codexAll.map((l) => l.code)])
-  const second = await secondOpinion(o, input.sceneId, [...read, ...(kept?.broken ?? [])], { newWords, leadIn: input.leadIn, material, lines })
+  // What doesn't show yet goes to the same call (fix 13's review): it may be there in other words.
+  const missing = (kept?.notYet ?? []).map((i) => ({ line: i.code, text: i.text }))
+  const second = await secondOpinion(o, input.sceneId, [...read, ...(kept?.broken ?? [])], { newWords, leadIn: input.leadIn, material, lines }, missing)
   forgetPrompts(o, input.sceneId, SECOND_MARKER)
   if (o.closed() || !o.db.open) return NOTHING
   const claims = second.kept
@@ -391,20 +395,29 @@ async function checkWith(
     stage,
     base: input.beforeChars ?? 0,
     contract,
-    names: new Map([...ctx.memory.entries, ...ctx.memory.elsewhere.map((x) => x.entry)].map((e) => [e.id, e.name] as const))
+    names: new Map([...ctx.memory.entries, ...ctx.memory.elsewhere.map((x) => x.entry)].map((e) => [e.id, e.name] as const)),
+    confirmed: second.ruled
   }
   // Anything Adam said is meant to be so (ignored) is neither mended nor asked again.
   const rows = cdb.rowsInScenes(o.db, [input.sceneId])
   const ignored = (f: cdb.FoundIssue): boolean => rows.some((r) => r.status === 'ignored' && cdb.sameThing({ ...f.payload, key: f.key }, r, f))
 
   const questions = judged.questions.map((q: FoundQuestion) => asIssue(where, q.claim, q.quote, q.start, q.message, q.fix)).filter((f) => !ignored(f))
-  // The scene's contract (fix 13): what must change and doesn't show yet is asked too; such a question asked before goes
-  // once a whole new draft of the scene is checked, or once the words show it.
-  const notYet = contract && kept ? kept.notYet.map((i) => notYetIssue({ ...where, names: where.names ?? new Map() }, i, contract.asks)).filter((f) => !ignored(f)) : []
-  const shown = new Set(contract && kept ? contract.items.filter((i) => kept.said.get(i.code)?.result === 'kept').map((i) => i.text) : [])
-  const settled = (p: cdb.IssuePayload): boolean => p.contract?.part === 'change' && (contract?.asks === 'scene' || shown.has(p.contract.text))
+  // The scene's contract (fix 13): what must change and doesn't show yet (the second opinion agreeing) is asked too.
+  // Such a question asked before goes only when this reply answered its item (fix 13's review: never on a reply that
+  // answered nothing): for a whole new draft of the scene, answered at all; otherwise, once the words show it.
+  const standing = new Set(second.missing.map((m) => m.line))
+  const notYetItems = (kept?.notYet ?? []).filter((i) => standing.has(i.code))
+  const notYet = contract ? notYetItems.map((i) => notYetIssue({ ...where, names: where.names ?? new Map() }, i, contract.asks)).filter((f) => !ignored(f)) : []
+  const shownAfterAll = new Set((kept?.notYet ?? []).filter((i) => !standing.has(i.code)).map((i) => i.code))
+  const answered = new Set(contract && kept ? contract.items.filter((i) => kept.said.has(i.code)).map((i) => i.text) : [])
+  const shown = new Set(
+    contract && kept ? contract.items.filter((i) => kept.said.get(i.code)?.result === 'kept' || shownAfterAll.has(i.code)).map((i) => i.text) : []
+  )
+  const settled = (p: cdb.IssuePayload): boolean =>
+    p.contract?.part === 'change' && (contract?.asks === 'scene' ? answered.has(p.contract.text) : shown.has(p.contract.text))
   const found = [...questions, ...notYet]
-  const raised = found.length || contract ? cdb.saveFound(o.db, rows, found, settled) : 0
+  const raised = found.length || answered.size ? cdb.saveFound(o.db, rows, found, settled) : 0
   const fixes = judged.fixes
     .map((f: FoundFix) => {
       const fix: RepairFix = { id: newId(), para: f.para, start: f.start, end: f.end, was: f.was, now: f.now, why: f.claim.why || 'This didn’t match where things stood.' }
@@ -417,7 +430,7 @@ async function checkWith(
     pending.set(repairId, { db: o.db, sceneId: input.sceneId, storyId: ctx.storyId, fixes })
     while (pending.size > MOST_PENDING) pending.delete(pending.keys().next().value!)
   }
-  const items = contract && kept ? keepContractCheck(o.db, where, contract, kept, judged.questions) : null
+  const items = contract && kept && answered.size ? keepContractCheck(o.db, where, contract, { ...kept, notYet: notYetItems }, judged.questions, shownAfterAll) : null
   return {
     repairId,
     fixes: fixes.map((x) => x.fix),
@@ -437,11 +450,13 @@ function keepContractCheck(
   where: IssueWhere,
   contract: SceneContract,
   kept: ReturnType<typeof judgeContract>,
-  questions: FoundQuestion[]
+  questions: FoundQuestion[],
+  shown: ReadonlySet<string> = new Set()
 ): ContractCheckItem[] {
   const items = contractResults(contract, kept, {
     broken: new Set(questions.map((q) => q.claim.line).filter((l) => /^C\d+$/.test(l))),
-    notYet: new Set(kept.notYet.map((i) => i.code))
+    notYet: new Set(kept.notYet.map((i) => i.code)),
+    shown
   })
   try {
     saveContractCheck(db, where.sceneId, { at: now(), asks: contract.asks, items })

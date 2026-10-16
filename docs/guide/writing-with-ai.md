@@ -155,8 +155,10 @@ list: what must be true at the start (where people are, what they hold, how much
 (the scene card's beats, or what you asked for), and what must not change (who is dead, what is kept from someone,
 injuries). When the new words go against it, or don't yet show something the scene was meant to bring about, it is
 raised in the **Issues** tab, marked **Scene contract**, with a rewrite of just that sentence when one would put it
-right. Nothing changes without you. The check report at the top of the Issues tab says how the latest draft kept to the
-list, item by item, and the **Context** tab shows the list the AI was given.
+right. Nothing changes without you. (**Write the whole chapter** puts right what goes against the list once a second
+look agrees, as it does its other fixes; something not shown yet is always left for you.) The check report at the top of
+the Issues tab says how the latest draft kept to the list, item by item, and the **Context** tab shows the list the AI
+was given.
 
 ## A brief before each scene
 

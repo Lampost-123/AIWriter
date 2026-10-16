@@ -425,22 +425,40 @@ export function mustStayTrue(o: MustInput): string[] {
   return mustLines(o).map((l) => l.text)
 }
 
+/**
+ * What a line says, for the scene's contract (contract.ts): what would have to be said of it to change it. The words that
+ * say it (a fact, an injury, a death) and the people it is about, or the item someone has or gave away, or the thing in
+ * the place. A contract leaves out of what must not change any line its own change list changes (long story memory fix
+ * 13's review: a key handed over must not also be kept).
+ */
+export type MustAbout = { words: string; who: string[]; learns?: true } | { holding: Pick<Holding, 'words'> } | { thing: StageItem }
+
 /** One line of the list: what it is about, its words, and the codex entries it names (the people, the item). */
 export interface MustLine {
   kind: MustKind
   text: string
   entryIds: ID[]
+  /** What it says, for the scene's contract (left out: its words alone). */
+  about?: MustAbout
 }
 
 /** The list's lines with what each is about (mustStayTrue gives their words alone). */
 export function mustLines(o: MustInput): MustLine[] {
-  const out: { rank: number; who: number; text: string; piece: boolean; kind: Kind; ids: ID[] }[] = []
+  const out: { rank: number; who: number; text: string; piece: boolean; kind: Kind; ids: ID[]; about?: MustAbout }[] = []
   /** A line: its words (cut short when long, unless `whole`), then since when it holds, never cut. */
-  const add = (kind: Kind, who: number, text: string, where = '', whole = false, ids: ID[] = []): void => {
+  const add = (kind: Kind, who: number, text: string, where = '', whole = false, ids: ID[] = [], about?: MustAbout): void => {
     const since = where ? ` (since ${where})` : ''
-    out.push({ rank: RANK[kind], who, text: `${whole ? text : clipTo(text, LONGEST_LINE)}${since}`, piece: kind === 'wearing' || kind === 'wearingNamed', kind, ids })
+    out.push({
+      rank: RANK[kind],
+      who,
+      text: `${whole ? text : clipTo(text, LONGEST_LINE)}${since}`,
+      piece: kind === 'wearing' || kind === 'wearingNamed',
+      kind,
+      ids,
+      ...(about ? { about } : {})
+    })
   }
-  const asLine = (l: (typeof out)[number]): MustLine => ({ kind: l.kind, text: l.text, entryIds: l.ids })
+  const asLine = (l: (typeof out)[number]): MustLine => ({ kind: l.kind, text: l.text, entryIds: l.ids, ...(l.about ? { about: l.about } : {}) })
   /** Where a stage value's words are: this scene, or another one's place. */
   const sinceOf = (from: StateSource | undefined): string => {
     if (!from) return ''
@@ -474,7 +492,7 @@ export function mustLines(o: MustInput): MustLine[] {
     // The memory's guesses (World Memory Overhaul A4) are never facts to keep to.
     const guessed = new Set(e.guesses ?? [])
     const marks = guessed.has('marks') ? '' : clean(e.fields?.marks)
-    if (marks) add('marks', who, `${e.name}: ${marks}`, shortPlace(e.changedWhere?.marks ?? '', o.storyTitle), false, [e.id])
+    if (marks) add('marks', who, `${e.name}: ${marks}`, shortPlace(e.changedWhere?.marks ?? '', o.storyTitle), false, [e.id], { words: marks, who: [e.name] })
     for (const k of e.changed ?? []) {
       const label = FIELD_LABEL.get(k)
       const v = clean(e.fields?.[k])
@@ -497,7 +515,7 @@ export function mustLines(o: MustInput): MustLine[] {
     .forEach((h) => {
       const named = namesItem(about, h)
       const kind: Kind = h.has ? (named ? 'gotNamed' : 'got') : named ? 'goneNamed' : 'gone'
-      add(kind, whoOf.get(h.personId)!, holdingLine(h, (w) => shortPlace(w, o.storyTitle)), '', true, [h.personId, h.itemId])
+      add(kind, whoOf.get(h.personId)!, holdingLine(h, (w) => shortPlace(w, o.storyTitle)), '', true, [h.personId, h.itemId], { holding: h })
     })
 
   function stageLines(c: CharacterState, who: number): void {
@@ -508,7 +526,7 @@ export function mustLines(o: MustInput): MustLine[] {
     const stand = o.stand ?? { things: [], characters: [] }
     for (const kind of ['condition', 'holding', 'where', 'posture', 'touching', 'sees'] as const) {
       const v = clean(kind === 'holding' ? heldNotPlaced(stand, name, c.holding) : c[kind])
-      if (v && keep.has(kind)) add(kind, who, stageLine(name, kind, v), stageSince(name, kind), false, idsOf(who))
+      if (v && keep.has(kind)) add(kind, who, stageLine(name, kind, v), stageSince(name, kind), false, idsOf(who), { words: v, who: [name] })
     }
     // What they wear, piece by piece: those the scene names first, then what is off, then what is on in some way.
     if (!keep.has('wearing')) return
@@ -539,7 +557,10 @@ export function mustLines(o: MustInput): MustLine[] {
             namesStageItem(about, t) ? 'thingNamed' : 'thing',
             1000,
             stageLine('', 'thing', text),
-            sinceOf(o.stand?.said?.[thingKey(t.name)])
+            sinceOf(o.stand?.said?.[thingKey(t.name)]),
+            false,
+            [],
+            { thing: t }
           )
       }
   }
@@ -549,7 +570,7 @@ export function mustLines(o: MustInput): MustLine[] {
   all.forEach((e, i) => {
     const died = deathOf(e)
     const note = clean(died?.note).replace(/[.]$/, '')
-    if (note) add('dead', i, `${e.name} is dead: ${pastDeathNote(note)}`, shortPlace(died?.where ?? '', o.storyTitle), false, [e.id])
+    if (note) add('dead', i, `${e.name} is dead: ${pastDeathNote(note)}`, shortPlace(died?.where ?? '', o.storyTitle), false, [e.id], { words: note, who: [] })
   })
 
   // What some of those in the scene know and others don't, the most lately learned first: kept from the others, who
@@ -564,7 +585,7 @@ export function mustLines(o: MustInput): MustLine[] {
     const fact = clipTo(s.fact, LONGEST_FACT)
     const rule = o.smallest ? '' : `. ${not} must not learn, guess or think it here unless the scene card says so`
     const ids = knowers.filter((p) => s.keptFrom.includes(p.name)).map((p) => p.id)
-    add('gap', 2000 + i, `Kept from ${not}: ${fact} (${knows})${rule}`, '', true, ids)
+    add('gap', 2000 + i, `Kept from ${not}: ${fact} (${knows})${rule}`, '', true, ids, { words: s.fact, who: s.keptFrom, learns: true })
   })
   // Then what someone here believes that isn't true (fix 9), the most lately come to first: a key kind of its own, with
   // its own few lines (MUST_BELIEFS), so secrets never take its seat.
@@ -581,7 +602,7 @@ export function mustLines(o: MustInput): MustLine[] {
     .forEach(({ p, b }, i) => {
       const fact = clipTo(clean(b.fact).replace(/[.]$/, ''), LONGEST_FACT)
       const rule = o.smallest ? '' : `. ${p.name} takes it as true here unless the scene card says otherwise`
-      add('belief', 2500 + i, `${p.name} wrongly believes: ${fact} (it isn't true)${rule}`, '', true, [p.id])
+      add('belief', 2500 + i, `${p.name} wrongly believes: ${fact} (it isn't true)${rule}`, '', true, [p.id], { words: b.fact, who: [p.name], learns: true })
     })
 
   // How much time has passed since the scene before, at a new scene's start.

@@ -14,7 +14,7 @@ import type { SceneContract } from '../ai/contract'
 import { checkReport, saveReport } from '../checks/report'
 import { checkNewWords, noteContract, resetRepairsForTests } from './index'
 import { repairSystem, REPAIR_MARKER, REPAIR_SEND_ORDER } from './prompts'
-import { SECOND_MARKER, secondRequest, SECOND_SYSTEM, secondSystem } from './second'
+import { NOT_SHOWN_RULE, SECOND_MARKER, secondRequest, SECOND_SYSTEM, secondSystem } from './second'
 import {
   CONTRACT_RULES,
   contractCounts,
@@ -266,5 +266,82 @@ describe('as the draft lands', () => {
     expect(fetchImpl.asked[0].user).not.toContain('contract')
     expect(out.contract).toBeUndefined()
     expect(checkReport(db, sceneId)).toBeNull()
+  })
+})
+
+/** The stand-in memory model answering each request in turn with the next reply (the last one again after that). */
+function answeringEach(replies: unknown[]): typeof fetch & { asked: { system: string; user: string }[] } {
+  const asked: { system: string; user: string }[] = []
+  const f = (async (_input: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { messages: { content: string }[] }
+    asked.push({ system: body.messages[0].content, user: body.messages[1].content })
+    const reply = replies[Math.min(asked.length - 1, replies.length - 1)]
+    const chunk = { choices: [{ index: 0, delta: { content: JSON.stringify(reply) }, finish_reason: 'stop' }] }
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
+  }) as typeof fetch & { asked: { system: string; user: string }[] }
+  f.asked = asked
+  return f
+}
+
+describe('after the review (fix 13)', () => {
+  const asked = (db: Database.Database, sceneId: ID): string[] =>
+    cdb
+      .rowsInScenes(db, [sceneId])
+      .filter((r) => r.status === 'open' && cdb.payloadOf(r).contract?.part === 'change')
+      .map((r) => cdb.payloadOf(r).contract!.text)
+
+  it('what isn’t shown yet goes to the second opinion too: shown in other words, it isn’t asked, and counts as kept', async () => {
+    const { db, sceneId, recordId, ash } = world()
+    noteContract(recordId, sceneId, withAsh(ash))
+    // Notes in order: the broken item (C4), then what isn't shown (C2, C3). The letter is told after all, in other words.
+    const verdicts = { verdicts: [{ n: 1, reason: 'Ash is dead.', real: true }, { n: 2, reason: 'Tobin spoke at last: he tells her.', real: false }, { n: 3, real: true }] }
+    const fetchImpl = answeringEach([ANSWERS, verdicts])
+    const out = await checkNewWords(opts(db, fetchImpl), landed(sceneId, recordId))
+
+    expect(fetchImpl.asked).toHaveLength(2)
+    expect(fetchImpl.asked[1].system).toContain(NOT_SHOWN_RULE)
+    expect(fetchImpl.asked[1].user).toContain('1. Quote: "“The letter is real,” Ash said from the doorway."')
+    expect(fetchImpl.asked[1].user).toContain('2. Not shown · Line: [C2] Tobin tells Mara the letter is forged')
+    expect(asked(db, sceneId)).toEqual(['Mara decides to go back to the mill'])
+    expect(out.contract).toEqual({ items: 4, kept: 1, broken: 1, notYet: 1 })
+    expect(checkReport(db, sceneId)!.contract!.items.map((i) => i.result)).toEqual(['untouched', 'kept', 'not yet', 'broken'])
+    // The broken item the second opinion agreed with is marked so (the chapter writer may put only such a one right); what
+    // isn't shown is never written in by itself.
+    const rows = cdb.rowsInScenes(db, [sceneId]).map((r) => cdb.payloadOf(r).contract)
+    expect(rows.find((c) => c?.part === 'keep')).toMatchObject({ confirmed: true })
+    expect(rows.find((c) => c?.part === 'change')).toMatchObject({ missing: true })
+    expect(rows.find((c) => c?.part === 'change')!.confirmed).toBeUndefined()
+  })
+
+  it('only what isn’t shown yet: the second opinion still rules on it; a reply it can’t read leaves it asked', async () => {
+    const { db, sceneId, recordId, ash } = world()
+    noteContract(recordId, sceneId, withAsh(ash))
+    const notYet = { claims: [], contract: [{ item: 'C2', result: 'not yet', quote: '' }] }
+    const fetchImpl = answeringEach([notYet, 'I am not sure.'])
+    await checkNewWords(opts(db, fetchImpl), landed(sceneId, recordId))
+    expect(fetchImpl.asked).toHaveLength(2)
+    expect(fetchImpl.asked[1].system.startsWith(SECOND_MARKER)).toBe(true)
+    expect(asked(db, sceneId)).toEqual(['Tobin tells Mara the letter is forged'])
+  })
+
+  it('a whole new draft settles only what its reply answered: a reply that answers nothing settles nothing', async () => {
+    const { db, sceneId, recordId, ash } = world()
+    noteContract(recordId, sceneId, withAsh(ash))
+    await checkNewWords(opts(db, answering(ANSWERS)), landed(sceneId, recordId))
+    expect(asked(db, sceneId)).toEqual(['Tobin tells Mara the letter is forged', 'Mara decides to go back to the mill'])
+
+    // Drafted again; the reply has no contract list at all, or answers an item there isn't.
+    for (const reply of [{ claims: [] }, { claims: [], contract: [] }, { claims: [], contract: [{ item: 'C9', result: 'kept', quote: '' }] }]) {
+      noteContract(recordId, sceneId, withAsh(ash))
+      await checkNewWords(opts(db, answering(reply)), landed(sceneId, recordId))
+      expect(asked(db, sceneId)).toEqual(['Tobin tells Mara the letter is forged', 'Mara decides to go back to the mill'])
+    }
+    // The report isn't changed by a reply that answered nothing.
+    expect(checkReport(db, sceneId)!.contract!.items.map((i) => i.result)).toEqual(['untouched', 'not yet', 'not yet', 'broken'])
+
+    // Answered for the letter only: that question goes; the mill's stays.
+    noteContract(recordId, sceneId, withAsh(ash))
+    await checkNewWords(opts(db, answering({ claims: [], contract: [{ item: 'C2', result: 'kept', quote: 'Tobin spoke at last.' }] })), landed(sceneId, recordId))
+    expect(asked(db, sceneId)).toEqual(['Mara decides to go back to the mill'])
   })
 })

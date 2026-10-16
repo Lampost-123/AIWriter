@@ -3001,13 +3001,20 @@ judge it at length. No store, no migration, no new kind of AI call.
     they hold, a piece of clothing off or named, how they are placed; and up to two things everyone in the scene knows
     that the card or the change is about (fix 9's ledger, with since when). Carrying on inside a scene (Add below, a
     later beat, Continue) the stage at that same moment is told right above, so the start keeps only the time.
-  - *Must change*: what the draft is asked to write (`ContractAsks`): a whole scene (Generate, Variants, the chapter
-    writer) its card's beats and outcome and up to two plot threads the card sets up or pays off (fix 10); Add below
-    Adam's direction, else the next beat not on the page (`beatsOnPage`); a beat that beat; Continue Adam's "what happens
-    next", else nothing. With the plan before writing, what the plan says must change takes the card's place (below).
-  - *Must not change*: the dead stay dead, what is kept from someone here stays kept (unless what must change tells it:
-    `saysFact`), injuries, what someone here believes wrongly, what someone gave away or got, things in the place, marks;
-    in that order.
+  - *Must change*: what the draft is asked to write (`ContractAsks`), strongest first, each left out when something
+    before it already says it (`saysFact`): the author's direction (a whole scene's too, so the list defers to it; Add
+    below's; Continue's "what happens next"), then what the plan before writing said must change (below), then the
+    card: a whole scene's beats (Generate, Variants, the chapter writer); Add below the next beat not on the page
+    (`beatsOnPage`) when there is no direction; a beat that beat with Adam's note for it (`beats/instructions.ts`
+    `beatFocus`, "… (the author’s note for it: …)"). A whole scene's outcome ("By the end: …", taken before the beats, so a
+    beat that only says it again is the one left out) and up to two plot threads it sets up or pays off (fix 10; left out
+    only when the direction or the plan names them) keep their own places, so the beats never push them out.
+  - *Must not change*: the dead stay dead, what is kept from someone here stays kept, injuries, what someone here believes
+    wrongly, what someone gave away or got, things in the place, marks; in that order. Never a line the change list
+    itself changes (`changedBy`, from what each line says, `MustLine.about`): the change names the item someone has or
+    gave away (`memory/items.ts` `namesItem`) or the thing in the place (`shared/stageItems.ts` `namesItem`), or says the
+    line's own words; a secret goes too when the one it's kept from learns, finds out or is told it (with a word of it, or
+    "the truth"), and a wrong belief when the one who holds it does. The line stays in what must stay true.
 - **The writer's briefing** (`ai/context.ts`, `ContextInput.contract`, set by `ai/draftFlow.ts` `contractFor`): block
   `scene-contract`, "This scene’s contract", priority 2 (never left out; its short form without the lead), sent late
   (`SEND_ORDER`: after where things stand, right above what must stay true), so every block before the scene card reads
@@ -3021,7 +3028,8 @@ judge it at length. No store, no migration, no new kind of AI call.
   card's beats, goal and outcome, the direction, or a thread the card sets up or pays off. `checkPlan` keeps one only when
   the card, the beat or the direction calls for it (`calledFor`) and it lets out no secret; `MadePlan.must`. `withPlan`
   puts them in the contract (`ContractInput.planned`) and fits the briefing again; `keepsRoom` lets the contract's block
-  change size. Without a contract the plan's call is exactly as before.
+  change size. The plan's lines stand for the card's where they say the same; the card's beats they don't say stay
+  (fix 13's review). Without a contract the plan's call is exactly as before.
 - **The check as a draft lands** (`repair/contract.ts`, `repair/index.ts`): the contract is kept by record as the stage is
   (`noteContract`, beside `noteStage`: Generate, Add below, a beat, Continue). The same claims call gets the items as C
   lines (section `contract`, "The scene’s contract (C ids)", right before where things stand in `REPAIR_SEND_ORDER`) and
@@ -3031,26 +3039,40 @@ judge it at length. No store, no migration, no new kind of AI call.
   opinion (whose instructions name C lines when a note cites one, `secondSystem`) and `judgeClaims`; a C line is never on
   the stage, so it is never mended without asking: one question with the model's rewrite of that sentence to review
   (Fix the text). Not yet: only for something that must change, never for Continue, and not when most of its words
-  (names aside) are in the new words (`mostlyIn`); asked with no words to point at ("This scene was planned to show this,
-  but the new words don’t yet: “…” Write it in, or leave it for later?", `notYetIssue`, key `contract:change:<words>`).
-  Such a question goes once a whole new draft of the scene is checked, or once the words show it. Issues carry
-  `IssuePayload.contract` (`Issue.byContract`); a contract's "not yet" is never a lesson for later scenes (fix 7,
-  `checks/lessons.ts`). How each item came out is kept with the scene's check report (`checks/report.ts`
-  `saveContractCheck`, `CheckReport.contract`; the critic's report after the draft keeps it) and `RepairOutcome.contract`
-  counts it. With "Check new words straight away" off, the contract is in the briefing but not checked (the critic after
-  a draft doesn't go through it).
+  (names aside) are in the new words (`mostlyIn`); then the same second opinion rules on it (a "Not shown" note with no
+  quote, `MissingNote`, `NOT_SHOWN_RULE`: rejected when the words show it in other words, which then counts as kept);
+  what stands is asked with no words to point at ("This scene was planned to show this, but the new words don’t yet: “…”
+  Write it in, or leave it for later?", `notYetIssue`, key `contract:change:<words>`, `contract.missing`). Such a
+  question goes only when the reply answered its item: for a whole new draft of the scene, answered at all; otherwise
+  once the words show it. A reply that answers no item of the contract settles nothing and leaves the report as it was
+  (`readClaims` no longer reads `{"contract": []}` as a check). Issues carry `IssuePayload.contract` (`Issue.byContract`;
+  `confirmed` when the second opinion ruled on a broken item and kept it); a contract's "not yet" is never a lesson for
+  later scenes (fix 7, `checks/lessons.ts`). How each item came out is kept with the scene's check report
+  (`checks/report.ts` `saveContractCheck`, `CheckReport.contract`; the critic's report after the draft keeps it) and
+  `RepairOutcome.contract` counts it. With "Check new words straight away" off, the contract is in the briefing but not
+  checked (the critic after a draft doesn't go through it).
 - **The chapter writer** (`ipc/chapterWriter.ts`, `checks/run.ts`): each scene's contract from its latest draft goes into
   `checkScene` (`CheckOptions.contract`), in the request about what is so (facts, timeline, continuity), with
-  `CHECK_CONTRACT_RULES`; a long scene's parts are put together (`mergeAnswers`). What it finds are findings like any
-  other (`contractFindings`; the review sees "scene contract"), rewritten by the agent's `revise` within the run's
-  existing limit (`SAME_ROUNDS`). Only a check through the contract replaces what one found (the critic's check, Mark
-  done's and Check this scene leave those rows be).
+  `CHECK_CONTRACT_RULES`. A long scene's first part gets every item, its later parts what must change and what must not
+  (what must be true at the start is judged on the opening alone); the parts' answers are put together (`mergeAnswers`).
+  A model with too little room for the contract checks the scene without it (the contract goes, never the check). Only a
+  reply that answered an item counts as a check through the contract. What it finds goes through the second opinion on
+  the check model (`contractRuling`, one call, only when something is broken or not shown; no room for it, a failed call
+  or an unreadable reply: nothing dropped, nothing confirmed). Decided with Adam: the agent may put right a broken item
+  like its other findings only once the second opinion agreed (`contract.confirmed`; `chapterWriter/run.ts`
+  `issueFindings` sends no other contract issue to the review, "scene contract"), rewritten by its `revise` within the
+  run's existing limit (`SAME_ROUNDS`); what isn't shown yet is never written in by itself and stays in the Issues tab
+  for Adam. Only a check through the contract replaces what one found (the critic's check, Mark done's and Check this
+  scene leave those rows be), unless contracts are switched off: then a whole check takes them away (`contractsOff`, from
+  `RunDeps.contractsOff` and the chapter writer; `db/checks.ts` `dropContractIssues`) and the report's contract with them
+  (`saveReport` with `contract: null`).
 - **AI calls per scene.** None new. Plan before writing: the same one call, with about 120 more tokens of instructions and
   a few more lines back. The writer: the same call, the briefing a few dozen to a few hundred tokens longer (less what
   must stay true no longer repeats). Check and repair: the same one call, with about 350 more tokens of instructions, the
   C lines, and a short answer per item. Its second opinion, which already ran once when the check found a slip, now also
-  runs when only a contract item is broken (still at most once per landing); a "not yet" never calls it. The chapter
-  writer: no new requests (the contract rides in its first check request each round). Continue and Variants: none.
+  runs when only a contract item is broken or not shown yet (still at most once per landing). The chapter writer: the
+  contract rides in its first check request each round, and one second opinion follows a check that found something
+  broken or not shown. Continue and Variants: none.
 - **The switch** (Settings › Models, "Scene contracts", "Give each scene a contract", `settings.sceneContracts`, on by
   default; `features/contract/ContractSettings.tsx`, between Plan before writing and Check new words straight away).
   Off: no block, no `must` asked of the plan, no C lines in the check, as before. `AIWRITE_CONTRACT=off` always turns it
@@ -3059,9 +3081,8 @@ judge it at length. No store, no migration, no new kind of AI call.
   check's contract (`repair.mjs`) and the chapter writer's (`m5/check.mjs`). The trap harness goes through it with the
   app's own code (contracts on unless `AIWRITE_CONTRACT=off`); its `--fake` run's stand-in check answers the contract
   (`tests/traps/app.ts` `standInRepair`), each passage's repair records the counts (`RepairResult.contract`), and
-  passages.md says "Scene contract: 1 of 1 kept, 0 broken, 0 not shown yet" under each step. The long test book (fix 6,
-  `--story book`) isn't on this branch yet; once it is, a real run with and without (`AIWRITE_CONTRACT=off` on one)
-  judges the contract at length.
+  passages.md says "Scene contract: 1 of 1 kept, 0 broken, 0 not shown yet" under each step. A real run of the long test
+  book (fix 6, `--story book`) with and without (`AIWRITE_CONTRACT=off` on one) judges the contract at length.
 - **On the screen**: the Issues tab's cards (both looks), the Check room and Classic's Consistency page say "… · Scene
   contract" beside the kind (`issuesLogic.ts` `CONTRACT_WORDS`, hover `CONTRACT_DETAIL`); the check report (Issues tab)
   has a "Scene contract" line with how many items were kept and each item's result ("Kept · Must change · …"), and says

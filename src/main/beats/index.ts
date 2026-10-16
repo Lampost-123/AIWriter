@@ -16,7 +16,7 @@ import { draftBriefing, providerNotes, withPlan, type DraftBriefing } from '../a
 import type { ContextExtras } from '../ai/context'
 import { noteContract, noteStage, stageTold } from '../repair'
 import { isDrafting, startDraftJob, type Emit } from '../ai/drafts'
-import { afterBlock, beatDirection, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
+import { afterBlock, beatDirection, beatFocus, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
 import { noteWriterSpeakers } from '../readAloud'
 
 const BUSY = 'A draft is already being written for this scene. Stop it first, or wait for it to finish.'
@@ -85,13 +85,14 @@ export async function startBeat(
         ...input.options,
         targetWords: beatWords(scene.targetWords ?? AUTO_LENGTH.typical, beats.length)
       }
-      // The scene's contract (long story memory fix 13) is this beat's: what must change is the beat itself.
+      // The scene's contract (long story memory fix 13) is this beat's: what must change is the beat itself, with the
+      // author's note for it when there is one (as the plan below is told).
       return draftBriefing(sceneId, options, {
         extras: extras(),
         signal: stop.signal,
         catchUp,
         plan: false,
-        focus: beats[index - 1] ?? '',
+        focus: beatFocus(beats[index - 1] ?? '', steer),
         ...(block ? { soFar: standText } : {})
       })
     }
