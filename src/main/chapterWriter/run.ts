@@ -97,6 +97,10 @@ class Failed extends Error {
   }
 }
 
+/** Said under a later scene's notes from the study: its start comes from the scene before as written, not from them. */
+export const LATER_START =
+  'Where everyone is as this scene starts, what they wear and hold, and how they are placed, is where the scene before it ends, as written: keep to that, whatever these notes say of it.'
+
 /** A card says enough to write a scene from it. */
 export const cardReady = (c: SceneCard | null | undefined): boolean =>
   !!c && [c.goal, c.conflict, c.outcome, c.notes, ...(c.beats ?? [])].some((v) => typeof v === 'string' && v.trim() !== '')
@@ -365,7 +369,10 @@ export class ChapterRun {
     const b = this.brief
     if (!b) return ''
     const mine = b.scenes.find((s) => s.sceneId === sceneId)?.notes.trim() ?? ''
-    return [b.overview.trim() && `The chapter: ${b.overview.trim()}`, mine].filter(Boolean).join('\n\n')
+    // The study is made before any scene is written, so where everyone is at a later scene's start is only its guess
+    // (review, 2026-10-16): the end of the scene before, as now written, says it (the briefing's "Where things stand").
+    const later = this.refs.findIndex((r) => r.id === sceneId) > 0 && !!mine
+    return [b.overview.trim() && `The chapter: ${b.overview.trim()}`, mine, later ? LATER_START : ''].filter(Boolean).join('\n\n')
   }
 
   // ---------- 2. Draft ----------

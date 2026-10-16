@@ -11,7 +11,8 @@ import { checkScene } from '../checks/run'
 import { runCritique } from '../critique/run'
 import { pageFrom, proseBlocks } from './page'
 import { ProgressGuard, findingKey } from './progress'
-import { ChapterRun, cardReady, type RunDeps } from './run'
+import { ChapterRun, LATER_START, cardReady, type RunDeps } from './run'
+import { studySystem } from './prompts'
 import { ChapterSession, type Finding } from './tools'
 import { loadBefore, loadReport } from './store'
 import { critiqueAsk } from '../critique/prompts'
@@ -251,6 +252,28 @@ describe('writing a whole chapter', () => {
       expect(report.message).toMatch(words)
       expect(repo.getScene(db, s1).text).toBe('Old words in the first scene.')
     }
+  })
+
+  it('asks the study where everyone starts for the first scene only, and tells later scenes to start where the one before ends', async () => {
+    expect(studySystem()).toMatch(/for the chapter's first scene only, where everyone and everything starts/)
+    expect(studySystem()).not.toMatch(/who knows what, where everyone and everything starts/)
+    const { db, chapterId, s1, s2 } = world()
+    const d = deps(db)
+    const notes = new Map<ID, string>()
+    const draft = d.draft
+    let run: ChapterRun | null = null
+    d.draft = async (sceneId, o) => {
+      notes.set(sceneId, o.notes)
+      if (sceneId === s2) void run!.stop()
+      return draft(sceneId, o)
+    }
+    run = new ChapterRun(d, 'run-8', chapterId)
+    run.prepare()
+    await run.run()
+    expect(notes.get(s1)).toContain('Keep Sc 1 true to the memory.')
+    expect(notes.get(s1)).not.toContain(LATER_START)
+    expect(notes.get(s2)).toContain('Keep Sc 2 true to the memory.')
+    expect(notes.get(s2)).toContain(LATER_START)
   })
 
   it('notes for Adam what a scene’s draft said about how it was written', async () => {

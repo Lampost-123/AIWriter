@@ -416,8 +416,18 @@ function withRecords(db: DB, s: StorySoFar, summaries: SummaryIndex): StorySoFar
  * story's time gap, so the briefing doesn't ask for this story to carry on from it seamlessly.
  */
 function previousScene(db: DB, shape: WorldShape, storyId: ID, line: Line): SceneMemory['previous'] {
-  const step = previousSceneStep(line)
-  const text = step ? mem.sceneText(db, step.sceneId) : null
+  // The last scene before with words: an empty one between (not written yet) is passed over, so this one follows on from
+  // the one before it (review, 2026-10-16: an empty scene left the next with no end of a scene before it to follow). Only
+  // in the story of the scene just before, never back into an earlier book; with none written there yet (a story still
+  // being planned), the scene just before.
+  const just = previousSceneStep(line)
+  const justText = just ? mem.sceneText(db, just.sceneId) : null
+  let step = just
+  if (just && !justText?.text.trim()) {
+    const worded = mem.scenesWithWords(db)
+    step = previousSceneStep(line, (s) => s.storyId === just.storyId && worded.has(s.sceneId)) ?? just
+  }
+  const text = step === just ? justText : step ? mem.sceneText(db, step.sceneId) : null
   if (!step || !text) return null
   const from = shape.stories.find((s) => s.id === step.storyId)
   const scenes = from ? from.chapters.flatMap((c) => c.scenes) : []

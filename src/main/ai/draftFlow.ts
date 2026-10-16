@@ -31,6 +31,7 @@ import { recallForBriefing } from '../retrieval'
 import { contractWanted, type ContractAsks, type SceneContract } from './contract'
 import { BRIEF_BLOCK, briefWanted, readBriefText } from './brief'
 import * as gens from '../db/generations'
+import { contractAgain, type ContractAsked } from './contractAgain'
 
 /** The preview is made again as Adam edits the scene card: only the blocks that changed are counted again. */
 const countCached = cachedCounter(countTokens)
@@ -212,6 +213,22 @@ export async function draftBriefing(
     )
   }
   return b
+}
+
+/**
+ * A whole scene's contract made again from what its draft was asked for, with the memory and where things stand as they
+ * are now (ai/contractAgain.ts), on the open world with the app's settings: the chapter writer checks each scene through
+ * it. Null when contracts are off or it would say nothing.
+ */
+export function contractNow(sceneId: ID, asked: ContractAsked): SceneContract | null {
+  const settings = getSettings()
+  return contractAgain(world.db(), sceneId, asked, {
+    prefs: getWritingPrefs(),
+    contextLength: settings.models.writer?.contextLength ?? null,
+    maxOutput: settings.models.writer?.maxOutput ?? null,
+    creativity: settings.creativity,
+    wanted: contractWanted(settings)
+  })
 }
 
 /**

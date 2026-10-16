@@ -3,12 +3,15 @@
 // far without a stage for its end tells nothing of where the previous scene ended, nor puts it in the contract's start.
 // Every name is invented.
 
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { SceneState } from '../continuity/tracker'
+import { keptStateBefore, type SceneState } from '../continuity/tracker'
+import { sceneMemory } from '../memory/scene'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import { carryOnFrom, catchUpBeforeDraft, gatherContextInput, setBeforeDraft, stageNote, STAGE_LATE, STAGE_LATE_SO_FAR, withStageRead } from './gather'
 import { prepareContext } from './context'
+import { contractAgain } from './contractAgain'
 
 const PREFS = { spelling: 'UK' as const, pov: '', tense: '', voiceNotes: '', avoidWords: [] }
 
@@ -70,6 +73,49 @@ describe('telling Adam a draft went without where things stand', () => {
   })
   it('in plain words', () => {
     for (const note of [STAGE_LATE, STAGE_LATE_SO_FAR]) expect(note).not.toMatch(/\b(?:stage|continuity|briefing|LLM|model)\b/i)
+  })
+})
+
+describe('a scene’s contract made again for the chapter writer’s checks', () => {
+  /** Keeps where things stand at the end of the first scene, read from its words as they are now. */
+  const keepEnd = (db: ReturnType<typeof world>['db'], s1: string, state: SceneState) => {
+    const hash = createHash('sha1').update(repo.getScene(db, s1).text).digest('hex').slice(0, 16)
+    repo.setMeta(db, 'continuity', JSON.stringify({ [s1]: { hash, base: '', state } }))
+  }
+  const starts = (c: ReturnType<typeof contractAgain>): string[] => (c?.items ?? []).filter((i) => i.part === 'start').map((i) => i.text)
+
+  it('says what must be true at the start as the scene before now ends', () => {
+    const { db, s1, s2 } = world()
+    const o = { prefs: PREFS, contextLength: null, creativity: 'steady' as const, wanted: true }
+    const asked = { options: { fresh: true }, planned: ['A knock comes at the door.'] }
+    keepEnd(db, s1, ENDED)
+    expect(starts(contractAgain(db, s2, asked, o))).toEqual(expect.arrayContaining([expect.stringMatching(/Mara is holding: the lamp/)]))
+    // A review changes the first scene's ending: she puts the lamp on the sill and takes up a cup of tea.
+    repo.saveSceneText(db, s1, null, 'Mara came in from the rain, put the lamp on the sill and took up a cup of tea.')
+    keepEnd(db, s1, { ...ENDED, characters: [{ ...ENDED.characters[0], holding: 'a cup of tea' }] })
+    const again = contractAgain(db, s2, asked, o)
+    expect(starts(again).join('\n')).toMatch(/Mara is holding: a cup of tea/)
+    expect(starts(again).join('\n')).not.toMatch(/the lamp/)
+    // What the plan said must change stays.
+    expect(again?.items.filter((i) => i.part === 'change').map((i) => i.text)).toContain('A knock comes at the door.')
+    expect(contractAgain(db, s2, asked, { ...o, wanted: false })).toBeNull()
+  })
+})
+
+describe('an empty scene between', () => {
+  it('is passed over: the scene after it follows on from the one before it', () => {
+    const { db, s1, s2 } = world()
+    // A third scene after an empty one: the second is emptied (not written yet).
+    const [story] = repo.listStories(db)
+    const s3 = repo.createScene(db, repo.getOutline(db, story.id).chapters[0].id, { title: 'The road' }).id
+    repo.saveSceneText(db, s2, null, '')
+    repo.updateSceneCard(db, s3, { ...repo.getScene(db, s3).card, when: 'Day 3, dusk', povId: repo.getScene(db, s1).card.povId })
+    const hash = createHash('sha1').update(repo.getScene(db, s1).text).digest('hex').slice(0, 16)
+    repo.setMeta(db, 'continuity', JSON.stringify({ [s1]: { hash, base: '', state: ENDED } }))
+    expect(sceneMemory(db, s3).previous?.sceneId).toBe(s1)
+    expect(keptStateBefore(db, s3)?.characters[0]).toMatchObject({ name: 'Mara', holding: 'the lamp' })
+    const input = gatherContextInput(db, s3, undefined, { prefs: PREFS, contextLength: null, creativity: 'steady' })
+    expect(prepareContext(input).blocks.find((b) => b.id === 'continuity')?.text).toMatch(/the lamp/)
   })
 })
 
