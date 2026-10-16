@@ -4,12 +4,20 @@
 // checks and the craft critic find, fixes the words straight in, rewrites a scene when it is wrong at its core, sets
 // aside a finding it can show is wrong, and proofreads. The app, not the agent, decides when it is done: it runs the
 // checks and the critic again itself, and the chapter is finished only when they come back clean, or every finding
-// left has been answered with a reason the app accepted. No round cap: it stops when clean, on Stop, at the monthly
-// spending limit, or when a round makes no progress.
+// left has been answered with a reason the app accepted. It stops when clean, on Stop, at the monthly spending limit,
+// when a round makes no progress, or at CHAPTER_WRITER_LIMITS (what is left then is listed for Adam).
 //
 // Every scene's words before the run are kept (with the report, and in History), so one Undo puts the chapter back.
 // The scenes being worked on can't be typed in meanwhile: the page holds them and follows each change.
 import type { ID } from '../types'
+
+/**
+ * How far one run goes (live test, 2026-10-16: with no cap it took 14 rounds and 2 hours on one chapter, and most of the
+ * test's cost). At most `fixRounds` rounds of fixing what the checks and the critic found; no new round of fixing starts
+ * after `minutes`. Whatever is still open then is listed in the report, and in the Issues and Critique tabs. The start
+ * dialog says so.
+ */
+export const CHAPTER_WRITER_LIMITS = { fixRounds: 3, minutes: 60 } as const
 
 /** Where a run is. */
 export type ChapterWriterStage = 'study' | 'drafting' | 'reviewing' | 'checking' | 'proofreading'

@@ -16,7 +16,8 @@ import { sceneMemory } from '../memory/scene'
 import { timelineFrom } from '../ai/context'
 import { timelineText } from '../ai/timeline'
 import { pageFrom, type Page } from './page'
-import { MAX_REVISE_WORDS, ownTools, type ChapterJob } from './prompts'
+import { LOOKUPS_ALLOWED, MAX_REVISE_WORDS, ownTools, type ChapterJob } from './prompts'
+import { wordsHash } from './progress'
 
 type DB = Database.Database
 
@@ -58,7 +59,8 @@ export interface Finding {
   quote: string
   /** A suggested fix, rewrite or advice. */
   advice: string
-  status: 'open' | 'fixed' | 'set-aside'
+  /** 'gone': no longer found, or found again under a new id. */
+  status: 'open' | 'fixed' | 'set-aside' | 'gone'
 }
 
 /** What a session needs from the run. */
@@ -82,10 +84,15 @@ export interface SessionDeps {
   save: (sceneId: ID, page: Page, label: string) => void
   /** Writes a scene again from its card, with a direction; resolves with its words, or an error in plain words. */
   rewrite: (sceneId: ID, direction: string) => Promise<{ ok: true; text: string } | { ok: false; error: string }>
-  /** The checks and the critic read a scene again: the new findings (not yet numbered). */
+  /**
+   * The checks read a scene again: what is open for it now (not yet numbered), with the critic's notes on it still to
+   * deal with (the critic isn't asked again: it finds something new to say at every read).
+   */
   checkAgain: (sceneId: ID) => Promise<Omit<Finding, 'id'>[]>
-  /** A critic note set aside: never raised again this run. */
-  setAsideNote: (f: Finding) => void
+  /** A finding set aside: never raised again this run. */
+  setAside: (f: Finding) => void
+  /** New words this session put in a scene (a finding later raised on them is the AI arguing with its own fix). */
+  wrote: (sceneId: ID, words: string) => void
   /** Told of each change, set-aside and rewrite, for the report. */
   noted: {
     fix: (sceneId: ID, fix: ChapterWriterFix) => void
@@ -131,6 +138,9 @@ export class ChapterSession {
   /** Scenes this session changed. */
   readonly changed = new Set<ID>()
   private hay: string | null = null
+  /** Look-ups so far (LOOKUPS_ALLOWED), and the words of each scene as last shown to the model. */
+  private lookups = 0
+  private readonly shown = new Map<ID, string>()
 
   constructor(private readonly d: SessionDeps) {
     const focus = d.sceneId ?? d.scenes[d.scenes.length - 1]?.id ?? null
@@ -142,6 +152,67 @@ export class ChapterSession {
         : new EditorAgent(d.db, { storyId: d.storyId, sceneId: at, prefs: d.prefs, history: d.history ?? null }, () => undefined, () => undefined)
     const looks = this.look ? this.look.tools.filter((t) => LOOKUPS.has(t.name)) : []
     this.tools = [...looks, ...ownTools(d.job)]
+    // The scene being worked on is in the session's opening message.
+    if (d.sceneId && d.job !== 'study') this.shown.set(d.sceneId, this.wordsOf(d.sceneId))
+  }
+
+  private wordsOf(sceneId: ID): string {
+    try {
+      return wordsHash([repo.getScene(this.d.db, sceneId).text ?? ''])
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * A look-up naming a scene of this chapter as the session names them ("Sc 2", or its title alone) names it as the
+   * editor chat's look-ups do ("Ch 4, Sc 2"): told to read "Sc 2", the chapter session's read_scene found no such scene.
+   */
+  private inStory(c: ToolCall): ToolCall {
+    try {
+      const a = c.arguments.trim() ? (JSON.parse(c.arguments) as Record<string, unknown>) : {}
+      if (typeof a.scene !== 'string' || !a.scene.trim() || /\bch(?:apter)?\b/i.test(a.scene)) return c
+      const ref = this.d.scenes.find((s) => s.id === this.sceneOf(a.scene as string))
+      if (!ref) return c
+      const ch = repo.getOutline(this.d.db, this.d.storyId).chapters.findIndex((x) => x.id === this.d.chapterId) + 1
+      return ch > 0 ? { ...c, arguments: JSON.stringify({ ...a, scene: `Ch ${ch}, Sc ${ref.n}` }) } : c
+    } catch {
+      return c
+    }
+  }
+
+  /** The scene a read_scene call names (the one being worked on when none), from the start; null otherwise. */
+  private readsWhole(c: ToolCall): ID | null {
+    try {
+      const a = c.arguments.trim() ? (JSON.parse(c.arguments) as Record<string, unknown>) : {}
+      if (a.from_paragraph != null && a.from_paragraph !== '') return null
+      return typeof a.scene === 'string' && a.scene.trim() ? this.sceneOf(a.scene) : this.d.sceneId
+    } catch {
+      // A scene of another chapter, or arguments that can't be read: looked up as they are.
+      return null
+    }
+  }
+
+  /**
+   * A look-up's answer without asking, or null to look it up (and count it): past the session's look-ups (live test,
+   * 2026-10-16: sessions spent every request reading the whole story, about a million tokens each, and fixed nothing),
+   * or reading a scene of the chapter whose words haven't changed since the model was last shown them.
+   */
+  private lookedEnough(c: ToolCall): string | null {
+    const id = c.name === 'read_scene' ? this.readsWhole(c) : null
+    if (id && this.shown.get(id) === this.wordsOf(id)) {
+      return `${this.labelOf(id)} hasn't changed since you were last shown it: its words are above. Use them.`
+    }
+    return this.spend()
+  }
+
+  /** Counts a look-up, or says there are no more in this session. */
+  private spend(): string | null {
+    if (this.lookups >= LOOKUPS_ALLOWED[this.d.job]) {
+      return 'No more look-ups in this session: you have what you need. Deal with each finding now with revise or not_a_problem, then call done.'
+    }
+    this.lookups++
+    return null
   }
 
   /** Once the session has ended itself (the brief written, or done accepted): its last words; null while it goes on. */
@@ -159,9 +230,15 @@ export class ChapterSession {
       if (this.closing) {
         result = 'The session has ended: nothing more is done.'
       } else if (LOOKUPS.has(c.name) && this.look) {
-        const r = this.look.run(c)
-        label = r.step.label || c.name
-        result = r.result
+        const enough = this.lookedEnough(c)
+        if (enough) result = enough
+        else {
+          const r = this.look.run(this.inStory(c))
+          label = r.step.label || c.name
+          result = r.result
+          const id = c.name === 'read_scene' ? this.readsWhole(c) : null
+          if (id) this.shown.set(id, this.wordsOf(id))
+        }
       } else {
         let args: Record<string, unknown> = {}
         try {
@@ -193,12 +270,16 @@ export class ChapterSession {
       case 'write_brief':
         return this.writeBrief(a)
       case 'timeline': {
+        const enough = this.d.job === 'study' ? null : this.spend()
+        if (enough) return ['Looking something up', enough]
         const id = text('scene').trim() ? this.sceneOf(text('scene')) : (this.d.sceneId ?? this.d.scenes[0]?.id)
         if (!id) throw new Mistake('There is no scene to read the timeline before.')
         return [`Reading the timeline before ${this.labelOf(id)}`, this.timeline(id)]
       }
-      case 'chapter_brief':
-        return ['Reading the brief', this.d.brief() || 'There is no brief for this chapter.']
+      case 'chapter_brief': {
+        const enough = this.spend()
+        return enough ? ['Looking something up', enough] : ['Reading the brief', this.d.brief() || 'There is no brief for this chapter.']
+      }
       case 'revise':
         return this.revise(this.sceneOf(text('scene')), text('start'), text('end'), text('new_words'), ids('fixes'), text('why'))
       case 'rewrite_scene': {
@@ -210,6 +291,7 @@ export class ChapterSession {
         this.changed.add(id)
         this.markFixed(ids('fixes'), id)
         this.d.noted.rewritten(id, direction)
+        this.shown.delete(id)
         return [`Writing ${this.labelOf(id)} again`, `${this.labelOf(id)} was written again (${wordsIn(r.text)} words). Read it with read_scene before changing anything in it.`]
       }
       case 'not_a_problem':
@@ -224,7 +306,11 @@ export class ChapterSession {
           const same = this.d.findings.find(
             (x) => x.status === 'open' && x.sceneId === f.sceneId && ((f.issueId && x.issueId === f.issueId) || (x.from === f.from && fold(x.what) === fold(f.what)))
           )
-          if (same) continue
+          if (same) {
+            // Already listed: it stays open under its number (with the check's row as it is now).
+            if (f.issueId) same.issueId = f.issueId
+            continue
+          }
           const nf: Finding = { ...f, id: this.d.nextFinding() }
           this.d.findings.push(nf)
           fresh.push(nf)
@@ -323,9 +409,12 @@ export class ChapterSession {
     this.changed.add(sceneId)
     this.markFixed(fixes, sceneId)
     this.d.noted.fix(sceneId, { why: reason, words: clip(squash(replace), 240) })
+    this.d.wrote(sceneId, replace)
+    // The model knows the scene as it was, with this change: it needn't read it all again.
+    this.shown.set(sceneId, this.wordsOf(sceneId))
     return [
       `Changing ${this.labelOf(sceneId)}`,
-      `Changed in ${this.labelOf(sceneId)}${fixes.length ? ` (for ${fixes.join(', ')})` : ''}. The paragraph numbers may have moved: read_scene again before another change to this scene.`
+      `Changed in ${this.labelOf(sceneId)}${fixes.length ? ` (for ${fixes.join(', ')})` : ''}. The rest of the scene is as it was. revise finds passages by their words, so go on to the next finding without reading the scene again.`
     ]
   }
 
@@ -373,7 +462,8 @@ export class ChapterSession {
       } catch (e) {
         console.warn('Could not set an issue aside', e)
       }
-    } else this.d.setAsideNote(f)
+    }
+    this.d.setAside(f)
     this.d.noted.setAside(f.sceneId, { finding: clip(squash(f.what), 300), why: clip(squash(why), 500), issueId: f.issueId })
     return [`Setting ${f.id} aside`, `${f.id} is set aside. The author will see it, with your reason.`]
   }

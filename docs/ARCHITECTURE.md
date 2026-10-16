@@ -2349,7 +2349,8 @@ One action writes a whole chapter from its scene cards and keeps working on it u
 codex, Recall and the timeline, consistent from scene to scene, the critic's notes dealt with, and proofread. Adam's
 choices: it is agentic (the AI decides what to look up and how to fix things), the AI corrects itself (its changes go
 straight in, with the words before kept for Undo), every scene with a card is drafted, even ones with words, there is
-no cap on rounds, and every critic note is weighed. Contract `contracts/chapterWriter.ts`, main side
+no cap on rounds (since 2026-10-16 there is: see "Write the whole chapter settles" below), and every critic note is
+weighed. Contract `contracts/chapterWriter.ts`, main side
 `src/main/chapterWriter/`, handlers `ipc/chapterWriter.ts`, window `features/chapterWriter/`.
 
 - **The agent thinks, the app holds the gate.** A cheap model left to itself declares victory early or goes round in
@@ -2366,9 +2367,9 @@ no cap on rounds, and every critic note is weighed. Contract `contracts/chapterW
   findings a *chapter* session; a round that finds nothing gets a *proofread* session per scene, and is checked again
   if that changed anything. Done is a round that finds nothing after a proofread that changed nothing.
 - **Findings** (`tools.ts` `Finding`): the scene's open issues (checks and the memory keeper's clashes, not live
-  checks) and the critic's notes, numbered F1, F2... across the run. The critic after the first round is told it is
-  reading again (`CritiqueRequest.again`, `critique/prompts.ts` `AGAIN_LINE`) and gives no notes when it is ready;
-  without that it would never be clean.
+  checks) and the critic's notes, numbered F1, F2... across the run. The critic reads in the first round only, and once
+  more at the end for Adam (told it is reading again, `CritiqueRequest.again`, `critique/prompts.ts` `AGAIN_LINE`): read
+  again every round, it still found new things to say (see "Write the whole chapter settles" below).
 - **The agent's own tools** (`prompts.ts`, `tools.ts` `ChapterSession`), beside the look-ups (`read_scene`, `outline`,
   `search`, `get_entry`, `style_guide`, `scene_state`, `story_so_far`, `chapter_card`, `list_threads`, `find_mentions`,
   seen from the scene being worked on): `timeline` (the canon timeline before a scene), `chapter_brief`, `revise` (a
@@ -2383,7 +2384,7 @@ no cap on rounds, and every critic note is weighed. Contract `contracts/chapterW
   change keeps its old node, id and marks, so source links, beat markers and speaker marks stay with it. Each save keeps
   the page before in History ("Before the chapter writer's change: …") and goes through `coreHandlers.saveSceneText`,
   so the memory keeper, search and History follow it.
-- **Never stuck, never runaway** (`progress.ts`): no round cap; it stops when clean, on Stop, at the monthly spending
+- **Never stuck, never runaway** (`progress.ts`; the limits since 2026-10-16 are in the section below): it stops when clean, on Stop, at the monthly spending
   limit (`pausedNote`), when a call fails, or when a round makes no progress: the same findings three rounds running
   (found, then two tries), or the chapter's words back to a version already checked with findings open ("The AI
   couldn't settle N things"). Each session has its own step limit (`STEPS`).
@@ -2405,6 +2406,56 @@ no cap on rounds, and every critic note is weighed. Contract `contracts/chapterW
   the chapter card, `ChapterWriterReport.tsx`) and Undo.
 - **Tests.** `chapterWriter/chapterWriter.test.ts` (the fake provider scripts the agent's calls, `tests/fake-provider/
   chapter.mjs`; the critic's fake finds a re-read ready).
+
+## Write the whole chapter settles (2026-10-16)
+
+A live test on DeepSeek Flash (a 30,000-word book, 0.7.2 at d05d4f00) spent about 2 hours on one five-scene chapter: 14
+rounds, about 280 changes and 93 set-asides, and it ended stuck with 10 things open, one a sentence printed twice in a
+row. Its review sessions used about 50 of the run's 60 million input tokens, and its scenes were judged no better than
+plain Generate's. The test's own records said why: the critic, read again with `again`, still gave 5 to 7 notes every
+time (new ones: its re-read never ran dry); review sessions spent their 28 requests reading every scene of the story
+(about a million tokens each) and many fixed nothing; revise told the agent to read the scene again after every change;
+and revise can't name one copy of words that are in the scene twice. What changed (no migration, no new kind of AI call,
+fewer calls):
+
+- **The critic reads once** (`run.ts` `gather`): every scene and the chapter in the first round, never `again` in later
+  rounds. Its notes carry from round to round (`carried`) until the agent fixes one or sets it aside, or its words are no
+  longer in the scene. `check_again` in a session runs the checks only, with the carried notes. At the end (clean, or at a
+  limit) **the critic's last read** (`lastRead`) reads once more each scene changed since and the chapter, with `again`,
+  so the Critique tab shows the chapter as it now is; its notes are for Adam (the report's "Worth a look" says how many,
+  by scene), never acted on, and a read that fails is passed over.
+- **A finding that keeps coming back is left for Adam** (`progress.ts` `Tries`, `sameFinding`): the same finding is the
+  same scene and source with the same words said of it, or the same aspect (a check's kind without its severity, a
+  note's category without its weight) of overlapping words (`wordsOverlap`: one inside the other, or 6 words in a row
+  in both), as the checks reword what they find each time. Each is given to the agent at most `MAX_TRIES` (2) times, and
+  only once when it is found again on words the agent itself wrote this run (`written`, from revise and rewrite_scene:
+  the agent arguing with its own fix). One set aside (checks too, now: `SessionDeps.setAside`) is never given again, and
+  a check's row for it found again is set aside too. What is left goes in the report's Still open and stays open in the
+  Issues and Critique tabs; a run that ends with only those left says "The AI fixed what it could, but 2 things came back
+  after it had tried, so it left them for you: …" (status `stuck`).
+- **Limits** (`contracts/chapterWriter.ts` `CHAPTER_WRITER_LIMITS`): at most 3 rounds of fixing, and none started after
+  60 minutes (`RunDeps.clock` for tests); the checks after the last round still run, and what they find is listed: "The
+  AI stopped after 3 rounds of fixes, as it always does, so it never runs on for hours. 2 things are still open: …". The
+  start dialog says so (`chapterWriterLogic.ts` `LIMIT_WORDS`), and the top bar's panel says "for at most 3 rounds of
+  fixes". The guard (`ProgressGuard`) still stops a run going round in circles before that.
+- **Sessions that act** (`tools.ts`, `prompts.ts`): each session has `LOOKUPS_ALLOWED` look-ups (review 10, chapter 14,
+  study 40, the timeline and the brief counted too); past them a look-up answers "No more look-ups in this session: you
+  have what you need. Deal with each finding now…". A read of a scene of the chapter whose words haven't changed since
+  the model was last shown them (the scene in the session's opening, a full read, or after its own revise) answers that
+  its words are above, uncounted. revise says to go on without reading the scene again. The review prompt says the
+  scene's words are below, to look up only what a finding needs and not to read other scenes unless a finding is about
+  them. A look-up naming a scene of the chapter as the session names them ("Sc 2") is passed on as the editor chat's
+  look-ups name it ("Ch 4, Sc 2"): the chapter session's read_scene of "Sc 2" found no such scene before.
+- **A sentence printed twice in a row** (`page.ts` `dropRepeats`, `run.ts` `tidy`): before a changed scene is checked
+  (and in `check_again`), an exact copy of the sentence before it, of 6 words or more, within a paragraph or at the start
+  of the next, is taken out (curly quotes and italics don't hide a copy; never when it would leave italics half open).
+  Saved like any change, with History, and listed in the report as fixed: "A sentence was printed twice in a row: the
+  second copy is taken out."
+- **Tests**: `chapterWriter/chapterWriter.test.ts` (the critic asked in round 1 and at the end only, with a critic never
+  satisfied; three rounds of fixes; an hour; a finding back on the agent's own words; a sentence printed twice; the
+  look-ups and unchanged reads; `Tries`, `sameFinding`, `dropRepeats`). The fake agent's chapter session now reads Sc 1
+  and sets its findings aside, quoting it (`tests/fake-provider/chapter.mjs`), as a chapter-wide note nobody deals with
+  is now left for Adam rather than forgotten by a re-read.
 
 ## Long story memory: the quick wins (2026-10-15)
 

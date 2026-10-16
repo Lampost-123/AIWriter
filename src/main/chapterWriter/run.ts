@@ -4,12 +4,15 @@
 //   1. Study: one agent session reads the cards against the memory and writes the brief.
 //   2. Draft: each scene in order through the app's writer (the memory catches up first, so each scene is written
 //      knowing what the scene before it now says), with its notes from the brief.
-//   3. Check: the consistency checks read every scene changed since the last round; the critic reads them and the
-//      chapter (after the first round it is told it is reading again, and gives no notes when it is ready).
+//   3. Check: the consistency checks read every scene changed since the last round (a sentence printed twice in a row
+//      taken out first); the critic reads every scene and the chapter in the first round only, and its notes not yet
+//      dealt with carry to the next (re-read, it found something new to say every time: live test, 2026-10-16).
 //   4. Fix: an agent session for each scene with findings, then one for the chapter as a whole.
 //   5. When a round finds nothing: proofread each scene, and check again if anything changed.
-// No cap on rounds (Adam's choice). It stops when clean, on Stop, at the spending limit, or when a round makes no
-// progress (progress.ts). The words before the run are kept (store.ts) so Undo can put the chapter back.
+//   6. At the end, the critic reads once more what changed since it read it, for the Critique tab (not acted on).
+// It stops when clean, on Stop, at the spending limit, when a round makes no progress, or at CHAPTER_WRITER_LIMITS; a
+// finding that keeps coming back is left for Adam (progress.ts Tries). The words before the run are kept (store.ts) so
+// Undo can put the chapter back.
 // No Electron imports: everything outside the world's database comes through RunDeps.
 
 import type Database from 'better-sqlite3'
@@ -22,6 +25,7 @@ import type {
 } from '@shared/contracts/chapterWriter'
 import type { CritiqueNote, CritiqueOutcome, CritiqueTarget } from '@shared/contracts/critique'
 import type { ChatMessage, ID, SceneCard, WritingPrefs } from '@shared/types'
+import { CHAPTER_WRITER_LIMITS } from '@shared/contracts/chapterWriter'
 import { CARRY_LABELS } from '@shared/chapterCard'
 import { effectiveStyle } from '@shared/style'
 import { findSlop } from '@shared/slop'
@@ -33,8 +37,9 @@ import type { JobModel } from '../ai/jobModel'
 import type { SnapshotSource } from '../ask/extraTools'
 import { cardLines } from '../outline/context'
 import { newId, now, UserError } from '../util'
-import { cleanProse, pageFrom, type Page } from './page'
-import { findingKey, ProgressGuard, wordsHash } from './progress'
+import { sceneWords } from '../ask/agent'
+import { cleanProse, dropRepeats, pageFrom, type Page } from './page'
+import { findingKey, foldWords, ProgressGuard, Tries, wordsHash, wordsOverlap } from './progress'
 import {
   AGENT_REPLY,
   AGENT_TEMPERATURE,
@@ -85,6 +90,8 @@ export interface RunDeps {
   closed: () => boolean
   fetchImpl?: typeof fetch
   retryDelays?: number[]
+  /** The clock, in milliseconds (tests). */
+  clock?: () => number
 }
 
 class Stopped extends Error {}
@@ -171,17 +178,29 @@ export class ChapterRun {
   private sceneNow: ID | null = null
   private round = 0
   private readonly startedAt = now()
+  private readonly startedClock: number
   private refs: SceneRef[] = []
   private storyId: ID = ''
   private label = ''
   private brief: Brief | null = null
   private readonly findings: Finding[] = []
   private findingCount = 0
-  /** Critic notes the agent set aside this run (never raised again). */
-  private readonly setAsideNotes = new Set<string>()
-  /** The critic's latest notes for each scene, and for the chapter. */
+  /** What has been given to the agent to fix, and set aside (progress.ts). */
+  private readonly tries = new Tries()
+  /** Findings that kept coming back, left for Adam: the latest round's. */
+  private leftOver: Finding[] = []
+  /** The new words the agent put in each scene this run. */
+  private readonly written = new Map<ID, string[]>()
+  /** Rounds of fixing so far (CHAPTER_WRITER_LIMITS.fixRounds). */
+  private fixRounds = 0
+  /** The critic's notes from its first read of each scene, and of the chapter. */
   private readonly sceneNotes = new Map<ID, CritiqueNote[]>()
   private chapterNotes: CritiqueNote[] = []
+  /** Scenes changed since the critic read them (and the chapter), for its last read. */
+  private readonly unread = new Set<ID>()
+  private chapterUnread = false
+  /** What the critic's last read found, for Adam. */
+  private lastReadNote = ''
   /** What Adam should know about how each scene was drafted (draft's `note`), by scene. */
   private readonly draftNotes = new Map<ID, string>()
   /**
@@ -197,6 +216,7 @@ export class ChapterRun {
     readonly runId: ID,
     readonly chapterId: ID
   ) {
+    this.startedClock = this.clock()
     this.report = {
       runId,
       chapterId,
@@ -214,6 +234,10 @@ export class ChapterRun {
       summary: '',
       undone: false
     }
+  }
+
+  private clock(): number {
+    return this.d.clock?.() ?? Date.now()
   }
 
   /** The scenes being worked on (the page holds these). */
@@ -283,7 +307,7 @@ export class ChapterRun {
         this.report.status = 'error'
         this.report.message = `Something went wrong: ${(e as Error)?.message ?? e}. The words written so far are kept; Undo puts the chapter back as it was.`
       }
-      const open = this.findings.filter((f) => f.status === 'open')
+      const open = [...this.findings.filter((f) => f.status === 'open'), ...this.leftOver]
       if (open.length && this.report.status !== 'done') this.report.left = open.map((f) => findingLine(f, this.refs))
     }
     this.report.endedAt = now()
@@ -428,29 +452,36 @@ export class ChapterRun {
       this.check()
       this.round++
       this.report.rounds = this.round
-      const open = await this.gather(changed)
+      const { give, leave } = await this.gather(changed)
+      this.leftOver = leave
       this.save()
-      if (!open.length) {
-        if (proofread) return this.finish('done')
-        changed = await this.proofreadAll()
-        proofread = true
-        if (!changed.size) return this.finish('done')
-        continue
+      if (!give.length) {
+        if (!proofread) {
+          changed = await this.proofreadAll()
+          proofread = true
+          if (changed.size) continue
+        }
+        return this.finish(leave)
       }
+      // How far one run goes (CHAPTER_WRITER_LIMITS): what is open then is listed for Adam.
+      const late = this.clock() - this.startedClock >= CHAPTER_WRITER_LIMITS.minutes * 60_000
+      if (late || this.fixRounds >= CHAPTER_WRITER_LIMITS.fixRounds) return this.capped([...give, ...leave], late)
       const verdict = guard.round(
-        open.map((f) => findingKey(f.sceneId ?? '', f.what, f.quote)),
+        give.map((f) => findingKey(f.sceneId ?? '', f.what, f.quote)),
         wordsHash(this.sceneIds.map((id) => repo.getScene(this.d.db, id).text ?? ''))
       )
       if (verdict) {
-        this.report.left = open.map((f) => findingLine(f, this.refs))
+        this.report.left = [...give, ...leave].map((f) => findingLine(f, this.refs))
         throw new Failed(
-          `The AI couldn't settle ${open.length === 1 ? 'one thing' : `${open.length} things`}: they are listed below, and in the Issues and Critique tabs.`,
+          `The AI couldn't settle ${things(give.length + leave.length)}: they are listed below, and in the Issues and Critique tabs.`,
           'stuck'
         )
       }
+      this.fixRounds++
+      for (const f of give) this.tries.given(f)
       changed = new Set()
       for (const r of this.refs) {
-        const mine = open.filter((f) => f.sceneId === r.id)
+        const mine = give.filter((f) => f.sceneId === r.id)
         if (!mine.length) continue
         this.check()
         this.tell('reviewing', `Fixing ${r.label}, round ${this.round}`, r.id)
@@ -458,7 +489,7 @@ export class ChapterRun {
         for (const id of s.changed) changed.add(id)
         if (s.summary) this.report.summary = s.summary
       }
-      const whole = open.filter((f) => f.sceneId === null && f.status === 'open')
+      const whole = give.filter((f) => f.sceneId === null && f.status === 'open')
       if (whole.length) {
         this.check()
         this.tell('reviewing', `Fixing ${this.label} as a whole, round ${this.round}`)
@@ -470,10 +501,60 @@ export class ChapterRun {
     }
   }
 
-  private finish(status: 'done'): void {
-    this.report.status = status
-    this.report.left = []
-    this.report.message = ''
+  /** Clean, or clean but for what kept coming back (left for Adam). */
+  private async finish(leave: Finding[]): Promise<void> {
+    await this.lastRead()
+    this.report.left = leave.map((f) => findingLine(f, this.refs))
+    if (!leave.length) {
+      this.report.status = 'done'
+      this.report.message = ''
+      return
+    }
+    this.report.status = 'stuck'
+    this.report.message = `The AI fixed what it could, but ${things(leave.length)} came back after it had tried, so it left ${leave.length === 1 ? 'it' : 'them'} for you: listed below, and in the Issues and Critique tabs.`
+  }
+
+  /** At the limit of rounds or time, with findings still open: they are listed for Adam. */
+  private async capped(open: Finding[], late: boolean): Promise<void> {
+    await this.lastRead()
+    this.report.status = 'stuck'
+    this.report.left = open.map((f) => findingLine(f, this.refs))
+    const after = late ? `about ${CHAPTER_WRITER_LIMITS.minutes === 60 ? 'an hour' : `${CHAPTER_WRITER_LIMITS.minutes} minutes`} of work` : `${CHAPTER_WRITER_LIMITS.fixRounds} rounds of fixes`
+    this.report.message = `The AI stopped after ${after}, as it always does, so it never runs on for hours. ${things(open.length, true)} still open: listed below, and in the Issues and Critique tabs.`
+  }
+
+  /**
+   * The critic reads once more each scene changed since it read it, and the chapter, so the Critique tab shows the
+   * chapter as it now is. Its notes are for Adam: the run doesn't act on them. A read that fails is passed over.
+   */
+  private async lastRead(): Promise<void> {
+    const scenes = this.refs.filter((r) => this.unread.has(r.id))
+    if (!scenes.length && !this.chapterUnread) return
+    const found: string[] = []
+    let count = 0
+    try {
+      for (const r of scenes) {
+        this.check()
+        this.tell('checking', `The critic is reading ${r.label} once more`, r.id)
+        const n = (await this.notes({ scope: 'scene', id: r.id }, true)).length
+        if (n) found.push(`${r.label}: ${n}`)
+        count += n
+      }
+      if (this.chapterUnread) {
+        this.check()
+        this.tell('checking', `The critic is reading ${this.label} once more`)
+        const n = (await this.notes({ scope: 'chapter', id: this.chapterId }, true)).length
+        if (n) found.push(`the chapter: ${n}`)
+        count += n
+      }
+    } catch (e) {
+      if (e instanceof Stopped) throw e
+      console.warn('The critic’s last read of the chapter failed', e)
+    }
+    this.lastReadNote = count
+      ? `The critic read the changed scenes once more at the end and has ${count === 1 ? 'one more note' : `${count} more notes`} (${found.join(', ')}). They are in the Critique tab for you to weigh: the AI didn't act on them.`
+      : ''
+    this.notesNow()
   }
 
   /**
@@ -484,45 +565,105 @@ export class ChapterRun {
    * run doesn't write (the next chapter's first scene, a scene with no card) is checked and what it finds is noted for
    * Adam, never changed.
    */
-  private async gather(changed: Set<ID>): Promise<Finding[]> {
+  private async gather(changed: Set<ID>): Promise<{ give: Finding[]; leave: Finding[] }> {
     const { db } = this.d
-    const again = this.round > 1
+    // The critic reads in the first round only (its notes not yet dealt with carry on), then once more at the end.
+    const first = this.round === 1
     const after = new Set([...changed].map((id) => sceneAfter(db, id)).filter((id): id is ID => !!id && !changed.has(id)))
     for (const r of this.refs) {
       const mine = changed.has(r.id)
       if (!mine && !after.has(r.id)) continue
+      if (mine) this.tidy(r.id)
       this.check()
       this.tell('checking', mine ? `Checking ${r.label}, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id)
       await this.checkScene(r.id)
       if (!mine) continue
+      if (!first) {
+        this.unread.add(r.id)
+        continue
+      }
       this.check()
       this.tell('checking', `The critic is reading ${r.label}, round ${this.round}`, r.id)
-      this.sceneNotes.set(r.id, await this.notes({ scope: 'scene', id: r.id }, again))
+      this.sceneNotes.set(r.id, await this.notes({ scope: 'scene', id: r.id }, false))
     }
     for (const id of after) if (!this.sceneIds.includes(id)) await this.checkOutside(id)
-    if (changed.size) {
+    if (changed.size && first) {
       this.check()
       this.tell('checking', `The critic is reading ${this.label}, round ${this.round}`)
-      this.chapterNotes = await this.notes({ scope: 'chapter', id: this.chapterId }, again)
-    }
+      this.chapterNotes = await this.notes({ scope: 'chapter', id: this.chapterId }, false)
+    } else if (changed.size) this.chapterUnread = true
     // This round's findings take the place of what was still open: fixed or gone ones drop out, set-asides stay out.
-    for (const f of this.findings) if (f.status === 'open') f.status = 'fixed'
-    const out: Finding[] = []
+    for (const f of this.findings) if (f.status === 'open') f.status = 'gone'
+    const give: Finding[] = []
+    const leave: Finding[] = []
     const add = (f: Omit<Finding, 'id' | 'status'>): void => {
       const key = findingKey(f.sceneId ?? '', f.what, f.quote)
-      if (f.from === 'critic' && this.setAsideNotes.has(key)) return
-      if (out.some((x) => findingKey(x.sceneId ?? '', x.what, x.quote) === key)) return
+      if ([...give, ...leave].some((x) => findingKey(x.sceneId ?? '', x.what, x.quote) === key)) return
+      const verdict = this.tries.verdict(f, this.ownWords(f))
+      if (verdict === 'skip') {
+        // Set aside before, found again: set aside again, never given again.
+        if (f.issueId) this.setAsideIssue(f.issueId)
+        return
+      }
       const nf: Finding = { ...f, id: this.nextFinding(), status: 'open' }
-      out.push(nf)
+      if (verdict === 'leave') return void leave.push(nf)
+      give.push(nf)
       this.findings.push(nf)
     }
     for (const r of this.refs) {
       cdb.sweepGone(db, { sceneId: r.id })
       for (const f of issueFindings(db, r.id)) add(f)
-      for (const n of this.sceneNotes.get(r.id) ?? []) add(noteFinding(n, r.id))
+      for (const n of this.carried(r.id)) add(noteFinding(n, r.id))
     }
-    for (const n of this.chapterNotes) add(noteFinding(n, n.sceneId && this.sceneIds.includes(n.sceneId) ? n.sceneId : null))
-    return out
+    for (const n of this.carried(null)) add(noteFinding(n, n.sceneId && this.sceneIds.includes(n.sceneId) ? n.sceneId : null))
+    return { give, leave }
+  }
+
+  /**
+   * The critic's notes from its first read still to deal with: not fixed or set aside, and their words still there (a
+   * note whose words have changed has been acted on). `sceneId` null: the chapter's.
+   */
+  private carried(sceneId: ID | null): CritiqueNote[] {
+    const notes = sceneId ? (this.sceneNotes.get(sceneId) ?? []) : this.chapterNotes
+    const texts = (sceneId ? [sceneId] : this.sceneIds).map((id) => foldWords(repo.getScene(this.d.db, id).text ?? ''))
+    return notes.filter((n) => {
+      const where = sceneId ?? (n.sceneId && this.sceneIds.includes(n.sceneId) ? n.sceneId : null)
+      const key = findingKey(where ?? '', n.title, n.quote)
+      const dealt = this.findings.some((f) => f.from === 'critic' && (f.status === 'fixed' || f.status === 'set-aside') && findingKey(f.sceneId ?? '', f.what, f.quote) === key)
+      const quote = foldWords(n.quote)
+      return !dealt && (!quote || texts.some((t) => t.includes(quote)))
+    })
+  }
+
+  /** The finding is on words the agent itself put in this run. */
+  private ownWords(f: Pick<Finding, 'sceneId' | 'quote'>): boolean {
+    return !!f.sceneId && !!f.quote.trim() && (this.written.get(f.sceneId) ?? []).some((w) => wordsOverlap(f.quote, w))
+  }
+
+  private setAsideIssue(issueId: ID): void {
+    try {
+      cdb.setAsideByChapter(this.d.db, issueId)
+    } catch (e) {
+      console.warn('Could not set an issue aside', e)
+    }
+  }
+
+  /**
+   * Takes out the second copy of a sentence printed twice in a row (page.ts dropRepeats), before the scene is checked:
+   * the agent's revise can't name one copy of words that are there twice. Saved like any change, and in the report.
+   */
+  private tidy(sceneId: ID): void {
+    const { db } = this.d
+    const s = sceneWords(db, sceneId)
+    if (!s || !s.marked.trim()) return
+    const r = dropRepeats(s.marked)
+    if (!r.dropped.length) return
+    const page = pageFrom(r.text, repo.getScene(db, sceneId).doc)
+    if (page.text === s.plain || !page.text.trim()) return
+    this.saveScene(sceneId, page, 'Before the chapter writer took out a sentence printed twice')
+    for (const words of r.dropped) {
+      this.sceneReport(sceneId)?.fixed.push({ why: 'A sentence was printed twice in a row: the second copy is taken out.', words: clip(squash(words), 240) })
+    }
   }
 
   private async checkScene(sceneId: ID): Promise<void> {
@@ -550,9 +691,16 @@ export class ChapterRun {
     this.notesNow()
   }
 
-  /** The report's notes for Adam: how scenes were drafted, then what the scenes after the run's may no longer follow. */
+  /**
+   * The report's notes for Adam: how scenes were drafted, what the scenes after the run's may no longer follow, and what
+   * the critic's last read found.
+   */
   private notesNow(): void {
-    this.report.notes = [...this.refs.flatMap((r) => this.draftNotes.get(r.id) ?? []), ...[...this.outsideNotes.values()].flat()]
+    this.report.notes = [
+      ...this.refs.flatMap((r) => this.draftNotes.get(r.id) ?? []),
+      ...[...this.outsideNotes.values()].flat(),
+      ...(this.lastReadNote ? [this.lastReadNote] : [])
+    ]
   }
 
   private async notes(target: CritiqueTarget, again: boolean): Promise<CritiqueNote[]> {
@@ -598,6 +746,8 @@ export class ChapterRun {
       rewrite: async (id, direction) => {
         try {
           const text = await this.write(id, direction)
+          // Every word of it is the agent's now.
+          this.written.set(id, [text])
           return { ok: true, text }
         } catch (e) {
           if (e instanceof Stopped) throw e
@@ -605,15 +755,13 @@ export class ChapterRun {
         }
       },
       checkAgain: async (id) => {
+        this.tidy(id)
         const c = await this.d.check(id, this.controller.signal)
         if (c.status === 'stopped') throw new Stopped()
-        const notes = await this.notes({ scope: 'scene', id }, true)
-        this.sceneNotes.set(id, notes)
         cdb.sweepGone(db, { sceneId: id })
+        // The checks' findings, and the critic's first notes still to deal with: the critic isn't asked again.
+        const now = [...issueFindings(db, id), ...this.carried(id).map((n) => noteFinding(n, id))].filter((f) => this.tries.verdict(f, this.ownWords(f)) === 'give')
         // What was open for the scene and is no longer found is done with.
-        const now = [...issueFindings(db, id), ...notes.map((n) => noteFinding(n, id))].filter(
-          (f) => !(f.from === 'critic' && this.setAsideNotes.has(findingKey(f.sceneId ?? '', f.what, f.quote)))
-        )
         for (const f of this.findings) {
           if (f.sceneId !== id || f.status !== 'open') continue
           const still = now.some((n) => (f.issueId && n.issueId === f.issueId) || (n.from === f.from && squash(n.what) === squash(f.what)))
@@ -621,7 +769,8 @@ export class ChapterRun {
         }
         return now.map((f) => ({ ...f, status: 'open' as const }))
       },
-      setAsideNote: (f) => this.setAsideNotes.add(findingKey(f.sceneId ?? '', f.what, f.quote)),
+      setAside: (f) => this.tries.setAside(f),
+      wrote: (id, words) => this.written.set(id, [...(this.written.get(id) ?? []), words]),
       noted: {
         fix: (id, fix) => this.sceneReport(id)?.fixed.push(fix),
         setAside: (id, x) => (id ? this.sceneReport(id) : this.report.scenes[0])?.setAside.push(x),
@@ -748,6 +897,13 @@ export class ChapterRun {
     add(CARRY_LABELS.notes, clip(card.notes, 800))
     return lines.join('\n') || '(No chapter card.)'
   }
+}
+
+/** "one thing", "3 things" (`are`: "3 things are", "one thing is"). */
+const things = (n: number, are = false): string => {
+  const w = n === 1 ? 'One thing' : `${n} things`
+  const said = are ? w : w.toLowerCase()
+  return are ? `${said} ${n === 1 ? 'is' : 'are'}` : said
 }
 
 /** Entry names by id. */
