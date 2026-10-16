@@ -14,6 +14,7 @@ import {
   toPlan,
   type SplitEdits
 } from './split'
+import { budget } from '../../../../shared/testPerf'
 
 const para = (text: string, extra: Partial<ManuscriptBlock> = {}): ManuscriptBlock => ({ kind: 'para', text, runs: [{ text }], ...extra })
 const h = (text: string, level: number | null, hint: ManuscriptBlock['hint'] = null): ManuscriptBlock => ({ kind: 'heading', text, level, hint })
@@ -221,6 +222,6 @@ describe('the plan', () => {
     const ms = performance.now() - t
     expect(o.words).toBe(150_000)
     expect(o.scenes).toBe(240)
-    expect(ms).toBeLessThan(500)
+    expect(ms).toBeLessThan(budget(500))
   })
 })

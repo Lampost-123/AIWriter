@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { layoutGraph, MIN_GAP, type LayoutGraph, type Positions } from './layout'
+import { budget } from '../../shared/testPerf'
 
 /** A small, repeatable random number generator. */
 function random(seed: number): () => number {
@@ -113,7 +114,7 @@ describe('the relationship map layout', () => {
     const after = layoutGraph(more, before)
     const ms = performance.now() - t
     console.log(`ten newcomers fitted into 330 characters: ${ms.toFixed(1)} ms`)
-    expect(ms).toBeLessThan(40)
+    expect(ms).toBeLessThan(budget(40))
     for (const [id, p] of before) expect(after.get(id)).toEqual(p)
     for (let i = 0; i < 10; i++) {
       const id = `new${i}`
@@ -127,6 +128,6 @@ describe('the relationship map layout', () => {
     layoutGraph(g)
     const ms = performance.now() - t
     console.log(`layout of 400 characters and 1,200 relationships: ${ms.toFixed(0)} ms`)
-    expect(ms).toBeLessThan(1500)
+    expect(ms).toBeLessThan(budget(1500))
   })
 })

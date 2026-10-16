@@ -9,6 +9,7 @@ import { readMarkdown } from './markdown'
 import { decodeText, readText } from './text'
 import { headingHint, isBreakMark } from './lines'
 import { readManuscriptBytes } from './read'
+import { budget } from '../../shared/testPerf'
 
 // ---------- Building a .docx ----------
 
@@ -187,7 +188,7 @@ describe('Word files', () => {
     expect(m.words).toBeGreaterThan(140_000)
     expect(m.blocks.filter((b) => b.kind === 'heading')).toHaveLength(60)
     expect(m.blocks.filter((b) => b.kind === 'break')).toHaveLength(180)
-    expect(ms).toBeLessThan(3000)
+    expect(ms).toBeLessThan(budget(3000))
   })
 })
 

@@ -12,6 +12,7 @@ import { checkReport, checkReportNow, saveContractCheck, saveReport, savedContra
 import { contractResults } from '../repair/contract'
 import type { SceneContract } from '../ai/contract'
 import { hashText } from '../keeper/text'
+import { budget } from '../../shared/testPerf'
 
 type Para = [pid: string, text: string]
 
@@ -97,7 +98,7 @@ describe('every save sweeps the scene’s issues', () => {
     paras[5] = ['p5', 'A new line here.']
     const t = performance.now()
     save(db, sceneId, paras)
-    expect(performance.now() - t).toBeLessThan(400)
+    expect(performance.now() - t).toBeLessThan(budget(400))
   })
 })
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { EntryKind } from '@shared/types'
 import { buildNameIndex, entriesNamedIn, findNames, namesToMatch, updateNameIndex, withCalled, type NameSource } from './nameMatch'
+import { budget } from '../../../../../shared/testPerf'
 
 const entry = (id: string, name: string, aliases: string[] = [], kind: EntryKind = 'character'): NameSource => ({ id, kind, name, aliases })
 const found = (text: string, entries: NameSource[]): string[] =>
@@ -155,7 +156,7 @@ describe('speed: a keystroke has 16 ms, and the underlines must take a small par
   it('builds the index for 500 entries quickly (once per change to the list, never per keystroke)', () => {
     const t = time(() => buildNameIndex(entries))
     console.log(`name index for 500 entries: ${t.toFixed(2)} ms`)
-    expect(t).toBeLessThan(50)
+    expect(t).toBeLessThan(budget(50))
   })
 
   it('scans a 300-word paragraph (what a keystroke rescans) in well under a millisecond or two', () => {
@@ -164,7 +165,7 @@ describe('speed: a keystroke has 16 ms, and the underlines must take a small par
     expect(findNames(paragraph, index).length).toBeGreaterThan(5)
     const t = time(() => findNames(paragraph, index))
     console.log(`a 300-word paragraph: ${t.toFixed(3)} ms`)
-    expect(t).toBeLessThan(4)
+    expect(t).toBeLessThan(budget(4))
   })
 
   it('scans a whole 6,000-word scene (opening it, or the names list changing) well within a frame', () => {
@@ -172,6 +173,6 @@ describe('speed: a keystroke has 16 ms, and the underlines must take a small par
     const scene = prose(6000)
     const t = time(() => findNames(scene, index))
     console.log(`a 6,000-word scene: ${t.toFixed(2)} ms`)
-    expect(t).toBeLessThan(16)
+    expect(t).toBeLessThan(budget(16))
   })
 })

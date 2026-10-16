@@ -7,6 +7,7 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { relationshipMapOf, threadsBoardOf, timelineOf } from './index'
+import { budget } from '../../shared/testPerf'
 
 /** A small, repeatable random number generator. */
 function random(seed: number): () => number {
@@ -144,7 +145,7 @@ describe('world views in a big world', () => {
     expect(t.clashes.length).toBeGreaterThan(0)
     const time = timed(db, () => timelineOf(db, last))
     console.log(`timeline of ${t.points.length} points in a big world: ${ms(time)}`)
-    expect(time.fastest).toBeLessThan(150)
+    expect(time.fastest).toBeLessThan(budget(150))
     expect(queries(db, () => timelineOf(db, last))).toBeLessThan(20)
   }, 60_000)
 
@@ -153,7 +154,7 @@ describe('world views in a big world', () => {
     expect(b.threads.length).toBeGreaterThan(10)
     const time = timed(db, () => threadsBoardOf(db, last))
     console.log(`plot threads board of ${b.threads.length} threads: ${ms(time)}`)
-    expect(time.fastest).toBeLessThan(150)
+    expect(time.fastest).toBeLessThan(budget(150))
     expect(queries(db, () => threadsBoardOf(db, last))).toBeLessThan(20)
   }, 60_000)
 
@@ -167,7 +168,7 @@ describe('world views in a big world', () => {
     const at = m.stops[Math.floor(m.stops.length / 3)].at
     const time = timed(db, () => relationshipMapOf(db, last, at, null))
     console.log(`relationship map at a point (${m.nodes.length} characters): ${ms(time)}`)
-    expect(time.fastest).toBeLessThan(150)
+    expect(time.fastest).toBeLessThan(budget(150))
     expect(queries(db, () => relationshipMapOf(db, last, at, null))).toBeLessThan(30)
   }, 60_000)
 
@@ -200,6 +201,6 @@ describe('world views in a big world', () => {
     }
     times.sort((a, b) => a - b)
     console.log(`relationship map just after a new character: ${ms({ fastest: times[0], median: times[2] })}`)
-    expect(times[0]).toBeLessThan(150)
+    expect(times[0]).toBeLessThan(budget(150))
   }, 60_000)
 })
