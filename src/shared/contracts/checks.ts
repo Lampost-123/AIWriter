@@ -105,6 +105,11 @@ export interface Issue {
   occurrence?: number
   /** A common AI phrase the live checks underlined (stored as a phrase when ignored): set only then. */
   aiPhrase?: true
+  /**
+   * Found by a free rule over the memory, with no AI asked (long story memory fix 8: the dead speaking, one thing in two
+   * hands, time running backwards): set only then.
+   */
+  byRule?: true
   createdAt: string
   updatedAt: string
 }

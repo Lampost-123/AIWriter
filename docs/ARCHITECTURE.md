@@ -1248,6 +1248,9 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   to look at in this scene." Checking a story ends with `checks/stories.ts`: a side story against its host over
   `hostSpans`, a prequel's ending against the opening of `leadsIntoBook`, leaving out what "Which happened
   last?" already asks (`sideClashes`). Closing the world stops runs (`closeRunsFor`).
+- **Rule checks** (long story memory fix 8, below): free rules over the memory, the stage and the calendar (the dead
+  speaking, one thing in two hands, time running backwards…) run with no AI call after each read of a scene and in every
+  check; their rows (`by: 'rule'`) are issues like these, marked "Found by a rule, not the AI".
 - **Fix the text** shows the check's rewrite with `showReplacement` (`features/edits/session.ts`: a ready-made
   tracked change, no AI call), or starts Rewrite on the sentence; `onAccepted` marks the issue fixed.
 
@@ -2410,7 +2413,7 @@ the same story so far and passages as before; what changes for it is the share f
   `MOST_MEANT` (8), only for the check it belongs to; the system prompt says the same thing there is no issue). The
   same thing in the same scene was already never raised again (`sameThing`).
 
-Not done here (the research's later steps): a book-length test story, rule-based checks, a ledger for time (fix 11,
+Not done here (the research's later steps): a book-length test story, rule-based checks (fix 8, below), a ledger for time (fix 11,
 below), a ledger for promises (fix 10, below), a ledger for who knows what (fix 9, below), spotting characters however they are named
 (fix 12, below), and a continuity brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
 cover some of it.
@@ -2503,7 +2506,7 @@ ledger, built from what the memory already keeps (no new store, no migration, no
   can know it): the keeper, verdicts and Adam's own changes keep it so (below). `Ledger`
   indexes a point so a question is one look-up: `couldKnow(character, fact)` (knows it since when and how, believes it
   wrongly, or neither), `knows`, `believes`, `whoKnows`; `ledgerForScene(db, sceneId)` (`memory/scene.ts`) builds it as
-  a scene begins, for rule-based checks to come (fix 8). Plain words for since and how are shared by the briefing, the
+  a scene begins, for the rule-based checks (fix 8, below). Plain words for since and how are shared by the briefing, the
   checks and the page (`shared/knowWords.ts`: "since Ch 2, Sc 3; heard it from Ash", "from the start").
 - **The memory keeper** (`keeper/prompts.ts`): the "knows" item gains `"how": "saw|told|overheard|read|guessed"`,
   `"from"` and `"wrong"`, one rule line ("Knows: give how and, if told or overheard, from whom; wrong: true if what
@@ -2627,7 +2630,8 @@ parallel store) and no new AI call.
   until something touches it, or another long stretch goes by); **Mark as dropped** is Remove; **Open** goes to the
   thread; Show me opens the scene that last touched it. Each has Undo, and the rows count in the badge.
 - **`overdueThreads(db, storyId, asOfSceneId?)`** gives the same as a scene begins (told against its chapter) or as the
-  story stands now, with names and where each was last touched, for rule-based checks to come (fix 8). What the story
+  story stands now, with names and where each was last touched (the rule-based checks of fix 8, below, leave these to Worth
+  a look, so nothing is asked twice). What the story
   says is as of that point; Adam's plans (Pay off by, dropped, what he kept) and the cards' planned pay-offs are read as
   they stand now: they are his current plan, not facts of the story, so a check of an earlier scene uses today's plan.
 - **The board** (`worldViews/threads.ts`, as of the story's latest scene with words). `BoardThread` gains `standing`,
@@ -2682,7 +2686,7 @@ characters to spare left for later fixes).
   (`changedWhere.age`, matched to a scene by its place in words), the story's start for the starting setup. A guess
   ("mid-thirties", "about 40", "34 or 35") is left alone. Years told with a word ("Year 312") are compared only with each
   other.
-- **For rule-based checks to come** (fix 8; `memory/storyCalendar.ts`, read from the world and kept until anything is
+- **For the rule-based checks** (fix 8, below; `memory/storyCalendar.ts`, read from the world and kept until anything is
   written to it, `changesMade`): `storyCalendar(db, storyId)`, `storyDateAt(db, sceneId)`, `elapsedBetweenScenes(db, a,
   b)`, `ageAt(db, characterId, sceneId)` and `scenesGoingBack(db, storyId)`.
 - **The writer's briefing** (`ai/storyDate.ts`; `ContextInput.calendar`, `ai/gather.ts` `calendarFor` →
@@ -2719,6 +2723,93 @@ characters to spare left for later fixes).
   scenes before ("The next morning (Day 4)") in the line they already have (the page head reads it with the card, so
   the line is drawn once). A When such as "Day 1, dusk" reads as itself, so the sample world's scenes keep the usual
   hint and Classic's screenshots are unchanged; no View setting was needed.
+
+## Long story memory: free rule-based checks (fix 8, 2026-10-16)
+
+The research's fix 8: some slips need no AI to spot, only the app's own records, and broad AI critics over-flag
+(FlawedFictions); Story Skills runs rules like these over its story files. A rule is instant and free, and as long as the
+record is right it never raises a false alarm. The earlier fixes left what the rules need (fix 9's ledger, fix 10's
+promises, fix 11's calendar); the stage tracker knows who holds what, and the memory who is dead. No store, no migration,
+no new AI call; the memory keeper's prompt is unchanged (its 58 characters to spare are still spare).
+
+- **The rules** (`checks/rules.ts`, pure, each over a `RuleScene`; `ruleFindings` runs them all, and one that fails says
+  nothing while the rest still run). Each says nothing when the record is unsure: the memory is read as the writer is
+  given it (a fact whose words were edited and not confirmed is left out, `writerData`; guesses dropped), a stage only
+  while it still stands (`storedState(...).current`), a date only where the calendar can tell.
+  - `dead`: someone the memory has dead as the scene begins (in reading order; `deaths.ts` `deathRecord`, and only a
+    death it is sure of, `surelyDied`: never "presumed dead", "reported drowned", "left for dead") speaks a line (below),
+    is up and about on the stage (a value of theirs from this scene's words that is something they do: last did, holding,
+    sees, touching, mood; never a body, a ghost, a vision or a memory, `NOT_ALIVE`), is the card's point of view, or is
+    on the card's list of who is there. Once a person, from the strongest sign, worded plainly: "Tobin died in Ch 1, Sc
+    2, but speaks here." ("Mara died in Ch 18, Sc 2; she speaks here." when the card gives pronouns). A line or the stage
+    is a must-fix; the card alone is worth a look. A flashback (the When says so, fix 11) is exempt, and so is a scene the
+    calendar dates before the death's scene; a scene with no date still counts by reading order. Being remembered or
+    spoken of is never flagged.
+  - `gone-item`: something the memory has destroyed or lost, to no one (its own latest note, "smashed against the
+    rocks", "lost in the river", not "lost to Bryn at cards"; or a character's own "smashed the brass compass"), with
+    nothing since bringing it back (found, mended, someone getting it, a holding tie), is held on the stage from this
+    scene's words, and the memory says nothing of it in this scene: "The brass compass was destroyed in Ch 3, Sc 2, but
+    Tobin holds it here."
+  - `two-hands`: the same codex item (by its names or main word, `memory/items.ts`) in two people's holding at the end of
+    the scene, both from this scene's words, unless either says it is held together ("both", "between them", the other's
+    name). Continuity, worth a look.
+  - `pov-elsewhere`: the card's point of view is on another scene's card or stage (`onStage`: a value from that scene's
+    words) at this very moment somewhere else: both cards give their own day and time (neither leans on the scene before,
+    as "Later that evening" does, nor goes back) and `sameMoment` says so, and their places are apart (neither is the
+    other or inside it, `parentChain`). At most `MEANWHILE_MOST` (6) such scenes are looked at.
+  - `pov-unnamed`: a scene of `POV_NAMED_WORDS` (500) words or more never names its point of view (by name, other name
+    or what the scene calls them, the one name rule), unless the style guide says first or second person or the
+    narration says "I", "me" or "my" `FIRST_PERSON_I` (3) times. Minor.
+  - `time-back`: `scenesGoingBack` (fix 11) lists the scene: "This scene is dated Day 4, 2 days before the scene before
+    it (Ch 3, Sc 1: Day 6). If it’s a flashback, start its When with “Flashback”." The card's note under When (fix 11)
+    says it too; the finding is what Ignore can settle for good.
+  - `age`: an age the memory set in this scene (a bare age: the scene's words, "Mara, now twenty,") or the card gives
+    someone on it ("Mara, 35,", "Mara (35)", "Mara is 35", "a 35-year-old Mara", `ageGiven`; never "Mara was 5 when…") a
+    year or more from what the memory works out as the scene begins (`ageHere`; a year more either way when that is only
+    about right, `ageClashes`): "Mara is 35 here, but the memory says 34 at the story’s start, so 39 or 40 by now." Its
+    payload has the entry and field `age`, so a keeper's clash about the same age is the same thing.
+  - `knows-early`: someone tells a secret here (the memory keeper's "said it": a `said` secret whose speaker they are, no
+    `how` of their own), others knew it as the scene began (who knows it rests on who was there, `backed`), they didn't
+    (`Ledger.couldKnow`), nor believed it wrongly, nor learned it earlier in the scene, and it isn't about them: "Tobin
+    says “Mara is the heir” here, but nothing in the memory shows Tobin learning it first. Ash knows it." A promise or
+    a threat starts with whoever makes it, so it is never asked about.
+- **Who speaks a line** (`checks/speakers.ts`, pure). Quotations paragraph by paragraph (`quoteSpans`: “…” and "…", and
+  ‘…’ or '…' where the marks aren't apostrophes; one left open runs to its paragraph's end). A line is someone's only in
+  the plain ways: `“…,” said Tobin.`, `“…,” Tobin said.`, `Tobin said, “…”` (opening the sentence), with one of the
+  speech verbs (`SAY`) straight after or before the name. A name inside a quotation is someone spoken of or to; "Tobin
+  had said", "She remembered how Tobin said", "said Tobin's sister" are never his line. Names by the one name rule
+  (fix 12), longest first with no overlaps (`namedPlaces`: "said Mara Venn" is Mara Venn, never Mara), and words two
+  people go by name neither. "He said" isn't read (no guessing who "he" is): a known limit.
+- **Reading a scene** (`checks/ruleChecks.ts` `ruleScene`): one `sceneMemory` as a check makes it (`forWriter`,
+  `dropGuesses`), its `bringAbout` (the changes pinned to the scene), the ledger, this scene's called words
+  (`db/called.ts`), the stage (`continuity/tracker.ts` `storedState`), the story calendar (kept until the world changes)
+  and, for the point of view, the other scenes' cards (`sceneCards`). No walk over every scene for each scene: the
+  calendar is read once, and the same-moment scenes are found in it.
+- **When they run**: after the memory keeper reads a scene, once where things stand at its end is brought up to date
+  (`keeper/index.ts` `standLater`, which runs them even while the memory waits for this month's spending limit: they cost
+  nothing), and in every check of a scene, right after the AI's findings are kept (`checks/run.ts`; counted in the run's
+  "Found 2 things to look at"). `ruleChecksQuietly` never throws. A card changed on its own (a When, a point of view)
+  is looked at again by the next read of the scene or the next check.
+- **Where the findings go**: the `issues` rows the checks keep (`db/checks.ts`), so the Issues tab, the badges, the
+  Check room, Fix the text (the quoted words, when there are any), Ignore and Undo work as for any finding. Payload
+  `by: 'rule'`, `rule`, `sources`, `entryId` (and `field` for an age), `fix` and `memoryFix` null; key
+  `rule:<rule>:<scene>:<what it is about>` (`ruleKey`), so a finding is never raised twice. Each run replaces what the
+  rules found there before (`saveFound` now takes away open `rule` rows too, when the caller's `replaces` says so; the
+  AI's `replaces` only ever names its own checks), and one found again just as it was isn't written or told to the window
+  again, so the Issues tab doesn't reload after every reading. A rule never raises what the AI or the memory keeper already raised
+  (`sameThing`: the same kind with overlapping words, or the same entry and field), and when the AI check finds what a
+  rule found, the AI's finding takes its place in the same row (its words, rewrite and advice), so whichever ran first
+  the same thing reads the same; a rule never takes over the AI's. If the AI stops finding it, the rule brings it back at
+  once. Fix 7's lessons work unchanged: an ignored rule finding is meant (never raised again, and told to later checks),
+  a fixed one is a slip later scenes' writers are warned of (`fact`, `knowledge` and `timeline` kinds; two in hand and
+  the point of view never named are `continuity`, about their moment).
+- **On the screen**: the card's kind line says "Facts · Found by a rule, not the AI" (`issuesLogic.ts` `RULE_WORDS`; on
+  hover "Found by a rule over the memory, at once and for free: no AI was asked.") in the Issues tab (both looks), the
+  Check room's issues and Classic's Consistency page; the margin note keeps its head and has the same hover. Nothing
+  else changes, so Classic's screens look as they did (the sample world raises nothing).
+- **Not a rule: a promise long overdue.** Fix 10 already asks about it in Worth a look (with Pay off later, Keep and
+  Mark as dropped), story-wide; as a rule finding it would be raised twice, in a scene it isn't about. So
+  `overdueThreads` stays Worth a look's alone.
 
 ## Milestone 1 scope
 

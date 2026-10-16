@@ -115,6 +115,23 @@ They run by themselves shortly after a draft and when you mark a scene done. To 
 **Check this scene**, **Check this chapter** or **Check this story** (from the binder, the Issues tab, the Check room, or search
 with Ctrl+K). They use the **Consistency check model**.
 
+### Free checks from the memory
+
+Some slips need no AI at all, just what the memory already knows. Each time the memory reads a scene, and whenever a
+scene is checked, AI Write looks for these at once, for free:
+
+- A character who **died earlier speaks, acts, or is on the scene card** ("Tobin died in Ch 1, Sc 2, but speaks
+  here."). Remembering them or talking about them is fine, and so is a flashback.
+- Something **destroyed or lost** turning up in someone's hand, or **one thing in two people's hands** at once.
+- The **point of view** character being somewhere else at the very same time, or never named in a long scene.
+- **Time running backwards**: a scene dated before the one before it. If it's a flashback, start its **When** with
+  "Flashback".
+- An **age** that doesn't fit the character's birth date or age in the memory.
+- Someone **telling a secret** the memory has no sign they ever learned.
+
+They only speak up when the memory is sure, so they rarely cry wolf. They appear in the **Issues** tab like any other
+issue, marked **Found by a rule, not the AI**.
+
 ### Fix what's found
 
 The **Issues** tab in the scene panel lists the scene's open issues. The binder shows a small badge on scenes that

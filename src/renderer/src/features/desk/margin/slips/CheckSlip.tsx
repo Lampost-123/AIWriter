@@ -7,7 +7,7 @@ import type { ID } from '@shared/types'
 import { Sparkles, X } from '@/components/ui/icons'
 import { fixTheText, ignore } from '@/features/issues/actions'
 import { showIssues } from '@/features/issues/issuesStore'
-import { KIND_WORDS, SEVERITY_WORDS } from '@/features/issues/issuesLogic'
+import { KIND_WORDS, RULE_DETAIL, SEVERITY_WORDS } from '@/features/issues/issuesLogic'
 import type { CheckSlipData } from '../anchors'
 import { dismissSlip } from '../marginStore'
 
@@ -17,7 +17,7 @@ export function CheckSlip({ id, data, sceneId }: { id: string; data: CheckSlipDa
   return (
     <div className="desk-paper k-issue desk-check" data-severity={issue.severity} data-issue={issue.id}>
       <span className="s-head">
-        <span className="desk-caps s-kind">
+        <span className="desk-caps s-kind" title={issue.byRule ? RULE_DETAIL : undefined}>
           Check · {issue.severity === 'must-fix' ? SEVERITY_WORDS['must-fix'] : (KIND_WORDS[issue.kind] ?? 'Issue')}
         </span>
       </span>

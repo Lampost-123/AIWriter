@@ -24,6 +24,7 @@ import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
 import { stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
+import { ruleChecksQuietly } from '../checks/ruleChecks'
 
 let keeper: Keeper | null = null
 
@@ -132,25 +133,32 @@ let standing: Promise<void> = Promise.resolve()
 /**
  * After the memory read a scene (a pause in typing, a draft, a beat, leaving the scene): where things stand as it
  * ends, read on from its last checkpoint, so only the new words are read (continuity/tracker.ts). Recall reloads when
- * it changed. Never holds up the memory; never throws.
+ * it changed. Then the free rule checks run over the scene (long story memory fix 8, checks/ruleChecks.ts: no AI call),
+ * with the memory and the stage as they now are. Never holds up the memory; never throws.
  */
 function standLater(db: Database.Database, sceneId: ID, model: MemoryModel): void {
   const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
   standing = standing.then(async () => {
-    if (!live() || pausedNote()) return
-    try {
-      const o = { db, model, signal: new AbortController().signal, closed: () => !live() }
-      const was = storedState(db, sceneId)
-      if (was?.current) return
-      await stateBefore(o, sceneId)
-      await stateAfter(o, sceneId)
-      // Reloaded when it changed, even when a scene far back still waits to be read again (so it isn't current).
-      const now = live() ? storedState(db, sceneId) : null
-      if (now && (now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
-    } catch (e) {
-      console.warn('Could not bring where things stand up to date', e)
-    }
+    if (!live()) return
+    if (!pausedNote()) await standUp(db, sceneId, model, live)
+    if (live()) ruleChecksQuietly(db, sceneId, getWritingPrefs())
   })
+}
+
+/** Where things stand as a scene ends, brought up to date (standLater). Never throws. */
+async function standUp(db: Database.Database, sceneId: ID, model: MemoryModel, live: () => boolean): Promise<void> {
+  try {
+    const o = { db, model, signal: new AbortController().signal, closed: () => !live() }
+    const was = storedState(db, sceneId)
+    if (was?.current) return
+    await stateBefore(o, sceneId)
+    await stateAfter(o, sceneId)
+    // Reloaded when it changed, even when a scene far back still waits to be read again (so it isn't current).
+    const now = live() ? storedState(db, sceneId) : null
+    if (now && (now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
+  } catch (e) {
+    console.warn('Could not bring where things stand up to date', e)
+  }
 }
 
 /** Filling in what the memory found, one batch after another, never holding up the memory itself. */

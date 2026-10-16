@@ -320,7 +320,7 @@ describe('the writer’s scene memory', () => {
   })
 })
 
-describe('overdueThreads (for Worth a look, and rule-based checks to come)', () => {
+describe('overdueThreads (for Worth a look)', () => {
   it('as the story stands: a thread past its pay-off chapter, by name, with where it was last touched', () => {
     const w = book()
     setThreadPlan(w.db, w.bell.id, { payBy: w.chapters[1] })

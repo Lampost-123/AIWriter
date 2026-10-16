@@ -25,9 +25,9 @@
 // else days since the first dated day of its calendar (that day is day 1).
 //
 // Going back. A scene whose date comes before the dated scene before it, where it can be told (same axis, or the same
-// day and both say the time), and whose When doesn't say it goes back on purpose, is listed by `goingBack`, for rule-based
-// checks to come (fix 8). A When saying it goes back on purpose starts "Flashback" or "Earlier" (the app has no other
-// mark for a flashback), or steps back itself ("three days earlier", "the night before").
+// day and both say the time), and whose When doesn't say it goes back on purpose, is listed by `goingBack`, for the
+// rule-based checks (fix 8, checks/rules.ts). A When saying it goes back on purpose starts "Flashback" or "Earlier" (the
+// app has no other mark for a flashback), or steps back itself ("three days earlier", "the night before").
 //
 // Ages (`readAge`, `ageFrom`): from a character's "Age or birth date" field, a birth date or year ("born 12 March 1790",
 // "b. 1790"), or an age at a date ("17 in 1815", "34 at the start of the story", or a bare "34" as of where it was set),
@@ -433,7 +433,7 @@ export interface GoingBack {
 const BACK_FROM_MINUTE = 300
 
 /**
- * The scenes whose date goes backwards in reading order without saying so (see above), for rule-based checks to come
+ * The scenes whose date goes backwards in reading order without saying so (see above), for the rule-based checks
  * (fix 8). Each is compared with the dated scene before it in its own story (`stories`: each scene's story; a side
  * story added whole runs alongside its host, so a host scene after it is never compared with it), and only where it can
  * be told: both name their day on the same axis, or a month or year of their own. A When that leans on the scenes
