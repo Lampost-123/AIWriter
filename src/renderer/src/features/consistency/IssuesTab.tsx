@@ -1,7 +1,7 @@
 // The Consistency page's Issues tab: every open issue in the story, story-wide ones first, then by
 // chapter and scene in story order, must-fix first in each. Clicking an issue opens its scene at the
-// words, with the scene panel on its Issues tab; Ignore is undoable from its toast.
-import { CircleCheck, EyeOff, RotateCcw, SearchCheck } from '@/components/ui/icons'
+// words, with the scene panel on its Issues tab; Later and Ignore are undoable from their toasts.
+import { CircleCheck, Clock, EyeOff, RotateCcw, SearchCheck } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { Issue, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
@@ -12,7 +12,7 @@ import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { issueSummary, KIND_WORDS, SEVERITY_WORDS, type IssueGroups } from './consistencyLogic'
-import { CONTRACT_DETAIL, CONTRACT_WORDS, RULE_DETAIL, RULE_WORDS } from '@/features/issues/issuesLogic'
+import { CONTRACT_DETAIL, CONTRACT_WORDS, LATER_TITLE, LATER_WORDS, LATER_WORDS_NO_QUOTE, RULE_DETAIL, RULE_WORDS } from '@/features/issues/issuesLogic'
 import { openEntry, openIssue, openThread } from './open'
 
 export function IssuesTab({
@@ -136,12 +136,26 @@ export async function ignoreIssue(issue: Issue, onChanged: (i: Issue) => void): 
 }
 
 export async function reopenIssue(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
-  onChanged({ ...issue, status: 'open' })
+  onChanged({ ...issue, status: 'open', later: undefined })
   try {
     onChanged(await api.reopenIssue(issue.id))
   } catch (e) {
-    onChanged({ ...issue, status: 'ignored' })
+    onChanged(issue.later ? issue : { ...issue, status: 'ignored' })
     toast(`Couldn’t bring that issue back. ${plainReason(e)}`, { tone: 'danger' })
+  }
+}
+
+/** Later: put off until that part of the scene changes or the scene is checked again, with Undo in its toast. */
+export async function laterIssue(issue: Issue, onChanged: (i: Issue) => void): Promise<void> {
+  onChanged({ ...issue, later: true })
+  try {
+    onChanged(await api.laterIssue(issue.id))
+    toast(issue.quote.trim() ? LATER_WORDS : LATER_WORDS_NO_QUOTE, {
+      action: { label: 'Undo', run: () => void reopenIssue({ ...issue, later: true }, onChanged) }
+    })
+  } catch (e) {
+    onChanged(issue)
+    toast(`Couldn’t put that issue off. ${plainReason(e)}`, { tone: 'danger' })
   }
 }
 
@@ -210,9 +224,14 @@ function IssueCard({ issue: i, storyId, storyScenes, onChanged }: ListProps & { 
             Reopen
           </Button>
         ) : (
-          <Button size="sm" variant="ghost" icon={<EyeOff size={13} />} loading={busy} onClick={() => act(() => ignoreIssue(i, onChanged))}>
-            Ignore
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button size="sm" variant="ghost" icon={<Clock size={13} />} disabled={busy} title={LATER_TITLE} onClick={() => act(() => laterIssue(i, onChanged))}>
+              Later
+            </Button>
+            <Button size="sm" variant="ghost" icon={<EyeOff size={13} />} loading={busy} onClick={() => act(() => ignoreIssue(i, onChanged))}>
+              Ignore
+            </Button>
+          </div>
         )}
       </div>
     </div>

@@ -51,22 +51,28 @@ export interface IssueGroups {
   open: number
   mustFix: number
   ignored: number
+  /** Open issues put off with Later (findings that stay current): not shown or counted as open until they come back. */
+  later?: number
 }
 
 /**
  * The story's issues to show: open ones (and ignored ones with `showIgnored`), grouped by chapter and scene
- * in the outline's order. Fixed and gone issues, and issues of scenes no longer in the story, are left out.
+ * in the outline's order. Fixed and gone issues, those put off with Later (counted apart), and issues of scenes no
+ * longer in the story, are left out.
  */
 export function groupIssues(issues: Issue[], outline: Outline | null, showIgnored: boolean): IssueGroups {
-  const shown = issues.filter((i) => i.status === 'open' || (showIgnored && i.status === 'ignored'))
+  const open = (i: Issue): boolean => i.status === 'open' && !i.later
+  const shown = issues.filter((i) => open(i) || (showIgnored && i.status === 'ignored'))
   const scenesInStory = new Set(outline?.scenes.map((s) => s.id) ?? [])
   const live = issues.filter((i) => i.sceneId === null || scenesInStory.has(i.sceneId))
+  const later = live.filter((i) => i.status === 'open' && i.later).length
   const out: IssueGroups = {
     story: shown.filter((i) => i.sceneId === null).sort(issueOrder),
     chapters: [],
-    open: live.filter((i) => i.status === 'open').length,
-    mustFix: live.filter((i) => i.status === 'open' && i.severity === 'must-fix').length,
-    ignored: live.filter((i) => i.status === 'ignored').length
+    open: live.filter(open).length,
+    mustFix: live.filter((i) => open(i) && i.severity === 'must-fix').length,
+    ignored: live.filter((i) => i.status === 'ignored').length,
+    ...(later ? { later } : {})
   }
   if (!outline) return out
   const byScene = new Map<ID, Issue[]>()
@@ -89,11 +95,12 @@ export function groupIssues(issues: Issue[], outline: Outline | null, showIgnore
   return out
 }
 
-/** "3 open issues, 1 must fix", "No open issues". */
-export function issueSummary(g: Pick<IssueGroups, 'open' | 'mustFix'>): string {
-  if (!g.open) return 'No open issues'
+/** "3 open issues, 1 must fix", "No open issues", and those saved for later: "2 open issues · 1 saved for later". */
+export function issueSummary(g: Pick<IssueGroups, 'open' | 'mustFix' | 'later'>): string {
+  const later = g.later ? ` · ${g.later} saved for later` : ''
+  if (!g.open) return `No open issues${later}`
   const open = `${g.open} open ${g.open === 1 ? 'issue' : 'issues'}`
-  return g.mustFix ? `${open}, ${g.mustFix} must fix` : open
+  return `${g.mustFix ? `${open}, ${g.mustFix} must fix` : open}${later}`
 }
 
 /** Each chapter's number ("Ch 3") by id, in the report's order (every live chapter is in it). */

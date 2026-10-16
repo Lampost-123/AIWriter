@@ -1,8 +1,9 @@
 // The Issues tab's data (milestone 5, AI checks): each scene's issues, loaded once and again whenever the
-// main process says they changed ('issues:changed'), and the check runs going on now, from their events
-// ('checks:progress', 'checks:done'), so a scene can say "Checking…" whoever started the check. The last
-// answer stays on screen while a newer one loads, and the last few scenes are kept, so switching back to
-// one shows it at once. Marking a scene done that turns up something says so in a quiet message with Show.
+// main process says they changed ('issues:changed': every save of a scene sweeps its issues, so that comes as the
+// words change), and the check runs going on now, from their events ('checks:progress', 'checks:done'), so a scene
+// can say "Checking…" whoever started the check. The last answer stays on screen while a newer one loads, and the
+// last few scenes are kept, so switching back to one shows it at once, and it is read again then too (findings that
+// stay current, 2026-10-16). Marking a scene done that turns up something says so in a quiet message with Show.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { CheckProgress, Issue } from '@shared/contracts/checks'
@@ -85,14 +86,35 @@ export function useSceneIssues(sceneId: ID): Loaded & { retry: () => void } {
   const worldId = useApp((s) => s.world?.id ?? null)
   useEffect(() => {
     listen()
-    // The tab's count and the tab itself both ask: one load for each change is enough.
-    const key = `${worldId}:${memoryRev}`
-    if (loadedAt.get(sceneId) === key) return
-    loadedAt.set(sceneId, key)
-    void loadIssues(sceneId)
+    wantIssues(sceneId, `${worldId}:${memoryRev}`)
   }, [sceneId, memoryRev, worldId])
   return { issues: loaded?.issues ?? null, error: loaded?.error ?? null, retry: () => void loadIssues(sceneId) }
 }
+
+/**
+ * Loads a scene's issues unless they were loaded for the same world and memory (`key`) since Adam last came to the
+ * scene: the tab's count and the tab itself both ask, and one load for each change is enough.
+ */
+export function wantIssues(sceneId: ID, key: string): void {
+  if (loadedAt.get(sceneId) === key) return
+  loadedAt.set(sceneId, key)
+  void loadIssues(sceneId)
+}
+
+/** The scene open in the page, to notice Adam leaving it. */
+let openNow: ID | null = null
+
+/** Leaving a scene: coming back to it reads its issues again (the answer kept shows meanwhile). */
+function followOpenScene(): void {
+  if (typeof useApp.subscribe !== 'function') return
+  openNow = useApp.getState().sceneId ?? null
+  useApp.subscribe((a) => {
+    if (a.sceneId === openNow) return
+    if (openNow) loadedAt.delete(openNow)
+    openNow = a.sceneId
+  })
+}
+followOpenScene()
 
 /** Shows a scene's Issues tab beside the page (opening the scene, and the panel, when needed). */
 export async function showIssues(sceneId: ID): Promise<void> {

@@ -115,7 +115,15 @@ function openPage(sceneId: string, doc: PMNode): { doc: () => PMNode } {
     }
   }
   const editor = { get state() { return state }, view, schema, isDestroyed: false }
-  setEditorBridge({ sceneId, editor, busy: () => false, current: () => ({ sceneId, doc: state.doc.toJSON(), text: '' }) } as unknown as EditorBridge)
+  setEditorBridge({
+    sceneId,
+    editor,
+    busy: () => false,
+    current: () => ({ sceneId, doc: state.doc.toJSON(), text: '' }),
+    flush: async () => {
+      main.calls.push(`saved ${sceneId}`)
+    }
+  } as unknown as EditorBridge)
   main.app.sceneId = sceneId
   return { doc: () => state.doc }
 }
@@ -142,12 +150,13 @@ describe('an issue fix', () => {
     const p = openPage('sc1', page('Ilse carried the lantern up the hill.', 'Bram waited.'))
     const { undos } = await applyAndKeep('g1', [text], {})
     expect(textsOf(p.doc())).toEqual(['Ilse carried a torch up the hill.', 'Bram waited.'])
-    expect(main.calls).toEqual(['fixed i1'])
+    // Saved before it is marked fixed, so the scene's other issues on those words go with it (findings that stay current).
+    expect(main.calls).toEqual(['saved sc1', 'fixed i1'])
     expect(main.statuses).toEqual(['1:applied'])
     const [r] = await undoChanges(undos)
     expect(r).toEqual({ ok: true })
     expect(textsOf(p.doc())).toEqual(['Ilse carried the lantern up the hill.', 'Bram waited.'])
-    expect(main.calls).toEqual(['fixed i1', 'reopen i1'])
+    expect(main.calls).toEqual(['saved sc1', 'fixed i1', 'reopen i1'])
     expect(main.statuses).toEqual(['1:applied', '1:pending'])
   })
 

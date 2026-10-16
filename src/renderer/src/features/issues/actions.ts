@@ -1,6 +1,7 @@
 // What the Issues tab's buttons do (milestone 5, AI checks): fix the text (the check's suggested rewrite as
-// a tracked change, or the AI tools' Rewrite on the sentence), update the memory, ignore and reopen (each
-// undoable), check the scene, and follow an issue's links. Nothing asks "are you sure?".
+// a tracked change, or the AI tools' Rewrite on the sentence), update the memory, ignore, later and reopen (each
+// undoable), check the scene, and follow an issue's links. Nothing asks "are you sure?". An accepted fix is saved at
+// once, so the scene's other issues on the same words go with it, and Ctrl+Z taking it back reopens it (fixHistory.ts).
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import type { Issue, IssueSource } from '@shared/contracts/checks'
 import type { Node as PMNode } from '@tiptap/pm/model'
@@ -17,8 +18,20 @@ import { showReplacement, startTool } from '@/features/edits/session'
 import { wordsIn } from '@/features/edits/text'
 import { openScene } from '@/features/memory/openScene'
 import { openStorySettings } from '@/features/stories/storyActions'
-import { fieldWords, fixAgainNote, fixDirection, NO_FIX_FOUND, occurrencesIn, pickOccurrence, sentenceAround, usableFix } from './issuesLogic'
+import {
+  fieldWords,
+  fixAgainNote,
+  fixDirection,
+  LATER_WORDS,
+  LATER_WORDS_NO_QUOTE,
+  NO_FIX_FOUND,
+  occurrencesIn,
+  pickOccurrence,
+  sentenceAround,
+  usableFix
+} from './issuesLogic'
 import { loadIssues, patchIssue, useIssuesStore } from './issuesStore'
+import { noteIssueFix, onFixHistory } from './fixHistory'
 
 const WORDS_GONE = 'Those words aren’t in the scene any more.'
 
@@ -34,11 +47,44 @@ export function openSource(s: IssueSource): void {
   else openStorySettings(s.storyId)
 }
 
-/** Marked fixed once its tracked change is accepted. */
-const markFixed = (issue: Issue) => (): void => {
-  if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: 'fixed' })
-  void api.markIssueFixed(issue.id).catch(() => undefined)
+/**
+ * Marked fixed once its tracked change is accepted (`was`: the words it replaced). The page is saved first, so the
+ * scene's other issues on the same words are put away with it (the save sweeps them, ipc/core.ts), then the issues are
+ * read again. Ctrl+Z taking the change back reopens it (fixHistory.ts).
+ */
+const markFixed =
+  (issue: Issue, was: string) =>
+  (words: { from: number; to: number }): void => {
+    if (!issue.sceneId) return
+    const sceneId = issue.sceneId
+    patchIssue(sceneId, issue.id, { status: 'fixed' })
+    noteIssueFix(issue, words, was)
+    void settleFix(sceneId, issue.id)
+  }
+
+/** After a fix went into the page: saved, the issue marked fixed, and the scene's issues read as they are now. */
+export async function settleFix(sceneId: ID, issueId: ID): Promise<void> {
+  const bridge = editorBridge()
+  try {
+    await (bridge?.sceneId === sceneId && bridge.flush ? bridge.flush() : flushAll())
+  } catch {
+    /* saved by the page's own autosave instead, which sweeps too */
+  }
+  await api.markIssueFixed(issueId).catch(() => undefined)
+  void loadIssues(sceneId)
 }
+
+// Ctrl+Z taking an accepted fix back reopens its issue; Ctrl+Y bringing it back marks it fixed again.
+onFixHistory((h) => {
+  for (const f of h.undone) {
+    patchIssue(f.sceneId, f.issueId, { status: 'open' })
+    void api.reopenIssue(f.issueId).catch(() => undefined)
+  }
+  for (const f of h.redone) {
+    patchIssue(f.sceneId, f.issueId, { status: 'fixed' })
+    void api.markIssueFixed(f.issueId).catch(() => undefined)
+  }
+})
 
 /** Every place the quote appears in the page, each inside one paragraph, in reading order. */
 export function placesInPage(doc: PMNode, quote: string): { from: number; to: number }[] {
@@ -79,7 +125,8 @@ export function fixTheText(issue: Issue): void {
   // A suggested rewrite that is the words again would change nothing: the writer model is asked instead.
   const fix = usableFix(issue)
   if (fix && exact) {
-    showReplacement({ ...exact, text: fix, note: 'The consistency check’s suggested rewrite.', onAccepted: markFixed(issue) })
+    const was = doc.textBetween(exact.from, exact.to, '\n', '\n')
+    showReplacement({ ...exact, text: fix, note: 'The consistency check’s suggested rewrite.', onAccepted: markFixed(issue, was) })
     return
   }
   // The whole sentence the words are in, within their paragraph.
@@ -93,7 +140,7 @@ export function fixTheText(issue: Issue): void {
   void startTool('rewrite', {
     direction: fixDirection(issue),
     range: target,
-    onAccepted: markFixed(issue),
+    onAccepted: markFixed(issue, doc.textBetween(target.from, target.to, '\n', '\n')),
     mustChange: { again: fixAgainNote(issue), giveUp: NO_FIX_FOUND }
   })
 }
@@ -180,15 +227,31 @@ export async function ignore(issue: Issue): Promise<void> {
   toast('Ignored. It won’t be raised again.', { action: { label: 'Undo', run: () => void reopen({ ...issue, status: 'ignored' }) } })
 }
 
-/** Reopen an ignored (or fixed) issue. */
+/**
+ * Later: hidden at once, still open, until that part of the scene changes or the scene is checked again (unlike Ignore,
+ * it isn't taken as meant). Undo brings it back.
+ */
+export async function later(issue: Issue): Promise<void> {
+  if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { later: true })
+  try {
+    await api.laterIssue(issue.id)
+  } catch (e) {
+    if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { later: issue.later })
+    toast(plainReason(e), { tone: 'danger' })
+    return
+  }
+  toast(issue.quote.trim() ? LATER_WORDS : LATER_WORDS_NO_QUOTE, { action: { label: 'Undo', run: () => void reopen({ ...issue, later: true }) } })
+}
+
+/** Reopen an ignored (or fixed) issue, or bring back one put off with Later. */
 export async function reopen(issue: Issue): Promise<void> {
-  if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: 'open' })
+  if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: 'open', later: undefined })
   try {
     const now = await api.reopenIssue(issue.id)
     // A live flag Adam ignored isn't kept as an open issue: it goes, and shows in the page again.
     if (issue.sceneId && now.status !== 'open') patchIssue(issue.sceneId, issue.id, { status: now.status })
   } catch (e) {
-    if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: issue.status })
+    if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: issue.status, later: issue.later })
     toast(plainReason(e), { tone: 'danger' })
   }
 }

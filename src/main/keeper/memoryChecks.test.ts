@@ -275,6 +275,34 @@ describe('the memory check list', () => {
     undoItem(w.db, line.id)
     expect(listMemoryChecks(w.db).some((i) => i.fact.kind === 'note' && i.fact.logId === line.id)).toBe(false)
   })
+
+  it('a "no longer says this" note leaves the list once a read finds the fact in the scene’s words again (findings that stay current)', async () => {
+    const w = await unconfirmedKnife()
+    const line = kdb.insertLog(w.db, {
+      runId: kdb.startRun(w.db, w.s1, 1),
+      sceneId: w.s1,
+      entryName: 'Mara',
+      text: 'Lost her knife in the river: the scene no longer says this (yours is kept as it is)',
+      before: '',
+      after: '',
+      action: 'updated',
+      what: 'change',
+      entryId: w.mara.id,
+      factId: w.change.id,
+      quote: MARA_RIVER,
+      question: null,
+      undo: { op: 'note', key: `no-longer:change:${w.change.id}:x` }
+    })
+    const listed = (): boolean => listMemoryChecks(w.db).some((i) => i.fact.kind === 'note' && i.fact.logId === line.id)
+    expect(listed()).toBe(true)
+    // A read confirms the fact again: its link rests on words in that scene once more.
+    const [link] = hist.linksForFact(w.db, 'change', w.change.id)
+    hist.updateLink(w.db, link.id, { state: 'ok' })
+    expect(listed()).toBe(false)
+    // Its words edited away again: the note stands once more.
+    hist.updateLink(w.db, link.id, { state: 'changed' })
+    expect(listed()).toBe(true)
+  })
 })
 
 describe('Check again now', () => {

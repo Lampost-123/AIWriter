@@ -209,7 +209,8 @@ export function contractResults(
               ? 'kept'
               : 'untouched'
     const quote = (result === 'kept' || result === 'broken') && a?.quote ? a.quote : ''
-    return { part: i.part, text: i.text, result, ...(quote ? { quote } : {}) }
+    // The item itself goes with it, so a later check of the whole scene can go through the contract again (checks/report.ts savedContract).
+    return { part: i.part, text: i.text, result, ...(quote ? { quote } : {}), code: i.code, check: i.check, entryIds: i.entryIds }
   })
 }
 

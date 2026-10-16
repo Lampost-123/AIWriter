@@ -1244,8 +1244,9 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   raised again, by a check or by the keeper (`raiseIssue` uses `sameThing` too); story issues are keyed on the
   other story, the entry and the field. The live checks' ignored rows (`LIVE_KINDS`) are never counted or
   listed as open, and Reopen deletes them; a check finding what the keeper already raised adds its
-  rewrite to the keeper's issue. Open issues whose words have left the scene become `gone` when listed or
-  counted. Every change emits `issues:changed` (`onIssuesTouched`, batched after the transaction).
+  rewrite to the keeper's issue. Open issues whose words have left the scene become `gone` when the scene is saved,
+  listed or counted (see "Findings that stay current"). Every change emits `issues:changed` (`onIssuesTouched`, batched
+  after the transaction).
 - **Runs** (`checks/runs.ts`): one at a time; Adam may have one of his own going or waiting. Before each
   scene the memory catches up (`catchUpBeforeDraft`, then the keeper's `whenRead` for the scene itself, read
   now if it is still waiting out its quiet time, so its clash isn't raised twice); each run's AbortController
@@ -3062,8 +3063,9 @@ judge it at length. No store, no migration, no new kind of AI call.
   like its other findings only once the second opinion agreed (`contract.confirmed`; `chapterWriter/run.ts`
   `issueFindings` sends no other contract issue to the review, "scene contract"), rewritten by its `revise` within the
   run's existing limit (`SAME_ROUNDS`); what isn't shown yet is never written in by itself and stays in the Issues tab
-  for Adam. Only a check through the contract replaces what one found (the critic's check, Mark done's and Check this
-  scene leave those rows be), unless contracts are switched off: then a whole check takes them away (`contractsOff`, from
+  for Adam. Only a check through the contract replaces what one found (the critic's check leaves those rows be; since
+  "Findings that stay current", below, Mark done's and Check this scene go through the scene's latest contract, so they
+  can settle them), unless contracts are switched off: then a whole check takes them away (`contractsOff`, from
   `RunDeps.contractsOff` and the chapter writer; `db/checks.ts` `dropContractIssues`) and the report's contract with them
   (`saveReport` with `contract: null`).
 - **AI calls per scene.** None new. Plan before writing: the same one call, with about 120 more tokens of instructions and
@@ -3237,6 +3239,68 @@ store, no migration; the memory keeper's prompt is unchanged (its 58 characters 
   tokens to read (`FAKE_BOOK_READER`), so the book goes in as on DeepSeek, and a fake run's budget is 40 million tokens
   in (`FAKE_BUDGET`: it costs nothing). A real run of the book with and without (`AIWRITE_BRIEF=off` on one) is what will
   tell whether it pays off at length.
+
+## Findings that stay current (2026-10-16)
+
+Adam: "when the user changes something or accepts an edit, the checks and critic don't update, and often show outdated
+suggestions and fixes." A review traced it to eight causes: only listing or counting issues ever put one away, nothing
+followed an issue's own words, accepting a fix didn't save first, Undo left issues wrong, contract questions and
+memory clashes were never withdrawn, and the check report's counts never moved. No migration and no new AI call; the
+critic's notes (`critique/`) and what the checks send to the model are unchanged.
+
+- **Every save sweeps the scene** (`ipc/core.ts` `saveSceneText` → `db/checks.ts` `sweepGone` with the doc and text just
+  saved; listing a scene's issues does the same from the stored scene). Cheap: nothing is read when the scene has no
+  quoted issue open or put away; the paragraphs are made plain once (`sweepPage`), and a 10,000-word scene with 30 issues
+  sweeps in a few milliseconds, in the main process after the save, never per keystroke. What changed is told to the
+  window as `issues:changed`, so the Issues tab, its count and the binder's badges follow. Coming back to a scene reads
+  its issues again too (`issuesStore.ts`: leaving a scene forgets when it was read). A story's list and the badges still
+  sweep by the text alone (`sweepGone` with a story), as a safety net.
+- **An issue follows its own words** (`placeNow`). One found at a place (`occurrence`) is about that appearance of its
+  words: the sweep pins it to the editor's paragraph id and its place there (`IssuePayload.at`), keeps `occurrence`
+  right when text before it changes (Fix the text then works on the right copy), and puts it away when that paragraph
+  no longer has its words, even though another copy is still in the scene. With no paragraph ids it is put away when
+  the scene has fewer appearances than its place needs. Other issues' words count anywhere in the scene, as before; one
+  whose quote runs across two paragraphs stays as it is.
+- **Accepting a fix saves first** (`features/issues/actions.ts` `settleFix`, also the editor chat's issue fix,
+  `ask/applyProposal.ts`): the page is saved (so its sweep puts away the scene's other issues on the same words), then
+  the issue is marked fixed, then the issues are read again.
+- **Undo** (`features/issues/fixHistory.ts`, a plugin in the editor's list, kept out of the document as the repair marks
+  are): an accepted fix is followed in the page; Ctrl+Z taking it back reopens its issue, Ctrl+Y marks it fixed again; a
+  fix Adam edits by hand is no longer followed. And a row the sweep put away comes back open when its words are back in
+  the paragraph it was in (Ctrl+Z after rewriting them by hand; anywhere, for an issue never pinned), never one Adam
+  ignored or fixed, and never beside one about the same thing.
+- **Contract questions** (fix 13's "not shown yet", which point at no words): Check this scene and Mark done (`runs.ts`)
+  go through the scene's latest contract as its latest draft was checked against it, as the chapter writer does
+  (`CheckOptions.contract`; `checks/report.ts` `savedContract`, read from the report's contract, whose items now keep
+  their code, check and entries: `ContractCheckItem.code`, `check`, `entryIds`, written by `repair/contract.ts`
+  `contractResults`), so a check through it settles them. Not the critic after a draft, and not with contracts switched
+  off. Cost: those checks' first request carries the contract's rules and C lines (about 350 tokens more), and when an
+  item is broken or not shown, one second opinion follows, as in the chapter writer.
+- **Memory clashes and Worth a look.** Saving an entry by hand (`keeper/index.ts` `entryEditedByHand` →
+  `db/checks.ts` `settleByEntry`) fixes, by the memory (`fixedBy`, never a slip later scenes are warned of), each open
+  clash whose field now says what the scene says (the keeper's `text`, or the value Update the memory would set). A "no
+  longer says this" note leaves the memory check list once a read rests the fact on words in that scene again (a link
+  of it there that is 'ok': `checkQueue.ts` `saidAgain`), and stands again if those words are edited away.
+- **The check report** (`CheckReportCard.tsx`): its count is the scene's open issues as they are now ("Checked after the
+  latest draft · 6 checks · 1 issue open", "none left open" once all are settled; what the check found until the issues
+  are read), and under it when it ran ("5 minutes ago"). Each report keeps a fingerprint of the words its checks read
+  (`CheckReport.textHash`, `reportHash`); `getCheckReport` says `changed` when the scene's words differ, and the card
+  then says "The scene changed since this check" (checked every few seconds while it shows, as the critique is; a report
+  from before, or one with only the contract checked as a draft landed, never says so).
+- **Later**, beside Ignore (the Issues tab in both looks, Classic's Consistency page and the desk's Check room): the
+  issue stays open but is hidden, and not counted on the badges or the tab, until the paragraph its words are in changes
+  (`IssuePayload.later.words`, a fingerprint of that paragraph) or the next check of the scene (`checks/run.ts` →
+  `clearLater`; the rules finding it again after a read keep it). One with no words to point at waits for the next check.
+  Unlike Ignore it is never taken as meant (fix 7's lessons read only fixed and ignored rows). Toast: "Saved for later.
+  It comes back when you change that part of the scene, or when the scene is checked again." with Undo (Reopen, which
+  ends Later). The Issues tab folds them under "Show for later (n)" with Show now; the story's lists leave them out and
+  say "· 1 saved for later". The sample world raises nothing, so Classic's screenshots are unchanged.
+- **Tests**: `checks/staysCurrent.test.ts` (the sweep, places, rows coming back, Later, clashes, the report and the
+  saved contract), `checks/run.test.ts` (Check this scene and Mark done through the contract, the fingerprint, Later after a
+  check), `keeper/memoryChecks.test.ts` (the note), `features/issues/fixHistory.test.ts` (Ctrl+Z and Ctrl+Y),
+  `features/issues/issuesStore.test.ts` (read again on coming back),
+  `ask/applyStory.test.ts` (saved before marked fixed), and the app test "findings stay current" in
+  `tests/e2e/issues.spec.ts` (Later, words rewritten by hand, Ctrl+Z, the report's count and its "changed" line).
 
 ## Milestone 1 scope
 
