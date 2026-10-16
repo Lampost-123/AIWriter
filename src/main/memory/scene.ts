@@ -25,7 +25,7 @@ import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, sto
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
 import { ledgerOf, type Ledger } from './ledger'
 import * as mem from '../db/memory'
-import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
+import { entryLinkScenes, factHealth, linksForFacts, linksInScene } from '../db/history'
 import { threadTouches } from './threadQuiet'
 import { promiseLedger, threadWarnings, writtenUpTo, type ThreadWarning } from './promises'
 import { threadPlans } from '../db/threadPlans'
@@ -126,11 +126,24 @@ export interface SceneStart {
   state: MemoryStateAll
 }
 
+/** How `sceneMemory` reads a scene (see each). */
+export interface SceneMemoryOptions {
+  /** As the writer is given it (writerData), for the briefing and the "must stay true" list. */
+  forWriter?: boolean
+  dropGuesses?: boolean
+  /**
+   * The words already in the scene a draft carries on from (Add below, a later beat, Continue): what the memory read from
+   * them counts too (soFarState).
+   */
+  soFar?: string
+}
+
 /**
  * What is true as a scene begins, as `sceneMemory` works it out, without the story so far, the threads or the scenes
  * before (the rule-based checks, long story memory fix 8, need only this). Throws (plain words) when the scene is gone.
+ * With `soFar`, what is true at the end of those words instead (soFarState).
  */
-export function sceneStart(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneStart {
+export function sceneStart(db: DB, sceneId: ID, opts: SceneMemoryOptions = {}): SceneStart {
   const shape = loadShape(db)
   const story = storyOfScene(shape, sceneId)
   if (!story) throw new UserError('That scene no longer exists.')
@@ -138,7 +151,8 @@ export function sceneStart(db: DB, sceneId: ID, opts: { forWriter?: boolean; dro
   const data = opts.forWriter ? writerData(db, loaded) : loaded
   const changes = indexChanges(data.changes)
   const line = buildLine(shape, { storyId: story.id, before: sceneId })
-  const state = stateAt(data, shape, line, changes)
+  const begins = stateAt(data, shape, line, changes)
+  const state = opts.soFar?.trim() ? soFarState(db, shape, story.id, sceneId, data, opts.soFar, begins) : begins
   // A guessed field the story has since changed (a change read from the text) is no guess any more. A check leaves the
   // guesses out altogether: the text never contradicts a guess.
   if (opts.forWriter) {
@@ -159,11 +173,49 @@ export function sceneStart(db: DB, sceneId: ID, opts: { forWriter?: boolean; dro
   return { shape, story, loaded, data, changes, line, state }
 }
 
+/** Words as compared: curly quotes and dashes made plain, runs of space one, in lower case. */
+const plainWords = (s: string): string =>
+  s
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[—–]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/**
+ * What is true at the end of the scene so far (review, 2026-10-16): the memory as the scene began, with the scene's own
+ * changes that the memory read from those words (a secret told, a thing handed over, a thread paid off), so the writer
+ * carrying on is never told "kept from Mara" of what she learned a page ago, or that someone still has what they gave
+ * away. Only a change read from the text whose words (a source link still standing) are in `soFar`: never Adam's own
+ * changes for the scene (aims for it, which the scene card's "bring about" says), nor one read from words after the
+ * point Continue carries on from. A change the scene so far ends ("true until" this scene) ends only on the same terms.
+ * Who first appears in the scene stays as at its start. With nothing of the scene's own to add, the state as it began.
+ */
+function soFarState(db: DB, shape: WorldShape, storyId: ID, sceneId: ID, data: MemoryData, soFar: string, begins: MemoryStateAll): MemoryStateAll {
+  const words = plainWords(soFar)
+  const said = (quote: string | null | undefined): boolean => !!quote?.trim() && words.includes(plainWords(quote))
+  const read = new Set(
+    linksInScene(db, sceneId)
+      .filter((l) => l.factKind === 'change' && l.state === 'ok' && said(l.quote))
+      .map((l) => l.factId)
+  )
+  const own = (c: Change): boolean => c.anchor === 'scene' && c.sceneId === sceneId
+  const counts = (c: Change): boolean => c.origin !== 'adam' && read.has(c.id)
+  const ends = (c: Change): boolean => c.until?.sceneId === sceneId
+  if (!data.changes.some((c) => (own(c) && counts(c)) || ends(c))) return begins
+  const changes = data.changes
+    .filter((c) => !own(c) || counts(c))
+    .map((c) => (ends(c) && !(c.until!.origin !== 'adam' && said(c.until!.quote)) ? { ...c, until: undefined } : c))
+  const now = stateAt({ ...data, changes }, shape, buildLine(shape, { storyId, after: sceneId }), indexChanges(changes))
+  return { ...now, firstHere: begins.firstHere }
+}
+
 /**
  * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
- * briefing and the "must stay true" list.
+ * briefing and the "must stay true" list. `soFar`: carrying on from these words of the scene (soFarState).
  */
-export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dropGuesses?: boolean } = {}): SceneMemory {
+export function sceneMemory(db: DB, sceneId: ID, opts: SceneMemoryOptions = {}): SceneMemory {
   const { shape, story, loaded, data, changes, line, state } = sceneStart(db, sceneId, opts)
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
   const previous = previousScene(db, shape, story.id, line)
@@ -364,8 +416,18 @@ function withRecords(db: DB, s: StorySoFar, summaries: SummaryIndex): StorySoFar
  * story's time gap, so the briefing doesn't ask for this story to carry on from it seamlessly.
  */
 function previousScene(db: DB, shape: WorldShape, storyId: ID, line: Line): SceneMemory['previous'] {
-  const step = previousSceneStep(line)
-  const text = step ? mem.sceneText(db, step.sceneId) : null
+  // The last scene before with words: an empty one between (not written yet) is passed over, so this one follows on from
+  // the one before it (review, 2026-10-16: an empty scene left the next with no end of a scene before it to follow). Only
+  // in the story of the scene just before, never back into an earlier book; with none written there yet (a story still
+  // being planned), the scene just before.
+  const just = previousSceneStep(line)
+  const justText = just ? mem.sceneText(db, just.sceneId) : null
+  let step = just
+  if (just && !justText?.text.trim()) {
+    const worded = mem.scenesWithWords(db)
+    step = previousSceneStep(line, (s) => s.storyId === just.storyId && worded.has(s.sceneId)) ?? just
+  }
+  const text = step === just ? justText : step ? mem.sceneText(db, step.sceneId) : null
   if (!step || !text) return null
   const from = shape.stories.find((s) => s.id === step.storyId)
   const scenes = from ? from.chapters.flatMap((c) => c.scenes) : []

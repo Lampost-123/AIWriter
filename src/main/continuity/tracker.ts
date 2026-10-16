@@ -167,12 +167,29 @@ export function timeCues(db: DB, sceneIds: readonly ID[]): Map<ID, string> {
 }
 
 /**
+ * The scenes before this one on the story's line that have words, in order: an empty scene (one not written yet) passes
+ * nothing on and is passed over, so the scene after it starts where the one before it ends (review, 2026-10-16: an empty
+ * scene between left the next one with nothing to start from). Never back into an earlier book, as the writer's scene
+ * before isn't (memory/scene.ts previousScene): with nothing written in the story of the scene just before, that empty
+ * scene stays last and passes nothing on.
+ */
+function wordedBefore(db: DB, sceneId: ID): ID[] {
+  const line = scenesBefore(db, sceneId)
+  const has = (id: ID): boolean => !!kdb.keeperScene(db, id)?.text.trim()
+  const worded = line.filter(has)
+  const last = line.at(-1)
+  if (!last || has(last)) return worded
+  const prev = worded.at(-1)
+  return prev && kdb.keeperScene(db, prev)?.storyId === kdb.keeperScene(db, last)?.storyId ? worded : [...worded, last]
+}
+
+/**
  * The state a scene's own reading builds on: the one kept for the scene before it on the story's line (with a new time
  * starting fresh, startFrom). The scene's end and its checkpoints are all keyed to it, so every reading of the scene
  * finds the same checkpoints.
  */
 const startOf = (db: DB, all: Stored, sceneId: ID): SceneState | null => {
-  const prev = scenesBefore(db, sceneId).at(-1)
+  const prev = wordedBefore(db, sceneId).at(-1)
   return startFrom(db, sceneId, prev, finalOf(all, prev))
 }
 
@@ -182,7 +199,7 @@ const startOf = (db: DB, all: Stored, sceneId: ID): SceneState | null => {
  * the way back, so a scene far back waiting to be read again doesn't leave the scene so far with nothing.
  */
 function startsFresh(db: DB, all: Stored, sceneId: ID): boolean {
-  const line = scenesBefore(db, sceneId)
+  const line = wordedBefore(db, sceneId)
   return line.slice(-CATCH_UP).every((id) => {
     const k = all[id]
     if (!k) return true
@@ -200,7 +217,7 @@ function startsFresh(db: DB, all: Stored, sceneId: ID): boolean {
  * off in an earlier scene's new words, still worn here), and is worked out again before it is used.
  */
 function stands(db: DB, all: Stored, sceneId: ID): boolean {
-  const line = [...scenesBefore(db, sceneId), sceneId]
+  const line = [...wordedBefore(db, sceneId), sceneId]
   let ok = true
   for (let i = 0; i < line.length; i++) {
     const k = all[line[i]]
@@ -578,7 +595,7 @@ export function storedStateAt(db: DB, sceneId: ID, text: string): { state: Scene
  */
 export async function stateBefore(o: TrackOptions, sceneId: ID): Promise<SceneState | null> {
   try {
-    const before = scenesBefore(o.db, sceneId).slice(-CATCH_UP)
+    const before = wordedBefore(o.db, sceneId).slice(-CATCH_UP)
     let last: SceneState | null = null
     for (const id of before) {
       if (o.signal.aborted || o.closed()) break

@@ -16,6 +16,7 @@
 //   fake/slow              a long, slow stream (for Stop tests)
 //   fake/wait              holds its first words back for waitMs (as a thinking model does), then a normal stream
 //   fake/refuse            finish_reason content_filter with no text
+//   fake/refuse-words      finishes normally, its words a refusal ("I'm sorry, but I can't write this scene.")
 //   fake/prude             any request with the word EXPLICIT in it is answered with a polite refusal that finishes as
 //                          usual (PRUDE_REFUSAL), as some models do with explicit scenes; anything else as usual
 //   fake/think             <think> blocks and reasoning fields before the prose
@@ -502,7 +503,7 @@ export async function startFakeProvider(options = {}) {
     // fake/prude turns down whatever has the word EXPLICIT in it, in so many words (a reply that finishes as usual, not a
     // content filter): a memory read, a summary, where things stand, a plan, a check or a draft alike.
     if (model === 'fake/prude' && messages.some((m) => textOf(m.content).includes('EXPLICIT'))) memory = PRUDE_REFUSAL
-    let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
+    let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : model === 'fake/refuse-words' ? "I'm sorry, but I can't write this scene." : fakeProse(words))
     // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.
     const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)
     if (memory === null && lastUser.includes('put who says it and how it is said in curly braces')) {

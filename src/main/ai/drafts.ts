@@ -12,7 +12,7 @@ import { newId, now, UserError } from '../util'
 import { asksForTags, SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from './client'
 import { replyTokenLimit, sentEntryIds, TAG_ALLOWANCE, TOKENS_PER_WORD } from './context'
-import { isKeyFailure, strongContentRefusal } from './errors'
+import { isKeyFailure, looksLikeRefusalReply, strongContentRefusal } from './errors'
 import { carriesPlan, PlanEchoFilter } from '../plan/echo'
 
 type DB = Database.Database
@@ -40,6 +40,13 @@ export interface DraftEnd {
   status: 'complete' | 'stopped' | 'error'
   text: string
   error: string | null
+  /** It came back complete but ran into the reply limit: the words stop partway. */
+  cutOff?: boolean
+  /**
+   * It came back complete, but its words are plainly a refusal (at any content level: at the strong ones the draft is an
+   * error instead, with its own message).
+   */
+  refused?: boolean
 }
 
 const active = new Map<ID, Job>()
@@ -361,7 +368,13 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     cost,
     cutOff
   })
-  return { status, text: job.text, error }
+  return {
+    status,
+    text: job.text,
+    error,
+    ...(cutOff ? { cutOff: true } : {}),
+    ...(status === 'complete' && looksLikeRefusalReply(job.text) ? { refused: true } : {})
+  }
 }
 
 /** Stops a draft; the text so far is kept. Resolves once its record is finished. */
