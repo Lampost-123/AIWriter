@@ -198,9 +198,81 @@ describe('going back in time', () => {
 
   it('never counts a When that takes its year from the scenes before, or a step forward', () => {
     expect(goingBack(story(['20 December 1820', '12 March', 'The next day']))).toEqual([])
-    expect(goingBack(story(['Day 5', 'Flashback: Day 1', 'The next day', 'Day 6']))).toEqual([])
     // A month or a year of its own going back counts.
     expect(goingBack(story(['June 1820', 'March 1819'])).map((b) => b.sceneId)).toEqual(['s2'])
+  })
+
+  it('carries the present on from the present after a flashback, and holds it to the present', () => {
+    // The step after a flashback counts from the scene before the flashback, not from the flashback.
+    const days = story(['Day 5', 'Flashback: Day 1', 'The next day', 'Day 6'])
+    expect(days.order.map((id) => days.dates.get(id)!.date)).toEqual(['Day 5', 'Day 1', 'Day 6', 'Day 6'])
+    expect(goingBack(days)).toEqual([])
+    const real = story(['12 March 1820', 'Flashback: 2 February 1810', 'Flashback: the next day', 'The next morning', '5 March 1820'])
+    expect(real.order.map((id) => real.dates.get(id)!.date)).toEqual([
+      '12 March 1820',
+      '2 February 1810',
+      '3 February 1810',
+      '13 March 1820',
+      '5 March 1820'
+    ])
+    // "5 March 1820" is held to the present before it (13 March), not to the flashback.
+    expect(goingBack(real).map((b) => [b.sceneId, b.beforeId, b.elapsed.days])).toEqual([['s5', 's4', -8]])
+  })
+
+  it('counts a time of day back only when it is certain: night after 11pm may be the same hour', () => {
+    expect(goingBack(story(['Day 3, 11pm', 'Day 3, night']))).toEqual([])
+    expect(goingBack(story(['Day 3, evening', 'Day 3, 7pm']))).toEqual([])
+    expect(goingBack(story(['Day 3, 11pm', 'Day 3, 9am'])).map((b) => b.sceneId)).toEqual(['s2'])
+    expect(goingBack(story(['Day 3, night', 'Day 3, morning'])).map((b) => b.sceneId)).toEqual(['s2'])
+  })
+})
+
+describe('impossible dates, BC and half a year', () => {
+  it('never rolls a day its month doesn’t have into the next month', () => {
+    const cal = story(['31 April 1820', '29 February 1821', '1 January 1821', '29 February', '29 February 1820'])
+    expect(cal.order.map((id) => cal.dates.get(id)!.reading)).toEqual(['unclear', 'unclear', 'read', 'unclear', 'read'])
+    // "29 February" after 1 January 1821 has no such day that year.
+    expect(at(cal, 4)).toMatchObject({ axis: null, date: '' })
+    expect(at(cal, 5).date).toBe('29 February 1820')
+    // With no year anywhere, 29 February may be in a leap year: it stays itself.
+    const plain = story(['29 February', 'the next day'])
+    expect(plain.order.map((id) => plain.dates.get(id)!.date)).toEqual(['29 February', '1 March'])
+  })
+
+  it('counts across the BC/AD line with no year 0', () => {
+    const cal = story(['15 March 44 BC', '15 March AD 14'])
+    expect(at(cal, 1).date).toBe('15 March 44 BC')
+    // 44 BC to AD 14 is 57 years: there is no year 0.
+    expect(gap(cal, 1, 2)).toBe('about 57 years')
+    expect(ageFrom({ born: dateOfText(cal, '1 January 10 BC', null)! }, at(cal, 2))).toEqual({ lo: 23, hi: 23, about: false })
+  })
+
+  it('reads half a year as six months, and half a day as later the same day', () => {
+    const cal = story(['12 June 1820', 'Half a day later', 'half a year later', 'A year and a half later', 'half a week later'])
+    expect(cal.order.map((id) => cal.dates.get(id)!.date)).toEqual(['12 June 1820', '12 June 1820', 'December 1820', 'June 1822', ''])
+    expect(gap(cal, 1, 3)).toBe('about 6 months')
+    expect(at(cal, 5).reading).toBe('unclear')
+  })
+})
+
+describe('the day since the story began', () => {
+  it('counts from the first scene that isn’t a flashback, and none before it', () => {
+    const cal = story(['Flashback: 2 February 1810', '12 March 1820', '14 March 1820', 'Flashback: 3 February 1810'])
+    expect(days(cal)).toEqual([null, 1, 3, expect.any(Number)])
+    expect(storyDayWords(at(cal, 3))).toBe('day 3 of the story')
+    // A flashback after the story began is before its first day: no "day of the story".
+    expect(storyDayWords(at(cal, 4))).toBe('')
+    expect(days(story(['Flashback: 2 February 1810']))).toEqual([null])
+  })
+
+  it('keeps a bare "Day N" as the story’s own count, and a "Day N" of a year as a day of that year', () => {
+    expect(days(story(['Day 5', 'Day 41']))).toEqual([5, 41])
+    const years = story(['Day 300, Year 1', 'Day 310, Year 1', 'Day 5, Year 2'])
+    // Within the year the sums work and the day counts from the first; across years, how far apart isn't known.
+    expect(days(years)).toEqual([1, 11, null])
+    expect(gap(years, 1, 2)).toBe('10 days')
+    expect(gap(years, 2, 3)).toBe('unknown')
+    expect(dateLabel(at(years, 2))).toBe('Day 310, Year 1 · day 11 of the story')
   })
 })
 
@@ -309,6 +381,17 @@ describe('ages', () => {
     const reign = story(['Day 3, Year 330'])
     expect(ageWords(ageFrom({ born: dateOfText(reign, 'Year 312', null)! }, at(reign, 1))!)).toBe('17 or 18')
     expect(ageFrom({ born: born('1790') }, at(reign, 1))).toBeNull()
+  })
+
+  it('works out an age from an age at a real date by whole years, as a birthday counts them', () => {
+    const cal = story(['1 March 1820', '28 February 1823', '1 March 1823', '2 March 1823', '20 June 1820', '29 February 1824'])
+    const age = (n: number, then = 1) => ageWords(ageFrom({ years: 34, then: at(cal, then) }, at(cal, n))!)
+    expect(age(1)).toBe('34')
+    // The day before the third anniversary: 36 or 37; on it, 37; the day after, 37 or 38 (a birthday may have come).
+    expect([age(2), age(3), age(4)]).toEqual(['36 or 37', '37', '37 or 38'])
+    expect(age(6)).toBe('37 or 38')
+    // Back in time: 34 on 1 March 1823 is 31 or 32 on 20 June 1820, and 31 on 1 March 1820.
+    expect([age(5, 3), age(1, 3)]).toEqual(['31 or 32', '31'])
   })
 
   it('works out an age for a date from an age at another', () => {

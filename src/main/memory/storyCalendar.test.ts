@@ -9,9 +9,20 @@ import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
 import * as mem from '../db/memory'
 import { dbWorld } from '../../../tests/unit/testWorld'
+import { memoryWorld } from '../../../tests/unit/helpers'
 import { timeCues } from '../continuity/tracker'
 import { sceneMemory } from './scene'
-import { ageAt, elapsedBetweenScenes, sceneCalendar, scenesGoingBack, storyCalendar, storyDateAt, storyDateViews } from './storyCalendar'
+import {
+  ageAt,
+  calendarOfScene,
+  elapsedBetweenScenes,
+  sceneCalendar,
+  sceneDateView,
+  scenesGoingBack,
+  storyCalendar,
+  storyDateAt,
+  storyDateViews
+} from './storyCalendar'
 import { elapsedWords } from './calendar'
 
 function world(whens: Record<string, string>) {
@@ -90,6 +101,65 @@ describe('a story’s calendar', () => {
     expect(storyCalendar(v.db, v.id('b1'))).toBe(first)
     v.card('b1.c1.s1', { when: 'Day 7' })
     expect(storyDateAt(v.db, v.id('b1.c1.s2'))?.day).toBe(8)
+  })
+
+  it('is kept while only other things are written (where things stand, the memory, the words), read again for a chapter or a move', () => {
+    const v = world({ 'b1.c1.s1': 'Day 1, dusk', 'b1.c1.s2': 'That night' })
+    const first = storyCalendar(v.db, v.id('b1'))
+    repo.setMeta(v.db, 'continuity', '{}')
+    repo.createEntry(v.db, 'character', { name: 'Someone new' })
+    const doc = { type: 'doc', content: [{ type: 'paragraph', attrs: { pid: 'p1' }, content: [{ type: 'text', text: 'Words.' }] }] }
+    repo.saveSceneText(v.db, v.id('b1.c1.s1'), doc, 'Words.')
+    expect(storyCalendar(v.db, v.id('b1'))).toBe(first)
+    // A chapter renamed (the start of a chapter is said by its title) is read again.
+    repo.updateChapter(v.db, v.id('b1.c1'), { title: 'The Siege' })
+    expect(storyCalendar(v.db, v.id('b1'))).not.toBe(first)
+  })
+
+  it('says one scene’s date on its own, and keeps it with the calendar', () => {
+    const v = world({ 'b1.c1.s1': 'Day 1', 'b1.c1.s2': 'The next morning' })
+    let asked = 0
+    const cues = (): Map<string, string> => {
+      asked++
+      return new Map()
+    }
+    const view = sceneDateView(v.db, v.id('b1.c1.s2'), cues)
+    expect(view).toMatchObject({ label: 'Day 2 · morning', note: 'Reads as Day 2 · morning.' })
+    expect(sceneDateView(v.db, v.id('b1.c1.s2'), cues)).toBe(view)
+    // The memory is read only for a scene with no When.
+    expect(asked).toBe(0)
+    sceneDateView(v.db, v.id('b1.c2.s1'), cues)
+    expect(asked).toBe(1)
+  })
+})
+
+describe('a long story', () => {
+  it('works out 500 scenes once, and the stage tracker asks about each without reading it all again', () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const first = repo.getOutline(db, story.id).chapters[0]
+    const ids: string[] = [repo.getOutline(db, story.id).scenes[0].id]
+    for (let c = 0; c < 25; c++) {
+      const chapter = c === 0 ? first : repo.createChapter(db, story.id, { title: `Chapter ${c + 1}` })
+      for (let i = c === 0 ? 1 : 0; i < 20; i++) ids.push(repo.createScene(db, chapter.id, { title: `Scene ${i + 1}` }).id)
+    }
+    expect(ids).toHaveLength(500)
+    ids.forEach((id, i) =>
+      repo.updateSceneCard(db, id, { ...emptySceneCard(), when: i === 0 ? 'Day 1, dawn' : i % 3 ? 'Later that day' : 'The next morning' })
+    )
+    const t0 = performance.now()
+    const cal = calendarOfScene(db, ids[0])!
+    const built = performance.now() - t0
+    expect(cal.dates.get(ids[499])?.day).toBe(167)
+    // As the tracker reads (startFrom for every scene, writing where things stand between): the same calendar each time.
+    const t1 = performance.now()
+    for (const id of ids) {
+      repo.setMeta(db, 'continuity', JSON.stringify({ [id]: {} }))
+      expect(calendarOfScene(db, id)).toBe(cal)
+    }
+    const asked = performance.now() - t1
+    expect(built).toBeLessThan(2_000)
+    expect(asked).toBeLessThan(1_000)
   })
 })
 

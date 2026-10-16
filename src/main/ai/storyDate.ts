@@ -17,6 +17,7 @@ import {
   elapsedWords,
   sameMoment,
   storyDayWords,
+  timeOrder,
   type SceneCalendar,
   type StoryDate
 } from '../memory/calendar'
@@ -57,8 +58,9 @@ export const storyDateAges = (scale: number): number => Math.min(6, Math.max(3, 
 function sincePrevious(previous: StoryDate | null, here: StoryDate): string {
   const e = elapsedBetween(previous, here)
   if (!e) return ''
+  // Earlier the same day only where it is certain: "That night" after "11pm" may be the same hour.
   if (e.days === 0)
-    return e.minutes !== undefined && e.minutes < 0 ? 'earlier the same day than the scene before' : 'the same day as the scene before'
+    return timeOrder(previous, here) === -1 ? 'earlier the same day than the scene before' : 'the same day as the scene before'
   if (e.days < 0) return `${elapsedWords(e)} before the scene before${here.back ? ', a flashback' : ''}`
   return `${elapsedWords(e)} since the scene before`
 }

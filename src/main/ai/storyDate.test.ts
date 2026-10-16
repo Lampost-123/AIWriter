@@ -88,6 +88,13 @@ describe('the story date on the scene card', () => {
     expect(storyDateLines(cards('Day 2', 'Day 10'))[0]).toBe('Story date: Day 2 (8 days before the scene before)')
   })
 
+  it('says earlier the same day only when it is certain: that night after 11pm may be the same hour', () => {
+    expect(storyDateLines(cards('That night', 'Day 3, 11pm'))[0]).toBe('Story date: Day 3, night (the same day as the scene before)')
+    expect(storyDateLines(cards('Day 3, morning', 'Day 3, 11pm'))[0]).toBe(
+      'Story date: Day 3, morning (earlier the same day than the scene before)'
+    )
+  })
+
   it('works out the ages of those on the card, when the sums change them', () => {
     const cal = buildCalendar(['1 March 1820', '20 June 1820'].map((when, i) => ({ id: `s${i + 1}`, story: 'book', when })))
     const born: AgeHere = { age: { lo: 30, hi: 30, about: false }, basis: 'born 12 March 1790', born: true }
