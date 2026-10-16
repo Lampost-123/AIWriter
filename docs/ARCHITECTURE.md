@@ -3238,6 +3238,44 @@ store, no migration; the memory keeper's prompt is unchanged (its 58 characters 
   in (`FAKE_BUDGET`: it costs nothing). A real run of the book with and without (`AIWRITE_BRIEF=off` on one) is what will
   tell whether it pays off at length.
 
+## Scenes that hand off to each other (review, 2026-10-16)
+
+Adam writes long books with "Write the whole chapter" and wants each scene to start exactly where the last ended (time,
+place, who is there, clothes, positions). A code review found these gaps in the hand-off; each is fixed and tested
+(`ai/handOff.test.ts`, `memory/soFar.test.ts`, `chapterWriter/chapterWriter.test.ts`, `ai/contract.test.ts`).
+
+- **The scene after a changed one is checked** (`chapterWriter/run.ts` `gather`). A scene's checks look back at the stage
+  before it, never forward, so a review that changed a scene's ending (her dress back on) left the next scene's opening
+  (the dress on the floor) unchecked. Each round now also checks the scene after each one changed (`sceneAfter`: the next
+  scene in the story with words). One of the chapter's goes to its review like any other; one the run doesn't write (the
+  next chapter's first scene, or a scene of the chapter with no card) is checked but never changed, and what its check
+  finds that wasn't open before the run looked is noted for Adam: `ChapterWriterReport.notes`, "Worth a look" in the
+  report (`ChapterWriterReport.tsx`).
+- **Where things stand is read alongside the catch-up** (`ai/gather.ts` `withStageRead`, registered by `keeper/index.ts`).
+  It ran after the keeper's catch-up inside the same wait, and the summaries a draft needs first (fix 15) could take it
+  all. It is looked up again once the plan is made (`draftFlow.ts` `withStageNow`: one that came in during the plan's wait
+  is told after all). A draft that still goes without it tells Adam (`gather.ts` `stageNote`, `STAGE_LATE`,
+  `STAGE_LATE_SO_FAR`): `startDraft` returns `note`, shown as a toast (`draftRun.ts`); the chapter writer's report lists
+  it. Not when nothing comes before the scene in its story, or the memory can't work (`keeper/index.ts` `memoryReady`).
+- **Add below without a stage for the scene so far** (`gather.ts` `carryOnFrom`). When where things stand at the end of
+  the scene so far times out or fails, nothing of where the previous scene ended is told, and the contract has nothing
+  for the start (`ContractInput.noStart`; Continue's too, `edits/briefing.ts`), so the check as the draft lands no longer
+  holds the new words to an old "blue dress, on".
+- **Carrying on, the memory includes the scene so far** (`memory/scene.ts` `SceneMemoryOptions.soFar`, `soFarState`;
+  `gatherContextInput`'s `soFar`, Continue's `input.before`). The scene's own changes read from its words count when their
+  words (a source link still standing) are in the scene so far: a secret told is no longer "kept from" the one told, a
+  thing handed over no longer "still has", a thread paid off no longer open. Never Adam's own changes for the scene
+  (aims), nor a change read from words after Continue's cursor. Who first appears in the scene stays as at its start.
+- **Smaller ones.** The study gives where everyone starts for the chapter's first scene only; a later scene's notes end
+  with `LATER_START` (its start is where the scene before ends, as written). Each scene's contract is made again before
+  each of the chapter writer's checks (`ai/contractAgain.ts`, `draftFlow.ts` `contractNow`, from what its draft was
+  asked for and the plan's "must"), so an earlier scene's change reaches it. A draft cut off at the reply limit or a
+  refusal sent back as words (`DraftEnd.cutOff`, `DraftEnd.refused`) stops the run instead of being saved as the scene.
+  An empty scene (not written yet) is passed over when looking back (`memory/line.ts` `previousSceneStep`'s `take`,
+  `memory/scene.ts` `previousScene`, `continuity/tracker.ts` `wordedBefore`), only within the story of the scene just
+  before. A direction that only says how the words should read ("make it darker": `ai/contract.ts` `toneOnly`) is
+  nothing that must change, and never a "not shown yet" question (`repair/contract.ts` `judgeContract`).
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
