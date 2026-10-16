@@ -96,6 +96,12 @@ export interface ChapterWriterReport {
   scenes: ChapterWriterSceneReport[]
   /** What was still open when it ended (only when it didn't finish clean). */
   left: string[]
+  /**
+   * Things for Adam to look at that the run couldn't put right itself, in plain words: a scene after the chapter (or one
+   * without a card) that may no longer follow on from it, and anything a scene's draft said about how it was written
+   * (where things stand wasn't ready, say). Left out of reports kept before it was added.
+   */
+  notes?: string[]
   /** The agent's own last words on the chapter. */
   summary: string
   /** True once Undo has put the chapter back. */

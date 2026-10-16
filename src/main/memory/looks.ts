@@ -5,6 +5,45 @@
 // set the clothing itself, the pieces of the clothing that name it go (memory/state.ts). Taken off for a while ("took
 // his hat off to greet her") is not gone. Pure.
 
+// ---------- Clothes off for a while are not what someone typically wears ----------
+// A live test on 2026-10-16 (DeepSeek Flash): after an undressing scene the memory model set both lovers' "Typical
+// clothing" to "none" and "nothing", and every later scene was told "Mara Venn, typical clothing: nothing" as something
+// that must stay true. Clothes taken off for a while (to wash, to sleep, to make love) are where things stand
+// (continuity/tracker.ts keeps each piece), never who someone is. So a Typical clothing value that says only that nothing
+// is worn, or only what came off, is never taken from the text (keeper/apply.ts) nor counted when the memory is read
+// (memory/state.ts), and the profile keeps what it said; nor is any Looks value that says only that someone is naked.
+
+/** Nothing worn, said first: "none", "nothing at all", "naked except for her stockings", "nothing (undressed)". */
+const UNDRESSED =
+  /^(?:wearing nothing|nothing|none|naked|nude|in the nude|undressed|unclothed|stripped|bare|no clothes|(?:half|partly|partially)[- ](?:dressed|undressed|naked))(?:\s+(?:at all|on))?(?=\s*(?:$|[,;.:!(—–-])|\s+(?:but|except|save|apart|other than|besides|now)\b)/i
+/** Naked, said first, for a Looks field other than clothing ("naked and flushed" is no build or skin). */
+const NAKED = /^(?:naked|nude|undressed|unclothed)\b/i
+/** Pieces of a value that each say only that something came off: "dress off", "boots removed", "barefoot". */
+const OFF_PIECE = /(?<![\p{L}-])(?:off|removed|shed|discarded)(?![\p{L}-])|^(?:bare ?foot(?:ed)?|bare[- ]feet)$/iu
+const KEPT_ON = /\b(?:not|never|without)\b|n['’]t\b/i
+
+/** The Looks fields (shared/fields.ts) a passing undress may reach. */
+const LOOKS = new Set(['build', 'face', 'hair', 'eyes', 'skin', 'marks', 'clothing', 'movement'])
+
+/**
+ * True when a value for one of a character's Looks fields only says they are undressed for now (see above): for Typical
+ * clothing, nothing worn ("none", "nothing", "naked but for her locket") or only what came off ("dress off, stockings
+ * off"); for the other Looks fields, naked. Never for a value that says what they do wear.
+ */
+export function passingLook(field: string, value: string | null | undefined): boolean {
+  const v = (value ?? '').replace(/\s+/g, ' ').trim()
+  if (!v || !LOOKS.has(field)) return false
+  if (field !== 'clothing') return NAKED.test(v)
+  if (UNDRESSED.test(v)) return true
+  const pieces = v.split(/\s*[,;]\s*/).filter(Boolean)
+  return pieces.length > 0 && pieces.every((p) => OFF_PIECE.test(p) && !KEPT_ON.test(p))
+}
+
+/** A character's fields from the text without the Looks values a passing undress gave (passingLook). */
+export function withoutPassingLooks(fields: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(fields).filter(([k, v]) => !passingLook(k, v)))
+}
+
 /** Things worn that a profile's clothing may name. */
 const GEAR =
   'boots?|shoes?|slippers?|coat|greatcoat|cloak|oilskin|hat|cap|bonnet|hood|gloves?|mittens?|stockings?|shawl|scarf|apron|belt|sash|bandages?|sling|dressing|splint|eyepatch|jumper|shirt|jacket|waistcoat|vest|spectacles|glasses|ring|necklace|locket|bracelet|earrings?|brooch|veil|mask|pack|satchel|sword belt|spurs?'

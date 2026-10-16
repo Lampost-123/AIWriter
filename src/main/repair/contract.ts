@@ -14,7 +14,7 @@
 
 import type { ContractCheckItem, ContractResult, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
-import { contractText, mostlyIn, type ContractItem, type SceneContract } from '../ai/contract'
+import { contractText, mostlyIn, toneOnly, type ContractItem, type SceneContract } from '../ai/contract'
 import type { FoundIssue } from '../db/checks'
 import { KIND_OF_CHECK, plainQuote } from '../checks/quote'
 import { parseLenient, str } from '../keeper/json'
@@ -140,7 +140,8 @@ export function judgeContract(answers: ContractAnswer[], c: SceneContract, newWo
         fix: a.fix,
         question: a.question
       })
-    } else if (a.result === 'not yet' && item.part === 'change' && c.asks !== 'continue' && !mostlyIn(item.text, newWords)) {
+    } else if (a.result === 'not yet' && item.part === 'change' && c.asks !== 'continue' && !toneOnly(item.text) && !mostlyIn(item.text, newWords)) {
+      // Never for how the words should read ("make it darker", a contract kept from before tone-only directions were left out).
       out.notYet.push(item)
     }
   }

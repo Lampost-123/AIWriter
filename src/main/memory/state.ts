@@ -39,7 +39,7 @@
 import type { BeliefState, Change, EntryState, FactState, ID, Learned, RelationshipPayload, RelationshipState, ThreadState } from '@shared/types'
 import type { Line, MemoryData, MemoryState, WorldShape } from './types'
 import { hostSpans, labeler } from './line'
-import { clothingAfter } from './looks'
+import { clothingAfter, passingLook } from './looks'
 import { learnedHow } from './ledger'
 
 /** MemoryState, plus every entry that doesn't exist here, as of this point (for "not in the story yet" labels). */
@@ -143,7 +143,11 @@ export function stateAt(
   const answers = new Set(data.answers.filter((a) => a.kind === 'which-last' && a.value === 'side').map((a) => a.key))
 
   const states = new Map<ID, EntryState>()
-  for (const e of data.entries) states.set(e.id, { ...e, fields: { ...e.fields }, happened: [], changed: [] })
+  // A Looks value the text gave that says only that someone is undressed for now ("Typical clothing: nothing") is no
+  // part of who they are (memory/looks.ts passingLook): never Adam's own words.
+  const fieldsOf = (e: (typeof data.entries)[number]): Record<string, string> =>
+    e.kind === 'character' ? Object.fromEntries(Object.entries(e.fields).filter(([k, v]) => (e.fieldOrigins?.[k] ?? e.origin) === 'adam' || !passingLook(k, v))) : { ...e.fields }
+  for (const e of data.entries) states.set(e.id, { ...e, fields: fieldsOf(e), happened: [], changed: [] })
   const rels = new Map<string, RelationshipState>()
   const knows = new Map<ID, Set<ID>>()
   const factText = new Map<ID, string>()
@@ -376,6 +380,8 @@ export function stateAt(
         const p = c.payload
         if (p.note) e.happened.push({ note: p.note, where, changeId: c.id, at })
         for (const [k, v] of Object.entries(p.fields ?? {})) {
+          // Clothes off for a while are where things stand, not what they typically wear (memory/looks.ts).
+          if (e.kind === 'character' && c.origin !== 'adam' && passingLook(k, v)) continue
           remember(c, e, k)
           touchField(e, k)
           e.fields[k] = v
@@ -419,6 +425,8 @@ export function stateAt(
           addChanged(e, 'summary', where)
         }
         for (const [k, v] of Object.entries(p.fields ?? {})) {
+          // Clothes off for a while are where things stand, not what they typically wear (memory/looks.ts).
+          if (e.kind === 'character' && c.origin !== 'adam' && passingLook(k, v)) continue
           remember(c, e, k)
           touchField(e, k)
           e.fields[k] = v

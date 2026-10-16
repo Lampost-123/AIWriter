@@ -41,7 +41,7 @@ What to do
 1. Read the chapter card and each scene card below.
 2. Look up everyone and everything the cards name or need: who they are now, where they are, what they hold and wear, what they know and don't know, injuries, what they have lost or given away, their relationships.
 3. Check the timeline and the story so far: when each scene happens, how much time has passed, what has already happened (so nothing is written again as new), which plot threads are open.
-4. Call write_brief once, at the end: for each scene, the facts the writer must keep to (each with where it comes from), who knows what, where everyone and everything starts, when it happens, the threads to touch, and the traps to avoid. Under questions, list anything in the cards that doesn't fit the memory, and say in the scene's notes how the scene will stay true to the memory instead.
+4. Call write_brief once, at the end: for each scene, the facts the writer must keep to (each with where it comes from), who knows what, when it happens, the threads to touch, and the traps to avoid; for the chapter's first scene only, where everyone and everything starts. Each later scene starts exactly where the scene before it ends, which isn't written yet: the app tells the writer where everyone is, what they wear and hold, at that point, so never guess it. Under questions, list anything in the cards that doesn't fit the memory, and say in the scene's notes how the scene will stay true to the memory instead.
 
 ${RULES}
 
@@ -82,7 +82,7 @@ The scene's words are below, each paragraph numbered.`
 export const WRITE_BRIEF: ToolSpec = {
   name: 'write_brief',
   description:
-    'Write the brief the chapter is written to, once, when you have studied the chapter. `overview`: a few lines on the chapter. `scenes`: one item per scene, in order, with its notes for the writer (facts to keep to with where they come from, who knows what, where everyone and everything starts, when it happens, threads to touch, traps to avoid). `questions`: anything in the scene cards that doesn\'t fit the memory, for the author.',
+    'Write the brief the chapter is written to, once, when you have studied the chapter. `overview`: a few lines on the chapter. `scenes`: one item per scene, in order, with its notes for the writer (facts to keep to with where they come from, who knows what, when it happens, threads to touch, traps to avoid; where everyone and everything starts for the first scene only, as each later one starts where the scene before it ends). `questions`: anything in the scene cards that doesn\'t fit the memory, for the author.',
   parameters: {
     type: 'object',
     properties: {

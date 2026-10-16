@@ -52,6 +52,11 @@ export interface ContractInput {
   focus?: string
   /** What the plan before writing said must change, checked against the card (plan/plan.ts); left out: no plan. */
   planned?: string[]
+  /**
+   * Carrying on from the scene so far without where things stand at its end (it wasn't worked out in time): the contract
+   * says nothing must be true where the draft carries on from (review, 2026-10-16), as what held before may not now.
+   */
+  noStart?: boolean
 }
 
 export const CONTRACT_BLOCK = { id: 'scene-contract', title: 'This scene’s contract' } as const
@@ -110,6 +115,41 @@ export function mostlyIn(item: string, text: string): boolean {
   return shared(w, meaningWords(text)) >= Math.ceil(w.size * 0.6)
 }
 
+/** Words that say how a passage reads, not what happens in it ("make it darker", "more dialogue, a faster pace"). */
+const TONE = new Set(
+  (
+    'dark darker darkest bleak bleaker grim grimmer light lighter bright brighter warm warmer cold colder cool cooler sad sadder ' +
+    'happy happier funny funnier humour humor humorous witty wit playful serious tense tenser tension suspense suspenseful scary ' +
+    'scarier creepy creepier eerie spooky ominous menacing dread moody mood atmospheric atmosphere gritty grittier tender softer ' +
+    'soft gentle gentler harsh harsher rough rougher romantic sexy sexier steamy steamier sensual intimate intense intensity ' +
+    'emotional emotion emotive dramatic subtle subtler quiet quieter loud louder calm calmer angry angrier hopeful lyrical poetic ' +
+    'sparse terse spare lean tight tighter punchy punchier crisp crisper vivid descriptive description detail detailed details ' +
+    'sensory dialogue pace pacing paced slow slower fast faster quick quicker brisk short shorter long longer simple simpler plain ' +
+    'plainer formal casual literary tone voice style prose sentences sentence wording feel feeling flavour flavor texture rhythm ' +
+    'adverbs adjectives metaphors cliches clichés fewer'
+  ).split(' ')
+)
+/** The little words a tone-only direction may have besides. */
+const TONE_LITTLE = new Set(
+  'make it its this that the a an bit little lot much more less most least very far way slightly somewhat rather quite even too so and or but keep give add use cut trim with of in on to up down please overall throughout whole scene passage draft writing write'.split(
+    ' '
+  )
+)
+
+/**
+ * True when a direction only says how the words should read, not what should happen ("make it darker", "more dialogue",
+ * "tone it down"): it isn't something that must change, and never a "not shown yet" question (review, 2026-10-16). Any
+ * other word (a name, a deed) and it is what must happen.
+ */
+export function toneOnly(direction: string): boolean {
+  const words = clean(direction)
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .split(/[^\p{L}]+/u)
+    .filter(Boolean)
+  return words.some((w) => TONE.has(w)) && words.every((w) => TONE.has(w) || TONE_LITTLE.has(w))
+}
+
 // ---------- Building it ----------
 
 export interface ContractFrom {
@@ -139,6 +179,8 @@ export interface ContractFrom {
    * (the check of the new words compares with the stage itself).
    */
   stageShown?: boolean
+  /** Nothing at the start: carrying on with no stage for the scene so far's end (ContractInput.noStart). */
+  noStart?: boolean
 }
 
 /** Where a line of what must stay true goes in the contract, and in what order (lower first); null: not in it. */
@@ -178,7 +220,8 @@ export function mustChange(o: Pick<ContractFrom, 'asks' | 'card' | 'threads' | '
   type Item = { text: string; entryIds: ID[] }
   const plain = (t: string): Item => ({ text: clip(clean(t)), entryIds: [] })
   const beats = o.card.beats.map(clean).filter(Boolean)
-  const direction = clean(o.direction)
+  // A direction that only says how it should read ("make it darker") asks for nothing to happen: the card's words stand.
+  const direction = toneOnly(o.direction) ? '' : clean(o.direction)
   // What the draft is asked for in the author's own words (Continue's "what happens next", Add below's direction, a whole
   // scene's direction), and what the card asks (a beat: that beat with the author's note for it).
   const asked = o.asks !== 'beat' && direction ? [plain(direction)] : []
@@ -263,10 +306,12 @@ export function sceneContract(o: ContractFrom): SceneContract | null {
     const name = knowers.length === 1 ? who.name : `${knowers.slice(0, -1).map((p) => p.name).join(', ')} and ${knowers[knowers.length - 1].name}`
     knows.push({ text: clip(`${name} ${knowers.length === 1 ? 'knows' : 'know'}: ${clean(f.fact).replace(/[.]$/, '')}${since ? ` (${since})` : ''}`), entryIds: knowers.map((p) => p.id) })
   }
-  const start = [
-    ...startLines.map((l) => ({ text: l.text, check: CHECK_OF[l.kind] ?? ('facts' as CheckKind), entryIds: l.entryIds })),
-    ...knows.map((k) => ({ ...k, check: 'knowledge' as CheckKind }))
-  ].slice(0, CONTRACT_MOST.start)
+  const start = o.noStart
+    ? []
+    : [
+        ...startLines.map((l) => ({ text: l.text, check: CHECK_OF[l.kind] ?? ('facts' as CheckKind), entryIds: l.entryIds })),
+        ...knows.map((k) => ({ ...k, check: 'knowledge' as CheckKind }))
+      ].slice(0, CONTRACT_MOST.start)
 
   // Must not change: never what the change list itself changes (changedBy), so the contract never goes against itself.
   const keep = pick(KEEP_ORDER, CONTRACT_MOST.keep, (l) => changedBy(l, change.map((c) => c.text)))

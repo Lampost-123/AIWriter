@@ -500,6 +500,17 @@ describe('drafting', () => {
     expect(gens.getGeneration(w.db, normal.generationId).params.cutOff).toBeUndefined()
   })
 
+  it('tells whoever waits for a draft that it was cut off, or that its words are a refusal', async () => {
+    const { emit } = recorder()
+    expect(await start(w, emit, 'fake/length').done).toMatchObject({ status: 'complete', cutOff: true })
+    // At mild content levels a refusal sent back as words "finishes": the chapter writer must never keep it as a scene.
+    expect(await start(w, emit, 'fake/refuse-words').done).toMatchObject({ status: 'complete', refused: true })
+    const normal = await start(w, emit).done
+    expect(normal.status).toBe('complete')
+    expect(normal.cutOff).toBeUndefined()
+    expect(normal.refused).toBeUndefined()
+  })
+
   it('records how the settings were sent to a model that wants them differently', async () => {
     const { emit, done } = recorder()
     const { generationId } = start(w, emit, 'fake/o3')

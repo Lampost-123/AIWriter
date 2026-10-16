@@ -14,6 +14,7 @@ import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
 import type { MemoryModel } from '../keeper/model'
 import {
+  castFor,
   editState,
   keptStateBefore,
   mergeState,
@@ -25,6 +26,7 @@ import {
   stateText,
   storedState,
   storedStateAt,
+  MOST_CAST,
   type SceneState
 } from './tracker'
 
@@ -963,7 +965,8 @@ describe('where things stand', () => {
     // Ash hung his own coat on the peg: he no longer has it on. His spurs and hat, and Tobin's hat, stay.
     expect(ash.clothes!.map((p) => p.name)).toEqual(['spurs', 'hat'])
     expect(tobin.clothes!.map((p) => p.name)).toEqual(['hat'])
-    expect(after.things).toHaveLength(7)
+    // Ash's spurs, on his feet, are a piece he wears, not a thing in the place (2026-10-16: garmentsAsPieces).
+    expect(after.things!.map((t) => t.name)).toEqual(['the door', "Ash's coat", 'the mugs', 'the boots', 'the fire', 'a hat'])
   })
 
   it('says who touches whom and who can see or hear whom only when the words say so', () => {
@@ -1168,5 +1171,131 @@ describe('where things stand', () => {
     const things = text.slice(text.indexOf('Things here:'))
     expect(things.length).toBeLessThan(700)
     expect(things).toContain('stone 12')
+  })
+})
+
+// ---------- Code review, 2026-10-16: nudity, moves within a place, worn clothes as things, every piece told ----------
+
+describe('where things stand: the 2026-10-16 review', () => {
+  const words = 'She stepped out of everything and let it fall to the floor. Ash took her hand. Later she lay back on the bed.'
+  /** Mara dressed, Ash undressed and holding her hand, both on the bed. */
+  const dressed = (): SceneState => ({
+    time: '',
+    weather: '',
+    light: '',
+    characters: [
+      person('Mara Venn', {
+        where: 'on the bed',
+        touching: "Ash's hand in hers",
+        clothes: [
+          { name: 'green dress', state: 'on, unlaced' },
+          { name: 'grey stockings', state: 'on' },
+          { name: 'boots', state: 'off, by the door' },
+          { name: 'silver locket', state: 'on' }
+        ]
+      }),
+      person('Ash Penrose', { where: 'on the bed', touching: "Mara's hand" })
+    ],
+    said: { 'mara venn|clothes:boots': { quote: 'set them side by side by the door', sceneId: 'inn' } }
+  })
+  const read = (reply: unknown): NonNullable<ReturnType<typeof readChanges>> => readChanges(JSON.stringify(reply), words, 'inn')!
+
+  it('records everything taken off at once: each piece listed comes off, where the words say, with their words', () => {
+    const after = mergeState(
+      dressed(),
+      read({ characters: [{ name: 'Mara Venn', clothes: [{ item: 'everything', state: 'off, on the floor', quote: 'let it fall to the floor' }] }] })
+    )
+    const mara = after.characters.find((c) => c.name === 'Mara Venn')!
+    expect(mara.clothes).toEqual([
+      { name: 'green dress', state: 'off, on the floor' },
+      { name: 'grey stockings', state: 'off, on the floor' },
+      // Already off: as it was.
+      { name: 'boots', state: 'off, by the door' },
+      { name: 'silver locket', state: 'off, on the floor' }
+    ])
+    expect(after.said?.[pieceKey('Mara Venn', 'green dress')]?.quote).toBe('let it fall to the floor')
+    expect(after.said?.[pieceKey('Mara Venn', 'boots')]?.quote).toBe('set them side by side by the door')
+    expect(stateText(after)).not.toContain('everything')
+    // "Nothing", "naked" or "all her clothes" say the same; given the old way, "naked" too, rather than a piece "naked".
+    for (const clothes of [[{ item: 'nothing', state: 'on' }], [{ item: 'all her clothes', state: 'off' }], [{ item: 'naked', state: '' }]]) {
+      const m = mergeState(dressed(), read({ characters: [{ name: 'Mara Venn', clothes }] })).characters.find((c) => c.name === 'Mara Venn')!
+      expect(m.clothes!.map((p) => p.state), JSON.stringify(clothes)).toEqual(['off', 'off', 'off, by the door', 'off'])
+    }
+    const old = mergeState(dressed(), read({ characters: [{ name: 'Mara Venn', wearing: { value: 'naked' } }] })).characters[0]
+    expect(old.clothes!.map(pieceText)).toEqual(['green dress off', 'grey stockings off', 'boots off, by the door', 'silver locket off'])
+  })
+
+  it('with nothing listed, says so in one piece, which goes once something is put on again', () => {
+    const bare = mergeState(dressed(), read({ characters: [{ name: 'Ash Penrose', clothes: [{ item: 'clothes', state: 'off' }] }] }))
+    const ash = bare.characters.find((c) => c.name === 'Ash Penrose')!
+    expect(ash.clothes).toEqual([{ name: 'clothes', state: 'off' }])
+    expect(stateText(bare)).toContain('  - wearing: clothes off')
+    const shirt = mergeState(bare, read({ characters: [{ name: 'Ash Penrose', clothes: [{ item: 'linen shirt', state: 'on', quote: 'Ash took her hand' }] }] }))
+    expect(shirt.characters.find((c) => c.name === 'Ash Penrose')!.clothes).toEqual([{ name: 'linen shirt', state: 'on' }])
+    // A piece taken off is no new piece "clothes" beside the rest.
+    const one = mergeState(dressed(), read({ characters: [{ name: 'Mara Venn', clothes: [{ item: 'boots', state: 'off' }] }] }))
+    expect(one.characters.find((c) => c.name === 'Mara Venn')!.clothes!.map((p) => p.name)).not.toContain('clothes')
+  })
+
+  it('counts a move only when the place really changes, so rewording where someone is keeps who touches whom', () => {
+    const at = (where: string): CharacterState =>
+      mergeState(dressed(), { characters: [{ ...person('Mara Venn'), where, clothes: undefined }], said: {} }).characters.find((c) => c.name === 'Mara Venn')!
+    for (const where of ['on the bed, on her back', 'on her back on the bed', 'On the bed.', 'on the bed (lying back)'])
+      expect(at(where).touching, where).toBe("Ash's hand in hers")
+    for (const where of ['in the kitchen', 'by the window', 'on the floor beside the bed']) expect(at(where).touching, where).toBe('')
+    // Moving out of the place a place is in is a move ("the inn", then "the inn's yard").
+    const yard = mergeState(
+      { ...dressed(), characters: [person('Mara Venn', { where: 'in the inn', posture: 'sitting at the bar' })] },
+      { characters: [{ ...person('Mara Venn'), where: "in the inn's yard", clothes: undefined }], said: {} }
+    )
+    expect(yard.characters[0].posture).toBe('')
+  })
+
+  it('never keeps a piece someone wears as a thing in the place, and never lets it take the piece off', () => {
+    const after = mergeState(
+      dressed(),
+      read({
+        things: [
+          { thing: 'her green dress', state: 'on, unlaced', quote: 'She stepped out of everything' },
+          { thing: "Mara's silver locket", state: 'worn' },
+          { thing: 'the candle', state: 'lit', quote: 'Later she lay back on the bed' },
+          // Somewhere, though "back" is a body word: still a thing.
+          { thing: 'her grey stockings', state: 'draped over the back of the chair', quote: 'let it fall to the floor' }
+        ]
+      })
+    )
+    expect(after.things!.map((t) => t.name)).toEqual(['the candle', 'her grey stockings'])
+    expect(after.said?.[thingKey('her green dress')]).toBeUndefined()
+    const mara = after.characters.find((c) => c.name === 'Mara Venn')!
+    expect(mara.clothes!.find((p) => p.name === 'green dress')).toEqual({ name: 'green dress', state: 'on, unlaced' })
+    // A piece put somewhere is still a thing there, and no longer worn (one place for each thing).
+    const down = mergeState(dressed(), read({ things: [{ thing: 'the green dress', state: 'on the floor', quote: 'let it fall to the floor' }] }))
+    expect(down.things!.map((t) => t.name)).toEqual(['the green dress'])
+  })
+
+  it('tells every piece someone wears, those changed longest ago short when they would not all fit', () => {
+    const long = ', the seams let out and taken in again, patched at the elbows with a darker wool and smelling of woodsmoke'
+    const clothes = Array.from({ length: 10 }, (_, i) => ({ name: `piece number ${i + 1}`, state: `on${long}` }))
+    const text = stateText({ time: '', weather: '', light: '', characters: [person('Wren', { clothes })] })
+    for (let i = 1; i <= 10; i++) expect(text, `piece ${i}`).toContain(`piece number ${i} on`)
+    expect(text).toContain('  - wearing: piece number 1 on\n')
+    expect(text).toContain(`piece number 10 on${long}`)
+  })
+
+  it('gives the memory model the cast that matters first, with their other names, and asks for everything off in one piece', () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const sceneId = repo.getOutline(db, story.id).scenes[0].id
+    for (let i = 0; i < 90; i++) repo.createEntry(db, 'character', { name: `Aaron ${String(i).padStart(2, '0')}` })
+    const zara = repo.createEntry(db, 'character', { name: 'Zara Quill', aliases: ['the Captain'] })
+    repo.createEntry(db, 'character', { name: 'Yusuf Marr', aliases: ['Yus'] })
+    repo.updateSceneCard(db, sceneId, { ...repo.getScene(db, sceneId).card, povId: zara.id, presentIds: [zara.id] })
+    const cast = castFor(db, sceneId, 'Yus waited by the door.')
+    expect(cast.slice(0, 2)).toEqual(['Zara Quill (also the Captain)', 'Yusuf Marr (also Yus)'])
+    expect(cast).toHaveLength(MOST_CAST)
+    const [system, user] = stateMessages(null, 'Words.', cast.slice(0, 2))
+    expect(user.content).toContain('Characters in this story (the name to use first, then other names the story calls them):\n- Zara Quill (also the Captain)\n- Yusuf Marr (also Yus)')
+    expect(system.content).toContain('never clothing, on or off')
+    expect(system.content).toContain('"item": "everything", "state": "off"')
   })
 })

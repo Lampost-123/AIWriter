@@ -3302,6 +3302,95 @@ critic's notes (`critique/`) and what the checks send to the model are unchanged
   `ask/applyStory.test.ts` (saved before marked fixed), and the app test "findings stay current" in
   `tests/e2e/issues.spec.ts` (Later, words rewritten by hand, Ctrl+Z, the report's count and its "changed" line).
 
+## Scenes that hand off to each other (review, 2026-10-16)
+
+Adam writes long books with "Write the whole chapter" and wants each scene to start exactly where the last ended (time,
+place, who is there, clothes, positions). A code review found these gaps in the hand-off; each is fixed and tested
+(`ai/handOff.test.ts`, `memory/soFar.test.ts`, `chapterWriter/chapterWriter.test.ts`, `ai/contract.test.ts`).
+
+- **The scene after a changed one is checked** (`chapterWriter/run.ts` `gather`). A scene's checks look back at the stage
+  before it, never forward, so a review that changed a scene's ending (her dress back on) left the next scene's opening
+  (the dress on the floor) unchecked. Each round now also checks the scene after each one changed (`sceneAfter`: the next
+  scene in the story with words). One of the chapter's goes to its review like any other; one the run doesn't write (the
+  next chapter's first scene, or a scene of the chapter with no card) is checked but never changed, and what its check
+  finds that wasn't open before the run looked is noted for Adam: `ChapterWriterReport.notes`, "Worth a look" in the
+  report (`ChapterWriterReport.tsx`).
+- **Where things stand is read alongside the catch-up** (`ai/gather.ts` `withStageRead`, registered by `keeper/index.ts`).
+  It ran after the keeper's catch-up inside the same wait, and the summaries a draft needs first (fix 15) could take it
+  all. It is looked up again once the plan is made (`draftFlow.ts` `withStageNow`: one that came in during the plan's wait
+  is told after all). A draft that still goes without it tells Adam (`gather.ts` `stageNote`, `STAGE_LATE`,
+  `STAGE_LATE_SO_FAR`): `startDraft` returns `note`, shown as a toast (`draftRun.ts`); the chapter writer's report lists
+  it. Not when nothing comes before the scene in its story, or the memory can't work (`keeper/index.ts` `memoryReady`).
+- **Add below without a stage for the scene so far** (`gather.ts` `carryOnFrom`). When where things stand at the end of
+  the scene so far times out or fails, nothing of where the previous scene ended is told, and the contract has nothing
+  for the start (`ContractInput.noStart`; Continue's too, `edits/briefing.ts`), so the check as the draft lands no longer
+  holds the new words to an old "blue dress, on".
+- **Carrying on, the memory includes the scene so far** (`memory/scene.ts` `SceneMemoryOptions.soFar`, `soFarState`;
+  `gatherContextInput`'s `soFar`, Continue's `input.before`). The scene's own changes read from its words count when their
+  words (a source link still standing) are in the scene so far: a secret told is no longer "kept from" the one told, a
+  thing handed over no longer "still has", a thread paid off no longer open. Never Adam's own changes for the scene
+  (aims), nor a change read from words after Continue's cursor. Who first appears in the scene stays as at its start.
+- **Smaller ones.** The study gives where everyone starts for the chapter's first scene only; a later scene's notes end
+  with `LATER_START` (its start is where the scene before ends, as written). Each scene's contract is made again before
+  each of the chapter writer's checks (`ai/contractAgain.ts`, `draftFlow.ts` `contractNow`, from what its draft was
+  asked for and the plan's "must"), so an earlier scene's change reaches it. A draft cut off at the reply limit or a
+  refusal sent back as words (`DraftEnd.cutOff`, `DraftEnd.refused`) stops the run instead of being saved as the scene.
+  An empty scene (not written yet) is passed over when looking back (`memory/line.ts` `previousSceneStep`'s `take`,
+  `memory/scene.ts` `previousScene`, `continuity/tracker.ts` `wordedBefore`), only within the story of the scene just
+  before. A direction that only says how the words should read ("make it darker": `ai/contract.ts` `toneOnly`) is
+  nothing that must change, and never a "not shown yet" question (`repair/contract.ts` `judgeContract`).
+
+## Clothes, positions and typical clothing from one scene to the next (code review, 2026-10-16)
+
+A review with live DeepSeek Flash runs of an undressing scene followed by a "Day 2, morning, kitchen" scene found the
+morning scene told "lying on her side under the quilt… dress off, trousers off, keep to this", and every later scene told
+"Mara Venn, typical clothing: nothing (since Ch 1, Sc 2)" as something that must stay true. No migration: the stage stays
+in `meta` and the fixes are where it is read and laid over.
+
+- **Typical clothing is who someone is, not this moment.** A Looks value from the text that says only that someone is
+  undressed for now ("none", "nothing", "naked but for her locket", "dress off, stockings off"; for other Looks fields,
+  "naked") is never kept (`memory/looks.ts` `passingLook`): the memory keeper leaves it out of a change, a verdict's new
+  value, a detail and a new entry (`keeper/apply.ts` `passingFor`), and reading the memory skips one already kept, in a
+  change or on the entry, so older worlds are put right too (`memory/state.ts`); Adam's own words always stand. The
+  reading prompt's rule says a change ends a field's value "for good … not clothes off for a while" (5,971 characters,
+  under the 6,000 its tests hold it to). What must stay true never states Typical clothing as a fact of now
+  (`ai/mustStay.ts` `mustLines`): what someone has on now is the stage's, piece by piece.
+- **What the scene before left is told only as far as it carries here** (`StageScope.carried` and `began`,
+  `ai/mustStay.ts` `stageInScene`; `ai/context.ts` `carriedFrom`, `toldStage`). At the same moment (`timeCarries`): all
+  of it. Later the same day: how people are, what they hold, the pieces still on and the things in the place; not where
+  they are, how they are placed, who they touch or see, their mood or last action, nor a piece taken off. A later day, or
+  a gap not known: how people are and anything in hand. Past the same moment, how people are keeps only what lasts
+  (`lastingCondition`: "breath ragged, came" from a night scene is not told the next morning; a wound is). So the stage
+  block (block 3, with a lead for each: `STAND_LEADS`), what must stay true, the scene's contract, the plan, the
+  continuity brief and repair's W lines all follow the same reach; the brief is also asked never to keep to what people
+  wore, where they were or how they lay as an earlier scene ended unless where things stand says it still holds
+  (`plan/brief.ts` `BRIEF_ASK.keep`: the first live run's brief still said "Mara undressed to grey stockings and locket").
+  Carrying on inside a scene (Add below, a later beat, Continue), a value whose words are another scene's, or kept
+  without words and as it was when the scene began (`ContextInput.continuityAtStart`, set in `ai/gather.ts` `carryOnFrom`),
+  holds only as far as that; what this scene's words said is always told. Without a stage for the scene so far nothing
+  of it is told, as `carryOnFrom` has it.
+- **Everything off at once** (`shared/stageItems.ts` `isAllClothes`, `allOff`; `shared/continuity.ts` `allTakenOff`). A
+  piece that means everything someone has on, said off ("everything", "clothes", "all her clothes"), or that says nothing
+  is worn ("nothing", "naked"), takes every piece listed for them off, with where they went and the words; with none
+  listed, one piece says it ("clothes off"), and it goes once something is put on again. "Naked" given the old way, as
+  one line, does the same. The tracker's prompt asks for `"item": "everything", "state": "off"`.
+- **A move is a change of place.** Where someone is said more or less fully ("on the bed", "on the bed, on her back",
+  "on her back on the bed") is no move, so who touches whom and how they are placed stay (`movedOn`: the same place
+  before any words on where in it, or one's words ending with the other's); "the inn" to "the inn's yard" is a move.
+- **One garment, other words.** Pieces of clothing are compared with one word for each garment (`pieceName`: knickers,
+  panties, briefs and underwear; trousers and breeches; gown and dress; a dressing gown is a robe), so "knickers" taken
+  off is the "panties" that were on. "Pants" is left alone (trousers to some, underwear to others).
+- **Clothes are never things in the place.** A thing the tracker gives that is a piece someone has (`sameGarment`), said
+  worn or off, is dropped (`garmentsAsPieces`): "her dress: on, unlaced" no longer reads as a dress put somewhere and
+  taken off her. One put somewhere ("Ash's coat: on the peg") is still a thing, as one place for each thing has it. The
+  prompt says clothing, on or off, goes under its person's clothes.
+- **Every piece told.** The stage block tells every piece someone wears; when they don't fit in about 400 characters,
+  those changed longest ago are told short ("grey coat on") rather than left out (`wornLines`).
+- **The tracker's cast** (`continuity/tracker.ts` `castFor`): those on the scene card first, then those the words name
+  (by name, other name, or what this scene calls them), then the rest A to Z, at most `MOST_CAST` (80), one a line with
+  their other names ("Zara Quill (also the Captain)"). It was the first 80 names A to Z, with no other names. The fake
+  provider reads the list one a line.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
