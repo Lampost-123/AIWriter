@@ -958,7 +958,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   room (`keepsRoom`): with the entries it asked for, else without them, else not at all, never at the cost of a part
   the briefing had room for without it, the reply's room or the budget. Not for Variants (one plan for the set would
   make its drafts alike), Continue (a paragraph or two, and meant to be quick) or the AI edits (they keep what
-  happens). With a scene contract (long story memory fix 13) it also says what must change, for the contract's list.
+  happens). With a scene contract (long story memory fix 13) it also says what must change, for the contract's list;
+  with a continuity brief (fix 14) it also reads the whole story record (and the book so far when it can) and writes a
+  short brief for the writer, with longer to do it (90 s, or 120 s with the book: `BRIEF_LIMIT_MS`).
   Settings › Models, "Plan before writing" (`settings.planFirst`, on by default; beside "Check new words
   straight away"; `features/plan/PlanSettings.tsx`): off, no call, and the list still goes in. `AIWRITE_PLAN=off`
   always turns it off: app tests set it (tests/e2e/helpers.ts) and ask for planning with `AIWRITE_PLAN=on`; the fake
@@ -2012,8 +2014,8 @@ lab's winners in the next section):
 - **Order for the cache** (`ai/context.ts` `SEND_ORDER`): what stays the same from one step of a scene to the next comes
   first (instructions, world rules, themes, setting, the story so far, the previous scene's end, plot threads), then the
   people (the same unless the memory learns something), then what a step brings in (entries named, recalled, what was
-  said, earlier passages; since long story memory fix 9, who knows what), and last the scene card, the scene so far,
-  the stage and what must stay true. Block 9's
+  said, earlier passages; since long story memory fix 9, who knows what, and since fix 14 the continuity brief), and
+  last the scene card, the scene so far, the stage and what must stay true. Block 9's
   entries and the recalled entries go in a steady order (kind, then name) under fixed titles (`MENTIONED_TITLE`). Claude's
   cache breakpoint ends before the people. Measured on an invented scene, two Add below steps in a row
   (`tests/unit/writerRound.test.ts`): the second step's prompt that the first already sent went from 29% to 69% with a
@@ -3065,8 +3067,123 @@ judge it at length. No store, no migration, no new kind of AI call.
   has a "Scene contract" line with how many items were kept and each item's result ("Kept · Must change · …"), and says
   "Checked against the scene contract · 3 of 4 kept · 1 not shown yet" when that is all it has so far
   (`CheckReportCard.tsx`, `contractNote`). The sample world has no drafts, so Classic's screenshots are unchanged.
-- **Left for fix 14** (a continuity brief before each scene, on the same plan step): the plan's material and reply grow by
-  a field each (`PlanMaterial.contract`, `RawPlan.must`), so a brief can be added the same way.
+- **Fix 14** (below) adds its continuity brief to the same plan step in the same way: a field each (`PlanMaterial.brief`,
+  `RawPlan.brief`).
+
+## Long story memory: a continuity brief before each scene (fix 14, 2026-10-16)
+
+The research's fix 14, the last of the series: the writer's briefing is put together by fixed rules and caps, so a fact
+that matters for this particular scene can still miss the writer, while a big dump reads worse than a focused slice (NWM
+2026: targeted records scored 0.89 against the full text; Chroma's "context rot"). Anthropic's advice for long work is a
+helper that reads widely and hands back a short brief, and InkOS's planner writes one per chapter. AI Write's plan before
+writing is already the memory model's call made before each draft, so it is that call that grows: no new AI call, no
+store, no migration; the memory keeper's prompt is unchanged (its 58 characters to spare are still spare).
+
+- **What the plan reads besides** (`plan/brief.ts` `briefMaterial`, pure; gathered on the open world by `plan/index.ts`
+  `withBrief`). Besides what the plan always read (the scene card, what must stay true, where things stand, the words just
+  before, the codex's names), in this order, the parts that stay the same from step to step first:
+  - *the book so far, word for word* (`bookPart`), this story's scenes before this one on its line, in reading order,
+    with where each is ("### Ch 2, Sc 3: The ferry"), only when the memory model reads at least `BOOK_READER` (200,000)
+    tokens and the book takes no more than `BOOK_SHARE` (half) of that, all of the plan staying within nine tenths
+    (`briefRoom`; the word counts are read first, `repo.sceneWordCounts`, and the text only when it fits). DeepSeek's
+    own models read 1,000,000 tokens, so a book of up to about 370,000 words goes in whole there;
+  - *how each chapter so far ended* (fix 15's kept snapshots, `db/snapshots.ts`, never worked out for a plan), each change
+    citing its scene the way the rest of the record does ("Wren: broke her left arm (Ch 1, Sc 2)", "At its end: …");
+  - *everyone and everything in the scene, in full*: the people in it (`sceneKnowers`: the card, the stage, the scene so
+    far), the place, the card's plot threads and the other entries the briefing names, each with all that has happened
+    to them (the writer gets the last few);
+  - *who knows what among everyone here*, uncapped: each fact someone here knows with since when and how, who here
+    doesn't (never someone it is about, nor where who knows it doesn't rest on who was there, as the writer's block), and
+    what someone believes wrongly (fix 9's ledger);
+  - *the story calendar*: this scene's date, how long since the scene before and since each earlier day worth counting
+    from, and ages (fix 11; the writer's card says at most three);
+  - *the slips put right in earlier scenes* (fix 7, all of them; the writer's list says two) and *the rule checks'
+    findings still open in this scene* (fix 8, `db/checks.ts` `openRuleFindings`), for a draft written again;
+  - every *open plot thread*, due or overdue first (fix 10: `allOpenThreads`), in place of the writer's capped list;
+  - after the words just before, as they change from step to step: *every earlier passage the search found* (up to 12;
+    the writer gets 5 to 10) and *the scene's contract* (fix 13, never cut).
+  The record (all but the book) is fitted to `RECORD_SHARE` (half) of what the memory model reads, less the plan and its
+  reply, at most `RECORD_MOST` (40,000 tokens) (`fitParts`: each part first to its share of the room, whole lines or
+  entries from the first, then what is left by rank: who knows what, the calendar, the slips, the findings, the people,
+  the passages, the chapters). On the 16,000-token guess that is a few thousand tokens; a part that can't be read is left
+  out, and a brief that can't be put together at all leaves the plan as it was (`safely`).
+- **The request, for the cache** (`plan.ts` `planMessages`). The book goes first, after the instructions (which are the
+  same every time: how long the brief may be is said in the request's last line), under the same heading at every scene
+  (`BOOK_TITLE`; where it runs is said after its last scene), so at the next scene a provider that reuses the start of a
+  prompt it has seen (DeepSeek, OpenAI) reads all of it but the newest scene from its cache, and every step of a scene
+  all of it; for Claude through OpenRouter the user message's `cacheUpTo` marks it. Then the record that stays the same
+  through a scene, the plan's own parts as before, the passages and the contract, and last what the writer is asked. The
+  record kept in the world has the book as a note ("Ch 1, Sc 1 to Ch 10, Sc 3, 61,190 words, read whole. Not kept
+  here…": `planMessages(m, false)`, `keeper/model.ts` `CallOptions.kept`), as it is the scenes' own words and each scene
+  keeps its newest 10 planning prompts; its size is still counted as sent.
+- **The brief** (`planSystem(contract, true)`, `BRIEF_RULE`, `BRIEF_SHAPE`): one more field in the plan's reply,
+  `"brief"`, five short lists: what matters for this scene (`matters`), what must not be contradicted, each with where it
+  was set or last changed (`keep`), who knows what among the people here (`knows`), the promises due or in play
+  (`promises`), and how long since the events that matter, with ages (`time`); only what it was given, nothing of what
+  happens in the scene (the plan's), not the card again. Its size (`ai/brief.ts` `briefSize`): about as much as the parts
+  going short beside it free (`briefFrees`, below), between `BRIEF_LEAST` (1,000 tokens) and what the writer's room
+  allows (`briefTokens`: 1,000 at the smallest `memoryScale`, 2,000 at `MOST_SCALE`); asked in words (tokens / 1.35) in
+  the request's last line (`briefAsk`), so the instructions, and the book after them, read the same every time. The
+  reply's room grows by 1.3 times that (`BRIEF_REPLY_SHARE`), and the draft waits longer for it (`BRIEF_LIMIT_MS`: 90 s,
+  120 s with the book; the plan alone keeps its 30 s). The app checks it (`readBrief`, `checkBrief`): each line cleaned and
+  at most 320 characters, said once, left out when it cites a chapter or scene the planner wasn't given (`placesCited`:
+  "Ch 9, Sc 9", "chapter 4, scene 1"; a chapter counts when any of its scenes was given), each list capped (`BRIEF_MOST`:
+  8, 12, 10, 6, 6), and the whole kept to 1.2 times its size, lines going from promises, time, matters, then who knows
+  what, what must not be contradicted last. The plan's own check is exactly as before: its facts are taken only from its
+  own parts, never from the book or the record (a scene long ago may say what no longer holds). `MadePlan.brief`; a reply
+  with only a brief is still a plan. Without a brief asked for, a brief in the reply is never used.
+- **The writer's briefing** (`ai/brief.ts`, `ai/context.ts`; `ContextInput.brief`). Block `continuity-brief`, "Continuity
+  brief" (`BRIEF_BLOCK`), priority 2, never left out (it goes in only where there is room: `withPlan`), short form only
+  what matters and what must not be contradicted, shortened before the contract and what must stay true. It is written for
+  each step, so it is sent late (`SEND_ORDER`: after who knows what, right before the scene card), and every block before
+  it reads the same from one step to the next (tested). Its lead says whether the book was read whole. **Not said twice**
+  (`briefShortens`, `PreparedContext.briefShortens`, `finishContext`): with a brief, the story so far (its older detail),
+  the earlier passages found by searching (the planner read every one) and, when the brief says who knows what, block 6's
+  who knows what (its short form keeps who doesn't know and who believes wrongly) start in their short form unless Adam
+  chose Full in the Context tab (`ContextBlock.shortFor` 'brief'). What must stay true, the scene's contract, the scene
+  card and the stage stay word for word. The brief is asked to be about the size of what that frees, so in a long book the
+  briefing doesn't grow; only a story so short that little goes short gets a brief longer than what it frees, by 1,000
+  tokens at most. `keepsRoom` lets those parts go short for it, and nothing else; `withPlan` tries the plan with its
+  entries and the brief, without the entries, then without the brief, each only if it says anything. Without a brief the
+  briefing is exactly as before (tested).
+- **Where it goes**: wherever the plan before writing goes: Generate, Add below, each beat of Beat by beat (the beat's
+  brief: `withPlan` with `focus`), and each scene of "Write the whole chapter" (`ipc/chapterWriter.ts` drafts through
+  `draftBriefing`; its study notes stay their own block, "Notes for this scene, from studying the chapter"; its review
+  sessions and look-up tools, `chapterWriter/tools.ts`, don't use the plan step, so they get none). Not Continue, which has
+  no plan step (it carries on a paragraph or two from the page, with its own small memory core), nor Variants or the AI
+  edits.
+- **AI calls and size per scene.** No new call. The plan's call reads more and writes more. Measured with the fake provider
+  on the test book (`--story book`, 30 plans from scene 18 to the end, the memory model reading 1,000,000 tokens): each
+  plan read about 2,200 tokens before and about 66,000 with the brief (the book so far, 30,000 to 61,000 words, is most
+  of it); the writer's own prompt came down by about 8% (10,700 tokens a draft against 11,600; the fake planner's brief
+  is short, a real one is about the size of what goes short); the number of calls was the same. A memory model that reads
+  less than 200,000 tokens never gets the book: its plan grows by the record only (a few thousand tokens on the 16,000
+  guess, at most 40,000). On DeepSeek's prices ($0.28 a million tokens read, $0.028 when read from its cache, $0.42
+  written), at the end of a 60,000-word book (about 82,000 tokens): the first plan after an early edit about $0.025,
+  then about half a cent a scene with the book read from the cache (the record and the newest scene are new each time),
+  with under $0.001 for the brief written; without the book about $0.002 to $0.005. Before: about $0.001. DeepSeek says
+  what came from its cache (`prompt_cache_hit_tokens`, `client.ts` `cachedOf`), kept with each call's record, so
+  Settings › Usage and cost shows it. A draft starts later by the time the brief takes to write (1,000 to 2,000 tokens).
+- **On the screen** (both looks): Settings › Models, "Continuity brief", "Write a continuity brief before each scene"
+  (`settings.continuityBrief`, on by default; `features/brief/BriefSettings.tsx`, right after the scene contract), with
+  one line on cost ("usually under a cent a scene on DeepSeek"), and when Plan before writing is off, that it needs it.
+  What the AI saw shows the brief as a part like any other, and the planner's call as a memory record titled "Planning
+  the scene and writing its continuity brief". The Context tab shows the last brief written for the scene, where it
+  would go, with the parts that go short beside it (`ai/draftFlow.ts` `previewBriefing`: from its newest draft that had
+  one, `db/generations.ts` `lastSentBlock`, read back by `readBriefText`, only where there is room), its note saying "The
+  memory model writes a new one just before each draft. This is the last one it wrote." and the shortened parts' "Short,
+  as the continuity brief says what of it matters for this scene." (`contextLogic.ts` `blockStateNote`). No new screen;
+  the sample world has no drafts, so Classic's screenshots are unchanged.
+- **The switch and the tests.** Off: no brief asked for, the plan's call and the briefing exactly as before (fix 13's
+  contract works as it did). `AIWRITE_BRIEF=off` always turns it off (`briefWanted`); app tests set it
+  (tests/e2e/helpers.ts) and ask for it with `AIWRITE_BRIEF=on` (`tests/e2e/brief.spec.ts`). The fake provider writes a
+  brief from what it was given, with a line citing a scene it never was (`tests/fake-provider/plan.mjs` `briefOf`). The
+  trap harness goes through it with the app's own code (on unless `AIWRITE_BRIEF=off`): passages.md says under each
+  passage (and each planned chain step) "Continuity brief: 9 lines (about 310 tokens); the plan read 66,000 tokens, the
+  book so far whole." (`score.ts` `briefNote`, `briefLine`); a fake run of the book gives the memory model 1,000,000
+  tokens to read (`FAKE_BOOK_READER`), so the book goes in whole as on DeepSeek, and a fake run's budget is 40 million
+  tokens in (`FAKE_BUDGET`: it costs nothing). A real run of the book with and without (`AIWRITE_BRIEF=off` on one) is
+  what will tell whether it pays off at length.
 
 ## Milestone 1 scope
 

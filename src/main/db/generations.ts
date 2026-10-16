@@ -215,6 +215,25 @@ export function forgetOldPrompts(db: DB, sceneId: ID, marker: string, keep: numb
   return old.length
 }
 
+/**
+ * The text of a part as last sent to the writer in this scene (a draft or a beat, newest first, the part not left out),
+ * or null when none of its drafts had one: the Context tab shows the last continuity brief this way (long story memory
+ * fix 14). `look`: how many of the newest drafts to look through.
+ */
+export function lastSentBlock(db: DB, sceneId: ID, blockId: string, look = 20): string | null {
+  const rows = db
+    .prepare(
+      `SELECT blocks_json FROM generations WHERE scene_id = ? AND job IN ('draft', 'beat') AND instr(blocks_json, ?) > 0
+       ORDER BY created_at DESC, rowid DESC LIMIT ?`
+    )
+    .all(sceneId, JSON.stringify(blockId), Math.max(1, look)) as Row[]
+  for (const r of rows) {
+    const b = json<ContextBlock[]>(r.blocks_json, []).find((x) => x?.id === blockId && !x.dropped && typeof x.text === 'string')
+    if (b) return b.text
+  }
+  return null
+}
+
 export function listGenerations(db: DB, sceneId: ID): GenerationSummary[] {
   const rows = db
     .prepare(

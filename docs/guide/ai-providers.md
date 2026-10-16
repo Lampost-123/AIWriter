@@ -106,6 +106,9 @@ longer and cost more. Models that don't think aren't affected.
 - **Give each scene a contract** (on): each draft gets a short list of what must be true at the start, what must
   change and what must not change. The plan fills in what must change, and the check of new words goes through the
   list. The AI reads a little more each time.
+- **Write a continuity brief before each scene** (on): while it plans, the memory model reads the whole story record
+  (and the book so far, when it can read that much) and tells the writer what matters for the scene. It makes the plan
+  a bigger read: usually under a cent a scene on DeepSeek. It works with **Plan before writing**.
 - **Check new words straight away** (on): after a draft, a beat or Continue, small slips are fixed in amber and
   the rest are raised for you to look at. It uses the memory model once each time.
 - **Find by meaning** (on): before each draft, AI Write finds earlier scenes, facts and summaries that matter,
@@ -136,7 +139,9 @@ put in a world, a backup, a world file or an export, so you can share those safe
 ## What the AI service sees
 
 Only the service you choose, and only what each job needs: for a draft, the scene card, the parts of the memory
-that matter for the scene, earlier passages it found, and your style guide. To see exactly what was sent for any
+that matter for the scene, earlier passages it found, and your style guide. With **Write a continuity brief before
+each scene** on, the memory model also reads the story's record and, when it can read that much, the book so far. To
+see exactly what was sent for any
 draft, open **What the AI saw** (see [Writing with AI](writing-with-ai.md#see-what-the-ai-saw)). Notes you keep under
 **Private notes (never sent to the AI)** on an entry are never sent.
 

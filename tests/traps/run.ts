@@ -17,6 +17,7 @@ import {
   recallSummary,
   repairDrops,
   reportMarkdown,
+  briefLine,
   scorePassage,
   summarise,
   summariseBook,
@@ -330,6 +331,12 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
           }
           // Which of the app's records this sample made (the writer's, a plan, where things stand, the repair...).
           sample.records = app.recordsSince(fromRow)
+          // The continuity brief it was written with, and what the plan read for it (long story memory fix 14).
+          const brief = app.briefOf(written.generationId, fromRow)
+          if (brief) {
+            sample.brief = brief
+            cfg.log(`  ${briefLine(brief)}`)
+          }
           result.samples.push(sample)
         }
       }

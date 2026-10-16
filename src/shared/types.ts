@@ -447,6 +447,13 @@ export interface Settings {
    * before. Left out (settings saved before it): on.
    */
   sceneContracts?: boolean
+  /**
+   * Write a continuity brief before each scene (Settings › Models; on by default; long story memory fix 14): the plan
+   * before writing also reads the whole story record (and the book so far when the memory model reads enough) and gives
+   * the writer a short brief of what matters for the scene (src/main/ai/brief.ts, src/main/plan/brief.ts). Needs Plan
+   * before writing. Off: the plan's call and the briefing as before. Left out (settings saved before it): on.
+   */
+  continuityBrief?: boolean
   theme: ThemeName
   editor: EditorSettings
   /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */
@@ -656,6 +663,12 @@ export interface ContextBlock {
   hasShort?: boolean
   /** Adam's choice for this scene, from the Context tab: 'auto' lets the budget decide. */
   mode?: BlockMode
+  /**
+   * Why the part went short when it wasn't for room or Adam's choice: 'brief', the continuity brief (long story memory
+   * fix 14) says what of it bears on this scene, so it is given in its short form rather than said twice. Left out
+   * otherwise.
+   */
+  shortFor?: 'brief'
   /**
    * What this part's memory lines rest on (World Memory Overhaul B6), for "What the AI saw": one small tag per entry,
    * guessed or unconfirmed field and scene summary being updated that went into the form sent. Records from before

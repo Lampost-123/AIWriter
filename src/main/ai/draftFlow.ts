@@ -22,12 +22,14 @@ import {
 } from './context'
 import { catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText } from './gather'
 import type { SceneState } from '../continuity/tracker'
-import { planBeforeWriting } from '../plan'
+import { planBeforeWriting, planWanted } from '../plan'
 import { keepsRoom } from '../plan/plan'
 import { countTokens } from './tokenService'
 import { isLocalUrl, providerWho } from './errors'
 import { recallForBriefing } from '../retrieval'
 import { contractWanted, type ContractAsks, type SceneContract } from './contract'
+import { BRIEF_BLOCK, briefWanted, readBriefText } from './brief'
+import * as gens from '../db/generations'
 
 /** The preview is made again as Adam edits the scene card: only the blocks that changed are counted again. */
 const countCached = cachedCounter(countTokens)
@@ -130,8 +132,11 @@ export interface DraftBriefing {
   thinking: ThinkingLevel
   /** The version of each entry actually sent, for "What the AI saw". */
   entryVersions: Map<ID, string>
-  /** What the briefing was fitted from (its closing instructions, the scene's contract), for planning it (withPlan). */
-  prepared?: Pick<PreparedContext, 'finals' | 'contract'>
+  /**
+   * What the briefing was fitted from (its closing instructions, the scene's contract, and its parts, for how much going
+   * short beside a continuity brief frees: plan/brief.ts briefFrees), for planning it (withPlan).
+   */
+  prepared?: Pick<PreparedContext, 'finals' | 'contract'> & Partial<Pick<PreparedContext, 'blocks'>>
   /**
    * The scene's contract the writer was given (long story memory fix 13), for the check as the draft lands
    * (repair/index.ts noteContract) and the chapter writer's checks; null or left out: none (switched off, or nothing to say).
@@ -218,9 +223,14 @@ export async function withPlan(
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
   if (!plan) return b
-  const tries = plan.text && plan.needs.length ? [plan, { ...plan, needs: [] }] : [plan]
+  // With what it asked for, else without; with the continuity brief (fix 14), else without it. Each only if it says
+  // anything.
+  const briefs = plan.brief ? [plan.brief, null] : [null]
+  const tries = briefs
+    .flatMap((brief) => (plan.text && plan.needs.length ? [{ ...plan, brief }, { ...plan, needs: [], brief }] : [{ ...plan, brief }]))
+    .filter((p) => p.text || p.needs.length || p.must.length || p.brief)
   for (const p of tries) {
-    const input: ContextInput = { ...b.input, plan: { needs: p.needs, text: p.text } }
+    const input: ContextInput = { ...b.input, plan: { needs: p.needs, text: p.text }, ...(p.brief ? { brief: p.brief } : {}) }
     // What the plan says must change takes the place of the card's own words in the scene's contract (fix 13).
     if (b.input.contract && p.must.length) input.contract = { ...b.input.contract, planned: p.must }
     const again = await fitted(input, o.extras)
@@ -236,6 +246,20 @@ export async function withPlan(
     }
   }
   return b
+}
+
+/**
+ * The briefing for the Context tab: as a draft would have it before its plan, and, while drafts get a continuity brief
+ * (fix 14), with the last brief written for this scene (from its newest draft that had one) where it goes in, so the tab
+ * shows the brief and the parts that go short beside it. The next draft writes a new one.
+ */
+export async function previewBriefing(sceneId: ID, options: Partial<DraftOptions> | undefined): Promise<ContextPreview> {
+  const made = await assemble(sceneId, options)
+  if (!planWanted() || !briefWanted(getSettings())) return made.preview
+  const brief = readBriefText(gens.lastSentBlock(world.db(), sceneId, BRIEF_BLOCK.id))
+  if (!brief) return made.preview
+  const again = await fitted({ ...made.input, brief })
+  return keepsRoom(made.preview, again.preview) ? again.preview : made.preview
 }
 
 /** Provider bookkeeping every draft does: a key turned down shows in Settings; a provider that writes works again. */

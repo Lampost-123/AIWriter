@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ContextBlock, ContextEntry, Summary } from '@shared/types'
 import {
+  BRIEF_PART_ID,
   blockState,
   blockStateNote,
   briefingEntries,
@@ -93,6 +94,13 @@ describe('parts of the briefing', () => {
     expect(blockStateNote(block('a', 4, { short: true, mode: 'auto', hasShort: true }))).toMatch(/to fit/)
     expect(blockStateNote(block('a', 4, { mode: 'full', hasShort: true }))).toMatch(/in full, as you chose/)
     expect(blockStateNote(block('a', 9, { dropped: true }))).toMatch(/wasn't room/)
+    // The continuity brief (long story memory fix 14): the parts that go short beside it say why, and the brief itself
+    // says it is the last one written.
+    expect(blockStateNote(block('story-so-far', 8, { short: true, mode: 'auto', hasShort: true, shortFor: 'brief' }))).toBe(
+      'Short, as the continuity brief says what of it matters for this scene.'
+    )
+    expect(blockStateNote(block(BRIEF_PART_ID, 2, { hasShort: true }))).toMatch(/new one just before each draft\. This is the last one it wrote\./)
+    expect(blockStateNote(block(BRIEF_PART_ID, 2, { short: true, hasShort: true }))).toMatch(/to fit/)
   })
 
   it('lists parts by priority, keeping the order within one', () => {

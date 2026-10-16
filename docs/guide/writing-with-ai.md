@@ -158,6 +158,19 @@ raised in the **Issues** tab, marked **Scene contract**, with a rewrite of just 
 right. Nothing changes without you. The check report at the top of the Issues tab says how the latest draft kept to the
 list, item by item, and the **Context** tab shows the list the AI was given.
 
+## A brief before each scene
+
+With **Write a continuity brief before each scene** on (it is by default, in **Settings › Models**), the memory model
+reads far more than the writer could just before each draft: everything the story's record says about the people,
+places and things in the scene, who knows what, the promises still open, the story calendar, how each chapter so far
+ended, the passages that may matter, and, when it can read that much (DeepSeek's models can), the whole book so far.
+It hands the writer a short brief: what matters for this scene, what must not be contradicted (with the chapter and
+scene it comes from), who knows what among the people there, the promises in play, and how long it has been since the
+events that matter. The parts of the briefing it covers, such as the older story so far and the earlier passages, go
+in their short form, so the briefing doesn't grow. It comes from the plan's own call, so it needs **Plan before
+writing**, and a draft may take a little longer to start. The **Context** tab shows the last brief written for the
+scene. Generate, Add below, Beat by beat and **Write the whole chapter** get one; Continue doesn't.
+
 ## See what the AI saw
 
 **What the AI saw** shows exactly what was sent for a draft or a change: the model, how many tokens it read and

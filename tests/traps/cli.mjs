@@ -9,7 +9,8 @@
 //                          3: one passage per probe
 //   --story-file <file>    another written story file (version 3)
 //   --max-tokens-in <n> --max-tokens-out <n>   the hard token budget (default 2,000,000 in and 500,000 out, well
-//                          under $1 at DeepSeek Flash's prices): no call is sent once it would be passed
+//                          under $1 at DeepSeek Flash's prices; with --fake, which costs nothing, 40,000,000 and
+//                          4,000,000): no call is sent once it would be passed
 //   --write                write the story (with --out <file>, default tests/traps/story-v3.json; --resume <partial>)
 //   --fake                 use the fake provider and a stand-in judge (no key, no cost; checks the harness, not a score)
 //   --provider <name>      deepseek (the default: DeepSeek's own API, with the app's DeepSeek preset) or openrouter

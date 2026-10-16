@@ -68,6 +68,8 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // The guided tour of the desk is left out too; a test asks for it with { env: { AIWRITE_TOUR: 'on' } }.
   // Each scene's contract (long story memory fix 13) changes what a briefing, the plan and the check hold: app tests that
   // aren't about it leave it out, and ask for it with { env: { AIWRITE_CONTRACT: 'on' } }.
+  // The continuity brief (long story memory fix 14) makes the plan read and write more: app tests that aren't about it
+  // leave it out, and ask for it with { env: { AIWRITE_BRIEF: 'on' } }.
   const background = process.env.AIWRITE_BACKGROUND ?? (process.env.CI ? 'off' : 'on')
   Object.assign(
     env,
@@ -81,7 +83,8 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
       AIWRITE_BACKGROUND: background,
       AIWRITE_PLAN: 'off',
       AIWRITE_TOUR: 'off',
-      AIWRITE_CONTRACT: 'off'
+      AIWRITE_CONTRACT: 'off',
+      AIWRITE_BRIEF: 'off'
     },
     opts.env
   )

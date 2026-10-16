@@ -12,7 +12,7 @@ import { isStartingBeat } from '../beats'
 import { soFarBlock } from '../beats/instructions'
 import * as repo from '../db/repo'
 import { getSettings } from '../settings'
-import { assemble, draftBriefing, providerNotes } from '../ai/draftFlow'
+import { draftBriefing, previewBriefing, providerNotes } from '../ai/draftFlow'
 import { noteContract, noteStage, stageTold } from '../repair'
 import { memorySettingsChanged } from '../keeper'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
@@ -43,7 +43,8 @@ export const aiHandlers: Handlers<AiMethods> = {
   testProvider: (id, modelId) => providers.testProvider(id, modelId),
   listModels: (providerId) => providers.listModels(providerId),
 
-  previewContext: async (sceneId, options) => (await assemble(sceneId, options)).preview,
+  // With the last continuity brief written for the scene, while drafts get one (long story memory fix 14).
+  previewContext: (sceneId, options) => previewBriefing(sceneId, options),
 
   startDraft: async (sceneId, options) => {
     // Write the whole chapter is working on this scene.

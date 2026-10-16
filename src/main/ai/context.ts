@@ -49,6 +49,11 @@
 //    block from 3 to 11 is; since long story memory fix 13 without the lines the scene's contract says
 //  2 the scene's contract (long story memory fix 13, contract.ts), when the draft has one: what must be true at the
 //    start, what must change and what must not, right above what must stay true; never left out (short: no lead)
+//  2 the continuity brief (long story memory fix 14, brief.ts), when the plan before writing wrote one: what matters for
+//    this scene, what must not be contradicted, who knows what here, promises in play, time since key events; sent late,
+//    right before the scene card; never left out (short: what matters and what must not be contradicted). With it, the
+//    story so far, the earlier passages and (when it says who knows what) block 6's who knows what start short
+//    (briefShortens), so the briefing doesn't grow by saying things twice
 // Story memory step 5 (src/main/retrieval/, with ContextInput.recall) adds candidates, never more room: entries from
 // the last two scenes and entries found by searching join block 9; what was said, word for word (fewer lines when
 // short), and earlier passages found by searching (the best two, then the best one) are blocks at priority 9,
@@ -97,6 +102,7 @@ import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
 import { CONTRACT_BLOCK, contractSays, contractText, sceneContract, type ContractInput, type SceneContract } from './contract'
+import { BRIEF_BLOCK, briefShortens, briefText, type ContinuityBrief } from './brief'
 import { LEDGER_BLOCK, ledgerPeople, ledgerText } from './whoKnows'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
@@ -194,6 +200,12 @@ export interface ContextInput {
    * true leaves out what it says. Null or left out: no contract (switched off), exactly as before.
    */
   contract?: ContractInput | null
+  /**
+   * The continuity brief the plan before writing wrote for this draft (long story memory fix 14, brief.ts): a late block
+   * right before the scene card, and the story so far, the earlier passages and who knows what start short beside it.
+   * Null or left out: no brief (switched off, no plan, or it said nothing), exactly as before.
+   */
+  brief?: ContinuityBrief | null
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -267,6 +279,11 @@ export interface PreparedContext {
   tags?: Map<string, DraftTag[]>
   /** The scene's contract as the briefing tells it (long story memory fix 13); null or left out: none. */
   contract?: SceneContract | null
+  /**
+   * The blocks given in their short form because the continuity brief says what of them bears on this scene (long story
+   * memory fix 14, brief.ts briefShortens), unless Adam chose Full; left out: none.
+   */
+  briefShortens?: string[]
 }
 
 // ---------- Budget ----------
@@ -1656,6 +1673,11 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
       })
     : null
   if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract), contractText(contract, { short: true }), [])
+  // The continuity brief (long story memory fix 14, brief.ts): what the plan's reader of the whole record found matters
+  // here. Never left out (it goes in only where there is room for it: draftFlow.ts withPlan); short: what matters and
+  // what must not be contradicted.
+  const brief = briefText(input.brief)
+  if (brief) add(BRIEF_BLOCK.id, MUST_PRIORITY, BRIEF_BLOCK.title, brief, briefText(input.brief, true), [])
   const mustFor = contract ? { ...mustFrom, leaveOut: contractSays(contract) } : mustFrom
   const must = mustStayTrue(mustFor)
   if (must.length) {
@@ -1954,6 +1976,8 @@ export const SEND_ORDER = [
   'recalled',
   // Who knows what (fix 9): who is in the scene can change at every step (the stage, the scene so far).
   LEDGER_BLOCK.id,
+  // The continuity brief (fix 14): written for each draft, so late; right before the scene card.
+  BRIEF_BLOCK.id,
   'scene-card',
   'continuity',
   // The scene's contract (fix 13): what this draft must keep to and bring about, right above what must stay true.
@@ -2042,6 +2066,8 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
   }
   const plan = clean(input.plan?.text)
   if (plan) blocks.push({ id: PLAN_BLOCK.id, priority: 2, title: PLAN_BLOCK.title, text: plan, short: null, smaller: [], entryIds: [] })
+  // With a continuity brief (fix 14), the blocks it says what matters of start short (those that have a short form).
+  const shortens = briefShortens(input.brief).filter((id) => blocks.some((b) => b.id === id && b.short != null))
   const targetWords = input.options.targetWords
   // Auto: room is kept for the longest scene Auto allows this model (finishContext may lower it).
   const autoMax = targetWords == null ? autoCeiling(input.maxOutput) : undefined
@@ -2084,7 +2110,8 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     knows: input.memory.knows ?? '',
     entries: contextEntries(sel, blocks),
     tags: draftMemoryTags(blocks, input.memory),
-    ...(contract ? { contract } : {})
+    ...(contract ? { contract } : {}),
+    ...(shortens.length ? { briefShortens: shortens } : {})
   }
 }
 
@@ -2096,18 +2123,21 @@ const asMode = (m: unknown): BlockMode => (m === 'full' || m === 'short' ? m : '
  */
 export function finishContext(prepared: PreparedContext, rawCounts: number[]): ContextPreview {
   let at = 0
+  const shortens = new Set(prepared.briefShortens ?? [])
   const state = prepared.blocks.map((b) => {
     const mode = asMode(prepared.modes[b.id])
     const forms = formsOf(b)
     const tokensAt = forms.map(() => withAllowance(rawCounts[at++] ?? 0))
     const hasShort = forms.length > 1
+    // Short at most for the continuity brief (fix 14): it says what of this block bears on the scene. Unless Adam chose.
+    const forBrief = hasShort && mode === 'auto' && shortens.has(b.id)
     // Levels of shortening: 0 is the full form, 1 the short form, then any smaller ones.
-    const min = hasShort && mode === 'short' ? 1 : 0
+    const min = hasShort && (mode === 'short' || forBrief) ? 1 : 0
     const max = mode === 'full' ? 0 : forms.length - 1
     // How far step 1 shortens a block: its short form, and for the story so far the step after (chapters, the last
     // few scenes) too, since its full form (every scene) is much longer than the rest.
     const shortTo = Math.min(max, b.id === 'story-so-far' ? 2 : 1)
-    return { b, mode, forms, tokensAt, hasShort, min, max, shortTo, level: min, dropped: false }
+    return { b, mode, forms, tokensAt, hasShort, min, max, shortTo, level: min, dropped: false, forBrief }
   })
   type State = (typeof state)[number]
   const tokens = (s: State): number => s.tokensAt[s.level]
@@ -2152,9 +2182,10 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   const leastFirst = [...others].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
   // What must stay true is never left out: it goes short only once every block from 3 to 11 is, before block 1; the
-  // scene's contract (fix 13) just before it.
+  // scene's contract (fix 13) just before it, and the continuity brief (fix 14) before that.
   const shortenable = [
     ...droppable,
+    ...others.filter((x) => x.b.id === BRIEF_BLOCK.id),
     ...others.filter((x) => x.b.id === CONTRACT_BLOCK.id),
     ...others.filter((x) => x.b.id === MUST_BLOCK),
     ...others.filter((x) => x.b.priority === 1)
@@ -2304,6 +2335,8 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       short: s.level > 0,
       hasShort: s.hasShort,
       mode: s.mode,
+      // Short because the continuity brief says what of it matters, not for room (any shorter is for room).
+      ...(s.forBrief && !s.dropped && s.level === s.min ? { shortFor: 'brief' as const } : {}),
       ...(memory ? { memory } : {})
     }
   })

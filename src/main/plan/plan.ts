@@ -29,7 +29,20 @@ import { pieceLine, secretsAmong, stageFor, stageLine, type Secret, type StageRe
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 import { SO_FAR_BLOCK } from '../beats/instructions'
 import { CONTRACT_BLOCK, contractSays } from '../ai/contract'
+import { BRIEF_BLOCK, type ContinuityBrief } from '../ai/brief'
 import { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
+import {
+  BRIEF_LIMIT_MS,
+  BRIEF_REPLY_SHARE,
+  BRIEF_RULE,
+  BRIEF_SHAPE,
+  bookPart,
+  briefAsk,
+  checkBrief,
+  readBrief,
+  type BriefMaterial,
+  type RawBrief
+} from './brief'
 
 export { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
 
@@ -88,6 +101,12 @@ export interface PlanMaterial {
    * end, for its "Must change" list. Left out: the plan as it always was.
    */
   contract?: boolean
+  /**
+   * A continuity brief is wanted (long story memory fix 14, brief.ts): what the planner reads besides (the book so far
+   * when it goes in whole, the story record) and how long the brief may be; it writes the brief with the plan. Left out:
+   * the plan as it always was.
+   */
+  brief?: BriefMaterial
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -198,8 +217,18 @@ const SYSTEM_WITH_CONTRACT = SYSTEM.replace(
 - needs: the names of entries`
 ).replace('"needs": [""]}', '"needs": [""], "must": [""]}')
 
-/** The planner's instructions: with "must" when the draft has a contract, otherwise as they always were. */
-export const planSystem = (contract = false): string => (contract ? SYSTEM_WITH_CONTRACT : SYSTEM)
+/**
+ * The planner's instructions: with "must" when the draft has a contract, and with "brief" when a continuity brief is
+ * wanted (fix 14; how long it may be is said at the end of the request, so these stay the same from scene to scene and
+ * the book so far after them stays in a provider's cache); otherwise as they always were.
+ */
+export const planSystem = (contract = false, brief = false): string => {
+  const base = contract ? SYSTEM_WITH_CONTRACT : SYSTEM
+  if (!brief) return base
+  return base
+    .replace('\n\nReply with only a JSON object:', `\n${BRIEF_RULE}\n\nReply with only a JSON object:`)
+    .replace(/^(\{"relies".*)\}$/m, `$1, ${BRIEF_SHAPE}}`)
+}
 
 /**
  * What the memory model is asked. In an order a provider that reuses the start of a prompt it has seen (DeepSeek,
@@ -207,12 +236,22 @@ export const planSystem = (contract = false): string => (contract ? SYSTEM_WITH_
  * what the writer is asked came first, with the beats done so far): the scene card, what must stay true and the codex
  * first, then where things stand and the words just before, and last what the writer is asked and Add below's
  * direction, which change at every step.
+ *
+ * With a continuity brief (fix 14): the book so far first (when it is read whole: the same at every step, and at the
+ * next scene the same with one scene more, so a provider's cache keeps it; Claude is asked to, `cacheUpTo`), then the
+ * story record that stays the same through a scene, then the plan's own parts, then what changes from step to step (the
+ * earlier passages found, the scene's contract), and last what the writer is asked. `bookWhole` false: the book is a note
+ * (for the record kept in the world).
  */
-export function planMessages(m: PlanMaterial): ChatMessage[] {
+export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
   const part = (title: string, body: string): string => (body.trim() ? `## ${title}\n${body.trim()}` : '')
   // With no scene card to go with, the direction stands as the card, as it always has.
   const direction = m.card.trim() ? m.direction.trim() : ''
+  const b = m.brief
+  const book = b ? bookPart(b.book, bookWhole) : ''
   const user = [
+    book,
+    ...(b?.record ?? []).map((p) => part(p.title, p.body)),
     part('The scene card', m.card.trim() ? m.card : m.direction),
     part('Plan only this beat', m.focus ? `${m.focus}\nThe beats after it are written later: plan nothing from them.` : ''),
     part('Must stay true', m.must),
@@ -221,15 +260,19 @@ export function planMessages(m: PlanMaterial): ChatMessage[] {
     part('Open plot threads', m.threads ?? ''),
     part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
     m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
+    ...(b?.late ?? []).map((p) => part(p.title, p.body)),
     part('What the writer is asked', m.ask),
     direction,
-    `Plan the ${m.focus ? 'beat' : 'scene'} now, as one JSON object.`
+    b ? briefAsk(!!m.focus, b.words) : `Plan the ${m.focus ? 'beat' : 'scene'} now, as one JSON object.`
   ]
     .filter(Boolean)
     .join('\n\n')
+  // The book so far, the same from scene to scene but for what is added at its end: marked for a model that caches only
+  // where asked (client.ts sentMessages).
+  const cacheUpTo = book && bookWhole ? book.length : 0
   return [
-    { role: 'system', content: planSystem(!!m.contract) },
-    { role: 'user', content: user }
+    { role: 'system', content: planSystem(!!m.contract, !!b) },
+    { role: 'user', content: user, ...(cacheUpTo ? { cacheUpTo } : {}) }
   ]
 }
 
@@ -241,6 +284,8 @@ export interface RawPlan {
   needs: string[]
   /** What must change by the end (the scene's contract, fix 13); empty or left out when not asked for or not given. */
   must?: string[]
+  /** The continuity brief's lists (fix 14); left out when the reply has none. */
+  brief?: RawBrief
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? clean(v).slice(0, 400) : '')
@@ -258,7 +303,9 @@ export function readPlan(reply: string): RawPlan | null {
   }
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null
   const o = v as Record<string, unknown>
+  const brief = readBrief(o.brief)
   return {
+    ...(brief ? { brief } : {}),
     relies: list(o.relies).map((r) => ({ who: str(r.who), what: str(r.what), value: str(r.value) })),
     changes: list(o.changes).map((c) => ({ who: str(c.who), what: str(c.what), from: str(c.from), to: str(c.to), how: str(c.how) })),
     needs: (Array.isArray(o.needs) ? o.needs : [])
@@ -632,10 +679,12 @@ export function planText(p: Pick<ScenePlan, 'keep' | 'changes'>, carryingOn: boo
  */
 export function keepsRoom(before: Pick<ContextPreview, 'blocks' | 'budget'>, after: Pick<ContextPreview, 'blocks' | 'budget'>): boolean {
   const now = new Map(after.blocks.map((x) => [x.id, x]))
+  // The parts the continuity brief (fix 14) says what matters of go short beside it, on purpose: only that short.
+  const forBrief = new Set(after.blocks.some((x) => x.id === BRIEF_BLOCK.id && !x.dropped) ? after.blocks.filter((x) => x.shortFor === 'brief').map((x) => x.id) : [])
   for (const x of before.blocks) {
     // The scenes before word for word go only in room to spare: the plan may have that room (2026-10-15). The scene's
     // contract (fix 13) is the plan's to change: what it says must change takes the place of the card's own words.
-    if (x.dropped || x.id === EARLIER_BLOCK.id || x.id === CONTRACT_BLOCK.id) continue
+    if (x.dropped || x.id === EARLIER_BLOCK.id || x.id === CONTRACT_BLOCK.id || forBrief.has(x.id)) continue
     const y = now.get(x.id)
     if (!y || y.dropped || y.tokens < x.tokens) return false
   }
@@ -669,6 +718,8 @@ export interface MadePlan {
   /** What must change by the end, for the scene's contract (fix 13); empty without a contract. */
   must: string[]
   checked: ScenePlan['checked']
+  /** The continuity brief for the writer (fix 14), checked (brief.ts checkBrief); left out when none was asked for or kept. */
+  brief?: ContinuityBrief
 }
 
 /**
@@ -682,22 +733,38 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
   const stop = new AbortController()
   const onAbort = (): void => stop.abort()
   o.signal?.addEventListener('abort', onAbort, { once: true })
-  const limit = o.limitMs ?? PLAN_LIMIT_MS
+  const m = o.material
+  // A plan with a continuity brief (fix 14) writes more, and may read the whole book so far first: it may take longer.
+  const limit = o.limitMs ?? (m.brief ? (m.brief.book ? BRIEF_LIMIT_MS.book : BRIEF_LIMIT_MS.record) : PLAN_LIMIT_MS)
   let timer: ReturnType<typeof setTimeout> | undefined
   let late: ReturnType<typeof setTimeout> | undefined
   try {
     timer = setTimeout(() => stop.abort(), limit)
-    const m = o.material
     const messages = planMessages(m)
     const user = messages[1].content
+    // The record in the world keeps the book so far as a note: it is the scenes' own words, and the scene's newest
+    // planning calls each keep their prompt.
+    const kept = m.brief?.book ? planMessages(m, false) : null
     const call = callModel({
       db: o.db,
       model: o.model,
       targetId: o.sceneId,
       job: 'memory',
       messages,
-      blocks: [{ id: 'plan', title: 'Planning the scene', text: user, tokens: estimateTokens(user), priority: 1, dropped: false, short: false, entryIds: [] }],
-      maxTokens: PLAN_REPLY_TOKENS,
+      ...(kept ? { kept } : {}),
+      blocks: [
+        {
+          id: 'plan',
+          title: m.brief ? 'Planning the scene and writing its continuity brief' : 'Planning the scene',
+          text: (kept ?? messages)[1].content,
+          tokens: estimateTokens(user),
+          priority: 1,
+          dropped: false,
+          short: false,
+          entryIds: []
+        }
+      ],
+      maxTokens: PLAN_REPLY_TOKENS + (m.brief ? Math.ceil(m.brief.tokens * BRIEF_REPLY_SHARE) : 0),
       signal: stop.signal,
       closed: o.closed,
       fetchImpl: o.fetchImpl,
@@ -713,13 +780,17 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     const raw = readPlan(got.text)
     if (!raw) return null
     // A fact is taken from what the planner was given, but never from where things stood in a scene before that no
-    // longer holds here.
-    const material = m.reach === 'here' ? user : planMessages({ ...m, stand: '' })[1].content
+    // longer holds here. Only the plan's own parts count: never the book so far or the record read for the brief (a
+    // scene long ago may say what no longer holds).
+    const own: PlanMaterial = { ...m, brief: undefined }
+    const material = m.reach === 'here' ? (m.brief ? planMessages(own)[1].content : user) : planMessages({ ...own, stand: '' })[1].content
     const plan = checkPlan(raw, { ...o.check, reach: m.reach, material, card: m.card, calls: m.calls, people: m.people, secrets: m.secrets })
     const text = planText(plan, o.carryingOn)
     const must = m.contract ? plan.must : []
-    if (!text && !plan.needs.length && !must.length) return null
-    return { needs: plan.needs, text, must, checked: plan.checked }
+    // The brief cites only chapters and scenes the planner was given (all of it, the book so far too).
+    const brief = m.brief && raw.brief ? checkBrief(raw.brief, { material: user, tokens: m.brief.tokens, book: !!m.brief.book }).brief : null
+    if (!text && !plan.needs.length && !must.length && !brief) return null
+    return { needs: plan.needs, text, must, checked: plan.checked, ...(brief ? { brief } : {}) }
   } catch (e) {
     console.warn('Could not plan the scene; writing without a plan', e)
     return null

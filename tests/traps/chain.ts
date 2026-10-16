@@ -1649,7 +1649,12 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
       resolved,
       prose,
       records: app.recordsSince(fromRow),
-      ...(threads ? { threads } : {})
+      ...(threads ? { threads } : {}),
+      // The continuity brief it was written with (long story memory fix 14), when the step was planned (Add below).
+      ...(() => {
+        const brief = app.briefOf(got.generationId, fromRow)
+        return brief ? { brief } : {}
+      })()
     })
     cfg.log(
       `  ${spec.id} chain ${index + 1} step ${n} (${step.kind}): ${countWords(got.text)} words${land.planted.length ? `; planted ${land.planted.map((x) => x.id).join(', ')}` : ''}; ${results.map((r) => `${r.id} ${r.verdict}`).join(', ')}${resolved.length ? `; ended ${resolved.join(', ')}` : ''}${

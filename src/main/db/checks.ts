@@ -619,6 +619,20 @@ export function clearDeletedRules(db: DB): ID[] {
   return [...new Set(rows.map((r) => r.scene_id as ID))]
 }
 
+/**
+ * The rules' findings still open in a scene (fix 8), as Adam sees them, oldest first: the plan's reader of the record
+ * is told them before the scene is drafted again (long story memory fix 14), so the brief can say what not to repeat.
+ */
+export function openRuleFindings(db: DB, sceneId: ID, most = 12): string[] {
+  return (
+    db
+      .prepare(`SELECT message FROM issues WHERE scene_id = ? AND status = 'open' AND ${RULE_ROW} ORDER BY created_at, id LIMIT ?`)
+      .all(sceneId, Math.max(0, most)) as Row[]
+  )
+    .map((r) => String(r.message ?? '').trim())
+    .filter(Boolean)
+}
+
 /** How many open issues a scene has that were raised at or after `since` (by a check, or by the memory keeper). */
 export function openSince(db: DB, sceneId: ID, since: string): number {
   const r = db.prepare("SELECT COUNT(*) AS n FROM issues WHERE scene_id = ? AND status = 'open' AND created_at >= ?").get(sceneId, since) as Row
