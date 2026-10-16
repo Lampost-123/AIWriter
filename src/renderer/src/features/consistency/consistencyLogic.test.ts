@@ -71,6 +71,14 @@ describe('the Consistency page’s issues', () => {
     expect(issueSummary({ open: 0, mustFix: 0 })).toBe('No open issues')
     expect(issueSummary({ open: 1, mustFix: 0 })).toBe('1 open issue')
   })
+
+  it('leaves out those saved for later, and says how many there are (findings that stay current)', () => {
+    const g = groupIssues([...all, issue('s1', { severity: 'must-fix', later: true })], outline, true)
+    expect([g.open, g.mustFix, g.later]).toEqual([4, 1, 1])
+    expect(g.chapters[0].scenes[0].issues.every((i) => !i.later)).toBe(true)
+    expect(issueSummary(g)).toBe('4 open issues, 1 must fix · 1 saved for later')
+    expect(issueSummary({ open: 0, mustFix: 0, later: 2 })).toBe('No open issues · 2 saved for later')
+  })
 })
 
 describe('the reports’ words', () => {

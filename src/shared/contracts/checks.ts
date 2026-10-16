@@ -63,6 +63,10 @@ export interface CheckReport {
   after: 'draft' | 'done' | 'request'
   items: CheckReportItem[]
   found: number
+  /** A fingerprint of the scene's words the checks read (findings that stay current, 2026-10-16). */
+  textHash?: string
+  /** Set by getCheckReport: true when the scene's words have changed since this check. */
+  changed?: boolean
   /**
    * How the latest draft kept to its scene's contract (long story memory fix 13), item by item, from the check as it
    * landed or the chapter writer's checks. Kept until the next one; left out: no contract was checked.
@@ -84,6 +88,14 @@ export interface ContractCheckItem {
   result: ContractResult
   /** The words that show it kept or broken, when the check quoted them. */
   quote?: string
+  /**
+   * The item as the contract had it (findings that stay current, 2026-10-16): its code, the check a broken one belongs to,
+   * and the entries it is about, so a later check of the whole scene (Check this scene, Mark done) can go through the
+   * scene's latest contract again. Left out by reports kept before.
+   */
+  code?: string
+  check?: CheckKind
+  entryIds?: ID[]
 }
 
 /** One check of a draft against its scene's contract. */
@@ -145,6 +157,11 @@ export interface Issue {
    * the words go against, or something it had to bring about that they don't show yet. Set only then.
    */
   byContract?: true
+  /**
+   * Put off with Later (findings that stay current, 2026-10-16): still open, but hidden until the next check of the scene
+   * or until the paragraph its words are in changes. Not counted on the badges. Set only then.
+   */
+  later?: true
   /**
    * Ignored by "Write the whole chapter", which set it aside with its reason, not by Adam (2026-10-16): never told to later
    * checks as what he meant. Set only then.
@@ -258,6 +275,8 @@ export interface ChecksApi {
   reopenIssue(id: ID): Promise<Issue>
   /** After its text was fixed (a tracked change accepted). */
   markIssueFixed(id: ID): Promise<Issue>
+  /** Later: hides an open issue until the next check of its scene, or until its paragraph changes. Undo with reopenIssue. */
+  laterIssue(id: ID): Promise<Issue>
   /** Sets the memory from the text (`memoryFix`) as Adam's, and marks the issue fixed. */
   updateMemoryFromIssue(id: ID): Promise<Issue>
   /** Starts a check; progress arrives as checks:* events. Refuses (plain words) when no model is set up. */

@@ -21,6 +21,7 @@ import type { WorldShape } from '../memory/types'
 import { newId, now, UserError } from '../util'
 import { openSince } from '../db/checks'
 import { checkScene, type CheckOptions } from './run'
+import { savedContract } from './report'
 import { compareStories, storyComparisons } from './stories'
 
 type DB = Database.Database
@@ -399,7 +400,12 @@ async function go(r: Run): Promise<void> {
       }
     }
     if (o.stopped()) return finish(r, 'stopped', null, found)
-    const out = await checkScene(o, sceneId, r.checks)
+    // A check Adam asks for, and Mark done's, go through the scene's latest contract as its latest draft was checked
+    // against it (as the chapter writer's do), so what a check through it found can be settled (findings that stay
+    // current, 2026-10-16). The critic after a draft leaves it to the check as the draft landed; contracts switched off,
+    // none.
+    const contract = r.after === 'draft' || o.contractsOff ? null : savedContract(r.db, sceneId)
+    const out = await checkScene({ ...o, contract }, sceneId, r.checks)
     if (out.status !== 'empty') found += out.found
     if (out.status === 'stopped') return finish(r, 'stopped', null, found)
     if (out.status === 'error') return finish(r, 'error', out.error, found)

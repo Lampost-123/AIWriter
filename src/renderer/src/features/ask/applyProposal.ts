@@ -27,7 +27,8 @@ import { startProposedDraft } from './applyDraft'
 import { applyReplaceAll } from './applyReplaceAll'
 import { sceneInPage } from './sceneInPage'
 import { threadLinkKey, withListEdited } from '@shared/threadLinks'
-import { fixTheText, placesInPage, setMemoryFromIssue } from '@/features/issues/actions'
+import { fixTheText, placesInPage, setMemoryFromIssue, settleFix } from '@/features/issues/actions'
+import { noteIssueFix } from '@/features/issues/fixHistory'
 import { pickOccurrence } from '@/features/issues/issuesLogic'
 import { patchIssue } from '@/features/issues/issuesStore'
 import { chapterCardShown, notifyChapterCard } from '@/features/chapterCard/chapterCardEvents'
@@ -56,7 +57,14 @@ const storedSchema = (): Schema => (storedSchemaCache ??= getSchema(sceneExtensi
  * Words into a scene: opens it in the page, works the change out on the page as it is, keeps a snapshot, and makes
  * it as one step (typing just before or after is a step of its own). Undo puts back exactly what it changed.
  */
-async function applyWords(sceneId: ID, sceneLabel: string, storyId: ID | null | undefined, plan: (doc: Parameters<typeof planText>[0]) => Plan): Promise<Applied> {
+async function applyWords(
+  sceneId: ID,
+  sceneLabel: string,
+  storyId: ID | null | undefined,
+  plan: (doc: Parameters<typeof planText>[0]) => Plan,
+  /** Told where plain new words went and what they replaced (an issue's fix follows them: fixHistory.ts). */
+  onMade?: (made: { from: number; to: number; was: string }) => void
+): Promise<Applied> {
   const editor = await sceneInPage(sceneId, storyId)
   if (!editor) return { ok: false, why: `${sceneLabel} couldn’t be opened.` }
   if (editorBridge()?.busy()) return { ok: false, why: BUSY_APPLY }
@@ -78,6 +86,9 @@ async function applyWords(sceneId: ID, sceneLabel: string, storyId: ID | null | 
   else tr.replaceWith(planned.from, planned.to, planned.content)
   view.dispatch(tr)
   view.dispatch(closeHistory(view.state.tr))
+  if (onMade && typeof planned.content === 'string') {
+    onMade({ from: planned.from, to: planned.from + planned.content.length, was: before.textBetween(planned.from, planned.to, '\n', '\n') })
+  }
   const change = changeOf(before, view.state.doc, planned)
   return { ok: true, undo: () => revertWords(sceneId, change) }
 }
@@ -258,17 +269,25 @@ async function applyIssueText(p: IssueFix, place: ApplyPlace): Promise<Applied> 
   if ('why' in open) return { ok: false, why: open.why }
   const sceneId = p.sceneId!
   const fix = p.fix ?? ''
-  const r = await applyWords(sceneId, p.sceneLabel, place.storyId, (doc) => {
-    const places = placesInPage(doc, p.quote)
-    const at = pickOccurrence(places, p.occurrence)
-    if (!at) return { why: places.length ? 'Those words are in the scene more than once. Use Fix the text in the Issues tab.' : 'Those words aren’t in the scene any more.' }
-    const $from = doc.resolve(at.from)
-    if ($from.depth !== 1) return { why: 'Those words aren’t in a plain paragraph. Use Fix the text in the Issues tab.' }
-    return { from: at.from, to: at.to, content: fix, first: $from.index(0), count: 1 }
-  })
+  const r = await applyWords(
+    sceneId,
+    p.sceneLabel,
+    place.storyId,
+    (doc) => {
+      const places = placesInPage(doc, p.quote)
+      const at = pickOccurrence(places, p.occurrence)
+      if (!at) return { why: places.length ? 'Those words are in the scene more than once. Use Fix the text in the Issues tab.' : 'Those words aren’t in the scene any more.' }
+      const $from = doc.resolve(at.from)
+      if ($from.depth !== 1) return { why: 'Those words aren’t in a plain paragraph. Use Fix the text in the Issues tab.' }
+      return { from: at.from, to: at.to, content: fix, first: $from.index(0), count: 1 }
+    },
+    // Ctrl+Z taking the fix back reopens the issue, as the toast's Undo does.
+    (made) => noteIssueFix({ id: p.issueId, sceneId }, made, made.was)
+  )
   if (!r.ok) return r
-  await api.markIssueFixed(p.issueId).catch(() => undefined)
   patchIssue(sceneId, p.issueId, { status: 'fixed' })
+  // Saved first, so the scene's other issues on the same words go with it; then marked fixed and read again.
+  await settleFix(sceneId, p.issueId)
   return {
     ok: true,
     undo: async () => {

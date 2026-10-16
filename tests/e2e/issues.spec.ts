@@ -3,6 +3,8 @@
 // eye colour, a dead character speaking). The acceptance checks: a planted contradiction is caught after
 // marking the scene done; Ignore hides an issue and it stays ignored after re-checking and after a restart;
 // Fix the text shows a tracked change and accepting it marks the issue fixed; Update the memory changes the entry.
+// Findings that stay current (2026-10-16): Later hides an issue until its paragraph changes, words rewritten by hand
+// put their issue away as the page saves, and Ctrl+Z brings it back.
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
 import { binder, closeWindow, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
@@ -130,6 +132,66 @@ test('marking a scene done catches a planted contradiction; Ignore keeps it igno
     await expect(issuesPanel(win).getByRole('list', { name: 'Ignored' })).toContainText(DEAD)
     await issuesPanel(win).getByRole('button', { name: 'Reopen' }).click()
     await expect(issue(win, DEAD)).toBeVisible()
+  } finally {
+    await fake.close()
+  }
+})
+
+/** Selects the first place these words are in the page (the editor follows the window's selection). */
+async function selectWords(win: Page, words: string): Promise<void> {
+  await prose(win).click()
+  await win.evaluate(`(() => {
+    const walk = document.createTreeWalker(document.querySelector('.scene-prose'), NodeFilter.SHOW_TEXT)
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const i = (n.textContent || '').indexOf(${JSON.stringify(words)})
+      if (i < 0) continue
+      const r = document.createRange()
+      r.setStart(n, i)
+      r.setEnd(n, i + ${words.length})
+      const s = getSelection()
+      s.removeAllRanges()
+      s.addRange(r)
+      return
+    }
+  })()`)
+}
+
+test('findings stay current: Later waits for the paragraph to change, words rewritten by hand put an issue away, Ctrl+Z brings it back', async ({
+  launch
+}) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    await setUp(win, fake)
+    await writeAndMarkDone(win)
+    const found = toasts(win).filter({ hasText: 'Found 2 things to look at in this scene.' })
+    await expect(found).toBeVisible({ timeout: 30_000 })
+    await found.getByRole('button', { name: 'Show' }).click()
+    await expect(issuesPanel(win).getByRole('article')).toHaveCount(2)
+    const report = issuesPanel(win).getByRole('region', { name: 'Check report' })
+    await expect(report.getByRole('button', { name: /^Checked when marked done · 4 checks · 2 issues open$/ })).toBeVisible()
+
+    // Later: hidden at once, not counted, folded under "Show for later".
+    await issue(win, DEAD).getByRole('button', { name: 'Later' }).click()
+    await expect(issue(win, DEAD)).toHaveCount(0)
+    await expect(toasts(win).getByText('Saved for later. It comes back when you change that part of the scene, or when the scene is checked again.')).toBeVisible()
+    await expect(issuesPanel(win).getByRole('button', { name: 'Show for later (1)' })).toBeVisible()
+    await expect(issuesTab(win)).toHaveAccessibleName('Issues 1 open')
+
+    // The eye colour rewritten by hand: that issue goes as the page saves, with no check; the paragraph changed, so
+    // the one put off comes back. The report counts what is open now, and says the scene changed since.
+    await selectWords(win, 'green')
+    await win.keyboard.type('grey')
+    await expect(issue(win, EYES)).toHaveCount(0, { timeout: 10_000 })
+    await expect(issue(win, DEAD)).toBeVisible()
+    await expect(issuesPanel(win).getByRole('button', { name: /^Show for later/ })).toHaveCount(0)
+    await expect(report.getByRole('button', { name: /^Checked when marked done · 4 checks · 1 issue open$/ })).toBeVisible()
+    await expect(report.locator('[data-report-when]')).toContainText('The scene changed since this check', { timeout: 10_000 })
+
+    // Ctrl+Z: the words are back, and so is the issue about them.
+    await win.keyboard.press('Control+z')
+    await expect(prose(win)).toContainText("Mara's eyes were green in the firelight.")
+    await expect(issue(win, EYES)).toBeVisible({ timeout: 10_000 })
   } finally {
     await fake.close()
   }

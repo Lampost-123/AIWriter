@@ -19,7 +19,7 @@ import { SECOND_MARKER } from '../repair/second'
 import { issueFindings } from '../chapterWriter/run'
 import type { SceneContract } from '../ai/contract'
 import { CHECK_CONTRACT_RULES, contractSection } from '../repair/contract'
-import { checkReport, reportItems } from './report'
+import { checkReport, checkReportNow, reportItems } from './report'
 import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
 import { Keeper } from '../keeper/engine'
 import * as kdb from '../db/keeper'
@@ -323,6 +323,84 @@ describe('the scene’s contract in the chapter writer’s checks (long story me
     repo.saveSceneText(w.db, w.s2, null, 'Mara pushed the door open and found the ledger under the floor.')
     await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
     expect(fromContract()).toBe(0)
+  })
+})
+
+describe('findings that stay current (2026-10-16)', () => {
+  const contract = (tobinId: ID): SceneContract => ({
+    asks: 'scene',
+    items: [
+      { code: 'C1', part: 'change', text: 'Mara pushes the door open', check: 'facts', entryIds: [] },
+      { code: 'C2', part: 'change', text: 'Mara finds the ledger under the floor', check: 'facts', entryIds: [] },
+      { code: 'C3', part: 'keep', text: 'Tobin is dead: died in the fire (since Ch 1, Sc 1)', check: 'facts', entryIds: [tobinId] }
+    ]
+  })
+  const runDeps = (contractsOff = false) => {
+    const done = new Map<ID, (d: CheckDone) => void>()
+    setRunDeps({
+      model: () => model(),
+      prefs: () => PREFS,
+      emit: (name, payload) => {
+        if (name === 'checks:done') done.get((payload as CheckDone).runId)?.(payload as CheckDone)
+      },
+      retryDelays: [5],
+      contractsOff: () => contractsOff
+    })
+    return (runId: ID): Promise<CheckDone> => new Promise((r) => done.set(runId, r))
+  }
+  const notYet = (db: CheckOptions['db'], sceneId: ID) =>
+    cdb
+      .sceneIssueRows(db, sceneId)
+      .filter((r) => r.status === 'open' && cdb.payloadOf(r).contract?.missing)
+      .map((r) => cdb.payloadOf(r).contract!.text)
+  const lastFirstRequest = (db: CheckOptions['db'], sceneId: ID): string => {
+    const recs = checkRecords(db, sceneId).map((id) => gens.getGeneration(db, id))
+    // Each check is two requests; the contract rides in the first (what is so).
+    return recs[recs.length - 2].messages[1].content
+  }
+
+  it('Check this scene and Mark done go through the scene’s latest contract, so a "not shown yet" question is settled once the words show it', async () => {
+    const w = world()
+    // The latest draft's contract, as checked (the chapter writer's check here; a draft landing keeps it the same way).
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    expect(notYet(w.db, w.s2)).toEqual(['Mara finds the ledger under the floor'])
+    // Adam writes it in by hand, then asks for a check: the question goes.
+    repo.saveSceneText(w.db, w.s2, null, `${SCENE_2} Mara found the ledger under the floor.`)
+    const ended = runDeps()
+    const end = ended('r1')
+    startCheck(w.db, { runId: 'r1', target: { scope: 'scene', id: w.s2 }, checks: [...DONE_CHECKS] })
+    expect((await end).status).toBe('complete')
+    expect(lastFirstRequest(w.db, w.s2)).toContain('## The scene’s contract (C ids)')
+    expect(notYet(w.db, w.s2)).toEqual([])
+    expect(checkReport(w.db, w.s2)!.contract!.items.map((i) => i.result)).not.toContain('not yet')
+    // Mark done's check goes through it too.
+    const runId = checkWhenDone(w.db, w.s2)!
+    expect((await ended(runId)).status).toBe('complete')
+    expect(lastFirstRequest(w.db, w.s2)).toContain('## The scene’s contract (C ids)')
+  })
+
+  it('with contracts switched off, a check Adam asks for doesn’t go through it', async () => {
+    const w = world()
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    const ended = runDeps(true)
+    const end = ended('r2')
+    startCheck(w.db, { runId: 'r2', target: { scope: 'scene', id: w.s2 }, checks: [...DONE_CHECKS] })
+    expect((await end).status).toBe('complete')
+    expect(lastFirstRequest(w.db, w.s2)).not.toContain('## The scene’s contract (C ids)')
+  })
+
+  it('the report keeps a fingerprint of the words it read, and a check of the scene brings back what Later put off', async () => {
+    const w = world()
+    await checkScene(options(w.db), w.s2, DONE_CHECKS)
+    expect(checkReportNow(w.db, w.s2)!.changed).toBe(false)
+    const eyes = cdb.sceneIssueRows(w.db, w.s2).find((r) => r.severity === 'warning')!
+    cdb.setLater(w.db, eyes.id as ID)
+    expect(cdb.payloadOf(cdb.issueRow(w.db, eyes.id as ID)!).later).toBeDefined()
+    repo.saveSceneText(w.db, w.s2, null, `${SCENE_2} More.`)
+    expect(checkReportNow(w.db, w.s2)!.changed).toBe(true)
+    await checkScene(options(w.db), w.s2, DONE_CHECKS)
+    expect(checkReportNow(w.db, w.s2)!.changed).toBe(false)
+    expect(cdb.payloadOf(cdb.issueRow(w.db, eyes.id as ID)!).later).toBeUndefined()
   })
 })
 

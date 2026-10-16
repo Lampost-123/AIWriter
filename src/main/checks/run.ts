@@ -30,7 +30,7 @@ import { scenePassages } from '../retrieval/text'
 import type { Claim } from '../repair/claims'
 import { foundIssues, orderedChecks, readCheckReply, type ReadContext } from './parse'
 import { retryMessage, sceneSystem } from './prompts'
-import { reportItems, saveReport } from './report'
+import { reportHash, reportItems, saveReport } from './report'
 import { ruleChecksQuietly } from './ruleChecks'
 import { findSceneQuote, issueKey, KIND_OF_CHECK, occurrenceAt } from './quote'
 import type { ContractCheck } from '@shared/contracts/checks'
@@ -355,12 +355,16 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
         after: o.after ?? 'request',
         items: reportItems(checks, checked, foundBy),
         found: found.length,
+        // The words the checks read, so the Issues tab can say when the scene has changed since (findings that stay current).
+        textHash: reportHash(ctx.text),
         ...(kept ? { contract: kept.check } : clearContract ? { contract: null } : {})
       })
     } catch (e) {
       console.warn('Could not keep the check report', e)
     }
   }
+  // A check of the scene ran: what was put off with Later shows again (findings that stay current).
+  if (!stopped && !failure) cdb.clearLater(o.db, sceneId)
   if (failure) return { status: 'error', error: failure, found: raised }
   if (stopped) return { status: 'stopped', found: raised }
   return { status: 'done', found: raised }

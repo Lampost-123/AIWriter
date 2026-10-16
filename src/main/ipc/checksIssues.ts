@@ -161,6 +161,7 @@ export const issuesHandlers: Handlers<
   | 'ignoreIssue'
   | 'reopenIssue'
   | 'markIssueFixed'
+  | 'laterIssue'
   | 'updateMemoryFromIssue'
   | 'startCheck'
   | 'stopCheck'
@@ -190,6 +191,14 @@ export const issuesHandlers: Handlers<
     return asIssues([row])[0]
   },
   markIssueFixed: (id) => setStatus(id, 'fixed'),
+  // Later (findings that stay current): hidden until the next check of the scene, or until its paragraph changes.
+  laterIssue: (id) => {
+    const db = world.db()
+    const row = cdb.setLater(db, id)
+    if (!row) throw new UserError('That issue is no longer there.')
+    repo.touchWorld(db)
+    return asIssues([row])[0]
+  },
   updateMemoryFromIssue: (id) => {
     const db = world.db()
     const row = cdb.issueRow(db, id)

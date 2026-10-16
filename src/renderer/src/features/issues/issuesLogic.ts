@@ -3,6 +3,7 @@ import type { CheckKind, CheckProgress, CheckReport, ContractCheck, ContractResu
 import type { ID } from '@shared/types'
 import { FIELD_GROUPS } from '@shared/fields'
 import { sameWords } from '@/features/edits/text'
+import { relativeTime } from '@/features/generate/format'
 
 /** What each severity is called on screen. */
 export const SEVERITY_WORDS: Record<IssueSeverity, string> = { 'must-fix': 'Must fix', warning: 'Worth a look', minor: 'Minor' }
@@ -42,16 +43,30 @@ export function foundWords(found: number, where: string | null): string {
   return `Found ${things} to look at ${where ? `in ${where}` : 'in this scene'}.`
 }
 
-/** Open issues first as the main process sorts them; ignored ones apart, for "Show ignored". */
-export function splitIssues(issues: Issue[]): { open: Issue[]; ignored: Issue[] } {
-  return { open: issues.filter((i) => i.status === 'open'), ignored: issues.filter((i) => i.status === 'ignored') }
+/**
+ * Open issues first as the main process sorts them; those put off with Later apart, for "Show for later"; ignored ones
+ * apart, for "Show ignored".
+ */
+export function splitIssues(issues: Issue[]): { open: Issue[]; later: Issue[]; ignored: Issue[] } {
+  return {
+    open: issues.filter((i) => i.status === 'open' && !i.later),
+    later: issues.filter((i) => i.status === 'open' && !!i.later),
+    ignored: issues.filter((i) => i.status === 'ignored')
+  }
 }
 
-/** Open issues and how many must be fixed (for the tab's count). */
+/** Open issues and how many must be fixed (for the tab's count); those put off with Later don't count. */
 export function openCount(issues: Issue[] | null | undefined): { count: number; mustFix: number } {
-  const open = (issues ?? []).filter((i) => i.status === 'open')
+  const open = (issues ?? []).filter((i) => i.status === 'open' && !i.later)
   return { count: open.length, mustFix: open.filter((i) => i.severity === 'must-fix').length }
 }
+
+/** Said when Later puts an issue off. */
+export const LATER_WORDS = 'Saved for later. It comes back when you change that part of the scene, or when the scene is checked again.'
+/** Said for an issue with no words to point at (a scene contract's question). */
+export const LATER_WORDS_NO_QUOTE = 'Saved for later. It comes back when the scene is checked again.'
+/** Later's hover. */
+export const LATER_TITLE = 'Not now: hide it until this part of the scene changes, or the scene is checked again'
 
 /** The run checking this scene now (or waiting to), if any: Adam's own first. */
 export function runFor(runs: Record<ID, CheckProgress & { background?: boolean }>, sceneId: ID): (CheckProgress & { background?: boolean }) | null {
@@ -195,16 +210,32 @@ const AFTER_WORDS: Record<CheckReport['after'], string> = {
 }
 
 /**
- * The report's line while it is closed: "Checked after the latest draft · 6 checks · 2 issues". With none it says
- * "no issues" (what the checks found), never that all is well: the page may still have words underlined. With only the
- * scene's contract checked so far (fix 13, as the draft landed): "Checked against the scene contract · 3 of 4 kept".
+ * The report's line while it is closed: "Checked after the latest draft · 6 checks · 2 issues open". The count is the
+ * scene's open issues as they are now (`open`; those put off with Later aside), so it follows every fix: "none left
+ * open" once what was found is settled. With none found it says "no issues" (what the checks found), never that all is
+ * well: the page may still have words underlined. Until the scene's issues are read (`open` null) it says what the
+ * check found. With only the scene's contract checked so far (fix 13, as the draft landed): "Checked against the scene
+ * contract · 3 of 4 kept".
  */
-export function reportHeadline(r: Pick<CheckReport, 'after' | 'items' | 'found' | 'contract'>): string {
+export function reportHeadline(r: Pick<CheckReport, 'after' | 'items' | 'found' | 'contract'>, open: number | null = null): string {
   if (!r.items.length && r.contract) return `Checked against the scene contract · ${contractNote(r.contract)}`
   const checks = r.items.length === 1 ? '1 check' : `${r.items.length} checks`
-  const how = r.found ? (r.found === 1 ? '1 issue' : `${r.found} issues`) : 'no issues'
+  const found = r.found ? (r.found === 1 ? '1 issue' : `${r.found} issues`) : 'no issues'
+  const how = open === null ? found : open ? (open === 1 ? '1 issue open' : `${open} issues open`) : r.found ? 'none left open' : 'no issues'
   return `${AFTER_WORDS[r.after]} · ${checks} · ${how}`
 }
+
+/** When the report's check ran, and whether the scene's words have changed since: "5 minutes ago · The scene changed since this check". */
+export function reportWhen(r: Pick<CheckReport, 'at' | 'changed'>, nowMs: number = Date.now()): string {
+  const when = upperFirst(relativeTime(r.at, nowMs))
+  if (!r.changed) return when
+  return when ? `${when} · ${CHANGED_SINCE}` : CHANGED_SINCE
+}
+
+/** Said under the report once the scene's words are no longer those its checks read. */
+export const CHANGED_SINCE = 'The scene changed since this check'
+
+const upperFirst = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
 // ---------- The scene's contract (long story memory fix 13) ----------
 
