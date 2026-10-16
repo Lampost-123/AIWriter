@@ -9,6 +9,9 @@
 //              3. prose, low, "A quote from nowhere", quoting words that are in no scene (the app keeps the note,
 //                 without the quote).
 // A re-read after revisions ("This is a re-read" in the request, the chapter writer's) finds the work ready: no notes.
+// Adam's Critique again sends "## Your notes last time" (P1, P2... with what became of each): the reply says the ones
+// the author acted on or whose words changed are "settled", and a note with the title of one still to do gives it again
+// ("earlier": its id); a note like one he acted on is given without saying so (the app leaves it out: never reversed).
 // The model fake/critique-bad-json answers its first critique with words, not JSON (asked once more, it answers
 // properly). Returns null for any other request.
 
@@ -69,9 +72,33 @@ export function critiqueReply(system, user, model = '') {
     quote: 'Words that are nowhere in the text at all.',
     suggestion: 'Vary the sentence openings a little.'
   })
+  const earlier = earlierNotes(String(user))
+  for (const n of notes) {
+    const still = earlier.find((e) => e.title === n.title && e.open)
+    if (still) n.earlier = still.id
+  }
   return JSON.stringify({
     summary: scope === 'chapter' ? 'The chapter builds steadily to its last scene.' : 'The scene moves well, but its middle slows.',
     strengths: ['The opening line sets the mood at once.'],
+    ...(earlier.length ? { settled: earlier.filter((e) => e.settled).map((e) => e.id) } : {}),
     notes
   })
+}
+
+/** The notes last time, as Critique again sends them: id, title, whether still to do, and whether settled now. */
+function earlierNotes(user) {
+  const at = user.search(/^## Your notes last time$/m)
+  if (at < 0) return []
+  const rest = user.slice(at).split('\n').slice(1).join('\n')
+  const end = rest.search(/^## /m)
+  return (end < 0 ? rest : rest.slice(0, end))
+    .split('\n')
+    .map((l) => l.match(/^- \[(P\d+)\] [^:]+: “([^”]+)”.* — (.*)$/))
+    .filter(Boolean)
+    .map(([, id, title, fate]) => ({
+      id,
+      title,
+      open: fate.startsWith('Still to do'),
+      settled: /acted on|changed since/.test(fate)
+    }))
 }

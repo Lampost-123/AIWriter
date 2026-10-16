@@ -75,7 +75,7 @@ function deps(db: RunDeps['db'], o: { again?: boolean; agent?: string; progress?
       return r.status === 'error' ? { status: 'error', error: r.error } : { status: r.status }
     },
     critique: (target, again) =>
-      runCritique({ db, model: model('fake/writer', 'writer'), prefs: PREFS, emit: () => undefined, retryDelays: [] }, { taskId: crypto.randomUUID(), target, again: o.again === false ? false : again }),
+      runCritique({ db, model: model('fake/writer', 'writer'), prefs: PREFS, emit: () => undefined, retryDelays: [] }, { taskId: crypto.randomUUID(), target, again: o.again === false ? false : again, by: 'chapter-writer' }),
     limitNote: () => null,
     closed: () => false,
     retryDelays: []

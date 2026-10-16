@@ -183,7 +183,8 @@ function deps(runId: ID): RunDeps {
                 onKeyRejected: providerNotes(writer.target.id).onKeyRejected,
                 closed
               },
-              { taskId, target, again }
+              // Kept as the tab's critique, saying it was the chapter writer's (a re-read after its changes, from round 2).
+              { taskId, target, again, by: 'chapter-writer' }
             )
         )
       } catch (e) {

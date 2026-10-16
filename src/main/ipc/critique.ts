@@ -9,7 +9,7 @@ import { providerNotes } from '../ai/draftFlow'
 import { emit } from '../events'
 import { getSettings, getWritingPrefs } from '../settings'
 import { runCritique } from '../critique/run'
-import { cleanTarget, savedCritique } from '../critique/store'
+import { cleanTarget, dropWant, savedCritique, settleNote } from '../critique/store'
 
 export const critiqueHandlers: Handlers<keyof CritiqueApi> = {
   startCritique: (input) => {
@@ -35,5 +35,20 @@ export const critiqueHandlers: Handlers<keyof CritiqueApi> = {
   getCritique: (target) => {
     const t = cleanTarget(target)
     return t ? savedCritique(world.db(), t) : null
+  },
+  settleCritiqueNote: (change) => {
+    const t = cleanTarget(change?.target)
+    if (!t || typeof change?.noteId !== 'string') return null
+    return settleNote(world.db(), {
+      target: t,
+      noteId: change.noteId,
+      status: change.status ?? null,
+      ...(typeof change.newWords === 'string' ? { newWords: change.newWords } : {}),
+      ...(typeof change.at === 'string' ? { at: change.at } : {})
+    })
+  },
+  dropCritiqueWant: (target, wantId) => {
+    const t = cleanTarget(target)
+    return t && typeof wantId === 'string' ? dropWant(world.db(), t, wantId) : []
   }
 }

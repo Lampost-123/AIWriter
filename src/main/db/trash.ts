@@ -5,6 +5,7 @@ import { CHAPTER_CARD_PREFIX } from '@shared/chapterCard'
 import { dropCalledOfGoneScenes } from './called'
 import { clearGoneChapters, dropPlansOfGoneThreads } from './threadPlans'
 import { dropSnapshotsOfGoneChapters } from './snapshots'
+import { dropCritiquesOfGone } from './critiques'
 
 // The Trash: deleting a story, chapter, scene or entry only sets deleted_at, so it can be
 // restored for 30 days. After that, purgeTrash() removes it for good (run when a world opens).
@@ -92,6 +93,9 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     // leaves every plan.
     dropPlansOfGoneThreads(db)
     clearGoneChapters(db)
+    // The critic's kept critiques go with their scene or chapter, and what Adam said isn't for a story with the story
+    // (db/critiques.ts).
+    dropCritiquesOfGone(db)
 
     return { stories: storySet.size, chapters: chapterSet.size, scenes: sceneSet.size, entries: entryIds.length, generations }
   })()

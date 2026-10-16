@@ -16,6 +16,7 @@ import { requestReveal } from '@/features/editor/reveal'
 import { showReplacement, startTool } from '@/features/edits/session'
 import { wordsIn } from '@/features/edits/text'
 import { openScene } from '@/features/memory/openScene'
+import { fixedOnceChecked } from '@/features/repair/checkedFix'
 import { openStorySettings } from '@/features/stories/storyActions'
 import { fieldWords, fixAgainNote, fixDirection, NO_FIX_FOUND, occurrencesIn, pickOccurrence, sentenceAround, usableFix } from './issuesLogic'
 import { loadIssues, patchIssue, useIssuesStore } from './issuesStore'
@@ -56,7 +57,8 @@ export function placesInPage(doc: PMNode, quote: string): { from: number; to: nu
 /**
  * Fix the text: the check's suggested rewrite shows in the page as a tracked change (no AI call) when its
  * words are found whole, in one place it can be sure of; otherwise the AI tools' Rewrite works on the
- * sentence the words are in, told what the problem is. Accepting the change marks the issue fixed;
+ * sentence the words are in, told what the problem is. Accepting the change marks the issue fixed (the
+ * writer model's rewrite only once its new words pass the check a draft gets: repair/checkedFix.ts);
  * rejecting it leaves the issue as it was.
  */
 export function fixTheText(issue: Issue): void {
@@ -90,10 +92,11 @@ export function fixTheText(issue: Issue): void {
   const s = sentenceAround(text, range.from - start, Math.min(range.to, $from.end()) - start)
   const target = wordsIn(doc, start + s.from, start + s.to) ?? range
   // The words must change: a reply that sends them back as they were is asked for again, once, then said plainly.
+  // Accepted, the new words are checked as a draft's are, and the issue is fixed only once that check passes.
   void startTool('rewrite', {
     direction: fixDirection(issue),
     range: target,
-    onAccepted: markFixed(issue),
+    onAccepted: fixedOnceChecked(issue, markFixed(issue)),
     mustChange: { again: fixAgainNote(issue), giveUp: NO_FIX_FOUND }
   })
 }
