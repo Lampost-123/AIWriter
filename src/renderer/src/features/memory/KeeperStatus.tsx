@@ -2,7 +2,9 @@
 // updated" note after it changed something (it opens What changed), nothing when idle, and a quiet
 // note when it can't run at all, with the reason and what to do. It sits in a slot that is always
 // there and grows into the bar's free middle to fit its words, so nothing in the bar moves when it
-// comes and goes. Nothing in it nags.
+// comes and goes. Nothing in it nags. When a model turned scenes down (some models won't read explicit scenes;
+// MemoryStatus.refused), a lasting "Scene turned down" note says what went without and what to do, until Adam
+// dismisses it or picks another model.
 import * as P from '@radix-ui/react-popover'
 import { Check, CircleAlert } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
@@ -149,6 +151,8 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
           <span className="truncate">Reading the scene…</span>
         </button>
+      ) : status?.refused ? (
+        <RefusedNote note={status.refused} onSettings={() => goTo({ kind: 'settings', tab: 'models' })} />
       ) : update ? (
         <button
           type="button"
@@ -169,6 +173,51 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
 }
 
 /** A re-read Adam asked for (World Memory Overhaul B8): how far it has got, with Stop. */
+/** Scenes a model turned down: what went without and what to do, until dismissed (or another model is picked). */
+function RefusedNote({ note, onSettings }: { note: NonNullable<MemoryStatus['refused']>; onSettings: () => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const dismiss = async (): Promise<void> => {
+    setOpen(false)
+    try {
+      await api.dismissRefusedNote()
+    } catch (e) {
+      toast(plainReason(e))
+    }
+  }
+  return (
+    <P.Root open={open} onOpenChange={setOpen}>
+      <P.Trigger
+        className={cn(slotButton, 'text-muted hover:text-fg data-[state=open]:bg-surface-2')}
+        title="A model turned a scene down. Click to see what was skipped."
+        data-refused-note
+      >
+        <CircleAlert size={14} className="shrink-0 text-ai" aria-hidden />
+        <span className="truncate">Scene turned down</span>
+      </P.Trigger>
+      <PopoverPanel className="w-[340px]">
+        <h3 className="text-[13.5px] font-semibold text-fg">{note.title}</h3>
+        <p className="mt-1 select-text text-[12.5px] leading-relaxed text-muted">{note.message}</p>
+        <p className="mt-2 text-[12px] leading-relaxed text-faint">Your writing is safe. Nothing in the scene was changed.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              setOpen(false)
+              onSettings()
+            }}
+          >
+            Open Settings › Models
+          </Button>
+          <Button size="sm" onClick={() => void dismiss()}>
+            Dismiss
+          </Button>
+        </div>
+      </PopoverPanel>
+    </P.Root>
+  )
+}
+
 function RereadNote({ progress, onWhatChanged }: { progress: NonNullable<MemoryStatus['rereading']>; onWhatChanged: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [stopping, setStopping] = useState(false)

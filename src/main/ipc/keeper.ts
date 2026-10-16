@@ -8,7 +8,7 @@ import * as kdb from '../db/keeper'
 import * as world from '../world'
 import { emit } from '../events'
 import { labeler } from '../memory/line'
-import { currentKeeper, markSceneDone, memoryModel, memoryStatus, recordEdited } from '../keeper'
+import { currentKeeper, dismissRefusedNote, markSceneDone, memoryModel, memoryStatus, recordEdited } from '../keeper'
 import { guessReread, rereadCost } from '../importing/estimate'
 import { getSettings } from '../settings'
 import { isLocalUrl } from '../ai/errors'
@@ -32,6 +32,7 @@ type KeeperMethods =
   | 'answerMemoryQuestion'
   | 'updateMemoryNow'
   | 'checkMemoryAgain'
+  | 'dismissRefusedNote'
   | 'estimateReread'
   | 'startReread'
   | 'stopReread'
@@ -111,6 +112,7 @@ export const keeperHandlers: Handlers<KeeperMethods> = {
   checkMemoryAgain: (sceneId) => {
     currentKeeper()?.checkAgain(sceneId)
   },
+  dismissRefusedNote: () => dismissRefusedNote(),
 
   // Re-read a scene or a whole story (World Memory Overhaul B8).
   estimateReread: (target) => rereadEstimate(world.db(), target),

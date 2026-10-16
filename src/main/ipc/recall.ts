@@ -9,11 +9,23 @@ import * as world from '../world'
 import * as repo from '../db/repo'
 import { UserError } from '../util'
 import { memoryModel } from '../keeper'
-import { editState, keptStateBefore, stateAfter, stateAtText, stateBefore, storedState, storedStateAt } from '../continuity/tracker'
+import { modelKeyOf } from '../keeper/refusals'
+import { editState, keptStateBefore, stateAfter, stateAtText, stateBefore, storedState, storedStateAt, turnedDown } from '../continuity/tracker'
 
 function view(sceneId: ID): RecallView {
-  const kept = storedState(world.db(), sceneId)
-  return { sceneId, state: kept?.state ?? null, current: kept?.current ?? false, edited: kept?.edited ?? false }
+  const db = world.db()
+  const kept = storedState(db, sceneId)
+  // Nothing kept for the scene yet: Recall starts from where things stood as the scene before ended, so Adam can fill it
+  // in by hand (his first change keeps it for this scene, continuity/tracker.ts editState).
+  const before = kept ? null : keptStateBefore(db, sceneId)
+  if (before) return { sceneId, state: before, current: true, edited: false, unchecked: true, refused: false }
+  return {
+    sceneId,
+    state: kept?.state ?? null,
+    current: kept?.current ?? false,
+    edited: kept?.edited ?? false,
+    ...(kept?.unchecked ? { unchecked: true, refused: kept.refused } : {})
+  }
 }
 
 function viewAt(sceneId: ID, words: string): RecallAtView {
@@ -38,18 +50,26 @@ export const recallHandlers: Handlers<keyof RecallApi> = {
   getRecall: (sceneId) => view(sceneId),
   refreshRecall: async (sceneId) => {
     const { db, o } = asked()
-    // The scenes before it first (each builds on the last), then the scene itself.
+    // The scenes before it first (each builds on the last), then the scene itself: asked again even when the memory
+    // model turned it down before (Adam asked). Turned down again, the view says so (carried on from the scene before).
     await stateBefore(o, sceneId)
-    const got = await stateAfter(o, sceneId)
+    const got = await stateAfter(o, sceneId, true)
     if (!got && repo.getScene(db, sceneId).text.trim()) throw new UserError('The memory model couldn’t work out where things stand. Try again in a moment.')
     return view(sceneId)
   },
   getRecallAt: (sceneId, words) => viewAt(sceneId, String(words ?? '')),
   refreshRecallAt: async (sceneId, words) => {
     const text = String(words ?? '')
-    const { o } = asked()
-    const got = await stateAtText(o, sceneId, text)
-    if (!got && text.trim()) throw new UserError('The memory model couldn’t work out where things stand. Try again in a moment.')
+    const { db, o } = asked()
+    const got = await stateAtText(o, sceneId, text, true)
+    if (!got && text.trim()) {
+      if (turnedDown(db, sceneId, text, modelKeyOf(o.model))) {
+        throw new UserError(
+          "The memory model turned this part of the scene down. Some models won't read explicit scenes, so pick another memory model in Settings › Models."
+        )
+      }
+      throw new UserError('The memory model couldn’t work out where things stand. Try again in a moment.')
+    }
     return viewAt(sceneId, text)
   },
   setRecallValue: (sceneId, change) => {
@@ -87,7 +107,7 @@ export const recallHandlers: Handlers<keyof RecallApi> = {
         e.scene = { ...(e.scene ?? {}), [change.field]: value }
       }
     })
-    if (!ok) throw new UserError('Read the scene first, then change what it says.')
+    if (!ok) throw new UserError('This scene has been deleted, so there is nothing here to change.')
     repo.touchWorld(db)
     return view(sceneId)
   },

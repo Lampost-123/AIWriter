@@ -4,16 +4,23 @@
 // to think as Settings › Models says (Off unless Adam changes it), and is given room to think and
 // still answer when it thinks anyway (thinking counts against the reply limit). Never throws: the
 // result says what happened, in plain words when it went wrong. No Electron imports.
+// Refusals (2026-10-16): some models won't read explicit scenes, and Adam writes them. A reply that is plainly a
+// refusal ("I'm sorry, but I can't summarise this scene") is told apart here, once, for every memory job: it comes
+// back as a 'refused' failure, never as a summary, a plan or a reading, and is noted for the top bar's lasting note
+// (refusals.ts) with what it was for (`task`). When the style guide sets content above its second step, every memory job
+// is told the story means it (contentNoteFor), so it records what the words say plainly rather than toning it down.
 
 import type Database from 'better-sqlite3'
-import type { ChatMessage, ContextBlock, ID, ModelChoice, ThinkingLevel } from '@shared/types'
+import type { ChatMessage, ContentIntensity, ContextBlock, ID, ModelChoice, ThinkingLevel } from '@shared/types'
+import { INTENSITY } from '@shared/intensity'
 import * as gens from '../db/generations'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from '../ai/client'
 import { REPLY_LIMIT_CAP, THINKING_ROOM, withThinkingShare } from '../ai/context'
-import { describeFailure, providerWho, type Failure } from '../ai/errors'
+import { describeFailure, looksLikeContextTooLong, looksLikeRefusal, looksLikeRefusalReply, providerWho, type Failure } from '../ai/errors'
 import { newId, now } from '../util'
 import { heldAt } from '../usage/gate'
 import { estimateTokens } from './text'
+import { modelKeyOf, noteRefusal, type RefusedTask } from './refusals'
 
 type DB = Database.Database
 
@@ -55,6 +62,11 @@ export interface CallOptions {
   /** The scene the record belongs to (for a roll-up, the latest scene it is made from). */
   targetId: ID
   job: 'memory' | 'summary'
+  /**
+   * What the call is for, so a refusal can say what went without (refusals.ts). 'read' (the memory reading a scene) has
+   * its own lasting note ("Memory isn't updating"), so it isn't noted; left out, nothing is noted either.
+   */
+  task?: RefusedTask | 'read'
   messages: ChatMessage[]
   /**
    * What the record keeps of the messages, when that is less than was sent (the plan before writing with the book so
@@ -93,7 +105,7 @@ export function memoryFailure(f: Failure, target: ChatTarget, modelId: string, t
   const who = providerWho(target)
   switch (f.type) {
     case 'refused':
-      return 'The memory model turned the scene down. Pick another memory model in Settings › Models.'
+      return "The memory model turned the scene down. Some models won't read explicit scenes, so pick another memory model in Settings › Models."
     case 'empty':
       if (f.thinking && thinking === 'off') {
         return 'The memory model thinks even with Thinking off, and used up its room before it answered. Pick another memory model in Settings › Models.'
@@ -113,6 +125,39 @@ export function memoryFailure(f: Failure, target: ChatTarget, modelId: string, t
         .replace(/writer model/g, 'memory model')
         .replace(/ The text that arrived is kept\.$/, '')
   }
+}
+
+/** What each content scale set above its second step means, for the memory model. */
+const STRONG_WORDS: Record<(typeof INTENSITY)[number]['scale'], string> = {
+  romance: 'explicit sex',
+  violence: 'graphic violence',
+  language: 'strong swearing'
+}
+
+/**
+ * What the memory model is told when the style guide sets content above its second step (as the writer is: some
+ * models tone such scenes down when they record them, or leave them out): that the story means it, and to record what
+ * the words say plainly. Null at milder levels.
+ */
+export function contentNoteFor(intensity: ContentIntensity | null | undefined): string | null {
+  const strong = INTENSITY.filter(({ scale }) => (intensity?.[scale] ?? 0) > 2).map(({ scale }) => STRONG_WORDS[scale])
+  if (!strong.length) return null
+  const what = strong.length > 1 ? `${strong.slice(0, -1).join(', ')} and ${strong[strong.length - 1]}` : strong[0]
+  return `About this story: it is fiction for adult readers, and its author means it to include ${what}. Read and record what the words say plainly and accurately, as you would any other scene: don't tone it down, leave it out or add a warning.`
+}
+
+/** How the memory model is told about the story's content (set where the style guide can be read: keeper/index.ts). */
+let contentNote: ((db: DB, sceneId: ID) => string | null) | null = null
+export function setContentNote(fn: ((db: DB, sceneId: ID) => string | null) | null): void {
+  contentNote = fn
+}
+
+/** The messages with the content note at the end of the system message (or first, when there is none). */
+function withNote(messages: ChatMessage[], note: string | null): ChatMessage[] {
+  if (!note) return messages
+  const i = messages.findIndex((m) => m.role === 'system')
+  if (i < 0) return [{ role: 'system', content: note }, ...messages]
+  return messages.map((m, j) => (j === i ? { ...m, content: `${m.content}\n\n${note}` } : m))
 }
 
 /** USD: the provider's own figure, else tokens times the model's prices, else null. */
@@ -136,7 +181,27 @@ export function sentAs<P extends { max_tokens: number; thinking?: string }>(para
   return { ...rest, max_tokens: outcome.maxTokens, ...(asked ? { thinking: asked } : {}) } as P
 }
 
-export async function callModel(o: CallOptions): Promise<CallResult> {
+/**
+ * True when a call came back as a refusal: the provider's content filter or moderation (an 'http' failure that says so,
+ * not one about the request's length), or a reply that is plainly the model declining (@shared/refusal).
+ */
+export function isRefusal(o: { status: 'complete' | 'stopped' | 'error'; text: string; failure: Failure | null }): boolean {
+  const f = o.failure
+  if (f?.type === 'refused') return true
+  if (f?.type === 'http' && [400, 403, 422].includes(f.status) && looksLikeRefusal(f.message) && !looksLikeContextTooLong(f.message)) return true
+  return o.status === 'complete' && looksLikeRefusalReply(o.text)
+}
+
+export async function callModel(given: CallOptions): Promise<CallResult> {
+  let note: string | null = null
+  try {
+    note = contentNote && given.db.open ? contentNote(given.db, given.targetId) : null
+  } catch (e) {
+    console.warn('Could not read the style guide for the memory model', e)
+  }
+  const o: CallOptions = note
+    ? { ...given, messages: withNote(given.messages, note), ...(given.kept ? { kept: withNote(given.kept, note) } : {}) }
+    : given
   const id = newId()
   const contextLength = o.model.choice.contextLength ?? DEFAULT_MEMORY_CONTEXT
   const promptTokens = estimateTokens(o.messages.map((m) => m.content).join('\n'))
@@ -207,14 +272,18 @@ export async function callModel(o: CallOptions): Promise<CallResult> {
     cost: null
   }))
 
+  // A refusal, however it came: the provider's own (a content filter, a moderation error), or a reply that is plainly a
+  // model declining. Never kept as what was asked for.
+  const refused = !o.closed() && isRefusal(outcome)
+  const failure: Failure | null = refused ? { type: 'refused' } : outcome.failure
   const error =
-    outcome.status === 'error'
-      ? outcome.failure
-        ? memoryFailure(outcome.failure, o.model.target, o.model.choice.modelId, thinking)
+    refused || outcome.status === 'error'
+      ? failure
+        ? memoryFailure(failure, o.model.target, o.model.choice.modelId, thinking)
         : outcome.error
       : null
   const cost = outcome.status === 'error' && !outcome.text ? null : callCost(outcome, o.model.choice, promptTokens, outcome.text)
-  const status = o.closed() ? 'stopped' : outcome.status
+  const status = o.closed() ? 'stopped' : refused ? 'error' : outcome.status
   if (!o.closed() && o.db.open) {
     try {
       gens.finishGeneration(o.db, id, {
@@ -233,12 +302,15 @@ export async function callModel(o: CallOptions): Promise<CallResult> {
       console.error('Could not finish the memory record', e)
     }
   }
+  if (refused && o.task && o.task !== 'read' && o.db.open) {
+    noteRefusal(o.db, { task: o.task, model: 'memory', modelKey: modelKeyOf(o.model), sceneId: o.task === 'rollup' ? null : o.targetId })
+  }
   return {
     generationId: id,
     status,
     text: outcome.text,
     error,
-    failure: outcome.failure,
+    failure,
     promptTokens: outcome.promptTokens,
     completionTokens: outcome.completionTokens,
     cost

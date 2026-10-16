@@ -32,6 +32,7 @@ import { deadBy, formatProfile, happenedText, mentions, sceneTail, SHORT_TAIL, s
 import { stateText, type SceneState } from '@shared/continuity'
 import { keptStateBefore } from '../continuity/tracker'
 import { estimateTokens } from '../keeper/text'
+import { contentNoteFor } from '../keeper/model'
 import { holdingLine, holdingsFirst, holdingsOf, itemHeads, namesOf, type Holding } from '../memory/items'
 import { isPerson, namesPerson } from '../ai/mustStay'
 import { lessonLine, lessonsBefore, type Lesson } from './lessons'
@@ -87,7 +88,16 @@ export interface SceneCheckContext {
   memory: SceneMemory
   entries: CheckEntry[]
   earlier: CheckScene[]
-  style: { pov: string; tense: string; proseStyle: string; tone: string; genre?: string; content?: string[] }
+  style: {
+    pov: string
+    tense: string
+    proseStyle: string
+    tone: string
+    genre?: string
+    content?: string[]
+    /** Content set above its second step: every check is told the story means it (keeper/model.ts contentNoteFor). */
+    strong?: string | null
+  }
   /** Where things stood as the previous scene ended (continuity/tracker.ts), if it still stands. */
   continuity: SceneState | null
   /** The story so far, as the writer gets it: in full (chapters and the last few scenes) and short (the most recent parts). */
@@ -179,7 +189,8 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
       proseStyle: clean(style.proseStyle),
       tone: clean(story.tone),
       genre: genreText(style.genres),
-      content: intensityLines(style.intensity)
+      content: intensityLines(style.intensity),
+      strong: contentNoteFor(style.intensity)
     },
     continuity: keptStateBefore(db, sceneId),
     storySoFar: sofar ? { full: storySoFarText(sofar, story.title, 1), short: storySoFarText(sofar, story.title, 3) } : { full: '', short: '' },
@@ -347,6 +358,9 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
       ...(s.content ?? [])
     ].filter(Boolean)
     if (lines.length) out.push({ id: 'style', title: 'The style guide', text: lines.join('\n'), entryIds: [] })
+  } else if (ctx.style.strong) {
+    // The other checks are told the story means its strong content too, so they read such a scene as they would any other.
+    out.push({ id: 'content', title: 'About this story', text: ctx.style.strong, entryIds: [] })
   }
 
   const full = short ? [] : ctx.entries.slice(0, MOST_FULL)

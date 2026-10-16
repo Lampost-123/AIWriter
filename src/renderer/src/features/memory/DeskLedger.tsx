@@ -219,6 +219,16 @@ function KeeperCard(): React.JSX.Element {
               </button>
             ) : null}
           </>
+        ) : status?.refused ? (
+          // A model turned scenes down (some models won't read explicit scenes): what went without, and the way to fix it.
+          <>
+            <p className="lg-keeper-why" data-refused-note>
+              {status.refused.message}
+            </p>
+            <button type="button" className="ck-link lg-keeper-go" onClick={() => navigate({ kind: 'settings', tab: 'models' })}>
+              Open Settings › Models
+            </button>
+          </>
         ) : null}
       </div>
     </div>
