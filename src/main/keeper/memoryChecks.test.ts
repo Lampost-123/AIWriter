@@ -19,6 +19,7 @@ import { undoItem } from './undo'
 import { gatherContextInput } from '../ai/gather'
 import { keepMemoryCheck, listMemoryChecks, removeMemoryCheck, undoMemoryCheck } from './checkQueue'
 import { DUE_SUMMARY_SCENES, sceneSourceHash } from './sceneChange'
+import { budget } from '../../shared/testPerf'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -389,7 +390,7 @@ describe('summaries being brought up to date', () => {
     expect(listMemoryChecks(db).filter((i) => i.group === 'summary')).toEqual([])
     const t0 = performance.now()
     expect(listMemoryChecks(db).filter((i) => i.group === 'summary')).toEqual([])
-    expect(performance.now() - t0).toBeLessThan(50)
+    expect(performance.now() - t0).toBeLessThan(budget(50))
     // One scene's words change: it is worked out again, and its summary is listed.
     saveParas(db, ids[405], Array.from({ length: 12 }, (_, k): [string, string] => [`p${k}`, k < 4 ? otherPara : para]))
     kdb.noteSceneSaved(db, ids[405])

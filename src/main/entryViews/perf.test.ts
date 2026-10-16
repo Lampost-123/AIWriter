@@ -17,6 +17,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import { appearancesOf, forgetReadings, readAhead } from './appearances'
 import { codexCards } from './codex'
 import { listFirstExists } from './firstExists'
+import { budget } from '../../shared/testPerf'
 
 type DB = Database.Database
 
@@ -162,10 +163,10 @@ describe('speed of the codex and entry pages', () => {
         `one scene changed ${oneScene.toFixed(1)} ms; a new name ${newName.toFixed(1)} ms`
     )
     // Generous, so a busy test machine doesn't fail it; typically far less.
-    expect(cold).toBeLessThan(500)
-    expect(warm).toBeLessThan(250)
-    expect(oneScene).toBeLessThan(250)
-    expect(newName).toBeLessThan(250)
+    expect(cold).toBeLessThan(budget(500))
+    expect(warm).toBeLessThan(budget(250))
+    expect(oneScene).toBeLessThan(budget(250))
+    expect(newName).toBeLessThan(budget(250))
     expect(queries(db, () => codexCards(db))).toBeLessThan(20)
   }, 120_000)
 
@@ -189,11 +190,11 @@ describe('speed of the codex and entry pages', () => {
       `read ahead: a slice of 100 scenes ${typical.toFixed(1)} ms (slowest ${Math.max(...slices).toFixed(1)} ms); ` +
         `then the codex ${codex.toFixed(1)} ms, a busy entry's page ${page.toFixed(1)} ms`
     )
-    expect(typical).toBeLessThan(25)
+    expect(typical).toBeLessThan(budget(25))
     // CI machines are somewhat slower than a developer box, so keep the threshold generous but still
     // meaningful for the code path being timed.
-    expect(codex).toBeLessThan(300)
-    expect(page).toBeLessThan(300)
+    expect(codex).toBeLessThan(budget(300))
+    expect(page).toBeLessThan(budget(300))
   }, 120_000)
 
   it('opens a busy entry’s page (where it appears, first exists, changes, the as-of slider) in well under 100 ms', () => {
@@ -204,8 +205,8 @@ describe('speed of the codex and entry pages', () => {
     expect(list.filter((a) => a.quote).every((a) => a.quote!.includes('Name0'))).toBe(true)
     const warm = quickest(5, nothing, () => entryPage(db, busy, lastStory, lastScene))
     console.log(`a busy entry's page in a big world: first look ${cold.toFixed(1)} ms, then ${warm.toFixed(1)} ms`)
-    expect(cold).toBeLessThan(500)
-    expect(warm).toBeLessThan(250)
+    expect(cold).toBeLessThan(budget(500))
+    expect(warm).toBeLessThan(budget(250))
     expect(queries(db, () => entryPage(db, busy, lastStory, lastScene))).toBeLessThan(40)
   }, 120_000)
 })

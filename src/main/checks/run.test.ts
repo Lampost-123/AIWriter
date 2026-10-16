@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AppEvents } from '@shared/api'
 import type { CheckDone, CheckKind, CheckProgress } from '@shared/contracts/checks'
 import { DONE_CHECKS } from '@shared/contracts/checks'
@@ -23,6 +23,10 @@ import { checkReport, checkReportNow, reportItems } from './report'
 import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
 import { Keeper } from '../keeper/engine'
 import * as kdb from '../db/keeper'
+
+// Each check here goes to the stand-in model several times over HTTP (the check, its second opinion, the contract's),
+// and some tests run three checks: past 5 s even at a desk (2026-10-16). A real hang still fails.
+vi.setConfig({ testTimeout: 20_000 })
 
 let fake: FakeProvider
 beforeAll(async () => {

@@ -53,8 +53,12 @@ export function StoryFind(): React.JSX.Element {
   const [rename, setRename] = useState(false)
   const [replacing, setReplacing] = useState(false)
   const findRef = useRef<HTMLInputElement>(null)
+  /** What the last result was found for: a new search starts with every match ticked, a refresh keeps Adam's choices. */
+  const searchedFor = useRef('')
 
-  // Finds as Adam types (a moment after he stops), in the open scene as the page shows it.
+  // Finds as Adam types (a moment after he stops), in the open scene as the page shows it. The story changing under it
+  // (a save landing, a scene added) finds again without undoing the boxes Adam unticked (CI, 2026-10-16: a save that
+  // landed just after an untick ticked the scene again): those whose match is still there stay unticked.
   useEffect(() => {
     if (!open || !storyId) return
     if (!hasQuery(query)) {
@@ -70,8 +74,14 @@ export function StoryFind(): React.JSX.Element {
         .findInStory({ storyId, query, matchCase, wholeWord, page: pageNow()?.page ?? null })
         .then((r) => {
           if (!live) return
+          const asked = JSON.stringify([storyId, query, matchCase, wholeWord])
+          const again = searchedFor.current === asked
+          searchedFor.current = asked
           setResult(r)
-          setUnticked(new Set())
+          if (again) {
+            const still = new Set(r.scenes.flatMap((s) => s.matches.map((m) => key(s.sceneId, m.id))))
+            setUnticked((was) => new Set([...was].filter((k) => still.has(k))))
+          } else setUnticked(new Set())
           setFailed(null)
         })
         .catch((e: Error) => live && setFailed(e.message))
@@ -101,7 +111,10 @@ export function StoryFind(): React.JSX.Element {
 
   // Each time it opens, nothing is renamed unless Adam ticks it again.
   useEffect(() => {
-    if (open) setRename(false)
+    if (!open) return
+    setRename(false)
+    // Opened again: a fresh search, every match ticked.
+    searchedFor.current = ''
   }, [open])
 
   const shown = hasQuery(query) ? result : null

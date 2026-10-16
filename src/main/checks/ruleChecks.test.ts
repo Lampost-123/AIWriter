@@ -13,6 +13,7 @@ import { lessonsBefore } from './lessons'
 import { laterRuleScenes, ruleKey, rulesAfterDeleting, rulesAfterRead, runRuleChecks } from './ruleChecks'
 import { calendarCards } from '../memory/storyCalendar'
 import { emptySceneCard } from '@shared/defaults'
+import { budget } from '../../shared/testPerf'
 
 /** A story with three scenes in one chapter, Mara and Tobin in the codex. */
 function world() {
@@ -310,6 +311,6 @@ describe('keeping the rules’ findings in step', () => {
     for (let i = 0; i < 500; i += 25) runRuleChecks(db, ids[i])
     const took = performance.now() - t0
     expect(calendarCards(db)).toBe(cards)
-    expect(took / 20).toBeLessThan(150)
+    expect(took / 20).toBeLessThan(budget(150))
   })
 })

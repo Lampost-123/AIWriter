@@ -19,6 +19,7 @@ import {
   type LiveFlag,
   type LiveParagraph
 } from './liveChecks'
+import { budget } from './testPerf'
 
 const WORDS: CheckWords = {
   names: [
@@ -254,7 +255,7 @@ describe('the whole scene', () => {
     }
     // The typical run (one slowed by the machine being busy with other tests doesn't count).
     times.sort((a, b) => a - b)
-    expect(times[Math.floor(times.length / 2)]).toBeLessThan(16)
+    expect(times[Math.floor(times.length / 2)]).toBeLessThan(budget(16))
   })
 })
 

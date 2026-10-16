@@ -12,6 +12,7 @@ import { changeViews, sceneMemory } from '../../src/main/memory/scene'
 import { refreshSnapshots, SNAPSHOTS_AT_A_TIME } from '../../src/main/keeper/snapshots'
 import { markOutOfDate } from '../../src/main/keeper/summaries'
 import { memoryWorld } from './helpers'
+import { budget } from '../../src/shared/testPerf'
 
 /** A small, repeatable random number generator. */
 function random(seed: number): () => number {
@@ -135,7 +136,7 @@ describe('speed', () => {
     const t = median(() => sceneMemory(db, last))
     console.log(`sceneMemory in a big world: ${t.toFixed(1)} ms`)
     // Generous, so a slow test machine doesn't fail it; typically far less.
-    expect(t).toBeLessThan(250)
+    expect(t).toBeLessThan(budget(250))
     expect(queries(db, () => sceneMemory(db, last))).toBeLessThan(20)
   }, 60_000)
 
@@ -150,7 +151,7 @@ describe('speed', () => {
     expect(queries(db, () => mem.listFacts(db))).toBe(1)
     const t = median(() => changeViews(db, mem.changesForEntry(db, busy)))
     console.log(`an entry's ${changes.length} changes: ${t.toFixed(1)} ms`)
-    expect(t).toBeLessThan(250)
+    expect(t).toBeLessThan(budget(250))
   }, 60_000)
 
   it('keeps end-of-chapter snapshots a few at a time without holding the keeper up, and looks again quickly', () => {
@@ -176,7 +177,7 @@ describe('speed', () => {
     })
     console.log(`end-of-chapter snapshots in a big world: ${SNAPSHOTS_AT_A_TIME} at a time, the slowest batch ${slowest.toFixed(1)} ms (${batches.map((b) => b.toFixed(0)).join(', ')}); looking again ${again.toFixed(1)} ms`)
     // Generous, so a slow test machine doesn't fail it; typically far less.
-    expect(slowest).toBeLessThan(1500)
-    expect(again).toBeLessThan(250)
+    expect(slowest).toBeLessThan(budget(1500))
+    expect(again).toBeLessThan(budget(250))
   }, 120_000)
 })

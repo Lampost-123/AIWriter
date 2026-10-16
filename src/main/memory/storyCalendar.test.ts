@@ -24,6 +24,7 @@ import {
   storyDateViews
 } from './storyCalendar'
 import { elapsedWords } from './calendar'
+import { budget } from '../../shared/testPerf'
 
 function world(whens: Record<string, string>) {
   const w = dbWorld()
@@ -165,8 +166,8 @@ describe('a long story', () => {
       expect(calendarOfScene(db, id)).toBe(cal)
     }
     const asked = performance.now() - t1
-    expect(built).toBeLessThan(2_000)
-    expect(asked).toBeLessThan(1_000)
+    expect(built).toBeLessThan(budget(2_000))
+    expect(asked).toBeLessThan(budget(1_000))
   })
 })
 

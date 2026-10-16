@@ -5,6 +5,7 @@ import { emptySceneCard } from '@shared/defaults'
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { ABSENT, sceneNames, stateLines, voiceNotes } from './sceneNames'
 import { keepCalled } from '../db/called'
+import { budget } from '../../shared/testPerf'
 
 describe("a scene's names, as of the scene", () => {
   const w = dbWorld()
@@ -146,6 +147,6 @@ describe('speed', () => {
     const ms = performance.now() - t
     expect(names.entries.length).toBeGreaterThan(500)
     // Generous for a slow test machine; typically a few milliseconds.
-    expect(ms).toBeLessThan(250)
+    expect(ms).toBeLessThan(budget(250))
   })
 })
