@@ -80,7 +80,14 @@ export function BoardCard({
   const summary = cardSummary(card)
   const title = scene.title.trim() || 'Untitled scene'
   const words = scene.wordCount
-  const label = [title, scene.status, words ? `${words.toLocaleString('en-GB')} words` : 'no words yet', pov ? `told through ${pov.name}` : '', ai ? 'planned from an AI idea' : '']
+  const label = [
+    title,
+    scene.status,
+    words ? `${words.toLocaleString('en-GB')} words` : 'no words yet',
+    pov ? `told through ${pov.name}` : '',
+    card?.date?.label ? `story date ${card.date.label}` : '',
+    ai ? 'planned from an AI idea' : ''
+  ]
     .filter(Boolean)
     .join(', ')
   return (
@@ -113,7 +120,12 @@ export function BoardCard({
             <Portrait entry={place} size={20} motif={placeMotif} />
           </span>
         ) : null}
-        {card?.when.trim() ? <span className="board-c-when">{card.when.trim()}</span> : null}
+        {card?.when.trim() ? (
+          <span className="board-c-when">
+            {/* A When that leans on the scenes before, with the day the story calendar works out (fix 11). */}
+            {card.date?.day ? `${card.when.trim()} (${card.date.day})` : card.when.trim()}
+          </span>
+        ) : null}
         {onIdeas ? null : <span className="board-c-words tabular-nums">{words ? words.toLocaleString('en-GB') : '–'}</span>}
       </span>
       {onIdeas ? (

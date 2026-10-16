@@ -9,6 +9,8 @@ import { emit } from '../events'
 import { timelineOf, threadsBoardOf, relationshipMapOf, moveMapCharacter, resetMapLayout } from '../worldViews'
 import { markAiIdea, readBoardMarks, storySceneCards } from '../db/worldViews'
 import { planThread } from '../keeper/checkQueue'
+import { storyDateViews } from '../memory/storyCalendar'
+import { timeCues } from '../continuity/tracker'
 
 export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
   getTimeline: (storyId) => timelineOf(world.db(), storyId),
@@ -25,8 +27,21 @@ export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
     emit('memory:changed', { sceneId: null, entryIds: [threadId] })
     return undo
   },
-  // The desk's story board (UI overhaul, D5.2).
-  listSceneCards: (storyId) => storySceneCards(world.db(), storyId),
+  // The desk's story board (UI overhaul, D5.2), each card with its date on the story calendar (fix 11).
+  listSceneCards: (storyId) => {
+    const db = world.db()
+    const cards = storySceneCards(db, storyId)
+    const undated = Object.keys(cards).filter((id) => !cards[id].when.trim())
+    const dates = storyDateViews(db, storyId, timeCues(db, undated))
+    for (const [id, card] of Object.entries(cards)) if (dates[id]) card.date = dates[id]
+    return cards
+  },
+  // The story calendar (long story memory fix 11): what the scene card says under When.
+  getSceneDate: (sceneId) => {
+    const db = world.db()
+    const { story } = repo.sceneLocation(db, sceneId)
+    return storyDateViews(db, story.id, timeCues(db, [sceneId]))[sceneId] ?? { when: '', label: '', day: '', note: '', detail: '' }
+  },
   getBoardMarks: () => readBoardMarks(world.db()),
   markAiIdea: (sceneId, on) => markAiIdea(world.db(), sceneId, on)
 }

@@ -668,6 +668,28 @@ describe('where things stand', () => {
     expect(keptStateBefore(w.db, w.two)?.time).toBe('')
   })
 
+  it('reads the same moment on the story calendar: the same day and time, never two days with the same words (fix 11)', async () => {
+    const w = world()
+    const when = (id: ID, v: string): void => void repo.updateSceneCard(w.db, id, { ...repo.getScene(w.db, id).card, when: v })
+    when(w.one, 'Day 3')
+    when(w.two, 'The next day, evening')
+    when(w.three, 'The next day, evening')
+    write(w.db, w.one, 'Mara rode north all day.')
+    write(w.db, w.two, 'The lamps were lit at the inn. Mara ate.')
+    write(w.db, w.three, 'Mara sat by the fire.')
+    const f = answering({ time: 'evening', light: 'lamplight', weather: 'rain', characters: [mara({ where: 'at the inn' })] })
+    await stateAfter(opts(w.db, f), w.two)
+    expect(storedState(w.db, w.two)?.state).toMatchObject({ time: 'evening', light: 'lamplight' })
+    // The same words, but the next day again (Day 5 after Day 4): a new time starts fresh.
+    expect(keptStateBefore(w.db, w.three)).toMatchObject({ time: '', light: '', weather: '' })
+    // "Later that evening" is the same day and time of day, in other words: it carries.
+    when(w.three, 'Later that evening')
+    expect(keptStateBefore(w.db, w.three)).toMatchObject({ time: 'evening', light: 'lamplight', weather: 'rain' })
+    // The next day at the same time of day is another day.
+    when(w.three, 'The next evening')
+    expect(keptStateBefore(w.db, w.three)?.time).toBe('')
+  })
+
   // ---------- Piece by piece (step 2b, Adam 2026-10-07) ----------
 
   it('changes one piece of clothing at a time, each with its own words: boots off never touches the coat', () => {

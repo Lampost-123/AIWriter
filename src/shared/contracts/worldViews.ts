@@ -39,6 +39,11 @@ export interface WorldViewsApi {
    * status and words come from the outline; names and portraits from the timeline's entries.
    */
   listSceneCards(storyId: ID): Promise<Record<ID, BoardSceneCard>>
+  /**
+   * A scene's date on the story calendar (long story memory fix 11), worked out from the scene cards' When along the
+   * story's line: what the scene card says under When.
+   */
+  getSceneDate(sceneId: ID): Promise<SceneDateView>
   /** The story board's own marks, kept in the world (its `meta`): which scenes were planned from an AI idea. */
   getBoardMarks(): Promise<BoardMarks>
   /** Marks a scene as planned from an AI idea (or not); marks for scenes that are gone are dropped as it saves. */
@@ -361,6 +366,30 @@ export interface BoardSceneCard {
   paysOffIds: ID[]
   /** Nothing yet on what happens (no beats, goal, conflict, outcome or notes): ideas can fill it. */
   empty: boolean
+  /** Its date on the story calendar (fix 11), said when the pointer rests on its When. Left out by anything older. */
+  date?: SceneDateView
+}
+
+/** A scene's date on the story calendar (long story memory fix 11), in plain words. */
+export interface SceneDateView {
+  /** The When it was worked out from, as saved ('' for none). */
+  when: string
+  /** The worked-out date: "Day 41 · evening", "1 April 1820 · day 21 of the story · dusk", "spring, Year 2"; '' when nothing is known. */
+  label: string
+  /**
+   * The worked-out day alone, when it adds to the words (a When that leans on the scenes before: "The next morning" is
+   * "Day 4"), for beside the When where scenes are listed; '' otherwise.
+   */
+  day: string
+  /**
+   * For under the card's When, short enough for one line: how the app read it when that adds to Adam's words ("Reads as
+   * Day 4 · morning."), or a gentle note when it couldn't tell ("Nothing dated before this to count on from.") or the
+   * scene goes back without saying so ("Earlier than the scene before. A flashback?"); '' to keep the usual hint ("Day 1,
+   * dusk" reads as itself).
+   */
+  note: string
+  /** The note in full, with what to do about it, for when the pointer rests on it; '' with no note. */
+  detail: string
 }
 
 export interface BoardMarks {

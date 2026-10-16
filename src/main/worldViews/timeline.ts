@@ -66,7 +66,7 @@ export function timelineOrder(placed: (PlacedWhen | null)[]): number[] {
 }
 
 /** The step on the line where a side story starts in its host (as memory/line.ts reads its start point). */
-function sideStart(w: Walk, side: StoryNode, hostId: ID): number | undefined {
+export function sideStart(w: Walk, side: StoryNode, hostId: ID): number | undefined {
   const post = w.post.get(hostId)
   switch (side.startAt) {
     case 'pre':

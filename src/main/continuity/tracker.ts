@@ -24,12 +24,15 @@ import {
   readChanges,
   samePlace,
   sameWhen,
+  sourceKey,
   stateText,
   withEdits,
   withoutSceneTime,
   type SceneState,
   type StateEdits
 } from '@shared/continuity'
+import { sameMoment } from '../memory/calendar'
+import { calendarOfScene } from '../memory/storyCalendar'
 
 export { mergeState, readChanges, stateText, withEdits, type SceneState, type StateEdits } from '@shared/continuity'
 import * as repo from '../db/repo'
@@ -99,20 +102,57 @@ function whenOf(db: DB, sceneId: ID): { when: string; place: string; storyId: st
 
 /**
  * The state a scene starts from, given the one the scene before it (`prevId`) ends with: all of it, but the time of
- * day, the light and the weather only when both cards give the same When in the same story (sameWhen). A new time
- * starts fresh (Adam, 2026-10-07): "morning" from the scene before was carried through a night scene and told to the
- * writer, who had a man say "Morning". Who touches whom and who can see or hear whom never carry into a new scene, and
- * the things in the place (a door barred, a case on the windowsill) only when both cards name the same place, in the
- * same story (step 2b, newSceneStage). Part of what the scene's reading builds on (its hash), so a When or a place
- * changed on a card means the scene is read again.
+ * day, the light and the weather only when both are the same moment in the same story. A new time starts fresh (Adam,
+ * 2026-10-07): "morning" from the scene before was carried through a night scene and told to the writer, who had a man
+ * say "Morning". The same moment is read on the story calendar (long story memory fix 11, memory/calendar.ts
+ * sameMoment): the same day and the same time of day ("Day 3, evening", then "Later that evening"), never two different
+ * days however alike their words ("The next day" twice); where the calendar can't tell (a day it can't place, or neither
+ * says the time), both cards giving the same When, as before (sameWhen). Who touches whom and who can see or hear whom
+ * never carry into a new scene, and the things in the place (a door barred, a case on the windowsill) only when both
+ * cards name the same place, in the same story (step 2b, newSceneStage). Part of what the scene's reading builds on (its
+ * hash), so a When or a place changed on a card means the scene is read again.
  */
 function startFrom(db: DB, sceneId: ID, prevId: ID | undefined, state: SceneState | null): SceneState | null {
   if (!state || !prevId) return state
   const now = whenOf(db, sceneId)
   const then = whenOf(db, prevId)
   const story = !!now && !!then && now.storyId === then.storyId
-  const timed = story && sameWhen(now!.when, then!.when) ? state : withoutSceneTime(state)
+  const timed = story && sameTime(db, sceneId, prevId, now!.when, then!.when) ? state : withoutSceneTime(state)
   return newSceneStage(timed, story && samePlace(now!.place, then!.place))
+}
+
+/** Whether a scene starts at the same moment the scene before it ended (startFrom): by the story calendar, else by the words. */
+function sameTime(db: DB, sceneId: ID, prevId: ID, now: string, then: string): boolean {
+  let moment: boolean | null = null
+  try {
+    const cal = calendarOfScene(db, sceneId)
+    moment = cal ? sameMoment(cal.dates.get(prevId), cal.dates.get(sceneId)) : null
+  } catch (e) {
+    console.warn('Could not read the story calendar; going by the scene cards’ words', e)
+  }
+  return moment ?? sameWhen(now, then)
+}
+
+/**
+ * The time of day the memory read from each scene's own words, as its end state was kept (where things stand: the
+ * scene's time, when its words come from that scene and the reading still matches the scene's words), for the scenes
+ * given; the story calendar takes it for a scene whose card has no When (long story memory fix 11, memory/calendar.ts
+ * withCues). Never a day.
+ */
+export function timeCues(db: DB, sceneIds: readonly ID[]): Map<ID, string> {
+  const out = new Map<ID, string>()
+  if (!sceneIds.length) return out
+  const all = load(db)
+  for (const id of sceneIds) {
+    const k = all[id]
+    if (!k) continue
+    const state = withEdits(k.state, k.edits)
+    const time = state.time.trim()
+    if (!time || state.said?.[sourceKey(null, 'time')]?.sceneId !== id) continue
+    if (k.hash !== hashOf(kdb.keeperScene(db, id)?.text ?? '')) continue
+    out.set(id, time)
+  }
+  return out
 }
 
 /**

@@ -21,7 +21,9 @@
 //
 // Priorities, with each block's short form in brackets:
 //  1 instructions, style guide, sample passage, phrases to avoid (sample passage trimmed); never dropped
-//  2 scene card and Adam's direction, and on a redraft what the scene should bring about; never dropped
+//  2 scene card and Adam's direction, and on a redraft what the scene should bring about; with the story date, the time
+//    since the scene before and the ages of those on the card (the story calendar, long story memory fix 11,
+//    storyDate.ts); never dropped
 //  3 the end of the previous scene on the story's line, 400 to 800 words (the last 200 words)
 //  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory;
 //    smaller: the core of the profile, then less)
@@ -105,6 +107,8 @@ import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
 import { calledFor, foldApostrophes, namedInProse, type CalledName } from '@shared/names'
+import { sameDay, sameMoment, type SceneCalendar } from '../memory/calendar'
+import { datesOf, elapsedNote, storyDateLines } from './storyDate'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -175,6 +179,12 @@ export interface ContextInput {
    * must stay true says those about the people here. Left out: none.
    */
   slips?: Lesson[]
+  /**
+   * The story calendar at this scene (long story memory fix 11, memory/storyCalendar.ts sceneCalendar): its date and the
+   * scene before's, earlier days worth counting from, and the ages of those on its card. The scene card says them, and
+   * how far the stage carries goes by them. Left out or null: the two scene cards' When alone (ai/storyDate.ts datesOf).
+   */
+  calendar?: SceneCalendar | null
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -185,22 +195,13 @@ export const MUST_BLOCK = 'must-stay-true'
 export const MUST_PRIORITY = 2
 
 /**
- * How much time has passed since the scene before, by both scene cards' When, for what must stay true (2026-10-15): "Time:
- * the scene before was Day 3, dusk; this scene is Day 5". For a story's first scene after another story, its time gap.
- * '' when the writing carries on inside the scene, when either When isn't known, or when it is the same.
+ * How much time has passed since the scene before, for what must stay true (2026-10-15; since long story memory fix 11
+ * from the story calendar, as the scene card's story date: ai/storyDate.ts elapsedNote): "Time: 2 days since the scene
+ * before (Day 3, dusk); this scene is Day 5". For a story's first scene after another story, its time gap. '' when the
+ * writing carries on inside the scene, when nothing is known, or at the same moment.
  */
-export function timeSince(input: Pick<ContextInput, 'scene' | 'memory' | 'options' | 'continuityAtSoFar'>, reach: StageReach): string {
-  if (reach === 'here' || input.continuityAtSoFar || input.options.addBelow) return ''
-  const prev = input.memory.previous
-  if (!prev) return ''
-  if (prev.otherStory && prev.storyId !== input.memory.storyId) {
-    const gap = clean(prev.otherStory.timeGap).replace(/\.$/, '')
-    return gap ? `Time since ${clean(prev.storyTitle) || 'the story before'}: ${gap}` : ''
-  }
-  const before = clean(prev.when)
-  const now = clean(input.scene.card.when)
-  if (!before || !now || sameWhen(before, now)) return ''
-  return `Time: the scene before was ${before}; this scene is ${now}`
+export function timeSince(input: Pick<ContextInput, 'scene' | 'memory' | 'options' | 'continuityAtSoFar' | 'calendar'>, reach: StageReach): string {
+  return elapsedNote(input, reach === 'here')
 }
 
 /** What block 3b says first. */
@@ -1070,8 +1071,9 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   const lines: string[] = []
   if (clean(title)) lines.push(`Scene: ${clean(title)}`)
   if (clean(card.when)) lines.push(`When: ${clean(card.when)}`)
-  const gap = timeSincePrevious(input)
-  if (gap) lines.push(gap)
+  // The story calendar (long story memory fix 11): the story date, how long since the scene before and a few earlier
+  // days, the ages of those here, and the reminder to make the time that has passed fit.
+  lines.push(...storyDateLines(input, memoryScale(input.contextLength)))
   // Who is dead by now, so nobody dead walks or talks in the scene (except as a ghost, a memory or a vision).
   const dead = deadBy(input.memory.entries)
   if (dead.length) {
@@ -1118,27 +1120,7 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   return parts.join('\n\n')
 }
 
-/**
- * How long after the previous scene this one is, from both cards' When (Adam, 2026-10-04: a live run's writer said
- * "four days" where one night had passed): "The previous scene was Day 5, dusk: this is 3 days later." Only within
- * one story, and only when both have a When.
- */
-export function timeSincePrevious(input: Pick<ContextInput, 'scene' | 'memory'>): string {
-  const prev = input.memory.previous
-  const now = clean(input.scene.card.when)
-  const then = clean(prev?.when)
-  if (!prev || prev.otherStory || !now || !then) return ''
-  const day = (s: string): number | null => {
-    const m = /\bday\s+(\d+)\b/i.exec(s)
-    return m ? Number(m[1]) : null
-  }
-  const a = day(then)
-  const b = day(now)
-  const gap = a != null && b != null && b >= a ? (b === a ? ' The same day.' : b - a === 1 ? ' The next day.' : ` ${b - a} days later.`) : ''
-  return `The previous scene was ${then}.${gap} Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by.`
-}
-
-/** The day a When gives ("Day 3, dusk" is 3), or null. */
+/** The day a When gives ("Day 3, dusk" is 3), or null: how stageReach went before the story calendar, where it can't tell. */
 const dayOf = (when: string | undefined): number | null => {
   const m = /\bday\s+(\d+)\b/i.exec(clean(when))
   return m ? Number(m[1]) : null
@@ -1146,15 +1128,19 @@ const dayOf = (when: string | undefined): number | null => {
 
 /**
  * How much of where things stand the "must stay true" list and the plan keep to (mustStay.ts): all of it carrying on
- * inside the scene; at a new scene's start on the same day by both cards' When, how people are, what they wear and hold
- * (the card sets where and when); on a later day, or when how long has passed isn't known, only how they are; nothing
- * from another story, or when nothing is known.
+ * inside the scene; at a new scene's start on the same day, how people are, what they wear and hold (the card sets where
+ * and when); on a later day, or when how long has passed isn't known, only how they are; nothing from another story, or
+ * when nothing is known. The same day is read on the story calendar (long story memory fix 11: "That night" after "Day
+ * 3, dusk" is the same day, "The next day" twice is not); where it can't tell, both cards' "Day N", as before.
  */
-export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'continuityAtSoFar'>): StageReach {
+export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'continuityAtSoFar' | 'calendar'>): StageReach {
   if (!input.continuity) return 'none'
   if (input.continuityAtSoFar) return 'here'
   const prev = input.memory.previous
   if (!prev || prev.otherStory) return 'none'
+  const { here, previous } = datesOf(input)
+  const same = sameDay(previous, here)
+  if (same !== null) return same ? 'start' : 'later'
   const a = dayOf(prev.when)
   const b = dayOf(input.scene.card.when)
   return a != null && a === b ? 'start' : 'later'
@@ -1162,29 +1148,34 @@ export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'conti
 
 /**
  * Whether the time of day, the light and the weather as the previous scene ended still hold as this one starts (Adam,
- * 2026-10-07): only when both cards give the same When, in this story. Stricter than stageReach's "same day": "Day 23"
- * then "Day 23, night, rain" is the same day, but "morning" no longer holds. A new time starts fresh, as the continuity
- * tracker reads it (continuity/tracker.ts startFrom).
+ * 2026-10-07): only at the same moment, in this story. Stricter than stageReach's "same day": "Day 23" then "Day 23,
+ * night, rain" is the same day, but "morning" no longer holds. Read on the story calendar as the continuity tracker reads
+ * it (continuity/tracker.ts startFrom; memory/calendar.ts sameMoment): the same day and time of day, else, where it
+ * can't tell, both cards giving the same When.
  */
-export function timeCarries(card: Pick<SceneCard, 'when'>, previous: SceneMemory['previous']): boolean {
-  return !!previous && !previous.otherStory && sameWhen(previous.when, card.when)
+export function timeCarries(card: Pick<SceneCard, 'when'>, previous: SceneMemory['previous'], calendar?: SceneCalendar | null): boolean {
+  if (!previous || previous.otherStory) return false
+  const { here, previous: then } = datesOf({ scene: { card }, memory: { previous }, calendar })
+  return sameMoment(then, here) ?? sameWhen(previous.when, card.when)
 }
 
 /**
  * Who of where things stand is in this scene (mustStay.ts stageInScene): those on its card, and anyone its card's words,
- * Adam's direction or `words` (the scene so far, the words around an edit) name.
+ * Adam's direction or `words` (the scene so far, the words around an edit) name. `calendar`: the story calendar at the
+ * scene, for whether the time carries (timeCarries).
  */
 export function stageScope(
   card: SceneCard,
   memory: Pick<SceneMemory, 'sceneId' | 'entries' | 'elsewhere' | 'previous'>,
-  words: (string | null | undefined)[]
+  words: (string | null | undefined)[],
+  calendar?: SceneCalendar | null
 ): StageScope {
   const byId = new Map<ID, EntryState>([...memory.elsewhere.map((x) => [x.entry.id, x.entry] as const), ...memory.entries.map((e) => [e.id, e] as const)])
   const onCard = [...new Set([card.povId, ...card.presentIds])].map((id) => (id ? byId.get(id) : undefined)).filter((e): e is EntryState => !!e)
   const cast = [...byId.values()].filter((e) => e.kind === 'character')
   return {
     sceneId: memory.sceneId,
-    timeCarries: timeCarries(card, memory.previous),
+    timeCarries: timeCarries(card, memory.previous, calendar),
     onCard,
     cast,
     words: [...card.beats, card.notes, card.goal, card.conflict, card.outcome, card.mood, ...words].map(clean).filter(Boolean).join('\n'),
@@ -1198,9 +1189,9 @@ export function stageScope(
  * words): only the people in the scene, and a time, light and weather that still hold (stageInScene). Null when nothing
  * is known. `input.continuity` itself, as kept, is left whole.
  */
-export function toldStage(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'options' | 'soFar'>): SceneState | null {
+export function toldStage(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'options' | 'soFar' | 'calendar'>): SceneState | null {
   if (!input.continuity) return null
-  return stageInScene(input.continuity, stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar]))
+  return stageInScene(input.continuity, stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar], input.calendar))
 }
 
 /** The draft carries on from words already in the scene (Add below, a later beat), rather than writing it whole. */

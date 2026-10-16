@@ -6,7 +6,8 @@
 // season), a day, a time of day, or a step from the scene before ("the next day"). It never invents a
 // date: text it can't read is left undated and the timeline keeps it in reading order, marked "No date".
 // The text Adam typed is always what is shown. How each text leans on the scenes before it is in
-// placeWhens.
+// placeWhens. The story calendar (memory/calendar.ts, long story memory fix 11) reads the same states
+// (whenStates) to count days between scenes, a world's own months included where days are counted or stepped.
 //
 // Readings chosen (each is tested):
 // - "Day 12" is a count of days (no month); "the 12th" or a bare 12 is a day of the month, which can only
@@ -39,6 +40,8 @@ export interface WhenParts {
   dayCount: boolean
   /** Minutes after midnight: dawn 330, dusk 1110, midnight 1440. */
   minute: number | null
+  /** The words that named the time of day, as typed but in lower case ("late evening", "first light", "3pm"); '' for none. */
+  time: string
   /**
    * A step from the dated scene before: "the next day" is one day, "six months later" six months. Vague
    * steps ("days later") order the scene after the one before but don't name a day.
@@ -74,7 +77,7 @@ const MONTHS = lookup<number>({
   august: 8, aug: 8, september: 9, sep: 9, sept: 9, october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12
 })
 // prettier-ignore
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November',
+export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November',
   'December']
 
 const SEASONS = lookup<number>({ spring: 3.5, summer: 6.5, autumn: 9.5, fall: 9.5, winter: 12.5, midsummer: 6.5, midwinter: 12.5 })
@@ -313,6 +316,7 @@ function parseText(text: string): WhenParts | null {
     day: null,
     dayCount: false,
     minute: null,
+    time: '',
     step: null,
     next: false,
     qual: ''
@@ -323,6 +327,11 @@ function parseText(text: string): WhenParts | null {
   }
   /** Whether the text or its clause ends at tokens[i]. */
   const end = (i: number): boolean => i >= tokens.length || tokens[i] === BREAK
+  /** Sets the time of day read at tokens[i], with its words. */
+  const timeAt = (i: number, t: { minute: number; used: number }): void => {
+    p.minute = t.minute
+    p.time = tokens.slice(i, i + t.used).join(' ')
+  }
   let found = false
   // Where the day is among the words (for the words around it), where the text names a day or year of
   // its own, and where it ties itself to something else.
@@ -380,7 +389,7 @@ function parseText(text: string): WhenParts | null {
       const time = readTime(tokens, i + 1)
       if (next === 'day' || next === 'night' || time) {
         p.step = { unit: 'day', n: 1 }
-        if (time && next !== 'day') p.minute = time.minute
+        if (time && next !== 'day') timeAt(i + 1, time)
         take(i, 1 + (time ? time.used : 1))
         found = true
         continue
@@ -418,7 +427,7 @@ function parseText(text: string): WhenParts | null {
       const time = readTime(tokens, i + 2)
       if (tokens[i + 2] === 'day' || time) {
         p.step = { unit: 'day', n: 0 }
-        if (time) p.minute = time.minute
+        if (time) timeAt(i + 2, time)
         take(i, 2 + (time ? time.used : 1))
         found = true
         continue
@@ -428,7 +437,7 @@ function parseText(text: string): WhenParts | null {
       const time = readTime(tokens, i + 1)
       if (time) {
         p.step = { unit: 'day', n: 0 }
-        p.minute = time.minute
+        timeAt(i + 1, time)
         take(i, 1 + time.used)
         found = true
         continue
@@ -457,7 +466,7 @@ function parseText(text: string): WhenParts | null {
       const dir = time ? tokens[i + 1 + time.used] : undefined
       if (time && (dir === 'after' || dir === 'before') && end(i + 2 + time.used)) {
         p.step = { unit: 'day', n: dir === 'after' ? 1 : -1 }
-        p.minute = time.minute
+        timeAt(i + 1, time)
         take(i, 2 + time.used)
         found = true
         continue
@@ -467,7 +476,7 @@ function parseText(text: string): WhenParts | null {
     // ----- Times of day -----
     const time = readTime(tokens, i)
     if (time && p.minute === null) {
-      p.minute = time.minute
+      timeAt(i, time)
       take(i, time.used)
       found = true
       continue
@@ -696,6 +705,8 @@ export interface WhenStory {
 /** What is known at a dated text, for the texts after it to lean on. */
 interface State {
   year: number | null
+  /** The year is told with a word ("Year 3"), not as a bare number: only for saying it (the story calendar). */
+  yearWord: boolean
   month: number | null
   day: number | null
   dayCount: boolean
@@ -761,6 +772,48 @@ export function placeWhens(
   items: readonly (string | WhenItem)[],
   stories: ReadonlyMap<string, WhenStory> = new Map()
 ): (PlacedWhen | null)[] {
+  const { states, named, aside, anchors } = readStates(items, stories)
+  // The first date with a year in each calendar (events aside), for the dates without one before it.
+  const firstYear = new Map<number, State>()
+  states.forEach((k, i) => {
+    if (k && !aside[i] && k.year !== null && k.vague < 2 && !firstYear.has(k.cal)) firstYear.set(k.cal, k)
+  })
+  const keyOf = (k: State, year: number | null): number[] => [
+    year ?? anchors.get(k.cal) ?? NONE,
+    year !== null ? NONE : k.cal,
+    k.month ?? NONE,
+    k.day ?? NONE,
+    k.minute
+  ]
+  return states.map((k, i) => {
+    if (!k) return null
+    const day = named[i] ? dayOf(k) : null
+    if (k.qual || (k.day !== null && !k.dayCount && k.month === null)) return { key: null, day }
+    let year = k.year
+    const first = year === null ? firstYear.get(k.cal) : undefined
+    if (first && compareKeys(keyOf(k, first.year), keyOf(first, first.year)) <= 0) year = first.year
+    return { key: keyOf(k, year), day }
+  })
+}
+
+/**
+ * What placeWhens works out at a text, for the story calendar (memory/calendar.ts): the in-world date as far as it is
+ * known, leaning on the texts before it as placeWhens does. `minute` is -1 when no time of day is known; `named` when
+ * the text names an in-world day (its own, or a step from one), not only an order.
+ */
+export type WhenState = Readonly<State> & { named: boolean }
+
+/** placeWhens' reading of each text (null where placeWhens has none): what the story calendar counts days from. */
+export function whenStates(items: readonly (string | WhenItem)[], stories: ReadonlyMap<string, WhenStory> = new Map()): (WhenState | null)[] {
+  const { states, named } = readStates(items, stories)
+  return states.map((k, i) => (k ? { ...k, named: named[i] } : null))
+}
+
+/** Each text's state as it leans on the ones before (placeWhens' rules), whether it names its day, and which are events. */
+function readStates(
+  items: readonly (string | WhenItem)[],
+  stories: ReadonlyMap<string, WhenStory>
+): { states: (State | null)[]; named: boolean[]; aside: boolean[]; anchors: Map<number, number | null> } {
   const states: (State | null)[] = items.map(() => null)
   const named: boolean[] = items.map(() => false)
   const aside: boolean[] = items.map((item) => typeof item !== 'string' && !!item.aside)
@@ -820,7 +873,7 @@ export function placeWhens(
         // A day carried over is only about right: "six months later" is around the same day.
         const day = p.day ?? prev.day
         const vague = vaguest(prev.vague, s.vague || (p.day === null && day !== null) ? 1 : 0)
-        return [{ year, month, day, dayCount: false, minute: p.minute ?? -1, qual: prev.qual, cal: prev.cal, vague }, true]
+        return [{ year, yearWord: prev.yearWord, month, day, dayCount: false, minute: p.minute ?? -1, qual: prev.qual, cal: prev.cal, vague }, true]
       }
       if (prev.year === null) return null
       // A year on: the month and day the text names, or else those of the scene before (only about right).
@@ -829,6 +882,7 @@ export function placeWhens(
       return [
         {
           year: prev.year + s.n,
+          yearWord: prev.yearWord,
           month: mine ? p.month : prev.month,
           day: mine ? p.day : prev.day,
           dayCount: mine ? p.dayCount : prev.dayCount,
@@ -846,6 +900,7 @@ export function placeWhens(
       const later = prev.month !== null && !prev.dayCount && p.month! > prev.month
       const k: State = {
         year: later ? prev.year : prev.year + 1,
+        yearWord: prev.yearWord,
         month: p.month,
         day: p.day,
         dayCount: false,
@@ -872,6 +927,7 @@ export function placeWhens(
     } else if (lean && lean.cal !== group.cal) lean = null
     const k: State = {
       year: p.year,
+      yearWord: p.yearWord,
       month: p.month,
       day: p.day,
       dayCount: p.dayCount,
@@ -885,6 +941,7 @@ export function placeWhens(
       // month, the month (a real month, not a season, in the same year).
       if (k.year === null && lean.year !== null) {
         k.year = lean.year
+        k.yearWord = lean.yearWord
         if (lean.vague === 2) k.vague = 2
       }
       // A count of days carries the season it counts in ("Day 12" after "Day 3 of spring").
@@ -906,6 +963,7 @@ export function placeWhens(
       if (p.step || p.next || (p.year === null && p.month === null && p.day === null)) return
       const k: State = {
         year: p.year ?? prev?.year ?? null,
+        yearWord: p.year !== null ? p.yearWord : (prev?.yearWord ?? false),
         month: p.month,
         day: p.day,
         dayCount: p.dayCount,
@@ -930,28 +988,7 @@ export function placeWhens(
     else dated.set(story, [i])
     if (k.year !== null && k.vague < 2) lastYear = k.year
   })
-
-  // The first date with a year in each calendar (events aside), for the dates without one before it.
-  const firstYear = new Map<number, State>()
-  states.forEach((k, i) => {
-    if (k && !aside[i] && k.year !== null && k.vague < 2 && !firstYear.has(k.cal)) firstYear.set(k.cal, k)
-  })
-  const keyOf = (k: State, year: number | null): number[] => [
-    year ?? anchors.get(k.cal) ?? NONE,
-    year !== null ? NONE : k.cal,
-    k.month ?? NONE,
-    k.day ?? NONE,
-    k.minute
-  ]
-  return states.map((k, i) => {
-    if (!k) return null
-    const day = named[i] ? dayOf(k) : null
-    if (k.qual || (k.day !== null && !k.dayCount && k.month === null)) return { key: null, day }
-    let year = k.year
-    const first = year === null ? firstYear.get(k.cal) : undefined
-    if (first && compareKeys(keyOf(k, first.year), keyOf(first, first.year)) <= 0) year = first.year
-    return { key: keyOf(k, year), day }
-  })
+  return { states, named, aside, anchors }
 }
 
 /**

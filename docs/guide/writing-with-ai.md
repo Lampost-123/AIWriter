@@ -34,6 +34,14 @@ what you have in mind, but a few lines are enough.
 - **Plot threads**: which threads the scene **Sets up** or **Pays off**.
 - **How it reads**: **Mood or tone**, **Length**, and **Notes for the AI**.
 
+AI Write keeps a story calendar from the **When** on each card. Write it however you like: "Day 12, dusk", "3 March
+1820", "the next morning" or "three weeks later". AI Write counts on from the scenes before, so under **When** you may see
+how it read yours, such as "Reads as Day 4 · morning." On the story board, a When like "The next morning" shows its day
+beside it. Before each draft, the AI is told the date, how long it is since the scene before, and how old the people in
+the scene are when their **Age or birth date** says enough ("born 1790", or "34 at the start of the story"), so it
+doesn't have to work it out. If a scene goes back in time, start its When with "Flashback" (or "Earlier"). Otherwise
+the card asks "Earlier than the scene before. A flashback?"
+
 For "Lighting the Lamp" in Gullhaven, the beats might be: Wren climbs the hundred and twelve steps; the lamp
 won't catch; she sees the night ferry's lights early.
 

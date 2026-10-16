@@ -20,6 +20,7 @@ import { beatsToStore } from './beats'
 import { BeatsEditor } from './BeatsEditor'
 import { CastPicker } from './CastPicker'
 import { BringAbout, SceneSummary } from './SceneMemory'
+import { useSceneDate } from './sceneDate'
 import { SceneIdeas } from '@/features/outline/SceneIdeas'
 import { InterviewButton, PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
 import { registerInterviewCard } from '@/features/outline/planInterviewStore'
@@ -203,6 +204,8 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   )
   const setSetsUp = useCallback((setsUpIds: ID[]) => editThreads('setsUp', setsUpIds), [editThreads])
   const setPaysOff = useCallback((paysOffIds: ID[]) => editThreads('paysOff', paysOffIds), [editThreads])
+  // Its date on the story calendar (long story memory fix 11), said under When when it adds to the words.
+  const date = useSceneDate(sceneId)
   // The memory links plot threads to this scene as it reads it: its links show as they come and go.
   const memoryRev = useApp((s) => s.memoryRev)
   useEffect(() => {
@@ -362,7 +365,24 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <CarryRow label="Location" {...carry('location')} hint={places.length ? undefined : 'No places yet. Add one under Places.'}>
           {(id) => <OptionSelect id={id} value={locValue} onChange={setLocation} options={locOptions} />}
         </CarryRow>
-        <CarryRow label="When" {...carry('when')} hint="In-world date and time, in your own words.">
+        <CarryRow
+          label="When"
+          {...carry('when')}
+          hint={
+            // How the story calendar read it (fix 11), when that adds to the words: on one line, so nothing below moves.
+            // The whole of it on hover, and for a screen reader.
+            date?.note ? (
+              <>
+                <span aria-hidden className="block truncate" title={date.detail || date.note}>
+                  {date.note}
+                </span>
+                <span className="sr-only">{date.detail || date.note}</span>
+              </>
+            ) : (
+              'In-world date and time, in your own words.'
+            )
+          }
+        >
           {(id, hintId) => (
             <Input
               id={id}

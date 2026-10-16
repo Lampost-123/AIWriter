@@ -32,6 +32,11 @@ story uses**. Click **Add name** and the AI knows them by it in every scene. Cli
 for them again, and stops counting as them in that scene. Words like "her brother" or "Mother" depend on who is
 speaking, so they only ever count in the scene they're in.
 
+It keeps a calendar of your story, too, from each scene card's **When**. AI Write works out the sums, such as "3 weeks
+since the start of Ch 4" or someone's age, so the AI doesn't have to guess them. It also uses the calendar to decide
+what carries into the next scene. Later the same evening, what people wear and hold carries over. On another day, only
+their injuries do. See [Writing with AI](writing-with-ai.md#plan-the-scene-on-its-card).
+
 It keeps track of the promises your story makes, too: each plot thread is open, moved on, resolved, or dropped. If a
 thread is still open after the chapter you chose to pay it off by, or nothing has touched it for a long stretch (a
 quarter of the story so far, and at least 12 scenes), it shows under **Worth a look**, in **Plot threads left

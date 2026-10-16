@@ -27,7 +27,7 @@ src/main/        Electron main process
   memory/        The memory engine (milestone 2): types.ts is its contract; line.ts (which stories,
                  chapters and scenes come before a point), state.ts (what is true there), scene.ts
                  (reads the database: what counts for one scene), items.ts (who has what, and an item's
-                 main word). Pure where it can be.
+                 main word), calendar.ts and storyCalendar.ts (the story calendar, fix 11). Pure where it can be.
   keeper/        The memory keeper (milestone 2): reads scene text with the memory model and keeps
                  the memory in step with it, plus summaries at every level
   retrieval/     Story memory step 5: sticky entries, what was said, and searching the story so far by
@@ -787,9 +787,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so" (`secretsAmong`; since
   long story memory fix 9, among everyone in the scene, and what someone here believes wrongly after them). How
   much of the stage (`stageReach`): all of it carrying on inside a scene (Add below, a later beat, Continue); at a
-  new scene's start on the same day by both cards' When ("Day 3"), injuries and what people wear and hold (the card
-  sets where and when); on a later day, or when how long has passed isn't known (no When, "Three weeks later"), only
-  injuries; nothing from another story. Mood and the last thing done are not facts to keep to. At most 12 lines, a
+  new scene's start on the same day ("Day 3"; since fix 11 read on the story calendar, so "That night" after "Day 3,
+  dusk" is the same day, else both cards' "Day N"), injuries and what people wear and hold (the card sets where and
+  when); on a later day, or when how long has passed isn't known (no When), only injuries; nothing from another story. Mood and the last thing done are not facts to keep to. At most 12 lines, a
   long value cut short before its "(since …)"; the short form has 6, without who knows what, changed looks or the
   lead. Since 2026-10-15 it opens with what the scene is most likely to break and is never left out ("Long story
   memory: the quick wins"); before, it sat with block 11 and went out first when room was short. AI edits and Continue get it too, right before the
@@ -834,8 +834,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
     and the words where it was put down or taken off.
   - **A new time starts fresh** (`sameWhen`, `withoutSceneTime`; tracker `startFrom`; `timeCarries` in ai/context.ts).
     "Morning, the sun has come up" from a "Day 23" scene was carried through "Day 23, night, rain" and the writer had
-    a man say "Morning". The time of day, light and weather carry into the next scene only when both cards give the same
-    When in the same story (stricter than `stageReach`'s same day); otherwise the scene starts without them, before its
+    a man say "Morning". The time of day, light and weather carry into the next scene only at the same moment in the
+    same story (stricter than `stageReach`'s same day): since fix 11 the same day and time of day on the story calendar
+    (`sameMoment`, tracker `sameTime`), else, where it can't tell, both cards giving the same When; otherwise the scene starts without them, before its
     first checkpoint, and that start is part of the state's hash (a When changed on a card means a fresh read). What is
     told also leaves out a time, light or weather whose words come from another scene unless it carries over, so a
     reading kept from before this fix is never told either.
@@ -2388,7 +2389,8 @@ the same story so far and passages as before; what changes for it is the share f
 - **What must stay true, never left out, and sharper** (`ai/mustStay.ts`). It opens with what the scene is most
   likely to break (`KEY_KINDS`: who is dead, what is kept from someone here, injuries, since fix 9 what someone here
   believes wrongly, and how much time has passed
-  since the scene before, by both cards' When or a story's time gap: `ai/context.ts` `timeSince`), one of each kind
+  since the scene before, by both cards' When or a story's time gap: `ai/context.ts` `timeSince`; since fix 11 from the
+  story calendar, below), one of each kind
   first, `MUST_KEY` (5) at most; the rest follow as before. Its short form keeps them, and a smallest form has
   `MUST_SMALLEST` (3) of them, said briefly. The block is priority 2 (`MUST_PRIORITY`): never left out, shortened only
   once every block from 3 to 11 is. On a 4,096-token model writing 600 words that leaves no room for the point of
@@ -2408,8 +2410,8 @@ the same story so far and passages as before; what changes for it is the share f
   `MOST_MEANT` (8), only for the check it belongs to; the system prompt says the same thing there is no issue). The
   same thing in the same scene was already never raised again (`sameThing`).
 
-Not done here (the research's later steps): a book-length test story, rule-based checks, a ledger for time, a ledger
-for promises (fix 10, below), a ledger for who knows what (fix 9, below), spotting characters however they are named
+Not done here (the research's later steps): a book-length test story, rule-based checks, a ledger for time (fix 11,
+below), a ledger for promises (fix 10, below), a ledger for who knows what (fix 9, below), spotting characters however they are named
 (fix 12, below), and a continuity brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
 cover some of it.
 
@@ -2637,6 +2639,84 @@ parallel store) and no new AI call.
   Classic's screenshots of the sample world are unchanged. On the desk (`DeskThreads.tsx`) each card has its status,
   "Moved on", "Pay off by" and the amber note, with Mark as dropped or Pick up again (`planActions.ts`, toasts with Undo
   in `planWords.ts`). The world gallery, the story home, the story board's legend and the series bible say "Dropped".
+
+## Long story memory: a story calendar (fix 11, 2026-10-16)
+
+The research's fix 11: time slips are among the commonest errors in ConStory-Bench and the hardest questions in NovelQA,
+and models are bad at sums they must make for themselves ("three weeks since the siege", a character's age). The scene
+card had a When, the timeline read it to order scenes, the stage tracker compared the raw words to decide what carries,
+and fix 5's `timeSince` put both cards' When side by side; nothing did the sums. Now the app keeps a story calendar,
+worked out from the scene cards (no store, no migration, no new AI call; the memory keeper's prompt is unchanged, its 58
+characters to spare left for later fixes).
+
+- **Each scene's date** (`memory/calendar.ts`, pure; `StoryDate`). Read from Adam's When as the timeline reads it
+  (`worldViews/when.ts` `parseWhen`; `whenStates` gives `placeWhens`' reading of each text, with `WhenParts.time`, the
+  time-of-day words, and `yearWord` kept): absolute dates ("12 March 1820", "Day 3, evening", "Year 2 of the reign,
+  spring"), times of day, and steps from the dated scene before ("the next morning", "three weeks later", "that night").
+  Scenes are read in the line's walk order (`memory/storyCalendar.ts` `calendarItems`, the timeline's own rules: a side
+  story leans on its host where it starts, a book that follows on on the book before unless a time gap lies between,
+  and a book that follows on counts its days afresh), as the promises ledger reads them. A scene with no When takes only
+  a time of day from the memory's reading of its own words (`continuity/tracker.ts` `timeCues`: where things stand at
+  its end, the time's words from that scene and the reading still matching its words; `withCues`), never a day. Nothing
+  else is guessed: `reading` says how a When was read (`empty`, `read`, `unclear`, `unanchored`: a step with no dated
+  day before it, `vague`: "days later").
+- **Sums** (`elapsedBetween`, `elapsedWords`). A date that names its day sits on an axis with a day number (`axis`,
+  `n`): real months with a year are one axis for every story (`daysFromCivil`: real month lengths and leap years, so "30
+  January 1820" and "five days later" is 4 February), "Day 41" counts an axis per year and calendar, a month the app
+  doesn't know ("the 3rd of Frostmoon") an axis of its own, so a world's own calendar still gets its sums from counted
+  or stepped days. Dates on one axis are exactly so many days apart ("3 weeks and 2 days", "about 4 months (121 days)");
+  a month or season and a year are about so many months apart, years alone about so many years (never for counted days,
+  which may run across years); otherwise it isn't known. `day` is the day since the story began: Adam's own count where
+  he counts days ("Day 41" is day 41), else days since the first dated day of its calendar ("day 21 of the story").
+  `sameDay` and `sameMoment` (the same day and time of day) say null where they can't tell.
+- **Going back** (`goingBack`, `goesBack`). A scene whose date comes before the dated scene before it in its own story
+  (a side story read alongside is never compared), where that can be told, and whose When doesn't say so: a When saying
+  it goes back on purpose starts "Flashback" or "Earlier" (the app had no other mark), or steps back itself ("three days
+  earlier", "the night before"). A When that leans on the scenes before is never counted ("March" after "December, Year
+  2" may be the next year), nor a time in the small hours after a night scene (`BACK_FROM_MINUTE`).
+- **Ages** (`readAge`, `ageFrom`, `memory/storyCalendar.ts` `ageHere`). From a character's "Age or birth date" as of the
+  scene: a birth date or year ("born 12 March 1790", "b. 1790": exact with both full dates, else "29 or 30"), an age at a
+  date ("17 in 1815", "34 at the start of the story"), or a bare age as of the scene the memory set it in
+  (`changedWhere.age`, matched to a scene by its place in words), the story's start for the starting setup. A guess
+  ("mid-thirties", "about 40", "34 or 35") is left alone. Years told with a word ("Year 312") are compared only with each
+  other.
+- **For rule-based checks to come** (fix 8; `memory/storyCalendar.ts`, read from the world and kept until anything is
+  written to it, `changesMade`): `storyCalendar(db, storyId)`, `storyDateAt(db, sceneId)`, `elapsedBetweenScenes(db, a,
+  b)`, `ageAt(db, characterId, sceneId)` and `scenesGoingBack(db, storyId)`.
+- **The writer's briefing** (`ai/storyDate.ts`; `ContextInput.calendar`, `ai/gather.ts` `calendarFor` →
+  `sceneCalendar`). The scene card (priority 2, late in `SEND_ORDER`) says, under When, "Story date: Day 41, evening (3
+  weeks since the start of Ch 4: The Siege; 2 days since the scene before)": earlier days to count from are dated events
+  that exist here, then the start of each chapter of the story so far, the latest first (`LANDMARKS_MOST` 4 worked out,
+  `storyDateMarks(memoryScale)` 1 to 3 told), never the scene before twice; a flashback says "8 days before the scene
+  before, a flashback". Then "Ages here: Mara 30 (born 12 March 1790); Tobin 37 or 38 (34 at the story's start)" for those
+  on the card whose age the sums change (a birth date, or a year or more after an age at a date; `storyDateAges` 3 to 6),
+  and the reminder to make the time that has passed fit. The story date is left out when it would only repeat the When
+  ("Day 8" with no sums). Without a calendar (a test, or the world couldn't be read) the two cards' When alone are placed
+  (`datesOf`). This replaces `timeSincePrevious` ("The previous scene was …"), which is said only when this scene's date
+  isn't known. What must stay true's `elapsed` key (`timeSince`, now `elapsedNote`) comes from the same sums ("Time: 3
+  weeks since the scene before (Day 4, morning); this scene is Day 25"), so there is one source of truth for elapsed time;
+  where nothing can be placed it keeps both cards' words, as before. Only the cards decide it, never what a step adds, so
+  every block before the scene card reads the same with or without it (tested).
+- **What carries between scenes** (the carry rules under "What must stay true" and "A new time starts fresh"). `stageReach`
+  reads the same day on the calendar ("That night" after "Day 3, dusk" is the same day; "The next day" twice is not;
+  "Day 4, noon" after "The next morning" that was Day 4 is), and where it can't tell, both cards' "Day N" as before.
+  The time of day, light and weather carry only at the same moment (`sameMoment`: the same day and time of day,
+  "Later that evening" after "Day 3, evening"), else, where the calendar can't tell, both cards giving the same When as
+  before: in the stage tracker (`startFrom`, `sameTime`) and for the writer (`timeCarries`, `stageScope`; AI edits pass the
+  calendar too). A scene whose start this changes (the same words on two days, or one moment told in other words) is read
+  again by the stage tracker once, as for any When changed on a card.
+- **On the screen** (`AppApi.getSceneDate`, `SceneDateView`; `BoardSceneCard.date`; `features/inspector/sceneDate.ts`
+  `useSceneDate`). The scene card (both looks) says under When, in the hint's own line, how it was read when that adds
+  to the words ("Reads as Day 4 · morning.", "Reads as 1 April 1820 · day 21 of the story · dusk."), or gently what it
+  couldn't tell ("AI Write can’t read a date in this.", "Nothing dated before this to count on from.", "Doesn’t say how
+  many days, so the count stops.", "No date yet. By the scene’s end it’s evening."), or that it goes back without saying
+  so ("Earlier than the scene before. A flashback?"); otherwise the usual hint. Each note is short and kept to one line
+  (cut short if the panel is narrow), so nothing below moves; `detail` says it in full on hover and to a screen reader
+  ("This comes before the scene before it (Day 6). If it’s a flashback, start the When with “Flashback” and AI Write
+  will know."). The story board's cards and the desk's page head put the worked-out day beside a When that leans on the
+  scenes before ("The next morning (Day 4)") in the line they already have (the page head reads it with the card, so
+  the line is drawn once). A When such as "Day 1, dusk" reads as itself, so the sample world's scenes keep the usual
+  hint and Classic's screenshots are unchanged; no View setting was needed.
 
 ## Milestone 1 scope
 

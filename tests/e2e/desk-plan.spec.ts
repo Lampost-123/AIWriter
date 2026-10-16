@@ -244,3 +244,49 @@ test('the ideas drawer: ideas for what comes next become a card; Use this fills 
     await fake.close()
   }
 })
+
+test('the story calendar: a When that counts on from the scene before shows its day on the board, the page and the card (fix 11)', async ({
+  launch
+}) => {
+  const { win } = await sampleWorld(launch)
+  // The sample world's Whens read as themselves ("Day 1, dusk"); these count on from the scene before, and one goes back.
+  const [story] = await invoke(win, 'listStories')
+  const outline = await invoke(win, 'getOutline', story.id)
+  const setWhen = async (title: string, when: string): Promise<void> => {
+    const id = outline.scenes.find((s) => s.title === title)!.id
+    const scene = await invoke(win, 'getScene', id)
+    await invoke(win, 'updateSceneCard', id, { ...scene.card, when })
+  }
+  await setWhen('A Letter for the Keeper', 'That night')
+  await setWhen('What the Letter Said', 'The next morning')
+  await setWhen('Low Tide', 'Day 1, noon')
+
+  await room(win, 'Plan').click()
+  await expect(card(win, 'Lighting the Lamp')).toContainText('Day 1, dusk')
+  await expect(card(win, 'Lighting the Lamp')).not.toContainText('(Day')
+  await expect(card(win, 'A Letter for the Keeper')).toContainText('That night (Day 1)')
+  await expect(card(win, 'What the Letter Said')).toContainText('The next morning (Day 2)')
+
+  // Its card in the drawer says how it was read, on the line under When.
+  await card(win, 'What the Letter Said').hover()
+  await card(win, 'What the Letter Said').getByRole('button', { name: 'Edit the card of What the Letter Said' }).click()
+  const drawer = win.locator('aside.desk-drawer')
+  await expect(drawer.locator('[data-carry="When"]')).toContainText('Reads as Day 2 · morning.')
+  // The page's head line has the day beside the When.
+  await expect(win.locator('[data-page-title]')).toContainText('The next morning (Day 2)')
+
+  // A scene that goes earlier without saying so is asked gently, on one line; in full on hover, how to mark a flashback.
+  await room(win, 'Plan').click()
+  await card(win, 'Low Tide').hover()
+  await card(win, 'Low Tide').getByRole('button', { name: 'Edit the card of Low Tide' }).click()
+  const goesBack = drawer.locator('[data-carry="When"] [title]')
+  await expect(goesBack).toHaveText('Earlier than the scene before. A flashback?')
+  await expect(goesBack).toHaveAttribute(
+    'title',
+    'This comes before the scene before it (Day 2 · morning). If it’s a flashback, start the When with “Flashback” and AI Write will know.'
+  )
+  // Its height is the usual hint's: nothing below moves.
+  expect(await goesBack.evaluate((e) => e.getBoundingClientRect().height)).toBeLessThan(20)
+  await drawer.getByRole('textbox', { name: /^When/ }).fill('Flashback: Day 1, noon')
+  await expect(drawer.locator('[data-carry="When"]')).toContainText('In-world date and time, in your own words.')
+})

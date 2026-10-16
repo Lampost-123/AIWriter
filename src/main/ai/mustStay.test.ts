@@ -26,8 +26,21 @@ import {
 import { stageTold } from '../repair'
 import { stageLines } from '../repair/prompts'
 import type { Holding } from '../memory/items'
-import { assembleContext, MUST_BLOCK, MUST_PRIORITY, PLAN_BLOCK, prepareContext, stageReach, timeSince, WHY, type ContextInput } from './context'
+import {
+  assembleContext,
+  MUST_BLOCK,
+  MUST_PRIORITY,
+  PLAN_BLOCK,
+  prepareContext,
+  SEND_ORDER,
+  stageReach,
+  stageScope,
+  timeSince,
+  WHY,
+  type ContextInput
+} from './context'
 import { countRaw } from './tokens'
+import { buildCalendar } from '../memory/calendar'
 
 let seq = 0
 const entry = (kind: EntryKind, name: string, extra: Partial<EntryState> = {}): EntryState => ({
@@ -630,6 +643,54 @@ describe('what must stay true in a draft', () => {
     expect(prepareContext(none).blocks.find((b) => b.id === MUST_BLOCK)).toBeUndefined()
   })
 
+  it('reads the same day on the story calendar, and keeps to the cards where it can’t tell (fix 11)', () => {
+    /** A draft of the last of `whens`, after the one before it, with the whole story's calendar or (`alone`) none. */
+    const at = (whens: string[], alone = false): ContextInput => {
+      const inp = draftInput({ continuityAtSoFar: false, options: { direction: '', targetWords: 800, creativity: 'balanced' } })
+      const n = whens.length
+      inp.scene.card.when = whens[n - 1]
+      inp.memory.previous = { ...inp.memory.previous!, when: whens[n - 2] }
+      if (!alone) {
+        const cal = buildCalendar(whens.map((when, i) => ({ id: `s${i + 1}`, story: 'mill', when })))
+        inp.calendar = { here: cal.dates.get(`s${n}`)!, previous: cal.dates.get(`s${n - 1}`)!, landmarks: [], ages: [] }
+      }
+      return inp
+    }
+    // "That night" is the same day as "Day 3, dusk": what people wear and hold carries.
+    expect(stageReach(at(['Day 3, dusk', 'That night'], true))).toBe('start')
+    // The same words on two days are two days.
+    expect(stageReach(at(['Day 3', 'The next day', 'The next day']))).toBe('later')
+    // Only the whole story's calendar knows "The next morning" is Day 4.
+    expect(stageReach(at(['Day 3, evening', 'The next morning', 'Day 4, noon']))).toBe('start')
+    expect(stageReach(at(['Day 3, evening', 'The next morning', 'Day 4, noon'], true))).toBe('later')
+    // Where the calendar can't tell, both cards' "Day N", as before.
+    expect(stageReach(at(['Day 3 of the voyage', 'Day 3 of the siege'], true))).toBe('start')
+    // The time of day carries at the same moment only.
+    const carries = (inp: ContextInput): boolean => stageScope(inp.scene.card, inp.memory, [], inp.calendar).timeCarries
+    expect(carries(at(['Day 3, evening', 'Later that evening']))).toBe(true)
+    expect(carries(at(['Day 3', 'The next day', 'The next day']))).toBe(false)
+    expect(carries(at(['Day 3, evening', 'That night']))).toBe(false)
+    expect(carries(at(['Day 5', 'Day 5'], true))).toBe(true)
+    expect(carries(at(['Spring', 'Spring'], true))).toBe(true)
+  })
+
+  it('tells the story date on the scene card and the time since in what must stay true from the same sums, late (fix 11)', () => {
+    const whens = ['Day 3, evening', 'The next morning', 'Three weeks later']
+    const cal = buildCalendar(whens.map((when, i) => ({ id: `s${i + 1}`, story: 'mill', when })))
+    const plain = draftInput({ continuityAtSoFar: false, options: { direction: '', targetWords: 800, creativity: 'balanced' } })
+    plain.scene.card.when = whens[2]
+    plain.memory.previous = { ...plain.memory.previous!, when: whens[1] }
+    const dated: ContextInput = { ...plain, calendar: { here: cal.dates.get('s3')!, previous: cal.dates.get('s2')!, landmarks: [], ages: [] } }
+    const p = assembleContext(dated, countRaw)
+    const text = (id: string, q = p): string => q.blocks.find((b) => b.id === id)?.text ?? ''
+    expect(text('scene-card')).toContain('When: Three weeks later\nStory date: Day 25 (3 weeks since the scene before)\nMake the time that has passed fit')
+    expect(text(MUST_BLOCK)).toContain('Time: 3 weeks since the scene before (Day 4, morning); this scene is Day 25')
+    // Every block sent before the scene card reads the same with the calendar or without it (the cache).
+    const q = assembleContext(plain, countRaw)
+    const before = SEND_ORDER.slice(0, SEND_ORDER.indexOf('scene-card'))
+    for (const id of before) expect(text(id), id).toBe(text(id, q))
+  })
+
   it('the compass case: given away in scene 7, still gone at scene 23, though it is long out of her last few events', () => {
     const inp = draftInput({ continuityAtSoFar: false, continuity: null })
     const [wren] = inp.memory.entries
@@ -778,7 +839,11 @@ describe('what a scene is most likely to break comes first, and stays (2026-10-1
       inp.memory.previous = { ...inp.memory.previous!, when: before }
       return timeSince(inp, stageReach(inp))
     }
-    expect(at('Day 5', 'Day 3, dusk')).toBe('Time: the scene before was Day 3, dusk; this scene is Day 5')
+    expect(at('Day 5', 'Day 3, dusk')).toBe('Time: 2 days since the scene before (Day 3, dusk); this scene is Day 5')
+    // Read on the story calendar: that night is the same day; a When it can't read keeps both cards' words.
+    expect(at('That night', 'Day 3, dusk')).toBe('Time: the same day as the scene before (Day 3, dusk); this scene is Day 3, night')
+    expect(at('Spring', 'Winter')).toBe('Time: the scene before was Winter; this scene is Spring')
+    expect(at('Day 3', 'Day 3')).toBe('')
     expect(at('Day 3, dusk', 'Day 3, dusk')).toBe('')
     expect(at('', 'Day 3')).toBe('')
     expect(at('Day 4', '')).toBe('')

@@ -21,7 +21,7 @@ import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
-import { catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
+import { calendarFor, catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
 import { sceneTail, stageScope, timelineFrom } from '../ai/context'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
@@ -120,7 +120,10 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const core = tool === 'continue' ? await continueCore(db, input, memory, story.title, scene.card) : undefined
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
   // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07).
-  const stand = stageInScene(kept, stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after]))
+  const stand = stageInScene(
+    kept,
+    stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after], calendarFor(db, input.sceneId, memory, scene.card))
+  )
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
   const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)

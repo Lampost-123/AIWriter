@@ -18,10 +18,15 @@ import { openCount } from '@/features/issues/issuesLogic'
 import { useSceneIssues } from '@/features/issues/issuesStore'
 import { openSceneTab } from '@/layout/areaLinks'
 
-/** The scene card's point of view (by name) and when it happens, reloaded as the card changes. */
+/**
+ * The scene card's point of view (by name) and when it happens, reloaded as the card changes. A When that leans on the
+ * scenes before has the day the story calendar works out beside it ("The next morning (Day 4)", fix 11), read with the
+ * rest so the line is drawn once.
+ */
 function useCardLine(sceneId: ID): { pov: string; when: string } {
   const rev = useApp((s) => s.briefingRev)
   const entriesRev = useApp((s) => s.entriesRev)
+  const outlineRev = useApp((s) => s.outlineRev)
   const [line, setLine] = useState<{ id: ID; pov: string; when: string } | null>(null)
   useEffect(() => {
     let live = true
@@ -30,7 +35,9 @@ function useCardLine(sceneId: ID): { pov: string; when: string } {
         const scene = await api.getScene(sceneId)
         const povId = scene.card?.povId ?? null
         const pov = povId ? ((await api.getEntry(povId).catch(() => null))?.name ?? '') : ''
-        if (live) setLine({ id: sceneId, pov, when: (scene.card?.when ?? '').trim() })
+        const when = (scene.card?.when ?? '').trim()
+        const day = when ? ((await api.getSceneDate(sceneId).catch(() => null))?.day ?? '') : ''
+        if (live) setLine({ id: sceneId, pov, when: day ? `${when} (${day})` : when })
       } catch {
         if (live) setLine({ id: sceneId, pov: '', when: '' })
       }
@@ -38,7 +45,7 @@ function useCardLine(sceneId: ID): { pov: string; when: string } {
     return () => {
       live = false
     }
-  }, [sceneId, rev, entriesRev])
+  }, [sceneId, rev, entriesRev, outlineRev])
   return line && line.id === sceneId ? line : { pov: '', when: '' }
 }
 

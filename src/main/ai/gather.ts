@@ -13,6 +13,7 @@ import { calledIn } from '../db/called'
 import { sceneMemory } from '../memory/scene'
 import { loadShapeSafe, sceneWords } from '../keeper/places'
 import { lessonsBefore } from '../checks/lessons'
+import { sceneCalendar, type SceneCalendar } from '../memory/storyCalendar'
 import type { ContextInput } from './context'
 
 type DB = Database.Database
@@ -80,7 +81,20 @@ export function gatherContextInput(
     continuity: stand,
     stageWhere: stageWhere(db, stand),
     // Slips the checks found in earlier scenes and that were put right: what must stay true warns of those about the people here.
-    slips: lessonsBefore(db, sceneId).slips
+    slips: lessonsBefore(db, sceneId).slips,
+    // The story calendar (long story memory fix 11): the scene's date, the sums since the scene before and earlier days,
+    // and the ages of those on its card.
+    calendar: calendarFor(db, sceneId, memory, scene.card)
+  }
+}
+
+/** The story calendar at a scene for its briefing (memory/storyCalendar.ts sceneCalendar); null rather than stopping a draft. */
+export function calendarFor(db: DB, sceneId: ID, memory: Parameters<typeof sceneCalendar>[2], card: Parameters<typeof sceneCalendar>[3]): SceneCalendar | null {
+  try {
+    return sceneCalendar(db, sceneId, memory, card)
+  } catch (e) {
+    console.warn('Could not work out the story calendar; the briefing goes by the scene cards’ When', e)
+    return null
   }
 }
 

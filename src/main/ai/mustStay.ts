@@ -126,7 +126,7 @@ export interface MustInput {
   /** What has happened so far, for telling a plan that has happened (realSecrets); left out: what has happened to `people` and `named`. */
   happened?: KnowsContext['happened']
   /**
-   * How much time has passed since the scene before, as a line ("Time: the scene before was Day 3, dusk; this scene is
+   * How much time has passed since the scene before, as a line ("Time: 2 days since the scene before (Day 3, dusk); this scene is
    * Day 5"), at a new scene's start; '' or left out when it isn't known or no time has passed.
    */
   elapsed?: string
