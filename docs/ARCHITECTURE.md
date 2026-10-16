@@ -1941,6 +1941,16 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
   words. Its probes sit in chapters 6 and 7, with every fact chapters back or early in a long scene, beyond what
   Continue is shown; most checks are deterministic (`patterns.ts`), the judge only asks what a pattern can't. A hard
   token budget (`budget.ts`, checked before every call) stops writing and scoring cleanly.
+- **Story version 4, the book** (`--story book`; research report "Long story memory and consistency", change 6,
+  2026-10-15: version 3 is too short to show forgetting): "The Winter Ledger", 40 scenes in 10 chapters (61,442
+  words), invented and written by hand from a bible of facts (never by a model being scored), frozen in
+  `story-v4.json`; what is tested lives in `book.ts`. Thirteen probes (one passage each, as probes v3) in the last 55%
+  of the book, aimed at facts set early in words that never match the sentences that set them (the unit tests check
+  it), and at facts that change (wrist, the secret, dogs, pigeons, watch, key, thaw bell) before and after the change;
+  each check is one of ConStory-Bench's five kinds of error, and the report scores by kind and by kind of memory. Then
+  18 planted passages (12 with one slip, 6 without, 4 of them decoys) are each checked by the app's own consistency
+  checker on a fresh copy of the world after the last scene (`planted.ts`): slips caught, false alarms, decoys taken
+  for slips. The probes' pages and the three scenes before each keep the tested facts out (unit tests).
 - **Probes v4, chains, the default** (Adam, 2026-10-07: single passages were at the ceiling and not how he writes):
   after the whole story, a new scene is carried on in 12 steps of Add below and Continue in turn (`chain.ts`); the
   early steps' directions plant facts (boots off, Ash gone out, the door locked, the case put down, lying down, a cut
@@ -2417,9 +2427,11 @@ the same story so far and passages as before; what changes for it is the share f
   `MOST_MEANT` (8), only for the check it belongs to; the system prompt says the same thing there is no issue). The
   same thing in the same scene was already never raised again (`sameThing`).
 
-Not done here (the research's later steps): a book-length test story, rule-based checks (fix 8, below), a ledger for time (fix 11,
-below), a ledger for promises (fix 10, below), a ledger for who knows what (fix 9, below), spotting characters however they are named
-(fix 12, below), and a continuity brief before each scene. Who is absent (as opposed to dead) isn't among the key facts yet: the "Not in this scene" lines
+The book-length test story is the trap harness's story version 4 (`--story book`, see "Trap scores"). The research's
+later steps each have a section below: spotting characters however they are named (fix 12), who knows what (fix 9),
+promises (fix 10), a story calendar (fix 11), rule-based checks (fix 8), summaries rebuilt from the record (fix 15),
+scene contracts (fix 13) and a continuity brief before each scene (fix 14). Who is absent (as opposed to dead) isn't
+among the key facts yet: the "Not in this scene" lines
 cover some of it.
 
 ## Long story memory: spotting characters however they are named (fix 12, 2026-10-15)

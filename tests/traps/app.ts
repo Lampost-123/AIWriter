@@ -53,10 +53,12 @@ export interface TrapsConfig {
   out: string | null
   /** Keep the throwaway data folder (the world database, with "What the AI saw" for every call). */
   keep: boolean
-  /** Which story: 'v3' (the written story, the default) or 'v2' (story.ts). */
-  story: 'v2' | 'v3'
-  /** The written story's file (version 3). */
+  /** Which story: 'v3' (the written story, the default), 'v2' (story.ts) or 'book' (version 4, story-v4.json). */
+  story: 'v2' | 'v3' | 'book'
+  /** The written story's file (version 3, or the book's). */
   storyFile: string
+  /** The book: how many times each planted passage is checked by the app's consistency checks. */
+  checkSamples: number
   /** A partly written story to carry on from (writing only). */
   resume: string | null
   /**
@@ -74,7 +76,7 @@ export interface TrapsConfig {
    * world for a test that only needs the chain scene (the edit chain K2E). Null: the whole story.
    */
   storyFrom: string | null
-  /** 4: chains in one scene (the default, story version 3 only); 3: probes v3, one passage each. */
+  /** 4: chains in one scene (the default, story version 3 only); 3: one passage per probe (probes v3, and the book). */
   probesVersion: 3 | 4
   /** The hard token budget: no call is sent once it would be passed. */
   maxIn: number
@@ -111,14 +113,15 @@ export function configFromEnv(env = process.env): TrapsConfig {
     words: { generate: num(env.TRAPS_WORDS, 600), addBelow: num(env.TRAPS_ADD_WORDS, 400), beatScene: num(env.TRAPS_BEAT_SCENE_WORDS, 900) },
     out: env.TRAPS_OUT?.trim() || null,
     keep: env.TRAPS_KEEP === '1',
-    story: env.TRAPS_STORY === 'v2' ? 'v2' : 'v3',
-    storyFile: resolve(env.TRAPS_STORY_FILE?.trim() || join(harnessRoot, 'tests', 'traps', 'story-v3.json')),
+    story: env.TRAPS_STORY === 'v2' ? 'v2' : env.TRAPS_STORY === 'book' ? 'book' : 'v3',
+    storyFile: resolve(env.TRAPS_STORY_FILE?.trim() || join(harnessRoot, 'tests', 'traps', env.TRAPS_STORY === 'book' ? 'story-v4.json' : 'story-v3.json')),
+    checkSamples: num(env.TRAPS_CHECK_SAMPLES, 1),
     resume: env.TRAPS_RESUME?.trim() ? resolve(env.TRAPS_RESUME.trim()) : null,
     searchModel: env.TRAPS_SEARCH_MODEL?.trim() || join(harnessRoot, DEFAULT_SEARCH_MODEL),
     saveWorld: env.TRAPS_SAVE_WORLD !== '0',
     fromWorld: env.TRAPS_FROM_WORLD?.trim() ? resolve(env.TRAPS_FROM_WORLD.trim()) : null,
     storyFrom: env.TRAPS_STORY_FROM?.trim() || null,
-    probesVersion: env.TRAPS_PROBES_VERSION === '3' || env.TRAPS_STORY === 'v2' ? 3 : 4,
+    probesVersion: env.TRAPS_PROBES_VERSION === '3' || env.TRAPS_STORY === 'v2' || env.TRAPS_STORY === 'book' ? 3 : 4,
     maxIn: num(env.TRAPS_MAX_TOKENS_IN, DEFAULT_BUDGET.in),
     maxOut: num(env.TRAPS_MAX_TOKENS_OUT, DEFAULT_BUDGET.out),
     log: (line) => console.log(`[traps] ${line}`)
@@ -182,6 +185,7 @@ function noteEnd(id: string, payload: unknown): void {
 }
 appEvents.on('event:generation:done', (p: { generationId: string }) => noteEnd(p.generationId, p))
 appEvents.on('event:task:done', (p: { taskId: string }) => noteEnd(p.taskId, p))
+appEvents.on('event:checks:done', (p: { runId: string }) => noteEnd(p.runId, p))
 
 export function whenEnded<T>(id: string, limitMs = 15 * 60_000): Promise<T> {
   const had = ended.get(id)
@@ -357,6 +361,23 @@ export interface ApplyModule {
   fixesTr(state: EditorState, parts: LandedPartLike[], fixes: RepairFixLike[]): { tr: Transaction; made: { id: string }[] } | null
 }
 
+/** An issue as the consistency checker lists it (contracts/checks.ts, the parts the harness reads). */
+export interface IssueLike {
+  kind: string
+  severity: string
+  status: string
+  quote: string
+  message: string
+}
+
+/** The consistency checker's handlers (milestone 5, ipc/checksIssues.ts): a scene checked as Adam asks for it, its issues listed. */
+export interface ChecksModule {
+  issuesHandlers: {
+    startCheck(input: { runId: string; target: { scope: 'scene'; id: string }; checks?: string[] }): void
+    listIssues(sceneId: string): IssueLike[] | Promise<IssueLike[]>
+  }
+}
+
 /** Step 5's retrieval (src/main/retrieval/index.ts), when the checkout has it. */
 interface SearchStatusLike {
   state: string
@@ -476,6 +497,8 @@ export interface App {
   startEdit: (typeof import('@app/main/edits'))['startEdit']
   /** Step 3's check and repair and the page's code for it, when the checkout has them. */
   repairMod: RepairModule | null
+  /** The consistency checker (Adam checking a scene), when the checkout has it. */
+  checksMod: ChecksModule | null
   applyMod: ApplyModule | null
   /** Makes the scene (and its chapter) with its card, as the story reaches it; returns its id. */
   makeScene(s: Pick<StoryScene, 'key' | 'chapter' | 'title' | 'card'>): string
@@ -517,7 +540,7 @@ export interface CallRecord {
   id: string
   job: string
   /** What it was, from its job and the marker its request starts with. */
-  kind: 'writer' | 'plan' | 'repair' | 'stand' | 'memory' | 'summary' | 'other'
+  kind: 'writer' | 'plan' | 'repair' | 'stand' | 'memory' | 'summary' | 'check' | 'other'
 }
 
 /** What a record was, from its job and its request's marker. */
@@ -525,6 +548,7 @@ export function callKind(job: string, messages: string): CallRecord['kind'] {
   if (messages.includes('[AIWRITE-REPAIR v')) return 'repair'
   if (messages.includes('[AIWRITE-PLAN v')) return 'plan'
   if (messages.includes('[AIWRITE-CONTINUITY v')) return 'stand'
+  if (job === 'check' || messages.includes('[AIWRITE-CHECK v')) return 'check'
   if (job === 'draft' || job === 'beat' || messages.includes('[AIWRITE-EDIT v')) return 'writer'
   if (job === 'summary' || messages.includes('[AIWRITE-MEMORY-SUMMARY v')) return 'summary'
   if (job === 'memory') return 'memory'
@@ -618,6 +642,8 @@ export async function openApp(
     // for making its fixes.
     const repairMod = await optional<RepairModule>(cfg.root, 'main/ipc/repair')
     const applyMod = repairMod ? await optional<ApplyModule>(cfg.root, 'renderer/src/features/repair/apply') : null
+    // The consistency checker, for the book's planted passages.
+    const checksMod = await optional<ChecksModule>(cfg.root, 'main/ipc/checksIssues')
     // Step 5 (recall by meaning): on for the run, with the search model copied in where the app keeps its download.
     const retrieval = await optional<RetrievalModule>(cfg.root, 'main/retrieval/index')
     let modelNote: string | null = null
@@ -930,6 +956,7 @@ export async function openApp(
       startEdit,
       repairMod,
       applyMod,
+      checksMod,
       makeScene,
       setBeats,
       get existing() {

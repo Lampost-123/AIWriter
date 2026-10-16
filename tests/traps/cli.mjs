@@ -1,7 +1,10 @@
 // npm run traps -- [flags]: scores the app's drafting against the trap story (see README.md beside this file).
 // npm run traps:write -- [flags]: has a live model write story version 3 (--write).
 //
-//   --story v3|v2          the written long story (story-v3.json, the default) or the hand-written short one
+//   --story v3|v2|book     the written long story (story-v3.json, the default), the hand-written short one, or the book
+//                          (story version 4, story-v4.json: 61,000 words, one passage per probe, then its planted
+//                          contradictions checked by the app's consistency checker)
+//   --check-samples <n>    the book: checks of each planted passage (default 1)
 //   --probes-version 4|3   4 (the default): chains of Continue and Add below in one scene, checked at every step;
 //                          3: one passage per probe
 //   --story-file <file>    another written story file (version 3)
@@ -72,7 +75,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--check-samples', '--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -146,8 +149,16 @@ if (flag('--rescore')) {
     delete env.TRAPS_WRITE
   }
   const story = value('--story')
-  if (story && story !== 'v2' && story !== 'v3') {
-    console.error('--story is v3 (the written story) or v2 (the short hand-written one).')
+  if (story && story !== 'v2' && story !== 'v3' && story !== 'book') {
+    console.error('--story is v3 (the written story), v2 (the short hand-written one) or book (the 61,000-word book).')
+    process.exit(2)
+  }
+  if (story === 'book' && flag('--write')) {
+    console.error('The book is written already (story-v4.json); --write is for story version 3 only.')
+    process.exit(2)
+  }
+  if (story === 'book' && value('--probes-version') === '4') {
+    console.error('Chains (probes v4) run on story version 3; the book has its own probes.')
     process.exit(2)
   }
   if (story) env.TRAPS_STORY = story
@@ -175,6 +186,7 @@ if (flag('--rescore')) {
     if (v) env[name] = v
   }
   set('--samples', 'TRAPS_SAMPLES')
+  set('--check-samples', 'TRAPS_CHECK_SAMPLES')
   set('--base-url', 'TRAPS_BASE_URL')
   set('--price-in', 'TRAPS_PRICE_IN')
   set('--price-out', 'TRAPS_PRICE_OUT')
