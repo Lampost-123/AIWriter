@@ -7,6 +7,8 @@
 //      set once ("bandage round his head", gone since Ch 3), and its relative times read wrong later ("swore this day").
 //   i. People and places off the scene (offScene, linkedPlaces; after Adam's Holodeck): a person the scene's own words
 //      don't name gets one line, not a card; a place not linked to where the scene happens is left out.
+//   j. Places named in part (placeWords; live test, 2026-10-16): "Ashby" on the card brings in "The train to Ashby"
+//      ("Ashby is most of a day away") and "St Anne's church, Ashby", so distances and names reach the writer.
 
 import type { Entry, EntryState, ID } from '@shared/types'
 import { clothesOf, sourceKey, type CharacterState, type StateSources } from '@shared/continuity'
@@ -201,3 +203,34 @@ export function linkedPlaces(locationId: ID | null | undefined, entries: Pick<En
 
 /** What heads the one-line people off the scene. */
 export const OFFSTAGE_LEAD = 'Not in this scene (one line each; if the direction brings one in, keep to this):'
+
+// ---------- j. Places named in part ----------
+
+/** Words in place names that say what kind of place it is, not which ("The", "Church", "Street"), and never pick one out. */
+const PLACE_KIND_WORDS = new Set(
+  `the a an of in on at to by and st saint house hall church chapel inn street road lane square park hill river bridge
+  gate tower castle north south east west old new upper lower great little`.split(/\s+/)
+)
+
+/**
+ * The words a place's name picks it out by: capitalised, three letters or more, not a word for a kind of place, and no
+ * part of anyone's name (`people`, in lower case), so "Crane" of "The Crane House glasshouse" isn't Victor Crane's
+ * house whenever he is named. "The train to Ashby" is "Ashby"; "St Anne’s church, Ashby" is "Anne" and "Ashby".
+ */
+export function placeWords(name: string, people: ReadonlySet<string>): string[] {
+  const words = name
+    .split(/[\s,;:()\/]+/)
+    .map((w) => w.replace(/['’]s$/u, '').replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ''))
+    .filter((w) => w.length >= 3 && /^\p{Lu}/u.test(w) && !PLACE_KIND_WORDS.has(w.toLowerCase()) && !people.has(w.toLowerCase()))
+  return [...new Set(words)]
+}
+
+/** Every word of every character's names and other names, in lower case (for placeWords). */
+export function peopleWords(entries: Pick<Entry, 'kind' | 'name' | 'aliases'>[]): Set<string> {
+  const out = new Set<string>()
+  for (const e of entries) {
+    if (e.kind !== 'character') continue
+    for (const n of [e.name, ...(e.aliases ?? [])]) for (const w of n.split(/[\s,]+/)) if (w) out.add(w.replace(/['’]s$/u, '').toLowerCase())
+  }
+  return out
+}

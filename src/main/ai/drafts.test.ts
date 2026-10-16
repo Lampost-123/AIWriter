@@ -359,6 +359,29 @@ describe('drafting', () => {
     }
   })
 
+  it('tells the writer the real date, the places the card names in part and the card’s name for the place (live test, 2026-10-16)', async () => {
+    const story = repo.listStories(w.db)[0]
+    const chapter = repo.getOutline(w.db, story.id).chapters[0].id
+    const later = repo.createScene(w.db, chapter, { title: 'Christmas Eve' })
+    repo.updateSceneCard(w.db, w.first.id, { ...repo.getScene(w.db, w.first.id).card, when: 'Day 1, afternoon' })
+    repo.updateSceneCard(w.db, later.id, { ...repo.getScene(w.db, later.id).card, when: 'Day 25, Christmas Eve, morning' })
+    repo.createEntry(w.db, 'place', { name: 'The train to Ashby', summary: 'The slow line south; Ashby is most of a day away.' })
+    const church = repo.createEntry(w.db, 'place', { name: 'St Anne’s church, Ashby', summary: 'Where Iris will be married.' })
+    repo.updateSceneCard(w.db, w.second.id, {
+      ...repo.getScene(w.db, w.second.id).card,
+      when: 'Day 3, evening',
+      locationId: church.id,
+      beats: ['A letter: Iris marries in Ashby on Christmas Eve', 'Someone knocks']
+    })
+    const { emit, done } = recorder()
+    const { generationId } = start(w, emit)
+    expect((await done(generationId)).status).toBe('complete')
+    const sent = JSON.stringify(fake.lastRequest()!.body.messages)
+    expect(sent).toContain('Story date: Day 3, evening, which falls on 2 December (2 days since the scene before)')
+    expect(sent).toContain('Ashby is most of a day away.')
+    expect(sent).toContain('Where: St Anne’s church, Ashby (call it by this name, whatever the story so far has called it)')
+  })
+
   it('records an Auto draft as Auto, with room kept for the longest scene Auto allows', async () => {
     const { emit, done } = recorder()
     const { generationId, preview } = start(w, emit, 'fake/writer', 'custom', { targetWords: null })
@@ -498,6 +521,17 @@ describe('drafting', () => {
     const normal = start(w, emit)
     expect((await done(normal.generationId)).cutOff).toBe(false)
     expect(gens.getGeneration(w.db, normal.generationId).params.cutOff).toBeUndefined()
+  })
+
+  it('tells whoever waits for a draft that it was cut off, or that its words are a refusal', async () => {
+    const { emit } = recorder()
+    expect(await start(w, emit, 'fake/length').done).toMatchObject({ status: 'complete', cutOff: true })
+    // At mild content levels a refusal sent back as words "finishes": the chapter writer must never keep it as a scene.
+    expect(await start(w, emit, 'fake/refuse-words').done).toMatchObject({ status: 'complete', refused: true })
+    const normal = await start(w, emit).done
+    expect(normal.status).toBe('complete')
+    expect(normal.cutOff).toBeUndefined()
+    expect(normal.refused).toBeUndefined()
   })
 
   it('records how the settings were sent to a model that wants them differently', async () => {

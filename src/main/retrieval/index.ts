@@ -106,6 +106,23 @@ export async function recallForBriefing(db: DB, sceneId: ID, input: ContextInput
   }
 }
 
+/**
+ * How close in meaning each doc is to the queries, for a consistency check of a scene (2026-10-16: which facts of who
+ * knows what its words touch; checks/run.ts). Null when step 5 or the search model is off, the world isn't open, or
+ * anything went wrong (the check then goes by keyword alone).
+ */
+export async function meaningForCheck(db: DB, queries: string[], docs: { key: string; text: string }[], signal?: AbortSignal): Promise<Map<string, number> | null> {
+  if (!recallWanted()) return null
+  const open = world
+  if (!open || open.w.db !== db || maybeCurrentWorld()?.db !== db) return null
+  try {
+    return await open.recall.meaning(queries, docs, signal)
+  } catch (e) {
+    console.warn('Searching by meaning for a check failed; it goes by keyword alone', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
 const currentStatus = (): SearchModelStatus => {
   const m = model.embedder
   return { ...model.status(m && world ? world.recall.counts(m.model) : null), auto: autoWanted(getSettings()) }

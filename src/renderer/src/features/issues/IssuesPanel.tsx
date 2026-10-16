@@ -1,8 +1,9 @@
 // The Issues tab beside a scene (milestone 5, AI checks; spec "Consistency checker"): what the checks found
 // in this scene, must fix first. Each issue shows how serious it is (must fix in red; worth a look and minor
 // in quiet tones, never amber, which is for AI suggestions), the words in the scene (a click shows them in
-// the page), what disagrees with what, and links to what it conflicts with. Fix the text, Update the memory
-// and Ignore each act at once and can be undone. "Check this scene" runs every check, with progress and Stop.
+// the page), what disagrees with what, and links to what it conflicts with. Fix the text, Update the memory,
+// Later and Ignore each act at once and can be undone (Later hides an issue until that part of the scene changes or the
+// scene is checked again; Ignore says it is meant). "Check this scene" runs every check, with progress and Stop.
 import { CircleCheck, ListChecks } from '@/components/ui/icons'
 import { CheckReportCard } from './CheckReportCard'
 import { useRef, useState } from 'react'
@@ -12,8 +13,22 @@ import { Badge, Button, EmptyState, Notice, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useDelayed } from '@/features/generate/parts'
-import { checkThisScene, fixTheText, ignore, openSource, reopen, showWords, stopRun, updateTheMemory } from './actions'
-import { CONTRACT_DETAIL, CONTRACT_WORDS, KIND_WORDS, RULE_DETAIL, RULE_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIssues, usableFix } from './issuesLogic'
+import { checkThisScene, fixTheText, ignore, later, openSource, reopen, showWords, stopRun, updateTheMemory } from './actions'
+import {
+  CONTRACT_DETAIL,
+  CONTRACT_WORDS,
+  KIND_WORDS,
+  LATER_TITLE,
+  RULE_DETAIL,
+  RULE_WORDS,
+  SEVERITY_WORDS,
+  ignoredWords,
+  memoryFixWords,
+  openCount,
+  runFor,
+  splitIssues,
+  usableFix
+} from './issuesLogic'
 import { useIssuesStore, useSceneIssues } from './issuesStore'
 import { revealLiveFlag, useLiveFlagCounts } from '@/features/liveChecks/liveFlags'
 import type { LiveFlagKind } from '@shared/liveChecks'
@@ -30,34 +45,37 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const run = useIssuesStore((s) => runFor(s.runs, sceneId))
   const failed = useIssuesStore((s) => s.failed[sceneId] ?? null)
   const [showIgnored, setShowIgnored] = useState(false)
-  const { open, ignored } = splitIssues(issues ?? [])
-  // The desk: Ignore folds the card away first, and the cards below close up.
+  const [showLater, setShowLater] = useState(false)
+  const { open, later: forLater, ignored } = splitIssues(issues ?? [])
+  // The desk: Ignore and Later fold the card away first, and the cards below close up.
   const desk = useDesk()
   const [leaving, setLeaving] = useState<Set<string>>(new Set())
   const listRef = useRef<HTMLUListElement>(null)
   useFlip(listRef, open.map((i) => i.id).join())
-  const fold = (issue: Issue): void => {
-    if (!desk || reducedMotion()) {
-      void ignore(issue)
-      return
+  const fold =
+    (act: (issue: Issue) => Promise<void>) =>
+    (issue: Issue): void => {
+      if (!desk || reducedMotion()) {
+        void act(issue)
+        return
+      }
+      setLeaving((s) => new Set(s).add(issue.id))
+      setTimeout(() => {
+        void act(issue).finally(() =>
+          setLeaving((s) => {
+            const n = new Set(s)
+            n.delete(issue.id)
+            return n
+          })
+        )
+      }, 180)
     }
-    setLeaving((s) => new Set(s).add(issue.id))
-    setTimeout(() => {
-      void ignore(issue).finally(() =>
-        setLeaving((s) => {
-          const n = new Set(s)
-          n.delete(issue.id)
-          return n
-        })
-      )
-    }, 180)
-  }
 
   return (
     <div className="flex min-h-full flex-col">
       <OnThisPage />
       <CheckBar sceneId={sceneId} issues={issues} run={run} />
-      <CheckReportCard sceneId={sceneId} />
+      <CheckReportCard sceneId={sceneId} openIssues={issues ? openCount(issues).count : null} />
       {failed ? (
         <div className="px-4 pb-2">
           <Notice tone="danger" action={settingsButton(failed)}>
@@ -85,36 +103,57 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <ul ref={listRef} aria-label="Issues in this scene" className="iss-list flex flex-col gap-2 px-4 pb-4 pt-1 animate-fade-in">
           {open.map((i) => (
             <li key={i.id} data-flip={i.id}>
-              <IssueCard issue={i} leaving={leaving.has(i.id)} onIgnore={fold} />
+              <IssueCard issue={i} leaving={leaving.has(i.id)} onIgnore={fold(ignore)} onLater={fold(later)} />
             </li>
           ))}
         </ul>
       ) : (
         <NothingFound />
       )}
-      {ignored.length ? (
-        <div className="mt-auto border-t border-line px-4 py-2.5">
-          <button
-            type="button"
-            aria-expanded={showIgnored}
-            onClick={() => setShowIgnored((v) => !v)}
-            className="text-[12.5px] text-muted hover:text-fg"
-          >
-            {showIgnored ? 'Hide ignored' : `Show ignored (${ignored.length})`}
-          </button>
-          {showIgnored ? (
-            <ul aria-label="Ignored" className="mt-2 flex flex-col gap-1.5 animate-fade-in">
-              {ignored.map((i) => (
-                <li key={i.id} className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2">
-                  <p className="min-w-0 flex-1 text-[12.5px] leading-[18px] text-muted">{i.message}</p>
-                  <Button size="sm" variant="ghost" className="-my-0.5" onClick={() => void reopen(i)}>
-                    Reopen
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+      {forLater.length || ignored.length ? (
+        <div className="mt-auto flex flex-col gap-1 border-t border-line px-4 py-2.5">
+          {forLater.length ? <PutAway label="for later" issues={forLater} shown={showLater} onShow={setShowLater} /> : null}
+          {ignored.length ? <PutAway label="ignored" issues={ignored} shown={showIgnored} onShow={setShowIgnored} /> : null}
         </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The issues put away in this scene, folded under a "Show …" toggle: those saved for later (Show now brings one back)
+ * and those ignored (Reopen).
+ */
+function PutAway({
+  label,
+  issues,
+  shown,
+  onShow
+}: {
+  label: 'for later' | 'ignored'
+  issues: Issue[]
+  shown: boolean
+  onShow: (on: boolean) => void
+}): React.JSX.Element {
+  return (
+    <div>
+      <button type="button" aria-expanded={shown} onClick={() => onShow(!shown)} className="text-[12.5px] text-muted hover:text-fg">
+        {shown ? `Hide ${label}` : `Show ${label} (${issues.length})`}
+      </button>
+      {shown ? (
+        <ul aria-label={label === 'ignored' ? 'Ignored' : 'Saved for later'} className="mt-2 flex flex-col gap-1.5 animate-fade-in">
+          {issues.map((i) => (
+            <li key={i.id} className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2">
+              <p className="min-w-0 flex-1 text-[12.5px] leading-[18px] text-muted">
+                {i.message}
+                {i.setAsideBy ? <span className="block text-faint">{ignoredWords(i)}</span> : null}
+              </p>
+              <Button size="sm" variant="ghost" className="-my-0.5" onClick={() => void reopen(i)}>
+                {label === 'ignored' ? 'Reopen' : 'Show now'}
+              </Button>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   )
@@ -275,7 +314,17 @@ function SourceLink({ source }: { source: IssueSource }): React.JSX.Element {
   )
 }
 
-function IssueCard({ issue, leaving = false, onIgnore }: { issue: Issue; leaving?: boolean; onIgnore?: (issue: Issue) => void }): React.JSX.Element {
+function IssueCard({
+  issue,
+  leaving = false,
+  onIgnore,
+  onLater
+}: {
+  issue: Issue
+  leaving?: boolean
+  onIgnore?: (issue: Issue) => void
+  onLater?: (issue: Issue) => void
+}): React.JSX.Element {
   const memoryWords = memoryFixWords(issue)
   const canFix = !!issue.quote.trim() && !!issue.sceneId
   const fix = usableFix(issue)
@@ -347,6 +396,9 @@ function IssueCard({ issue, leaving = false, onIgnore }: { issue: Issue; leaving
             Update the memory
           </Button>
         ) : null}
+        <Button size="sm" variant="ghost" onClick={() => (onLater ? onLater(issue) : void later(issue))} title={LATER_TITLE}>
+          Later
+        </Button>
         <Button
           size="sm"
           variant="ghost"

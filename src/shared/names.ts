@@ -120,3 +120,25 @@ export const namedInProse = (text: string, name: string): boolean => findName(te
 /** What a scene's words call one character (its CalledName words). */
 export const calledFor = (list: readonly CalledName[] | undefined, entryId: ID): string[] =>
   (list ?? []).filter((c) => c.entryId === entryId).map((c) => c.words)
+
+/** The first word of a name: "Nell" of "Nell Harrow". Not "The" ("The Duke"), nor a one-word or lower-case name. */
+export function firstNameOf(name: string): string {
+  const words = name.trim().split(/\s+/)
+  const first = words[0] ?? ''
+  return words.length > 1 && first.length >= 2 && /^\p{Lu}/u.test(first) && !/^the$/i.test(first) ? first : ''
+}
+
+/**
+ * A person's first name when no one else goes by it ("Nell" for Nell Harrow): no other name's first word and no other
+ * name or other name is the same, whatever its case. Empty when they have no such first name or someone shares it.
+ */
+export function soleFirstName(name: string, others: readonly string[]): string {
+  const first = firstNameOf(name)
+  if (!first) return ''
+  const f = first.toLowerCase()
+  const taken = others.some((o) => {
+    const n = o.trim().toLowerCase()
+    return n === f || n.split(/\s+/)[0] === f
+  })
+  return taken ? '' : first
+}

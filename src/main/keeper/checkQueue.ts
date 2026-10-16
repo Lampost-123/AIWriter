@@ -72,6 +72,17 @@ export function noteFact(key: string): { kind: 'field'; entryId: ID; field: stri
 
 const noteKey = (row: kdb.LogRow): string => String((row.undo as { key?: unknown } | null)?.key ?? '')
 
+/**
+ * True when the scene a "no longer says this" note is about says the fact again: a read has rested it on words there
+ * once more (a link of the fact in that scene that is 'ok': confirmed by the memory model, or its words found again as
+ * they were). The note is about words that went, so it no longer stands (findings that stay current, 2026-10-16).
+ */
+export function saidAgain(db: DB, fact: NonNullable<ReturnType<typeof noteFact>>, sceneId: ID | null): boolean {
+  if (!sceneId) return false
+  const links = fact.kind === 'field' ? hist.linksForEntry(db, fact.entryId).filter((l) => hist.isFieldLink(l, fact.field)) : hist.linksForFact(db, 'change', fact.changeId)
+  return links.some((l) => l.sceneId === sceneId && l.state === 'ok')
+}
+
 /** The name a note offers (settleNames in keeper/apply.ts); '' for any other line. */
 const aliasOf = (row: kdb.LogRow): string => {
   const a = (row.undo as { alias?: unknown } | null)?.alias
@@ -222,12 +233,13 @@ export function listMemoryChecks(db: DB): MemoryCheckItem[] {
     })
   }
 
-  // Quiet notes about Adam's own facts, while their fact is still there.
+  // Quiet notes about Adam's own facts, while their fact is still there, and until a read of the scene finds its words
+  // there again (findings that stay current, 2026-10-16: saidAgain).
   for (const row of kdb.openNoLongerNotes(db)) {
     const fact = noteFact(noteKey(row))
     if (!fact) continue
     const e = fact.kind === 'field' ? entries.get(fact.entryId) : entries.get(liveChange(db, fact.changeId)?.entryId ?? '')
-    if (!e) continue
+    if (!e || saidAgain(db, fact, row.sceneId)) continue
     out.push({
       key: `note:${row.id}`,
       group: 'note',

@@ -24,6 +24,7 @@ import {
   storyDateViews
 } from './storyCalendar'
 import { elapsedWords } from './calendar'
+import { budget } from '../../shared/testPerf'
 
 function world(whens: Record<string, string>) {
   const w = dbWorld()
@@ -80,6 +81,13 @@ describe('a story’s calendar', () => {
     // Only the story's own scenes.
     expect(views[w.id('kr.c1.s1')]).toBeUndefined()
     expect(storyDateViews(w.db, w.id('kr'))[w.id('kr.c1.s1')].note).toBe('Reads as Day 2.')
+  })
+
+  it('says which real day a counted day is, once a card names one (live test, 2026-10-16)', () => {
+    const v = world({ 'b1.c1.s1': 'Day 1, dusk', 'b1.c1.s2': 'Day 3', 'b1.c2.s1': 'Day 25, Christmas Eve', 'b1.c2.s2': 'Day 26' })
+    const views = storyDateViews(v.db, v.id('b1'))
+    expect(views[v.id('b1.c1.s2')].note).toBe('Reads as Day 3 · 2 December.')
+    expect(views[v.id('b1.c2.s1')].note).toBe('Reads as Day 25 · 24 December.')
   })
 
   it('notes gently what it couldn’t tell', () => {
@@ -158,8 +166,8 @@ describe('a long story', () => {
       expect(calendarOfScene(db, id)).toBe(cal)
     }
     const asked = performance.now() - t1
-    expect(built).toBeLessThan(2_000)
-    expect(asked).toBeLessThan(1_000)
+    expect(built).toBeLessThan(budget(2_000))
+    expect(asked).toBeLessThan(budget(1_000))
   })
 })
 

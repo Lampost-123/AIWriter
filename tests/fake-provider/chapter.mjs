@@ -7,7 +7,8 @@
 //              three words to its last three, to the same words with " The rain went on." after them, fixing every
 //              finding listed; then done. A finding that quotes words of paragraph [2] and says "eyes" is set aside
 //              instead, with not_a_problem quoting paragraph [2]'s first sentence (so the app can find the words).
-//   chapter    done (asked again while findings are open, it calls done again: the third time is accepted).
+//   chapter    with findings: reads Sc 1, then sets each aside with not_a_problem quoting its paragraph [1]'s first
+//              sentence; then done (asked again while findings are open, it calls done again: the third time is accepted).
 //   proofread  done.
 // The model fake/agent-words answers every request in words, never calling a tool (the app sends it back twice,
 // then the session ends). Returns null for any other request.
@@ -39,6 +40,15 @@ export function chapterToolCalls(system, messages, tools, model = '') {
         }
       }
     ]
+  }
+  if (job === 'chapter' && !lastResult.startsWith('Done.')) {
+    const findings = [...user.matchAll(/^(F\d+) \[/gm)].map((m) => m[1])
+    if (findings.length && !called('read_scene')) return [{ name: 'read_scene', arguments: { scene: 'Sc 1' } }]
+    const p1 = /^\[1\] (.+)$/m.exec(lastResult)?.[1] ?? ''
+    const first = (p1.match(/[^.!?]+[.!?]/) ?? [p1])[0].trim()
+    if (findings.length && first && !called('not_a_problem')) {
+      return findings.map((id) => ({ name: 'not_a_problem', arguments: { finding: id, why: `The chapter says "${first}" and reads as one piece.` } }))
+    }
   }
   if (job === 'proofread' || job === 'chapter') {
     if (lastResult.startsWith('Done.')) return null

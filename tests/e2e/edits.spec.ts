@@ -91,8 +91,12 @@ const SELECT = `(a, b) => {
  */
 async function selectWords(win: Page, first: string, last = first): Promise<void> {
   await prose(win).focus()
-  await win.evaluate(`(${SELECT})(${JSON.stringify(first)}, ${JSON.stringify(last)})`)
-  await expect(selectionBar(win)).toBeVisible()
+  // The page can redraw just after it opens (a setting applied, the scene loaded) and drop a selection made in that very
+  // moment, so the bar never came (CI, 2026-10-16): select again until it shows.
+  await expect(async () => {
+    await win.evaluate(`(${SELECT})(${JSON.stringify(first)}, ${JSON.stringify(last)})`)
+    await expect(selectionBar(win)).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 15_000 })
 }
 
 /** Opens the AI tools over the selected words. */

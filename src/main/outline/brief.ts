@@ -74,6 +74,8 @@ export interface BlockDraft {
   priority: number
   forms: string[]
   entryIds?: ID[]
+  /** Shortened down to its last form at most, never left out (the critic's facts to respect). */
+  keep?: boolean
 }
 
 // ---------- Small helpers ----------
@@ -341,7 +343,7 @@ export interface FittedBriefing {
 /**
  * Picks each part's longest form that lets the whole briefing (with `system`) fit in `budget` tokens,
  * shortening the least important parts first (the last of equals first). Parts of priority 0 and 1 are
- * never shortened; when even those don't fit, says so in plain words.
+ * never shortened, and a part to `keep` is never left out; when even those don't fit, says so in plain words.
  */
 export function fitBlocks(drafts: BlockDraft[], system: string, budget: number, modelName: string): FittedBriefing {
   const parts = drafts.filter((d) => d.forms.some((f) => clean(f)))
@@ -354,8 +356,8 @@ export function fitBlocks(drafts: BlockDraft[], system: string, budget: number, 
   while (total > budget) {
     let best = -1
     for (let i = 0; i < parts.length; i++) {
-      // A part one past its last form is left out altogether.
-      if (parts[i].priority <= 1 || pick[i] >= parts[i].forms.length) continue
+      // A part one past its last form is left out altogether (never one to keep: it stops at its last form).
+      if (parts[i].priority <= 1 || pick[i] >= parts[i].forms.length - (parts[i].keep ? 1 : 0)) continue
       if (best < 0 || parts[i].priority >= parts[best].priority) best = i
     }
     if (best < 0) {

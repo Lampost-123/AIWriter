@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AppEvents } from '@shared/api'
 import type { CheckDone, CheckKind, CheckProgress } from '@shared/contracts/checks'
 import { DONE_CHECKS } from '@shared/contracts/checks'
@@ -11,7 +11,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
 import { UserError } from '../util'
-import { checkBudget, checkScene, type CheckOptions } from './run'
+import { CHECK_SECOND_MARKER, CHECK_SECOND_SYSTEM, checkBudget, checkScene, rankByMeaning, type CheckOptions } from './run'
 import { checkSections, gatherSceneCheck } from './context'
 import { sceneSystem } from './prompts'
 import { estimateTokens } from '../keeper/text'
@@ -19,10 +19,14 @@ import { SECOND_MARKER } from '../repair/second'
 import { issueFindings } from '../chapterWriter/run'
 import type { SceneContract } from '../ai/contract'
 import { CHECK_CONTRACT_RULES, contractSection } from '../repair/contract'
-import { checkReport, reportItems } from './report'
+import { checkReport, checkReportNow, reportItems } from './report'
 import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
 import { Keeper } from '../keeper/engine'
 import * as kdb from '../db/keeper'
+
+// Each check here goes to the stand-in model several times over HTTP (the check, its second opinion, the contract's),
+// and some tests run three checks: past 5 s even at a desk (2026-10-16). A real hang still fails.
+vi.setConfig({ testTimeout: 20_000 })
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -326,6 +330,84 @@ describe('the scene’s contract in the chapter writer’s checks (long story me
   })
 })
 
+describe('findings that stay current (2026-10-16)', () => {
+  const contract = (tobinId: ID): SceneContract => ({
+    asks: 'scene',
+    items: [
+      { code: 'C1', part: 'change', text: 'Mara pushes the door open', check: 'facts', entryIds: [] },
+      { code: 'C2', part: 'change', text: 'Mara finds the ledger under the floor', check: 'facts', entryIds: [] },
+      { code: 'C3', part: 'keep', text: 'Tobin is dead: died in the fire (since Ch 1, Sc 1)', check: 'facts', entryIds: [tobinId] }
+    ]
+  })
+  const runDeps = (contractsOff = false) => {
+    const done = new Map<ID, (d: CheckDone) => void>()
+    setRunDeps({
+      model: () => model(),
+      prefs: () => PREFS,
+      emit: (name, payload) => {
+        if (name === 'checks:done') done.get((payload as CheckDone).runId)?.(payload as CheckDone)
+      },
+      retryDelays: [5],
+      contractsOff: () => contractsOff
+    })
+    return (runId: ID): Promise<CheckDone> => new Promise((r) => done.set(runId, r))
+  }
+  const notYet = (db: CheckOptions['db'], sceneId: ID) =>
+    cdb
+      .sceneIssueRows(db, sceneId)
+      .filter((r) => r.status === 'open' && cdb.payloadOf(r).contract?.missing)
+      .map((r) => cdb.payloadOf(r).contract!.text)
+  const lastFirstRequest = (db: CheckOptions['db'], sceneId: ID): string => {
+    const recs = checkRecords(db, sceneId).map((id) => gens.getGeneration(db, id))
+    // Each check is two requests; the contract rides in the first (what is so).
+    return recs[recs.length - 2].messages[1].content
+  }
+
+  it('Check this scene and Mark done go through the scene’s latest contract, so a "not shown yet" question is settled once the words show it', async () => {
+    const w = world()
+    // The latest draft's contract, as checked (the chapter writer's check here; a draft landing keeps it the same way).
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    expect(notYet(w.db, w.s2)).toEqual(['Mara finds the ledger under the floor'])
+    // Adam writes it in by hand, then asks for a check: the question goes.
+    repo.saveSceneText(w.db, w.s2, null, `${SCENE_2} Mara found the ledger under the floor.`)
+    const ended = runDeps()
+    const end = ended('r1')
+    startCheck(w.db, { runId: 'r1', target: { scope: 'scene', id: w.s2 }, checks: [...DONE_CHECKS] })
+    expect((await end).status).toBe('complete')
+    expect(lastFirstRequest(w.db, w.s2)).toContain('## The scene’s contract (C ids)')
+    expect(notYet(w.db, w.s2)).toEqual([])
+    expect(checkReport(w.db, w.s2)!.contract!.items.map((i) => i.result)).not.toContain('not yet')
+    // Mark done's check goes through it too.
+    const runId = checkWhenDone(w.db, w.s2)!
+    expect((await ended(runId)).status).toBe('complete')
+    expect(lastFirstRequest(w.db, w.s2)).toContain('## The scene’s contract (C ids)')
+  })
+
+  it('with contracts switched off, a check Adam asks for doesn’t go through it', async () => {
+    const w = world()
+    await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
+    const ended = runDeps(true)
+    const end = ended('r2')
+    startCheck(w.db, { runId: 'r2', target: { scope: 'scene', id: w.s2 }, checks: [...DONE_CHECKS] })
+    expect((await end).status).toBe('complete')
+    expect(lastFirstRequest(w.db, w.s2)).not.toContain('## The scene’s contract (C ids)')
+  })
+
+  it('the report keeps a fingerprint of the words it read, and a check of the scene brings back what Later put off', async () => {
+    const w = world()
+    await checkScene(options(w.db), w.s2, DONE_CHECKS)
+    expect(checkReportNow(w.db, w.s2)!.changed).toBe(false)
+    const eyes = cdb.sceneIssueRows(w.db, w.s2).find((r) => r.severity === 'warning')!
+    cdb.setLater(w.db, eyes.id as ID)
+    expect(cdb.payloadOf(cdb.issueRow(w.db, eyes.id as ID)!).later).toBeDefined()
+    repo.saveSceneText(w.db, w.s2, null, `${SCENE_2} More.`)
+    expect(checkReportNow(w.db, w.s2)!.changed).toBe(true)
+    await checkScene(options(w.db), w.s2, DONE_CHECKS)
+    expect(checkReportNow(w.db, w.s2)!.changed).toBe(false)
+    expect(cdb.payloadOf(cdb.issueRow(w.db, eyes.id as ID)!).later).toBeUndefined()
+  })
+})
+
 /** The stand-in model for some requests (`answer` gives the reply), the fake provider for the rest; keeps what was asked. */
 function stubbed(answer: (system: string, user: string) => unknown): typeof fetch & { asked: { system: string; user: string }[] } {
   const asked: { system: string; user: string }[] = []
@@ -471,5 +553,97 @@ describe('the scene’s contract after the review (fix 13)', () => {
     const unread = await ruled('I would rather not say.')
     expect(unread.rows.find((r) => r.part === 'keep')!.confirmed).toBeUndefined()
     expect(unread.review).toEqual([])
+  })
+})
+
+describe('a second opinion on what a whole check found (2026-10-16)', () => {
+  /** The note number the second opinion's request gives the finding quoting `words`. */
+  const noteOf = (user: string, words: string): number => Number(user.split('\n').find((l) => /^\d+\. Quote: /.test(l) && l.includes(words))!.match(/^(\d+)/)![1])
+  const ruled = async (answer: (user: string) => unknown, checks: CheckKind[] = DONE_CHECKS, check?: (system: string) => unknown) => {
+    const w = world()
+    const fetchImpl = stubbed((system, user) => (system.startsWith(CHECK_SECOND_MARKER) ? answer(user) : (check?.(system) ?? null)))
+    const out = await checkScene({ ...options(w.db), fetchImpl }, w.s2, checks)
+    const asked = fetchImpl.asked.filter((a) => a.system.startsWith(CHECK_SECOND_MARKER))
+    const quotes = cdb
+      .sceneIssueRows(w.db, w.s2)
+      .filter((r) => r.status === 'open')
+      .map((r) => r.quote as string)
+      .sort()
+    return { w, out, asked, quotes }
+  }
+
+  it('asks once, each finding citing its entry with what the memory and the scene say, and drops what it rules not real', async () => {
+    const r = await ruled((user) => ({ verdicts: [{ n: noteOf(user, 'eyes were green'), reason: 'Firelight can make blue eyes look green.', real: false }] }))
+    expect(r.asked).toHaveLength(1)
+    expect(r.asked[0].system).toBe(CHECK_SECOND_SYSTEM)
+    expect(r.asked[0].user).toMatch(/Quote: "Mara's eyes were green in the firelight\." · Line: \[E\d+\] Mara \(character; named in the scene\) \(its entry is above\) · The note: .*\(The memory says: blue\. The scene says: green\.\)/)
+    // What the checks were given, and the scene.
+    expect(r.asked[0].user).toContain('## What the check was given\n## The scene card')
+    expect(r.asked[0].user).toContain('"""\nMara pushed the door open.')
+    expect(r.out).toEqual({ status: 'done', found: 1 })
+    expect(r.quotes).toEqual(['"You took your time," said Tobin.'])
+  })
+
+  it('keeps every finding when the reply can’t be read or the call fails: never loses a real one', async () => {
+    const both = ['"You took your time," said Tobin.', "Mara's eyes were green in the firelight."]
+    expect((await ruled(() => 'I would rather not say.')).quotes).toEqual(both)
+    const w = world()
+    const failing = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { messages: { role: string; content: string }[] }
+      if (body.messages[0]?.content.startsWith(CHECK_SECOND_MARKER)) return new Response('down', { status: 500 })
+      return fetch(input, init)
+    }) as typeof fetch
+    expect(await checkScene({ ...options(w.db), fetchImpl: failing }, w.s2, DONE_CHECKS)).toEqual({ status: 'done', found: 2 })
+  })
+
+  it('keeps what it rules real, and never asks about voice or style, nor when nothing was found', async () => {
+    const real = await ruled(() => ({ verdicts: [{ n: 1, real: true }, { n: 2, real: true }] }))
+    expect(real.quotes).toHaveLength(2)
+    const voice = await ruled(
+      () => ({ verdicts: [{ n: 1, real: false }] }),
+      ['voice'],
+      (system) => (system.startsWith('[AIWRITE-CHECK v1] voice') ? { issues: [{ check: 'voice', quote: 'You took your time', message: 'Tobin never says that.' }], checked: [] } : null)
+    )
+    expect(voice.asked).toHaveLength(0)
+    // (The free rules still find the dead man speaking.)
+    expect(voice.quotes).toContain('You took your time')
+    const w = world()
+    const fetchImpl = stubbed(() => null)
+    await checkScene({ ...options(w.db), fetchImpl }, w.s1, DONE_CHECKS)
+    expect(fetchImpl.asked.some((a) => a.system.startsWith(CHECK_SECOND_MARKER))).toBe(false)
+  })
+})
+
+describe('the facts a scene touches, by meaning (2026-10-16)', () => {
+  it('ranks them by meaning too when the search model is on; by keyword alone when it is off, slow or failing', async () => {
+    const w = world()
+    mem.insertChange(w.db, {
+      entryId: w.maraId,
+      anchor: 'scene',
+      sceneId: w.s1,
+      kind: 'knowledge',
+      payload: { factId: 'f-oath', fact: 'Tobin swore an oath to wait at the ferry.' },
+      origin: 'text'
+    })
+    const ctx = gatherSceneCheck(w.db, w.s2, PREFS)
+    expect(ctx.factRank?.has('f-oath')).toBe(false)
+    const asked: { queries: string[]; docs: string[] }[] = []
+    await rankByMeaning(
+      {
+        byMeaning: async (queries, docs) => {
+          asked.push({ queries, docs: docs.map((d) => d.key) })
+          return new Map([['f-oath', 0.9]])
+        },
+        stopped: () => false
+      },
+      ctx
+    )
+    expect(asked).toEqual([{ queries: [SCENE_2], docs: ['f-oath'] }])
+    expect(ctx.factRank?.get('f-oath')).toBe(0.9)
+    for (const byMeaning of [async () => null, async () => Promise.reject(new Error('no model'))]) {
+      const again = gatherSceneCheck(w.db, w.s2, PREFS)
+      await rankByMeaning({ byMeaning, stopped: () => false }, again)
+      expect(again.factRank?.has('f-oath')).toBe(false)
+    }
   })
 })

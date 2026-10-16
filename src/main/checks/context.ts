@@ -14,11 +14,15 @@
 //              the scene before; this scene's own When and place
 //   voice      each speaking character's voice notes and sample lines (in their profile)
 //   style      the style guide's point of view and tense, the genre and content levels, and the scene card's mood
+// Since 2026-10-16 ("The checker catches more"): entries tied to the scene though its words don't name them
+// (relatedEntries), the facts of who knows what ranked by the scene's own words before recency (factRelevance; the facts
+// check gets the ten it touches most), the card's plan as the author's intent, the story calendar's date and time since
+// the scene before, and the plot threads still open with when each is due.
 // Entries and earlier scenes get short ids (E1, S1) that the reply refers to. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { CheckKind } from '@shared/contracts/checks'
-import type { BeliefState, ContextBlock, EntryState, FactState, ID, SceneCard, WritingPrefs } from '@shared/types'
+import type { BeliefState, ContextBlock, EntryState, FactState, ID, SceneCard, ThreadDue, WritingPrefs } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
 import { effectiveStyle } from '@shared/style'
 import { genreLabel, genresOf } from '@shared/genres'
@@ -33,10 +37,15 @@ import { stateText, type SceneState } from '@shared/continuity'
 import { keptStateBefore } from '../continuity/tracker'
 import { estimateTokens } from '../keeper/text'
 import { contentNoteFor } from '../keeper/model'
-import { holdingLine, holdingsFirst, holdingsOf, itemHeads, namesOf, type Holding } from '../memory/items'
+import { holdingLine, holdingsFirst, holdingsOf, itemHeads, nameIn, namesOf, type Holding } from '../memory/items'
 import { isPerson, namesPerson } from '../ai/mustStay'
 import { lessonLine, lessonsBefore, type Lesson } from './lessons'
 import { learnedWords } from '@shared/knowWords'
+import { KeywordIndex } from '../retrieval/rank'
+import { withoutNames } from '../retrieval/recall'
+import { sceneCalendar, type SceneCalendar } from '../memory/storyCalendar'
+import { storyDateLines } from '../ai/storyDate'
+import { openThreadsAt, type OpenThread } from '../ai/openThreads'
 
 type DB = Database.Database
 
@@ -44,6 +53,30 @@ type DB = Database.Database
 export const EARLIER_SCENES = 3
 /** The most facts listed under "Who knows what". */
 const MOST_FACTS = 40
+/**
+ * The most facts the facts check is told about who knows what: those the scene's own words touch (2026-10-16: the facts
+ * check had none, so "who heard what" and how someone died long ago could only be checked against the story so far).
+ */
+export const FACTS_FOR_FACTS = 10
+/** A fact or an entry counts as touched by the scene's words when it scores at least this share of the best (factRelevance). */
+const TOUCH_KEEP = 0.3
+/**
+ * How much a fact's closeness to the scene's own words counts in factsThatMatter (0 to 1, times this), against 2 for naming
+ * something the scene names and 1 for someone here: on the long test book's live world, at 2, facts naming the clock-house
+ * or the great clock crowded out "Leckie's heart is failing" from a scene about it.
+ */
+const RANK_WEIGHT = 4
+/** The most entries brought in because they are tied to the scene though its words don't name them (relatedEntries). */
+export const MOST_RELATED = 8
+/**
+ * How much an entry must score to be tied to the scene (relatedEntries): one tie of its own (held, or naming someone here
+ * besides the point of view), a step from an entry here, or words close to the scene's own.
+ */
+const RELATED_KEEP = 0.75
+/** The most open plot threads a check is told about. */
+export const MOST_THREADS = 6
+/** The most beats of the card's plan a check is told. */
+const MOST_BEATS = 10
 /** The most entries told in full; any more are told in a line each. */
 const MOST_FULL = 24
 /** The most lines about what people here gave away, lost or got. */
@@ -52,8 +85,8 @@ export const MOST_OWNED = 12
 export const MOST_BELIEFS = 12
 /** The most findings from earlier scenes the author said are meant. */
 export const MOST_MEANT = 8
-/** Which check each kind of finding the author said is meant belongs to. */
-const MEANT_CHECK: Partial<Record<Lesson['kind'], CheckKind>> = { fact: 'facts', knowledge: 'knowledge', timeline: 'timeline' }
+/** Which check each kind of finding the author said is meant belongs to (voice and style since 2026-10-16). */
+const MEANT_CHECK: Partial<Record<Lesson['kind'], CheckKind>> = { fact: 'facts', knowledge: 'knowledge', timeline: 'timeline', voice: 'voice', style: 'style' }
 
 /** One entry the check is told about. */
 export interface CheckEntry {
@@ -107,9 +140,20 @@ export interface SceneCheckContext {
    * (checks/lessons.ts): not raised again here. Left out: none.
    */
   meant?: Lesson[]
+  /**
+   * How much each fact of who knows what matters to the scene's own words (factRelevance, 0 to 1; 2026-10-16), by
+   * keyword and, when the search model is on, by meaning (checks/run.ts). Left out: by names and recency alone.
+   */
+  factRank?: Map<ID, number>
+  /** The story calendar at the scene (long story memory fix 11): its date and how long since the scene before. Null: unknown. */
+  calendar?: SceneCalendar | null
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').trim()
+const clip = (s: string, n: number): string => {
+  const t = s.replace(/\s+/g, ' ').trim()
+  return t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t
+}
 
 /** Gathers what a check of this scene is told. Throws (plain words) when the scene has gone. */
 export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): SceneCheckContext {
@@ -147,6 +191,12 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
     .sort((a, b) => a.at - b.at)
   for (const { e } of named) take(e.id, 'named in the scene')
   for (const e of memory.entries) if (e.kind === 'lore' && e.hardRule) take(e.id, 'a rule of the world')
+  // Tied to the scene though its words don't name them (2026-10-16: the long test book's sledge, called only by its name
+  // there, and the town a named person lives in): the point of view's family the words speak of ("her father"), what
+  // people here hold, and entries that name someone here, that an entry here names, or that share the scene's own words.
+  const people = entries.filter((c) => c.entry.kind === 'character' && !c.label).map((c) => c.entry.id)
+  const namedHere = new Set(entries.filter((c) => c.why === 'named in the scene').map((c) => c.entry.id))
+  for (const r of relatedEntries(memory, { taken, named: namedHere, people, povId: card.povId, text, heads })) take(r.id, r.why)
 
   // The scenes just before this one on the line (in any story the line goes through).
   const line = storyOfScene(shape, sceneId) ? buildLine(shape, { storyId: story.id, before: sceneId }) : null
@@ -194,8 +244,187 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
     },
     continuity: keptStateBefore(db, sceneId),
     storySoFar: sofar ? { full: storySoFarText(sofar, story.title, 1), short: storySoFarText(sofar, story.title, 3) } : { full: '', short: '' },
-    meant: lessonsBefore(db, sceneId).meant.filter((l) => l.entryIds.some((id) => taken.has(id)))
+    // About the entries here; a style finding about no one (a recent one, checks/lessons.ts) holds for any scene.
+    meant: lessonsBefore(db, sceneId).meant.filter((l) => !l.entryIds.length || l.entryIds.some((id) => taken.has(id))),
+    factRank: factRelevance(factPool(memory.facts, characterStates(entries)), text, personNames(entries)),
+    calendar: calendarAt(db, sceneId, memory, card)
   }
+}
+
+/** The story calendar at a scene for its check; null rather than stopping the check. */
+function calendarAt(db: DB, sceneId: ID, memory: SceneMemory, card: SceneCard): SceneCalendar | null {
+  try {
+    return sceneCalendar(db, sceneId, memory, card)
+  } catch (e) {
+    console.warn('Could not work out the story calendar for a check; it goes by the scene cards’ When', e)
+    return null
+  }
+}
+
+/** The characters a check is told about who exist here (those the knowledge check asks about). */
+const characterStates = (entries: CheckEntry[]): EntryState[] => entries.filter((c) => c.entry.kind === 'character' && !c.label).map((c) => c.entry)
+
+/** The facts a check of this scene may be told of (factPool over the characters here): what checks/run.ts ranks by meaning. */
+export const factsToRank = (ctx: Pick<SceneCheckContext, 'memory' | 'entries'>): FactState[] => factPool(ctx.memory.facts, characterStates(ctx.entries))
+
+/** The names of the characters here, left out of what the scene's words are matched by (every fact about them has them). */
+export const personNames = (entries: CheckEntry[]): string[] => characterStates(entries).flatMap((e) => [e.name, ...(e.aliases ?? [])])
+
+/** The facts a check may be told of: those someone here knows, or that name one of them. */
+export function factPool(facts: FactState[], people: EntryState[]): FactState[] {
+  const ids = new Set(people.map((e) => e.id))
+  return facts.filter((f) => f.knownBy.some((id) => ids.has(id)) || people.some((p) => mentions(f.fact, p.name)))
+}
+
+/**
+ * How much each fact matters to the scene's own words, 0 to 1 (2026-10-16: the long test book's checks were told the 40
+ * most lately learned facts, so "her father drowned" and who heard the healer were cut): keyword search of the facts for
+ * the scene's words, without the names of the people here (BM25, retrieval/rank.ts), each as a share of the best; and,
+ * when the search model is on, `meaning` (checks/run.ts: each fact's closeness in meaning to the scene, 0 to 1). A fact
+ * scoring under TOUCH_KEEP of the best in both is left out.
+ */
+export function factRelevance(facts: FactState[], text: string, skipNames: string[] = [], meaning?: ReadonlyMap<ID, number> | null): Map<ID, number> {
+  const out = new Map<ID, number>()
+  if (!facts.length || !text.trim()) return out
+  const found = new KeywordIndex(facts, (f) => f.fact).search(withoutNames(text, skipNames), facts.length, 0)
+  const best = found[0]?.score ?? 0
+  for (const r of found) {
+    const s = best > 0 ? r.score / best : 0
+    if (s >= TOUCH_KEEP) out.set(r.item.factId, s)
+  }
+  for (const [id, s] of meaning ?? []) if (s >= TOUCH_KEEP && s > (out.get(id) ?? 0)) out.set(id, Math.min(1, s))
+  return out
+}
+
+// ---------- Entries tied to the scene though it doesn't name them ----------
+
+/** Family words the point of view's narration may use for someone ("her father"), and the words a relationship may use. */
+const KIN: Record<string, string[]> = {
+  father: ['father', 'parent', 'dad', 'papa'],
+  mother: ['mother', 'parent', 'mum', 'mam', 'mama'],
+  brother: ['brother', 'sibling'],
+  sister: ['sister', 'sibling'],
+  son: ['son', 'child'],
+  daughter: ['daughter', 'child'],
+  husband: ['husband', 'spouse', 'married'],
+  wife: ['wife', 'spouse', 'married'],
+  grandfather: ['grandfather', 'grandparent'],
+  grandmother: ['grandmother', 'grandparent'],
+  uncle: ['uncle'],
+  aunt: ['aunt'],
+  cousin: ['cousin'],
+  nephew: ['nephew'],
+  niece: ['niece']
+}
+const KIN_SAID = new RegExp(`\\b(?:her|his|their|my|your|our)\\s+(?:late\\s+|dead\\s+|old\\s+|own\\s+|dear\\s+)?(${Object.keys(KIN).join('|')})s?\\b`, 'gi')
+const kinRe = (words: string[]): RegExp => new RegExp(`\\b(?:${words.join('|')})s?\\b`, 'i')
+
+/** Why an entry tied to the scene is there (relatedEntries), as its CheckEntry says. */
+export const RELATED_WHYS: readonly string[] = ['family of the point of view', 'held by someone here', 'tied to someone here', 'tied to something here', 'close to the scene’s words']
+
+/** Which kinds of entry come first among those tied to the scene: what someone carries or uses, then where. */
+const KIND_ORDER: Partial<Record<EntryState['kind'], number>> = { item: 0, place: 1, character: 2 }
+
+/** An entry's own words: its names, summary, description and fields (never its sample lines). */
+const ownText = (e: EntryState): string =>
+  [e.name, ...(e.aliases ?? []), e.summary, e.description, ...Object.entries(e.fields ?? {}).filter(([k]) => k !== 'sampleLines').map(([, v]) => v)]
+    .map((x) => clean(x))
+    .filter(Boolean)
+    .join('. ')
+
+/**
+ * Entries tied to a scene though its words don't name them (2026-10-16), at most `most`, best first:
+ *   - the point of view's family the words speak of ("her father"): by a relationship that says so, or a summary that
+ *     names the point of view with the family word ("Tamsin's brother");
+ *   - then, scored: what people here hold now (memory/items.ts), entries an entry already told names (one step: the town a
+ *     named person lives in; most when the scene names that entry), how much an entry's own words share the scene's
+ *     distinctive words (keyword search, without the names of the people here), and entries whose own words name someone
+ *     here (half as much for naming only the point of view, unless it is an item; an event half again). What scores
+ *     under RELATED_KEEP is left out.
+ * Never a plot thread (the threads have their own section) nor anything already `taken`.
+ */
+export function relatedEntries(
+  memory: Pick<SceneMemory, 'entries' | 'relationships'>,
+  o: {
+    taken: ReadonlySet<ID>
+    /** Those the scene's words name (among `taken`); left out: all of `taken`. */
+    named?: ReadonlySet<ID>
+    people: ID[]
+    povId: ID | null
+    text: string
+    heads?: Map<ID, string[]>
+    most?: number
+  }
+): { id: ID; why: string }[] {
+  const most = o.most ?? MOST_RELATED
+  if (most <= 0 || !o.text.trim()) return []
+  const heads = o.heads ?? itemHeads(memory.entries)
+  const byId = new Map(memory.entries.map((e) => [e.id, e]))
+  const out: { id: ID; why: string }[] = []
+  const seen = new Set(o.taken)
+  const add = (id: ID, why: string): void => {
+    if (out.length >= most || seen.has(id) || byId.get(id)?.kind === 'thread' || !byId.has(id)) return
+    seen.add(id)
+    out.push({ id, why })
+  }
+
+  // The point of view's family the words speak of.
+  const pov = o.povId ? byId.get(o.povId) : undefined
+  const said = [...new Set([...o.text.matchAll(KIN_SAID)].map((m) => m[1].toLowerCase()))]
+  if (pov && said.length) {
+    const kin = kinRe(said.flatMap((k) => KIN[k] ?? [k]))
+    for (const r of memory.relationships) {
+      const other = r.aId === pov.id ? r.bId : r.bId === pov.id ? r.aId : null
+      if (other && byId.get(other)?.kind === 'character' && kin.test(r.type ?? '')) add(other, 'family of the point of view')
+    }
+    const povNames = namesOf(pov, heads)
+    const exact = kinRe(said)
+    for (const e of memory.entries) {
+      if (e.kind !== 'character' || e.id === pov.id) continue
+      const own = `${e.summary ?? ''}. ${e.fields?.role ?? ''}`
+      if (exact.test(own) && povNames.some((n) => nameIn(own, n))) add(e.id, 'family of the point of view')
+    }
+  }
+  if (out.length >= most) return out
+
+  // Scored: held here, naming someone here, named by an entry here, and the scene's own words.
+  const here = o.people.map((id) => byId.get(id)).filter((e): e is EntryState => !!e)
+  const hereNames = here.map((e) => ({ id: e.id, names: namesOf(e, heads) }))
+  const held = new Set(
+    o.people.length ? holdingsOf({ entries: memory.entries, relationships: memory.relationships, people: o.people }).filter((h) => h.has).map((h) => h.itemId) : []
+  )
+  // What the entries already told say of others (one step), those the scene names first: theirs are the most telling.
+  const textOf = (ids: Iterable<ID>): string[] =>
+    [...ids].map((id) => byId.get(id)).filter((e): e is EntryState => !!e).map((e) => ownText({ ...e, name: '', aliases: [] }))
+  const namedIds = o.named ?? o.taken
+  const namedText = textOf(namedIds)
+  const toldText = textOf([...o.taken].filter((id) => !namedIds.has(id)))
+  const pool = memory.entries.filter((e) => !seen.has(e.id) && e.kind !== 'thread')
+  if (!pool.length) return out
+  const words = new KeywordIndex(pool, ownText).search(withoutNames(o.text, here.flatMap((e) => [e.name, ...(e.aliases ?? [])])), pool.length, 0)
+  const best = words[0]?.score ?? 0
+  const overlap = new Map(words.map((r) => [r.item.id, best > 0 ? r.score / best : 0]))
+  const scored = pool.flatMap((e) => {
+    // Its names count too: "Bettany’s house" is tied to Bettany.
+    const own = ownText(e)
+    const isHeld = held.has(e.id)
+    const who = hereNames.filter((h) => h.names.some((n) => nameIn(own, n)))
+    const namesHere = who.length > 0
+    // Half as much for naming only the point of view (most of the codex does), unless it is a thing: someone's sledge. An
+    // event names the people in it, so it counts half again.
+    const tie = (!namesHere ? 0 : e.kind === 'item' || who.some((h) => h.id !== o.povId) ? 1 : 0.5) * (e.kind === 'event' ? 0.5 : 1)
+    const names = namesOf(e, heads)
+    const step = names.some((n) => namedText.some((t) => nameIn(t, n))) ? 1.25 : names.some((n) => toldText.some((t) => nameIn(t, n))) ? 0.5 : 0
+    const named = step > 0
+    const share = overlap.get(e.id) ?? 0
+    const score = (share >= TOUCH_KEEP ? 1.5 * share : 0) + (isHeld ? 1.5 : 0) + tie + step
+    if (score < RELATED_KEEP) return []
+    const why = isHeld ? 'held by someone here' : namesHere ? 'tied to someone here' : named ? 'tied to something here' : 'close to the scene’s words'
+    return [{ e, score, why }]
+  })
+  scored.sort((a, b) => b.score - a.score || (KIND_ORDER[a.e.kind] ?? 3) - (KIND_ORDER[b.e.kind] ?? 3) || a.e.name.localeCompare(b.e.name))
+  for (const s of scored) add(s.e.id, s.why)
+  return out
 }
 
 /**
@@ -203,25 +432,26 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
  * there are more than `cap`, those that matter most are kept (Adam, 2026-10-07: the list was cut in the memory's own
  * order, so a fact about what the new words name could be left out): first a fact that names something the words being
  * checked name (an entry in `named`; an item by its main word too), then one that names someone here or that some of
- * them know and others don't, then the most lately learned.
+ * them know and others don't, then the most lately learned. With `rank` (factRelevance, 2026-10-16), how much a fact
+ * shares the scene's own words counts most (RANK_WEIGHT: a close match outweighs naming something there), before how
+ * lately it was learned.
  */
 export function factsThatMatter(
   facts: FactState[],
   people: EntryState[],
   named: EntryState[],
   cap: number,
-  heads: Map<ID, string[]> = itemHeads([...people, ...named])
+  heads: Map<ID, string[]> = itemHeads([...people, ...named]),
+  rank?: ReadonlyMap<ID, number>
 ): FactState[] {
   const ids = new Set(people.map((e) => e.id))
   const namesIn = (fact: string, list: EntryState[]): boolean => list.some((e) => namesOf(e, heads).some((n) => mentions(fact, n)))
   const things = named.filter((e) => !ids.has(e.id))
-  const scored = facts
-    .filter((f) => f.knownBy.some((id) => ids.has(id)) || people.some((p) => mentions(f.fact, p.name)))
-    .map((f, i) => {
-      const knowers = people.filter((p) => f.knownBy.includes(p.id)).length
-      const gap = knowers > 0 && knowers < people.length
-      return { f, i, score: (namesIn(f.fact, things) ? 2 : 0) + (gap || namesIn(f.fact, people) ? 1 : 0) }
-    })
+  const scored = factPool(facts, people).map((f, i) => {
+    const knowers = people.filter((p) => f.knownBy.includes(p.id)).length
+    const gap = knowers > 0 && knowers < people.length
+    return { f, i, score: (namesIn(f.fact, things) ? 2 : 0) + (gap || namesIn(f.fact, people) ? 1 : 0) + RANK_WEIGHT * (rank?.get(f.factId) ?? 0) }
+  })
   if (scored.length <= cap) return scored.map((x) => x.f)
   // Those kept, in the order the memory lists them.
   const kept = new Set(
@@ -234,13 +464,73 @@ export function factsThatMatter(
 }
 
 /**
+ * The facts of who knows what that the scene's own words touch, for the facts check (2026-10-16), at most `most`: those
+ * `rank` scores (factRelevance) or that name something the words name that isn't a person, the most touched first.
+ */
+export function factsTheWordsTouch(
+  facts: FactState[],
+  people: EntryState[],
+  named: EntryState[],
+  rank: ReadonlyMap<ID, number>,
+  most = FACTS_FOR_FACTS,
+  heads: Map<ID, string[]> = itemHeads([...people, ...named])
+): FactState[] {
+  const ids = new Set(people.map((e) => e.id))
+  const things = named.filter((e) => !ids.has(e.id))
+  const namesThing = (fact: string): boolean => things.some((e) => namesOf(e, heads).some((n) => mentions(fact, n)))
+  return factPool(facts, people)
+    .map((f, i) => ({ f, i, touch: rank.get(f.factId) ?? 0, thing: namesThing(f.fact) }))
+    .filter((x) => x.touch > 0 || x.thing)
+    .sort((a, b) => b.touch + (b.thing ? 0.25 : 0) - (a.touch + (a.thing ? 0.25 : 0)) || (b.f.at ?? -2) - (a.f.at ?? -2) || a.i - b.i)
+    .slice(0, Math.max(0, most))
+    .map((x) => x.f)
+}
+
+/**
+ * When an open plot thread is due, as a check is told it: "due to be paid off by the end of Ch 7", "overdue (due to be paid
+ * off by the end of Ch 4)", "planned to be paid off in Ch 5, Sc 2".
+ */
+export function threadDueWords(due: ThreadDue | undefined): string {
+  if (!due) return ''
+  const when = due.from === 'card' && due.sceneLabel ? `planned to be paid off in ${due.sceneLabel}` : `due to be paid off by the end of ${due.label}`
+  if (due.state === 'now') return due.from === 'card' && due.sceneLabel ? when : 'due to be paid off by the end of this chapter'
+  return due.state === 'overdue' ? `overdue (${when})` : when
+}
+
+/** One open plot thread for a check: "- The drowned bell — Who rang it? — last clue: … — due to be paid off by the end of Ch 7". */
+export const threadLine = (t: OpenThread): string =>
+  `- ${[t.name, t.promise ? clip(t.promise, 140) : '', t.clue ? `last clue: ${clip(t.clue, 140)}` : '', threadDueWords(t.due)].filter(Boolean).join(' — ')}`
+
+/**
+ * The scene card's plan as a check is told it (2026-10-16): the author's intent, so what the card asks for (a lie, a
+ * mistake) isn't taken for a slip. Its goal, conflict, beats, outcome and notes, and the plot threads it sets up or pays
+ * off. '' when the card has none of these.
+ */
+export function planText(card: SceneCard, nameOf: (id: ID) => string | null): string {
+  const beats = (card.beats ?? []).map((b) => clean(b)).filter(Boolean)
+  const threads = (ids: ID[] | undefined): string => (ids ?? []).map(nameOf).filter((n): n is string => !!n).join('; ')
+  return [
+    clean(card.goal) ? `Goal: ${clip(card.goal, 300)}` : '',
+    clean(card.conflict) ? `Conflict: ${clip(card.conflict, 300)}` : '',
+    ...(beats.length ? ['Beats:', ...beats.slice(0, MOST_BEATS).map((b, i) => `${i + 1}. ${clip(b, 240)}`)] : []),
+    clean(card.outcome) ? `By the end: ${clip(card.outcome, 300)}` : '',
+    clean(card.notes) ? `Notes: ${clip(card.notes, 600)}` : '',
+    threads(card.setsUpIds) ? `Sets up: ${threads(card.setsUpIds)}` : '',
+    threads(card.paysOffIds) ? `Pays off: ${threads(card.paysOffIds)}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/**
  * One fact as a check is told it (the who-knows-what ledger, long story memory fix 9): who here knows it, each with since
  * when and how ("Tobin (since Book 1, Ch 2, Sc 3; heard it from Mara)"), and who here doesn't. Never "not known by"
  * someone the fact is about, nor an animal, nor at all when who knows it doesn't rest on who was there or on Adam (B5).
  */
 export function knowsLine(f: FactState, people: EntryState[], nameOf: (id: ID) => string | null): string {
+  // An animal is never told as knowing anything, even where an older read kept it so.
   const knows = people
-    .filter((p) => f.knownBy.includes(p.id))
+    .filter((p) => f.knownBy.includes(p.id) && isPerson(p))
     .map((p) => {
       const how = learnedWords(f.since?.[p.id], nameOf)
       return how ? `${p.name} (${how})` : p.name
@@ -337,15 +627,26 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
   }
 
   const card = ctx.card
+  const isSo = has('facts') || has('knowledge') || has('timeline') || has('continuity')
+  // The story calendar's sums (long story memory fix 11): the scene's date and how long since the scene before.
+  const dates = isSo
+    ? storyDateLines({ scene: { card }, memory: ctx.memory, calendar: ctx.calendar }).filter((l) => /^(?:Story date|Ages here):/.test(l))
+    : []
   const cardLines = [
     `Scene: ${ctx.where}${ctx.title ? ` "${ctx.title}"` : ''}`,
     card.when.trim() ? `When: ${card.when.trim()}` : '',
+    ...dates,
     ref(card.locationId) ? `Where: ${ref(card.locationId)}` : '',
     ref(card.povId) ? `Point of view: ${ref(card.povId)}` : '',
     card.presentIds?.length ? `Present: ${card.presentIds.map(ref).filter(Boolean).join(', ')}` : '',
     card.mood.trim() && (has('style') || has('voice')) ? `Mood: ${card.mood.trim()}` : ''
   ].filter(Boolean)
   out.push({ id: 'scene-card', title: 'The scene card', text: cardLines.join('\n'), entryIds: [] })
+
+  // The author's plan (2026-10-16): what the card asks for is meant, never a slip.
+  const nameOfEntry = (id: ID): string | null => ctx.memory.entries.find((e) => e.id === id)?.name ?? null
+  const plan = planText(card, nameOfEntry)
+  if (plan) out.push({ id: 'plan', title: "The author's plan for this scene", text: plan, entryIds: [] })
 
   if (has('style')) {
     const s = ctx.style
@@ -397,15 +698,20 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
   }
 
   const characters = ctx.entries.filter((c) => c.entry.kind === 'character' && !c.label)
+  // How much each fact shares the scene's own words (gathered with the scene; worked out here for a context made by hand).
+  const rank = ctx.factRank ?? factRelevance(factPool(ctx.memory.facts, characterStates(ctx.entries)), ctx.text, personNames(ctx.entries))
+  // What the card and the words name (not the entries only tied to the scene): a fact naming one of them matters here.
+  const cardOrWords = ctx.entries.filter((c) => !RELATED_WHYS.includes(c.why)).map((c) => c.entry)
   if (has('knowledge')) {
     const people = characters
     // The facts that matter most to this scene, when there are more than the list holds (factsThatMatter).
     const facts = factsThatMatter(
       ctx.memory.facts,
       people.map((c) => c.entry),
-      ctx.entries.map((c) => c.entry),
+      cardOrWords,
       MOST_FACTS,
-      headsAt(ctx.memory)
+      headsAt(ctx.memory),
+      rank
     )
     // Each knower with since when and how, as the who-knows-what ledger has it (fix 9).
     const nameOf = namesAt(ctx.memory)
@@ -423,6 +729,27 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
         .join('\n\n'),
       entryIds: []
     })
+  } else if (has('facts')) {
+    // The facts check, in its own request (2026-10-16): what people here know that the scene's words touch, so what the
+    // scene says about the past (who heard what, how someone died) can be checked against it.
+    const people = characters.map((c) => c.entry)
+    const nameOf = namesAt(ctx.memory)
+    const touched = factsTheWordsTouch(ctx.memory.facts, people, cardOrWords, rank, FACTS_FOR_FACTS, headsAt(ctx.memory))
+    if (touched.length) {
+      out.push({
+        id: 'knowledge',
+        title: 'What people here know that this scene touches',
+        text: touched.map((f) => `- ${knowsLine(f, people, nameOf)}`).join('\n'),
+        entryIds: []
+      })
+    }
+  }
+
+  // Plot threads still open, with when each is due (the promises ledger, long story memory fix 10): a scene that pays one
+  // off early, or treats one as settled, goes against them.
+  if (has('facts') || has('knowledge') || has('timeline')) {
+    const threads = openThreadsAt(ctx.memory, card, short ? Math.ceil(MOST_THREADS / 2) : MOST_THREADS)
+    if (threads.length) out.push({ id: 'threads', title: 'Plot threads still open', text: threads.map(threadLine).join('\n'), entryIds: [] })
   }
 
   // The story so far (Adam, 2026-10-04: check against what happened long before, not only the last few scenes).

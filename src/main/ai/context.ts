@@ -111,13 +111,13 @@ import type { Lesson } from '../checks/lessons'
 import { beatsOnPage, speechSamples } from './repetition'
 import { cleanKnows, happenedOf, pastDeathNote } from './knows'
 import { TIMELINE_LEVELS, timelineText, updatingNote, type TimelineContext } from './timeline'
-import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from './briefingFixes'
+import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile, peopleWords, placeWords } from './briefingFixes'
 import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
 import { calledFor, foldApostrophes, namedInProse, type CalledName } from '@shared/names'
 import { sameDay, sameMoment, type SceneCalendar } from '../memory/calendar'
-import { datesOf, elapsedNote, storyDateLines } from './storyDate'
+import { datesOf, elapsedNote, storyDateLines, type DateInput } from './storyDate'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -153,6 +153,12 @@ export interface ContextInput {
    * stand at the end of them rather than as the previous scene ended.
    */
   continuityAtSoFar?: boolean
+  /**
+   * Where things stood as the scene began (as the previous scene ended), when `continuity` is at the end of the scene so
+   * far: what of it is still as it was then is from before, and holds only as far as the scene before carries here
+   * (toldStage). Left out or null: not known.
+   */
+  continuityAtStart?: SceneState | null
   /** Where each scene the stage's words come from is, in plain words ("Book 1, Ch 3, Sc 2"), by id (ai/gather.ts). */
   stageWhere?: Record<ID, string>
   /**
@@ -228,6 +234,16 @@ export function timeSince(input: Pick<ContextInput, 'scene' | 'memory' | 'option
 /** What block 3b says first. */
 export const STAND_LEAD =
   'Keep to this unless the scene card or the author says otherwise: a change (a coat taken off, a move to another room) happens on the page.'
+/**
+ * What block 3b says first at a new scene's start, by how far what the scene before left holds here (carriedFrom): at the
+ * same moment, all of it (STAND_LEAD); later the same day or after more time, only what is told (toldStage).
+ */
+export const STAND_LEADS = {
+  moment: STAND_LEAD,
+  day: 'This is how things stood as the scene before ended, earlier the same day: only injuries, what people held and what they still had on. Keep to it unless the scene card or the author says otherwise; where people are now is for the scene card to say.',
+  later:
+    'This is how things stood as the scene before ended, and time has passed since: only injuries and anything people held. Keep to the injuries unless the scene card or the author says otherwise.'
+} as const
 /** What block 3b says first when it is where things stand at the end of the scene so far (Add below, a later beat). */
 export const STAND_LEAD_SO_FAR =
   'Carry on from exactly this: where each person is, each piece of what they wear and how it sits, how they are placed and what they hold, and where the things in the place are (a door barred, a case on the sill). Nothing changes unless it happens on the page, in the words (a coat taken off, a move to another room, a door opened), or the author says so.'
@@ -735,6 +751,7 @@ export const WHY = {
   beats: 'Named in the beats',
   notes: 'Named in the scene notes',
   cardWords: 'Named on the scene card',
+  inPart: 'A place the scene card names in part',
   previous: 'Named at the end of the previous scene',
   direction: 'Named in your direction',
   soFar: 'Named in the scene so far',
@@ -744,6 +761,9 @@ export const WHY = {
   pin: { scene: 'Pinned for this scene', story: 'Pinned for this story', world: 'Pinned for every scene' },
   hide: { scene: 'Kept out of this scene', story: 'Kept out of this story', world: 'Kept out of every scene' }
 } as const
+
+/** How many places the scene card names only in part come in at most ("Ashby" for "The train to Ashby"). */
+export const PLACES_IN_PART = 4
 
 /** The label for an entry whose first appearance is the scene being drafted. */
 export const FIRST_HERE = 'first appears in this scene'
@@ -925,6 +945,24 @@ export function selectEntries(input: ContextInput): Selection {
       (e.kind === 'item' ? itemTexts.find(([h]) => namedIn(h, namesOf(e, heads))) : e.kind === 'character' ? personHit(e) : undefined)
     const got = hit ? take(e.id, hit[1], false) : null
     if (got) others.push(got)
+  }
+
+  // Places the card names in part (live test, 2026-10-16: "Ashby" in the beats never brought in "The train to Ashby",
+  // whose "most of a day away" the writer then made "an hour in a cart", nor "St Anne's church, Ashby", which the writer
+  // named St Chad's): a place whose name has a word that picks it out ("Ashby") named in the card's own words or in
+  // where the scene happens. Only from the card, never the scene so far, so the briefing reads the same at every step.
+  const nameWords = peopleWords(m.entries)
+  const partTexts = [...ownTexts.map(([h]) => h), ...(location ? [haystack(location.name)] : [])]
+  let inPart = 0
+  for (const e of m.entries) {
+    if (inPart >= PLACES_IN_PART || e.kind !== 'place' || chosen.has(e.id)) continue
+    const words = placeWords(e.name, nameWords)
+    if (!words.length || !partTexts.some((h) => namedIn(h, words))) continue
+    const got = take(e.id, WHY.inPart, false)
+    if (got) {
+      others.push(got)
+      inPart++
+    }
   }
 
   // Adam's pins.
@@ -1116,7 +1154,9 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   const others = names(card.presentIds.filter((id) => id !== card.povId))
   if (others.length) lines.push(`Also in the scene: ${others.join(', ')}`)
   const where = card.locationId ? name(card.locationId) : null
-  if (where) lines.push(`Where: ${where}`)
+  // The card's name for the place is the one to use (live test, 2026-10-16: the card's "St Anne's church, Ashby" was
+  // written "St Chad's", as the story so far had called it).
+  if (where) lines.push(`Where: ${where} (call it by this name, whatever the story so far has called it)`)
   const setsUp = names(card.setsUpIds ?? [])
   if (setsUp.length) lines.push(`Sets up: ${setsUp.join(', ')}`)
   const paysOff = names(card.paysOffIds ?? [])
@@ -1166,12 +1206,31 @@ export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'conti
   if (input.continuityAtSoFar) return 'here'
   const prev = input.memory.previous
   if (!prev || prev.otherStory) return 'none'
+  return sameDayAsBefore(input) ? 'start' : 'later'
+}
+
+/**
+ * How far what the scene before left holds as this scene starts (Adam, 2026-10-16; mustStay.ts StageScope.carried): the
+ * same moment (timeCarries), later the same day (as stageReach reads it), or a later day or a gap not known.
+ */
+export function carriedFrom(input: DateInput): NonNullable<StageScope['carried']> {
+  if (timeCarries(input.scene.card, input.memory.previous, input.calendar)) return 'moment'
+  return sameDayAsBefore(input) ? 'day' : 'later'
+}
+
+/**
+ * Whether this scene is on the same day as the scene before it, in this story: on the story calendar, else both cards'
+ * "Day N" (stageReach). False with no scene before, or one from another story.
+ */
+function sameDayAsBefore(input: DateInput): boolean {
+  const prev = input.memory.previous
+  if (!prev || prev.otherStory) return false
   const { here, previous } = datesOf(input)
   const same = sameDay(previous, here)
-  if (same !== null) return same ? 'start' : 'later'
+  if (same !== null) return same
   const a = dayOf(prev.when)
   const b = dayOf(input.scene.card.when)
-  return a != null && a === b ? 'start' : 'later'
+  return a != null && a === b
 }
 
 /**
@@ -1201,9 +1260,11 @@ export function stageScope(
   const byId = new Map<ID, EntryState>([...memory.elsewhere.map((x) => [x.entry.id, x.entry] as const), ...memory.entries.map((e) => [e.id, e] as const)])
   const onCard = [...new Set([card.povId, ...card.presentIds])].map((id) => (id ? byId.get(id) : undefined)).filter((e): e is EntryState => !!e)
   const cast = [...byId.values()].filter((e) => e.kind === 'character')
+  const carried = carriedFrom({ scene: { card }, memory: { previous: memory.previous }, calendar })
   return {
     sceneId: memory.sceneId,
-    timeCarries: timeCarries(card, memory.previous, calendar),
+    timeCarries: carried === 'moment',
+    carried,
     onCard,
     cast,
     words: [...card.beats, card.notes, card.goal, card.conflict, card.outcome, card.mood, ...words].map(clean).filter(Boolean).join('\n'),
@@ -1217,9 +1278,14 @@ export function stageScope(
  * words): only the people in the scene, and a time, light and weather that still hold (stageInScene). Null when nothing
  * is known. `input.continuity` itself, as kept, is left whole.
  */
-export function toldStage(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'options' | 'soFar' | 'calendar'>): SceneState | null {
+export function toldStage(
+  input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'continuityAtSoFar' | 'continuityAtStart' | 'options' | 'soFar' | 'calendar'>
+): SceneState | null {
   if (!input.continuity) return null
-  return stageInScene(input.continuity, stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar], input.calendar))
+  const scope = stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar], input.calendar)
+  // What the scene before left holds only as far as it carries here (Adam, 2026-10-16): at a new scene's start the stage is
+  // all from before; carrying on, a value without words is from before when it is as it was as the scene began.
+  return stageInScene(input.continuity, { ...scope, began: input.continuityAtSoFar ? (input.continuityAtStart ?? null) : input.continuity })
 }
 
 /** The draft carries on from words already in the scene (Add below, a later beat), rather than writing it whole. */
@@ -1610,7 +1676,8 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
   if (full) {
     const onCard = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e).flatMap((e) => [e.name, ...(e.aliases ?? [])])
     const short = onCard.length ? stateText(stand!, onCard) : ''
-    const lead = input.continuityAtSoFar ? STAND_LEAD_SO_FAR : STAND_LEAD
+    // At a new scene's start the lead says how much of it still holds (Adam, 2026-10-16: toldStage tells only that much).
+    const lead = input.continuityAtSoFar ? STAND_LEAD_SO_FAR : STAND_LEADS[carriedFrom(input)]
     // A door locked from inside with someone outside, said in one line after the stage (lockRule.ts).
     add(
       'continuity',
@@ -1675,7 +1742,8 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
         planned: input.contract.planned,
         facts: input.memory.facts,
         storyTitle: input.story.title,
-        stageShown: !!full && reach === 'here'
+        stageShown: !!full && reach === 'here',
+        noStart: input.contract.noStart
       })
     : null
   if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract), contractText(contract, { short: true }), [])
@@ -1883,7 +1951,8 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
   const sceneOwn = [card.goal, card.conflict, card.outcome, card.mood, card.notes, ...card.beats, input.options.direction, input.soFar].map(clean).filter(Boolean).join('\n')
   const linked = linkedPlaces(card.locationId, [...sel.known.values()])
   // An entry Adam pinned, or the plan asked for, stays whole, wherever it is named.
-  const wanted = (e: Entry): boolean => !!sel.chosen.get(e.id)?.pinned || sel.chosen.get(e.id)?.why === WHY.plan
+  // A place the card names in part is named there too.
+  const wanted = (e: Entry): boolean => !!sel.chosen.get(e.id)?.pinned || [WHY.plan, WHY.inPart].includes(sel.chosen.get(e.id)?.why as never)
   // Named by what this scene's words call them too, and in the scene so far as prose names people (fix 12).
   const named = (e: Entry): boolean =>
     wanted(e) ||

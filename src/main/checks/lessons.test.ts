@@ -55,6 +55,16 @@ describe('what the checks settled in earlier scenes', () => {
     expect(got.meant.map((l) => l.text)).toEqual(['Wren knows of the toll, but no one told her.'])
   })
 
+  it('never takes an issue saved for later as meant: it is still open (findings that stay current)', () => {
+    const got = lessonsFrom(
+      [row('s8', 'open', 'knowledge', 'Wren knows of the toll, but no one told her.', { entryId: 'wren', later: { since: '2026-10-16T00:00:00.000Z' } })],
+      order,
+      where
+    )
+    expect(got.meant).toEqual([])
+    expect(got.slips).toEqual([])
+  })
+
   it('leaves out style, voice and continuity, what the memory settled, and what is about no one', () => {
     const got = lessonsFrom(
       [

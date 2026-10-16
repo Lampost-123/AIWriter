@@ -9,6 +9,7 @@
 //   S1...  the scenes just before (when and where, who was there)
 //   C1...  the scene's contract, when the draft had one (long story memory fix 13, repair/contract.ts): each item is
 //          answered kept, broken, not yet or untouched
+// and, with no ids, what the author said is meant when the checks raised it in earlier scenes (checks/lessons.ts).
 // The system prompt starts with "[AIWRITE-REPAIR v1]", so the fake provider in tests recognises it. Pure.
 
 import type { ChatMessage, ContextBlock, ID } from '@shared/types'
@@ -16,9 +17,11 @@ import { clothesOf, pieceSource, STATE_FIELDS, STATE_LABELS, sourceKey, thingKey
 import { pieceText, thingText } from '@shared/stageItems'
 import { deadBy } from '../ai/context'
 import type { SceneCheckContext } from '../checks/context'
-import { beliefLines, entryText, factsThatMatter, headsAt, holdingsHere, knowsLine, namesAt } from '../checks/context'
+import { beliefLines, entryText, factsThatMatter, headsAt, holdingsHere, knowsLine, namesAt, RELATED_WHYS } from '../checks/context'
 import { estimateTokens } from '../keeper/text'
 import { holdingLine, nameIn, namesOf } from '../memory/items'
+import { lessonLine } from '../checks/lessons'
+import type { IssueKind } from '@shared/contracts/checks'
 import { CONTRACT_RULES } from './contract'
 
 export const REPAIR_MARKER = '[AIWRITE-REPAIR v1]'
@@ -58,6 +61,9 @@ const MOST_FACTS = 30
 const MOST_OWNED = 12
 /** The most lines about what people here believe that isn't true (fix 9). */
 const MOST_BELIEFS = 8
+/** The most findings the author said are meant (2026-10-16), and the kinds check and repair is told: what is so. */
+export const MOST_MEANT = 6
+const MEANT_KINDS: IssueKind[] = ['fact', 'knowledge', 'timeline']
 
 /**
  * Where things stand as lines with ids, each with its words: each piece of clothing, and each thing in the place, its
@@ -106,8 +112,12 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
   const sections: { id: string; title: string; text: string; entryIds: ID[] }[] = []
   // The entries the new words name (an item by its own main word too: "the compass"), and who the scene card puts there
   // (the E codes are the check context's own).
+  // Entries a whole check is told because they are tied to the scene (checks/context.ts relatedEntries) only when the new
+  // words name them, as for those the scene names.
   const heads = headsAt(ctx.memory)
-  const named = ctx.entries.filter((c) => c.why !== 'named in the scene' || namesOf(c.entry, heads).some((n) => nameIn(newWords, n)))
+  const named = ctx.entries.filter(
+    (c) => (c.why !== 'named in the scene' && !RELATED_WHYS.includes(c.why)) || namesOf(c.entry, heads).some((n) => nameIn(newWords, n))
+  )
   if (named.length) {
     for (const c of named) lines.push({ code: c.code, kind: 'entry', entryId: c.entry.id, label: c.entry.name })
     sections.push({
@@ -173,6 +183,10 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
     })
     sections.push({ id: 'dead', title: 'Dead at the start of this scene (D ids)', text: text.join('\n'), entryIds: [] })
   }
+  // What the author said is meant when a check raised it in an earlier scene (checks/lessons.ts; 2026-10-16: check and
+  // repair wasn't told, so it could mend what the author wanted): about what is so, the newest first, no ids to point at.
+  const meant = (ctx.meant ?? []).filter((l) => MEANT_KINDS.includes(l.kind)).slice(0, MOST_MEANT)
+  if (meant.length) sections.push({ id: 'meant', title: 'What the author has said is meant', text: meant.map((l) => `- ${lessonLine(l)}`).join('\n'), entryIds: [] })
   if (ctx.earlier.length) {
     for (const s of ctx.earlier) lines.push({ code: s.code, kind: 'scene', sceneId: s.sceneId, label: s.label })
     sections.push({
@@ -206,6 +220,7 @@ How to check
 - "fits": the claim agrees with the line. "shown": the new words themselves show the change happening (she pulls her boots on, he gets up, someone tells her). "slip": the new words treat as already so something that cannot be true together with the line, and nothing in the new words or the words just before shows it changing: a boot back on with no words putting it on, a cup in a hand that put it down, a character knowing what they haven't learnt, a dead character acting.
 - NOT a slip: a detail the line doesn't mention, or a more exact one (a man asleep sitting against a wall whose hand lies open on the floor: both can be true); someone somewhere else after time could have passed or they could have moved (a man last seen crossing the river home, later sitting by his own fire); a door opened or a thing moved when someone could have done it off the page (a door barred at dusk, open when someone walks in at midnight); who can see or hear whom changing as people move; anything the line leaves open. When unsure, it is not a slip.
 - But a thing the words just before put down or set somewhere (a case set flat on the sill) that the new words have in a hand, on someone or somewhere else, with no words showing it picked up or moved, is a slip with "between": "nothing": within the same stretch of a scene nothing is picked up off the page.
+- Under "What the author has said is meant" are things checks raised in earlier scenes that the author said are intended: the same thing in the new words is not a slip.
 
 Each claim:
 {"quote": "", "who": "", "about": "where|posture|wearing|holding|touching|sees|thing|condition|knows|owns|time", "line": "W2", "verdict": "fits|shown|slip", "bothTrue": "no|yes|maybe", "between": "nothing|time|movement|action|unclear", "why": "", "fix": {"replace": "", "with": ""}, "question": ""}
@@ -233,7 +248,7 @@ export interface RepairRequest {
  * is dead, then the memory's facts (which depend on what the new words name), and last where things stand, the words
  * just before and the new words, which change at every check.
  */
-export const REPAIR_SEND_ORDER = ['earlier', 'scene-card', 'dead', 'memory', 'knowledge', 'owned', 'contract', 'stage', 'lead-in', 'new-words']
+export const REPAIR_SEND_ORDER = ['earlier', 'scene-card', 'dead', 'meant', 'memory', 'knowledge', 'owned', 'contract', 'stage', 'lead-in', 'new-words']
 
 /**
  * The request: the memory's facts, the scene card, where things stand, the words just before, and the new words; with

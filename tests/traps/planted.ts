@@ -2,8 +2,10 @@
 // fresh copy of the world as the whole book left it, and checked by the app's own consistency checker exactly as Adam
 // would ask for it ("Check this scene": every check, with the memory catching up first, so the memory keeper's own clash
 // warnings count too). What it raises is scored against the one planted sentence:
-//   caught       an issue whose quote overlaps the planted slip
-//   false alarm  any other issue: on a passage with a slip, about something else; on a control, anything at all
+//   caught       an issue whose quote overlaps the planted slip and whose message names the planted fact (the passage's
+//                `reason`; 2026-10-16: X7 was counted caught for an issue on its sentence about something else)
+//   false alarm  any other issue: on a passage with a slip, about something else (on its sentence too, when it gives
+//                another reason); on a control, anything at all
 //   decoy        a false alarm on the control's decoy sentence (a real change a careless checker calls a slip)
 // Scoring is pure, so it is tested without a model; `checkPlanted` runs it through the app.
 
@@ -19,8 +21,11 @@ export interface PlantedIssue {
   severity: string
   quote: string
   message: string
-  /** What its quote is about: the planted slip, the control's decoy, or something else. */
-  on: 'flaw' | 'decoy' | 'other'
+  /**
+   * What it is about: the planted slip, for the planted reason; the planted slip's sentence for another reason ('wrong', a
+   * false alarm); the control's decoy; or something else.
+   */
+  on: 'flaw' | 'wrong' | 'decoy' | 'other'
 }
 
 export interface PlantedSample {
@@ -92,8 +97,16 @@ export function quoteTouches(quote: string, sentence: string): boolean {
   return false
 }
 
-/** One check of a passage, scored from the issues it raised there. */
-export function scorePlanted(passage: Pick<Planted, 'flaw' | 'decoy'>, raised: Pick<IssueLike, 'kind' | 'severity' | 'quote' | 'message'>[]): Pick<PlantedSample, 'issues' | 'caught' | 'falseAlarms'> {
+/**
+ * One check of a passage, scored from the issues it raised there. With the passage's `reason`, an issue on the slip counts
+ * as a catch only when its message names the planted fact; one that doesn't is a false alarm ('wrong').
+ */
+export function scorePlanted(
+  passage: Pick<Planted, 'flaw' | 'decoy' | 'reason'>,
+  raised: Pick<IssueLike, 'kind' | 'severity' | 'quote' | 'message'>[]
+): Pick<PlantedSample, 'issues' | 'caught' | 'falseAlarms'> {
+  const onFlaw = (i: Pick<IssueLike, 'quote' | 'message'>): PlantedIssue['on'] =>
+    !passage.reason || passage.reason.test(i.message ?? '') ? 'flaw' : 'wrong'
   const issues: PlantedIssue[] = raised
     .filter((i) => !LIVE_KINDS.has(i.kind))
     .map((i) => ({
@@ -101,7 +114,7 @@ export function scorePlanted(passage: Pick<Planted, 'flaw' | 'decoy'>, raised: P
       severity: i.severity,
       quote: i.quote,
       message: i.message,
-      on: passage.flaw && quoteTouches(i.quote, passage.flaw) ? 'flaw' : passage.decoy && quoteTouches(i.quote, passage.decoy) ? 'decoy' : 'other'
+      on: passage.flaw && quoteTouches(i.quote, passage.flaw) ? onFlaw(i) : passage.decoy && quoteTouches(i.quote, passage.decoy) ? 'decoy' : 'other'
     }))
   return {
     issues,
@@ -169,7 +182,10 @@ export function plantedMarkdown(results: PlantedResult[] | undefined, s: Planted
   const raised = results.flatMap((r) => r.samples.flatMap((m) => m.issues.map((i) => ({ r, m, i }))))
   if (raised.length) {
     out.push('', 'What the checks raised:', '')
-    for (const { r, m, i } of raised) out.push(`- ${r.id}${r.samples.length > 1 ? ` #${m.index + 1}` : ''} (${i.on === 'flaw' ? 'the slip' : i.on === 'decoy' ? 'the decoy' : 'something else'}, ${i.kind}): ${i.message}${i.quote ? ` — “${i.quote}”` : ''}`)
+    for (const { r, m, i } of raised) {
+      const on = i.on === 'flaw' ? 'the slip' : i.on === 'wrong' ? 'the slip’s sentence, for another reason' : i.on === 'decoy' ? 'the decoy' : 'something else'
+      out.push(`- ${r.id}${r.samples.length > 1 ? ` #${m.index + 1}` : ''} (${on}, ${i.kind}): ${i.message}${i.quote ? ` — “${i.quote}”` : ''}`)
+    }
   }
   out.push('')
   return out

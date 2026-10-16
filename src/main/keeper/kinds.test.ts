@@ -2,7 +2,7 @@
 // the slip a real model made in a test story: an invented bead a child wants, filed as a character.
 
 import { describe, expect, it } from 'vitest'
-import { nameSays, phraseSays, replyShowsActing, textShowsActing, thingNotCharacter, type NewEntry } from './kinds'
+import { animalNotPerson, nameSays, phraseSays, replyShowsActing, textShowsActing, thingNotCharacter, type NewEntry } from './kinds'
 
 const SCENE = [
   'The ferry bumped against the far bank, and the girl watched Wren climb out.',
@@ -87,5 +87,16 @@ describe('a new "character" that is a thing', () => {
     ]
     expect(replyShowsActing(bead, real)).toBe(false)
     expect(thingNotCharacter(bead, SCENE, real)).toBe(true)
+  })
+})
+
+describe('an animal, and no more', () => {
+  it('is told by its name, summary or tags, breeds too (live test, 2026-10-16: "Nell’s grey lurcher")', () => {
+    expect(animalNotPerson({ name: 'Bramble', summary: 'Nell’s grey lurcher.' })).toBe(true)
+    expect(animalNotPerson({ name: 'Cinder', summary: 'A grey mare.' })).toBe(true)
+    expect(animalNotPerson({ name: 'Pip', summary: 'An old terrier who sleeps by the range.' })).toBe(true)
+    expect(animalNotPerson({ name: 'Nell Harrow', summary: 'A botanist, 34.' })).toBe(false)
+    // One that talks or thinks is someone.
+    expect(animalNotPerson({ name: 'Grim', summary: 'A talking hound.' })).toBe(false)
   })
 })

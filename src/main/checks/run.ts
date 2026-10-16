@@ -8,10 +8,12 @@
 // the chapter writer's checks of the scenes it drafted), the first request goes through it item by item as well, as
 // check and repair does when a draft lands (repair/contract.ts): no more requests. A check the model turns down (some
 // models won't read explicit scenes) stops with a plain-words reason and is noted for the top bar's lasting note
-// (keeper/refusals.ts), rather than being asked again as if the reply were in the wrong format. No Electron imports.
+// (keeper/refusals.ts), rather than being asked again as if the reply were in the wrong format. Since 2026-10-16 the
+// facts a scene touches are ranked by meaning too when the search model is on (rankByMeaning), and what the checks find
+// about what is so goes through one second opinion before it is kept (findingsRuling). No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { CheckKind, CheckReport } from '@shared/contracts/checks'
+import type { CheckKind, CheckReport, IssueKind } from '@shared/contracts/checks'
 import type { ChatMessage, Entry, EntryState, ID, WritingPrefs } from '@shared/types'
 import * as repo from '../db/repo'
 import { runTask, type Emit } from '../ai/tasks'
@@ -23,10 +25,12 @@ import { CUT_OFF } from '../keeper/json'
 import { estimateTokens, plain } from '../keeper/text'
 import { fieldOrigin, fieldValue } from '../keeper/facts'
 import { newId, UserError } from '../util'
-import { checkRequest, checkSections, gatherSceneCheck, splitScene, type SceneCheckContext } from './context'
+import { checkRequest, checkSections, factRelevance, factsToRank, gatherSceneCheck, personNames, splitScene, type SceneCheckContext } from './context'
+import { scenePassages } from '../retrieval/text'
+import type { Claim } from '../repair/claims'
 import { foundIssues, orderedChecks, readCheckReply, type ReadContext } from './parse'
 import { retryMessage, sceneSystem } from './prompts'
-import { reportItems, saveReport } from './report'
+import { reportHash, reportItems, saveReport } from './report'
 import { ruleChecksQuietly } from './ruleChecks'
 import { findSceneQuote, issueKey, KIND_OF_CHECK, occurrenceAt } from './quote'
 import type { ContractCheck } from '@shared/contracts/checks'
@@ -85,6 +89,12 @@ export interface CheckOptions {
    * check through one found here, and the report's contract, so nothing is left that nothing would clear.
    */
   contractsOff?: boolean
+  /**
+   * How close in meaning each doc is to the queries (the search model, retrieval/index.ts meaningForCheck), so the check is
+   * told the facts of who knows what its scene touches by meaning as well as by keyword (2026-10-16). Left out, or null:
+   * by keyword alone.
+   */
+  byMeaning?: (queries: string[], docs: { key: string; text: string }[], signal: AbortSignal) => Promise<Map<string, number> | null>
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -136,6 +146,8 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
     throw e
   }
   if (!ctx.text.trim()) return { status: 'empty' }
+  // The facts the scene touches, by meaning too when the search model is on (2026-10-16).
+  await rankByMeaning(o, ctx)
 
   const read: ReadContext = {
     sceneId,
@@ -306,8 +318,17 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
     if (o.stopped()) stopped = true
     else kept = contractFindings(contract, ruling.judged, ctx, ruling)
   }
+  let found = [...foundIssues(items, read), ...(kept?.found ?? [])]
+  // A second opinion on what the checks found about what is so, before it is kept (2026-10-16: continuity findings, kept
+  // since then, raised false alarms from a stage record that didn't hold): one call, only when something was found; what
+  // it rules not real goes. A failed call, a reply it can't read or a stop keeps everything.
+  if (!stopped && !failure && found.length) {
+    const ruling = await findingsRuling(o, sceneId, found, ctx, checks)
+    if (!o.db.open || o.closed?.()) return { status: 'stopped', found: 0 }
+    if (o.stopped()) stopped = true
+    else found = ruling.kept
+  }
   const whole = !stopped && !failure && !partial
-  const found = [...foundIssues(items, read), ...(kept?.found ?? [])]
   // Contracts switched off: what an earlier check through one found goes (a thing the checks find again comes back as
   // their own), with the report's contract.
   const clearContract = whole && !contract && !!o.contractsOff
@@ -334,12 +355,16 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
         after: o.after ?? 'request',
         items: reportItems(checks, checked, foundBy),
         found: found.length,
+        // The words the checks read, so the Issues tab can say when the scene has changed since (findings that stay current).
+        textHash: reportHash(ctx.text),
         ...(kept ? { contract: kept.check } : clearContract ? { contract: null } : {})
       })
     } catch (e) {
       console.warn('Could not keep the check report', e)
     }
   }
+  // A check of the scene ran: what was put off with Later shows again (findings that stay current).
+  if (!stopped && !failure) cdb.clearLater(o.db, sceneId)
   if (failure) return { status: 'error', error: failure, found: raised }
   if (stopped) return { status: 'stopped', found: raised }
   return { status: 'done', found: raised }
@@ -399,6 +424,111 @@ export async function contractRuling(
       confirmed: second.ruled,
       shown: new Set(j.notYet.filter((i) => !standing.has(i.code)).map((i) => i.code))
     }
+  } finally {
+    clearInterval(watch)
+  }
+}
+
+/**
+ * The facts of who knows what the scene touches, by meaning as well as by keyword (2026-10-16), when the search model is
+ * on (`byMeaning`): the scene's passages against the facts a check may be told of. Out of time, stopped or failed: the
+ * keyword ranking gathered with the scene stands.
+ */
+export async function rankByMeaning(o: Pick<CheckOptions, 'byMeaning' | 'stopped' | 'closed'>, ctx: SceneCheckContext): Promise<void> {
+  if (!o.byMeaning) return
+  const facts = factsToRank(ctx)
+  if (!facts.length) return
+  const queries = scenePassages(ctx.text)
+    .slice(0, MEANING_PASSAGES)
+    .map((p) => p.text)
+  const stop = new AbortController()
+  const watch = setInterval(() => {
+    if (o.stopped() || o.closed?.()) stop.abort()
+  }, 200)
+  try {
+    const got = await o.byMeaning(
+      queries,
+      facts.map((f) => ({ key: f.factId, text: f.fact })),
+      stop.signal
+    ).catch(() => null)
+    if (got?.size && !stop.signal.aborted) ctx.factRank = factRelevance(facts, ctx.text, personNames(ctx.entries), got)
+  } finally {
+    clearInterval(watch)
+  }
+}
+
+/** How many of the scene's passages are searched by meaning for the facts it touches. */
+const MEANING_PASSAGES = 8
+
+/** The second opinion on a whole check's findings (2026-10-16): its own marker, apart from check and repair's. */
+export const CHECK_SECOND_MARKER = '[AIWRITE-CHECK-SECOND v1]'
+
+/** What it is told: the second opinion's (repair/second.ts) rules, for a scene checked whole rather than new words. */
+export const CHECK_SECOND_SYSTEM = `${CHECK_SECOND_MARKER} verdicts
+You are checking another continuity editor's notes on a scene of a novel (the scene is under "The new words"), against the same material they read (under "What the check was given"): the story's memory as the scene begins (each entry under a "### E1 ..." heading), who knows what, the story so far, the scenes just before (S1 ...), where things stood as the previous scene ended, the story calendar and the author's plan for the scene. For each numbered note, decide whether it is a real slip: the quoted words and what the material says cannot both be true, and nothing in the scene shows the change happening. Reject a note that misreads the words, confuses two people, relies on something that is not in the material, flags something merely left out, flags details that can both be true on a natural reading, flags a change the scene itself shows, flags what the author's plan for the scene asks for, or carries where things stood as the previous scene ended across time that has passed since (someone asleep, sitting or holding something then need not be, hours or days later). Keep a note that is right even if it is worded badly, and keep it when unsure.
+Reply with JSON only: {"verdicts": [{"n": 1, "reason": "...", "real": true}]}, one per note: reason first (one sentence, citing the line or the words that settle it), then real (true or false).`
+
+/** The kinds of finding the second opinion rules on: what is so. Voice and style are how it reads, never put to it. */
+const RULED_KINDS = new Set<IssueKind>(['fact', 'knowledge', 'timeline', 'continuity'])
+
+/**
+ * The second opinion (repair/second.ts) on what a whole check found (2026-10-16), before it is kept: one call on the check
+ * model, only when a finding about what is so was found (not the contract's: those had their own, contractRuling). Each
+ * finding is a note citing its entry (E) or earlier scene (S), with what the memory and the scene say; the material is
+ * what the checks were given (shortened when the model reads too little; no room at all: nothing asked). A finding ruled
+ * not real goes. No ruling (a failed call, a reply it can't read, stopped): every finding is kept.
+ */
+export async function findingsRuling(
+  o: Pick<CheckOptions, 'db' | 'model' | 'stopped' | 'closed' | 'fetchImpl' | 'retryDelays'>,
+  sceneId: ID,
+  found: cdb.FoundIssue[],
+  ctx: SceneCheckContext,
+  checks: CheckKind[]
+): Promise<{ kept: cdb.FoundIssue[]; dropped: cdb.FoundIssue[]; ruled: boolean }> {
+  const none = { kept: found, dropped: [], ruled: false }
+  const asked = found.filter((f) => RULED_KINDS.has(f.kind) && !f.payload.contract && f.quote.trim())
+  if (!asked.length) return none
+  const entryCode = new Map(ctx.entries.map((c) => [c.entry.id, c.code]))
+  const sceneCode = new Map(ctx.earlier.map((s) => [s.sceneId, s.code]))
+  const lineOf = (f: cdb.FoundIssue): string => {
+    const e = f.payload.entryId ? entryCode.get(f.payload.entryId) : undefined
+    if (e) return e
+    const s = (f.payload.sources ?? []).find((x) => x.kind === 'scene')
+    return (s && s.kind === 'scene' && sceneCode.get(s.sceneId)) || ''
+  }
+  const claims: Claim[] = asked.map((f) => {
+    const said = f.payload.memory && f.payload.text ? ` (The memory says: ${f.payload.memory}. The scene says: ${f.payload.text}.)` : ''
+    return { quote: f.quote, who: '', about: 'other', line: lineOf(f), verdict: 'slip', bothTrue: 'maybe', between: 'unclear', why: `${f.message}${said}`, fix: null, question: '' }
+  })
+  const sectionsText = (short: boolean): string =>
+    checkSections(ctx, checks, short)
+      .map((x) => `## ${x.title}\n${x.text}`)
+      .join('\n\n')
+  const room = checkBudget(o.model, CHECK_SECOND_SYSTEM).available
+  const fits = (m: string): boolean => estimateTokens(m) + estimateTokens(ctx.text) + 60 * claims.length + 300 <= room
+  const full = sectionsText(false)
+  const material = fits(full) ? full : fits(sectionsText(true)) ? sectionsText(true) : null
+  if (!material) return none
+  const stop = new AbortController()
+  const watch = setInterval(() => {
+    if (o.stopped() || o.closed?.()) stop.abort()
+  }, 200)
+  try {
+    const second = await secondOpinion(
+      { db: o.db, model: o.model, signal: stop.signal, closed: () => !o.db.open || !!o.closed?.(), fetchImpl: o.fetchImpl, retryDelays: o.retryDelays },
+      sceneId,
+      claims,
+      { newWords: ctx.text, leadIn: '', material, lines: new Set(claims.map((c) => c.line)), system: CHECK_SECOND_SYSTEM }
+    )
+    try {
+      if (o.db.open) gens.forgetOldPrompts(o.db, sceneId, CHECK_SECOND_MARKER, KEEP_SECOND_PROMPTS)
+    } catch (e) {
+      console.warn('Could not let go of older check prompts', e)
+    }
+    if (!second.ruled || stop.signal.aborted) return none
+    const out = new Set(second.dropped.map((d) => d.claim))
+    const dropped = asked.filter((_, i) => out.has(claims[i]))
+    return { kept: found.filter((f) => !dropped.includes(f)), dropped, ruled: true }
   } finally {
     clearInterval(watch)
   }

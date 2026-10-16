@@ -87,8 +87,9 @@ export const aiHandlers: Handlers<AiMethods> = {
       // the scene's contract it was given (long story memory fix 13).
       noteStage(started.generationId, sceneId, stageTold(b, !!block))
       noteContract(started.generationId, sceneId, b.contract ?? null)
-      // Only the record's id goes back to the window (its `done` promise can't cross IPC).
-      return { generationId: started.generationId }
+      // Only the record's id goes back to the window (its `done` promise can't cross IPC), with anything Adam should
+      // know about how it was briefed (where things stand wasn't ready: review, 2026-10-16).
+      return { generationId: started.generationId, note: b.note ?? null }
     } finally {
       if (starting.get(sceneId) === stop) starting.delete(sceneId)
     }

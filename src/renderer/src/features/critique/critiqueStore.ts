@@ -5,7 +5,7 @@
 // its chapter is kept while the app is open.
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import type { CritiqueScope, CritiqueTarget, SavedCritique } from '@shared/contracts/critique'
+import type { CritiqueNote, CritiqueNoteStatus, CritiqueScope, CritiqueTarget, CritiqueWant, SavedCritique } from '@shared/contracts/critique'
 import type { ID } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api, type ApiError } from '@/lib/api'
@@ -49,7 +49,8 @@ export async function loadCritique(target: CritiqueTarget): Promise<void> {
   asked.set(key, n)
   try {
     const got = await api.getCritique(target)
-    if (asked.get(key) === n) patch('saved', key, got)
+    // The same as shown (the usual answer to the check every few seconds): nothing to draw again.
+    if (asked.get(key) === n && JSON.stringify(got) !== JSON.stringify(useCritiqueStore.getState().saved[key])) patch('saved', key, got)
   } catch {
     // Said by the tab as "no critique yet"; asking again works as usual.
     if (asked.get(key) === n && !(key in useCritiqueStore.getState().saved)) patch('saved', key, null)
@@ -61,8 +62,8 @@ export const CHANGED_CHECK_MS = 2500
 
 /**
  * The target's latest critique, loaded when first shown, and checked against the saved words every few seconds while
- * it shows and still matches them (so the tab can say they have changed since). Undefined while the first load is on
- * its way.
+ * it shows (so the tab can say they have changed since, and which notes' words have changed). Undefined while the first
+ * load is on its way.
  */
 export function useCritique(target: CritiqueTarget | null): SavedCritique | null | undefined {
   const key = target ? targetKey(target) : ''
@@ -72,8 +73,9 @@ export function useCritique(target: CritiqueTarget | null): SavedCritique | null
   useEffect(() => {
     if (scope && id) void loadCritique({ scope, id })
   }, [scope, id])
-  // Once it has changed it stays so until the next critique, so there is nothing more to check.
-  const watching = !!saved && !saved.changed
+  // Once the words have changed they stay so until the next critique; what is still watched then is each note still to
+  // do with words (gone, or back after an undo).
+  const watching = !!saved && (!saved.changed || saved.critique.notes.some((n) => !n.status && !!n.quote.trim()))
   useEffect(() => {
     if (!scope || !id || !watching) return
     const timer = setInterval(() => {
@@ -85,8 +87,9 @@ export function useCritique(target: CritiqueTarget | null): SavedCritique | null
 }
 
 /**
- * Asks for a critique of the scene or chapter, after the page's last words are saved. One for the same target already
- * being written carries on instead. What went wrong is shown in the tab; a stopped one leaves the one before.
+ * Asks for a critique of the scene or chapter, after the page's last words are saved: a re-read when it has one already
+ * (Critique again: the notes before go with it, with what became of each). One for the same target already being
+ * written carries on instead. What went wrong is shown in the tab; a stopped one leaves the one before.
  */
 export async function startCritique(target: CritiqueTarget): Promise<void> {
   const key = targetKey(target)
@@ -96,12 +99,14 @@ export async function startCritique(target: CritiqueTarget): Promise<void> {
   patch('runs', key, { taskId })
   try {
     await flushAll()
-    const out = await api.startCritique({ taskId, target })
+    const known = useCritiqueStore.getState().saved[key]
+    const again = !!(known === undefined ? await api.getCritique(target).catch(() => null) : known)
+    const out = await api.startCritique({ taskId, target, ...(again ? { again } : {}) })
     if (useCritiqueStore.getState().runs[key]?.taskId !== taskId) return
     if (out.status === 'complete') {
       // A load still on its way read the critique before this one: its answer is dropped.
       asked.set(key, ++loads)
-      patch('saved', key, { critique: out.critique, changed: false })
+      patch('saved', key, { critique: out.critique, changed: false, gone: [], wants: useCritiqueStore.getState().saved[key]?.wants ?? [] })
     } else if (out.status === 'error') patch('failed', key, out.error)
     // Written while Adam was in another scene (or on another tab): a quiet word that it is ready.
     if (out.status === 'complete' && !shownNow(target)) {
@@ -116,6 +121,70 @@ export async function startCritique(target: CritiqueTarget): Promise<void> {
   } finally {
     if (useCritiqueStore.getState().runs[key]?.taskId === taskId) patch('runs', key, undefined)
   }
+}
+
+/** What the tab says once Adam sets a note aside (each with Undo). */
+const SET_ASIDE: Record<'dismissed' | 'unwanted', string> = {
+  dismissed: 'Set aside. The critic won’t raise it here again.',
+  unwanted: 'The critic won’t raise notes like this anywhere in this story.'
+}
+
+/**
+ * Adam acting on a note: done (he accepted a rewrite of its words, `newWords` the words it put in), not needed, not for
+ * this story, or (null) back to still to do. Shown at once, kept in the world; setting one aside says so, with Undo.
+ */
+export async function settleNote(
+  target: CritiqueTarget,
+  note: Pick<CritiqueNote, 'id' | 'status'>,
+  status: CritiqueNoteStatus | null,
+  o: { newWords?: string; at?: string } = {}
+): Promise<void> {
+  const key = targetKey(target)
+  const show = (s: CritiqueNoteStatus | null | undefined): void => {
+    const now = useCritiqueStore.getState().saved[key]
+    if (!now || (o.at && now.critique.at !== o.at)) return
+    // A load on its way read the critique before this: its answer is dropped.
+    asked.set(key, ++loads)
+    const notes = now.critique.notes.map((n) => {
+      if (n.id !== note.id) return n
+      const { status: _was, ...rest } = n
+      return s ? { ...rest, status: s } : rest
+    })
+    patch('saved', key, { ...now, critique: { ...now.critique, notes } })
+  }
+  show(status)
+  try {
+    const got = await api.settleCritiqueNote({
+      target,
+      noteId: note.id,
+      status,
+      ...(o.newWords ? { newWords: o.newWords } : {}),
+      ...(o.at ? { at: o.at } : {})
+    })
+    asked.set(key, ++loads)
+    if (got) patch('saved', key, got)
+  } catch (e) {
+    show(note.status)
+    toast(plainReason(e), { tone: 'danger' })
+    return
+  }
+  if (status === 'dismissed' || status === 'unwanted') {
+    toast(SET_ASIDE[status], {
+      action: { label: 'Undo', run: () => void settleNote(target, { id: note.id, status }, note.status ?? null, { at: o.at }) }
+    })
+  }
+}
+
+/** Lets the critic raise a kind of note again that Adam said isn't for this story. */
+export async function allowAgain(target: CritiqueTarget, want: CritiqueWant): Promise<void> {
+  try {
+    await api.dropCritiqueWant(target, want.id)
+  } catch (e) {
+    toast(plainReason(e), { tone: 'danger' })
+    return
+  }
+  await loadCritique(target)
+  toast(`The critic may raise notes like “${want.title}” again.`)
 }
 
 /** Stops the critique being written; the one kept before stays. */

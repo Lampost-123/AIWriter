@@ -19,6 +19,7 @@ import { labeler } from '../memory/line'
 import { UserError } from '../util'
 import { checkAfterDraft, closeRunsFor, setRunDeps, startCheck, stopCheck } from '../checks/runs'
 import { onDraftActivity } from '../ai/drafts'
+import { meaningForCheck } from '../retrieval'
 import { runOrWait } from '../usage'
 
 /** How long a check waits for the memory to catch up before checking with what it has. */
@@ -54,7 +55,9 @@ setRunDeps({
   },
   onKeyRejected: (model) => providers.markCheck(model.target.id, false),
   // Scene contracts switched off (long story memory fix 13): a check takes away what one found.
-  contractsOff: () => !contractWanted(getSettings())
+  contractsOff: () => !contractWanted(getSettings()),
+  // The facts a scene touches, by meaning too when the search model is on (2026-10-16).
+  byMeaning: meaningForCheck
 })
 
 // Issues that change (a check, an ignore, the memory keeper raising one) are told to the window.
@@ -158,6 +161,7 @@ export const issuesHandlers: Handlers<
   | 'ignoreIssue'
   | 'reopenIssue'
   | 'markIssueFixed'
+  | 'laterIssue'
   | 'updateMemoryFromIssue'
   | 'startCheck'
   | 'stopCheck'
@@ -187,6 +191,14 @@ export const issuesHandlers: Handlers<
     return asIssues([row])[0]
   },
   markIssueFixed: (id) => setStatus(id, 'fixed'),
+  // Later (findings that stay current): hidden until the next check of the scene, or until its paragraph changes.
+  laterIssue: (id) => {
+    const db = world.db()
+    const row = cdb.setLater(db, id)
+    if (!row) throw new UserError('That issue is no longer there.')
+    repo.touchWorld(db)
+    return asIssues([row])[0]
+  },
   updateMemoryFromIssue: (id) => {
     const db = world.db()
     const row = cdb.issueRow(db, id)

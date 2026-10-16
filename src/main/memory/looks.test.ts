@@ -1,6 +1,6 @@
 // A profile's typical clothing once a piece of it is gone for good (memory/looks.ts). Invented test text only.
 import { describe, expect, it } from 'vitest'
-import { clothingAfter, goneForGood } from './looks'
+import { clothingAfter, goneForGood, passingLook, usualLook, withoutPassingLooks } from './looks'
 
 describe('typical clothing, once a piece is gone for good', () => {
   it('reads what is gone for good: lost, thrown away, cut away; a bandage or sling taken off', () => {
@@ -37,5 +37,64 @@ describe('typical clothing, once a piece is gone for good', () => {
     expect(clothingAfter('grey shawl, clogs', 'bandage gone')).toBeNull()
     expect(clothingAfter('grey shawl, wide hat', 'took his hat off to greet her')).toBeNull()
     expect(clothingAfter('', 'lost her hat')).toBeNull()
+  })
+})
+
+describe('clothes off for a while are not what someone typically wears (2026-10-16)', () => {
+  it('reads a Typical clothing value that says only that nothing is worn, or only what came off', () => {
+    for (const v of [
+      'none',
+      'nothing',
+      'Nothing at all.',
+      'naked',
+      'nude',
+      'naked except for her grey stockings',
+      'nothing but the silver locket',
+      'nothing (undressed for bed)',
+      'none; her dress over the chair',
+      'undressed',
+      'half-dressed',
+      'dress off, stockings off',
+      'shirt removed; boots kicked off',
+      'barefoot'
+    ])
+      expect(passingLook('clothing', v), v).toBe(true)
+  })
+
+  it('never reads what someone does wear that way', () => {
+    for (const v of [
+      'a green wool dress, grey stockings, laced boots',
+      'bare feet and a ragged smock',
+      'a coat with its collar off-white',
+      'nothing fancy: a brown jerkin and boots',
+      'boots never taken off',
+      'linen shirt, brown waistcoat, wool trousers',
+      ''
+    ])
+      expect(passingLook('clothing', v), v).toBe(false)
+  })
+
+  it('reads naked in another Looks field, and touches no other field', () => {
+    expect(passingLook('skin', 'naked and flushed')).toBe(true)
+    expect(passingLook('marks', 'none')).toBe(false)
+    expect(passingLook('hair', 'loose')).toBe(false)
+    expect(passingLook('goals', 'nothing')).toBe(false)
+    expect(withoutPassingLooks({ clothing: 'nothing', hair: 'loose', marks: 'none' })).toEqual({ hair: 'loose', marks: 'none' })
+  })
+})
+
+describe('typical clothing, never what is worn for the moment (live test, 2026-10-16)', () => {
+  it('leaves out pieces worn just then, unless they say it is usual', () => {
+    expect(
+      usualLook('clothing', 'grey wool dress, laced boots, coat buttoned to the chin, the red wool scarf up round her jaw, her grandmother’s brass key on a cord round her neck')
+    ).toBe('grey wool dress, laced boots, her grandmother’s brass key on a cord round her neck')
+    expect(usualLook('clothing', 'oilskin soaked through; boots caked with mud; a blue knitted cap')).toBe('a blue knitted cap')
+    expect(usualLook('clothing', 'coat always buttoned to the chin, black gloves')).toBe('coat always buttoned to the chin, black gloves')
+    // Only the moment: nothing kept.
+    expect(usualLook('clothing', 'coat buttoned to the chin, scarf pulled up against the cold')).toBe('')
+    expect(passingLook('clothing', 'coat buttoned to the chin')).toBe(true)
+    // Other fields, and plain clothes, as they are.
+    expect(usualLook('clothing', 'a green wool dress, laced boots')).toBe('a green wool dress, laced boots')
+    expect(usualLook('hair', 'wet from the rain')).toBe('wet from the rain')
   })
 })

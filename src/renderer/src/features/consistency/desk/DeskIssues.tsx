@@ -2,13 +2,14 @@
 // first, then by chapter and scene. A card shows how serious it is in form (a stripe and a pill in its ink: red only
 // for must fix), the kind of check that found it, what disagrees with what, the words from the story set as a quote with
 // a way to them in the scene, and what it disagrees with as small cards (an entry with its drawing). Filters by
-// severity, with their counts ticking as issues go. Ignore folds the card away (the cards below close up, the counts
-// tick down; Undo in its toast brings it back). With nothing left, the all-clear: the lighthouse over a calm sea.
-// Behaviour is the Consistency page's own (IssuesTab.tsx): opening an issue's scene at its words, Ignore and Reopen.
+// severity, with their counts ticking as issues go. Later and Ignore fold the card away (the cards below close up, the
+// counts tick down; Undo in its toast brings it back). With nothing left, the all-clear: the lighthouse over a calm sea.
+// Behaviour is the Consistency page's own (IssuesTab.tsx): opening an issue's scene at its words, Later, Ignore and
+// Reopen.
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Issue, IssueSeverity, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
-import { ArrowUpRight, EyeOff, RotateCcw } from '@/components/ui/icons'
+import { ArrowUpRight, Clock, EyeOff, RotateCcw } from '@/components/ui/icons'
 import { LighthouseArt } from '@/components/art/RoomArt'
 import { DrawnTick } from '@/components/ui/DrawnTick'
 import { TickNumber } from '@/components/ui/TickNumber'
@@ -19,8 +20,8 @@ import { reducedMotion } from '@/features/look/motion'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { useChecks } from '../checkStore'
 import { issueSummary, KIND_WORDS, SEVERITY_WORDS, type IssueGroups } from '../consistencyLogic'
-import { CONTRACT_DETAIL, CONTRACT_WORDS, RULE_DETAIL, RULE_WORDS } from '@/features/issues/issuesLogic'
-import { ignoreIssue, reopenIssue } from '../IssuesTab'
+import { CONTRACT_DETAIL, CONTRACT_WORDS, LATER_TITLE, RULE_DETAIL, RULE_WORDS, ignoredWords } from '@/features/issues/issuesLogic'
+import { ignoreIssue, laterIssue, reopenIssue } from '../IssuesTab'
 import { openEntry, openIssue, openThread } from '../open'
 import { EntryMark, ISSUE_KIND_ICONS, SeverityPill, useEntryLook } from './marks'
 
@@ -101,15 +102,15 @@ export function DeskIssues({
   const nothing = !groups.story.length && !groups.chapters.length
   if (!nothing) hadIssues.current = true
 
-  const fold = (issue: Issue): void => {
-    // Shown with the ignored ones, it stays (as ignored); otherwise it folds away first.
-    if (showIgnored || reducedMotion()) {
-      void ignoreIssue(issue, onChanged)
+  const fold = (issue: Issue, act: typeof ignoreIssue = ignoreIssue): void => {
+    // Shown with the ignored ones, an ignored one stays (as ignored); otherwise it folds away first.
+    if ((showIgnored && act === ignoreIssue) || reducedMotion()) {
+      void act(issue, onChanged)
       return
     }
     setLeaving((s) => new Set(s).add(issue.id))
     setTimeout(() => {
-      void ignoreIssue(issue, onChanged).finally(() =>
+      void act(issue, onChanged).finally(() =>
         setLeaving((s) => {
           const n = new Set(s)
           n.delete(issue.id)
@@ -248,7 +249,7 @@ function DeskIssueCard({
   storyScenes: Set<ID>
   onChanged: (i: Issue) => void
   leaving: Set<ID>
-  onFold: (i: Issue) => void
+  onFold: (i: Issue, act?: typeof ignoreIssue) => void
 }): React.JSX.Element {
   const ignored = i.status === 'ignored'
   const opens = !!i.sceneId
@@ -283,7 +284,7 @@ function DeskIssueCard({
             · {CONTRACT_WORDS}
           </span>
         ) : null}
-        {ignored ? <span className="ck-kind">· Ignored</span> : null}
+        {ignored ? <span className="ck-kind">· {ignoredWords(i)}</span> : null}
         <span className="flex-1" />
         {ignored ? (
           <button
@@ -299,10 +300,16 @@ function DeskIssueCard({
             Reopen
           </button>
         ) : (
-          <button type="button" className="ck-act" title="It’s meant to be like this: put it away, and don’t raise it again" onClick={() => onFold(i)}>
-            <EyeOff size={13} aria-hidden />
-            Ignore
-          </button>
+          <>
+            <button type="button" className="ck-act" title={LATER_TITLE} onClick={() => onFold(i, laterIssue)}>
+              <Clock size={13} aria-hidden />
+              Later
+            </button>
+            <button type="button" className="ck-act" title="It’s meant to be like this: put it away, and don’t raise it again" onClick={() => onFold(i)}>
+              <EyeOff size={13} aria-hidden />
+              Ignore
+            </button>
+          </>
         )}
       </div>
       {opens ? (

@@ -1,19 +1,37 @@
 // The critic's report at the top of the Issues tab (Adam, 2026-10-04): what the latest check of the scene looked at,
-// what was good and where there were issues, one line per check. Collapsed by default: a line saying when it was
-// checked and how it went; opened, each check with what it compared. Comes back after every check (a draft landing,
-// Mark done, or Check this scene). Since long story memory fix 13 it also says how the latest draft kept to its scene's
-// contract, item by item (from the check as the draft landed, or the chapter writer's checks).
+// what was good and where there were issues, one line per check. Collapsed by default: a line saying how it was
+// checked and how many issues are open now (`open`, the scene's issues as they are, so it follows every fix), and under
+// it when it ran and, once the scene's words have changed since, that they have (findings that stay current,
+// 2026-10-16: checked against the saved words every few seconds while it shows, as the critique is); opened, each check
+// with what it compared. Comes back after every check (a draft landing, Mark done, or Check this scene). Since long story
+// memory fix 13 it also says how the latest draft kept to its scene's contract, item by item (from the check as the
+// draft landed, or the chapter writer's checks).
 import { useEffect, useState } from 'react'
 import type { CheckReport } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { ChevronDown, ChevronRight, CircleAlert, CircleCheck } from '@/components/ui/icons'
 import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { CHECK_WORDS, CONTRACT_DETAIL, CONTRACT_PART_WORDS, CONTRACT_RESULT_WORDS, CONTRACT_WORDS, contractNote, contractOk, reportHeadline } from './issuesLogic'
+import {
+  CHECK_WORDS,
+  CONTRACT_DETAIL,
+  CONTRACT_PART_WORDS,
+  CONTRACT_RESULT_WORDS,
+  CONTRACT_WORDS,
+  contractNote,
+  contractOk,
+  reportHeadline,
+  reportWhen
+} from './issuesLogic'
 
-export function CheckReportCard({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+/** How often a report that still matches the scene's words is checked against them (a cheap call: no AI). */
+const CHANGED_CHECK_MS = 2500
+
+export function CheckReportCard({ sceneId, openIssues = null }: { sceneId: ID; openIssues?: number | null }): React.JSX.Element | null {
   const [report, setReport] = useState<CheckReport | null>(null)
   const [open, setOpen] = useState(false)
+  // Re-drawn each minute, so "5 minutes ago" keeps up.
+  const [, setTick] = useState(0)
 
   useEffect(() => {
     let live = true
@@ -36,7 +54,31 @@ export function CheckReportCard({ sceneId }: { sceneId: ID }): React.JSX.Element
     }
   }, [sceneId])
 
+  // While the report still matches the scene's words, it is checked against them every few seconds (once they have
+  // changed it stays so until the next check).
+  const watching = !!report?.textHash && !report.changed
+  useEffect(() => {
+    if (!watching) return
+    let live = true
+    const t = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void api
+        .getCheckReport(sceneId)
+        .then((r) => live && setReport(r))
+        .catch(() => undefined)
+    }, CHANGED_CHECK_MS)
+    return () => {
+      live = false
+      clearInterval(t)
+    }
+  }, [sceneId, watching])
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 60_000)
+    return () => clearInterval(t)
+  }, [])
+
   if (!report) return null
+  const when = reportWhen(report)
   const contract = report.contract
   const kept = contract ? contractOk(contract) : true
   return (
@@ -49,8 +91,13 @@ export function CheckReportCard({ sceneId }: { sceneId: ID }): React.JSX.Element
           className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-muted hover:text-fg"
         >
           {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-          <span className="min-w-0 flex-1">{reportHeadline(report)}</span>
+          <span className="min-w-0 flex-1">{reportHeadline(report, report.items.length ? openIssues : null)}</span>
         </button>
+        {when ? (
+          <p className="-mt-1 pb-2 pl-[34px] pr-3 text-[12px] text-faint" data-report-when data-changed={report.changed || undefined}>
+            {when}
+          </p>
+        ) : null}
         {open ? (
           <ul className="flex flex-col gap-2 border-t border-line px-3 py-2.5 animate-fade-in">
             {report.items.map((item) => (

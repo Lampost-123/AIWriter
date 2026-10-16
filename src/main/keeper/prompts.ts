@@ -16,6 +16,8 @@
 // 6,000 the tests hold it to.
 // Since 2026-10-16 (long story memory fix 15) chapter, story and series summaries are told the story record's facts
 // (what changed in the chapter, how things stand at its end) and to follow them; a scene's summary is never patched.
+// Since 2026-10-16 (code review) a change ends a field's value only "for good … not clothes off for a while": a passing
+// undress set Typical clothing to "nothing" (memory/looks.ts passingLook). 5,971 characters.
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -43,7 +45,7 @@ Rules
 - Every fact needs "quote": words copied character for character from one P paragraph: the shortest phrase or sentence that shows it.
 - Refer to entries by their ids (E1, E2 ...), those under "Elsewhere in the world" too: never make a new entry with a name or alias already listed. Later items can refer to a new entry by its "ref" (N1, N2 ...).
 - A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives or makes (a bead, a letter) is an item, however much it matters to them. Give a new entry only fields the words show.
-- Changes are what is now different: injuries, possessions, looks, where someone is, goals, a death. Write a "note" as a short phrase without the name. When a change ends what one of their fields says (a bandage off for good, a hat lost), also give that field's new value, without it, in "fields".
+- Changes are what is now different: injuries, possessions, looks, where someone is, goals, a death. Write a "note" as a short phrase without the name. When a change ends for good what one of their fields says (a bandage off, a hat lost; not clothes off for a while), also give that field's new value, without it, in "fields".
 - Details: facts about an entry that don't change in the scene (a newcomer's eye colour).
 - Said lines later scenes must keep to (a promise or vow, a threat, a secret told): a "said" item with who says it, who hears it, and the spoken line itself as the quote. A secret told is now known by the hearers: give it as "said" only, not also "knows".
 - Knows: give "how" and, if told or overheard, "from" whom; "wrong": true if what they believe isn't true.

@@ -11,6 +11,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import type { ChapterText } from '../db/checksReports'
 import { LONG_OPEN_CHAPTERS } from '../worldViews/threads'
 import { buildRepetition, nameWordsOf, repetitionReportOf, threadsReportOf, WORD_EVERY } from './reports'
+import { budget } from '../../shared/testPerf'
 
 // Ordinary prose, written for these tests: about 1,100 words in three scenes, names used freely.
 const SCENES = [
@@ -234,11 +235,11 @@ describe('the repetition report', () => {
       times.push(performance.now() - t0)
     }
     expect(r.chapters).toHaveLength(40)
-    expect(Math.min(...times)).toBeLessThan(1500)
+    expect(Math.min(...times)).toBeLessThan(budget(1500))
     // Asked again with nothing changed, it is kept.
     const t1 = performance.now()
     expect(repetitionReportOf(db, story.id)).toBe(r)
-    expect(performance.now() - t1).toBeLessThan(20)
+    expect(performance.now() - t1).toBeLessThan(budget(20))
   }, 60_000)
 })
 

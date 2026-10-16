@@ -14,7 +14,7 @@ import { listAllChanges, listSummaries, loadShape } from '../db/memory'
 import { saidChanges, scenesCardsAndText, type SaidChange } from '../db/retrieval'
 import { buildLine, labeler, storyOfScene } from '../memory/line'
 import type { Line } from '../memory/types'
-import { fuse, KeywordIndex, nearest, type Ranked } from './rank'
+import { fuse, KeywordIndex, likeness, nearest, type Ranked } from './rank'
 import { saidLines, type SaidTime } from './said'
 import { STICKY_SCENES, stickyEntries } from './sticky'
 import type { SearchIndex, StoredPassage } from './store'
@@ -220,6 +220,47 @@ export function withLimit<T>(p: (signal: AbortSignal) => Promise<T>, ms: number,
       }
     )
   })
+}
+
+/**
+ * How close in meaning each doc is to any of the queries, 0 to 1 (2026-10-16, for the consistency checks: which facts of
+ * who knows what a scene's words touch): its best likeness above the search model's floor, as a share of the best doc's.
+ * Docs under the floor are left out. The queries are read now; the docs in the background and kept (as facts are for a
+ * briefing), waited for while there is time. Null when there is no search model, or it took longer than the wait.
+ */
+export async function meaningScores(
+  deps: Pick<RecallDeps, 'index' | 'embedder' | 'vectors' | 'signal' | 'background' | 'meaningWaitMs'>,
+  queries: string[],
+  docs: { key: string; text: string }[]
+): Promise<Map<string, number> | null> {
+  const embedder = deps.embedder
+  if (!embedder || !queries.length || !docs.length || deps.signal?.aborted) return null
+  const vectors = deps.vectors ?? new Vectors()
+  const qs = queries.map((t) => ({ hash: `q:${textHash(t)}`, text: t }))
+  const ds = docs.map((d) => ({ hash: textHash(d.text), text: d.text }))
+  return withLimit(
+    async (signal) => {
+      const [qv, dv] = await Promise.all([
+        vectors.read({ embedder, texts: qs, now: true, signal }),
+        vectors.read({ embedder, texts: ds, now: false, index: deps.index, store: 'other', signal, background: deps.background })
+      ])
+      if (signal.aborted) throw new Error('out of time')
+      const qvecs = qs.map((q) => qv.get(q.hash)).filter((v): v is Float32Array => !!v)
+      const best = new Map<string, number>()
+      docs.forEach((d, i) => {
+        const v = dv.get(ds[i].hash)
+        if (!v || !qvecs.length) return
+        const top = Math.max(...qvecs.map((q) => likeness(q, v)))
+        if (top >= embedder.floor) best.set(d.key, Math.max(top, best.get(d.key) ?? -1))
+      })
+      const max = Math.max(embedder.floor, ...best.values())
+      const out = new Map<string, number>()
+      for (const [k, v] of best) out.set(k, max > embedder.floor ? (v - embedder.floor) / (max - embedder.floor) : 1)
+      return out
+    },
+    deps.meaningWaitMs ?? MEANING_WAIT_MS,
+    deps.signal
+  )
 }
 
 /** Keeps the finds of one list that score at least `keep` of its best. */

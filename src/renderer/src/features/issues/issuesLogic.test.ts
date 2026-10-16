@@ -9,11 +9,14 @@ import {
   fixAgainNote,
   fixDirection,
   foundWords,
+  ignoredWords,
+  SET_ASIDE_WORDS,
   memoryFixWords,
   occurrencesIn,
   openCount,
   pickOccurrence,
   reportHeadline,
+  reportWhen,
   runFor,
   sentenceAround,
   splitIssues,
@@ -25,6 +28,23 @@ describe('the check report’s line', () => {
     const items = new Array(6).fill(null) as never[]
     expect(reportHeadline({ after: 'draft', items, found: 0 })).toBe('Checked after the latest draft · 6 checks · no issues')
     expect(reportHeadline({ after: 'done', items, found: 2 })).toBe('Checked when marked done · 6 checks · 2 issues')
+  })
+
+  it('counts the scene’s issues open now, so the line follows every fix (findings that stay current)', () => {
+    const items = new Array(6).fill(null) as never[]
+    expect(reportHeadline({ after: 'draft', items, found: 3 }, 3)).toBe('Checked after the latest draft · 6 checks · 3 issues open')
+    expect(reportHeadline({ after: 'draft', items, found: 3 }, 1)).toBe('Checked after the latest draft · 6 checks · 1 issue open')
+    expect(reportHeadline({ after: 'draft', items, found: 3 }, 0)).toBe('Checked after the latest draft · 6 checks · none left open')
+    expect(reportHeadline({ after: 'request', items, found: 0 }, 0)).toBe('Checked · 6 checks · no issues')
+    // The memory keeper's clash, found apart from the check, is open too.
+    expect(reportHeadline({ after: 'request', items, found: 0 }, 1)).toBe('Checked · 6 checks · 1 issue open')
+  })
+
+  it('says when the check ran, and that the scene changed since when it has', () => {
+    const now = Date.parse('2026-10-16T12:00:00.000Z')
+    expect(reportWhen({ at: '2026-10-16T11:55:00.000Z' }, now)).toBe('5 minutes ago')
+    expect(reportWhen({ at: '2026-10-16T11:59:50.000Z', changed: true }, now)).toBe('Just now · The scene changed since this check')
+    expect(reportWhen({ at: 'not a time', changed: true }, now)).toBe('The scene changed since this check')
   })
 
   it('the scene’s contract (fix 13): how many items were kept, what went against it and what isn’t shown yet', () => {
@@ -77,6 +97,15 @@ describe('the Issues tab’s words', () => {
     expect(openCount(list)).toEqual({ count: 2, mustFix: 1 })
     expect(openCount(null)).toEqual({ count: 0, mustFix: 0 })
     expect(splitIssues(list).ignored.map((i) => i.id)).toEqual(['c'])
+  })
+
+  it('keeps those saved for later apart: not shown with the open ones, not counted (findings that stay current)', () => {
+    const list = [issue({ id: 'a', severity: 'must-fix', later: true }), issue({ id: 'b' }), issue({ id: 'c', status: 'ignored' })]
+    expect(openCount(list)).toEqual({ count: 1, mustFix: 0 })
+    const split = splitIssues(list)
+    expect(split.open.map((i) => i.id)).toEqual(['b'])
+    expect(split.later.map((i) => i.id)).toEqual(['a'])
+    expect(split.ignored.map((i) => i.id)).toEqual(['c'])
   })
 
   it('names what Update the memory sets', () => {
@@ -177,5 +206,13 @@ describe('Fix the text', () => {
     expect(usableFix({ ...premise, fix: 'Mara had never left the city.' })).toBeNull()
     expect(usableFix({ ...premise, fix: '  mara had never  left the city. ' })).toBeNull()
     expect(usableFix({ ...premise, fix: 'Mara had left the farm only once.' })).toBe('Mara had left the farm only once.')
+  })
+})
+
+describe('an issue the chapter writer set aside (2026-10-16)', () => {
+  it('says who set it aside, where an issue Adam ignored says "Ignored"', () => {
+    expect(ignoredWords({ setAsideBy: 'chapter' })).toBe(SET_ASIDE_WORDS)
+    expect(SET_ASIDE_WORDS).toBe('The chapter writer set this aside')
+    expect(ignoredWords({})).toBe('Ignored')
   })
 })

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { WhenStory } from '../worldViews/when'
 import {
+  feastsAsDates,
+  splitCount,
   ageFrom,
   ageWords,
   buildCalendar,
@@ -405,5 +407,46 @@ describe('ages', () => {
     const rough = story(['spring, 1815', 'autumn, 1820'])
     expect(ageWords(ageFrom({ years: 17, then: at(rough, 1) }, at(rough, 2))!)).toBe('about 22')
     expect(ageFrom({ years: 17, then: at(rough, 1) }, story(['Day 3']).dates.get('s1')!)).toBeNull()
+  })
+})
+
+describe('counted days on the real calendar (live test, 2026-10-16)', () => {
+  const cal = (whens: string[]) => buildCalendar(whens.map((when, i) => ({ id: `s${i + 1}`, story: 'book', when })))
+
+  it('reads a feast day as its date', () => {
+    expect(feastsAsDates('Christmas Eve, morning')).toBe('24 December, morning')
+    expect(feastsAsDates('Day 25, christmas eve')).toBe('Day 25, 24 December')
+    expect(feastsAsDates('New Year’s Day')).toBe('1 January')
+    expect(feastsAsDates('Christmas')).toBe('Christmas')
+    expect(cal(['Christmas Eve, 1923']).dates.get('s1')?.date).toBe('24 December 1923')
+  })
+
+  it('splits a count from the real day beside it, never "Day 3 of spring"', () => {
+    expect(splitCount('Day 25, 24 December, morning')).toEqual({ count: 'Day 25, morning', anchor: { month: 12, day: 24, year: null, part: '' } })
+    expect(splitCount('Day 1, 28 November 1923')).toEqual({ count: 'Day 1', anchor: { month: 11, day: 28, year: 1923, part: '' } })
+    expect(splitCount('Day 1, November 28th')?.anchor).toEqual({ month: 11, day: 28, year: null, part: '' })
+    expect(splitCount('Day 1, late November')).toEqual({ count: 'Day 1', anchor: { month: 11, day: null, year: null, part: 'late' } })
+    expect(splitCount('Day 3 of spring')).toBeNull()
+    expect(splitCount('Day 3, evening')).toBeNull()
+    expect(splitCount('12 March 1820')).toBeNull()
+    // "may" in lower case is a word, not the month.
+    expect(splitCount('Day 3, as late as may be')).toBeNull()
+  })
+
+  it('places every day of the count from the first card that names a real day', () => {
+    const c = cal(['Day 1, afternoon', 'Day 3, evening', 'Day 25, Christmas Eve, morning', 'Day 26'])
+    expect([...c.dates.values()].map((d) => d.real)).toEqual(['30 November', '2 December', '24 December', '25 December'])
+    // The count stays the count: day numbers and the sums are as before, and the When is Adam's own words.
+    expect(c.dates.get('s3')).toMatchObject({ day: 25, date: 'Day 25', when: 'Day 25, Christmas Eve, morning', time: 'morning' })
+    expect(c.dates.get('s2')?.date).toBe('Day 3')
+    // A year gives the day of the week; "28" is the day, never a year.
+    const y = cal(['Day 1, 28 November 1923', 'Day 3'])
+    expect(y.dates.get('s2')).toMatchObject({ date: 'Day 3', real: 'Friday 30 November 1923' })
+    // A month alone: about right.
+    expect(cal(['Day 1, late November', 'Day 12']).dates.get('s2')?.real).toBe('about early December')
+    // Nothing named: nothing told.
+    expect(cal(['Day 1', 'Day 3']).dates.get('s2')?.real).toBeUndefined()
+    // A day the month doesn't have places nothing.
+    expect(cal(['Day 1, 31 April 1820', 'Day 3']).dates.get('s2')?.real).toBeUndefined()
   })
 })

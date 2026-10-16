@@ -17,6 +17,13 @@ export const AGENT_REPLY = 2400
 /** How many requests each session may take (each tool call is one more). Per session, never per run. */
 export const STEPS: Record<ChapterJob, number> = { study: 16, review: 28, chapter: 28, proofread: 14 }
 
+/**
+ * How many look-ups each session may make (read_scene, get_entry, timeline...), beside its own tools. Live test,
+ * 2026-10-16: review sessions read every scene of the story, ran out of requests and fixed nothing, at about a million
+ * tokens each. A scene of the chapter it has been shown, unchanged, is never sent again (and isn't counted).
+ */
+export const LOOKUPS_ALLOWED: Record<ChapterJob, number> = { study: 40, review: 10, chapter: 14, proofread: 0 }
+
 /** The most words one revise may carry (a longer reply risks being cut off). */
 export const MAX_REVISE_WORDS = 600
 
@@ -41,7 +48,7 @@ What to do
 1. Read the chapter card and each scene card below.
 2. Look up everyone and everything the cards name or need: who they are now, where they are, what they hold and wear, what they know and don't know, injuries, what they have lost or given away, their relationships.
 3. Check the timeline and the story so far: when each scene happens, how much time has passed, what has already happened (so nothing is written again as new), which plot threads are open.
-4. Call write_brief once, at the end: for each scene, the facts the writer must keep to (each with where it comes from), who knows what, where everyone and everything starts, when it happens, the threads to touch, and the traps to avoid. Under questions, list anything in the cards that doesn't fit the memory, and say in the scene's notes how the scene will stay true to the memory instead.
+4. Call write_brief once, at the end: for each scene, the facts the writer must keep to (each with where it comes from), who knows what, when it happens, the threads to touch, and the traps to avoid; for the chapter's first scene only, where everyone and everything starts. Each later scene starts exactly where the scene before it ends, which isn't written yet: the app tells the writer where everyone is, what they wear and hold, at that point, so never guess it. Under questions, list anything in the cards that doesn't fit the memory, and say in the scene's notes how the scene will stay true to the memory instead.
 
 ${RULES}
 
@@ -59,11 +66,12 @@ You are the lead editor of a novel. You are revising ${what}. The app's consiste
 ${LOOKING}
 
 How to work
-- For each finding, look up what you need, then decide: is it real?
+- The scene's words are below: work from them. Look up only what a finding needs (most need one look-up or none; you have at most ${LOOKUPS_ALLOWED[job]} in this session), and don't read other scenes unless a finding is about them.
+- For each finding, decide: is it real?
 - Real: fix it with revise, naming the findings it fixes in \`fixes\`. Fix the cause, not the symptom: a wrong time means checking the timeline, not rewording; someone knowing what they can't means changing what they say or think. Keep the change as small as does the job, and in the story's voice. A scene wrong at its core (it misses the card's goal, or the brief, or is built on a mistake) can be written again with rewrite_scene and a clear direction.
 - Wrong (the check or the critic misread it): call not_a_problem with your reason, quoting the words of the scene or the memory that show it ("..." in your reason). Use it only when you can show it.
 - Craft notes from the critic are real unless following them would break the memory, the card or the voice: then explain with not_a_problem.
-- When every finding is fixed or answered, you may call check_again to have the checks and the critic read the scene again, then deal with anything new. Then call done with a short summary.
+- When every finding is fixed or answered, you may call check_again to have the checks read the scene again, then deal with anything new. Then call done with a short summary.
 
 ${RULES}
 
@@ -82,7 +90,7 @@ The scene's words are below, each paragraph numbered.`
 export const WRITE_BRIEF: ToolSpec = {
   name: 'write_brief',
   description:
-    'Write the brief the chapter is written to, once, when you have studied the chapter. `overview`: a few lines on the chapter. `scenes`: one item per scene, in order, with its notes for the writer (facts to keep to with where they come from, who knows what, where everyone and everything starts, when it happens, threads to touch, traps to avoid). `questions`: anything in the scene cards that doesn\'t fit the memory, for the author.',
+    'Write the brief the chapter is written to, once, when you have studied the chapter. `overview`: a few lines on the chapter. `scenes`: one item per scene, in order, with its notes for the writer (facts to keep to with where they come from, who knows what, when it happens, threads to touch, traps to avoid; where everyone and everything starts for the first scene only, as each later one starts where the scene before it ends). `questions`: anything in the scene cards that doesn\'t fit the memory, for the author.',
   parameters: {
     type: 'object',
     properties: {
@@ -144,7 +152,7 @@ export const NOT_A_PROBLEM = {
 export const CHECK_AGAIN: ToolSpec = {
   name: 'check_again',
   description:
-    "Have the consistency checks and the critic read a scene again now (after your changes), and list what they find. Each new finding gets a new id.",
+    "Have the consistency checks read a scene again now (after your changes), and list what is still open there, the critic's notes still to deal with included. Each new finding gets a new id.",
   parameters: { type: 'object', properties: { scene: sceneArg } }
 }
 

@@ -394,6 +394,8 @@ export function dateView(cal: Calendar, sceneId: ID, back: ReadonlyMap<ID, Going
         'AI Write can’t tell how many days that is, so it doesn’t count days on from here until a scene names its own.'
       )
     default:
+      // A counted day a card places on the real calendar says which day it is ("Reads as Day 3 · 2 December.").
+      if (day && d.real) return view(`Reads as ${label} · ${d.real}.`)
       return view(day && (d.leans || storyDayWords(d)) ? `Reads as ${label}.` : '')
   }
 }

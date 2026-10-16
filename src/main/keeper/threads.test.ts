@@ -174,6 +174,38 @@ describe('resolving', () => {
     expect(threadChanges(w.db, w.scenes[2])).toEqual([])
   })
 
+  it('resolves it where Adam’s card plans the payoff and the words move it on (live test, 2026-10-16)', async () => {
+    const w = world()
+    save(w.db, w.scenes[0], [['p1', OPEN]])
+    await read(w.db, w.scenes[0])
+    const bell = threadNamed(w.db, BELL)!
+    repo.updateSceneCard(w.db, w.scenes[1], { ...emptySceneCard(), paysOffIds: [bell.id] })
+    // The model reads the wedding as a step on, twice; the card says this is where it pays off.
+    save(w.db, w.scenes[1], [
+      ['p1', 'Things moved on: the ferryman climbed the tower and rang it for his drowned son.'],
+      ['p2', 'Things moved on: the bell was quiet after that.']
+    ])
+    await read(w.db, w.scenes[1])
+    expect(threadChanges(w.db, w.scenes[1]).map((c) => c.payload.status)).toEqual(['resolved'])
+    expect(threadsBoardOf(w.db, w.storyId).threads.find((x) => x.id === bell.id)).toMatchObject({ column: 'resolved' })
+  })
+
+  it('leaves a step on open where no card plans the payoff, or a later card does', async () => {
+    const w = world()
+    save(w.db, w.scenes[0], [['p1', OPEN]])
+    await read(w.db, w.scenes[0])
+    const bell = threadNamed(w.db, BELL)!
+    save(w.db, w.scenes[1], [['p1', 'Things moved on: the tower door was found barred.']])
+    await read(w.db, w.scenes[1])
+    expect(threadChanges(w.db, w.scenes[1]).map((c) => c.payload.status)).toEqual(['open'])
+    repo.updateSceneCard(w.db, w.scenes[2], { ...emptySceneCard(), paysOffIds: [bell.id] })
+    save(w.db, w.scenes[2], [['p1', 'Not yet.']])
+    repo.updateSceneCard(w.db, w.scenes[1], { ...emptySceneCard(), paysOffIds: [bell.id] })
+    save(w.db, w.scenes[1], [['p1', 'Things moved on: the tower door was found barred again.']])
+    await read(w.db, w.scenes[1])
+    expect(threadChanges(w.db, w.scenes[1]).map((c) => c.payload.status)).not.toContain('resolved')
+  })
+
   it('ignores a resolve while a later scene card of Adam’s pays it off: it has only moved on', async () => {
     const w = world()
     save(w.db, w.scenes[0], [['p1', OPEN]])

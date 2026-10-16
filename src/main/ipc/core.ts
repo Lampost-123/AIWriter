@@ -16,6 +16,7 @@ import { sceneTextSaved } from '../history'
 import { sceneSavedForMarks } from '../readAloud'
 import { syncSpelling } from '../spelling'
 import { findByMeaningChanged } from '../retrieval'
+import { sweepGone } from '../db/checks'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
@@ -158,6 +159,13 @@ export const coreHandlers: Handlers<CoreMethods> = {
     const saved = write(() => sceneSaved(id, repo.saveSceneText(world.db(), id, doc, text)))
     sceneTextSaved(id)
     sceneSavedForMarks(id, doc)
+    // Findings that stay current (2026-10-16): the scene's issues follow its words as they are saved (those whose words
+    // went are put away, the window told). Never stops a save.
+    try {
+      sweepGone(world.db(), { sceneId: id }, { doc, text })
+    } catch (e) {
+      console.warn('Could not bring the scene’s issues up to date', e)
+    }
     return saved
   },
   // The panel's copy may predate a plot thread link the memory made or took back since: those stay as the memory left them.

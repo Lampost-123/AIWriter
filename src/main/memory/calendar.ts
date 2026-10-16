@@ -113,6 +113,11 @@ export interface StoryDate {
   back: boolean
   /** Sort key along the in-world calendar (worldViews/when.ts compareKeys); null when it can't be placed among the others. */
   key: number[] | null
+  /**
+   * A counted day on the real calendar, where a scene's When names a real day beside its count ("Day 25, Christmas Eve"):
+   * "2 December", "Sunday 2 December 1923", "about early December". Left out when it isn't known.
+   */
+  real?: string
 }
 
 /** Every scene's date, by id, in reading order. */
@@ -223,6 +228,103 @@ function roughText(s: WhenState, monthKnown: boolean): string {
   return [month, year].filter(Boolean).join(s.yearWord ? ', ' : ' ')
 }
 
+// ---------- Counted days on the real calendar ----------
+
+/**
+ * Days of the year a When may name by their feast (live test, 2026-10-16: "Day 25, Christmas Eve" was the cards' only
+ * clue to the month, and nothing read it). Only fixed days; Easter and the like move.
+ */
+// prettier-ignore
+const FEASTS: [RegExp, number, number][] = [
+  [/\bchristmas\s+eve\b/i, 12, 24], [/\bchristmas\s+day\b/i, 12, 25], [/\bboxing\s+day\b/i, 12, 26],
+  [/\bnew\s+year['’]?s\s+eve\b/i, 12, 31], [/\bnew\s+year['’]?s\s+day\b/i, 1, 1], [/\btwelfth\s+night\b/i, 1, 5],
+  [/\bcandlemas\b/i, 2, 2], [/\b(?:st\.?\s+)?valentine['’]?s\s+day\b/i, 2, 14], [/\blady\s+day\b/i, 3, 25],
+  [/\bmidsummer['’]?s?\s+eve\b/i, 6, 23], [/\bmidsummer['’]?s?\s+day\b/i, 6, 24], [/\blammas\b/i, 8, 1],
+  [/\bmichaelmas\b/i, 9, 29], [/\bhallowe['’]?en\b/i, 10, 31], [/\ball\s+saints['’]?\s+day\b/i, 11, 1],
+  [/\b(?:guy\s+fawkes|bonfire)\s+night\b/i, 11, 5], [/\bmartinmas\b/i, 11, 11]
+]
+
+/** "Christmas Eve" as "24 December", so a When naming a feast day is read as that day. */
+export function feastsAsDates(text: string): string {
+  for (const [re, month, day] of FEASTS) if (re.test(text)) return text.replace(re, `${day} ${MONTH_NAMES[month - 1]}`)
+  return text
+}
+
+/** The real day a counted day falls on: its month, and its day of the month and year where told; `part` for "late November". */
+export interface CountAnchor {
+  month: number
+  day: number | null
+  year: number | null
+  part: '' | 'early' | 'mid' | 'late'
+}
+
+const MONTH_RE = MONTH_NAMES.join('|')
+const COUNT_RE = /\bday\s+(\d{1,4})\b(?!\s+of\b)/i
+const DAY_MONTH_RE = new RegExp(String.raw`\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(${MONTH_RE})\b(?:,?\s+(\d{3,4})\b)?`, 'i')
+const MONTH_DAY_RE = new RegExp(String.raw`\b(${MONTH_RE})\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{3,4})\b)?`, 'i')
+const PART_MONTH_RE = new RegExp(String.raw`\b(?:(early|mid|middle\s+of|late)[\s-]+)?(${MONTH_RE})\b(?:,?\s+(\d{3,4})\b)?`, 'i')
+
+/**
+ * A When that counts its days and names a real day too ("Day 25, 24 December", "Day 1, 28 November 1923", "Day 1, late
+ * November"): the count alone, as the calendar counts it, and the real day it falls on. Null for any other When. "Day
+ * 3 of spring" is a day of that season, as before, so it is left alone. "May" and "March" count only capitalised.
+ */
+export function splitCount(text: string): { count: string; anchor: CountAnchor } | null {
+  const c = COUNT_RE.exec(text)
+  if (!c) return null
+  // A real day never takes the count's own number ("Day 3 December").
+  const apart = (m: RegExpExecArray | null): RegExpExecArray | null =>
+    m && (m.index >= c.index + c[0].length || m.index + m[0].length <= c.index) ? m : null
+  const monthOf = (word: string): number | null => {
+    if (/^(may|march)$/i.test(word) && !/^\p{Lu}/u.test(word)) return null
+    const i = MONTH_NAMES.findIndex((m) => m.toLowerCase() === word.toLowerCase())
+    return i < 0 ? null : i + 1
+  }
+  const tidy = (t: string): string =>
+    t
+      .replace(/\s*,\s*(,\s*)+/g, ', ')
+      .replace(/^[\s,]+|[\s,]+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+  const dm = apart(DAY_MONTH_RE.exec(text))
+  const md = dm ? null : apart(MONTH_DAY_RE.exec(text))
+  const m = dm ?? md
+  if (m) {
+    const [day, word, year] = dm ? [m[1], m[2], m[3]] : [m[2], m[1], m[3]]
+    const month = monthOf(word)
+    if (month !== null && Number(day) >= 1 && Number(day) <= 31) {
+      return { count: tidy(text.replace(m[0], '')), anchor: { month, day: Number(day), year: year ? Number(year) : null, part: '' } }
+    }
+  }
+  const pm = apart(PART_MONTH_RE.exec(text))
+  const month = pm ? monthOf(pm[2]) : null
+  if (!pm || month === null) return null
+  const part = !pm[1] ? '' : /^early/i.test(pm[1]) ? 'early' : /^late/i.test(pm[1]) ? 'late' : 'mid'
+  return { count: tidy(text.replace(pm[0], '')), anchor: { month, day: null, year: pm[3] ? Number(pm[3]) : null, part } }
+}
+
+/** Day 0 of daysFromCivil (1 January 1970) was a Thursday. */
+const WEEKDAY_NAMES = ['Thursday', 'Friday', 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday']
+
+/**
+ * Where a bare count's days fall on the real calendar: the real day (daysFromCivil) of its day 0, and whether the year
+ * and the day of the month were told.
+ */
+interface CountOnCalendar {
+  zero: number
+  year: boolean
+  exact: boolean
+}
+
+/** A counted day as a real one: "Sunday 2 December 1923", "2 December", or "about early December" when only a month was told. */
+function realText(on: CountOnCalendar, n: number): string {
+  const real = on.zero + n
+  const [y, m, d] = civilFromDays(real)
+  const month = MONTH_NAMES[m - 1]
+  if (!on.exact) return `about ${d <= 10 ? 'early' : d <= 20 ? 'mid' : 'late'} ${month}${on.year ? ` ${yearText(y, false)}` : ''}`
+  if (!on.year) return `${d} ${month}`
+  return `${WEEKDAY_NAMES[((real % 7) + 7) % 7]} ${d} ${month} ${yearText(y, false)}`
+}
+
 // ---------- The calendar ----------
 
 /**
@@ -230,7 +332,15 @@ function roughText(s: WhenState, monthKnown: boolean): string {
  * for the timeline (worldViews/when.ts WhenStory).
  */
 export function buildCalendar(items: readonly CalendarItem[], stories: ReadonlyMap<ID, WhenStory> = new Map()): Calendar {
-  const texts = items.map((x) => ({ text: x.when.trim(), story: x.story }))
+  // A feast day is read as its date, and a counted day that names a real one too ("Day 25, Christmas Eve") is counted as
+  // the count alone, its real day kept to place every day of that count on the real calendar (below).
+  const anchors = new Map<number, CountAnchor>()
+  const texts = items.map((x, i) => {
+    const text = feastsAsDates(x.when.trim())
+    const split = splitCount(text)
+    if (split) anchors.set(i, split.anchor)
+    return { text: split?.count ?? text, story: x.story }
+  })
   const states = whenStates(texts, stories)
   const placed = placeWhens(texts, stories)
   const dates = new Map<ID, StoryDate>()
@@ -280,7 +390,7 @@ export function buildCalendar(items: readonly CalendarItem[], stories: ReadonlyM
     const monthKnown = !!s && (!s.vague || (s.vague === 1 && !!p?.step && p.step.unit !== 'day' && !p.step.vague))
     dates.set(item.id, {
       id: item.id,
-      when: text,
+      when: item.when.trim(),
       reading,
       axis: at?.axis ?? null,
       n: at?.n ?? null,
@@ -309,6 +419,23 @@ export function buildCalendar(items: readonly CalendarItem[], stories: ReadonlyM
     if (d.axis === null || d.n === null) continue
     if (counted(d.axis)) d.day = d.n
     else if (origin && origin.axis === d.axis && !before.has(d.id)) d.day = d.n - origin.n + 1
+  }
+  // A bare count of days on the real calendar: the first scene that names a real day beside its count places every day
+  // of that count ("Day 25, Christmas Eve" makes Day 3 the 2nd of December). Only a bare count: a count of a year or
+  // season's days ("Day 3 of spring") is left as it is. With no year told, a year that isn't a leap year is assumed.
+  const onCalendar = new Map<string, CountOnCalendar>()
+  items.forEach((item, i) => {
+    const a = anchors.get(i)
+    const d = dates.get(item.id)
+    if (!a || !d || d.axis === null || d.n === null || !counted(d.axis) || onCalendar.has(d.axis)) return
+    const year = a.year ?? PLAIN_YEAR - 1
+    if (a.day !== null && a.day > monthLength(a.month, year)) return
+    const day = a.day ?? (a.part === 'early' ? 5 : a.part === 'late' ? 25 : 15)
+    onCalendar.set(d.axis, { zero: daysFromCivil(year, a.month, day) - d.n, year: a.year !== null, exact: a.day !== null })
+  })
+  for (const d of dates.values()) {
+    const on = d.axis !== null && d.n !== null ? onCalendar.get(d.axis) : undefined
+    if (on) d.real = realText(on, d.n!)
   }
   return { dates, order: items.map((x) => x.id) }
 }

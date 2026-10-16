@@ -32,6 +32,24 @@ function withCalendar(whens: string[], extra: Partial<SceneCalendar> = {}): Date
 }
 
 describe('the story date on the scene card', () => {
+  it('tells a counted day on the real calendar when a card names a real day beside its count (live test, 2026-10-16)', () => {
+    // The live test's cards: only "Day 25, Christmas Eve" said the month, and the writer was told nothing of it.
+    const whens = ['Day 1, afternoon', 'Day 3, evening', 'Day 25, Christmas Eve, morning']
+    const before = withCalendar([...whens.slice(0, 1), 'Day 3, evening'])
+    // Day 3 is read with the whole story's cards: Day 25 is the 24th of December, so Day 3 is the 2nd.
+    const cal = buildCalendar(whens.map((when, i) => ({ id: `s${i + 1}`, story: 'book', when })))
+    const day3 = { ...before, calendar: { ...before.calendar!, here: cal.dates.get('s2')!, previous: cal.dates.get('s1')! } }
+    expect(storyDateLines(day3)[0]).toBe('Story date: Day 3, evening, which falls on 2 December (2 days since the scene before)')
+    expect(storyDateLines(withCalendar(whens))[0]).toBe('Story date: Day 25, morning, which falls on 24 December (3 weeks and 1 day since the scene before)')
+    // With a year, the day of the week too; a month alone is about right.
+    expect(storyDateLines(withCalendar(['Day 1, 28 November 1923', 'Day 3, evening']))[0]).toBe(
+      'Story date: Day 3, evening, which falls on Friday 30 November 1923 (2 days since the scene before)'
+    )
+    expect(storyDateLines(withCalendar(['Day 1, late November', 'Day 12']))[0]).toBe(
+      'Story date: Day 12, which falls about early December (11 days since the scene before)'
+    )
+  })
+
   it('says how long after the previous scene this one is, from both cards', () => {
     expect(storyDateLines(cards('Day 8, noon', 'Day 5, dusk'))).toEqual(['Story date: Day 8, noon (3 days since the scene before)', FIT])
     expect(storyDateLines(cards('Day 10, dawn', 'Day 9, night'))[0]).toBe('Story date: Day 10, dawn (1 day since the scene before)')

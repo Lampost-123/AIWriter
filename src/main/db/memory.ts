@@ -1073,6 +1073,13 @@ export function sceneText(db: DB, sceneId: ID): { title: string; text: string } 
   return r ? { title: r.title as string, text: r.text as string } : null
 }
 
+/** The live scenes that have words, in one query. */
+export function scenesWithWords(db: DB): Set<ID> {
+  return new Set(
+    (db.prepare("SELECT id FROM scenes WHERE deleted_at IS NULL AND text IS NOT NULL AND trim(text) <> ''").all() as Row[]).map((r) => r.id as string)
+  )
+}
+
 /** Every series, for story-so-far roll-ups. */
 export function seriesNames(db: DB): Map<ID, string> {
   return new Map((db.prepare('SELECT id, name FROM series').all() as Row[]).map((r) => [r.id as string, r.name as string]))

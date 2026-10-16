@@ -1,6 +1,6 @@
 // Write the whole chapter: the words the window shows for a run (contracts/chapterWriter.ts). Pure, so it is unit-tested.
 
-import type { ChapterWriterPlan, ChapterWriterProgress, ChapterWriterReport } from '@shared/contracts/chapterWriter'
+import { CHAPTER_WRITER_LIMITS, type ChapterWriterPlan, type ChapterWriterProgress, type ChapterWriterReport } from '@shared/contracts/chapterWriter'
 
 const n = (k: number, one: string, many: string): string => `${k.toLocaleString('en-US')} ${k === 1 ? one : many}`
 
@@ -14,6 +14,11 @@ export function costWords(cost: number): string {
 /** The top bar's line while a run goes on: "Fixing Sc 2 “The ferry”, round 2…". */
 export const progressLine = (p: ChapterWriterProgress): string => `${p.note || 'Writing the chapter'}…`
 
+const LATEST = CHAPTER_WRITER_LIMITS.minutes === 60 ? 'an hour' : `${CHAPTER_WRITER_LIMITS.minutes} minutes`
+
+/** How far a run goes (CHAPTER_WRITER_LIMITS), as the start dialog says it. */
+export const LIMIT_WORDS = `It does at most ${CHAPTER_WRITER_LIMITS.fixRounds} rounds of fixes, and starts no new one after ${LATEST}: anything still open then is listed for you.`
+
 /** What the start dialog says about the chapter's scenes. */
 export function planWords(plan: ChapterWriterPlan): { intro: string; warning: string | null; ready: number; left: string[] } {
   const ready = plan.scenes.filter((s) => s.ready)
@@ -22,7 +27,7 @@ export function planWords(plan: ChapterWriterPlan): { intro: string; warning: st
   const intro =
     `The AI studies this chapter against the memory, writes ${ready.length === 1 ? 'its scene' : `its ${n(ready.length, 'scene', 'scenes')}`} from the scene cards, ` +
     'then checks them against the codex, Recall and the timeline, reads them as a critic would, fixes what it finds and proofreads. ' +
-    'It keeps going until the checks come back clean. It works in the background; you can stop it at any time from the top bar.'
+    `It keeps going until the checks come back clean. ${LIMIT_WORDS} It works in the background; you can stop it at any time from the top bar.`
   const warning = written
     ? `${written === ready.length ? (ready.length === 1 ? 'The scene already has words. They' : 'Every scene already has words. They') : `${n(written, 'scene already has', 'scenes already have')} words. They`} will be replaced: the words now are kept, and one Undo puts the whole chapter back.`
     : null

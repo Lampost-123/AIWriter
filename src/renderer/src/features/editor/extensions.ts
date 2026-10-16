@@ -20,6 +20,7 @@ import { KnownWords } from '@/features/spelling/knownWords'
 import { WordTally } from '@/features/goals/wordTally'
 import { SoundMarks } from '@/features/sounds/soundMarks'
 import { RepairMarks } from '@/features/repair/marks'
+import { IssueFixHistory } from '@/features/issues/fixHistory'
 import { BeatMarks } from '@/features/beats/beatMarks'
 import { deskOn } from '@/features/look/look'
 import { ChapterHold } from '@/features/chapterWriter/hold'
@@ -109,6 +110,8 @@ export function sceneExtensions(): AnyExtension[] {
     SoundMarks,
     // Check and repair: slips mended as new AI words landed, in amber (features/repair/marks.ts).
     RepairMarks,
+    // An accepted issue fix: Ctrl+Z taking it back reopens its issue (features/issues/fixHistory.ts).
+    IssueFixHistory,
     // Beat by beat: a band down the edge of each beat's paragraphs, while writing beat by beat or with
     // "Show beats" on (features/beats/beatMarks.ts).
     BeatMarks,
