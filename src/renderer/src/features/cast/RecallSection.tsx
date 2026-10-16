@@ -6,7 +6,8 @@
 // any point in the scene, following the cursor, from the checkpoints kept inside it (worked out there on request).
 // Each value's words show when the pointer rests on it. Piece by piece (step 2b, Adam 2026-10-07): each piece of
 // clothing is its own line ("Wearing: boots off, by the door"), and so is each thing in the place ("the door: barred
-// from inside"); each can be changed, taken out (left empty) or added, like any other value.
+// from inside"); each can be changed, taken out (left empty) or added, like any other value. A scene the memory model
+// turned down (2026-10-16) shows the state carried on from the scene before, says so, and can be put right by hand.
 import { useCallback, useEffect, useState } from 'react'
 import type { RecallAtView, RecallChange, RecallView } from '@shared/contracts/recall'
 import {
@@ -29,6 +30,7 @@ import { Plus, RefreshCw, X } from '@/components/ui/icons'
 import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { wordsToCursor } from '@/features/edits/session'
+import { uncheckedNote } from './recallLogic'
 
 const SCENE_FIELDS = [
   ['time', 'Time'],
@@ -129,6 +131,7 @@ export function RecallSection({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const atCursor = mode === 'cursor'
   const state = atCursor ? (at?.state ?? null) : (view?.state ?? null)
   const canRead = atCursor ? words !== null && !at?.exact : true
+  const unchecked = atCursor ? null : uncheckedNote(view)
   return (
     <section aria-label="Recall" data-recall>
       <div className="mb-1.5 flex items-center gap-2">
@@ -179,7 +182,12 @@ export function RecallSection({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </p>
       ) : (
         <>
-          {!view.current ? (
+          {unchecked ? (
+            <p className="mb-2 text-[12.5px] leading-relaxed text-muted" data-recall-unchecked={view.refused ? 'refused' : 'unread'}>
+              <span className="font-medium text-fg">{unchecked.lead}</span> {unchecked.text}
+              {view.edited ? ' Includes your changes.' : ''}
+            </p>
+          ) : !view.current ? (
             <p className="mb-2 text-[12.5px] leading-relaxed text-muted" data-recall-stale>
               <span className="font-medium text-fg">Out of date:</span> the words changed since (here or in an earlier scene). The writer isn’t
               given this until it is read again.

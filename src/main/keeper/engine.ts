@@ -24,6 +24,10 @@
 // - A draft waits for the summaries it can't do without no longer than it waits for the memory at all (beforeDraft's
 //   `limitMs`); they go on being written in the background.
 // - After each read, where things stand as the scene ends is brought up to date as a follow-on (onSceneRead).
+// - What the memory model turned down (some models won't read explicit scenes) isn't asked for again, before every draft
+//   or at every start, until the scene's words change, another memory model is picked, or Adam presses Try again
+//   (refusals.ts): a scene it wouldn't read keeps its "Memory not updated" note, which says so; a summary it wouldn't
+//   write loses its mark that it is being brought up to date; a roll-up is given up at once.
 // - Closing the world stops everything cleanly: nothing is written to a closed database.
 // No Electron imports: the window and settings are reached through KeeperDeps (see index.ts).
 
@@ -48,6 +52,8 @@ import { DUE_SUMMARY_SCENES } from './sceneChange'
 import { summaryRefreshed } from './undo'
 import { loadShapeSafe, placeWords, scenesBefore } from './places'
 import { tidyOnce } from './tidy'
+import { clearRefused, modelKeyOf, wasRefused } from './refusals'
+import { hashText } from './text'
 
 /** What a draft waiting for a scene's summary waits on (beside the scene ids a read is waited for by). */
 const summaryWait = (sceneId: ID): ID => `summary:${sceneId}`
@@ -280,9 +286,14 @@ export class Keeper {
     this.noModel = null
     if (this.recheck) clearTimeout(this.recheck)
     this.recheck = null
-    // Whatever failed or was given up is tried again, and summaries marked out of date meanwhile (while there was no
-    // model, say) go back on the backlog.
+    // Whatever failed or was given up is tried again (what the memory model turned down too), and summaries marked out
+    // of date meanwhile (while there was no model, say) go back on the backlog.
     this.retries.clear()
+    try {
+      clearRefused(this.db, id)
+    } catch (e) {
+      console.warn('Could not clear what the memory model turned down', e)
+    }
     this.fillBacklog()
     if (id) {
       this.clearTimer(id)
@@ -313,6 +324,8 @@ export class Keeper {
     if (!this.rereads.size) this.rereadTotal = 0
     for (const id of ids) {
       if (this.rereads.has(id)) continue
+      // Asked for by Adam: read again even where the memory model turned the words down before.
+      clearRefused(this.db, id)
       this.rereads.add(id)
       this.rereadTotal++
       this.clearTimer(id)
@@ -358,8 +371,9 @@ export class Keeper {
     // One query for the scenes left behind, not one per earlier scene (a long series has thousands).
     const behind = new Set(kdb.scenesToRead(this.db))
     const before = scenesBefore(this.db, sceneId)
-    const ids = behind.size ? before.filter((id) => behind.has(id)) : []
     if ('error' in this.deps.model()) return null
+    // Not what the memory model turned down: asked again, it would be paid for and turned down again.
+    const ids = behind.size ? before.filter((id) => behind.has(id) && !this.readRefused(id)) : []
     if (ids.length) {
       for (const id of ids) this.clearTimer(id)
       this.urgent = [...ids, ...this.urgent.filter((x) => !ids.includes(x))]
@@ -376,7 +390,7 @@ export class Keeper {
    * would have happened anyway, only sooner. Waits up to `limitMs`, then goes ahead (the read finishes on its own).
    */
   async readNow(sceneId: ID, limitMs = FRESH_READ_MS): Promise<'read' | 'timed-out' | 'none'> {
-    if (this.closed) return 'none'
+    if (this.closed || this.readRefused(sceneId)) return 'none'
     this.clearTimer(sceneId)
     const busy = this.reading?.sceneId === sceneId || this.queue.includes(sceneId) || this.urgent.includes(sceneId)
     if (!busy && !kdb.needsReading(this.db, sceneId)) return 'none'
@@ -424,7 +438,7 @@ export class Keeper {
     const recent = before.slice(-DUE_SUMMARY_SCENES)
     try {
       return recent.filter(
-        (id, i) => sceneSummaryDue(this.db, id, false) && (i === recent.length - 1 || !kdb.summaryRow(this.db, 'scene', id))
+        (id, i) => sceneSummaryDue(this.db, id, false, this.modelKey()) && (i === recent.length - 1 || !kdb.summaryRow(this.db, 'scene', id))
       )
     } catch (e) {
       console.warn('Could not tell which summaries a draft needs', e)
@@ -460,7 +474,7 @@ export class Keeper {
     if (this.closed || this.deps.summaries === false) return
     try {
       for (const id of before.slice(-DUE_SUMMARY_SCENES)) {
-        if (!this.summaryDue.includes(id) && sceneSummaryDue(this.db, id, false)) {
+        if (!this.summaryDue.includes(id) && sceneSummaryDue(this.db, id, false, this.modelKey())) {
           this.summaryDue.push(id)
           this.markRebuilding(id)
         }
@@ -483,7 +497,7 @@ export class Keeper {
       if (kdb.needsReading(this.db, sceneId)) this.enqueue(sceneId)
     }
     if (this.reading?.sceneId !== sceneId && !this.queue.includes(sceneId) && !this.urgent.includes(sceneId)) return
-    if ('error' in this.deps.model()) return
+    if ('error' in this.deps.model() || this.readRefused(sceneId)) return
     await new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))
   }
 
@@ -584,7 +598,7 @@ export class Keeper {
   }
 
   private enqueue(id: ID): void {
-    if (this.closed) return
+    if (this.closed || this.readRefused(id)) return
     if (!this.queue.includes(id) && !this.urgent.includes(id)) this.queue.push(id)
     this.kick()
   }
@@ -607,7 +621,9 @@ export class Keeper {
     while (!this.closed) {
       const id = this.urgent.shift() ?? this.queue.shift()
       if (id) {
-        await this.runOne(id)
+        // Turned down since it was queued (an earlier queued read of the same words): not asked again.
+        if (this.readRefused(id)) this.settle(id)
+        else await this.runOne(id)
         continue
       }
       const first = this.summaryNow.shift()
@@ -657,6 +673,25 @@ export class Keeper {
       onRecord: (g) => records.add(g),
       fetchImpl: this.deps.fetchImpl,
       retryDelays: this.deps.retryDelays
+    }
+  }
+
+  /** The memory model's key now (refusals.ts), or null when there is none. */
+  private modelKey(): string | null {
+    const m = this.deps.model()
+    return 'error' in m ? null : modelKeyOf(m)
+  }
+
+  /** True when the memory model now already turned down the scene's words as they are now: reading them again would be too. */
+  private readRefused(sceneId: ID): boolean {
+    try {
+      const key = this.modelKey()
+      if (!key) return false
+      const scene = kdb.keeperScene(this.db, sceneId)
+      return !!scene && wasRefused(this.db, 'read', sceneId, hashText(scene.text), key)
+    } catch (e) {
+      console.warn('Could not tell whether the memory model turned a scene down', e)
+      return false
     }
   }
 
@@ -777,7 +812,7 @@ export class Keeper {
         const done = this.done.has(id)
         this.done.delete(id)
         if (this.deps.summaries === false || !model || !scene) return
-        if (!sceneSummaryDue(this.db, id, done)) return
+        if (!sceneSummaryDue(this.db, id, done, this.modelKey())) return
         this.markRebuilding(id)
         const logRunId = outcome.status === 'done' && outcome.lines ? outcome.runId : null
         if (await writeSceneSummary(this.summaryOptions(model, controller, records), id, logRunId, this.where(id))) {
@@ -814,7 +849,7 @@ export class Keeper {
   /** Writes a scene's summary again from its words, if it is still due (never a patch of the old one: fix 15). */
   private async writeDueSummary(sceneId: ID): Promise<void> {
     const m = this.deps.model()
-    if ('error' in m || !sceneSummaryDue(this.db, sceneId, false)) return
+    if ('error' in m || !sceneSummaryDue(this.db, sceneId, false, this.modelKey())) return
     this.markRebuilding(sceneId)
     const controller = new AbortController()
     const records = new Set<ID>()
@@ -874,6 +909,12 @@ export class Keeper {
     return false
   }
 
+  /** Turned down by the memory model: given up at once (until Try again, or what it is made from changes). True. */
+  private giveUp(key: string, about: { sceneId?: ID; stories?: ID[] }): true {
+    this.retries.set(key, { tries: RETRY_TRIES, at: Infinity, given: true, ...about })
+    return true
+  }
+
   /**
    * A scene's summary couldn't be written: tried again later while it is still due; once given up, its mark that it is
    * being brought up to date goes, as nothing would clear it (the writer is still told it is out of date: summaryDue).
@@ -881,7 +922,7 @@ export class Keeper {
   private summaryFailed(sceneId: ID): void {
     if (this.closed || !this.db.open) return
     try {
-      if (!sceneSummaryDue(this.db, sceneId, false)) {
+      if (!sceneSummaryDue(this.db, sceneId, false, this.modelKey())) {
         this.retries.delete(`scene:${sceneId}`)
         return
       }
@@ -999,9 +1040,11 @@ export class Keeper {
     const controller = new AbortController()
     const records = new Set<ID>()
     this.current = { sceneId: r.targetId, controller, records }
+    let refused = false
     try {
       const stories = r.place.storyId ? [r.place.storyId] : [...this.dirtyStories]
-      if (await writeRollUp(this.summaryOptions(m, controller, records), r)) {
+      const o = { ...this.summaryOptions(m, controller, records), onRefused: () => (refused = true) }
+      if (await writeRollUp(o, r)) {
         this.retries.delete(rollUpKey(r))
         // What rests on it (the story's roll-up, the series') is out of date now, until it is written again in turn.
         try {
@@ -1010,7 +1053,7 @@ export class Keeper {
           console.warn('Could not mark which summaries are out of date', e)
         }
         this.deps.emitChanged({ sceneId: null, entryIds: [] })
-      } else if (!this.closed && this.failed(rollUpKey(r), { stories })) {
+      } else if (!this.closed && (refused ? this.giveUp(rollUpKey(r), { stories }) : this.failed(rollUpKey(r), { stories }))) {
         // Given up: no longer said to be being brought up to date.
         try {
           for (const id of stories) if (markOutOfDate(this.db, id, this.givenUp)) this.deps.emitChanged({ sceneId: null, entryIds: [] })

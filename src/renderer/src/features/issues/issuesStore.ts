@@ -130,7 +130,10 @@ function listen(): void {
     delete runs[d.runId]
     const scenes = run?.sceneIds ?? (d.target.scope === 'scene' ? [d.target.id] : [])
     const failed = { ...s.failed }
-    if (d.status === 'error' && d.error && !d.background) for (const id of scenes) failed[id] = d.error
+    // A check that went wrong says so in the scene's Issues, the automatic ones after a draft or marking a scene done
+    // too (a model that turns explicit scenes down, say): the panel says every draft is checked. One that worked clears it.
+    if (d.status === 'error' && d.error) for (const id of scenes) failed[id] = d.error
+    else if (d.status === 'complete') for (const id of scenes) delete failed[id]
     useIssuesStore.setState({ runs, failed })
     for (const id of scenes) if (s.scenes[id]) void loadIssues(id)
     // Marking a scene done turned something up: a quiet word, with the way to it.

@@ -16,6 +16,8 @@
 //   fake/slow              a long, slow stream (for Stop tests)
 //   fake/wait              holds its first words back for waitMs (as a thinking model does), then a normal stream
 //   fake/refuse            finish_reason content_filter with no text
+//   fake/prude             any request with the word EXPLICIT in it is answered with a polite refusal that finishes as
+//                          usual (PRUDE_REFUSAL), as some models do with explicit scenes; anything else as usual
 //   fake/think             <think> blocks and reasoning fields before the prose
 //   fake/midstream-error   some text, then an error object in the stream
 //   fake/no-stream-options 400 if the request has stream_options
@@ -86,6 +88,10 @@ import { repairReply } from './repair.mjs'
 
 /** How long fake/overthinker thinks, in tokens. */
 const OVERTHINK_TOKENS = 3000
+
+/** What fake/prude says to anything with the word EXPLICIT in it, as some models do with explicit scenes. */
+export const PRUDE_REFUSAL =
+  "I'm sorry, but I can't help with this request. It involves explicit sexual content, which goes against my content guidelines."
 
 export const FAKE_MODELS = [
   { id: 'fake/writer', name: 'Fake: Writer', context_length: 32000, pricing: { prompt: '0.000003', completion: '0.000015' } },
@@ -493,6 +499,9 @@ export async function startFakeProvider(options = {}) {
     memory ??= recipeReply(system, messages, model)
     // The scene and chapter critic, answered by critique.mjs.
     memory ??= critiqueReply(system, firstUser, model)
+    // fake/prude turns down whatever has the word EXPLICIT in it, in so many words (a reply that finishes as usual, not a
+    // content filter): a memory read, a summary, where things stand, a plan, a check or a draft alike.
+    if (model === 'fake/prude' && messages.some((m) => textOf(m.content).includes('EXPLICIT'))) memory = PRUDE_REFUSAL
     let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.
     const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)

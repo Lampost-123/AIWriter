@@ -1,7 +1,7 @@
 // Part C's refusal note: at strong content levels, a draft the writer model refuses (or its content filter cuts
 // short, or a reply that is plainly a refusal) suggests another writer model.
 import { describe, expect, it } from 'vitest'
-import { looksLikeMinPRejected, looksLikeRefusalReply, strongContentRefusal, strongScaleWords } from './errors'
+import { looksLikeMinPRejected, looksLikeRefusalReply, refusalIn, strongContentRefusal, strongScaleWords } from './errors'
 
 const base = { status: 'error' as const, failure: { type: 'refused' as const }, finishReason: null, text: '' }
 
@@ -75,6 +75,37 @@ describe('the refusal note at strong content levels', () => {
     expect(looksLikeRefusalReply('The lamp burned low. Mara counted the coins twice.')).toBe(false)
     expect(looksLikeRefusalReply('')).toBe(false)
     expect(looksLikeRefusalReply(`I can't write this letter, I thought. ${'The ink had dried on the nib. '.repeat(20)}`)).toBe(false)
+  })
+
+  const prose = (n: number): string => Array.from({ length: n }, () => 'The rain kept on against the glass while they waited for the ferry to come in.').join(' ')
+
+  it('catches a long reply that opens or ends with a refusal (more than 80 words in all)', () => {
+    // A refusal, then a toned-down version.
+    const toned = `I'm sorry, but I can't write explicit sexual content. Here is a version that fades to black instead.\n\n${prose(12)}`
+    expect(refusalIn(toned)).toBe('start')
+    expect(looksLikeRefusalReply(toned)).toBe(true)
+    // Some way into the scene, then a refusal in place of the rest.
+    const partway = `${prose(10)}\n\n${prose(6)}\n\nI'm sorry, but I can't continue with this scene. If you'd like, I can write a version that cuts away before it gets explicit.`
+    expect(refusalIn(partway)).toBe('end')
+    expect(refusalIn(`${prose(10)}\n\nI apologise, but this goes against my content guidelines.`)).toBe('end')
+    // A short refusal is the whole reply.
+    expect(refusalIn("I'm sorry, but I can't write that scene.")).toBe('whole')
+  })
+
+  it('leaves a long scene alone when a paragraph merely opens like a refusal', () => {
+    // A narrator's own words, first or last, don't talk about a model's rules or offer something else.
+    expect(refusalIn(`I can't do this, not this request, not tonight.\n\n${prose(12)}`)).toBeNull()
+    expect(refusalIn(`${prose(12)}\n\nI won't go back to the story she told. Not ever.`)).toBeNull()
+    expect(refusalIn(`${prose(12)}\n\nI'm sorry, Mara said, I can't describe what I saw in the scene below the bridge.`)).toBeNull()
+    expect(refusalIn(`${prose(12)}\n\n“I'm sorry, but I can't write this scene,” the playwright said. “Not for any price.”`)).toBeNull()
+    expect(refusalIn(prose(30))).toBeNull()
+  })
+
+  it('says a draft that stops partway with a refusal keeps the words before it', () => {
+    const text = `${prose(12)}\n\nI'm sorry, but I can't continue with this scene. If you'd like, I can write a version that fades to black.`
+    const words = strongContentRefusal({ status: 'complete', failure: null, finishReason: 'stop', text, intensity: { romance: 4 } })
+    expect(words).toMatch(/^The writer model stopped partway through this scene and sent back a refusal instead of the rest\. Some models won't write romance/)
+    expect(words).toMatch(/The text before it is kept; delete the refusal at its end\.$/)
   })
 })
 
