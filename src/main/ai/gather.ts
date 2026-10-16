@@ -51,18 +51,20 @@ export function cleanOptions(
 /**
  * Everything the briefing for this scene is built from. Options left out fall
  * back to the scene card's length (Auto unless Adam set one) and the default creativity preset.
+ * `soFar`: the words already in the scene a draft carries on from (Add below, a later beat): what the memory read from
+ * them counts too (memory/scene.ts sceneStart), so a secret told or a thing handed over there is no longer kept or held.
  */
 export function gatherContextInput(
   db: DB,
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
-  extra: { prefs: WritingPrefs; contextLength: number | null; creativity: DraftOptions['creativity']; maxOutput?: number | null }
+  extra: { prefs: WritingPrefs; contextLength: number | null; creativity: DraftOptions['creativity']; maxOutput?: number | null; soFar?: string }
 ): ContextInput {
   const scene = repo.getScene(db, sceneId)
   const { story } = repo.sceneLocation(db, sceneId)
   const series = story.seriesId ? repo.listSeries(db).find((s) => s.id === story.seriesId) : undefined
   const stand = keptStateBefore(db, sceneId)
-  const memory = sceneMemory(db, sceneId, { forWriter: true })
+  const memory = sceneMemory(db, sceneId, { forWriter: true, ...(extra.soFar?.trim() ? { soFar: extra.soFar } : {}) })
   return {
     style: effectiveStyle(extra.prefs, repo.getWorldStyle(db), story.style),
     scene: { title: scene.title, card: scene.card },
@@ -129,6 +131,18 @@ export function setBeforeDraft(fn: BeforeDraft | null): void {
   beforeDraft = fn
 }
 
+/**
+ * What the memory keeper registers (keeper/index.ts): its own catch-up and where things stand as the previous scene ended
+ * brought up to date (`stage`), at the same time. The stage is read from the scenes' own words, not the memory, so it
+ * needn't wait; run after the catch-up within the same wait, the summaries a draft needs first (fix 15) could take it all
+ * and leave the writer with no "Where things stand" (review, 2026-10-16).
+ */
+export const withStageRead =
+  (catchUp: BeforeDraft, stage: (db: DB, sceneId: ID) => Promise<unknown>): BeforeDraft =>
+  async (db, sceneId, limitMs) => {
+    await Promise.all([Promise.resolve().then(() => catchUp(db, sceneId, limitMs)), stage(db, sceneId)])
+  }
+
 /** How long a draft waits for the memory to catch up before going ahead with what it has. */
 export const CATCH_UP_LIMIT_MS = 60_000
 
@@ -171,6 +185,50 @@ export async function catchUpBeforeDraft(
     clearTimeout(timer)
     if (onAbort) signal?.removeEventListener('abort', onAbort)
   }
+}
+
+/**
+ * Where things stand for a draft that carries on from words already in the scene (Add below, a later beat): at the end
+ * of those words when that was worked out (`stand`), in place of where the previous scene ended. When it wasn't (its
+ * reading timed out or failed), nothing of it, and the scene's contract has nothing for the start (review, 2026-10-16:
+ * the previous scene's end was told as the start, the contract said "blue dress, on" after the scene so far took it off,
+ * and the check as the draft landed then held the new words to it). Call after the contract is set.
+ */
+export function carryOnFrom(db: DB, input: ContextInput, stand: SceneState | null): void {
+  if (stand) {
+    // Where things stood as the scene began, so what of it is unchanged holds only as far as it carries here (toldStage).
+    input.continuityAtStart = input.continuityAtSoFar ? (input.continuityAtStart ?? null) : input.continuity
+    input.continuity = stand
+    input.continuityAtSoFar = true
+    input.stageWhere = stageWhere(db, stand)
+    return
+  }
+  input.continuity = null
+  input.continuityAtSoFar = false
+  input.continuityAtStart = null
+  input.stageWhere = {}
+  if (input.contract) input.contract = { ...input.contract, noStart: true }
+}
+
+/** Said to Adam when a draft went ahead without where things stood as the scene before ended (stageNote). */
+export const STAGE_LATE =
+  "The memory hadn't finished working out where everyone was as the scene before ended, so the AI wrote without it. Check that the opening follows on: who is where, and what they wear and hold."
+/** Said to Adam when Add below went ahead without where things stand at the end of the words so far (stageNote). */
+export const STAGE_LATE_SO_FAR =
+  "The memory couldn't work out in time where everyone is at the end of the words so far, so the AI carried on without it. Check that the new words follow on: who is where, and what they wear and hold."
+
+/**
+ * What Adam is told when a draft went ahead without where things stand (review, 2026-10-16: nobody was told, and the
+ * writer had no "Where things stand" block): carrying on from the scene so far (`soFar`), when its stage wasn't worked
+ * out in time; otherwise when there is a scene before in this story to start from and its stage still isn't kept, even
+ * after the plan's wait. Null when it was told, when there is nothing to start from, or when the memory can't work (no
+ * memory model, or this month's spending limit: the top bar says so already).
+ */
+export function stageNote(input: Pick<ContextInput, 'continuity' | 'memory'>, o: { soFar: boolean; memoryReady: boolean }): string | null {
+  if (!o.memoryReady || input.continuity) return null
+  if (o.soFar) return STAGE_LATE_SO_FAR
+  const prev = input.memory.previous
+  return prev && !prev.otherStory ? STAGE_LATE : null
 }
 
 // ---------- Where things stand at the end of the scene so far ----------

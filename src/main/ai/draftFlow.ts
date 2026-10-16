@@ -20,8 +20,9 @@ import {
   type ContextInput,
   type PreparedContext
 } from './context'
-import { catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText } from './gather'
-import type { SceneState } from '../continuity/tracker'
+import { carryOnFrom, catchUpBeforeDraft, gatherContextInput, stageNote, stageWhere, standAtText } from './gather'
+import { keptStateBefore, type SceneState } from '../continuity/tracker'
+import { memoryReady } from '../keeper'
 import { planBeforeWriting, planWanted } from '../plan'
 import { keepsRoom } from '../plan/plan'
 import { countTokens } from './tokenService'
@@ -30,6 +31,7 @@ import { recallForBriefing } from '../retrieval'
 import { contractWanted, type ContractAsks, type SceneContract } from './contract'
 import { BRIEF_BLOCK, briefWanted, readBriefText } from './brief'
 import * as gens from '../db/generations'
+import { contractAgain, type ContractAsked } from './contractAgain'
 
 /** The preview is made again as Adam edits the scene card: only the blocks that changed are counted again. */
 const countCached = cachedCounter(countTokens)
@@ -63,7 +65,9 @@ export function contractFor(options: Partial<DraftOptions> | undefined, focus?: 
  * Assembles the briefing for a scene with the current writer model's context length. `stand`: where things stand at
  * the end of the scene so far, for a draft that carries on from it (in place of where the previous scene ended).
  * `signal`: the draft's Stop (step 5's search stops with it). `focus`: for Beat by beat, the beat being written (the
- * scene's contract asks for that beat alone).
+ * scene's contract asks for that beat alone). `carryOn`: the scene so far the draft carries on from (Add below, a later
+ * beat): what the memory read from it counts (gatherContextInput), and without a `stand` for its end nothing of where
+ * things stood before it is told.
  */
 export async function assemble(
   sceneId: ID,
@@ -71,7 +75,8 @@ export async function assemble(
   extras?: ContextExtras,
   stand?: SceneState | null,
   signal?: AbortSignal,
-  focus?: string
+  focus?: string,
+  carryOn?: string
 ): Promise<{ input: ContextInput; preview: ContextPreview; prepared: PreparedContext }> {
   const settings = getSettings()
   const db = world.db()
@@ -79,16 +84,13 @@ export async function assemble(
     prefs: getWritingPrefs(),
     contextLength: settings.models.writer?.contextLength ?? null,
     maxOutput: settings.models.writer?.maxOutput ?? null,
-    creativity: settings.creativity
+    creativity: settings.creativity,
+    ...(carryOn?.trim() ? { soFar: carryOn } : {})
   })
-  if (stand) {
-    input.continuityAtStart = input.continuity
-    input.continuity = stand
-    input.continuityAtSoFar = true
-    input.stageWhere = stageWhere(db, stand)
-  }
   // The scene's contract (fix 13): what the draft is asked to write; Add below only when it carries on from words.
   input.contract = contractFor(input.options, focus)
+  // Carrying on: where things stand at the end of the scene so far, or (not worked out in time) nothing of it.
+  if (stand || carryOn?.trim()) carryOnFrom(db, input, stand ?? null)
   // The scene so far a draft carries on from (Add below, a later beat): the items it names come into the briefing, and
   // first in what must stay true.
   const soFar = (extras?.extraBlocks ?? []).map((b) => b.text).join('\n\n')
@@ -143,6 +145,8 @@ export interface DraftBriefing {
    * (repair/index.ts noteContract) and the chapter writer's checks; null or left out: none (switched off, or nothing to say).
    */
   contract?: SceneContract | null
+  /** Something Adam should know about how the draft was briefed, in plain words (gather.ts stageNote); null: nothing. */
+  note?: string | null
 }
 
 /**
@@ -165,10 +169,11 @@ export async function draftBriefing(
   const db = world.db()
   if (o.catchUp !== false) await catchUpBeforeDraft(db, sceneId, o.catchUpMs, o.signal)
   if (o.signal?.aborted) throw stoppedBeforeStart()
-  const stand = o.soFar?.trim() ? await standAtText(db, sceneId, o.soFar, undefined, o.signal) : null
+  const carryOn = o.soFar?.trim() ? o.soFar : ''
+  const stand = carryOn ? await standAtText(db, sceneId, carryOn, undefined, o.signal) : null
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
-  const made = await assemble(sceneId, options, o.extras, stand, o.signal, o.focus)
+  const made = await assemble(sceneId, options, o.extras, stand, o.signal, o.focus, carryOn)
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
   let b: DraftBriefing = {
@@ -180,6 +185,10 @@ export async function draftBriefing(
     contract: made.prepared.contract ?? null
   }
   if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal })
+  // Where things stand as the previous scene ended goes on being worked out after the draft's wait, so it is looked up
+  // again now (review, 2026-10-16): one that came in during the plan's own wait (up to two minutes) is told after all.
+  if (!carryOn && !b.input.continuity) b = await withStageNow(sceneId, b, o.extras)
+  b = { ...b, note: stageNote(b.input, { soFar: !!carryOn, memoryReady: memoryReady() }) }
   const { input, preview } = b
   // A model whose window is known can't take a reply longer than what's left of it: say so
   // before sending, rather than letting the provider turn it down with a message about the briefing.
@@ -204,6 +213,43 @@ export async function draftBriefing(
     )
   }
   return b
+}
+
+/**
+ * A whole scene's contract made again from what its draft was asked for, with the memory and where things stand as they
+ * are now (ai/contractAgain.ts), on the open world with the app's settings: the chapter writer checks each scene through
+ * it. Null when contracts are off or it would say nothing.
+ */
+export function contractNow(sceneId: ID, asked: ContractAsked): SceneContract | null {
+  const settings = getSettings()
+  return contractAgain(world.db(), sceneId, asked, {
+    prefs: getWritingPrefs(),
+    contextLength: settings.models.writer?.contextLength ?? null,
+    maxOutput: settings.models.writer?.maxOutput ?? null,
+    creativity: settings.creativity,
+    wanted: contractWanted(settings)
+  })
+}
+
+/**
+ * The briefing again with where things stand as the previous scene ended, when it is kept by now (the stage read went on
+ * after the draft's wait); as it was otherwise. The plan, its brief and what it said must change stay; the scene's
+ * contract is made again, with what must be true at the start.
+ */
+async function withStageNow(sceneId: ID, b: DraftBriefing, extras?: ContextExtras): Promise<DraftBriefing> {
+  const db = world.db()
+  const stand = keptStateBefore(db, sceneId)
+  if (!stand) return b
+  const input: ContextInput = { ...b.input, continuity: stand, stageWhere: stageWhere(db, stand) }
+  const again = await fitted(input, extras)
+  return {
+    ...b,
+    input,
+    preview: again.preview,
+    prepared: again.prepared,
+    entryVersions: sentEntryVersions(input.memory, again.preview.blocks),
+    contract: again.prepared.contract ?? null
+  }
 }
 
 /**

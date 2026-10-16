@@ -1718,7 +1718,8 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
         planned: input.contract.planned,
         facts: input.memory.facts,
         storyTitle: input.story.title,
-        stageShown: !!full && reach === 'here'
+        stageShown: !!full && reach === 'here',
+        noStart: input.contract.noStart
       })
     : null
   if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract), contractText(contract, { short: true }), [])

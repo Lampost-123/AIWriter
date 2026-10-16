@@ -14,7 +14,7 @@ import { onWorldClosing, onWorldOpened, maybeCurrentWorld } from '../world'
 import { getSettings, getWritingPrefs } from '../settings'
 import { getProvider, providerTarget } from '../ai/providers'
 import { isLocalUrl, providerWho } from '../ai/errors'
-import { setBeforeDraft, setStandAt } from '../ai/gather'
+import { setBeforeDraft, setStandAt, withStageRead } from '../ai/gather'
 import { emit } from '../events'
 import * as kdb from '../db/keeper'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
@@ -53,6 +53,9 @@ export function memoryModel(): MemoryModel | { error: string } {
   }
   return { target, choice, thinking: s.thinking?.memory ?? 'off' }
 }
+
+/** True when the memory can work now: a memory model is set up and this month's spending limit isn't holding it. */
+export const memoryReady = (): boolean => !pausedNote() && !('error' in memoryModel())
 
 const quietMs = (): number | undefined => {
   const v = Number(process.env.AIWRITE_KEEPER_QUIET_MS)
@@ -105,14 +108,16 @@ export function initKeeper(): void {
     }
   })
   // Before a draft (and Continue), the memory catches up with earlier scenes on the line and reads the scene's own
-  // unread words (waiting a few seconds at most), and then where things stand as the previous scene ends is brought up
-  // to date (continuity/tracker.ts).
-  setBeforeDraft(async (db, sceneId, limitMs) => {
-    if (!keeper || keeper.db !== db) return
-    // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review).
-    await keeper.beforeDraft(sceneId, undefined, limitMs)
-    await continuityBefore(db, sceneId)
-  })
+  // unread words (waiting a few seconds at most), and where things stand as the previous scene ends is brought up to
+  // date (continuity/tracker.ts) at the same time (gather.ts withStageRead).
+  const mine = (db: Database.Database): Keeper | null => (keeper && keeper.db === db ? keeper : null)
+  setBeforeDraft(
+    withStageRead(
+      // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review).
+      async (db, sceneId, limitMs) => mine(db)?.beforeDraft(sceneId, undefined, limitMs),
+      async (db, sceneId) => (mine(db) ? continuityBefore(db, sceneId) : undefined)
+    )
+  )
   // Add below, a later beat and Continue carry on from the scene so far: where things stand at its end.
   setStandAt(continuityAt)
 }

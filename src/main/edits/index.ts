@@ -115,7 +115,9 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   }
   const scene = repo.getScene(db, input.sceneId)
   const { story } = repo.sceneLocation(db, input.sceneId)
-  const memory = sceneMemory(db, input.sceneId, { forWriter: true })
+  // Continue carries on from the words before the cursor: what the memory read from them counts (review, 2026-10-16:
+  // a secret told a page ago was still "kept from" the one told).
+  const memory = sceneMemory(db, input.sceneId, { forWriter: true, ...(tool === 'continue' && input.before.trim() ? { soFar: input.before } : {}) })
   // The other tools don't wait for where things stand: only what is already kept at exactly that point (step 4).
   const kept = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
   const core = tool === 'continue' ? await continueCore(db, input, memory, story.title, scene.card) : undefined
