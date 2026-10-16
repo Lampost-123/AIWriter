@@ -145,6 +145,11 @@ export interface Issue {
    * the words go against, or something it had to bring about that they don't show yet. Set only then.
    */
   byContract?: true
+  /**
+   * Ignored by "Write the whole chapter", which set it aside with its reason, not by Adam (2026-10-16): never told to later
+   * checks as what he meant. Set only then.
+   */
+  setAsideBy?: 'chapter'
   createdAt: string
   updatedAt: string
 }

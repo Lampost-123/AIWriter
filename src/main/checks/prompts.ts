@@ -12,7 +12,7 @@ export const CHECK_MARKER = '[AIWRITE-CHECK v1]'
 /** What each check looks for, in the model's instructions. */
 const WHAT: Record<CheckKind, string> = {
   facts:
-    "facts: the scene against each entry as the memory has it at the start of the scene: looks (eye and hair colour, scars, missing limbs, how many fingers), injuries, what someone carries or owns, where people and things are, and the world's rules. Above all, who is dead: a character who died earlier (in what has happened to them, or in the story so far) who speaks, acts or is treated as alive in this scene is a must-fix, unless the scene shows a ghost, a memory or a vision.",
+    "facts: the scene against each entry as the memory has it at the start of the scene: looks (eye and hair colour, scars, missing limbs, how many fingers), injuries, what someone carries or owns, where people and things are, and the world's rules. Above all, who is dead: a character who died earlier (in what has happened to them, or in the story so far) who speaks, acts or is treated as alive in this scene is a must-fix, unless the scene shows a ghost, a memory or a vision. Also what the scene says about the past, in the narration, a memory or a line of dialogue, against the memory and the story so far: names (of people, places, boats, animals), numbers and sums, which way a place lies, how long a journey took, how someone died, and who heard or saw what. Getting one of these wrong is a slip like any other, unless the scene shows the character is mistaken or lying.",
   knowledge:
     "knowledge: a character who acts on or mentions something they could not know yet: it happens in a later scene, or it happened where they were not and nothing (the story so far, the scenes before, this scene) shows them learning it. The memory's list of who knows what is far from complete: something it doesn't list is NOT a problem by itself, and things said or shown in the story so far or in this scene count as known by those who were there. Also a character who forgets something they clearly know, or who acts on the truth of something the memory says they believe wrongly, with nothing showing them learn it.",
   timeline:
@@ -39,7 +39,7 @@ export function sceneSystem(checks: CheckKind[], contract = false): string {
 function checksSystem(checks: CheckKind[]): string {
   const list = ALL_CHECKS.filter((c) => checks.includes(c))
   return `${CHECK_MARKER} ${list.join(', ')}
-You check a scene of a novel for consistency, for its author. You are given the memory of the story's world as it stands at the START of the scene (before anything in the scene happens), the story so far, where things stood as the previous scene ended, the scenes just before it, the style guide and the scene's text. Reply with one JSON object and nothing else.
+You check a scene of a novel for consistency, for its author. You are given the memory of the story's world as it stands at the START of the scene (before anything in the scene happens), the story so far, where things stood as the previous scene ended, the scenes just before it, the author's plan for the scene, the style guide and the scene's text. Reply with one JSON object and nothing else.
 
 What to check
 ${list.map((c) => `- ${WHAT[c]}`).join('\n')}
@@ -52,6 +52,8 @@ Rules
 - Only what CONTRADICTS the memory, the story so far or the scene itself is an issue. A detail the memory doesn't have (a coat's colour, extra watchmen, something a character knows that it doesn't list) is never an issue on its own.
 - Clothing in a profile is what someone usually wears, not what they must wear: a change of clothes is not an issue (unless where things stood says otherwise and nothing in the scene explains it).
 - Under "What the author has said is meant" are things a check raised in earlier scenes that the author said are intended. The same thing in this scene is not an issue either.
+- Under "The author's plan for this scene" is what the author means the scene to do (its goal, beats, notes and outcome). What the plan asks for (someone lying, mistaken, hiding something or changing) is not a slip, even where it goes against the memory.
+- The scene card's story date says how much time has passed since the scene before. When hours or days have passed, where things stood as that scene ended need not carry on: people may have slept, moved or changed clothes in between.
 - Anyone listed under "Dead at the start of this scene" who speaks, acts, sleeps, breathes or is treated as alive is a must-fix, unless the scene shows a ghost, a memory, a dream or a vision.
 - "quote": words copied exactly, character for character, from the scene: the shortest phrase or sentence that shows the problem.
 - "message": one plain sentence for the author saying what disagrees with what, such as "Mara's eyes are blue in the memory, but green here." Use names, never the ids.
