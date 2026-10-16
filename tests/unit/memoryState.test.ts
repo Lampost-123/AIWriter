@@ -2,7 +2,7 @@
 // The whole test world is in testWorld.test.ts.
 
 import { describe, expect, it } from 'vitest'
-import type { ChangeData, EntryKind } from '@shared/types'
+import type { ChangeData, EntryKind, Origin } from '@shared/types'
 import { changesInScene, sideClashes, stateAt } from '../../src/main/memory/state'
 import { pureWorld, type AnswerSpec, type ChangeSpec, type EntrySpec, type StorySpec, type WorldSpec } from './testWorld'
 
@@ -21,7 +21,7 @@ const who = (key: string, name: string, kind: EntryKind = 'character', more: Par
   exists: [{ kind: 'world' }],
   ...more
 })
-const at = (entry: string, place: ChangeSpec['at'], data: ChangeData): ChangeSpec => ({ entry, at: place, data })
+const at = (entry: string, place: ChangeSpec['at'], data: ChangeData, origin?: Origin): ChangeSpec => ({ entry, at: place, data, ...(origin ? { origin } : {}) })
 const rel = (otherId: string, type: string, extra: object = {}): ChangeData => ({
   kind: 'relationship',
   payload: { otherId, type, feels: `${type} feels`, otherFeels: `${type} other`, ...extra }
@@ -138,6 +138,39 @@ describe('state', () => {
     expect(after?.changedWhere?.clothing).toBe('Book 1, Ch 2, Sc 1')
     // The change gave the clothing: that is kept as given.
     expect(w.state('b1', 'b1.c3.s1').entries.get('p')?.fields.clothing).toBe('grey shawl; a borrowed cap')
+  })
+
+  it('never takes clothes off for a while as what someone typically wears, unless Adam typed it (2026-10-16)', () => {
+    // Live on DeepSeek Flash: after an undressing scene the memory set both lovers' Typical clothing to "none" and
+    // "nothing", and every later scene was told it as a fact to keep to.
+    const w = pureWorld(
+      world(
+        [
+          who('m', 'Mara', 'character', { made: { origin: 'text', story: 'b1', scene: 'b1.c1.s1' }, fields: { clothing: 'green wool dress, grey stockings' } }),
+          who('a', 'Ash', 'character', { made: { origin: 'text', story: 'b1', scene: 'b1.c1.s1' }, fields: { clothing: 'nothing (undressed)' } }),
+          who('k', 'Kell', 'character', { fields: { clothing: 'naked, always' } })
+        ],
+        [
+          at('m', { scene: 'b1.c1.s1' }, { kind: 'update', payload: { note: 'undressed for bed', fields: { clothing: 'nothing', hair: 'loose' } } }, 'text'),
+          at('a', { scene: 'b1.c1.s1' }, { kind: 'update', payload: { note: 'took off his shirt', fields: { clothing: 'shirt off, boots off' } } }, 'text'),
+          at('m', { scene: 'b1.c2.s1' }, { kind: 'update', payload: { note: 'bought a riding coat', fields: { clothing: 'green wool dress, a riding coat' } } }, 'text'),
+          at('k', { scene: 'b1.c2.s1' }, { kind: 'update', payload: { note: 'undressed', fields: { clothing: 'nothing at all' } } }, 'adam')
+        ]
+      )
+    )
+    // As the scene after the undressing begins (a state is as a scene starts).
+    const s = w.state('b1', 'b1.c2.s1')
+    // The profile keeps what it said; the rest of the change still counts.
+    expect(s.entries.get('m')?.fields).toMatchObject({ clothing: 'green wool dress, grey stockings', hair: 'loose' })
+    expect(s.entries.get('m')?.changed).not.toContain('clothing')
+    expect(s.entries.get('m')?.happened.map((h) => h.note)).toEqual(['undressed for bed'])
+    // Read from the text as the entry was made: left out too.
+    expect(s.entries.get('a')?.fields.clothing).toBeUndefined()
+    // Adam's own words always stand.
+    expect(s.entries.get('k')?.fields.clothing).toBe('naked, always')
+    const later = w.state('b1', 'b1.c3.s1')
+    expect(later.entries.get('m')?.fields.clothing).toBe('green wool dress, a riding coat')
+    expect(later.entries.get('k')?.fields.clothing).toBe('nothing at all')
   })
 
   it('applies changes at one place by position, then creation time', () => {

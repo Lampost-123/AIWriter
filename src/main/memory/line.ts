@@ -405,11 +405,15 @@ function stillRunning(ix: WorldIndex, line: Line): StoryNode[] {
 
 const joinAnd = (xs: string[]): string => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
 
-/** The last scene step on the line itself (never a side story added whole), or null. */
-export function previousSceneStep(line: Line): Extract<LineStep, { type: 'scene' }> | null {
+/**
+ * The last scene step on the line itself (never a side story added whole), or null. With `take`, the last one it takes
+ * (memory/scene.ts: the last with words, so an empty scene between, one not written yet, is passed over: review,
+ * 2026-10-16).
+ */
+export function previousSceneStep(line: Line, take?: (step: Extract<LineStep, { type: 'scene' }>) => boolean): Extract<LineStep, { type: 'scene' }> | null {
   for (let i = line.steps.length - 1; i >= 0; i--) {
     const s = line.steps[i]
-    if (s.type === 'scene' && s.via === 'line') return s
+    if (s.type === 'scene' && s.via === 'line' && (!take || take(s))) return s
   }
   return null
 }
