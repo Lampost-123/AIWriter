@@ -155,4 +155,17 @@ describe('Add below without where things stand at the end of the scene so far', 
     expect(block?.text).toMatch(/by the hearth/)
     expect(block?.text).not.toMatch(/by the door/)
   })
+
+  it('keeps where things stood as the scene began, so what of it is unchanged carries only as far as it holds (2026-10-16)', () => {
+    const { db, s2 } = world()
+    const input = addBelow(db, s2)
+    input.continuity = ENDED
+    const stand: SceneState = { ...ENDED, characters: [{ ...ENDED.characters[0], where: 'by the hearth', posture: 'sitting' }] }
+    carryOnFrom(db, input, stand)
+    expect(input.continuityAtStart).toBe(ENDED)
+    expect(input.continuity).toBe(stand)
+    // Without a stage for the scene so far: nothing, as before.
+    carryOnFrom(db, input, null)
+    expect(input.continuityAtStart).toBeNull()
+  })
 })
