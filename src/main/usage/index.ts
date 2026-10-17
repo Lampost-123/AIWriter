@@ -55,6 +55,7 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'startInterview',
   'startQuestions',
   'startWorldBuild',
+  'buildStoryWorld',
   'askWorldQuestion',
   'startCheck',
   'suggestCharacterVoice',

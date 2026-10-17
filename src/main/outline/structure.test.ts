@@ -287,8 +287,11 @@ describe('chapter cards the outline fills (2026-10-08)', () => {
       scene('s3', 'Night', 'c0', { after: { key: 's2' } })
     ])
     const ch = repo.getChapterCard(db, kept[0].id)
-    // A name it doesn't know is left out; the point of view is among those present.
-    expect([ch.povId, ch.presentIds, ch.locationId, ch.when, ch.mood]).toEqual([wren, [wren, odo], tower, 'Day 4, dawn', 'Hushed'])
+    // A name it doesn't know gets a page of its own (2026-10-17); the point of view is among those present.
+    const stranger = repo.listEntries(db).find((e) => e.name === 'Nobody We Know')
+    expect(stranger).toMatchObject({ kind: 'character', origin: 'ai' })
+    expect(kept[0].entryIds).toEqual([stranger?.id])
+    expect([ch.povId, ch.presentIds, ch.locationId, ch.when, ch.mood]).toEqual([wren, [wren, odo, stranger?.id], tower, 'Day 4, dawn', 'Hushed'])
     const [wick, oil, atQuay, night] = kept.slice(1).map((k) => repo.getScene(db, k.id).card)
     // The same When as the chapter's: it follows it.
     expect([wick.when, wick.inherits?.when, wick.locationId, wick.inherits?.location]).toEqual(['Day 4, dawn', true, tower, true])
@@ -516,5 +519,49 @@ describe('chapter cards and plot threads kept together (0.6.36)', () => {
     const back = repo.getScene(db, first.id).card
     expect([back.when, back.setsUpIds, back.threadLinks]).toEqual(['Day 9, noon', [mine], undefined])
     expect(threadNames(db)).toEqual(['The missing ledger'])
+  })
+})
+
+describe('a kept outline makes pages for the cast and places it names (2026-10-17)', () => {
+  const names = (db: Database.Database, kind: string): string[] =>
+    repo
+      .listEntries(db)
+      .filter((e) => e.kind === kind)
+      .map((e) => e.name)
+      .sort()
+
+  it('makes each new character and place once, drafted by AI, and the cards point at them', () => {
+    const db = writtenWorld()
+    const mara = repo.createEntry(db, 'character', { name: 'Mara Venn' }).id
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'The Ferry', {
+        card: { pov: 'Mara', characters: ['Mara Venn', 'Tobin Hale', 'everyone', 'two dock guards'], location: 'The Black Ferry (a barge)' }
+      }),
+      scene('s0', 'Debt', 'c0', { card: { characters: ['Tobin', 'The Duke'], location: 'Duke’s Hall', pov: 'Tobin Hale' } }),
+      scene('s1', 'Crossing', 'c0', { after: { key: 's0' }, card: { location: 'none' } })
+    ])
+    expect(names(db, 'character')).toEqual(['Mara Venn', 'The Duke', 'Tobin Hale'])
+    expect(names(db, 'place')).toEqual(['Duke’s Hall', 'The Black Ferry'])
+    const byName = new Map(repo.listEntries(db).map((e) => [e.name, e]))
+    for (const n of ['Tobin Hale', 'The Duke', 'The Black Ferry', 'Duke’s Hall']) expect(byName.get(n)?.origin).toBe('ai')
+    const ch = repo.getChapterCard(db, kept[0].id)
+    expect([ch.povId, ch.presentIds, ch.locationId]).toEqual([mara, [mara, byName.get('Tobin Hale')?.id], byName.get('The Black Ferry')?.id])
+    const debt = repo.getScene(db, kept[1].id).card
+    expect([debt.povId, debt.locationId]).toEqual([byName.get('Tobin Hale')?.id, byName.get('Duke’s Hall')?.id])
+    expect(debt.presentIds).toContain(byName.get('The Duke')?.id)
+    expect(kept.flatMap((k) => k.entryIds ?? []).length).toBe(4)
+  })
+
+  it('its Undo takes back the pages it made, but never one Adam has changed', () => {
+    const db = memoryWorld()
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'The Ferry', { card: { characters: ['Tobin Hale', 'Ilsa Crane'], location: 'Gull Quay' } }),
+      scene('s0', 'Debt', 'c0')
+    ])
+    const ilsa = repo.listEntries(db).find((e) => e.name === 'Ilsa Crane')!
+    repo.updateEntry(db, ilsa.id, { summary: 'The ferry’s cook, and Tobin’s sister.' })
+    unkeepOutline(db, kept)
+    expect(names(db, 'character')).toEqual(['Ilsa Crane'])
+    expect(names(db, 'place')).toEqual([])
   })
 })

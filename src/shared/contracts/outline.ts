@@ -113,6 +113,11 @@ export interface KeptItem {
   whenKept?: boolean
   /** Plot threads this keep made for the scene: its Undo moves them to Recently deleted while nothing else uses them. */
   threadIds?: ID[]
+  /**
+   * Characters and places this keep made pages for, named on its card but not in the world yet (2026-10-17): its
+   * Undo moves them to Recently deleted while nothing else uses them.
+   */
+  entryIds?: ID[]
   /** A reused chapter whose card the keep filled: its Undo puts the card back as it was, unless it has changed since. */
   card?: { before: ChapterCard; after: ChapterCard }
 }

@@ -1,7 +1,7 @@
 // Milestone 4: the handlers for src/shared/contracts/worldBuilder.ts (one part owns both files). The work is
 // done in src/main/worldBuilder/*; this file connects it to the open world, the settings and the window.
 import type { Handlers } from './index'
-import type { WorldBuilderApi } from '@shared/contracts/worldBuilder'
+import type { WorldBuildInput, WorldBuilderApi } from '@shared/contracts/worldBuilder'
 import type { ID } from '@shared/types'
 import * as world from '../world'
 import * as repo from '../db/repo'
@@ -13,7 +13,8 @@ import { memoryStatus } from '../keeper'
 import { voiceLater } from '../readAloud'
 import { UserError } from '../util'
 import { entryNames } from '../db/worldBuilder'
-import { buildState, cancelBuild, closeBuildsFor, startBuild } from '../worldBuilder/run'
+import { buildRunning, buildState, cancelBuild, closeBuildsFor, startBuild } from '../worldBuilder/run'
+import { storySummary } from '../worldBuilder/storySummary'
 import { redoBuild, undoBuild } from '../worldBuilder/lines'
 import { estimateCost, guessBuild } from '../worldBuilder/estimate'
 import { askQuestion } from '../worldBuilder/interview'
@@ -50,6 +51,31 @@ function changed(entryIds: ID[]): void {
   emit('memory:status', memoryStatus())
 }
 
+/** Starts a build in the open world with the World builder model; its events say how it goes. */
+function startIn(input: WorldBuildInput): void {
+  const w = world.currentWorld()
+  const model = jobModel('world', modelSources())
+  void startBuild(
+    {
+      db: w.db,
+      worldId: w.id,
+      model,
+      voiceModel: voiceModel(),
+      voiceLater: (entryIds) => voiceLater(w.db, entryIds),
+      prefs: getWritingPrefs(),
+      emit,
+      onSaved: (entryIds) => {
+        if (!w.db.open) return
+        repo.touchWorld(w.db)
+        emit('memory:changed', { sceneId: null, entryIds })
+      },
+      onFinished: () => emit('memory:status', memoryStatus()),
+      onKeyRejected: () => providers.markCheck(model.target.id, false)
+    },
+    input
+  )
+}
+
 export const worldBuilderHandlers: Handlers<keyof WorldBuilderApi> = {
   getWorldBuilder: () => {
     const w = world.currentWorld()
@@ -68,29 +94,21 @@ export const worldBuilderHandlers: Handlers<keyof WorldBuilderApi> = {
     }
   },
   startWorldBuild: (input) => {
-    const w = world.currentWorld()
     // Kept first, so the summary is there even when the build can't start.
     keepSummary(input?.summary)
-    const model = jobModel('world', modelSources())
-    void startBuild(
-      {
-        db: w.db,
-        worldId: w.id,
-        model,
-        voiceModel: voiceModel(),
-        voiceLater: (entryIds) => voiceLater(w.db, entryIds),
-        prefs: getWritingPrefs(),
-        emit,
-        onSaved: (entryIds) => {
-          if (!w.db.open) return
-          repo.touchWorld(w.db)
-          emit('memory:changed', { sceneId: null, entryIds })
-        },
-        onFinished: () => emit('memory:status', memoryStatus()),
-        onKeyRejected: () => providers.markCheck(model.target.id, false)
-      },
-      input
-    )
+    startIn(input)
+  },
+  buildStoryWorld: (input) => {
+    const w = world.currentWorld()
+    const storyId = String(input?.storyId ?? '')
+    // Nothing planned to build from, or a build already running (the window tries again once it ends).
+    if (buildRunning()) return { started: false, busy: true }
+    if (!repo.listStories(w.db).some((s) => s.id === storyId)) return { started: false, busy: false }
+    const summary = storySummary(w.db, storyId)
+    if (!summary) return { started: false, busy: false }
+    // The story's plan is never kept as the World builder page's summary: that stays Adam's.
+    startIn({ buildId: String(input?.buildId ?? ''), summary, storyId })
+    return { started: true, busy: false }
   },
   cancelWorldBuild: (buildId) => cancelBuild(buildId),
   undoWorldBuild: (runId) => {

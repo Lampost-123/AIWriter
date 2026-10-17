@@ -10,7 +10,7 @@ import type { Chapter, ChapterCard, ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
 import { withAiLink } from '@shared/threadLinks'
 import { changedFields, cleanChapterCard, copyField, follows, isFieldEmpty, sameField, followChapterPart, withMark } from '@shared/chapterCard'
-import { cleanNames, fillEmpty, namedEntries, partsFromNames } from './chapterCard'
+import { addMissing, cleanNames, fillEmpty, namedEntries, partsFromNames } from './chapterCard'
 import type { WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
@@ -89,23 +89,22 @@ function withThreads(
 }
 
 /**
- * Undo of a keep: the plot threads it made go to Recently deleted while nothing else uses them (not edited by Adam,
- * on no other scene's card, nothing in the memory about them).
+ * Undo of a keep: the plot threads, characters and places it made go to Recently deleted while nothing else uses
+ * them (not edited by Adam, on no other scene's or chapter's card, nothing in the memory about them).
  */
-export function takeBackThreads(db: DB, kept: Pick<KeptItem, 'threadIds'>[]): void {
-  const ids = [...new Set(kept.flatMap((k) => k.threadIds ?? []))]
+export function takeBackThreads(db: DB, kept: Pick<KeptItem, 'threadIds' | 'entryIds'>[]): void {
+  const ids = [...new Set(kept.flatMap((k) => [...(k.threadIds ?? []), ...(k.entryIds ?? [])]))]
   if (!ids.length) return
-  const onCards = new Set<ID>()
-  for (const r of db.prepare('SELECT card_json FROM scenes WHERE deleted_at IS NULL').all() as { card_json: string | null }[]) {
-    try {
-      const c = JSON.parse(r.card_json ?? '{}') as Partial<SceneCard>
-      for (const id of [...(c.setsUpIds ?? []), ...(c.paysOffIds ?? [])]) onCards.add(id)
-    } catch {
-      // A damaged card names nothing.
-    }
+  // Every id a live scene card or chapter card holds (ids are unique, so the card's words are enough to look in).
+  const cards: string[] = (db.prepare('SELECT card_json FROM scenes WHERE deleted_at IS NULL').all() as { card_json: string | null }[]).map(
+    (r) => r.card_json ?? ''
+  )
+  for (const r of db.prepare('SELECT id FROM chapters WHERE deleted_at IS NULL').all() as { id: ID }[]) {
+    cards.push(JSON.stringify(repo.getChapterCard(db, r.id)))
   }
+  const onCards = (id: ID): boolean => cards.some((c) => c.includes(id))
   for (const e of repo.getEntries(db, ids)) {
-    if (e.origin !== 'ai' || e.byHand || onCards.has(e.id)) continue
+    if (e.origin !== 'ai' || e.byHand || onCards(e.id)) continue
     if (db.prepare('SELECT 1 FROM changes WHERE entry_id = ? AND deleted_at IS NULL LIMIT 1').get(e.id)) continue
     repo.deleteEntry(db, e.id, { origin: 'ai' })
   }
@@ -250,6 +249,7 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
       let reused = false
       let whenKept = false
       const threadIds: ID[] = []
+      const entryIds: ID[] = []
       let cardFilled: KeptItem['card'] | null = null
       if (item.kind === 'act') {
         id = acts.createAct(db, storyId, {
@@ -275,7 +275,9 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
         const names = cleanNames(item.card)
         if (Object.keys(names).length) {
           const before = repo.getChapterCard(db, id)
-          const { card, filled } = fillEmpty(before, partsFromNames(names, (world ??= namedEntries(db))))
+          // A character or place the world doesn't have yet gets a page first, so the card points at it.
+          addMissing(db, names, (world ??= namedEntries(db)), storyId, entryIds)
+          const { card, filled } = fillEmpty(before, partsFromNames(names, world))
           if (filled.length) {
             repo.saveChapterCard(db, id, card)
             if (reused) cardFilled = { before, after: repo.getChapterCard(db, id) }
@@ -321,7 +323,9 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
         const chapterCard = repo.getChapterCard(db, chapterId)
         let card: SceneCard = { ...emptySceneCard(), ...repo.getScene(db, scene.id).card }
         // Where a new scene differs from its chapter (another point of view, cast, place or mood), that is its own.
-        if (!reuse) card = ownParts(card, chapterCard, partsFromNames(cleanNames({ ...item.card, when: undefined }), (world ??= namedEntries(db))))
+        const sceneNames = cleanNames({ ...item.card, when: undefined })
+        addMissing(db, sceneNames, (world ??= namedEntries(db)), storyId, entryIds)
+        if (!reuse) card = ownParts(card, chapterCard, partsFromNames(sceneNames, world))
         // A When of Adam's own already on a reused scene is never replaced; one it follows from the chapter is the chapter's.
         const had = reuse !== null && !!card.when.trim() && !follows(card, 'when')
         if (!had) card = sceneWhen(card, chapterCard, oneLine(item.when, KEEP_LIMITS.when), () => fallbackWhen(whensBefore(db, storyId, scene.id)))
@@ -339,6 +343,7 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
         ? { key, kind: item.kind, id, reused, ...(whenKept ? { whenKept } : {}), ...(cardFilled ? { card: cardFilled } : {}) }
         : { key, kind: item.kind, id }
       if (threadIds.length) k.threadIds = threadIds
+      if (entryIds.length) k.entryIds = entryIds
       made.set(key, k)
       kept.push(k)
     }
@@ -349,7 +354,8 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
 /**
  * Undo for keepOutline (acts.takeBackKept), with the chapter cards it filled on a reused chapter put back as they
  * were, unless Adam has changed them since: the scenes that follow them go back with them. The plot threads the keep
- * made go too, while nothing else uses them (takeBackThreads, once the kept scenes and their links are gone).
+ * made go too, and the characters and places it made pages for, while nothing else uses them (takeBackThreads, once
+ * the kept scenes and their links are gone).
  */
 export function unkeepOutline(db: DB, kept: KeptItem[]): { storyIds: ID[]; sceneIds: ID[] } {
   const list = Array.isArray(kept) ? kept : []

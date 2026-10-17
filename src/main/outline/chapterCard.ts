@@ -2,7 +2,9 @@
 // story, a chapter's plan), each chapter's lines "Point of view:", "Characters:", "Location:", "When:" and
 // "Mood:" go on the chapter card, and a scene's own lines only where it clearly differs from its chapter (another
 // place, a jump in time, another point of view). Names are matched to the world's characters and places as the
-// interview's fill matches them; a name it doesn't know is left out. No Electron imports.
+// interview's fill matches them. A kept outline (keepOutline) first makes a page for each name it doesn't know
+// (addMissing, 2026-10-17), so the cards point at them and a story starts with its cast; a chapter's plan filling
+// its card leaves an unknown name out. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { ChapterCardNames, ChapterCardSaved } from '@shared/contracts/chapterCards'
@@ -42,6 +44,40 @@ export function namedEntries(db: DB): { characters: Entry[]; places: Entry[] } {
   const all = repo.listEntries(db)
   return { characters: all.filter((e) => e.kind === 'character'), places: all.filter((e) => e.kind === 'place') }
 }
+
+/** Words the AI may give where a name goes, which name no one ("none", "everyone", "the narrator"). */
+const NOT_A_NAME =
+  /^(none|nobody|no one|n\/?a|unknown|unnamed|tbd|tba|everyone|everybody|all|various|several|others?|many|same|narrator|the narrator|omniscient|multiple|nowhere|anywhere|somewhere|various places|same as (the )?chapter)$/i
+
+/** A name worth a page of its own: short, not a stand-in ("none", "everyone"), and not a description in lower case ("two guards"). */
+export function isPageName(name: string): boolean {
+  const n = name.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
+  if (n.length < 2 || n.length > 60 || n.split(' ').length > 6) return false
+  if (NOT_A_NAME.test(n)) return false
+  return /\p{Lu}/u.test(n)
+}
+
+/**
+ * Makes a page, drafted by AI, for each name on a kept card the world has no character or place for (2026-10-17:
+ * Adam wants a new story's cast and places there before anything is written; the World build that follows fills
+ * them in). Each one goes into `world`, so later cards in the same keep match it, and its id into `made`.
+ */
+export function addMissing(db: DB, names: ChapterCardNames, world: { characters: Entry[]; places: Entry[] }, storyId: ID, made: ID[]): void {
+  const want: [EntryKindNamed, string][] = [
+    ...[names.pov, ...(names.characters ?? [])].flatMap((n): [EntryKindNamed, string][] => (n ? [['character', n]] : [])),
+    ...(names.location ? ([['place', names.location]] as [EntryKindNamed, string][]) : [])
+  ]
+  for (const [kind, raw] of want) {
+    const list = kind === 'character' ? world.characters : world.places
+    if (!isPageName(raw) || matchEntry(raw, list)) continue
+    const name = raw.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
+    const e = repo.createEntry(db, kind, { name }, { origin: 'ai', originStoryId: storyId })
+    list.push(e)
+    made.push(e.id)
+  }
+}
+
+type EntryKindNamed = 'character' | 'place'
 
 /**
  * The card parts the names give, matched to the world (a name it doesn't know is left out): only parts that came
