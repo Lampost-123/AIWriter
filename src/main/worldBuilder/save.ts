@@ -29,11 +29,13 @@ export interface Writer {
   db: DB
   /** Where the summary's setup is true: null for the beginning of the world, else that story's start. */
   storyId: ID | null
+  /** The scenes the summary numbers, when it is the story's own plan (planScenes): where its events can happen. */
+  scenes: ID[]
   runId: ID | null
   made: WorldBuildItem[]
 }
 
-export const newWriter = (db: DB, storyId: ID | null): Writer => ({ db, storyId, runId: null, made: [] })
+export const newWriter = (db: DB, storyId: ID | null, scenes: ID[] = []): Writer => ({ db, storyId, scenes, runId: null, made: [] })
 
 const runOf = (w: Writer): ID => (w.runId ??= kdb.startRun(w.db, BUILD_RUN_SCENE, 0))
 
@@ -71,8 +73,13 @@ export interface NewEntry {
   parentId: ID | null
   /** Lore: a rule never to break. */
   hardRule: boolean
-  /** An event: the characters who take part ('involved in' it, from where the build is true). */
+  /** An event: the characters who take part ('involved in' it, from where the build is true, or from its scene). */
   involved: ID[]
+  /**
+   * An event: the scene of the story's plan it happens in. It first exists there, and those taking part are involved in
+   * it from there, so the scenes before it never hear of it and the timeline shows it at that scene.
+   */
+  sceneId?: ID | null
   source: Source
 }
 
@@ -96,16 +103,17 @@ export function saveEntry(w: Writer, n: NewEntry): { entry: Entry; item: WorldBu
       w.db,
       n.kind,
       { ...ownInput(kind, mine), parentId: n.kind === 'place' ? n.parentId : null, hardRule: rule, originStoryId: w.storyId },
-      { origin: 'adam', originStoryId: w.storyId, runId }
+      { origin: 'adam', originStoryId: w.storyId, originSceneId: n.kind === 'event' ? (n.sceneId ?? null) : null, runId }
     )
     if (ai.has('name')) e = stampOrigins(w.db, e.id, { name: 'ai' })
     if (Object.keys(drafted).length) e = repo.updateEntry(w.db, e.id, toInput(kind, drafted), { origin: 'ai', runId })
     const changeIds: ID[] = []
-    const add = (entryId: ID, data: ChangeData): void => {
-      changeIds.push(mem.insertChange(w.db, { ...data, entryId, ...anchorOf(w), origin: 'ai', runId }).id)
+    const add = (entryId: ID, data: ChangeData, at = anchorOf(w)): void => {
+      changeIds.push(mem.insertChange(w.db, { ...data, entryId, ...at, origin: 'ai', runId }).id)
     }
+    const atScene = n.kind === 'event' && n.sceneId && w.storyId ? { anchor: 'scene' as const, storyId: w.storyId, sceneId: n.sceneId } : undefined
     for (const who of n.kind === 'event' ? n.involved : []) {
-      if (who !== e.id) add(who, { kind: 'relationship', payload: { otherId: e.id, type: 'involved in', feels: '', otherFeels: '' } })
+      if (who !== e.id) add(who, { kind: 'relationship', payload: { otherId: e.id, type: 'involved in', feels: '', otherFeels: '' } }, atScene)
     }
     if (n.kind === 'thread') add(e.id, { kind: 'thread', payload: { status: 'open', note: '' } })
     const l = line(w, {

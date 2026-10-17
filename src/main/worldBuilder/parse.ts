@@ -3,7 +3,7 @@
 // own words are told from the AI's with the same rules as Quick start (builder/profile.ts), so a field
 // is his only when every part of it is copied from his summary. Pure, so every rule is unit-tested.
 
-import type { EntryKind } from '@shared/types'
+import type { EntryKind, ID } from '@shared/types'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
 import { bool, str, strList } from '../keeper/json'
 import { estimateTokens, mentionAt, sentences, splitLong } from '../keeper/text'
@@ -32,6 +32,8 @@ export interface PlanItem {
   rule: boolean
   /** An event: when it happens, in the summary's words ('' when it doesn't say). */
   when: string
+  /** An event: the numbered scene of the story's plan it happens in ("Scene 4"; '' when none). */
+  scene: string
 }
 
 const loose = (s: string): string => s.toLowerCase().replace(/[^a-z]/g, '')
@@ -69,7 +71,8 @@ function planItem(kind: EntryKind, raw: unknown): PlanItem | null {
     about: str(member(o, ['about', 'summary', 'description', 'meaning']), 300),
     in: kind === 'place' ? str(member(o, ['in', 'inside', 'parent', 'within']), 120) : '',
     rule: kind === 'lore' && bool(member(o, ['rule', 'absolute', 'hardrule'])),
-    when: kind === 'event' ? str(member(o, ['when', 'date', 'time']), 160) : ''
+    when: kind === 'event' ? str(member(o, ['when', 'date', 'time']), 160) : '',
+    scene: kind === 'event' ? str(member(o, ['scene', 'inscene', 'scenenumber']), 60) : ''
   }
 }
 
@@ -185,13 +188,23 @@ export function readProfile(kind: EntryKind, summary: string, item: Record<strin
 }
 
 /** A place's parent, a lore entry's "never to break" and an event's people, from beside a profile. */
-export function profileExtras(item: Record<string, unknown>): { in: string; rule: boolean | null; involved: string[] } {
+export function profileExtras(item: Record<string, unknown>): { in: string; rule: boolean | null; involved: string[]; scene: string } {
   const rule = member(item, ['rule', 'absolute', 'hardrule'])
   return {
     in: str(member(item, ['in', 'inside', 'parent', 'within']), 120),
     rule: rule === undefined ? null : bool(rule),
-    involved: strList(member(item, ['involved', 'people', 'characters', 'who']), 20)
+    involved: strList(member(item, ['involved', 'people', 'characters', 'who']), 20),
+    scene: str(member(item, ['scene', 'inscene', 'scenenumber']), 60)
   }
+}
+
+/**
+ * The scene an event happens in, from the number the model gave ("Scene 4", "4"), among the scenes the story's summary
+ * numbers (planScenes). Null when it gave none, or one the summary doesn't have.
+ */
+export function sceneOfNumber(said: string, scenes: readonly ID[]): ID | null {
+  const n = /^\s*(?:scene\s*)?#?(\d+)\b/i.exec(said)
+  return n ? (scenes[Number(n[1]) - 1] ?? null) : null
 }
 
 // ---------- Relationships, themes and tone, and disagreements ----------

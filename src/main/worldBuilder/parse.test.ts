@@ -7,6 +7,7 @@ import {
   readProfile,
   relationshipItems,
   replyItems,
+  sceneOfNumber,
   sentencesNaming,
   splitSummary,
   textAbout,
@@ -160,5 +161,24 @@ describe('what the model is told', () => {
     expect(planText(overviewItems({ characters: ['Tobin'], glossary: ['drowner'] }))).toBe(
       'Being laid out from the same summary:\n- Characters: Tobin\n- Glossary: drowner'
     )
+  })
+})
+
+describe("an event's scene", () => {
+  it('is read from the first look and beside a profile, and found by its number among the scenes the summary numbers', () => {
+    const [storm] = overviewItems({ events: [{ name: 'The Storm', when: 'Day 3', scene: 'Scene 2' }] })
+    expect(storm).toMatchObject({ kind: 'event', scene: 'Scene 2' })
+    expect(overviewItems({ places: [{ name: 'Saltmarsh', scene: 'Scene 2' }] })[0].scene).toBe('')
+    expect(profileExtras({ name: 'The Storm', scene: 'Scene 2' }).scene).toBe('Scene 2')
+    const scenes = ['a', 'b', 'c']
+    expect(['Scene 2', 'scene 3 (Home)', '1', '#2', 'Scene 4', '', 'the second scene'].map((s) => sceneOfNumber(s, scenes))).toEqual([
+      'b',
+      'c',
+      'a',
+      'b',
+      null,
+      null,
+      null
+    ])
   })
 })

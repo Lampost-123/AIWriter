@@ -6,7 +6,9 @@
 //                    "X always ..." or "X never ..."              lore X, a rule never to break
 //                    "The X happened|took place|began|ended|struck [in|on|at|during W]"
 //                                                                 event "The X", when "in W" ("on Day 3"
-//                                                                 gives "Day 3": a day of the story)
+//                                                                 gives "Day 3": a day of the story); on a
+//                                                                 story plan's scene line ("- Scene 2 (Title): ..."),
+//                                                                 its "scene" ("Scene 2")
 //                    'The word "w" means ...' or '"w" means ...'  glossary word w
 //                    "X is a/an ... town|city|village|port|land|island|kingdom|castle|tavern|inn|forest|
 //                     valley|harbour|river|mountain|coast [... in Y]"
@@ -26,7 +28,7 @@
 //   places, groups, items, lore, events, threads, glossary
 //                  {"<job>": [one profile for each thing asked for, in order]}: "name", then "in" (a place's
 //                  "inside"), "rule" (lore: true when its sentence says always or never) or "involved" (an
-//                  event: the characters being laid out that its sentence names); "fromNotes" holds the
+//                  event: the characters being laid out that its sentence names, and its "scene" as listed); "fromNotes" holds the
 //                  name and the first sentence naming it, in summary (places, groups, items, glossary
 //                  words), rules (lore), happened (events) or promise (plot threads), and an event's "when";
 //                  "drafted" every other field, as for a character.
@@ -80,7 +82,15 @@ function overview(summary) {
     taken.add(key)
     list.push(item)
   }
-  const said = sentencesOf(summary)
+  // A story plan's scene line ("- Scene 2 (Debt): ...") is read without its label, which gives its events their scene.
+  const sceneOf = new Map()
+  const said = sentencesOf(summary).map((s) => {
+    const label = s.match(/^- (Scene \d+)(?: \([^)]*\))?: /)
+    if (!label) return s
+    const rest = s.slice(label[0].length)
+    sceneOf.set(rest, label[1])
+    return rest
+  })
   for (const s of said) {
     let m
     if (s.endsWith('?')) {
@@ -96,7 +106,7 @@ function overview(summary) {
       continue
     }
     if ((m = s.match(EVENT))) {
-      add(out.events, { name: m[1], about: s, when: (m[2] ?? '').replace(/^on (Day \d+)$/, '$1') })
+      add(out.events, { name: m[1], about: s, when: (m[2] ?? '').replace(/^on (Day \d+)$/, '$1'), scene: sceneOf.get(s) ?? '' })
       continue
     }
     if ((m = s.match(PLACE))) add(out.places, { name: m[1], aliases: [], about: s, in: m[2].match(INSIDE)?.[1] ?? '' })
@@ -136,7 +146,8 @@ function itemsIn(user) {
         .map((a) => a.trim())
         .filter(Boolean),
       inside: m[3]?.match(/inside ([^;]+)/)?.[1]?.trim() ?? '',
-      when: m[3]?.match(/when: ([^;]+)/)?.[1]?.trim() ?? ''
+      when: m[3]?.match(/when: ([^;]+)/)?.[1]?.trim() ?? '',
+      scene: m[3]?.match(/in (Scene \d+)/)?.[1] ?? ''
     }))
 }
 
@@ -188,7 +199,10 @@ function batch(job, system, user) {
     const out = { name: it.name }
     if (kind === 'place') out.in = it.inside
     if (kind === 'lore') out.rule = !!own && /\b(always|never)\b/.test(own)
-    if (kind === 'event') out.involved = people.filter((p) => own && names(own, p))
+    if (kind === 'event') {
+      out.scene = it.scene
+      out.involved = people.filter((p) => own && names(own, p))
+    }
     return { ...out, fromNotes, drafted: drafted(fields, it.name, fromNotes) }
   })
   return JSON.stringify({ [job]: list }, null, 1)

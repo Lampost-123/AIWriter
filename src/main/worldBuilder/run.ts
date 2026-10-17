@@ -46,6 +46,7 @@ import {
   readProfile,
   relationshipItems,
   replyItems,
+  sceneOfNumber,
   sentencesNaming,
   splitSummary,
   textAbout,
@@ -76,6 +77,7 @@ import {
   type WorldJob
 } from './prompts'
 import { earlierBuilds, madeItems } from './lines'
+import { planScenes } from './storySummary'
 import { finishWriter, newWriter, saveEntry, saveMeta, saveRelationship, setParent, type Source, type Writer } from './save'
 import {
   BATCH_ITEM_TOKENS,
@@ -228,7 +230,7 @@ export function startBuild(ctx: BuildContext, input: WorldBuildInput): Promise<v
     ctx,
     summary,
     storyId,
-    writer: newWriter(ctx.db, storyId),
+    writer: newWriter(ctx.db, storyId, storyId ? planScenes(ctx.db, storyId, summary) : []),
     stage: 'reading',
     step: 'Reading your summary',
     retrying: null,
@@ -619,6 +621,7 @@ export function mergePlan(items: PlanItem[]): PlanItem[] {
     x.about ||= p.about
     x.in ||= p.in
     x.when ||= p.when
+    x.scene ||= p.scene
     x.rule ||= p.rule
   }
   return out
@@ -742,6 +745,7 @@ function saveProfile(b: Build, p: PlanItem, profile: Profile, raw: Record<string
     parentId: parent?.id ?? null,
     hardRule: p.kind === 'lore' && (extras.rule ?? p.rule),
     involved,
+    sceneId: p.kind === 'event' ? sceneOfNumber(extras.scene || p.scene, b.writer.scenes) : null,
     source: entrySource(b, p)
   })
   if (!made) {
