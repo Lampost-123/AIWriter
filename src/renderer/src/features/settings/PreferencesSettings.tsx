@@ -11,6 +11,8 @@ import { SaveNote } from '@/features/world/parts/SaveNote'
 import { POV_PRESETS, PresetInput, TENSE_PRESETS } from '@/features/world/parts/TextInputs'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { useSlow } from '@/features/world/parts/useSlow'
+import { WordTargetInput } from '@/features/inspector/WordTargetInput'
+import { CHAPTER_TARGET_LIMITS, SCENE_LENGTH_LIMITS } from '@shared/lengths'
 
 const SPELLING_OPTIONS = [
   { value: 'UK', label: 'UK spelling', hint: 'colour, realise' },
@@ -145,8 +147,18 @@ function PrefsForm({ initial }: { initial: WritingPrefs }): React.JSX.Element {
         </p>
       </div>
       <AiPhrasesRow checked={prefs.avoidAiPhrases !== false} onChange={(avoidAiPhrases) => update({ avoidAiPhrases })} />
+      <Field label="Scene length" hint="What a scene aims for when neither its card nor its chapter sets a length. Leave it empty to let the AI pick.">
+        {(id) => (
+          <WordTargetInput id={id} value={prefs.sceneLength ?? null} onChange={(sceneLength) => update({ sceneLength })} limits={SCENE_LENGTH_LIMITS} placeholder="Auto" />
+        )}
+      </Field>
+      <Field label="Chapter length" hint="A target for each whole chapter, unless its chapter card sets its own. The scenes on Auto share it out. Leave it empty for none.">
+        {(id) => (
+          <WordTargetInput id={id} value={prefs.chapterLength ?? null} onChange={(chapterLength) => update({ chapterLength })} limits={CHAPTER_TARGET_LIMITS} placeholder="None" />
+        )}
+      </Field>
       <div className="flex items-center gap-3 border-t border-line pt-4 text-[12px] text-faint">
-        <span className="flex-1">Changes save as you type. A world's style guide can choose its own point of view, tense, spelling and notes. Words to avoid here apply in every world.</span>
+        <span className="flex-1">Changes save as you type. A world's style guide can choose its own point of view, tense, spelling and notes. Words to avoid and lengths here apply in every world.</span>
         <SaveNote status={autosave.status} error={autosave.error} />
       </div>
     </div>

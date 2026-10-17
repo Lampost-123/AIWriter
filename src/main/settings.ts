@@ -6,6 +6,7 @@ import { withReadingLimits } from '@shared/readingLimits'
 import { ARRANGEMENTS, LOOKS, arrangementNoteDue, lookNoteDue, lookOf, type Arrangement, type Look } from '@shared/contracts/look'
 import { defaultLibraryDir, userDataDir } from './paths'
 import { readJson, writeFileAtomic } from './util'
+import { cleanPrefsTargets } from '@shared/lengths'
 
 let cached: Settings | null = null
 
@@ -124,10 +125,11 @@ export function updateSettings(patch: DeepPartial<Settings>): Settings {
 const prefsFile = (): string => join(getSettings().libraryPath, 'writing-preferences.json')
 
 export function getWritingPrefs(): WritingPrefs {
-  return { ...defaultWritingPrefs(), ...readJson<Partial<WritingPrefs>>(prefsFile(), {}) }
+  return cleanPrefsTargets({ ...defaultWritingPrefs(), ...readJson<Partial<WritingPrefs>>(prefsFile(), {}) })
 }
 
 export function setWritingPrefs(prefs: WritingPrefs): WritingPrefs {
-  writeFileAtomic(prefsFile(), JSON.stringify(prefs, null, 2))
-  return prefs
+  const clean = cleanPrefsTargets(prefs)
+  writeFileAtomic(prefsFile(), JSON.stringify(clean, null, 2))
+  return clean
 }

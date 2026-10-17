@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3'
 import { keptStateBefore, storedStateAt, type SceneState } from '../continuity/tracker'
 import type { DraftOptions, ID, WritingPrefs } from '@shared/types'
 import { cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
+import { chapterTarget, sceneAim } from '@shared/lengths'
 import { effectiveStyle } from '@shared/style'
 import * as repo from '../db/repo'
 import { getBlockModes, pinsForScene } from '../db/memory'
@@ -48,6 +49,26 @@ export function cleanOptions(
   }
 }
 
+/** Options with Auto (null) given the scene's own aim (sceneLengthFor), which may itself be Auto. */
+export const withAim = (o: DraftOptions, aim: () => number | null): DraftOptions => (o.targetWords === null ? { ...o, targetWords: aim() } : o)
+
+/**
+ * The length this scene aims for when a draft doesn't say (shared/lengths.ts): the card's own, else its share of the
+ * chapter's target, else the default scene length in Settings › Writing; null is Auto.
+ * `useCard: false`: a draft on Auto by choice (its options' length null), which passes over the card's own length.
+ */
+export function sceneLengthFor(db: DB, sceneId: ID, prefs: WritingPrefs, o: { useCard?: boolean } = {}): number | null {
+  const cardWords = o.useCard === false ? null : cardLength(repo.getScene(db, sceneId).card)
+  if (cardWords != null) return cardWords
+  const { chapter } = repo.sceneLocation(db, sceneId)
+  const chapterTotal = chapterTarget(repo.getChapterCard(db, chapter.id), prefs)
+  const others =
+    chapterTotal != null
+      ? [...repo.sceneCards(db, repo.sceneIds(db, chapter.id).filter((id) => id !== sceneId)).values()].map((c) => cardLength(c))
+      : []
+  return sceneAim({ cardWords, chapterTotal, others, prefs })
+}
+
 /**
  * Everything the briefing for this scene is built from. Options left out fall
  * back to the scene card's length (Auto unless Adam set one) and the default creativity preset.
@@ -76,7 +97,9 @@ export function gatherContextInput(
     world: { themes: repo.getMeta(db, 'themes') ?? '', tone: repo.getMeta(db, 'tone') ?? '' },
     series: series ? { name: series.name, themes: series.themes, tone: series.tone } : null,
     story: { title: story.title, premise: story.premise, themes: story.themes, tone: story.tone },
-    options: cleanOptions(options, { targetWords: cardLength(scene.card), creativity: extra.creativity }),
+    options: withAim(cleanOptions(options, { targetWords: null, creativity: extra.creativity }), () =>
+      sceneLengthFor(db, sceneId, extra.prefs, { useCard: options?.targetWords !== null })
+    ),
     contextLength: extra.contextLength,
     maxOutput: extra.maxOutput ?? null,
     // Where things stand as the previous scene ended, if it still stands (brought up to date before a draft).
@@ -119,7 +142,8 @@ export function stageWhere(db: DB, state: SceneState | null | undefined): Record
 // ---------- Catching the memory up before a draft ----------
 // Spec, Memory upkeep: "Before a draft is generated, any queued or failed runs for earlier scenes on
 // the story's line run first." The memory keeper registers how (setBeforeDraft); drafting waits for
-// it, but never for long, and drafts anyway with what the memory has if it fails.
+// it to finish (Adam, 2026-10-17: "always wait for the extractor to finish before advancing", every draft but
+// Variants), and drafts anyway with what the memory has if it fails.
 
 /** `limitMs`: how long the draft waits for it at most, so the memory can keep to it (the summaries a draft needs). */
 export type BeforeDraft = (db: DB, sceneId: ID, limitMs?: number) => Promise<unknown> | unknown
@@ -143,13 +167,18 @@ export const withStageRead =
     await Promise.all([Promise.resolve().then(() => catchUp(db, sceneId, limitMs)), stage(db, sceneId)])
   }
 
-/** How long a draft waits for the memory to catch up before going ahead with what it has. */
-export const CATCH_UP_LIMIT_MS = 60_000
+/**
+ * How long a draft waits for the memory to catch up: until it has (Adam, 2026-10-17, "always wait"). Each read ends,
+ * read or failed, so the wait does too; Stop ends it at once. Variants alone still go ahead after VARIANTS_CATCH_UP_MS.
+ */
+export const CATCH_UP_LIMIT_MS = Infinity
+/** Variants (several drafts side by side) wait no longer than this, then go ahead with what the memory has. */
+export const VARIANTS_CATCH_UP_MS = 60_000
 
 /**
  * Brings the memory up to date for earlier scenes; resolves when done, on failure, after `limitMs`,
  * or at once when `signal` is aborted (Adam stopped the draft before it began). Whatever happens,
- * the memory goes on catching up in the background.
+ * the memory goes on catching up in the background. `limitMs` Infinity: no time limit (Write the whole chapter).
  */
 export async function catchUpBeforeDraft(
   db: DB,
@@ -163,7 +192,8 @@ export async function catchUpBeforeDraft(
   let timer: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
   const late = new Promise<'timed-out'>((resolve) => {
-    timer = setTimeout(() => resolve('timed-out'), limitMs)
+    // A timer can't wait for ever (Node fires one past 2^31 ms at once), so no limit is no timer.
+    if (Number.isFinite(limitMs)) timer = setTimeout(() => resolve('timed-out'), limitMs)
   })
   const stopped = new Promise<'cancelled'>((resolve) => {
     onAbort = () => resolve('cancelled')

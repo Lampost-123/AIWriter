@@ -66,6 +66,10 @@ export interface WritingPrefs {
   avoidWords: string[]
   /** Steer the AI clear of common AI phrases (src/shared/slop.ts), and underline them in drafts. On unless Adam turns it off. */
   avoidAiPhrases?: boolean
+  /** The length a scene aims for when neither it nor its chapter says (shared/lengths.ts); null or left out: Auto. */
+  sceneLength?: number | null
+  /** The target for a whole chapter when its chapter card has none (shared/lengths.ts); null or left out: none. */
+  chapterLength?: number | null
 }
 
 // ---------- Story structure ----------
@@ -204,7 +208,13 @@ export type Inherits = Partial<Record<CarryField, boolean>>
  * A chapter card (2026-10-08): the scene card parts the chapter's scenes share, kept in the world's meta table
  * (`chapter_card:<chapter id>`, no migration). Its scenes follow each part until they are given their own.
  */
-export type ChapterCard = Pick<SceneCard, 'povId' | 'presentIds' | 'locationId' | 'when' | 'mood' | 'targetWords' | 'lengthSet' | 'notes'>
+export type ChapterCard = Pick<SceneCard, 'povId' | 'presentIds' | 'locationId' | 'when' | 'mood' | 'targetWords' | 'lengthSet' | 'notes'> & {
+  /**
+   * The target for the whole chapter, in words (2026-10-17): its scenes on Auto share out what the scenes with a length
+   * of their own leave (shared/lengths.ts). Never copied into the scene cards. Left out: the default in Settings › Writing.
+   */
+  totalWords?: number
+}
 
 export interface SceneMeta {
   id: ID

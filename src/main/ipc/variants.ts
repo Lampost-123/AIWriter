@@ -7,6 +7,7 @@ import type { VariantsApi } from '@shared/contracts/variants'
 import * as world from '../world'
 import { emit } from '../events'
 import { draftBriefing, providerNotes } from '../ai/draftFlow'
+import { VARIANTS_CATCH_UP_MS } from '../ai/gather'
 import { latestVariantSet, startVariantSet, stopVariantSet } from '../variants'
 import { isStartingBeat } from '../beats'
 import { isStartingDraft } from './ai'
@@ -22,7 +23,7 @@ export const variantsHandlers: Handlers<keyof VariantsApi> = {
       emit,
       // No plan before writing (step 4): one plan for the whole set would make its drafts alike, and choice is what they
       // are for. They still get what must stay true.
-      briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal, plan: false }),
+      briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal, plan: false, catchUpMs: VARIANTS_CATCH_UP_MS }),
       // Generate's draft or a beat of Beat by beat getting ready.
       startingElsewhere: (sceneId) => isStartingDraft(sceneId) || isStartingBeat(sceneId),
       providerNotes,

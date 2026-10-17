@@ -59,7 +59,9 @@ export const defaultWritingPrefs = (): WritingPrefs => ({
   tense: 'Past tense',
   voiceNotes: '',
   avoidWords: [],
-  avoidAiPhrases: true
+  avoidAiPhrases: true,
+  sceneLength: null,
+  chapterLength: null
 })
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'

@@ -462,7 +462,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <CarryRow label="Mood or tone" {...carry('mood')}>
           {(id) => <Input id={id} value={card.mood} placeholder="Quiet and tense, with a bitter edge" onChange={(e) => update({ mood: e.target.value })} />}
         </CarryRow>
-        <CarryRow label="Length" {...carry('length')} hint="Auto lets the AI pick the length the scene needs.">
+        <CarryRow label="Length" {...carry('length')} hint="Auto aims for the chapter’s target or your default in Settings › Writing, else lets the AI pick.">
           {(id) => (
             <TargetLength
               id={id}

@@ -6,12 +6,12 @@
 
 import type { BeatStart } from '@shared/contracts/beats'
 import type { DraftOptions, ID } from '@shared/types'
-import { AUTO_LENGTH, cardLength } from '@shared/defaults'
+import { AUTO_LENGTH } from '@shared/defaults'
 import * as repo from '../db/repo'
 import { newId, UserError } from '../util'
 import * as world from '../world'
-import { getSettings } from '../settings'
-import { cleanOptions } from '../ai/gather'
+import { getSettings, getWritingPrefs } from '../settings'
+import { cleanOptions, sceneLengthFor, withAim } from '../ai/gather'
 import { draftBriefing, providerNotes, withPlan, type DraftBriefing } from '../ai/draftFlow'
 import type { ContextExtras } from '../ai/context'
 import { noteContract, noteStage, stageTold } from '../repair'
@@ -72,9 +72,11 @@ export async function startBeat(
   starting.set(sceneId, stop)
   try {
     let beats = beatsFor(sceneId, index)
-    // The scene's length (from the draft options, else the scene card) is shared out between the beats.
-    // With Auto, each beat gets its share of a typical scene's length.
-    const scene = cleanOptions(input.options, { targetWords: cardLength(repo.getScene(db, sceneId).card), creativity: 'balanced' })
+    // The scene's length (from the draft options, else the scene's aim: its card, its chapter's target, the default in
+    // Settings › Writing) is shared out between the beats. With Auto, each beat gets its share of a typical scene's length.
+    const scene = withAim(cleanOptions(input.options, { targetWords: null, creativity: 'balanced' }), () =>
+      sceneLengthFor(db, sceneId, getWritingPrefs(), { useCard: input.options?.targetWords !== null })
+    )
     const extras = (): ContextExtras => ({
       final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds, hasAfter: !!next }),
       extraBlocks: [block, next].filter((x): x is NonNullable<typeof x> => !!x)

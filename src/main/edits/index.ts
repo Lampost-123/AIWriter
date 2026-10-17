@@ -21,7 +21,7 @@ import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
-import { calendarFor, catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
+import { calendarFor, CATCH_UP_LIMIT_MS, catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
 import { sceneTail, stageScope, timelineFrom } from '../ai/context'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
@@ -85,10 +85,10 @@ async function continueCore(
 }
 
 /**
- * How long Continue waits for the memory to catch up (earlier scenes, then the scene's own fresh read, which waits up to
- * 8 s itself) before going ahead with what it has: much shorter than a draft's wait, since Adam is at the cursor.
+ * How long Continue waits for the memory to catch up (earlier scenes, then the scene's own fresh read): until it has, as a
+ * draft does (Adam, 2026-10-17: "always wait for the extractor to finish before advancing"). Stop ends the wait at once.
  */
-export const CONTINUE_CATCH_UP_MS = 10_000
+export const CONTINUE_CATCH_UP_MS = CATCH_UP_LIMIT_MS
 
 /**
  * Starts an AI edit. Throws (plain words) when there's no writer model or the scene is gone. Continue first works out
@@ -102,7 +102,7 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const model = jobModel('writer', { settings, getProvider: providers.getProvider, providerTarget: providers.providerTarget })
   const db = world.db()
   // Continue, like a draft, first lets the memory catch up: earlier scenes, then this scene's own unread words
-  // (World Memory Overhaul A6), never for long (CONTINUE_CATCH_UP_MS), and Stop ends the wait at once.
+  // (World Memory Overhaul A6), until it has (CONTINUE_CATCH_UP_MS), and Stop ends the wait at once.
   if (tool === 'continue') {
     const ready = startingSignal(input.taskId)
     try {

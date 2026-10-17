@@ -402,7 +402,7 @@ export class Keeper {
     let timer: ReturnType<typeof setTimeout> | undefined
     const read = new Promise<'read'>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve: () => resolve('read') }))
     const late = new Promise<'timed-out'>((resolve) => {
-      timer = setTimeout(() => resolve('timed-out'), limitMs)
+      if (Number.isFinite(limitMs)) timer = setTimeout(() => resolve('timed-out'), limitMs)
     })
     this.kick()
     try {
@@ -460,7 +460,8 @@ export class Keeper {
     this.kick()
     let timer: ReturnType<typeof setTimeout> | undefined
     const late = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, Math.max(0, limitMs))
+      // Infinity (Write the whole chapter waits for the memory): no timer, since Node fires one past 2^31 ms at once.
+      if (Number.isFinite(limitMs)) timer = setTimeout(resolve, Math.max(0, limitMs))
     })
     try {
       await Promise.race([wait, late])

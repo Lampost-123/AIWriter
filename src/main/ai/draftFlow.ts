@@ -153,8 +153,8 @@ export interface DraftBriefing {
  * Everything a draft needs before it is sent. Earlier scenes the memory hasn't read yet are read first,
  * so the briefing is up to date (spec, Memory upkeep): this never waits long, a failure drafts with what
  * the memory has, and `signal` ends the wait at once (then this fails with the code 'cancelled').
- * `catchUp: false` skips that (a later beat of the same draft, say, right after the first); `catchUpMs` waits longer
- * than usual (ai/gather.ts CATCH_UP_LIMIT_MS) for it, as "Write the whole chapter" does.
+ * `catchUp: false` skips that (a later beat of the same draft, say, right after the first); `catchUpMs` waits less than
+ * usual (ai/gather.ts CATCH_UP_LIMIT_MS: until it has caught up), as Variants do.
  * `soFar`: the draft carries on from these words already in the scene (Add below, a later beat), so where things
  * stand at their end is worked out first (never for long) and told in place of where the previous scene ended.
  * `plan` (on unless false; Variants turn it off, and Beat by beat plans the beat itself with withPlan): one short call

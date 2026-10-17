@@ -78,6 +78,11 @@ export interface RunDeps {
     sceneId: ID,
     o: { notes: string; direction: string; signal: AbortSignal }
   ) => Promise<{ status: 'complete' | 'stopped' | 'error'; text: string; error: string | null; cutOff?: boolean; refused?: boolean; note?: string | null }>
+  /**
+   * Waits for the memory to finish reading the scenes before this one and writing their summaries (Adam, 2026-10-17:
+   * "always wait"), so the run can say so while it waits. Left out: the draft's own catch-up does it, unsaid.
+   */
+  catchUp?: (sceneId: ID, signal: AbortSignal) => Promise<unknown>
   /** Saves a scene's new page the way the editor's saves go, after keeping the page before in History. */
   save: (sceneId: ID, page: Page, label: string) => void
   /** Runs every consistency check on a scene (the memory caught up first); what they find is saved as issues. */
@@ -404,6 +409,11 @@ export class ChapterRun {
   private async draftAll(): Promise<void> {
     for (const [i, r] of this.refs.entries()) {
       this.check()
+      if (i > 0 && this.d.catchUp) {
+        this.tell('drafting', `Updating memory with ${this.refs[i - 1].label} before writing ${r.label}`, r.id)
+        await this.d.catchUp(r.id, this.controller.signal)
+        this.check()
+      }
       this.tell('drafting', `Writing ${r.label} (${i + 1} of ${this.refs.length})`, r.id)
       await this.write(r.id, '')
     }

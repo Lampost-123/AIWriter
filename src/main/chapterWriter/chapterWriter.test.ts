@@ -208,6 +208,30 @@ describe('writing a whole chapter', () => {
     expect(loadReport(db, chapterId)?.status).toBe('done')
   })
 
+  it('waits for the memory to finish the scene before drafting the next, and says so', async () => {
+    const { db, chapterId, s2 } = world()
+    const progress: ChapterWriterProgress[] = []
+    const d = deps(db, { progress })
+    const waited: string[] = []
+    d.catchUp = async (sceneId) => {
+      await new Promise((r) => setTimeout(r, 20))
+      waited.push(sceneId)
+    }
+    const drafted: string[] = []
+    const draft = d.draft
+    d.draft = async (sceneId, o) => {
+      drafted.push(`${sceneId}:${waited.join(',')}`)
+      return draft(sceneId, o)
+    }
+    const run = new ChapterRun(d, 'run-wait', chapterId)
+    run.prepare()
+    await run.run()
+    // Only before the second scene (the first has nothing of this run before it), and before its draft began.
+    expect(waited[0]).toBe(s2)
+    expect(drafted).toContain(`${s2}:${s2}`)
+    expect(progress.some((p) => /^Updating memory with .+ before writing /.test(p.note))).toBe(true)
+  })
+
   it('asks the critic in the first round only, then once more at the end for Adam, so a critic never satisfied still settles', async () => {
     const { db, chapterId, s1, s2 } = world()
     // A critic that never finds the chapter ready (live test, 2026-10-16: new notes at every re-read, 14 rounds).

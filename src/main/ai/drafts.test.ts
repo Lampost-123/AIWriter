@@ -274,6 +274,14 @@ describe('catching the memory up before a draft', () => {
     setBeforeDraft(null)
   })
 
+  it('waits until the memory has caught up, however long it takes, by default (Adam: "always wait")', async () => {
+    // Past where a timer of Infinity would have fired at once (Node treats it as 1 ms).
+    setBeforeDraft(() => new Promise((resolve) => setTimeout(resolve, 60)))
+    expect(await catchUpBeforeDraft(db, 's1')).toBe('done')
+    expect(await catchUpBeforeDraft(db, 's1', Infinity)).toBe('done')
+    setBeforeDraft(null)
+  })
+
   it('stops waiting at once when Adam stops the draft before it begins', async () => {
     setBeforeDraft(() => new Promise(() => undefined))
     const stop = new AbortController()
