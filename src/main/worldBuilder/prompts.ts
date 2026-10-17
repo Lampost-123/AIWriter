@@ -74,6 +74,7 @@ Rules
 - A place inside another place says which, in "in".
 - Lore the summary states as absolute, always so with no exceptions ("magic always costs blood"), has "rule" true.
 - An event's "when": for something that happens during the story, the day it happens on, counting the day the story opens as Day 1, with the time of day when the summary gives it ("Day 1", "Day 3, dusk"); work the day out from what the summary says happens when. For something before the story begins, the date the summary gives, in its own words ("in the year 312"), or "" when it gives none. For something in a later book, say so ("in Book 2").
+- An event's "scene": when the summary numbers its scenes ("Scene 4") and the event happens in one of them, that scene's number ("Scene 4"); else "".
 
 Reply with:
 {"characters": [{"name": "...", "aliases": ["other names the summary uses"], "about": "who they are, in a few words"}],
@@ -81,7 +82,7 @@ Reply with:
  "groups": [{"name": "...", "aliases": [], "about": "..."}],
  "items": [{"name": "...", "aliases": [], "about": "..."}],
  "lore": [{"name": "...", "about": "...", "rule": false}],
- "events": [{"name": "...", "about": "...", "when": "..."}],
+ "events": [{"name": "...", "about": "...", "when": "...", "scene": "..."}],
  "threads": [{"name": "...", "about": "the question the reader waits to see answered"}],
  "glossary": [{"name": "the word", "about": "what it means"}]}
 Leave a list empty when the summary has nothing of that kind.`
@@ -155,7 +156,7 @@ export function planText(plan: PlanItem[], maxTokens = 1200): string {
 
 const itemLine = (p: PlanItem): string => {
   const also = p.aliases.length ? ` (also: ${p.aliases.join(', ')})` : ''
-  const extra = [p.in ? `inside ${p.in}` : '', p.when ? `when: ${p.when}` : ''].filter(Boolean).join('; ')
+  const extra = [p.in ? `inside ${p.in}` : '', p.when ? `when: ${p.when}` : '', p.scene ? `in ${p.scene}` : ''].filter(Boolean).join('; ')
   const about = p.about ? `: ${p.about}` : ''
   return `- ${p.name}${also}${extra ? ` [${extra}]` : ''}${about}`
 }
@@ -194,8 +195,9 @@ const EXTRAS: Partial<Record<EntryKind, { rule: string; shape: string }>> = {
   },
   event: {
     rule: `- "when" says when it happens. During the story: the day, counting the day the story opens as Day 1, with the time of day when the summary gives it ("Day 1", "Day 3, dusk"). Before the story begins: the date the summary gives, in its own words, or "" when it gives none. In a later book: say so ("in Book 2").
+- "scene": when the summary numbers its scenes ("Scene 4") and the event happens in one of them, that scene's number ("Scene 4"); else "".
 - "involved" lists the characters who take part, by name.`,
-    shape: '"involved": ["..."], '
+    shape: '"scene": "", "involved": ["..."], '
   },
   thread: {
     rule: '- A plot thread is open at the start: set up before the story begins and not yet paid off. "promise" is the question the reader waits to see answered.',

@@ -38,7 +38,19 @@ function cardLine(card: Partial<SceneCard & ChapterCard>, name: (id: ID | null |
  * The story as a summary for the World builder: '' when it has nothing planned to build from (no premise and no
  * chapter or scene with words on its card). Cut to what one build takes.
  */
-export function storySummary(db: DB, storyId: ID): string {
+export const storySummary = (db: DB, storyId: ID): string => storyPlan(db, storyId).summary
+
+/**
+ * The scenes a story's summary numbers ("Scene 1" is the first), so the events the World builder lays out can be put
+ * in the scene they happen in: none when `summary` isn't the story's own (Adam's World builder summary).
+ */
+export function planScenes(db: DB, storyId: ID, summary: string): ID[] {
+  const plan = storyPlan(db, storyId)
+  return plan.summary && plan.summary === summary.trim() ? plan.scenes : []
+}
+
+/** The summary, and the scenes it numbers, in order. */
+function storyPlan(db: DB, storyId: ID): { summary: string; scenes: ID[] } {
   const story = repo.getStory(db, storyId)
   const outline = repo.getOutline(db, storyId)
   const cards = repo.sceneCards(db, outline.scenes.map((s) => s.id))
@@ -53,11 +65,13 @@ export function storySummary(db: DB, storyId: ID): string {
   )
   const name = (id: ID | null | undefined): string => (id ? (names.get(id) ?? '') : '')
   const lines: string[] = []
-  lines.push(`From the plan below for the story "${flat(story.title) || 'Untitled'}", lay out everything it needs: every character with their looks, build, usual clothes, personality, voice, goals and how they relate to the others; every place; the groups, items, lore and rules of its world; and the plot threads it sets up and pays off.`)
+  lines.push(`From the plan below for the story "${flat(story.title) || 'Untitled'}", lay out everything it needs: every character with their looks, build, usual clothes, personality, voice, goals and how they relate to the others; every place; the groups, items, lore and rules of its world; the events it plans, each in the numbered scene it happens in; and the plot threads it sets up and pays off.`)
   if (flat(story.premise)) lines.push(`Premise: ${flat(story.premise)}`)
   if (flat(story.themes)) lines.push(`Themes: ${flat(story.themes)}`)
   if (flat(story.tone)) lines.push(`Tone: ${flat(story.tone)}`)
   let planned = !!flat(story.premise)
+  // Each scene listed is numbered, for an event to say which scene it happens in.
+  const scenes: ID[] = []
   const chapter = (c: (typeof outline.chapters)[number]): void => {
     const card = cardLine(repo.getChapterCard(db, c.id), name)
     const head = [flat(c.title), flat(c.goal)].filter(Boolean).join(': ')
@@ -69,7 +83,9 @@ export function storySummary(db: DB, storyId: ID): string {
       const own = cardLine(sc, name)
       if (!words && !own) continue
       planned = true
-      lines.push(`- Scene ${flat(s.title)}: ${[words, own].filter(Boolean).join(' ')}`)
+      scenes.push(s.id)
+      const title = flat(s.title)
+      lines.push(`- Scene ${scenes.length}${title ? ` (${title})` : ''}: ${[words, own].filter(Boolean).join(' ')}`)
     }
   }
   for (const c of outline.chapters.filter((x) => !x.actId)) chapter(c)
@@ -77,7 +93,7 @@ export function storySummary(db: DB, storyId: ID): string {
     lines.push(`Act ${[flat(a.title), flat(a.purpose)].filter(Boolean).join(': ')}`)
     for (const c of outline.chapters.filter((x) => x.actId === a.id)) chapter(c)
   }
-  if (!planned) return ''
+  if (!planned) return { summary: '', scenes: [] }
   const text = lines.join('\n')
-  return text.length > MAX_SUMMARY_CHARS ? text.slice(0, MAX_SUMMARY_CHARS).replace(/\n[^\n]*$/, '') : text
+  return { summary: text.length > MAX_SUMMARY_CHARS ? text.slice(0, MAX_SUMMARY_CHARS).replace(/\n[^\n]*$/, '') : text, scenes }
 }

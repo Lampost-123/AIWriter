@@ -6,7 +6,9 @@
 // it first exists, or, when that is the world's or a story's start, just after the first scene there, and never
 // shown before that scene unless its date names a year). Each When text is read with when.ts; the ones that can be read
 // are sorted by in-world date (reading order breaks ties), and each one that can't stays just after the
-// point before it in reading order, marked "No date". Nothing is ever given a date it doesn't have.
+// point before it in reading order, marked "No date". Nothing is ever given a date it doesn't have. An event planned
+// for one of the story's scenes (the World builder, from the story's plan) is shown just after that scene, whatever its
+// date says: the scene is where it happens, and its date only places an event that has no scene.
 // What a text leaves out ("the next day", a day without its year) comes from its own story's scenes
 // before it, so a side story added whole partway through a book doesn't move the book's own count on:
 // a side story leans on its host where it starts, and a book that follows on leans on the book before
@@ -22,7 +24,7 @@ import type { Line, MemoryData, StoryNode, WorldShape } from '../memory/types'
 import type { MemoryStateAll } from '../memory/state'
 import { labeler } from '../memory/line'
 import type { CardInfo } from '../db/worldViews'
-import { compareKeys, dayName, placeWhens, type PlacedWhen, type WhenItem, type WhenStory } from './when'
+import { compareKeys, dayName, parseWhen, placeWhens, type PlacedWhen, type WhenItem, type WhenStory } from './when'
 import { existsStep, walkOf, type Walk } from './walk'
 
 export interface TimelineInput {
@@ -81,6 +83,22 @@ export function afterHosts(order: number[], hostOf: ReadonlyMap<number, number>)
   if (!early.size) return order
   const moved = new Set([...early.values()].flat())
   return order.flatMap((i) => (moved.has(i) ? [] : [i, ...(early.get(i) ?? [])]))
+}
+
+/**
+ * `order` with every point that `pinned` ties to a scene moved to just after that scene (keeping their order among
+ * themselves), wherever its date would put it: an event planned for the scene it happens in.
+ */
+export function pinnedAfter(order: number[], pinned: ReadonlyMap<number, number>): number[] {
+  if (!pinned.size) return order
+  const shown = new Set(order)
+  const after = new Map<number, number[]>()
+  for (const i of order) {
+    const host = pinned.get(i)
+    if (host !== undefined && shown.has(host)) add(after, host, i)
+  }
+  const moved = new Set([...after.values()].flat())
+  return order.flatMap((i) => (moved.has(i) ? [] : [i, ...(after.get(i) ?? [])]))
 }
 
 /** The step on the line where a side story starts in its host (as memory/line.ts reads its start point). */
@@ -195,6 +213,12 @@ export function buildTimeline(input: TimelineInput): Timeline {
   // calendar ("Day 2" counts from that story's Day 1), and not shown ahead of it unless their date names a year.
   // hostOf: event's reading index to its scene's.
   const hostOf = new Map<number, number>()
+  // pinned: an event planned for a scene (made with that scene as where it happens) to that scene's reading index.
+  const pinned = new Map<number, number>()
+  const plannedAt = (id: ID, sceneId: ID): boolean => {
+    const e = byId.get(id)
+    return !!e && e.origin !== 'text' && e.originSceneId === sceneId
+  }
   const waiting = new Map<ID | '', Draft[]>([['', [...(eventsAt.get(-1) ?? [])]]])
   const hasScene = new Set<ID>()
   const flush = (key: ID | '', story: ID, host: number): void => {
@@ -205,6 +229,7 @@ export function buildTimeline(input: TimelineInput): Timeline {
     waiting.delete(key)
   }
   line.steps.forEach((step, i) => {
+    let sceneAt = -1
     if (step.type === 'start') {
       const node = nodes.get(step.storyId)
       const from = node?.startStoryId
@@ -251,6 +276,7 @@ export function buildTimeline(input: TimelineInput): Timeline {
         })
       }
       const host = reading.length
+      sceneAt = host
       push(scene, step.storyId)
       hasScene.add(step.storyId)
       flush('', step.storyId, host)
@@ -258,7 +284,11 @@ export function buildTimeline(input: TimelineInput): Timeline {
     }
     const here = eventsAt.get(i) ?? []
     if (here.length && !hasScene.has(step.storyId)) waiting.set(step.storyId, [...(waiting.get(step.storyId) ?? []), ...here])
-    else for (const e of here) push(e, step.storyId)
+    else
+      for (const e of here) {
+        if (sceneAt >= 0 && step.type === 'scene' && plannedAt(e.id, step.sceneId)) pinned.set(reading.length, sceneAt)
+        push(e, step.storyId)
+      }
     pointsBy[i] = items.length
   })
   // A story with no scenes on the line (or a line with none at all): its events are read at the end, as they come.
@@ -266,9 +296,14 @@ export function buildTimeline(input: TimelineInput): Timeline {
 
   const placed = placeWhens(items, stories)
   // A date that names its year (or takes its story's) is a point in history and keeps its place, backstory included;
-  // one counted only in the story's own days ("Day 0") is shown after the scene the story starts with.
-  for (const i of [...hostOf.keys()]) if (placed[i]?.key && placed[i]!.key![1] === -Infinity) hostOf.delete(i)
-  const points: TimelinePoint[] = afterHosts(timelineOrder(placed), hostOf).map((i) => {
+  // one counted only in the story's own days ("Day 0", even when that is counted from the story's first date) is shown
+  // after the scene the story starts with.
+  const dayCount = (text: string): boolean => {
+    const p = parseWhen(text)
+    return !!p?.dayCount && p.year === null && p.month === null
+  }
+  for (const i of [...hostOf.keys()]) if (placed[i]?.key && placed[i]!.key![1] === -Infinity && !dayCount(reading[i].when)) hostOf.delete(i)
+  const points: TimelinePoint[] = pinnedAfter(afterHosts(timelineOrder(placed), hostOf), pinned).map((i) => {
     const p = reading[i]
     return {
       kind: p.kind,

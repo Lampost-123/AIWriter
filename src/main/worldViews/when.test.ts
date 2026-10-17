@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareKeys, dayName, dayWords, goesBack, parseWhen, placeWhens, type PlacedWhen, type WhenStory } from './when'
+import { compareKeys, dayName, daysOn, dayWords, goesBack, parseWhen, placeWhens, type PlacedWhen, type WhenStory } from './when'
 
 const parts = (text: string) => {
   const p = parseWhen(text)
@@ -339,6 +339,34 @@ describe('placing When boxes in reading order', () => {
     expect(key(placed[2])[0]).toBe(300)
     expect(key(placed[3])[0]).toBe(300)
     expect(placeWhens([{ text: 'Day 1' }, { text: 'The next day', aside: true }])[1]).toBeNull()
+  })
+
+  it("counts an event's Day N from its story's first date when the story is dated by the calendar", () => {
+    const same = (text: string): string | null => placeWhens([text])[0]!.day
+    const placed = placeWhens([
+      { text: '12 March 1842, morning' },
+      { text: 'Day 2', aside: true },
+      { text: 'Day 25, dusk', aside: true },
+      { text: '15 March 1842' },
+      { text: 'Day 0', aside: true }
+    ])
+    expect(placed.map((p) => p?.day)).toEqual([same('12 March 1842'), same('13 March 1842'), same('5 April 1842'), same('15 March 1842'), same('11 March 1842')])
+    const keys = placed.map(key)
+    expect(compareKeys(keys[1], keys[0])).toBeGreaterThan(0)
+    expect(compareKeys(keys[1], keys[3])).toBeLessThan(0)
+    expect(compareKeys(keys[2], keys[3])).toBeGreaterThan(0)
+    // A story that counts its own days, or names a day without its month, is read as before.
+    expect(placeWhens([{ text: 'Day 1' }, { text: 'Day 5', aside: true }])[1]?.day).toBe(same('Day 5'))
+    // Into a new year only when the year is known.
+    expect(placeWhens([{ text: '30 December' }, { text: 'Day 5', aside: true }])[1]?.day).toBe(same('Day 5'))
+  })
+
+  it('counts days on across months and years, and back', () => {
+    expect(daysOn({ year: 1842, month: 12, day: 30 }, 3)).toEqual({ year: 1843, month: 1, day: 2 })
+    expect(daysOn({ year: 1844, month: 2, day: 28 }, 1)).toEqual({ year: 1844, month: 2, day: 29 })
+    expect(daysOn({ year: 1843, month: 2, day: 28 }, 1)).toEqual({ year: 1843, month: 3, day: 1 })
+    expect(daysOn({ year: 1842, month: 1, day: 1 }, -1)).toEqual({ year: 1841, month: 12, day: 31 })
+    expect(daysOn({ year: null, month: 12, day: 31 }, 1)).toBeNull()
   })
 
   it('keeps reading order for the same moment', () => {

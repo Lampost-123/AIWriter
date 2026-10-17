@@ -617,7 +617,8 @@ const FOUND_AT_SCENE: Entry['kind'][] = ['character', 'item', 'event', 'thread']
  * - read from a scene's text: characters and items at that scene (events and plot threads too, so
  *   earlier scenes never hear of them), places, groups, lore and glossary terms at that story's start;
  * - made by Adam (or drafted by the AI from his page) outside any story or in the world's first story:
- *   the beginning of the world; in any other story: that story's start.
+ *   the beginning of the world; in any other story: that story's start;
+ * - an event planned for one of a story's scenes (the World builder, from the story's plan): that scene.
  * "A story's start" is before its start-of-story changes, so a prequel to that story sees the entry too.
  * `firstId` saves a query when working out many entries at once.
  */
@@ -628,7 +629,7 @@ export function defaultExistsPoint(
 ): Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'> {
   const world = { kind: 'world' as const, storyId: null, sceneId: null }
   if (e.originStart && e.originStoryId) return { kind: 'story-post', storyId: e.originStoryId, sceneId: null }
-  if (e.origin === 'text') {
+  if (e.origin === 'text' || (e.kind === 'event' && e.originSceneId)) {
     if (FOUND_AT_SCENE.includes(e.kind) && e.originSceneId) {
       return { kind: 'scene', storyId: e.originStoryId ?? sceneStory(db, e.originSceneId), sceneId: e.originSceneId }
     }

@@ -693,6 +693,32 @@ export function monthLength(month: number, year: number | null): number {
   return [4, 6, 9, 11].includes(month) ? 30 : 31
 }
 
+/**
+ * The day `n` days on from a day of a known month (back, for a negative `n`). Null when that crosses into another year
+ * and the year isn't known.
+ */
+export function daysOn(from: { year: number | null; month: number | null; day: number | null }, n: number): { year: number | null; month: number; day: number } | null {
+  if (from.month === null || from.day === null) return null
+  let { year, month, day } = { year: from.year, month: from.month, day: from.day + n }
+  while (day > monthLength(month, year)) {
+    day -= monthLength(month, year)
+    if (++month > 12) {
+      if (year === null) return null
+      month = 1
+      year++
+    }
+  }
+  while (day < 1) {
+    if (--month < 1) {
+      if (year === null) return null
+      month = 12
+      year--
+    }
+    day += monthLength(month, year)
+  }
+  return { year, month, day }
+}
+
 /** Sets a labelled unit ("Day 12", "Year 3"); false when it is already set. */
 function setUnit(p: WhenParts, unit: string, value: number): boolean {
   if (unit === 'year' || unit === 'y') {
@@ -922,6 +948,13 @@ function readStates(
     const from = stories.get(story)?.from
     return from && depth < 64 ? leanOn(from.story, from.at, present, depth + 1) : null
   }
+  // The story's first dated text before `at` that isn't a flashback, when it is a day of a known month ("12 March 1842"):
+  // the day a count of days ("Day 5") counts from. Null otherwise (a story that counts its own days, or isn't dated yet).
+  const firstDate = (story: string, at: number): State | null => {
+    const j = dated.get(story)?.find((x) => x < at && !back.has(x))
+    const k = j === undefined ? null : states[j]
+    return k && !k.dayCount && !k.qual && !k.vague && k.day !== null && k.month !== null && Number.isInteger(k.month) ? k : null
+  }
 
   // The calendar each story's dates without a year are counted in: a book that follows on starts one of
   // its own at its first date (null until then); a side story shares its host's.
@@ -1058,6 +1091,15 @@ function readStates(
     const prev = leanOn(story, i, !goes)
     if (aside[i]) {
       if (p.step || p.next || (p.year === null && p.month === null && p.day === null)) return
+      // A count of days alone ("Day 5, dusk") in a story dated by the calendar counts from the story's first date, its Day 1.
+      const first = p.dayCount && p.day !== null && p.year === null && p.month === null && !p.qual ? firstDate(story, i) : null
+      const counted = first ? daysOn(first, p.day! - 1) : null
+      if (first && counted) {
+        const k: State = { ...first, ...counted, dayCount: false, minute: p.minute ?? -1 }
+        states[i] = k
+        named[i] = namesDay(k)
+        return
+      }
       const k: State = {
         year: p.year ?? prev?.year ?? null,
         yearWord: p.year !== null ? p.yearWord : (prev?.yearWord ?? false),

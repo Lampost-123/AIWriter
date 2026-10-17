@@ -32,6 +32,8 @@ import { estimateCost, guessBuild, guessNames } from './estimate'
 import { startTimeline, timelineStory } from './timeline'
 import { timelineOf } from '../worldViews/index'
 import { getEntryReadAloud, setEntryReadAloud } from '../readAloud/voiceStore'
+import { keepOutline } from '../outline/structure'
+import { storySummary } from './storySummary'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -747,5 +749,51 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     expect(asked).toEqual(['Mara Venn', 'Tobin', 'Erin'])
     expect(voiceOf(t.db, erin.id)).toBe(VOICE)
     expect(t.steps()).toContain('Giving the characters their voices: 3 of 3')
+  })
+})
+
+describe('the events of a story built from its plan', () => {
+  // A plan of three chapters, a scene each: the Storm happens in the second, whatever day the summary guesses for it.
+  const planned = () => {
+    const t = setup()
+    const id = repo.listStories(t.db)[0].id
+    keepOutline(t.db, id, [
+      { key: 'c0', kind: 'chapter', title: 'Harbour', text: 'The ferry waits.', card: { when: 'Day 1' } },
+      { key: 's0', kind: 'scene', title: 'Debt', text: 'Mara Venn is a smuggler captain.', parent: { key: 'c0' } },
+      { key: 'c1', kind: 'chapter', title: 'Reefs', text: 'Out past the light.', card: { when: 'Day 7' } },
+      { key: 's1', kind: 'scene', title: 'Wreck', text: 'The Storm struck on Day 3, and Mara Venn lost her ship.', parent: { key: 'c1' } },
+      { key: 'c2', kind: 'chapter', title: 'Ashore', text: 'Back on land.', card: { when: 'Day 9' } },
+      { key: 's2', kind: 'scene', title: 'Home', text: 'The quay is quiet.', parent: { key: 'c2' } }
+    ])
+    const scenes = repo.getOutline(t.db, id).scenes.map((s) => s.id)
+    return { t, id, scenes }
+  }
+
+  it('puts each event in the scene it happens in: it first exists there, and those in it are involved from there', async () => {
+    const { t, id, scenes } = planned()
+    const done = await t.build(storySummary(t.db, id), id)
+    expect(done.status).toBe('complete')
+    const storm = t.named('The Storm')
+    expect(storm.originSceneId).toBe(scenes[1])
+    expect(mem.listExistsPoints(t.db, storm.id)).toEqual([expect.objectContaining({ kind: 'scene', sceneId: scenes[1], byHand: false })])
+    const involved = mem.changesForEntry(t.db, t.named('Mara Venn').id).filter((c) => c.kind === 'relationship' && c.payload.otherId === storm.id)
+    expect(involved).toEqual([expect.objectContaining({ anchor: 'scene', sceneId: scenes[1], storyId: id })])
+    // Working the defaults out again (a story's kind or start changed) leaves it there.
+    mem.refreshDefaultExistsPoints(t.db)
+    expect(mem.listExistsPoints(t.db, storm.id)).toEqual([expect.objectContaining({ kind: 'scene', sceneId: scenes[1] })])
+
+    // On the timeline it is just after that scene, though its Day 3 would put it before the scene's Day 7.
+    const points = timelineOf(t.db, id).points
+    const at = (pid: ID): number => points.findIndex((p) => p.id === pid)
+    expect(at(storm.id)).toBe(at(scenes[1]) + 1)
+    expect(at(storm.id)).toBeLessThan(at(scenes[2]))
+  })
+
+  it('leaves an event where the build is true when the summary is Adam’s own, not the story’s plan', async () => {
+    const { t, id } = planned()
+    await t.build(`${storySummary(t.db, id)} Mara Venn is tired.`, id)
+    const storm = t.named('The Storm')
+    expect(storm.originSceneId).toBeNull()
+    expect(mem.listExistsPoints(t.db, storm.id)).toEqual([expect.objectContaining({ kind: 'world' })])
   })
 })
