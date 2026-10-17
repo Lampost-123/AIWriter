@@ -1,4 +1,6 @@
 <!-- version: 0.7.5 -->
 What's new in 0.7.5:
 
-- A story planned from a recipe now starts with its characters built. Before, if the plan named its people only in the premise and scene summaries, nobody was made. Now, once you keep the plan, the World builder makes each character with a bio, looks, personality and voice, plus the places and other things the story needs, in the background. Your own pages are never changed.
+- A story planned from a recipe now starts with its characters built: each gets a bio, looks, personality and voice, plus the places the story needs. Your own pages are never changed.
+- Right-click in a scene for Ask about this paragraph and Listen from here. Select words first for Ask about this, Edit this and the Rewrite tools.
+- Reading aloud can keep the page still: turn Follow along off in the reading bar.
