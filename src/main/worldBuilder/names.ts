@@ -13,19 +13,22 @@ export interface Named {
   aliases: string[]
 }
 
-/** Lower case, accents removed, spaces tidied: "  Márra " -> "marra" (as the entry pages compare names). */
-export function normalizeName(s: string): string {
-  return s
+/**
+ * A name as compared with another: the one rule the World builder and the outline share (2026-10-17). Case, accents,
+ * curly quotes, a possessive 's, punctuation and a leading "the" don't count, so "The Café's" and "cafe" are one name,
+ * as are "The Salt Guild" and "Salt Guild". Letters of any alphabet are kept.
+ */
+export const bareName = (s: string): string =>
+  s
     .normalize('NFD')
     .replace(/\p{M}+/gu, '')
-    .toLocaleLowerCase()
-    .replace(/[’‘]/g, "'")
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/'s(?![\p{L}\p{N}])/gu, '')
+    .replace(/[^\p{L}\p{N} ]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-/** A name without a leading "the": "The Salt Guild" and "Salt Guild" are one name. */
-export const bareName = (s: string): string => normalizeName(s).replace(/^the /, '')
+    .replace(/^the /, '')
 
 /** True when a and b differ by at most one inserted, removed or changed letter, or two letters swapped ("grimbsy"). */
 export function withinOneEdit(a: string, b: string): boolean {
@@ -49,7 +52,7 @@ export function differsByDigit(a: string, b: string): boolean {
 
 /** Names the app gives new entries before Adam names them. They never count as the same as anything. */
 export const isPlaceholderName = (name: string): boolean =>
-  /^(unnamed|new (character|place|group|item|lore|event|plot thread|term))$/.test(normalizeName(name))
+  /^(unnamed|new (character|place|group|item|lore|event|plot thread|term))$/.test(bareName(name))
 
 const namesOf = (n: Pick<Named, 'name' | 'aliases'>): string[] =>
   [n.name, ...n.aliases].map(bareName).filter((x) => x && !isPlaceholderName(x))

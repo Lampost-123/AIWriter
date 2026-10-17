@@ -6,6 +6,7 @@
 import type Database from 'better-sqlite3'
 import type { EntryKind, ID } from '@shared/types'
 import { logForRun, type LogRow } from './keeper'
+import { issuesTouched } from './checks'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -42,6 +43,28 @@ export function lastBuildRun(db: DB): { id: ID; status: string; cost: number | n
 /** Every line the builds wrote, oldest first (undone ones too). */
 export function buildLines(db: DB): LogRow[] {
   return buildRunIds(db).flatMap((runId) => logForRun(db, runId))
+}
+
+/**
+ * Takes back a consistency issue a build raised (Undo build, 2026-10-17), found by its key, only while it is open as
+ * the build left it: one Adam ignored or put off with Later stays. False when there was none to take back.
+ */
+export function takeBackBuildIssue(db: DB, sceneId: ID, key: string): boolean {
+  const r = db
+    .prepare(
+      `SELECT id, story_id, payload_json FROM issues WHERE scene_id = ? AND status = 'open' AND json_extract(payload_json, '$.key') = ?
+       ORDER BY rowid DESC LIMIT 1`
+    )
+    .get(sceneId, key) as Row | undefined
+  if (!r) return false
+  try {
+    if ((JSON.parse((r.payload_json as string) || '{}') as { later?: unknown }).later) return false
+  } catch {
+    // A payload that can't be read is taken back as it is.
+  }
+  db.prepare('DELETE FROM issues WHERE id = ?').run(r.id)
+  issuesTouched(r.story_id as ID | null, sceneId || null)
+  return true
 }
 
 /** Whether an entry is live or in Recently deleted; null once it is gone for good. */

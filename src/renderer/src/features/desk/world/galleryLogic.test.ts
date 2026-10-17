@@ -30,6 +30,7 @@ const card = (c: Partial<CodexCard> & Pick<CodexCard, 'name'>): CodexCard => ({
   image: null,
   role: '',
   hardRule: false,
+  aiDrafted: false,
   scenes: 0,
   importance: 0,
   last: null,

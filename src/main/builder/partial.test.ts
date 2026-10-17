@@ -54,6 +54,29 @@ describe('reading a reply that is still arriving', () => {
     expect(parsePartial('{"a": "1", b: "2", "c": "3"}')).toEqual({ value: { a: '1' }, open: null, done: false })
   })
 
+  // 2026-10-17: R3 in the world and story building plan.
+  it('starts at the object, not at a brace in the words before it', () => {
+    expect(parsePartial('Here is {the profile}:\n{"name": "Mara"}')).toEqual({ value: { name: 'Mara' }, open: null, done: true })
+    expect(parsePartial('Sure, {name} it is.\n```json\n{"name": "Mara", "hair": "Bl').value).toEqual({ name: 'Mara' })
+    expect(parsePartial('I will call her {name}').value).toBeNull()
+  })
+
+  it('reads \\u escapes, pairs of them included, and waits for the second of a pair', () => {
+    expect(parsePartial('{"a": "caf\\u00e9 \\ud83d\\ude00!"}').value).toEqual({ a: 'café 😀!' })
+    expect(parsePartial('{"a": "x\\ud83d').open).toEqual({ path: ['a'], text: 'x' })
+    expect(parsePartial('{"a": "x\\ud83d\\ude').open).toEqual({ path: ['a'], text: 'x' })
+  })
+
+  it('reads a list of objects as each arrives', () => {
+    const p = parsePartial('{"options": [{"text": "One"}, {"text": "Tw')
+    expect(p.value).toEqual({ options: [{ text: 'One' }, {}] })
+    expect(p.open).toEqual({ path: ['options', 1, 'text'], text: 'Tw' })
+  })
+
+  it('leaves out a key cut off part way, with nothing shown as being written', () => {
+    expect(parsePartial('{"name": "Mara", "hai')).toEqual({ value: { name: 'Mara' }, open: null, done: false })
+  })
+
   it('has nothing before the object starts', () => {
     expect(parsePartial('Thinking about it')).toEqual({ value: null, open: null, done: false })
     expect(parsePartial('{')).toEqual({ value: {}, open: null, done: false })

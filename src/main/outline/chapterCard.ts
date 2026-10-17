@@ -10,17 +10,12 @@ import type Database from 'better-sqlite3'
 import type { ChapterCardNames, ChapterCardSaved } from '@shared/contracts/chapterCards'
 import type { CarryField, ChapterCard, Entry, ID } from '@shared/types'
 import { CARRY_LABELS, CHAPTER_CARD_LIMITS, copyField, isFieldEmpty } from '@shared/chapterCard'
+import { oneLine } from '@shared/text'
 import * as repo from '../db/repo'
-import { matchEntry, matchName, nameKey } from './names'
+import { bareName } from '../worldBuilder/names'
+import { matchEntry, matchName } from './names'
 
 type DB = Database.Database
-
-const oneLine = (s: unknown, max: number): string =>
-  String(s ?? '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, max)
-    .trim()
 
 /** The names as cleaned up (what keepOutline and the fill accept from the window). */
 export function cleanNames(v: unknown): ChapterCardNames {
@@ -57,13 +52,25 @@ export function isPageName(name: string): boolean {
   return /\p{Lu}/u.test(n)
 }
 
-/** "Kitchen, Venn House" (a room or spot inside a bigger place, as the outline gives it): the room and the place; null for one name. */
-export function splitPlace(raw: string): { room: string; place: string } | null {
+/** Words that name a room or spot inside a bigger place ("the kitchen", "Great Hall", "Lamp room"). */
+const ROOM_WORDS =
+  /(?<![\p{L}\p{N}])(kitchens?|halls?|cellars?|chambers?|rooms?|yards?|gardens?|towers?|gates?|library|libraries|study|studies|offices?|attics?|stables?|courtyards?|bedrooms?|parlou?rs?|vaults?|crypts?|chapels?|galler(?:y|ies)|lofts?|pantry|pantries|nursery|basements?|corridors?|landings?|balcon(?:y|ies)|terraces?|porch|dungeons?|workshops?|forge|cabins?|decks?|wards?|cells?)(?![\p{L}\p{N}])/iu
+
+/** A room worth a page of its own: a room word, or a name (isPageName); "somewhere dark" is neither. */
+const isRoomName = (room: string): boolean => ROOM_WORDS.test(room) || isPageName(room)
+
+/**
+ * "Kitchen, Venn House" (a room or spot inside a bigger place, as the outline gives it): the room and the place; null
+ * for one name. Only when the first part has a room word or the second is a place the world has (2026-10-17: so
+ * "Washington, D.C." stays one place, never "D.C." with "Washington" inside it).
+ */
+export function splitPlace(raw: string, places: Entry[] = []): { room: string; place: string } | null {
   const m = /^(.+?)\s*(?:,|\s[–—-]\s)\s*(.+)$/.exec(raw.replace(/\s+/g, ' ').trim())
   if (!m) return null
   const room = m[1].trim()
   const place = m[2].trim()
-  return room && place ? { room, place } : null
+  if (!room || !place) return null
+  return ROOM_WORDS.test(room) || matchName(place, places).entry ? { room, place } : null
 }
 
 /** A room's page name: "the kitchen" gives "Kitchen". */
@@ -72,17 +79,19 @@ const roomName = (s: string): string => {
   return n.charAt(0).toUpperCase() + n.slice(1)
 }
 
-/** A place's name as compared with another: case, accents, punctuation and a leading "the" don't count (2026-10-17: as names match). */
-const sameName = (a: string, b: string): boolean => nameKey(a) === nameKey(b)
+/** A place's name as compared with another, as names match (2026-10-17: one rule with the World builder's). */
+const sameName = (a: string, b: string): boolean => bareName(a) === bareName(b)
 
 /** As findPlace, and whether the Location could mean more than one place (then nothing is made for it). */
 function placeMatch(raw: string, places: Entry[]): { entry: Entry | null; ambiguous: boolean } {
   const whole = places.find((p) => [p.name, ...p.aliases].some((n) => sameName(raw, n)))
   if (whole) return { entry: whole, ambiguous: false }
-  const split = splitPlace(raw)
+  const split = splitPlace(raw, places)
   if (split) {
     const house = matchName(split.place, places)
     if (!house.entry) return house
+    // Somewhere in it that names no room ("somewhere dark, Venn House"): the place itself.
+    if (!isRoomName(split.room)) return house
     const rooms = places.filter((p) => p.parentId === house.entry?.id)
     const room = rooms.find((p) => [p.name, ...p.aliases].some((n) => sameName(roomName(split.room), n)))
     return room ? { entry: room, ambiguous: false } : matchName(roomName(split.room), rooms)
@@ -122,11 +131,11 @@ export function addMissing(db: DB, names: ChapterCardNames, world: { characters:
   const at = placeMatch(loc, world.places)
   if (at.entry || at.ambiguous) return
   // A room or spot inside a bigger place ("Kitchen, Venn House"): the place first, then the room inside it.
-  const split = splitPlace(loc)
+  const split = splitPlace(loc, world.places)
   if (split && isPageName(split.place)) {
     const house = matchEntry(split.place, world.places) ?? make('place', split.place)
     const room = roomName(split.room)
-    if (room.length >= 2 && room.length <= 60) make('place', room, house.id)
+    if (isRoomName(split.room) && room.length >= 2 && room.length <= 60) make('place', room, house.id)
   } else if (isPageName(loc)) make('place', loc)
 }
 

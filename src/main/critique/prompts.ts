@@ -3,7 +3,7 @@
 // briefing is lean: how the story is written (genre, tone, point of view, tense, the author's notes), the facts it must
 // respect (premise, themes, the content level and limits, what the card plans, the chapter's goal, the plot threads and
 // when each is due, the scene's contract, the open must-fix problems), what the author has said he wants (memory.ts),
-// who is in it, where it sits, and the words themselves; each part has shorter forms (outline/brief.ts fitBlocks), and a
+// who is in it, where it sits, and the words themselves; each part has shorter forms (outline/briefing.ts fitBlocks), and a
 // chapter too long for the model is sent with its scenes shortened to their openings and endings, then to their
 // summaries, rather than refused. Pure, so it is unit-tested.
 

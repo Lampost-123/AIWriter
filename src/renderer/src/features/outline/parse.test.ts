@@ -242,6 +242,15 @@ Pays off: who rang the drowned bell
     ])
   })
 
+  it('takes a beat that starts with "Part 2" or "Scene 4" for a beat, not a heading, unless a colon or dash follows (O5)', () => {
+    const o = parseOutline(
+      ['## Chapter 1: Rain', '### Scene: Docks', '- Part 2 of the plan fails', '- Scene 4 of the play is cut', '- Scene 5 — The Quay'].join('\n'),
+      true
+    )
+    expect(o.acts).toEqual([])
+    expect(show(o)).toEqual(['c0 Rain | ', '  c0s0 Docks |  | Part 2 of the plan fails; Scene 4 of the play is cut', '  c0s1 The Quay |  | '])
+  })
+
   it('reads acts and chapters written as list items too', () => {
     const o = parseOutline(
       [

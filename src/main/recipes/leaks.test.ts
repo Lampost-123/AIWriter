@@ -94,6 +94,34 @@ describe('checking a recipe against the story', () => {
     expect(findLeaks(out.text, check)).toEqual([])
   })
 
+  // 2026-10-17: names in any case, all-caps names, and names that are also ordinary words.
+  it('finds an invented name however the recipe capitalises it, but not an ordinary word in lower case', () => {
+    expect(findLeaks('The lead, MARA, waits.', check)).toEqual([{ kind: 'name', words: 'MARA' }])
+    expect(findLeaks('the lead (mara) waits, then tobin comes.', check)).toEqual([
+      { kind: 'name', words: 'mara' },
+      { kind: 'name', words: 'tobin' }
+    ])
+    // "Harbour" is a name in the story only once, so the recipe's harbour town is just a harbour.
+    expect(findLeaks('A harbour town and a ferry.', check)).toEqual([])
+  })
+
+  it('collects all-caps names from the story, but not common acronyms, shouting or numerals', () => {
+    const n = sourceNames(['The ship was called KESTRAL. They watched the TV and the BBC news.', 'He shouted STOP at the crew. Chapter XIV began.'])
+    expect(n).toContain('KESTRAL')
+    for (const w of ['BBC', 'TV', 'STOP', 'XIV']) expect(n).not.toContain(w)
+    expect(findLeaks('The ship, the Kestral, sails.', buildCheck(['The ship was called KESTRAL. KESTRAL sailed at dawn.']))).toEqual([{ kind: 'name', words: 'Kestral' }])
+  })
+
+  it('takes out a name that is also an ordinary word only where it is capitalised mid-sentence', () => {
+    const words = buildCheck(['They sent for Will at dawn. Nobody expected Will to come. She gave the letter to Rose, and Rose read it.'])
+    expect(findLeaks('Will the lead stay? Rose petals fall. She will wait, and hope.', words)).toEqual([])
+    expect(findLeaks('The lead trusts Will and Rose.', words)).toEqual([
+      { kind: 'name', words: 'Will' },
+      { kind: 'name', words: 'Rose' }
+    ])
+    expect(scrubText('Will she stay? She waits. The mentor fears Will.', words)).toEqual({ text: 'Will she stay? She waits.', removed: 1 })
+  })
+
   it('leaves clean text exactly as it was', () => {
     const text = 'Plain, short sentences.\n\nScenes open on a small task.'
     expect(scrubText(text, check)).toEqual({ text, removed: 0 })

@@ -191,7 +191,11 @@ export function buildTimeline(input: TimelineInput): Timeline {
       step
     })
   }
-  for (const list of eventsAt.values()) list.sort((a, b) => a.title.localeCompare(b.title))
+  // 2026-10-17: events at the same point keep the order they were made in, those with a date first (one
+  // without a date is shown after the point before it in reading order), not by title.
+  const made = (d: Draft): string => byId.get(d.id)?.createdAt ?? ''
+  const undated = (d: Draft): number => (parseWhen(d.when) ? 0 : 1)
+  for (const list of eventsAt.values()) list.sort((a, b) => undated(a) - undated(b) || made(a).localeCompare(made(b)))
 
   // Every point in reading order, with the story each is in. Each story says where it carries on from
   // (when.ts): a side story from its host where it starts, a book from the book before as it stood

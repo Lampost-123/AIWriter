@@ -252,3 +252,21 @@ describe('codex cards', () => {
     expect(cards.get(kell)).toMatchObject({ scenes: 0, importance: 0, last: null, first: null, storyIds: [b2] })
   })
 })
+
+// 2026-10-17: the codex marks what the AI wrote and Adam hasn't edited since.
+describe('drafted by AI', () => {
+  it('marks pages the AI wrote until Adam edits them, by their field origins', () => {
+    const { db } = world()
+    const built = repo.createEntry(db, 'character', { name: 'Odalys Fenn' })
+    repo.updateEntry(db, built.id, { summary: 'Keeps the lighthouse at Greywater.' }, { origin: 'ai' })
+    const named = repo.createEntry(db, 'place', { name: 'Greywater' }, { origin: 'ai' })
+    repo.createEntry(db, 'character', { name: 'Tamsin Vey', summary: 'A ferrywoman.' })
+    repo.createEntry(db, 'character', { name: 'Corrin' }, { origin: 'text' })
+    const drafted = (): Record<string, boolean> =>
+      Object.fromEntries(codexCards(db).map((c) => [c.name, c.aiDrafted]))
+    expect(drafted()).toEqual({ 'Odalys Fenn': true, Greywater: true, 'Tamsin Vey': false, Corrin: false })
+    repo.updateEntry(db, built.id, { fields: { hair: 'Salt-grey' } })
+    repo.updateEntry(db, named.id, { summary: 'A harbour town.' }, { origin: 'text' })
+    expect(drafted()).toMatchObject({ 'Odalys Fenn': false, Greywater: true })
+  })
+})

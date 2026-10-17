@@ -22,6 +22,7 @@ import {
   startOptions,
   startQuestions,
   startQuickStart,
+  startRelationships,
   stopJob,
   stopJobsFor,
   type Emit,
@@ -29,7 +30,8 @@ import {
 } from './jobs'
 import type { BuilderModel } from './model'
 import { BUILDER_MARKER, worldText } from './prompts'
-import { createBuilt, keepSuggestions, noteWritten, restoreField, saveBuilt, type Written } from './save'
+import * as mem from '../db/memory'
+import { createBuilt, keepRelationship, keepSuggestions, noteWritten, restoreField, saveBuilt, takeBackRelationship, type Written } from './save'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -444,6 +446,50 @@ describe('Quick start', () => {
     expect(asked).not.toContain('- Brann Holt')
   })
 
+  // 2026-10-17: B4 in the world and story building plan.
+  it('never puts back a field Adam clears while the rest is being finished', async () => {
+    const reply = { fromNotes: {}, drafted: { eyes: 'Pale blue', speech: 'Low and slow.' } }
+    const w = setup({ fetchImpl: canned([JSON.stringify(reply)]) })
+    const had = repo.createEntry(w.db, 'character', { name: 'Brann Holt', fields: { hair: 'Grey', marks: 'Missing two fingers' } })
+    startQuickStart(w.ctx, { jobId: 'q20', kind: 'character', notes: NOTES, entryId: had.id }, w.brief('character', had.id))
+    repo.updateEntry(w.db, had.id, { fields: { marks: '' } })
+    const done = await w.done('q20')
+    expect(done.status).toBe('complete')
+    const e = repo.getEntry(w.db, had.id)
+    expect(e.fields.marks ?? '').toBe('')
+    expect(e.fields.hair).toBe('Grey')
+    expect(e.fields.eyes).toBe('Pale blue')
+  })
+
+  // 2026-10-17: B2 in the world and story building plan.
+  it('tells the model about who the notes name, however long ago they were written, and not the whole of a big world', async () => {
+    const good = JSON.stringify({ fromNotes: { name: 'Brann Holt' }, drafted: { hair: 'Grey' } })
+    const w = setup({ fetchImpl: canned([good]) })
+    const duke = repo.createEntry(w.db, 'character', { name: 'Duke Orsel', aliases: ['the Duke'], summary: 'Lends money and never forgets it.' })
+    touched(w.db, duke.id, 0)
+    const long = 'A quiet dock worker who keeps a ledger of every ship that passes, and never lends a coin to anyone at all.'
+    for (let i = 0; i < 400; i++) touched(w.db, repo.createEntry(w.db, 'character', { name: `Dockhand ${i}`, summary: long }).id, i + 1)
+    startQuickStart(w.ctx, { jobId: 'q21', kind: 'character', notes: NOTES }, w.brief())
+    expect((await w.done('q21')).status).toBe('complete')
+    const asked = builderRecords(w.db)[0].messages[1].content
+    expect(asked).toContain('- Duke Orsel (also: the Duke)')
+    expect(asked).toContain('- Dockhand 399')
+    expect(asked).not.toContain('- Dockhand 0:')
+  })
+
+  // 2026-10-17: B7 in the world and story building plan.
+  it('says what to do in plain words when something unexpected breaks, and keeps what broke for the log', async () => {
+    const w = setup()
+    const brief = w.brief()
+    // A world file broken in a way no one planned for.
+    w.db.exec('DROP TABLE generations')
+    startQuickStart(w.ctx, { jobId: 'q22', kind: 'character', notes: NOTES }, brief)
+    const done = await w.done('q22')
+    expect(done.status).toBe('error')
+    expect(done.error).toMatch(/Try again/)
+    expect(done.error).not.toMatch(/Something went wrong|no such table|generations/)
+  })
+
   it("says so when there's nothing left to finish", async () => {
     const w = setup()
     const e = repo.createEntry(w.db, 'place', { name: 'Saltmere' })
@@ -530,12 +576,13 @@ describe('saving a profile', () => {
   it("keeps suggestions as drafted by AI, only in empty fields unless Adam picked an option to replace one", () => {
     const db = memoryWorld()
     const e = repo.createEntry(db, 'character', { name: 'Mara', fields: { hair: 'Black, his words' } })
-    const kept = keepSuggestions(db, e.id, { hair: 'Red', eyes: 'Grey', summary: 'A smuggler' })
+    const { entry: kept, skipped } = keepSuggestions(db, e.id, { hair: 'Red', eyes: 'Grey', summary: 'A smuggler' })
     expect(kept.fields).toMatchObject({ hair: 'Black, his words', eyes: 'Grey' })
+    expect(skipped).toEqual(['hair'])
     expect(kept.summary).toBe('A smuggler')
     expect(kept.fieldOrigins).toMatchObject({ eyes: 'ai', summary: 'ai' })
     expect(kept.fieldOrigins.hair ?? kept.origin).toBe('adam')
-    const picked = keepSuggestions(db, e.id, { hair: 'Silver' }, true)
+    const picked = keepSuggestions(db, e.id, { hair: 'Silver' }, true).entry
     expect(picked.fields.hair).toBe('Silver')
     expect(picked.fieldOrigins.hair).toBe('ai')
     // Editing a kept field makes it his.
@@ -545,15 +592,34 @@ describe('saving a profile', () => {
   it('puts a field back with who made it when Adam undoes picking an option', () => {
     const db = memoryWorld()
     const e = repo.createEntry(db, 'character', { name: 'Mara', fields: { hair: 'Black  as pitch' } }, { origin: 'text' })
-    expect(keepSuggestions(db, e.id, { hair: 'Silver' }, true).fieldOrigins.hair).toBe('ai')
-    const back = restoreField(db, e.id, 'hair', 'Black  as pitch', 'text')
+    expect(keepSuggestions(db, e.id, { hair: 'Silver' }, true).entry.fieldOrigins.hair).toBe('ai')
+    const back = restoreField(db, e.id, 'hair', 'Black  as pitch', 'text', 'Silver').entry
     expect(back.fields.hair).toBe('Black  as pitch')
     expect(back.fieldOrigins.hair).toBe('text')
     // Read from the story and never touched by Adam, so it can still go to the Trash when the story drops it.
     expect(back.byHand).toBe(false)
     keepSuggestions(db, e.id, { summary: 'A smuggler' })
     keepSuggestions(db, e.id, { summary: 'A thief' }, true)
-    expect(restoreField(db, e.id, 'summary', 'A smuggler', 'ai').fieldOrigins.summary).toBe('ai')
+    expect(restoreField(db, e.id, 'summary', 'A smuggler', 'ai').entry.fieldOrigins.summary).toBe('ai')
+  })
+
+  // 2026-10-17: B5 in the world and story building plan.
+  it('leaves a field that changed since the screen last saw it, picking an option or undoing it, and says which', () => {
+    const db = memoryWorld()
+    const e = repo.createEntry(db, 'character', { name: 'Mara', fields: { hair: 'Black' } })
+    // The memory keeper changed it while the options were open.
+    repo.updateEntry(db, e.id, { fields: { hair: 'Black, gone grey at the temples' } }, { origin: 'text' })
+    const picked = keepSuggestions(db, e.id, { hair: 'Silver' }, true, { hair: 'Black' })
+    expect(picked.skipped).toEqual(['hair'])
+    expect(picked.entry.fields.hair).toBe('Black, gone grey at the temples')
+    // As the screen knew it: picked.
+    expect(keepSuggestions(db, e.id, { hair: 'Silver' }, true, { hair: 'Black,  gone grey at the temples' }).skipped).toEqual([])
+    // Typed over on the entry's page before Undo.
+    repo.updateEntry(db, e.id, { fields: { hair: 'Shaved' } })
+    const undone = restoreField(db, e.id, 'hair', 'Black, gone grey at the temples', 'text', 'Silver')
+    expect(undone.skipped).toEqual(['hair'])
+    expect(undone.entry.fields.hair).toBe('Shaved')
+    expect(undone.entry.fieldOrigins.hair).toBe('adam')
   })
 })
 
@@ -683,12 +749,106 @@ describe('Interview', () => {
     expect(rec.messages[0].content).toContain('How they speak: Short and gruff')
   })
 
+  // 2026-10-17: B7 in the world and story building plan.
+  it('counts only the turns it sends, so a long interview still leaves room for the world', async () => {
+    const w = setup()
+    for (let i = 0; i < 10; i++) repo.createEntry(w.db, 'character', { name: `Sailor ${i}`, summary: 'Works the night boats out of the Narrows, and knows every rock in them. '.repeat(3) })
+    // 200 long turns: far more than the model can read, but only the last 20 are sent.
+    const turns = Array.from({ length: 200 }, (_, i) => ({ from: i % 2 ? ('character' as const) : ('adam' as const), text: `${'Tell me more. '.repeat(40)}${i}` }))
+    startInterview(w.ctx, { jobId: 'i3', entryId: null, values: { name: 'Brann Holt' }, turns, question: 'And the Duke?' }, w.brief())
+    expect((await w.done('i3')).status).toBe('complete')
+    const system = builderRecords(w.db)[0].messages[0].content
+    for (let i = 0; i < 10; i++) expect(system).toContain(`- Sailor ${i}`)
+  })
+
   it('needs a name and a question', () => {
     const w = setup()
     const ask = (values: Record<string, string>, question: string) => () =>
       startInterview(w.ctx, { jobId: 'i2', entryId: null, values, turns: [], question }, w.brief())
     expect(ask({}, 'Hi?')).toThrow(/name first/)
     expect(ask({ name: 'B' }, ' ')).toThrow(/question/)
+  })
+})
+
+// 2026-10-17: Suggest relationships, in the guided builder's Relationships step.
+describe('Suggest relationships', () => {
+  const world = (fetchImpl?: typeof fetch) => {
+    const w = setup({ fetchImpl })
+    const brann = repo.createEntry(w.db, 'character', { name: 'Brann Holt', summary: 'Runs the ferry' })
+    const mara = repo.createEntry(w.db, 'character', { name: 'Mara Venn', summary: 'A smuggler' })
+    const guild = repo.createEntry(w.db, 'group', { name: 'Ferry Guild' })
+    const tobin = repo.createEntry(w.db, 'character', { name: 'Tobin Reed' })
+    repo.createEntry(w.db, 'place', { name: 'Saltmere' })
+    // Tobin is linked to Brann already, from Tobin's side.
+    mem.insertChange(w.db, { entryId: tobin.id, anchor: 'baseline', kind: 'relationship', payload: { otherId: brann.id, type: 'rival', feels: '', otherFeels: '' }, origin: 'adam' })
+    return { ...w, brann, mara, guild, tobin }
+  }
+  const relationshipsOf = (db: Database.Database, id: ID) => mem.changesForEntry(db, id).filter((c) => c.kind === 'relationship')
+
+  it('suggests only those the world has by that name, never twice, never themselves or one they are linked to already', async () => {
+    const reply = {
+      relationships: [
+        { with: 'Mara Venn', type: 'sister', feels: 'Protective', otherFeels: 'Resentful' },
+        { with: 'mara venn', type: 'cousin', feels: '', otherFeels: '' },
+        { with: 'Brann Holt', type: 'himself', feels: '', otherFeels: '' },
+        { with: 'Tobin Reed', type: 'friend', feels: '', otherFeels: '' },
+        { with: 'Saltmere', type: 'lives in', feels: '', otherFeels: '' },
+        { with: 'Mara Ven', type: 'aunt', feels: '', otherFeels: '' },
+        { with: 'Nobody Real', type: 'cousin', feels: '', otherFeels: '' },
+        { with: 'The Ferry Guild', type: 'member', feels: 'Loyal', otherFeels: 'Wary of him' }
+      ]
+    }
+    const w = world(canned([JSON.stringify(reply)]))
+    startRelationships(w.ctx, { jobId: 'r1', entryId: w.brann.id, values: { name: 'Brann Holt', summary: 'Runs the ferry' } }, w.brief('character', w.brann.id))
+    const done = await w.done('r1')
+    expect(done.status).toBe('complete')
+    expect(done.relationships).toEqual([
+      { otherId: w.mara.id, otherName: 'Mara Venn', otherKind: 'character', type: 'sister', feels: 'Protective', otherFeels: 'Resentful' },
+      { otherId: w.guild.id, otherName: 'Ferry Guild', otherKind: 'group', type: 'member', feels: 'Loyal', otherFeels: '' }
+    ])
+    const asked = builderRecords(w.db)[0].messages[1].content
+    expect(asked).toContain('- Mara Venn (character)')
+    expect(asked).toContain('- Ferry Guild (group)')
+    expect(asked).not.toContain('Saltmere (')
+    expect(asked).toContain('Already linked to (suggest none of these):\n- Tobin Reed')
+    // Nothing is saved until Adam keeps one.
+    expect(relationshipsOf(w.db, w.brann.id)).toHaveLength(1)
+  })
+
+  it('works with the fake AI, dropping the character themselves and anyone the world doesn’t have', async () => {
+    const w = world()
+    startRelationships(w.ctx, { jobId: 'r2', entryId: w.brann.id, values: { name: 'Brann Holt' } }, w.brief('character', w.brann.id))
+    const done = await w.done('r2')
+    expect(done.status).toBe('complete')
+    expect(done.relationships?.map((r) => r.otherName).sort()).toEqual(['Ferry Guild', 'Mara Venn'])
+  })
+
+  it('needs a saved character and someone to link them to', () => {
+    const w = setup()
+    const lone = repo.createEntry(w.db, 'character', { name: 'Brann Holt' })
+    const place = repo.createEntry(w.db, 'place', { name: 'Saltmere' })
+    const start = (entryId: ID) => () => startRelationships(w.ctx, { jobId: 'r3', entryId, values: {} }, w.brief())
+    expect(start(place.id)).toThrow(/name first/)
+    expect(start(lone.id)).toThrow(/no other characters or groups yet/)
+  })
+
+  it('keeps one as drafted by AI, how things stand at the start, and Undo takes it back only while it is unchanged', () => {
+    const w = world()
+    const kept = keepRelationship(w.db, w.brann.id, { otherId: w.mara.id, type: ' sister ', feels: 'Protective', otherFeels: 'Resentful' })
+    expect(kept).toMatchObject({ origin: 'ai', anchor: 'baseline', kind: 'relationship', entryId: w.brann.id })
+    expect(kept.kind === 'relationship' && kept.payload).toMatchObject({ otherId: w.mara.id, type: 'sister', feels: 'Protective' })
+    expect(() => keepRelationship(w.db, w.brann.id, { otherId: w.mara.id, type: 'cousin', feels: '', otherFeels: '' })).toThrow(/linked already/)
+    expect(() => keepRelationship(w.db, w.brann.id, { otherId: w.tobin.id, type: 'friend', feels: '', otherFeels: '' })).toThrow(/linked already/)
+
+    expect(takeBackRelationship(w.db, kept.id, kept.updatedAt)).toBe(true)
+    expect(relationshipsOf(w.db, w.brann.id)).toHaveLength(1)
+    expect(takeBackRelationship(w.db, kept.id, kept.updatedAt)).toBe(false)
+
+    // Kept again, then changed by Adam: Undo leaves his.
+    const again = keepRelationship(w.db, w.brann.id, { otherId: w.guild.id, type: 'member', feels: '', otherFeels: '' })
+    mem.replaceChange(w.db, again.id, { entryId: w.brann.id, anchor: 'baseline', kind: 'relationship', payload: { otherId: w.guild.id, type: 'leader', feels: '', otherFeels: '' }, origin: 'adam' })
+    expect(takeBackRelationship(w.db, again.id, again.updatedAt)).toBe(false)
+    expect(relationshipsOf(w.db, w.brann.id)).toHaveLength(2)
   })
 })
 

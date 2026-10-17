@@ -30,13 +30,13 @@ import { runTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import type { MemoryModel } from '../keeper/model'
 import { parseLenient } from '../keeper/json'
-import { estimateTokens, findNearQuote, findQuote, plain, sceneParagraphs, words } from '../keeper/text'
+import { estimateTokens, findNearQuote, findQuote, sceneParagraphs, words } from '../keeper/text'
 import { spotIn } from '../keeper/track'
 import * as kdb from '../db/keeper'
 import { newId } from '../util'
 import { gatherWorld } from './context'
 import { entryText, fleshOutValues, profileKeys, toInput, valuesOf } from './profile'
-import { briefVersions, fillFoundSystem, fillFoundUser, fillGapsSystem, fillGapsUser, styleText, worldText } from './prompts'
+import { briefVersions, fillFoundSystem, fillFoundUser, fillGapsSystem, fillGapsUser, paragraphsNaming, styleText, worldText } from './prompts'
 import { cleanValues, isBuilderKind } from './save'
 import { paragraphsOfDoc } from '../readAloud/suggest'
 
@@ -361,15 +361,6 @@ export function storySaid(db: DB, e: Pick<Entry, 'name' | 'aliases' | 'originSce
   }
 }
 
-/**
- * The paragraphs of a scene that name the entry (by its name or another name, as whole words), in order, for
- * the request: what the story says about someone the memory keeper found there.
- */
-export function paragraphsNaming(paragraphs: string[], e: Pick<Entry, 'name' | 'aliases'>): string[] {
-  const names = [e.name, ...e.aliases].map((n) => plain(n)).filter((n) => n.length > 1)
-  if (!names.length) return []
-  const escape = (n: string): string => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${names.map(escape).join('|')})(?=[^\\p{L}\\p{N}]|$)`, 'u')
-  const named = (p: string): boolean => pattern.test(plain(p))
-  return paragraphs.filter(named)
-}
+// The paragraphs of a scene that name the entry, for the request: what the story says about someone the memory keeper
+// found there. In prompts.ts since 2026-10-17, where the builder's world brief uses it too.
+export { paragraphsNaming }

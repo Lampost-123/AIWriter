@@ -5,14 +5,14 @@
 
 import { create } from 'zustand'
 import type { Manuscript } from '@shared/contracts/importing'
-import type { RecipeMakerState, RecipeSummary } from '@shared/contracts/recipes'
+import type { RecipeEstimate, RecipeMakerState, RecipeSummary } from '@shared/contracts/recipes'
 import type { ID } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { buildOutline, noEdits, proposeRoles, toPlan, type Role, type SplitEdits } from '@/features/importing/split'
-import { recipeName } from './recipeLogic'
+import { readAgainWords, recipeName } from './recipeLogic'
 
 export interface RecipesSession {
   /** Null until first read. */
@@ -66,11 +66,13 @@ function sayFinished(s: RecipeMakerState): void {
   seenFinish = f.at
   if (first && Date.now() - Date.parse(f.at) > 10_000) return
   const view = app().view
-  // The recipe's own page shows it arrive; anywhere else, a toast says so.
-  if (view.kind === 'recipes' && view.page === 'recipe' && view.recipeId === f.recipeId) return
-  toast(`The recipe “${f.name}” is ready.`, {
-    tone: 'success',
-    secondary: { label: 'Open', run: () => openRecipe(f.recipeId) }
+  // The recipe's own page shows it arrive; anywhere else, a toast says so. One that isn't all there (cut short, a
+  // chapter it couldn't read) says so wherever Adam is (2026-10-17).
+  const here = view.kind === 'recipes' && view.page === 'recipe' && view.recipeId === f.recipeId
+  if (here && !f.note) return
+  toast(f.note ? `The recipe “${f.name}” is ready. ${f.note}` : `The recipe “${f.name}” is ready.`, {
+    ...(f.note ? {} : { tone: 'success' as const }),
+    ...(here ? {} : { secondary: { label: 'Open', run: () => openRecipe(f.recipeId) } })
   })
 }
 
@@ -297,14 +299,18 @@ export async function forgetSource(id: ID): Promise<void> {
   })
 }
 
-/** Reads the story kept with the recipe again; parts Adam changed stay as they are. */
-export async function readAgain(id: ID): Promise<void> {
+/**
+ * Reads the story kept with the recipe again; parts Adam changed stay as they are. The toast says what it costs, with
+ * Cancel, which puts the recipe back as it was (2026-10-17).
+ */
+export async function readAgain(r: Pick<RecipeSummary, 'id' | 'name' | 'status'>): Promise<void> {
+  let estimate: RecipeEstimate
   try {
-    await api.readRecipeAgain(id)
+    estimate = await api.readRecipeAgain(r.id)
   } catch (e) {
     toast(plainReason(e), { tone: 'danger' })
     return
   }
   await refreshRecipes()
-  toast('Reading the story again. The parts you changed stay as they are.')
+  toast(readAgainWords(estimate), { action: { label: 'Cancel', run: () => void cancelMaking(r.id, recipeName(r)) } })
 }

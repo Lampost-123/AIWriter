@@ -789,6 +789,9 @@ export function fakeStoryFlowReply(system, user) {
 //                "What is <Who> afraid of?", "What does <Who> do without thinking?". Quick start then puts each
 //                answer (after the notes) word for word in the kind's answer slots (character: wants, fears, habits,
 //                speech, origin), and one left to the AI as "<Label> of <name>, decided by the AI." under "drafted".
+//   relationships  The first two of who the character can be linked to: a character as "old friend" (feels "Trusts
+//                <Who> with anything.", otherFeels "Worries about <name>."), a group as "member" ("Proud to belong to
+//                <Group>."); then the character themselves and "Nobody Real", which the app drops.
 //   interview    "You want to know about <what was asked about>? I'll say this once: I keep my own counsel,
 //                and I pay my debts." The model fake/empty sends back nothing for any of these.
 export function fakeBuilderReply(system, messages, model = '') {
@@ -891,6 +894,18 @@ export function fakeBuilderReply(system, messages, model = '') {
     const label = user.match(/^The field: ([^(\n]+?)(?: \(|$)/m)?.[1]?.trim() ?? 'This'
     const options = ['first', 'second', 'third'].map((n) => `${label}, ${n} option: something only ${nameIn(user)} would have.`)
     return JSON.stringify({ options })
+  }
+  if (job === 'relationships') {
+    const name = nameIn(user)
+    const listed = [...(user.split('Who they can be linked to:')[1]?.split('\n\n')[0] ?? '').matchAll(/^- (.+) \((character|group)\)$/gm)]
+    const relationships = listed.slice(0, 2).map(([, who, kind]) =>
+      kind === 'group'
+        ? { with: who, type: 'member', feels: `Proud to belong to ${who}.`, otherFeels: '' }
+        : { with: who, type: 'old friend', feels: `Trusts ${who} with anything.`, otherFeels: `Worries about ${name}.` }
+    )
+    // A careless model's extras, which the app drops: the character themselves, and someone the world doesn't have.
+    relationships.push({ with: name, type: 'self', feels: '', otherFeels: '' }, { with: 'Nobody Real', type: 'cousin', feels: '', otherFeels: '' })
+    return JSON.stringify({ relationships }, null, 1)
   }
   if (job === 'interview') {
     const about = user.replace(/^\s*what do you (?:think|make) (?:of|about)\s+/i, '').replace(/[?.!\s]+$/, '') || 'that'

@@ -87,23 +87,24 @@ const chapterNode = (c: SuggestedChapter): TreeNode => ({
   }))
 })
 
-/** A parsed reply as one tree: any chapters before the first act, then the acts. */
+/**
+ * A parsed reply as one tree: its acts, or its chapters in a reply with none. Chapters before a reply's first act go
+ * into that act (2026-10-17: kept, they went into the story's old last act), keeping their keys.
+ */
 export function outlineTree(o: ParsedOutline): TreeNode[] {
-  return [
-    ...o.chapters.map(chapterNode),
-    ...o.acts.map(
-      (a): TreeNode => ({
-        key: a.key,
-        kind: 'act',
-        title: a.title,
-        text: a.purpose,
-        beats: [],
-        when: '',
-        complete: a.complete,
-        children: a.chapters.map(chapterNode)
-      })
-    )
-  ]
+  const acts = o.acts.map(
+    (a, i): TreeNode => ({
+      key: a.key,
+      kind: 'act',
+      title: a.title,
+      text: a.purpose,
+      beats: [],
+      when: '',
+      complete: a.complete,
+      children: [...(i === 0 ? o.chapters : []), ...a.chapters].map(chapterNode)
+    })
+  )
+  return acts.length ? acts : o.chapters.map(chapterNode)
 }
 
 interface Place {
@@ -337,6 +338,18 @@ export function keptMessage(tree: TreeNode[], clicked: string, items: Pick<KeepI
   }
   if (under.length) msg += `, with ${describeCounts(countKinds(under))}`
   return `${msg}.`
+}
+
+/**
+ * What a keep's toast adds for the characters and places it made pages for (2026-10-17): " Made pages for Holt and
+ * Bren.", " Made pages for Holt, Bren and 2 more." ('' for none).
+ */
+export function madePagesNote(kept: Pick<KeptItem, 'entryNames'>[]): string {
+  const names = [...new Set(kept.flatMap((k) => k.entryNames ?? []).map((n) => n.trim()).filter(Boolean))]
+  if (!names.length) return ''
+  const shown = names.length > 4 ? [...names.slice(0, 3), `${names.length - 3} more`] : names
+  const list = shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`
+  return ` Made ${names.length === 1 ? 'a page' : 'pages'} for ${list}.`
 }
 
 /** The toast after one Discard: "Discarded “Rain on the Narrows” and its 2 scenes." */

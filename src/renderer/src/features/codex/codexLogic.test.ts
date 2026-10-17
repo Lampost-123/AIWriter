@@ -26,6 +26,7 @@ const card = (c: Partial<CodexCard> & Pick<CodexCard, 'name'>): CodexCard => ({
   image: null,
   role: '',
   hardRule: false,
+  aiDrafted: false,
   scenes: 0,
   importance: 0,
   last: null,
@@ -57,7 +58,7 @@ const tobin = card({
   storyIds: ['b1']
 })
 const kell = card({ name: 'kell', role: 'Comic relief', storyIds: ['b2'] })
-const eel = card({ name: 'Eelmouth', kind: 'place', tags: ['the north'], scenes: 2, importance: 4, last: last(2), storyIds: ['b1'] })
+const eel = card({ name: 'Eelmouth', kind: 'place', tags: ['the north'], scenes: 2, importance: 4, last: last(2), storyIds: ['b1'], aiDrafted: true })
 const rule = card({ name: 'Every spell costs a memory', kind: 'lore', hardRule: true })
 const thread = card({ name: 'Who left the letter?', kind: 'thread', tags: ['family'] })
 const all = [mara, tobin, kell, eel, rule, thread]
@@ -75,6 +76,14 @@ describe('the codex', () => {
     expect(filterCards(all, { ...NO_FILTERS, storyId: 'b2' })).toEqual([mara, kell])
     expect(filterCards(all, { ...NO_FILTERS, role: 'comic relief' })).toEqual([kell])
     expect(filtersOn({ ...NO_FILTERS, query: ' ', tag: 'x', role: 'y' })).toBe(2)
+  })
+
+  // 2026-10-17: what the AI wrote and Adam hasn't edited since.
+  it('shows only what the AI drafted, with the other filters', () => {
+    expect(filterCards(all, { ...NO_FILTERS, aiDrafted: true })).toEqual([eel])
+    expect(filterCards(all, { ...NO_FILTERS, aiDrafted: true, kind: 'character' })).toEqual([])
+    expect(filtersOn({ ...NO_FILTERS, aiDrafted: true })).toBe(1)
+    expect(nothingMatches({ ...NO_FILTERS, aiDrafted: true, tag: 'x' })).toBe('Nothing in the codex matches all of these filters.')
   })
 
   it('searches names, other names and one-liners, names first', () => {

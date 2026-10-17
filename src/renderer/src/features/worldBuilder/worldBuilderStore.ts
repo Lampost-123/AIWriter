@@ -27,7 +27,7 @@ export interface WorldBuilderSession {
   /** When the summary is true: null for the start of the world, else that story's start. */
   storyId: ID | null
   /** A build running now, as it stands. */
-  running: (WorldBuildProgress & { storyId: ID | null }) | null
+  running: WorldBuildProgress | null
   /** Cancel was pressed, and the build is stopping. */
   cancelling: boolean
   /** How the last build ended, with what it made as it is now. */
@@ -131,7 +131,8 @@ function listen(): void {
   onEvent('worldBuilder:progress', (p) => {
     const s = get()
     if (!current() || (s.running && s.running.buildId !== p.buildId)) return
-    set({ running: { ...p, storyId: s.running?.storyId ?? s.storyId } })
+    // The build's own story (2026-10-17): a story's build started in the background is never labelled with the story chosen here.
+    set({ running: p })
   })
   onEvent('worldBuilder:done', (d) => {
     const s = get()

@@ -30,6 +30,7 @@ import {
   goneIds,
   keepPlan,
   keptMessage,
+  madePagesNote,
   outlineTree,
   withDiscarded,
   withKept,
@@ -460,12 +461,13 @@ function announceKept(b: Omit<KeepBatch, 'toastId'>, message: string): void {
     keepBatch.kept.push(...b.kept)
     useToasts.getState().update(keepBatch.toastId, {
       // A chapter's plan (its session's key names the chapter) adds to the chapter.
-      message: `Added ${describeCounts(countKinds(keepBatch.kept.map((k) => k.kind)))} to the ${keepBatch.key.includes('#') ? 'chapter' : 'story'}.`
+      message: `Added ${describeCounts(countKinds(keepBatch.kept.map((k) => k.kind)))} to the ${keepBatch.key.includes('#') ? 'chapter' : 'story'}.${madePagesNote(keepBatch.kept)}`
     })
     return
   }
   const batch: KeepBatch = { ...b, toastId: 0, kept: [...b.kept] }
-  batch.toastId = toast(message, {
+  // It names the characters and places it made pages for (2026-10-17).
+  batch.toastId = toast(`${message}${madePagesNote(b.kept)}`, {
     action: {
       label: 'Undo',
       run: () => {

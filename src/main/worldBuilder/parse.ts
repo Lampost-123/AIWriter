@@ -196,14 +196,15 @@ export function readProfile(kind: EntryKind, summary: string, item: Record<strin
   return { values, his }
 }
 
-/** A place's parent, a lore entry's "never to break" and an event's people, from beside a profile. */
-export function profileExtras(item: Record<string, unknown>): { in: string; rule: boolean | null; involved: string[]; scene: string } {
+/** A place's parent, a lore entry's "never to break" and an event's people, groups and place, from beside a profile. */
+export function profileExtras(item: Record<string, unknown>): { in: string; rule: boolean | null; involved: string[]; scene: string; at: string } {
   const rule = member(item, ['rule', 'absolute', 'hardrule'])
   return {
     in: str(member(item, ['in', 'inside', 'parent', 'within']), 120),
     rule: rule === undefined ? null : bool(rule),
     involved: strList(member(item, ['involved', 'people', 'characters', 'who']), 20),
-    scene: str(member(item, ['scene', 'inscene', 'scenenumber']), 60)
+    scene: str(member(item, ['scene', 'inscene', 'scenenumber']), 60),
+    at: str(member(item, ['at', 'place', 'where', 'location']), 120)
   }
 }
 

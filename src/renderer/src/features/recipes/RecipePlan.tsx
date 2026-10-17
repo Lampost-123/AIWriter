@@ -21,7 +21,7 @@ import { Suggestions } from '@/features/outline/Suggestions'
 import { SIZE_CHOICES, fitSize } from '@/features/outline/size'
 import { countLine, countNodes, totalOf, withoutGone } from '@/features/outline/tree'
 import { premiseOf, recipeName, sizeForRecipe } from './recipeLogic'
-import { discardPremise, editPremise, keepPremise, patchPlan, planKey, suggestPlan, usePlans } from './planStore'
+import { discardPremise, editPremise, keepPremise, loadPlan, patchPlan, planKey, planOf, suggestPlan, usePlans } from './planStore'
 import { listenForRecipes, useRecipes } from './recipeStore'
 import { BackButton } from './parts'
 
@@ -34,8 +34,14 @@ export function RecipePlan({ storyId, recipeId }: { storyId: string; recipeId: s
   useLayoutEffect(() => {
     openHelper(storyId)
     listenForRecipes()
-    setOpened(true)
-  }, [storyId])
+    let live = true
+    // After a restart the plan comes back from the recipe's folder (2026-10-17); nothing shows until it is known.
+    if (planOf(storyId)) setOpened(true)
+    else void loadPlan(storyId, recipeId).finally(() => live && setOpened(true))
+    return () => {
+      live = false
+    }
+  }, [storyId, recipeId])
   if (!opened) return <div className="h-full" />
   if (!story || !plan || !session) {
     return (

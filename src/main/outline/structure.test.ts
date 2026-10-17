@@ -9,6 +9,7 @@ import * as acts from '../db/acts'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { pureWorld } from '../../../tests/unit/testWorld'
 import { parseWhen, placeWhens } from '../worldViews/when'
+import { splitPlace } from './chapterCard'
 import { actDeleteNotes, cleanBeats, createChapterAt, fallbackWhen, keepOutline, sceneWhen, takeBackThreads, unkeepOutline } from './structure'
 
 const book = (db: Database.Database): ID => repo.listStories(db)[0].id
@@ -233,6 +234,26 @@ describe('when each kept scene happens', () => {
     expect(whenOf(db, between.id)).toBe('Day 9, Year 3')
   })
 
+  it('puts the story’s undated opening scene on Day 1 with the keep, and its Undo takes that back (2026-10-17)', () => {
+    const db = writtenWorld()
+    const id = book(db)
+    const opening = repo.getOutline(db, id).scenes[0]
+    const kept = keepOutline(db, id, [chapter('c0', 'Rain'), scene('s0', 'Docks', 'c0', { when: 'Day 2, dusk' })])
+    expect(whenOf(db, opening.id)).toBe('Day 1')
+    unkeepOutline(db, kept)
+    expect(whenOf(db, opening.id)).toBe('')
+    expect(repo.getScene(db, opening.id).text).toBe('The rain had not stopped for days.')
+
+    // A When Adam put there since stays; a story with a dated scene, or a keep with no scenes, dates nothing.
+    const again = keepOutline(db, id, [chapter('c0', 'Rain'), scene('s0', 'Docks', 'c0')])
+    repo.updateSceneCard(db, opening.id, { ...repo.getScene(db, opening.id).card, when: 'Day 1, dawn' })
+    unkeepOutline(db, again)
+    expect(whenOf(db, opening.id)).toBe('Day 1, dawn')
+    const bare = writtenWorld()
+    keepOutline(bare, book(bare), [chapter('c0', 'Rain')])
+    expect(whenOf(bare, repo.getOutline(bare, book(bare)).scenes[0].id)).toBe('')
+  })
+
   it('never replaces a When already on the reused first scene, and its Undo leaves it there', () => {
     const db = memoryWorld()
     const id = book(db)
@@ -328,6 +349,24 @@ describe('chapter cards the outline fills (2026-10-08)', () => {
     const back = repo.getScene(db, first.id).card
     expect([back.povId, back.when, back.goal, back.inherits?.when]).toEqual([null, '', '', true])
     expect(tree(db)).toEqual(['-: Chapter 1 [Scene 1]'])
+  })
+
+  it('gives the reused first scene its own point of view and place, never over Adam’s, and its Undo clears them (O2)', () => {
+    const { db, wren, odo, quay } = keepersWorld(true)
+    const id = book(db)
+    const [first] = repo.getOutline(db, id).scenes
+    repo.updateSceneCard(db, first.id, { ...repo.getScene(db, first.id).card, mood: 'Grey' })
+    const kept = keepOutline(db, id, [
+      chapter('c0', 'The Lamp', { card: lampCard }),
+      scene('s0', 'Quay', 'c0', { when: 'Day 4, dawn', card: { pov: 'Odo', location: 'Gull Quay', mood: 'Bright' } })
+    ])
+    expect(kept[1]).toMatchObject({ id: first.id, reused: true })
+    const card = repo.getScene(db, first.id).card
+    expect([card.povId, card.inherits?.pov, card.locationId, card.inherits?.location, card.mood]).toEqual([odo, false, quay, false, 'Grey'])
+    expect(repo.getChapterCard(db, first.chapterId).povId).toBe(wren)
+    unkeepOutline(db, kept)
+    const back = repo.getScene(db, first.id).card
+    expect([back.povId, back.locationId, back.mood, back.inherits?.pov, back.inherits?.location]).toEqual([null, null, 'Grey', undefined, undefined])
   })
 
   it('leaves a chapter card Adam changed since its keep as he left it, on Undo', () => {
@@ -579,6 +618,8 @@ describe('a kept outline makes pages for the cast and places it names (2026-10-1
     expect([debt.povId, debt.locationId]).toEqual([byName.get('Tobin Hale')?.id, byName.get('Duke’s Hall')?.id])
     expect(debt.presentIds).toContain(byName.get('The Duke')?.id)
     expect(kept.flatMap((k) => k.entryIds ?? []).length).toBe(4)
+    // Named for the keep's toast ("Made pages for …").
+    expect(kept.flatMap((k) => k.entryNames ?? []).sort()).toEqual(['Duke’s Hall', 'The Black Ferry', 'The Duke', 'Tobin Hale'])
   })
 
   it('never makes a page for a name that could be more than one character, nor puts it on the card (2026-10-17)', () => {
@@ -654,6 +695,27 @@ describe('rooms inside a bigger place (2026-10-17)', () => {
     expect(repo.getChapterCard(db, kept[0].id).locationId).toBe(room.id)
     unkeepOutline(db, kept)
     expect(repo.listEntries(db, 'place').map((e) => e.name)).toEqual(['The Lamp Tower'])
+  })
+
+  it('splits "room, place" only for a room word or a place the world has, and only makes a room with a name (O6)', () => {
+    const db = writtenWorld()
+    repo.createEntry(db, 'place', { name: 'Venn House' })
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Capital', { card: { location: 'Port Arden, Cal Vey' } }),
+      scene('s0', 'Dark', 'c0', { card: { location: 'somewhere dark, Venn House' } }),
+      scene('s1', 'Gallery', 'c0', { after: { key: 's0' }, card: { location: 'Blue Gallery, Venn House' } })
+    ])
+    // Neither part is a room or a place the world has: one place, never "Cal Vey" with "Port Arden" inside it.
+    expect(place(db, 'Port Arden, Cal Vey')).toHaveLength(1)
+    expect(place(db, 'Cal Vey')).toEqual([])
+    const [venn] = place(db, 'Venn House')
+    // "somewhere dark" names no room: the scene is at the house, and nothing is made for it.
+    expect(repo.listEntries(db, 'place').map((e) => e.name).sort()).toEqual(['Blue Gallery', 'Port Arden, Cal Vey', 'Venn House'])
+    const [dark, gallery] = kept.slice(1).map((k) => repo.getScene(db, k.id).card)
+    expect(dark.locationId).toBe(venn.id)
+    expect(gallery.locationId).toBe(place(db, 'Blue Gallery', venn.id)[0].id)
+    expect(splitPlace('Washington, D.C.')).toBeNull()
+    expect(splitPlace('the kitchen, Hale Cottage')).toEqual({ room: 'the kitchen', place: 'Hale Cottage' })
   })
 
   it('Undo takes back a house it made with its room, but keeps a house whose room Adam changed', () => {

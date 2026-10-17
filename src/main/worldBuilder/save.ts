@@ -19,6 +19,7 @@ import { BUILD_RUN_SCENE } from '../db/worldBuilder'
 import { ownInput, toInput } from '../builder/profile'
 import { savedValues } from '../builder/save'
 import { kindWord } from '../keeper/facts'
+import { upperFirst } from '../keeper/text'
 import { storyCalendar } from '../memory/storyCalendar'
 import { parseWhen } from '../worldViews/when'
 import { asProfileKind, type Profile } from './parse'
@@ -83,8 +84,17 @@ export interface NewEntry {
    * "Day N" may place it (sceneOnDay).
    */
   sceneId?: ID | null
+  /** An event: the place it happens at (2026-10-17), linked from the event as "happens at". */
+  placeId?: ID | null
   source: Source
 }
+
+/**
+ * A When that names another book ("in Book 2", "the next book"). The prompts no longer ask for later books (Adam,
+ * 2026-10-17); when the AI names one anyway, its words stay in the When, undated, and it is never placed on a scene.
+ */
+export const laterBook = (when: string): boolean =>
+  /\bbook\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|[ivx]+)\b/i.test(when) || /\b(?:later|next|another|following) book\b/i.test(when)
 
 /**
  * An event of the story's plan dated by a bare "Day N" with no scene given (2026-10-17: it existed from the story's
@@ -92,7 +102,7 @@ export interface NewEntry {
  * calendar, not counting flashbacks. Null when none is dated that late, or the summary isn't the story's plan.
  */
 export function sceneOnDay(w: Pick<Writer, 'db' | 'storyId' | 'scenes'>, when: string): ID | null {
-  if (!w.storyId || !w.scenes.length) return null
+  if (!w.storyId || !w.scenes.length || laterBook(when)) return null
   const p = parseWhen(when.trim())
   if (!p?.dayCount || p.day === null || p.year !== null || p.month !== null || p.qual || p.step || p.next) return null
   const cal = storyCalendar(w.db, w.storyId)
@@ -138,6 +148,9 @@ export function saveEntry(w: Writer, n: NewEntry): { entry: Entry; item: WorldBu
     const atScene = n.kind === 'event' && sceneId && w.storyId ? { anchor: 'scene' as const, storyId: w.storyId, sceneId } : undefined
     for (const who of n.kind === 'event' ? n.involved : []) {
       if (who !== e.id) add(who, { kind: 'relationship', payload: { otherId: e.id, type: 'involved in', feels: '', otherFeels: '' } }, atScene)
+    }
+    if (n.kind === 'event' && n.placeId && n.placeId !== e.id) {
+      add(e.id, { kind: 'relationship', payload: { otherId: n.placeId, type: 'happens at', feels: '', otherFeels: '' } }, atScene)
     }
     if (n.kind === 'thread') add(e.id, { kind: 'thread', payload: { status: 'open', note: '' } })
     const l = line(w, {
@@ -268,6 +281,73 @@ export function saveMeta(w: Writer, key: 'themes' | 'tone', value: string, sourc
     }
     w.made.push(item)
     return item
+  })()
+}
+
+/** The consistency issue a build raises, as db/keeper.ts raiseIssue takes it. */
+export type BuildIssue = Parameters<typeof kdb.raiseIssue>[1]
+
+/**
+ * Raises a disagreement the build found as a consistency issue, with its line, so Undo build takes it back too
+ * (2026-10-17). False when the same issue is open or ignored already (nothing new, no line).
+ */
+export function saveIssue(w: Writer, issue: BuildIssue, l: { entryId: ID; entryName: string; memory: string; says: string; source: Source }): boolean {
+  return w.db.transaction(() => {
+    if (!kdb.raiseIssue(w.db, issue)) return false
+    line(w, {
+      what: 'entry',
+      entryId: l.entryId,
+      factId: null,
+      entryName: l.entryName,
+      text: 'Your summary disagrees with this page',
+      before: l.memory,
+      after: l.says,
+      quote: l.source.quote,
+      undo: { op: 'world-build', did: 'issue', issue, fingerprint: l.source.fingerprint, words: l.source.words }
+    })
+    return true
+  })()
+}
+
+/** Dates a scene the build started the timeline on ("Day 1"), with its line, so Undo build takes it back (2026-10-17). */
+export function saveSceneWhen(w: Writer, sceneId: ID, before: string, after: string, title: string): void {
+  line(w, {
+    what: 'scene',
+    entryId: null,
+    factId: sceneId,
+    entryName: title,
+    text: `The story starts on ${after}`,
+    before,
+    after,
+    quote: '',
+    undo: { op: 'world-build', did: 'when', sceneId, before, after, fingerprint: `world-build:when:${sceneId}`, words: '' }
+  })
+}
+
+/**
+ * Fills an empty field of an entry the world has already (an event found again, whose When was empty: 2026-10-17),
+ * as the AI's, with its line. Never overwrites: false when the field has something in it.
+ */
+export function fillField(w: Writer, entryId: ID, key: string, value: string, source: Source): boolean {
+  const text = value.trim()
+  if (!text) return false
+  return w.db.transaction(() => {
+    const e = repo.getEntry(w.db, entryId)
+    if ((e.fields[key] ?? '').trim()) return false
+    const runId = runOf(w)
+    repo.updateEntry(w.db, entryId, { fields: { [key]: text } }, { origin: 'ai', runId })
+    line(w, {
+      what: 'entry',
+      entryId,
+      factId: null,
+      entryName: e.name,
+      text: key === 'when' ? 'When it happens' : upperFirst(key),
+      before: '',
+      after: text,
+      quote: source.quote,
+      undo: { op: 'world-build', did: 'field', entryId, key, after: text, fingerprint: source.fingerprint, words: source.words }
+    })
+    return true
   })()
 }
 

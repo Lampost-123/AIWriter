@@ -1,10 +1,12 @@
 // The Relationships step: who the character knows, picked from the world's existing characters, and
 // what they are to each other. Each one is a starting-point relationship (how things stand when the
 // story begins), saved as Adam types, the same as on the entry page; the rules for saving over newer
-// words the memory may have written meanwhile are memoryLogic's.
-import { Trash2, UserRound } from '@/components/ui/icons'
+// words the memory may have written meanwhile are memoryLogic's. Under the picker, the relationships the AI suggests
+// (Suggest relationships, 2026-10-17), each kept as drafted by AI with Undo, or discarded.
+import { Sparkles, Trash2, UserRound } from '@/components/ui/icons'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
+import type { SuggestedRelationship } from '@shared/contracts/builder'
 import type { ChangeView, Entry, ID } from '@shared/types'
 import { Field, IconButton, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -42,7 +44,9 @@ export function Relationships({
   rows,
   data,
   entries,
-  places
+  places,
+  suggested = [],
+  onDecided
 }: {
   self: Self
   /** Every starting-point relationship the character has, whoever it is with. */
@@ -51,6 +55,10 @@ export function Relationships({
   /** Every entry in the world, or null while loading. */
   entries: Entry[] | null
   places: Map<ID, ScenePlace> | null
+  /** Relationships the AI suggests (Suggest relationships), waiting on Adam's Keep or Discard. */
+  suggested?: SuggestedRelationship[]
+  /** One of them was kept or discarded: it goes from the list. */
+  onDecided?: (otherId: ID) => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [addError, setAddError] = useState<string | null>(null)
@@ -97,6 +105,38 @@ export function Relationships({
 
   const { update } = data
   const removed = useCallback((v: RelationView): void => update((list) => list.filter((c) => c.id !== v.change.id)), [update])
+
+  // Suggestions for someone the world still has and they aren't linked to yet (he may have added them meanwhile).
+  const waiting = suggested.filter((s) => byId.has(s.otherId) && !rows.some((r) => r.otherId === s.otherId))
+  const keeping = useRef(new Set<ID>())
+  const keepSuggested = async (s: SuggestedRelationship): Promise<void> => {
+    if (keeping.current.has(s.otherId)) return
+    keeping.current.add(s.otherId)
+    let c: ChangeView
+    try {
+      c = await api.keepSuggestedRelationship(self.id, s)
+    } catch (err) {
+      toast(`Couldn’t keep the relationship with ${s.otherName}. ${(err as Error).message}`, { tone: 'danger' })
+      return
+    } finally {
+      keeping.current.delete(s.otherId)
+    }
+    onDecided?.(s.otherId)
+    update((list) => [...list, c])
+    toast(`Kept the relationship with ${s.otherName}.`, {
+      action: {
+        label: 'Undo',
+        run: () =>
+          void api
+            .undoKeptRelationship(c.id, c.updatedAt)
+            .then((gone) => {
+              if (gone) update((list) => list.filter((x) => x.id !== c.id))
+              else toast(`The relationship with ${s.otherName} changed since, so it was kept.`)
+            })
+            .catch((err: Error) => void toast(`Couldn’t take back the relationship with ${s.otherName}. ${err.message}`, { tone: 'danger' }))
+      }
+    })
+  }
   const focused = useCallback(() => setFocusId(null), [])
   const open = useCallback(
     (e: Pick<Entry, 'id' | 'kind'>) => useApp.getState().navigate({ kind: 'entries', entryKind: e.kind, entryId: e.id }),
@@ -159,6 +199,79 @@ export function Relationships({
           </p>
         </div>
       )}
+      {/* Under the picker, so nothing Adam is using moves as they arrive. */}
+      {waiting.length ? (
+        <section aria-label="Suggested relationships" className="flex flex-col gap-2">
+          {waiting.map((s) => (
+            <SuggestedRow
+              key={s.otherId}
+              s={s}
+              selfName={selfName}
+              onKeep={() => void keepSuggested(s)}
+              onDiscard={() => onDecided?.(s.otherId)}
+            />
+          ))}
+        </section>
+      ) : null}
+    </div>
+  )
+}
+
+/** A relationship the AI suggests: in the amber of AI suggestions, with Keep and Discard, as Flesh out's are. */
+function SuggestedRow({
+  s,
+  selfName,
+  onKeep,
+  onDiscard
+}: {
+  s: SuggestedRelationship
+  selfName: string
+  onKeep: () => void
+  onDiscard: () => void
+}): React.JSX.Element {
+  const Icon = KIND_ICONS[s.otherKind]
+  return (
+    <div role="group" aria-label={`Suggested relationship with ${s.otherName}`} className="flex flex-col gap-1 animate-fade-in">
+      <div className="rounded-lg border border-ai/40 bg-ai-soft px-3 py-2 text-[13px] text-fg">
+        <div className="flex min-h-6 items-center gap-2.5">
+          <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface text-muted">
+            <Icon size={12} />
+          </span>
+          <span className="min-w-0 truncate font-medium">{s.otherName}</span>
+          {s.otherKind === 'group' ? <span className="shrink-0 text-[12px] text-faint">{KIND_LABELS.group.one}</span> : null}
+          {s.type ? <span className="min-w-0 truncate text-muted">· {s.type}</span> : null}
+        </div>
+        {s.feels ? (
+          <p className="mt-1 break-words">
+            <span className="text-muted">How {selfName} feels:</span> {s.feels}
+          </p>
+        ) : null}
+        {s.otherFeels ? (
+          <p className="mt-0.5 break-words">
+            <span className="text-muted">How {s.otherName} feels:</span> {s.otherFeels}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex h-[18px] items-center gap-1 text-[12px]">
+        <Sparkles size={11} className="mr-0.5 shrink-0 text-ai" aria-hidden />
+        <span className="mr-1 text-faint">Suggested by AI</span>
+        <button
+          type="button"
+          onClick={onKeep}
+          aria-label={`Keep the relationship with ${s.otherName}`}
+          className="h-[18px] rounded px-1.5 font-medium text-ai transition-colors duration-150 hover:bg-ai-soft"
+        >
+          Keep
+        </button>
+        <button
+          type="button"
+          onClick={onDiscard}
+          aria-label={`Discard the relationship with ${s.otherName}`}
+          className="h-[18px] rounded px-1.5 font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
+        >
+          Discard
+        </button>
+      </div>
     </div>
   )
 }

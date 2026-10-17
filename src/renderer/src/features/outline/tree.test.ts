@@ -10,6 +10,7 @@ import {
   keepPlan,
   keptMessage,
   lastNodeKey,
+  madePagesNote,
   outlineTree,
   withDiscarded,
   withKept,
@@ -85,6 +86,12 @@ describe('the suggestions as a tree', () => {
     expect(at('# Act: The Turning')).toBe('a0c1s0')
     expect(at('Goal: Mara follows')).toBe('a1c0')
     expect(lastNodeKey([])).toBe(null)
+  })
+
+  it('puts chapters that come before a reply’s first act into that act, keeping their keys (O8)', () => {
+    const early = outlineTree(parseOutline('## Chapter: Prelude\n### Scene: A\n# Act: The Arrival\n## Chapter: Rain\n### Scene: B', true))
+    expect(early.map((n) => [n.kind, n.key, n.children.map((c) => c.key)])).toEqual([['act', 'a0', ['c0', 'a0c0']]])
+    expect(show(keepPlan(early, {}, {}, ['c0s0']))).toEqual(['act a0 The Arrival', 'chapter c0 Prelude in=a0', 'scene c0s0 A in=c0'])
   })
 
   it('puts chapters with no act at the top', () => {
@@ -235,6 +242,13 @@ describe('the words for what happened', () => {
     expect(discardedMessage(tree, discardKeys(tree, {}, 'a0c1'), {})).toBe("Discarded “The Ferryman's Price” and its scene.")
     expect(discardedMessage(tree, discardKeys(tree, {}, 'a0'), {})).toBe('Discarded “The Arrival” and its 2 chapters and 3 scenes.')
     expect(discardedMessage(tree, ['a1c0s0'], { a1c0s0: { title: 'The chase', text: '', beats: [] } })).toBe('Discarded “The chase”.')
+  })
+
+  it('names the pages a keep made for its cast and places', () => {
+    expect(madePagesNote([{ entryNames: ['Holt'] }, {}, { entryNames: ['Bren'] }])).toBe(' Made pages for Holt and Bren.')
+    expect(madePagesNote([{ entryNames: ['Gull Quay'] }])).toBe(' Made a page for Gull Quay.')
+    expect(madePagesNote([{ entryNames: ['Holt', 'Bren', 'Ilsa', 'Odo', 'Gull Quay'] }])).toBe(' Made pages for Holt, Bren, Ilsa and 2 more.')
+    expect(madePagesNote([{}])).toBe('')
   })
 
   it('counts in plain words', () => {

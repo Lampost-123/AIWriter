@@ -22,6 +22,7 @@ import type {
 } from '@shared/contracts/outline'
 import { emptySceneCard } from '@shared/defaults'
 import type { ChatMessage, EntryState, ID, SceneCard } from '@shared/types'
+import { oneLine } from '@shared/text'
 import { sceneTail, storySoFarText } from '../ai/context'
 import { MODEL_NAMES } from '../ai/jobModel'
 import { runTask, startTask } from '../ai/tasks'
@@ -41,9 +42,9 @@ import {
   type CastLine,
   type FittedBriefing,
   type ThreadLine
-} from './brief'
+} from './briefing'
 import { castLines, ideasFacts, openThreads, storyFacts, storyPlan } from './context'
-import { briefingBudget, type JobDeps } from './jobs'
+import { briefingBudget, checkReplyRoom, fitBriefing, type JobDeps } from './jobs'
 import { CHAPTER_CARD_FORM, CHAPTER_CARD_RULES, MARKER } from './prompts'
 import { cleanBeats } from './structure'
 import { matchEntry } from './names'
@@ -71,11 +72,6 @@ export const NO_FILL =
   "The AI's reply couldn't be read as a scene card. Try again, or pick another chat and brainstorm model in Settings › Models."
 const WENT_WRONG = 'Something went wrong while thinking of a question. Try again.'
 const FILL_WRONG = 'Something went wrong while filling in the card. Try again.'
-
-const oneLine = (s: unknown): string =>
-  String(s ?? '')
-    .replace(/\s+/g, ' ')
-    .trim()
 
 /** The interview's answers as sent: each tidied and cut to size, the latest ones. */
 export function cleanAnswers(asked: unknown): PlanAnswer[] {
@@ -508,8 +504,16 @@ export function startChapterPlan(deps: JobDeps, input: ChapterPlanRequest): { ge
   const ask = answers.length
     ? 'Suggest the chapter’s goal and its scenes now, from the interview.'
     : 'Suggest the chapter’s goal and its scenes now, from the chapter and the outline around it.'
+  // Said before asking, in plain words, as the outline helper says it (2026-10-17).
+  checkReplyRoom(deps.model, CHAPTER_REPLY, 'A chapter’s plan is', 'Pick a model that writes longer answers in Settings › Models.')
   const { drafts, lines } = chapterBlocks(deps.db, chapterId, answers, ask)
-  const fitted = fitBlocks(drafts, system, briefingBudget(deps.model, CHAPTER_REPLY), MODEL_NAMES.chat)
+  const fitted = fitBriefing(
+    drafts,
+    system,
+    deps.model,
+    CHAPTER_REPLY,
+    `This chapter and the story around it are more than the ${MODEL_NAMES.chat} can read at once to plan it. Pick a model that can read more in Settings › Models.`
+  )
   return startTask({
     db: deps.db,
     taskId: input.taskId,

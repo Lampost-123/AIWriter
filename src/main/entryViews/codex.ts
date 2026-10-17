@@ -3,7 +3,7 @@
 // No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { ExistsPoint, ID } from '@shared/types'
+import type { Entry, ExistsPoint, ID } from '@shared/types'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { WorldShape } from '../memory/types'
 import { loadShape } from '../memory/scene'
@@ -34,6 +34,16 @@ export function sceneStories(shape: WorldShape): Map<ID, ID> {
   return out
 }
 
+/**
+ * Drafted by AI (2026-10-17), from its field origins: the AI wrote some of it, and Adam hasn't
+ * edited it since (each field he changes becomes his). Not `byHand`: the builders make their
+ * entries as Adam's, so that is set from the start.
+ */
+export function aiDrafted(e: Pick<Entry, 'origin' | 'fieldOrigins'>): boolean {
+  const origins = Object.values(e.fieldOrigins)
+  return (e.origin === 'ai' || origins.includes('ai')) && !origins.includes('adam')
+}
+
 export function codexCards(db: DB): CodexCard[] {
   const shape = loadShape(db)
   const entries = repo.listEntries(db)
@@ -50,19 +60,20 @@ export function codexCards(db: DB): CodexCard[] {
     set.add(home)
   }
   return entries.map((e) => {
-    const where = w.byEntry.get(e.id)
+    // Its scenes come in reading order.
+    const where = w.byEntry.get(e.id) ?? { at: [], how: [] }
     let importance = 0
-    let last: CodexCard['last'] = null
-    let firstSeen: CodexCard['first'] = null
     const stories = new Set(homes.get(e.id) ?? [])
-    for (const [sceneId, how] of where ?? []) {
-      const s = w.sceneById.get(sceneId)
-      if (!s) continue
-      importance += sceneWeight(how)
-      stories.add(s.storyId)
-      if (!last || s.order > last.order) last = { sceneId, storyId: s.storyId, label: s.label, order: s.order }
-      if (!firstSeen || s.order < firstSeen.order) firstSeen = { sceneId, storyId: s.storyId, label: s.label, order: s.order }
+    where.at.forEach((i, k) => {
+      importance += sceneWeight(where.how[k])
+      stories.add(w.scenes[i].storyId)
+    })
+    const place = (i: number | undefined): CodexCard['last'] => {
+      const s = i === undefined ? undefined : w.scenes[i]
+      return s ? { sceneId: s.id, storyId: s.storyId, label: s.label, order: s.order } : null
     }
+    const last = place(where.at[where.at.length - 1])
+    const firstSeen = place(where.at[0])
     return {
       id: e.id,
       kind: e.kind,
@@ -73,7 +84,8 @@ export function codexCards(db: DB): CodexCard[] {
       image: e.image ?? null,
       role: (e.fields.role ?? '').trim(),
       hardRule: e.hardRule,
-      scenes: where?.size ?? 0,
+      aiDrafted: aiDrafted(e),
+      scenes: where.at.length,
       importance,
       last,
       first: firstSeen,

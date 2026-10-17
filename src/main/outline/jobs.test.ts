@@ -10,7 +10,8 @@ import type { JobModel } from '../ai/jobModel'
 import type { Emit } from '../ai/tasks'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { dbWorld } from '../../../tests/unit/testWorld'
-import { fitBlocks, planText, type BlockDraft, type PlanAct } from './brief'
+import { estimateTokens } from '../keeper/text'
+import { fitBlocks, planText, type BlockDraft, type PlanAct } from './briefing'
 import { isBlankPlan, storyPlan } from './context'
 import { briefingBudget, outlineReplyTokens, startIdeasJob, startOutlineJob } from './jobs'
 import { cleanSize, MARKER, outlineAsk, outlineSystem } from './prompts'
@@ -76,8 +77,8 @@ describe('what the outline helper asks', () => {
   })
 
   it('leaves room for the reply and its thinking', () => {
-    expect(outlineReplyTokens({ acts: 3, chapters: 9, scenes: 3 })).toBe(3600)
-    expect(outlineReplyTokens({ acts: 6, chapters: 30, scenes: 6 })).toBe(12000)
+    expect(outlineReplyTokens({ acts: 3, chapters: 9, scenes: 3 })).toBe(4770)
+    expect(outlineReplyTokens({ acts: 6, chapters: 30, scenes: 6 })).toBe(16_500)
     expect(briefingBudget({ choice: choice(32000), thinking: 'off' }, 3600)).toBe(32000 - 3600 - 1600)
   })
 
@@ -89,8 +90,48 @@ describe('what the outline helper asks', () => {
         const size = cleanSize({ acts: 6, chapters, scenes })
         expect(size.chapters * size.scenes).toBeLessThanOrEqual(100)
         // Room for every card it asks for: the reply is never cut short by its own limit.
-        expect(300 + (size.acts + size.chapters) * 50 + size.chapters * size.scenes * 100).toBeLessThanOrEqual(12_000)
+        expect(300 + (size.acts + size.chapters) * 80 + size.chapters * size.scenes * 130).toBeLessThanOrEqual(16_500)
       }
+  })
+
+  it('has room for a full-size outline written as a model writes one (O3, 2026-10-17)', () => {
+    const size = cleanSize({ acts: 4, chapters: 25, scenes: 4 })
+    expect(size.chapters * size.scenes).toBe(100)
+    const lines: string[] = []
+    for (let a = 0; a < size.acts; a++) {
+      lines.push(`# Act: The Tide Turns ${a + 1}`, 'Purpose: The keepers lose the harbour and must win back the town.', '')
+      for (let c = 0; c < size.chapters / size.acts; c++) {
+        lines.push(
+          `## Chapter: Smoke Over the Quay ${c + 1}`,
+          'Goal: Wren learns the warehouse fire was set to hide the ledger.',
+          'Point of view: Wren Calloway',
+          'Characters: Wren Calloway, Odo Calloway, Harbour Master Tull',
+          'Location: Counting room, Gull Quay Customs House',
+          `When: Day ${c + 2}, dusk`,
+          'Mood: Tense and smoky',
+          ''
+        )
+        for (let s = 0; s < size.scenes; s++) {
+          lines.push(`### Scene: The Ledger Under the Floor ${s + 1}`, `When: Day ${c + 2}, late evening`)
+          lines.push('Summary: Wren searches the burned counting room and finds a page of the missing ledger.')
+          if (s % 2 === 0) lines.push('Sets up: Who burned the warehouses')
+          if (s === 3) lines.push('Pays off: The harbour master’s debt')
+          if (s === 2) lines.push('Location: The Lamp Tower')
+          lines.push(
+            '- Wren slips past the night watch',
+            '- Scorch marks start inside the locked room',
+            '- A loose board hides a singed page',
+            '- Odo arrives with a lantern',
+            '- Boots sound on the stair below',
+            ''
+          )
+        }
+      }
+    }
+    const reply = lines.join('\n')
+    expect(estimateTokens(reply)).toBeLessThanOrEqual(outlineReplyTokens(size))
+    // The room it had before (50 and 100) cut such a reply short.
+    expect(estimateTokens(reply)).toBeGreaterThan(300 + (size.acts + size.chapters) * 50 + size.chapters * size.scenes * 100)
   })
 })
 
@@ -301,11 +342,11 @@ describe('asking for an outline', () => {
 
   it('says so before asking when the outline is longer than the model can write in one answer', async () => {
     const w = dbWorld()
-    const short: JobModel = { ...model(), choice: { ...choice(), maxOutput: 4096 } }
+    const short: JobModel = { ...model(), choice: { ...choice(), maxOutput: 8192 } }
     expect(() =>
       startOutlineJob(
         { db: w.db, model: short, emit: () => undefined },
-        { taskId: 't6', storyId: w.id('b1'), premise: '', size: { acts: 3, chapters: 12, scenes: 4 } }
+        { taskId: 't6', storyId: w.id('b1'), premise: '', size: { acts: 3, chapters: 24, scenes: 4 } }
       )
     ).toThrow(
       'That is more than the chat and brainstorm model can answer in one go. Ask for fewer chapters or fewer scenes in each, or pick a model that writes longer answers in Settings › Models.'

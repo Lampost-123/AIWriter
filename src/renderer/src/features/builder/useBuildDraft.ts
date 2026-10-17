@@ -26,17 +26,19 @@ export interface BuildDraft {
   /**
    * Adam kept AI words: shown at once and saved as drafted by AI. Only empty fields are filled,
    * unless `replace` (he picked one of the options for that field). Rejects if it couldn't be saved,
-   * leaving the fields as they were.
+   * leaving the fields as they were. Resolves with the fields left as they were because they had
+   * changed elsewhere since (2026-10-17): they show what the entry holds.
    */
-  keep(chosen: BuilderValues, opts?: { replace?: boolean }): Promise<void>
+  keep(chosen: BuilderValues, opts?: { replace?: boolean }): Promise<string[]>
   /** A field as it is now, to put back later with `revert`. */
   fieldNow(key: string): FieldState
   /**
    * Puts a field back as it was (Undo after an option replaced it), with who made its words: the AI's
    * and those read from the story are saved as theirs again at once, Adam's as his after the usual
-   * pause. Rejects if it couldn't be saved, leaving the field as it was.
+   * pause. Rejects if it couldn't be saved, leaving the field as it was. Resolves false when the field
+   * had changed elsewhere since, so it was left as it is (2026-10-17).
    */
-  revert(key: string, was: FieldState): Promise<void>
+  revert(key: string, was: FieldState): Promise<boolean>
   /** Writes anything waiting now. Never rejects. */
   flush(): Promise<void>
   status: SaveStatus
@@ -130,28 +132,46 @@ export function useBuildDraft(kind: BuilderKind, initial: Entry | null, storyId:
     [schedule]
   )
 
+  // Fields the entry kept as they were (changed elsewhere since): the screen shows what it holds, marked as before.
+  const showSaved = (saved: Entry, keys: string[], ai: Readonly<Record<string, string>>): void => {
+    if (!keys.length) return
+    const v = { ...valuesRef.current }
+    let marks = { ...aiRef.current }
+    for (const k of keys) {
+      v[k] = entryText(saved, k)
+      base.current[k] = v[k]
+      marks = withKey(marks, k, ai[k])
+    }
+    show(v)
+    showAi(marks)
+  }
+
   const keep = useCallback(
-    async (chosen: BuilderValues, opts: { replace?: boolean } = {}): Promise<void> => {
+    async (chosen: BuilderValues, opts: { replace?: boolean } = {}): Promise<string[]> => {
       const before = { values: valuesRef.current, base: { ...base.current }, ai: aiRef.current }
       const applied: BuilderValues = {}
       for (const [k, v] of Object.entries(chosen)) {
         if (!filled(v) || (!opts.replace && filled(valuesRef.current[k]))) continue
         applied[k] = v
       }
-      if (!Object.keys(applied).length) return
+      if (!Object.keys(applied).length) return []
       show({ ...valuesRef.current, ...applied })
       showAi({ ...aiRef.current, ...applied })
       const e = entryRef.current
       if (!e) {
         // No entry yet: these are saved with it, as the AI's, once it has a name.
         schedule(++tick.current)
-        return
+        return []
       }
       // Counted as saved already, so a save of Adam's typing meanwhile doesn't send them as his.
       Object.assign(base.current, applied)
       try {
-        const saved = await api.keepSuggestions(e.id, applied, { replace: !!opts.replace })
-        adopt(saved, applied)
+        // What each field held as last saved, so one changed elsewhere since is left as it is (2026-10-17).
+        const expected = Object.fromEntries(Object.keys(applied).map((k) => [k, before.base[k] ?? '']))
+        const { entry: saved, skipped } = await api.keepSuggestions(e.id, applied, { replace: !!opts.replace, expected })
+        showSaved(saved, skipped, before.ai)
+        adopt(saved, Object.fromEntries(Object.entries(applied).filter(([k]) => !skipped.includes(k))))
+        return skipped
       } catch (err) {
         const restore = (from: BuilderValues, to: BuilderValues): BuilderValues => {
           const out = { ...to }
@@ -176,7 +196,7 @@ export function useBuildDraft(kind: BuilderKind, initial: Entry | null, storyId:
   }, [])
 
   const revert = useCallback(
-    async (key: string, was: FieldState): Promise<void> => {
+    async (key: string, was: FieldState): Promise<boolean> => {
       const before = { value: valuesRef.current[key], ai: aiRef.current[key], base: base.current[key] }
       const ai = { ...aiRef.current }
       if (was.ai === undefined) delete ai[key]
@@ -188,13 +208,16 @@ export function useBuildDraft(kind: BuilderKind, initial: Entry | null, storyId:
         // His words, saved as his after the usual pause (or with the entry, once it has a name, the
         // AI's words among them marked as the AI's).
         schedule(++tick.current)
-        return
+        return true
       }
       // Counted as saved already, so a save of Adam's typing meanwhile doesn't send them as his.
       base.current[key] = was.value
       try {
-        const saved = await api.restoreBuilderField(e.id, key, was.value, was.origin)
-        adopt(saved, { [key]: was.value })
+        // Only if it still holds the idea he picked (2026-10-17).
+        const { entry: saved, skipped } = await api.restoreBuilderField(e.id, key, was.value, was.origin, before.base ?? '')
+        showSaved(saved, skipped, { [key]: before.ai } as Record<string, string>)
+        adopt(saved, skipped.length ? {} : { [key]: was.value })
+        return !skipped.length
       } catch (err) {
         // Back to what is saved, unless Adam has typed in the field since.
         if ((valuesRef.current[key] ?? '') === was.value) {

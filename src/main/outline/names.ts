@@ -1,6 +1,8 @@
-// Matching a name the AI gave to one of the world's entries (the interview's fill, chapter cards). No imports
-// beyond types, so anything in the outline helper can use it without import loops.
+// Matching a name the AI gave to one of the world's entries (the interview's fill, chapter cards). Names are compared
+// as the World builder compares them (worldBuilder/names.ts bareName, 2026-10-17: one rule for both). No imports
+// beyond that pure file and types, so anything in the outline helper can use it without import loops.
 import type { ID } from '@shared/types'
+import { bareName } from '../worldBuilder/names'
 
 /** Titles a character's name may start with ("Captain Holt" is Holt), compared without their full stop. */
 export const NAME_TITLES = [
@@ -40,22 +42,6 @@ export const NAME_TITLES = [
   'aunt'
 ] as const
 
-/**
- * A name as compared with another (2026-10-17): case, accents, curly quotes, a possessive 's, punctuation and a
- * leading "the" don't count, so "The Café's" and "cafe" are one name. Letters of any alphabet are kept.
- */
-export const nameKey = (s: string): string =>
-  s
-    .normalize('NFD')
-    .replace(/\p{M}+/gu, '')
-    .toLowerCase()
-    .replace(/[‘’]/g, "'")
-    .replace(/'s(?![\p{L}\p{N}])/gu, '')
-    .replace(/[^\p{L}\p{N} ]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^the /, '')
-
 const TITLE = new RegExp(`^(?:${NAME_TITLES.join('|')}) (?=.)`)
 
 /** A name key without a leading title ("captain holt" gives "holt"); a title alone ("the duke") stays as it is. */
@@ -77,9 +63,9 @@ const isPerson = (e: Named): boolean => {
  * at that step: ambiguous, and no entry.
  */
 export function matchName<T extends Named>(name: string, entries: T[]): { entry: T | null; ambiguous: boolean } {
-  const n = nameKey(name)
+  const n = bareName(name)
   if (!n) return { entry: null, ambiguous: false }
-  const keys = (e: T): string[] => [e.name, ...e.aliases].map(nameKey).filter(Boolean)
+  const keys = (e: T): string[] => [e.name, ...e.aliases].map(bareName).filter(Boolean)
   const exact = entries.find((e) => keys(e).includes(n))
   if (exact) return { entry: exact, ambiguous: false }
   const pick = (found: T[]): { entry: T | null; ambiguous: boolean } =>

@@ -198,52 +198,14 @@ export function buildNameIndex(entries: Named[], only?: Set<string>): NameIndex 
   return ix
 }
 
-/** The parts of a name between its spaces ("the", "old", "woman"); each is in the text exactly as written wherever the name is. */
-function nameParts(name: string): string[] {
-  const parts: string[] = []
-  let start = -1
-  for (let k = 0; k <= name.length; k++) {
-    const space = k === name.length || isSpace(name.charCodeAt(k))
-    if (space && start >= 0) parts.push(name.slice(start, k))
-    if (space) start = -1
-    else if (start < 0) start = k
-  }
-  return parts
-}
-
-/**
- * A quick first look for a few names (see appearances.ts: names new since the scenes were read):
- * false when a text can't mention any of them, because some part of each name isn't in it. Only the
- * texts that pass are read word by word. A name compared without minding case is looked for in the
- * text in lower case; one with letters beyond plain English ones is always read word by word, since
- * lower-casing a whole text can treat such letters differently.
- */
-export function quickCheck(ix: NameIndex): (text: string) => boolean {
-  tables()
-  const exact: string[] = []
-  const folded: string[][] = []
-  let always = false
-  for (const { pattern: p } of ix.patterns.values()) {
-    if (!p.fold) exact.push(p.name)
-    else if (/[^\x20-\x7e]/.test(p.name.replace(/\s+/g, ' '))) always = true
-    else folded.push(nameParts(p.name.toLowerCase()))
-  }
-  return (text) => {
-    if (always) return true
-    for (const name of exact) if (text.includes(name)) return true
-    if (!folded.length) return false
-    const lower = text.toLowerCase()
-    return folded.some((parts) => parts.every((part) => lower.includes(part)))
-  }
-}
-
 /**
  * The names (pattern keys) the text mentions, each with where its first mention starts. One pass
  * over the words: a word that isn't the first word of any name costs a check of two bits and nothing else.
+ * With `words` (a wordField), every word's bits are set there too.
  */
-export function findMentions(ix: NameIndex, text: string): Map<string, number> {
+export function findMentions(ix: NameIndex, text: string, words?: Uint32Array): Map<string, number> {
   const hits = new Map<string, number>()
-  if (!text || !ix.patterns.size) return hits
+  if (!text || (!ix.patterns.size && !words)) return hits
   tables()
   const hasExact = ix.exact.size > 0
   const hasFolded = ix.folded.size > 0
@@ -279,6 +241,7 @@ export function findMentions(ix: NameIndex, text: string): Map<string, number> {
         j += 2
       }
     }
+    if (words) markWord(words, hl)
     const a = hasExact && (EB[(h & 0xffff) >>> 5] & (1 << (h & 31))) !== 0 ? ix.exact.get(h) : undefined
     const b = hasFolded && (FB[(hl & 0xffff) >>> 5] & (1 << (hl & 31))) !== 0 ? ix.folded.get(hl) : undefined
     if (a !== undefined || b !== undefined) {
@@ -308,6 +271,64 @@ export function findMentions(ix: NameIndex, text: string): Map<string, number> {
     }
   }
   return hits
+}
+
+// 2026-10-17: what words a scene holds, kept as a small bit field (each word's lower-case hash sets
+// two of its bits), so a name that is new since the scene was read is looked for only where every
+// word of it may be (a build saves entries one by one, and the open codex is read again after
+// each). A name matches only where each of its words is a whole word of the text, and a word's bits
+// are always set, so this never misses one; now and then it reads a scene for nothing.
+
+/** Bits in a scene's word field. */
+const WORD_BITS = 2048
+
+/** An empty word field for findMentions to fill. */
+export const wordField = (): Uint32Array => new Uint32Array(WORD_BITS / 32)
+
+/** A word's lower-case hash, mixed: its low bits and the next eleven pick its two bits. */
+function mix(h: number): number {
+  const x = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
+  return x ^ (x >>> 16)
+}
+
+function markWord(field: Uint32Array, h: number): void {
+  const x = mix(h)
+  const a = x & (WORD_BITS - 1)
+  const b = (x >>> 11) & (WORD_BITS - 1)
+  field[a >>> 5] |= 1 << (a & 31)
+  field[b >>> 5] |= 1 << (b & 31)
+}
+
+function hasWord(field: Uint32Array, h: number): boolean {
+  const x = mix(h)
+  const a = x & (WORD_BITS - 1)
+  const b = (x >>> 11) & (WORD_BITS - 1)
+  return (field[a >>> 5] & (1 << (a & 31))) !== 0 && (field[b >>> 5] & (1 << (b & 31))) !== 0
+}
+
+/** For each name in the index, its words' lower-case hashes. */
+export function nameWords(ix: NameIndex): number[][] {
+  tables()
+  const out: number[][] = []
+  for (const { pattern: p } of ix.patterns.values()) {
+    const hashes: number[] = []
+    for (let k = 0; k < p.name.length; ) {
+      if (!wordUnits(p.name, k)) {
+        k++
+        continue
+      }
+      const w = wordAt(p.name, k)
+      hashes.push(w.hl)
+      k = w.end
+    }
+    out.push(hashes)
+  }
+  return out
+}
+
+/** False when a text with this word field can't name any of these names. */
+export function mayName(field: Uint32Array, names: number[][]): boolean {
+  return names.some((hashes) => hashes.every((h) => hasWord(field, h)))
 }
 
 /** The keys of every pattern an entry's names make (for mapping hits back to it). */

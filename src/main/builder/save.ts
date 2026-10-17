@@ -4,9 +4,10 @@
 // never touches his. Nothing here writes over words someone else has put in a field. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Entry, ID, Origin } from '@shared/types'
-import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
+import type { Change, Entry, ID, Origin } from '@shared/types'
+import type { BuilderKept, BuilderKind, BuilderValues, SuggestedRelationship } from '@shared/contracts/builder'
 import * as repo from '../db/repo'
+import * as mem from '../db/memory'
 import { stampOrigins } from '../db/builder'
 import { UserError } from '../util'
 import { bareName, findMatch, isPlaceholderName } from '../worldBuilder/names'
@@ -115,31 +116,102 @@ export function saveBuilt(db: DB, kind: BuilderKind, entryId: ID, values: Builde
   })()
 }
 
+/** The same words, white space and the spaces around commas aside (aliases come back as "a, b"). */
+const sameWords = (a: string, b: string): boolean => {
+  const tidy = (s: string): string => s.replace(/\s*,\s*/g, ',').replace(/\s+/g, ' ').trim()
+  return tidy(a) === tidy(b)
+}
+
 /**
  * Saves suggestions Adam kept, marked as drafted by AI. Only empty fields are filled, so his words (or
  * anything else written since the suggestion was made) are never written over, unless `replace`: he
- * picked one of the options for that field himself.
+ * picked one of the options for that field himself. Even then (2026-10-17), a field that no longer
+ * holds what `expected` says the screen showed (the memory keeper or the entry's page changed it
+ * meanwhile) is left as it is, and named in `skipped`.
  */
-export function keepSuggestions(db: DB, entryId: ID, values: BuilderValues, replace = false): Entry {
+export function keepSuggestions(db: DB, entryId: ID, values: BuilderValues, replace = false, expected?: BuilderValues): BuilderKept {
   const e = repo.getEntry(db, entryId)
   if (!isBuilderKind(e.kind)) throw new UserError('That page has no builder.')
   const patch: BuilderValues = {}
+  const skipped: string[] = []
   for (const [key, v] of Object.entries(cleanValues(e.kind, values))) {
-    if (!replace && entryText(e, key).trim()) continue
+    const now = entryText(e, key)
+    const changed = replace ? !!expected && !sameWords(now, expected[key] ?? '') : !!now.trim()
+    if (changed && !sameWords(now, v)) skipped.push(key)
+    if (changed) continue
     patch[key] = v
   }
-  if (!Object.keys(patch).length) return e
-  return repo.updateEntry(db, entryId, toInput(e.kind, patch), { origin: 'ai' })
+  if (!Object.keys(patch).length) return { entry: e, skipped }
+  return { entry: repo.updateEntry(db, entryId, toInput(e.kind, patch), { origin: 'ai' }), skipped }
 }
 
 /**
  * Puts one field back as it was, with who made it (Undo after Adam picked an option for it): words
  * read from the story or drafted by AI are theirs again, so the memory keeper goes on keeping them up
- * to date as before. Saved exactly as given.
+ * to date as before. Saved exactly as given. A field that no longer holds `expected` (the option he
+ * picked) is left as it is and named in `skipped` (2026-10-17).
  */
-export function restoreField(db: DB, entryId: ID, key: string, value: string, origin: Origin): Entry {
+export function restoreField(db: DB, entryId: ID, key: string, value: string, origin: Origin, expected?: string): BuilderKept {
   const e = repo.getEntry(db, entryId)
   if (!isBuilderKind(e.kind)) throw new UserError('That page has no builder.')
-  if (!profileKeys(e.kind).includes(key) || (key === 'name' && !value.trim())) return e
-  return repo.updateEntry(db, entryId, ownInput(e.kind, { [key]: value }), { origin })
+  if (!profileKeys(e.kind).includes(key) || (key === 'name' && !value.trim())) return { entry: e, skipped: [] }
+  const now = entryText(e, key)
+  if (expected !== undefined && !sameWords(now, expected) && !sameWords(now, value)) return { entry: e, skipped: [key] }
+  return { entry: repo.updateEntry(db, entryId, ownInput(e.kind, { [key]: value }), { origin }), skipped: [] }
+}
+
+// ---------- Suggest relationships (2026-10-17) ----------
+
+/** The entries a character is linked to by a live relationship, from either side. */
+export function linkedTo(db: DB, entryId: ID): Set<ID> {
+  const out = new Set<ID>()
+  for (const c of mem.changesForEntry(db, entryId)) {
+    if (c.kind === 'relationship') out.add(c.entryId === entryId ? c.payload.otherId : c.entryId)
+    else if (c.kind === 'full') {
+      if (c.entryId === entryId) for (const r of c.payload.relationships ?? []) out.add(r.otherId)
+      else if ((c.payload.relationships ?? []).some((r) => r.otherId === entryId)) out.add(c.entryId)
+    }
+  }
+  out.delete(entryId)
+  return out
+}
+
+/**
+ * Saves a relationship Adam kept from the AI's suggestions on the character: how things stand when the story begins,
+ * drafted by AI (so it says so, and Undo can take it back while it is unchanged).
+ */
+export function keepRelationship(db: DB, entryId: ID, s: Pick<SuggestedRelationship, 'otherId' | 'type' | 'feels' | 'otherFeels'>): Change {
+  return db.transaction(() => {
+    const e = repo.getEntry(db, entryId)
+    if (e.kind !== 'character') throw new UserError('Only characters have relationships suggested here.')
+    if (linkedTo(db, entryId).has(s.otherId)) {
+      throw new UserError(`${e.name || 'They'} and ${repo.getEntry(db, s.otherId).name || 'them'} are linked already. You can change how on the step.`)
+    }
+    const text = (v: unknown, n: number): string => (typeof v === 'string' ? v.trim().slice(0, n) : '')
+    const clean = mem.cleanChangeInput(db, {
+      entryId,
+      anchor: 'baseline',
+      kind: 'relationship',
+      payload: { otherId: s.otherId, type: text(s.type, 80), feels: text(s.feels, 300), otherFeels: text(s.otherFeels, 300) }
+    })
+    return mem.insertChange(db, { ...clean, origin: 'ai' })
+  })()
+}
+
+/**
+ * Undo after keeping a suggested relationship: removes it while it is as it was kept (still the AI's, not changed since
+ * `updatedAt`). False when it has gone already or was changed, so it is left.
+ */
+export function takeBackRelationship(db: DB, changeId: ID, updatedAt: string): boolean {
+  return db.transaction(() => {
+    let c: Change
+    try {
+      c = mem.getChange(db, changeId)
+    } catch {
+      return false
+    }
+    if (c.kind !== 'relationship' || c.origin !== 'ai' || c.updatedAt !== updatedAt) return false
+    mem.deleteChange(db, changeId, { origin: 'adam' })
+    return true
+  })()
 }

@@ -187,7 +187,9 @@ test('one paragraph builds the world in one click, saving as it goes: his words 
     await worldNav(win).getByRole('button', { name: 'What changed' }).click()
     const run = main(win).getByRole('region', { name: 'Built from your summary' })
     await expect(run).toHaveCount(1)
-    await expect(run.getByRole('button', { name: /^Undo: / })).toHaveCount(13)
+    // 2026-10-17: the opening scene's "Day 1" is a line of the build too, so Undo takes it back.
+    await expect(run.getByRole('button', { name: /^Undo: / })).toHaveCount(14)
+    await expect(run.getByRole('button', { name: 'Undo: Scene 1, The story starts on Day 1' })).toBeVisible()
     await run.getByRole('button', { name: 'Undo: Tide Compass, New item' }).click()
     await expect.poll(async () => (await entries(win)).some((e) => e.name === 'Tide Compass')).toBe(false)
 

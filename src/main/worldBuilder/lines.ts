@@ -13,7 +13,7 @@ import * as mem from '../db/memory'
 import * as kdb from '../db/keeper'
 import type { LogRow } from '../db/keeper'
 import { anyChange } from '../db/storyFlows'
-import { BUILD_RUN_SCENE, buildLines, entryNamed, entryNames, entryState, markNotUndone } from '../db/worldBuilder'
+import { BUILD_RUN_SCENE, buildLines, entryNamed, entryNames, entryState, markNotUndone, takeBackBuildIssue } from '../db/worldBuilder'
 import { upperFirst } from '../keeper/text'
 import { UserError } from '../util'
 import { findMatch } from './names'
@@ -52,6 +52,25 @@ export type WorldUndo = { op: 'world-build'; fingerprint: string; words: string 
       did: 'meta'
       key: 'themes' | 'tone'
       before: string
+      after: string
+    }
+  | {
+      /** A disagreement with a page, raised as a consistency issue (2026-10-17), as it was raised. */
+      did: 'issue'
+      issue: { sceneId: ID; storyId: ID; kind: string; severity: string; quote: string; message: string; key: string; payload: Record<string, unknown> }
+    }
+  | {
+      /** A scene's When the build set: the story's opening scene on "Day 1" (2026-10-17). */
+      did: 'when'
+      sceneId: ID
+      before: string
+      after: string
+    }
+  | {
+      /** An empty field filled on an entry the world had already: a found event's When (2026-10-17). */
+      did: 'field'
+      entryId: ID
+      key: string
       after: string
     }
 )
@@ -107,6 +126,34 @@ function takeAway(db: DB, row: LogRow, u: WorldUndo, out: WorldOutcome): boolean
       if ((repo.getMeta(db, u.key) ?? '') !== u.after) return false
       repo.setMeta(db, u.key, u.before)
       return true
+    case 'issue':
+      // Only while it is open as the build left it: one Adam ignored or put off stays.
+      return takeBackBuildIssue(db, u.issue.sceneId, u.issue.key)
+    case 'when': {
+      // Only while the scene still says what the build wrote (the outline's markMade rule).
+      const card = sceneCard(db, u.sceneId)
+      if (!card || card.when !== u.after) return false
+      repo.updateSceneCard(db, u.sceneId, { ...card, when: u.before })
+      out.sceneId = u.sceneId
+      return true
+    }
+    case 'field': {
+      if (entryState(db, u.entryId) !== 'live') return false
+      const e = repo.getEntry(db, u.entryId)
+      if ((e.fields[u.key] ?? '') !== u.after) return false
+      repo.updateEntry(db, u.entryId, { fields: { [u.key]: '' } }, ADAM)
+      out.entryIds.push(u.entryId)
+      return true
+    }
+  }
+}
+
+/** A live scene's card; null once the scene is deleted. */
+function sceneCard(db: DB, sceneId: ID): ReturnType<typeof repo.getScene>['card'] | null {
+  try {
+    return repo.getScene(db, sceneId).card
+  } catch {
+    return null
   }
 }
 
@@ -172,9 +219,22 @@ export function redoBuild(db: DB, runId: ID, lineIds: ID[]): WorldOutcome {
     } else if (u.did === 'relationship') {
       if (entryState(db, u.fromId) !== 'live' || entryState(db, u.toId) !== 'live') continue
       restore(u.changeId)
-    } else {
+    } else if (u.did === 'meta') {
       if ((repo.getMeta(db, u.key) ?? '') !== u.before) continue
       repo.setMeta(db, u.key, u.after)
+    } else if (u.did === 'issue') {
+      const about = typeof u.issue.payload.entryId === 'string' ? u.issue.payload.entryId : null
+      if (about && entryState(db, about) !== 'live') continue
+      kdb.raiseIssue(db, u.issue)
+    } else if (u.did === 'when') {
+      const card = sceneCard(db, u.sceneId)
+      if (!card || card.when !== u.before) continue
+      repo.updateSceneCard(db, u.sceneId, { ...card, when: u.after })
+      out.sceneId = u.sceneId
+    } else {
+      if (entryState(db, u.entryId) !== 'live' || (repo.getEntry(db, u.entryId).fields[u.key] ?? '').trim()) continue
+      repo.updateEntry(db, u.entryId, { fields: { [u.key]: u.after } }, { origin: 'ai' })
+      out.entryIds.push(u.entryId)
     }
     markNotUndone(db, l.id)
   }
@@ -227,6 +287,8 @@ export function madeItems(db: DB, runId: ID): WorldBuildItem[] {
         }
       ]
     }
+    // Issues, scene dates and filled fields have their own places on the results page (conflicts) or none.
+    if (u.did !== 'meta') return []
     return [
       { ...base, what: u.key, entryId: null, kind: null, name: u.key === 'themes' ? 'Themes' : 'Tone', detail: u.after, undone: l.undone }
     ]

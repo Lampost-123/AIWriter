@@ -2,17 +2,30 @@
 // done in src/main/builder/*; this file connects it to the open world, the settings and the window.
 import type { Handlers } from './index'
 import type { BuilderApi, BuilderKind } from '@shared/contracts/builder'
-import type { ID } from '@shared/types'
+import type { Change, ID } from '@shared/types'
 import * as world from '../world'
 import * as repo from '../db/repo'
+import * as mem from '../db/memory'
+import { changeViews } from '../memory/scene'
+import { recordEdited } from '../keeper'
 import * as providers from '../ai/providers'
 import { getSettings, getWritingPrefs } from '../settings'
 import { emit } from '../events'
 import { UserError } from '../util'
 import { builderTarget } from '../builder/model'
 import { gatherWorld } from '../builder/context'
-import { startFleshOut, startInterview, startOptions, startQuestions, startQuickStart, stopJob, stopJobsFor, type JobContext } from '../builder/jobs'
-import { createBuilt, isBuilderKind, keepSuggestions, restoreField } from '../builder/save'
+import {
+  startFleshOut,
+  startInterview,
+  startOptions,
+  startQuestions,
+  startQuickStart,
+  startRelationships,
+  stopJob,
+  stopJobsFor,
+  type JobContext
+} from '../builder/jobs'
+import { createBuilt, isBuilderKind, keepRelationship, keepSuggestions, restoreField, takeBackRelationship } from '../builder/save'
 import { voiceLater } from '../readAloud'
 
 /**
@@ -91,16 +104,51 @@ export const builderHandlers: Handlers<keyof BuilderApi> = {
   },
   keepSuggestions: (entryId, values, opts) => {
     const db = world.db()
-    const e = keepSuggestions(db, entryId, values, !!opts?.replace)
+    const expected = opts?.expected && typeof opts.expected === 'object' ? opts.expected : undefined
+    const kept = keepSuggestions(db, entryId, values, !!opts?.replace, expected)
     repo.touchWorld(db)
     // The AI filled in a character: it gets its read-aloud voice once Adam pauses.
-    if (e.kind === 'character') voiceLater(db, [e.id], { delayMs: VOICE_AFTER_KEEP_MS })
-    return e
+    if (kept.entry.kind === 'character') voiceLater(db, [kept.entry.id], { delayMs: VOICE_AFTER_KEEP_MS })
+    return kept
   },
-  restoreBuilderField: (entryId, key, value, origin) => {
+  restoreBuilderField: (entryId, key, value, origin, expected) => {
     const db = world.db()
-    const e = restoreField(db, entryId, key, String(value ?? ''), origin === 'text' || origin === 'ai' ? origin : 'adam')
+    const kept = restoreField(
+      db,
+      entryId,
+      key,
+      String(value ?? ''),
+      origin === 'text' || origin === 'ai' ? origin : 'adam',
+      typeof expected === 'string' ? expected : undefined
+    )
     repo.touchWorld(db)
-    return e
+    return kept
+  },
+  startRelationships: (input) => {
+    const ctx = jobContext()
+    startRelationships(ctx, input, brief(ctx, 'character', input.entryId, input.storyId))
+  },
+  keepSuggestedRelationship: (entryId, suggestion) => {
+    const db = world.db()
+    const c = keepRelationship(db, entryId, suggestion)
+    repo.touchWorld(db)
+    // As when Adam adds one himself: lists and pages reload, and the story's snapshots catch up.
+    emit('memory:changed', { sceneId: c.sceneId, entryIds: mem.entriesTouched(c) })
+    recordEdited(db, {})
+    return changeViews(db, [c])[0] ?? { ...c, where: '', links: [] }
+  },
+  undoKeptRelationship: (changeId, updatedAt) => {
+    const db = world.db()
+    let c: Change | null = null
+    try {
+      c = mem.getChange(db, changeId)
+    } catch {
+      return false
+    }
+    if (!takeBackRelationship(db, changeId, String(updatedAt ?? ''))) return false
+    repo.touchWorld(db)
+    emit('memory:changed', { sceneId: c.sceneId, entryIds: mem.entriesTouched(c) })
+    recordEdited(db, {})
+    return true
   }
 }

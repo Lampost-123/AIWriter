@@ -1,6 +1,6 @@
 // Generate's panels, opened under the Generate button (GenerateControls) or above the desk's AI dock: "This scene
-// already has text" (Replace it, Fresh take, Add below), "Choose a writer model first", and the draft options
-// (direction, length, creativity, polish). Rendered inside the caller's Popover root, anchored to the caller's button.
+// already has text" (Replace it, Fresh take, Add below), "Choose a writer model first", the draft options
+// (direction, length, creativity, polish), and the note that the story's cast is still being built (Wait, Write now). Rendered inside the caller's Popover root, anchored to the caller's button.
 import { ArrowDownToLine, RefreshCw, Sparkles } from '@/components/ui/icons'
 import { useId, type ReactNode } from 'react'
 import type { Creativity } from '@shared/types'
@@ -19,6 +19,9 @@ const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map
 
 /** What the draft options say when the scene already has text (also Generate's tooltip). */
 export const AFTER_TEXT = 'This scene already has text. You can replace it with the new draft, or add the draft below it.'
+
+/** What Generate says while the story's cast is still being built (2026-10-17). */
+export const BUILDING_NOTE = 'Your cast is still being built, so the AI will know more in a minute.'
 
 /**
  * One of the two answers to "This scene already has text": a name, and a faint line saying what it does.
@@ -147,6 +150,37 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
             />
           </div>
           <p className="mt-3 text-[12px] text-faint">Either way, {modKey()}+Z undoes it.</p>
+        </div>
+      </PopoverPanel>
+    )
+  }
+  if (popover === 'building') {
+    // Writing during a build (2026-10-17): a quiet note, never a dialog. Closing it drafts nothing.
+    return (
+      <PopoverPanel
+        key="building"
+        className="w-[320px]"
+        side={side}
+        onOpenAutoFocus={(e) => {
+          // Wait takes the keyboard: Enter waits for the cast, as the note suggests.
+          e.preventDefault()
+          const panel = e.currentTarget instanceof HTMLElement ? e.currentTarget : null
+          panel?.querySelector<HTMLElement>('[data-wait]')?.focus({ preventScroll: true })
+        }}
+      >
+        <div data-generate-controls data-build-note>
+          <p className="flex items-start gap-2 text-[12.5px] leading-relaxed text-muted">
+            <Sparkles size={13} className="mt-[3px] shrink-0 text-ai" aria-hidden />
+            {BUILDING_NOTE}
+          </p>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button size="sm" onClick={g.writeNow}>
+              Write now
+            </Button>
+            <Button variant="primary" size="sm" data-wait onClick={g.waitForBuild}>
+              Wait
+            </Button>
+          </div>
         </div>
       </PopoverPanel>
     )

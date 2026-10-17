@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3'
 import type { Act, DeletedItem, ID, SceneCard } from '@shared/types'
 import type { ChapterPlace, KeptItem } from '@shared/contracts/outline'
 import { emptySceneCard } from '@shared/defaults'
-import { CHAPTER_CARD_PREFIX, follows, withMark } from '@shared/chapterCard'
+import { CHAPTER_CARD_PREFIX, copyField, emptyChapterCard, follows, withMark } from '@shared/chapterCard'
 import { clearGoneChapters } from './threadPlans'
 import { newId, now, UserError } from '../util'
 
@@ -431,7 +431,7 @@ export function sceneReferenced(db: DB, id: ID): boolean {
  */
 export function takeBackKept(
   db: DB,
-  kept: Pick<KeptItem, 'kind' | 'id' | 'reused' | 'whenKept'>[],
+  kept: Pick<KeptItem, 'kind' | 'id' | 'reused' | 'whenKept' | 'own'>[],
   opts: { restoreCards?: () => void } = {}
 ): { storyIds: ID[]; sceneIds: ID[] } {
   const t = now()
@@ -476,7 +476,9 @@ export function takeBackKept(
         paysOffIds: (card.paysOffIds ?? []).filter((id) => !ai('paysOff', id)),
         threadLinks: undefined
       }
-      const back = keepWhen || card.inherits?.when !== false ? cleared : withMark(cleared, 'when', undefined)
+      let back = keepWhen || card.inherits?.when !== false ? cleared : withMark(cleared, 'when', undefined)
+      // The parts the keep gave it as its own (a point of view, a place) go too (2026-10-17).
+      for (const f of k.own ?? []) if (back.inherits?.[f] === false) back = withMark(copyField(back, emptyChapterCard(), f), f, undefined)
       db.prepare("UPDATE scenes SET title = 'Scene 1', card_json = ? WHERE id = ?").run(JSON.stringify(back), k.id)
       markMade(db, 'scene', k.id)
     }

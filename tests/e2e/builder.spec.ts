@@ -607,6 +607,52 @@ test('relationships are picked from the characters already in the world', async 
   await expect(main(win).getByRole('region', { name: 'Relationships' })).toContainText('Mara Venn · old friend')
 })
 
+test('Suggest relationships offers who they might know in the world, kept one by one as drafted by AI, with Undo', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Builder')
+    await useFakeModel(win, fake)
+    await invoke(win, 'createEntry', 'character', { name: 'Mara Venn', summary: 'A smuggler' })
+    await invoke(win, 'createEntry', 'group', { name: 'Ferry Guild' })
+    await openBuilder(win, 'Characters', { guided: true })
+    await main(win).getByRole('textbox', { name: 'Name' }).fill('Brann Holt')
+    await step(win, 'Relationships').click()
+    await expect(main(win).getByRole('heading', { level: 1, name: 'Relationships' })).toBeVisible()
+    const brann = await entryNamed(win, 'Brann Holt')
+
+    await main(win).getByRole('button', { name: 'Suggest relationships' }).click()
+    // Only those the world has: the fake's extras (Brann himself, someone made up) never show.
+    const mara = main(win).getByRole('group', { name: 'Suggested relationship with Mara Venn' })
+    await expect(mara).toContainText('old friend')
+    await expect(mara).toContainText('Trusts Mara Venn with anything.')
+    await expect(main(win).getByRole('group', { name: 'Suggested relationship with Ferry Guild' })).toContainText('member')
+    await expect(main(win).getByRole('group', { name: /^Suggested relationship with/ })).toHaveCount(2)
+    // Nothing is saved until he keeps one.
+    expect((await invoke(win, 'listChanges', brann.id)).filter((c) => c.kind === 'relationship')).toEqual([])
+
+    await main(win).getByRole('button', { name: 'Keep the relationship with Mara Venn' }).click()
+    await expect(main(win).getByLabel('How Brann Holt is linked to Mara Venn')).toHaveValue('old friend')
+    await expect(mara).toHaveCount(0)
+    const saved = async () => (await invoke(win, 'listChanges', brann.id)).filter((c) => c.kind === 'relationship')
+    await expect.poll(async () => (await saved()).length).toBe(1)
+    const [kept] = await saved()
+    expect(kept.origin).toBe('ai')
+    expect(kept.kind === 'relationship' && kept.payload.type).toBe('old friend')
+
+    // Discarded: gone, and nothing saved for it.
+    await main(win).getByRole('button', { name: 'Discard the relationship with Ferry Guild' }).click()
+    await expect(main(win).getByRole('group', { name: /^Suggested relationship with/ })).toHaveCount(0)
+
+    // Undo takes the kept one back.
+    await win.getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => (await saved()).length).toBe(0)
+    await expect(main(win).getByLabel('How Brann Holt is linked to Mara Venn')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
 test('one-line fields keep their hint on one line, and the heading over options fits beside them, in a narrow window too', async ({
   launch
 }) => {

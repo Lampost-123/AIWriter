@@ -13,7 +13,7 @@
 //
 // The AI's replies are plain text in a fixed form (see src/main/outline/prompts.ts), read by the interface
 // as they arrive (features/outline/parse.ts); what Adam keeps comes back here as KeepItems.
-import type { Act, Chapter, ChapterCard, ID, SceneCard } from '../types'
+import type { Act, CarryField, Chapter, ChapterCard, ID, SceneCard } from '../types'
 import type { ChapterCardNames } from './chapterCards'
 
 /**
@@ -120,6 +120,18 @@ export interface KeptItem {
   entryIds?: ID[]
   /** A reused chapter whose card the keep filled: its Undo puts the card back as it was, unless it has changed since. */
   card?: { before: ChapterCard; after: ChapterCard }
+  /**
+   * A reused scene's parts the keep gave it as its own, where it differs from its chapter (2026-10-17): its Undo
+   * clears them while the scene is unchanged since.
+   */
+  own?: CarryField[]
+  /**
+   * The story's opening scene, which had no When, that the keep put on "Day 1" (2026-10-17; on the keep's first
+   * scene): its Undo takes that When back while it is still "Day 1".
+   */
+  openingDated?: ID
+  /** The names of the characters and places in `entryIds`, in the same order, for the keep's toast. */
+  entryNames?: string[]
 }
 
 // ----- Interview me, on a scene or a chapter -----

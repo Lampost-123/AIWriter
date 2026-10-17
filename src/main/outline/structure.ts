@@ -6,17 +6,19 @@
 
 import type Database from 'better-sqlite3'
 import type { ChapterPlace, KeepItem, KeepRef, KeptItem } from '@shared/contracts/outline'
-import type { Chapter, ChapterCard, ID, SceneCard } from '@shared/types'
+import type { CarryField, Chapter, ChapterCard, ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
 import { withAiLink } from '@shared/threadLinks'
 import { changedFields, cleanChapterCard, copyField, follows, isFieldEmpty, sameField, followChapterPart, withMark } from '@shared/chapterCard'
 import { addMissing, cleanNames, fillEmpty, namedEntries, partsFromNames } from './chapterCard'
-import { nameKey } from './names'
+import { oneLine } from '@shared/text'
+import { bareName } from '../worldBuilder/names'
 import type { WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
 import { deleteNotes } from '../stories/points'
 import { dayName } from '../worldViews/when'
+import { OPENING_WHEN } from '../worldBuilder/timeline'
 import { isBlankPlan, storyPlan } from './context'
 import { UserError } from '../util'
 
@@ -25,18 +27,11 @@ type DB = Database.Database
 /** The longest title, purpose, goal, beat or When the helper keeps, and the most beats on one card. */
 export const KEEP_LIMITS = { title: 200, text: 2000, beat: 500, beats: 12, when: 200 }
 
-const oneLine = (s: unknown, max: number): string =>
-  String(s ?? '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, max)
-    .trim()
-
 /** The most plot threads one kept scene puts on each list of its card. */
 const MOST_THREADS = 6
 
 /** A thread's name as compared with another: as names match (any alphabet, 2026-10-17), and a leading "a" or "an" doesn't count either. */
-const threadKey = (s: string): string => nameKey(s).replace(/^(a|an) /, '')
+const threadKey = (s: string): string => bareName(s).replace(/^(a|an) /, '')
 
 type ThreadFind = (name: string) => { id: ID; made: boolean } | null
 
@@ -161,14 +156,18 @@ export function sceneWhen(card: SceneCard, chapter: ChapterCard, given: string, 
   return withMark({ ...card, when: given || fallback() }, 'when', false)
 }
 
+/** The parts of a scene card a kept scene may have as its own (its When is worked out by sceneWhen). */
+const CARRY_OWN = ['pov', 'present', 'location', 'mood'] as const satisfies readonly CarryField[]
+
 /**
  * Where a new scene differs from its chapter card (its point of view, characters present, location or mood, as the
- * AI gave them), those parts are its own; the same as the chapter's, it follows the chapter.
+ * AI gave them), those parts are its own; the same as the chapter's, it follows the chapter. `may`: the parts it may
+ * set (a reused scene's, only those Adam hasn't).
  */
-export function ownParts(card: SceneCard, chapter: ChapterCard, parts: Partial<ChapterCard>): SceneCard {
+export function ownParts(card: SceneCard, chapter: ChapterCard, parts: Partial<ChapterCard>, may: (f: CarryField) => boolean = () => true): SceneCard {
   let out = card
-  for (const f of ['pov', 'present', 'location', 'mood'] as const) {
-    if (isFieldEmpty(parts, f) || sameField(parts, chapter, f)) continue
+  for (const f of CARRY_OWN) {
+    if (isFieldEmpty(parts, f) || sameField(parts, chapter, f) || !may(f)) continue
     out = withMark(copyField(out, parts, f), f, false)
   }
   return out
@@ -230,6 +229,7 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
   return db.transaction(() => {
     const start = repo.getOutline(db, storyId)
     const blank = isBlankPlan(storyPlan(db, storyId))
+    const undated = ![...acts.storyCards(db, storyId).values()].some((c) => c.when.trim())
     let spareChapter: ID | null = blank ? (start.chapters[0]?.id ?? null) : null
     let spareScene: ID | null = blank && spareChapter ? (start.scenes.find((sc) => sc.chapterId === spareChapter)?.id ?? null) : null
     const made = new Map<string, KeptItem>()
@@ -259,6 +259,7 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
       let id: ID
       let reused = false
       let whenKept = false
+      let own: CarryField[] = []
       const threadIds: ID[] = []
       const entryIds: ID[] = []
       let cardFilled: KeptItem['card'] | null = null
@@ -336,7 +337,15 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
         // Where a new scene differs from its chapter (another point of view, cast, place or mood), that is its own.
         const sceneNames = cleanNames({ ...item.card, when: undefined })
         addMissing(db, sceneNames, (world ??= namedEntries(db)), storyId, entryIds)
-        if (!reuse) card = ownParts(card, chapterCard, partsFromNames(sceneNames, world))
+        const parts = partsFromNames(sceneNames, world)
+        if (!reuse) card = ownParts(card, chapterCard, parts)
+        else {
+          // A reused scene gets its own parts too (2026-10-17), but only where its card is empty or follows the
+          // chapter, never over one Adam set; its Undo clears them (KeptItem.own).
+          const was = card
+          card = ownParts(card, chapterCard, parts, (f) => isFieldEmpty(was, f) || follows(was, f))
+          own = CARRY_OWN.filter((f) => card.inherits?.[f] === false && was.inherits?.[f] !== false)
+        }
         // A When of Adam's own already on a reused scene is never replaced; one it follows from the chapter is the chapter's.
         const had = reuse !== null && !!card.when.trim() && !follows(card, 'when')
         if (!had) card = sceneWhen(card, chapterCard, oneLine(item.when, KEEP_LIMITS.when), () => fallbackWhen(whensBefore(db, storyId, scene.id)))
@@ -351,22 +360,51 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
       // Its Undo can then tell whether Adam has changed it since.
       acts.markMade(db, item.kind, id)
       const k: KeptItem = reused
-        ? { key, kind: item.kind, id, reused, ...(whenKept ? { whenKept } : {}), ...(cardFilled ? { card: cardFilled } : {}) }
+        ? {
+            key,
+            kind: item.kind,
+            id,
+            reused,
+            ...(whenKept ? { whenKept } : {}),
+            ...(cardFilled ? { card: cardFilled } : {}),
+            ...(own.length ? { own } : {})
+          }
         : { key, kind: item.kind, id }
       if (threadIds.length) k.threadIds = threadIds
-      if (entryIds.length) k.entryIds = entryIds
+      if (entryIds.length) {
+        k.entryIds = entryIds
+        const named = new Map([...(world?.characters ?? []), ...(world?.places ?? [])].map((e) => [e.id, e.name]))
+        k.entryNames = entryIds.map((e) => named.get(e) ?? '')
+      }
       made.set(key, k)
       kept.push(k)
     }
+    const firstScene = kept.find((k) => k.kind === 'scene')
+    const opening = undated && firstScene ? dateOpening(db, storyId) : null
+    if (opening && firstScene) firstScene.openingDated = opening
     return kept
   })()
+}
+
+/**
+ * The story's opening scene, while it has no When, goes on "Day 1" (2026-10-17: a keep that adds dated scenes after an
+ * undated opening, such as one already written, would leave the timeline with no start until a World build ended). Only
+ * after a keep that kept scenes, in a story none of whose scenes had a When before it. Says which scene, or null.
+ */
+function dateOpening(db: DB, storyId: ID): ID | null {
+  const first = repo.getOutline(db, storyId).scenes[0]
+  if (!first) return null
+  const card = repo.getScene(db, first.id).card
+  if (card.when.trim()) return null
+  repo.updateSceneCard(db, first.id, { ...card, when: OPENING_WHEN })
+  return first.id
 }
 
 /**
  * Undo for keepOutline (acts.takeBackKept), with the chapter cards it filled on a reused chapter put back as they
  * were, unless Adam has changed them since: the scenes that follow them go back with them. The plot threads the keep
  * made go too, and the characters and places it made pages for, while nothing else uses them (takeBackThreads, once
- * the kept scenes and their links are gone).
+ * the kept scenes and their links are gone), and the "Day 1" it put on the story's opening scene.
  */
 export function unkeepOutline(db: DB, kept: KeptItem[]): { storyIds: ID[]; sceneIds: ID[] } {
   const list = Array.isArray(kept) ? kept : []
@@ -384,6 +422,14 @@ export function unkeepOutline(db: DB, kept: KeptItem[]): { storyIds: ID[]; scene
       }
     })
     takeBackThreads(db, list)
+    // The opening scene the keep put on Day 1 loses that, unless its When has changed since.
+    for (const k of list) {
+      if (!k?.openingDated) continue
+      const live = db.prepare('SELECT 1 FROM scenes WHERE id = ? AND deleted_at IS NULL').get(k.openingDated)
+      if (!live) continue
+      const card = repo.getScene(db, k.openingDated).card
+      if (card.when === OPENING_WHEN) repo.updateSceneCard(db, k.openingDated, { ...card, when: '' })
+    }
     return out
   })()
 }

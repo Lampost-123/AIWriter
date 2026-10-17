@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -262,6 +262,107 @@ genres: mystery, Western. romance: FADE TO BLACK. Violence: gory.`) : defaultRep
   })
 })
 
+// 2026-10-17 (R4, P3, P4, P8).
+describe('notes, room and the library folder', () => {
+  it('asks a chapter once more when its notes are a refusal or not in the form asked, then reads it as “couldn’t read”', async () => {
+    fake.reply = (req) => {
+      if (stepOf(req) !== 'chapter') return defaultReply(req)
+      if (req.user.includes('chapter 2 of 3')) return ok('I’m sorry, but I can’t help with this request. It breaks my content guidelines.')
+      if (req.user.includes('chapter 3 of 3')) return ok('Tone: grey.')
+      return defaultReply(req)
+    }
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    // Chapter 1 once, chapters 2 and 3 twice each.
+    expect(fake.calls.filter((c) => stepOf(c) === 'chapter')).toHaveLength(5)
+    const r = files.read(id)!
+    expect(r.status).toBe('ready')
+    expect(r.unread).toEqual([2, 3])
+    const combine = fake.calls.find((c) => stepOf(c) === 'combine')!.user
+    expect(combine).toContain('### Chapter 2\n(No notes.)')
+    expect(combine).not.toContain('sorry')
+    expect(states[states.length - 1].finished?.note).toContain('couldn’t read chapters 2 and 3')
+  })
+
+  it('pauses, to read them all again, when the model wouldn’t read any chapter, and when it answers nothing', async () => {
+    fake.reply = (req) => (stepOf(req) === 'chapter' ? ok('I’m sorry, but I can’t help with this request.') : defaultReply(req))
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    expect(fake.calls.map(stepOf)).not.toContain('combine')
+    expect(files.read(id)).toMatchObject({ status: 'paused', problem: expect.stringContaining('wouldn’t read any of the story’s chapters') })
+    expect(files.making(id)).toMatchObject({ notes: [null, null, null], unread: [] })
+    fake.reply = (req) => (stepOf(req) === 'chapter' ? ok('') : defaultReply(req))
+    maker.carryOn(id)
+    await maker.whenIdle()
+    expect(files.read(id)).toMatchObject({ status: 'paused', problem: expect.stringContaining('couldn’t be used') })
+  })
+
+  it('still pauses when the calls themselves fail', async () => {
+    fake.reply = (req) => (stepOf(req) === 'chapter' ? { status: 'error', text: '', error: 'The provider is busy.', cutOff: false } : defaultReply(req))
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    expect(files.read(id)).toMatchObject({ status: 'paused', problem: 'The provider is busy.' })
+  })
+
+  it('gives the recipe room by its chapters, up to what the model can answer, and says when it was cut short', async () => {
+    fake.reply = (req) => (stepOf(req) === 'combine' ? { ...ok(RECIPE), cutOff: true, status: 'stopped' } : defaultReply(req))
+    model = { ...MODEL, choice: { ...MODEL.choice, maxOutput: 3550 } }
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    expect(fake.calls.find((c) => stepOf(c) === 'combine')!.reply).toBe(3550)
+    expect(states[states.length - 1].finished?.note).toContain('The recipe was cut short; the last parts may be thin.')
+    model = MODEL
+    const again = newRecipe('00000000-0000-4000-8000-000000000002')
+    fake.reply = defaultReply
+    maker.start(again)
+    await maker.whenIdle()
+    expect(fake.calls.filter((c) => stepOf(c) === 'combine').pop()!.reply).toBe(3500 + 3 * 40)
+    expect(states[states.length - 1].finished?.note).toBeNull()
+  })
+
+  it('cuts the notes to fit a small model, the pacing table and headings counted', async () => {
+    const long = `Moves:\n- ${'the lead waits and waits '.repeat(400)}\nStyle: plain.`
+    fake.reply = (req) => (stepOf(req) === 'chapter' ? ok(long) : defaultReply(req))
+    model = { ...MODEL, choice: { ...MODEL.choice, contextLength: 8000 } }
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    const combine = fake.calls.find((c) => stepOf(c) === 'combine')!
+    // What is sent, the instructions and the room for the answer all fit the model.
+    expect(Math.ceil((combine.user.length + combine.system.length) / 3.5) + combine.reply).toBeLessThan(8000)
+    expect(combine.user).toContain('## Pacing figures (counted)')
+  })
+
+  it('stops sending when the library folder changes, and carries on with the new library’s recipes', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    fake.reply = async (req, n) => {
+      if (n === 1) await gate
+      return defaultReply(req)
+    }
+    const old = newRecipe('00000000-0000-4000-8000-0000000000a1')
+    maker.start(old)
+    await new Promise((r) => setTimeout(r, 10))
+    const oldFiles = files
+    files = new RecipeFiles(join(dir, 'Other', 'Recipes'))
+    files.ensure()
+    const fresh = newRecipe('00000000-0000-4000-8000-0000000000b1')
+    files.writeMaking(fresh, { version: 1, queuedAt: '2026-10-03T11:00:00.000Z', notes: [null, null, null], held: null })
+    maker.libraryChanged()
+    release()
+    await maker.whenIdle()
+    // The old library's recipe waits as it was, to carry on when that library is chosen again.
+    expect(oldFiles.read(old)!.status).toBe('making')
+    expect(oldFiles.making(old)!.notes).toEqual([null, null, null])
+    expect(fake.calls.filter((c) => c.recipeId === old)).toHaveLength(1)
+    expect(files.read(fresh)!.status).toBe('ready')
+  })
+})
+
 describe('reading a finished recipe again', () => {
   it('goes back to how it was when stopped, and only a new recipe can’t', async () => {
     const id = newRecipe()
@@ -330,6 +431,40 @@ describe('the recipe library’s files', () => {
     files.remove(id)
     files.purgeRemoved(Date.now() + 60 * 60 * 1000)
     expect(files.restore(id)).toBe(false)
+  })
+
+  // 2026-10-17
+  it('reads a hand-edited recipe file as text, and never makes or writes over a newer AI Write’s recipe', async () => {
+    const id = '00000000-0000-4000-8000-0000000000c1'
+    mkdirSync(join(files.dir, id), { recursive: true })
+    const edited = { version: 1, id, name: 7, status: 'ready', parts: { themes: ['Trust', 'Debt'], tone: 3, cast: { lead: 'x' } }, edited: ['tone', 'nonsense', 'tone'] }
+    writeFileSync(join(files.dir, id, 'recipe.json'), JSON.stringify(edited))
+    const r = files.read(id)!
+    expect(r.name).toBe('7')
+    expect(r.parts).toMatchObject({ themes: 'Trust\nDebt', tone: '3', cast: '' })
+    expect(r.edited).toEqual(['tone'])
+    const newer = '00000000-0000-4000-8000-0000000000c2'
+    mkdirSync(join(files.dir, newer), { recursive: true })
+    const v2 = JSON.stringify({ version: 2, id: newer, name: 'From the future', status: 'making', parts: {}, edited: [] })
+    writeFileSync(join(files.dir, newer, 'recipe.json'), v2)
+    writeFileSync(join(files.dir, newer, 'making.json'), JSON.stringify({ version: 2, queuedAt: 'x', notes: [null] }))
+    expect(files.read(newer)).toMatchObject({ newer: true, status: 'ready' })
+    expect(() => files.write({ ...files.read(newer)!, newer: false })).toThrow(/newer AI Write/)
+    maker.resume()
+    await maker.whenIdle()
+    expect(fake.calls).toHaveLength(0)
+    expect(readFileSync(join(files.dir, newer, 'recipe.json'), 'utf8')).toBe(v2)
+  })
+
+  it('keeps stories planned from a recipe, and only for a story id', () => {
+    const id = newRecipe()
+    const story = '00000000-0000-4000-8000-0000000000d1'
+    const plan = { version: 1 as const, worldId: 'w1', storyId: story, guidance: 'Set it on a lighthouse rock.', premise: { status: 'kept' as const, text: 'A keeper stays.', before: '' }, updatedAt: 'x' }
+    files.writePlan(id, plan)
+    expect(files.plans(id)).toEqual([plan])
+    expect(() => files.writePlan(id, { ...plan, storyId: '../escape' })).toThrow()
+    files.removePlan(id, story)
+    expect(files.plans(id)).toEqual([])
   })
 
   it('forgets the story’s text with an Undo', () => {

@@ -10,7 +10,7 @@ import { saveContractCheck } from '../checks/report'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
-import { fitBlocks } from '../outline/brief'
+import { fitBlocks } from '../outline/briefing'
 import {
   addWant,
   carryEarlier,

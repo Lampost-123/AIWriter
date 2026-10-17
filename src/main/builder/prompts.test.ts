@@ -7,14 +7,18 @@ import {
   answersText,
   briefVersions,
   fleshOutUser,
+  interviewMessages,
   MAX_QUESTIONS,
   optionsUser,
   questionsSystem,
   questionsUser,
   quickStartSystem,
   quickStartUser,
+  sentTurns,
+  WORLD_TOKENS_MAX,
   worldText
 } from './prompts'
+import { estimateTokens } from '../keeper/text'
 
 describe("the world's places in what the builder's model is told (2026-10-17)", () => {
   const world = () => {
@@ -49,6 +53,62 @@ describe("the world's places in what the builder's model is told (2026-10-17)", 
     const text = worldText(brief, 'character', 200).text
     expect(text).toContain('The Lantern Guild')
     expect(text).not.toContain('Quay 29')
+  })
+})
+
+// 2026-10-17: B2 in the world and story building plan.
+describe('which of the world the builder’s model is told about', () => {
+  const big = (n: number) => {
+    const db = memoryWorld()
+    const storyId = repo.listStories(db)[0].id
+    const long = 'A quiet dock worker who keeps a ledger of every ship that passes, and never lends a coin to anyone at all.'
+    for (let i = 0; i < n; i++) {
+      const e = repo.createEntry(db, 'character', { name: `Dockhand ${String(i).padStart(3, '0')}`, summary: long })
+      db.prepare('UPDATE entries SET updated_at = ? WHERE id = ?').run(new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), e.id)
+    }
+    const old = repo.createEntry(db, 'lore', { name: 'The Drowned Bell', aliases: ['the bell'], summary: 'It rings before a storm.' })
+    db.prepare('UPDATE entries SET updated_at = ? WHERE id = ?').run('2020-01-01T00:00:00.000Z', old.id)
+    const brief = gatherWorld(db, { kind: 'character', excludeId: null, storyId, prefs: defaultWritingPrefs() })
+    return { brief, old }
+  }
+
+  it('always tells it about what the notes name, however old, then the newest', () => {
+    const { brief, old } = big(40)
+    const named = worldText(brief, 'character', 400, 'She hears the bell, and Dockhand 002 runs.')
+    expect(named.text).toContain('- The Drowned Bell')
+    expect(named.text).toContain('- Dockhand 002')
+    expect(named.text).toContain('- Dockhand 039')
+    expect(named.text).not.toContain('- Dockhand 010')
+    expect(named.entryIds).toContain(old.id)
+    expect(worldText(brief, 'character', 400).text).not.toContain('The Drowned Bell')
+  })
+
+  it('sends at most about 6000 tokens of it, however much the model can read', () => {
+    const { brief } = big(400)
+    const text = worldText(brief, 'character', 100_000, 'The bell rang.').text
+    expect(estimateTokens(text)).toBeLessThanOrEqual(WORLD_TOKENS_MAX)
+    expect(estimateTokens(text)).toBeGreaterThan(WORLD_TOKENS_MAX - 300)
+    expect(text).toContain('- Dockhand 399')
+    expect(text).toContain('- The Drowned Bell')
+    expect(text).not.toContain('- Dockhand 000')
+  })
+})
+
+describe('notes with triple quotes in them (2026-10-17)', () => {
+  it('never close the quotes the notes are wrapped in', () => {
+    const user = quickStartUser('character', 'She said """leave""" and went.', '', false, '', [{ question: 'Why?', answer: 'He wrote """no""".' }])
+    expect(user.split('"""').length).toBe(5)
+    expect(user).toContain('She said "leave" and went.')
+    expect(questionsUser('character', 'A """ B', '', false).split('"""').length).toBe(3)
+  })
+})
+
+describe('the interview’s turns (2026-10-17)', () => {
+  it('sends only the last turns with words in them, and counts only those', () => {
+    const turns = Array.from({ length: 30 }, (_, i) => ({ from: i % 2 ? ('character' as const) : ('adam' as const), text: i === 29 ? '  ' : `Turn ${i}` }))
+    const sent = sentTurns(turns)
+    expect(sent.map((t) => t.text)).toEqual(Array.from({ length: 19 }, (_, i) => `Turn ${i + 10}`))
+    expect(interviewMessages('S', turns, 'Q?').length).toBe(sent.length + 2)
   })
 })
 

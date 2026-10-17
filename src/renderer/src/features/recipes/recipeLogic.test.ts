@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RecipeMaking } from '@shared/contracts/recipes'
 import { parseOutline } from '@/features/outline/parse'
-import { estimateWords, lengthWords, makingWords, premiseOf, recipeName, sizeForRecipe } from './recipeLogic'
+import { estimateWords, lengthWords, makingWords, premiseOf, readAgainWords, recipeName, sizeForRecipe, unreadWords } from './recipeLogic'
 
 const PLAN = `Premise: A newcomer finds a place to belong
 on a space station that is falling apart.
@@ -62,5 +62,20 @@ describe('words on the recipe screens', () => {
   it('says what it costs before anything is sent', () => {
     expect(estimateWords({ words: 96000, chapters: 24, cost: 0.4, model: 'Fake', problem: null })).toBe('About $0.40 with Fake, to read 24 chapters (96,000 words).')
     expect(estimateWords({ words: 900, chapters: 1, cost: null, model: 'Fake', problem: null })).toBe('The cost isn’t known for Fake. It reads 1 chapter (900 words).')
+  })
+
+  // 2026-10-17
+  it('says what reading the story again costs', () => {
+    expect(readAgainWords({ words: 96000, chapters: 24, cost: 0.4, model: 'Fake', problem: null })).toBe(
+      'Reading the story again. It costs about $0.40 with Fake. The parts you changed stay as they are.'
+    )
+    expect(readAgainWords({ words: 900, chapters: 1, cost: 0.001, model: null, problem: null })).toBe('Reading the story again. It costs less than a cent. The parts you changed stay as they are.')
+    expect(readAgainWords({ words: 900, chapters: 1, cost: null, model: 'Fake', problem: null })).toBe('Reading the story again. The cost isn’t known for Fake. The parts you changed stay as they are.')
+  })
+
+  it('says which chapters the AI couldn’t read', () => {
+    expect(unreadWords([])).toBeNull()
+    expect(unreadWords([3])).toMatch(/^The AI couldn’t read chapter 3 of the story, so the recipe leaves it out\./)
+    expect(unreadWords([2, 5, 7])).toMatch(/^The AI couldn’t read chapters 2, 5 and 7 of the story, so the recipe leaves them out\./)
   })
 })

@@ -14,7 +14,11 @@ import { voiceLater } from '../readAloud'
 import { UserError } from '../util'
 import { entryNames } from '../db/worldBuilder'
 import { buildRunning, buildState, cancelBuild, closeBuildsFor, startBuild } from '../worldBuilder/run'
-import { storySummary } from '../worldBuilder/storySummary'
+import { storySummary, type RecipeExtras } from '../worldBuilder/storySummary'
+import { savedBatch } from '../worldBuilder/savedBatch'
+import { keepWaiting, readWaiting } from '../worldBuilder/waiting'
+import { recipeFiles } from '../recipes'
+import { storyRecipe } from '../recipes/storyRecipe'
 import { redoBuild, undoBuild } from '../worldBuilder/lines'
 import { estimateCost, guessBuild } from '../worldBuilder/estimate'
 import { askQuestion } from '../worldBuilder/interview'
@@ -32,6 +36,21 @@ function voiceModel(): ReturnType<typeof jobModel> | null {
   try {
     return jobModel('speech', modelSources())
   } catch {
+    return null
+  }
+}
+
+/**
+ * The cast roles and devices of the recipe a story was planned from (2026-10-17), for its summary: none when there is
+ * no recipe, it is gone from the library, or it isn't made yet.
+ */
+function recipeExtras(recipeId: unknown): RecipeExtras | null {
+  if (typeof recipeId !== 'string' || !recipeId) return null
+  try {
+    const r = recipeFiles().read(recipeId)
+    return r && r.status === 'ready' ? { cast: r.parts.cast, devices: r.parts.devices } : null
+  } catch (e) {
+    console.warn('Could not read the story’s recipe', e)
     return null
   }
 }
@@ -55,7 +74,12 @@ function changed(entryIds: ID[]): void {
 function startIn(input: WorldBuildInput): void {
   const w = world.currentWorld()
   const model = jobModel('world', modelSources())
-  void startBuild(
+  // What it saves is told at most twice a second, not about one scene nor the stories ('': src/renderer/src/features/memory/events.ts),
+  // and once more at its end with the stories read again (2026-10-17).
+  const batch = savedBatch((entryIds) => {
+    if (w.db.open) emit('memory:changed', { sceneId: '', entryIds })
+  })
+  const started = startBuild(
     {
       db: w.db,
       worldId: w.id,
@@ -67,13 +91,18 @@ function startIn(input: WorldBuildInput): void {
       onSaved: (entryIds) => {
         if (!w.db.open) return
         repo.touchWorld(w.db)
-        emit('memory:changed', { sceneId: null, entryIds })
+        batch.add(entryIds)
       },
-      onFinished: () => emit('memory:status', memoryStatus()),
+      onFinished: () => {
+        emit('memory:changed', { sceneId: null, entryIds: batch.flush() })
+        emit('memory:status', memoryStatus())
+      },
       onKeyRejected: () => providers.markCheck(model.target.id, false)
     },
     input
   )
+  // Closed with the world (no onFinished): nothing more is told.
+  void started.finally(() => batch.drop())
 }
 
 export const worldBuilderHandlers: Handlers<keyof WorldBuilderApi> = {
@@ -104,11 +133,22 @@ export const worldBuilderHandlers: Handlers<keyof WorldBuilderApi> = {
     // Nothing planned to build from, or a build already running (the window tries again once it ends).
     if (buildRunning()) return { started: false, busy: true }
     if (!repo.listStories(w.db).some((s) => s.id === storyId)) return { started: false, busy: false }
-    const summary = storySummary(w.db, storyId)
+    // The recipe the window names, else the one the story was planned from (any keep can start this).
+    const summary = storySummary(w.db, storyId, recipeExtras(input?.recipeId || storyRecipe(w.db, storyId)))
     if (!summary) return { started: false, busy: false }
     // The story's plan is never kept as the World builder page's summary: that stays Adam's.
     startIn({ buildId: String(input?.buildId ?? ''), summary, storyId })
     return { started: true, busy: false }
+  },
+  storyBuildsWaiting: () => {
+    const w = world.currentWorld()
+    return { worldId: w.id, waiting: readWaiting(w.db) }
+  },
+  setStoryBuildsWaiting: (input) => {
+    const w = world.currentWorld()
+    // Meant for a world closed meanwhile: this world's list stays as it is.
+    if (String(input?.worldId ?? '') !== w.id) return
+    keepWaiting(w.db, input?.waiting)
   },
   cancelWorldBuild: (buildId) => cancelBuild(buildId),
   undoWorldBuild: (runId) => {

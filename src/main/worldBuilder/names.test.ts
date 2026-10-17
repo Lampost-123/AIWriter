@@ -1,14 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { bareName, differsByDigit, findMatch, isPlaceholderName, isProperName, normalizeName, withinOneEdit, type Named } from './names'
+import { bareName, differsByDigit, findMatch, isPlaceholderName, isProperName, withinOneEdit, type Named } from './names'
 
 const e = (id: string, kind: Named['kind'], name: string, aliases: string[] = []): Named => ({ id, kind, name, aliases })
 
 describe('names', () => {
-  it('compares names without case, accents, curly apostrophes, extra spaces or a leading "the"', () => {
-    expect(normalizeName('  Márra   Venn ')).toBe('marra venn')
-    expect(normalizeName('Tam’s Rest')).toBe("tam's rest")
+  it('compares names without case, accents, curly apostrophes, a possessive, punctuation, extra spaces or a leading "the"', () => {
+    expect(bareName('  Márra   Venn ')).toBe('marra venn')
+    expect(bareName('Tam’s Rest')).toBe('tam rest')
     expect(bareName('The Salt Guild')).toBe('salt guild')
     expect(bareName('Salt Guild')).toBe('salt guild')
+    // One rule with the outline's (2026-10-17): "The Café's" is "cafe", and other alphabets are kept.
+    expect(bareName('The Café’s')).toBe('cafe')
+    expect(bareName('O’Brien-Holt')).toBe('o brien holt')
+    expect(bareName('Красная Башня')).toBe('красная башня')
+  })
+
+  it('finds a name written with other punctuation or a possessive as the same', () => {
+    const world = [e('rest', 'place', "Tam's Rest"), e('bren', 'character', 'Old Bren')]
+    expect(findMatch({ kind: 'place', name: 'Tams Rest', aliases: [] }, world)).toBeNull()
+    expect(findMatch({ kind: 'place', name: 'Tam’s Rest.', aliases: [] }, world)?.id).toBe('rest')
+    expect(findMatch({ kind: 'character', name: 'Old Bren’s', aliases: [] }, world)?.id).toBe('bren')
   })
 
   it('knows names one letter apart, unless the letter is a digit', () => {

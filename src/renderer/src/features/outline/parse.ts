@@ -135,6 +135,9 @@ const HEADING = new RegExp(`^(?:#{1,6}\\s*)?(?:\\d{1,2}[.)]\\s+)?(${WORDS})\\b\\
 /** The word, perhaps a number, then a colon or dash: "Act Two —", "Scene 3:", "Prologue:". */
 const SEPARATED = new RegExp(`^(?:\\d{1,2}[.)]\\s+)?(?:${WORDS})\\b\\s*(?:${NUMBER}\\s*)?[:.)\\-–—]`, 'i')
 
+/** A list item that is a heading without bold: "Scene 2:", "Scene 2 —", "Chapter: Rain", or "Scene 3" alone. */
+const LISTED = new RegExp(`^(?:act|part|chapter|scene)\\b\\s*(?:${NUMBER}\\s*)?(?:[:：—–-]|$)`, 'i')
+
 /** A heading line ("## Chapter 3 – Rain", "**Act One: The Arrival**", "## Prologue"): its level and title. */
 function heading(line: string): Heading | null {
   const raw = line.trim()
@@ -171,7 +174,9 @@ function listedHeading(item: string): Heading | null {
   const bold = raw.match(/^(\*\*|__)(.+?)\1\s*(.*)$/)
   const h = heading(bold ? `**${bold[2]}**` : raw)
   if (!h) return null
-  if (!bold && (h.lead || (!h.number && !/^(?:act|part|chapter|scene)\s*[:：—–-]/i.test(plain(raw))))) return null
+  // Without bold, a colon or dash after the word and its number, or nothing after (2026-10-17: "- Part 2 of the plan
+  // fails" is a beat).
+  if (!bold && (h.lead || !LISTED.test(plain(raw)))) return null
   const after = bold ? plain(bold[3].replace(/^[:：—–-]\s*/, '')) : ''
   return after ? { ...h, text: after } : { ...h, ...splitTitle(h.title) }
 }

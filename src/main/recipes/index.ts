@@ -32,7 +32,12 @@ let files: RecipeFiles | null = null
 /** The recipe library's files for the library folder Adam has now. */
 export function recipeFiles(): RecipeFiles {
   const dir = recipesDir(getSettings().libraryPath)
-  if (!files || files.dir !== dir) files = new RecipeFiles(dir)
+  if (!files || files.dir !== dir) {
+    const moved = !!files
+    files = new RecipeFiles(dir)
+    // Another library folder (2026-10-17): the recipe being made in the old one stops, the new one's carry on.
+    if (moved) setTimeout(() => maker.libraryChanged(), 0)
+  }
   return files
 }
 

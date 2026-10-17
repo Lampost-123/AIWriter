@@ -5,9 +5,10 @@
 //
 // Speed: the scenes' words are read in one pass with a first-word index of every name, and what
 // each scene names is remembered (per open world) until its words change. A name that is new since
-// (a new entry, a rename, an alias) is looked for in every scene once, on its own, after a quick look
-// for it. So in a big world only the first look reads every scene, and warm.ts does that a slice at a
-// time once a world opens. No Electron imports.
+// (a new entry, a rename, an alias) is looked for once, on its own, in the scenes that hold every
+// word of it (each scene's words are remembered in a small bit field). So in a big world only the
+// first look reads every scene, and warm.ts does that a slice at a time once a world opens. No
+// Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { Entry, ID } from '@shared/types'
@@ -19,10 +20,12 @@ import * as views from '../db/entryViews'
 import {
   buildNameIndex,
   findMentions,
+  mayName,
   mentionEnd,
+  nameWords,
   patternKeys,
-  quickCheck,
   quoteAround,
+  wordField,
   type NameIndex,
   type Named,
   type Quote
@@ -35,6 +38,8 @@ interface SceneMemo {
   version: string
   /** Names (pattern keys) its words mention, each with where the first mention starts. */
   hits: Map<string, number>
+  /** The words it holds, as mentions.ts wordField keeps them: a new name is looked for only where they may all be. */
+  words: Uint32Array
   /** The words around the first mention of a name (null when there are none), worked out when an entry page first asks. */
   quotes: Map<string, Quote | null>
   cast: views.SceneCast
@@ -48,6 +53,15 @@ interface Memo {
 }
 
 const memos = new WeakMap<DB, Memo>()
+
+/** How an entry is in a scene, as flags. */
+const HOW_BIT: Record<AppearanceHow, number> = { pov: 1, present: 2, location: 4, named: 8, changes: 16 }
+
+/** The scenes one entry appears in, and how. */
+export interface EntryScenes {
+  at: number[]
+  how: number[]
+}
 
 /** A live scene in reading order. */
 export interface ScenePlace {
@@ -64,8 +78,12 @@ export interface WorldAppearances {
   /** Every live scene, in reading order. */
   scenes: ScenePlace[]
   sceneById: Map<ID, ScenePlace>
-  /** For each entry, the scenes it appears in and how. */
-  byEntry: Map<ID, Map<ID, Set<AppearanceHow>>>
+  /**
+   * For each live entry, the scenes it appears in (`at`: places in `scenes`, in reading order) and
+   * how (`how`: HOW_BIT flags, side by side). Lists, not a map per entry: the codex is read again
+   * after each save in a build (2026-10-17).
+   */
+  byEntry: Map<ID, EntryScenes>
   index: NameIndex
   memo: Memo
 }
@@ -76,14 +94,19 @@ function memoOf(db: DB): Memo {
   return memo
 }
 
-/** With this many new names or fewer, a quick look for them comes before reading a scene word by word. */
-const FEW_NEW_NAMES = 8
+/** Reads one scene for every name, remembering what words it holds. */
+function readScene(index: NameIndex, s: { version: string; text: string; cast: views.SceneCast }): SceneMemo {
+  const words = wordField()
+  const hits = findMentions(index, s.text, words)
+  return { version: s.version, hits, words, quotes: new Map(), cast: s.cast }
+}
 
 /**
  * Brings the remembered readings up to date: scenes whose words changed are read again for every
- * name, and every other scene is read for names that are new since. One query for the words needed.
- * A scene in Recently deleted isn't read for new names, so what it said is forgotten then: if it
- * comes back (its words and version as they were), it is read again in full.
+ * name, and other scenes are read for names that are new since, but only those that hold every word
+ * of one of them. One query for the words needed. A scene in Recently deleted isn't read for new
+ * names, so what it said is forgotten then: if it comes back (its words and version as they were),
+ * it is read again in full.
  */
 function refresh(db: DB, memo: Memo, liveIds: ID[], versions: Map<ID, { version: string }>, entries: Named[]): NameIndex {
   const index = buildNameIndex(entries)
@@ -93,25 +116,27 @@ function refresh(db: DB, memo: Memo, liveIds: ID[], versions: Map<ID, { version:
   if (fresh.length || stale.length) {
     const staleSet = new Set(stale)
     const freshIndex = fresh.length ? buildNameIndex(entries, new Set(fresh)) : null
-    // A new entry or a new name: most scenes can't mention it, and a quick look says which to read.
-    const maybe = freshIndex && fresh.length <= FEW_NEW_NAMES ? quickCheck(freshIndex) : null
-    const read = new Set<ID>()
-    // New names are looked for in every scene; otherwise only changed scenes are read.
-    for (const s of views.sceneWords(db, freshIndex ? null : stale)) {
-      read.add(s.id)
-      if (staleSet.has(s.id) || !memo.scenes.has(s.id)) {
-        memo.scenes.set(s.id, { version: s.version, hits: findMentions(index, s.text), quotes: new Map(), cast: s.cast })
-        continue
+    const read = [...stale]
+    if (freshIndex) {
+      const names = nameWords(freshIndex)
+      const live = new Set(liveIds)
+      for (const [id, m] of memo.scenes) {
+        if (!live.has(id)) {
+          memo.scenes.delete(id)
+          continue
+        }
+        for (const k of fresh) {
+          m.hits.delete(k)
+          m.quotes.delete(k)
+        }
+        if (!staleSet.has(id) && mayName(m.words, names)) read.push(id)
       }
-      const m = memo.scenes.get(s.id)!
-      for (const k of fresh) {
-        m.hits.delete(k)
-        m.quotes.delete(k)
-      }
-      if (maybe && !maybe(s.text)) continue
-      for (const [k, at] of findMentions(freshIndex!, s.text)) m.hits.set(k, at)
     }
-    if (freshIndex) for (const id of memo.scenes.keys()) if (!read.has(id)) memo.scenes.delete(id)
+    for (const s of views.sceneWords(db, read)) {
+      const m = memo.scenes.get(s.id)
+      if (staleSet.has(s.id) || !m) memo.scenes.set(s.id, readScene(index, s))
+      else for (const [k, at] of findMentions(freshIndex!, s.text)) m.hits.set(k, at)
+    }
   }
   memo.scanned = keys
   return index
@@ -130,9 +155,7 @@ export function readAhead(db: DB, entries: Named[], ids: ID[]): boolean {
   const keys = new Set(index.patterns.keys())
   if (memo.scenes.size && (keys.size !== memo.scanned.size || [...keys].some((k) => !memo.scanned.has(k)))) return false
   const unread = ids.filter((id) => !memo.scenes.has(id))
-  for (const s of views.sceneWords(db, unread)) {
-    memo.scenes.set(s.id, { version: s.version, hits: findMentions(index, s.text), quotes: new Map(), cast: s.cast })
-  }
+  for (const s of views.sceneWords(db, unread)) memo.scenes.set(s.id, readScene(index, s))
   memo.scanned = keys
   return true
 }
@@ -168,34 +191,44 @@ export function worldAppearances(db: DB, entries: Named[], shape: WorldShape = l
     entries
   )
 
-  const live = new Set(entries.map((e) => e.id))
-  const byEntry = new Map<ID, Map<ID, Set<AppearanceHow>>>()
-  const add = (entryId: ID | null, sceneId: ID, how: AppearanceHow): void => {
-    if (!entryId || !live.has(entryId) || (only && entryId !== only)) return
-    let m = byEntry.get(entryId)
-    if (!m) byEntry.set(entryId, (m = new Map()))
-    let set = m.get(sceneId)
-    if (!set) m.set(sceneId, (set = new Set()))
-    set.add(how)
+  const byEntry = new Map<ID, EntryScenes>()
+  for (const e of entries) if (!only || e.id === only) byEntry.set(e.id, { at: [], how: [] })
+  // Scenes are walked in reading order, so an entry's scenes come in order and each scene once.
+  const add = (entryId: ID | null, i: number, bit: number): void => {
+    const a = entryId ? byEntry.get(entryId) : undefined
+    if (!a) return
+    const n = a.at.length
+    if (n && a.at[n - 1] === i) a.how[n - 1] |= bit
+    else {
+      a.at.push(i)
+      a.how.push(bit)
+    }
   }
   const sceneById = new Map(scenes.map((s) => [s.id, s]))
-  for (const s of scenes) {
-    const m = memo.scenes.get(s.id)
-    if (!m) continue
-    add(m.cast.povId, s.id, 'pov')
-    for (const id of m.cast.presentIds) add(id, s.id, 'present')
-    add(m.cast.locationId, s.id, 'location')
-    for (const k of m.hits.keys()) for (const id of index.patterns.get(k)?.entryIds ?? []) add(id, s.id, 'named')
+  const changed = new Map<ID, ID[]>()
+  for (const c of views.sceneChangeEntries(db)) {
+    const list = changed.get(c.sceneId)
+    if (list) list.push(...c.entryIds)
+    else changed.set(c.sceneId, c.entryIds)
   }
-  for (const c of views.sceneChangeEntries(db)) if (sceneById.has(c.sceneId)) for (const id of c.entryIds) add(id, c.sceneId, 'changes')
+  for (let i = 0; i < scenes.length; i++) {
+    const s = scenes[i]
+    const m = memo.scenes.get(s.id)
+    if (m) {
+      add(m.cast.povId, i, HOW_BIT.pov)
+      for (const id of m.cast.presentIds) add(id, i, HOW_BIT.present)
+      add(m.cast.locationId, i, HOW_BIT.location)
+      for (const k of m.hits.keys()) for (const id of index.patterns.get(k)?.entryIds ?? []) add(id, i, HOW_BIT.named)
+    }
+    for (const id of changed.get(s.id) ?? []) add(id, i, HOW_BIT.changes)
+  }
   return { scenes, sceneById, byEntry, index, memo }
 }
 
 /** How much a scene adds to an entry's importance: its point of view most, then being there, then being named or changed. */
-export function sceneWeight(how: Set<AppearanceHow> | AppearanceHow[]): number {
-  const has = (h: AppearanceHow): boolean => (Array.isArray(how) ? how.includes(h) : how.has(h))
-  if (has('pov')) return 3
-  if (has('present') || has('location')) return 2
+export function sceneWeight(how: number): number {
+  if (how & HOW_BIT.pov) return 3
+  if (how & (HOW_BIT.present | HOW_BIT.location)) return 2
   return 1
 }
 
@@ -207,7 +240,7 @@ export function appearancesOf(db: DB, entry: Pick<Entry, 'id' | 'name' | 'aliase
   const mine = w.byEntry.get(entry.id)
   if (!mine) return []
   const keys = patternKeys(entry)
-  const list = [...mine.keys()].map((id) => w.sceneById.get(id)!).sort((a, b) => a.order - b.order)
+  const list = mine.at.map((i) => w.scenes[i])
   // The words around the first mention, for scenes that name it. Remembered with the scene, so only
   // scenes not quoted before are read (in one query).
   const firstAt = new Map<ID, { key: string; at: number }>()
@@ -233,14 +266,14 @@ export function appearancesOf(db: DB, entry: Pick<Entry, 'id' | 'name' | 'aliase
       w.memo.scenes.get(s.id)!.quotes.set(f.key, quote?.text ? quote : null)
       quotes.set(s.id, quote?.text ? quote : null)
     }
-  return list.map((s) => {
+  return list.map((s, k) => {
     const q = quotes.get(s.id)
     return {
       sceneId: s.id,
       storyId: s.storyId,
       label: s.label,
       title: s.title,
-      how: HOW_ORDER.filter((h) => mine.get(s.id)!.has(h)),
+      how: HOW_ORDER.filter((h) => mine.how[k] & HOW_BIT[h]),
       quote: q?.text ?? null,
       quoteCut: { start: !!q?.cutStart, end: !!q?.cutEnd }
     }

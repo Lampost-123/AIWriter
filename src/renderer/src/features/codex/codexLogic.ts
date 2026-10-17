@@ -36,13 +36,15 @@ export interface CodexFilters {
   storyId: ID | null
   /** A character's role, compared without minding case. */
   role: string | null
+  /** Only what the AI wrote and Adam hasn't edited since (CodexCard.aiDrafted). */
+  aiDrafted: boolean
 }
 
-export const NO_FILTERS: CodexFilters = { query: '', kind: null, tag: null, storyId: null, role: null }
+export const NO_FILTERS: CodexFilters = { query: '', kind: null, tag: null, storyId: null, role: null, aiDrafted: false }
 
 /** How many filters are set (the search words count as one). */
 export const filtersOn = (f: CodexFilters): number =>
-  (f.query.trim() ? 1 : 0) + (f.kind ? 1 : 0) + (f.tag ? 1 : 0) + (f.storyId ? 1 : 0) + (f.role ? 1 : 0)
+  (f.query.trim() ? 1 : 0) + (f.kind ? 1 : 0) + (f.tag ? 1 : 0) + (f.storyId ? 1 : 0) + (f.role ? 1 : 0) + (f.aiDrafted ? 1 : 0)
 
 const fold = (s: string): string => normalizeName(s)
 
@@ -59,7 +61,8 @@ export function filterCards(cards: CodexCard[], f: CodexFilters, kinds: EntryKin
       (!f.kind || c.kind === f.kind) &&
       (!tag || c.tags.some((t) => fold(t) === tag)) &&
       (!role || fold(c.role) === role) &&
-      (!f.storyId || c.storyIds.includes(f.storyId))
+      (!f.storyId || c.storyIds.includes(f.storyId)) &&
+      (!f.aiDrafted || c.aiDrafted)
   )
   return f.query.trim() ? filterEntries(kept, f.query) : kept
 }

@@ -74,6 +74,8 @@ export interface WorldBuildProgress {
   made: WorldBuildItem[]
   /** Plain words while a busy service is being tried again; null otherwise. */
   retrying: string | null
+  /** The story the build is for (null: the beginning of the world), so the page labels a story's build with its own story. */
+  storyId: ID | null
 }
 
 /** Something the summary says that disagrees with a page already in the world: raised as a consistency issue, nothing changed. */
@@ -117,7 +119,7 @@ export interface WorldBuilderState {
   /** The summary as last kept ('' when there is none). */
   summary: string
   /** A build still running (it goes on while Adam is on other pages), as it stands. */
-  running: (WorldBuildProgress & { storyId: ID | null }) | null
+  running: WorldBuildProgress | null
   /**
    * The last build to end, with what it made as it is now (undone or not). After a restart, the newest one
    * saved in the world: its buildId is '' and only what it made is known (found, missed, skipped and
@@ -138,6 +140,12 @@ export interface WorldBuildEstimate {
   code: string | null
 }
 
+/** A story whose world is waiting to be built, and the recipe it was planned from (null for none). */
+export interface StoryBuildWaiting {
+  storyId: ID
+  recipeId: ID | null
+}
+
 export interface WorldBuilderApi {
   /** The page's state for the open world: the summary kept, a build running, the last one finished. */
   getWorldBuilder(): Promise<WorldBuilderState>
@@ -152,9 +160,20 @@ export interface WorldBuilderApi {
    * their looks and traits, places, groups, items, lore, plot threads, relationships) from a summary written from the
    * story itself, and fills in the thin pages the keep made for the names on its cards. Never changes the World
    * builder page's summary. `started` is false when the story has nothing planned yet, or when a build is already
-   * running (`busy`: the window asks again once it ends).
+   * running (`busy`: the window asks again once it ends). `recipeId`: the recipe the story was planned from, when it
+   * was (2026-10-17): its cast roles and devices go into the summary too.
    */
-  buildStoryWorld(input: { buildId: ID; storyId: ID }): Promise<{ started: boolean; busy: boolean }>
+  buildStoryWorld(input: { buildId: ID; storyId: ID; recipeId?: ID | null }): Promise<{ started: boolean; busy: boolean }>
+  /**
+   * The stories whose world is waiting to be built (2026-10-17): kept in the open world (meta 'story_builds_waiting'),
+   * so a build waiting when the app closed starts when the world next opens. Only the open world's stories.
+   */
+  storyBuildsWaiting(): Promise<{ worldId: ID; waiting: StoryBuildWaiting[] }>
+  /**
+   * Keeps the stories waiting for their world to be built in world `worldId`, only while it is the open one (a list
+   * meant for a world closed meanwhile changes nothing); ids of stories not in it are dropped.
+   */
+  setStoryBuildsWaiting(input: { worldId: ID; waiting: StoryBuildWaiting[] }): Promise<void>
   /** Cancels a build. What it has saved stays (one Undo removes it). Resolves once it has stopped. */
   cancelWorldBuild(buildId: ID): Promise<void>
   /** Undoes everything a build made that is still there, in one go. Returns the lines it undid, for redoWorldBuild. */

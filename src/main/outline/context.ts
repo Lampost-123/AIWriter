@@ -20,7 +20,7 @@ import {
   type PlanChapter,
   type StoryFacts,
   type ThreadLine
-} from './brief'
+} from './briefing'
 
 type DB = Database.Database
 
@@ -41,10 +41,22 @@ export function storyPlan(db: DB, storyId: ID): PlanAct[] {
   const o = repo.getOutline(db, storyId)
   const cards = acts.storyCards(db, storyId)
   const said = new Map(mem.storySummaries(db, storyId).map((s) => [`${s.level}:${s.targetId}`, s.text]))
+  // Each chapter card's point of view, characters and place, by name (2026-10-17).
+  const chapterCards = new Map(o.chapters.map((c) => [c.id, repo.getChapterCard(db, c.id)]))
+  const ids = [...new Set([...chapterCards.values()].flatMap((k) => [k.povId, ...k.presentIds, k.locationId]).filter((id): id is ID => !!id))]
+  const names = new Map(ids.length ? repo.getEntries(db, ids).map((e) => [e.id, e.name]) : [])
+  const nameOf = (id: ID | null): string => (id ? (names.get(id) ?? '') : '')
+  const cardOf = (id: ID): PlanChapter['card'] => {
+    const k = chapterCards.get(id)
+    if (!k) return undefined
+    const card = { pov: nameOf(k.povId), characters: k.presentIds.map(nameOf).filter(Boolean), location: nameOf(k.locationId) }
+    return card.pov || card.characters.length || card.location ? card : undefined
+  }
   const chapter = (c: (typeof o.chapters)[number]): PlanChapter => ({
     id: c.id,
     title: c.title,
     goal: c.goal,
+    ...(cardOf(c.id) ? { card: cardOf(c.id) } : {}),
     summary: said.get(`chapter:${c.id}`) ?? '',
     scenes: o.scenes
       .filter((s) => s.chapterId === c.id)
