@@ -142,7 +142,8 @@ export function stageWhere(db: DB, state: SceneState | null | undefined): Record
 // ---------- Catching the memory up before a draft ----------
 // Spec, Memory upkeep: "Before a draft is generated, any queued or failed runs for earlier scenes on
 // the story's line run first." The memory keeper registers how (setBeforeDraft); drafting waits for
-// it, but never for long, and drafts anyway with what the memory has if it fails.
+// it to finish (Adam, 2026-10-17: "always wait for the extractor to finish before advancing", every draft but
+// Variants), and drafts anyway with what the memory has if it fails.
 
 /** `limitMs`: how long the draft waits for it at most, so the memory can keep to it (the summaries a draft needs). */
 export type BeforeDraft = (db: DB, sceneId: ID, limitMs?: number) => Promise<unknown> | unknown
@@ -166,13 +167,18 @@ export const withStageRead =
     await Promise.all([Promise.resolve().then(() => catchUp(db, sceneId, limitMs)), stage(db, sceneId)])
   }
 
-/** How long a draft waits for the memory to catch up before going ahead with what it has. */
-export const CATCH_UP_LIMIT_MS = 60_000
+/**
+ * How long a draft waits for the memory to catch up: until it has (Adam, 2026-10-17, "always wait"). Each read ends,
+ * read or failed, so the wait does too; Stop ends it at once. Variants alone still go ahead after VARIANTS_CATCH_UP_MS.
+ */
+export const CATCH_UP_LIMIT_MS = Infinity
+/** Variants (several drafts side by side) wait no longer than this, then go ahead with what the memory has. */
+export const VARIANTS_CATCH_UP_MS = 60_000
 
 /**
  * Brings the memory up to date for earlier scenes; resolves when done, on failure, after `limitMs`,
  * or at once when `signal` is aborted (Adam stopped the draft before it began). Whatever happens,
- * the memory goes on catching up in the background.
+ * the memory goes on catching up in the background. `limitMs` Infinity: no time limit (Write the whole chapter).
  */
 export async function catchUpBeforeDraft(
   db: DB,
@@ -186,7 +192,8 @@ export async function catchUpBeforeDraft(
   let timer: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
   const late = new Promise<'timed-out'>((resolve) => {
-    timer = setTimeout(() => resolve('timed-out'), limitMs)
+    // A timer can't wait for ever (Node fires one past 2^31 ms at once), so no limit is no timer.
+    if (Number.isFinite(limitMs)) timer = setTimeout(() => resolve('timed-out'), limitMs)
   })
   const stopped = new Promise<'cancelled'>((resolve) => {
     onAbort = () => resolve('cancelled')

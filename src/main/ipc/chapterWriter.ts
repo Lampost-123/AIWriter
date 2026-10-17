@@ -33,14 +33,14 @@ import type { Page } from '../chapterWriter/page'
 import { contractWanted, type SceneContract } from '../ai/contract'
 import { meaningForCheck } from '../retrieval'
 
-/** How long a check waits for the memory to catch up before checking with what it has (as the checks do). */
-const CATCH_UP_MS = 60_000
 /**
- * How long each scene's draft waits for the memory to read the scenes before it and write their summaries (2026-10-15:
- * a draft that went ahead after a minute left the scene just written out of the next one's timeline). Longer than a
- * Generate's minute: the run works on its own, and a scene drafted without the one before it in mind forgets it.
+ * How long the run waits for the memory to read the scenes before the one it drafts or checks next, and write their
+ * summaries: for as long as that takes (Adam, 2026-10-17, "always wait"; before, 3 minutes for a draft and 1 for a check,
+ * after which it went ahead with what the memory had). The memory never waits for ever itself: each read ends, read or
+ * failed, and a failed read is gone past. Stop still stops at once.
  */
-const DRAFT_CATCH_UP_MS = 180_000
+const CATCH_UP_MS = Infinity
+const DRAFT_CATCH_UP_MS = Infinity
 
 const sources = () => ({ settings: getSettings(), getProvider: providers.getProvider, providerTarget: providers.providerTarget })
 
@@ -53,7 +53,7 @@ const within = (p: Promise<unknown>, ms: number, signal: AbortSignal): Promise<v
       signal.removeEventListener('abort', done)
       resolve()
     }
-    const t = setTimeout(done, ms)
+    const t = Number.isFinite(ms) ? setTimeout(done, ms) : undefined
     signal.addEventListener('abort', done, { once: true })
     void p.finally(done)
   })
@@ -149,6 +149,7 @@ function deps(runId: ID): RunDeps {
       // Written without where things stand (it wasn't ready in time): the report says so.
       return { ...end, note: b.note ?? null }
     },
+    catchUp: (sceneId, signal) => catchUpBeforeDraft(db, sceneId, CATCH_UP_MS, signal),
     save: (sceneId, page, label) => {
       const now = repo.getScene(db, sceneId)
       if ((now.text ?? '').trim()) currentHistory()?.take({ sceneId, kind: 'ai', label, doc: now.doc, text: now.text })

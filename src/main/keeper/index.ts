@@ -115,8 +115,9 @@ export function initKeeper(): void {
   const mine = (db: Database.Database): Keeper | null => (keeper && keeper.db === db ? keeper : null)
   setBeforeDraft(
     withStageRead(
-      // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review).
-      async (db, sceneId, limitMs) => mine(db)?.beforeDraft(sceneId, undefined, limitMs),
+      // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review). A
+      // draft that waits until the memory is done (no limit) waits for the scene's own fresh read just as long.
+      async (db, sceneId, limitMs) => mine(db)?.beforeDraft(sceneId, limitMs === Infinity ? Infinity : undefined, limitMs),
       async (db, sceneId) => (mine(db) ? continuityBefore(db, sceneId) : undefined)
     )
   )
