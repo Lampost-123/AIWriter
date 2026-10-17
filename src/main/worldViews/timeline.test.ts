@@ -9,7 +9,8 @@ import * as mem from '../db/memory'
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { timelineOf } from './index'
-import { timelineOrder } from './timeline'
+import { afterHosts, timelineOrder } from './timeline'
+import { createStoryAs } from '../db/stories'
 import { placeWhens } from './when'
 
 function world() {
@@ -419,5 +420,67 @@ describe('an empty world', () => {
     expect(t.points).toHaveLength(1)
     expect(t.points[0]).toMatchObject({ kind: 'scene', dated: false, place: 'Book 1, Ch 1, Sc 1', title: 'Scene 1' })
     expect(t.clashes).toEqual([])
+  })
+})
+
+describe('a story planned in a new world', () => {
+  // A new world's untouched Book 1, then a story of Adam's after it, with events the AI planned for it ahead of time.
+  const planned = (keepStarter: boolean) => {
+    const db = memoryWorld()
+    const [book1] = repo.listStories(db)
+    if (keepStarter) repo.updateStory(db, book1.id, { premise: 'Notes to self.' })
+    const made = createStoryAs(db, {
+      title: 'Hearth',
+      seriesId: null,
+      placement: { kind: 'continues', startStoryId: book1.id, startAt: 'end', startRefId: null, endAt: null, endRefId: null, leadsIntoId: null }
+    })
+    const ann = repo.createEntry(db, 'character', { name: 'Ann' })
+    repo.updateSceneCard(db, made.sceneId, { ...emptySceneCard(), when: 'Day 1, evening', povId: ann.id })
+    const events: [string, string][] = [
+      ['A Reward', 'Day 5, night'],
+      ['First Lesson', 'Day 2, afternoon'],
+      ['Rules', 'Day 2, evening'],
+      ['The Cupboard', 'Day 15, afternoon'],
+      ['Under the Stairs', 'Day 2, night'],
+      ['Before It All', 'Day 0'],
+      ['Some Day', '']
+    ]
+    for (const [name, when] of events) {
+      const e = repo.createEntry(db, 'event', { name, fields: { when } }, { origin: 'ai', originStoryId: made.story.id })
+      mem.insertChange(db, {
+        kind: 'relationship',
+        payload: { otherId: e.id, type: 'involved in', feels: '', otherFeels: '' },
+        entryId: ann.id,
+        anchor: 'baseline',
+        origin: 'ai'
+      })
+    }
+    return { db, book1, made, t: timelineOf(db, made.story.id) }
+  }
+
+  it('starts with the story itself: no empty Book 1 scene, no event before its first scene', () => {
+    const { t, made } = planned(false)
+    expect(t.points[0]).toMatchObject({ kind: 'scene', id: made.sceneId })
+    expect(t.points.some((p) => p.place.startsWith('Book 1'))).toBe(false)
+  })
+
+  it("puts the events in the story's own days, Day 2 before Day 5 before Day 15 (an undated one after the one it is listed after)", () => {
+    const { t } = planned(false)
+    expect(names(t.points).slice(1)).toEqual(['Before It All', 'First Lesson', 'Rules', 'Some Day', 'Under the Stairs', 'A Reward', 'The Cupboard'])
+    expect(t.points.find((p) => p.title === 'First Lesson')).toMatchObject({ dated: true, dayLabel: 'Day 2' })
+  })
+
+  it('does the same after a Book 1 that is kept', () => {
+    const { t, book1, made } = planned(true)
+    const first = t.points.findIndex((p) => p.id === made.sceneId)
+    expect(t.points.slice(0, first).every((p) => p.kind === 'scene' && p.storyId === book1.id)).toBe(true)
+    expect(t.points.slice(first + 1).map((p) => p.title)).toEqual(['Before It All', 'First Lesson', 'Rules', 'Some Day', 'Under the Stairs', 'A Reward', 'The Cupboard'])
+  })
+})
+
+describe('after hosts', () => {
+  it('moves a point tied to a host from before it to just after it, in order', () => {
+    expect(afterHosts([3, 4, 0, 1, 2], new Map([[3, 0], [4, 0]]))).toEqual([0, 3, 4, 1, 2])
+    expect(afterHosts([0, 3, 1], new Map([[3, 0]]))).toEqual([0, 3, 1])
   })
 })

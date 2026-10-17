@@ -12,6 +12,18 @@ import { deleteNotes, previewMove } from '../stories/points'
 import { emit } from '../events'
 import { UserError } from '../util'
 
+// A world that already has a story of its own puts away the untouched "Book 1" it started with (worlds made before
+// createStoryAs did this kept it, and it opened the timeline with an empty scene).
+world.onWorldOpened((w) => {
+  try {
+    w.db.transaction(() => {
+      if (stories.retireStarterStory(w.db)) mem.refreshDefaultExistsPoints(w.db)
+    })()
+  } catch (e) {
+    console.warn('Could not put away the empty starter story:', e instanceof Error ? e.message : e)
+  }
+})
+
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
 function write<T>(fn: () => T): T {
   const db = world.db()
