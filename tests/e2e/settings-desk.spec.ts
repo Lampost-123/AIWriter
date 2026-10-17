@@ -53,7 +53,7 @@ test('the setup on the desk: a rail of steps, the lamp lit step by step, service
     await expect(art).toHaveAttribute('data-stage', '2')
     // The other services as marks (plain shapes, never their logos); one fills in the form for it.
     const services = win.getByRole('region', { name: 'Other services' })
-    await expect(services.locator('[data-provider-mark]')).toHaveCount(6)
+    await expect(services.locator('[data-provider-mark]')).toHaveCount(7)
     await services.getByRole('button', { name: /^LM Studio/ }).click()
     const form = win.locator('form').filter({ hasText: 'Add a provider' })
     await expect(form.getByLabel('Base URL')).toHaveValue('http://localhost:1234/v1')
