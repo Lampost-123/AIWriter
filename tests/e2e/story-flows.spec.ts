@@ -266,6 +266,8 @@ test('restoring a backup while a flow is working leaves no line saying it still 
     const { win } = await launch()
     await createWorldFromWelcome(win, 'The Reach')
     const [book1] = await invoke(win, 'listStories')
+    // In use, so reopening the world at the restore keeps it (an untouched starter Book 1 is put away).
+    await invoke(win, 'updateStory', book1.id, { premise: "A smith's daughter leaves home." })
     // Someone for the time to change, so the AI is asked.
     await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: "A smith's daughter." })
     const book2 = await invoke(win, 'createStory', { title: 'Book 2', startStoryId: book1.id })
