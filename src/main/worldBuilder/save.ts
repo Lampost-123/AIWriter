@@ -22,6 +22,7 @@ import { kindWord } from '../keeper/facts'
 import { upperFirst } from '../keeper/text'
 import { storyCalendar } from '../memory/storyCalendar'
 import { parseWhen } from '../worldViews/when'
+import { eventDaysFrom } from '../worldViews/eventPlace'
 import { asProfileKind, type Profile } from './parse'
 import { relationshipWords, type WorldUndo } from './lines'
 
@@ -80,8 +81,9 @@ export interface NewEntry {
   involved: ID[]
   /**
    * An event: the scene of the story's plan it happens in. It first exists there, and those taking part are involved in
-   * it from there, so the scenes before it never hear of it and the timeline shows it at that scene. Without one, its
-   * "Day N" may place it (sceneOnDay).
+   * it from there, so the scenes before it never hear of it. Kept only when it agrees with the event's date; else, or
+   * without one, its date may place it (eventScene, sceneOnDay). The timeline places it by its date
+   * (worldViews/eventPlace.ts).
    */
   sceneId?: ID | null
   /** An event: the place it happens at (2026-10-17), linked from the event as "happens at". */
@@ -97,22 +99,44 @@ export const laterBook = (when: string): boolean =>
   /\bbook\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|[ivx]+)\b/i.test(when) || /\b(?:later|next|another|following) book\b/i.test(when)
 
 /**
- * An event of the story's plan dated by a bare "Day N" with no scene given (2026-10-17: it existed from the story's
- * start, so the writer of Day 1 was told of it): the first of the plan's scenes dated on or after that day on the story
- * calendar, not counting flashbacks. Null when none is dated that late, or the summary isn't the story's plan.
+ * An event of the story's plan dated on the story calendar with no scene given (2026-10-17: it existed from the story's
+ * start, so the writer of Day 1 was told of it): the first of the plan's scenes dated on or after its day ("Day N", or a
+ * date the calendar can count to), not counting flashbacks. Null when none is dated that late, or the summary isn't the
+ * story's plan.
  */
 export function sceneOnDay(w: Pick<Writer, 'db' | 'storyId' | 'scenes'>, when: string): ID | null {
-  if (!w.storyId || !w.scenes.length || laterBook(when)) return null
-  const p = parseWhen(when.trim())
-  if (!p?.dayCount || p.day === null || p.year !== null || p.month !== null || p.qual || p.step || p.next) return null
+  if (!w.storyId || !w.scenes.length || laterBook(when) || !datable(when)) return null
   const cal = storyCalendar(w.db, w.storyId)
   if (!cal) return null
   const plan = new Set(w.scenes)
   for (const id of cal.order) {
     const d = cal.dates.get(id)
-    if (plan.has(id) && d && !d.back && d.day !== null && d.day >= p.day) return id
+    if (!plan.has(id) || !d || d.back) continue
+    const days = eventDaysFrom(when.trim(), d, cal)
+    if (days !== null && days <= 0) return id
   }
   return null
+}
+
+/** A When naming a day of its own (not a step from the scene before, which an event has none of). */
+const datable = (when: string): boolean => {
+  const p = parseWhen(when.trim())
+  return !!p && p.day !== null && !p.step && !p.next
+}
+
+/**
+ * The scene an event of the story's plan first exists at (Adam, 2026-10-17: never one that contradicts its date). The
+ * scene the plan gives is kept when its day is the event's, or either can't be dated; otherwise (the model's scene
+ * numbers were off, or the plan had only its opening scene then) the first scene on or after its day, as with none given.
+ */
+export function eventScene(w: Pick<Writer, 'db' | 'storyId' | 'scenes'>, when: string, given: ID | null | undefined): ID | null {
+  const onDay = sceneOnDay(w, when)
+  if (!given) return onDay
+  if (given === onDay || !w.storyId || !datable(when)) return given
+  const cal = storyCalendar(w.db, w.storyId)
+  const d = cal?.dates.get(given)
+  const days = cal && d ? eventDaysFrom(when.trim(), d, cal) : null
+  return days === null || days === 0 ? given : onDay
 }
 
 /**
@@ -130,7 +154,7 @@ export function saveEntry(w: Writer, n: NewEntry): { entry: Entry; item: WorldBu
   const drafted = pick(all, (k) => ai.has(k) && k !== 'name')
   const rule = n.kind === 'lore' && n.hardRule
   // Read before the transaction: the story calendar is kept between reads only outside one.
-  const sceneId = n.kind === 'event' ? (n.sceneId ?? sceneOnDay(w, all.when ?? '')) : null
+  const sceneId = n.kind === 'event' ? eventScene(w, all.when ?? '', n.sceneId) : null
   return w.db.transaction(() => {
     const runId = runOf(w)
     let e = repo.createEntry(

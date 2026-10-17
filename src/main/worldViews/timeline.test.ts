@@ -9,7 +9,7 @@ import * as mem from '../db/memory'
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { timelineOf } from './index'
-import { afterHosts, pinnedAfter, timelineOrder } from './timeline'
+import { timelineOrder } from './timeline'
 import { createStoryAs } from '../db/stories'
 import { placeWhens } from './when'
 
@@ -485,13 +485,6 @@ describe('a story planned in a new world', () => {
   })
 })
 
-describe('after hosts', () => {
-  it('moves a point tied to a host from before it to just after it, in order', () => {
-    expect(afterHosts([3, 4, 0, 1, 2], new Map([[3, 0], [4, 0]]))).toEqual([0, 3, 4, 1, 2])
-    expect(afterHosts([0, 3, 1], new Map([[3, 0]]))).toEqual([0, 3, 1])
-  })
-})
-
 describe('a story dated by the calendar, with events counted in its days', () => {
   it("puts Day 2 after the first scene's 12 March and before 20 March, never ahead of the story", () => {
     const db = memoryWorld()
@@ -538,12 +531,5 @@ describe('backstory dated by a year, in a story that counts its days without one
     const { db, book } = backstory()
     const t = timelineOf(db, book.id)
     expect(t.points.filter((p) => p.kind === 'scene').map((p) => p.day)).toEqual(['Day 1', 'Day 2'].map((d) => placeWhens([d])[0]!.day))
-  })
-})
-
-describe('pinned after', () => {
-  it('moves each point tied to a scene to just after it, from before or after, in order', () => {
-    expect(pinnedAfter([3, 0, 1, 2, 4], new Map([[3, 1], [4, 1]]))).toEqual([0, 1, 3, 4, 2])
-    expect(pinnedAfter([0, 1], new Map([[1, 9]]))).toEqual([0, 1])
   })
 })
