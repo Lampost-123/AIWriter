@@ -59,9 +59,39 @@ describe('an event of the story’s plan dated by its day, with no scene given',
     }
   })
 
-  it('keeps the scene the plan gives, and leaves Adam’s own summary’s events where the build is true', () => {
+  it('keeps the scene the plan gives when it agrees with the date, and leaves Adam’s own summary’s events where the build is true', () => {
     const { db, story, scenes, mara } = dated(['Day 1', 'Day 4', 'Day 6'])
-    expect(saveEntry(newWriter(db, story.id, scenes), storm('Day 3', [mara.id], scenes[2]))!.entry.originSceneId).toBe(scenes[2])
+    expect(saveEntry(newWriter(db, story.id, scenes), storm('Day 6', [mara.id], scenes[2]))!.entry.originSceneId).toBe(scenes[2])
+    expect(saveEntry(newWriter(db, story.id, scenes), storm('Day 3', [mara.id], scenes[1]))!.entry.originSceneId).toBe(scenes[1])
+    // A scene or a date that can't be read: the plan's scene.
+    expect(saveEntry(newWriter(db, story.id, scenes), storm('after the wedding', [mara.id], scenes[2]))!.entry.originSceneId).toBe(scenes[2])
     expect(saveEntry(newWriter(db, story.id), storm('Day 3', [mara.id]))!.entry.originSceneId).toBeNull()
+  })
+})
+
+describe('an event of the story’s plan whose scene contradicts its date (Adam, 2026-10-17)', () => {
+  it('first exists at the first scene on or after its day instead, never at a scene of another day', () => {
+    const { db, story, scenes, mara } = dated(['Day 1', 'Day 4', 'Day 6'])
+    const w = newWriter(db, story.id, scenes)
+    // The model's scene numbers were off: Scene 1 for a Day 5 event, Scene 3 for a Day 3 one.
+    expect(saveEntry(w, storm('Day 5, dusk', [mara.id], scenes[0]))!.entry.originSceneId).toBe(scenes[2])
+    const e = saveEntry(w, storm('Day 3', [mara.id], scenes[2]))!.entry
+    expect(e.originSceneId).toBe(scenes[1])
+    const involved = mem.changesForEntry(db, mara.id).filter((c) => c.kind === 'relationship' && c.payload.otherId === e.id)
+    expect(involved).toEqual([expect.objectContaining({ anchor: 'scene', sceneId: scenes[1] })])
+  })
+
+  it('is never tied to a scene when none is dated that late', () => {
+    const { db, story, scenes, mara } = dated(['Day 1', 'Day 4'])
+    const e = saveEntry(newWriter(db, story.id, scenes), storm('Day 9', [mara.id], scenes[0]))!.entry
+    expect(e.originSceneId).toBeNull()
+    expect(mem.listExistsPoints(db, e.id)).toEqual([expect.objectContaining({ kind: 'world' })])
+  })
+
+  it('reads real dates on the story calendar too', () => {
+    const { db, story, scenes, mara } = dated(['12 March 1842', '13 March 1842', '15 March 1842'])
+    const w = newWriter(db, story.id, scenes)
+    expect(saveEntry(w, storm('14 March 1842', [mara.id], scenes[0]))!.entry.originSceneId).toBe(scenes[2])
+    expect(saveEntry(w, storm('13 March 1842, dusk', [mara.id], scenes[1]))!.entry.originSceneId).toBe(scenes[1])
   })
 })

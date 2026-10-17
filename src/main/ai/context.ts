@@ -116,8 +116,8 @@ import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 import { memoryScale, passagesShown, RECALL_SHARE } from './memoryRoom'
 import { calledFor, foldApostrophes, namedInProse, type CalledName } from '@shared/names'
-import { dateOfText, elapsedBetween, sameDay, sameMoment, type SceneCalendar } from '../memory/calendar'
-import { parseWhen } from '../worldViews/when'
+import { sameDay, sameMoment, type SceneCalendar } from '../memory/calendar'
+import { eventVsDate } from '../worldViews/eventPlace'
 import { datesOf, elapsedNote, storyDateLines, type DateInput } from './storyDate'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
@@ -826,16 +826,16 @@ export interface Selection {
  * Whether an event's When dates it after this scene on the story calendar (2026-10-17: a "Day 3" event planned for the
  * story was told to the writer of Day 1 as what had happened). Read as the scene card's landmarks are
  * (storyCalendar.ts sceneCalendar); a bare "Day N" in a story dated by the calendar counts from its first day, as the
- * timeline counts it. False when it can't be told.
+ * timeline counts it. The same rule as the timeline's (worldViews/eventPlace.ts): the event's date decides, never the
+ * scene it was planned for; a later day is after, and so is a later time the same day when both say one, unless the event
+ * first exists at this scene (`tiedHere`: planned for it, or found in it), which is where it happens. False when it can't
+ * be told.
  */
-export function datedAfter(e: Pick<EntryState, 'kind' | 'fields'>, calendar: SceneCalendar | null | undefined): boolean {
+export function datedAfter(e: Pick<EntryState, 'kind' | 'fields'>, calendar: SceneCalendar | null | undefined, tiedHere = false): boolean {
   const here = calendar?.here
   const when = clean(e.fields?.when)
   if (e.kind !== 'event' || !here || !when) return false
-  const gap = elapsedBetween(here, dateOfText({ dates: new Map([[here.id, here]]), order: [here.id] }, when, here.id))
-  if (gap) return gap.days > 0
-  const p = parseWhen(when)
-  return !!p?.dayCount && p.day !== null && p.year === null && p.month === null && !p.qual && here.day !== null && p.day > here.day
+  return eventVsDate(when, here, tiedHere) === 1
 }
 
 /** Decides which entries the briefing holds and why (spec, "What gets selected"). */
@@ -858,7 +858,7 @@ export function selectEntries(input: ContextInput): Selection {
     const e = here.get(id) ?? (listed || pin?.action === 'pin' ? away.get(id)?.entry : undefined)
     if (!e) return null
     // An event still to come is no part of the scene's world, unless Adam pinned it.
-    if (pin?.action !== 'pin' && datedAfter(e, input.calendar)) return null
+    if (pin?.action !== 'pin' && datedAfter(e, input.calendar, firstHere.has(id))) return null
     chosen.set(id, { entry: e, why, pinned: pin?.action === 'pin' ? pin.scope : null, label: label(id) })
     return e
   }
@@ -1041,6 +1041,7 @@ function absentTies(
 ): Selection['ties'] {
   const m = input.memory
   const inScene = new Set(people.map((p) => p.id))
+  const firstHere = new Set(m.firstHere)
   const isCharacter = (id: ID): boolean => here.get(id)?.kind === 'character'
   const out: Selection['ties'] = []
   for (const person of people) {
@@ -1051,7 +1052,7 @@ function absentTies(
       const otherId = r.aId === person.id ? r.bId : r.aId
       if (inScene.has(otherId) || !isCharacter(otherId)) continue
       const other = here.get(otherId)!
-      found.push({ other, rel: r, history: sharedHistory(m.relationships, here, person, other, (e) => datedAfter(e, input.calendar)) })
+      found.push({ other, rel: r, history: sharedHistory(m.relationships, here, person, other, (e) => datedAfter(e, input.calendar, firstHere.has(e.id))) })
     }
     if (!found.length) continue
     const latest = (t: Tie): number => Math.max(t.rel.at ?? -1, ...t.history.map((h) => h.at))
