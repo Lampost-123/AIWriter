@@ -147,6 +147,14 @@ export interface WorldBuilderApi {
   estimateWorldBuild(input: { summary: string; storyId: ID | null }): Promise<WorldBuildEstimate>
   /** Keeps the summary and starts a build in the background (one at a time); its events say how it goes. */
   startWorldBuild(input: WorldBuildInput): Promise<void>
+  /**
+   * A new story's world (2026-10-17): once Adam keeps an outline, builds what the story's plan needs (characters with
+   * their looks and traits, places, groups, items, lore, plot threads, relationships) from a summary written from the
+   * story itself, and fills in the thin pages the keep made for the names on its cards. Never changes the World
+   * builder page's summary. `started` is false when the story has nothing planned yet, or when a build is already
+   * running (`busy`: the window asks again once it ends).
+   */
+  buildStoryWorld(input: { buildId: ID; storyId: ID }): Promise<{ started: boolean; busy: boolean }>
   /** Cancels a build. What it has saved stays (one Undo removes it). Resolves once it has stopped. */
   cancelWorldBuild(buildId: ID): Promise<void>
   /** Undoes everything a build made that is still there, in one go. Returns the lines it undid, for redoWorldBuild. */

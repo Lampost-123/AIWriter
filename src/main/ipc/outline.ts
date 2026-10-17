@@ -2,7 +2,7 @@
 // docs/ARCHITECTURE.md, "Milestone 4". The SQL is in src/main/db/acts.ts and the rest in
 // src/main/outline/*; this file connects them to the open world, the settings and the window.
 import type { Handlers } from './index'
-import type { OutlineApi } from '@shared/contracts/outline'
+import type { KeptItem, OutlineApi } from '@shared/contracts/outline'
 import * as world from '../world'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
@@ -22,6 +22,12 @@ function write<T>(fn: () => T): T {
   const result = fn()
   repo.touchWorld(world.db())
   return result
+}
+
+/** The codex and pages showing the plot threads, characters and places a keep made (or its Undo took back) reload. */
+function madeChanged(kept: KeptItem[]): void {
+  const entryIds = [...new Set((Array.isArray(kept) ? kept : []).flatMap((k) => [...(k?.threadIds ?? []), ...(k?.entryIds ?? [])]))]
+  if (entryIds.length) emit('memory:changed', { sceneId: null, entryIds })
 }
 
 /** What an AI call needs: the open world and the chat and brainstorm model (or, in plain words, why there is none). */
@@ -60,10 +66,15 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
 
   outlineBlank: (storyId) => isBlankPlan(storyPlan(world.db(), storyId)),
   startOutline: (input) => startOutlineJob(jobDeps(), input),
-  keepOutline: (storyId, items) => write(() => keepOutline(world.db(), storyId, items ?? [])),
+  keepOutline: (storyId, items) => {
+    const kept = write(() => keepOutline(world.db(), storyId, items ?? []))
+    madeChanged(kept)
+    return kept
+  },
   unkeepOutline: (kept) => {
-    // Its chapter cards and the plot threads it made go back too (unkeepOutline).
+    // Its chapter cards, and the plot threads, characters and places it made, go back too (unkeepOutline).
     const out = write(() => unkeepOutline(world.db(), kept ?? []))
+    madeChanged(kept ?? [])
     if (out.sceneIds.length) scenesDeleted(world.db())
     return { sceneIds: out.sceneIds }
   },

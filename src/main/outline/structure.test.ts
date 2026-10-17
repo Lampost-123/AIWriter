@@ -287,8 +287,11 @@ describe('chapter cards the outline fills (2026-10-08)', () => {
       scene('s3', 'Night', 'c0', { after: { key: 's2' } })
     ])
     const ch = repo.getChapterCard(db, kept[0].id)
-    // A name it doesn't know is left out; the point of view is among those present.
-    expect([ch.povId, ch.presentIds, ch.locationId, ch.when, ch.mood]).toEqual([wren, [wren, odo], tower, 'Day 4, dawn', 'Hushed'])
+    // A name it doesn't know gets a page of its own (2026-10-17); the point of view is among those present.
+    const stranger = repo.listEntries(db).find((e) => e.name === 'Nobody We Know')
+    expect(stranger).toMatchObject({ kind: 'character', origin: 'ai' })
+    expect(kept[0].entryIds).toEqual([stranger?.id])
+    expect([ch.povId, ch.presentIds, ch.locationId, ch.when, ch.mood]).toEqual([wren, [wren, odo, stranger?.id], tower, 'Day 4, dawn', 'Hushed'])
     const [wick, oil, atQuay, night] = kept.slice(1).map((k) => repo.getScene(db, k.id).card)
     // The same When as the chapter's: it follows it.
     expect([wick.when, wick.inherits?.when, wick.locationId, wick.inherits?.location]).toEqual(['Day 4, dawn', true, tower, true])
@@ -516,5 +519,95 @@ describe('chapter cards and plot threads kept together (0.6.36)', () => {
     const back = repo.getScene(db, first.id).card
     expect([back.when, back.setsUpIds, back.threadLinks]).toEqual(['Day 9, noon', [mine], undefined])
     expect(threadNames(db)).toEqual(['The missing ledger'])
+  })
+})
+
+describe('a kept outline makes pages for the cast and places it names (2026-10-17)', () => {
+  const names = (db: Database.Database, kind: string): string[] =>
+    repo
+      .listEntries(db)
+      .filter((e) => e.kind === kind)
+      .map((e) => e.name)
+      .sort()
+
+  it('makes each new character and place once, drafted by AI, and the cards point at them', () => {
+    const db = writtenWorld()
+    const mara = repo.createEntry(db, 'character', { name: 'Mara Venn' }).id
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'The Ferry', {
+        card: { pov: 'Mara', characters: ['Mara Venn', 'Tobin Hale', 'everyone', 'two dock guards'], location: 'The Black Ferry (a barge)' }
+      }),
+      scene('s0', 'Debt', 'c0', { card: { characters: ['Tobin', 'The Duke'], location: 'Duke’s Hall', pov: 'Tobin Hale' } }),
+      scene('s1', 'Crossing', 'c0', { after: { key: 's0' }, card: { location: 'none' } })
+    ])
+    expect(names(db, 'character')).toEqual(['Mara Venn', 'The Duke', 'Tobin Hale'])
+    expect(names(db, 'place')).toEqual(['Duke’s Hall', 'The Black Ferry'])
+    const byName = new Map(repo.listEntries(db).map((e) => [e.name, e]))
+    for (const n of ['Tobin Hale', 'The Duke', 'The Black Ferry', 'Duke’s Hall']) expect(byName.get(n)?.origin).toBe('ai')
+    const ch = repo.getChapterCard(db, kept[0].id)
+    expect([ch.povId, ch.presentIds, ch.locationId]).toEqual([mara, [mara, byName.get('Tobin Hale')?.id], byName.get('The Black Ferry')?.id])
+    const debt = repo.getScene(db, kept[1].id).card
+    expect([debt.povId, debt.locationId]).toEqual([byName.get('Tobin Hale')?.id, byName.get('Duke’s Hall')?.id])
+    expect(debt.presentIds).toContain(byName.get('The Duke')?.id)
+    expect(kept.flatMap((k) => k.entryIds ?? []).length).toBe(4)
+  })
+
+  it('its Undo takes back the pages it made, but never one Adam has changed', () => {
+    const db = memoryWorld()
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'The Ferry', { card: { characters: ['Tobin Hale', 'Ilsa Crane'], location: 'Gull Quay' } }),
+      scene('s0', 'Debt', 'c0')
+    ])
+    const ilsa = repo.listEntries(db).find((e) => e.name === 'Ilsa Crane')!
+    repo.updateEntry(db, ilsa.id, { summary: 'The ferry’s cook, and Tobin’s sister.' })
+    unkeepOutline(db, kept)
+    expect(names(db, 'character')).toEqual(['Ilsa Crane'])
+    expect(names(db, 'place')).toEqual([])
+  })
+})
+
+describe('rooms inside a bigger place (2026-10-17)', () => {
+  const place = (db: Database.Database, name: string, parentId: ID | null = null) =>
+    repo.listEntries(db).filter((e) => e.kind === 'place' && e.name === name && e.parentId === parentId)
+
+  it('makes "Kitchen, Venn House" a kitchen inside the house, and another house’s kitchen its own page', () => {
+    const db = writtenWorld()
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Home', { card: { location: 'the kitchen, Venn House' } }),
+      scene('s0', 'Supper', 'c0'),
+      scene('s1', 'Next door', 'c0', { after: { key: 's0' }, card: { location: 'Kitchen – Hale Cottage' } }),
+      scene('s2', 'Back again', 'c0', { after: { key: 's1' }, card: { location: 'Kitchen, Venn House' } })
+    ])
+    const [venn] = place(db, 'Venn House')
+    const [hale] = place(db, 'Hale Cottage')
+    const [vennKitchen] = place(db, 'Kitchen', venn.id)
+    const [haleKitchen] = place(db, 'Kitchen', hale.id)
+    expect([vennKitchen?.origin, haleKitchen?.origin]).toEqual(['ai', 'ai'])
+    expect(repo.listEntries(db, 'place')).toHaveLength(4)
+    expect(repo.getChapterCard(db, kept[0].id).locationId).toBe(vennKitchen.id)
+    const [, nextDoor, back] = kept.slice(1).map((k) => repo.getScene(db, k.id).card)
+    expect([nextDoor.locationId, back.locationId]).toEqual([haleKitchen.id, vennKitchen.id])
+  })
+
+  it('puts a new room inside a place the world has, and Undo leaves the place but takes the room', () => {
+    const db = writtenWorld()
+    const tower = repo.createEntry(db, 'place', { name: 'The Lamp Tower' }).id
+    const kept = keepOutline(db, book(db), [chapter('c0', 'Up', { card: { location: 'Lamp room, the Lamp Tower' } }), scene('s0', 'Wick', 'c0')])
+    const [room] = place(db, 'Lamp room', tower)
+    expect(repo.getChapterCard(db, kept[0].id).locationId).toBe(room.id)
+    unkeepOutline(db, kept)
+    expect(repo.listEntries(db, 'place').map((e) => e.name)).toEqual(['The Lamp Tower'])
+  })
+
+  it('Undo takes back a house it made with its room, but keeps a house whose room Adam changed', () => {
+    const db = memoryWorld()
+    const kept = keepOutline(db, book(db), [chapter('c0', 'Home', { card: { location: 'Cellar, Venn House' } }), scene('s0', 'Down', 'c0')])
+    const cellar = repo.listEntries(db, 'place').find((e) => e.name === 'Cellar')!
+    repo.updateEntry(db, cellar.id, { summary: 'Damp, and full of the old man’s wine.' })
+    unkeepOutline(db, kept)
+    expect(repo.listEntries(db, 'place').map((e) => e.name).sort()).toEqual(['Cellar', 'Venn House'])
+    const again = keepOutline(db, book(db), [chapter('c0', 'Hall', { card: { location: 'Hall, Hale Cottage' } }), scene('s0', 'In', 'c0')])
+    unkeepOutline(db, again)
+    expect(repo.listEntries(db, 'place').map((e) => e.name).sort()).toEqual(['Cellar', 'Venn House'])
   })
 })

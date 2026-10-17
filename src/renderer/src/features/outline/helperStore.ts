@@ -20,6 +20,7 @@ import { useApp } from '@/lib/store'
 import { neighbourAfterRemoval, readingOrder } from '@/features/binder/outlineModel'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { notifyChapterCard } from '@/features/chapterCard/chapterCardEvents'
+import { buildStoryWorldSoon } from '@/features/worldBuilder/storyBuild'
 import { parseOutline } from './parse'
 import {
   countKinds,
@@ -440,6 +441,8 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?:
     useApp.getState().bumpOutline()
     // Chapter cards it filled may have changed what an open scene card follows.
     if (items.some((i) => i.card)) notifyChapterCard()
+    // It named characters, places or plot threads the world didn't have: the World builder lays out what the story needs.
+    if (kept.some((k) => k.entryIds?.length || k.threadIds?.length)) buildStoryWorldSoon(storyId)
     const message =
       keys === 'all'
         ? `Added ${describeCounts(countKinds(kept.map((k) => k.kind)))} to the ${chapterId ? 'chapter' : 'story'}.`
