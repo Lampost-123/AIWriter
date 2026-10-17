@@ -1,5 +1,5 @@
-<!-- version: 0.7.6 -->
-What's new in 0.7.6:
+<!-- version: 0.7.7 -->
+What's new in 0.7.7:
 
-- The timeline starts with your story: the empty "Book 1" a new world begins with no longer sits in front of it once you have made a story of your own. It goes to Recently deleted, so you can bring it back.
-- Events the AI planned for a story now sit on the right days after its first scene (Day 2 before Day 5 before Day 15), instead of in a row before the story starts.
+- Events the AI plans for a new story now sit in the scene where they happen, on the timeline and in the story's memory. Scenes before an event no longer know about it.
+- An event dated "Day 5" in a story with calendar dates ("12 March 1842") now counts from the story's first day, so it lands among the right scenes instead of before the story starts.
