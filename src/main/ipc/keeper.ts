@@ -86,8 +86,9 @@ export const keeperHandlers: Handlers<KeeperMethods> = {
     sceneMarkedDone(id)
     // Milestone 5: its facts, knowledge and timeline are checked in the background (nothing at all without a model).
     // Milestone 6: while this month's AI spending has reached Adam's limit, the check waits until he carries on.
+    // 2026-10-17: Adam can switch it off to save on costs (Settings › Models, Automatic checks).
     const db = world.db()
-    runOrWait(`done-check:${id}`, db, () => checkWhenDone(db, id))
+    if (getSettings().checkWhenDone !== false) runOrWait(`done-check:${id}`, db, () => checkWhenDone(db, id))
     emit('memory:status', memoryStatus())
     return meta
   },

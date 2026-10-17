@@ -253,6 +253,33 @@ describe('writing a whole chapter', () => {
     expect(repo.getScene(db, s2).text).toContain('The rain went on.')
   }, 30_000)
 
+  it('never asks the critic when Adam has switched it off, and still checks and finishes the chapter (2026-10-17)', async () => {
+    const { db, chapterId } = world()
+    const d = deps(db, { again: false })
+    let asked = 0
+    let checked = 0
+    const check = d.check
+    d.critique = () => {
+      asked++
+      throw new Error('the critic should not be asked')
+    }
+    d.check = (sceneId, signal) => {
+      checked++
+      return check(sceneId, signal)
+    }
+    d.critic = () => false
+    const progress: ChapterWriterProgress[] = []
+    d.progress = (p) => progress.push(p)
+    const run = new ChapterRun(d, 'run-no-critic', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    expect(asked).toBe(0)
+    expect(checked).toBeGreaterThan(0)
+    expect(progress.some((p) => /critic/i.test(p.note))).toBe(false)
+    expect(report.notes?.some((n) => /critic/i.test(n)) ?? false).toBe(false)
+  }, 30_000)
+
   it('stops after three rounds of fixes, listing what is still open', async () => {
     const { db, storyId, chapterId, s1 } = world()
     const d = deps(db)

@@ -1,8 +1,5 @@
-<!-- version: 0.7.8 -->
-What's new in 0.7.8:
+<!-- version: 0.7.9 -->
+What's new in 0.7.9:
 
-- Building a world or story no longer merges two different people or makes duplicate pages, and keeps characters, places, events and items linked.
-- Backstory comes first on the timeline, and the AI never treats later events as past.
-- Undoing a build also takes back its timeline date and notes.
-- Recipe stories get plot threads and the recipe's character roles.
-- New: Suggest relationships in the character builder, and a Drafted by AI filter in the codex.
+- New in Settings, Models: Automatic checks. Switch off the checks the AI runs by itself to save on costs: checking a scene when you mark it done, checking each draft after it lands, the second opinion on what checks find, and the critic when writing a whole chapter. "Turn them all off" does it in one click.
+- Check and the Critique tab still work whenever you ask.
