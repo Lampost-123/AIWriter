@@ -35,7 +35,9 @@ export function parseModelList(json: unknown, kind: ProviderKind, baseUrl?: stri
     const id = typeof m.id === 'string' ? m.id : typeof m.name === 'string' && kind !== 'openrouter' ? m.name : null
     if (!id || seen.has(id)) continue
     seen.add(id)
-    const name = typeof m.name === 'string' && m.name.trim() && kind === 'openrouter' ? m.name.trim() : id
+    // Anthropic's own API gives each model a plain name ("Claude Sonnet 4.5") as display_name.
+    const shown = kind === 'openrouter' ? m.name : m.display_name
+    const name = typeof shown === 'string' && shown.trim() ? shown.trim() : id
     if (kind === 'openrouter') {
       const pricing = (m.pricing ?? {}) as Record<string, unknown>
       const top = (m.top_provider ?? {}) as Record<string, unknown>
@@ -58,7 +60,8 @@ export function parseModelList(json: unknown, kind: ProviderKind, baseUrl?: stri
         positiveInt(m.context_length) ??
         positiveInt(m.context_window) ??
         positiveInt(m.max_context_length) ??
-        positiveInt(m.max_model_len)
+        positiveInt(m.max_model_len) ??
+        positiveInt(m.max_input_tokens)
       out.push({
         id,
         name,

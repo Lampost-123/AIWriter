@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ModelChoice, ProviderConfig } from './types'
-import { DEEPSEEK_OTHER_LIMIT, DEEPSEEK_V4_LIMIT, publishedReadingLimit, withReadingLimits } from './readingLimits'
+import { CLAUDE_LIMIT, DEEPSEEK_OTHER_LIMIT, DEEPSEEK_V4_LIMIT, publishedReadingLimit, withReadingLimits } from './readingLimits'
 
 const choice = (providerId: string, modelId: string, contextLength: number | null = null): ModelChoice => ({
   providerId,
@@ -28,6 +28,12 @@ describe('publishedReadingLimit', () => {
     expect(publishedReadingLimit('https://api.deepseek.com/v1', 'deepseek-reasoner')?.tokens).toBe(64_000)
     // Never a name that only starts the same way.
     expect(publishedReadingLimit('https://api.deepseek.com/v1', 'deepseek-flashy')?.tokens).toBe(64_000)
+  })
+
+  it("knows Anthropic's own API: 200,000 tokens for every Claude model", () => {
+    expect(publishedReadingLimit('https://api.anthropic.com/v1', 'claude-sonnet-4-5')).toEqual({ tokens: CLAUDE_LIMIT, by: 'Anthropic' })
+    expect(publishedReadingLimit('https://api.anthropic.com/v1', 'not-claude')).toBeNull()
+    expect(publishedReadingLimit('https://api.anthropic.com.evil.example/v1', 'claude-sonnet-4-5')).toBeNull()
   })
 
   it('says nothing for other addresses, or without a model', () => {
