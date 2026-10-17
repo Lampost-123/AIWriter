@@ -1,7 +1,8 @@
-<!-- version: 0.7.10 -->
-What's new in 0.7.10:
+<!-- version: 0.8.0 -->
+What's new in 0.8.0:
 
-- Events on the timeline now sit among the scenes of their own day, including ones made by earlier world builds, and the AI never treats a later event as past.
-- Building a story's world costs about half as much, with the AI given the same information.
-- Characters and places named in a kept outline now get full profiles, as rich as the rest.
-- The cost shown before a build is closer to what it really costs.
+- The Story builder: give it your plot and it plans the whole cast and world, builds every codex page, then lays out the chapters and scenes.
+- Talk any plan over with the AI, or redo one chapter, scene or character with a note. You see each change first.
+- Writing style presets, including ones for adult readers.
+- Recipes can be talked over and their parts redone.
+- Story builds cost about half as much, and timeline events sit among the scenes of their own day.

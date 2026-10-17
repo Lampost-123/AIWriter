@@ -148,7 +148,8 @@ function listen(): void {
   useApp.subscribe((now, before) => {
     if (now.outlineRev === before.outlineRev) return
     const prefix = helperKey(now.world?.id, '')
-    const view = now.view.kind === 'outline' ? now.view : null
+    const view =
+      now.view.kind === 'outline' ? now.view : now.view.kind === 'storyBuilder' ? { storyId: now.view.storyId, chapterId: undefined as ID | undefined } : null
     for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions)) {
       if (!key.startsWith(prefix)) continue
       const { storyId, chapterId } = partsOf(key.slice(prefix.length))
@@ -262,10 +263,11 @@ const dropReplaced = (): void => {
  * give way to the new ones, and Undo in a toast brings them back. A story with nothing planned yet is
  * planned from its premise alone, so that needs a word or two first (a hint, not a failure: 'no-premise').
  */
-export async function suggestOutline(storyId: ID, premise: string, size: OutlineSize): Promise<void> {
+export async function suggestOutline(storyId: ID, premise: string, size: OutlineSize, o: { premiseOptional?: boolean } = {}): Promise<void> {
   const s = get(keyOf(storyId))
   if (s.run?.status === 'running') return
-  if (!premise.trim() && s.blank !== false) {
+  // With a plot in the Story builder, the AI writes the premise from it.
+  if (!premise.trim() && s.blank !== false && !o.premiseOptional) {
     put(keyOf(storyId), { problem: { message: 'Write the premise first: a line or two on what the story is about is enough.', code: 'no-premise' } })
     return
   }
@@ -374,6 +376,83 @@ export async function suggestChapter(storyId: ID, chapterId: ID, title: string, 
   if (previous && wasOpen) offerBack(storyId, taskId, previous, chapterId)
 }
 
+// ---------- Talking it over, and doing one again (the Story builder, 2026-10-17) ----------
+
+/** The session's run as it is now (null when there is none, or a request is still arriving). */
+export function settledRun(storyId: ID): HelperRun | null {
+  const run = get(keyOf(storyId)).run
+  return run && run.status !== 'running' ? run : null
+}
+
+const sameTitle = (a: string, b: string): boolean => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase()
+
+/**
+ * Applies a revised plan from talking it over: it takes the place of the suggestions, and Undo in a toast brings them
+ * back. What was kept stays kept: a revised act or chapter with the same title as one already kept is that one, so
+ * what is inside it still goes into it.
+ */
+export function applyRevision(storyId: ID, text: string): boolean {
+  listen()
+  const key = keyOf(storyId)
+  const s = get(key)
+  const previous = s.run
+  if (!previous || previous.status === 'running') return false
+  const oldTree = treeOf(previous)
+  const decisions: Decisions = {}
+  const keptNodes: TreeNode[] = []
+  const collect = (nodes: TreeNode[]): void =>
+    nodes.forEach((n) => {
+      if (previous.decisions[n.key]?.status === 'kept' && !s.gone.includes((previous.decisions[n.key] as { id: ID }).id)) keptNodes.push(n)
+      collect(n.children)
+    })
+  collect(oldTree)
+  const taskId = crypto.randomUUID()
+  const run: HelperRun = { taskId, generationId: null, text, status: 'complete', cutOff: false, retrying: null, size: previous.size, decisions: {}, edits: {} }
+  const visit = (nodes: TreeNode[]): void =>
+    nodes.forEach((n) => {
+      const was = keptNodes.find((k) => k.kind === n.kind && n.kind !== 'scene' && sameTitle(k.title, n.title))
+      const d = was ? previous.decisions[was.key] : undefined
+      if (d) decisions[n.key] = d
+      visit(n.children)
+    })
+  visit(treeOf(run))
+  run.decisions = decisions
+  dropReplaced()
+  put(key, { run, problem: null, gone: [] })
+  offerBack(storyId, taskId, previous)
+  return true
+}
+
+/**
+ * Puts a new version of one suggestion in its place (Use this, after doing it again): every other suggestion keeps its
+ * decision and Adam's changes; the old version's are cleared. Undo in a toast puts the old one back.
+ */
+export function applyRedo(storyId: ID, nodeKey: string, nextText: string, under: string[]): boolean {
+  const key = keyOf(storyId)
+  const run = get(key).run
+  if (!run || run.status === 'running') return false
+  const before = run
+  const decisions = { ...run.decisions }
+  const edits = { ...run.edits }
+  for (const k of under) {
+    if (decisions[k]?.status !== 'kept') delete decisions[k]
+    delete edits[k]
+  }
+  put(key, { run: { ...run, text: nextText, decisions, edits } })
+  toast('Swapped in the new version.', {
+    action: {
+      label: 'Undo',
+      run: () => {
+        const now = get(key).run
+        if (now?.taskId === before.taskId && now.status !== 'running') put(key, { run: { ...before, decisions: { ...now.decisions, ...pick(before.decisions, under) } } })
+      }
+    }
+  })
+  return true
+}
+
+const pick = (d: Decisions, keys: string[]): Decisions => Object.fromEntries(Object.entries(d).filter(([k]) => keys.includes(k)))
+
 /** Stops the request; what has arrived stays, to keep or discard. */
 export function stopOutline(storyId: ID, chapterId?: ID | null): void {
   const run = get(keyOf(storyId, chapterId)).run
@@ -393,6 +472,21 @@ export function saveEdit(storyId: ID, nodeKey: string, edit: NodeEdit, chapterId
 }
 
 // ---------- Keep ----------
+
+export interface KeepOptions {
+  /**
+   * When a keep starts the story's World build: 'always' (it named new pages, plot threads, or started a fresh story;
+   * the default), or 'new-pages' (only when it made pages for names the world didn't have: the Story builder, once its
+   * codex is built).
+   */
+  build?: 'always' | 'new-pages'
+}
+
+/** Stories whose keeps build as the Story builder says (see KeepOptions), whichever page the Keep is clicked on. */
+const keepBuild = new Map<ID, 'always' | 'new-pages'>()
+export function setKeepBuild(storyId: ID, build: 'always' | 'new-pages'): void {
+  keepBuild.set(storyId, build)
+}
 
 interface KeepBatch {
   toastId: number
@@ -418,7 +512,7 @@ function inTurn(key: string, job: () => Promise<void>): Promise<void> {
  * Keep: adds these suggestions to the story (with what is still open inside them, and the act and
  * chapter around them), after what the story has. `keys` 'all': every suggestion still open.
  */
-export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?: ID | null): Promise<void> {
+export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?: ID | null, o: KeepOptions = {}): Promise<void> {
   const key = keyOf(storyId, chapterId)
   return inTurn(key, async () => {
     // What was kept but deleted from the story since is made anew, rather than looked for in vain.
@@ -445,7 +539,9 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?:
     // The World builder lays out what the story needs when this keep named characters, places or plot threads the world
     // didn't have, or started a fresh story (it took the place of its empty first chapter): a plan whose cast is named
     // only in its premise and summaries (a recipe's story often is, 0.7.5) still gets its characters built.
-    if (kept.some((k) => k.entryIds?.length || k.threadIds?.length || k.reused)) buildStoryWorldSoon(storyId)
+    // The Story builder, once its codex is built, builds again only for pages this keep made.
+    const build = (keepBuild.get(storyId) ?? o.build ?? 'always') === 'new-pages' ? kept.some((k) => k.entryIds?.length) : kept.some((k) => k.entryIds?.length || k.threadIds?.length || k.reused)
+    if (build) buildStoryWorldSoon(storyId)
     const message =
       keys === 'all'
         ? `Added ${describeCounts(countKinds(kept.map((k) => k.kind)))} to the ${chapterId ? 'chapter' : 'story'}.`

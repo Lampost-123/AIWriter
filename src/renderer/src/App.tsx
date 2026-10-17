@@ -33,8 +33,8 @@ import { CommandPalette } from '@/features/palette/CommandPalette'
 import { ShortcutsList } from '@/features/palette/ShortcutsList'
 import { HistoryView } from '@/features/history/HistoryView'
 import { VariantsView } from '@/features/variants/VariantsView'
-import { OutlineHelper } from '@/features/outline/OutlineHelper'
 import { ChapterPlanner } from '@/features/outline/ChapterPlanner'
+import { RecipeStoryPlan, StoryBuilderView } from '@/features/storyBuilder/StoryBuilderView'
 import { WorldBuilderView } from '@/features/worldBuilder/WorldBuilderView'
 import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
@@ -58,7 +58,6 @@ import { SampleWorldBar } from '@/features/setup/SampleWorldBar'
 import { useSetup } from '@/features/setup/setupStore'
 // Story recipes
 import { RecipesView } from '@/features/recipes/RecipesView'
-import { RecipePlan } from '@/features/recipes/RecipePlan'
 import { RecipeWatch } from '@/features/recipes/parts'
 import { installSpelling } from '@/features/spelling/install'
 import { installGoals } from '@/features/goals/goalStore'
@@ -244,17 +243,19 @@ function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JS
       {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
       {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
       {view.kind === 'variants' && <VariantsView key={view.sceneId} sceneId={view.sceneId} />}
+      {/* The outline helper and a recipe's plan are the Story builder's outline and idea steps now (one place to build). */}
       {view.kind === 'outline' &&
         (view.chapterId ? (
           <ChapterPlanner key={view.chapterId} storyId={view.storyId} chapterId={view.chapterId} />
         ) : (
-          <OutlineHelper key={view.storyId} storyId={view.storyId} />
+          <StoryBuilderView key={view.storyId} storyId={view.storyId} step="outline" />
         ))}
+      {view.kind === 'storyBuilder' && <StoryBuilderView key={view.storyId} storyId={view.storyId} step={view.step} />}
       {view.kind === 'worldBuilder' && <WorldBuilderView />}
       {view.kind === 'consistency' && <ConsistencyView key={view.storyId} storyId={view.storyId} />}
       {view.kind === 'import' && <ImportView />}
       {view.kind === 'recipes' && <RecipesView page={view.page} recipeId={view.recipeId} />}
-      {view.kind === 'recipePlan' && <RecipePlan key={view.storyId} storyId={view.storyId} recipeId={view.recipeId} />}
+      {view.kind === 'recipePlan' && <RecipeStoryPlan key={view.storyId} storyId={view.storyId} recipeId={view.recipeId} />}
       {/* The desk's story board (the Plan room's front page; only ever opened on the desk). */}
       {view.kind === 'board' && <StoryBoard key={view.storyId} storyId={view.storyId} chapterId={view.chapterId} ideasFor={view.ideasFor} />}
     </>

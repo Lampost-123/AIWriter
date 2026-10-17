@@ -102,10 +102,10 @@ export function planLinks(c: LinkContext): AreaLink[] {
     {
       id: 'outline',
       label: 'Outline helper',
-      hint: 'Acts, chapters and scene cards suggested from your premise',
+      hint: 'The Story builder’s outline: acts, chapters and scene cards suggested from your idea',
       icon: ListTree,
       disabled: !c.storyId,
-      active: !!planning && !planning.chapterId,
+      active: (!!planning && !planning.chapterId) || (c.view.kind === 'storyBuilder' && c.view.step === 'outline'),
       run: () => c.storyId && openOutlineHelper(c.storyId)
     },
     {
@@ -127,7 +127,17 @@ export function planLinks(c: LinkContext): AreaLink[] {
       run: openSceneCard
     },
     { id: 'threads', label: 'Plot threads board', icon: Spool, active: is(c.view, 'threads'), run: () => go({ kind: 'threads' }) },
-    { id: 'recipes', label: 'Story recipes', icon: CookingPot, active: is(c.view, 'recipes') || is(c.view, 'recipePlan'), run: openRecipes }
+    { id: 'recipes', label: 'Story recipes', icon: CookingPot, active: is(c.view, 'recipes') || is(c.view, 'recipePlan'), run: openRecipes },
+    // Last, so the places that pick links by position keep theirs (layout/desk/RoomFrame.tsx).
+    {
+      id: 'storyBuilder',
+      label: 'Story builder',
+      hint: 'Build the story with the AI in one place: your idea, then the whole cast and world, then the outline',
+      icon: WandSparkles,
+      disabled: !c.storyId,
+      active: c.view.kind === 'storyBuilder' && c.view.step !== 'outline',
+      run: () => c.storyId && go({ kind: 'storyBuilder', storyId: c.storyId })
+    }
   ]
 }
 

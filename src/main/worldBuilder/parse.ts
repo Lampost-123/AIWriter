@@ -5,6 +5,7 @@
 
 import type { EntryKind, ID } from '@shared/types'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
+import type { WorldPlanItem } from '@shared/contracts/worldBuilder'
 import { bool, str, strList } from '../keeper/json'
 import { estimateTokens, mentionAt, sentences, splitLong } from '../keeper/text'
 import { hisWordsIn, quickStartView } from '../builder/profile'
@@ -19,22 +20,8 @@ export const BUILD_KINDS: EntryKind[] = ['character', 'place', 'group', 'item', 
  */
 export const asProfileKind = (kind: EntryKind): BuilderKind => kind as BuilderKind
 
-/** One thing the summary names, as the first look at it lists it. */
-export interface PlanItem {
-  kind: EntryKind
-  name: string
-  aliases: string[]
-  /** What the summary says about it, in a few words. */
-  about: string
-  /** A place: the place it is inside, by name ('' when none). */
-  in: string
-  /** Lore the summary states as absolute: a rule never to break. */
-  rule: boolean
-  /** An event: when it happens, in the summary's words ('' when it doesn't say). */
-  when: string
-  /** An event: the numbered scene of the story's plan it happens in ("Scene 4"; '' when none). */
-  scene: string
-}
+/** One thing the summary names, as the first look at it lists it (the shape is shared with the Story builder's codex list). */
+export type PlanItem = WorldPlanItem
 
 const loose = (s: string): string => s.toLowerCase().replace(/[^a-z]/g, '')
 
@@ -87,6 +74,24 @@ export function overviewItems(value: unknown): PlanItem[] {
       const item = planItem(kind, raw)
       if (item) out.push(item)
     }
+  }
+  return out
+}
+
+/**
+ * A plan given with a build (the Story builder's codex list), checked as the first look's reply is: each item of a
+ * kind a build lays out, with a name, and the rest of its parts cleaned. At most 300.
+ */
+export function givenPlan(value: unknown): PlanItem[] {
+  if (!Array.isArray(value)) return []
+  const out: PlanItem[] = []
+  for (const raw of value.slice(0, 300)) {
+    if (!isObject(raw) || typeof raw.kind !== 'string' || !BUILD_KINDS.includes(raw.kind as EntryKind)) continue
+    const kind = raw.kind as EntryKind
+    const item = planItem(kind, raw)
+    if (!item) continue
+    if (kind === 'event') item.scene = str(raw.scene, 60)
+    out.push(item)
   }
   return out
 }

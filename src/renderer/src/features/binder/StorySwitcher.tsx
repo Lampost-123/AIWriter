@@ -21,7 +21,7 @@ import { useApp } from '@/lib/store'
 import { installFlowEvents } from '@/features/stories/flows'
 import { useStoryLabels, useStoryLabelsLoader } from '@/features/stories/labels'
 import { openStory, openStorySettings } from '@/features/stories/storyActions'
-import { openOutlineHelper } from '@/features/outline/open'
+import { openOutlineHelper, openStoryBuilderFor } from '@/features/outline/open'
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { inShelfOrder } from '@/features/stories/storiesLogic'
 import { canBuildMemory, offerMemory, startImport, useImport } from '@/features/importing/importStore'
@@ -191,6 +191,12 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
                       <PenLine size={14} />
                     </span>
                     Rename this story
+                  </M.Item>
+                  <M.Item onSelect={() => openStoryBuilderFor(story.id)} className={cn(item, 'shrink-0')}>
+                    <span className="flex w-4 justify-center text-muted">
+                      <ListTree size={14} />
+                    </span>
+                    Story builder
                   </M.Item>
                   <M.Item onSelect={() => openOutlineHelper(story.id)} className={cn(item, 'shrink-0')}>
                     <span className="flex w-4 justify-center text-muted">

@@ -2,7 +2,7 @@ import { memo, useId } from 'react'
 import { genreLabel } from '@shared/genres'
 import type { EffectiveStyle } from '@shared/style'
 import type { StyleGuide } from '@shared/types'
-import { Field } from '@/components/ui'
+import { Field, toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { AiPhrasesSwitch } from './AiPhrasesSwitch'
@@ -10,6 +10,18 @@ import { GenreBlurbs, GenreTiles } from './GenreTiles'
 import { IntensityControls } from './IntensityControls'
 import { genreHint, intensityIntro, pickGenre, shownGenres, type FeelMode } from './feelLogic'
 import { Group, short } from './StyleFields'
+import { StylePresets } from './StylePresets'
+import type { StylePreset } from '@shared/stylePresets'
+
+/** What a preset changes in a style guide. */
+const presetPatch = (p: StylePreset): Partial<StyleGuide> => ({
+  pov: p.style.pov,
+  tense: p.style.tense,
+  proseStyle: p.style.proseStyle,
+  genres: [...p.style.genres],
+  genreNotes: p.style.genreNotes,
+  intensity: { ...p.style.intensity }
+})
 
 const NOTES_PLACEHOLDER = 'Folk horror more than gothic. Magic is rare and frightening.'
 
@@ -41,6 +53,22 @@ export const StoryFeel = memo(function StoryFeel({
 
   return (
     <Group title="Story feel">
+      <StylePresets
+        value={value}
+        onPick={(p) => {
+          const before: Partial<StyleGuide> = {
+            pov: value.pov,
+            tense: value.tense,
+            proseStyle: value.proseStyle,
+            genres: [...value.genres],
+            genreNotes: value.genreNotes,
+            intensity: { ...value.intensity }
+          }
+          onChange(presetPatch(p))
+          toast(`Set the style to “${p.label}”.`, { action: { label: 'Undo', run: () => onChange(before) } })
+        }}
+      />
+
       <div className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between gap-3">
           <span id={ids.genre} className="text-[12px] font-medium text-muted">

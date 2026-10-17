@@ -84,6 +84,7 @@ import { askToolCalls } from './m4/ask.mjs'
 import { chapterToolCalls } from './chapter.mjs'
 import { m5Reply } from './m5/index.mjs'
 import { recipeReply } from './recipes.mjs'
+import { storyReply } from './story.mjs'
 import { critiqueReply } from './critique.mjs'
 import { repairReply } from './repair.mjs'
 
@@ -502,6 +503,8 @@ export async function startFakeProvider(options = {}) {
     memory ??= continuityReply(system, firstUser)
     memory ??= repairReply(system, firstUser)
     memory ??= recipeReply(system, messages, model)
+    // The Story builder, answered by story.mjs.
+    memory ??= storyReply(system, messages)
     // The scene and chapter critic, answered by critique.mjs.
     memory ??= critiqueReply(system, firstUser, model)
     // fake/prude turns down whatever has the word EXPLICIT in it, in so many words (a reply that finishes as usual, not a

@@ -29,7 +29,7 @@ import { openAsk } from '@/features/ask/open'
 import { setSpineFull, toggleFlyout } from '@/features/desk/deskStore'
 import { FULL_FROM } from '@/layout/desk/deskFit'
 import { deskOn } from '@/features/look/look'
-import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
+import { openChapterInterview, openOutlineHelper, openStoryBuilderFor } from '@/features/outline/open'
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
 import { openCastSettings, stopReading, toggleListen } from '@/features/readAloud/control'
 import { openEntryVoice } from '@/features/readAloud/voiceReveal'
@@ -299,6 +299,9 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'outline-helper':
         if (a.storyId) openOutlineHelper(a.storyId)
+        return
+      case 'story-builder':
+        if (a.storyId) openStoryBuilderFor(a.storyId)
         return
       case 'scene-ideas':
         if (!a.sceneId) return

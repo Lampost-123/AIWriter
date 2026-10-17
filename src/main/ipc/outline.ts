@@ -18,6 +18,9 @@ import { startIdeasJob, startOutlineJob, type JobDeps } from '../outline/jobs'
 import { isBlankPlan, storyPlan } from '../outline/context'
 import { askPlanQuestion, fillSceneCard, startChapterPlan } from '../outline/interview'
 import { cancelBuildFor } from '../worldBuilder/run'
+import { readBrief } from '../storyBuilder/brief'
+import { hasIdea, startStoryOutline } from '../storyBuilder/jobs'
+import { storyBuilderDeps } from './storyBuilder'
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
 function write<T>(fn: () => T): T {
@@ -82,7 +85,13 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
   joinActBack: (id) => write(() => acts.joinActBack(world.db(), id)),
 
   outlineBlank: (storyId) => isBlankPlan(storyPlan(world.db(), storyId)),
-  startOutline: (input) => startOutlineJob(jobDeps(), input),
+  startOutline: (input) => {
+    // A story with an idea in the Story builder (its plot, Adam's own entries or a recipe) is planned from it, with its
+    // style and the cast and world made for it (2026-10-17); the outline helper's own request otherwise.
+    const brief = readBrief(world.db(), String(input?.storyId ?? ''))
+    if (hasIdea(brief)) return startStoryOutline(storyBuilderDeps(), input, brief)
+    return startOutlineJob(jobDeps(), input)
+  },
   keepOutline: (storyId, items) => {
     const kept = write(() => keepOutline(world.db(), storyId, items ?? []))
     madeChanged(kept)

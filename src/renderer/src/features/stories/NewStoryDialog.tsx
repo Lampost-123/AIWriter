@@ -81,6 +81,7 @@ function NewStoryForm(): React.JSX.Element {
   /** The story was made: its first scene takes the keyboard (see createStory). */
   const made = useRef(false)
   const [recipe, setRecipe] = useRecipePick()
+  const [withAi, setWithAi] = useState(false)
 
   const seriesId = isNew ? null : seriesChoice
 
@@ -243,12 +244,17 @@ function NewStoryForm(): React.JSX.Element {
       setCreateError(error)
       return
     }
-    // From a recipe: the story takes its style (if Adam left that ticked) and the AI lays it out.
+    // The Story builder next (2026-10-17): from a recipe, the story follows it (taking its style, if Adam left that
+    // ticked), with his ideas as the start of the plot.
     const storyId = useApp.getState().storyId
-    if (recipe.recipeId && storyId) {
+    if (!storyId) return
+    if (recipe.recipeId) {
+      // The recipe's own plan page first (the Story builder's outline step for it); the story follows the recipe.
       const chapters = useRecipes.getState().list?.find((r) => r.id === recipe.recipeId)?.chapters ?? 0
       void startFromRecipe({ storyId, recipeId: recipe.recipeId, guidance: recipe.guidance.trim(), useStyle: recipe.useStyle, size: sizeForRecipe(chapters) })
+      return
     }
+    if (withAi) useApp.getState().navigate({ kind: 'storyBuilder', storyId, step: 'idea' })
   }
 
   const seriesOptions = (series ?? []).map((s) => ({ value: s.id, label: s.name.trim() || 'Untitled series' }))
@@ -269,6 +275,21 @@ function NewStoryForm(): React.JSX.Element {
       width={620}
       footer={
         <>
+          {/* The Story builder next: give it the plot and it plans the cast, the world and the outline (2026-10-17). */}
+          <label
+            className="mr-auto flex items-center gap-2 text-[12.5px] text-muted"
+            title="Opens the Story builder: give it your plot and it plans the whole cast and world, then the outline."
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-[var(--color-accent)]"
+              checked={withAi || !!recipe.recipeId}
+              disabled={!!recipe.recipeId}
+              onChange={(e) => setWithAi(e.target.checked)}
+              data-build-with-ai
+            />
+            Build it with the AI next
+          </label>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Cancel
           </Button>
