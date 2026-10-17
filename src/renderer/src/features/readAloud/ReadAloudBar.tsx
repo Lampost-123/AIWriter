@@ -1,7 +1,7 @@
 // The player bar above the page while reading: Back one line, Play or Pause (the big coloured button), Next line and
 // Stop; who is speaking and how ("Mara · quiet and wary"), with the chapter and scene it is reading ("Chapter 3 · The
-// Ferry", which brings the line being read into view) and the paragraph it is in; the speed; whether Emotion and
-// tone is on; Close; and a thin line along its foot showing how far through the scene reading is. Rendered by
+// Ferry", which brings the line being read into view) and the paragraph it is in; the speed; whether Follow along
+// and Emotion and tone are on; Close; and a thin line along its foot showing how far through the scene reading is. Rendered by
 // SceneView between the scene header and the page. Owned by the Read aloud part.
 //
 // It lies over the top edge of the page rather than pushing the page down, so the words never move when it
@@ -13,7 +13,7 @@
 import * as M from '@radix-ui/react-dropdown-menu'
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
-import { Check, ChevronDown, CircleAlert, Drama, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, X } from '@/components/ui/icons'
+import { ArrowDownToLine, Check, ChevronDown, CircleAlert, Drama, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, X } from '@/components/ui/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
 import { Button, Spinner } from '@/components/ui'
@@ -36,6 +36,7 @@ import {
   resumeReading,
   saveSpeech,
   sceneShown,
+  setFollowAlong,
   setSpeed,
   showReading,
   skipLine,
@@ -172,6 +173,7 @@ export function ReadAloudBar({
               {/* Sound effects: mute the scene being read (only while they are on). */}
               <SceneMuteButton sceneId={readingScene} />
               <SpeedMenu />
+              <FollowChip />
               <ToneChip />
             </div>
           ) : null}
@@ -445,6 +447,40 @@ function SpeedMenu(): React.JSX.Element {
         </M.Content>
       </M.Portal>
     </M.Root>
+  )
+}
+
+/**
+ * "Follow along: On" (or Off): whether the page moves to keep the line being read in view. Clicking it turns it on or
+ * off at once; off, the page stays wherever Adam scrolls (the chapter and scene under who is speaking still bring the
+ * line into view when asked).
+ */
+function FollowChip(): React.JSX.Element | null {
+  const on = useApp((s) => s.settings?.speech.followAlong)
+  if (on == null) return null
+  const title = on
+    ? 'Follow along: On. The page moves to keep the line being read in view. Click to keep the page still.'
+    : 'Follow along: Off. The page stays where you put it. Click to keep the line being read in view.'
+  return (
+    <button
+      type="button"
+      aria-label={`Follow along: ${onOff(on)}`}
+      aria-pressed={on}
+      title={title}
+      onClick={() => setFollowAlong(!on)}
+      className={cn(
+        'flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium outline-none transition-colors duration-150',
+        'focus-visible:ring-2 focus-visible:ring-accent/50',
+        on ? 'border-accent/35 bg-accent/10 text-accent hover:border-accent/70' : 'border-line-strong bg-surface-2 text-muted hover:text-fg'
+      )}
+    >
+      <ArrowDownToLine size={14} className="shrink-0" aria-hidden />
+      <span className="whitespace-nowrap">
+        <span className="hidden @min-[640px]:inline">Follow along: </span>
+        <span className="hidden @min-[440px]:inline @min-[640px]:hidden">Follow: </span>
+        <span className={on ? 'font-semibold' : undefined}>{onOff(on)}</span>
+      </span>
+    </button>
   )
 }
 
