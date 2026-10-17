@@ -1,5 +1,6 @@
-<!-- version: 0.7.9 -->
-What's new in 0.7.9:
+<!-- version: 0.7.10 -->
+What's new in 0.7.10:
 
-- New in Settings, Models: Automatic checks. Switch off the checks the AI runs by itself to save on costs: checking a scene when you mark it done, checking each draft after it lands, the second opinion on what checks find, and the critic when writing a whole chapter. "Turn them all off" does it in one click.
-- Check and the Critique tab still work whenever you ask.
+- Building a story's world costs about half as much, with the AI given the same information: repeated parts are reused, voices come in one go, and other stories' pages aren't refilled each time.
+- Characters and places named in a kept outline now get full profiles, as rich as the rest.
+- The cost shown before a build is closer to what it really costs.
