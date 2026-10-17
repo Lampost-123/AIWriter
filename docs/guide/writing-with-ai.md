@@ -207,6 +207,10 @@ You never have to use the AI. Everything you type saves as you go (Ctrl+S saves 
   **Whole word**.
 - **Spelling**: misspelt words are underlined. Right-click one for suggestions. The names in your world count as
   correct. Turn it off in **Settings › Editor**.
+- **Right-click menu**: right-click in the page for **Ask about this paragraph** and, when read aloud is on,
+  **Listen from here**. Select some words first and it offers **Ask about this**, **Edit this** and the AI tools
+  under **Rewrite** (Expand, Condense, More vivid, Change tone, Alternatives, Continue after these words), the same
+  as the bar over selected words. Cut, Copy and Paste are at the foot.
 - **Word counts**: click **Saved** in the top bar (it shows the scene's words) for the word counts and today's
   writing. Set a daily target in
   **Settings › Editor** under **Daily word target**.

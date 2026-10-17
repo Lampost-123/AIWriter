@@ -115,6 +115,9 @@ export function quoteSpans(paragraph: string): QuoteSpan[] {
 }
 
 /** True when the text has a line of dialogue in it. */
+/** The tones Change tone offers with a click (the bar's menu and the right-click menu); any other can be typed in the bar. */
+export const EDIT_TONES = ['Tense', 'Warm', 'Cold', 'Playful', 'Dark', 'Gentle', 'Formal', 'Casual']
+
 export const hasDialogue = (text: string): boolean => text.split(/\n/).some((p) => quoteSpans(p).length > 0)
 
 // ---------- Line breaks ----------

@@ -3,7 +3,8 @@
 //    underlines go at once (Chromium's checker is also switched in the main process).
 //  - A right-click in the page notes the word under the pointer (or the one word selected) for the main
 //    process, which builds the menu; a synonym picked there comes back (spelling:replaceWord) and is put in
-//    place of that word as one step Ctrl+Z takes back, with the word's capitals.
+//    place of that word as one step Ctrl+Z takes back, with the word's capitals. The same note says what AI
+//    Write's own actions can offer there (pageMenu.ts).
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
@@ -14,6 +15,7 @@ import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
+import { notePageMenu } from './pageMenu'
 
 /** The word noted at the last right-click in the page, and where it is. */
 interface Noted {
@@ -66,14 +68,15 @@ export function wordUnder(view: EditorView, x: number, y: number): { word: strin
 /** Tells the main process which word the right-click is on (null for none), just before its menu is built. */
 function noteRightClick(view: EditorView, e: MouseEvent): void {
   const sceneId = editorBridge()?.sceneId ?? null
+  const page = notePageMenu(view, sceneId, e.clientX, e.clientY)
   const found = sceneId && view.editable ? wordUnder(view, e.clientX, e.clientY) : null
   if (!found || !sceneId) {
     noted = null
-    void api.noteContextWord({ x: e.clientX, y: e.clientY, word: null }).catch(() => undefined)
+    void api.noteContextWord({ x: e.clientX, y: e.clientY, word: null, page }).catch(() => undefined)
     return
   }
   noted = { token: ++tokens, word: found.word, sceneId, from: found.from, to: found.to, view }
-  void api.noteContextWord({ x: e.clientX, y: e.clientY, word: { token: noted.token, word: found.word, sceneId } }).catch(() => undefined)
+  void api.noteContextWord({ x: e.clientX, y: e.clientY, word: { token: noted.token, word: found.word, sceneId }, page }).catch(() => undefined)
 }
 
 /** Puts a synonym picked in the right-click menu in place of the word it was for. */

@@ -4,11 +4,14 @@
 //    marks those words so they show no underline (knownWords.ts).
 //  - "Add to this world's glossary" makes a glossary entry named after the word, with Undo in a message.
 //  - A synonym picked in the menu is put into the page (editorSpelling.ts).
+//  - One of AI Write's own actions picked in the menu (Ask about this, the AI tools, Listen from here) is carried out
+//    in the page (pageMenu.ts).
 import { toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { replaceNoted } from './editorSpelling'
 import { setKnownWords } from './knownWords'
+import { runPageAction } from './pageMenu'
 
 /** What spell check depends on in the window: a change to any of these syncs it. */
 function syncKey(): string {
@@ -70,6 +73,7 @@ export function installSpelling(): () => void {
   const offApp = useApp.subscribe(sync)
   const offReplace = onEvent('spelling:replaceWord', ({ token, replacement }) => replaceNoted(token, replacement))
   const offGlossary = onEvent('spelling:addToGlossary', ({ word }) => void addToGlossary(word))
+  const offPage = onEvent('spelling:pageAction', ({ token, action }) => runPageAction(token, action))
   const offWords = onEvent('spelling:wordsChanged', ({ knownWords }) => setKnownWords(knownWords))
   // A right-click anywhere but the page: the menu needn't wait to hear which word it is on (the page says itself).
   const onContextMenu = (e: MouseEvent): void => {
@@ -81,6 +85,7 @@ export function installSpelling(): () => void {
     offApp()
     offReplace()
     offGlossary()
+    offPage()
     offWords()
     window.removeEventListener('contextmenu', onContextMenu, true)
     if (timer) clearTimeout(timer)

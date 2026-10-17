@@ -18,15 +18,12 @@ import {
   WandSparkles
 } from '@/components/ui/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { hasDialogue } from '@shared/contracts/edits'
+import { EDIT_TONES, hasDialogue } from '@shared/contracts/edits'
 import type { EditTool } from '@shared/types'
 import { IconButton, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { markWords, startTool, waitingSuggestion } from './session'
-
-/** The tones offered with a click; any other can be typed. */
-const TONES = ['Tense', 'Warm', 'Cold', 'Playful', 'Dark', 'Gentle', 'Formal', 'Casual']
 
 export function AiTools({
   editor,
@@ -262,7 +259,7 @@ export function AiTools({
                 <span className="text-[12.5px] font-semibold text-fg">Change tone</span>
               </div>
               <div className="flex flex-wrap gap-1.5 px-1 pb-2">
-                {TONES.map((t) => (
+                {EDIT_TONES.map((t) => (
                   <button
                     key={t}
                     type="button"
