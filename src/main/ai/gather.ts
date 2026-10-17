@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3'
 import { keptStateBefore, storedStateAt, type SceneState } from '../continuity/tracker'
 import type { DraftOptions, ID, WritingPrefs } from '@shared/types'
 import { cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
+import { chapterTarget, sceneAim } from '@shared/lengths'
 import { effectiveStyle } from '@shared/style'
 import * as repo from '../db/repo'
 import { getBlockModes, pinsForScene } from '../db/memory'
@@ -48,6 +49,26 @@ export function cleanOptions(
   }
 }
 
+/** Options with Auto (null) given the scene's own aim (sceneLengthFor), which may itself be Auto. */
+export const withAim = (o: DraftOptions, aim: () => number | null): DraftOptions => (o.targetWords === null ? { ...o, targetWords: aim() } : o)
+
+/**
+ * The length this scene aims for when a draft doesn't say (shared/lengths.ts): the card's own, else its share of the
+ * chapter's target, else the default scene length in Settings › Writing; null is Auto.
+ * `useCard: false`: a draft on Auto by choice (its options' length null), which passes over the card's own length.
+ */
+export function sceneLengthFor(db: DB, sceneId: ID, prefs: WritingPrefs, o: { useCard?: boolean } = {}): number | null {
+  const cardWords = o.useCard === false ? null : cardLength(repo.getScene(db, sceneId).card)
+  if (cardWords != null) return cardWords
+  const { chapter } = repo.sceneLocation(db, sceneId)
+  const chapterTotal = chapterTarget(repo.getChapterCard(db, chapter.id), prefs)
+  const others =
+    chapterTotal != null
+      ? [...repo.sceneCards(db, repo.sceneIds(db, chapter.id).filter((id) => id !== sceneId)).values()].map((c) => cardLength(c))
+      : []
+  return sceneAim({ cardWords, chapterTotal, others, prefs })
+}
+
 /**
  * Everything the briefing for this scene is built from. Options left out fall
  * back to the scene card's length (Auto unless Adam set one) and the default creativity preset.
@@ -76,7 +97,9 @@ export function gatherContextInput(
     world: { themes: repo.getMeta(db, 'themes') ?? '', tone: repo.getMeta(db, 'tone') ?? '' },
     series: series ? { name: series.name, themes: series.themes, tone: series.tone } : null,
     story: { title: story.title, premise: story.premise, themes: story.themes, tone: story.tone },
-    options: cleanOptions(options, { targetWords: cardLength(scene.card), creativity: extra.creativity }),
+    options: withAim(cleanOptions(options, { targetWords: null, creativity: extra.creativity }), () =>
+      sceneLengthFor(db, sceneId, extra.prefs, { useCard: options?.targetWords !== null })
+    ),
     contextLength: extra.contextLength,
     maxOutput: extra.maxOutput ?? null,
     // Where things stand as the previous scene ended, if it still stands (brought up to date before a draft).

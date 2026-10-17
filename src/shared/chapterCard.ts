@@ -14,6 +14,7 @@
 
 import type { CarryField, ChapterCard, ID, Inherits, SceneCard } from './types'
 import { cardLength, OLD_DEFAULT_LENGTH } from './defaults'
+import { CHAPTER_TARGET_LIMITS, cleanTarget } from './lengths'
 
 /** A chapter card's key in the world's meta table is this and the chapter's id. */
 export const CHAPTER_CARD_PREFIX = 'chapter_card:'
@@ -53,6 +54,7 @@ export function cleanChapterCard(v: unknown): ChapterCard {
   const x = (v && typeof v === 'object' ? v : {}) as Partial<Record<keyof ChapterCard, unknown>>
   const words = Math.round(Number(x.targetWords))
   const okWords = Number.isFinite(words) && words >= 100 && words <= 20000
+  const total = cleanTarget(x.totalWords, CHAPTER_TARGET_LIMITS)
   const present = Array.isArray(x.presentIds) ? [...new Set(x.presentIds.filter(isId))].slice(0, CHAPTER_CARD_LIMITS.present) : []
   return {
     povId: isId(x.povId) ? x.povId : null,
@@ -63,7 +65,8 @@ export function cleanChapterCard(v: unknown): ChapterCard {
     targetWords: okWords ? words : OLD_DEFAULT_LENGTH,
     // As cardLength reads it: a card with no mark has a length set unless it is the old default.
     lengthSet: okWords && (typeof x.lengthSet === 'boolean' ? x.lengthSet : words !== OLD_DEFAULT_LENGTH),
-    notes: text(x.notes, CHAPTER_CARD_LIMITS.notes)
+    notes: text(x.notes, CHAPTER_CARD_LIMITS.notes),
+    ...(total != null ? { totalWords: total } : {})
   }
 }
 
@@ -86,7 +89,7 @@ export function isFieldEmpty(card: CardLike, f: CarryField): boolean {
 }
 
 /** Every part of the chapter card is empty: the chapter has no card. */
-export const chapterCardEmpty = (c: CardLike): boolean => CARRY_FIELDS.every((f) => isFieldEmpty(c, f))
+export const chapterCardEmpty = (c: CardLike): boolean => c.totalWords == null && CARRY_FIELDS.every((f) => isFieldEmpty(c, f))
 
 const sameIds = (a: ID[] | undefined, b: ID[] | undefined): boolean => {
   const x = [...(a ?? [])].sort()

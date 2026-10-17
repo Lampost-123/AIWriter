@@ -368,7 +368,8 @@ export function sceneWordCounts(db: DB, ids: ID[]): Map<ID, number> {
   return out
 }
 
-function sceneIds(db: DB, chapterId: ID): ID[] {
+/** The live scenes of a chapter, in order. */
+export function sceneIds(db: DB, chapterId: ID): ID[] {
   return (db.prepare('SELECT id FROM scenes WHERE chapter_id = ? AND deleted_at IS NULL ORDER BY position').all(chapterId) as Row[]).map(
     (r) => r.id as string
   )

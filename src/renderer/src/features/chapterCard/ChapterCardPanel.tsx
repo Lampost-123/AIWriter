@@ -18,8 +18,20 @@ import { useSlow } from '@/features/world/parts/useSlow'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { CastPicker } from '@/features/inspector/CastPicker'
 import { Group, OptionSelect, TargetLength } from '@/features/inspector/SceneCardPanel'
+import { WordTargetInput } from '@/features/inspector/WordTargetInput'
+import { usePrefs } from '@/features/style/prefsStore'
+import { CHAPTER_TARGET_LIMITS } from '@shared/lengths'
 import { ChapterWriterReport } from '@/features/chapterWriter/ChapterWriterReport'
 import { announceChapterCard, endChapterCardBatch, registerChapterCardForm, scenesWord, takeChapterCardFocus } from './chapterCardEvents'
+
+/** Under the chapter target: how far the chapter has got, and where the target comes from. */
+export function chapterTargetHint(own: number | null, fallback: number | null, written: number): string {
+  const target = own ?? fallback
+  const words = (n: number): string => n.toLocaleString('en-GB')
+  if (target == null) return `The whole chapter’s length. ${words(written)} words so far. Its scenes on Auto share it out.`
+  const from = own == null ? ' (your default in Settings › Writing)' : ''
+  return `${words(written)} of ${words(target)} words so far${from}. Its scenes on Auto share it out.`
+}
 
 export function ChapterCardPanel({ chapterId, onClose, closeLabel }: { chapterId: ID; onClose: () => void; closeLabel: string | null }): React.JSX.Element {
   return <ChapterCardForm key={chapterId} chapterId={chapterId} onClose={onClose} closeLabel={closeLabel} />
@@ -30,6 +42,11 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
   const outline = useOutlineStore((s) => s.outline)
   const chapter = outline?.chapters.find((c) => c.id === chapterId) ?? null
   const sceneCount = outline ? outline.scenes.filter((s) => s.chapterId === chapterId).length : null
+  const chapterWords = outline ? outline.scenes.reduce((n, s) => (s.chapterId === chapterId ? n + s.wordCount : n), 0) : 0
+  const prefsChapter = usePrefs((s) => s.prefs?.chapterLength ?? null)
+  useEffect(() => {
+    if (!usePrefs.getState().prefs) void usePrefs.getState().load()
+  }, [])
   const [card, setCard] = useState<ChapterCard | null>(null)
   const [entries, setEntries] = useState<Entry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -206,7 +223,18 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
           <Field label="Mood or tone">
             {(id) => <Input id={id} value={card.mood} placeholder="Quiet and tense, with a bitter edge" onChange={(e) => update({ mood: e.target.value })} />}
           </Field>
-          <Field label="Length" hint="Each scene’s length. Auto lets the AI pick the length a scene needs.">
+          <Field label="Chapter target" hint={chapterTargetHint(card.totalWords ?? null, prefsChapter, chapterWords)}>
+            {(id) => (
+              <WordTargetInput
+                id={id}
+                value={card.totalWords ?? null}
+                onChange={(n) => update({ totalWords: n ?? undefined })}
+                limits={CHAPTER_TARGET_LIMITS}
+                placeholder={prefsChapter != null ? prefsChapter.toLocaleString('en-GB') : 'None'}
+              />
+            )}
+          </Field>
+          <Field label="Length" hint="Each scene’s length. Auto shares out the chapter target, else uses your default in Settings › Writing, else lets the AI pick.">
             {(id) => (
               <TargetLength
                 id={id}

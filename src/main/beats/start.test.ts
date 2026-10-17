@@ -25,7 +25,7 @@ const h = vi.hoisted(() => ({
 }))
 
 vi.mock('../world', () => ({ db: () => h.db }))
-vi.mock('../settings', () => ({ getSettings: () => ({ models: { writer: { contextLength: 32000 } } }) }))
+vi.mock('../settings', () => ({ getSettings: () => ({ models: { writer: { contextLength: 32000 } } }), getWritingPrefs: () => ({}) }))
 vi.mock('../ai/draftFlow', async () => {
   const { gatherContextInput } = await import('../ai/gather')
   const { finishContext, prepareContext, sentEntryVersions } = await import('../ai/context')
