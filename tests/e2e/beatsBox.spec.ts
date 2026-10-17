@@ -62,6 +62,7 @@ async function beatByBeat(win: Page): Promise<void> {
 test('a session whose first beat is still on its way comes back after a restart, ready for that beat, and goes below as Adam chose', async ({
   launch
 }) => {
+  test.setTimeout(240_000)
   const fake = await fakeProvider({ waitMs: 60_000 })
   try {
     const first = await launch({ env: DESK })
@@ -88,7 +89,9 @@ test('a session whose first beat is still on its way comes back after a restart,
     await useWriter(win, fake)
     await expect(status(win)).toHaveText('Beat 1 of 5')
     await barButton(win, 'Write the next beat').click()
-    await expect(status(win)).toHaveText('Beat 2 of 5')
+    // Every draft waits for the memory to finish first (Adam, 2026-10-17): it is reading beat 1 with the slow model it
+    // started with at launch (fake/wait holds back for a minute), so the next beat waits for that, saying so.
+    await expect(status(win)).toHaveText('Beat 2 of 5', { timeout: 150_000 })
     await expect(choiceHeading(win)).toHaveCount(0)
     await expect(prose(win).locator('p').first()).toHaveText(OLD)
     await expect(prose(win)).toContainText('The rain')
