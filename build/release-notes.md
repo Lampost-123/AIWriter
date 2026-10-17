@@ -1,7 +1,5 @@
-<!-- version: 0.7.3 -->
-What's new in 0.7.3:
+<!-- version: 0.7.4 -->
+What's new in 0.7.4:
 
-- Connect your Anthropic API key to use Claude directly (Settings › Models › Add a provider › Anthropic).
-- Give a chapter a target length on its chapter card and see how far it has got. Scenes on Auto share it out.
-- Settings › Writing has a default scene length and chapter length.
-- Drafts now wait for the memory to finish reading earlier scenes first. Variants still don't wait long, and the memory reads none until you pick one.
+- A new story starts with its codex filled in. When you keep an outline (from the outline helper or a recipe), its characters, places and plot threads get pages, linked from the scene cards.
+- The World builder then fills in looks, personality, voice and goals for each character, plus places, groups, items and lore, in the background. Your own pages are never changed.
