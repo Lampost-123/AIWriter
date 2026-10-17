@@ -177,6 +177,16 @@ export function setSpeed(speed: number): void {
   saveSpeech({ speed })
 }
 
+/**
+ * Follow along from the bar: on, the page keeps the line being read in view (and brings it there now); off, the page
+ * stays where Adam puts it. Saved as Follow along (Settings › Read aloud and dictation).
+ */
+export function setFollowAlong(on: boolean): void {
+  saveSpeech({ followAlong: on })
+  const { sceneId } = useReading.getState()
+  if (on && sceneId && !session?.isAway) bringLine(sceneId)
+}
+
 /** Sound effects: the scene's sounds changed for the whole reading (muted, or back on): its next lines are planned again. */
 export function replanReading(): void {
   session?.settingsChanged()

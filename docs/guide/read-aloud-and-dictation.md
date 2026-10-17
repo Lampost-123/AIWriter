@@ -44,8 +44,9 @@ When it's running, the speech engine shows **Connected**.
    **Listen** is in the toolbar). Press Ctrl+L again to pause and carry on.
 3. Press Ctrl+Shift+Space to stop.
 
-The sentence being read is highlighted. With **Follow along** on, the page scrolls to keep it in view. With
-**Keep reading** on, it carries on into the next scene when one ends.
+The sentence being read is highlighted. With **Follow along** on, the page scrolls to keep it in view. To keep the
+page still while it reads, click **Follow along: On** in the reading bar to turn it off (click it again to turn it
+back on). With **Keep reading** on, it carries on into the next scene when one ends.
 
 ### Give characters their own voices
 

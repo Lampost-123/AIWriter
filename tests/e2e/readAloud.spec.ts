@@ -6,8 +6,8 @@
 //    sentence, Ctrl+L pauses and carries on, her line is read in her own voice, Ctrl+Shift+Space stops, Carry on and
 //    Close, and reading on to the end of the story.
 //  - The player bar: Next line and Back one line step through the lines (the highlight and "Paragraph 2 of 5"
-//    follow), the speed list is heard and saved, and Emotion and tone says Off, then On once turned on from the bar
-//    (and Settings says so beside Mark who says what).
+//    follow), the speed list is heard and saved, Follow along turns off and on from the bar, and Emotion and tone says
+//    Off, then On once turned on from the bar (and Settings says so beside Mark who says what).
 //  - Settings: the narrator's voices with Hear, Sample, picking another voice and the saved audio; Listen from here
 //    reads from the selected words in the voice picked.
 //  - Editing while it reads: the next lines are read as they now stand. Keep reading goes on into the next scene.
@@ -238,7 +238,7 @@ const PARTS = Array.from(
     `Part ${i + 1}. The tide crept in over the stones of the old harbour wall while the gulls argued above the boats and the lamps came on one by one along the quay.`
 )
 
-test('the player bar: Next line and Back one line, the speed, and Emotion and tone', async ({ launch }) => {
+test('the player bar: Next line and Back one line, the speed, Follow along, and Emotion and tone', async ({ launch }) => {
   test.setTimeout(120_000)
   const speech = await startSpeech()
   try {
@@ -288,6 +288,15 @@ test('the player bar: Next line and Back one line, the speed, and Emotion and to
     await expect(bar).toContainText('Stopped.')
     await expect(bar.getByRole('button', { name: 'Next line' })).toBeDisabled()
     await expect(bar.getByRole('button', { name: 'Carry on' })).toBeEnabled()
+
+    // Follow along: On, and turns off (and on again) from the bar, saved at once.
+    const follow = bar.getByRole('button', { name: 'Follow along: On' })
+    await expect(follow).toHaveAttribute('aria-pressed', 'true')
+    await follow.click()
+    await expect.poll(async () => (await invoke(win, 'getSettings')).speech.followAlong).toBe(false)
+    await expect(bar.getByRole('button', { name: 'Follow along: Off' })).toHaveAttribute('aria-pressed', 'false')
+    await bar.getByRole('button', { name: 'Follow along: Off' }).click()
+    await expect.poll(async () => (await invoke(win, 'getSettings')).speech.followAlong).toBe(true)
 
     // Emotion and tone: Off, says what it does, and turns on from the bar; Settings says so beside its switch.
     const tone = bar.getByRole('button', { name: 'Emotion and tone: Off' })
