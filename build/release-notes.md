@@ -1,6 +1,6 @@
-<!-- version: 0.7.4 -->
-What's new in 0.7.4:
+<!-- version: 0.7.5 -->
+What's new in 0.7.5:
 
-- A new story starts with its codex filled in. When you keep an outline (from the outline helper or a recipe), its characters, places and plot threads get pages, linked from the scene cards.
-- The World builder then fills in looks, personality, voice and goals for each character, plus places, groups, items and lore, in the background. Your own pages are never changed.
-- Rooms go inside their building: "Kitchen, Venn House" makes a kitchen page inside the house.
+- A story planned from a recipe now starts with its characters built: each gets a bio, looks, personality and voice, plus the places the story needs. Your own pages are never changed.
+- Right-click in a scene for Ask about this paragraph and Listen from here. Select words first for Ask about this, Edit this and the Rewrite tools.
+- Reading aloud can keep the page still: turn Follow along off in the reading bar.

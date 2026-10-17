@@ -7,7 +7,8 @@
 //            content come as "Genres: mystery, Cosy. Violence: restrained. ..." (read back as Mystery and Cosy).
 //   fix      The parts it was given, with every name listed in "Leave out these names: ..." replaced by "the lead".
 //   story    "Premise: ..." (it carries the guidance under "## My guidance"), then the plan in the outline helper's
-//            form: "Plan the new story: the premise, then 2 acts with 4 chapters in all ... and 2 scenes in each chapter"
+//            form ("[[fake: named cast]]" in the guidance names Ada Lorne and Bram Holt only in the premise and summaries):
+//            "Plan the new story: the premise, then 2 acts with 4 chapters in all ... and 2 scenes in each chapter"
 //            gives two acts sharing four chapters, two scenes each; "... 3 chapters with 2 scenes in each. No acts." none.
 // The model fake/recipe-fail fails every chapter call (an HTTP 500 is the server's; here: an empty answer).
 
@@ -83,13 +84,17 @@ function story(user) {
   const acts = Number(ask.match(/then (\d+) acts? with/)?.[1] ?? 0)
   const chapters = Number(ask.match(/(\d+) chapters? (?:in all|with)/)?.[1] ?? 3)
   const scenes = Number(ask.match(/(\d+) scenes? in each/)?.[1] ?? 2)
-  const out = [`Premise: A newcomer finds a place to belong. ${guidance && !guidance.startsWith('None') ? `Set as asked: ${guidance.replace(/\s+/g, ' ')}` : ''}`.trim(), '']
+  // "[[fake: named cast]]" in the guidance: the cast is named only in the premise and summaries, with no "Characters:"
+  // lines on the chapter cards, as a real model often answers.
+  const named = guidance.includes('[[fake: named cast]]')
+  const opening = named ? 'A town at the edge of the sea. Ada Lorne is a newcomer who keeps the old light. Bram Holt owes the harbour master.' : 'A newcomer finds a place to belong.'
+  const out = [`Premise: ${opening} ${guidance && !guidance.startsWith('None') ? `Set as asked: ${guidance.replace(/\s+/g, ' ')}` : ''}`.trim(), '']
   let c = 0
   const chapter = () => {
     const title = CHAPTERS[c % CHAPTERS.length]
     out.push(`## Chapter: ${title}`, `Goal: The newcomer moves one step closer to staying.`, '')
     for (let s = 0; s < scenes; s++) {
-      out.push(`### Scene: ${title} ${['at first light', 'by the water', 'after dark', 'in the rain'][s % 4]}`, `When: Day ${c + 1}, ${TIMES[s % 4]}`, 'Summary: Something small changes.', '- A choice is offered', '- It is refused', '- The cost shows', '')
+      out.push(`### Scene: ${title} ${['at first light', 'by the water', 'after dark', 'in the rain'][s % 4]}`, `When: Day ${c + 1}, ${TIMES[s % 4]}`, named ? 'Summary: Ada Lorne and Bram Holt quarrel.' : 'Summary: Something small changes.', '- A choice is offered', '- It is refused', '- The cost shows', '')
     }
     c++
   }
