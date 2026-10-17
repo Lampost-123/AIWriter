@@ -2283,8 +2283,9 @@ When, mood, length and notes for the AI. Goal, conflict, outcome, beats, plot th
   kitchen inside that house, never another house's, and `addMissing` makes the house if needed and the room inside it
   (`parentId`). Their ids are `KeptItem.entryIds`,
   and the keep's Undo takes them back with its plot threads (`takeBackThreads`: never one Adam has edited, one on
-  another card, one the memory holds anything about, or a place something left is still inside). When a keep made pages or threads, the window asks
-  `buildStoryWorld` four seconds after the last keep (`features/worldBuilder/storyBuild.ts`; one asked while a build
+  another card, one the memory holds anything about, or a place something left is still inside). When a keep made pages or threads, or started a fresh
+  story (it took the place of the story's empty first chapter: 0.7.5, since a recipe's plan often names its cast only in
+  its premise and summaries), the window asks `buildStoryWorld` four seconds after the last keep (`features/worldBuilder/storyBuild.ts`; one asked while a build
   runs waits for it): a World build from a summary written from the story (`worldBuilder/storySummary.ts`: premise,
   themes, tone, and each act, chapter and scene card with who, where, when and its threads), never kept as the page's
   `world_summary`. The build leaves what is in the world as it is and its last steps fill in the thin pages (looks,

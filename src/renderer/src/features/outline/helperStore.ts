@@ -441,8 +441,10 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?:
     useApp.getState().bumpOutline()
     // Chapter cards it filled may have changed what an open scene card follows.
     if (items.some((i) => i.card)) notifyChapterCard()
-    // It named characters, places or plot threads the world didn't have: the World builder lays out what the story needs.
-    if (kept.some((k) => k.entryIds?.length || k.threadIds?.length)) buildStoryWorldSoon(storyId)
+    // The World builder lays out what the story needs when this keep named characters, places or plot threads the world
+    // didn't have, or started a fresh story (it took the place of its empty first chapter): a plan whose cast is named
+    // only in its premise and summaries (a recipe's story often is, 0.7.5) still gets its characters built.
+    if (kept.some((k) => k.entryIds?.length || k.threadIds?.length || k.reused)) buildStoryWorldSoon(storyId)
     const message =
       keys === 'all'
         ? `Added ${describeCounts(countKinds(kept.map((k) => k.kind)))} to the ${chapterId ? 'chapter' : 'story'}.`

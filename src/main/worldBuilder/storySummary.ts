@@ -53,7 +53,7 @@ export function storySummary(db: DB, storyId: ID): string {
   )
   const name = (id: ID | null | undefined): string => (id ? (names.get(id) ?? '') : '')
   const lines: string[] = []
-  lines.push(`This is the plan for the story "${flat(story.title) || 'Untitled'}". Lay out everything it needs: every character with their looks, build, usual clothes, personality, voice, goals and how they relate to the others; every place; the groups, items, lore and rules of its world; and the plot threads it sets up and pays off.`)
+  lines.push(`From the plan below for the story "${flat(story.title) || 'Untitled'}", lay out everything it needs: every character with their looks, build, usual clothes, personality, voice, goals and how they relate to the others; every place; the groups, items, lore and rules of its world; and the plot threads it sets up and pays off.`)
   if (flat(story.premise)) lines.push(`Premise: ${flat(story.premise)}`)
   if (flat(story.themes)) lines.push(`Themes: ${flat(story.themes)}`)
   if (flat(story.tone)) lines.push(`Tone: ${flat(story.tone)}`)
