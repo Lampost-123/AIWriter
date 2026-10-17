@@ -879,7 +879,7 @@ describe('the last steps: filling in what is missing, and the characters’ voic
 })
 
 describe('the events of a story built from its plan', () => {
-  // A plan of three chapters, a scene each: the Storm happens in the second, whatever day the summary guesses for it.
+  // A plan of three chapters, a scene each: the Storm first exists in the second, the first scene on or after its Day 3.
   const planned = () => {
     const t = setup()
     const id = repo.listStories(t.db)[0].id
@@ -908,11 +908,12 @@ describe('the events of a story built from its plan', () => {
     mem.refreshDefaultExistsPoints(t.db)
     expect(mem.listExistsPoints(t.db, storm.id)).toEqual([expect.objectContaining({ kind: 'scene', sceneId: scenes[1] })])
 
-    // On the timeline it is just after that scene, though its Day 3 would put it before the scene's Day 7.
+    // On the timeline its date decides (Adam, 2026-10-17: worldViews/eventPlace.ts): Day 3 is after the Day 1 scene and
+    // before the Day 7 one it first exists at.
     const points = timelineOf(t.db, id).points
     const at = (pid: ID): number => points.findIndex((p) => p.id === pid)
-    expect(at(storm.id)).toBe(at(scenes[1]) + 1)
-    expect(at(storm.id)).toBeLessThan(at(scenes[2]))
+    expect(at(storm.id)).toBe(at(scenes[0]) + 1)
+    expect(at(storm.id)).toBeLessThan(at(scenes[1]))
   })
 
   it('leaves an event where the build is true when the summary is Adam’s own, not the story’s plan', async () => {

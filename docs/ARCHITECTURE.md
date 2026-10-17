@@ -524,6 +524,18 @@ is built on migrations 1 and 2.
   before, nothing after a time gap. A following book's first named date starts its own calendar;
   yearless days before a calendar's first named year sort in that year. Events take only the year
   before them and lend nothing on.
+- Where an event goes (Adam, 2026-10-17: "at the correct place ALWAYS"): one rule, `worldViews/eventPlace.ts`, for every
+  event whatever made it (a build, the memory keeper, Adam, a recipe), used by the timeline (`placedOrder`) and the
+  writer's brief (`ai/context.ts` `datedAfter`). A date that can be placed decides: after the last scene of the story's
+  present (flashbacks skipped) not later than it; with no time of day after the last scene of its day, with one among
+  that day's scenes by time. The scene it first exists at (planned for it, or found in its text) keeps it only when that
+  scene is on its day, or is undated and sits where its date belongs. Before every scene of the present: backstory
+  dated by a year stays before the story, a count of the story's own days ("Day 0") goes just after its opening scene.
+  No date: after the scene it is tied to, else the scene read before it, else the opening scene. After one scene: those
+  before the story's first day, then those with no date, then the rest by date. Existing events are never rewritten; a
+  build ties a new one only to a scene that agrees with its date, else the first scene on or after its day
+  (`worldBuilder/save.ts` `eventScene`, `sceneOnDay`). The brief leaves out an event on a later day, or later the same
+  day when both say a time, unless it first exists at the scene being written.
 - Clashes: the same named day (same calendar, same calendar words) at different most-specific places
   (a place inside another isn't a clash). They use neutral colours; amber is for AI suggestions and the
   board's long-open note (`LONG_OPEN_CHAPTERS = 10` in `threads.ts`).

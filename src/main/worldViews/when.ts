@@ -781,7 +781,7 @@ function calendarWords(tokens: string[], used: boolean[], dayAt: [number, number
 const NONE = -Infinity
 
 /** Compares two keys from placeWhens. */
-export function compareKeys(a: number[], b: number[]): number {
+export function compareKeys(a: readonly number[], b: readonly number[]): number {
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
     const x = a[i] ?? NONE
     const y = b[i] ?? NONE
