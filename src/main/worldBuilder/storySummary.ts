@@ -66,6 +66,21 @@ export function planScenes(db: DB, storyId: ID, summary: string): ID[] {
   return plan.summary && (plan.summary === given || given.startsWith(`${plan.summary}\n`)) ? plan.scenes : []
 }
 
+/**
+ * The story's own themes and tone, each only when the summary gives it as storySummary writes it ("Themes: ..."):
+ * the World build copies those into the world's empty themes and tone rather than asking the AI to (2026-10-17).
+ */
+export function storyThemes(db: DB, storyId: ID, summary: string): Partial<Record<'themes' | 'tone', string>> {
+  const story = repo.getStory(db, storyId)
+  const lines = new Set(summary.split(/\r?\n/).map((l) => l.trim()))
+  const out: Partial<Record<'themes' | 'tone', string>> = {}
+  const themes = flat(story.themes)
+  const tone = flat(story.tone)
+  if (themes && lines.has(`Themes: ${themes}`)) out.themes = themes
+  if (tone && lines.has(`Tone: ${tone}`)) out.tone = tone
+  return out
+}
+
 /** The summary, and the scenes it numbers, in order. */
 function storyPlan(db: DB, storyId: ID): { summary: string; scenes: ID[] } {
   const story = repo.getStory(db, storyId)

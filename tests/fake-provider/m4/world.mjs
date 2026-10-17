@@ -1,5 +1,6 @@
-// Fake replies for the World builder's AI calls (src/main/worldBuilder/prompts.ts: system prompts starting
-// "[AIWRITE-WORLD v1] <job>"). Each reads the author's summary (between """ marks in the last user message)
+// Fake replies for the World builder's AI calls (src/main/worldBuilder/prompts.ts: instructions starting
+// "[AIWRITE-WORLD v1] <job>", after the summary in the first user message; server.mjs jobSystem hands them over as
+// `system`). Each reads the author's summary (between the first """ marks in the first user message)
 // one sentence at a time, with these rules, so tests know exactly what a summary makes:
 //   overview       Lists, by kind:
 //                    a sentence ending "?"                        a plot thread named by it ("Who sank the Merrow")

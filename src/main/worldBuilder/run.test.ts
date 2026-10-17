@@ -37,7 +37,9 @@ import { keepOutline, unkeepOutline } from '../outline/structure'
 import { entryState } from '../db/worldBuilder'
 import { storySummary } from './storySummary'
 import * as save from './save'
-import { batchSystem, characterSystem, overviewSystem } from './prompts'
+import { batchSystem, characterSystem, overviewSystem, summaryLead, themesUser, worldSystem } from './prompts'
+import { sentMessages } from '../ai/client'
+import { profileKeys } from '../builder/profile'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -698,10 +700,12 @@ describe('the last steps: filling in what is missing, and the characters’ voic
 
   const voiceModel = (): JobModel => ({ ...modelFor('fake/writer'), job: 'speech' })
   const voiceOf = (db: Database.Database, id: ID): string => getEntryReadAloud(db, id).voice.design
-  const isVoiceAsk = (init?: RequestInit): string | null => {
+  /** Who a voice request asks about (the build asks about them all in one request), or null for another request. */
+  const isVoiceAsk = (init?: RequestInit): string[] | null => {
     const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: string }[] }
-    if (!body.messages?.some((m) => m.role === 'system' && /\] voice\n/.test(m.content))) return null
-    return body.messages.find((m) => m.role === 'user')?.content.match(/^CHARACTER: ([^(\n]+?)(?: \(|$)/m)?.[1] ?? null
+    if (!body.messages?.some((m) => m.role === 'system' && /\] voices?\n/.test(m.content))) return null
+    const user = body.messages.find((m) => m.role === 'user')?.content ?? ''
+    return [...user.matchAll(/^CHARACTER: ([^(\n]+?)(?: \(|$)/gm)].map((m) => m[1])
   }
 
   /** A world where the memory found Erin in the opening scene: a name, a line and her pronouns. */
@@ -747,14 +751,40 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     expect(pagesToFill(t.db, [])).toEqual([])
   })
 
-  it('never fills a page Adam made himself, unless the build made it', () => {
+  it('never fills a page Adam made himself, unless the build laid it out and it came back thin', () => {
     const db = memoryWorld()
     const his = repo.createEntry(db, 'character', { name: 'Brann' })
     const text = repo.createEntry(db, 'character', { name: 'Kell' }, { origin: 'text' })
     const lore = repo.createEntry(db, 'lore', { name: 'Magic' }, { origin: 'text' })
     expect(pagesToFill(db, [])).toEqual([text.id])
+    // Laid out by this build and thin: topped up, first.
     expect(pagesToFill(db, [his.id])).toEqual([his.id, text.id])
     expect(pagesToFill(db, [lore.id])).toEqual([text.id])
+    // Laid out by this build and full: left as it is.
+    const full = repo.createEntry(db, 'character', {
+      name: 'Odile',
+      summary: 'A diver.',
+      description: 'Quick and sure.',
+      fields: Object.fromEntries(profileKeys('character').filter((k) => !['name', 'aliases', 'summary', 'description'].includes(k)).map((k) => [k, 'Set.']))
+    })
+    expect(pagesToFill(db, [full.id])).toEqual([text.id])
+  })
+
+  it('fills only the thin pages of the build’s story, and pages that are still only a name, never another story’s AI pages', () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const other = repo.createStory(db, { title: 'Another tale' })
+    const found = repo.createEntry(db, 'character', { name: 'Kell', summary: 'A dock hand.' }, { origin: 'text', originStoryId: story.id })
+    const ours = repo.createEntry(db, 'place', { name: 'The Weir', summary: 'A weir.' }, { origin: 'ai', originStoryId: story.id })
+    const theirs = repo.createEntry(db, 'character', { name: 'Odo', summary: 'Drafted for the other tale.' }, { origin: 'ai', originStoryId: other.id })
+    const theirFound = repo.createEntry(db, 'character', { name: 'Pell', summary: 'A sailor.' }, { origin: 'text', originStoryId: other.id })
+    // Kept from another story's outline with only a name (outline/chapterCard.ts addMissing): still filled.
+    const stub = repo.createEntry(db, 'character', { name: 'Wren' }, { origin: 'ai', originStoryId: other.id })
+    const fill = (storyId: ID | null): ID[] => pagesToFill(db, [], storyId).sort()
+    expect(fill(story.id)).toEqual([found.id, ours.id, stub.id].sort())
+    expect(fill(other.id)).toEqual([theirs.id, theirFound.id, stub.id].sort())
+    // With no story: everything but what the AI drafted for a story, and pages that are only a name.
+    expect(fill(null)).toEqual([found.id, theirFound.id, stub.id].sort())
   })
 
   it('a plain build fills nothing and asks for no voices without a read-aloud model', async () => {
@@ -768,23 +798,22 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     const t = setup()
     const brann = repo.createEntry(t.db, 'character', { name: 'Brann', summary: 'A ferryman.' })
     setEntryReadAloud(t.db, brann.id, { voice: { design: 'Gravel and smoke.', voice: '' }, say: [] })
-    const asked: string[] = []
+    const asked: string[][] = []
     t.ctx.voiceModel = voiceModel()
     t.ctx.fetchImpl = (input, init) => {
       const who = isVoiceAsk(init)
       if (who) {
         asked.push(who)
         // Adam sets Tobin's voice while the AI is still thinking of one.
-        if (who === 'Tobin') setEntryReadAloud(t.db, t.named('Tobin').id, { voice: { design: 'Adam’s own.', voice: '' }, say: [] })
+        if (who.includes('Tobin')) setEntryReadAloud(t.db, t.named('Tobin').id, { voice: { design: 'Adam’s own.', voice: '' }, say: [] })
       }
       return fetch(input, init)
     }
     const done = await t.build(SUMMARY)
     expect(done.status).toBe('complete')
-    expect(asked).toEqual(['Mara Venn', 'Tobin'])
-    expect(t.steps()).toEqual(
-      expect.arrayContaining(['Giving the characters their voices: 1 of 2', 'Giving the characters their voices: 2 of 2'])
-    )
+    // Both in one request (2026-10-17), each told as Suggest would tell it alone.
+    expect(asked).toEqual([['Mara Venn', 'Tobin']])
+    expect(t.steps()).toContain('Giving the characters their voices: 2 of 2')
     expect(t.progress().find((p) => p.step.startsWith('Giving'))?.stage).toBe('voices')
     expect(voiceOf(t.db, t.named('Mara Venn').id)).toBe(VOICE)
     expect(voiceOf(t.db, t.named('Tobin').id)).toBe('Adam’s own.')
@@ -793,7 +822,7 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     // Recorded as read aloud's requests, not the World builder's.
     expect(records(t.db)).toHaveLength(13)
     const speech = t.db.prepare("SELECT status FROM generations WHERE job = 'speech'").all()
-    expect(speech).toHaveLength(2)
+    expect(speech).toHaveLength(1)
   })
 
   it('a voice that can’t be had leaves the character without one, and the build ends well', async () => {
@@ -813,7 +842,7 @@ describe('the last steps: filling in what is missing, and the characters’ voic
   it('gives a voice to a character it filled in as well as those it made', async () => {
     const { db, erin } = withErin()
     const t = setup({ db })
-    const asked: string[] = []
+    const asked: string[][] = []
     t.ctx.voiceModel = voiceModel()
     t.ctx.fetchImpl = (input, init) => {
       const who = isVoiceAsk(init)
@@ -822,7 +851,7 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     }
     const done = await t.build(SUMMARY)
     expect(done.status).toBe('complete')
-    expect(asked).toEqual(['Mara Venn', 'Tobin', 'Erin'])
+    expect(asked).toEqual([['Mara Venn', 'Tobin', 'Erin']])
     expect(voiceOf(t.db, erin.id)).toBe(VOICE)
     expect(t.steps()).toContain('Giving the characters their voices: 3 of 3')
   })
@@ -891,8 +920,9 @@ function answering(replies: Record<string, (user: string) => string | null>): ty
   const asked: Record<string, number> = {}
   const f = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: string }[] }
-    const system = body.messages?.find((m) => m.role === 'system')?.content ?? ''
-    const job = /^\[AIWRITE-WORLD v1\] (\w+)/.exec(system)?.[1] ?? ''
+    // The job's line comes after the summary, in the first user message.
+    const first = body.messages?.find((m) => m.role === 'user')?.content ?? ''
+    const job = /^\[AIWRITE-WORLD v1\] (\w+)$/m.exec(first)?.[1] ?? ''
     if (job) asked[job] = (asked[job] ?? 0) + 1
     const user = (body.messages ?? []).filter((m) => m.role === 'user').map((m) => m.content).join('\n')
     const reply = replies[job]?.(user) ?? null
@@ -1173,5 +1203,248 @@ describe('more fixes to building (2026-10-17)', () => {
       expect(stamp(e)).toEqual(after.get(e))
     }
     expect(t.names('character')).not.toContain('Tobin Hale')
+  })
+})
+
+describe('cheaper builds (2026-10-17)', () => {
+  type Sent = { role: string; content: string }[]
+  /** Every request's messages, in order, as sent. */
+  function recording(answer?: (job: string, n: number) => string | null): typeof fetch & { sent: Sent[] } {
+    const sent: Sent[] = []
+    const count: Record<string, number> = {}
+    const f = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { messages: Sent }
+      sent.push(body.messages)
+      const job = /^\[AIWRITE-[A-Z-]+ v1\] ([a-z-]+)$/m.exec(body.messages[1]?.content ?? '')?.[1] ?? ''
+      count[job] = (count[job] ?? 0) + 1
+      const reply = answer?.(job, count[job]) ?? null
+      return reply === null ? fetch(input, init) : streamed(reply)
+    }) as typeof fetch & { sent: Sent[] }
+    f.sent = sent
+    return f
+  }
+  const jobOf = (m: Sent): string => /^\[AIWRITE-[A-Z-]+ v1\] ([a-z-]+)$/m.exec(m[1]?.content ?? '')?.[1] ?? ''
+
+  it('every request opens the same way: one system message, then the summary; the job and the world after it', async () => {
+    const db = memoryWorld()
+    // A page the memory read from a scene, thin: filled in at the end, opening the same way.
+    repo.createEntry(db, 'character', { name: 'Kell', summary: 'A dock hand.' }, { origin: 'text' })
+    const t = setup({ db })
+    const f = recording()
+    t.ctx.fetchImpl = f
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    const jobs = f.sent.map(jobOf)
+    expect(jobs).toEqual(expect.arrayContaining(['overview', 'character', 'places', 'groups', 'items', 'lore', 'events', 'threads', 'glossary', 'relationships', 'themes', 'fill-gaps']))
+    const lead = `${summaryLead(SUMMARY)}\n\n`
+    for (const m of f.sent) {
+      expect(m[0]).toEqual({ role: 'system', content: worldSystem() })
+      expect(m[1].role).toBe('user')
+      expect(m[1].content.startsWith(lead)).toBe(true)
+      // The job's own instructions come straight after the summary.
+      expect(m[1].content.slice(lead.length)).toMatch(/^\[AIWRITE-(WORLD|BUILDER) v1\] [a-z-]+\n/)
+    }
+    // The world (its style guide) and what to lay out come after the summary and the job.
+    const character = f.sent.find((m) => jobOf(m) === 'character')![1].content
+    expect(character.indexOf('Being laid out from the same summary')).toBeGreaterThan(character.indexOf('Fields (key: what it holds)'))
+    expect(character.indexOf('The character to lay out')).toBeGreaterThan(character.indexOf('Being laid out from the same summary'))
+    // For Claude through OpenRouter, what every request shares is marked up to the summary's end.
+    const user = themesUser(SUMMARY, ['themes'])
+    expect(user.content.slice(0, user.cacheUpTo)).toBe(summaryLead(SUMMARY))
+    const sent = sentMessages({ kind: 'openrouter' }, 'anthropic/claude-sonnet-4.5', [
+      { role: 'system', content: worldSystem() },
+      { role: 'user', ...user }
+    ]) as { content: { text: string; cache_control?: unknown }[] }[]
+    expect(sent[1].content[0]).toEqual({ type: 'text', text: summaryLead(SUMMARY), cache_control: { type: 'ephemeral' } })
+  })
+
+  it('asks again after a reply it can’t use with the same opening, the correction after it', async () => {
+    const t = setup()
+    const f = recording((job, n) => (job === 'places' && n === 1 ? 'Here are the places, all laid out nicely.' : null))
+    t.ctx.fetchImpl = f
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    const places = f.sent.filter((m) => jobOf(m) === 'places')
+    expect(places).toHaveLength(2)
+    expect(places[1].slice(0, 2)).toEqual(places[0])
+    expect(places[1][2]).toEqual({ role: 'assistant', content: 'Here are the places, all laid out nicely.' })
+    expect(places[1][3].role).toBe('user')
+    expect(t.names('place')).toEqual(['Saltmarsh', 'The Grey Coast'])
+  })
+
+  it('copies a story’s own themes and tone into the world without asking the AI', async () => {
+    const t = setup()
+    const story = repo.listStories(t.db)[0]
+    repo.updateStory(t.db, story.id, { themes: 'Debt  and family.', tone: 'Wry.' })
+    const f = answering({})
+    t.ctx.fetchImpl = f
+    const done = await t.build(`${SUMMARY}\nThemes: Debt and family.\nTone: Wry.`, story.id)
+    expect(done.status).toBe('complete')
+    expect(f.asked.themes).toBeUndefined()
+    expect(repo.getMeta(t.db, 'themes')).toBe('Debt and family.')
+    expect(repo.getMeta(t.db, 'tone')).toBe('Wry.')
+    expect(done.made.map((m) => m.what)).toEqual(expect.arrayContaining(['themes', 'tone']))
+  })
+
+  it('asks the AI only for what the story doesn’t give', async () => {
+    const t = setup()
+    const story = repo.listStories(t.db)[0]
+    repo.updateStory(t.db, story.id, { themes: 'Debt and family.' })
+    let asked = ''
+    const f = answering({
+      themes: (user) => {
+        asked = user
+        return null
+      }
+    })
+    t.ctx.fetchImpl = f
+    await t.build(`${SUMMARY}\nThemes: Debt and family.`, story.id)
+    expect(f.asked.themes).toBe(1)
+    expect(asked).toContain('{"tone": "..."}')
+    expect(asked).not.toContain('"themes": "..."')
+    expect(repo.getMeta(t.db, 'themes')).toBe('Debt and family.')
+    expect(repo.getMeta(t.db, 'tone')).toBe('Salt-stung and wary, with dry humour.')
+  })
+
+  it('still asks for the themes when the summary isn’t the story’s own words for them', async () => {
+    const t = setup()
+    const story = repo.listStories(t.db)[0]
+    repo.updateStory(t.db, story.id, { themes: 'Debt and family.', tone: 'Wry.' })
+    const f = answering({})
+    t.ctx.fetchImpl = f
+    await t.build(SUMMARY, story.id)
+    expect(f.asked.themes).toBe(1)
+  })
+
+  it('checks the summary only against pages Adam wrote, and skips the check when there are none', async () => {
+    const ai = setup()
+    repo.createEntry(ai.db, 'character', { name: 'Mara Venn', summary: 'A captain.', fields: { age: '50' } }, { origin: 'ai' })
+    const f = answering({})
+    ai.ctx.fetchImpl = f
+    const skipped = await ai.build(`${SUMMARY} Mara Venn is 34.`)
+    expect(skipped.found.map((x) => x.name)).toContain('Mara Venn')
+    expect(f.asked.check).toBeUndefined()
+    expect(skipped.conflicts).toEqual([])
+
+    const his = setup()
+    repo.createEntry(his.db, 'character', { name: 'Mara Venn', summary: 'A captain.', fields: { age: '50' } })
+    const g = answering({})
+    his.ctx.fetchImpl = g
+    const checked = await his.build(`${SUMMARY} Mara Venn is 34.`)
+    expect(g.asked.check).toBe(1)
+    expect(checked.conflicts.map((c) => c.field)).toEqual(['age'])
+  })
+
+  it('tops up the pages it laid out that came back thin, and never fills another story’s AI pages', async () => {
+    const t = setup()
+    const story = repo.listStories(t.db)[0]
+    const other = repo.createStory(t.db, { title: 'Another tale' })
+    const theirs = repo.createEntry(t.db, 'character', { name: 'Odo', summary: 'Drafted for the other tale.' }, { origin: 'ai', originStoryId: other.id })
+    const ours = repo.createEntry(t.db, 'character', { name: 'Kell', summary: 'A dock hand.' }, { origin: 'text', originStoryId: story.id })
+    const f = recording((job) =>
+      // Profiles that come back thin: only a name and a line.
+      job === 'character' ? JSON.stringify({ fromNotes: {}, drafted: { summary: 'Someone in the summary.' } }) : null
+    )
+    t.ctx.fetchImpl = f
+    const done = await t.build(SUMMARY, story.id)
+    expect(done.status).toBe('complete')
+    const filled = f.sent.filter((m) => jobOf(m) === 'fill-gaps').map((m) => /^Name: (.+)$/m.exec(m[1].content)?.[1])
+    // The two characters laid out thin first, then this story's thin page; never the other story's.
+    expect(filled.slice(0, 2).sort()).toEqual(['Mara Venn', 'Tobin'])
+    expect(filled.slice(2)).toEqual(['Kell'])
+    expect(t.named('Tobin').description).toBe('Description of Tobin, filled in from the story.')
+    expect(t.named('Odo').description).toBe('')
+    expect(theirs.id).toBeTruthy()
+    expect(t.named('Kell').description).toBe('Description of Kell, filled in from the story.')
+    expect(ours.id).toBeTruthy()
+  })
+
+  /** A story whose kept outline names Bram Holt and Gull Quay, which the world hasn't: keeping it makes their name-only pages. */
+  function outlined() {
+    const t = setup()
+    const id = repo.listStories(t.db)[0].id
+    const kept = keepOutline(t.db, id, [
+      { key: 'c0', kind: 'chapter', title: 'The Ferry', text: 'The ferry waits.', card: { pov: 'Bram Holt', location: 'Gull Quay' } },
+      {
+        key: 's0',
+        kind: 'scene',
+        title: 'Debt',
+        text: 'Bram Holt is a ferryman who owes the Salt Guild. Gull Quay is a harbour town.',
+        parent: { key: 'c0' }
+      }
+    ])
+    const chapterId = repo.getOutline(t.db, id).chapters[0].id
+    const bram = t.named('Bram Holt')
+    const quay = t.named('Gull Quay')
+    return { t, id, kept, chapterId, bram, quay }
+  }
+
+  it('lays out a character and a place keeping the outline made with only a name, in full, into the same pages', async () => {
+    const { t, id, chapterId, bram, quay } = outlined()
+    expect(bram.origin).toBe('ai')
+    expect(repo.getChapterCard(t.db, chapterId).povId).toBe(bram.id)
+    const f = recording()
+    t.ctx.fetchImpl = f
+    const done = await t.build(storySummary(t.db, id), id)
+    expect(done.status).toBe('complete')
+    // The full character request, for him.
+    const asked = f.sent.filter((m) => jobOf(m) === 'character').map((m) => /^The character to lay out:\n- (.+?)(?: \(also|: | \[|$)/m.exec(m[1].content)?.[1])
+    expect(asked).toContain('Bram Holt')
+    const places = f.sent.filter((m) => jobOf(m) === 'places').map((m) => m[1].content)
+    expect(places.some((u) => /^The places to lay out:\n(?:- .*\n)*- Gull Quay/m.test(u))).toBe(true)
+    // The same pages, with their profiles; no second one, and the card still points at him.
+    expect(t.names('character').filter((n) => n === 'Bram Holt')).toHaveLength(1)
+    const after = t.named('Bram Holt')
+    expect(after.id).toBe(bram.id)
+    // The fake's "summary" is the first line of the summary naming him, as his words.
+    expect(after.summary).toContain('Bram Holt')
+    expect(after.fields.traits).toBe('Core traits of Bram Holt, drafted to fit the world.')
+    expect(after.fieldOrigins.summary).toBe('adam')
+    expect(after.fieldOrigins.traits).toBe('ai')
+    expect(t.named('Gull Quay').id).toBe(quay.id)
+    expect(t.named('Gull Quay').summary).toContain('Gull Quay')
+    expect(t.named('Gull Quay').fields.atmosphere).toBe('Atmosphere of Gull Quay, drafted to fit the world.')
+    expect(repo.getChapterCard(t.db, chapterId).povId).toBe(bram.id)
+    expect(repo.getChapterCard(t.db, chapterId).locationId).toBe(quay.id)
+    // Laid out by the build (on its results page), so not filled in again: it had the full request.
+    expect(done.made.some((m) => m.entryId === bram.id)).toBe(true)
+    expect(done.found.some((x) => x.entryId === bram.id)).toBe(false)
+    expect(f.sent.filter((m) => jobOf(m) === 'fill-gaps' && m[1].content.includes('Name: Bram Holt'))).toHaveLength(0)
+
+    // Undo build leaves the pages as the outline made them: only the name, still on the card.
+    undoBuild(t.db, done.runId!)
+    const undone = t.named('Bram Holt')
+    expect(undone.summary).toBe('')
+    expect(undone.fields.traits ?? '').toBe('')
+    expect(undone.byHand).toBe(false)
+    expect(repo.getChapterCard(t.db, chapterId).povId).toBe(bram.id)
+  })
+
+  it('never lays out over a page Adam has typed into', async () => {
+    const { t, id, bram } = outlined()
+    repo.updateEntry(t.db, bram.id, { summary: 'An old friend of the family.' })
+    const f = recording()
+    t.ctx.fetchImpl = f
+    const done = await t.build(storySummary(t.db, id), id)
+    expect(done.status).toBe('complete')
+    const asked = f.sent.filter((m) => jobOf(m) === 'character').map((m) => /^The character to lay out:\n- (.+?)(?: \(also|: | \[|$)/m.exec(m[1].content)?.[1])
+    expect(asked).not.toContain('Bram Holt')
+    expect(done.found.map((x) => x.entryId)).toContain(bram.id)
+    expect(t.named('Bram Holt').summary).toBe('An old friend of the family.')
+  })
+
+  it('the estimate counts what a build now asks: fewer requests when the story gives the themes and no page is Adam’s', () => {
+    const c = { contextLength: 64000, maxOutput: null }
+    const all = guessBuild(SUMMARY, c, { existing: 10, his: 10 }, 'off')
+    const lean = guessBuild(SUMMARY, c, { existing: 10, his: 0, themesKnown: true }, 'off')
+    expect(lean.input).toBeLessThan(all.input)
+    expect(lean.output).toBeLessThan(all.output)
+    // Filling in thin pages costs more.
+    expect(guessBuild(SUMMARY, c, { existing: 10, thin: 4 }, 'off').input).toBeGreaterThan(all.input)
+    // The cache is taken off only at a price the provider gives.
+    const price = { promptPrice: 0.000001, completionPrice: 0.000002 }
+    expect(estimateCost(all, price)).toBe(estimateCost(all, price, null))
+    expect(all.cached).toBeGreaterThan(0)
+    expect(estimateCost(all, price, 0.0000001)!).toBeLessThan(estimateCost(all, price)!)
   })
 })

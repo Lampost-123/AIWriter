@@ -12,8 +12,7 @@ import { jobModel } from '../ai/jobModel'
 import { memoryStatus } from '../keeper'
 import { voiceLater } from '../readAloud'
 import { UserError } from '../util'
-import { entryNames } from '../db/worldBuilder'
-import { buildRunning, buildState, cancelBuild, closeBuildsFor, startBuild } from '../worldBuilder/run'
+import { buildRunning, buildState, cancelBuild, closeBuildsFor, estimateFacts, startBuild } from '../worldBuilder/run'
 import { storySummary, type RecipeExtras } from '../worldBuilder/storySummary'
 import { savedBatch } from '../worldBuilder/savedBatch'
 import { keepWaiting, readWaiting } from '../worldBuilder/waiting'
@@ -115,7 +114,8 @@ export const worldBuilderHandlers: Handlers<keyof WorldBuilderApi> = {
     const db = world.db()
     try {
       const model = jobModel('world', modelSources())
-      const guess = guessBuild(String(input?.summary ?? ''), model.choice, entryNames(db).length, model.thinking)
+      const summary = String(input?.summary ?? '')
+      const guess = guessBuild(summary, model.choice, estimateFacts(db, summary, input?.storyId ?? null), model.thinking)
       return { cost: estimateCost(guess, model.choice), model: model.choice.label || model.choice.modelId, problem: null, code: null }
     } catch (e) {
       if (e instanceof UserError) return { cost: null, model: null, problem: e.message, code: e.code ?? null }

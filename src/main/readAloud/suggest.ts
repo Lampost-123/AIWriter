@@ -10,6 +10,7 @@ import type { ChatMessage, Entry, ID } from '@shared/types'
 import * as repo from '../db/repo'
 import { everyone, namesFor, speakerOf, type CastMember } from './cast'
 import { MARKER, QUOTE, quoteKey } from './speakers'
+import { parseLenient } from '../keeper/json'
 
 type DB = Database.Database
 
@@ -110,6 +111,20 @@ const FIELDS: [string, string][] = [
  * is said, as a last "SAY IT AS:" line, only when a narrator would likely misread it (readVoiceReply reads both).
  */
 export function voicePrompt(entry: Entry, lines: string[], current: string, opts: { say?: boolean } = {}): ChatMessage[] {
+  return [
+    { role: 'system', content: `${MARKER} voice\n${VOICE_RULES}${opts.say ? SAY_RULE : 'Output only the description.'}` },
+    { role: 'user', content: voiceFacts(entry, lines, current) }
+  ]
+}
+
+const VOICE_RULES =
+  'You write voice descriptions for a text-to-speech voice designer. From what is known about a character, describe how their voice sounds: ' +
+  'apparent age and gender, pitch and register, texture (breathy, gravelly, clear, nasal), accent, pace, and the mood it usually carries. ' +
+  'One or two sentences, at most 40 words, in plain English, like "A woman in her sixties with a low, smoky voice, a soft Scottish accent and a slow, amused delivery." ' +
+  'Describe the sound only, not the plot or what they say. '
+
+/** What a voice request tells about one character. */
+function voiceFacts(entry: Entry, lines: string[], current: string): string {
   const field = (key: string): string => (entry.fields[key] ?? '').trim()
   const samples = field('sampleLines')
     .split('\n')
@@ -117,30 +132,57 @@ export function voicePrompt(entry: Entry, lines: string[], current: string, opts
     .filter(Boolean)
   const heard = [...lines, ...samples.filter((s) => !lines.includes(s))].slice(0, 8)
   return [
+    `CHARACTER: ${entry.name}${entry.aliases.length ? ` (also called ${entry.aliases.join(', ')})` : ''}`,
+    entry.summary.trim() ? `IN ONE LINE: ${entry.summary.trim()}` : '',
+    ...FIELDS.map(([key, label]) => (field(key) ? `${label}: ${field(key).slice(0, 600)}` : '')),
+    entry.description.trim() ? `ABOUT THEM:\n${entry.description.trim().slice(0, 1500)}` : '',
+    heard.length ? `SOME OF THEIR LINES:\n${heard.map((line) => `- “${line}”`).join('\n')}` : '',
+    current.trim() ? `CURRENT DESCRIPTION (keep what fits):\n${current.trim()}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/**
+ * Several characters' voices in one request (the World build, 2026-10-17): each told as voicePrompt tells one, under
+ * its number, with how the name is said asked for as there. Read back with readVoicesReply.
+ */
+export function voicesPrompt(group: { entry: Entry; lines: string[] }[]): ChatMessage[] {
+  return [
     {
       role: 'system',
       content:
-        `${MARKER} voice\n` +
-        'You write voice descriptions for a text-to-speech voice designer. From what is known about a character, describe how their voice sounds: ' +
-        'apparent age and gender, pitch and register, texture (breathy, gravelly, clear, nasal), accent, pace, and the mood it usually carries. ' +
-        'One or two sentences, at most 40 words, in plain English, like "A woman in her sixties with a low, smoky voice, a soft Scottish accent and a slow, amused delivery." ' +
-        'Describe the sound only, not the plot or what they say. ' +
-        (opts.say ? SAY_RULE : 'Output only the description.')
+        `${MARKER} voices\n${VOICE_RULES}` +
+        'Several characters are given, each under its number. For each, write the description; then, only if a narrator reading the name aloud ' +
+        'would likely say it wrong, a respelling with the stressed part in capitals, like "shiv-AWN" for Siobhan. For a name of more than one ' +
+        'word, give pairs for just the words that need one, like "Siobhan = shiv-AWN; Nguyen = win". Most names need none (Tom, Elena, Marcus, ' +
+        'Brann, Mara): then "say" is "". Reply with one JSON object and nothing else, one entry for each character by its number: ' +
+        '{"1": {"voice": "the description", "say": ""}, "2": {"voice": "...", "say": "..."}}'
     },
     {
       role: 'user',
-      content: [
-        `CHARACTER: ${entry.name}${entry.aliases.length ? ` (also called ${entry.aliases.join(', ')})` : ''}`,
-        entry.summary.trim() ? `IN ONE LINE: ${entry.summary.trim()}` : '',
-        ...FIELDS.map(([key, label]) => (field(key) ? `${label}: ${field(key).slice(0, 600)}` : '')),
-        entry.description.trim() ? `ABOUT THEM:\n${entry.description.trim().slice(0, 1500)}` : '',
-        heard.length ? `SOME OF THEIR LINES:\n${heard.map((line) => `- “${line}”`).join('\n')}` : '',
-        current.trim() ? `CURRENT DESCRIPTION (keep what fits):\n${current.trim()}` : ''
-      ]
-        .filter(Boolean)
-        .join('\n\n')
+      content: group.map((g, i) => `[${i + 1}]\n${voiceFacts(g.entry, g.lines, '')}`).join('\n\n---\n\n')
     }
   ]
+}
+
+/** A reply to voicesPrompt: each character's description and respelling by its place, null where the reply has none. */
+export function readVoicesReply(raw: string, count: number): ({ voice: string; say: string } | null)[] {
+  const parsed = parseLenient(raw)
+  const out: ({ voice: string; say: string } | null)[] = Array.from({ length: count }, () => null)
+  if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') return out
+  const root = parsed.value as Record<string, unknown>
+  const list = Array.isArray(root) ? root : Array.isArray(root.voices) ? root.voices : null
+  for (let i = 0; i < count; i++) {
+    const item = list ? list[i] : (root[String(i + 1)] ?? root[`[${i + 1}]`])
+    if (typeof item === 'string') out[i] = { voice: item, say: '' }
+    else if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const v = (item as Record<string, unknown>).voice ?? (item as Record<string, unknown>).description
+      const s = (item as Record<string, unknown>).say
+      if (typeof v === 'string' && v.trim()) out[i] = { voice: v, say: typeof s === 'string' ? s : '' }
+    }
+  }
+  return out
 }
 
 /** How the name is said, asked for with the voice when the AI fills in a character by itself (autoVoice.ts). */

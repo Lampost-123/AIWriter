@@ -716,12 +716,26 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   items (summary or description empty, or a third of the fields empty) with the AI, from the world and
   what the story says about them, as `'ai'` ("Drafted by AI"). A field with words in it, a name and other
   names are never changed. Two callers: a World build's last steps ("Filling in missing details": what it
-  made, and pages Adam didn't make himself, such as a character the memory found), and the memory keeper,
+  laid out that came back thin, pages Adam didn't make himself of the build's story, such as a character
+  the memory found, and pages that are still only a name; since 2026-10-17 never another story's
+  AI-drafted pages), and the memory keeper,
   which hands the entries a run made from scene text (`newEntryIds`) to `fillFound` on the memory model
   after the run, so it never slows or breaks the memory. Then the build gives each character it made a
   read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
-  is set; it is saved even when read aloud isn't set up. Since 2026-10-07 the memory keeper's fill is from
+  is set, all of them in one request (each told as Suggest tells one; one the reply leaves out is asked about
+  alone); it is saved even when read aloud isn't set up. Since 2026-10-07 the memory keeper's fill is from
   the story alone (see "Things are items" under milestone 2).
+- **Cheaper builds (2026-10-17).** Every request of a World build, its filling in among them, opens word for word
+  the same: one system message (`worldBuilder/prompts.ts` `worldSystem`), then the author's summary, so providers
+  that cache prompt prefixes (DeepSeek, OpenAI) read it again for a tenth of the price, and Claude through OpenRouter
+  is told where it ends (`cacheUpTo`). The job's marker line and rules follow the summary, then the plan, the world
+  and what to lay out; a reply that can't be used is asked about again after it. A story build copies the story's
+  own themes and tone (the "Themes:"/"Tone:" lines of its summary) instead of asking the AI, and the check against
+  the world runs only when the summary names pages Adam wrote or read from his scenes. A character or place that
+  keeping this story's outline made with only its name (`addMissing`), untouched since, is laid out with the full
+  request into that same page (`save.ts` `saveInto`: only empty fields, its id and name kept, one line that Undo
+  takes back to the name alone). The cost estimate (`estimate.ts`) counts the filling in and the voices, leaves out
+  what is no longer asked, and takes the cache off only at a price the provider gives.
 - **Who says each line, from the writer.** With read aloud on (or "Show speakers and tone"), a draft's closing
   instruction asks the writer to put the speaker, and how the line is said, in curly braces just before each quote
   (`SPEAKER_TAG_LINE`, `ai/speakerTags.ts`). `SpeakerTagFilter` takes the tags out as the draft streams (always, a

@@ -23,7 +23,7 @@
 
 import type Database from 'better-sqlite3'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
-import type { Entry, GenerationJob, ID, WritingPrefs } from '@shared/types'
+import type { ChatMessage, Entry, GenerationJob, ID, WritingPrefs } from '@shared/types'
 import * as repo from '../db/repo'
 import * as hist from '../db/history'
 import { runTask, type Emit } from '../ai/tasks'
@@ -80,6 +80,13 @@ export interface FillOptions {
   storyId: ID | null
   /** What the story (or the author's summary) says about the entry, word for word; '' when nothing is known. */
   saidAbout?: (e: Entry) => string
+  /**
+   * The World build's (2026-10-17, for the provider's cache): each request opens as the build's other requests do,
+   * with their system message and then the author's summary about the entry (`summaryAbout`, laid out by `lead`); the
+   * fill's own instructions follow in the user message. The summary counts with `saidAbout` towards what one request
+   * carries, the summary first, as when both were one text.
+   */
+  opening?: { system: string; summaryAbout: (e: Entry) => string; lead: (about: string) => string }
   /**
    * Only what `saidAbout` gives, each value resting on words from it (the memory keeper's follow-on); without it, the
    * AI may also choose what fits the world where the story says nothing (the World builder).
@@ -168,21 +175,36 @@ async function fillOne(o: FillOptions, id: ID, out: FillResult): Promise<boolean
   const targets = fillTargets(e).filter((k) => !o.fromStory || !NOT_FROM_STORY.has(k))
   if (!targets.length) return false
   const kind: BuilderKind = e.kind
-  const said = clipTokens(o.saidAbout?.(e) ?? '', FILL_SAID_TOKENS)
+  const opening = o.fromStory ? null : (o.opening ?? null)
+  const about = opening ? opening.summaryAbout(e).trim() : ''
+  const story = o.saidAbout?.(e) ?? ''
+  const both = clipTokens([about, story].filter((t) => t.trim()).join('\n\n'), FILL_SAID_TOKENS)
+  // The summary leads only when all of it is kept (as it is: it is cut to fit already); else it all goes as one text.
+  const lead = opening && about && both.startsWith(about) ? opening.lead(about) : ''
+  const said = lead ? both.slice(about.length).trim() : both
   // From the story alone, with nothing in the story about it, there is nothing to fill in.
   if (o.fromStory && !said) return false
   const brief = gatherWorld(o.db, { kind, excludeId: e.id, storyId: o.storyId, prefs: o.prefs })
   const world = o.fromStory ? { text: '', entryIds: [] as ID[] } : worldText(brief, kind, FILL_WORLD_TOKENS)
   const versions = briefVersions(brief)
-  const messages = o.fromStory
+  const messages: ChatMessage[] = o.fromStory
     ? [
-        { role: 'system' as const, content: fillFoundSystem(kind) },
-        { role: 'user' as const, content: fillFoundUser(kind, valuesOf(kind, e), targets, styleText(brief.style), said) }
+        { role: 'system', content: fillFoundSystem(kind) },
+        { role: 'user', content: fillFoundUser(kind, valuesOf(kind, e), targets, styleText(brief.style), said) }
       ]
-    : [
-        { role: 'system' as const, content: fillGapsSystem(kind) },
-        { role: 'user' as const, content: fillGapsUser(kind, valuesOf(kind, e), targets, world.text, said) }
-      ]
+    : opening && lead
+      ? [
+          { role: 'system', content: opening.system },
+          {
+            role: 'user',
+            content: `${lead}\n\n${fillGapsSystem(kind)}\n\n${fillGapsUser(kind, valuesOf(kind, e), targets, world.text, said)}`,
+            cacheUpTo: lead.length
+          }
+        ]
+      : [
+          { role: 'system', content: fillGapsSystem(kind) },
+          { role: 'user', content: fillGapsUser(kind, valuesOf(kind, e), targets, world.text, said) }
+        ]
   const taskId = newId()
   o.onTask?.(taskId)
   let done

@@ -16,7 +16,7 @@ import * as mem from '../db/memory'
 import * as kdb from '../db/keeper'
 import { stampOrigins } from '../db/builder'
 import { BUILD_RUN_SCENE } from '../db/worldBuilder'
-import { ownInput, toInput } from '../builder/profile'
+import { entryText, ownInput, toInput } from '../builder/profile'
 import { savedValues } from '../builder/save'
 import { kindWord } from '../keeper/facts'
 import { upperFirst } from '../keeper/text'
@@ -206,6 +206,82 @@ export function saveEntry(w: Writer, n: NewEntry): { entry: Entry; item: WorldBu
       name: e.name,
       detail: e.summary,
       hardRule: rule,
+      otherId: null,
+      undone: false
+    }
+    w.made.push(item)
+    return { entry: e, item }
+  })()
+}
+
+export interface IntoEntry {
+  /** The name-only page this story's outline made (run.ts isOutlineStub). */
+  entryId: ID
+  kind: EntryKind
+  planned: string
+  profile: Profile
+  /** A place: the place it is inside, put there only while it is inside none. */
+  parentId: ID | null
+  source: Source
+}
+
+/**
+ * Lays a profile out into a page the world has with only its name (Adam, 2026-10-17: the characters and places keeping
+ * an outline makes): the same page, so the cards linking to it stay linked, its name kept. Only fields that are empty
+ * now are written (nothing anyone typed meanwhile is replaced), Adam's words his and the rest drafted by AI, as a new
+ * page's are. One line, which takes exactly those fields away again. Null when nothing could be written.
+ */
+export function saveInto(w: Writer, n: IntoEntry): { entry: Entry; item: WorldBuildItem } | null {
+  const kind = asProfileKind(n.kind)
+  const his = new Set(n.profile.his)
+  const ai = new Set(Object.keys(n.profile.values).filter((k) => !his.has(k)))
+  const all = savedValues(kind, n.profile.values, ai)
+  return w.db.transaction(() => {
+    const before = repo.getEntries(w.db, [n.entryId])[0]
+    if (!before) return null
+    const empty = (k: string): boolean => k !== 'name' && !entryText(before, k).trim()
+    const values = pick(all, (k) => empty(k) && !!String(all[k] ?? '').trim())
+    const parentId = n.kind === 'place' && n.parentId && !before.parentId && n.parentId !== before.id ? n.parentId : null
+    if (!Object.keys(values).length && !parentId) return null
+    const runId = runOf(w)
+    // Written as the AI's, then his words marked his: the page isn't one he edited by hand, so undoing the build
+    // leaves it as the outline made it, and building again lays it out again.
+    const mine = Object.keys(values).filter((k) => !ai.has(k))
+    const drafted = toInput(kind, pick(values, (k) => ai.has(k)))
+    const own = ownInput(kind, pick(values, (k) => !ai.has(k)))
+    const fields = { ...drafted.fields, ...own.fields }
+    const input = { ...drafted, ...own, ...(Object.keys(fields).length ? { fields } : {}), ...(parentId ? { parentId } : {}) }
+    let e = repo.updateEntry(w.db, before.id, input, { origin: 'ai', runId })
+    if (mine.length) e = stampOrigins(w.db, e.id, Object.fromEntries(mine.map((k) => [k, 'adam' as const])))
+    const l = line(w, {
+      what: 'entry',
+      entryId: e.id,
+      factId: null,
+      entryName: e.name,
+      text: `${upperFirst(kindWord(n.kind))} laid out`,
+      before: '',
+      after: e.summary,
+      quote: n.source.quote,
+      undo: {
+        op: 'world-build',
+        did: 'profile',
+        entryId: e.id,
+        kind: n.kind,
+        planned: n.planned,
+        values: Object.fromEntries(Object.keys(values).map((k) => [k, entryText(e, k)])),
+        parentId,
+        fingerprint: n.source.fingerprint,
+        words: n.source.words
+      }
+    })
+    const item: WorldBuildItem = {
+      lineId: l.id,
+      what: 'entry',
+      entryId: e.id,
+      kind: n.kind,
+      name: e.name,
+      detail: e.summary,
+      hardRule: false,
       otherId: null,
       undone: false
     }
