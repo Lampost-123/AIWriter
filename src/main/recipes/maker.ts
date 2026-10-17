@@ -3,6 +3,9 @@
 // notes on each, then writes the recipe from the notes and the pacing figures counted in code, then checks it
 // against the story (leaks.ts): a part that names the story's people or places or copies its words is asked for
 // once more, and whatever still does is taken out a sentence at a time.
+// A chapter's notes count only in the form asked (two of Moves, Roles, Style) and when they aren't a refusal; else it
+// is asked once more, then marked "couldn't read" and left out (2026-10-17). The recipe's room grows with the
+// chapters, and an answer cut off at its limit is said in the finished toast.
 //
 // One recipe at a time, in the order they were asked for. Each chapter's notes are saved as they come
 // (making.json), so quitting midway loses at most the chapter being read, and it carries on when the app starts.
@@ -13,9 +16,10 @@
 
 import type { RecipeMakerState, RecipeMaking, RecipePartId, RecipeParts } from '@shared/contracts/recipes'
 import type { JobModel } from '../ai/jobModel'
+import { looksLikeRefusalReply } from '@shared/refusal'
 import { now as clock } from '../util'
 import { estimateTokens } from '../keeper/text'
-import { DEFAULT_RECIPE_CONTEXT, FIX_REPLY, NOTES_REPLY, RECIPE_REPLY, pieceChars } from './estimate'
+import { DEFAULT_RECIPE_CONTEXT, NOTES_REPLY, fixReply, pieceChars, recipeReply } from './estimate'
 import { buildCheck, findLeaks, scrubText, type SourceCheck } from './leaks'
 import { emptyParts, parseRecipe } from './parse'
 import { feelText, parseFeel } from './feel'
@@ -60,13 +64,47 @@ const RECIPE_TEMPERATURE = 0.5
 
 const STOPPED = 'It stopped before it finished. Try again to carry on from where it was.'
 const GONE = 'The story’s text for this recipe is no longer kept, so it can’t be read again.'
+const NONE_READ = 'The recipe maker model wouldn’t read any of the story’s chapters. Pick another recipe maker model in Settings › Models, then Try again.'
 
 /** Thrown inside a make to end it: paused (with the reason and whether it carries on by itself) or stopped. */
 class Halt {
   constructor(
     readonly problem: string | null,
-    readonly held: MakingFile['held'] = 'adam'
+    readonly held: MakingFile['held'] = 'adam',
+    /** The library folder changed: the recipe is left as it was, to carry on when that library is back. */
+    readonly moved = false
   ) {}
+}
+
+/** The labels a chapter's notes are asked under (prompts.ts chapterSystem): notes with fewer than two are no notes. */
+const NOTE_LABELS = ['Moves:', 'Roles:', 'Style:']
+
+/** True when `text` has at least `min` of the labels, each at the start of a line (any case). */
+export function hasLabels(text: string, labels: string[], min: number): boolean {
+  const lines = text.split('\n').map((l) => l.replace(/^[\s*#_-]+/, '').toLowerCase())
+  return labels.filter((label) => lines.some((l) => l.startsWith(label.toLowerCase()))).length >= min
+}
+
+/** A chapter's notes worth keeping (2026-10-17): in the form asked, not a refusal. */
+export const usableNotes = (text: string): boolean => hasLabels(text, NOTE_LABELS, 2) && !looksLikeRefusalReply(text)
+
+const listed = (xs: string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : (xs[0] ?? ''))
+
+/** What the finished toast adds when the recipe isn't all there (null when it is). */
+export function finishedNote(o: { cutShort: boolean; unread: number[] }): string | null {
+  const out: string[] = []
+  if (o.unread.length) {
+    const which = o.unread.length === 1 ? `chapter ${o.unread[0]}` : `chapters ${listed(o.unread.map(String))}`
+    out.push(`The AI couldn’t read ${which}, so the recipe leaves ${o.unread.length === 1 ? 'it' : 'them'} out.`)
+  }
+  if (o.cutShort) out.push('The recipe was cut short; the last parts may be thin.')
+  if (!out.length) return null
+  out.push(
+    o.cutShort
+      ? 'Pick a recipe maker model that writes longer answers in Settings › Models, then Read the story again.'
+      : 'Pick another recipe maker model in Settings › Models, then Read the story again.'
+  )
+  return out.join(' ')
 }
 
 /** A recipe's name when the AI's would give the story away, or it gave none. */
@@ -76,7 +114,17 @@ export class RecipeMaker {
   private loop: Promise<void> | null = null
   /** The recipe being made now, until it ends (finished, paused or stopped). */
   private making: Promise<void> | null = null
-  private current: { id: string; step: RecipeMaking['step']; chapter: number; chapters: number; controller: AbortController } | null = null
+  private current: {
+    id: string
+    step: RecipeMaking['step']
+    chapter: number
+    chapters: number
+    controller: AbortController
+    /** The library it is being made in: a call is never sent (or paid for) once the library folder has changed. */
+    dir: string
+  } | null = null
+  /** The library the queue was last read from. */
+  private dir: string | null = null
   private stopping = new Set<string>()
   private closed = false
   private finished: RecipeMakerState['finished'] = null
@@ -129,10 +177,17 @@ export class RecipeMaker {
 
   /** Recipes with something left to make, in the order they were asked for. */
   private queue(files: RecipeFiles): StoredRecipe[] {
-    return files
-      .list()
-      .filter((r) => r.status !== 'ready' && files.making(r.id))
-      .sort((a, b) => (files.making(a.id)?.queuedAt ?? '').localeCompare(files.making(b.id)?.queuedAt ?? ''))
+    // Each recipe's notes file read once (2026-10-17), not again for every comparison of the sort.
+    const queued = new Map<string, string>()
+    const out: StoredRecipe[] = []
+    for (const r of files.list()) {
+      if (r.status === 'ready') continue
+      const m = files.making(r.id)
+      if (!m) continue
+      queued.set(r.id, m.queuedAt)
+      out.push(r)
+    }
+    return out.sort((a, b) => queued.get(a.id)!.localeCompare(queued.get(b.id)!))
   }
 
   private tell(): void {
@@ -148,6 +203,7 @@ export class RecipeMaker {
 
   /** At start, and whenever the library might have work: carries on with recipes waiting their turn. */
   resume(): void {
+    this.dir = this.d.files()?.dir ?? null
     this.repair()
     this.run()
     this.tell()
@@ -239,6 +295,16 @@ export class RecipeMaker {
     this.tell()
   }
 
+  /**
+   * The library folder changed (2026-10-17): the recipe being made in the old one stops where it is (what was read is
+   * kept there, to carry on when that library is chosen again), and the new library's recipes carry on.
+   */
+  libraryChanged(): void {
+    const files = this.d.files()
+    if (this.current && this.current.dir !== files?.dir) this.current.controller.abort()
+    this.resume()
+  }
+
   /** The app is quitting: the call under way stops; what was read is kept, and it carries on next time. */
   close(): void {
     this.closed = true
@@ -278,6 +344,10 @@ export class RecipeMaker {
     while (!this.closed) {
       const files = this.d.files()
       if (!files) return
+      if (files.dir !== this.dir) {
+        this.dir = files.dir
+        this.repair()
+      }
       const next = this.queue(files).find((r) => r.status === 'making')
       if (!next) return
       this.making = this.make(files, next)
@@ -292,17 +362,28 @@ export class RecipeMaker {
     const m = files.making(r.id)
     if (!m) return
     const controller = new AbortController()
-    this.current = { id: r.id, step: 'reading', chapter: 1, chapters: src?.chapters.length ?? r.chapters, controller }
+    this.current = { id: r.id, step: 'reading', chapter: 1, chapters: src?.chapters.length ?? r.chapters, controller, dir: files.dir }
     this.tell()
     try {
       if (!src || !src.chapters.length) throw new Halt(GONE)
       await this.readChapters(files, r.id, src, m, controller.signal)
+      // Not one chapter read: no recipe worth paying for. Try again reads them all again.
+      if ((m.unread ?? []).length >= src.chapters.length) {
+        files.writeMaking(r.id, { ...m, notes: src.chapters.map(() => null), unread: [] })
+        throw new Halt(NONE_READ)
+      }
       const notes = m.notes.map((n) => n ?? '')
       this.current.step = 'writing'
       this.tell()
       const model = this.model()
-      const reply = await this.ask(r.id, { system: combineSystem(), user: this.combineUser(src, notes, model), reply: RECIPE_REPLY, temperature: RECIPE_TEMPERATURE }, controller.signal, (t) => Object.keys(parseRecipe(t).parts).length >= 3)
-      const parsed = parseRecipe(reply)
+      const reply = recipeReply(src.chapters.length, model.choice)
+      const out = await this.ask(
+        r.id,
+        { system: combineSystem(), user: this.combineUser(src, notes, model, reply), reply, temperature: RECIPE_TEMPERATURE },
+        controller.signal,
+        (t) => Object.keys(parseRecipe(t).parts).length >= 3
+      )
+      const parsed = parseRecipe(out.text)
       this.current.step = 'checking'
       this.tell()
       const check = buildCheck(
@@ -314,7 +395,7 @@ export class RecipeMaker {
       // Genre and content is rewritten in AI Write's own labels, so it holds none of the story's words to check.
       const feel = feelText(parseFeel(parts.feel))
       parts.feel = ''
-      const fixed = await this.fixLeaks(r.id, parts, check, controller.signal)
+      const fixed = await this.fixLeaks(r.id, parts, check, model, controller.signal)
       let removed = 0
       for (const k of Object.keys(fixed) as RecipePartId[]) {
         const s = scrubText(fixed[k], check)
@@ -324,11 +405,12 @@ export class RecipeMaker {
       fixed.feel = feel
       let name = parsed.name.trim()
       if (!name || findLeaks(name, check).length || (src.title && name.toLowerCase().includes(src.title.toLowerCase()))) name = fallbackName(src.chapters.length)
-      this.finish(files, r.id, src, fixed, name, removed)
+      this.finish(files, r.id, src, fixed, name, removed, { cutShort: out.cutOff, unread: m.unread ?? [] })
     } catch (e) {
       if (!(e instanceof Halt)) throw e
-      // Closing: left as it was, to carry on next time. Stopped by Adam (stop or cancel): it waits for Try again.
-      if (this.closed) return
+      // Closing, or the library folder changed: left as it was, to carry on next time. Stopped by Adam (stop or
+      // cancel): it waits for Try again.
+      if (this.closed || e.moved || this.d.files()?.dir !== files.dir) return
       if (this.stopping.has(r.id)) this.pause(files, r.id, STOPPED, 'adam')
       else this.pause(files, r.id, e.problem ?? STOPPED, e.held)
     }
@@ -352,7 +434,7 @@ export class RecipeMaker {
       const ch = src.chapters[i]
       const st = chapterStats(ch)
       const pieces = piecesOf(chapterText(ch), pieceChars(model.choice))
-      const notes: string[] = []
+      const notes: (string | null)[] = []
       for (let p = 0; p < pieces.length; p++) {
         const user = chapterAsk({
           chapter: i + 1,
@@ -364,51 +446,72 @@ export class RecipeMaker {
           piece: { index: p + 1, of: pieces.length },
           text: pieces[p]
         })
-        notes.push(await this.ask(id, { system: chapterSystem(), user, reply: NOTES_REPLY, temperature: NOTES_TEMPERATURE }, signal, (t) => !!t.trim()))
+        // Notes not in the form asked, or a refusal, are asked for once more; then that piece goes without (2026-10-17).
+        const out = await this.ask(id, { system: chapterSystem(), user, reply: NOTES_REPLY, temperature: NOTES_TEMPERATURE }, signal, usableNotes, true)
+        notes.push(out?.text ?? null)
       }
-      m.notes[i] = notes.join('\n\n').trim()
+      const kept = notes.filter((n): n is string => n != null)
+      m.notes[i] = kept.join('\n\n').trim()
+      // A chapter none of whose pieces could be read is "couldn't read": the recipe page says so.
+      if (!kept.length) m.unread = [...new Set([...(m.unread ?? []), i + 1])].sort((a, b) => a - b)
       files.writeMaking(id, m)
     }
   }
 
-  /** The notes, cut down evenly if all of them wouldn't fit the model with room for the recipe. */
-  private combineUser(src: RecipeSource, notes: string[], model: JobModel): string {
+  /**
+   * The notes, cut down evenly if all of them wouldn't fit the model with room for the recipe (`reply`). The room
+   * leaves out the instructions, the pacing table and each chapter's heading (2026-10-17), so it never overflows.
+   */
+  private combineUser(src: RecipeSource, notes: string[], model: JobModel, reply: number): string {
     const length = model.choice.contextLength && model.choice.contextLength > 0 ? model.choice.contextLength : DEFAULT_RECIPE_CONTEXT
-    const room = length - RECIPE_REPLY * 1.5 - estimateTokens(combineSystem()) - 600 - Math.ceil(length * 0.05)
+    const base = { chapters: src.chapters.length, words: sourceWords(src), pacing: pacingTable(src) }
+    const frame = estimateTokens(combineAsk({ ...base, notes: notes.map(() => '') }))
+    const room = length - reply * 1.5 - estimateTokens(combineSystem()) - frame - 300 - Math.ceil(length * 0.05)
     const total = estimateTokens(notes.join('\n'))
-    const fitted =
-      total <= room ? notes : notes.map((n) => n.slice(0, Math.max(200, Math.floor((Math.max(room, 1000) * 3.5) / Math.max(1, notes.length)))))
-    return combineAsk({ chapters: src.chapters.length, words: sourceWords(src), pacing: pacingTable(src), notes: fitted })
+    if (total <= room) return combineAsk({ ...base, notes })
+    // Each chapter's even share of the room, in characters. No floor above it: 200 characters each for 300 chapters
+    // would be more than a small model holds.
+    const share = Math.floor((Math.max(room, 0) * 3.5) / Math.max(1, notes.length))
+    return combineAsk({ ...base, notes: notes.map((n) => n.slice(0, share)) })
   }
 
   /**
    * One call, asked once more if it fails or its answer can't be used (`usable`). Two failures in a row pause the
-   * recipe with the reason. Stopped by Adam or by the app closing: ends the make.
+   * recipe with the reason, except with `orNone` when the last answer came but couldn't be used: then null.
+   * Stopped by Adam, by the app closing or by the library folder changing: ends the make.
    */
-  private async ask(id: string, req: Omit<CallRequest, 'recipeId'>, signal: AbortSignal, usable: (text: string) => boolean): Promise<string> {
+  private async ask(id: string, req: Omit<CallRequest, 'recipeId'>, signal: AbortSignal, usable: (text: string) => boolean): Promise<{ text: string; cutOff: boolean }>
+  private async ask(id: string, req: Omit<CallRequest, 'recipeId'>, signal: AbortSignal, usable: (text: string) => boolean, orNone: true): Promise<{ text: string; cutOff: boolean } | null>
+  private async ask(id: string, req: Omit<CallRequest, 'recipeId'>, signal: AbortSignal, usable: (text: string) => boolean, orNone = false): Promise<{ text: string; cutOff: boolean } | null> {
     let last: string | null = null
+    let said = false
     // A call stopped by something other than this maker (it shouldn't be: a window reload leaves it going) is
     // asked again once without counting as a failure.
     let spareStop = 1
     for (let attempt = 0; attempt < FAILS_TO_PAUSE; attempt++) {
       this.model()
       if (signal.aborted || this.closed) throw new Halt(null)
+      // Never sent once the library folder has changed: its cost would go to the other library's records.
+      if (this.d.files()?.dir !== this.current?.dir) throw new Halt(null, 'adam', true)
       const out = await this.d.call({ recipeId: id, ...req }, signal)
       if (signal.aborted || this.closed) throw new Halt(null)
       if (out.status === 'stopped' && !out.cutOff && spareStop-- > 0) {
         attempt--
         continue
       }
-      if (out.status === 'complete' && usable(out.text)) return out.text
+      if (out.status === 'complete' && usable(out.text)) return { text: out.text, cutOff: false }
       // Cut off at the reply limit is still worth keeping when it says something.
-      if (out.status !== 'error' && out.cutOff && usable(out.text)) return out.text
+      if (out.status !== 'error' && out.cutOff && usable(out.text)) return { text: out.text, cutOff: true }
       last = out.status === 'error' ? out.error : out.status === 'stopped' ? STOPPED : null
+      said = !!out.text.trim()
     }
+    // Only an answer that said something it shouldn't (a refusal, notes in another form): no answer at all pauses.
+    if (orNone && last === null && said) return null
     throw new Halt(last ?? 'The recipe maker’s answer couldn’t be used. Try again, or pick another recipe maker model in Settings › Models.')
   }
 
   /** Parts that leak are asked for once more; what comes back replaces them only where it leaks less. */
-  private async fixLeaks(id: string, parts: RecipeParts, check: SourceCheck, signal: AbortSignal): Promise<RecipeParts> {
+  private async fixLeaks(id: string, parts: RecipeParts, check: SourceCheck, model: JobModel, signal: AbortSignal): Promise<RecipeParts> {
     const bad = (Object.keys(parts) as RecipePartId[]).filter((k) => findLeaks(parts[k], check).length)
     if (!bad.length) return parts
     const leaks = bad.flatMap((k) => findLeaks(parts[k], check))
@@ -417,7 +520,9 @@ export class RecipeMaker {
     const ask = Object.fromEntries(bad.map((k) => [k, parts[k]])) as Partial<RecipeParts>
     let text: string
     try {
-      text = await this.ask(id, { system: fixSystem(), user: fixAsk(ask, { names, copied }), reply: FIX_REPLY, temperature: NOTES_TEMPERATURE }, signal, (t) => !!t.trim())
+      // Room for the leaking parts to come back whole (2026-10-17), not a fixed 2000.
+      const reply = fixReply(bad.map((k) => parts[k]).join('\n\n'), model.choice)
+      text = (await this.ask(id, { system: fixSystem(), user: fixAsk(ask, { names, copied }), reply, temperature: NOTES_TEMPERATURE }, signal, (t) => !!t.trim())).text
     } catch (e) {
       // A fix that fails isn't worth pausing for: the leaking sentences are simply taken out.
       if (e instanceof Halt && e.problem !== null && !signal.aborted) return parts
@@ -432,7 +537,15 @@ export class RecipeMaker {
     return out
   }
 
-  private finish(files: RecipeFiles, id: string, src: RecipeSource, parts: RecipeParts, name: string, removed: number): void {
+  private finish(
+    files: RecipeFiles,
+    id: string,
+    src: RecipeSource,
+    parts: RecipeParts,
+    name: string,
+    removed: number,
+    gaps: { cutShort: boolean; unread: number[] }
+  ): void {
     const r = files.read(id)
     if (!r) return
     const edited = new Set(r.edited)
@@ -447,10 +560,11 @@ export class RecipeMaker {
       problem: null,
       words: sourceWords(src),
       chapters: src.chapters.length,
+      unread: gaps.unread,
       updatedAt: clock()
     })
     files.writeMaking(id, null)
-    this.finished = { recipeId: id, name: finalName, at: new Date().toISOString(), removed }
+    this.finished = { recipeId: id, name: finalName, at: new Date().toISOString(), removed, note: finishedNote(gaps) }
     this.d.changed()
   }
 

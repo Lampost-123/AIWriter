@@ -68,6 +68,24 @@ describe("the first look's reply", () => {
     expect(plan[1].in).toBe('Grey Coast')
   })
 
+  it('keeps two things one summary names one letter apart, or the same name of two kinds', () => {
+    const plan = mergePlan(
+      overviewItems({
+        characters: ['Tom', 'Tim', 'Mara Venn', 'Mira Venn'],
+        places: [{ name: 'Ironhold' }],
+        groups: [{ name: 'Ironhold' }]
+      })
+    )
+    expect(plan.map((p) => `${p.kind}:${p.name}`)).toEqual([
+      'character:Tom',
+      'character:Tim',
+      'character:Mara Venn',
+      'character:Mira Venn',
+      'place:Ironhold',
+      'group:Ironhold'
+    ])
+  })
+
   it('lays out the places others are inside first', () => {
     const plan = overviewItems({
       places: [{ name: 'The Anchor Inn', in: 'Saltmarsh' }, { name: 'Saltmarsh', in: 'The Grey Coast' }, { name: 'The Grey Coast' }]
@@ -123,9 +141,26 @@ describe('a profile in a reply', () => {
     expect(replyItems([{ name: 'A' }])).toEqual([{ name: 'A' }])
     expect(replyItems('nothing')).toEqual([])
   })
+
+  it("prefers the list asked for, and reads a bare list or one profile on its own", () => {
+    expect(replyItems({ notes: [{ x: 1 }], Places: [{ name: 'Fenwick' }] }, 'place')).toEqual([{ name: 'Fenwick' }])
+    expect(replyItems({ notes: [{ x: 1 }], relationships: [{ from: 'A' }] }, ['relationships'])).toEqual([{ from: 'A' }])
+    // One profile, not in a list (an event's "involved" is no list of profiles).
+    const one = { name: 'The Long Night', involved: ['Wren Ashby'], fromNotes: { happened: 'It was dark.' }, drafted: {} }
+    expect(replyItems(one, 'event')).toEqual([one])
+    expect(replyItems({ drafted: { summary: 'A town.' } }, 'place')).toEqual([{ drafted: { summary: 'A town.' } }])
+    expect(replyItems({ place: { name: 'Fenwick' } }, 'place')).toEqual([{ name: 'Fenwick' }])
+    expect(replyItems({ answer: 'none' }, 'place')).toEqual([])
+  })
 })
 
 describe('relationships, themes and disagreements', () => {
+  it('reads relationships given as a bare list', () => {
+    expect(relationshipItems([{ from: 'Tam Orrin', to: 'Wren Ashby', type: 'cousin' }, 'junk'])).toEqual([
+      { from: 'Tam Orrin', to: 'Wren Ashby', type: 'cousin', feels: '', otherFeels: '' }
+    ])
+  })
+
   it('reads relationships, leaving out any without both sides', () => {
     expect(
       relationshipItems({

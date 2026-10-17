@@ -9,7 +9,7 @@ import type { RecipeParts, RecipeStoryRequest } from '@shared/contracts/recipes'
 import type { ID } from '@shared/types'
 import { MODEL_NAMES } from '../ai/jobModel'
 import { startTask } from '../ai/tasks'
-import { castText, fitBlocks, storyText, threadsText, type BlockDraft } from '../outline/brief'
+import { castText, earlierText, fitBlocks, planText, storyText, threadsText, type BlockDraft } from '../outline/briefing'
 import { outlineFacts } from '../outline/context'
 import { briefingBudget, outlineReplyTokens, OUTLINE_TEMPERATURE, type JobDeps } from '../outline/jobs'
 import { cleanSize } from '../outline/prompts'
@@ -30,12 +30,15 @@ export function startRecipeStoryJob(deps: JobDeps, recipe: { name: string; parts
     )
   }
   const guidance = (input.guidance ?? '').trim().slice(0, 6000)
-  const facts = outlineFacts(deps.db, input.storyId, '')
+  // The story's kept premise, plan and earlier stories go too (2026-10-17), so laying it out again carries it on.
+  const facts = outlineFacts(deps.db, input.storyId)
   const system = storySystem(size.acts > 0)
   const drafts: BlockDraft[] = [
     { id: 'guidance', title: 'My guidance (it wins wherever it differs from the recipe)', priority: 1, forms: [guidance || 'None: follow the recipe, with new characters and a new setting.'] },
     { id: 'recipe', title: `The recipe: ${recipe.name.trim() || 'Untitled recipe'}`, priority: 1, forms: [recipeText(recipe.parts)] },
     { id: 'story', title: 'The world and the story', priority: 2, forms: [storyText(facts.story)] },
+    { id: 'earlier', title: 'Earlier stories', priority: 4, forms: [earlierText(facts.earlier), earlierText(facts.earlier, 2)] },
+    { id: 'plan', title: 'What the story has so far', priority: 2, forms: [0, 1, 2, 3].map((level) => planText(facts.plan, level)) },
     {
       id: 'threads',
       title: 'Open plot threads in the world',
@@ -50,7 +53,7 @@ export function startRecipeStoryJob(deps: JobDeps, recipe: { name: string; parts
       forms: [castText(facts.cast, 40), castText(facts.cast, 15), castText(facts.cast, 30, true)],
       entryIds: facts.cast.map((c) => c.id)
     },
-    { id: 'ask', title: 'What to plan', priority: 0, forms: [storyAsk(size)] }
+    { id: 'ask', title: 'What to plan', priority: 0, forms: [storyAsk(size, { chapters: facts.chapterCount, latestWhen: facts.latestWhen })] }
   ]
   const fitted = fitBlocks(drafts, system, briefingBudget(deps.model, reply), MODEL_NAMES.chat)
   const versions = new Map([...facts.cast, ...facts.threads].map((l) => [l.id, l.version]))

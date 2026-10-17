@@ -6,7 +6,7 @@
 import type { FieldDef } from '@shared/fields'
 import type { ChatMessage, ID, StyleGuide } from '@shared/types'
 import type { BuilderKind, BuilderValues, InterviewTurn, QuickAnswer } from '@shared/contracts/builder'
-import { estimateTokens } from '../keeper/text'
+import { estimateTokens, plain } from '../keeper/text'
 import { profileFields } from './profile'
 
 /** In every builder request's system prompt, followed by the job. */
@@ -33,9 +33,16 @@ export interface WorldBrief {
   /** Lore, rules never to break first. */
   lore: BriefEntry[]
   groups: BriefEntry[]
+  /** The world's places, so what is built can be set in them (2026-10-17). */
+  places: BriefEntry[]
   characters: BriefEntry[]
   /** Entries of the kind being built, when it is a place or an item (so it doesn't copy one). */
   same: BriefEntry[]
+}
+
+/** Each entry in the brief, by id, to the version it was told at (for worldText's entryIds). */
+export function briefVersions(b: WorldBrief): Map<ID, string> {
+  return new Map([...b.lore, ...b.groups, ...b.places, ...b.characters, ...b.same].map((e) => [e.id, e.updatedAt]))
 }
 
 const NOUN: Record<BuilderKind, string> = { character: 'character', place: 'place', group: 'group', item: 'item' }
@@ -91,31 +98,69 @@ export function styleText(s: StyleGuide): string {
 }
 
 /**
- * The world as the model is told it, fitted to `budget` tokens: the style guide whole, then lists of
- * what is already there. When they don't all fit, lines go from the end of the least important list
- * first: other lore, then the characters, the groups, entries of the same kind, and the rules last.
+ * The paragraphs that name the entry (by its name or another name, as whole words, case and curly quotes aside), in
+ * order.
  */
-export function worldText(b: WorldBrief, kind: BuilderKind, budget: number): { text: string; entryIds: ID[] } {
+export function paragraphsNaming(paragraphs: string[], e: Pick<BriefEntry, 'name' | 'aliases'>): string[] {
+  const named = namer(e)
+  return named ? paragraphs.filter((p) => named(plain(p))) : []
+}
+
+/** Whether text already made plain (keeper/text `plain`) names the entry; null for an entry without a name. */
+function namer(e: Pick<BriefEntry, 'name' | 'aliases'>): ((plainText: string) => boolean) | null {
+  const names = [e.name, ...e.aliases].map((n) => plain(n)).filter((n) => n.length > 1)
+  if (!names.length) return null
+  const escape = (n: string): string => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${names.map(escape).join('|')})(?=[^\\p{L}\\p{N}]|$)`, 'u')
+  return (t) => pattern.test(t)
+}
+
+/**
+ * The most of the world one request carries, in tokens, however much the model can read (2026-10-17): past this, more
+ * of it costs on every click and helps little.
+ */
+export const WORLD_TOKENS_MAX = 6000
+
+/**
+ * The world as the model is told it, fitted to `budget` tokens (and never more than WORLD_TOKENS_MAX): the style
+ * guide whole, then lists of what is already there. Entries `focus` names (the notes, the profile, the question) come
+ * first in each list and always stay (2026-10-17); the rest go newest first. When they don't all fit, lines go from
+ * the end of the least important list first: other lore, then the characters, the places, the groups, entries of the
+ * same kind, and the rules last.
+ */
+export function worldText(b: WorldBrief, kind: BuilderKind, budget: number, focus = ''): { text: string; entryIds: ID[] } {
+  const room = Math.min(budget, WORLD_TOKENS_MAX)
+  const said = focus.trim() ? plain(focus) : ''
+  const isNamed = (e: BriefEntry): boolean => !!said && !!namer(e)?.(said)
   const rules = b.lore.filter((e) => e.hardRule)
   const lore = b.lore.filter((e) => !e.hardRule)
   // Most important first; the same kind is what a new entry must not copy.
-  const sections: { title: string; items: BriefEntry[] }[] = [
+  const lists: { title: string; items: BriefEntry[] }[] = [
     { title: 'Rules of the world (never break these)', items: rules },
     { title: SAME_TITLE[kind], items: kind === 'character' ? b.characters : kind === 'group' ? b.groups : b.same },
     { title: 'Groups', items: kind === 'group' ? [] : b.groups },
+    // A place being built has them listed above already.
+    { title: 'Places', items: kind === 'place' ? [] : b.places },
     { title: 'Characters', items: kind === 'character' ? [] : b.characters },
     { title: 'Lore', items: lore }
   ]
+  // Those named first in each list, then the rest as they were.
+  const sections = lists.map((s) => {
+    const named = s.items.filter(isNamed)
+    return { ...s, named: named.length, items: named.length ? [...named, ...s.items.filter((e) => !named.includes(e))] : s.items }
+  })
   const about = aboutText(b)
   const lines = sections.map((s) => s.items.map(entryLine))
   let used = estimateTokens(about) + sections.length * 8 + lines.flat().reduce((n, l) => n + estimateTokens(l) + 1, 0)
-  for (let s = sections.length - 1; s >= 0 && used > budget; ) {
-    const l = lines[s].pop()
-    if (l === undefined) {
-      s--
-      continue
+  // Those named go only if nothing else is left to leave out.
+  for (const keep of [true, false]) {
+    for (let s = sections.length - 1; s >= 0 && used > room; ) {
+      if (lines[s].length <= (keep ? sections[s].named : 0)) {
+        s--
+        continue
+      }
+      used -= estimateTokens(lines[s].pop()!) + 1
     }
-    used -= estimateTokens(l) + 1
   }
   const parts = about ? [about] : []
   const entryIds: ID[] = []
@@ -203,10 +248,13 @@ export function quickStartUser(
     : ''
   const asked = answersText(answers)
   const followUp = asked
-    ? `\n\nThe author's answers to a few follow-up questions. They count as the author's notes too: copy their words under "fromNotes" where they say something about the ${noun}. Where the author left a question to you, decide it yourself and write it under "drafted".\n"""\n${asked}\n"""`
+    ? `\n\nThe author's answers to a few follow-up questions. They count as the author's notes too: copy their words under "fromNotes" where they say something about the ${noun}. Where the author left a question to you, decide it yourself and write it under "drafted".\n"""\n${quoted(asked)}\n"""`
     : ''
-  return `${world}\n\n${intro}\n"""\n${notes.trim()}\n"""${followUp}${saved}\n\nWrite the profile now, as one JSON object.`
+  return `${world}\n\n${intro}\n"""\n${quoted(notes.trim())}\n"""${followUp}${saved}\n\nWrite the profile now, as one JSON object.`
 }
+
+/** Words to go between """ marks, with any run of three or more quotes in them made one, so they can't close the marks early (2026-10-17). */
+export const quoted = (s: string): string => s.replace(/"{3,}/g, '"')
 
 /** Adam's answers to the follow-up questions, a question and its answer to a pair ('' when there are none). */
 export function answersText(answers: QuickAnswer[]): string {
@@ -240,7 +288,7 @@ Reply with {"questions": ["first question?", "second question?", ...]}`
 export function questionsUser(kind: BuilderKind, notes: string, world: string, passage: boolean): string {
   const noun = NOUN[kind]
   const intro = passage ? `The author selected this passage from the story, about a ${noun} the world doesn't have yet:` : `The author's notes on the ${noun}:`
-  return `${world}\n\n${intro}\n"""\n${notes.trim()}\n"""\n\nAsk your questions now, as one JSON object.`
+  return `${world}\n\n${intro}\n"""\n${quoted(notes.trim())}\n"""\n\nAsk your questions now, as one JSON object.`
 }
 
 // ---------- Flesh out ----------
@@ -304,14 +352,47 @@ Your profile:
 ${profileText('character', values)}`
 }
 
+/** The turns of the interview so far that are sent: the last 20, those with words in them. */
+export const sentTurns = (turns: InterviewTurn[]): InterviewTurn[] => turns.slice(-20).filter((t) => t.text.trim())
+
 /** The interview so far, then Adam's question. */
 export function interviewMessages(system: string, turns: InterviewTurn[], question: string): ChatMessage[] {
   const messages: ChatMessage[] = [{ role: 'system', content: system }]
-  for (const t of turns.slice(-20)) {
-    if (t.text.trim()) messages.push({ role: t.from === 'adam' ? 'user' : 'assistant', content: t.text.trim() })
-  }
+  for (const t of sentTurns(turns)) messages.push({ role: t.from === 'adam' ? 'user' : 'assistant', content: t.text.trim() })
   messages.push({ role: 'user', content: question.trim() })
   return messages
+}
+
+// ---------- Suggest relationships ----------
+
+/** The most relationships one request suggests. */
+export const MAX_RELATIONSHIPS = 5
+
+/**
+ * Suggest relationships (2026-10-17): a few likely links between a character and the characters and groups the world
+ * has, as they stand when the story begins. The World builder's relationships prompt lists only what a summary says;
+ * this one may suggest, so it is the builder's own.
+ */
+export function relationshipsSystem(): string {
+  return `${BUILDER_MARKER} relationships
+You help an author build the characters of a novel's world. You are given one character's profile and the characters and groups already in the world. Suggest a few relationships between this character and them that would fit the story, as they stand before it begins. Reply with one JSON object and nothing else.
+
+Rules
+- Up to ${MAX_RELATIONSHIPS} relationships, the likeliest and most useful to the story first. Fewer is fine; none is fine when nothing fits.
+- "with" is a name from the list of who they can be linked to, exactly as written there. Never anyone else, and never the character themselves.
+- Never suggest a link the character already has (listed under "Already linked to").
+- "type" says what the character is to them, in a few plain words: "sister", "rival", "owes money to", "apprentice", or for a group "member", "leader", "informer".
+- "feels" says how the character feels about them, and "otherFeels" how they feel about the character, in a few words each ("" for a group's "otherFeels").
+- Build on the profile and the world and never contradict them. Keep to the world's rules, tone and style guide's spelling.
+
+Reply with:
+{"relationships": [{"with": "...", "type": "...", "feels": "...", "otherFeels": "..."}]}`
+}
+
+/** `candidates`: who they can be linked to ("Name (character)"); `taken`: the names they are linked to already. */
+export function relationshipsUser(values: BuilderValues, world: string, candidates: string[], taken: string[]): string {
+  const already = taken.length ? `\n\nAlready linked to (suggest none of these):\n${taken.map((n) => `- ${n}`).join('\n')}` : ''
+  return `${world}\n\nThe character's profile:\n${profileText('character', values)}\n\nWho they can be linked to:\n${candidates.map((n) => `- ${n}`).join('\n')}${already}\n\nSuggest the relationships now, as one JSON object.`
 }
 
 // ---------- Filling in what is missing ----------

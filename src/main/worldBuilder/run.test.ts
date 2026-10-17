@@ -3,7 +3,7 @@
 // tests know exactly what each summary makes.
 
 import type Database from 'better-sqlite3'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppEvents } from '@shared/api'
 import type { WorldBuildDone, WorldBuildProgress } from '@shared/contracts/worldBuilder'
 import type { Entry, EntryKind, ID, ModelChoice, ProviderConfig, ThinkingLevel } from '@shared/types'
@@ -21,6 +21,7 @@ import {
   buildRunning,
   buildState,
   cancelBuild,
+  cancelBuildFor,
   closeBuildsFor,
   pagesToFill,
   resetBuildsForTests,
@@ -32,8 +33,11 @@ import { estimateCost, guessBuild, guessNames } from './estimate'
 import { startTimeline, timelineStory } from './timeline'
 import { timelineOf } from '../worldViews/index'
 import { getEntryReadAloud, setEntryReadAloud } from '../readAloud/voiceStore'
-import { keepOutline } from '../outline/structure'
+import { keepOutline, unkeepOutline } from '../outline/structure'
+import { entryState } from '../db/worldBuilder'
 import { storySummary } from './storySummary'
+import * as save from './save'
+import { batchSystem, characterSystem, overviewSystem } from './prompts'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -195,7 +199,9 @@ describe('building a fresh world from a summary', () => {
     const run = kdb.getRun(t.db, done.runId!)
     expect(run).toMatchObject({ status: 'done', sceneId: '', modelId: 'fake/writer' })
     const lines = kdb.logForRun(t.db, done.runId!)
-    expect(lines).toHaveLength(13)
+    // Each thing made, and the story's opening scene put on Day 1 (2026-10-17: a line, so Undo build takes it back).
+    expect(lines).toHaveLength(14)
+    expect(lines.at(-1)).toMatchObject({ what: 'scene', text: 'The story starts on Day 1', before: '', after: 'Day 1' })
     expect(lines.filter((l) => l.text === 'New character').map((l) => l.entryName)).toEqual(['Mara Venn', 'Tobin'])
     expect(lines.find((l) => l.entryName === 'Magic')?.text).toBe('New rule, never to be broken')
     expect(lines.find((l) => l.entryName === 'Tobin' && l.what === 'change')?.text).toBe('Younger brother: Mara Venn')
@@ -288,9 +294,12 @@ describe('undoing a build', () => {
     const t = setup()
     const done = await t.build(SUMMARY)
     const runId = done.runId!
+    const opening = repo.getOutline(t.db, repo.listStories(t.db)[0].id).scenes[0].id
+    expect(repo.getScene(t.db, opening).card.when).toBe('Day 1')
     const { lineIds } = t.db.transaction(() => undoBuild(t.db, runId))()
-    expect(lineIds).toHaveLength(13)
+    expect(lineIds).toHaveLength(14)
     expect(t.names()).toEqual([])
+    expect(repo.getScene(t.db, opening).card.when).toBe('')
     expect(repo.getMeta(t.db, 'themes') ?? '').toBe('')
     expect(repo.getMeta(t.db, 'tone') ?? '').toBe('')
     expect(madeItems(t.db, runId).every((m) => m.undone)).toBe(true)
@@ -298,6 +307,7 @@ describe('undoing a build', () => {
 
     t.db.transaction(() => redoBuild(t.db, runId, lineIds))()
     expect(t.names()).toHaveLength(10)
+    expect(repo.getScene(t.db, opening).card.when).toBe('Day 1')
     expect(madeItems(t.db, runId).some((m) => m.undone)).toBe(false)
     expect(t.named('Saltmarsh').parentId).toBe(t.named('The Grey Coast').id)
     expect(repo.getMeta(t.db, 'themes')).toBe('Debt, family and what the sea takes back.')
@@ -311,7 +321,7 @@ describe('undoing a build', () => {
     const saltmarsh = t.named('Saltmarsh')
     repo.deleteEntry(t.db, saltmarsh.id, { origin: 'adam' })
     const { lineIds } = t.db.transaction(() => undoBuild(t.db, done.runId!))()
-    expect(lineIds).toHaveLength(12)
+    expect(lineIds).toHaveLength(13)
     t.db.transaction(() => redoBuild(t.db, done.runId!, lineIds))()
     expect(t.names()).toHaveLength(9)
     expect(t.names('place')).toEqual(['The Grey Coast'])
@@ -401,6 +411,44 @@ describe('building in a world that has things already', () => {
     expect(repo.getEntry(t.db, mara.id).updatedAt).toBe(mara.updatedAt)
   })
 
+  it('takes the disagreement back with Undo build, and brings it back with its Undo (2026-10-17)', async () => {
+    const t = setup()
+    repo.createEntry(t.db, 'character', { name: 'Mara Venn', summary: 'A harbour pilot.', fields: { age: '29' } })
+    const done = await t.build(`${SUMMARY} Mara Venn is 34.`)
+    const issues = (): { status: string }[] => t.db.prepare('SELECT status FROM issues').all() as { status: string }[]
+    expect(issues()).toEqual([{ status: 'open' }])
+    const line = kdb.logForRun(t.db, done.runId!).find((l) => l.text === 'Your summary disagrees with this page')
+    expect(line).toMatchObject({ entryName: 'Mara Venn', before: '29', after: '34' })
+    const { lineIds } = t.db.transaction(() => undoBuild(t.db, done.runId!))()
+    expect(issues()).toEqual([])
+    t.db.transaction(() => redoBuild(t.db, done.runId!, lineIds))()
+    expect(issues()).toEqual([{ status: 'open' }])
+  })
+
+  it('leaves a disagreement Adam ignored when the build is undone (2026-10-17)', async () => {
+    const t = setup()
+    repo.createEntry(t.db, 'character', { name: 'Mara Venn', summary: 'A harbour pilot.', fields: { age: '29' } })
+    const done = await t.build(`${SUMMARY} Mara Venn is 34.`)
+    t.db.prepare("UPDATE issues SET status = 'ignored'").run()
+    t.db.transaction(() => undoBuild(t.db, done.runId!))()
+    expect(t.db.prepare('SELECT status FROM issues').all()).toEqual([{ status: 'ignored' }])
+  })
+
+  it('dates an event the world has already when its When is empty, and never changes one it has (2026-10-17)', async () => {
+    const t = setup()
+    const storm = repo.createEntry(t.db, 'event', { name: 'The Storm', summary: 'A great storm.' })
+    const flood = repo.createEntry(t.db, 'event', { name: 'The Great Flood', summary: 'The sea rose.', fields: { when: 'long ago' } })
+    const done = await t.build(`${SUMMARY} The Storm struck on Day 3.`)
+    expect(done.status).toBe('complete')
+    const dated = repo.getEntry(t.db, storm.id)
+    expect(dated.fields.when).toBe('Day 3')
+    expect(dated.fieldOrigins.when).toBe('ai')
+    expect(repo.getEntry(t.db, flood.id).fields.when).toBe('long ago')
+    expect(kdb.logForRun(t.db, done.runId!).find((l) => l.entryId === storm.id)).toMatchObject({ text: 'When it happens', after: 'Day 3' })
+    t.db.transaction(() => undoBuild(t.db, done.runId!))()
+    expect(repo.getEntry(t.db, storm.id).fields.when ?? '').toBe('')
+  })
+
   it('makes what a story’s start says true from that story’s start', async () => {
     const t = setup()
     const story = repo.createStory(t.db, { title: 'Book 2' })
@@ -476,6 +524,31 @@ describe('the timeline a build starts', () => {
     await empty.build(SUMMARY)
     expect(opening(empty.db, repo.listStories(empty.db)[0].id).when).toBe('')
   })
+
+  it('built for the world’s beginning, dates the world’s first story, not the first on the shelf (2026-10-17)', () => {
+    const t = setup()
+    const [book] = repo.listStories(t.db)
+    const two = repo.createStory(t.db, { title: 'The Salt Road' })
+    // The book is its own version of events, so the world's first story is the other one, which starts at the beginning.
+    t.db.prepare("UPDATE stories SET kind = 'own' WHERE id = ?").run(book.id)
+    t.db.prepare('UPDATE stories SET start_story_id = NULL WHERE id = ?').run(two.id)
+    expect(timelineStory(t.db, null)).toBe(two.id)
+  })
+
+  it('tells the window which scene it dated, and Undo build takes the date back unless Adam changed it (2026-10-17)', async () => {
+    const t = setup()
+    const book = repo.listStories(t.db)[0]
+    const done = await t.build(SUMMARY)
+    const first = opening(t.db, book.id)
+    expect(first.when).toBe('Day 1')
+    expect(t.events).toContainEqual({ name: 'memory:changed', payload: { sceneId: first.id, entryIds: [] } })
+
+    // Adam changed the When since: Undo build leaves his.
+    repo.updateSceneCard(t.db, first.id, { ...repo.getScene(t.db, first.id).card, when: 'Day 4, dawn' })
+    t.db.transaction(() => undoBuild(t.db, done.runId!))()
+    expect(opening(t.db, book.id).when).toBe('Day 4, dawn')
+    expect(t.names()).toEqual([])
+  })
 })
 
 describe('stopping a build', () => {
@@ -506,6 +579,9 @@ describe('stopping a build', () => {
 
     t.db.transaction(() => undoBuild(t.db, done.runId!))()
     expect(t.names()).toEqual([])
+    // Cancelled builds never start the timeline (2026-10-17).
+    const first = repo.getOutline(t.db, repo.listStories(t.db)[0].id).scenes[0]
+    expect(repo.getScene(t.db, first.id).card.when).toBe('')
   })
 
   it('stops when the world closes, finishing its run while the world is still open', { timeout: 30000 }, async () => {
@@ -795,5 +871,306 @@ describe('the events of a story built from its plan', () => {
     const storm = t.named('The Storm')
     expect(storm.originSceneId).toBeNull()
     expect(mem.listExistsPoints(t.db, storm.id)).toEqual([expect.objectContaining({ kind: 'world' })])
+  })
+})
+
+/** Streams a reply as the provider would, a few characters at a time. */
+function streamed(reply: string): Response {
+  const chunk = (delta: object, finish: string | null = null): string =>
+    `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+  const body = `${(reply.match(/[\s\S]{1,7}/g) ?? []).map((p) => chunk({ content: p })).join('')}${chunk({}, 'stop')}data: [DONE]\n\n`
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+}
+
+/**
+ * A fetch that answers some of the World builder's jobs ("[AIWRITE-WORLD v1] <job>") itself, from the request's user
+ * message, and sends the rest to the fake provider. Counts the requests of each job.
+ */
+function answering(replies: Record<string, (user: string) => string | null>): typeof fetch & { asked: Record<string, number> } {
+  const asked: Record<string, number> = {}
+  const f = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: string }[] }
+    const system = body.messages?.find((m) => m.role === 'system')?.content ?? ''
+    const job = /^\[AIWRITE-WORLD v1\] (\w+)/.exec(system)?.[1] ?? ''
+    if (job) asked[job] = (asked[job] ?? 0) + 1
+    const user = (body.messages ?? []).filter((m) => m.role === 'user').map((m) => m.content).join('\n')
+    const reply = replies[job]?.(user) ?? null
+    return reply === null ? fetch(input, init) : streamed(reply)
+  }) as typeof fetch & { asked: Record<string, number> }
+  f.asked = asked
+  return f
+}
+
+/** A first look listing these, by kind (asked again for anything missed, it lists them again). */
+const listing = (lists: Record<string, unknown[]>) => (): string =>
+  JSON.stringify({ characters: [], places: [], groups: [], items: [], lore: [], events: [], threads: [], glossary: [], ...lists })
+
+describe('names one letter apart, and the same name of two kinds', () => {
+  it('makes two people of two names one letter apart in one summary', async () => {
+    const t = setup()
+    const done = await t.build('Tom is a fisherman. Tim is a baker. Mara Venn is a smuggler captain. Mira Venn is a sailmaker.')
+    expect(done.status).toBe('complete')
+    expect(t.names('character')).toEqual(['Mara Venn', 'Mira Venn', 'Tim', 'Tom'])
+    expect(done.found).toEqual([])
+  })
+
+  it('makes both the place and the group one summary gives the same name', async () => {
+    const t = setup()
+    t.ctx.fetchImpl = answering({
+      overview: listing({ places: [{ name: 'Ironhold', about: 'a fortress' }], groups: [{ name: 'Ironhold', about: 'its garrison' }] })
+    })
+    const done = await t.build('Ironhold is a fortress in the hills. The garrison is called Ironhold too.')
+    expect(done.status).toBe('complete')
+    expect(t.names('place')).toEqual(['Ironhold'])
+    expect(t.names('group')).toEqual(['Ironhold'])
+  })
+
+  it('still takes a clear typo of a long name in the world as that page', async () => {
+    const t = setup()
+    const town = repo.createEntry(t.db, 'place', { name: 'Grimsby', summary: 'A fishing town.' })
+    const done = await t.build('Grimbsy is a fishing town.')
+    expect(done.status).toBe('complete')
+    expect(done.found).toEqual([{ entryId: town.id, kind: 'place', name: 'Grimsby' }])
+    expect(t.names('place')).toEqual(['Grimsby'])
+  })
+})
+
+describe('replies in other shapes', () => {
+  it.each([
+    ['a bare list', (list: string) => list],
+    ['a fenced list', (list: string) => `Here they are:\n\`\`\`json\n${list}\n\`\`\``]
+  ])('saves relationships given as %s', async (_, shape) => {
+    const t = setup()
+    const list = JSON.stringify([
+      { from: 'Tobin', to: 'Mara Venn', type: 'shipmate', feels: '', otherFeels: '' },
+      { from: 'Mara Venn', to: 'Salt Guild', type: 'debtor' }
+    ])
+    const f = answering({ relationships: () => shape(list) })
+    t.ctx.fetchImpl = f
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    expect(f.asked.relationships).toBe(1)
+    const types = (name: string) =>
+      mem
+        .changesForEntry(t.db, t.named(name).id)
+        .flatMap((c) => (c.kind === 'relationship' && c.entryId === t.named(name).id ? [c.payload.type] : []))
+    expect(types('Tobin')).toContain('shipmate')
+    expect(types('Mara Venn')).toContain('debtor')
+  })
+
+  it('saves a profile given on its own, not in a list, without asking again', async () => {
+    const t = setup()
+    const f = answering({
+      places: () =>
+        JSON.stringify({
+          name: 'Fenwick',
+          in: '',
+          fromNotes: { name: 'Fenwick', summary: 'Fenwick is a fishing village.' },
+          drafted: { description: 'Grey roofs and nets drying on the wall.' }
+        })
+    })
+    t.ctx.fetchImpl = f
+    const done = await t.build('Fenwick is a fishing village.')
+    expect(done.status).toBe('complete')
+    expect(t.names('place')).toEqual(['Fenwick'])
+    expect(t.named('Fenwick').description).toBe('Grey roofs and nets drying on the wall.')
+    expect(f.asked.places).toBe(1)
+    expect(done.missed).toEqual([])
+  })
+})
+
+describe('a planned name the profile changes', () => {
+  const SUMMARY_RENAMED = [
+    'The Ferryman is an old boatman, and his real name is Bram Holt.',
+    'The Low Tavern is an inn by the river, called the Riverside Inn by travellers.',
+    'The Taproom is a room in the Low Tavern.',
+    'The Long Night happened in the year 300, when the Ferryman lost his boat.'
+  ].join(' ')
+
+  it('still links what names it by the planned name, and keeps that name as another name', async () => {
+    const t = setup()
+    t.ctx.fetchImpl = answering({
+      overview: listing({
+        characters: [{ name: 'The Ferryman', about: 'an old boatman' }],
+        places: [
+          { name: 'The Low Tavern', aliases: ['Riverside Inn'], about: 'an inn by the river' },
+          { name: 'The Taproom', in: 'The Low Tavern', about: 'a room in the inn' }
+        ],
+        events: [{ name: 'The Long Night', when: 'in the year 300' }]
+      }),
+      character: () =>
+        JSON.stringify({
+          fromNotes: { name: 'Bram Holt', summary: 'The Ferryman is an old boatman, and his real name is Bram Holt.' },
+          drafted: { traits: 'Quiet and patient.' }
+        }),
+      places: () =>
+        JSON.stringify({
+          places: [
+            { name: 'Riverside Inn', in: '', fromNotes: { name: 'Riverside Inn' }, drafted: { description: 'Low beams.' } },
+            { name: 'The Taproom', in: 'The Low Tavern', fromNotes: { name: 'The Taproom' }, drafted: { description: 'Barrels.' } }
+          ]
+        }),
+      events: () =>
+        JSON.stringify({
+          events: [{ name: 'The Long Night', involved: ['The Ferryman'], fromNotes: { name: 'The Long Night' }, drafted: { happened: 'A storm.' } }]
+        })
+    })
+    const done = await t.build(SUMMARY_RENAMED)
+    expect(done.status).toBe('complete')
+    expect(t.names('character')).toEqual(['Bram Holt'])
+    expect(t.names('place')).toEqual(['Riverside Inn', 'The Taproom'])
+    const bram = t.named('Bram Holt')
+    expect(bram.aliases).toContain('The Ferryman')
+    const inn = t.named('Riverside Inn')
+    expect(inn.aliases).toContain('The Low Tavern')
+    expect(t.named('The Taproom').parentId).toBe(inn.id)
+    const night = t.named('The Long Night')
+    const involved = mem.changesForEntry(t.db, bram.id).filter((c) => c.kind === 'relationship' && c.payload.otherId === night.id)
+    expect(involved).toHaveLength(1)
+  })
+
+  it('links a description it planned by too, without keeping it as a name', async () => {
+    const t = setup()
+    t.ctx.fetchImpl = answering({
+      overview: listing({
+        characters: [{ name: 'The old ferryman', about: 'an old boatman' }],
+        events: [{ name: 'The Long Night', when: 'in the year 300' }]
+      }),
+      character: () =>
+        JSON.stringify({ fromNotes: { name: 'Bram Holt' }, drafted: { summary: 'An old boatman.', traits: 'Quiet and patient.' } }),
+      events: () =>
+        JSON.stringify({
+          events: [{ name: 'The Long Night', involved: ['The old ferryman'], fromNotes: { name: 'The Long Night' }, drafted: { happened: 'A storm.' } }]
+        })
+    })
+    const done = await t.build('The old ferryman, whose name is Bram Holt, rows the river. The Long Night happened in the year 300.')
+    expect(done.status).toBe('complete')
+    const bram = t.named('Bram Holt')
+    expect(bram.aliases).toEqual([])
+    const night = t.named('The Long Night')
+    expect(mem.changesForEntry(t.db, bram.id).filter((c) => c.kind === 'relationship' && c.payload.otherId === night.id)).toHaveLength(1)
+  })
+})
+
+describe('more fixes to building (2026-10-17)', () => {
+  it('misses a profile whose save fails, and goes on with the rest', async () => {
+    const t = setup()
+    const real = save.saveEntry
+    const spy = vi.spyOn(save, 'saveEntry').mockImplementation((w, n) => {
+      if (n.planned === 'Saltmarsh') throw new Error('The disk is full')
+      return real(w, n)
+    })
+    try {
+      const done = await t.build(SUMMARY)
+      expect(done.status).toBe('complete')
+      expect(done.missed).toEqual(['Saltmarsh'])
+      expect(t.names('place')).toEqual(['The Grey Coast'])
+      expect(t.names('character')).toEqual(['Mara Venn', 'Tobin'])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('lays out characters and places as they start, but events and plot threads when they happen', () => {
+    const start = 'Describe everything as it stands at the start'
+    expect(characterSystem()).toContain(start)
+    expect(batchSystem('place')).toContain(start)
+    for (const kind of ['event', 'thread'] as const) {
+      expect(batchSystem(kind)).not.toContain(start)
+      expect(batchSystem(kind)).toContain('Say when it happens in the story')
+    }
+  })
+
+  it('never asks about later books, and an event the AI still puts in one keeps those words, undated, at no scene', async () => {
+    expect(overviewSystem()).not.toMatch(/Book \d/)
+    expect(batchSystem('event')).not.toMatch(/Book \d/)
+    const t = setup()
+    const id = repo.listStories(t.db)[0].id
+    keepOutline(t.db, id, [
+      { key: 'c0', kind: 'chapter', title: 'Harbour', text: 'The ferry waits.', card: { when: 'Day 1' } },
+      { key: 's0', kind: 'scene', title: 'Debt', text: 'Mara Venn is a smuggler captain.', parent: { key: 'c0' } },
+      { key: 's1', kind: 'scene', title: 'Wreck', text: 'The Storm struck on Day 3.', parent: { key: 'c0' } }
+    ])
+    t.ctx.fetchImpl = answering({
+      events: () =>
+        JSON.stringify({
+          events: [{ name: 'The Storm', scene: 'Scene 2', fromNotes: { name: 'The Storm' }, drafted: { when: 'in Book 2, Day 3', happened: 'A gale.' } }]
+        })
+    })
+    const done = await t.build(storySummary(t.db, id), id)
+    expect(done.status).toBe('complete')
+    const storm = t.named('The Storm')
+    expect(storm.fields.when).toBe('in Book 2, Day 3')
+    expect(storm.originSceneId).toBeNull()
+    expect(storm.originStoryId).toBe(id)
+  })
+
+  it('links characters to where they live, items to their owners, and events to their place and the groups in them', async () => {
+    const t = setup()
+    let asked = ''
+    t.ctx.fetchImpl = answering({
+      relationships: (user) => {
+        asked = user
+        return JSON.stringify({
+          relationships: [
+            { from: 'Mara Venn', to: 'Saltmarsh', type: 'lives in' },
+            { from: 'Tide Compass', to: 'Mara Venn', type: 'owns' }
+          ]
+        })
+      },
+      events: () =>
+        JSON.stringify({
+          events: [
+            {
+              name: 'The Great Flood',
+              at: 'Saltmarsh',
+              involved: ['Tobin', 'Salt Guild'],
+              fromNotes: { name: 'The Great Flood' },
+              drafted: { happened: 'The sea rose.' }
+            }
+          ]
+        })
+    })
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    expect(asked).toContain('Places: The Grey Coast; Saltmarsh')
+    expect(asked).toContain('Items: Tide Compass')
+    const links = (name: string): [string, string][] =>
+      mem
+        .changesForEntry(t.db, t.named(name).id)
+        .flatMap((c): [string, string][] => (c.kind === 'relationship' && c.entryId === t.named(name).id ? [[c.payload.type, c.payload.otherId]] : []))
+    const mara = links('Mara Venn')
+    expect(mara).toContainEqual(['lives in', t.named('Saltmarsh').id])
+    expect(mara).toContainEqual(['owns', t.named('Tide Compass').id])
+    const flood = t.named('The Great Flood')
+    expect(links('The Great Flood')).toContainEqual(['happens at', t.named('Saltmarsh').id])
+    expect(links('Salt Guild')).toContainEqual(['involved in', flood.id])
+    expect(links('Tobin')).toContainEqual(['involved in', flood.id])
+  })
+
+  it('stops a story’s build before its kept outline is undone, so a page the Undo removes is never filled after', { timeout: 30000 }, async () => {
+    const t = setup({ modelId: 'fake/slow' })
+    const id = repo.listStories(t.db)[0].id
+    const kept = keepOutline(t.db, id, [
+      { key: 'c0', kind: 'chapter', title: 'The Ferry', text: 'Mara Venn is a smuggler captain.', card: { pov: 'Tobin Hale', location: 'Gull Quay' } },
+      { key: 's0', kind: 'scene', title: 'Debt', text: 'Tobin Hale is a ferryman who owes the Salt Guild.', parent: { key: 'c0' } }
+    ])
+    const made = kept.flatMap((k) => k.entryIds ?? [])
+    expect(made.length).toBeGreaterThan(0)
+    const finished = startBuild(t.ctx, { buildId: 'story-1', summary: storySummary(t.db, id), storyId: id })
+    await until(() => t.progress().some((p) => p.made.length > 0))
+    await cancelBuildFor(t.db, [id])
+    expect(buildRunning()).toBe(false)
+    unkeepOutline(t.db, kept)
+    const stamp = (e: ID): unknown => t.db.prepare('SELECT updated_at, fields_json FROM entries WHERE id = ?').get(e)
+    const after = new Map(made.map((e) => [e, stamp(e)]))
+    await finished
+    await new Promise((r) => setTimeout(r, 50))
+    expect(t.doneOf('story-1')?.status).toBe('cancelled')
+    for (const e of made) {
+      expect(entryState(t.db, e)).toBe('deleted')
+      expect(stamp(e)).toEqual(after.get(e))
+    }
+    expect(t.names('character')).not.toContain('Tobin Hale')
   })
 })

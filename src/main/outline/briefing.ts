@@ -38,6 +38,8 @@ export interface PlanChapter {
   /** Its summary, once its scenes have words. */
   summary: string
   scenes: PlanScene[]
+  /** What its chapter card says, by name (2026-10-17): left out or empty when it says nothing. */
+  card?: { pov: string; characters: string[]; location: string }
 }
 
 /** An act and its chapters; `id` null for the chapters with no act (they come first). */
@@ -124,8 +126,23 @@ const sceneLine = (sc: PlanScene, detail: boolean): string => {
 
 const actHeading = (a: PlanAct): string =>
   `Act: ${titleOf(a.title, 'Untitled act')}${clean(a.purpose) ? `. Purpose: ${sentence(clean(a.purpose))}` : ''}`
-const chapterHeading = (c: PlanChapter): string =>
-  `Chapter: ${titleOf(c.title, 'Untitled chapter')}${clean(c.goal) ? `. Goal: ${sentence(clean(c.goal))}` : ''}`
+/** A chapter card's point of view, characters (beside the point of view) and place: " Point of view: Mara. Location: Gull Quay." */
+function cardText(c: PlanChapter): string {
+  const pov = clean(c.card?.pov)
+  const others = (c.card?.characters ?? []).map(clean).filter((n) => n && n !== pov)
+  const place = clean(c.card?.location)
+  return [pov ? `Point of view: ${pov}.` : '', others.length ? `Characters: ${others.join(', ')}.` : '', place ? `Location: ${place}.` : '']
+    .filter(Boolean)
+    .map((s) => ` ${s}`)
+    .join('')
+}
+
+/** A chapter's title and goal, and what its card says (2026-10-17: so the AI never asks what the card says already). */
+const chapterHeading = (c: PlanChapter, withCard = true): string => {
+  const goal = clean(c.goal) ? `. Goal: ${sentence(clean(c.goal))}` : ''
+  const card = withCard ? cardText(c) : ''
+  return `Chapter: ${titleOf(c.title, 'Untitled chapter')}${goal}${card && !goal ? `.${card}` : card}`
+}
 
 /**
  * The story's acts, chapters and scenes as they stand. Level 0 gives every scene (its summary, or its
@@ -141,7 +158,7 @@ export function planText(plan: PlanAct[], level: number): string {
   if (level >= 3) {
     const shown = chapters.slice(-6)
     if (shown.length < total) lines.push(`(${total - shown.length} earlier chapters left out to save space.)`)
-    for (const c of shown) lines.push(chapterHeading(c))
+    for (const c of shown) lines.push(chapterHeading(c, false))
     return lines.join('\n')
   }
   let index = 0

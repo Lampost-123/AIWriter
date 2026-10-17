@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ImportPlan } from '@shared/contracts/importing'
-import { guessRecipe, pieceChars, recipeCost } from './estimate'
+import { fixReply, guessRecipe, pieceChars, recipeCost, recipeReply } from './estimate'
 import { chapterSpans, chapterStats, chapterText, pacingTable, piecesOf, sourceFromPlan, sourceWords } from './source'
 
 const run = (text: string): { text: string }[] => [{ text }]
@@ -66,5 +66,23 @@ describe('what making a recipe costs', () => {
     expect(guessRecipe([40_000], { contextLength: 32_000 }, 'high').output).toBeGreaterThan(guessRecipe([40_000], { contextLength: 32_000 }, 'off').output)
     expect(recipeCost(big, { promptPrice: null, completionPrice: 0.00001 })).toBeNull()
     expect(recipeCost({ input: 1000, output: 100 }, { promptPrice: 0.000001, completionPrice: 0.00001 })).toBeCloseTo(0.002)
+  })
+
+  // 2026-10-17: a long novel's recipe gets more room, as far as the model can answer, and the estimate counts it.
+  it('gives a long story’s recipe more room, up to the model’s longest answer, and counts it', () => {
+    expect(recipeReply(3, {})).toBe(3500 + 120)
+    expect(recipeReply(60, {})).toBe(3500 + 2400)
+    expect(recipeReply(60, { maxOutput: 4096 })).toBe(4096)
+    const chars = (n: number): number[] => Array.from({ length: n }, () => 1000)
+    const few = guessRecipe(chars(3), { contextLength: 200_000 }, 'off')
+    const many = guessRecipe(chars(60), { contextLength: 200_000 }, 'off')
+    // 57 more chapters' notes, plus the longer recipe and its fix.
+    expect(many.output - few.output).toBeGreaterThan(57 * 420 + 57 * 40 * 0.6)
+  })
+
+  it('gives the fix room for the parts it rewrites', () => {
+    expect(fixReply('short', {})).toBe(2000)
+    expect(fixReply('word '.repeat(4000), {})).toBeGreaterThan(5000)
+    expect(fixReply('word '.repeat(4000), { maxOutput: 3000 })).toBe(3000)
   })
 })

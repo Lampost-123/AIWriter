@@ -10,7 +10,8 @@ import { api, ApiError, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { arrivalOrder, notesToOfferBack } from './builderLogic'
 
-export type QuickView = Pick<BuilderProgress, 'values' | 'fromNotes' | 'writing' | 'entryId'>
+/** `text`: a word on what the build is doing, when it says one ("Adding to Mara Venn's page"). */
+export type QuickView = Pick<BuilderProgress, 'values' | 'fromNotes' | 'writing' | 'entryId'> & { text?: string }
 export const EMPTY_VIEW: QuickView = { values: {}, fromNotes: [], writing: null, entryId: null }
 
 export interface Problem {
@@ -204,8 +205,10 @@ export async function buildQuickStart(
   dropNotesBack()
   // Finishing keeps the profile on screen as it is; what arrives goes at the end.
   put(key, { jobId, retrying: null, finishing: !!entryId, done: null, problem: null, ...(entryId ? {} : { view: EMPTY_VIEW, order: [] }) })
+  // Finish the rest goes on from his answers to the follow-up questions too, as the first build did (2026-10-17).
+  const answers = opts.answers ?? (entryId && s.chat ? answersOf(s.chat) : undefined)
   try {
-    await api.startQuickStart({ jobId, kind, notes: s.notes, storyId, sceneId: s.sceneId, entryId, answers: opts.answers })
+    await api.startQuickStart({ jobId, kind, notes: s.notes, storyId, sceneId: s.sceneId, entryId, answers })
   } catch (e) {
     if (get(key)?.jobId !== jobId) return
     const problem = { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined }

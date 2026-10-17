@@ -152,12 +152,21 @@ export const sentencesNaming = (summary: string, names: string[]): string[] => s
 
 // ---------- Profiles ----------
 
-/** Every object in the first list of a reply ({"places": [...]}), or the reply itself when it is one object without a list. */
-export function replyItems(value: unknown): Record<string, unknown>[] {
+/**
+ * The objects a reply lists: the reply itself when it is a bare list, else the list under the name asked for (a
+ * kind's, {"places": [...]}, or one of `want`'s names), else the reply as the one item when it is one profile (it has
+ * a name, "fromNotes" or "drafted"), else its first list of objects. None when it has none.
+ */
+export function replyItems(value: unknown, want: EntryKind | string[] = []): Record<string, unknown>[] {
   if (Array.isArray(value)) return value.filter(isObject)
   if (!isObject(value)) return []
-  const list = Object.values(value).find(Array.isArray)
-  return list ? list.filter(isObject) : []
+  const names = typeof want === 'string' ? LIST_NAMES[want] : want.map(loose)
+  const asked = names.length ? member(value, names) : undefined
+  if (Array.isArray(asked)) return asked.filter(isObject)
+  if (isObject(asked)) return [asked]
+  if (member(value, ['name', 'title', 'word', 'term', 'fromnotes', 'drafted']) !== undefined) return [value]
+  const list = Object.values(value).find((v) => Array.isArray(v) && v.some(isObject))
+  return Array.isArray(list) ? list.filter(isObject) : []
 }
 
 /** A profile laid out from the summary: its fields, which of them are Adam's own words, and its name. */
@@ -187,14 +196,15 @@ export function readProfile(kind: EntryKind, summary: string, item: Record<strin
   return { values, his }
 }
 
-/** A place's parent, a lore entry's "never to break" and an event's people, from beside a profile. */
-export function profileExtras(item: Record<string, unknown>): { in: string; rule: boolean | null; involved: string[]; scene: string } {
+/** A place's parent, a lore entry's "never to break" and an event's people, groups and place, from beside a profile. */
+export function profileExtras(item: Record<string, unknown>): { in: string; rule: boolean | null; involved: string[]; scene: string; at: string } {
   const rule = member(item, ['rule', 'absolute', 'hardrule'])
   return {
     in: str(member(item, ['in', 'inside', 'parent', 'within']), 120),
     rule: rule === undefined ? null : bool(rule),
     involved: strList(member(item, ['involved', 'people', 'characters', 'who']), 20),
-    scene: str(member(item, ['scene', 'inscene', 'scenenumber']), 60)
+    scene: str(member(item, ['scene', 'inscene', 'scenenumber']), 60),
+    at: str(member(item, ['at', 'place', 'where', 'location']), 120)
   }
 }
 
@@ -217,8 +227,9 @@ export interface RelationshipReply {
   otherFeels: string
 }
 
+/** The relationships in a reply: {"relationships": [...]}, or a bare list of them. */
 export function relationshipItems(value: unknown): RelationshipReply[] {
-  return replyItems(value)
+  return replyItems(value, ['relationships'])
     .map((o) => ({
       from: str(member(o, ['from', 'a', 'who', 'character']), 120),
       to: str(member(o, ['to', 'b', 'with', 'other']), 120),
@@ -244,7 +255,7 @@ export interface ConflictReply {
 }
 
 export function conflictItems(value: unknown): ConflictReply[] {
-  return replyItems(value)
+  return replyItems(value, ['conflicts'])
     .map((o) => ({
       name: str(member(o, ['name', 'page', 'entry']), 120),
       field: str(member(o, ['field', 'key']), 60),

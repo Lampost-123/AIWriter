@@ -157,6 +157,7 @@ describe('the cast', () => {
     image: null,
     role: '',
     hardRule: false,
+    aiDrafted: false,
     scenes: 0,
     importance,
     last: null,

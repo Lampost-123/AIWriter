@@ -1712,6 +1712,21 @@ deleted, and a new story can be planned from one. The data model stays frozen: w
   run of 8 or more words copied from the story, judged as the whole matching run (only a run under 12 words made
   entirely of little words passes). Parts that leak are asked for once more (`fix`); whatever still leaks is taken out a
   sentence at a time. A suggested name that gives the story away becomes "A story in N chapters".
+  Since 2026-10-17: names are also all-caps words of 3 letters or more that aren't common acronyms, numerals or
+  shouted ordinary words; a name is found in the recipe in any case when it is plainly made up (capitalised twice,
+  never in lower case, no ordinary word), and a name that is also an ordinary word ("Will") only where it is
+  capitalised mid-sentence.
+- **Fixes of 2026-10-17.** A chapter's notes count only with two of `Moves:`, `Roles:`, `Style:` and when they aren't
+  a refusal (`shared/refusal.ts`); else asked once more, then the chapter is "couldn't read" (`unread`, said on the
+  recipe page and in the finished toast; none read at all pauses). The recipe's reply room is
+  `min(maxOutput, 3500 + 40 × chapters)`, counted in the estimate; a cut-off reply is said in `finished.note`. The
+  combine room leaves out the pacing table and headings, and each chapter gets only its share. The fix call's room
+  follows the leaking parts. Changing the library folder stops the make there (left to carry on) and the new
+  library's recipes carry on. Hand-edited `recipe.json` parts are read as text; a `version` over 1 is never made or
+  written ("This recipe was made by a newer AI Write; update to open it"). Cancel refuses a finished recipe;
+  `startRecipeStory` refuses an unfinished one. Read the story again's toast says the cost, with Cancel. Plan sessions
+  are kept in `<id>/plans/<storyId>.json` (the recipe page lists them, "Go on planning"). `unapplyRecipe` puts a value
+  back only while it is still what the recipe set.
 - **A recipe holds** (`contracts/recipes.ts`): themes (with each act's tone and mood), tone, point of view, tense,
   writing style in plain words, a sample passage written fresh, shape and turning points, beats as general moves, cast
   roles, pacing and devices, and its genre and content: "Genres: Horror, Mystery. Romance: Fade to black. Violence:
@@ -2306,7 +2321,7 @@ main side `src/main/critique/`, handlers `ipc/critique.ts`, the tab `features/cr
   This chapter (the open scene's chapter); Critique scene and Critique chapter there (Stop while it reads), and the
   palette's "Critique this scene", "Critique this chapter" and "Scene critique" (the tab).
 - **The request** (`critique/run.ts`, `prompts.ts`): one 'critique' record through the task runner, with the writer
-  model and its Thinking, `[AIWRITE-CRITIQUE v1] scene|chapter`. A lean briefing fitted with `outline/brief.ts`
+  model and its Thinking, `[AIWRITE-CRITIQUE v1] scene|chapter`. A lean briefing fitted with `outline/briefing.ts`
   `fitBlocks`: how the story is written (genre and its feel, the author's take, tone, point of view, tense, prose style),
   the scene card or the chapter's goal and card, who is named (with how a character speaks and what they want), where it
   sits, the end of the scene or chapter before, and the words. A long scene goes as its opening and ending; a long
@@ -2336,7 +2351,7 @@ rewrite it suggested skipped every consistency check. No migration; everything n
   per scene's card), the chapter's goal, plot threads with when each is due (`dueForCritic`, from the promises ledger:
   "later: not a missing pay-off here"; those on the card first, then `openThreadsAt`), the scene's contract from its
   latest checked draft (`checks/report.ts` `checkReport`), and the open must-fix problems whose words are still there.
-  Three forms; the block is priority 3 with `BlockDraft.keep` (outline/brief.ts `fitBlocks`: shortened to its last form,
+  Three forms; the block is priority 3 with `BlockDraft.keep` (outline/briefing.ts `fitBlocks`: shortened to its last form,
   never left out), so it shortens before the words and is never dropped first. The card block keeps only who, where,
   when and mood. "How the story is written" adds the style guide's notes; the scene before is about 350 words (then
   120). New rules: never suggest cutting what the card, the contract or a due thread requires; a set-up paid off later

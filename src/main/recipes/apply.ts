@@ -33,30 +33,50 @@ export function recipeIntoStory(story: Pick<Story, 'id' | 'themes' | 'tone' | 's
     before.style.intensity = cleanIntensity(s.intensity)
     style.intensity = { ...cleanIntensity(s.intensity), ...feel.intensity }
   }
-  return {
-    before,
-    patch: { style, ...(p.themes.trim() ? { themes: p.themes.trim() } : {}), ...(p.tone.trim() ? { tone: p.tone.trim() } : {}) }
+  const patch: StoryPatch = { style, ...(p.themes.trim() ? { themes: p.themes.trim() } : {}), ...(p.tone.trim() ? { tone: p.tone.trim() } : {}) }
+  before.set = {
+    ...(patch.themes != null ? { themes: patch.themes } : {}),
+    ...(patch.tone != null ? { tone: patch.tone } : {}),
+    style: {
+      pov: style.pov,
+      tense: style.tense,
+      proseStyle: style.proseStyle,
+      samplePassage: style.samplePassage,
+      ...(before.style.genres ? { genres: style.genres } : {}),
+      ...(before.style.intensity ? { intensity: style.intensity } : {})
+    }
   }
+  return { before, patch }
 }
 
-/** The story's style guide, themes and tone as they were before the recipe went in. */
-export function storyBeforeRecipe(story: Pick<Story, 'style'>, before: RecipeStoryBefore): Required<StoryPatch> {
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/**
+ * The story's style guide, themes and tone as they were before the recipe went in. Since 2026-10-17 only what is
+ * still as the recipe set it goes back: what Adam changed since stays (an Undo from before then puts everything back).
+ */
+export function storyBeforeRecipe(story: Pick<Story, 'style' | 'themes' | 'tone'>, before: RecipeStoryBefore): StoryPatch {
+  const set = before.set
   const style: Story['style'] = { ...story.style }
   for (const k of ['pov', 'tense', 'proseStyle', 'samplePassage'] as const) {
+    if (set && !same(story.style[k], set.style[k])) continue
     const v = before.style[k]
     if (v) style[k] = v
     else delete style[k]
   }
   // Only when the recipe set them: then they go back to what the story had (nothing, if it had none).
-  if (before.style.genres) {
+  if (before.style.genres && (!set || same(cleanGenres(story.style.genres), cleanGenres(set.style.genres)))) {
     const g = cleanGenres(before.style.genres)
     if (g.length) style.genres = g
     else delete style.genres
   }
-  if (before.style.intensity) {
+  if (before.style.intensity && (!set || same(cleanIntensity(story.style.intensity), cleanIntensity(set.style.intensity)))) {
     const i = cleanIntensity(before.style.intensity)
     if (Object.keys(i).length) style.intensity = i
     else delete style.intensity
   }
-  return { style, themes: before.themes ?? '', tone: before.tone ?? '' }
+  const out: StoryPatch = { style }
+  if (!set || (set.themes != null && story.themes === set.themes)) out.themes = before.themes ?? ''
+  if (!set || (set.tone != null && story.tone === set.tone)) out.tone = before.tone ?? ''
+  return out
 }

@@ -9,8 +9,8 @@ import { ArrowLeft, ArrowRight, MessageCircle, Sparkles, Square, WandSparkles, X
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import { pickMotif } from '@shared/motifs'
-import type { BuilderDone, BuilderKind, BuilderProgress, BuilderValues, InterviewTurn } from '@shared/contracts/builder'
-import type { Entry } from '@shared/types'
+import type { BuilderDone, BuilderKind, BuilderProgress, BuilderValues, InterviewTurn, SuggestedRelationship } from '@shared/contracts/builder'
+import type { Entry, ID } from '@shared/types'
 import { Button, toast, useToastsAbove } from '@/components/ui'
 import { GlidePill } from '@/components/ui/GlidePill'
 import { Motif } from '@/components/art/Motif'
@@ -27,6 +27,7 @@ import { useEntryData } from '@/features/world/memory/useEntryData'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useSceneLabels } from '@/features/world/useSceneLabels'
 import {
+  changedSinceNote,
   countWords,
   fleshOutKeys,
   labelOf,
@@ -57,6 +58,7 @@ import './builder.css'
 const omit = (v: BuilderValues, keys: string[]): BuilderValues => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)))
 const pick = (v: BuilderValues, keys: string[]): BuilderValues => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)))
 const suggestionsWord = (n: number): string => (n === 1 ? 'One suggestion' : `${n} suggestions`)
+const relationshipsWord = (n: number): string => (n === 1 ? 'One relationship' : `${n} relationships`)
 
 /** The rail of steps. */
 const RAIL = 252
@@ -153,6 +155,10 @@ export function Guided({
   const [intro, dismissIntro] = useIntro()
 
   const open = useMemo(() => openSuggestions(suggestions, draft.values), [suggestions, draft.values])
+  // Suggest relationships (2026-10-17): what the AI suggests, and who Adam has kept or discarded since it began, who stay gone.
+  const [suggestedRels, setSuggestedRels] = useState<SuggestedRelationship[]>([])
+  const decidedRels = useRef(new Set<ID>())
+  const [relNote, setRelNote] = useState<string | null>(null)
   // The fields Adam has kept, discarded or typed in since the last Flesh out began. It sends every
   // suggestion so far each time, and these stay gone.
   const decided = useRef(new Set<string>())
@@ -164,6 +170,7 @@ export function Guided({
         setSuggestions((s) => mergeSuggestions(s, p.values, decided.current))
         setWriting(p.writing)
       } else if (p.job === 'options') setOptions((o) => o && { ...o, list: p.options, writing: p.writing?.text ?? null })
+      else if (p.job === 'relationships') setSuggestedRels((p.relationships ?? []).filter((s) => !decidedRels.current.has(s.otherId)))
     },
     onDone: (d: BuilderDone) => {
       if (d.job === 'flesh-out') {
@@ -189,11 +196,21 @@ export function Guided({
                 error: d.status === 'error' ? (d.error ?? 'Something went wrong.') : null
               }
           )
+      } else if (d.job === 'relationships') {
+        const list = (d.relationships ?? []).filter((s) => !decidedRels.current.has(s.otherId))
+        setSuggestedRels(list)
+        const who = draft.current().name?.trim() || 'them'
+        if (d.status === 'error' && d.error) {
+          setRelNote(null)
+          toast(d.error, { tone: 'danger', action: settingsAction(d.error) })
+        } else if (d.status === 'stopped') setRelNote(list.length ? `Stopped. ${relationshipsWord(list.length)} arrived.` : 'Stopped before any suggestions arrived.')
+        else setRelNote(list.length ? null : `The AI had no new relationships to suggest for ${who}.`)
       }
     }
   })
   const busy = !!job.running
   const fleshing = job.running?.job === 'flesh-out'
+  const suggestingRels = job.running?.job === 'relationships'
 
   // ---------- Interview ----------
 
@@ -271,6 +288,25 @@ export function Guided({
     }
   }
 
+  const suggestRelationships = async (): Promise<void> => {
+    const e = draft.entryNow()
+    if (!e || job.running) return
+    setRelNote(null)
+    decidedRels.current = new Set()
+    setSuggestedRels([])
+    try {
+      await draft.flush()
+      await job.start('relationships', (jobId) => api.startRelationships({ jobId, entryId: e.id, values: draft.current(), storyId }))
+    } catch (err) {
+      const x = err as ApiError
+      toast(x.message, { tone: 'danger', action: settingsAction(x.message, x.code) })
+    }
+  }
+  const decideRelationship = useCallback((otherId: ID): void => {
+    decidedRels.current.add(otherId)
+    setSuggestedRels((list) => list.filter((s) => s.otherId !== otherId))
+  }, [])
+
   const keep = useCallback(
     async (keys: string[]): Promise<void> => {
       const chosen = pick(open, keys)
@@ -282,14 +318,15 @@ export function Guided({
       // The kept words settle into their boxes with the lamp's glow.
       requestAnimationFrame(() => requestAnimationFrame(() => keys.forEach(glowField)))
       try {
-        await draft.keep(chosen)
+        const skipped = await draft.keep(chosen)
+        if (skipped.length) toast(changedSinceNote(draft.current().name ?? '', skipped.map((k) => labelOf(kind, k))))
       } catch (e) {
         for (const k of keys) decided.current.delete(k)
         setSuggestions((s) => ({ ...chosen, ...s }))
         toast(`Couldn’t keep ${keys.length === 1 ? 'that suggestion' : 'those suggestions'}. ${(e as Error).message}`, { tone: 'danger' })
       }
     },
-    [open, draft]
+    [open, draft, kind]
   )
   const discard = useCallback((keys: string[]): void => {
     for (const k of keys) decided.current.add(k)
@@ -333,22 +370,31 @@ export function Guided({
       const was = draft.fieldNow(key)
       // The idea flies up into its field (its words are there at once; the flight is a copy over the page).
       if (from) flyInto(key, from, value)
+      const label = labelOf(kind, key)
       try {
-        await draft.keep({ [key]: value }, { replace: true })
+        const skipped = await draft.keep({ [key]: value }, { replace: true })
+        if (skipped.length) {
+          toast(changedSinceNote(draft.current().name ?? '', [label]))
+          return
+        }
       } catch (e) {
         toast(`Couldn’t use that idea. ${(e as Error).message}`, { tone: 'danger' })
         return
       }
       // What it said before is one click away.
       if (!was.value.trim() || was.value === value) return
-      const label = labelOf(kind, key)
       toast(`Replaced ${label.toLowerCase()} with the idea you picked.`, {
         action: {
           label: 'Undo',
           run: () => {
             setFocusKey(key)
             const failed = (e: Error): void => void toast(`Couldn’t put ${label.toLowerCase()} back. ${e.message}`, { tone: 'danger' })
-            void draft.revert(key, was).catch(failed)
+            void draft
+              .revert(key, was)
+              .then((back) => {
+                if (!back) toast(changedSinceNote(draft.current().name ?? '', [label], true))
+              })
+              .catch(failed)
           }
         }
       })
@@ -566,7 +612,15 @@ export function Guided({
                   ) : step.special === 'relationships' ? (
                     <section className="bld-card" aria-label="Who they know">
                       {entry ? (
-                        <Relationships self={self} rows={rows} data={changes} entries={entries} places={places} />
+                        <Relationships
+                          self={self}
+                          rows={rows}
+                          data={changes}
+                          entries={entries}
+                          places={places}
+                          suggested={suggestedRels}
+                          onDecided={decideRelationship}
+                        />
                       ) : (
                         <div className="bld-empty">
                           <p>Give them a name first, then you can say who they know.</p>
@@ -645,6 +699,14 @@ export function Guided({
                         </li>
                         {kind === 'character' ? (
                           <li>
+                            <Sparkles size={13} className="text-ai" aria-hidden />
+                            <span>
+                              <b>Suggest relationships</b> on Relationships: who they might know in your world.
+                            </span>
+                          </li>
+                        ) : null}
+                        {kind === 'character' ? (
+                          <li>
                             <MessageCircle size={13} className="text-ai" aria-hidden />
                             <span>
                               <b>Interview</b>: talk to them in character to find their voice.
@@ -662,12 +724,36 @@ export function Guided({
 
           <div ref={bottomBar} className="bld-ai-wrap">
             <div className="bld-ai @container">
-              {fleshing ? (
+              {fleshing || suggestingRels ? (
                 <>
                   <Button icon={<Square size={11} fill="currentColor" />} onClick={job.stop} title="Stop. Suggestions that have arrived are kept.">
                     Stop
                   </Button>
-                  <WritingStatus text={job.running?.retrying ?? 'Writing suggestions…'} title={job.running?.retrying ?? undefined} />
+                  <WritingStatus
+                    text={job.running?.retrying ?? (suggestingRels ? 'Thinking of who they might know…' : 'Writing suggestions…')}
+                    title={job.running?.retrying ?? undefined}
+                  />
+                </>
+              ) : step.special === 'relationships' && kind === 'character' && entry ? (
+                <>
+                  <Button
+                    variant="ai"
+                    icon={<Sparkles size={14} />}
+                    disabled={busy}
+                    onClick={() => void suggestRelationships()}
+                    title="A few likely relationships with the characters and groups already in your world. Nothing is saved until you keep it."
+                  >
+                    Suggest relationships
+                  </Button>
+                  <span role="status" className="hidden min-w-0 truncate text-[12.5px] @[560px]:block">
+                    {suggestedRels.length ? (
+                      <span className="text-ai">{relationshipsWord(suggestedRels.length)} to look at</span>
+                    ) : relNote ? (
+                      <span className="text-muted">{relNote}</span>
+                    ) : (
+                      <span className="text-faint">Pick from your characters, or let the AI suggest who they might know.</span>
+                    )}
+                  </span>
                 </>
               ) : step.fields.length ? (
                 <>

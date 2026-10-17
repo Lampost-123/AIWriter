@@ -9,7 +9,9 @@
 //   story    "Premise: ..." (it carries the guidance under "## My guidance"), then the plan in the outline helper's
 //            form ("[[fake: named cast]]" in the guidance names Ada Lorne and Bram Holt only in the premise and summaries):
 //            "Plan the new story: the premise, then 2 acts with 4 chapters in all ... and 2 scenes in each chapter"
-//            gives two acts sharing four chapters, two scenes each; "... 3 chapters with 2 scenes in each. No acts." none.
+//            gives two acts sharing four chapters, two scenes each; "... 3 chapters with 2 scenes in each. No acts." none
+//            ("Plan what comes next in the story: ..." alike). The first scene sets up "Who keeps the lamp lit" and the
+//            last pays it off.
 // The model fake/recipe-fail fails every chapter call (an HTTP 500 is the server's; here: an empty answer).
 
 const MARKER = '[AIWRITE-RECIPE v1]'
@@ -77,13 +79,17 @@ function fix(user) {
 const ACTS = ['The Arrival', 'The Offer', 'The Choice', 'The Storm', 'The Return', 'The Harbour']
 const CHAPTERS = ['Grey Water', 'The Ferry Bell', 'Salt Bread', 'A Lamp Left On', 'The Long Pier', 'Low Tide', 'The Net Loft', 'Weather Coming', 'Home Port']
 const TIMES = ['morning', 'afternoon', 'evening', 'night']
+const THREAD = 'Who keeps the lamp lit'
 
 function story(user) {
   const guidance = (user.split('## My guidance')[1] ?? '').split('\n## ')[0].replace(/^[^\n]*\n/, '').trim()
-  const ask = user.match(/Plan the new story:[^\n]*/)?.[0] ?? ''
+  const ask = user.match(/Plan (?:the new story|what comes next in the story):[^\n]*/)?.[0] ?? ''
   const acts = Number(ask.match(/then (\d+) acts? with/)?.[1] ?? 0)
   const chapters = Number(ask.match(/(\d+) chapters? (?:in all|with)/)?.[1] ?? 3)
   const scenes = Number(ask.match(/(\d+) scenes? in each/)?.[1] ?? 2)
+  // The first scene sets up a plot thread and the last pays it off, as the outline form asks (2026-10-17).
+  const total = chapters * scenes
+  let n = 0
   // "[[fake: named cast]]" in the guidance: the cast is named only in the premise and summaries, with no "Characters:"
   // lines on the chapter cards, as a real model often answers.
   const named = guidance.includes('[[fake: named cast]]')
@@ -94,7 +100,9 @@ function story(user) {
     const title = CHAPTERS[c % CHAPTERS.length]
     out.push(`## Chapter: ${title}`, `Goal: The newcomer moves one step closer to staying.`, '')
     for (let s = 0; s < scenes; s++) {
-      out.push(`### Scene: ${title} ${['at first light', 'by the water', 'after dark', 'in the rain'][s % 4]}`, `When: Day ${c + 1}, ${TIMES[s % 4]}`, named ? 'Summary: Ada Lorne and Bram Holt quarrel.' : 'Summary: Something small changes.', '- A choice is offered', '- It is refused', '- The cost shows', '')
+      n++
+      const threads = [...(n === 1 ? [`Sets up: ${THREAD}`] : []), ...(n === total && total > 1 ? [`Pays off: ${THREAD}`] : [])]
+      out.push(`### Scene: ${title} ${['at first light', 'by the water', 'after dark', 'in the rain'][s % 4]}`, `When: Day ${c + 1}, ${TIMES[s % 4]}`, named ? 'Summary: Ada Lorne and Bram Holt quarrel.' : 'Summary: Something small changes.', ...threads, '- A choice is offered', '- It is refused', '- The cost shows', '')
     }
     c++
   }

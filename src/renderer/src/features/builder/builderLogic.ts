@@ -384,6 +384,19 @@ export function entryText(e: Pick<Entry, 'name' | 'aliases' | 'summary' | 'descr
   return e.fields[key] ?? ''
 }
 
+/**
+ * The quiet note when kept words (or Undo) left fields as they were, because the memory or the entry's page changed
+ * them while the builder was open (2026-10-17): "Mara’s hair changed since, so it was left as it is."
+ */
+export function changedSinceNote(name: string, labels: string[], undo = false): string {
+  const list = labels.map((l) => l.toLowerCase())
+  const what = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list.at(-1)}` : (list[0] ?? 'that')
+  const whose = name.trim() ? `${name.trim()}’s ${what}` : `The ${what}`
+  const one = list.length <= 1
+  if (undo) return `${whose} changed since, so ${one ? 'it wasn’t' : 'they weren’t'} put back.`
+  return `${whose} changed since, so ${one ? 'it was left as it is' : 'they were left as they are'}.`
+}
+
 /** Splits "Mara, the old woman ,, Captain" into its names, dropping repeats. */
 export function splitAliases(text: string): string[] {
   const seen = new Set<string>()

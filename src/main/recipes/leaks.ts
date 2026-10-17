@@ -2,7 +2,9 @@
 // told so, and this makes sure of it: after the recipe is written it is checked against the story itself.
 //   - Names: words the story uses as names (people, places, ships, houses...): capitalised in the middle of a
 //     sentence more often than they appear in lower case, or capitalised at sentence starts only and never an
-//     ordinary English word. Looked for in the recipe as whole words, capitalised as the story has them.
+//     ordinary English word, or written in capitals ("KESTRAL") and no common acronym. Looked for in the recipe as
+//     whole words, in any case (2026-10-17): a made-up name even in lower case ("mara"), another only capitalised, and
+//     one that is also an ordinary word ("Will", "Rose") only where it is capitalised mid-sentence.
 //   - Copied words: any run of COPY_RUN or more words in a row that is also in the story (case, punctuation and
 //     spacing aside), unless it is short and made only of little words ("and then he said that it was").
 // What is found is taken out a sentence at a time (`scrubText`); the maker first asks the model once to rewrite
@@ -18,6 +20,11 @@ export interface SourceCheck {
   names: Set<string>
   /** Every run of COPY_RUN words in the story, folded (see `fold`). */
   runs: Set<string>
+  /**
+   * Names, in lower case, that are plainly made up: capitalised at least twice in the story, never in lower case, and
+   * no ordinary word. Found in the recipe in lower case too ("mara"); other names only when capitalised.
+   */
+  invented?: Set<string>
 }
 
 export interface Leak {
@@ -37,9 +44,22 @@ const NOT_NAMES = new Set(
     .filter(Boolean)
 )
 
+/** All-caps words that name no one in the story (2026-10-17: other all-caps words of 3 letters or more are names). */
+const ACRONYMS = new Set(
+  `usa uk eu un nato fbi cia nsa nasa bbc cnn nbc cbs abc itv nhs mit ucla nyc ceo cfo cto vip rsvp sos asap aka diy faq
+  dna rna atm gps html pdf url usb dvd cd mri icu cpr er dui awol mia pow swat raf rpg ufo tnt led lcd mph kph rpm am pm
+  bc ad bce ce ok tv id ai omg lol wtf iou phd mba bsc msc`
+    .split(/\s+/)
+    .filter(Boolean)
+)
+
 const baseOf = (w: string): string => w.replace(/['’]s$/u, '').replace(/['’-]+$/u, '')
 const isCapital = (w: string): boolean => /^\p{Lu}/u.test(w) && !/^\p{Lu}[\p{Lu}\p{N}'’-]+$/u.test(w)
 const isLower = (w: string): boolean => /^\p{Ll}/u.test(w)
+const isAllCaps = (w: string): boolean => /^\p{Lu}{3,}$/u.test(w)
+const isRoman = (w: string): boolean => /^[IVXLCDM]+$/.test(w)
+/** An ordinary English word ("Will", "Rose"): as a name, only found where it is capitalised mid-sentence. */
+const isWord = (low: string): boolean => isCommonWord(low) || isStopWord(low)
 
 /** True when the word at `index` of `text` starts a sentence (or a line, or a quotation). */
 function atStart(text: string, index: number): boolean {
@@ -54,9 +74,16 @@ function atStart(text: string, index: number): boolean {
 
 /** The names the story uses, from its paragraphs, plus words of its title that aren't ordinary words. */
 export function sourceNames(paragraphs: string[], title = ''): Set<string> {
+  return readNames(paragraphs, title).names
+}
+
+function readNames(paragraphs: string[], title: string): { names: Set<string>; invented: Set<string> } {
   const mid = new Map<string, number>()
   const start = new Map<string, number>()
   const lower = new Map<string, number>()
+  const caps = new Map<string, number>()
+  /** How often each word (in lower case) is capitalised or in capitals, anywhere. */
+  const upper = new Map<string, number>()
   for (const p of paragraphs) {
     for (const m of p.matchAll(WORD)) {
       const w = baseOf(m[0])
@@ -65,12 +92,24 @@ export function sourceNames(paragraphs: string[], title = ''): Set<string> {
         lower.set(w.toLowerCase(), (lower.get(w.toLowerCase()) ?? 0) + 1)
         continue
       }
+      if (isAllCaps(w)) {
+        caps.set(w, (caps.get(w) ?? 0) + 1)
+        upper.set(w.toLowerCase(), (upper.get(w.toLowerCase()) ?? 0) + 1)
+        continue
+      }
       if (!isCapital(w)) continue
+      upper.set(w.toLowerCase(), (upper.get(w.toLowerCase()) ?? 0) + 1)
       const into = atStart(p, m.index ?? 0) ? start : mid
       into.set(w, (into.get(w) ?? 0) + 1)
     }
   }
   const names = new Set<string>()
+  // A name the story writes in capitals ("KESTRAL"), unless it is a common acronym, a numeral or an ordinary word
+  // shouted ("STOP").
+  for (const w of caps.keys()) {
+    const low = w.toLowerCase()
+    if (!ACRONYMS.has(low) && !isRoman(w) && !NOT_NAMES.has(low) && !isWord(low)) names.add(w)
+  }
   // Capitalised in the middle of a sentence twice, or once and never in lower case: a name, even one that is also
   // an ordinary word ("Will", "Hope", "Grace", "Rose" in a story that has roses in it).
   for (const [w, n] of mid) {
@@ -89,7 +128,12 @@ export function sourceNames(paragraphs: string[], title = ''): Set<string> {
     const low = w.toLowerCase()
     if (w.length >= 3 && isCapital(w) && !NOT_NAMES.has(low) && !isCommonWord(low) && !isStopWord(low)) names.add(w)
   }
-  return names
+  const invented = new Set<string>()
+  for (const w of names) {
+    const low = w.toLowerCase()
+    if ((upper.get(low) ?? 0) >= 2 && !lower.has(low) && !isWord(low)) invented.add(low)
+  }
+  return { names, invented }
 }
 
 /** A word as runs are compared: lower case, straight apostrophes, no accents. */
@@ -127,7 +171,29 @@ export function sourceRuns(paragraphs: string[]): Set<string> {
 }
 
 export function buildCheck(paragraphs: string[], title = ''): SourceCheck {
-  return { names: sourceNames(paragraphs, title), runs: sourceRuns(paragraphs) }
+  const { names, invented } = readNames(paragraphs, title)
+  return { names, runs: sourceRuns(paragraphs), invented }
+}
+
+/** The names by lower case, kept with each check (it is built once and looked in many times). */
+const byLower = new WeakMap<Set<string>, Set<string>>()
+function lowerNames(names: Set<string>): Set<string> {
+  let s = byLower.get(names)
+  if (!s) byLower.set(names, (s = new Set([...names].map((n) => n.toLowerCase()))))
+  return s
+}
+
+/**
+ * True when the recipe's word `w` (at `index` of `text`) is one of the story's names (2026-10-17): in any case when the
+ * name is made up; capitalised or in capitals for another name; and only capitalised mid-sentence for a name that is
+ * also an ordinary word, so "Will she stay?" keeps its sentence.
+ */
+function isName(w: string, text: string, index: number, check: SourceCheck): boolean {
+  const low = w.toLowerCase()
+  if (!lowerNames(check.names).has(low)) return false
+  if (isWord(low)) return isCapital(w) && !atStart(text, index)
+  if (isLower(w)) return !!check.invented?.has(low)
+  return true
 }
 
 /** Where in `text` the story's names and copied runs are, as character ranges (merged, in order). */
@@ -135,7 +201,7 @@ export function leakSpans(text: string, check: SourceCheck): { start: number; en
   const spans: { start: number; end: number; leak: Leak }[] = []
   for (const m of text.matchAll(WORD)) {
     const w = baseOf(m[0])
-    if (check.names.has(w)) spans.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, leak: { kind: 'name', words: w } })
+    if (isName(w, text, m.index ?? 0, check)) spans.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, leak: { kind: 'name', words: w } })
   }
   const toks = tokens(text)
   let i = 0

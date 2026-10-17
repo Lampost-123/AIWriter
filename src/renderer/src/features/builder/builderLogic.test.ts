@@ -5,6 +5,7 @@ import {
   aiAfterSave,
   arrivalOrder,
   cardsOf,
+  changedSinceNote,
   countWords,
   EXAMPLES,
   profileCounts,
@@ -277,5 +278,13 @@ describe('the overhauled builder: cards, examples, drawings and progress', () =>
     expect([...wideKeys([f('pronouns', 'line'), f('age', 'line'), f('role', 'line')])]).toEqual([])
     expect([...wideKeys([f('name', 'name'), f('aliases', 'list')])].sort()).toEqual(['aliases', 'name'])
     expect([...wideKeys([f('summary', 'line'), f('description', 'text')])].sort()).toEqual(['description', 'summary'])
+  })
+})
+
+describe('the note when a field changed elsewhere meanwhile (2026-10-17)', () => {
+  it('says whose fields were left as they are, in plain words', () => {
+    expect(changedSinceNote('Mara', ['Hair'])).toBe('Mara’s hair changed since, so it was left as it is.')
+    expect(changedSinceNote('', ['Hair', 'Eyes', 'Build'])).toBe('The hair, eyes and build changed since, so they were left as they are.')
+    expect(changedSinceNote('Mara', ['Backstory'], true)).toBe('Mara’s backstory changed since, so it wasn’t put back.')
   })
 })

@@ -6,7 +6,7 @@ import * as gens from '../db/generations'
 import type { JobModel } from '../ai/jobModel'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { dbWorld } from '../../../tests/unit/testWorld'
-import { chapterAroundText } from './brief'
+import { chapterAroundText } from './briefing'
 import { storyPlan } from './context'
 import {
   answersText,
@@ -20,6 +20,7 @@ import {
   readSceneFill,
   startChapterPlan
 } from './interview'
+import { matchName } from './names'
 import { MARKER } from './prompts'
 
 let fake: FakeProvider
@@ -75,6 +76,25 @@ describe('reading the interview’s replies', () => {
     expect(matchEntry('The Thief', people)?.id).toBe('m')
     expect(matchEntry('Kell', people)).toBeNull()
     expect(matchEntry('Wren', people)).toBeNull()
+  })
+
+  it('says when a name could be more than one entry, and looks past titles, accents and a surname alone (2026-10-17)', () => {
+    const people = [
+      { id: 'v', name: 'Mara Venn', aliases: [] },
+      { id: 'k', name: 'Mara Kell', aliases: [] },
+      { id: 'h', name: 'Captain Holt', aliases: [] },
+      { id: 'z', name: 'Zoë', aliases: [] }
+    ]
+    expect(matchName('Mara', people)).toEqual({ entry: null, ambiguous: true })
+    expect(matchName('Wren', people)).toEqual({ entry: null, ambiguous: false })
+    expect(matchName('Holt', people).entry?.id).toBe('h')
+    expect(matchName('Dr. Holt', people).entry?.id).toBe('h')
+    expect(matchName('Zoe', people).entry?.id).toBe('z')
+    expect(matchName('Tobin Zoë', people).entry?.id).toBe('z')
+    // A place is never matched by a title or its last word.
+    const places = [{ id: 'l', kind: 'place', name: 'Tower', aliases: [] }]
+    expect(matchName('North Tower', places).entry).toBeNull()
+    expect(matchName('King’s Landing', [{ id: 'g', kind: 'place', name: 'Landing', aliases: [] }]).entry).toBeNull()
   })
 
   it('reads a filled card, keeping only names the world has', () => {
@@ -217,6 +237,29 @@ describe('the interview’s calls', () => {
     expect(record.messages[0].content.startsWith(`${MARKER} plan chapter`)).toBe(true)
     expect(record.messages[1].content).toContain('Answer: A letter comes for Mara')
     expect(record.response).toMatch(/^Goal: A letter comes for Mara\.\n\n### Scene: A letter at dawn/)
+  })
+
+  it('says plainly, before asking, when a chapter’s plan is more than the model can write or read (O7)', () => {
+    const w = dbWorld()
+    const chapterId = repo.getSceneMeta(w.db, w.id('b1.c2.s1')).chapterId
+    const short = { ...deps(w.db), model: { ...model(), choice: { ...choice, maxOutput: 1000 } } }
+    expect(() => startChapterPlan(short, { taskId: 'c2', chapterId, answers: [] })).toThrow(
+      'A chapter’s plan is more than the chat and brainstorm model can answer in one go. Pick a model that writes longer answers in Settings › Models.'
+    )
+    const small = { ...deps(w.db), model: { ...model(), choice: { ...choice, contextLength: 1500 } } }
+    expect(() => startChapterPlan(small, { taskId: 'c3', chapterId, answers: [] })).toThrow(
+      'This chapter and the story around it are more than the chat and brainstorm model can read at once to plan it. Pick a model that can read more in Settings › Models.'
+    )
+  })
+
+  it('tells the AI what each chapter’s card already says: its point of view, characters and place (O4)', () => {
+    const w = dbWorld()
+    const chapterId = repo.getSceneMeta(w.db, w.id('b1.c2.s1')).chapterId
+    const mara = repo.listEntries(w.db).find((e) => e.kind === 'character' && e.name === 'Mara')!
+    const quay = repo.createEntry(w.db, 'place', { name: 'Gull Quay' })
+    repo.saveChapterCard(w.db, chapterId, { ...repo.getChapterCard(w.db, chapterId), povId: mara.id, presentIds: [mara.id], locationId: quay.id })
+    const around = chapterAroundText(storyPlan(w.db, w.id('b1')), chapterId, 'Book 1', 0)
+    expect(around).toContain('THE CHAPTER TO PLAN (chapter 2 of 3): Chapter: Chapter 2. Point of view: Mara. Location: Gull Quay.')
   })
 })
 

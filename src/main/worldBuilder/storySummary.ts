@@ -8,6 +8,7 @@
 
 import type Database from 'better-sqlite3'
 import type { ChapterCard, ID, SceneCard } from '@shared/types'
+import type { RecipeParts } from '@shared/contracts/recipes'
 import * as repo from '../db/repo'
 import { MAX_SUMMARY_CHARS } from './sizes'
 
@@ -34,19 +35,35 @@ function cardLine(card: Partial<SceneCard & ChapterCard>, name: (id: ID | null |
   return parts.filter(Boolean).join(' ')
 }
 
+/** What a story planned from a recipe adds to its summary: the recipe's cast roles and devices (leak-checked already). */
+export type RecipeExtras = Partial<Pick<RecipeParts, 'cast' | 'devices'>>
+
 /**
  * The story as a summary for the World builder: '' when it has nothing planned to build from (no premise and no
- * chapter or scene with words on its card). Cut to what one build takes.
+ * chapter or scene with words on its card). Cut to what one build takes. A story planned from a recipe (2026-10-17)
+ * ends with the recipe's cast roles and devices, while there is room, so the parts its characters play reach the build.
  */
-export const storySummary = (db: DB, storyId: ID): string => storyPlan(db, storyId).summary
+export function storySummary(db: DB, storyId: ID, recipe?: RecipeExtras | null): string {
+  const { summary } = storyPlan(db, storyId)
+  if (!summary || !recipe) return summary
+  const extra = [
+    flat(recipe.cast) ? `The parts the characters play, from the recipe (roles for this story's characters, not more characters): ${flat(recipe.cast)}` : '',
+    flat(recipe.devices) ? `Set-ups, pay-offs and motifs, from the recipe: ${flat(recipe.devices)}` : ''
+  ].filter(Boolean)
+  let text = summary
+  for (const line of extra) if (text.length + line.length + 1 <= MAX_SUMMARY_CHARS) text += `\n${line}`
+  return text
+}
 
 /**
  * The scenes a story's summary numbers ("Scene 1" is the first), so the events the World builder lays out can be put
- * in the scene they happen in: none when `summary` isn't the story's own (Adam's World builder summary).
+ * in the scene they happen in: none when `summary` isn't the story's own (Adam's World builder summary). The recipe's
+ * lines after it (storySummary) don't change that.
  */
 export function planScenes(db: DB, storyId: ID, summary: string): ID[] {
   const plan = storyPlan(db, storyId)
-  return plan.summary && plan.summary === summary.trim() ? plan.scenes : []
+  const given = summary.trim()
+  return plan.summary && (plan.summary === given || given.startsWith(`${plan.summary}\n`)) ? plan.scenes : []
 }
 
 /** The summary, and the scenes it numbers, in order. */
@@ -88,11 +105,24 @@ function storyPlan(db: DB, storyId: ID): { summary: string; scenes: ID[] } {
       lines.push(`- Scene ${scenes.length}${title ? ` (${title})` : ''}: ${[words, own].filter(Boolean).join(' ')}`)
     }
   }
-  for (const c of outline.chapters.filter((x) => !x.actId)) chapter(c)
-  for (const a of outline.acts ?? []) {
-    lines.push(`Act ${[flat(a.title), flat(a.purpose)].filter(Boolean).join(': ')}`)
-    for (const c of outline.chapters.filter((x) => x.actId === a.id)) chapter(c)
+  // In story order (2026-10-17), as memory/line.ts walks the chapters, so "Scene 3" is the third scene read even when
+  // chapters with and without an act are mixed. Each act is named before its first chapter; one with none, at the end.
+  const acts = outline.acts ?? []
+  const actLine = (a: (typeof acts)[number]): string => `Act ${[flat(a.title), flat(a.purpose)].filter(Boolean).join(': ')}`
+  const named = new Set<ID>()
+  let at: ID | null = null
+  for (const c of outline.chapters) {
+    if (c.actId !== at) {
+      at = c.actId ?? null
+      const a = at ? acts.find((x) => x.id === at) : undefined
+      if (a && !named.has(a.id)) {
+        named.add(a.id)
+        lines.push(actLine(a))
+      }
+    }
+    chapter(c)
   }
+  for (const a of acts) if (!named.has(a.id)) lines.push(actLine(a))
   if (!planned) return { summary: '', scenes: [] }
   const text = lines.join('\n')
   return { summary: text.length > MAX_SUMMARY_CHARS ? text.slice(0, MAX_SUMMARY_CHARS).replace(/\n[^\n]*$/, '') : text, scenes }

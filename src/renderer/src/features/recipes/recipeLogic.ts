@@ -54,6 +54,25 @@ export function estimateWords(e: RecipeEstimate): string {
   return `${price}${e.model ? ` with ${e.model}` : ''}, to read ${what}.`
 }
 
+/** The toast once reading the story again has started (2026-10-17: with what it costs; the toast has Cancel). */
+export function readAgainWords(e: RecipeEstimate): string {
+  const price = dollars(e.cost)
+  const cost = price
+    ? ` It costs ${price[0].toLowerCase()}${price.slice(1)}${e.model ? ` with ${e.model}` : ''}.`
+    : e.model
+      ? ` The cost isn’t known for ${e.model}.`
+      : ''
+  return `Reading the story again.${cost} The parts you changed stay as they are.`
+}
+
+/** "The AI couldn't read chapter 3, so the recipe leaves it out." Null when it read them all. */
+export function unreadWords(unread: number[] | undefined): string | null {
+  if (!unread?.length) return null
+  const list = unread.length > 1 ? `${unread.slice(0, -1).join(', ')} and ${unread[unread.length - 1]}` : String(unread[0])
+  const which = unread.length === 1 ? `chapter ${list}` : `chapters ${list}`
+  return `The AI couldn’t read ${which} of the story, so the recipe leaves ${unread.length === 1 ? 'it' : 'them'} out. To fill ${unread.length === 1 ? 'it' : 'them'} in, pick another recipe maker model in Settings › Models, then Read the story again.`
+}
+
 /** "Reading chapter 3 of 24", or what it is doing instead. */
 export function makingWords(m: RecipeMaking): string {
   if (m.status === 'stopping') return 'Stopping…'

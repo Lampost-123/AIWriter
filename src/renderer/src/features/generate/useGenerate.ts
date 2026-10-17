@@ -17,6 +17,7 @@ import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { useNewLook } from '@/features/look/look'
 import { BLANK_DRAFT_OPTIONS, draftLength, type SceneDraftOptions } from './draftOptions'
 import { busyElsewhere, listenForDrafts, startDraft, stopDraft, useDraft, type Phase } from './draftRun'
+import { castBuilding, useBuildWatch, watchBuilds } from './buildWatch'
 import { usePolish } from './polishRun'
 import { withPolish } from './polish'
 import { estimateDraftCost, shortModelName } from './format'
@@ -25,8 +26,8 @@ import { useDelayed } from './parts'
 /** Where a draft goes in a scene that already has text: in place of it, or after it. */
 export type DraftMode = 'replace' | 'fresh' | 'add'
 
-/** Which of Generate's panels is open. */
-export type GeneratePopover = 'options' | 'need-model' | 'choose' | null
+/** Which of Generate's panels is open ('building': the note that the story's cast is still being built). */
+export type GeneratePopover = 'options' | 'need-model' | 'choose' | 'building' | null
 
 /** The key was pressed in the manuscript page. */
 const inPage = (t: EventTarget | null): boolean => t instanceof Element && !!t.closest('.ProseMirror')
@@ -84,9 +85,16 @@ export interface Generate {
   openSettings: () => void
   /**
    * Drafts the scene. When it already has text and `mode` isn't given, it first asks whether the new draft replaces that
-   * text or goes below it (nothing is sent until Adam answers). `byKey`: asked from the keyboard.
+   * text or goes below it (nothing is sent until Adam answers). `byKey`: asked from the keyboard. While the story's cast
+   * is being built it first says so, with Wait and Write now; `now` drafts at once all the same.
    */
-  generate: (mode?: DraftMode, byKey?: boolean) => void
+  generate: (mode?: DraftMode, byKey?: boolean, now?: boolean) => void
+  /** The note that the cast is still being built: the draft starts once the build ends. */
+  waitForBuild: () => void
+  /** The note that the cast is still being built: drafts now all the same. */
+  writeNow: () => void
+  /** A draft waits for the cast's build to end. */
+  waiting: boolean
   stop: () => void
   /** The New look: the words the draft has written so far, while it streams. */
   written: number | null
@@ -221,8 +229,21 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
     if (phase === 'idle') lastCardLoad.current = 0
   }, [phase])
 
+  // ---------- Writing during a build (2026-10-17) ----------
+
+  useEffect(watchBuilds, [])
+  const storyId = useApp((s) => s.storyId)
+  const building = useBuildWatch((b) => castBuilding(b.running, storyId))
+  /** The draft the note was shown for, and one waiting for the build to end. */
+  const asked = useRef<{ mode?: DraftMode; byKey: boolean } | null>(null)
+  const [waiting, setWaiting] = useState<{ mode?: DraftMode } | null>(null)
+  useEffect(() => {
+    asked.current = null
+    setWaiting(null)
+  }, [sceneId])
+
   const generate = useCallback(
-    (mode?: DraftMode, byKey = false) => {
+    (mode?: DraftMode, byKey = false, now = false) => {
       if (phaseRef.current !== 'idle') return
       // One draft at a time: one still being written into another scene says where it is.
       if (busyElsewhere(sceneId)) return
@@ -253,6 +274,13 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
         setPopover('choose')
         return
       }
+      // The story's cast is still being built: a quiet note first, so Adam can wait for the AI to know more.
+      if (!now && castBuilding(useBuildWatch.getState().running, useApp.getState().storyId)) {
+        asked.current = { mode, byKey }
+        setPopover('building')
+        return
+      }
+      setWaiting(null)
       // Emptied since the choice was made: there's nothing to replace.
       setPopover(null)
       // The desk's steer box: its words steer this draft (in place of the options' Direction), once.
@@ -283,6 +311,35 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   stopRef.current = stop
   const sceneIdRef = useRef(sceneId)
   sceneIdRef.current = sceneId
+
+  const waitForBuild = useCallback(() => {
+    const a = asked.current
+    asked.current = null
+    setPopover(null)
+    if (!a) return
+    setWaiting({ mode: a.mode })
+    toast('The draft will start once your cast is built.', {
+      action: {
+        label: 'Write now',
+        run: () => {
+          setWaiting(null)
+          generateRef.current(a.mode, false, true)
+        }
+      }
+    })
+  }, [])
+  const writeNow = useCallback(() => {
+    const a = asked.current
+    asked.current = null
+    setPopover(null)
+    generateRef.current(a?.mode, a?.byKey ?? false, true)
+  }, [])
+  // The build has ended (or was stopped): the draft that waited for it starts now.
+  useEffect(() => {
+    if (!waiting || building) return
+    setWaiting(null)
+    if (phaseRef.current === 'idle') generateRef.current(waiting.mode, false, true)
+  }, [waiting, building])
   const keys = !!o.keys
   useEffect(() => {
     if (!keys) return
@@ -387,6 +444,9 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
     fixedCreativity,
     openSettings,
     generate,
+    waitForBuild,
+    writeNow,
+    waiting: !!waiting,
     stop,
     written,
     status,

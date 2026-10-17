@@ -77,6 +77,8 @@ export interface Recipe extends RecipeSummary {
   edited: RecipePartId[]
   /** Why it is paused, in plain words. */
   problem: string | null
+  /** Chapters (numbered from 1) the AI couldn't read when it was made, so the recipe leaves them out (2026-10-17). */
+  unread?: number[]
 }
 
 /** What making a recipe from this story would take, before anything is sent. */
@@ -109,8 +111,9 @@ export interface RecipeMaking {
 export interface RecipeMakerState {
   running: RecipeMaking | null
   /** The last recipe finished since the app started (for its toast). `removed`: bits taken out because they
-   * named the story's people or places or copied its words. */
-  finished: { recipeId: ID; name: string; at: string; removed: number } | null
+   * named the story's people or places or copied its words. `note`: plain words for its toast when it isn't all there
+   * (the recipe was cut short, a chapter couldn't be read), else null (2026-10-17). */
+  finished: { recipeId: ID; name: string; at: string; removed: number; note?: string | null } | null
 }
 
 export interface RecipeStoryRequest {
@@ -129,6 +132,21 @@ export interface RecipeStoryBefore {
   themes: string
   tone: string
   style: { pov?: string; tense?: string; proseStyle?: string; samplePassage?: string; genres?: string[]; intensity?: ContentIntensity }
+  /**
+   * What the recipe put in (2026-10-17): Undo puts a value back only while it is still what the recipe set, so a
+   * change Adam made since is kept. Missing in an Undo from before it: everything goes back.
+   */
+  set?: { themes?: string; tone?: string; style: { pov?: string; tense?: string; proseStyle?: string; samplePassage?: string; genres?: string[]; intensity?: ContentIntensity } }
+}
+
+/** A story being planned from a recipe, kept with the recipe so its plan page opens again after a restart (2026-10-17). */
+export interface RecipePlanSaved {
+  worldId: ID
+  storyId: ID
+  /** Adam's own guidance. */
+  guidance: string
+  /** The premise suggested: open, kept (as the story's premise) or discarded; Adam's own words when he edited it. */
+  premise: { status: 'open' | 'kept' | 'discarded'; text: string | null; before: string | null }
 }
 
 export interface RecipesApi {
@@ -149,8 +167,11 @@ export interface RecipesApi {
    * one being read again goes back to how it was (`removed` false).
    */
   cancelRecipe(id: ID): Promise<{ removed: boolean }>
-  /** Reads the story kept with the recipe again and writes the recipe afresh; parts Adam changed stay as they are. */
-  readRecipeAgain(id: ID): Promise<void>
+  /**
+   * Reads the story kept with the recipe again and writes the recipe afresh; parts Adam changed stay as they are.
+   * Says roughly what it costs (for its toast, which has Cancel).
+   */
+  readRecipeAgain(id: ID): Promise<RecipeEstimate>
   /** A blank recipe to write by hand. */
   newRecipe(): Promise<Recipe>
   /** Renames it or changes its parts (each changed part becomes Adam's). */
@@ -168,6 +189,10 @@ export interface RecipesApi {
   applyRecipeToStory(storyId: ID, recipeId: ID): Promise<RecipeStoryBefore>
   /** Undo for applyRecipeToStory. */
   unapplyRecipe(before: RecipeStoryBefore): Promise<void>
+  /** The stories being planned from a recipe, newest first (any world's: the window picks the open world's). */
+  listRecipePlans(recipeId: ID): Promise<RecipePlanSaved[]>
+  /** Keeps a story's plan session with the recipe; null forgets it. */
+  saveRecipePlan(recipeId: ID, storyId: ID, plan: RecipePlanSaved | null): Promise<void>
 }
 
 export interface RecipesEvents {

@@ -5,8 +5,8 @@
 
 import { BookPlus, CookingPot, Copy, FileX2, RefreshCw, Trash2 } from '@/components/ui/icons'
 import { useEffect, useId, useRef, useState } from 'react'
-import type { Recipe, RecipePartId, RecipeParts } from '@shared/contracts/recipes'
-import { Button, EmptyState, Input, toast } from '@/components/ui'
+import type { Recipe, RecipePartId, RecipeParts, RecipePlanSaved } from '@shared/contracts/recipes'
+import { Button, EmptyState, Input, Notice, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
@@ -15,13 +15,14 @@ import { useDesk } from '@/features/look/look'
 import { PlanPage } from '@/features/planning/PlanShell'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
-import { PART_GROUPS, PART_WORDS, dateWords, lengthWords, recipeName } from './recipeLogic'
+import { PART_GROUPS, PART_WORDS, dateWords, lengthWords, recipeName, unreadWords } from './recipeLogic'
 import { BackButton, INTRO, Kicker, MakingCard } from './parts'
+import { goOnPlanning } from './planStore'
 import { deleteRecipe, duplicate, forgetSource, readAgain, refreshRecipes, startStoryFrom, useRecipes } from './recipeStore'
 
 export function RecipePage({ recipeId }: { recipeId: string }): React.JSX.Element {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
-  const [missing, setMissing] = useState<string | null>(null)
+  const [missing, setMissing] = useState<{ message: string; newer: boolean } | null>(null)
   // Read again when it finishes being made (or starts again), never while Adam types in it.
   const status = useRecipes((s) => s.list?.find((r) => r.id === recipeId)?.status ?? null)
   const hasSource = useRecipes((s) => s.list?.find((r) => r.id === recipeId)?.hasSource ?? null)
@@ -34,7 +35,7 @@ export function RecipePage({ recipeId }: { recipeId: string }): React.JSX.Elemen
         setRecipe(r)
         setMissing(null)
       })
-      .catch((e) => live && setMissing(plainReason(e)))
+      .catch((e) => live && setMissing({ message: plainReason(e), newer: (e as { code?: string }).code === 'newer-recipe' }))
     return () => {
       live = false
     }
@@ -43,8 +44,8 @@ export function RecipePage({ recipeId }: { recipeId: string }): React.JSX.Elemen
   if (missing) {
     return (
       <div className="flex h-full items-start justify-center pt-[16vh]">
-        <EmptyState icon={<CookingPot size={20} />} title="This recipe isn’t here any more" actions={<BackButton to="library" />}>
-          {missing}
+        <EmptyState icon={<CookingPot size={20} />} title={missing.newer ? 'This recipe can’t be opened yet' : 'This recipe isn’t here any more'} actions={<BackButton to="library" />}>
+          {missing.message}
         </EmptyState>
       </div>
     )
@@ -119,7 +120,7 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
         <Button
           icon={<RefreshCw size={14} />}
           title="The AI reads the story again and writes the recipe afresh. The parts you changed stay as they are."
-          onClick={() => void readAgain(recipe.id)}
+          onClick={() => void readAgain(recipe)}
         >
           Read the story again
         </Button>
@@ -170,8 +171,10 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
               />
             </div>
             <MakingCard recipe={recipe} />
+            {ready ? <UnreadNote unread={recipe.unread} /> : null}
             {ready ? <div className="plan-recipe-actions">{actions}</div> : null}
             {ready && !hasWorld ? <p className="plan-hint">Open a world to start a new story from this recipe.</p> : null}
+            {ready ? <PlannedStories recipeId={recipe.id} /> : null}
           </>
         }
         right={
@@ -227,6 +230,7 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
 
         {ready ? (
           <>
+            <UnreadNote unread={recipe.unread} />
             <div className="mt-5 flex flex-wrap gap-2">{actions}</div>
             {!hasWorld ? <p className="mt-2 text-[12px] text-faint">Open a world to start a new story from this recipe.</p> : null}
             {PART_GROUPS.map((g) => (
@@ -239,10 +243,63 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
                 </div>
               </section>
             ))}
+            {/* Last, so it arriving moves nothing (2026-10-17). */}
+            <PlannedStories recipeId={recipe.id} />
           </>
         ) : null}
       </div>
     </div>
+  )
+}
+
+/** The chapters the AI couldn't read when it made the recipe (2026-10-17), in plain words; nothing when it read them all. */
+function UnreadNote({ unread }: { unread?: number[] }): React.JSX.Element | null {
+  const words = unreadWords(unread)
+  if (!words) return null
+  return (
+    <div className="mt-4">
+      <Notice>{words}</Notice>
+    </div>
+  )
+}
+
+/**
+ * Stories in the open world being planned from this recipe (kept with it, so they open again after a restart,
+ * 2026-10-17): each with Go on planning. Nothing when there are none.
+ */
+function PlannedStories({ recipeId }: { recipeId: string }): React.JSX.Element | null {
+  const worldId = useApp((s) => s.world?.id ?? null)
+  const stories = useApp((s) => s.stories)
+  const [saved, setSaved] = useState<RecipePlanSaved[]>([])
+  useEffect(() => {
+    let live = true
+    api
+      .listRecipePlans(recipeId)
+      .then((p) => live && setSaved(p))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [recipeId, worldId])
+  const here = saved.flatMap((p) => {
+    const story = p.worldId === worldId ? stories.find((s) => s.id === p.storyId) : undefined
+    return story ? [{ storyId: p.storyId, title: story.title.trim() || 'Untitled story' }] : []
+  })
+  if (!here.length) return null
+  return (
+    <section aria-label="Stories planned from it" className="mt-5 animate-fade-in">
+      <h2 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">Stories you are planning from it</h2>
+      <ul className="mt-2 flex flex-col gap-1">
+        {here.map((s) => (
+          <li key={s.storyId} className="flex items-center justify-between gap-3 text-[13px]">
+            <span className="min-w-0 truncate font-serif text-fg">{s.title}</span>
+            <Button size="sm" variant="ghost" onClick={() => void goOnPlanning(s.storyId, recipeId)}>
+              Go on planning
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

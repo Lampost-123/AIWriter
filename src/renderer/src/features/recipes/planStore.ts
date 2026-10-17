@@ -1,16 +1,20 @@
 // A new story from a recipe, while the app is open: for each story planned from one, the recipe, Adam's guidance
 // and what he decided about the suggested premise. The suggestions themselves (acts, chapters, scene cards) live
 // in the outline helper's own session for the story (features/outline/helperStore.ts), so keeping, editing,
-// discarding and their Undo work exactly as they do there. Owned by the Story recipes part.
+// discarding and their Undo work exactly as they do there. Since 2026-10-17 each session is kept with its recipe
+// too, so the plan page opens again after a restart (the suggestions themselves are asked for again). Owned by the
+// Story recipes part.
 
 import { create } from 'zustand'
 import type { OutlineSize } from '@shared/contracts/outline'
 import type { ID } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
+import { registerFlusher } from '@/lib/flush'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { suggestOutlineWith } from '@/features/outline/helperStore'
+import { buildStoryWorldSoon } from '@/features/worldBuilder/storyBuild'
 
 export interface PlanSession {
   recipeId: ID
@@ -36,6 +40,59 @@ export function patchPlan(storyId: ID, patch: Partial<PlanSession>): void {
     const base: PlanSession = was ?? { recipeId: '', guidance: '', premise: { status: 'open', text: null, before: null, taskId: null } }
     return { plans: { ...s.plans, [key]: { ...base, ...patch } } }
   })
+  saveSoon(storyId)
+}
+
+// ---------- Kept with the recipe (2026-10-17) ----------
+// Each plan session is saved with its recipe (plans/<storyId>.json), quietly and a moment after the last change, so
+// the plan page opens again after a restart, with Adam's guidance and what he decided about the premise.
+
+const saving = new Map<string, { timer: ReturnType<typeof setTimeout>; save: () => Promise<void> }>()
+
+function saveSoon(storyId: ID): void {
+  const worldId = useApp.getState().world?.id
+  const plan = planOf(storyId)
+  if (!worldId || !plan?.recipeId) return
+  const key = keyOf(storyId)
+  const was = saving.get(key)
+  if (was) clearTimeout(was.timer)
+  const save = async (): Promise<void> => {
+    const pending = saving.get(key)
+    if (pending) clearTimeout(pending.timer)
+    saving.delete(key)
+    const now = usePlans.getState().plans[key]
+    if (!now) return
+    const { status, text, before } = now.premise
+    await api.saveRecipePlan(now.recipeId, storyId, { worldId, storyId, guidance: now.guidance, premise: { status, text, before } }).catch((e) => console.warn('Could not keep the plan with its recipe', e))
+  }
+  saving.set(key, { timer: setTimeout(() => void save(), 500), save })
+}
+
+// Before the window closes or the world changes, what is waiting is saved.
+registerFlusher(async () => {
+  await Promise.all([...saving.values()].map((s) => s.save()))
+})
+
+/** The plan session saved with the recipe for this story in the open world, put back (true), if there is one. */
+export async function loadPlan(storyId: ID, recipeId: ID): Promise<boolean> {
+  if (planOf(storyId)) return true
+  const worldId = useApp.getState().world?.id
+  if (!worldId) return false
+  try {
+    const saved = (await api.listRecipePlans(recipeId)).find((p) => p.storyId === storyId && p.worldId === worldId)
+    if (!saved || planOf(storyId)) return !!planOf(storyId)
+    usePlans.setState((s) => ({
+      plans: { ...s.plans, [keyOf(storyId)]: { recipeId, guidance: saved.guidance, premise: { ...saved.premise, taskId: null } } }
+    }))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Goes back to planning a story saved with its recipe. */
+export async function goOnPlanning(storyId: ID, recipeId: ID): Promise<void> {
+  if (await loadPlan(storyId, recipeId)) useApp.getState().navigate({ kind: 'recipePlan', storyId, recipeId })
 }
 
 /**
@@ -91,6 +148,8 @@ export async function keepPremise(storyId: ID, text: string): Promise<void> {
   }
   const was = planOf(storyId)?.premise
   patchPlan(storyId, { premise: { status: 'kept', text, before, taskId: was?.taskId ?? null } })
+  // The story's world is built from its premise too, with the recipe's cast roles and devices (2026-10-17).
+  buildStoryWorldSoon(storyId, planOf(storyId)?.recipeId || null)
   toast('Kept the premise for the story.', {
     action: {
       label: 'Undo',

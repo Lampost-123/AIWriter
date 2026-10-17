@@ -6,7 +6,7 @@
 // says how it ended. The interface makes each job's id, so no event can arrive before it knows it.
 // Nothing the AI suggests is saved until Adam keeps it, except Quick start, which builds and saves
 // the whole profile in one click: Adam's own words as his (origin 'adam'), the rest as 'ai'.
-import type { Entry, ID, Origin } from '../types'
+import type { ChangeView, Entry, ID, Origin } from '../types'
 
 /** Entry kinds that have a builder. */
 export type BuilderKind = 'character' | 'place' | 'group' | 'item'
@@ -29,7 +29,7 @@ export interface BuilderStart {
  */
 export type BuilderValues = Record<string, string>
 
-export type BuilderJob = 'quick-start' | 'flesh-out' | 'options' | 'interview' | 'questions'
+export type BuilderJob = 'quick-start' | 'flesh-out' | 'options' | 'interview' | 'questions' | 'relationships'
 
 export interface QuickStartInput {
   /** Made by the interface (any unique id), so every event for the job can be matched to it. */
@@ -109,6 +109,29 @@ export interface InterviewInput {
   storyId?: ID | null
 }
 
+/** Suggest relationships (2026-10-17): a few likely links between a saved character and those already in the world. */
+export interface RelationshipsInput {
+  jobId: ID
+  /** The character, saved already (relationships are saved on it). */
+  entryId: ID
+  /** Its profile as it is on screen. */
+  values: BuilderValues
+  storyId?: ID | null
+}
+
+/** A relationship the AI suggests: with a character or group the world has, never one the character is linked to already. */
+export interface SuggestedRelationship {
+  otherId: ID
+  otherName: string
+  otherKind: 'character' | 'group'
+  /** What the character is to them ("sister", "member"). */
+  type: string
+  /** How the character feels about them. */
+  feels: string
+  /** How they feel about the character ('' for a group). */
+  otherFeels: string
+}
+
 /** What a job has produced so far. */
 export interface BuilderProgress {
   jobId: ID
@@ -128,6 +151,8 @@ export interface BuilderProgress {
   options: string[]
   /** Interview: the character's reply so far. */
   text: string
+  /** Suggest relationships: the whole suggestions so far (none still arriving). */
+  relationships?: SuggestedRelationship[]
 }
 
 export interface BuilderDone extends BuilderProgress {
@@ -135,6 +160,12 @@ export interface BuilderDone extends BuilderProgress {
   status: 'complete' | 'stopped' | 'error'
   /** Plain words with a next step, when status is 'error'. */
   error: string | null
+}
+
+/** What keepSuggestions and restoreBuilderField saved, and the fields they left alone because they had changed since. */
+export interface BuilderKept {
+  entry: Entry
+  skipped: string[]
 }
 
 export interface BuilderApi {
@@ -166,15 +197,34 @@ export interface BuilderApi {
   createBuilderEntry(input: { kind: BuilderKind; values: BuilderValues; aiKeys: string[]; storyId?: ID | null }): Promise<Entry>
   /**
    * Saves AI suggestions Adam kept, marked "drafted by AI". Never writes over a field holding Adam's
-   * own words, unless `replace` (he picked one of the options for that field himself).
+   * own words, unless `replace` (he picked one of the options for that field himself). With `expected`
+   * (what each field held as the screen last knew it), a field changed since is left as it is and named
+   * in `skipped` (2026-10-17).
    */
-  keepSuggestions(entryId: ID, values: BuilderValues, opts?: { replace?: boolean }): Promise<Entry>
+  keepSuggestions(entryId: ID, values: BuilderValues, opts?: { replace?: boolean; expected?: BuilderValues }): Promise<BuilderKept>
   /**
    * Puts one field back as it was, with who made it (Undo after Adam picked an option for it): words
    * read from the story or drafted by AI are theirs again, so the memory keeper goes on keeping them
-   * up to date as before. Saved exactly as given.
+   * up to date as before. Saved exactly as given. With `expected` (the words the field should hold now),
+   * a field changed since is left as it is and named in `skipped` (2026-10-17).
    */
-  restoreBuilderField(entryId: ID, key: string, value: string, origin: Origin): Promise<Entry>
+  restoreBuilderField(entryId: ID, key: string, value: string, origin: Origin, expected?: string): Promise<BuilderKept>
+  /**
+   * Suggest relationships (2026-10-17): a few likely relationships between a saved character and the characters and
+   * groups already in the world, in `relationships` as each fully arrives. Never one it has already, never with itself,
+   * and only with entries the world has under exactly that name. Nothing is saved until Adam keeps one.
+   */
+  startRelationships(input: RelationshipsInput): Promise<void>
+  /**
+   * Keeps one suggested relationship: saved on the character as how things stand when the story begins, marked
+   * "drafted by AI". Refuses in plain words when they are linked already.
+   */
+  keepSuggestedRelationship(entryId: ID, suggestion: SuggestedRelationship): Promise<ChangeView>
+  /**
+   * Undo after keeping one: removes it, unless it has been changed since (`updatedAt` is when it was kept). False when
+   * it was left because it changed.
+   */
+  undoKeptRelationship(changeId: ID, updatedAt: string): Promise<boolean>
 }
 
 export interface BuilderEvents {

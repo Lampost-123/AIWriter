@@ -50,6 +50,12 @@ export interface CodexCard {
   /** A character's role in the story ('protagonist', 'antagonist', 'supporting', 'minor' or Adam's own words); '' when not set. */
   role: string
   hardRule: boolean
+  /**
+   * The AI wrote some of it (an AI origin, for the entry or any field) and Adam hasn't edited it
+   * himself since (no field is his by Entry.fieldOrigins): the codex marks it "Drafted by AI" and
+   * can show only these.
+   */
+  aiDrafted: boolean
   /** How many scenes it appears in. */
   scenes: number
   /**

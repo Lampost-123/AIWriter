@@ -51,5 +51,11 @@ export function builderFailure(f: Failure, target: ChatTarget, modelId: string, 
     .replace(/writer model/g, MODEL)
 }
 
+/** Something broke that isn't the AI's doing (2026-10-17): plain words with a next step; what broke goes to the log. */
+export const UNEXPECTED = 'Something unexpected got in the way. Try again, and if it keeps happening, restart AI Write.'
+
+/** Quick start couldn't save what had arrived, for a reason that isn't Adam's to fix (2026-10-17). */
+export const NOT_SAVED = 'AI Write couldn’t save what the AI wrote. Try again, and if it keeps happening, restart AI Write.'
+
 /** The reply could be read, but held nothing the builder could use, even when asked again. */
 export const UNUSABLE = `The AI's reply wasn't something AI Write could use. Try again, or pick another ${MODEL} in ${SETTINGS}.`

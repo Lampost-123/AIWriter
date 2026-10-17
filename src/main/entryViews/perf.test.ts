@@ -209,4 +209,35 @@ describe('speed of the codex and entry pages', () => {
     expect(warm).toBeLessThan(budget(250))
     expect(queries(db, () => entryPage(db, busy, lastStory, lastScene))).toBeLessThan(40)
   }, 120_000)
+
+  // 2026-10-17: a World build saves its entries one by one, and the open codex is read again after
+  // each (at most every 500 ms since savedBatch, so this is the worst case). A new name only reads the scenes whose
+  // words could hold it, not every scene. About 0.7 s on a developer box; the budget leaves room for a busy machine.
+  it('keeps up with a build saving 50 new entries one by one, the codex read after each, in well under 1.5 s', () => {
+    codexCards(db)
+    let run = 0
+    const total = quickest(2, () => run++, () => {
+      for (let i = 0; i < 50; i++) {
+        const name = `Brannoch Vell${run}x${i}`
+        repo.createEntry(db, i % 2 ? 'place' : 'character', { name, aliases: i % 3 ? [] : [`the tinker ${run}x${i}`] })
+        codexCards(db)
+      }
+    })
+    console.log(`50 new entries, the codex read after each: ${total.toFixed(0)} ms`)
+    expect(total).toBeLessThan(budget(1500))
+  }, 120_000)
+
+  it('finds a new name in the scenes that hold it just as reading every scene would', () => {
+    codexCards(db)
+    repo.saveSceneText(db, scenes[3], null, 'Odalys Fenn waited. the ferryman of greywater nodded.')
+    repo.saveSceneText(db, scenes[700], null, 'ODALYS FENN is not her. Odalys  Fenn came by the Ferryman Of Greywater.')
+    codexCards(db)
+    const a = repo.createEntry(db, 'character', { name: 'Odalys Fenn', aliases: ['the ferryman of greywater'] })
+    const b = repo.createEntry(db, 'place', { name: 'Greywater' })
+    const kept = codexCards(db)
+    forgetReadings(db)
+    const fresh = codexCards(db)
+    for (const id of [a.id, b.id]) expect(kept.find((c) => c.id === id)).toEqual(fresh.find((c) => c.id === id))
+    expect(kept.find((c) => c.id === a.id)!.scenes).toBe(2)
+  }, 120_000)
 })

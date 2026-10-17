@@ -22,12 +22,11 @@ import type {
 import type { ChatMessage, EntryKind, ID, WritingPrefs } from '@shared/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
-import * as kdb from '../db/keeper'
 import { entryNames, entryState, lastBuildRun } from '../db/worldBuilder'
 import { runTask, stopTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import { gatherWorld } from '../builder/context'
-import { retryMessage, worldText } from '../builder/prompts'
+import { briefVersions, retryMessage, worldText } from '../builder/prompts'
 import { parsePartial } from '../builder/partial'
 import { hisWordsIn, splitAliases, valuesOf } from '../builder/profile'
 import { isBuilderKind } from '../builder/save'
@@ -35,7 +34,7 @@ import { CUT_OFF, parseLenient } from '../keeper/json'
 import { fieldLabel, fieldValue } from '../keeper/facts'
 import { clip, estimateTokens, findQuote, hashText, plain, sentences } from '../keeper/text'
 import { newId, now, UserError } from '../util'
-import { bareName, findMatch, type Named } from './names'
+import { bareName, findMatch, isProperName, sharesName, type Named } from './names'
 import {
   asProfileKind,
   BUILD_KINDS,
@@ -78,7 +77,20 @@ import {
 } from './prompts'
 import { earlierBuilds, madeItems } from './lines'
 import { planScenes } from './storySummary'
-import { finishWriter, newWriter, saveEntry, saveMeta, saveRelationship, setParent, type Source, type Writer } from './save'
+import {
+  fillField,
+  finishWriter,
+  laterBook,
+  newWriter,
+  saveEntry,
+  saveIssue,
+  saveMeta,
+  saveRelationship,
+  saveSceneWhen,
+  setParent,
+  type Source,
+  type Writer
+} from './save'
 import {
   BATCH_ITEM_TOKENS,
   BATCH_MOST,
@@ -90,7 +102,7 @@ import {
   summaryRoom,
   worldRoom
 } from './sizes'
-import { startTimeline } from './timeline'
+import { OPENING_WHEN, startTimeline } from './timeline'
 import { fillGaps, fillTargets, FILL_SAID_TOKENS, storySaid } from '../builder/fill'
 import { giveVoices as voicesFor } from '../readAloud/autoVoice'
 
@@ -196,6 +208,11 @@ interface Build {
   planned: Named[]
   /** Places made before the place they are inside, with its name: put inside it once it is made. */
   parents: Map<ID, string>
+  /**
+   * Each planned name ("kind:bare name") and the entry it was saved or found as. A profile may rename what the first
+   * look planned ("The Ferryman" laid out as "Bram Holt"), and the events and places that name it still find it.
+   */
+  savedAs: Map<string, ID>
   done: Promise<void>
 }
 
@@ -250,6 +267,7 @@ export function startBuild(ctx: BuildContext, input: WorldBuildInput): Promise<v
     blocked: earlier.blocked,
     planned: earlier.planned,
     parents: new Map(),
+    savedAs: new Map(),
     done: Promise.resolve()
   }
   current = b
@@ -264,6 +282,16 @@ export async function cancelBuild(buildId: ID): Promise<void> {
   b.cancelled = true
   if (b.taskId) await stopTask(b.taskId)
   await b.done
+}
+
+/**
+ * Adam is undoing a kept outline of one of these stories (2026-10-17): that story's build, when one runs in this
+ * world, is cancelled first, so nothing it lays out lands on a page the Undo takes away. Resolves once it has stopped.
+ */
+export async function cancelBuildFor(db: DB, storyIds: readonly ID[]): Promise<void> {
+  const b = current
+  if (!b || b.ctx.db !== db || b.finished || !b.storyId || !storyIds.includes(b.storyId)) return
+  await cancelBuild(b.id)
 }
 
 /**
@@ -322,7 +350,7 @@ export function buildState(db: DB, worldId: ID, summary: string): WorldBuilderSt
       console.warn('Could not read what the last build made', e)
     }
   }
-  return { summary, running: b ? { ...snapshot(b), storyId: b.storyId } : null, last: l ? { ...l, made } : null }
+  return { summary, running: b ? snapshot(b) : null, last: l ? { ...l, made } : null }
 }
 
 /** For tests: forget every build (as a fresh start would). */
@@ -338,7 +366,8 @@ const snapshot = (b: Build): WorldBuildProgress => ({
   stage: b.stage,
   step: b.step,
   made: [...b.writer.made],
-  retrying: b.retrying
+  retrying: b.retrying,
+  storyId: b.storyId
 })
 
 function progress(b: Build): void {
@@ -445,11 +474,13 @@ async function build(b: Build): Promise<void> {
 /**
  * Once the build has made something, the story's timeline starts: its opening scene goes on "Day 1"
  * while none of its scenes has a When (see timeline.ts), so the events dated in its days have a start.
+ * Never after Cancel (2026-10-17); the date is one of the build's lines, and the window hears of the scene.
  */
 function openTimeline(b: Build): void {
-  if (b.closed || !b.ctx.db.open || !b.writer.made.length) return
+  if (b.closed || b.cancelled || !b.ctx.db.open || !b.writer.made.length) return
   try {
-    startTimeline(b.ctx.db, b.storyId)
+    const sceneId = startTimeline(b.ctx.db, b.storyId, (id, title) => saveSceneWhen(b.writer, id, '', OPENING_WHEN, title))
+    if (sceneId) b.ctx.emit('memory:changed', { sceneId, entryIds: [] })
   } catch (e) {
     console.warn('Could not start the timeline', e)
   }
@@ -590,31 +621,38 @@ function worldFor(b: Build, kind: EntryKind): { text: string; entries: { entryId
   const builderKind = isBuilderKind(kind) ? kind : 'character'
   const brief = gatherWorld(b.ctx.db, { kind: builderKind, excludeId: null, storyId: b.storyId, prefs: b.ctx.prefs })
   const { text, entryIds } = worldText(brief, builderKind, worldRoom(b.ctx.model.choice, JOB_OF[kind]))
-  const versions = new Map([...brief.lore, ...brief.groups, ...brief.characters, ...brief.same].map((e) => [e.id, e.updatedAt]))
+  const versions = briefVersions(brief)
   return { text, entries: entryIds.map((entryId) => ({ entryId, version: versions.get(entryId) ?? '' })) }
 }
 
 // ---------- The first look ----------
 
+/**
+ * The one item of a plan a newly listed one is, or null. Everything in it comes from the same summary, so only
+ * the same name or other name of the same kind counts, and a character's first name alone ("Mara" for "Mara
+ * Venn"): never a name one letter away ("Mira Venn") nor the same name of another kind (2026-10-17).
+ */
+function inPlan(p: PlanItem, list: PlanItem[]): number | null {
+  const named = list.map((x, i) => ({ id: String(i), kind: x.kind, name: x.name, aliases: x.aliases }))
+  const hit = findMatch(p, named, new Set(named.map((x) => x.id)))
+  return hit ? Number(hit.id) : null
+}
+
 /** The items not already in a list (by name or other name), each once. */
 export function newItems(found: PlanItem[], listed: PlanItem[]): PlanItem[] {
-  const named = (list: PlanItem[]) => list.map((x, i) => ({ id: String(i), kind: x.kind, name: x.name, aliases: x.aliases }))
-  return mergePlan(found).filter((p) => !findMatch(p, named(listed)))
+  return mergePlan(found).filter((p) => inPlan(p, listed) === null)
 }
 
 /** One list of everything the summary names, merged across its parts: the same thing named twice is one. */
 export function mergePlan(items: PlanItem[]): PlanItem[] {
   const out: PlanItem[] = []
   for (const p of items) {
-    const same = findMatch(
-      p,
-      out.map((x, i) => ({ id: String(i), kind: x.kind, name: x.name, aliases: x.aliases }))
-    )
-    if (!same) {
+    const same = inPlan(p, out)
+    if (same === null) {
       out.push({ ...p, aliases: [...p.aliases] })
       continue
     }
-    const x = out[Number(same.id)]
+    const x = out[same]
     for (const a of [p.name, ...p.aliases]) {
       if (bareName(a) !== bareName(x.name) && !x.aliases.some((y) => bareName(y) === bareName(a))) x.aliases.push(a)
     }
@@ -680,17 +718,50 @@ function noteFound(b: Build, id: ID): void {
 /** What the world has (and earlier builds made) is left as it is; what Adam undid or deleted isn't added again from the same words. The rest is laid out. */
 function sortOut(b: Build, plan: PlanItem[]): PlanItem[] {
   const world = [...entryNames(b.ctx.db), ...b.planned]
+  // What the summary names itself (the same name, of the same kind) is that thing, never another it names by a typo or of another kind.
+  const taken = new Set(world.filter((e) => plan.some((p) => p.kind === e.kind && sharesName(p, e))).map((e) => e.id))
   const todo: PlanItem[] = []
   for (const p of plan) {
-    const there = findMatch(p, world)
-    if (there) noteFound(b, there.id)
+    const there = findMatch(p, world, taken)
+    if (there) {
+      noteFound(b, there.id)
+      remember(b, p, there.id)
+      dateFound(b, p, there)
+    }
     else if (b.blocked.has(blockedKey(entrySource(b, p)))) b.skipped.push(p.name)
     else todo.push(p)
   }
   return todo
 }
 
+/**
+ * Building again (2026-10-17): an event the world has already, with no When, gets the one the summary gives, as one
+ * of the build's lines. A When it has is never changed.
+ */
+function dateFound(b: Build, p: PlanItem, there: Named): void {
+  if (p.kind !== 'event' || there.kind !== 'event' || !p.when.trim()) return
+  try {
+    if (fillField(b.writer, there.id, 'when', p.when, entrySource(b, p))) saved(b, [there.id])
+  } catch (e) {
+    console.warn('Could not date an event the world had', e)
+  }
+}
+
 // ---------- Saving a profile ----------
+
+/** Notes the entry a planned item was saved or found as, under its planned names. */
+function remember(b: Build, p: PlanItem, id: ID): void {
+  for (const n of namesOf(p)) {
+    const key = `${p.kind}:${bareName(n)}`
+    if (bareName(n) && !b.savedAs.has(key)) b.savedAs.set(key, id)
+  }
+}
+
+/** The live entry this build saved or found for something it planned under this name, or null. */
+function plannedAs(b: Build, name: string, kind: EntryKind): ID | null {
+  const id = b.savedAs.get(`${kind}:${bareName(name)}`)
+  return id && entryState(b.ctx.db, id) === 'live' ? id : null
+}
 
 /** True when a profile has something besides a name. */
 const hasProfile = (p: Profile | null): p is Profile => !!p && Object.entries(p.values).some(([k, v]) => k !== 'name' && !!v.trim())
@@ -711,49 +782,82 @@ function saveProfile(b: Build, p: PlanItem, profile: Profile, raw: Record<string
     if (isHis(p.name)) his.add('name')
     else his.delete('name')
   }
-  if (!values.aliases?.trim() && p.aliases.length) {
-    values.aliases = p.aliases.join(', ')
+  const plannedAliases = p.aliases.filter((a) => bareName(a) !== bareName(values.name))
+  if (!values.aliases?.trim() && plannedAliases.length) {
+    values.aliases = plannedAliases.join(', ')
     if (isHis(values.aliases)) his.add('aliases')
   }
   if (p.kind === 'event' && !values.when?.trim() && p.when) {
     values.when = p.when
     if (isHis(p.when)) his.add('when')
   }
+  // Laid out under another name than planned ("The Ferryman" as "Bram Holt"): a planned name that is a name, not a
+  // description, stays one of its other names, so the summary's later mentions find it.
+  const aliases = splitAliases(values.aliases ?? '')
+  if (bareName(values.name) !== bareName(p.name) && isProperName(p.name) && !aliases.some((a) => bareName(a) === bareName(p.name))) {
+    values.aliases = [...aliases, p.name].join(', ')
+    if (isHis(values.aliases)) his.add('aliases')
+    else his.delete('aliases')
+  }
   const extras = profileExtras(raw)
   const world = entryNames(db)
-  const there = findMatch({ kind: p.kind, name: values.name, aliases: splitAliases(values.aliases ?? '') }, world) ?? findMatch(p, world)
+  // What this build saved for the rest of the summary is those things: only the same name of the same kind is one of them.
+  const taken = new Set(b.savedAs.values())
+  const there =
+    findMatch({ kind: p.kind, name: values.name, aliases: splitAliases(values.aliases ?? '') }, world, taken) ?? findMatch(p, world, taken)
   if (there) {
     noteFound(b, there.id)
+    remember(b, p, there.id)
     return
   }
   const inside = p.kind === 'place' ? extras.in || p.in : ''
-  const parent = inside
-    ? findMatch(
+  const parentId = inside
+    ? (plannedAs(b, inside, 'place') ??
+      findMatch(
         { kind: 'place', name: inside, aliases: [] },
         world.filter((e) => e.kind === 'place')
-      )
+      )?.id ??
+      null)
     : null
-  const people = world.filter((e) => e.kind === 'character')
+  const ofKind = (kind: EntryKind): Named[] => world.filter((e) => e.kind === kind)
+  const lookUp = (name: string, kind: EntryKind): ID | null =>
+    plannedAs(b, name, kind) ?? findMatch({ kind, name, aliases: [] }, ofKind(kind))?.id ?? null
+  // The groups taking part are kept too, beside the characters (2026-10-17).
   const involved =
     p.kind === 'event'
-      ? [...new Set(extras.involved.flatMap((n) => findMatch({ kind: 'character', name: n, aliases: [] }, people)?.id ?? []))]
+      ? [...new Set(extras.involved.flatMap((n) => lookUp(n, 'character') ?? lookUp(n, 'group') ?? []))]
       : []
+  const placeId = p.kind === 'event' && extras.at ? lookUp(extras.at, 'place') : null
+  // An event the AI still puts in another book keeps those words in its When, undated, at no scene (2026-10-17).
+  const later = p.kind === 'event' && laterBook(values.when ?? '')
   const made = saveEntry(b.writer, {
     kind: p.kind,
     planned: p.name,
     profile: { values, his: [...his] },
-    parentId: parent?.id ?? null,
+    parentId,
     hardRule: p.kind === 'lore' && (extras.rule ?? p.rule),
     involved,
-    sceneId: p.kind === 'event' ? sceneOfNumber(extras.scene || p.scene, b.writer.scenes) : null,
+    sceneId: p.kind === 'event' && !later ? sceneOfNumber(extras.scene || p.scene, b.writer.scenes) : null,
+    placeId,
     source: entrySource(b, p)
   })
   if (!made) {
     b.missed.push(p.name)
     return
   }
-  if (inside && !parent) b.parents.set(made.entry.id, inside)
-  saved(b, [made.entry.id, ...involved])
+  remember(b, p, made.entry.id)
+  if (inside && !parentId) b.parents.set(made.entry.id, inside)
+  saved(b, [made.entry.id, ...involved, ...(placeId ? [placeId] : [])])
+}
+
+/** Saves a profile; one that can't be saved is missed, and the build goes on (2026-10-17). */
+function trySave(b: Build, p: PlanItem, profile: Profile, raw: Record<string, unknown>): void {
+  try {
+    saveProfile(b, p, profile, raw)
+  } catch (e) {
+    console.error('Could not save what the build laid out', e)
+    b.missed.push(p.name)
+  }
 }
 
 /** Puts places made before the place they are inside into it, now that it is made. */
@@ -762,10 +866,10 @@ function fixParents(b: Build): void {
   const places = entryNames(b.ctx.db).filter((e) => e.kind === 'place')
   const touched: ID[] = []
   for (const [id, inside] of b.parents) {
-    const parent = findMatch({ kind: 'place', name: inside, aliases: [] }, places)
-    if (!parent || parent.id === id || entryState(b.ctx.db, id) !== 'live') continue
+    const parent = plannedAs(b, inside, 'place') ?? findMatch({ kind: 'place', name: inside, aliases: [] }, places)?.id
+    if (!parent || parent === id || entryState(b.ctx.db, id) !== 'live') continue
     try {
-      setParent(b.writer, id, parent.id)
+      setParent(b.writer, id, parent)
       touched.push(id)
     } catch (e) {
       console.warn('Could not put a place inside another', e)
@@ -799,7 +903,7 @@ async function layOutCharacters(b: Build, items: PlanItem[]): Promise<void> {
       got = readReply(done)
       profile = isObject(got.value) ? readProfile('character', b.summary, got.value) : null
     }
-    if (hasProfile(profile) && isObject(got.value)) saveProfile(b, p, profile, got.value)
+    if (hasProfile(profile) && isObject(got.value)) trySave(b, p, profile, got.value)
     else b.missed.push(p.name)
   }
 }
@@ -880,21 +984,22 @@ async function layOutBatch(b: Build, kind: EntryKind, batch: PlanItem[], onHandl
       const profile = readProfile(kind, b.summary, list[i])
       const p = pickFor(kind, profile, i, batch, pending)
       if (!p) continue
-      pending.splice(pending.indexOf(p), 1)
-      if (hasProfile(profile)) saveProfile(b, p, profile, list[i])
+      if (hasProfile(profile)) trySave(b, p, profile, list[i])
       else b.missed.push(p.name)
+      // Out of the batch only once saved or missed (2026-10-17): a save that threw while the reply streamed was lost.
+      pending.splice(pending.indexOf(p), 1)
       onHandled()
     }
   }
   // While it arrives, every profile but the last is complete.
   const onText = (text: string): void => {
-    const list = replyItems(parsePartial(text).value)
+    const list = replyItems(parsePartial(text).value, kind)
     take(list, list.length - 1)
   }
   let done = await ask(b, JOB_OF[kind], messages, { onText, entries: world.entries })
   if (!done) return pending
   let got = readReply(done)
-  let list = replyItems(got.value)
+  let list = replyItems(got.value, kind)
   take(list, got.complete ? list.length : list.length - 1)
   if (!taken.size && !halted(b)) {
     done = await ask(b, JOB_OF[kind], again(messages, done.text, got.why ?? 'it had no profiles in it', SHAPES.batch(kind)), {
@@ -903,7 +1008,7 @@ async function layOutBatch(b: Build, kind: EntryKind, batch: PlanItem[], onHandl
     if (!done) return pending
     taken = new Set()
     got = readReply(done)
-    list = replyItems(got.value)
+    list = replyItems(got.value, kind)
     take(list, got.complete ? list.length : list.length - 1)
   }
   return pending
@@ -946,13 +1051,16 @@ export function related(db: DB, a: ID, c: ID): boolean {
 async function relationships(b: Build): Promise<void> {
   const people = inBuild(b, 'character')
   const groups = inBuild(b, 'group')
+  // Where the characters live or work, and who owns each item, too (2026-10-17).
+  const places = inBuild(b, 'place')
+  const items = inBuild(b, 'item')
   const made = new Set(b.writer.made.flatMap((m) => (m.entryId ? [m.entryId] : [])))
+  const all = [...people, ...groups, ...places, ...items]
   // Only worth asking when the build made at least one of the two sides.
-  if (![...people, ...groups].some((e) => made.has(e.id)) || people.length + groups.length < 2 || !people.length) return
+  if (!all.some((e) => made.has(e.id)) || all.length < 2 || !people.length) return
   setStep(b, 'relationships', 'Working out relationships')
   const choice = b.ctx.model.choice
   const system = relationshipsSystem()
-  const all = [...people, ...groups]
   const fixed = estimateTokens(system + all.map((e) => e.name).join('; ')) + 120
   const about = textAbout(
     b.summary,
@@ -964,7 +1072,9 @@ async function relationships(b: Build): Promise<void> {
     relationshipsUser(
       about,
       people.map((e) => e.name),
-      groups.map((e) => e.name)
+      groups.map((e) => e.name),
+      places.map((e) => e.name),
+      items.map((e) => e.name)
     )
   )
   let done = await ask(b, 'relationships', messages)
@@ -976,21 +1086,33 @@ async function relationships(b: Build): Promise<void> {
     got = readReply(done)
   }
   const db = b.ctx.db
+  const who = (name: string): Named | null => {
+    const id = (['character', 'group', 'place', 'item'] as const).map((k) => plannedAs(b, name, k)).find(Boolean)
+    return (
+      all.find((e) => e.id === id) ??
+      findMatch({ kind: 'character', name, aliases: [] }, all) ??
+      findMatch({ kind: 'place', name, aliases: [] }, places) ??
+      findMatch({ kind: 'item', name, aliases: [] }, items)
+    )
+  }
   for (const r of relationshipItems(got.value)) {
     if (halted(b)) return
-    let from = findMatch({ kind: 'character', name: r.from, aliases: [] }, all)
-    let to = findMatch({ kind: 'character', name: r.to, aliases: [] }, all)
+    let from = who(r.from)
+    let to = who(r.to)
     if (!from || !to || from.id === to.id) continue
-    if (from.kind === 'group' && to.kind === 'character') [from, to] = [to, from]
-    if (from.kind !== 'character') continue
+    // Recorded on the character (or, for an item, the group that owns it), whichever way round the reply gave it.
+    if (to.kind === 'character' && from.kind !== 'character') [from, to] = [to, from]
+    else if (from.kind === 'item' && to.kind === 'group') [from, to] = [to, from]
+    if (from.kind !== 'character' && !(from.kind === 'group' && to.kind === 'item')) continue
     if (entryState(db, from.id) !== 'live' || entryState(db, to.id) !== 'live' || related(db, from.id, to.id)) continue
     const source = sourceOf(b, relationshipFingerprint(from.name, to.name), sentencesNamingAll(b.summary, [namesOf(from), namesOf(to)]))
     if (b.blocked.has(blockedKey(source))) continue
     const twoPeople = to.kind === 'character'
+    const plainType = twoPeople ? 'knows' : to.kind === 'place' ? 'lives in' : to.kind === 'item' ? 'owns' : 'member'
     saveRelationship(b.writer, {
       from,
       to,
-      type: r.type || (twoPeople ? 'knows' : 'member'),
+      type: r.type || plainType,
       feels: twoPeople ? r.feels : '',
       otherFeels: twoPeople ? r.otherFeels : '',
       source
@@ -1172,15 +1294,21 @@ function raiseConflict(b: Build, pages: ReturnType<typeof repo.getEntries>, c: C
     sentencesNaming(b.summary, [e.name, ...e.aliases]).find((s) => plain(s).includes(plain(says))) ||
     ''
   const message = `${e.name}: your summary says ${fieldLabel(e, field).toLowerCase()} is “${clip(says, 30)}”, but the page says “${clip(memory, 30)}”.`
-  kdb.raiseIssue(b.ctx.db, {
-    sceneId: '',
-    storyId: b.storyId ?? '',
-    kind: 'fact',
-    severity: 'warning',
-    quote: clip(quote, 80),
-    message,
-    key: `summary:${e.id}:${field}:${plain(says)}`,
-    payload: { entryId: e.id, field, memory, text: says, from: 'summary' }
-  })
+  const key = `summary:${e.id}:${field}:${plain(says)}`
+  // One of the build's lines (2026-10-17), so Undo build takes it back while it is still open.
+  saveIssue(
+    b.writer,
+    {
+      sceneId: '',
+      storyId: b.storyId ?? '',
+      kind: 'fact',
+      severity: 'warning',
+      quote: clip(quote, 80),
+      message,
+      key,
+      payload: { entryId: e.id, field, memory, text: says, from: 'summary' }
+    },
+    { entryId: e.id, entryName: e.name, memory, says, source: sourceOf(b, `world-build:issue:${key}`, quote ? [quote] : []) }
+  )
   b.conflicts.push({ entryId: e.id, kind: e.kind, name: e.name, field, message })
 }

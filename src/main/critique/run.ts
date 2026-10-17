@@ -1,6 +1,6 @@
 // One critique of a scene or a chapter (contracts/critique.ts), when Adam asks: gathers a lean briefing (how the story
 // is written, the facts it must respect, what Adam has said he wants, on a re-read the notes last time, the card, who
-// is in it, how the scene or chapter before ends, and the words), fits it to the writer model (outline/brief.ts
+// is in it, how the scene or chapter before ends, and the words), fits it to the writer model (outline/briefing.ts
 // fitBlocks: the least important parts shorten first, then a long chapter's scenes, down to their summaries; the facts
 // and what Adam said shorten but are never left out), asks once (a reply that can't be read is asked for once more,
 // saying what was wrong), reads the notes against the words (parse.ts), keeps them to what Adam said (memory.ts
@@ -25,7 +25,7 @@ import { checkReport } from '../checks/report'
 import { stillThere } from '../checks/quote'
 import { CUT_OFF } from '../keeper/json'
 import { sceneMemory } from '../memory/scene'
-import { fitBlocks, type BlockDraft, type FittedBriefing } from '../outline/brief'
+import { fitBlocks, type BlockDraft, type FittedBriefing } from '../outline/briefing'
 import { cardLines } from '../outline/context'
 import { briefingBudget } from '../outline/jobs'
 import { now, UserError } from '../util'

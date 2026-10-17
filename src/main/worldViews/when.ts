@@ -797,6 +797,11 @@ export interface WhenItem {
   story?: string
   /** An event: read on its own, taking only a year it leaves out from the scene before it. Nothing takes anything from it. */
   aside?: boolean
+  /**
+   * An event that exists from the world's or its story's start (backstory): a calendar with no year of its own comes
+   * after the years these name.
+   */
+  start?: boolean
 }
 
 /** Where a story begins among the texts, for the ones at its opening that lean on the scene before. */
@@ -865,7 +870,8 @@ const dayOf = (k: State): string =>
  *   side story shares its host's calendar.
  * - A date without a year sorts in the first year its calendar names when it comes before that date in
  *   that year ("Day 41" before "Day 42, Year 3"), and otherwise after the last year named before the
- *   calendar began.
+ *   calendar began; with none, after the latest year the backstory names (WhenItem.start: "in the year
+ *   312" before "Day 1", 2026-10-17).
  * - A time of day on its own ("Dusk") is later on the same day as the scene before, for ordering only: it
  *   never names the day, so it can't make a clash. A time left out keeps the time of the scene before on
  *   the same day, so reading order decides.
@@ -888,8 +894,14 @@ export function placeWhens(
   states.forEach((k, i) => {
     if (k && !aside[i] && k.year !== null && k.vague < 2 && !firstYear.has(k.cal)) firstYear.set(k.cal, k)
   })
+  // The latest year the backstory names: a calendar with no year of its own comes after it.
+  let backstory: number | null = null
+  states.forEach((k, i) => {
+    const item = items[i]
+    if (k && k.year !== null && k.vague < 2 && typeof item !== 'string' && item.aside && item.start) backstory = Math.max(backstory ?? k.year, k.year)
+  })
   const keyOf = (k: State, year: number | null): number[] => [
-    year ?? anchors.get(k.cal) ?? NONE,
+    year ?? anchors.get(k.cal) ?? backstory ?? NONE,
     year !== null ? NONE : k.cal,
     k.month ?? NONE,
     k.day ?? NONE,

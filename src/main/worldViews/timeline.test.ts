@@ -425,7 +425,7 @@ describe('an empty world', () => {
 
 describe('a story planned in a new world', () => {
   // A new world's untouched Book 1, then a story of Adam's after it, with events the AI planned for it ahead of time.
-  const planned = (keepStarter: boolean) => {
+  const planned = (keepStarter: boolean, more: [string, string][] = []) => {
     const db = memoryWorld()
     const [book1] = repo.listStories(db)
     if (keepStarter) repo.updateStory(db, book1.id, { premise: 'Notes to self.' })
@@ -445,7 +445,7 @@ describe('a story planned in a new world', () => {
       ['Before It All', 'Day 0'],
       ['Some Day', '']
     ]
-    for (const [name, when] of events) {
+    for (const [name, when] of [...events, ...more]) {
       const e = repo.createEntry(db, 'event', { name, fields: { when } }, { origin: 'ai', originStoryId: made.story.id })
       mem.insertChange(db, {
         kind: 'relationship',
@@ -464,17 +464,24 @@ describe('a story planned in a new world', () => {
     expect(t.points.some((p) => p.place.startsWith('Book 1'))).toBe(false)
   })
 
-  it("puts the events in the story's own days, Day 2 before Day 5 before Day 15 (an undated one after the one it is listed after)", () => {
+  // 2026-10-17: events at one point are read in the order they were made, those with a date first, not by title.
+  it("puts the events in the story's own days, Day 2 before Day 5 before Day 15 (an undated one after the last dated one made)", () => {
     const { t } = planned(false)
-    expect(names(t.points).slice(1)).toEqual(['Before It All', 'First Lesson', 'Rules', 'Some Day', 'Under the Stairs', 'A Reward', 'The Cupboard'])
+    expect(names(t.points).slice(1)).toEqual(['Before It All', 'Some Day', 'First Lesson', 'Rules', 'Under the Stairs', 'A Reward', 'The Cupboard'])
     expect(t.points.find((p) => p.title === 'First Lesson')).toMatchObject({ dated: true, dayLabel: 'Day 2' })
+  })
+
+  it('keeps undated events in the order they were made, not by title', () => {
+    const { t } = planned(false, [['Ash Fair', '']])
+    expect(names(t.points).slice(1, 4)).toEqual(['Before It All', 'Some Day', 'Ash Fair'])
+    expect(t.points.find((p) => p.title === 'Ash Fair')).toMatchObject({ dated: false })
   })
 
   it('does the same after a Book 1 that is kept', () => {
     const { t, book1, made } = planned(true)
     const first = t.points.findIndex((p) => p.id === made.sceneId)
     expect(t.points.slice(0, first).every((p) => p.kind === 'scene' && p.storyId === book1.id)).toBe(true)
-    expect(t.points.slice(first + 1).map((p) => p.title)).toEqual(['Before It All', 'First Lesson', 'Rules', 'Some Day', 'Under the Stairs', 'A Reward', 'The Cupboard'])
+    expect(t.points.slice(first + 1).map((p) => p.title)).toEqual(['Before It All', 'Some Day', 'First Lesson', 'Rules', 'Under the Stairs', 'A Reward', 'The Cupboard'])
   })
 })
 
@@ -502,6 +509,35 @@ describe('a story dated by the calendar, with events counted in its days', () =>
       repo.createEntry(db, 'event', { name, fields: { when } })
     const t = timelineOf(db, book.id)
     expect(t.points.map((p) => (p.kind === 'event' ? p.title : p.id))).toEqual([first, 'Day Zero', 'Day Two', later, 'Day Fifteen'])
+  })
+})
+
+describe('backstory dated by a year, in a story that counts its days without one', () => {
+  // A world whose first story counts "Day 1", "Day 2", with backstory from the world's start and the story's start.
+  const backstory = () => {
+    const db = memoryWorld()
+    const [book] = repo.listStories(db)
+    const outline = repo.getOutline(db, book.id)
+    const first = outline.scenes[0].id
+    const later = repo.createScene(db, outline.chapters[0].id, { title: 'Later', afterId: first }).id
+    repo.updateSceneCard(db, first, { ...emptySceneCard(), when: 'Day 1' })
+    repo.updateSceneCard(db, later, { ...emptySceneCard(), when: 'Day 2' })
+    repo.createEntry(db, 'event', { name: 'The Founding', fields: { when: 'in the year 312' } })
+    repo.createEntry(db, 'event', { name: 'The Old Treaty', fields: { when: 'Year 290' } }, { origin: 'ai', originStoryId: book.id, originStart: true })
+    repo.createEntry(db, 'event', { name: 'The Storm', fields: { when: 'Day 3' } })
+    return { db, book, first, later }
+  }
+
+  it('puts the backstory before the first scene, the oldest first, and the story after it', () => {
+    const { db, book, first, later } = backstory()
+    const t = timelineOf(db, book.id)
+    expect(t.points.map((p) => (p.kind === 'event' ? p.title : p.id))).toEqual(['The Old Treaty', 'The Founding', first, later, 'The Storm'])
+  })
+
+  it('keeps the days between the scenes as they were', () => {
+    const { db, book } = backstory()
+    const t = timelineOf(db, book.id)
+    expect(t.points.filter((p) => p.kind === 'scene').map((p) => p.day)).toEqual(['Day 1', 'Day 2'].map((d) => placeWhens([d])[0]!.day))
   })
 })
 

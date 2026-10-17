@@ -1,6 +1,6 @@
 // The codex (milestone 3): a card for every entry, grouped by kind, with its portrait, one-liner,
-// tags and where it last appears. Filter by kind, tag, story or role, sort by name, importance or
-// last appearance; a card opens the entry's page, and the codex keeps its filters and scroll while
+// tags and where it last appears. Filter by kind, tag, story, role or what the AI drafted, sort by
+// name, importance or last appearance; a card opens the entry's page, and the codex keeps its filters and scroll while
 // Adam goes back and forth. Plot threads live on their own board, so they aren't here.
 
 import { LayoutGrid, Plus, Search, ShieldCheck, Sparkles, WandSparkles, X } from '@/components/ui/icons'
@@ -75,6 +75,7 @@ export function CodexView(): React.JSX.Element {
   const kindsHere = useMemo(() => CODEX_KINDS.filter((k) => all.some((c) => c.kind === k)), [all])
   const tags = useMemo(() => tagChoices(all), [all])
   const roles = useMemo(() => roleChoices(all), [all])
+  const drafted = useMemo(() => all.some((c) => c.aiDrafted), [all])
   const storyChoices = useMemo(
     () =>
       [...stories]
@@ -202,7 +203,7 @@ export function CodexView(): React.JSX.Element {
   } else {
     body = (
       <>
-        <Toolbar tags={tags} roles={roles} stories={storyChoices} search={search} onClear={clear} kinds={kindsHere} />
+        <Toolbar tags={tags} roles={roles} stories={storyChoices} search={search} onClear={clear} kinds={kindsHere} drafted={drafted} />
         {shown ? (
           groups.map((g) => <Group key={g.kind} kind={g.kind} label={g.label} cards={g.cards} onOpen={open} />)
         ) : (
@@ -317,8 +318,11 @@ function Toolbar({
   stories,
   search,
   onClear,
-  kinds
+  kinds,
+  drafted
 }: {
+  /** Some page is drafted by AI (the filter for them shows then, or while it is on). */
+  drafted: boolean
   /** The kinds this world has, for the New look's pills. */
   kinds: (typeof CODEX_KINDS)[number][]
   tags: Choice[]
@@ -417,6 +421,21 @@ function Toolbar({
           width={140}
         />
       ) : null}
+      {drafted || filters.aiDrafted ? (
+        // 2026-10-17: what the AI wrote and Adam hasn't edited since, marked in amber as AI suggestions are.
+        <button
+          type="button"
+          aria-pressed={filters.aiDrafted}
+          onClick={() => setFilters({ aiDrafted: !filters.aiDrafted })}
+          className={cn(
+            'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 pl-2.5 text-[12.5px] font-medium transition-[background-color,color,transform,scale] duration-(--dur-quick) ease-glide active:scale-[0.96] active:duration-(--dur-press)',
+            filters.aiDrafted ? 'bg-ai-soft text-ai shadow-[inset_0_0_0_1px_var(--line)]' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
+          )}
+        >
+          <Sparkles size={13} className="text-ai" aria-hidden />
+          Drafted by AI
+        </button>
+      ) : null}
       {/* The search box clears itself; this is for the pickers (and clears the search with them, as under "Nothing matches"). */}
       {filtersOn({ ...filters, query: '' }) ? (
         <Button variant="ghost" size="sm" onClick={() => onClear(NO_FILTERS)}>
@@ -478,7 +497,7 @@ const Group = memo(function Group({
 const MAX_TAGS = 3
 
 const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c: CodexCard) => void }): React.JSX.Element {
-  const ids = { rule: useId(), role: useId(), about: useId() }
+  const ids = { rule: useId(), ai: useId(), role: useId(), about: useId() }
   const isNew = useNewLook()
   const ink = KIND_INK[card.kind]
   const name = displayName(card)
@@ -491,7 +510,7 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
       type="button"
       data-codex-card={card.id}
       aria-label={name}
-      aria-describedby={[hardRule && ids.rule, role && ids.role, ids.about].filter(Boolean).join(' ')}
+      aria-describedby={[hardRule && ids.rule, card.aiDrafted && ids.ai, role && ids.role, ids.about].filter(Boolean).join(' ')}
       onClick={() => onOpen(card)}
       // The focus ring is drawn inside the card: the list item around it clips anything outside.
       className={cn(
@@ -512,6 +531,12 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
             <span id={ids.rule} className="flex shrink-0 text-accent" title="Hard rule">
               <ShieldCheck size={13} aria-hidden />
               <span className="sr-only">Hard rule</span>
+            </span>
+          ) : null}
+          {card.aiDrafted ? (
+            <span id={ids.ai} className="flex shrink-0 text-ai" title="Drafted by AI">
+              <Sparkles size={13} aria-hidden />
+              <span className="sr-only">Drafted by AI</span>
             </span>
           ) : null}
           {role ? (

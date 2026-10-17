@@ -255,6 +255,22 @@ describe('placing When boxes in reading order', () => {
     expect(compareKeys(key(next), key(dec2))).toBeGreaterThan(0)
   })
 
+  it('puts a calendar with no year after the years its backstory names, and leaves other events alone', () => {
+    const [day1, founding, day2, storm] = placeWhens([
+      { text: 'Day 1' },
+      { text: 'in the year 312', aside: true, start: true },
+      { text: 'Day 2' },
+      { text: 'Year 400', aside: true }
+    ])
+    expect(compareKeys(key(founding), key(day1))).toBeLessThan(0)
+    expect(compareKeys(key(day2), key(day1))).toBeGreaterThan(0)
+    expect(compareKeys(key(storm), key(day2))).toBeGreaterThan(0)
+    expect(day1!.day).toBe(dayOf('Day 1'))
+    // Without backstory, as before.
+    const [plain, year] = placeWhens([{ text: 'Day 1' }, { text: 'in the year 312', aside: true }])
+    expect(compareKeys(key(year), key(plain))).toBeGreaterThan(0)
+  })
+
   it('steps from the dated scene before, and needs one to step from', () => {
     const [a, b, c] = placeWhens(['Day 12, Year 3, dusk', 'The next day', 'Later that night'])
     expect(b!.day).toBe(dayOf('Day 13, Year 3'))

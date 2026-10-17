@@ -7,10 +7,10 @@ export type Parsed = { ok: true; value: unknown } | { ok: false; why: string }
 /** Why a reply that ends before its JSON object does can't be read (it may have run into the reply limit). */
 export const CUT_OFF = 'it stopped before the JSON object was finished'
 
-/** The first balanced {...} in the text, or why there isn't one. */
-function firstObject(text: string): { ok: true; json: string } | { ok: false; why: string } {
-  const start = text.indexOf('{')
-  if (start < 0) return { ok: false, why: 'there was no JSON object in it' }
+/** The balanced {...} or [...] starting at `start` (strings and escapes skipped), or null when the text ends first. */
+function balanced(text: string, start: number): string | null {
+  const open = text[start]
+  const close = open === '[' ? ']' : '}'
   let depth = 0
   let inString = false
   let escaped = false
@@ -23,13 +23,52 @@ function firstObject(text: string): { ok: true; json: string } | { ok: false; wh
       continue
     }
     if (c === '"') inString = true
-    else if (c === '{') depth++
-    else if (c === '}') {
+    else if (c === open) depth++
+    else if (c === close) {
       depth--
-      if (depth === 0) return { ok: true, json: text.slice(start, i + 1) }
+      if (depth === 0) return text.slice(start, i + 1)
     }
   }
-  return { ok: false, why: CUT_OFF }
+  return null
+}
+
+/** The first balanced {...} in the text, or why there isn't one. */
+function firstObject(text: string): { ok: true; json: string } | { ok: false; why: string } {
+  const start = text.indexOf('{')
+  if (start < 0) return { ok: false, why: 'there was no JSON object in it' }
+  const json = balanced(text, start)
+  return json === null ? { ok: false, why: CUT_OFF } : { ok: true, json }
+}
+
+/** JSON text read as it is, else with the usual slips tidied. */
+function readJson(json: string): Parsed {
+  try {
+    return { ok: true, value: JSON.parse(json) }
+  } catch {
+    /* try again with the usual slips tidied */
+  }
+  try {
+    return { ok: true, value: JSON.parse(tidy(json)) }
+  } catch (e) {
+    return { ok: false, why: `it wasn't valid JSON (${(e as Error).message.replace(/\s+/g, ' ').slice(0, 120)})` }
+  }
+}
+
+/**
+ * A bare list the reply starts with ([{"from": ...}, ...]: its first bracket comes before any brace), or null for
+ * a reply that doesn't. Words in brackets before an object ("[draft] {...}") aren't one, nor is a list cut off
+ * before its end: those replies are read for their first object, as before.
+ */
+function firstList(text: string): Parsed | null {
+  const start = text.indexOf('[')
+  const brace = text.indexOf('{')
+  if (start < 0 || (brace >= 0 && brace < start)) return null
+  const json = balanced(text, start)
+  if (json === null) return null
+  const read = readJson(json)
+  if (!read.ok || !Array.isArray(read.value)) return null
+  const after = text.slice(start + json.length)
+  return read.value.some((v) => v && typeof v === 'object') || !after.includes('{') ? read : null
 }
 
 /** Removes // and /* *\/ comments and commas before a closing bracket, outside strings. */
@@ -71,24 +110,21 @@ function tidy(json: string): string {
   return out
 }
 
-/** Parses the one JSON object in a model's reply, forgiving the usual slips. */
+/**
+ * Parses the one JSON object in a model's reply, forgiving the usual slips. A reply that is a bare list (its first
+ * bracket before any brace) is read as that list (2026-10-17: a bare list of relationships saved nothing), so a
+ * caller wanting an object checks it has one.
+ */
 export function parseLenient(reply: string): Parsed {
   let text = reply.trim()
   if (!text) return { ok: false, why: 'it was empty' }
   const fence = text.match(/```(?:json|JSON)?\s*([\s\S]*?)```/)
-  if (fence && fence[1].includes('{')) text = fence[1]
+  if (fence && (fence[1].includes('{') || fence[1].trim().startsWith('['))) text = fence[1]
+  const list = firstList(text)
+  if (list) return list
   const found = firstObject(text)
   if (!found.ok) return found
-  try {
-    return { ok: true, value: JSON.parse(found.json) }
-  } catch {
-    /* try again with the usual slips tidied */
-  }
-  try {
-    return { ok: true, value: JSON.parse(tidy(found.json)) }
-  } catch (e) {
-    return { ok: false, why: `it wasn't valid JSON (${(e as Error).message.replace(/\s+/g, ' ').slice(0, 120)})` }
-  }
+  return readJson(found.json)
 }
 
 /** What a reading reply holds: a verdict for each fact whose words changed, new facts, and clashes with the memory. */

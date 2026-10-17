@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mentionAt } from '../keeper/text'
-import { buildNameIndex, findMentions, mentionEnd, patternKeys, quickCheck, quoteAround, type Named } from './mentions'
+import { buildNameIndex, findMentions, mayName, mentionEnd, nameWords, patternKeys, quoteAround, wordField, type Named } from './mentions'
 
 const entry = (id: string, name: string, aliases: string[] = []): Named => ({ id, name, aliases })
 
@@ -87,28 +87,31 @@ describe('finding names in a scene', () => {
 })
 
 describe('the quick look for new names', () => {
+  /** Whether a text read for no names may name one of these, by its word field. */
+  const mayHold = (names: Named[], text: string): boolean => {
+    const field = wordField()
+    findMentions(buildNameIndex([]), text, field)
+    return mayName(field, nameWords(buildNameIndex(names)))
+  }
+
   it('never rules out a text that names one of them', () => {
     for (const p of people) {
       const ix = buildNameIndex([p])
-      const maybe = quickCheck(ix)
-      for (const text of cases) if (findMentions(ix, text).size) expect(maybe(text), `${p.name} in “${text}”`).toBe(true)
+      for (const text of cases) if (findMentions(ix, text).size) expect(mayHold([p], text), `${p.name} in “${text}”`).toBe(true)
     }
     expect(named(people, 'The road to \u212Aelso.')).toEqual(['kelvin'])
+    expect(mayHold(people.filter((p) => p.id === 'kelvin'), 'The road to \u212Aelso.')).toBe(true)
   })
 
-  it('rules out a text that is missing part of every name', () => {
-    const maybe = quickCheck(buildNameIndex([entry('tobin', 'Tobin Ash', ['the ferrywoman']), entry('mara', 'Mara')]))
-    expect(maybe('Tobin waited by the ferry.')).toBe(false)
-    expect(maybe('mara crossed.')).toBe(false)
-    expect(maybe('Mara crossed.')).toBe(true)
-    // Only a quick look: the parts are there, so the text is read word by word.
-    expect(maybe('Ash, said TOBIN.')).toBe(true)
-    expect(maybe('THE FERRYWOMAN waited.')).toBe(true)
-  })
-
-  it('reads every text for a name with letters beyond plain English ones that ignores case', () => {
-    expect(quickCheck(buildNameIndex([entry('x', 'the Ørsted twins')]))('Nothing here.')).toBe(true)
-    expect(quickCheck(buildNameIndex([entry('x', 'Ørsted')]))('Nothing here.')).toBe(false)
+  it('rules out a text that is missing a word of every name', () => {
+    const names = [entry('tobin', 'Tobin Ash', ['the ferrywoman']), entry('mara', 'Mara')]
+    expect(mayHold(names, 'Tobin waited by the ferry.')).toBe(false)
+    expect(mayHold(names, 'Maram crossed.')).toBe(false)
+    expect(mayHold(names, 'Mara crossed.')).toBe(true)
+    // Only a quick look: the words are there, so the text is read word by word.
+    expect(mayHold(names, 'Ash, said TOBIN.')).toBe(true)
+    expect(mayHold(names, 'THE FERRYWOMAN waited.')).toBe(true)
+    expect(mayHold([entry('x', 'the Ørsted twins')], 'The ørsted TWINS.')).toBe(true)
   })
 })
 

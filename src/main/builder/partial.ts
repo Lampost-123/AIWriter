@@ -21,8 +21,25 @@ class Stop {}
 const ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '', f: '', '"': '"', '\\': '\\', '/': '/' }
 const NUMBER = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y
 
+/**
+ * Where the object starts: in a code fence if there is one, else at the first brace that a key (or a comment, the
+ * end or the end of the text) follows, so a brace in the words before it ("Here's {name}") isn't taken for it
+ * (2026-10-17). -1 when none has started.
+ */
+function startOf(text: string): number {
+  const looks = /\{\s*(?:["}/]|$)/g
+  const fence = text.indexOf('```')
+  if (fence >= 0) {
+    looks.lastIndex = fence
+    const m = looks.exec(text)
+    if (m) return m.index
+  }
+  looks.lastIndex = 0
+  return looks.exec(text)?.index ?? -1
+}
+
 export function parsePartial(text: string): PartialJson {
-  const start = text.indexOf('{')
+  const start = startOf(text)
   if (start < 0) return { value: null, open: null, done: false }
   let i = start
   let open: PartialJson['open'] = null
@@ -72,6 +89,11 @@ export function parsePartial(text: string): PartialJson {
           throw new Stop()
         }
         const code = parseInt(hex, 16)
+        // The first half of a pair (an emoji, say) waits for its second half, rather than show half a letter.
+        if (code >= 0xd800 && code <= 0xdbff && /^(?:\\(?:u[0-9a-fA-F]{0,3})?)?$/.test(text.slice(i + 6))) {
+          if (path) open = { path, text: s }
+          throw new Stop()
+        }
         if (Number.isFinite(code)) s += String.fromCharCode(code)
         i += 6
         continue

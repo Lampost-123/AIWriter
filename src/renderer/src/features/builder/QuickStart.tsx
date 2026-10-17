@@ -140,7 +140,7 @@ function Screen({
   }
 
   const status = running
-    ? (s.retrying ?? (s.finishing ? `Finishing ${name || `the ${noun}`}…` : name ? `Building ${name}…` : `Building the ${noun}…`))
+    ? (s.retrying ?? (view.text ? `${view.text}.` : s.finishing ? `Finishing ${name || `the ${noun}`}…` : name ? `Building ${name}…` : `Building the ${noun}…`))
     : finished && saved
       ? done.status === 'complete'
         ? `${name} is built and saved. Your words are kept as you wrote them; the rest is drafted by AI.`

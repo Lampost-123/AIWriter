@@ -75,8 +75,25 @@ describe('a new story from a recipe', () => {
     // Levels the recipe names replace the story's; the others stay.
     expect(patch.style.intensity).toEqual({ romance: 1, violence: 3, language: 2 })
     expect(patch.style.pov).toBe('First person')
-    const back = storyBeforeRecipe({ style: patch.style }, before)
+    const back = storyBeforeRecipe({ ...s, style: patch.style }, before)
     expect(back.style).toEqual(s.style)
+  })
+
+  // 2026-10-17: Undo keeps what Adam changed after the recipe went in.
+  it('Undo puts back only what is still as the recipe set it', () => {
+    const s = { ...story({ pov: 'First person', tense: 'Present' }), themes: 'Old themes', tone: 'Old tone' }
+    const { before, patch } = recipeIntoStory(s, parts({ themes: 'Belonging', tone: 'Wry', pov: 'Close third', tense: 'Past', feel: 'Genres: Horror.' }))
+    const now = { themes: 'Belonging, and my own idea', tone: 'Wry', style: { ...patch.style, pov: 'Second person', genres: ['comedy'] } }
+    const back = storyBeforeRecipe(now, before)
+    expect(back.themes).toBeUndefined()
+    expect(back.tone).toBe('Old tone')
+    expect(back.style.pov).toBe('Second person')
+    expect(back.style.tense).toBe('Present')
+    expect(back.style.genres).toEqual(['comedy'])
+    // An Undo saved before this (no record of what was set) still puts everything back.
+    const old = storyBeforeRecipe(now, { ...before, set: undefined })
+    expect(old).toMatchObject({ themes: 'Old themes', tone: 'Old tone' })
+    expect(old.style.pov).toBe('First person')
   })
 
   it('leaves genres and levels alone when the part names nothing it knows, or is empty (an old recipe)', () => {
@@ -93,7 +110,7 @@ describe('a new story from a recipe', () => {
   it('Undo clears genres and levels from a story that had none', () => {
     const { before, patch } = recipeIntoStory(story(), parts({ feel: 'Genre: Thriller. Romance: None.' }))
     expect(patch.style).toEqual({ genres: ['thriller'], intensity: { romance: 1 } })
-    expect(storyBeforeRecipe({ style: patch.style }, before).style).toEqual({})
+    expect(storyBeforeRecipe({ ...story(), style: patch.style }, before).style).toEqual({})
   })
 })
 

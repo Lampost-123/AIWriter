@@ -1,5 +1,5 @@
 // Starting the outline helper's and next scene ideas' AI calls: what the model is told (context.ts and
-// brief.ts), fitted to the chat and brainstorm model, then run by the task runner (ai/tasks.ts) as
+// briefing.ts), fitted to the chat and brainstorm model, then run by the task runner (ai/tasks.ts) as
 // 'outline' and 'ideas' records, so they stream, can be stopped and show in "What the AI saw". No
 // Electron imports: the caller passes the database, the model and `emit`.
 
@@ -24,7 +24,7 @@ import {
   type CastLine,
   type FittedBriefing,
   type ThreadLine
-} from './brief'
+} from './briefing'
 import { ideasFacts, outlineFacts } from './context'
 import { cleanSize, ideasAsk, ideasSystem, outlineAsk, outlineSystem } from './prompts'
 
@@ -44,15 +44,42 @@ export const IDEAS_TEMPERATURE = 0.95
 /** Room for three ideas, with some to spare. */
 export const IDEAS_REPLY = 900
 
-/** Room for an outline's reply: about 50 tokens for each act and chapter heading and 100 for each scene card (with its When). */
+/** The most room an outline's reply is given. */
+export const OUTLINE_REPLY_MOST = 16_500
+
+/**
+ * Room for an outline's reply: about 80 tokens for each act and chapter heading (with a chapter's card) and 130 for
+ * each scene card (with its When and plot threads). 2026-10-17: 50 and 100 cut big outlines short. The largest size
+ * asked for (SIZE_LIMITS) fits under the cap.
+ */
 export const outlineReplyTokens = (size: OutlineSize): number =>
-  Math.min(12_000, 300 + (size.acts + size.chapters) * 50 + size.chapters * size.scenes * 100)
+  Math.min(OUTLINE_REPLY_MOST, 300 + (size.acts + size.chapters) * 80 + size.chapters * size.scenes * 130)
+
 
 /** Tokens the briefing may use: the model's window less the reply's room (and its thinking's) and 5% spare. */
 export function briefingBudget(model: Pick<JobModel, 'choice' | 'thinking'>, reply: number): number {
   const length = model.choice.contextLength && model.choice.contextLength > 0 ? model.choice.contextLength : DEFAULT_TASK_CONTEXT
   const most = model.choice.maxOutput && model.choice.maxOutput > 0 ? Math.min(reply, model.choice.maxOutput) : reply
   return length - withThinkingShare(most, model.thinking) - Math.ceil(length * 0.05)
+}
+
+/**
+ * Says so before asking when a reply of `reply` tokens is more than the model can write in one answer (it would stop
+ * part way every time). `what`: what is asked for, as the message starts ("That is"); `advice`: what to do instead.
+ */
+export function checkReplyRoom(model: Pick<JobModel, 'choice'>, reply: number, what: string, advice: string): void {
+  const most = model.choice.maxOutput
+  if (most && most > 0 && reply > most) throw new UserError(`${what} more than the ${MODEL_NAMES.chat} can answer in one go. ${advice}`, 'reply-too-long')
+}
+
+/** fitBlocks for the chat and brainstorm model, saying `tooLong` (plain words) when even the essentials don't fit. */
+export function fitBriefing(drafts: BlockDraft[], system: string, model: Pick<JobModel, 'choice' | 'thinking'>, reply: number, tooLong: string): FittedBriefing {
+  try {
+    return fitBlocks(drafts, system, briefingBudget(model, reply), MODEL_NAMES.chat)
+  } catch (e) {
+    if (e instanceof UserError && e.code === 'briefing-too-long') throw new UserError(tooLong, 'briefing-too-long')
+    throw e
+  }
 }
 
 /** Each memory entry the briefing sent, with the version sent, for "What the AI saw". */
@@ -76,14 +103,12 @@ const castForms = (cast: CastLine[]): string[] => [castText(cast, 40), castText(
 export function startOutlineJob(deps: JobDeps, input: OutlineRequest): { generationId: ID } {
   const size = cleanSize(input.size)
   const reply = outlineReplyTokens(size)
-  // An answer the model can't write in full would stop part way every time: better to say so first.
-  const most = deps.model.choice.maxOutput
-  if (most && most > 0 && reply > most) {
-    throw new UserError(
-      `That is more than the ${MODEL_NAMES.chat} can answer in one go. Ask for fewer chapters or fewer scenes in each, or pick a model that writes longer answers in Settings › Models.`,
-      'reply-too-long'
-    )
-  }
+  checkReplyRoom(
+    deps.model,
+    reply,
+    'That is',
+    'Ask for fewer chapters or fewer scenes in each, or pick a model that writes longer answers in Settings › Models.'
+  )
   const premise = (input.premise ?? '').slice(0, 6000)
   const facts = outlineFacts(deps.db, input.storyId, premise)
   const system = outlineSystem(size.acts > 0)
@@ -106,18 +131,13 @@ export function startOutlineJob(deps: JobDeps, input: OutlineRequest): { generat
       forms: [outlineAsk(size, { lastAct: facts.lastAct, chapters: facts.chapterCount, latestWhen: facts.latestWhen })]
     }
   ]
-  let fitted: FittedBriefing
-  try {
-    fitted = fitBlocks(drafts, system, briefingBudget(deps.model, reply), MODEL_NAMES.chat)
-  } catch (e) {
-    if (e instanceof UserError && e.code === 'briefing-too-long') {
-      throw new UserError(
-        `That is more than the ${MODEL_NAMES.chat} can plan at once. Ask for fewer chapters or scenes, or pick a model that can read more in Settings › Models.`,
-        'briefing-too-long'
-      )
-    }
-    throw e
-  }
+  const fitted = fitBriefing(
+    drafts,
+    system,
+    deps.model,
+    reply,
+    `That is more than the ${MODEL_NAMES.chat} can plan at once. Ask for fewer chapters or scenes, or pick a model that can read more in Settings › Models.`
+  )
   return startTask({
     db: deps.db,
     taskId: input.taskId,

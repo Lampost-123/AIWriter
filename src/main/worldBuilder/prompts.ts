@@ -8,7 +8,7 @@
 //   themes         the world's themes and tone, when the world has none yet
 //   check          where the summary disagrees with pages already in the world
 // Everything is laid out as it stands at the start: what the summary says happens later becomes an event
-// or a plot thread, never part of how things start. Pure.
+// or a plot thread, never part of how things start; events and plot threads say when they happen. Pure.
 
 import type { Entry, EntryKind } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
@@ -49,7 +49,10 @@ const NOUNS: Record<EntryKind, [string, string]> = {
 
 const ROLE = 'You help an author lay out the world of a novel from their summary of it.'
 
-const TIME = `- Describe everything as it stands at the start, before the story begins. Leave out what the summary says happens later: that is an event or a plot thread, not part of how things start.`
+const TIME_START = `- Describe everything as it stands at the start, before the story begins. Leave out what the summary says happens later: that is an event or a plot thread, not part of how things start.`
+
+// Events and plot threads happen later, so "as it stands at the start" would hide what they are (2026-10-17).
+const TIME_EVENT = `- Say when it happens in the story, as the summary tells it. Something before the story begins keeps the world's own words for when it was.`
 
 const OWN_WORDS = (one: string): string =>
   `- The author's own words come first. Copy every phrase from the summary about this ${one}, exactly as written, into the field it belongs to, under "fromNotes". Change nothing in them, not a word and not the spelling, and add nothing: a field under "fromNotes" holds only the author's words.
@@ -70,10 +73,10 @@ Rules
 - Each thing goes under one kind only, once.
 - Use each name exactly as the summary writes it. Something the summary describes without naming it ("a tavern by the docks") gets a short name that describes it ("The tavern by the docks").
 - If something is already in the world, under a name listed below, use that exact name.
-- Things are listed as they stand at the start, before the story begins. Something the summary says happens later ("in Book 2 she becomes queen") is an event or a plot thread, never part of how a character or place starts.
+- Things are listed as they stand at the start, before the story begins. Something the summary says happens later ("later she becomes queen") is an event or a plot thread, never part of how a character or place starts.
 - A place inside another place says which, in "in".
 - Lore the summary states as absolute, always so with no exceptions ("magic always costs blood"), has "rule" true.
-- An event's "when": for something that happens during the story, the day it happens on, counting the day the story opens as Day 1, with the time of day when the summary gives it ("Day 1", "Day 3, dusk"); work the day out from what the summary says happens when. For something before the story begins, the date the summary gives, in its own words ("in the year 312"), or "" when it gives none. For something in a later book, say so ("in Book 2").
+- An event's "when": for something that happens during the story, the day it happens on, counting the day the story opens as Day 1, with the time of day when the summary gives it ("Day 1", "Day 3, dusk"); work the day out from what the summary says happens when. For something before the story begins, the date the summary gives, in its own words ("in the year 312"), or "" when it gives none.
 - An event's "scene": when the summary numbers its scenes ("Scene 4") and the event happens in one of them, that scene's number ("Scene 4"); else "".
 
 Reply with:
@@ -167,7 +170,7 @@ ${ROLE} From the summary, write a full, consistent profile of one character that
 
 Rules
 ${OWN_WORDS('character')}
-${TIME}
+${TIME_START}
 - Keep to the name the summary gives them. If it gives none, choose one that suits the world.
 ${FIT}
 
@@ -194,10 +197,11 @@ const EXTRAS: Partial<Record<EntryKind, { rule: string; shape: string }>> = {
     shape: '"rule": false, '
   },
   event: {
-    rule: `- "when" says when it happens. During the story: the day, counting the day the story opens as Day 1, with the time of day when the summary gives it ("Day 1", "Day 3, dusk"). Before the story begins: the date the summary gives, in its own words, or "" when it gives none. In a later book: say so ("in Book 2").
+    rule: `- "when" says when it happens. During the story: the day, counting the day the story opens as Day 1, with the time of day when the summary gives it ("Day 1", "Day 3, dusk"). Before the story begins: the date the summary gives, in its own words, or "" when it gives none.
 - "scene": when the summary numbers its scenes ("Scene 4") and the event happens in one of them, that scene's number ("Scene 4"); else "".
-- "involved" lists the characters who take part, by name.`,
-    shape: '"scene": "", "involved": ["..."], '
+- "at" names the place it happens at, when the summary says (one of the places listed), else "".
+- "involved" lists the characters and groups who take part, by name.`,
+    shape: '"scene": "", "at": "", "involved": ["..."], '
   },
   thread: {
     rule: '- A plot thread is open at the start: set up before the story begins and not yet paid off. "promise" is the question the reader waits to see answered.',
@@ -219,7 +223,7 @@ ${ROLE} From the summary, write a full, consistent profile of each of the ${many
 
 Rules
 ${OWN_WORDS(one)}
-${TIME}
+${kind === 'event' || kind === 'thread' ? TIME_EVENT : TIME_START}
 - Keep to the names given, one profile each, in the order given.${extra ? `\n${extra.rule}` : ''}
 ${FIT}
 
@@ -250,7 +254,7 @@ export const SHAPES = {
 
 export function relationshipsSystem(): string {
   return `${WORLD_MARKER} relationships
-${ROLE} List the relationships between the characters below that the summary states or clearly implies, as they stand at the start, before the story begins, and which group each character belongs to. Reply with one JSON object and nothing else.
+${ROLE} List the relationships between the characters below that the summary states or clearly implies, as they stand at the start, before the story begins, which group each character belongs to, where they live or work, and who owns each item. Reply with one JSON object and nothing else.
 
 Rules
 - Only relationships the summary gives. Invent none, and leave out any the summary says only begin later.
@@ -258,6 +262,8 @@ Rules
 - "type" says what "from" is to "to", in a few plain words: "sister", "rival", "owes money to", "apprentice".
 - Between two characters, "feels" says how "from" feels about "to", and "otherFeels" how "to" feels about "from", in a few words each, or "" when the summary doesn't say.
 - For a character who belongs to a group, "from" is the character, "to" the group, and "type" their place in it: "member", "leader", "member (lieutenant)".
+- For a character's home or the place they work, "from" is the character, "to" the place, and "type" "lives in" or "works at".
+- For an item's owner, "from" is the character or group who owns it, "to" the item, and "type" "owns".
 - One relationship for each pair.
 
 Reply with:
@@ -265,9 +271,9 @@ ${SHAPES.relationships}
 or {"relationships": []} when the summary gives none.`
 }
 
-export function relationshipsUser(summary: string, characters: string[], groups: string[]): string {
-  const groupLine = groups.length ? `\nGroups: ${groups.join('; ')}` : ''
-  return `Characters: ${characters.join('; ')}${groupLine}\n\nThe author's summary:\n"""\n${summary.trim()}\n"""\n\nList the relationships now, as one JSON object.`
+export function relationshipsUser(summary: string, characters: string[], groups: string[], places: string[] = [], items: string[] = []): string {
+  const line = (label: string, names: string[]): string => (names.length ? `\n${label}: ${names.join('; ')}` : '')
+  return `Characters: ${characters.join('; ')}${line('Groups', groups)}${line('Places', places)}${line('Items', items)}\n\nThe author's summary:\n"""\n${summary.trim()}\n"""\n\nList the relationships now, as one JSON object.`
 }
 
 // ---------- Themes and tone ----------

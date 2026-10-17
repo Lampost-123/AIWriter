@@ -24,7 +24,9 @@ export function installMemoryEvents(): () => void {
     app.bumpMemory()
     // A scene's "Memory not updated" mark may have come or gone.
     app.bumpOutline()
-    // Not about one scene (a story's placement changed, say): the stories themselves may have changed too.
+    // Not about one scene (a story's placement changed, say): the stories themselves may have changed too. A World
+    // build's saves while it runs come as '' (2026-10-17): entries only, so the stories aren't read again each time;
+    // its last one, at the end, is null.
     if (change.sceneId === null) void app.refreshStories().catch(() => undefined)
   })
 
