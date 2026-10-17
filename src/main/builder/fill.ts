@@ -36,7 +36,7 @@ import * as kdb from '../db/keeper'
 import { newId } from '../util'
 import { gatherWorld } from './context'
 import { entryText, fleshOutValues, profileKeys, toInput, valuesOf } from './profile'
-import { fillFoundSystem, fillFoundUser, fillGapsSystem, fillGapsUser, styleText, worldText } from './prompts'
+import { briefVersions, fillFoundSystem, fillFoundUser, fillGapsSystem, fillGapsUser, styleText, worldText } from './prompts'
 import { cleanValues, isBuilderKind } from './save'
 import { paragraphsOfDoc } from '../readAloud/suggest'
 
@@ -173,7 +173,7 @@ async function fillOne(o: FillOptions, id: ID, out: FillResult): Promise<boolean
   if (o.fromStory && !said) return false
   const brief = gatherWorld(o.db, { kind, excludeId: e.id, storyId: o.storyId, prefs: o.prefs })
   const world = o.fromStory ? { text: '', entryIds: [] as ID[] } : worldText(brief, kind, FILL_WORLD_TOKENS)
-  const versions = new Map([...brief.lore, ...brief.groups, ...brief.characters, ...brief.same].map((x) => [x.id, x.updatedAt]))
+  const versions = briefVersions(brief)
   const messages = o.fromStory
     ? [
         { role: 'system' as const, content: fillFoundSystem(kind) },

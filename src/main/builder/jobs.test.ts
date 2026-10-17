@@ -450,6 +450,41 @@ describe('Quick start', () => {
     const finish = () => startQuickStart(w.ctx, { jobId: 'q15', kind: 'character', notes: NOTES, entryId: e.id }, w.brief())
     expect(finish).toThrow(/finished here/)
   })
+
+  it('adds to the page of a character the world has under that name, filling only its empty fields (2026-10-17)', async () => {
+    const reply = {
+      fromNotes: { name: 'brann holt', summary: 'Brann Holt runs the ferry across the Narrows.' },
+      drafted: { hair: 'Grey and cropped', eyes: 'Pale blue' }
+    }
+    const w = setup({ fetchImpl: canned([JSON.stringify(reply)]) })
+    const had = repo.createEntry(w.db, 'character', { name: 'Brann Holt', fields: { hair: 'Black, his own' } })
+    // A place of the same name and a character one letter away are other pages.
+    repo.createEntry(w.db, 'place', { name: 'Brann Hold' })
+    startQuickStart(w.ctx, { jobId: 'q18', kind: 'character', notes: NOTES }, w.brief())
+    const done = await w.done('q18')
+    expect(done.status).toBe('complete')
+    expect(done.entryId).toBe(had.id)
+    expect(repo.listEntries(w.db, 'character')).toHaveLength(1)
+    const e = repo.getEntry(w.db, had.id)
+    expect(e.name).toBe('Brann Holt')
+    expect(e.fields.hair).toBe('Black, his own')
+    expect(e.fields.eyes).toBe('Pale blue')
+    expect(e.fieldOrigins.eyes).toBe('ai')
+    expect(e.summary).toBe('Brann Holt runs the ferry across the Narrows.')
+    expect(done.values.hair).toBe('Black, his own')
+    expect(done.text).toBe('Adding to Brann Holt’s page')
+    expect(w.saved).toContain(had.id)
+  })
+
+  it('makes a new page for a name only one letter from one the world has', async () => {
+    const reply = { fromNotes: { name: 'Bran Holt' }, drafted: { hair: 'Grey' } }
+    const w = setup({ fetchImpl: canned([JSON.stringify(reply)]) })
+    repo.createEntry(w.db, 'character', { name: 'Brann Holt' })
+    startQuickStart(w.ctx, { jobId: 'q19', kind: 'character', notes: NOTES }, w.brief())
+    const done = await w.done('q19')
+    expect(done.status).toBe('complete')
+    expect(repo.listEntries(w.db, 'character').map((c) => c.name)).toEqual(['Bran Holt', 'Brann Holt'])
+  })
 })
 
 describe('saving a profile', () => {

@@ -505,6 +505,35 @@ describe('a story dated by the calendar, with events counted in its days', () =>
   })
 })
 
+describe('backstory dated by a year, in a story that counts its days without one', () => {
+  // A world whose first story counts "Day 1", "Day 2", with backstory from the world's start and the story's start.
+  const backstory = () => {
+    const db = memoryWorld()
+    const [book] = repo.listStories(db)
+    const outline = repo.getOutline(db, book.id)
+    const first = outline.scenes[0].id
+    const later = repo.createScene(db, outline.chapters[0].id, { title: 'Later', afterId: first }).id
+    repo.updateSceneCard(db, first, { ...emptySceneCard(), when: 'Day 1' })
+    repo.updateSceneCard(db, later, { ...emptySceneCard(), when: 'Day 2' })
+    repo.createEntry(db, 'event', { name: 'The Founding', fields: { when: 'in the year 312' } })
+    repo.createEntry(db, 'event', { name: 'The Old Treaty', fields: { when: 'Year 290' } }, { origin: 'ai', originStoryId: book.id, originStart: true })
+    repo.createEntry(db, 'event', { name: 'The Storm', fields: { when: 'Day 3' } })
+    return { db, book, first, later }
+  }
+
+  it('puts the backstory before the first scene, the oldest first, and the story after it', () => {
+    const { db, book, first, later } = backstory()
+    const t = timelineOf(db, book.id)
+    expect(t.points.map((p) => (p.kind === 'event' ? p.title : p.id))).toEqual(['The Old Treaty', 'The Founding', first, later, 'The Storm'])
+  })
+
+  it('keeps the days between the scenes as they were', () => {
+    const { db, book } = backstory()
+    const t = timelineOf(db, book.id)
+    expect(t.points.filter((p) => p.kind === 'scene').map((p) => p.day)).toEqual(['Day 1', 'Day 2'].map((d) => placeWhens([d])[0]!.day))
+  })
+})
+
 describe('pinned after', () => {
   it('moves each point tied to a scene to just after it, from before or after, in order', () => {
     expect(pinnedAfter([3, 0, 1, 2, 4], new Map([[3, 1], [4, 1]]))).toEqual([0, 1, 3, 4, 2])

@@ -1,5 +1,56 @@
 import { describe, expect, it } from 'vitest'
-import { answersText, fleshOutUser, MAX_QUESTIONS, optionsUser, questionsSystem, questionsUser, quickStartSystem, quickStartUser } from './prompts'
+import { defaultWritingPrefs } from '@shared/defaults'
+import { memoryWorld } from '../../../tests/unit/helpers'
+import * as repo from '../db/repo'
+import { gatherWorld } from './context'
+import {
+  answersText,
+  briefVersions,
+  fleshOutUser,
+  MAX_QUESTIONS,
+  optionsUser,
+  questionsSystem,
+  questionsUser,
+  quickStartSystem,
+  quickStartUser,
+  worldText
+} from './prompts'
+
+describe("the world's places in what the builder's model is told (2026-10-17)", () => {
+  const world = () => {
+    const db = memoryWorld()
+    const storyId = repo.listStories(db)[0].id
+    repo.createEntry(db, 'group', { name: 'The Lantern Guild', summary: 'Smugglers' })
+    const harbour = repo.createEntry(db, 'place', { name: 'Gullhaven', aliases: ['the harbour'], summary: 'A fog-bound port' })
+    const brief = (kind: 'character' | 'place' | 'group' | 'item') => gatherWorld(db, { kind, excludeId: null, storyId, prefs: defaultWritingPrefs() })
+    return { harbour, brief }
+  }
+
+  it('lists the places after the groups when building a character', () => {
+    const w = world()
+    const brief = w.brief('character')
+    const { text, entryIds } = worldText(brief, 'character', 10_000)
+    expect(text).toContain('Places\n- Gullhaven (also: the harbour): A fog-bound port')
+    expect(text.indexOf('Groups\n')).toBeLessThan(text.indexOf('Places\n'))
+    expect(entryIds).toContain(w.harbour.id)
+    expect(briefVersions(brief).get(w.harbour.id)).toBe(w.harbour.updatedAt)
+  })
+
+  it('lists a place once when building a place', () => {
+    const text = worldText(world().brief('place'), 'place', 10_000).text
+    expect(text).toContain('Places already in the world\n- Gullhaven')
+    expect(text.split('- Gullhaven').length).toBe(2)
+  })
+
+  it('leaves out places before groups when the model can read little', () => {
+    const w = world()
+    const brief = w.brief('character')
+    for (let i = 0; i < 30; i++) brief.places.push({ ...brief.places[0], id: `p${i}`, name: `Quay ${i}`, summary: 'A long quay of old stone, wet and slick.' })
+    const text = worldText(brief, 'character', 200).text
+    expect(text).toContain('The Lantern Guild')
+    expect(text).not.toContain('Quay 29')
+  })
+})
 
 describe('the follow-up questions after Quick start’s notes', () => {
   it('asks for a short JSON list of plain questions about what the notes leave open', () => {

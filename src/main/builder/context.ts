@@ -1,7 +1,7 @@
 // Reads what the builder's model is told about the world from the open world's database: the style
 // guide in effect (Adam's preferences, the world's guide and the story's), the world's themes and
-// tone, its lore (rules never to break first), groups, characters and, for a place or an item, the
-// others of its kind. No Electron imports.
+// tone, its lore (rules never to break first), groups, places, characters and, for a place or an
+// item, the others of its kind. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { Entry, ID, WritingPrefs } from '@shared/types'
@@ -48,6 +48,7 @@ export function gatherWorld(db: DB, o: { kind: BuilderKind; excludeId: ID | null
     style: effectiveStyle(o.prefs, repo.getWorldStyle(db), story?.style ?? {}),
     lore,
     groups: of('group'),
+    places: of('place'),
     characters: of('character'),
     same: o.kind === 'place' || o.kind === 'item' ? of(o.kind) : []
   }

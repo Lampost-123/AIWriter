@@ -136,9 +136,10 @@ export interface OutlineFacts {
   latestWhen: string
 }
 
-/** Everything the outline helper tells the AI about a story, as of its end. */
-export function outlineFacts(db: DB, storyId: ID, premise: string): OutlineFacts {
+/** Everything the outline helper tells the AI about a story, as of its end. `premise`: in place of the story's kept one, when given. */
+export function outlineFacts(db: DB, storyId: ID, premise?: string): OutlineFacts {
   const story = repo.getStory(db, storyId)
+  const told = storyFacts(db, story, premise)
   const shape = storyPlan(db, storyId)
   // A new story's empty "Chapter 1" is nothing to carry on from.
   const plan = isBlankPlan(shape) ? [] : shape
@@ -164,11 +165,11 @@ export function outlineFacts(db: DB, storyId: ID, premise: string): OutlineFacts
     }
   }
   return {
-    story: storyFacts(db, story, premise),
+    story: told,
     plan,
     earlier,
     threads,
-    cast: castLines(entries, `${premise}\n${planText(plan, 0)}`),
+    cast: castLines(entries, `${told.premise}\n${planText(plan, 0)}`),
     lastAct: acted.length ? acted[acted.length - 1].title || 'Untitled act' : null,
     chapterCount: plan.reduce((n, a) => n + a.chapters.length, 0),
     // Read from the whole story: the empty "Scene 1" a new story is made with may have a When already.

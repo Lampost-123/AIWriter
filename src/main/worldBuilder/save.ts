@@ -19,6 +19,8 @@ import { BUILD_RUN_SCENE } from '../db/worldBuilder'
 import { ownInput, toInput } from '../builder/profile'
 import { savedValues } from '../builder/save'
 import { kindWord } from '../keeper/facts'
+import { storyCalendar } from '../memory/storyCalendar'
+import { parseWhen } from '../worldViews/when'
 import { asProfileKind, type Profile } from './parse'
 import { relationshipWords, type WorldUndo } from './lines'
 
@@ -77,10 +79,30 @@ export interface NewEntry {
   involved: ID[]
   /**
    * An event: the scene of the story's plan it happens in. It first exists there, and those taking part are involved in
-   * it from there, so the scenes before it never hear of it and the timeline shows it at that scene.
+   * it from there, so the scenes before it never hear of it and the timeline shows it at that scene. Without one, its
+   * "Day N" may place it (sceneOnDay).
    */
   sceneId?: ID | null
   source: Source
+}
+
+/**
+ * An event of the story's plan dated by a bare "Day N" with no scene given (2026-10-17: it existed from the story's
+ * start, so the writer of Day 1 was told of it): the first of the plan's scenes dated on or after that day on the story
+ * calendar, not counting flashbacks. Null when none is dated that late, or the summary isn't the story's plan.
+ */
+export function sceneOnDay(w: Pick<Writer, 'db' | 'storyId' | 'scenes'>, when: string): ID | null {
+  if (!w.storyId || !w.scenes.length) return null
+  const p = parseWhen(when.trim())
+  if (!p?.dayCount || p.day === null || p.year !== null || p.month !== null || p.qual || p.step || p.next) return null
+  const cal = storyCalendar(w.db, w.storyId)
+  if (!cal) return null
+  const plan = new Set(w.scenes)
+  for (const id of cal.order) {
+    const d = cal.dates.get(id)
+    if (plan.has(id) && d && !d.back && d.day !== null && d.day >= p.day) return id
+  }
+  return null
 }
 
 /**
@@ -97,13 +119,15 @@ export function saveEntry(w: Writer, n: NewEntry): { entry: Entry; item: WorldBu
   const mine = pick(all, (k) => !ai.has(k) || k === 'name')
   const drafted = pick(all, (k) => ai.has(k) && k !== 'name')
   const rule = n.kind === 'lore' && n.hardRule
+  // Read before the transaction: the story calendar is kept between reads only outside one.
+  const sceneId = n.kind === 'event' ? (n.sceneId ?? sceneOnDay(w, all.when ?? '')) : null
   return w.db.transaction(() => {
     const runId = runOf(w)
     let e = repo.createEntry(
       w.db,
       n.kind,
       { ...ownInput(kind, mine), parentId: n.kind === 'place' ? n.parentId : null, hardRule: rule, originStoryId: w.storyId },
-      { origin: 'adam', originStoryId: w.storyId, originSceneId: n.kind === 'event' ? (n.sceneId ?? null) : null, runId }
+      { origin: 'adam', originStoryId: w.storyId, originSceneId: sceneId, runId }
     )
     if (ai.has('name')) e = stampOrigins(w.db, e.id, { name: 'ai' })
     if (Object.keys(drafted).length) e = repo.updateEntry(w.db, e.id, toInput(kind, drafted), { origin: 'ai', runId })
@@ -111,7 +135,7 @@ export function saveEntry(w: Writer, n: NewEntry): { entry: Entry; item: WorldBu
     const add = (entryId: ID, data: ChangeData, at = anchorOf(w)): void => {
       changeIds.push(mem.insertChange(w.db, { ...data, entryId, ...at, origin: 'ai', runId }).id)
     }
-    const atScene = n.kind === 'event' && n.sceneId && w.storyId ? { anchor: 'scene' as const, storyId: w.storyId, sceneId: n.sceneId } : undefined
+    const atScene = n.kind === 'event' && sceneId && w.storyId ? { anchor: 'scene' as const, storyId: w.storyId, sceneId } : undefined
     for (const who of n.kind === 'event' ? n.involved : []) {
       if (who !== e.id) add(who, { kind: 'relationship', payload: { otherId: e.id, type: 'involved in', feels: '', otherFeels: '' } }, atScene)
     }

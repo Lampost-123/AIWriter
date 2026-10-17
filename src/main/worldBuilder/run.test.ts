@@ -797,3 +797,181 @@ describe('the events of a story built from its plan', () => {
     expect(mem.listExistsPoints(t.db, storm.id)).toEqual([expect.objectContaining({ kind: 'world' })])
   })
 })
+
+/** Streams a reply as the provider would, a few characters at a time. */
+function streamed(reply: string): Response {
+  const chunk = (delta: object, finish: string | null = null): string =>
+    `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+  const body = `${(reply.match(/[\s\S]{1,7}/g) ?? []).map((p) => chunk({ content: p })).join('')}${chunk({}, 'stop')}data: [DONE]\n\n`
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+}
+
+/**
+ * A fetch that answers some of the World builder's jobs ("[AIWRITE-WORLD v1] <job>") itself, from the request's user
+ * message, and sends the rest to the fake provider. Counts the requests of each job.
+ */
+function answering(replies: Record<string, (user: string) => string | null>): typeof fetch & { asked: Record<string, number> } {
+  const asked: Record<string, number> = {}
+  const f = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: string }[] }
+    const system = body.messages?.find((m) => m.role === 'system')?.content ?? ''
+    const job = /^\[AIWRITE-WORLD v1\] (\w+)/.exec(system)?.[1] ?? ''
+    if (job) asked[job] = (asked[job] ?? 0) + 1
+    const user = (body.messages ?? []).filter((m) => m.role === 'user').map((m) => m.content).join('\n')
+    const reply = replies[job]?.(user) ?? null
+    return reply === null ? fetch(input, init) : streamed(reply)
+  }) as typeof fetch & { asked: Record<string, number> }
+  f.asked = asked
+  return f
+}
+
+/** A first look listing these, by kind (asked again for anything missed, it lists them again). */
+const listing = (lists: Record<string, unknown[]>) => (): string =>
+  JSON.stringify({ characters: [], places: [], groups: [], items: [], lore: [], events: [], threads: [], glossary: [], ...lists })
+
+describe('names one letter apart, and the same name of two kinds', () => {
+  it('makes two people of two names one letter apart in one summary', async () => {
+    const t = setup()
+    const done = await t.build('Tom is a fisherman. Tim is a baker. Mara Venn is a smuggler captain. Mira Venn is a sailmaker.')
+    expect(done.status).toBe('complete')
+    expect(t.names('character')).toEqual(['Mara Venn', 'Mira Venn', 'Tim', 'Tom'])
+    expect(done.found).toEqual([])
+  })
+
+  it('makes both the place and the group one summary gives the same name', async () => {
+    const t = setup()
+    t.ctx.fetchImpl = answering({
+      overview: listing({ places: [{ name: 'Ironhold', about: 'a fortress' }], groups: [{ name: 'Ironhold', about: 'its garrison' }] })
+    })
+    const done = await t.build('Ironhold is a fortress in the hills. The garrison is called Ironhold too.')
+    expect(done.status).toBe('complete')
+    expect(t.names('place')).toEqual(['Ironhold'])
+    expect(t.names('group')).toEqual(['Ironhold'])
+  })
+
+  it('still takes a clear typo of a long name in the world as that page', async () => {
+    const t = setup()
+    const town = repo.createEntry(t.db, 'place', { name: 'Grimsby', summary: 'A fishing town.' })
+    const done = await t.build('Grimbsy is a fishing town.')
+    expect(done.status).toBe('complete')
+    expect(done.found).toEqual([{ entryId: town.id, kind: 'place', name: 'Grimsby' }])
+    expect(t.names('place')).toEqual(['Grimsby'])
+  })
+})
+
+describe('replies in other shapes', () => {
+  it.each([
+    ['a bare list', (list: string) => list],
+    ['a fenced list', (list: string) => `Here they are:\n\`\`\`json\n${list}\n\`\`\``]
+  ])('saves relationships given as %s', async (_, shape) => {
+    const t = setup()
+    const list = JSON.stringify([
+      { from: 'Tobin', to: 'Mara Venn', type: 'shipmate', feels: '', otherFeels: '' },
+      { from: 'Mara Venn', to: 'Salt Guild', type: 'debtor' }
+    ])
+    const f = answering({ relationships: () => shape(list) })
+    t.ctx.fetchImpl = f
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    expect(f.asked.relationships).toBe(1)
+    const types = (name: string) =>
+      mem
+        .changesForEntry(t.db, t.named(name).id)
+        .flatMap((c) => (c.kind === 'relationship' && c.entryId === t.named(name).id ? [c.payload.type] : []))
+    expect(types('Tobin')).toContain('shipmate')
+    expect(types('Mara Venn')).toContain('debtor')
+  })
+
+  it('saves a profile given on its own, not in a list, without asking again', async () => {
+    const t = setup()
+    const f = answering({
+      places: () =>
+        JSON.stringify({
+          name: 'Fenwick',
+          in: '',
+          fromNotes: { name: 'Fenwick', summary: 'Fenwick is a fishing village.' },
+          drafted: { description: 'Grey roofs and nets drying on the wall.' }
+        })
+    })
+    t.ctx.fetchImpl = f
+    const done = await t.build('Fenwick is a fishing village.')
+    expect(done.status).toBe('complete')
+    expect(t.names('place')).toEqual(['Fenwick'])
+    expect(t.named('Fenwick').description).toBe('Grey roofs and nets drying on the wall.')
+    expect(f.asked.places).toBe(1)
+    expect(done.missed).toEqual([])
+  })
+})
+
+describe('a planned name the profile changes', () => {
+  const SUMMARY_RENAMED = [
+    'The Ferryman is an old boatman, and his real name is Bram Holt.',
+    'The Low Tavern is an inn by the river, called the Riverside Inn by travellers.',
+    'The Taproom is a room in the Low Tavern.',
+    'The Long Night happened in the year 300, when the Ferryman lost his boat.'
+  ].join(' ')
+
+  it('still links what names it by the planned name, and keeps that name as another name', async () => {
+    const t = setup()
+    t.ctx.fetchImpl = answering({
+      overview: listing({
+        characters: [{ name: 'The Ferryman', about: 'an old boatman' }],
+        places: [
+          { name: 'The Low Tavern', aliases: ['Riverside Inn'], about: 'an inn by the river' },
+          { name: 'The Taproom', in: 'The Low Tavern', about: 'a room in the inn' }
+        ],
+        events: [{ name: 'The Long Night', when: 'in the year 300' }]
+      }),
+      character: () =>
+        JSON.stringify({
+          fromNotes: { name: 'Bram Holt', summary: 'The Ferryman is an old boatman, and his real name is Bram Holt.' },
+          drafted: { traits: 'Quiet and patient.' }
+        }),
+      places: () =>
+        JSON.stringify({
+          places: [
+            { name: 'Riverside Inn', in: '', fromNotes: { name: 'Riverside Inn' }, drafted: { description: 'Low beams.' } },
+            { name: 'The Taproom', in: 'The Low Tavern', fromNotes: { name: 'The Taproom' }, drafted: { description: 'Barrels.' } }
+          ]
+        }),
+      events: () =>
+        JSON.stringify({
+          events: [{ name: 'The Long Night', involved: ['The Ferryman'], fromNotes: { name: 'The Long Night' }, drafted: { happened: 'A storm.' } }]
+        })
+    })
+    const done = await t.build(SUMMARY_RENAMED)
+    expect(done.status).toBe('complete')
+    expect(t.names('character')).toEqual(['Bram Holt'])
+    expect(t.names('place')).toEqual(['Riverside Inn', 'The Taproom'])
+    const bram = t.named('Bram Holt')
+    expect(bram.aliases).toContain('The Ferryman')
+    const inn = t.named('Riverside Inn')
+    expect(inn.aliases).toContain('The Low Tavern')
+    expect(t.named('The Taproom').parentId).toBe(inn.id)
+    const night = t.named('The Long Night')
+    const involved = mem.changesForEntry(t.db, bram.id).filter((c) => c.kind === 'relationship' && c.payload.otherId === night.id)
+    expect(involved).toHaveLength(1)
+  })
+
+  it('links a description it planned by too, without keeping it as a name', async () => {
+    const t = setup()
+    t.ctx.fetchImpl = answering({
+      overview: listing({
+        characters: [{ name: 'The old ferryman', about: 'an old boatman' }],
+        events: [{ name: 'The Long Night', when: 'in the year 300' }]
+      }),
+      character: () =>
+        JSON.stringify({ fromNotes: { name: 'Bram Holt' }, drafted: { summary: 'An old boatman.', traits: 'Quiet and patient.' } }),
+      events: () =>
+        JSON.stringify({
+          events: [{ name: 'The Long Night', involved: ['The old ferryman'], fromNotes: { name: 'The Long Night' }, drafted: { happened: 'A storm.' } }]
+        })
+    })
+    const done = await t.build('The old ferryman, whose name is Bram Holt, rows the river. The Long Night happened in the year 300.')
+    expect(done.status).toBe('complete')
+    const bram = t.named('Bram Holt')
+    expect(bram.aliases).toEqual([])
+    const night = t.named('The Long Night')
+    expect(mem.changesForEntry(t.db, bram.id).filter((c) => c.kind === 'relationship' && c.payload.otherId === night.id)).toHaveLength(1)
+  })
+})

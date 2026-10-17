@@ -397,16 +397,16 @@ test('the builder warns about a near-duplicate name, in full in the smallest win
     await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra Holt')
     await expect(main(win).getByText('Same one?')).toHaveCount(0)
 
-    // Quick start says it under the profile's name, whole.
+    // Quick start from notes about a character the world has adds to that page, never a second one (2026-10-17).
     await binder(win).getByRole('button', { name: 'Characters' }).click()
     await main(win).getByRole('button', { name: 'Quick start a character from a few notes' }).click()
     await main(win).getByLabel('What you know about them').fill(NOTES)
     await main(win).getByRole('button', { name: 'Build the character' }).click()
-    await expect(main(win).getByRole('status').filter({ hasText: 'Brann Holt is built and saved.' })).toBeVisible()
-    expect(await warning()).toEqual({
-      text: 'There’s already another character called Brann Holt. Same one? Open Brann Holt',
-      cut: false
-    })
+    await expect(main(win).getByRole('status').filter({ hasText: /Brann Holt/ }).first()).toBeVisible()
+    await expect
+      .poll(async () => (await invoke(win, 'listEntries', 'character')).filter((e) => e.name === 'Brann Holt').length)
+      .toBe(1)
+    await expect(main(win).getByText('Same one?')).toHaveCount(0)
   } finally {
     await fake.close()
   }

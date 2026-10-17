@@ -55,14 +55,17 @@ ${CHAPTER_CARD_FORM}`
 export const CHAPTER_CARD_RULES = `- Each chapter's Point of view, Characters, Location, When and Mood are what most of its scenes share. Leave out a line the chapter has nothing for.
 - A scene that differs from its chapter adds only the lines that differ, after its When: "Point of view:", "Characters:", "Location:" or "Mood:" (another place, a different point of view). A scene that shares them with its chapter adds none.`
 
+/** The rules for a scene's "Sets up" and "Pays off" lines, for every plan with scenes (the outline helper, recipes). */
+export const THREAD_RULES = `- Move the open plot threads on, towards being paid off. Plan where each is paid off: name it on the "Pays off" line of the scene that answers it (it may stay open past these scenes when the story needs it to).
+- A new plot thread (a question, promise, threat or secret the story will answer) goes on the "Sets up" line of the scene that opens it, named in a few words, and is paid off in a later scene or left open for later. Never pay off a thread before the scene that sets it up.`
+
 const SHARED_RULES = `- Each scene has 3 to 6 beats, in order, each a short line.
 - Each scene has a When: "Day" and the day's number, counting the day the story opens as Day 1, then a comma and the time of day ("Day 1, morning", "Day 2, evening", "Day 5, dusk"). Days carry on from the story's scenes before and never go back. Scenes on the same day keep the same day number. If the story's scenes already give their time another way (a date or a year), use that way instead.
 ${CHAPTER_CARD_RULES}
 - Titles are a few words, with no numbers.
 - Continue from what the story already has. Never repeat or retell it.
 - Use the characters, places and plot threads given, by their names. Bring in someone or something new only when the story needs it.
-- Move the open plot threads on, towards being paid off. Plan where each is paid off: name it on the "Pays off" line of the scene that answers it (it may stay open past these scenes when the story needs it to).
-- A new plot thread (a question, promise, threat or secret the story will answer) goes on the "Sets up" line of the scene that opens it, named in a few words, and is paid off in a later scene or left open for later. Never pay off a thread before the scene that sets it up.
+${THREAD_RULES}
 - Keep to the premise, the tone and everything the story has established.`
 
 /** The outline helper's instructions: acts (unless none are asked for), chapters and scene cards, in a fixed plain-text form. */
@@ -110,8 +113,8 @@ export function outlineAsk(size: OutlineSize, o: { lastAct: string | null; chapt
   return lines.join(' ')
 }
 
-/** Where the new scenes' days start: on from the story's last dated scene, else on Day 1. */
-function whenAsk(carriesOn: boolean, latest: string): string {
+/** Where the new scenes' days start: on from the story's last dated scene, else on Day 1. Recipes ask it too. */
+export function whenAsk(carriesOn: boolean, latest: string): string {
   if (!latest) return carriesOn ? 'None of its scenes has a When yet: the new scenes start on Day 1.' : 'It opens on Day 1.'
   return carriesOn
     ? `Its last scene with a When is set at “${latest}”: the new scenes' Whens carry on from there.`

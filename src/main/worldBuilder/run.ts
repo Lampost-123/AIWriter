@@ -27,7 +27,7 @@ import { entryNames, entryState, lastBuildRun } from '../db/worldBuilder'
 import { runTask, stopTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import { gatherWorld } from '../builder/context'
-import { retryMessage, worldText } from '../builder/prompts'
+import { briefVersions, retryMessage, worldText } from '../builder/prompts'
 import { parsePartial } from '../builder/partial'
 import { hisWordsIn, splitAliases, valuesOf } from '../builder/profile'
 import { isBuilderKind } from '../builder/save'
@@ -35,7 +35,7 @@ import { CUT_OFF, parseLenient } from '../keeper/json'
 import { fieldLabel, fieldValue } from '../keeper/facts'
 import { clip, estimateTokens, findQuote, hashText, plain, sentences } from '../keeper/text'
 import { newId, now, UserError } from '../util'
-import { bareName, findMatch, type Named } from './names'
+import { bareName, findMatch, isProperName, sharesName, type Named } from './names'
 import {
   asProfileKind,
   BUILD_KINDS,
@@ -196,6 +196,11 @@ interface Build {
   planned: Named[]
   /** Places made before the place they are inside, with its name: put inside it once it is made. */
   parents: Map<ID, string>
+  /**
+   * Each planned name ("kind:bare name") and the entry it was saved or found as. A profile may rename what the first
+   * look planned ("The Ferryman" laid out as "Bram Holt"), and the events and places that name it still find it.
+   */
+  savedAs: Map<string, ID>
   done: Promise<void>
 }
 
@@ -250,6 +255,7 @@ export function startBuild(ctx: BuildContext, input: WorldBuildInput): Promise<v
     blocked: earlier.blocked,
     planned: earlier.planned,
     parents: new Map(),
+    savedAs: new Map(),
     done: Promise.resolve()
   }
   current = b
@@ -590,31 +596,38 @@ function worldFor(b: Build, kind: EntryKind): { text: string; entries: { entryId
   const builderKind = isBuilderKind(kind) ? kind : 'character'
   const brief = gatherWorld(b.ctx.db, { kind: builderKind, excludeId: null, storyId: b.storyId, prefs: b.ctx.prefs })
   const { text, entryIds } = worldText(brief, builderKind, worldRoom(b.ctx.model.choice, JOB_OF[kind]))
-  const versions = new Map([...brief.lore, ...brief.groups, ...brief.characters, ...brief.same].map((e) => [e.id, e.updatedAt]))
+  const versions = briefVersions(brief)
   return { text, entries: entryIds.map((entryId) => ({ entryId, version: versions.get(entryId) ?? '' })) }
 }
 
 // ---------- The first look ----------
 
+/**
+ * The one item of a plan a newly listed one is, or null. Everything in it comes from the same summary, so only
+ * the same name or other name of the same kind counts, and a character's first name alone ("Mara" for "Mara
+ * Venn"): never a name one letter away ("Mira Venn") nor the same name of another kind (2026-10-17).
+ */
+function inPlan(p: PlanItem, list: PlanItem[]): number | null {
+  const named = list.map((x, i) => ({ id: String(i), kind: x.kind, name: x.name, aliases: x.aliases }))
+  const hit = findMatch(p, named, new Set(named.map((x) => x.id)))
+  return hit ? Number(hit.id) : null
+}
+
 /** The items not already in a list (by name or other name), each once. */
 export function newItems(found: PlanItem[], listed: PlanItem[]): PlanItem[] {
-  const named = (list: PlanItem[]) => list.map((x, i) => ({ id: String(i), kind: x.kind, name: x.name, aliases: x.aliases }))
-  return mergePlan(found).filter((p) => !findMatch(p, named(listed)))
+  return mergePlan(found).filter((p) => inPlan(p, listed) === null)
 }
 
 /** One list of everything the summary names, merged across its parts: the same thing named twice is one. */
 export function mergePlan(items: PlanItem[]): PlanItem[] {
   const out: PlanItem[] = []
   for (const p of items) {
-    const same = findMatch(
-      p,
-      out.map((x, i) => ({ id: String(i), kind: x.kind, name: x.name, aliases: x.aliases }))
-    )
-    if (!same) {
+    const same = inPlan(p, out)
+    if (same === null) {
       out.push({ ...p, aliases: [...p.aliases] })
       continue
     }
-    const x = out[Number(same.id)]
+    const x = out[same]
     for (const a of [p.name, ...p.aliases]) {
       if (bareName(a) !== bareName(x.name) && !x.aliases.some((y) => bareName(y) === bareName(a))) x.aliases.push(a)
     }
@@ -680,10 +693,15 @@ function noteFound(b: Build, id: ID): void {
 /** What the world has (and earlier builds made) is left as it is; what Adam undid or deleted isn't added again from the same words. The rest is laid out. */
 function sortOut(b: Build, plan: PlanItem[]): PlanItem[] {
   const world = [...entryNames(b.ctx.db), ...b.planned]
+  // What the summary names itself (the same name, of the same kind) is that thing, never another it names by a typo or of another kind.
+  const taken = new Set(world.filter((e) => plan.some((p) => p.kind === e.kind && sharesName(p, e))).map((e) => e.id))
   const todo: PlanItem[] = []
   for (const p of plan) {
-    const there = findMatch(p, world)
-    if (there) noteFound(b, there.id)
+    const there = findMatch(p, world, taken)
+    if (there) {
+      noteFound(b, there.id)
+      remember(b, p, there.id)
+    }
     else if (b.blocked.has(blockedKey(entrySource(b, p)))) b.skipped.push(p.name)
     else todo.push(p)
   }
@@ -691,6 +709,20 @@ function sortOut(b: Build, plan: PlanItem[]): PlanItem[] {
 }
 
 // ---------- Saving a profile ----------
+
+/** Notes the entry a planned item was saved or found as, under its planned names. */
+function remember(b: Build, p: PlanItem, id: ID): void {
+  for (const n of namesOf(p)) {
+    const key = `${p.kind}:${bareName(n)}`
+    if (bareName(n) && !b.savedAs.has(key)) b.savedAs.set(key, id)
+  }
+}
+
+/** The live entry this build saved or found for something it planned under this name, or null. */
+function plannedAs(b: Build, name: string, kind: EntryKind): ID | null {
+  const id = b.savedAs.get(`${kind}:${bareName(name)}`)
+  return id && entryState(b.ctx.db, id) === 'live' ? id : null
+}
 
 /** True when a profile has something besides a name. */
 const hasProfile = (p: Profile | null): p is Profile => !!p && Object.entries(p.values).some(([k, v]) => k !== 'name' && !!v.trim())
@@ -711,38 +743,57 @@ function saveProfile(b: Build, p: PlanItem, profile: Profile, raw: Record<string
     if (isHis(p.name)) his.add('name')
     else his.delete('name')
   }
-  if (!values.aliases?.trim() && p.aliases.length) {
-    values.aliases = p.aliases.join(', ')
+  const plannedAliases = p.aliases.filter((a) => bareName(a) !== bareName(values.name))
+  if (!values.aliases?.trim() && plannedAliases.length) {
+    values.aliases = plannedAliases.join(', ')
     if (isHis(values.aliases)) his.add('aliases')
   }
   if (p.kind === 'event' && !values.when?.trim() && p.when) {
     values.when = p.when
     if (isHis(p.when)) his.add('when')
   }
+  // Laid out under another name than planned ("The Ferryman" as "Bram Holt"): a planned name that is a name, not a
+  // description, stays one of its other names, so the summary's later mentions find it.
+  const aliases = splitAliases(values.aliases ?? '')
+  if (bareName(values.name) !== bareName(p.name) && isProperName(p.name) && !aliases.some((a) => bareName(a) === bareName(p.name))) {
+    values.aliases = [...aliases, p.name].join(', ')
+    if (isHis(values.aliases)) his.add('aliases')
+    else his.delete('aliases')
+  }
   const extras = profileExtras(raw)
   const world = entryNames(db)
-  const there = findMatch({ kind: p.kind, name: values.name, aliases: splitAliases(values.aliases ?? '') }, world) ?? findMatch(p, world)
+  // What this build saved for the rest of the summary is those things: only the same name of the same kind is one of them.
+  const taken = new Set(b.savedAs.values())
+  const there =
+    findMatch({ kind: p.kind, name: values.name, aliases: splitAliases(values.aliases ?? '') }, world, taken) ?? findMatch(p, world, taken)
   if (there) {
     noteFound(b, there.id)
+    remember(b, p, there.id)
     return
   }
   const inside = p.kind === 'place' ? extras.in || p.in : ''
-  const parent = inside
-    ? findMatch(
+  const parentId = inside
+    ? (plannedAs(b, inside, 'place') ??
+      findMatch(
         { kind: 'place', name: inside, aliases: [] },
         world.filter((e) => e.kind === 'place')
-      )
+      )?.id ??
+      null)
     : null
   const people = world.filter((e) => e.kind === 'character')
   const involved =
     p.kind === 'event'
-      ? [...new Set(extras.involved.flatMap((n) => findMatch({ kind: 'character', name: n, aliases: [] }, people)?.id ?? []))]
+      ? [
+          ...new Set(
+            extras.involved.flatMap((n) => plannedAs(b, n, 'character') ?? findMatch({ kind: 'character', name: n, aliases: [] }, people)?.id ?? [])
+          )
+        ]
       : []
   const made = saveEntry(b.writer, {
     kind: p.kind,
     planned: p.name,
     profile: { values, his: [...his] },
-    parentId: parent?.id ?? null,
+    parentId,
     hardRule: p.kind === 'lore' && (extras.rule ?? p.rule),
     involved,
     sceneId: p.kind === 'event' ? sceneOfNumber(extras.scene || p.scene, b.writer.scenes) : null,
@@ -752,7 +803,8 @@ function saveProfile(b: Build, p: PlanItem, profile: Profile, raw: Record<string
     b.missed.push(p.name)
     return
   }
-  if (inside && !parent) b.parents.set(made.entry.id, inside)
+  remember(b, p, made.entry.id)
+  if (inside && !parentId) b.parents.set(made.entry.id, inside)
   saved(b, [made.entry.id, ...involved])
 }
 
@@ -762,10 +814,10 @@ function fixParents(b: Build): void {
   const places = entryNames(b.ctx.db).filter((e) => e.kind === 'place')
   const touched: ID[] = []
   for (const [id, inside] of b.parents) {
-    const parent = findMatch({ kind: 'place', name: inside, aliases: [] }, places)
-    if (!parent || parent.id === id || entryState(b.ctx.db, id) !== 'live') continue
+    const parent = plannedAs(b, inside, 'place') ?? findMatch({ kind: 'place', name: inside, aliases: [] }, places)?.id
+    if (!parent || parent === id || entryState(b.ctx.db, id) !== 'live') continue
     try {
-      setParent(b.writer, id, parent.id)
+      setParent(b.writer, id, parent)
       touched.push(id)
     } catch (e) {
       console.warn('Could not put a place inside another', e)
@@ -888,13 +940,13 @@ async function layOutBatch(b: Build, kind: EntryKind, batch: PlanItem[], onHandl
   }
   // While it arrives, every profile but the last is complete.
   const onText = (text: string): void => {
-    const list = replyItems(parsePartial(text).value)
+    const list = replyItems(parsePartial(text).value, kind)
     take(list, list.length - 1)
   }
   let done = await ask(b, JOB_OF[kind], messages, { onText, entries: world.entries })
   if (!done) return pending
   let got = readReply(done)
-  let list = replyItems(got.value)
+  let list = replyItems(got.value, kind)
   take(list, got.complete ? list.length : list.length - 1)
   if (!taken.size && !halted(b)) {
     done = await ask(b, JOB_OF[kind], again(messages, done.text, got.why ?? 'it had no profiles in it', SHAPES.batch(kind)), {
@@ -903,7 +955,7 @@ async function layOutBatch(b: Build, kind: EntryKind, batch: PlanItem[], onHandl
     if (!done) return pending
     taken = new Set()
     got = readReply(done)
-    list = replyItems(got.value)
+    list = replyItems(got.value, kind)
     take(list, got.complete ? list.length : list.length - 1)
   }
   return pending
@@ -976,10 +1028,14 @@ async function relationships(b: Build): Promise<void> {
     got = readReply(done)
   }
   const db = b.ctx.db
+  const who = (name: string): Named | null => {
+    const id = plannedAs(b, name, 'character') ?? plannedAs(b, name, 'group')
+    return all.find((e) => e.id === id) ?? findMatch({ kind: 'character', name, aliases: [] }, all)
+  }
   for (const r of relationshipItems(got.value)) {
     if (halted(b)) return
-    let from = findMatch({ kind: 'character', name: r.from, aliases: [] }, all)
-    let to = findMatch({ kind: 'character', name: r.to, aliases: [] }, all)
+    let from = who(r.from)
+    let to = who(r.to)
     if (!from || !to || from.id === to.id) continue
     if (from.kind === 'group' && to.kind === 'character') [from, to] = [to, from]
     if (from.kind !== 'character') continue

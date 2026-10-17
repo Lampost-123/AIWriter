@@ -55,6 +55,7 @@ import {
   optionsSystem,
   optionsUser,
   answersText,
+  briefVersions,
   MAX_QUESTIONS,
   profileText,
   questionsSystem,
@@ -65,7 +66,7 @@ import {
   worldText,
   type WorldBrief
 } from './prompts'
-import { cleanValues, createBuilt, noteWritten, saveBuilt, savedValues, type Written } from './save'
+import { cleanValues, createBuilt, noteWritten, sameEntry, saveBuilt, savedValues, type Written } from './save'
 
 type DB = Database.Database
 export type Emit = <E extends keyof AppEvents>(event: E, payload: AppEvents[E]) => void
@@ -149,7 +150,7 @@ export function room(model: BuilderModel, job: BuilderJob, fixed: number): { rep
 }
 
 const versionsOf = (brief: WorldBrief, ids: ID[]): { entryId: ID; version: string }[] => {
-  const all = new Map([...brief.lore, ...brief.groups, ...brief.characters, ...brief.same].map((e) => [e.id, e.updatedAt]))
+  const all = briefVersions(brief)
   return ids.map((entryId) => ({ entryId, version: all.get(entryId) ?? '' }))
 }
 
@@ -343,20 +344,26 @@ export function startQuickStart(ctx: JobContext, input: QuickStartInput, brief: 
   begin(ctx, input.jobId, 'quick-start', (run) => quickStart(ctx, run, input, notes.slice(0, 20_000), brief, existing))
 }
 
+/** What Quick start says while it adds to a page the world already had. */
+export const addingTo = (name: string): string => `Adding to ${name}’s page`
+
 async function quickStart(
   ctx: JobContext,
   run: Run,
   input: QuickStartInput,
   notes: string,
   brief: WorldBrief,
-  existing: Entry | null
+  finishing: Entry | null
 ): Promise<BuilderDone> {
   const { db } = ctx
   const kind = input.kind
   const system = quickStartSystem(kind)
-  // Finishing an entry: what it holds stays as it is, and is shown with what arrives.
-  const before = existing ? valuesOf(kind, existing) : {}
-  const beforeHis = existing ? hisKeys(kind, existing) : []
+  // Finishing an entry: what it holds stays as it is, and is shown with what arrives. So too (2026-10-17) for one
+  // the world already has under the name that arrives (`joined`): it is finished rather than made a second time.
+  let existing = finishing
+  let joined: Entry | null = null
+  let before = existing ? valuesOf(kind, existing) : {}
+  let beforeHis = existing ? hisKeys(kind, existing) : []
   const sofar = existing ? profileText(kind, before) : ''
   // His answers to the follow-up questions are his words, as the notes are (one left to the AI is the AI's to decide).
   const answers = (input.answers ?? [])
@@ -374,17 +381,24 @@ async function quickStart(
   const state = { entryId: existing?.id ?? null, written: {} as Written, failed: null as string | null }
   let text = ''
   let view: QuickStartView = { values: { ...before }, fromNotes: beforeHis, writing: null }
-  const viewOf = (parsed: Pick<PartialJson, 'value' | 'open'>): QuickStartView => {
-    const v = quickStartView(kind, his, parsed)
+  const onto = (v: QuickStartView): QuickStartView => {
     if (!existing) return v
     const values: BuilderValues = { ...before }
     for (const [k, x] of Object.entries(v.values)) values[k] ??= x
     const fromNotes = [...beforeHis, ...v.fromNotes.filter((k) => !(k in before))]
     return { values, fromNotes, writing: v.writing && !(v.writing.key in before) ? v.writing : null }
   }
+  const viewOf = (parsed: Pick<PartialJson, 'value' | 'open'>): QuickStartView => onto(quickStartView(kind, his, parsed))
   const progress = (): BuilderProgress =>
-    progressOf(run, { values: view.values, fromNotes: view.fromNotes, writing: view.writing, entryId: state.entryId })
-  const arrived = (): boolean => (existing ? Object.keys(view.values).some((k) => !(k in before)) : !!view.values.name)
+    progressOf(run, {
+      values: view.values,
+      fromNotes: view.fromNotes,
+      writing: view.writing,
+      entryId: state.entryId,
+      ...(joined ? { text: addingTo(joined.name) } : {})
+    })
+  // A page the world had counts as built once the name arrived, even when every field of it was filled already.
+  const arrived = (): boolean => (existing && !joined ? Object.keys(view.values).some((k) => !(k in before)) : !!view.values.name)
 
   // Saves the fields that have fully arrived. Only now and then, since each save writes a version of
   // the entry's history: once there is a name, as each part of the reply (Adam's words, the AI's) is
@@ -393,7 +407,17 @@ async function quickStart(
   const save = (): void => {
     if (run.closed || !db.open || state.failed || !view.values.name) return
     try {
-      if (!state.entryId) {
+      // The name is one the world has for this kind already, exactly: what arrives fills only that page's empty fields.
+      const same = !state.entryId ? sameEntry(db, kind, view.values) : null
+      if (same) {
+        existing = joined = same
+        before = valuesOf(kind, same)
+        beforeHis = hisKeys(kind, same)
+        view = onto(view)
+        state.entryId = same.id
+        saveBuilt(db, kind, same.id, view.values, view.fromNotes, state.written)
+        ctx.onSaved?.(same.id)
+      } else if (!state.entryId) {
         const drafted = Object.keys(view.values).filter((k) => !view.fromNotes.includes(k))
         const e = createBuilt(db, kind, view.values, drafted, input.storyId ?? null)
         state.entryId = e.id

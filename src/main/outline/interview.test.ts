@@ -20,6 +20,7 @@ import {
   readSceneFill,
   startChapterPlan
 } from './interview'
+import { matchName } from './names'
 import { MARKER } from './prompts'
 
 let fake: FakeProvider
@@ -75,6 +76,25 @@ describe('reading the interview’s replies', () => {
     expect(matchEntry('The Thief', people)?.id).toBe('m')
     expect(matchEntry('Kell', people)).toBeNull()
     expect(matchEntry('Wren', people)).toBeNull()
+  })
+
+  it('says when a name could be more than one entry, and looks past titles, accents and a surname alone (2026-10-17)', () => {
+    const people = [
+      { id: 'v', name: 'Mara Venn', aliases: [] },
+      { id: 'k', name: 'Mara Kell', aliases: [] },
+      { id: 'h', name: 'Captain Holt', aliases: [] },
+      { id: 'z', name: 'Zoë', aliases: [] }
+    ]
+    expect(matchName('Mara', people)).toEqual({ entry: null, ambiguous: true })
+    expect(matchName('Wren', people)).toEqual({ entry: null, ambiguous: false })
+    expect(matchName('Holt', people).entry?.id).toBe('h')
+    expect(matchName('Dr. Holt', people).entry?.id).toBe('h')
+    expect(matchName('Zoe', people).entry?.id).toBe('z')
+    expect(matchName('Tobin Zoë', people).entry?.id).toBe('z')
+    // A place is never matched by a title or its last word.
+    const places = [{ id: 'l', kind: 'place', name: 'Tower', aliases: [] }]
+    expect(matchName('North Tower', places).entry).toBeNull()
+    expect(matchName('King’s Landing', [{ id: 'g', kind: 'place', name: 'Landing', aliases: [] }]).entry).toBeNull()
   })
 
   it('reads a filled card, keeping only names the world has', () => {

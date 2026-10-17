@@ -11,6 +11,7 @@ import { emptySceneCard } from '@shared/defaults'
 import { withAiLink } from '@shared/threadLinks'
 import { changedFields, cleanChapterCard, copyField, follows, isFieldEmpty, sameField, followChapterPart, withMark } from '@shared/chapterCard'
 import { addMissing, cleanNames, fillEmpty, namedEntries, partsFromNames } from './chapterCard'
+import { nameKey } from './names'
 import type { WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
@@ -34,18 +35,19 @@ const oneLine = (s: unknown, max: number): string =>
 /** The most plot threads one kept scene puts on each list of its card. */
 const MOST_THREADS = 6
 
-const threadKey = (s: string): string =>
-  s
-    .toLowerCase()
-    .replace(/^(the|a|an)\s+/, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
+/** A thread's name as compared with another: as names match (any alphabet, 2026-10-17), and a leading "a" or "an" doesn't count either. */
+const threadKey = (s: string): string => nameKey(s).replace(/^(a|an) /, '')
+
+type ThreadFind = (name: string) => { id: ID; made: boolean } | null
 
 /**
  * Plot threads by name for one keep (2026-10-08): an existing thread by its name or another name (in the story's
- * world), else a new one, AI-drafted, made in this story with the name as given. Each name is made once per keep.
+ * world), else (only for one it sets up) a new one, AI-drafted, made in this story with the name as given. Each
+ * name is made once per keep. One it pays off is never made (2026-10-17: a made one would be paid off at once
+ * while the real one stayed open): it is the thread so named, else the only one whose name starts it or that it
+ * starts ("The drowned bell's secret" for "The Drowned Bell"), else left out.
  */
-function threadFinder(db: DB, storyId: ID): (name: string) => { id: ID; made: boolean } | null {
+function threadFinder(db: DB, storyId: ID): { findOrMake: ThreadFind; findOnly: ThreadFind } {
   const known = new Map<string, ID>()
   for (const e of repo.listEntries(db)) {
     if (e.kind !== 'thread') continue
@@ -54,32 +56,38 @@ function threadFinder(db: DB, storyId: ID): (name: string) => { id: ID; made: bo
       if (k && !known.has(k)) known.set(k, e.id)
     }
   }
-  return (raw) => {
-    const name = oneLine(raw, KEEP_LIMITS.title)
-    const k = threadKey(name)
-    if (!k) return null
-    const id = known.get(k)
-    if (id) return { id, made: false }
-    const e = repo.createEntry(db, 'thread', { name }, { origin: 'ai', originStoryId: storyId })
-    known.set(k, e.id)
-    return { id: e.id, made: true }
+  return {
+    findOrMake: (raw) => {
+      const name = oneLine(raw, KEEP_LIMITS.title)
+      const k = threadKey(name)
+      if (!k) return null
+      const id = known.get(k)
+      if (id) return { id, made: false }
+      const e = repo.createEntry(db, 'thread', { name }, { origin: 'ai', originStoryId: storyId })
+      known.set(k, e.id)
+      return { id: e.id, made: true }
+    },
+    findOnly: (raw) => {
+      const k = threadKey(oneLine(raw, KEEP_LIMITS.title))
+      if (!k) return null
+      const id = known.get(k)
+      if (id) return { id, made: false }
+      const near = new Set<ID>()
+      for (const [other, otherId] of known) if (other.startsWith(`${k} `) || k.startsWith(`${other} `)) near.add(otherId)
+      return near.size === 1 ? { id: [...near][0], made: false } : null
+    }
   }
 }
 
 /** The card with the kept scene's plot threads on it, marked as the AI's (never a second time, never one Adam took off). */
-function withThreads(
-  card: SceneCard,
-  item: KeepItem,
-  find: (name: string) => { id: ID; made: boolean } | null,
-  made: ID[]
-): SceneCard {
+function withThreads(card: SceneCard, item: KeepItem, find: ReturnType<typeof threadFinder>, made: ID[]): SceneCard {
   let out = card
   for (const [list, names] of [
     ['setsUp', item.setsUp],
     ['paysOff', item.paysOff]
   ] as const) {
     for (const name of (Array.isArray(names) ? names : []).slice(0, MOST_THREADS)) {
-      const t = find(String(name ?? ''))
+      const t = (list === 'setsUp' ? find.findOrMake : find.findOnly)(String(name ?? ''))
       if (!t) continue
       if (t.made && !made.includes(t.id)) made.push(t.id)
       out = withAiLink(out, list, t.id) ?? out

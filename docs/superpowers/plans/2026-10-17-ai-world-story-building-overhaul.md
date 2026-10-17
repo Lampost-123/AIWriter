@@ -518,6 +518,22 @@ Each bullet is one small step, with a test. The order within a group doesn't mat
   - Escape `"""` in notes.
   - An optional "Suggest relationships" step reusing `relationshipsSystem`, saved as AI, with Undo (B5).
 
+### C6. Builds take minutes (Adam, 2026-10-17: "do what gives the most consistent results")
+
+- [ ] **Writing during a build.** Drafting a scene while its story's build runs shows a quiet note in the draft dock: "Your
+  cast is still being built, so the AI will know more in a minute". Two choices: **Wait** (the draft starts when the
+  build ends) and **Write now**. Never a modal.
+- [ ] **Builds lost on close.** Queued story builds (`storyBuild.ts` `waiting`, in memory only) are kept in the world's
+  `meta` (`story_builds_waiting`) and started when the world next opens. A story id from another world is never sent.
+- [ ] **Undo during a build.** Undoing a kept outline (`unkeepOutline`) while that story's build runs cancels the build
+  first, then undoes. Add a test that a page removed by Undo is never filled afterwards.
+- [ ] **Timeline dates sooner.** A kept outline already gives scenes a When. Check whether `startTimeline`'s "Day 1" is
+  still needed after a keep. If the keep left the opening scene undated, date it at keep time (in the keep's
+  transaction, undone with it), and keep the end-of-build date only for summary builds.
+
+A6 note: an in-story "Day N" event with no scene dated that late keeps its old placement. The writer's briefing drops it
+anyway while it's in the future (`datedAfter`), so nothing leaks.
+
 **Phase C done when:** every finding above is ticked or moved to "Decisions for Adam" with a reason.
 
 ---
@@ -598,6 +614,26 @@ Quick start uses steps 3 and 5 for one entry.
 ---
 
 ## Decisions for Adam
+
+**Scope change (Adam, 2026-10-17): no overhaul, fix what is there.** Phase D is dropped, and with it answer 1's review
+link and setting. Phase B shrinks to the parts that fix bugs, done inside the existing modules rather than a new
+`building/` folder:
+- one name normaliser and matcher shared by the outline and the World builder (B1);
+- the reply reader fixes (B3);
+- undo lines for "Day 1" and conflict issues (part of B5).
+
+B2, B4, the ledger generalisation in B5, and B6's rewrite are dropped. B6's useful bits are kept as fixes: places
+(A7), a size cap and named entries first (B2 finding). Phases A and C stand.
+
+**Answered 2026-10-17:**
+1. Keep building straight away. "Here's what I'll add" becomes an optional look (a "Review" link in the build's toast and
+   on the World builder page), not a stop. D5's setting is turned around: "Ask before building" defaults to off.
+2. Make both and add a "Worth a look" note. Agreed.
+3. Drop "Book 2" events from the prompts.
+4. A name that only might be an existing one ("Marra" next to "Mara") is a different entry, and nobody is asked. A
+   clear typo of a long name still uses the existing page (B1 rule 4). **B2 is dropped:** no "possible duplicate" item
+   on the memory check list, and `match` returning `possible` just means `none`. The same-name, different-kind note
+   from decision 2 stays.
 
 1. **Phase D's review step.** Today, kept outlines start building on their own. Should a new story show "Here's what
    I'll add" first, or keep building straight away, with the review as an option?

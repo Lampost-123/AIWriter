@@ -9,6 +9,7 @@ import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
 import * as repo from '../db/repo'
 import { stampOrigins } from '../db/builder'
 import { UserError } from '../util'
+import { bareName, findMatch, isPlaceholderName } from '../worldBuilder/names'
 import { cleanValue, entryText, ownInput, profileKeys, toInput } from './profile'
 
 type DB = Database.Database
@@ -62,6 +63,20 @@ export function createBuilt(db: DB, kind: BuilderKind, values: BuilderValues, ai
     if (Object.keys(drafted).length) e = repo.updateEntry(db, e.id, toInput(kind, drafted), { origin: 'ai' })
     return e
   })()
+}
+
+/**
+ * The world's entry of this kind that already goes by the profile's name or one of its aliases, exactly (case,
+ * accents and a leading "the" aside), or null (2026-10-17: Quick start from a passage about someone the world
+ * has adds to their page rather than making a second one). A name one letter away is never taken as the same.
+ */
+export function sameEntry(db: DB, kind: BuilderKind, values: BuilderValues): Entry | null {
+  const want = { kind, name: values.name ?? '', aliases: (values.aliases ?? '').split(',') }
+  const names = (e: { name: string; aliases: string[] }): string[] => [e.name, ...e.aliases].map(bareName).filter((n) => n && !isPlaceholderName(n))
+  const mine = names(want)
+  if (!mine.length) return null
+  const found = findMatch(want, repo.listEntries(db, kind))
+  return found && names(found).some((n) => mine.includes(n)) ? found : null
 }
 
 /** What Quick start has saved of each field: the value it sent, and the field's text once saved. */

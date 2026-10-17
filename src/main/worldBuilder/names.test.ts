@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bareName, differsByDigit, findMatch, isPlaceholderName, normalizeName, withinOneEdit, type Named } from './names'
+import { bareName, differsByDigit, findMatch, isPlaceholderName, isProperName, normalizeName, withinOneEdit, type Named } from './names'
 
 const e = (id: string, kind: Named['kind'], name: string, aliases: string[] = []): Named => ({ id, kind, name, aliases })
 
@@ -15,6 +15,8 @@ describe('names', () => {
     expect(withinOneEdit('marra', 'mara')).toBe(true)
     expect(withinOneEdit('mara', 'maro')).toBe(true)
     expect(withinOneEdit('mara', 'mira venn')).toBe(false)
+    expect(withinOneEdit('grimsby', 'grimbsy')).toBe(true)
+    expect(withinOneEdit('grimsby', 'girmsyb')).toBe(false)
     expect(differsByDigit('guard 1', 'guard 2')).toBe(true)
     expect(differsByDigit('marra', 'mara')).toBe(false)
   })
@@ -41,16 +43,47 @@ describe('finding what a name stands for', () => {
     expect(find('character', 'Captain Venn')).toBe('mara')
     expect(find('character', 'Someone', ['Captain Venn'])).toBe('mara')
     expect(find('group', 'Salt Guild')).toBe('guild')
-    // The same name of another kind is the same thing: never a second entry for it.
+    // The same name of another kind already in the world is that thing: never a second entry for it...
     expect(find('place', 'Tobin')).toBe('tobin')
+    // ...unless the same summary names that thing too (the place "Ironhold" and the group "Ironhold" are both made).
+    expect(findMatch({ kind: 'group', name: 'Tobin', aliases: [] }, world, new Set(['tobin']))).toBeNull()
+    expect(findMatch({ kind: 'character', name: 'Tobin', aliases: [] }, world, new Set(['tobin']))?.id).toBe('tobin')
   })
 
-  it('treats a name one letter away, of the same kind, as a near-duplicate', () => {
-    expect(find('character', 'Tobyn')).toBe('tobin')
-    expect(find('place', 'Saltmars')).toBe('port')
-    expect(find('group', 'Tobyn')).toBeNull()
+  it('treats a clear typo of a long name (two letters swapped), of the same kind, as a near-duplicate', () => {
+    expect(find('character', 'Tobni')).toBe('tobin')
+    // A changed, dropped or doubled letter could be someone else, so it is (Adam: when unsure, different).
+    expect(find('character', 'Tobyn')).toBeNull()
+    expect(find('place', 'Saltmars')).toBeNull()
+    expect(find('group', 'Tobni')).toBeNull()
     expect(find('character', 'Guard 2')).toBeNull()
     expect(find('character', 'Al')).toBeNull()
+    const towns = [e('grimsby', 'place', 'Grimsby')]
+    expect(findMatch({ kind: 'place', name: 'Grimbsy', aliases: [] }, towns)?.id).toBe('grimsby')
+  })
+
+  it('never takes a short name, another first letter, or a name near two others, as a typo', () => {
+    const people = [e('tom', 'character', 'Tom'), e('mara', 'character', 'Mara Venn'), e('tobin', 'character', 'Tobin')]
+    const in_ = (name: string, list = people) => findMatch({ kind: 'character', name, aliases: [] }, list)?.id ?? null
+    expect(in_('Tim')).toBeNull()
+    expect(in_('Robin')).toBeNull()
+    expect(in_('Tobni')).toBe('tobin')
+    expect(in_('Tobni', [...people, e('tobni', 'character', 'Tobnin')])).toBeNull()
+    // One changed letter is a different person, whether or not the same summary names both.
+    expect(in_('Tobim')).toBeNull()
+    expect(in_('Mira Venn')).toBeNull()
+    expect(in_('Marra Venn')).toBeNull()
+    expect(findMatch({ kind: 'character', name: 'Mara Vnen', aliases: [] }, people)?.id).toBe('mara')
+    expect(findMatch({ kind: 'character', name: 'Mara Vnen', aliases: [] }, people, new Set(['mara']))).toBeNull()
+  })
+
+  it('knows a name from a description', () => {
+    expect(isProperName('The Ferryman')).toBe(true)
+    expect(isProperName('Bram Holt')).toBe(true)
+    expect(isProperName('Tam of the Hill')).toBe(true)
+    expect(isProperName('The old ferryman')).toBe(false)
+    expect(isProperName('two guards')).toBe(false)
+    expect(isProperName('Unnamed')).toBe(false)
   })
 
   it('takes a first name alone as the one character whose full name starts with it, and the other way round', () => {

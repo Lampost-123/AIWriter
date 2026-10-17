@@ -420,6 +420,35 @@ describe('plot threads planned in an outline (2026-10-08)', () => {
     ).toEqual(['The drowned bell'])
   })
 
+  it('pays off the thread a near name means, and never makes one it only pays off (2026-10-17)', () => {
+    const db = writtenWorld()
+    const bell = repo.createEntry(db, 'thread', { name: 'The Drowned Bell' }).id
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Rain'),
+      scene('c0s0', 'Ferry', 'c0', { paysOff: ['The drowned bell’s secret', 'Who stole the lantern'] })
+    ])
+    const threads = repo.listEntries(db).filter((e) => e.kind === 'thread')
+    expect(threads.map((t) => t.id)).toEqual([bell])
+    const card = repo.getScene(db, kept[1].id).card
+    expect(card.paysOffIds).toEqual([bell])
+    expect(card.threadLinks).toEqual({ [`paysOff:${bell}`]: 'ai' })
+    expect(kept[1].threadIds).toBeUndefined()
+  })
+
+  it('pays off a thread named in another alphabet that an earlier scene set up (2026-10-17)', () => {
+    const db = writtenWorld()
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Rain'),
+      scene('c0s0', 'Docks', 'c0', { setsUp: ['Тайна колокола'] }),
+      scene('c0s1', 'Ferry', 'c0', { after: { key: 'c0s0' }, paysOff: ['тайна колокола'] })
+    ])
+    const threads = repo.listEntries(db).filter((e) => e.kind === 'thread')
+    expect(threads.map((t) => t.name)).toEqual(['Тайна колокола'])
+    const [docks, ferry] = [kept[1].id, kept[2].id].map((id) => repo.getScene(db, id).card)
+    expect(docks.setsUpIds).toEqual([threads[0].id])
+    expect(ferry.paysOffIds).toEqual([threads[0].id])
+  })
+
   it('an undone keep leaves a thread it made that another scene still uses', () => {
     const db = writtenWorld()
     const first = keepOutline(db, book(db), [chapter('c0', 'Rain'), scene('c0s0', 'Docks', 'c0', { setsUp: ['Who keeps the ferry key'] })])
@@ -550,6 +579,34 @@ describe('a kept outline makes pages for the cast and places it names (2026-10-1
     expect([debt.povId, debt.locationId]).toEqual([byName.get('Tobin Hale')?.id, byName.get('Duke’s Hall')?.id])
     expect(debt.presentIds).toContain(byName.get('The Duke')?.id)
     expect(kept.flatMap((k) => k.entryIds ?? []).length).toBe(4)
+  })
+
+  it('never makes a page for a name that could be more than one character, nor puts it on the card (2026-10-17)', () => {
+    const db = writtenWorld()
+    repo.createEntry(db, 'character', { name: 'Mara Venn' })
+    repo.createEntry(db, 'character', { name: 'Mara Kell' })
+    const kept = keepOutline(db, book(db), [chapter('c0', 'Two Maras', { card: { pov: 'Mara', characters: ['Mara'] } }), scene('s0', 'Quay', 'c0')])
+    expect(names(db, 'character')).toEqual(['Mara Kell', 'Mara Venn'])
+    const ch = repo.getChapterCard(db, kept[0].id)
+    expect([ch.povId, ch.presentIds]).toEqual([null, []])
+    expect(kept.flatMap((k) => k.entryIds ?? [])).toEqual([])
+  })
+
+  it('finds a character under a title, a place without its "the", and a name without its accents (2026-10-17)', () => {
+    const db = writtenWorld()
+    const holt = repo.createEntry(db, 'character', { name: 'Holt' }).id
+    const bren = repo.createEntry(db, 'character', { name: 'Captain Bren Asher' }).id
+    const house = repo.createEntry(db, 'place', { name: 'The Venn House' }).id
+    const cafe = repo.createEntry(db, 'place', { name: 'Cafe Rouge' }).id
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Orders', { card: { pov: 'Captain Holt', characters: ['Bren Asher'], location: 'Venn House' } }),
+      scene('s0', 'Coffee', 'c0', { card: { location: 'Café Rouge' } })
+    ])
+    expect(names(db, 'character')).toEqual(['Captain Bren Asher', 'Holt'])
+    expect(names(db, 'place')).toEqual(['Cafe Rouge', 'The Venn House'])
+    const ch = repo.getChapterCard(db, kept[0].id)
+    expect([ch.povId, ch.presentIds, ch.locationId]).toEqual([holt, [holt, bren], house])
+    expect(repo.getScene(db, kept[1].id).card.locationId).toBe(cafe)
   })
 
   it('its Undo takes back the pages it made, but never one Adam has changed', () => {

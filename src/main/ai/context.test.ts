@@ -10,6 +10,7 @@ import {
   buildBlocks,
   cachedCounter,
   computeBudget,
+  datedAfter,
   toolRoomFor,
   DEFAULT_CONTEXT_LENGTH,
   effectivePins,
@@ -51,6 +52,7 @@ import { MUST_SMALLEST } from './mustStay'
 import { LEDGER_BLOCK, LEDGER_LEAD } from './whoKnows'
 import { countRaw } from './tokens'
 import { memoryScale } from './memoryRoom'
+import { buildCalendar } from '../memory/calendar'
 
 // ---------- Fixtures ----------
 
@@ -2201,6 +2203,57 @@ describe('ties to people not in this scene', () => {
       ].join('\n')
     )
     expect(blockOf(inp, 'ties')!.text).not.toContain('left hand')
+  })
+
+  it('never tells an event dated after this scene as history between them (2026-10-17)', () => {
+    const at = (when: string) => {
+      const inp = richInput()
+      const mara = named(inp, 'Mara Venn')
+      const ana = named(inp, 'Ana Venn')
+      const storm = entry('event', 'The Storm', { summary: 'The river rose over the quays.', fields: { when: 'Day 3' } })
+      const fair = entry('event', 'The Fair', { summary: 'They danced on the green.' })
+      inp.memory.entries.push(storm, fair)
+      inp.memory.relationships.push(
+        ...[storm, fair].flatMap((e) =>
+          [mara, ana].map((who) => ({ aId: who.id, bId: e.id, type: 'involved in', aFeels: '', bFeels: '', where: '', at: 1 }))
+        )
+      )
+      inp.scene.card.when = when
+      inp.scene.card.beats.push('The Storm is coming')
+      const cal = buildCalendar([{ id: 'scene-9', story: 'book-2', when }])
+      inp.calendar = { here: cal.dates.get('scene-9')!, previous: null, landmarks: [], ages: [] }
+      return inp
+    }
+    const early = at('Day 1')
+    expect(blockOf(early, 'ties')!.text).not.toContain('The Storm')
+    expect(blockOf(early, 'ties')!.text).toContain('The Fair: They danced on the green.')
+    expect(selectEntries(early).chosen.has(named(early, 'The Storm').id)).toBe(false)
+    const after = at('Day 4')
+    expect(blockOf(after, 'ties')!.text).toContain('The Storm (Day 3): The river rose over the quays.')
+    expect(selectEntries(after).chosen.has(named(after, 'The Storm').id)).toBe(true)
+    // Adam's pin still brings it in.
+    early.pins.push(pin(named(early, 'The Storm').id, 'scene'))
+    expect(selectEntries(early).chosen.has(named(early, 'The Storm').id)).toBe(true)
+  })
+
+  it('dates an event after the scene only when the story calendar can tell', () => {
+    const at = (whens: string[]) => {
+      const cal = buildCalendar(whens.map((when, i) => ({ id: `s${i + 1}`, story: 'book', when })))
+      return { here: cal.dates.get(`s${whens.length}`)!, previous: null, landmarks: [], ages: [] }
+    }
+    const ev = (when: string) => entry('event', 'The Storm', { fields: { when } })
+    expect(datedAfter(ev('Day 3'), at(['Day 1']))).toBe(true)
+    expect(datedAfter(ev('Day 3, night'), at(['Day 3, dawn']))).toBe(false)
+    expect(datedAfter(ev('Day 3'), at(['Day 5']))).toBe(false)
+    // Counted from the story's first date, as the timeline counts it.
+    expect(datedAfter(ev('Day 3'), at(['12 March 1842', '13 March 1842']))).toBe(true)
+    expect(datedAfter(ev('Day 3'), at(['12 March 1842', '20 March 1842']))).toBe(false)
+    expect(datedAfter(ev('14 March 1842'), at(['12 March 1842']))).toBe(true)
+    // Undated, unreadable, or no calendar: as before.
+    expect(datedAfter(ev(''), at(['Day 1']))).toBe(false)
+    expect(datedAfter(ev('after the wedding'), at(['Day 1']))).toBe(false)
+    expect(datedAfter(ev('Day 3'), null)).toBe(false)
+    expect(datedAfter(entry('character', 'Mara', { fields: { when: 'Day 3' } }), at(['Day 1']))).toBe(false)
   })
 
   it('puts the closest and most recent ties first, and the smallest form keeps only the closest few', () => {

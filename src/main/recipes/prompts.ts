@@ -11,7 +11,7 @@
 import type { OutlineSize } from '@shared/contracts/outline'
 import type { RecipePartId, RecipeParts } from '@shared/contracts/recipes'
 import { feelChoices } from './feel'
-import { CHAPTER_CARD_FORM, CHAPTER_CARD_RULES } from '../outline/prompts'
+import { CHAPTER_CARD_FORM, CHAPTER_CARD_RULES, SCENE_FORM, THREAD_RULES, whenAsk } from '../outline/prompts'
 
 export const MARKER = '[AIWRITE-RECIPE v1]'
 
@@ -149,18 +149,14 @@ export function fixAsk(parts: Partial<RecipeParts>, o: { names: string[]; copied
 
 // ---------- A new story from a recipe ----------
 
-const SCENE_FORM = `### Scene: <the scene's title>
-When: <the day it happens on, in the story's count of days, and the time of day: "Day 1, morning", "Day 3, dusk">
-Summary: <one sentence: what happens in it>
-- <a beat: one thing that must happen in the scene>
-- <the next beat>
-- <the next beat>`
-
 const CHAPTER_FORM = `## Chapter: <the chapter's title>
 Goal: <one sentence: what this chapter achieves>
 ${CHAPTER_CARD_FORM}`
 
-/** The story's plan: a premise line, then the outline helper's own form (keep it in step with outline/prompts.ts). */
+/**
+ * The story's plan: a premise line, then the outline helper's own form (keep it in step with outline/prompts.ts).
+ * Its scene form and plot thread rules are the outline's own since 2026-10-17, so recipe stories get threads too.
+ */
 export function storySystem(withActs: boolean): string {
   const form = withActs
     ? `# Act: <the act's title>
@@ -186,16 +182,28 @@ ${withActs ? '- Every chapter belongs to the act above it, and every scene to th
 - Each scene has a When: "Day" and the day's number, counting the day the story opens as Day 1, then a comma and the time of day. Days never go back.
 ${CHAPTER_CARD_RULES}
 - Titles are a few words, with no numbers.
+- Continue from what the story already has. Never repeat or retell it.
 - Put the recipe's turning points at about the same share of the way through.
-- Use the characters, places and lore given, by their names, when they fit the guidance.`
+- Use the characters, places and lore given, by their names, when they fit the guidance.
+${THREAD_RULES}`
 }
 
-export function storyAsk(size: OutlineSize): string {
+/**
+ * What to plan. `chapters`: how many the story has already (2026-10-17: laying it out again carries on after them,
+ * from their last When, in the outline helper's words, rather than starting over on Day 1).
+ */
+export function storyAsk(size: OutlineSize, o: { chapters: number; latestWhen?: string } = { chapters: 0 }): string {
   const n = (k: number, one: string): string => `${k} ${k === 1 ? one : `${one}s`}`
   const each = n(size.scenes, 'scene')
-  return size.acts > 0
-    ? `Plan the new story: the premise, then ${n(size.acts, 'act')} with ${n(size.chapters, 'chapter')} in all, spread across them, and ${each} in each chapter. It opens on Day 1.`
-    : `Plan the new story: the premise, then ${n(size.chapters, 'chapter')} with ${each} in each. No acts. It opens on Day 1.`
+  const plan = o.chapters > 0 ? 'Plan what comes next in the story' : 'Plan the new story'
+  const lines = [
+    size.acts > 0
+      ? `${plan}: the premise, then ${n(size.acts, 'act')} with ${n(size.chapters, 'chapter')} in all, spread across them, and ${each} in each chapter.`
+      : `${plan}: the premise, then ${n(size.chapters, 'chapter')} with ${each} in each. No acts.`
+  ]
+  if (o.chapters > 0) lines.push('The story already has chapters: keep to its premise, and plan what comes after them, carrying it on.')
+  lines.push(whenAsk(o.chapters > 0, (o.latestWhen ?? '').replace(/\s+/g, ' ').trim()))
+  return lines.join(' ')
 }
 
 /** The recipe as the story's plan is told it (its writing style goes to the style guide instead). */

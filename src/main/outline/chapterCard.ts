@@ -11,7 +11,7 @@ import type { ChapterCardNames, ChapterCardSaved } from '@shared/contracts/chapt
 import type { CarryField, ChapterCard, Entry, ID } from '@shared/types'
 import { CARRY_LABELS, CHAPTER_CARD_LIMITS, copyField, isFieldEmpty } from '@shared/chapterCard'
 import * as repo from '../db/repo'
-import { matchEntry } from './names'
+import { matchEntry, matchName, nameKey } from './names'
 
 type DB = Database.Database
 
@@ -72,31 +72,30 @@ const roomName = (s: string): string => {
   return n.charAt(0).toUpperCase() + n.slice(1)
 }
 
-/** A place's name as compared with another: case, punctuation and a leading "the" don't count. */
-const placeKey = (s: string): string =>
-  s
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N} ]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^the /, '')
-const sameName = (a: string, b: string): boolean => placeKey(a) === placeKey(b)
+/** A place's name as compared with another: case, accents, punctuation and a leading "the" don't count (2026-10-17: as names match). */
+const sameName = (a: string, b: string): boolean => nameKey(a) === nameKey(b)
+
+/** As findPlace, and whether the Location could mean more than one place (then nothing is made for it). */
+function placeMatch(raw: string, places: Entry[]): { entry: Entry | null; ambiguous: boolean } {
+  const whole = places.find((p) => [p.name, ...p.aliases].some((n) => sameName(raw, n)))
+  if (whole) return { entry: whole, ambiguous: false }
+  const split = splitPlace(raw)
+  if (split) {
+    const house = matchName(split.place, places)
+    if (!house.entry) return house
+    const rooms = places.filter((p) => p.parentId === house.entry?.id)
+    const room = rooms.find((p) => [p.name, ...p.aliases].some((n) => sameName(roomName(split.room), n)))
+    return room ? { entry: room, ambiguous: false } : matchName(roomName(split.room), rooms)
+  }
+  return matchName(raw, places)
+}
 
 /**
  * The world's place a Location means (2026-10-17): one named so exactly; for "Kitchen, Venn House", the kitchen
  * inside Venn House (never another house's kitchen); else the place its name matches. Null when there is none.
  */
 export function findPlace(raw: string, places: Entry[]): Entry | null {
-  const whole = places.find((p) => [p.name, ...p.aliases].some((n) => sameName(raw, n)))
-  if (whole) return whole
-  const split = splitPlace(raw)
-  if (split) {
-    const house = matchEntry(split.place, places)
-    if (!house) return null
-    const rooms = places.filter((p) => p.parentId === house.id)
-    return rooms.find((p) => [p.name, ...p.aliases].some((n) => sameName(roomName(split.room), n))) ?? matchEntry(roomName(split.room), rooms)
-  }
-  return matchEntry(raw, places)
+  return placeMatch(raw, places).entry
 }
 
 /**
@@ -112,11 +111,16 @@ export function addMissing(db: DB, names: ChapterCardNames, world: { characters:
     made.push(e.id)
     return e
   }
+  // A name that could be more than one of them ("Mara" beside "Mara Venn" and "Mara Kell") gets no page (2026-10-17).
   for (const raw of [names.pov, ...(names.characters ?? [])]) {
-    if (raw && isPageName(raw) && !matchEntry(raw, world.characters)) make('character', raw)
+    if (!raw || !isPageName(raw)) continue
+    const m = matchName(raw, world.characters)
+    if (!m.entry && !m.ambiguous) make('character', raw)
   }
   const loc = names.location
-  if (!loc || findPlace(loc, world.places)) return
+  if (!loc) return
+  const at = placeMatch(loc, world.places)
+  if (at.entry || at.ambiguous) return
   // A room or spot inside a bigger place ("Kitchen, Venn House"): the place first, then the room inside it.
   const split = splitPlace(loc)
   if (split && isPageName(split.place)) {

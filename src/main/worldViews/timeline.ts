@@ -204,13 +204,14 @@ export function buildTimeline(input: TimelineInput): Timeline {
   const pointsBy: number[] = []
   const chapters: TimelineChapter[] = []
   const chapterSeen = new Set<ID>()
-  const push = (d: Draft, story: ID): void => {
+  const push = (d: Draft, story: ID, start = false): void => {
     reading.push(d)
-    items.push({ text: d.when, story, aside: d.kind === 'event' })
+    items.push({ text: d.when, story, aside: d.kind === 'event', start })
   }
   // Events that exist from the world's start, or from a story's start, come before any scene there is to read them
   // by: they wait for the first scene (of the line, or of that story) and are read just after it, in its story's
-  // calendar ("Day 2" counts from that story's Day 1), and not shown ahead of it unless their date names a year.
+  // calendar ("Day 2" counts from that story's Day 1), and not shown ahead of it unless their date names a year. Such a
+  // year is backstory (2026-10-17): a calendar with no year of its own ("Day 1", "Day 2") comes after it (when.ts).
   // hostOf: event's reading index to its scene's.
   const hostOf = new Map<number, number>()
   // pinned: an event planned for a scene (made with that scene as where it happens) to that scene's reading index.
@@ -224,7 +225,7 @@ export function buildTimeline(input: TimelineInput): Timeline {
   const flush = (key: ID | '', story: ID, host: number): void => {
     for (const e of waiting.get(key) ?? []) {
       hostOf.set(reading.length, host)
-      push(e, story)
+      push(e, story, true)
     }
     waiting.delete(key)
   }

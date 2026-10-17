@@ -33,9 +33,16 @@ export interface WorldBrief {
   /** Lore, rules never to break first. */
   lore: BriefEntry[]
   groups: BriefEntry[]
+  /** The world's places, so what is built can be set in them (2026-10-17). */
+  places: BriefEntry[]
   characters: BriefEntry[]
   /** Entries of the kind being built, when it is a place or an item (so it doesn't copy one). */
   same: BriefEntry[]
+}
+
+/** Each entry in the brief, by id, to the version it was told at (for worldText's entryIds). */
+export function briefVersions(b: WorldBrief): Map<ID, string> {
+  return new Map([...b.lore, ...b.groups, ...b.places, ...b.characters, ...b.same].map((e) => [e.id, e.updatedAt]))
 }
 
 const NOUN: Record<BuilderKind, string> = { character: 'character', place: 'place', group: 'group', item: 'item' }
@@ -93,7 +100,8 @@ export function styleText(s: StyleGuide): string {
 /**
  * The world as the model is told it, fitted to `budget` tokens: the style guide whole, then lists of
  * what is already there. When they don't all fit, lines go from the end of the least important list
- * first: other lore, then the characters, the groups, entries of the same kind, and the rules last.
+ * first: other lore, then the characters, the places, the groups, entries of the same kind, and the
+ * rules last.
  */
 export function worldText(b: WorldBrief, kind: BuilderKind, budget: number): { text: string; entryIds: ID[] } {
   const rules = b.lore.filter((e) => e.hardRule)
@@ -103,6 +111,8 @@ export function worldText(b: WorldBrief, kind: BuilderKind, budget: number): { t
     { title: 'Rules of the world (never break these)', items: rules },
     { title: SAME_TITLE[kind], items: kind === 'character' ? b.characters : kind === 'group' ? b.groups : b.same },
     { title: 'Groups', items: kind === 'group' ? [] : b.groups },
+    // A place being built has them listed above already.
+    { title: 'Places', items: kind === 'place' ? [] : b.places },
     { title: 'Characters', items: kind === 'character' ? [] : b.characters },
     { title: 'Lore', items: lore }
   ]
