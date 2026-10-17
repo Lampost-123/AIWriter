@@ -2,7 +2,18 @@ import { describe, expect, it } from 'vitest'
 import type { StoryPlacement } from '@shared/api'
 import * as repo from './repo'
 import * as mem from './memory'
-import { createSeries, createStoryAs, declineFollow, setLeadsIn, storyCast, storyDetails, storyPlacement, updateSeries } from './stories'
+import {
+  createSeries,
+  createStoryAs,
+  declineFollow,
+  retireStarterStory,
+  setLeadsIn,
+  storyCast,
+  storyDetails,
+  storyPlacement,
+  untouchedStarter,
+  updateSeries
+} from './stories'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { dbWorld, KNOWS } from '../../../tests/unit/testWorld'
 
@@ -268,5 +279,62 @@ describe('story settings', () => {
     expect(storyCast(w.db, w.id('ym')).sort()).toEqual([w.id('mara'), w.id('mill')].sort())
     repo.deleteEntry(w.db, w.id('mill'))
     expect(storyCast(w.db, w.id('ym'))).toEqual([w.id('mara')])
+  })
+})
+
+describe('the starter story', () => {
+  const mother = (db: ReturnType<typeof memoryWorld>, startStoryId: string | null) =>
+    createStoryAs(db, { title: 'Mother', seriesId: null, placement: after(startStoryId) })
+
+  it('stays while it is the only story: Adam starts writing in it', () => {
+    const db = memoryWorld()
+    expect(untouchedStarter(db)).toBeNull()
+    expect(retireStarterStory(db)).toBe(false)
+    expect(repo.listStories(db).map((s) => s.title)).toEqual(['Book 1'])
+  })
+
+  it('goes to Recently deleted once a story of his own is made, keeping the codex where it was', () => {
+    const db = memoryWorld()
+    const [book1] = repo.listStories(db)
+    const early = repo.createEntry(db, 'event', { name: 'The storm' }, { origin: 'ai', originStoryId: book1.id })
+    const made = mother(db, book1.id)
+    expect(repo.listStories(db).map((s) => s.title)).toEqual(['Mother'])
+    expect((db.prepare('SELECT deleted_at FROM stories WHERE id = ?').get(book1.id) as { deleted_at: string | null }).deleted_at).toBeTruthy()
+    expect(repo.getEntry(db, early.id).originStoryId).toBeNull()
+    expect(mem.listExistsPoints(db).filter((p) => p.entryId === early.id).map((p) => p.kind)).toEqual(['world'])
+    // The new story now opens the world.
+    expect(mem.firstStoryId(db)).toBe(made.story.id)
+  })
+
+  it('stays once anything is in it: words, a card, a title, its memory', () => {
+    const touched: ((db: ReturnType<typeof memoryWorld>, sceneId: string, storyId: string) => void)[] = [
+      (db, sceneId) => void db.prepare("UPDATE scenes SET text = 'It began.', word_count = 2 WHERE id = ?").run(sceneId),
+      (db, sceneId) => void repo.updateSceneCard(db, sceneId, { ...repo.getScene(db, sceneId).card, when: 'Day 1' }),
+      (db, _scene, storyId) => void repo.updateStory(db, storyId, { title: 'The Reach' }),
+      (db, _scene, storyId) => void repo.updateStory(db, storyId, { premise: 'A long winter.' }),
+      (db, sceneId) => void repo.createScene(db, repo.getSceneMeta(db, sceneId).chapterId, {}),
+      (db, sceneId, storyId) => {
+        const e = repo.createEntry(db, 'character', { name: 'Ann' })
+        mem.insertChange(db, { kind: 'update', payload: { note: '' }, entryId: e.id, anchor: 'scene', storyId, sceneId, origin: 'text' })
+      }
+    ]
+    for (const touch of touched) {
+      const db = memoryWorld()
+      const [book1] = repo.listStories(db)
+      touch(db, repo.getOutline(db, book1.id).scenes[0].id, book1.id)
+      mother(db, book1.id)
+      expect(repo.listStories(db).some((s) => s.id === book1.id)).toBe(true)
+    }
+  })
+
+  it('is put away in a world that made its story before this, when asked', () => {
+    const db = memoryWorld()
+    const [book1] = repo.listStories(db)
+    const later = repo.createStory(db, { title: 'Mother' })
+    repo.createChapter(db, later.id, {})
+    expect(untouchedStarter(db)).toBe(book1.id)
+    expect(retireStarterStory(db)).toBe(true)
+    expect(repo.listStories(db).map((s) => s.title)).toEqual(['Mother'])
+    expect(retireStarterStory(db)).toBe(false)
   })
 })

@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3'
 import type { StoryPlacement } from '@shared/api'
 import type { AnswerKind, ID, Series, Story } from '@shared/types'
 import type { CreatedStory, NewStoryInput, StoryDetails } from '@shared/contracts/stories'
+import { emptySceneCard } from '@shared/defaults'
 import * as repo from './repo'
 import * as mem from './memory'
 import { newId, now, UserError } from '../util'
@@ -80,8 +81,76 @@ export function createStoryAs(db: DB, input: NewStoryInput): Made {
     if (gap) repo.updateStory(db, made.id, { timeGap: gap })
     const chapter = repo.createChapter(db, made.id, {})
     const scene = repo.createScene(db, chapter.id, {})
+    if (retireStarterStory(db)) entryIds.push(...mem.refreshDefaultExistsPoints(db))
     return { story: repo.getStory(db, made.id), sceneId: scene.id, entryIds, endedFirst }
   })()
+}
+
+// ---------- The starter story ----------
+
+/**
+ * The "Book 1" every new world starts with (repo.initWorld: Chapter 1, Scene 1), while it is still exactly as it was
+ * made: its default title, nothing typed in it or on its cards, nothing the memory or another story points at. Null
+ * when there is none, or when it is the only story (Adam starts writing in it then).
+ */
+export function untouchedStarter(db: DB): ID | null {
+  const stories = db.prepare('SELECT * FROM stories ORDER BY created_order, created_at, rowid').all() as Row[]
+  const first = stories[0]
+  if (!first || first.deleted_at || !stories.some((s) => s !== first && !s.deleted_at)) return null
+  const id = first.id as string
+  const blank = (v: unknown): boolean => v === null || v === undefined || String(v).trim() === '' || v === '{}'
+  if (first.title !== 'Book 1' || !['premise', 'themes', 'tone', 'style_json', 'time_gap'].every((k) => blank(first[k]))) return null
+  // Every chapter and scene ever in it, deleted ones too: one of each, as made.
+  const chapters = db.prepare('SELECT id, title, goal, deleted_at FROM chapters WHERE story_id = ?').all(id) as Row[]
+  if (chapters.length > 1 || chapters.some((c) => c.title !== 'Chapter 1' || !blank(c.goal) || c.deleted_at)) return null
+  const scenes = db
+    .prepare(
+      `SELECT s.id, s.title, s.text, s.doc_json, s.word_count, s.card_json, s.deleted_at FROM scenes s
+         JOIN chapters c ON c.id = s.chapter_id WHERE c.story_id = ?`
+    )
+    .all(id) as Row[]
+  if (scenes.length > 1) return null
+  const empty = emptySceneCard() as unknown as Record<string, unknown>
+  for (const s of scenes) {
+    if (s.title !== 'Scene 1' || s.deleted_at || !blank(s.text) || (s.word_count as number) > 0) return null
+    if (typeof s.doc_json === 'string' && /"text"\s*:\s*"[^"]*\S/.test(s.doc_json)) return null
+    let card: Record<string, unknown>
+    try {
+      card = { ...empty, ...(JSON.parse((s.card_json as string) || '{}') as Record<string, unknown>) }
+    } catch {
+      return null
+    }
+    if (Object.keys(empty).some((k) => k !== 'whenSort' && JSON.stringify(card[k] ?? null) !== JSON.stringify(empty[k] ?? null))) return null
+  }
+  const sceneIds = scenes.map((s) => s.id as string)
+  const refIds = [...sceneIds, ...chapters.map((c) => c.id as string)]
+  const marks = (list: string[]): string => (list.length ? list.map(() => '?').join(', ') : "''")
+  const pointedAt = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM changes WHERE story_id = ? OR scene_id IN (${marks(sceneIds)})) +
+         (SELECT COUNT(*) FROM exists_points WHERE story_id = ? OR scene_id IN (${marks(sceneIds)})) +
+         (SELECT COUNT(*) FROM entries WHERE origin_scene_id IN (${marks(sceneIds)}) OR (origin_story_id = ? AND origin = 'text')) +
+         (SELECT COUNT(*) FROM stories WHERE start_ref_id IN (${marks(refIds)}) OR end_ref_id IN (${marks(refIds)})) AS n`
+    )
+    .get(id, ...sceneIds, id, ...sceneIds, ...sceneIds, id, ...refIds, ...refIds) as Row
+  return (pointedAt.n as number) > 0 ? null : id
+}
+
+/**
+ * Once the world has a story of its own, its untouched starter (untouchedStarter) goes to Recently deleted (it can be
+ * restored from there), so it no longer opens the timeline, the reading order and the memory with an empty scene.
+ * Codex entries made while it was the world's first story keep existing from the world's start, as they did. The
+ * caller works out the default first-exists points again (memory.refreshDefaultExistsPoints). Returns whether it went.
+ */
+export function retireStarterStory(db: DB): boolean {
+  const id = untouchedStarter(db)
+  if (!id) return false
+  db.transaction(() => {
+    db.prepare('UPDATE entries SET origin_story_id = NULL, origin_start = 0 WHERE origin_story_id = ?').run(id)
+    repo.deleteStory(db, id)
+  })()
+  return true
 }
 
 // ---------- Leads into ----------
