@@ -2243,7 +2243,15 @@ describe('ties to people not in this scene', () => {
     }
     const ev = (when: string) => entry('event', 'The Storm', { fields: { when } })
     expect(datedAfter(ev('Day 3'), at(['Day 1']))).toBe(true)
-    expect(datedAfter(ev('Day 3, night'), at(['Day 3, dawn']))).toBe(false)
+    // A later time the same day is after, as the timeline places it (worldViews/eventPlace.ts), unless the event first
+    // exists at this scene: then this is where it happens. Without a time on both, the same day isn't after.
+    expect(datedAfter(ev('Day 3, night'), at(['Day 3, dawn']))).toBe(true)
+    expect(datedAfter(ev('Day 3, night'), at(['Day 3, dawn']), true)).toBe(false)
+    expect(datedAfter(ev('Day 3, dawn'), at(['Day 3, night']))).toBe(false)
+    expect(datedAfter(ev('Day 3'), at(['Day 3, dawn']))).toBe(false)
+    expect(datedAfter(ev('Day 3, night'), at(['Day 3']))).toBe(false)
+    // A later day is after even for an event tied to this scene: its date decides.
+    expect(datedAfter(ev('Day 5'), at(['Day 3']), true)).toBe(true)
     expect(datedAfter(ev('Day 3'), at(['Day 5']))).toBe(false)
     // Counted from the story's first date, as the timeline counts it.
     expect(datedAfter(ev('Day 3'), at(['12 March 1842', '13 March 1842']))).toBe(true)
