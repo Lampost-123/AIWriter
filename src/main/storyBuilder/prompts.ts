@@ -5,7 +5,9 @@
 //   codex chat    an answer, then "=== Revised list ===" and the whole list again, when anything changes
 //   codex redo    one item of the list again, as one JSON object
 //   outline       a premise (for a story with none) and the outline helper's own form
-//   plan chat     an answer, then "=== Revised plan ===" and the whole plan again in the outline form
+//   plan chat     an answer, then "=== Changes ===", a "Touches:" line of every tag the change reaches, and only the
+//                 changed parts by their tags ("[#c1s2]"), or for a big
+//                 rework "=== Revised plan ===" and the whole plan again in the outline form
 //   plan redo     one act, chapter or scene card again, in the outline form
 //   recipe chat   an answer, then "=== Changed parts ===" and the changed parts under the recipe's headings
 //   recipe redo   one part of a recipe again, as plain text
@@ -20,6 +22,8 @@ export const MARKER = '[AIWRITE-STORY v1]'
 
 /** The line between a talk-it-over answer and the plan it revised. */
 export const PLAN_LINE = '=== Revised plan ==='
+/** The line between a talk-it-over answer and only the parts of the plan it changed (the usual way). */
+export const CHANGES_LINE = '=== Changes ==='
 /** The line between a talk-it-over answer and the codex list it revised. */
 export const LIST_LINE = '=== Revised list ==='
 /** The line between a talk-it-over answer and the recipe parts it changed. */
@@ -136,8 +140,15 @@ ${OUTLINE_RULES(o.withActs)}`
 
 export function planChatSystem(): string {
   return `${MARKER} plan chat
-You help a novelist with the plan of their story: suggested acts, chapters and scene cards they haven't kept yet, given below in a fixed form. They tell you what they want changed, or ask about it. Answer in a few plain sentences. When they ask for a change (or agree to one you suggested), make it: after your answer, put a line with exactly "${PLAN_LINE}" and then the whole plan, changed, in exactly the same form (headings "# Act:", "## Chapter:", "### Scene:" and the same lines under them), with no bold or other formatting.
-When they only ask a question, answer it and give no plan.
+You help a novelist with the plan of their story: suggested acts, chapters and scene cards they haven't kept yet, given below in a fixed form. Every heading ends with its tag, such as [#a0c1s2]. They tell you what they want changed, or ask about it. Answer in a sentence or two.
+When they ask for a change (or agree to one you suggested, or say it didn't happen), make the whole of it in this one answer: after your answer, put a line with exactly "${CHANGES_LINE}", then a line "Touches: " listing the tag of every part the change reaches (every scene, chapter and act whose title, summary, goal, card or beats say anything that has to change: look through the whole plan for each place, room, name or event it affects), and then each of those parts, changed, in the same form (headings "# Act:", "## Chapter:", "### Scene:" and the same lines under them), with no bold or other formatting:
+- A changed scene: its heading with its tag kept, then all of its lines and beats as they should now be.
+- A changed chapter or act (its title, goal, purpose or card): its heading with its tag and its own lines. Scenes or chapters inside it you leave out stay as they are; give only the ones that change, each with its tag.
+- A new one: its heading ending "[new after #tag]", naming the one it comes after (or the chapter or act it goes first in).
+- Taking one out: a line "Remove: #tag".
+Send every part on the "Touches:" line, and never one that doesn't change. Only what comes after that line changes the plan: saying you changed something without it changes nothing.
+Only when they ask to rework most of the plan, put a line with exactly "${PLAN_LINE}" instead and then the whole plan, changed.
+When they only ask a question, answer it and send no changes.
 
 The form:
 ${outlineForm(true)}
@@ -145,7 +156,7 @@ ${outlineForm(true)}
 
 Rules
 - ${ORDER}
-- Change only what they ask for, and what has to change with it so the plan still holds together (later scenes that depended on a changed one). Keep everything else as it is, word for word.
+- Change only what they ask for, and what has to change with it so the plan still holds together (every scene, beat, location and card line that says the old thing, and later scenes that depended on it). Keep everything else as it is, word for word.
 - Use the characters, places and plot threads given, by their names.
 ${OUTLINE_RULES(true).split('\n').slice(1).join('\n')}`
 }

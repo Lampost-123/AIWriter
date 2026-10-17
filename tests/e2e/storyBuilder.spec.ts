@@ -93,6 +93,7 @@ test('a plot becomes a whole cast and world, then an outline, each part talked o
     await planTalk.getByRole('button', { name: 'Send' }).click()
     await expect(planTalk.locator('[data-talk-preview]')).toContainText('The Betrayal')
     await expect(main(win).locator('[data-suggestion="chapter"]').first()).toHaveAttribute('aria-label', 'Chapter: Grey Water')
+    await expect(planTalk.locator('[data-talk-preview]')).toContainText('1 part changes')
     await planTalk.locator('[data-apply]').click()
     await expect(main(win).locator('[data-suggestion="chapter"]').first()).toHaveAttribute('aria-label', 'Chapter: The Betrayal')
 

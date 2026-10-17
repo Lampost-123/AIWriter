@@ -1,8 +1,8 @@
-<!-- version: 0.8.0 -->
-What's new in 0.8.0:
+<!-- version: 0.8.1 -->
+What's new in 0.8.1:
 
-- The Story builder: give it your plot and it plans the whole cast and world, builds every codex page, then lays out the chapters and scenes.
-- Talk any plan over with the AI, or redo one chapter, scene or character with a note. You see each change first.
-- Writing style presets, including ones for adult readers.
-- Recipes can be talked over and their parts redone.
-- Story builds cost about half as much, and timeline events sit among the scenes of their own day.
+- Talk it over now makes the whole change in one go, everywhere it shows up, instead of saying it changed something when it hadn't.
+- Only the parts you ask about are rewritten, so changes are faster and cheaper.
+- The preview shows just what changed, old words struck through.
+- "Not quite" fixes the waiting change instead of starting over.
+- A friendlier chat: what each answer changed, Try again, New talk, and Apply straight away (with Undo).

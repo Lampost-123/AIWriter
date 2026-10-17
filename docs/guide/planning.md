@@ -42,7 +42,11 @@ AI next** when you make a new story. Its steps run across the top, and you can g
 
 Beside the suggested outline, **Talk it over** lets you tell the AI what to change ("make chapter 3 a betrayal",
 "rework the rest to fit my changes"). It shows you the new plan first: **Apply** puts it in, **Decline** leaves things
-as they were, and Undo takes an applied change back. Things you've kept are never changed.
+as they were, and Undo takes an applied change back. Things you've kept are never changed. The AI rewrites only the
+parts your request affects, so small changes come back quickly. If you reply while a change is still waiting ("it
+still says his bedroom"), the AI fixes that change instead of starting over. The preview shows only what changed, the
+old words struck through (**Show the whole plan** for the rest), and each answer lists the parts it changed. Tick
+**Apply changes straight away** to skip the preview; Undo still takes a change back.
 
 Each suggestion still waiting has **Redo**: say what should be different (or leave it empty for a fresh take), then
 **Use this** or **Keep mine**. Only that act, chapter or scene changes.

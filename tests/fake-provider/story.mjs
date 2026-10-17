@@ -7,8 +7,8 @@
 //   codex redo   the same item, its "about" starting "Redone:" (with the note when there is one).
 //   outline      "Premise: …" when asked for one, then 2 chapters of 2 scenes (an act around them when acts are asked
 //                for), naming Ada Lorne and Gull Harbour; the first scene sets up "Who wrecks the ships", the last pays it off.
-//   plan chat    a question is answered with no plan; anything else revises the plan given: its first chapter is
-//                renamed "The Betrayal" and everything else is kept.
+//   plan chat    a question is answered with no plan; anything else renames the plan's first chapter "The Betrayal",
+//                sent as a change by its tag ("=== Changes ===").
 //   plan redo    the act, chapter or scene asked for, titled "A Different Night" (a chapter or act with one scene).
 //   recipe chat  a question is answered with no parts; anything else changes the Tone to "Dark and tense".
 //   recipe redo  "A new take on this part."
@@ -109,6 +109,8 @@ export function storyReply(system, messages) {
   if (system.includes(`${MARKER} outline`)) return outline(first, /new acts?\b/.test(first), system.includes('Premise: <'))
   if (system.includes(`${MARKER} plan chat`)) {
     if (asking) return 'The second chapter is where Ada catches the wrecker.'
+    const tag = /## Chapter: [^\n]*?(\[#[acs0-9]+\])/.exec(givenPlan(first))?.[1]
+    if (tag) return `I made the first chapter a betrayal.\n=== Changes ===\nTouches: ${tag.slice(1, -1)}\n## Chapter: The Betrayal ${tag}`
     const plan = givenPlan(first) || outline('', false, false)
     return `I made the first chapter a betrayal.\n=== Revised plan ===\n${plan.replace(/## Chapter: [^\n]+/, '## Chapter: The Betrayal')}`
   }

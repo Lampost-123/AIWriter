@@ -9,14 +9,22 @@ import type { ID } from '@shared/types'
 import { api, onEvent } from '@/lib/api'
 
 export interface TalkTurn extends ChatTurn {
-  /** An answer that came with a revision: what Adam did with it ('offered' while it waits). */
-  outcome?: 'offered' | 'applied' | 'declined'
+  /**
+   * An answer that came with a revision: what Adam did with it ('offered' while it waits; 'revised' when the next answer
+   * built on it instead).
+   */
+  outcome?: 'offered' | 'applied' | 'declined' | 'revised'
+  /** What the revision changed, a few words each ("Scene: The Health Check"), shown under the answer. */
+  changes?: string[]
 }
 
 export interface Talk {
   turns: TalkTurn[]
-  /** The answer arriving now (its words so far, for a streamed one). */
-  running: { taskId: ID; text: string } | null
+  /**
+   * The answer arriving now (its words so far, for a streamed one); `live`: the AI call running for it now, when another
+   * (asking again for changes it left out), and `note`: what that one is doing.
+   */
+  running: { taskId: ID; text: string; live?: ID; note?: string } | null
   /** The revision waiting for Apply or Decline (what it is depends on what is talked over). */
   preview: unknown
   error: string | null
@@ -34,23 +42,62 @@ const put = (scope: string, patch: Partial<Talk>): void =>
 export interface Answer {
   answer: string
   revision: unknown
+  /** What the revision changed, for the chips under the answer. */
+  changes?: string[]
 }
 
-/** The turns as the AI is told them (the last 12; a preview's state isn't sent). */
-const historyOf = (turns: TalkTurn[]): ChatTurn[] => turns.slice(-12).map(({ role, text }) => ({ role, text }))
+/** What the AI is told about each of its own answers: whether a change came with it, so it never thinks one did when not. */
+const NOTES: Record<NonNullable<TalkTurn['outcome']> | 'none', string> = {
+  offered: '[Changes sent; not applied yet.]',
+  revised: '[Changes sent; the next answer built on them.]',
+  applied: '[Changes sent; the author applied them.]',
+  declined: '[Changes sent; the author declined them.]',
+  none: '[No changes sent with this answer, so nothing changed.]'
+}
+
+/** A note like those, if the AI copied one into its answer. */
+const COPIED = /\s*\[(?:No changes|Changes) sent[^\]]*\]\s*$/i
+
+/** The turns as the AI is told them (the last 12), each answer with its note. */
+const historyOf = (turns: TalkTurn[]): ChatTurn[] =>
+  turns.slice(-12).map(({ role, text, outcome, changes }) => ({
+    role,
+    text: role === 'assistant' ? `${text}\n${changes?.length ? NOTES[outcome ?? 'none'].replace(/\]$/, ` (${changes.join('; ')})]`) : NOTES[outcome ?? 'none']}` : text
+  }))
+
+/** The AI call running now for a talk's answer, when it isn't the first (asking again for the changes it forgot). */
+export function relay(scope: string, taskId: ID, live: ID, note?: string): void {
+  const r = talkOf(scope).running
+  if (r?.taskId === taskId) put(scope, { running: { ...r, live, note } })
+}
+
+/** Try again after an error: the last thing said, taken back off the talk so saying it again doesn't show it twice. */
+export function takeBackLast(scope: string): string | null {
+  const t = talkOf(scope)
+  const last = t.turns[t.turns.length - 1]
+  if (t.running || last?.role !== 'user') return null
+  put(scope, { turns: t.turns.slice(0, -1), error: null })
+  return last.text
+}
 
 /**
  * Says something in a talk: `ask` makes the AI call with the task id and the talk so far, and resolves with its answer
- * (null when it was stopped). A revision waits as the preview.
+ * (null when it was stopped). A revision waits as the preview. `carry`: a preview still waiting is built on, not
+ * declined (the caller reads it before saying).
  */
-export async function say(scope: string, message: string, ask: (taskId: ID, history: ChatTurn[]) => Promise<Answer | null>): Promise<void> {
+export async function say(
+  scope: string,
+  message: string,
+  ask: (taskId: ID, history: ChatTurn[]) => Promise<Answer | null>,
+  carry = false
+): Promise<void> {
   const words = message.trim()
   const t = talkOf(scope)
   if (!words || t.running) return
   const taskId = crypto.randomUUID()
   const history = historyOf(t.turns)
-  // A preview still waiting is declined by saying something else.
-  const turns = t.turns.map((x) => (x.outcome === 'offered' ? { ...x, outcome: 'declined' as const } : x))
+  // A preview still waiting is declined by saying something else (or built on, with `carry`).
+  const turns = t.turns.map((x) => (x.outcome === 'offered' ? { ...x, outcome: carry && t.preview ? ('revised' as const) : ('declined' as const) } : x))
   put(scope, { turns: [...turns, { role: 'user', text: words }], running: { taskId, text: '' }, preview: null, error: null })
   try {
     const out = await ask(taskId, history)
@@ -59,10 +106,13 @@ export async function say(scope: string, message: string, ask: (taskId: ID, hist
       put(scope, { running: null })
       return
     }
-    const answer = out.answer.trim() || (out.revision ? 'Here it is with those changes.' : '…')
+    const answer = out.answer.replace(COPIED, '').trim() || (out.revision ? 'Here it is with those changes.' : '…')
     put(scope, {
       running: null,
-      turns: [...talkOf(scope).turns, { role: 'assistant', text: answer, ...(out.revision ? { outcome: 'offered' as const } : {}) }],
+      turns: [
+        ...talkOf(scope).turns,
+        { role: 'assistant', text: answer, ...(out.revision ? { outcome: 'offered' as const, ...(out.changes?.length ? { changes: out.changes } : {}) } : {}) }
+      ],
       preview: out.revision ?? null
     })
   } catch (e) {
@@ -74,12 +124,12 @@ export async function say(scope: string, message: string, ask: (taskId: ID, hist
 /** The answer's words so far, while it streams. */
 export function arriving(scope: string, taskId: ID, text: string): void {
   const r = talkOf(scope).running
-  if (r?.taskId === taskId) put(scope, { running: { taskId, text } })
+  if (r?.taskId === taskId) put(scope, { running: { ...r, text } })
 }
 
 export function stopTalk(scope: string): void {
   const r = talkOf(scope).running
-  if (r) void api.stopTask(r.taskId).catch(() => undefined)
+  if (r) void api.stopTask(r.live ?? r.taskId).catch(() => undefined)
 }
 
 /** Apply or Decline on the preview: the answer that offered it says which. */
