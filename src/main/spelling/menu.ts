@@ -1,11 +1,13 @@
 // The right-click menu for text (writing by hand): spelling suggestions, Add to dictionary, Add to this world's
-// glossary, Synonyms for the word right-clicked in the page, then Cut, Copy, Paste and Select all.
+// glossary, Synonyms for the word right-clicked in the page, AI Write's own actions in the page (pageItems.ts), then
+// Cut, Copy, Paste and Select all.
 import type { BrowserWindow, ContextMenuParams, MenuItemConstructorOptions } from 'electron'
 import type { SynonymSense } from '@shared/contracts/spelling'
 import { matchCase } from '@shared/spelling'
 import { emit } from '../events'
 import { maybeCurrentWorld } from '../world'
-import { addToPersonalDictionary, contextWord, knownWord, spellingState, synonymsOf } from './index'
+import { addToPersonalDictionary, contextNote, knownWord, spellingState, synonymsOf } from './index'
+import { pageItems } from './pageItems'
 
 /** The Synonyms submenu: each sense under its part of speech (a label that can't be picked), between lines. */
 export function synonymItems(word: string, senses: SynonymSense[], pick: (replacement: string) => void): MenuItemConstructorOptions[] {
@@ -27,7 +29,7 @@ export async function contextMenuFor(win: BrowserWindow, p: ContextMenuParams): 
   const items: MenuItemConstructorOptions[] = []
   const spelling = spellingState()
   // The window's note for this very right-click (matched by where it was), never one for an earlier click.
-  const noted = p.isEditable ? await contextWord(p.x, p.y, wc.getZoomFactor()) : null
+  const { word: noted, page } = p.isEditable ? await contextNote(p.x, p.y, wc.getZoomFactor()) : { word: null, page: null }
 
   // A world's name or one of Adam's own words counts as correct: no suggestions for it.
   if (p.misspelledWord && spelling.enabled && !knownWord(p.misspelledWord)) {
@@ -51,6 +53,11 @@ export async function contextMenuFor(win: BrowserWindow, p: ContextMenuParams): 
       })
       items.push({ type: 'separator' })
     }
+  }
+
+  if (page) {
+    const token = page.token
+    items.push(...pageItems(page, (action) => emit('spelling:pageAction', { token, action })))
   }
 
   if (p.isEditable) {

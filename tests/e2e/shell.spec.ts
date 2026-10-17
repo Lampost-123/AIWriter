@@ -59,7 +59,7 @@ test('New world: typing goes straight into the name box', async ({ launch }) => 
   await expect(worldButton(win, 'Second World')).toBeVisible()
 })
 
-test('no menu bar with Reload or developer tools; right-click offers Cut, Copy and Paste', async ({ launch }) => {
+test('no menu bar with Reload or developer tools; right-click offers Cut, Copy and Paste (and in the page, AI Write’s own actions)', async ({ launch }) => {
   const { app, win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')
   const menu = await app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.items.map((i) => i.label) ?? null)
@@ -76,8 +76,23 @@ test('no menu bar with Reload or developer tools; right-click offers Cut, Copy a
   })
   await win.locator('.scene-prose').click()
   await win.keyboard.type('Some words.')
+  const shown = (): Promise<string[] | null> => app.evaluate(() => (globalThis as { lastMenu?: string[] }).lastMenu ?? null)
+  const forget = (): Promise<void> =>
+    app.evaluate(() => {
+      ;(globalThis as { lastMenu?: unknown }).lastMenu = null
+    })
+  // In the page: AI Write's own actions (pageMenu.spec.ts), then Cut, Copy and Paste; never Reload or developer tools.
   await win.locator('.scene-prose').click({ button: 'right' })
-  await expect.poll(() => app.evaluate(() => (globalThis as { lastMenu?: string[] }).lastMenu ?? null)).toEqual(['Cut', 'Copy', 'Paste', 'separator', 'Select all'])
+  await expect.poll(shown).toEqual(expect.arrayContaining(['Ask about this paragraph', 'Cut', 'Copy', 'Paste', 'Select all']))
+  expect((await shown())!.slice(-5)).toEqual(['Cut', 'Copy', 'Paste', 'separator', 'Select all'])
+  expect((await shown())!.join(' ')).not.toMatch(/Reload|Inspect|developer/i)
+
+  // Any other text box: Cut, Copy and Paste only.
+  await forget()
+  const goal = win.getByPlaceholder("What they're trying to do")
+  await goal.fill('Reach the ford')
+  await goal.click({ button: 'right' })
+  await expect.poll(shown).toEqual(['Cut', 'Copy', 'Paste', 'separator', 'Select all'])
 })
 
 test('quitting from a menu (or Cmd+Q, or an update restart) saves the last words and the scene card first', async ({ launch }) => {

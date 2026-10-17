@@ -11,7 +11,7 @@
 import { session } from 'electron'
 import { join } from 'node:path'
 import type { ID, Spelling } from '@shared/types'
-import type { ContextNote, ContextWord, SpellingState, SynonymSense } from '@shared/contracts/spelling'
+import type { ContextNote, ContextWord, PageMenu, SpellingState, SynonymSense } from '@shared/contracts/spelling'
 import { effectiveStyle } from '@shared/style'
 import { isKnownWord, languageFor, NOTE_KEPT_MS, noteAt, synonymsFor, worldWordsOf } from '@shared/spelling'
 import * as repo from '../db/repo'
@@ -150,19 +150,20 @@ let waiting: (() => void)[] = []
 export function noteContextWord(n: ContextNote): void {
   if (!n || !Number.isFinite(n.x) || !Number.isFinite(n.y)) return
   const word = n.word && typeof n.word.word === 'string' ? n.word : null
+  const page = n.page && Number.isFinite(n.page.token) ? n.page : null
   const now = Date.now()
-  notes = [...notes.filter((x) => now - x.at < NOTE_KEPT_MS), { x: n.x, y: n.y, word, at: now }].slice(-8)
+  notes = [...notes.filter((x) => now - x.at < NOTE_KEPT_MS), { x: n.x, y: n.y, word, page, at: now }].slice(-8)
   const w = waiting
   waiting = []
   w.forEach((fn) => fn())
 }
 
 /**
- * The word noted for this right-click (at x, y in the window, as Electron gives them), never one noted for another:
- * the window's note usually arrives first; if not, it is waited for a moment. Null when the click wasn't on a word
- * in the page, or no note for it came.
+ * The word and the page's actions noted for this right-click (at x, y in the window, as Electron gives them), never
+ * those noted for another: the window's note usually arrives first; if not, it is waited for a moment. Nulls when the
+ * click wasn't in the page, or no note for it came.
  */
-export async function contextWord(x: number, y: number, zoom: number): Promise<ContextWord | null> {
+export async function contextNote(x: number, y: number, zoom: number): Promise<{ word: ContextWord | null; page: PageMenu | null }> {
   const deadline = Date.now() + 300
   let i = noteAt(notes, x, y, zoom, Date.now())
   while (i < 0 && Date.now() < deadline) {
@@ -175,11 +176,11 @@ export async function contextWord(x: number, y: number, zoom: number): Promise<C
     })
     i = noteAt(notes, x, y, zoom, Date.now())
   }
-  if (i < 0) return null
+  if (i < 0) return { word: null, page: null }
   const found = notes[i]
   // Used once: it (and any older one) can never answer another right-click.
   notes = notes.slice(i + 1)
-  return found.word
+  return { word: found.word, page: found.page ?? null }
 }
 
 // ---------- Start-up ----------
