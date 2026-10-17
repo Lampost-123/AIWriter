@@ -485,8 +485,8 @@ export async function startFakeProvider(options = {}) {
     const limit = body.max_tokens ?? body.max_completion_tokens ?? 400
     const words = model === 'fake/slow' ? opts.slowWords : Math.min(opts.words, Math.max(10, Math.floor(limit / 2)))
     const messages = body.messages ?? []
-    const system = textOf(messages.find((m) => m.role === 'system')?.content)
     const firstUser = textOf(messages.find((m) => m.role === 'user')?.content)
+    const system = jobSystem(textOf(messages.find((m) => m.role === 'system')?.content), firstUser)
     let memory = null
     if (system.includes(READING_MARKER)) {
       memoryCounts[model] = (memoryCounts[model] ?? 0) + 1
@@ -767,6 +767,17 @@ export function fakeStoryFlowReply(system, user) {
     return JSON.stringify({ changes: sorted }, null, 1)
   }
   return JSON.stringify({})
+}
+
+/**
+ * The instructions a request is answered by. Usually its system message; but the World build's requests (and its
+ * filling in) share one system message, "[AIWRITE-WORLD v1]" alone on its first line, and give the job after the
+ * author's summary, from a line "[AIWRITE-<PART> v1] <job>" on: that part of the first user message, then.
+ */
+export function jobSystem(system, firstUser) {
+  if (!/^\[AIWRITE-WORLD v1\]\r?\n/.test(system)) return system
+  const at = firstUser.search(/^\[AIWRITE-[A-Z-]+ v1\] [a-z-]+$/m)
+  return at >= 0 ? firstUser.slice(at) : system
 }
 
 // ---------- Builder replies ----------

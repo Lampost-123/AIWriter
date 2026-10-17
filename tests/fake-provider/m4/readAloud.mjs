@@ -27,6 +27,9 @@
 //             itself), a character called Siobhan also gets a last line "SAY IT AS: shiv-AWN" (SUGGESTED_SAY);
 //             every other name gets none.
 //
+//   voices    Several characters' voices at once (the World build): {"<n>": {"voice": SUGGESTED_VOICE, "say": ...}} for
+//             each "[n]\nCHARACTER: Name" in the user message, "say" as for voice ("" but for Siobhan).
+//
 //   sounds    Sound effects (src/main/sounds/prompt.ts): for each numbered paragraph ("[P3] ..." under "The passage:" in
 //             the user message; "[--]" paragraphs are left alone), a door effect where it says "slammed"
 //             (SOUND_DOOR, word "slammed", 2 seconds), a thunder effect where it says "thunder" (SOUND_THUNDER), and a
@@ -154,6 +157,14 @@ export function readAloudReply(system, messages, _model) {
   }
 
   if (job === 'sounds') return soundsReply(userText(messages))
+
+  if (job === 'voices') {
+    const out = {}
+    for (const m of userText(messages).matchAll(/^\[(\d+)\]\nCHARACTER: ([^(\n]+?)(?: \(|$)/gm)) {
+      out[m[1]] = { voice: SUGGESTED_VOICE, say: m[2] === 'Siobhan' ? SUGGESTED_SAY : '' }
+    }
+    return JSON.stringify(out)
+  }
 
   if (job === 'voice') {
     const name = /^CHARACTER: ([^(\n]+?)(?: \(|$)/m.exec(userText(messages))?.[1] ?? ''

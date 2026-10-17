@@ -1,5 +1,5 @@
-// What the World builder model is told. Each job's system prompt starts with a marker and the job, so the
-// fake provider in tests/fake-provider/m4/world.mjs can recognise these requests:
+// What the World builder model is told. Each job's instructions start with a marker and the job (a line of their
+// own, after the summary), so the fake provider in tests/fake-provider/m4/world.mjs can recognise these requests:
 //   overview       lists everything a summary (or one part of a long one) names, by kind
 //   character      one character's full profile, as Quick start writes it
 //   places, groups, items, lore, events, threads, glossary
@@ -9,6 +9,11 @@
 //   check          where the summary disagrees with pages already in the world
 // Everything is laid out as it stands at the start: what the summary says happens later becomes an event
 // or a plot thread, never part of how things start; events and plot threads say when they happen. Pure.
+//
+// For the provider's cache (2026-10-17): every request of a build opens the same way, word for word: one system
+// message (worldSystem) and then the author's summary (summaryLead), so DeepSeek and the like read that again for a
+// tenth of the price. The job (its marker line, rules, fields and reply shape, the "...System" functions below) comes
+// after the summary, and what changes from one request to the next (the plan, the world, what to lay out) after that.
 
 import type { Entry, EntryKind } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
@@ -17,8 +22,23 @@ import { fieldLabel } from '../keeper/facts'
 import { estimateTokens } from '../keeper/text'
 import { asProfileKind, type PlanItem } from './parse'
 
-/** In every World builder request's system prompt, followed by the job. */
+/** Opens every World builder request's system message; with the job, it opens the job's instructions. */
 export const WORLD_MARKER = '[AIWRITE-WORLD v1]'
+
+/** The system message of every request a build makes (and of the build's filling in), word for word the same. */
+export function worldSystem(): string {
+  return `${WORLD_MARKER}
+You help an author with the world of a novel, from their summary of it. Each request gives the author's summary first, then the job to do with it: its rules, and what to reply with. Reply with one JSON object and nothing else.`
+}
+
+/** How the author's summary opens a request's user message; the job follows it. `which` notes a part of a long summary. */
+export const summaryLead = (summary: string, which = ''): string => `The author's summary${which}:\n"""\n${summary.trim()}\n"""`
+
+/** A request's user message: the summary, the job, then the rest. `cacheUpTo` is where what every request shares ends. */
+export function jobUser(summary: string, job: string, rest: string, which = ''): { content: string; cacheUpTo: number } {
+  const lead = summaryLead(summary, which)
+  return { content: `${lead}\n\n${job}\n\n${rest}`, cacheUpTo: lead.length }
+}
 
 export type WorldJob = 'overview' | 'character' | BatchJob | 'relationships' | 'themes' | 'check'
 export type BatchJob = 'places' | 'groups' | 'items' | 'lore' | 'events' | 'threads' | 'glossary'
@@ -92,9 +112,9 @@ Leave a list empty when the summary has nothing of that kind.`
 }
 
 /** `part`: [this part, of how many] for a summary read in parts. */
-export function overviewUser(existing: string, summary: string, part: [number, number] | null): string {
+export function overviewUser(existing: string, summary: string, part: [number, number] | null): { content: string; cacheUpTo: number } {
   const which = part && part[1] > 1 ? ` (part ${part[0]} of ${part[1]}; the other parts are read separately)` : ''
-  return `${existing}\n\nThe author's summary${which}:\n"""\n${summary.trim()}\n"""\n\nList everything now, as one JSON object.`
+  return jobUser(summary, overviewSystem(), `${existing}\n\nList everything now, as one JSON object.`, which)
 }
 
 /**
@@ -102,13 +122,23 @@ export function overviewUser(existing: string, summary: string, part: [number, n
  * he had to run it twice): a long list is cut off at the reply's room, and a model reading a long summary lists
  * the main things and skips the rest. It is shown what it has listed and asked for only what isn't there.
  */
-export function overviewMoreUser(existing: string, listed: Pick<PlanItem, 'kind' | 'name'>[], summary: string, part: [number, number] | null): string {
+export function overviewMoreUser(
+  existing: string,
+  listed: Pick<PlanItem, 'kind' | 'name'>[],
+  summary: string,
+  part: [number, number] | null
+): { content: string; cacheUpTo: number } {
   const which = part && part[1] > 1 ? ` (part ${part[0]} of ${part[1]}; the other parts are read separately)` : ''
   const byKind = (Object.keys(KIND_LABELS) as EntryKind[])
     .map((kind) => [kind, listed.filter((p) => p.kind === kind).map((p) => p.name)] as const)
     .filter(([, names]) => names.length)
     .map(([kind, names]) => `- ${KIND_LABELS[kind].many}: ${names.join('; ')}`)
-  return `${existing}\n\nThe author's summary${which}:\n"""\n${summary.trim()}\n"""\n\nAlready listed from this summary:\n${byKind.join('\n') || '- nothing yet'}\n\nRead the summary again, all the way to its end, and list everything it names or describes that is NOT already listed above or in the world: people mentioned only in passing, places, groups, objects, how things work, events, open questions and words. Leave every list empty when nothing is missing. Reply as one JSON object, in the same shape.`
+  return jobUser(
+    summary,
+    overviewSystem(),
+    `${existing}\n\nAlready listed from this summary:\n${byKind.join('\n') || '- nothing yet'}\n\nRead the summary again, all the way to its end, and list everything it names or describes that is NOT already listed above or in the world: people mentioned only in passing, places, groups, objects, how things work, events, open questions and words. Leave every list empty when nothing is missing. Reply as one JSON object, in the same shape.`,
+    which
+  )
 }
 
 /** The world's entries by kind, names and other names only, for the first look to reuse; the longest lists are cut to fit `maxTokens`. */
@@ -182,8 +212,15 @@ Reply with:
 Put "name" first in whichever of the two holds it.`
 }
 
-export function characterUser(world: string, plan: string, summary: string, who: PlanItem): string {
-  return `${world}${plan ? `\n\n${plan}` : ''}\n\nThe author's summary:\n"""\n${summary.trim()}\n"""\n\nThe character to lay out:\n${itemLine(who)}\n\nWrite the profile now, as one JSON object.`
+/** The plan before the world: it stays the same for the whole build, while the world grows with each save. */
+const planAndWorld = (plan: string, world: string): string => [plan, world].filter((t) => t.trim()).join('\n\n')
+
+export function characterUser(world: string, plan: string, summary: string, who: PlanItem): { content: string; cacheUpTo: number } {
+  return jobUser(
+    summary,
+    characterSystem(),
+    `${planAndWorld(plan, world)}\n\nThe character to lay out:\n${itemLine(who)}\n\nWrite the profile now, as one JSON object.`
+  )
 }
 
 /** What each kind's profiles say beside their fields. */
@@ -234,9 +271,13 @@ Reply with:
 {"${listKey(kind)}": [{"name": "the name given", ${extra?.shape ?? ''}"fromNotes": {"key": "the author's words", ...}, "drafted": {"key": "...", ...}}, ...]}`
 }
 
-export function batchUser(kind: EntryKind, world: string, plan: string, summary: string, items: PlanItem[]): string {
+export function batchUser(kind: EntryKind, world: string, plan: string, summary: string, items: PlanItem[]): { content: string; cacheUpTo: number } {
   const many = NOUNS[kind][1]
-  return `${world}${plan ? `\n\n${plan}` : ''}\n\nThe author's summary:\n"""\n${summary.trim()}\n"""\n\nThe ${many} to lay out:\n${items.map(itemLine).join('\n')}\n\nWrite the profiles now, as one JSON object.`
+  return jobUser(
+    summary,
+    batchSystem(kind),
+    `${planAndWorld(plan, world)}\n\nThe ${many} to lay out:\n${items.map(itemLine).join('\n')}\n\nWrite the profiles now, as one JSON object.`
+  )
 }
 
 /** The shape asked for again when a reply couldn't be used. */
@@ -271,9 +312,19 @@ ${SHAPES.relationships}
 or {"relationships": []} when the summary gives none.`
 }
 
-export function relationshipsUser(summary: string, characters: string[], groups: string[], places: string[] = [], items: string[] = []): string {
+export function relationshipsUser(
+  summary: string,
+  characters: string[],
+  groups: string[],
+  places: string[] = [],
+  items: string[] = []
+): { content: string; cacheUpTo: number } {
   const line = (label: string, names: string[]): string => (names.length ? `\n${label}: ${names.join('; ')}` : '')
-  return `Characters: ${characters.join('; ')}${line('Groups', groups)}${line('Places', places)}${line('Items', items)}\n\nThe author's summary:\n"""\n${summary.trim()}\n"""\n\nList the relationships now, as one JSON object.`
+  return jobUser(
+    summary,
+    relationshipsSystem(),
+    `Characters: ${characters.join('; ')}${line('Groups', groups)}${line('Places', places)}${line('Items', items)}\n\nList the relationships now, as one JSON object.`
+  )
 }
 
 // ---------- Themes and tone ----------
@@ -297,15 +348,15 @@ Reply with:
 ${shape}`
 }
 
-export function themesUser(summary: string): string {
-  return `The author's summary:\n"""\n${summary.trim()}\n"""\n\nDescribe it now, as one JSON object.`
+export function themesUser(summary: string, want: ('themes' | 'tone')[]): { content: string; cacheUpTo: number } {
+  return jobUser(summary, themesSystem(want), 'Describe it now, as one JSON object.')
 }
 
 // ---------- Disagreements with pages already in the world ----------
 
 export function checkSystem(): string {
   return `${WORLD_MARKER} check
-You help an author keep the world of a novel consistent. Below are pages already in the world, then the author's new summary. Find each place where the summary says something different from what a page says. Reply with one JSON object and nothing else.
+You help an author keep the world of a novel consistent. The author's new summary is above, and pages already in the world are below. Find each place where the summary says something different from what a page says. Reply with one JSON object and nothing else.
 
 Rules
 - Only real disagreements, where the summary and the page can't both be true. Something a page leaves out, or a detail the summary adds, isn't one.
@@ -324,6 +375,6 @@ export function pageText(e: Pick<Entry, 'kind' | 'name'>, values: Record<string,
   return `${e.name} (${KIND_LABELS[e.kind].one.toLowerCase()})\n${lines.join('\n')}`
 }
 
-export function checkUser(pages: string[], summary: string): string {
-  return `Pages already in the world:\n\n${pages.join('\n\n')}\n\nThe author's summary:\n"""\n${summary.trim()}\n"""\n\nList the disagreements now, as one JSON object.`
+export function checkUser(pages: string[], summary: string): { content: string; cacheUpTo: number } {
+  return jobUser(summary, checkSystem(), `Pages already in the world:\n\n${pages.join('\n\n')}\n\nList the disagreements now, as one JSON object.`)
 }

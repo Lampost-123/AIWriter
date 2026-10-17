@@ -7,6 +7,8 @@
 
 import type Database from 'better-sqlite3'
 import type { EntryKind, ID } from '@shared/types'
+import type { BuilderKind } from '@shared/contracts/builder'
+import { entryText, toInput } from '../builder/profile'
 import type { WorldBuildItem } from '@shared/contracts/worldBuilder'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
@@ -72,6 +74,18 @@ export type WorldUndo = { op: 'world-build'; fingerprint: string; words: string 
       entryId: ID
       key: string
       after: string
+    }
+  | {
+      /**
+       * A profile laid out into a name-only page keeping an outline made (2026-10-17, save.ts saveInto): the fields it
+       * wrote (key: what it wrote), and the place it put a place inside, if any.
+       */
+      did: 'profile'
+      entryId: ID
+      kind: EntryKind
+      planned: string
+      values: Record<string, string>
+      parentId: ID | null
     }
 )
 
@@ -142,6 +156,24 @@ function takeAway(db: DB, row: LogRow, u: WorldUndo, out: WorldOutcome): boolean
       const e = repo.getEntry(db, u.entryId)
       if ((e.fields[u.key] ?? '') !== u.after) return false
       repo.updateEntry(db, u.entryId, { fields: { [u.key]: '' } }, ADAM)
+      out.entryIds.push(u.entryId)
+      return true
+    }
+    case 'profile': {
+      // Each field back to empty while it still says what the build wrote; one changed since stays.
+      if (entryState(db, u.entryId) !== 'live') return false
+      const e = repo.getEntry(db, u.entryId)
+      const kind = e.kind as BuilderKind
+      const clear = Object.keys(u.values).filter((k) => entryText(e, k) === u.values[k])
+      const back = u.parentId && e.parentId === u.parentId
+      if (!clear.length && !back) return false
+      // As the AI's, so the page is again only the name the outline gave it (building again lays it out again).
+      repo.updateEntry(
+        db,
+        u.entryId,
+        { ...(clear.length ? toInput(kind, Object.fromEntries(clear.map((k) => [k, '']))) : {}), ...(back ? { parentId: null } : {}) },
+        { origin: 'ai' }
+      )
       out.entryIds.push(u.entryId)
       return true
     }
@@ -231,6 +263,14 @@ export function redoBuild(db: DB, runId: ID, lineIds: ID[]): WorldOutcome {
       if (!card || card.when !== u.before) continue
       repo.updateSceneCard(db, u.sceneId, { ...card, when: u.after })
       out.sceneId = u.sceneId
+    } else if (u.did === 'profile') {
+      if (entryState(db, u.entryId) !== 'live') continue
+      const e = repo.getEntry(db, u.entryId)
+      const back = Object.fromEntries(Object.entries(u.values).filter(([k]) => !entryText(e, k).trim()))
+      const parent = u.parentId && !e.parentId && entryState(db, u.parentId) === 'live' ? u.parentId : null
+      if (!Object.keys(back).length && !parent) continue
+      repo.updateEntry(db, u.entryId, { ...toInput(e.kind as BuilderKind, back), ...(parent ? { parentId: parent } : {}) }, { origin: 'ai' })
+      out.entryIds.push(u.entryId)
     } else {
       if (entryState(db, u.entryId) !== 'live' || (repo.getEntry(db, u.entryId).fields[u.key] ?? '').trim()) continue
       repo.updateEntry(db, u.entryId, { fields: { [u.key]: u.after } }, { origin: 'ai' })
@@ -285,6 +325,12 @@ export function madeItems(db: DB, runId: ID): WorldBuildItem[] {
           otherId: u.toId,
           undone: l.undone || !at || at.deleted
         }
+      ]
+    }
+    if (u.did === 'profile') {
+      const e = repo.getEntries(db, [u.entryId])[0] ?? null
+      return [
+        { ...base, what: 'entry', entryId: u.entryId, kind: u.kind, name: e?.name ?? l.entryName, detail: e ? e.summary : l.after, undone: l.undone || !e }
       ]
     }
     // Issues, scene dates and filled fields have their own places on the results page (conflicts) or none.

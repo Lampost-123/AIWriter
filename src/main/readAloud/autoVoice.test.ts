@@ -184,6 +184,72 @@ describe('giving characters their voices', () => {
   })
 })
 
+describe('asking about several characters together (the World build)', () => {
+  /** The characters each request asks about, by its CHARACTER lines. */
+  function requests(reply?: (body: string) => Response | null): typeof fetch & { asked: string[][] } {
+    const asked: string[][] = []
+    const f = ((input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: string }[] }
+      const user = body.messages?.find((m) => m.role === 'user')?.content ?? ''
+      asked.push([...user.matchAll(/^CHARACTER: ([^(\n]+?)(?: \(|$)/gm)].map((m) => m[1]))
+      return reply?.(String(init?.body)) ?? fetch(input, init)
+    }) as typeof fetch & { asked: string[][] }
+    f.asked = asked
+    return f
+  }
+
+  it('asks about them all in one request, each told as Suggest would tell them alone', async () => {
+    const db = memoryWorld()
+    const mara = character(db, 'Mara', { description: 'Tall and wry.', fields: { age: '34' } })
+    const siobhan = character(db, 'Siobhan')
+    const f = requests()
+    const steps: string[] = []
+    const result = await giveVoices(
+      { db, model: model(), fetchImpl: f, together: true, lines: () => ['Pay first, then we talk.'], onStep: (n, of) => steps.push(`${n} of ${of}`) },
+      [mara.id, siobhan.id]
+    )
+    expect(f.asked).toEqual([['Mara', 'Siobhan']])
+    expect(speechRecords(db)).toBe(1)
+    expect(result.voiced).toEqual([mara.id, siobhan.id])
+    expect(steps).toEqual(['2 of 2'])
+    expect(voiceOf(db, mara.id)).toEqual({ voice: { design: SUGGESTED_VOICE, voice: '' }, say: '' })
+    expect(voiceOf(db, siobhan.id)).toEqual({ voice: { design: SUGGESTED_VOICE, voice: '' }, say: SUGGESTED_SAY })
+    // The same about each as when asked alone.
+    const user = fake.lastRequest()!.body.messages[1].content
+    expect(user).toContain(voicePrompt(repo.getEntries(db, [mara.id])[0], ['Pay first, then we talk.'], '')[1].content)
+  })
+
+  it('asks about one at a time only those the reply leaves out', async () => {
+    const db = memoryWorld()
+    const mara = character(db, 'Mara')
+    const tobin = character(db, 'Tobin')
+    const f = requests((body) =>
+      body.includes('] voices\\n') ? new Response(sse(JSON.stringify({ '1': { voice: 'A low, dry voice.', say: '' } })), { headers: { 'content-type': 'text/event-stream' } }) : null
+    )
+    const result = await giveVoices({ db, model: model(), fetchImpl: f, together: true }, [mara.id, tobin.id])
+    expect(f.asked).toEqual([['Mara', 'Tobin'], ['Tobin']])
+    expect(result.voiced).toEqual([mara.id, tobin.id])
+    expect(voiceOf(db, mara.id).voice.design).toBe('A low, dry voice.')
+    expect(voiceOf(db, tobin.id).voice.design).toBe(SUGGESTED_VOICE)
+  })
+
+  it('a request that fails leaves them all without a voice, without asking each', async () => {
+    const db = memoryWorld()
+    const mara = character(db, 'Mara')
+    const tobin = character(db, 'Tobin')
+    const f = requests(() => new Response('no', { status: 500 }))
+    const result = await giveVoices({ db, model: model(), fetchImpl: f, together: true, retryDelays: [1] }, [mara.id, tobin.id])
+    expect(result.voiced).toEqual([])
+    expect(f.asked.every((a) => a.length === 2)).toBe(true)
+    expect(voiceOf(db, mara.id).voice.design).toBe('')
+  })
+})
+
+/** A streamed reply, as the provider sends one. */
+function sse(text: string): string {
+  return `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`
+}
+
 describe('in the background', () => {
   it('asks once a session for each character, after the job that made them', async () => {
     const db = memoryWorld()

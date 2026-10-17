@@ -20,7 +20,7 @@ import * as repo from '../db/repo'
 import { runTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import { newId } from '../util'
-import { cleanDesign, linesSpokenBy, readVoiceReply, voicePrompt } from './suggest'
+import { cleanDesign, cleanSay, linesSpokenBy, readVoiceReply, readVoicesReply, voicePrompt, voicesPrompt } from './suggest'
 import { getEntryReadAloud, setEntryReadAloud } from './voiceStore'
 
 type DB = Database.Database
@@ -118,6 +118,11 @@ export interface GiveVoicesOptions {
   onStep?: (n: number, of: number) => void
   /** Told each character as soon as its voice is saved. */
   onVoiced?: (entryId: ID) => void
+  /**
+   * Asks about them together (the World build, 2026-10-17): one request for every VOICES_TOGETHER of them, telling
+   * each as it would be told alone; those the reply leaves out are then asked about one at a time.
+   */
+  together?: boolean
   onKeyRejected?: () => void
   /** For tests. */
   fetchImpl?: typeof fetch
@@ -142,19 +147,62 @@ export async function giveVoices(o: GiveVoicesOptions, entryIds: ID[]): Promise<
     return out
   }
   const storyIds = o.lines ? [] : repo.listStories(o.db).map((s) => s.id)
-  for (const [i, e] of characters.entries()) {
+  const linesOf = (e: Entry): string[] => {
+    try {
+      return o.lines ? o.lines(e) : linesSpokenBy(o.db, e, { storyIds })
+    } catch {
+      /* Their lines can't be read: the description comes from the page alone. */
+      return []
+    }
+  }
+  const keep = (e: Entry, got: { design: string; say: string }): void => {
+    try {
+      if (keepVoice(o.db, e.id, got)) {
+        out.voiced.push(e.id)
+        o.onVoiced?.(e.id)
+      }
+    } catch (err) {
+      console.warn('Could not save a voice', err)
+    }
+  }
+  let alone = characters
+  if (o.together && characters.length > 1) {
+    alone = []
+    for (let at = 0; at < characters.length; at += VOICES_TOGETHER) {
+      if (o.stopped?.() || !o.db.open) return out
+      const group = characters.slice(at, at + VOICES_TOGETHER)
+      o.onStep?.(at + group.length, characters.length)
+      const taskId = newId()
+      o.onTask?.(taskId)
+      let got: Map<ID, { design: string; say: string }> = new Map()
+      try {
+        const asked = await askVoices(o, group.map((e) => ({ entry: e, lines: linesOf(e) })), taskId)
+        if (asked.done.cost != null) out.cost = (out.cost ?? 0) + asked.done.cost
+        // A request that failed leaves them all without a voice, as one alone would (asking each would fail as well).
+        if (asked.done.status !== 'complete') continue
+        got = asked.got
+      } catch (err) {
+        console.warn('Could not ask for the voices', err)
+        continue
+      } finally {
+        o.onTask?.(null)
+      }
+      if (o.stopped?.() || !o.db.open) return out
+      for (const e of group) {
+        const v = got.get(e.id)
+        if (v?.design) keep(e, v)
+        else alone.push(e)
+      }
+    }
+  }
+  for (const [i, e] of alone.entries()) {
     if (o.stopped?.() || !o.db.open) break
-    o.onStep?.(i + 1, characters.length)
+    o.onStep?.(i + 1, alone.length)
     const taskId = newId()
     o.onTask?.(taskId)
     let got: VoiceReply
     try {
-      let lines: string[] = []
-      try {
-        lines = o.lines ? o.lines(e) : linesSpokenBy(o.db, e, { storyIds })
-      } catch {
-        /* Their lines can't be read: the description comes from the page alone. */
-      }
+      const lines = linesOf(e)
       got = await askVoice({
         db: o.db,
         entry: e,
@@ -175,16 +223,44 @@ export async function giveVoices(o: GiveVoicesOptions, entryIds: ID[]): Promise<
     }
     if (got.done.cost != null) out.cost = (out.cost ?? 0) + got.done.cost
     if (got.done.status !== 'complete' || !got.design || o.stopped?.() || !o.db.open) continue
-    try {
-      if (keepVoice(o.db, e.id, got)) {
-        out.voiced.push(e.id)
-        o.onVoiced?.(e.id)
-      }
-    } catch (err) {
-      console.warn('Could not save a voice', err)
-    }
+    keep(e, got)
   }
   return out
+}
+
+/** The most characters asked about in one request when they are asked about together. */
+export const VOICES_TOGETHER = 12
+
+/** One request for several characters' voices (voicesPrompt), read back for each; one the reply leaves out isn't in `got`. */
+async function askVoices(
+  o: GiveVoicesOptions,
+  group: { entry: Entry; lines: string[] }[],
+  taskId: ID
+): Promise<{ done: TaskDone; got: Map<ID, { design: string; say: string }> }> {
+  const done = await runTask({
+    db: o.db,
+    taskId,
+    job: 'speech',
+    sceneId: null,
+    model: o.model,
+    messages: voicesPrompt(group),
+    reply: Math.min(4000, 100 + group.length * VOICE_SAY_REPLY_TOKENS),
+    temperature: VOICE_TEMPERATURE,
+    direction: `Voices for ${group.map((g) => g.entry.name).join(', ')}`,
+    emit: o.emit ?? quiet,
+    onKeyRejected: o.onKeyRejected,
+    fetchImpl: o.fetchImpl,
+    retryDelays: o.retryDelays
+  })
+  const got = new Map<ID, { design: string; say: string }>()
+  if (done.status !== 'complete') return { done, got }
+  for (const [i, v] of readVoicesReply(done.text, group.length).entries()) {
+    const e = group[i]?.entry
+    if (!e || !v) continue
+    const design = cleanDesign(v.voice)
+    if (design) got.set(e.id, { design, say: cleanSay(v.say, e) })
+  }
+  return { done, got }
 }
 
 // ---------- In the background ----------

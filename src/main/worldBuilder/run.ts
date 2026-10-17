@@ -19,7 +19,7 @@ import type {
   WorldBuildStage,
   WorldBuilderState
 } from '@shared/contracts/worldBuilder'
-import type { ChatMessage, EntryKind, ID, WritingPrefs } from '@shared/types'
+import type { ChatMessage, Entry, EntryKind, ID, WritingPrefs } from '@shared/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { entryNames, entryState, lastBuildRun } from '../db/worldBuilder'
@@ -28,7 +28,7 @@ import type { JobModel } from '../ai/jobModel'
 import { gatherWorld } from '../builder/context'
 import { briefVersions, retryMessage, worldText } from '../builder/prompts'
 import { parsePartial } from '../builder/partial'
-import { hisWordsIn, splitAliases, valuesOf } from '../builder/profile'
+import { entryText, hisWordsIn, profileKeys, splitAliases, valuesOf } from '../builder/profile'
 import { isBuilderKind } from '../builder/save'
 import { CUT_OFF, parseLenient } from '../keeper/json'
 import { fieldLabel, fieldValue } from '../keeper/facts'
@@ -71,12 +71,15 @@ import {
   relationshipsSystem,
   relationshipsUser,
   SHAPES,
+  summaryLead,
   themesSystem,
   themesUser,
+  worldSystem,
   type WorldJob
 } from './prompts'
 import { earlierBuilds, madeItems } from './lines'
-import { planScenes } from './storySummary'
+import type { BuildWorld } from './estimate'
+import { planScenes, storyThemes } from './storySummary'
 import {
   fillField,
   finishWriter,
@@ -85,6 +88,7 @@ import {
   saveEntry,
   saveIssue,
   saveMeta,
+  saveInto,
   saveRelationship,
   saveSceneWhen,
   setParent,
@@ -213,6 +217,8 @@ interface Build {
    * look planned ("The Ferryman" laid out as "Bram Holt"), and the events and places that name it still find it.
    */
   savedAs: Map<string, ID>
+  /** Planned items laid out into a name-only page this story's outline made (isOutlineStub), and that page. */
+  into: Map<PlanItem, ID>
   done: Promise<void>
 }
 
@@ -268,6 +274,7 @@ export function startBuild(ctx: BuildContext, input: WorldBuildInput): Promise<v
     planned: earlier.planned,
     parents: new Map(),
     savedAs: new Map(),
+    into: new Map(),
     done: Promise.resolve()
   }
   current = b
@@ -486,12 +493,16 @@ function openTimeline(b: Build): void {
   }
 }
 
-const chat = (system: string, user: string): ChatMessage[] => [
-  { role: 'system', content: system },
-  { role: 'user', content: user }
+/**
+ * A request: the system message every request of the build shares, then the user message opening with the summary
+ * (marked as what stays the same, for a model that caches only where asked).
+ */
+const chat = (user: { content: string; cacheUpTo: number }): ChatMessage[] => [
+  { role: 'system', content: worldSystem() },
+  { role: 'user', content: user.content, cacheUpTo: user.cacheUpTo }
 ]
 
-/** The same request again, after a reply that couldn't be used, saying why. */
+/** The same request again, after a reply that couldn't be used, saying why: added after it, so it opens the same (the cache). */
 const again = (messages: ChatMessage[], reply: string, why: string, shape: string): ChatMessage[] => [
   ...messages,
   { role: 'assistant', content: reply },
@@ -674,7 +685,7 @@ async function firstLook(b: Build): Promise<PlanItem[] | null> {
   const items: PlanItem[] = []
   for (const [i, part] of parts.entries()) {
     setStep(b, 'reading', parts.length > 1 ? `Reading your summary: part ${i + 1} of ${parts.length}` : 'Reading your summary')
-    const messages = chat(system, overviewUser(existing, part, [i + 1, parts.length]))
+    const messages = chat(overviewUser(existing, part, [i + 1, parts.length]))
     let done = await ask(b, 'overview', messages)
     if (!done) return null
     let got = readReply(done)
@@ -696,7 +707,7 @@ async function firstLook(b: Build): Promise<PlanItem[] | null> {
     for (let look = 0; look < MORE_LOOKS; look++) {
       if (halted(b)) return null
       setStep(b, 'reading', parts.length > 1 ? `Reading part ${i + 1} of ${parts.length} again for anything missed` : 'Reading your summary again for anything missed')
-      const more = await ask(b, 'overview', chat(system, overviewMoreUser(existing, listed, part, [i + 1, parts.length])))
+      const more = await ask(b, 'overview', chat(overviewMoreUser(existing, listed, part, [i + 1, parts.length])))
       if (!more) return null
       const extra = readReply(more)
       const fresh = hasOverviewLists(extra.value) ? newItems(overviewItems(extra.value), listed) : []
@@ -715,7 +726,32 @@ function noteFound(b: Build, id: ID): void {
   if (e) b.found.set(id, { entryId: e.id, kind: e.kind, name: e.name })
 }
 
-/** What the world has (and earlier builds made) is left as it is; what Adam undid or deleted isn't added again from the same words. The rest is laid out. */
+/** A page with nothing in it but its name, as keeping an outline makes one for a name on a card (outline/chapterCard.ts). */
+const isStub = (e: Entry): boolean =>
+  e.origin === 'ai' && isBuilderKind(e.kind) && profileKeys(e.kind).every((k) => k === 'name' || !entryText(e, k).trim())
+
+/**
+ * A page the build lays out in full rather than leaving as found (Adam, 2026-10-17): a character or place keeping this
+ * story's outline made with only its name (outline/chapterCard.ts addMissing), which nobody has written in since.
+ */
+export function isOutlineStub(e: Entry, storyId: ID | null): boolean {
+  return (
+    !!storyId &&
+    e.originStoryId === storyId &&
+    (e.kind === 'character' || e.kind === 'place') &&
+    !e.byHand &&
+    isStub(e) &&
+    !e.tags.length &&
+    Object.values(e.fields).every((v) => !String(v ?? '').trim()) &&
+    Object.values(e.fieldOrigins ?? {}).every((o) => o === 'ai')
+  )
+}
+
+/**
+ * What the world has (and earlier builds made) is left as it is; what Adam undid or deleted isn't added again from the
+ * same words. The rest is laid out, and so are the name-only pages this story's outline made (isOutlineStub), into those
+ * same pages.
+ */
 function sortOut(b: Build, plan: PlanItem[]): PlanItem[] {
   const world = [...entryNames(b.ctx.db), ...b.planned]
   // What the summary names itself (the same name, of the same kind) is that thing, never another it names by a typo or of another kind.
@@ -723,7 +759,14 @@ function sortOut(b: Build, plan: PlanItem[]): PlanItem[] {
   const todo: PlanItem[] = []
   for (const p of plan) {
     const there = findMatch(p, world, taken)
-    if (there) {
+    const stub = there && there.kind === p.kind ? repo.getEntries(b.ctx.db, [there.id])[0] : undefined
+    if (stub && isOutlineStub(stub, b.storyId) && ![...b.into.values()].includes(stub.id)) {
+      if (b.blocked.has(blockedKey(entrySource(b, p)))) b.skipped.push(p.name)
+      else {
+        b.into.set(p, stub.id)
+        todo.push(p)
+      }
+    } else if (there) {
       noteFound(b, there.id)
       remember(b, p, there.id)
       dateFound(b, p, there)
@@ -801,6 +844,20 @@ function saveProfile(b: Build, p: PlanItem, profile: Profile, raw: Record<string
   }
   const extras = profileExtras(raw)
   const world = entryNames(db)
+  const into = b.into.get(p)
+  if (into) {
+    // Into the name-only page this story's outline made: that page, under the name it has.
+    const inside = p.kind === 'place' ? extras.in || p.in : ''
+    const parentId = inside
+      ? (plannedAs(b, inside, 'place') ?? findMatch({ kind: 'place', name: inside, aliases: [] }, world.filter((e) => e.kind === 'place' && e.id !== into))?.id ?? null)
+      : null
+    const { name: _name, ...rest } = values
+    const done = saveInto(b.writer, { entryId: into, kind: p.kind, planned: p.name, profile: { values: rest, his: [...his] }, parentId, source: entrySource(b, p) })
+    remember(b, p, into)
+    if (done) saved(b, [into])
+    else b.missed.push(p.name)
+    return
+  }
   // What this build saved for the rest of the summary is those things: only the same name of the same kind is one of them.
   const taken = new Set(b.savedAs.values())
   const there =
@@ -890,7 +947,7 @@ async function layOutCharacters(b: Build, items: PlanItem[]): Promise<void> {
     const plan = planText(b.plan)
     const fixed = estimateTokens(system + world.text + plan) + 150
     const about = textAbout(b.summary, namesOf(p), summaryRoom(choice, 'character', fixed))
-    const messages = chat(system, characterUser(world.text, plan, about, p))
+    const messages = chat(characterUser(world.text, plan, about, p))
     let done = await ask(b, 'character', messages, { entries: world.entries })
     if (!done) return
     let got = readReply(done)
@@ -974,7 +1031,7 @@ async function layOutBatch(b: Build, kind: EntryKind, batch: PlanItem[], onHandl
     batch.flatMap((p) => namesOf(p)),
     summaryRoom(choice, JOB_OF[kind], fixed)
   )
-  const messages = chat(system, batchUser(kind, world.text, plan, about, batch))
+  const messages = chat(batchUser(kind, world.text, plan, about, batch))
   const pending = [...batch]
   let taken = new Set<number>()
   const take = (list: Record<string, unknown>[], upTo: number): void => {
@@ -1068,7 +1125,6 @@ async function relationships(b: Build): Promise<void> {
     summaryRoom(choice, 'relationships', fixed)
   )
   const messages = chat(
-    system,
     relationshipsUser(
       about,
       people.map((e) => e.name),
@@ -1129,18 +1185,28 @@ async function themesAndTone(b: Build): Promise<void> {
   const want = (['themes', 'tone'] as const).filter((k) => !(repo.getMeta(db, k) ?? '').trim() && !b.blocked.has(blockedKey(source(k))))
   if (!want.length) return
   setStep(b, 'themes', want.length === 2 ? "Setting the world's themes and tone" : `Setting the world's ${want[0]}`)
-  const system = themesSystem([...want])
+  // A story build whose summary gives the story's own themes or tone (storySummary.ts): those words, as the AI was
+  // asked to copy them, without asking it (2026-10-17). The AI is asked only for what the story doesn't give.
+  const given = b.storyId ? storyThemes(db, b.storyId, b.summary) : {}
+  for (const k of want) {
+    if (halted(b)) return
+    const words = given[k]
+    if (words && saveMeta(b.writer, k, words, source(k))) saved(b, [])
+  }
+  const asked = want.filter((k) => !given[k])
+  if (!asked.length) return
+  const system = themesSystem([...asked])
   const about = textAbout(b.summary, [], summaryRoom(b.ctx.model.choice, 'themes', estimateTokens(system) + 60))
-  const messages = chat(system, themesUser(about))
+  const messages = chat(themesUser(about, [...asked]))
   let done = await ask(b, 'themes', messages)
   if (!done) return
   let found = themesReply(readReply(done).value)
-  if (!want.some((k) => found[k])) {
+  if (!asked.some((k) => found[k])) {
     done = await ask(b, 'themes', again(messages, done.text, 'it had nothing for the themes or tone', SHAPES.themes))
     if (!done) return
     found = themesReply(readReply(done).value)
   }
-  for (const k of want) {
+  for (const k of asked) {
     if (halted(b)) return
     if (saveMeta(b.writer, k, found[k], source(k))) saved(b, [])
   }
@@ -1151,10 +1217,18 @@ async function themesAndTone(b: Build): Promise<void> {
 /** The most of the pages told to the check. */
 const PAGES_TOKENS = 3000
 
+/**
+ * A page the check protects (2026-10-17): one Adam made or edited himself, or read from his scenes' words. A page only
+ * the AI drafted (an earlier build's, say) isn't his fact to keep, so the summary is never checked against it.
+ */
+export const isHisPage = (e: Pick<Entry, 'origin' | 'byHand' | 'fieldOrigins'>): boolean =>
+  e.byHand || e.origin !== 'ai' || Object.values(e.fieldOrigins ?? {}).some((o) => o !== 'ai')
+
 async function check(b: Build): Promise<void> {
   const db = b.ctx.db
   const pages = repo
     .getEntries(db, [...b.found.keys()])
+    .filter(isHisPage)
     .map((e) => ({ e, values: valuesOf(asProfileKind(e.kind), e) }))
     .filter((p) => Object.entries(p.values).some(([k, v]) => k !== 'name' && k !== 'aliases' && v.trim()))
   if (!pages.length) return
@@ -1173,7 +1247,7 @@ async function check(b: Build): Promise<void> {
     pages.flatMap((p) => [p.e.name, ...p.e.aliases]),
     summaryRoom(b.ctx.model.choice, 'check', estimateTokens(system) + used + 80)
   )
-  const done = await ask(b, 'check', chat(system, checkUser(texts, about)))
+  const done = await ask(b, 'check', chat(checkUser(texts, about)))
   if (!done) return
   for (const c of conflictItems(readReply(done).value)) {
     if (halted(b)) return
@@ -1187,16 +1261,34 @@ async function check(b: Build): Promise<void> {
 
 // ---------- Filling in what is missing ----------
 
+/** What the cost estimate needs to know of the world before a build of this summary (estimate.ts guessBuild). */
+export function estimateFacts(db: DB, summary: string, storyId: ID | null): BuildWorld {
+  const all = repo.listEntries(db)
+  const stubs = new Set(all.filter((e) => isOutlineStub(e, storyId)).map((e) => e.id))
+  const given = storyId ? storyThemes(db, storyId, summary) : {}
+  const known = (k: 'themes' | 'tone'): boolean => !!(repo.getMeta(db, k) ?? '').trim() || !!given[k]
+  return {
+    existing: all.length - stubs.size,
+    his: all.filter(isHisPage).length,
+    themesKnown: known('themes') && known('tone'),
+    thin: pagesToFill(db, [], storyId).filter((id) => !stubs.has(id)).length
+  }
+}
+
 /**
- * The pages a build fills in: what it made, and anything else in the world that Adam didn't make himself (a
- * character the memory found in a scene with only a name and a line, say). Only thin ones, and only their
- * empty fields (builder/fill.ts).
+ * The pages a build fills in (2026-10-17): what it laid out that came back thin (`made`), the thin pages Adam didn't
+ * make himself (a character the memory found in a scene with only a name and a line, say) of the build's story (with
+ * no story, all but those the AI drafted for a story), and any page that is still only a name. Never another story's
+ * AI-drafted pages, which would otherwise be asked about again at every build. Only thin pages, and only their empty
+ * fields (builder/fill.ts), what the build laid out first.
  */
-export function pagesToFill(db: DB, made: ID[]): ID[] {
+export function pagesToFill(db: DB, made: ID[], storyId: ID | null = null): ID[] {
   const mine = new Set(made)
+  const ours = (e: Entry): boolean =>
+    e.originStoryId === storyId || (storyId === null && (e.origin !== 'ai' || !e.originStoryId)) || isStub(e)
   return repo
     .listEntries(db)
-    .filter((e) => (mine.has(e.id) || !e.byHand) && fillTargets(e).length > 0)
+    .filter((e) => (mine.has(e.id) || (!e.byHand && ours(e))) && fillTargets(e).length > 0)
     .sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id)))
     .map((e) => e.id)
 }
@@ -1204,7 +1296,7 @@ export function pagesToFill(db: DB, made: ID[]): ID[] {
 async function fillTheGaps(b: Build): Promise<void> {
   const db = b.ctx.db
   const made = b.writer.made.flatMap((m) => (m.what === 'entry' && m.entryId ? [m.entryId] : []))
-  const ids = pagesToFill(db, made)
+  const ids = pagesToFill(db, made, b.storyId)
   if (!ids.length) return
   let n = 0
   const step = (): void => setStep(b, 'filling', `Filling in missing details: ${Math.min(n + 1, ids.length)} of ${ids.length}`)
@@ -1216,8 +1308,13 @@ async function fillTheGaps(b: Build): Promise<void> {
       job: 'world',
       prefs: b.ctx.prefs,
       storyId: b.storyId,
-      saidAbout: (e) =>
-        [textAbout(b.summary, [e.name, ...e.aliases], FILL_SAID_TOKENS), storySaid(db, e)].filter((t) => t.trim()).join('\n\n'),
+      // Each request opens as the build's others do (the cache): its system message, then the summary about the page.
+      opening: {
+        system: worldSystem(),
+        summaryAbout: (e) => textAbout(b.summary, [e.name, ...e.aliases], FILL_SAID_TOKENS),
+        lead: (about) => summaryLead(about)
+      },
+      saidAbout: (e) => storySaid(db, e),
       stopped: () => halted(b),
       onTask: (taskId) => {
         b.taskId = taskId
@@ -1265,6 +1362,7 @@ async function giveVoices(b: Build): Promise<void> {
         b.taskId = taskId
       },
       onVoiced: (id) => saved(b, [id]),
+      together: true,
       fetchImpl: b.ctx.fetchImpl,
       retryDelays: b.ctx.retryDelays
     },
