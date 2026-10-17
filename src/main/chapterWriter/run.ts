@@ -89,6 +89,11 @@ export interface RunDeps {
   check: (sceneId: ID, signal: AbortSignal) => Promise<{ status: 'done' | 'empty' | 'stopped' | 'error'; error?: string }>
   /** The craft critic on a scene or the chapter; `again`: a re-read after revisions. */
   critique: (target: CritiqueTarget, again: boolean, signal: AbortSignal) => Promise<CritiqueOutcome>
+  /**
+   * Whether the critic reads at all (Settings › Models, 2026-10-17, to save on costs): false, the run is checked and
+   * fixed by the consistency checks alone, and the critic never reads. Left out: it reads.
+   */
+  critic?: () => boolean
   /** The monthly spending limit is holding AI calls: what to say, or null. */
   limitNote: () => string | null
   /** True once the world has closed. */
@@ -538,6 +543,7 @@ export class ChapterRun {
    * chapter as it now is. Its notes are for Adam: the run doesn't act on them. A read that fails is passed over.
    */
   private async lastRead(): Promise<void> {
+    if (!this.criticOn()) return
     const scenes = this.refs.filter((r) => this.unread.has(r.id))
     if (!scenes.length && !this.chapterUnread) return
     const found: string[] = []
@@ -577,7 +583,9 @@ export class ChapterRun {
    */
   private async gather(changed: Set<ID>): Promise<{ give: Finding[]; leave: Finding[] }> {
     const { db } = this.d
-    // The critic reads in the first round only (its notes not yet dealt with carry on), then once more at the end.
+    // The critic reads in the first round only (its notes not yet dealt with carry on), then once more at the end; never
+    // when Adam has switched it off.
+    const critic = this.criticOn()
     const first = this.round === 1
     const after = new Set([...changed].map((id) => sceneAfter(db, id)).filter((id): id is ID => !!id && !changed.has(id)))
     for (const r of this.refs) {
@@ -587,7 +595,7 @@ export class ChapterRun {
       this.check()
       this.tell('checking', mine ? `Checking ${r.label}, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id)
       await this.checkScene(r.id)
-      if (!mine) continue
+      if (!mine || !critic) continue
       if (!first) {
         this.unread.add(r.id)
         continue
@@ -597,11 +605,11 @@ export class ChapterRun {
       this.sceneNotes.set(r.id, await this.notes({ scope: 'scene', id: r.id }, false))
     }
     for (const id of after) if (!this.sceneIds.includes(id)) await this.checkOutside(id)
-    if (changed.size && first) {
+    if (critic && changed.size && first) {
       this.check()
       this.tell('checking', `The critic is reading ${this.label}, round ${this.round}`)
       this.chapterNotes = await this.notes({ scope: 'chapter', id: this.chapterId }, false)
-    } else if (changed.size) this.chapterUnread = true
+    } else if (critic && changed.size) this.chapterUnread = true
     // This round's findings take the place of what was still open: fixed or gone ones drop out, set-asides stay out.
     for (const f of this.findings) if (f.status === 'open') f.status = 'gone'
     const give: Finding[] = []
@@ -711,6 +719,11 @@ export class ChapterRun {
       ...[...this.outsideNotes.values()].flat(),
       ...(this.lastReadNote ? [this.lastReadNote] : [])
     ]
+  }
+
+  /** Whether the critic reads (Adam's switch; on when the run isn't told). */
+  private criticOn(): boolean {
+    return this.d.critic?.() ?? true
   }
 
   private async notes(target: CritiqueTarget, again: boolean): Promise<CritiqueNote[]> {

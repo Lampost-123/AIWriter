@@ -18,6 +18,7 @@ import { cn } from '@/lib/cn'
 import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
 import { RepairSettings } from '@/features/repair/RepairSettings'
+import { AutoCheckSettings } from './AutoCheckSettings'
 import { useNewLook } from '@/features/look/look'
 import { ProviderMark } from './ProviderMark'
 import { FindByMeaningSettings } from '@/features/retrieval/FindByMeaningSettings'
@@ -199,6 +200,7 @@ export function ModelsSettings(): React.JSX.Element {
       <ContractSettings />
       <BriefSettings />
       <RepairSettings />
+      <AutoCheckSettings />
       <FindByMeaningSettings />
     </div>
   )

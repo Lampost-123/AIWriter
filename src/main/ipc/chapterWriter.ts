@@ -182,6 +182,7 @@ function deps(runId: ID): RunDeps {
               // 13); with contracts switched off, what an earlier one found is taken away.
               contract: contractFor(sceneId),
               contractsOff: !contractWanted(getSettings()),
+              secondOpinionOff: getSettings().checkSecondOpinion === false,
               // The facts the scene touches, by meaning too when the search model is on (2026-10-16).
               byMeaning: (queries, docs, s) => meaningForCheck(db, queries, docs, s)
             },
@@ -216,6 +217,7 @@ function deps(runId: ID): RunDeps {
         throw e
       }
     },
+    critic: () => getSettings().chapterCritic !== false,
     limitNote: pausedNote,
     closed
   }
