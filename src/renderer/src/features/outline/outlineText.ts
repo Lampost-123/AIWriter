@@ -24,7 +24,11 @@ interface Options {
   edits?: Edits
   /** Left out (with what it holds). */
   skip?: (key: string) => boolean
+  /** Each heading ends with its key ("[#a0c1s2]"), so a talk's answer can say which one it changed. */
+  tag?: boolean
 }
+
+const tagged = (key: string, o: Options): string => (o.tag ? ` [#${key}]` : '')
 
 export function sceneText(s: SuggestedScene, o: Options = {}): string {
   const e = o.edits?.[s.key]
@@ -32,7 +36,7 @@ export function sceneText(s: SuggestedScene, o: Options = {}): string {
   const when = flat(e?.when ?? s.when)
   const summary = flat(e?.text ?? s.summary)
   const beats = (e?.beats ?? s.beats).map(flat).filter(Boolean)
-  const lines = [`### Scene: ${title}`]
+  const lines = [`### Scene: ${title}${tagged(s.key, o)}`]
   if (when) lines.push(`When: ${when}`)
   if (summary) lines.push(`Summary: ${summary}`)
   lines.push(...cardLines(s.card ?? emptySuggestedCard(), false))
@@ -46,7 +50,7 @@ export function chapterText(c: SuggestedChapter, o: Options = {}): string {
   const e = o.edits?.[c.key]
   const title = flat(e?.title ?? c.title) || 'Untitled chapter'
   const goal = flat(e?.text ?? c.goal)
-  const head = [`## Chapter: ${title}`]
+  const head = [`## Chapter: ${title}${tagged(c.key, o)}`]
   if (goal) head.push(`Goal: ${goal}`)
   head.push(...cardLines(c.card ?? emptySuggestedCard(), true))
   const scenes = c.scenes.filter((s) => !o.skip?.(s.key)).map((s) => sceneText(s, o))
@@ -57,7 +61,7 @@ export function actText(a: SuggestedAct, o: Options = {}): string {
   const e = o.edits?.[a.key]
   const title = flat(e?.title ?? a.title) || 'Untitled act'
   const purpose = flat(e?.text ?? a.purpose)
-  const head = [`# Act: ${title}`]
+  const head = [`# Act: ${title}${tagged(a.key, o)}`]
   if (purpose) head.push(`Purpose: ${purpose}`)
   const chapters = a.chapters.filter((c) => !o.skip?.(c.key)).map((c) => chapterText(c, o))
   return [head.join('\n'), ...chapters].join('\n\n')
@@ -148,12 +152,258 @@ export function spliceText(text: string, key: string, fresh: SuggestedAct | Sugg
 }
 
 const PLAN_LINE = /^[#*\s]*=*\s*revised plan\s*=*[*\s:]*$/im
+const CHANGES_LINE = /^[#*\s]*=*\s*(?:changes|changed parts|plan changes)\s*=*[*\s:]*$/im
 
 /** A talk's answer and the revised plan after its line ("=== Revised plan ==="; null when it only answered). */
 export function splitPlanAnswer(text: string): { answer: string; plan: string | null } {
   const m = PLAN_LINE.exec(text)
   if (!m) return { answer: text.trim(), plan: null }
   return { answer: text.slice(0, m.index).trim(), plan: text.slice(m.index + m[0].length).trim() || null }
+}
+
+/**
+ * A talk's answer, and what came after its line: only the changed parts ("=== Changes ===", the usual way), or the
+ * whole plan again ("=== Revised plan ===", for a big rework). Both null when it only answered.
+ */
+export function splitPlanReply(text: string): { answer: string; changes: string | null; plan: string | null } {
+  const c = CHANGES_LINE.exec(text)
+  const p = PLAN_LINE.exec(text)
+  if (c && (!p || c.index <= p.index)) return { answer: text.slice(0, c.index).trim(), changes: text.slice(c.index + c[0].length).trim() || null, plan: null }
+  const { answer, plan } = splitPlanAnswer(text)
+  return { answer, changes: null, plan }
+}
+
+const TAG = /[ \t]*\[[ \t]*(?:(new)(?:[ \t]+after[ \t]+#[ \t]*([acs0-9]+))?|#[ \t]*([acs0-9]+))[ \t]*\][ \t]*:?/i
+const TAGS = new RegExp(TAG.source, 'gi')
+
+/** A heading's title without its tag, and what the tag says: the one it changes, or where a new one goes. */
+function tagOf(title: string): { title: string; key: string | null; after: string | null } {
+  const m = TAG.exec(title)
+  if (!m) return { title, key: null, after: null }
+  const rest = `${title.slice(0, m.index)} ${title.slice(m.index + m[0].length)}`.replace(/^[\s:–—-]+|[\s:–—-]+$/g, '').replace(/\s+/g, ' ')
+  return { title: rest, key: m[3]?.toLowerCase() ?? null, after: m[2]?.toLowerCase() ?? null }
+}
+
+/** The plan's tags taken out (a whole revised plan may keep them). */
+export const stripTags = (text: string): string => text.replace(TAGS, '')
+
+/** The suggestions with each heading tagged with its key, for talking them over (see applyPlanChanges). */
+export const taggedText = (current: string): string => outlineText(parseOutline(current, true), { tag: true })
+
+type AnyNode = SuggestedAct | SuggestedChapter | SuggestedScene
+type Place = { kind: NodeKind; node: AnyNode; list: AnyNode[]; chapter?: SuggestedChapter }
+
+function locate(p: ParsedOutline, key: string): Place | null {
+  const act = p.acts.find((a) => a.key === key)
+  if (act) return { kind: 'act', node: act, list: p.acts }
+  for (const list of [p.chapters, ...p.acts.map((a) => a.chapters)])
+    for (const c of list) {
+      if (c.key === key) return { kind: 'chapter', node: c, list }
+      const s = c.scenes.find((x) => x.key === key)
+      if (s) return { kind: 'scene', node: s, list: c.scenes, chapter: c }
+    }
+  return null
+}
+
+const keep = (next: string, was: string): string => (next.trim() ? next : was)
+const mergeCard = (was: SuggestedCard, next: SuggestedCard): SuggestedCard => ({
+  pov: keep(next.pov, was.pov),
+  characters: next.characters.length ? next.characters : was.characters,
+  location: keep(next.location, was.location),
+  when: keep(next.when, was.when),
+  mood: keep(next.mood, was.mood)
+})
+
+/** A chapter the reader made up to hold scenes given with no chapter heading. */
+const holder = (c: SuggestedChapter): boolean => {
+  const t = tagOf(c.title)
+  return !t.key && !t.after && !c.goal && /^Chapter \d+$/.test(c.title) && !c.card.pov && !c.card.location && !c.card.mood && !c.card.characters.length
+}
+
+function untag<T extends AnyNode>(n: T): T {
+  const title = tagOf(n.title).title
+  if ('chapters' in n) return { ...n, title, chapters: n.chapters.map(untag) }
+  if ('scenes' in n) return { ...n, title, scenes: n.scenes.map(untag) }
+  return { ...n, title }
+}
+
+const TOUCHES = /^\W*touches\b\s*:?(.*)$/im
+const TAG_REFS = /#\s*([acs][acs0-9]*)/gi
+
+/** The tags a reply's "Touches:" line lists: every part it said has to change for what was asked. */
+export function touchesOf(text: string): string[] {
+  const m = TOUCHES.exec(text)
+  return m ? [...new Set([...m[1].matchAll(TAG_REFS)].map((x) => x[1].toLowerCase()))] : []
+}
+
+/** The title of the part a tag names in the suggestions, for asking the AI about it again ('' when it isn't there). */
+export function titleOfTag(current: string, key: string): string {
+  return locate(parseOutline(current, true), key)?.node.title ?? ''
+}
+
+/** One part a talk's changes made: new, changed (with how it was) or taken out; `where`: the title of what holds it. */
+export interface PlanChange {
+  kind: NodeKind
+  mark: 'new' | 'changed' | 'removed'
+  where: string
+  before: AnyNode | null
+  after: AnyNode | null
+}
+
+/** A part's own words, without what it holds: the same means a part given only to hold changed ones didn't change. */
+function own(kind: NodeKind, n: AnyNode): string {
+  const card = (c?: SuggestedCard): string => (c ? [c.pov, c.characters.join(','), c.location, c.when, c.mood].join('|') : '')
+  if (kind === 'scene') {
+    const s = n as SuggestedScene
+    return [s.title, s.summary, s.when, s.beats.join('|'), card(s.card), (s.setsUp ?? []).join('|'), (s.paysOff ?? []).join('|')].join('\u0001')
+  }
+  if (kind === 'chapter') {
+    const c = n as SuggestedChapter
+    return [c.title, c.goal, card(c.card)].join('\u0001')
+  }
+  const a = n as SuggestedAct
+  return [a.title, a.purpose].join('\u0001')
+}
+
+/**
+ * Puts a talk's changes into the suggestions (`current`, as sent, untagged): each part given with its tag ("[#c1s2]")
+ * takes that part's place, keeping what it leaves out (an act or chapter given without some of its scenes keeps them);
+ * one tagged "[new after #c1s2]" goes after that one (or first inside it, when it is the one above); "Remove: #c1s2"
+ * takes one out. `done`: the tags it changed or took out. Null when nothing in it could be used.
+ */
+export function applyPlanChanges(
+  current: string,
+  changes: string
+): { text: string; lost: number; done: Set<string>; changes: PlanChange[] } | null {
+  const base = parseOutline(current, true)
+  const removes = new Set<string>()
+  const lines: string[] = []
+  for (const line of changes.split(/\r?\n/)) {
+    if (/^\W*touches\b/i.test(line)) continue
+    if (/^\W*(remove|removed|delete|cut)\b/i.test(line) && /#\s*[acs]\d/i.test(line)) {
+      for (const m of line.matchAll(TAG_REFS)) removes.add(m[1].toLowerCase())
+    } else lines.push(line)
+  }
+  const reply = parseOutline(lines.join('\n'), true)
+  let count = 0
+  let lost = 0
+  const done = new Set<string>()
+  const edited = new Map<string, PlanChange>()
+  const made: PlanChange[] = []
+  const whereOf = (at: Place): string => {
+    if (at.kind === 'scene') return at.chapter?.title ?? ''
+    if (at.kind === 'chapter') return base.acts.find((a) => a.chapters.includes(at.node as SuggestedChapter))?.title ?? ''
+    return ''
+  }
+  type Home = { list: AnyNode[]; at: number; owner: string }
+
+  /** Puts a new one after the part `after` names; the title of what now holds it, or null when it can't go there. */
+  const insertAfter = (kind: NodeKind, fresh: AnyNode, after: string, home: Home | null): string | null => {
+    const at = locate(base, after)
+    if (!at) return null
+    if (at.kind === kind) {
+      const i = at.list.indexOf(at.node) + 1
+      at.list.splice(i, 0, fresh)
+      if (home?.list === at.list) home.at = i + 1
+      return whereOf(at)
+    }
+    if (kind === 'scene' && at.kind === 'chapter') {
+      ;(at.node as SuggestedChapter).scenes.unshift(fresh as SuggestedScene)
+      return at.node.title
+    }
+    if (kind === 'chapter' && at.kind === 'act') {
+      ;(at.node as SuggestedAct).chapters.unshift(fresh as SuggestedChapter)
+      return at.node.title
+    }
+    if (kind === 'chapter' && at.kind === 'scene' && at.chapter) return insertAfter(kind, fresh, at.chapter.key, home)
+    return null
+  }
+
+  const children = (kind: NodeKind, was: AnyNode, next: AnyNode): void => {
+    if (kind === 'act') {
+      const list = (was as SuggestedAct).chapters
+      const home: Home = { list, at: list.length, owner: was.title }
+      for (const c of (next as SuggestedAct).chapters) handle('chapter', c, home)
+    } else if (kind === 'chapter') {
+      const list = (was as SuggestedChapter).scenes
+      const home: Home = { list, at: list.length, owner: was.title }
+      for (const s of (next as SuggestedChapter).scenes) handle('scene', s, home)
+    }
+  }
+
+  const edit = (kind: NodeKind, was: AnyNode, next: AnyNode): void => {
+    const title = keep(tagOf(next.title).title, was.title)
+    if (kind === 'scene') {
+      const w = was as SuggestedScene
+      const n = next as SuggestedScene
+      Object.assign(w, {
+        title,
+        summary: keep(n.summary, w.summary),
+        when: keep(n.when, w.when),
+        beats: n.beats.length ? n.beats : w.beats,
+        card: mergeCard(w.card, n.card),
+        setsUp: n.setsUp ?? w.setsUp,
+        paysOff: n.paysOff ?? w.paysOff
+      })
+    } else if (kind === 'chapter') {
+      const w = was as SuggestedChapter
+      const n = next as SuggestedChapter
+      Object.assign(w, { title, goal: keep(n.goal, w.goal), card: mergeCard(w.card, n.card) })
+    } else {
+      const w = was as SuggestedAct
+      Object.assign(w, { title, purpose: keep((next as SuggestedAct).purpose, w.purpose) })
+    }
+    children(kind, was, next)
+  }
+
+  function handle(kind: NodeKind, next: AnyNode, home: Home | null): void {
+    if (kind === 'chapter' && holder(next as SuggestedChapter)) {
+      for (const s of (next as SuggestedChapter).scenes) handle('scene', s, null)
+      return
+    }
+    const t = tagOf(next.title)
+    if (t.key) {
+      const at = locate(base, t.key)
+      if (!at || at.kind !== kind) {
+        lost++
+        return
+      }
+      if (!edited.has(t.key)) edited.set(t.key, { kind, mark: 'changed', where: whereOf(at), before: structuredClone(at.node), after: at.node })
+      edit(kind, at.node, next)
+      if (home?.list === at.list) home.at = at.list.indexOf(at.node) + 1
+      done.add(t.key)
+      count++
+      return
+    }
+    const fresh = untag(next)
+    let where: string | null = null
+    if (t.after) where = insertAfter(kind, fresh, t.after, home)
+    else if (home) {
+      home.list.splice(home.at++, 0, fresh)
+      where = home.owner
+    }
+    if (where === null) {
+      lost++
+      return
+    }
+    made.push({ kind, mark: 'new', where, before: null, after: fresh })
+    count++
+  }
+
+  for (const c of reply.chapters) handle('chapter', c, null)
+  for (const a of reply.acts) handle('act', a, null)
+  for (const key of removes) {
+    const at = locate(base, key)
+    if (!at) continue
+    made.push({ kind: at.kind, mark: 'removed', where: whereOf(at), before: structuredClone(at.node), after: null })
+    at.list.splice(at.list.indexOf(at.node), 1)
+    done.add(key)
+    count++
+  }
+  if (!count) return null
+  // A part given only to hold changed ones, its own words the same, isn't one of the changes.
+  const changed = [...edited.values()].filter((c) => c.before && c.after && own(c.kind, c.before) !== own(c.kind, c.after))
+  return { text: outlineText(base), lost, done, changes: [...changed, ...made] }
 }
 
 /** The keys a suggestion holds (itself, and what is inside it), so its old decisions and changes can be cleared. */

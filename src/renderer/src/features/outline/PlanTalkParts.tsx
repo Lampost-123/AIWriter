@@ -1,7 +1,7 @@
 // The outline's talk and redo on screen (planTalk.ts): the talk panel beside the suggestions, the preview of a revised
 // plan (what is new or changed marked), and, under a suggestion, doing it again with a note, then Use this or Keep mine.
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { RotateCcw, Sparkles, Square } from '@/components/ui/icons'
 import type { ID } from '@shared/types'
 import { Button, Notice } from '@/components/ui'
@@ -16,6 +16,7 @@ import {
   applyPlanTalk,
   closeRedo,
   declinePlanTalk,
+  isPlanRevision,
   openRedo,
   planScope,
   previewTree,
@@ -26,8 +27,11 @@ import {
   stopRedo,
   takeRedo,
   talkPlan,
-  useRedos
+  useRedos,
+  type PlanRevision
 } from './planTalk'
+import type { PlanChange } from './outlineText'
+import type { SuggestedAct, SuggestedChapter, SuggestedScene } from './parse'
 import type { NodeKind, TreeNode } from './tree'
 
 const KIND: Record<NodeKind, string> = { act: 'Act', chapter: 'Chapter', scene: 'Scene' }
@@ -87,7 +91,8 @@ function marksOf(next: TreeNode[], before: TreeNode[]): Map<string, 'new' | 'cha
   return out
 }
 
-export function PlanPreview({ storyId, text }: { storyId: ID; text: string }): React.JSX.Element {
+/** The whole revised plan, what is new or changed marked. */
+function WholePlan({ storyId, text, intro }: { storyId: ID; text: string; intro: boolean }): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id)
   const run = useOutlineHelper((s) => s.sessions[helperKey(worldId, storyId)]?.run ?? null)
   const tree = useMemo(() => previewTree(text), [text])
@@ -95,15 +100,142 @@ export function PlanPreview({ storyId, text }: { storyId: ID; text: string }): R
   const changed = marks.size
   return (
     <div>
-      <p className="mb-2 text-[12.5px] text-muted">
-        {changed ? `${changed} ${changed === 1 ? 'part is' : 'parts are'} new or changed, marked below.` : 'The same plan, worded a little differently.'} Apply
-        puts this in place of the suggestions you haven’t decided on; Undo brings them back.
-      </p>
-      <div className="flex max-h-[340px] flex-col gap-1.5 overflow-y-auto pr-1">
+      {intro ? (
+        <p className="mb-2 text-[12.5px] text-muted">
+          {changed ? `${changed} ${changed === 1 ? 'part is' : 'parts are'} new or changed, marked below.` : 'The same plan, worded a little differently.'}{' '}
+          Apply puts this in place of the suggestions you haven’t decided on; Undo brings them back.
+        </p>
+      ) : null}
+      <div className="flex flex-col gap-1.5">
         {tree.map((n) => (
           <MiniNode key={n.key} node={n} marks={marks} />
         ))}
       </div>
+    </div>
+  )
+}
+
+const flat = (s: string | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
+
+/** A part's own lines, by name, for showing what changed in it. */
+function linesOf(kind: NodeKind, n: PlanChange['after']): Record<string, string> {
+  if (!n) return {}
+  if (kind === 'scene') {
+    const s = n as SuggestedScene
+    return {
+      When: flat(s.when),
+      Summary: flat(s.summary),
+      Location: flat(s.card?.location),
+      Characters: (s.card?.characters ?? []).join(', '),
+      'Point of view': flat(s.card?.pov),
+      Mood: flat(s.card?.mood)
+    }
+  }
+  if (kind === 'chapter') {
+    const c = n as SuggestedChapter
+    return { Goal: flat(c.goal), Location: flat(c.card?.location), Characters: (c.card?.characters ?? []).join(', '), When: flat(c.card?.when), Mood: flat(c.card?.mood) }
+  }
+  return { Purpose: flat((n as SuggestedAct).purpose) }
+}
+
+/** One part a talk changed: new (all of it), taken out, or changed (only what differs, the old struck through). */
+function ChangeCard({ change }: { change: PlanChange }): React.JSX.Element {
+  const { kind, mark, before, after } = change
+  const title = (after ?? before)?.title ?? ''
+  const renamed = mark === 'changed' && before && after && flat(before.title) !== flat(after.title)
+  const was = linesOf(kind, before)
+  const now = linesOf(kind, after)
+  const lines = Object.keys(now).filter((k) => (mark === 'new' ? now[k] : now[k] !== was[k]))
+  const beatsBefore = kind === 'scene' && before ? (before as SuggestedScene).beats : []
+  const beatsAfter = kind === 'scene' && after ? (after as SuggestedScene).beats : []
+  const beatsChanged = kind === 'scene' && (mark === 'new' || beatsBefore.join('\u0001') !== beatsAfter.join('\u0001'))
+  return (
+    <div className={cn('rounded-lg border px-3 py-2', mark === 'removed' ? 'border-line bg-surface' : 'border-ai/30 bg-ai-soft/60')}>
+      <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-faint">
+        {KIND[kind]}
+        <span
+          className={cn(
+            'rounded px-1 font-semibold normal-case tracking-normal',
+            mark === 'removed' ? 'bg-danger/10 text-danger' : 'bg-ai/15 text-ai'
+          )}
+        >
+          {mark === 'new' ? 'New' : mark === 'removed' ? 'Taken out' : 'Changed'}
+        </span>
+        {change.where ? <span className="truncate font-normal normal-case tracking-normal">in {change.where}</span> : null}
+      </div>
+      {renamed ? <p className="text-[12px] text-faint line-through decoration-faint/60">{before!.title}</p> : null}
+      <p className={cn('font-serif text-[13.5px] font-semibold leading-snug', mark === 'removed' ? 'text-faint line-through decoration-faint/60' : 'text-fg')}>
+        {title || `Untitled ${kind}`}
+      </p>
+      {mark !== 'removed' && lines.length ? (
+        <dl className="mt-1 flex flex-col gap-1">
+          {lines.map((k) => (
+            <div key={k} className="text-[12.5px] leading-relaxed">
+              <dt className="inline font-medium text-muted">{k}: </dt>
+              {mark === 'changed' && was[k] ? <dd className="inline text-faint line-through decoration-faint/60">{was[k]}</dd> : null}
+              {mark === 'changed' && was[k] ? ' ' : null}
+              <dd className="inline text-fg">{now[k] || <span className="italic text-faint">none</span>}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {mark !== 'removed' && beatsChanged && beatsAfter.length ? (
+        <ol className="mt-1 list-decimal pl-5 text-[12px] leading-relaxed text-muted marker:text-faint">
+          {beatsAfter.map((b, i) => (
+            <li key={i} className={cn(!beatsBefore.includes(b) && mark === 'changed' && 'text-fg')}>
+              {b}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {mark === 'new' && kind === 'chapter' && after ? (
+        <p className="mt-1 text-[12px] text-faint">
+          {(after as SuggestedChapter).scenes.length} {(after as SuggestedChapter).scenes.length === 1 ? 'scene' : 'scenes'}:{' '}
+          {(after as SuggestedChapter).scenes.map((s) => s.title).join(', ')}
+        </p>
+      ) : null}
+      {mark === 'new' && kind === 'act' && after ? (
+        <p className="mt-1 text-[12px] text-faint">Chapters: {(after as SuggestedAct).chapters.map((c) => c.title).join(', ')}</p>
+      ) : null}
+    </div>
+  )
+}
+
+/** A talk's revision: only what changed, with the whole plan a click away; a whole plan sent again, marked. */
+export function PlanPreview({ storyId, revision }: { storyId: ID; revision: PlanRevision }): React.JSX.Element {
+  const [whole, setWhole] = useState(false)
+  if (!revision.changes) return <WholePlan storyId={storyId} text={revision.text} intro />
+  const n = revision.changes.length
+  return (
+    <div>
+      <p className="mb-2 text-[12.5px] text-muted">
+        {n ? `${n} ${n === 1 ? 'part changes' : 'parts change'}; everything else stays as it is.` : 'Nothing in the plan changes.'} Undo brings the old
+        version back after you apply.
+      </p>
+      {revision.lost ? (
+        <p className="mb-2 text-[12px] text-danger">
+          {revision.lost === 1 ? 'One change named a part' : `${revision.lost} changes named parts`} that isn’t in the plan, so{' '}
+          {revision.lost === 1 ? 'it was' : 'they were'} left out.
+        </p>
+      ) : null}
+      <div className="flex flex-col gap-1.5">
+        {revision.changes.map((c, i) => (
+          <ChangeCard key={i} change={c} />
+        ))}
+      </div>
+      <button
+        type="button"
+        className="mt-2 text-[12px] font-medium text-accent hover:underline"
+        aria-expanded={whole}
+        onClick={() => setWhole((w) => !w)}
+      >
+        {whole ? 'Hide the whole plan' : 'Show the whole plan'}
+      </button>
+      {whole ? (
+        <div className="mt-2">
+          <WholePlan storyId={storyId} text={revision.text} intro={false} />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -116,14 +248,15 @@ export function PlanTalk({ storyId, running, className }: { storyId: ID; running
     <TalkPanel
       scope={scope}
       className={className}
-      intro="Tell the AI what to change: “make chapter 3 a betrayal”, “cut the second act down”, “give Mara a bigger part”. It shows you the new plan first; nothing changes until you apply it."
+      intro="Tell the AI what to change: “make chapter 3 a betrayal”, “move the health check to the kitchen”, “give Mara a bigger part”. It changes only what your request reaches, everywhere it shows up, and shows you the change first."
       placeholder="What would you like changed?"
       quick={['Rework the rest to fit my changes', 'Add a twist in the middle', 'Raise the stakes', 'Tighten the pacing', 'Closer to the recipe']}
       disabled={running ? 'Wait for the plan to finish arriving.' : null}
       onSay={(m) => void talkPlan(storyId, m)}
-      preview={typeof preview === 'string' ? <PlanPreview storyId={storyId} text={preview} /> : null}
+      preview={isPlanRevision(preview) ? <PlanPreview storyId={storyId} revision={preview} /> : null}
       onApply={() => applyPlanTalk(storyId)}
       onDecline={() => declinePlanTalk(storyId)}
+      canApplyStraightAway
     />
   )
 }
