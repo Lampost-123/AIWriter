@@ -596,6 +596,14 @@ describe('a second opinion on what a whole check found (2026-10-16)', () => {
     expect(await checkScene({ ...options(w.db), fetchImpl: failing }, w.s2, DONE_CHECKS)).toEqual({ status: 'done', found: 2 })
   })
 
+  it('never asks when Adam has switched the second opinion off, and keeps everything found (2026-10-17)', async () => {
+    const w = world()
+    const fetchImpl = stubbed((system) => (system.startsWith(CHECK_SECOND_MARKER) ? { verdicts: [{ n: 1, real: false }, { n: 2, real: false }] } : null))
+    const out = await checkScene({ ...options(w.db), fetchImpl, secondOpinionOff: true }, w.s2, DONE_CHECKS)
+    expect(fetchImpl.asked.some((a) => a.system.startsWith(CHECK_SECOND_MARKER))).toBe(false)
+    expect(out).toEqual({ status: 'done', found: 2 })
+  })
+
   it('keeps what it rules real, and never asks about voice or style, nor when nothing was found', async () => {
     const real = await ruled(() => ({ verdicts: [{ n: 1, real: true }, { n: 2, real: true }] }))
     expect(real.quotes).toHaveLength(2)

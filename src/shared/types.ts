@@ -526,6 +526,18 @@ export interface Settings {
    */
   checkNewWords: boolean
   /**
+   * Automatic checks (Adam, 2026-10-17: "disable auto checking and auto critic checks to save on token costs"; Settings ›
+   * Models, all on by default). Off, nothing else changes: Check and the Critique tab still run when he asks.
+   * checkWhenDone: a scene marked done is checked in the background (checks/runs.ts checkWhenDone).
+   */
+  checkWhenDone: boolean
+  /** A draft that lands in a scene is checked a little after it ends (ipc/checksIssues.ts, checkAfterDraft). */
+  checkAfterDraft: boolean
+  /** What a check finds is ruled on by a second call before it is kept, to cut false alarms (checks/run.ts findingsRuling). */
+  checkSecondOpinion: boolean
+  /** Write the whole chapter has the critic read its scenes and the chapter, and acts on its notes (chapterWriter/run.ts). */
+  chapterCritic: boolean
+  /**
    * Story memory step 5 (Settings › Models, "Find by meaning"; on by default): once the search model is downloaded,
    * the briefing also finds earlier passages and facts by what they mean, not only by their words (src/main/retrieval/).
    */

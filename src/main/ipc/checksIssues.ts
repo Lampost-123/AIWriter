@@ -56,6 +56,7 @@ setRunDeps({
   onKeyRejected: (model) => providers.markCheck(model.target.id, false),
   // Scene contracts switched off (long story memory fix 13): a check takes away what one found.
   contractsOff: () => !contractWanted(getSettings()),
+  secondOpinionOff: () => getSettings().checkSecondOpinion === false,
   // The facts a scene touches, by meaning too when the search model is on (2026-10-16).
   byMeaning: meaningForCheck
 })
@@ -96,6 +97,9 @@ onDraftActivity((e) => {
   const t = setTimeout(() => {
     afterDraft.delete(e.sceneId)
     if (world.maybeCurrentWorld()?.db !== db || !db.open) return
+    // 2026-10-17: Adam can switch it off to save on costs (Settings › Models, Automatic checks); read when it would
+    // start, so switching it off while one waits stops that one too.
+    if (getSettings().checkAfterDraft === false) return
     void criticChecks(records).then((checks) => {
       if (world.maybeCurrentWorld()?.db !== db || !db.open) return
       // While this month's AI spending has reached Adam's limit, it waits until he carries on, as Mark done's does.

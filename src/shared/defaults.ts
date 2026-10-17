@@ -118,6 +118,10 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   arrangement: 'desk',
   arrangementNote: false,
   checkNewWords: true,
+  checkWhenDone: true,
+  checkAfterDraft: true,
+  checkSecondOpinion: true,
+  chapterCritic: true,
   findByMeaning: true,
   searchModelAuto: true
 })

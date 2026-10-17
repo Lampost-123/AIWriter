@@ -90,6 +90,11 @@ export interface CheckOptions {
    */
   contractsOff?: boolean
   /**
+   * Settings › Models has the second opinion off (2026-10-17, to save on costs): what the checks find is kept without
+   * the extra call that rules on it. The contract's own ruling still runs (its findings need it).
+   */
+  secondOpinionOff?: boolean
+  /**
    * How close in meaning each doc is to the queries (the search model, retrieval/index.ts meaningForCheck), so the check is
    * told the facts of who knows what its scene touches by meaning as well as by keyword (2026-10-16). Left out, or null:
    * by keyword alone.
@@ -322,7 +327,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   // A second opinion on what the checks found about what is so, before it is kept (2026-10-16: continuity findings, kept
   // since then, raised false alarms from a stage record that didn't hold): one call, only when something was found; what
   // it rules not real goes. A failed call, a reply it can't read or a stop keeps everything.
-  if (!stopped && !failure && found.length) {
+  if (!stopped && !failure && found.length && !o.secondOpinionOff) {
     const ruling = await findingsRuling(o, sceneId, found, ctx, checks)
     if (!o.db.open || o.closed?.()) return { status: 'stopped', found: 0 }
     if (o.stopped()) stopped = true
