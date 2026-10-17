@@ -17,6 +17,7 @@ import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { useDesk } from '@/features/look/look'
 import { DeskSuggestions } from './DeskSuggestions'
 import { discardSuggestion, keepSuggestions, saveEdit, type HelperRun } from './helperStore'
+import { RedoButton, RedoPanel } from './PlanTalkParts'
 import { countNodes, lastNodeKey, totalOf, type NodeEdit, type NodeKind, type TreeNode } from './tree'
 
 export const KIND_LABELS: Record<NodeKind, string> = { act: 'Act', chapter: 'Chapter', scene: 'Scene' }
@@ -161,6 +162,7 @@ function NodeView({ node, ...props }: TreeProps & { node: TreeNode }): React.JSX
       data-state={run.decisions[node.key]?.status === 'kept' ? 'kept' : 'open'}
     >
       {props.editing === node.key ? <EditForm node={node} {...props} /> : <NodeBox node={node} {...props} />}
+      {!props.chapterId ? <RedoPanel storyId={props.storyId} node={node} /> : null}
       {children.length ? (
         <div className="ml-3 mt-2 flex flex-col gap-2 border-l border-line pl-4">
           {children.map((c) => (
@@ -284,6 +286,7 @@ function NodeBox({ node, storyId, chapterId, run, current, setEditing }: TreePro
           >
             Edit
           </SuggestionButton>
+          {!chapterId ? <RedoButton storyId={storyId} node={node} /> : null}
           <SuggestionButton
             onClick={discard}
             title="Leave this out. Undo brings it back."

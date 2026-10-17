@@ -61,6 +61,11 @@ export type View =
   | { kind: 'recipes'; page?: 'list' | 'make' | 'recipe'; recipeId?: ID | null }
   /** A new story from a recipe: its premise, chapters and scene cards suggested, to keep, edit or discard. */
   | { kind: 'recipePlan'; storyId: ID; recipeId: ID }
+  /**
+   * The Story builder (2026-10-17): the one place a story is built with the AI, in order: the idea (with its style and
+   * recipe), the cast and world (the codex), the outline, done. `step`: the step to show (left out: where it stands).
+   */
+  | { kind: 'storyBuilder'; storyId: ID; step?: 'idea' | 'codex' | 'outline' | 'done' }
   // The desk (UI overhaul, phase 5)
   /** A story's home: its book, where Adam left off, its chapters on a shelf, its threads, cast and this week's writing. */
   | { kind: 'storyHome'; storyId: ID }

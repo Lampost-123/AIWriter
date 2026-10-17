@@ -19,7 +19,7 @@ import { useApp } from '@/lib/store'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
 import { keyboardDriven, reducedMotion } from '@/features/look/motion'
-import { openOutlineHelper } from '@/features/outline/open'
+import { openStoryBuilderFor } from '@/features/outline/open'
 import { useArrival } from '@/layout/desk/arrival'
 import { chapterShelf, scenesOf, storyStats } from '@/features/desk/home/homeLogic'
 import { chapterNumeral } from '@/features/desk/spine/spineLayout'
@@ -596,7 +596,7 @@ function NextChapter({ layout, outline, storyId }: { layout: BoardLayout; outlin
   const n = outline.chapters.length + 1
   const blank = !outline.scenes.some((s) => s.wordCount > 0) && outline.scenes.length <= 1
   const plan = async (): Promise<void> => {
-    if (blank) return openOutlineHelper(storyId)
+    if (blank) return openStoryBuilderFor(storyId)
     const id = await actions.addChapter(storyId)
     if (id) useApp.getState().navigate({ kind: 'outline', storyId, chapterId: id })
   }
@@ -618,13 +618,13 @@ function NextChapter({ layout, outline, storyId }: { layout: BoardLayout; outlin
           </span>
         )}
         <span className="board-gh-title">Chapter {numberWords(n)}</span>
-        <span className="board-gh-sub">{blank ? 'Plan the story from its premise, or add a chapter.' : 'Add it, or plan it from the open threads.'}</span>
+        <span className="board-gh-sub">{blank ? 'Build the whole story, cast and outline from your idea, or add a chapter.' : 'Add it, or plan it from the open threads.'}</span>
         <span className="board-gh-actions">
           <button type="button" className="board-btn-sec" onClick={() => void actions.addChapter(storyId)}>
             Add a chapter
           </button>
           <button type="button" className="board-btn-ai" onClick={() => void plan()}>
-            {blank ? 'Outline helper' : 'Plan it with AI'}
+            {blank ? 'Build it with AI' : 'Plan it with AI'}
           </button>
         </span>
       </div>

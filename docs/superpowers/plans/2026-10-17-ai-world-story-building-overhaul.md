@@ -615,6 +615,13 @@ Quick start uses steps 3 and 5 for one entry.
 
 ## Decisions for Adam
 
+**Later the same day (Adam, 2026-10-17): the Story builder (0.8.0).** Adam asked for one place to build a story, the
+codex built in full before the outline, recipes taken into account, and talk-it-over and redo on plans. That is now
+the Story builder (docs/ARCHITECTURE.md, "The Story builder"). It takes up Phase D's core idea (one run: idea, then cast
+list with a review, then build, then outline) on today's modules instead of a new `building/` core: the review list is
+its codex step, and the build is the World builder given that list (`WorldBuildInput.plan`). Phase D's steps D1 to D7
+are not done as written; A to C still stand.
+
 **Scope change (Adam, 2026-10-17): no overhaul, fix what is there.** Phase D is dropped, and with it answer 1's review
 link and setting. Phase B shrinks to the parts that fix bugs, done inside the existing modules rather than a new
 `building/` folder:

@@ -1,5 +1,7 @@
 // Ways into the World builder page: the binder's World section, the command palette, the empty codex and
-// a new world ("Build from a summary" beside "Create world"). Owned by the World builder part.
+// a new world ("Build from a summary" beside "Create world"). It builds the world from a summary, apart from any
+// story; a story is built in the Story builder (features/storyBuilder), which the page points to. Owned by the World
+// builder part.
 
 import { useApp } from '@/lib/store'
 
@@ -7,6 +9,9 @@ import { useApp } from '@/lib/store'
 export function openWorldBuilder(): void {
   useApp.getState().navigate({ kind: 'worldBuilder' })
 }
+
+/** The same: the world built from a summary, with no story. */
+export const openSummaryBuilder = openWorldBuilder
 
 /** Makes a new world and opens the World builder in it, so Adam can start it from a summary. */
 export async function createWorldAndBuild(name: string): Promise<void> {

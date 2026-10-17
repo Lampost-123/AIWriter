@@ -39,6 +39,9 @@ import { cardIsEmpty } from './ideasLogic'
 import { SIZE_CHOICES, defaultSize, fitSize } from './size'
 import { Suggestions } from './Suggestions'
 import { countLine, countNodes, totalOf, withoutGone } from './tree'
+import { PlanTalk } from './PlanTalkParts'
+import { PremiseCard } from './PremiseCard'
+import { builderKey, flushBrief, loadBrief, sizeForLength, useBuilders } from '@/features/storyBuilder/store'
 
 export function OutlineHelper({ storyId }: { storyId: string }): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id)
@@ -77,7 +80,9 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   // Nothing planned or written yet (perhaps only the empty "Chapter 1" a new story starts with): plan it
   // all from the premise. The main process says, by the rule it uses for what the AI is told.
   const fresh = s.blank === true
-  const size = s.size ?? defaultSize(fresh ? 0 : chapterCount, acts.length)
+  // The Story builder's idea (2026-10-17): its length sets how much a fresh story lays out, until Adam picks.
+  const brief = useBuilders((st) => st.builders[builderKey(story.id)]?.brief ?? null)
+  const size = s.size ?? (fresh && brief?.length ? sizeForLength(brief.length, 0) : defaultSize(fresh ? 0 : chapterCount, acts.length))
   const run = s.run
   // As the page shows it: anything kept but deleted from the story since waits for a decision again.
   const shown = useMemo(() => (run && s.gone.length ? { ...run, decisions: withoutGone(run.decisions, s.gone) } : run), [run, s.gone])
@@ -105,10 +110,16 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
     if (s.problem && (!s.run || s.problem.code === 'no-premise')) dismissProblem(story.id)
   }
 
+  // With a plot in the Story builder, the premise may be left for the AI to write.
+  useEffect(() => {
+    void loadBrief(story.id)
+  }, [story.id])
+  const fromPlot = !!brief?.plot.trim()
+
   const suggest = useCallback(() => {
-    if (!premise.trim()) premiseBox.current?.focus()
-    void suggestOutline(story.id, premise, size)
-  }, [story.id, premise, size])
+    if (!premise.trim() && !fromPlot) premiseBox.current?.focus()
+    void flushBrief(story.id).then(() => suggestOutline(story.id, premise, size, { premiseOptional: fromPlot }))
+  }, [story.id, premise, size, fromPlot])
 
   const changeSize = (patch: Partial<OutlineSize>): void => setHelperSize(story.id, fitSize(size, patch))
 
@@ -232,7 +243,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
                 value={premise}
                 minRows={5}
                 maxRows={14}
-                placeholder="For example: a ferryman who owes the Duke money is paid to smuggle the heir out of Varn."
+                placeholder={fromPlot ? 'Optional: the AI writes it from your plot in Your idea.' : 'For example: a ferryman who owes the Duke money is paid to smuggle the heir out of Varn.'}
                 className="plan-paper font-serif text-[15px] placeholder:font-sans placeholder:text-[13.5px]"
                 onChange={(e) => changePremise(e.target.value)}
                 onBlur={() => void autosave.flush()}
@@ -311,6 +322,8 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
               </div>
             ) : null}
             {notices}
+            {run && !story.premise.trim() && !premise.trim() ? <PremiseCard storyId={story.id} text={run.text} ended={ended} onKeep={setPremise} /> : null}
+            {run && tree.length ? <PlanTalk storyId={story.id} running={running} /> : null}
           </>
         }
         right={
@@ -365,7 +378,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
           value={premise}
           minRows={3}
           maxRows={12}
-          placeholder="For example: a ferryman who owes the Duke money is paid to smuggle the heir out of Varn."
+          placeholder={fromPlot ? 'Optional: the AI writes it from your plot in Your idea.' : 'For example: a ferryman who owes the Duke money is paid to smuggle the heir out of Varn.'}
           className="mt-1 font-serif text-[15px] leading-[1.6] placeholder:font-sans placeholder:text-[13.5px]"
           onChange={(e) => changePremise(e.target.value)}
           onBlur={() => void autosave.flush()}
@@ -457,6 +470,13 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
         </div>
 
         {notices}
+
+        {run && !story.premise.trim() && !premise.trim() ? (
+          <div className="mt-4">
+            <PremiseCard storyId={story.id} text={run.text} ended={ended} onKeep={setPremise} />
+          </div>
+        ) : null}
+        {run && tree.length ? <PlanTalk storyId={story.id} running={running} className="mt-4" /> : null}
 
         {shown && (tree.length || running) ? (
           <Suggestions storyId={story.id} run={shown} tree={tree} open={open} starter={starter} />

@@ -19,6 +19,8 @@ import { PART_GROUPS, PART_WORDS, dateWords, lengthWords, recipeName, unreadWord
 import { BackButton, INTRO, Kicker, MakingCard } from './parts'
 import { goOnPlanning } from './planStore'
 import { deleteRecipe, duplicate, forgetSource, readAgain, refreshRecipes, startStoryFrom, useRecipes } from './recipeStore'
+import { PartRedo, RecipeTalkPanel, talkParts } from './RecipeTalk'
+import { settlePreview, talkOf } from '@/features/planning/talkStore'
 
 export function RecipePage({ recipeId }: { recipeId: string }): React.JSX.Element {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
@@ -84,6 +86,43 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
       return next
     })
   }
+
+  // Talking the recipe over (2026-10-17): its changed parts go in only on Apply, saved as any change is.
+  const talkScope = `recipe-page:${recipe.id}`
+  const partsRef = useRef(parts)
+  partsRef.current = parts
+  const applyTalk = (): void => {
+    const changed = talkOf(talkScope).preview as Partial<RecipeParts> | null
+    if (!changed) return
+    const before = { ...partsRef.current }
+    setParts((p) => {
+      const next = { ...p, ...changed }
+      autosave.schedule(next)
+      return next
+    })
+    settlePreview(talkScope, 'applied')
+    toast('Changed the recipe.', {
+      action: {
+        label: 'Undo',
+        run: () =>
+          setParts(() => {
+            autosave.schedule(before)
+            return before
+          })
+      }
+    })
+  }
+  const talk = (
+    <RecipeTalkPanel
+      scope={talkScope}
+      parts={parts}
+      className={desk ? undefined : 'mt-6'}
+      intro="Tell the AI how to change this recipe: “make the middle act shorter”, “turn the mentor into a rival”. You see the change first, and Undo takes it back."
+      onSay={(m) => void talkParts(talkScope, () => partsRef.current, m)}
+      onApply={applyTalk}
+      onDecline={() => settlePreview(talkScope, 'declined')}
+    />
+  )
 
   const commitName = async (): Promise<void> => {
     const clean = name.replace(/\s+/g, ' ').trim()
@@ -174,6 +213,7 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
             {ready ? <UnreadNote unread={recipe.unread} /> : null}
             {ready ? <div className="plan-recipe-actions">{actions}</div> : null}
             {ready && !hasWorld ? <p className="plan-hint">Open a world to start a new story from this recipe.</p> : null}
+            {ready ? talk : null}
             {ready ? <PlannedStories recipeId={recipe.id} /> : null}
           </>
         }
@@ -185,7 +225,7 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
                   <h2 className="plan-partgroup-t">{g.title}</h2>
                   <div className="mt-3 flex flex-col gap-4">
                     {g.parts.map((k) => (
-                      <Part key={k} part={k} value={parts[k]} mine={edited.includes(k) && recipe.hasSource} onChange={(v) => change(k, v)} onBlur={() => void autosave.flush()} />
+                      <Part key={k} part={k} value={parts[k]} all={parts} mine={edited.includes(k) && recipe.hasSource} onChange={(v) => change(k, v)} onBlur={() => void autosave.flush()} />
                     ))}
                   </div>
                 </section>
@@ -233,12 +273,13 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
             <UnreadNote unread={recipe.unread} />
             <div className="mt-5 flex flex-wrap gap-2">{actions}</div>
             {!hasWorld ? <p className="mt-2 text-[12px] text-faint">Open a world to start a new story from this recipe.</p> : null}
+            {talk}
             {PART_GROUPS.map((g) => (
               <section key={g.title} aria-label={g.title} className="mt-8">
                 <h2 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{g.title}</h2>
                 <div className="mt-2 flex flex-col gap-4">
                   {g.parts.map((k) => (
-                    <Part key={k} part={k} value={parts[k]} mine={edited.includes(k) && recipe.hasSource} onChange={(v) => change(k, v)} onBlur={() => void autosave.flush()} />
+                    <Part key={k} part={k} value={parts[k]} all={parts} mine={edited.includes(k) && recipe.hasSource} onChange={(v) => change(k, v)} onBlur={() => void autosave.flush()} />
                   ))}
                 </div>
               </section>
@@ -303,16 +344,44 @@ function PlannedStories({ recipeId }: { recipeId: string }): React.JSX.Element |
   )
 }
 
-function Part({ part, value, mine, onChange, onBlur }: { part: RecipePartId; value: string; mine: boolean; onChange: (v: string) => void; onBlur: () => void }): React.JSX.Element {
+function Part({
+  part,
+  value,
+  mine,
+  onChange,
+  onBlur,
+  all
+}: {
+  part: RecipePartId
+  value: string
+  mine: boolean
+  onChange: (v: string) => void
+  onBlur: () => void
+  /** Every part, for writing this one again with the AI. */
+  all?: RecipeParts
+}): React.JSX.Element {
   const id = useId()
   const w = PART_WORDS[part]
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
         <label htmlFor={id} className="text-[13px] font-medium text-fg">
           {w.label}
         </label>
-        {mine ? <span className="text-[11.5px] text-faint">Changed by you: kept if the story is read again</span> : null}
+        <span className="flex items-baseline gap-2">
+          {mine ? <span className="text-[11.5px] text-faint">Changed by you: kept if the story is read again</span> : null}
+          {all ? (
+            <PartRedo
+              parts={all}
+              part={part}
+              onUse={(text) => {
+                const before = value
+                onChange(text)
+                toast(`Rewrote “${w.label}”.`, { action: { label: 'Undo', run: () => onChange(before) } })
+              }}
+            />
+          ) : null}
+        </span>
       </div>
       {w.short ? (
         <Input id={id} value={value} placeholder={w.hint} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} className="mt-1" />

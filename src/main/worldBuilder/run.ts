@@ -39,6 +39,7 @@ import {
   asProfileKind,
   BUILD_KINDS,
   conflictItems,
+  givenPlan,
   hasOverviewLists,
   overviewItems,
   profileExtras,
@@ -203,6 +204,8 @@ interface Build {
   filled: ID[]
   /** What is being laid out, as the first look listed it, so each profile can link to the rest. */
   plan: PlanItem[]
+  /** What to lay out, already chosen (the Story builder's codex list): no first look. Null: look first. */
+  given: PlanItem[] | null
   found: Map<ID, { entryId: ID; kind: EntryKind; name: string }>
   missed: string[]
   skipped: string[]
@@ -255,7 +258,7 @@ export function startBuild(ctx: BuildContext, input: WorldBuildInput): Promise<v
     storyId,
     writer: newWriter(ctx.db, storyId, storyId ? planScenes(ctx.db, storyId, summary) : []),
     stage: 'reading',
-    step: 'Reading your summary',
+    step: input.plan === undefined ? 'Reading your summary' : 'Getting ready',
     retrying: null,
     cancelled: false,
     closed: false,
@@ -266,6 +269,7 @@ export function startBuild(ctx: BuildContext, input: WorldBuildInput): Promise<v
     generationIds: [],
     filled: [],
     plan: [],
+    given: input.plan === undefined ? null : givenPlan(input.plan),
     found: new Map(),
     missed: [],
     skipped: [],
@@ -451,7 +455,7 @@ function end(b: Build, status: WorldBuildDone['status']): void {
 
 async function build(b: Build): Promise<void> {
   try {
-    const plan = await firstLook(b)
+    const plan = b.given ? mergePlan(b.given) : await firstLook(b)
     if (plan && !halted(b)) {
       const todo = sortOut(b, plan)
       b.plan = todo

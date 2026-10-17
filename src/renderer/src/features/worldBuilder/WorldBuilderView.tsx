@@ -47,6 +47,25 @@ import {
 } from './worldBuilderStore'
 import { InterviewButton, WorldInterview } from './WorldInterview'
 
+/**
+ * Building a story rather than a world: the Story builder plans the cast and world from the plot, builds them, then the
+ * outline, in one place (2026-10-17). Shown while a story is open.
+ */
+function StoryBuilderPointer(): React.JSX.Element | null {
+  const storyId = useApp((s) => s.storyId)
+  const story = useApp((s) => s.stories.find((st) => st.id === s.storyId) ?? null)
+  if (!storyId || !story) return null
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-ai/30 bg-ai-soft px-3 py-2 text-[12.5px] text-fg" data-story-builder-pointer>
+      <Sparkles size={14} className="shrink-0 text-ai" aria-hidden />
+      <span className="min-w-0 flex-1">Building a story? The Story builder plans its whole cast and world from your plot, builds them, then lays out the chapters and scenes.</span>
+      <Button size="sm" onClick={() => useApp.getState().navigate({ kind: 'storyBuilder', storyId })}>
+        Open the Story builder
+      </Button>
+    </div>
+  )
+}
+
 export function WorldBuilderView(): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id ?? null)
   const loaded = useWorldBuilder((s) => s.loaded && s.worldId === worldId)
@@ -150,6 +169,7 @@ function Page(): React.JSX.Element {
         }}
         left={
           <>
+            <StoryBuilderPointer />
             <div className="plan-group">
               <div className="plan-field-l">
                 <label htmlFor="world-summary">Your summary</label>
@@ -292,6 +312,9 @@ function Page(): React.JSX.Element {
           Type or paste a summary of your world or story, from a paragraph to several pages. AI Write lays out everything in it and saves it
           to your world. Your own words are kept exactly as you wrote them, and anything already in your world is left as it is.
         </p>
+        <div className="mt-3">
+          <StoryBuilderPointer />
+        </div>
 
         <div className="mt-5 flex items-end justify-between gap-2">
           <label htmlFor="world-summary" className="block text-[12px] font-medium text-muted">

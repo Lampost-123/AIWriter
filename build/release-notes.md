@@ -1,6 +1,8 @@
-<!-- version: 0.7.10 -->
-What's new in 0.7.10:
+<!-- version: 0.8.0 -->
+What's new in 0.8.0:
 
-- Building a story's world costs about half as much, with the AI given the same information: repeated parts are reused, voices come in one go, and other stories' pages aren't refilled each time.
-- Characters and places named in a kept outline now get full profiles, as rich as the rest.
-- The cost shown before a build is closer to what it really costs.
+- The Story builder: give it your plot and it plans the whole cast and world, builds every codex page, then lays out the chapters and scenes.
+- Talk any plan over with the AI, or redo one chapter, scene or character with a note. You see each change before it's made.
+- Writing style presets set a story's genre, tone and limits in one click, with presets for adult readers.
+- Recipes can be talked over and their parts redone.
+- Building a story's world costs about half as much.

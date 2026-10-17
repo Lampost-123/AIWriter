@@ -47,6 +47,7 @@ import { artHandlers } from './art'
 import { critiqueHandlers } from './critique'
 import { chapterWriterHandlers } from './chapterWriter'
 import { phoneHandlers } from './phone'
+import { storyBuilderHandlers } from './storyBuilder'
 import { bindPhoneCall } from '../phone/runtime'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
@@ -111,7 +112,9 @@ const all: Handlers<ApiMethod> = {
   ...critiqueHandlers,
   // Write the whole chapter
   ...chapterWriterHandlers,
-  ...phoneHandlers
+  ...phoneHandlers,
+  // The Story builder
+  ...storyBuilderHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

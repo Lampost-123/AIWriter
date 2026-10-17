@@ -69,8 +69,8 @@ function changed(entryIds: ID[]): void {
   emit('memory:status', memoryStatus())
 }
 
-/** Starts a build in the open world with the World builder model; its events say how it goes. */
-function startIn(input: WorldBuildInput): void {
+/** Starts a build in the open world with the World builder model; its events say how it goes. The Story builder's codex uses it too. */
+export function startIn(input: WorldBuildInput): void {
   const w = world.currentWorld()
   const model = jobModel('world', modelSources())
   // What it saves is told at most twice a second, not about one scene nor the stories ('': src/renderer/src/features/memory/events.ts),

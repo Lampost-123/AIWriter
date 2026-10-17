@@ -21,6 +21,28 @@ export interface WorldBuildInput {
   summary: string
   /** Where the summary's setup is true: null for the beginning of the world, else that story's start (a prequel or side story). */
   storyId: ID | null
+  /**
+   * What to lay out, already chosen (the Story builder's codex list, 2026-10-17): the build skips its first look at the
+   * summary and lays out exactly these (what the world has already is still left as it is). Left out: the first look.
+   */
+  plan?: WorldPlanItem[]
+}
+
+/** One thing a build lays out, as its first look lists it (or as the Story builder's codex list gives it). */
+export interface WorldPlanItem {
+  kind: EntryKind
+  name: string
+  aliases: string[]
+  /** What the summary says about it, in a few words. */
+  about: string
+  /** A place: the place it is inside, by name ('' when none). */
+  in: string
+  /** Lore the summary states as absolute: a rule never to break. */
+  rule: boolean
+  /** An event: when it happens, in the summary's words ('' when it doesn't say). */
+  when: string
+  /** An event: the numbered scene of the story's plan it happens in ("Scene 4"; '' when none). */
+  scene: string
 }
 
 /**

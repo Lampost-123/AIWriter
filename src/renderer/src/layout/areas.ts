@@ -25,6 +25,7 @@ export const AREA_OF: Record<View['kind'], Area | null> = {
   threads: 'plan',
   recipes: 'plan',
   recipePlan: 'plan',
+  storyBuilder: 'plan',
   board: 'plan',
   codex: 'world',
   entries: 'world',

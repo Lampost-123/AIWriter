@@ -291,6 +291,27 @@ describe('building a fresh world from a summary', () => {
   })
 })
 
+describe('building from a list already chosen (the Story builder, 2026-10-17)', () => {
+  it('skips the first look and lays out exactly what the list has', async () => {
+    const t = setup()
+    const plan = [
+      { kind: 'character' as const, name: 'Mara Venn', aliases: ['Mara'], about: 'A smuggler captain.', in: '', rule: false, when: '', scene: '' },
+      { kind: 'place' as const, name: 'Saltmarsh', aliases: [], about: 'A port town.', in: '', rule: false, when: '', scene: '' },
+      // Not a kind a build lays out, and no name: both left out.
+      { kind: 'nonsense', name: 'X' },
+      { kind: 'item', name: '' }
+    ]
+    await startBuild(t.ctx, { buildId: 'given-1', summary: SUMMARY, storyId: null, plan: plan as never })
+    const done = t.doneOf('given-1')!
+    expect(done.status).toBe('complete')
+    expect(t.names('character')).toEqual(['Mara Venn'])
+    expect(t.names('place')).toEqual(['Saltmarsh'])
+    expect(t.names('group')).toEqual([])
+    expect(t.names('item')).toEqual([])
+    expect(t.steps()).not.toContain('Reading your summary')
+  })
+})
+
 describe('undoing a build', () => {
   it('takes the whole build away with one Undo, and brings it all back with the Undo on that', async () => {
     const t = setup()

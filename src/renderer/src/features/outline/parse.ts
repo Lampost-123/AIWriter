@@ -429,6 +429,17 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
   return out
 }
 
+/** What a reply says before its first act, chapter or scene heading (a recipe's or the Story builder's "Premise:" line). */
+export function preambleOf(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const at = lines.findIndex((line) => {
+    if (!line.trim() || isNoise(line)) return false
+    const bullet = line.match(BULLET)
+    return !!(bullet ? listedHeading(bullet[1]) : heading(line))
+  })
+  return (at < 0 ? lines : lines.slice(0, at)).join('\n').trim()
+}
+
 /** Every scene of a parsed outline, in order. */
 export const outlineScenes = (o: ParsedOutline): SuggestedScene[] =>
   [...o.chapters, ...o.acts.flatMap((a) => a.chapters)].flatMap((c) => c.scenes)

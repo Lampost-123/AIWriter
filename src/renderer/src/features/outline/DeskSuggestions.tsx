@@ -21,6 +21,7 @@ import { useDealDelay } from '@/features/planning/deal'
 import { flyCard, landingOf, landingSoon } from '@/features/planning/fly'
 import { discardSuggestion, keepSuggestions, type HelperRun } from './helperStore'
 import { EditForm, focusNext, KEEP_TITLES, KIND_LABELS, type TreeProps } from './Suggestions'
+import { RedoButton, RedoPanel } from './PlanTalkParts'
 import { countLine, countNodes, lastNodeKey, totalOf, type Counts, type TreeNode } from './tree'
 
 export function DeskSuggestions({
@@ -153,8 +154,14 @@ function DeskNode({ node, n = 0, ...props }: TreeProps & { node: TreeNode; n?: n
     'data-state': kept ? 'kept' : 'open'
   } as const
   const editing = props.editing === node.key
+  const redo = !props.chapterId ? <RedoPanel storyId={props.storyId} node={node} /> : null
   if (node.kind === 'scene') {
-    return <div {...group}>{editing ? <EditForm node={node} {...props} className="plan-edit" /> : <Card node={node} {...props} />}</div>
+    return (
+      <div {...group}>
+        {editing ? <EditForm node={node} {...props} className="plan-edit" /> : <Card node={node} {...props} />}
+        {redo}
+      </div>
+    )
   }
   const kids = children.length ? (
     node.kind === 'act' ? (
@@ -174,6 +181,7 @@ function DeskNode({ node, n = 0, ...props }: TreeProps & { node: TreeNode; n?: n
   return (
     <div {...group} className={node.kind === 'act' ? 'plan-act' : 'plan-chap'}>
       {editing ? <EditForm node={node} {...props} className="plan-edit" /> : <Card node={node} n={n} {...props} />}
+      {redo}
       {kids}
     </div>
   )
@@ -301,6 +309,7 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing }: Tre
       <button type="button" className="plan-txt" data-edit onClick={() => setEditing(node.key)} aria-label={`Edit ${title ? `“${title}”` : `this ${node.kind}`}`}>
         Edit
       </button>
+      {!chapterId ? <RedoButton storyId={storyId} node={node} className="plan-txt" /> : null}
       <button type="button" className="plan-txt" onClick={discard} title="Leave this out. Undo brings it back." aria-label={`Discard ${title ? `“${title}”` : `this ${node.kind}`}`}>
         Discard
       </button>

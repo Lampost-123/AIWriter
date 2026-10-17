@@ -3663,6 +3663,52 @@ Known limits: the judge's other time slips (a deed year, "twenty-nine next birth
 own inventions against facts it was given; nothing here can stop a model making those up. The judge's "late November"
 for Days 1 to 3 was its own: by the cards (Day 25 is Christmas Eve), Day 3 is 2 December.
 
+## The Story builder (Adam, 2026-10-17; 0.8.0)
+
+Adam: "one place to build from"; "it should build out the codex fully and then set out an outline"; "take into account
+recipes when they are used"; "a way to interact with the chat when building a plan … and regen specific spots". The
+Story builder (View `storyBuilder`, `features/storyBuilder/`, contract `contracts/storyBuilder.ts`, main
+`src/main/storyBuilder/` and `ipc/storyBuilder.ts`) is one page per story, in steps shown across the top of each:
+
+1. **Your idea** (`IdeaStep.tsx`): the plot (as long as he likes), setting, must happen, must never happen, length, his
+   own characters and places (kept exactly, marked **Yours**), questions (the World builder's interview, asked of the
+   brief), the story's style (presets, how far it goes, tone; "Fine-tune" opens the style guide's This story tab) and a
+   recipe. It is the story's **brief**, kept in the world's meta as `story_brief:<storyId>` (no migration;
+   `storyBuilder/brief.ts` cleans it on every read and write).
+2. **Cast and world** (`CodexStep.tsx`): `planStoryCodex` asks the chat model for everything the story needs in the
+   World builder's first-look JSON shape (plus a recipe `role` on characters), inventing what the idea leaves open;
+   `codex.ts settleList` puts his own entries first, as written, and marks what the world has already. Each item can be
+   unticked, edited, redone (`redoCodexItem`) or taken off; the list can be talked over (`storyCodexChat`). **Build**
+   (`buildStoryCodex`) runs the World builder with `WorldBuildInput.plan` (no first look; `sortOut` still leaves what the
+   world has) and a summary written from the brief, the style and one line per item (`buildSummary`). One Undo
+   (`undoWorldBuild`) takes it back; the brief keeps the run (`built`).
+3. **Outline**: the outline helper's own page under the steps. When the brief has an idea (`hasIdea`), `startOutline`
+   is the Story builder's request (`startStoryOutline`: the idea, style, recipe, story, plan so far, threads, cast and
+   the world's events, marker `[AIWRITE-STORY v1] outline`), with a `Premise:` line first when the story has none (a
+   card keeps it). Once the codex is built, a keep starts the World build only for pages it made (`setKeepBuild`).
+   A story made from a recipe opens the recipe's plan page here (`RecipeStoryPlan`), and follows the recipe from then on.
+4. **Done**: what was made and kept, and where to go next.
+
+**What wins:** the idea and his own entries, then the recipe (with the story's own changes, `brief.recipe.tweaks`; Save
+back puts them in the library), then the AI's own ideas. Every prompt says so.
+
+**Talking it over** (`features/planning/talkStore.ts`, `TalkPanel.tsx`): one talk per thing (the outline's suggestions,
+the codex list, a recipe), kept while the app is open, never saved. A revision waits as a preview for Apply or Decline;
+Apply has Undo. The outline's talk (`startPlanChat`) streams; its revised plan follows a line `=== Revised plan ===`
+and replaces the open suggestions (`helperStore.applyRevision`, which keeps what was kept by matching titles).
+**Redo** on an open act, chapter or scene (`startPlanRedo`) streams a new version beside it; Use this swaps it in
+(`applyRedo`). That works because `features/outline/outlineText.ts` writes the suggestions back out in the outline form
+so that reading them again gives every other suggestion the same key (unit-tested round trip). Recipes: `recipeChat` and
+`redoRecipePart`, on the recipe page too.
+
+**Writing style presets** (`src/shared/stylePresets.ts`, `features/style/StylePresets.tsx`): one click sets genres,
+content levels, point of view, tense and prose style (and the tone, in the Story builder), with Undo; those marked
+`adult` sit under "For adult readers". Never rename an id.
+
+**Where it is:** the story menu, the Plan area and the command palette ("Story builder"); the board's blank story; the
+New story dialog's "Build it with the AI next". The World builder page stays for a world built from a summary apart
+from any story, and points to the Story builder while a story is open.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

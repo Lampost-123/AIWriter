@@ -19,9 +19,37 @@ cover, **Continue writing**, the last lines you wrote, the chapters, open thread
 
 <p align="center"><img src="../images/story-home.png" alt="The story home for The Keeper's Light" width="800"></p>
 
+## Build a story with the AI (the Story builder)
+
+The **Story builder** is one place to build a whole story from your idea. Open it from the story menu (the arrow
+beside the story's name), from **Story builder** in the **Plan** room, with Ctrl+K, or by ticking **Build it with the
+AI next** when you make a new story. Its steps run across the top, and you can go back to any of them:
+
+1. **Your idea.** Write your plot, as long as you like. Add where it's set, what must happen, what must never happen
+   and how long it is. Under **Your own characters, places and more**, add anyone you already have in mind: the AI
+   keeps them exactly as you wrote them. **Ask me questions** has the AI ask about what you left open. On the right,
+   choose **This story's style**: a preset (open **For adult readers** for steamier, darker or more violent ones), how
+   far it goes, and the tone. **Follow a recipe** uses the shape of a story you admire.
+2. **Cast and world.** Click **Plan the cast and world**. The AI lists every character, place, group, object, piece
+   of lore, event, plot thread and word your story needs, with yours first. Untick, **Edit**, **Redo** (with a note
+   about what to change) or remove any of them, or tell it what to change in **Talk the cast and world over**. Then
+   **Build** writes a full page for each one in your codex. **Undo build** takes the whole build back.
+3. **Outline.** The Outline helper, planning from your idea and the cast it just built. With no premise, it writes
+   one first for you to keep.
+4. **Done.** What was made, and **Start writing**.
+
+### Talk it over, or redo one part
+
+Beside the suggested outline, **Talk it over** lets you tell the AI what to change ("make chapter 3 a betrayal",
+"rework the rest to fit my changes"). It shows you the new plan first: **Apply** puts it in, **Decline** leaves things
+as they were, and Undo takes an applied change back. Things you've kept are never changed.
+
+Each suggestion still waiting has **Redo**: say what should be different (or leave it empty for a fresh take), then
+**Use this** or **Keep mine**. Only that act, chapter or scene changes.
+
 ## Outline a story
 
-The **Outline helper** suggests acts, chapters and scenes from your premise.
+The **Outline helper** suggests acts, chapters and scenes from your premise. It is the Story builder's outline step.
 
 1. Open the **Plan** room and choose **Outline helper** in its links (or choose it from the story menu, the arrow beside the
    story's name in the top bar, or search for it with Ctrl+K). In an empty story, **Plan it with the outline helper**
@@ -90,6 +118,10 @@ Each level can change what the one above says.
 
 ### Story feel
 
+- **Start from a preset**: one click sets the genre, how far it goes, point of view, tense and prose style, such as
+  **Cosy mystery**, **Pacy thriller** or **Lyrical literary**. **For adult readers** opens presets such as **Steamy
+  romance**, **Dark romance**, **Grimdark**, **Hardboiled noir** and **Erotica**. Change anything after; Undo puts the
+  style back. Set it on the **This story** tab (or in the Story builder) to give one story its own style.
 - **Genre**: pick up to two tiles, such as Fantasy, Mystery or Cosy.
 - **How far it goes**: set **Romance**, **Violence** and **Language**, from **None** or **Off-page** up. For example,
   romance goes from **None** to **Fade to black**, **On the page** and **Explicit**.
@@ -122,6 +154,14 @@ The story's text is sent only to the recipe maker model, and only while the reci
 
 - On a recipe's page, click **Start a new story from it**.
 - Or, on the start screen, choose **New story from a recipe…** (it appears once you have a recipe).
+- Or, in the Story builder's first step, choose it under **Follow a recipe**. Its cast roles become characters in the
+  cast and world step, and the outline follows its shape and beats.
+
+### Change a recipe
+
+Edit any part of a recipe on its page, click **Redo** beside a part to have the AI write it again (with a note if you
+like), or tell the AI what to change in **Talk the recipe over**. You see each change before it's made. In the Story
+builder, changes are for that story only, until you click **Save changes to the recipe**.
 
 ---
 
