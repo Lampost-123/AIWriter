@@ -2278,9 +2278,12 @@ When, mood, length and notes for the AI. Goal, conflict, outcome, beats, plot th
   unless Adam changed it since. A chapter's plan fills its card's empty parts when the reply ends, with Undo.
 - **A new story's world (Adam, 2026-10-17).** A keep first makes a page, drafted by AI, for each character or place a
   kept card names that the world doesn't have (`addMissing` in `outline/chapterCard.ts`; stand-ins such as "none",
-  "everyone" or a lower-case description are skipped), so the cards point at them; their ids are `KeptItem.entryIds`,
+  "everyone" or a lower-case description are skipped), so the cards point at them. A room or spot inside a bigger place
+  comes as "Kitchen, Venn House" (or "Kitchen – Venn House"; `CHAPTER_CARD_FORM` asks for it): `findPlace` means the
+  kitchen inside that house, never another house's, and `addMissing` makes the house if needed and the room inside it
+  (`parentId`). Their ids are `KeptItem.entryIds`,
   and the keep's Undo takes them back with its plot threads (`takeBackThreads`: never one Adam has edited, one on
-  another card, or one the memory holds anything about). When a keep made pages or threads, the window asks
+  another card, one the memory holds anything about, or a place something left is still inside). When a keep made pages or threads, the window asks
   `buildStoryWorld` four seconds after the last keep (`features/worldBuilder/storyBuild.ts`; one asked while a build
   runs waits for it): a World build from a summary written from the story (`worldBuilder/storySummary.ts`: premise,
   themes, tone, and each act, chapter and scene card with who, where, when and its threads), never kept as the page's

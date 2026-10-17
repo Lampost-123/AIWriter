@@ -26,4 +26,14 @@ describe('a new story’s world, from its plan (2026-10-17)', () => {
     expect(text).toContain('Sets up: The Duke’s debt.')
     expect(text).toMatch(/looks, build, usual clothes, personality/)
   })
+
+  it('names a room with the place it is inside', () => {
+    const db = memoryWorld()
+    const id = repo.listStories(db)[0].id
+    keepOutline(db, id, [
+      { key: 'c0', kind: 'chapter', title: 'Home', text: 'Supper goes wrong.', card: { location: 'Kitchen, Venn House' } },
+      { key: 's0', kind: 'scene', title: 'Supper', text: 'The soup is cold.', parent: { key: 'c0' } }
+    ])
+    expect(storySummary(db, id)).toContain('Where: Kitchen (inside Venn House).')
+  })
 })

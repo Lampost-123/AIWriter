@@ -42,7 +42,15 @@ export function storySummary(db: DB, storyId: ID): string {
   const story = repo.getStory(db, storyId)
   const outline = repo.getOutline(db, storyId)
   const cards = repo.sceneCards(db, outline.scenes.map((s) => s.id))
-  const names = new Map(repo.listEntries(db).map((e) => [e.id, e.name]))
+  const all = repo.listEntries(db)
+  const byId = new Map(all.map((e) => [e.id, e]))
+  // A room is named with the place it is inside: "Kitchen (inside Venn House)".
+  const names = new Map(
+    all.map((e) => {
+      const parent = e.kind === 'place' && e.parentId ? byId.get(e.parentId) : undefined
+      return [e.id, parent ? `${e.name} (inside ${parent.name})` : e.name]
+    })
+  )
   const name = (id: ID | null | undefined): string => (id ? (names.get(id) ?? '') : '')
   const lines: string[] = []
   lines.push(`This is the plan for the story "${flat(story.title) || 'Untitled'}". Lay out everything it needs: every character with their looks, build, usual clothes, personality, voice, goals and how they relate to the others; every place; the groups, items, lore and rules of its world; and the plot threads it sets up and pays off.`)

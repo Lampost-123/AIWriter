@@ -43,7 +43,7 @@ Pays off: <the plot threads this scene resolves, by name, separated by semicolon
 /** A chapter card's lines (chapter cards, 2026-10-08): what most of the chapter's scenes share. Kept in step with features/outline/parse.ts. */
 export const CHAPTER_CARD_FORM = `Point of view: <the character whose eyes most of the chapter is seen through>
 Characters: <the characters in most of its scenes, by name, separated by commas>
-Location: <where most of it happens, by the place's name>
+Location: <where most of it happens, by the place's name; a room or spot inside a bigger place as "room, place": "Kitchen, Venn House">
 When: <when it starts, as a scene's When: "Day 1, morning">
 Mood: <its mood or tone, in a few words>`
 

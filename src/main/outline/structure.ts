@@ -103,9 +103,12 @@ export function takeBackThreads(db: DB, kept: Pick<KeptItem, 'threadIds' | 'entr
     cards.push(JSON.stringify(repo.getChapterCard(db, r.id)))
   }
   const onCards = (id: ID): boolean => cards.some((c) => c.includes(id))
-  for (const e of repo.getEntries(db, ids)) {
+  // A room before the place it is inside, so a place goes only once nothing left is inside it.
+  const entries = repo.getEntries(db, ids).sort((a, b) => Number(ids.includes(b.parentId ?? '')) - Number(ids.includes(a.parentId ?? '')))
+  for (const e of entries) {
     if (e.origin !== 'ai' || e.byHand || onCards(e.id)) continue
     if (db.prepare('SELECT 1 FROM changes WHERE entry_id = ? AND deleted_at IS NULL LIMIT 1').get(e.id)) continue
+    if (db.prepare('SELECT 1 FROM entries WHERE parent_id = ? AND deleted_at IS NULL LIMIT 1').get(e.id)) continue
     repo.deleteEntry(db, e.id, { origin: 'ai' })
   }
 }

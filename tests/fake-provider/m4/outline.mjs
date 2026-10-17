@@ -23,7 +23,7 @@
 //          ("Point of view:", "Characters:", "Location:", "When:" its first scene's, "Mood:") from the briefing's
 //          characters and places, and each chapter's third scene its own "Location:" (the second place).
 //          "[[fake: new cast]]" does the same with names the world doesn't have: Mara Venn and Tobin Hale, at Gull
-//          Quay and The Salt Market.
+//          Quay, and each third scene in "the kitchen, Venn House" (a room inside a house).
 // ideas   Three directions, "## 1. The door left open", "## 2. A debt called in", "## 3. The
 //          wrong messenger", each with one sentence on what happens and four beats.
 // interview  "Interview me" on a scene or chapter: the next question as JSON, from a fixed list for each
@@ -213,7 +213,7 @@ function tidy(items) {
  * and each chapter's third scene is somewhere else (the second place), as its own.
  */
 /** "[[fake: new cast]]": the chapter cards name people and places the world doesn't have yet. */
-const NEW_CAST = { people: ['Mara Venn', 'Tobin Hale'], places: ['Gull Quay', 'The Salt Market'] }
+const NEW_CAST = { people: ['Mara Venn', 'Tobin Hale'], places: ['Gull Quay', 'the kitchen, Venn House'] }
 
 function withCards(items, user) {
   const newCast = user.includes('[[fake: new cast]]')

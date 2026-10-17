@@ -565,3 +565,49 @@ describe('a kept outline makes pages for the cast and places it names (2026-10-1
     expect(names(db, 'place')).toEqual([])
   })
 })
+
+describe('rooms inside a bigger place (2026-10-17)', () => {
+  const place = (db: Database.Database, name: string, parentId: ID | null = null) =>
+    repo.listEntries(db).filter((e) => e.kind === 'place' && e.name === name && e.parentId === parentId)
+
+  it('makes "Kitchen, Venn House" a kitchen inside the house, and another house’s kitchen its own page', () => {
+    const db = writtenWorld()
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Home', { card: { location: 'the kitchen, Venn House' } }),
+      scene('s0', 'Supper', 'c0'),
+      scene('s1', 'Next door', 'c0', { after: { key: 's0' }, card: { location: 'Kitchen – Hale Cottage' } }),
+      scene('s2', 'Back again', 'c0', { after: { key: 's1' }, card: { location: 'Kitchen, Venn House' } })
+    ])
+    const [venn] = place(db, 'Venn House')
+    const [hale] = place(db, 'Hale Cottage')
+    const [vennKitchen] = place(db, 'Kitchen', venn.id)
+    const [haleKitchen] = place(db, 'Kitchen', hale.id)
+    expect([vennKitchen?.origin, haleKitchen?.origin]).toEqual(['ai', 'ai'])
+    expect(repo.listEntries(db, 'place')).toHaveLength(4)
+    expect(repo.getChapterCard(db, kept[0].id).locationId).toBe(vennKitchen.id)
+    const [, nextDoor, back] = kept.slice(1).map((k) => repo.getScene(db, k.id).card)
+    expect([nextDoor.locationId, back.locationId]).toEqual([haleKitchen.id, vennKitchen.id])
+  })
+
+  it('puts a new room inside a place the world has, and Undo leaves the place but takes the room', () => {
+    const db = writtenWorld()
+    const tower = repo.createEntry(db, 'place', { name: 'The Lamp Tower' }).id
+    const kept = keepOutline(db, book(db), [chapter('c0', 'Up', { card: { location: 'Lamp room, the Lamp Tower' } }), scene('s0', 'Wick', 'c0')])
+    const [room] = place(db, 'Lamp room', tower)
+    expect(repo.getChapterCard(db, kept[0].id).locationId).toBe(room.id)
+    unkeepOutline(db, kept)
+    expect(repo.listEntries(db, 'place').map((e) => e.name)).toEqual(['The Lamp Tower'])
+  })
+
+  it('Undo takes back a house it made with its room, but keeps a house whose room Adam changed', () => {
+    const db = memoryWorld()
+    const kept = keepOutline(db, book(db), [chapter('c0', 'Home', { card: { location: 'Cellar, Venn House' } }), scene('s0', 'Down', 'c0')])
+    const cellar = repo.listEntries(db, 'place').find((e) => e.name === 'Cellar')!
+    repo.updateEntry(db, cellar.id, { summary: 'Damp, and full of the old man’s wine.' })
+    unkeepOutline(db, kept)
+    expect(repo.listEntries(db, 'place').map((e) => e.name).sort()).toEqual(['Cellar', 'Venn House'])
+    const again = keepOutline(db, book(db), [chapter('c0', 'Hall', { card: { location: 'Hall, Hale Cottage' } }), scene('s0', 'In', 'c0')])
+    unkeepOutline(db, again)
+    expect(repo.listEntries(db, 'place').map((e) => e.name).sort()).toEqual(['Cellar', 'Venn House'])
+  })
+})

@@ -2,7 +2,7 @@
 // makes their pages straight away, the scene cards point at them, and the World builder then lays out what the
 // story needs in the background (characters' looks and traits, places, plot threads...), with a toast saying how
 // it goes. Against the fake provider: "[[fake: new cast]]" in the premise makes its chapter cards name Mara Venn
-// and Tobin Hale at Gull Quay (tests/fake-provider/m4/outline.mjs), and its fill-gaps answers fill each empty
+// and Tobin Hale at Gull Quay, and each third scene in "the kitchen, Venn House" (tests/fake-provider/m4/outline.mjs), and its fill-gaps answers fill each empty
 // field as "<Label> of <name>, filled in from the story." (tests/fake-provider/server.mjs).
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
@@ -32,9 +32,9 @@ test('keeping an outline gives the story its cast and places before anything is 
     await win.getByRole('menuitem', { name: 'Outline helper' }).click()
     await choose(win, 'Acts', '2 acts')
     await choose(win, 'Chapters', '3 chapters')
-    await choose(win, 'Scenes in each chapter', '2 scenes in each')
+    await choose(win, 'Scenes in each chapter', '3 scenes in each')
     await main(win).getByRole('button', { name: 'Suggest an outline' }).click()
-    await expect(main(win).getByText('Here is the outline: 2 acts, 3 chapters and 6 scenes. Keep what you like.')).toBeVisible()
+    await expect(main(win).getByText('Here is the outline: 2 acts, 3 chapters and 9 scenes. Keep what you like.')).toBeVisible()
     // Nothing is in the codex until Adam keeps something.
     expect(await invoke(win, 'listEntries', 'character')).toEqual([])
 
@@ -63,6 +63,14 @@ test('keeping an outline gives the story its cast and places before anything is 
     for (const key of ['build', 'hair']) expect(String(filled.fields[key] ?? '')).toContain('Mara Venn')
     // The World builder page's own summary is still Adam's (empty here), not the story's plan.
     expect((await invoke(win, 'getWorldBuilder')).summary).toBe('')
+
+    // A room the cards name ("the kitchen, Venn House") is a kitchen page inside the house.
+    await main(win).getByRole('button', { name: 'Keep all that’s left' }).click()
+    await expect(main(win).getByText(/^Everything is decided/)).toBeVisible()
+    const places = await invoke(win, 'listEntries', 'place')
+    const house = places.find((e) => e.name === 'Venn House')
+    expect(house?.origin).toBe('ai')
+    expect(places.filter((e) => e.name === 'Kitchen').map((e) => e.parentId)).toEqual([house?.id])
   } finally {
     await fake.close()
   }
