@@ -152,12 +152,15 @@ export function storyDetails(worldId: ID, storyId: ID): Promise<void> {
   })
 }
 
-/** New story in a chosen world: the world opens behind the start screen, then the New story dialog shows. */
-export function newStoryIn(worldId: ID): Promise<void> {
+/**
+ * New story in a chosen world: the world opens behind the start screen, then the New story dialog shows. `withAi`:
+ * with "Build it with the AI next" ticked, so Create goes on to the Story builder.
+ */
+export function newStoryIn(worldId: ID, opts?: { withAi?: boolean }): Promise<void> {
   return exclusive(async () => {
     try {
       await openBehind(worldId)
-      app().setNewStoryOpen(true)
+      app().setNewStoryOpen(true, opts)
     } catch (e) {
       failed(e)
     }

@@ -23,7 +23,8 @@ cover, **Continue writing**, the last lines you wrote, the chapters, open thread
 
 The **Story builder** is one place to build a whole story from your idea. Open it from the story menu (the arrow
 beside the story's name), from **Story builder** in the **Plan** room, with Ctrl+K, or by ticking **Build it with the
-AI next** when you make a new story. Its steps run across the top, and you can go back to any of them:
+AI next** when you make a new story. To start a brand-new story in it, choose **Build a story with AI…** on the start
+screen and pick a world. Its steps run across the top, and you can go back to any of them:
 
 1. **Your idea.** Write your plot, as long as you like. Add where it's set, what must happen, what must never happen
    and how long it is. Under **Your own characters, places and more**, add anyone you already have in mind: the AI
