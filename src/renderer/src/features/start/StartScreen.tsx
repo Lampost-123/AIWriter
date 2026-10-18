@@ -361,29 +361,22 @@ function StartNew({ worlds, order, onNewWorld }: { worlds: LibraryWorld[] | null
       </h2>
       <div className="grid grid-cols-3 gap-2">
         <Tile icon={Plus} label="New world" hint="Characters, places and lore for a new set of stories" disabled={!!busy || worldBusy} onClick={onNewWorld} />
-        <M.Root modal={false}>
-          <M.Trigger asChild disabled={!!busy || worldBusy || !choices.length}>
-            <Tile icon={BookPlus} label="New story…" hint="A new book, prequel or side story in one of your worlds" />
-          </M.Trigger>
-          <M.Portal>
-            <M.Content
-              align="start"
-              sideOffset={4}
-              className="z-50 max-h-[min(360px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px] max-w-[360px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
-            >
-              <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">In which world?</M.Label>
-              {choices.map((w) => (
-                <M.Item
-                  key={w.id}
-                  onSelect={() => void newStoryIn(w.id)}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2"
-                >
-                  <span className="truncate">{w.name}</span>
-                </M.Item>
-              ))}
-            </M.Content>
-          </M.Portal>
-        </M.Root>
+        <WorldPickTile
+          icon={BookPlus}
+          label="New story…"
+          hint="A new book, prequel or side story in one of your worlds"
+          worlds={choices}
+          disabled={!!busy || worldBusy}
+          onPick={(worldId) => void newStoryIn(worldId)}
+        />
+        <WorldPickTile
+          icon={WandSparkles}
+          label="Build a story with AI…"
+          hint="Give the Story builder your idea: it plans the cast, the world and the outline"
+          worlds={choices}
+          disabled={!!busy || worldBusy}
+          onPick={(worldId) => void newStoryIn(worldId, { withAi: true })}
+        />
         <RecipeTile worlds={choices} disabled={!!busy || worldBusy} />
         <OtherWays busy={busy} setBusy={setBusy} />
       </div>
@@ -394,6 +387,41 @@ function StartNew({ worlds, order, onNewWorld }: { worlds: LibraryWorld[] | null
 const menuItem = 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2 data-[state=open]:bg-surface-2'
 const menuBox =
   'z-50 max-h-[min(360px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px] max-w-[360px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in'
+
+/** A tile that asks which world first (the New story dialog then opens in it). */
+function WorldPickTile({
+  icon,
+  label,
+  hint,
+  worlds,
+  disabled,
+  onPick
+}: {
+  icon: IconType
+  label: string
+  hint: string
+  worlds: LibraryWorld[]
+  disabled: boolean
+  onPick: (worldId: string) => void
+}): React.JSX.Element {
+  return (
+    <M.Root modal={false}>
+      <M.Trigger asChild disabled={disabled || !worlds.length}>
+        <Tile icon={icon} label={label} hint={hint} />
+      </M.Trigger>
+      <M.Portal>
+        <M.Content align="start" sideOffset={4} className={menuBox}>
+          <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">In which world?</M.Label>
+          {worlds.map((w) => (
+            <M.Item key={w.id} onSelect={() => onPick(w.id)} className={menuItem}>
+              <span className="truncate">{w.name}</span>
+            </M.Item>
+          ))}
+        </M.Content>
+      </M.Portal>
+    </M.Root>
+  )
+}
 
 /**
  * Story recipes: "New story from a recipe…" picks the recipe, then the world; the New story dialog then opens in

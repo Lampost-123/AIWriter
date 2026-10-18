@@ -81,7 +81,7 @@ function NewStoryForm(): React.JSX.Element {
   /** The story was made: its first scene takes the keyboard (see createStory). */
   const made = useRef(false)
   const [recipe, setRecipe] = useRecipePick()
-  const [withAi, setWithAi] = useState(false)
+  const [withAi, setWithAi] = useState(() => useApp.getState().newStoryWithAi)
 
   const seriesId = isNew ? null : seriesChoice
 

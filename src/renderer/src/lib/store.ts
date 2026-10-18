@@ -124,6 +124,8 @@ interface AppState {
   peekEntryId: ID | null
   /** The New story dialog is open. */
   newStoryOpen: boolean
+  /** The New story dialog opened with "Build it with the AI next" already ticked (the start screen's Story builder tile). */
+  newStoryWithAi: boolean
   /** Ask the world (milestone 4) shows in the right-hand panel beside the page, in place of the scene panel's tabs. */
   askOpen: boolean
   /** The chapter whose card shows in the right-hand panel (clicked in the binder), in place of the scene panel's tabs. */
@@ -169,7 +171,7 @@ interface AppState {
   bumpBriefing(): void
   /** Shows an entry in the scene panel without leaving the scene (opens the panel); null closes it. */
   peekEntry(id: ID | null): void
-  setNewStoryOpen(open: boolean): void
+  setNewStoryOpen(open: boolean, opts?: { withAi?: boolean }): void
   /** Opens Ask the world beside the page (opening the panel), or closes it. */
   setAskOpen(open: boolean): void
   /** Shows a chapter's card in the right-hand panel (opening the panel, on the writing page); null closes it. */
@@ -235,6 +237,7 @@ const NO_WORLD: Partial<AppState> = {
   memoryStatus: null,
   peekEntryId: null,
   newStoryOpen: false,
+  newStoryWithAi: false,
   askOpen: false,
   chapterCardId: null
 }
@@ -315,6 +318,7 @@ export const useApp = create<AppState>((set, get) => ({
   briefingRev: 0,
   peekEntryId: null,
   newStoryOpen: false,
+  newStoryWithAi: false,
   askOpen: false,
   chapterCardId: null,
   chapterCardsRev: 0,
@@ -437,7 +441,7 @@ export const useApp = create<AppState>((set, get) => ({
     const layout = get().settings?.layout
     if (id && layout && !layout.inspectorOpen) void get().updateSettings({ layout: { inspectorOpen: true } })
   },
-  setNewStoryOpen: (newStoryOpen) => set({ newStoryOpen }),
+  setNewStoryOpen: (newStoryOpen, opts) => set({ newStoryOpen, newStoryWithAi: newStoryOpen && !!opts?.withAi }),
   setAskOpen(askOpen) {
     set({ askOpen, ...(askOpen ? { peekEntryId: null, chapterCardId: null } : {}) })
     const layout = get().settings?.layout

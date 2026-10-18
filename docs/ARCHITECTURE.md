@@ -3718,7 +3718,8 @@ content levels, point of view, tense and prose style (and the tone, in the Story
 `adult` sit under "For adult readers". Never rename an id.
 
 **Where it is:** the story menu, the Plan area and the command palette ("Story builder"); the board's blank story; the
-New story dialog's "Build it with the AI next". The World builder page stays for a world built from a summary apart
+New story dialog's "Build it with the AI next"; the start screen's **Build a story with AI…** tile (picks a world,
+then opens the New story dialog with that box ticked: `newStoryIn(worldId, { withAi: true })`, `useApp.newStoryWithAi`). The World builder page stays for a world built from a summary apart
 from any story, and points to the Story builder while a story is open.
 
 ## Milestone 1 scope
