@@ -27,6 +27,8 @@ export interface VariantRow {
   cutOff: boolean
   targetWords: number | null
   creativity: Creativity | null
+  /** The variant's own direction, beside the set's ('' when it had none). */
+  note: string
 }
 
 /** The set a record belongs to (null for a record that isn't a variant, or whose params can't be read). */
@@ -61,7 +63,8 @@ function toRow(r: Row): VariantRow | null {
     of: Number.isFinite(v.of) ? v.of : 0,
     cutOff: p.cutOff === true,
     targetWords: typeof p.targetWords === 'number' ? p.targetWords : null,
-    creativity: p.creativity ?? null
+    creativity: p.creativity ?? null,
+    note: typeof v.note === 'string' ? v.note : ''
   }
 }
 

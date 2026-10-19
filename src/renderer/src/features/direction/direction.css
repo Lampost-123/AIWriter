@@ -1,0 +1,30 @@
+/* The direction composer's own pieces that its components can't say with utility classes (features/direction). */
+
+/* The desk's dock: the clock beside the steer box, holding the quick asks and the directions given before. */
+[data-arrangement='desk'] .desk-steer-tools {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--muted);
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    scale var(--dur-quick) var(--desk-ease, ease-out);
+}
+[data-arrangement='desk'] .desk-steer-tools:hover,
+[data-arrangement='desk'] .desk-steer-tools.is-open {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-steer-tools:focus-visible {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+[data-arrangement='desk'] .desk-steer-tools:active {
+  scale: 0.95;
+  transition-duration: var(--dur-press);
+}

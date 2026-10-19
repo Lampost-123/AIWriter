@@ -238,6 +238,16 @@ export function VariantColumn({
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line/70 pl-4 pr-2">
         <h2 className="shrink-0 text-[13px] font-semibold text-fg">Variant {index}</h2>
+        {/* Its own direction, when it had one ("tense"), so each column says how it was asked to differ. */}
+        {variant.note ? (
+          <span
+            data-variant-note=""
+            className="min-w-0 max-w-[45%] shrink truncate rounded-md bg-accent-soft px-1.5 py-px text-[12px] text-fg"
+            title={`Its own direction: “${variant.note}”`}
+          >
+            {variant.note}
+          </span>
+        ) : null}
         <span className="min-w-0 truncate text-[12px] tabular-nums text-faint">{text ? `${words.toLocaleString()} words` : ''}</span>
         <div className="ml-auto flex h-7 shrink-0 items-center gap-1.5">
           {writing || starting ? (

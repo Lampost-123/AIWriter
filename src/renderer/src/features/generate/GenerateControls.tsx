@@ -19,6 +19,7 @@ import { formatCost } from './format'
 import { AFTER_TEXT, GeneratePanels } from './GeneratePanels'
 import { useGenerate } from './useGenerate'
 import { useDesk, useNewLook } from '@/features/look/look'
+import { DirectionLabel, useNextDirection } from '@/features/direction/DirectionLabel'
 
 /**
  * Below this header width the writer model's name is left out, so Generate always fits and the scene's
@@ -55,6 +56,13 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const rootRef = useRef<HTMLDivElement>(null)
   const compact = useNarrowHeader(rootRef)
   const afterText = AFTER_TEXT
+  // A direction waiting for the next draft shows beside Generate (in the model's place) until a draft has used it.
+  const direction = useNextDirection(sceneId)
+  const openOptions = (): void => {
+    loadCard(true)
+    checkText()
+    setPopover('options')
+  }
 
   return (
     <div ref={rootRef} data-generate-controls className="flex items-center gap-1.5">
@@ -72,26 +80,32 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         // Wide enough for the longest words that show while drafting ("Updating memory…"), so they never
         // spill over the buttons beside them whatever the writer model is called.
         <div className="relative flex h-8 min-w-[150px] items-center justify-end">
-          <button
-            type="button"
-            onClick={openSettings}
-            tabIndex={showStatus ? -1 : 0}
-            title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings › Models.` : 'Choose a writer model in Settings › Models.'}
-            className={cn(
-              'flex h-7 max-w-[230px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
-              showStatus && 'invisible'
-            )}
-          >
-            <span className="truncate">{modelName ?? 'No writer model'}</span>
-            {writer && hasPrices ? (
-              <span
-                className="w-[50px] shrink-0 text-left tabular-nums text-faint"
-                title={polishOn ? 'Estimated cost of a draft, with the polish pass (about twice as much)' : 'Estimated cost of a draft'}
-              >
-                {draftCost != null ? `· ${formatCost(draftCost)}` : ''}
-              </span>
-            ) : null}
-          </button>
+          {direction ? (
+            // The direction the next draft will follow, in the model's place, until a draft has used it.
+            <DirectionLabel sceneId={sceneId} onOpen={openOptions} className={cn(showStatus && 'invisible')} />
+          ) : (
+            <button
+              type="button"
+              onClick={openSettings}
+              tabIndex={showStatus ? -1 : 0}
+              title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings › Models.` : 'Choose a writer model in Settings › Models.'}
+              className={cn(
+                // As wide as the toolbar has room for (it is a container), so a long model name never pushes Generate out.
+                'flex h-7 max-w-[150px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg @min-[760px]:max-w-[190px] @min-[840px]:max-w-[230px]',
+                showStatus && 'invisible'
+              )}
+            >
+              <span className="truncate">{modelName ?? 'No writer model'}</span>
+              {writer && hasPrices ? (
+                <span
+                  className="w-[50px] shrink-0 text-left tabular-nums text-faint"
+                  title={polishOn ? 'Estimated cost of a draft, with the polish pass (about twice as much)' : 'Estimated cost of a draft'}
+                >
+                  {draftCost != null ? `· ${formatCost(draftCost)}` : ''}
+                </span>
+              ) : null}
+            </button>
+          )}
           {showStatus ? (
             <span
               role="status"
@@ -137,25 +151,25 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                     checkText()
                   }}
                   onFocus={checkText}
-                  title={`Draft this scene from its card (${modKey()}+G)${hasText ? `\n${afterText}` : ''}`}
+                  title={`Draft this scene from its card (${modKey()}+G)${direction ? `\nDirection: “${direction}”` : ''}${hasText ? `\n${afterText}` : ''}`}
                 >
                   Generate
                 </Button>
                 <Button
                   variant={desk ? 'ai' : 'primary'}
-                  className="w-7 rounded-l-none border-l border-accent-fg/25 px-0! desk:border-ai-fg/25"
+                  className="relative w-7 rounded-l-none border-l border-accent-fg/25 px-0! desk:border-ai-fg/25"
                   aria-label="Draft options"
-                  title="Draft options: direction, length, creativity and polish"
+                  title={direction ? `Draft options. Direction for the next draft: “${direction}”` : 'Draft options: direction, length, creativity and polish'}
                   onClick={() => {
                     if (popover === 'options') setPopover(null)
-                    else {
-                      loadCard(true)
-                      checkText()
-                      setPopover('options')
-                    }
+                    else openOptions()
                   }}
                 >
                   <ChevronDown size={14} />
+                  {/* A narrow header has no room for the direction's words: a dot says one is waiting for the next draft. */}
+                  {direction && compact ? (
+                    <span className="absolute right-[5px] top-[5px] h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+                  ) : null}
                 </Button>
               </>
             )}

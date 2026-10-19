@@ -23,6 +23,8 @@ import type { EditTool } from '@shared/types'
 import { IconButton, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
+import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { noteUsed } from '@/features/direction/store'
 import { markWords, startTool, waitingSuggestion } from './session'
 
 export function AiTools({
@@ -48,7 +50,7 @@ export function AiTools({
   const [next, setNext] = useState('')
   /** Why the tools can't start now (a change waiting, a draft writing), or null. */
   const [blocked, setBlocked] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
   const toneRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const dialogue = useMemo(() => hasDialogue(text), [text])
@@ -89,6 +91,8 @@ export function AiTools({
    */
   const run = (tool: EditTool, direction?: string): void => {
     change(false)
+    // Rewrite's and Continue's words are offered back in their boxes from now on (and by ↑ in them).
+    if (direction && (tool === 'rewrite' || tool === 'continue')) noteUsed(direction, tool)
     void startTool(tool, { direction })
   }
 
@@ -155,25 +159,32 @@ export function AiTools({
           {page === 'main' ? (
             <>
               <form
-                className="flex items-center gap-1"
                 onSubmit={(e) => {
                   e.preventDefault()
                   if (instruction.trim() && !off) run('rewrite', instruction.trim())
                 }}
               >
-                <Input
-                  ref={inputRef}
+                {/* The direction composer (features/direction): ↑ brings back the last way he asked, quick asks under
+                    it, and Recent lists the ways he asked before. */}
+                <DirectionComposer
+                  kind="rewrite"
+                  lines="one"
+                  boxRef={inputRef}
                   value={instruction}
-                  onChange={(e) => setInstruction(e.target.value)}
+                  onChange={setInstruction}
+                  onSubmit={() => {
+                    if (instruction.trim() && !off) run('rewrite', instruction.trim())
+                  }}
                   placeholder="Say how to rewrite it…"
-                  aria-label="How to rewrite the selected words"
+                  ariaLabel="How to rewrite the selected words"
                   disabled={off}
                   maxLength={2000}
-                  className="h-8 flex-1"
+                  trailing={
+                    <IconButton type="submit" label="Rewrite" disabled={off || !instruction.trim()} className="text-ai hover:text-ai">
+                      <ArrowRight size={15} />
+                    </IconButton>
+                  }
                 />
-                <IconButton type="submit" label="Rewrite" disabled={off || !instruction.trim()} className="text-ai hover:text-ai">
-                  <ArrowRight size={15} />
-                </IconButton>
               </form>
               <div className="mx-1 my-1.5 h-px bg-line" />
               <Tool
@@ -231,14 +242,19 @@ export function AiTools({
                   if (!off) run('continue', next.trim())
                 }}
               >
-                <Input
+                <DirectionComposer
+                  lines="one"
+                  tools="none"
                   value={next}
-                  onChange={(e) => setNext(e.target.value)}
+                  onChange={setNext}
+                  onSubmit={() => {
+                    if (!off) run('continue', next.trim())
+                  }}
                   placeholder="What happens next? (optional)"
-                  aria-label="What happens next, for Continue (optional)"
+                  ariaLabel="What happens next, for Continue (optional)"
                   disabled={off}
                   maxLength={2000}
-                  className="h-7 text-[12.5px]"
+                  boxClassName="h-7 text-[12.5px]"
                 />
               </form>
               <Tool icon={<PenLine size={15} />} label="Continue after these words" disabled={off} onClick={() => run('continue', next.trim())} />

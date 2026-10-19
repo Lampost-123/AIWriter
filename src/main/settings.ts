@@ -7,6 +7,7 @@ import { ARRANGEMENTS, LOOKS, arrangementNoteDue, classicNoteDue, lookNoteDue, t
 import { defaultLibraryDir, userDataDir } from './paths'
 import { readJson, writeFileAtomic } from './util'
 import { cleanPrefsTargets } from '@shared/lengths'
+import { cleanFavourites, withFavourite } from '@shared/directions'
 
 let cached: Settings | null = null
 
@@ -136,7 +137,31 @@ export function getWritingPrefs(): WritingPrefs {
 }
 
 export function setWritingPrefs(prefs: WritingPrefs): WritingPrefs {
-  const clean = cleanPrefsTargets(prefs)
+  // The starred directions are kept by setDirectionFavourite alone: a page holding the preferences as they were when it
+  // opened never takes back a star given since (or gives back one taken away).
+  const { favouriteDirections: _theirs, ...rest } = prefs
+  const starred = directionFavourites()
+  const clean = cleanPrefsTargets({ ...rest, ...(starred.length ? { favouriteDirections: starred } : {}) })
   writeFileAtomic(prefsFile(), JSON.stringify(clean, null, 2))
   return clean
+}
+
+/** The preferences file as it is (an object; nothing else counts). */
+function storedPrefs(): Partial<WritingPrefs> {
+  const raw = readJson<unknown>(prefsFile(), {})
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Partial<WritingPrefs>) : {}
+}
+
+/** The directions Adam starred in the direction composer, most recently starred first (contracts/direction.ts). */
+export function directionFavourites(): string[] {
+  return cleanFavourites(storedPrefs().favouriteDirections)
+}
+
+/** Stars a direction or takes its star away, keeping every other preference as it is in the file. */
+export function setDirectionFavourite(text: string, on: boolean): string[] {
+  if (typeof text !== 'string') return directionFavourites()
+  const stored = storedPrefs()
+  const favouriteDirections = withFavourite(cleanFavourites(stored.favouriteDirections), text, on === true)
+  writeFileAtomic(prefsFile(), JSON.stringify({ ...stored, favouriteDirections }, null, 2))
+  return favouriteDirections
 }

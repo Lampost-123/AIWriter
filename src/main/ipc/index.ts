@@ -49,6 +49,7 @@ import { chapterWriterHandlers } from './chapterWriter'
 import { phoneHandlers } from './phone'
 import { storyBuilderHandlers } from './storyBuilder'
 import { storyIndexHandlers } from './storyIndex'
+import { directionHandlers } from './direction'
 import { bindPhoneCall } from '../phone/runtime'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
@@ -117,7 +118,9 @@ const all: Handlers<ApiMethod> = {
   // The Story builder
   ...storyBuilderHandlers,
   // The story index: Fill in the whole story
-  ...storyIndexHandlers
+  ...storyIndexHandlers,
+  // The direction composer: directions given before, and the starred ones
+  ...directionHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

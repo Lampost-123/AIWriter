@@ -27,9 +27,10 @@ import { useDraft } from '@/features/generate/draftRun'
 import { usePolish } from '@/features/generate/polishRun'
 import { useGenerate, type Generate } from '@/features/generate/useGenerate'
 import { keyboardDriven } from '@/features/look/motion'
-import { setSteer, steerOf, steerSettled, steerTaken, useDeskStore } from '../deskStore'
-import { activityLine, activityOf, isBusy, progressOf, type Activity } from './activity'
+import { setSteer, steerOf, steerTaken, useDeskStore } from '../deskStore'
+import { activityLine, activityOf, progressOf, type Activity } from './activity'
 import { DockMenu } from './DockMenu'
+import { DirectionComposer } from '@/features/direction/DirectionComposer'
 
 /** The change waiting (or being written) in the page for this scene, followed as the editor changes. */
 function useChange(editor: Editor, sceneId: ID): Suggestion | null {
@@ -96,9 +97,8 @@ export function Dock({
   const steer = useDeskStore((s) => s.steer[sceneId] ?? '')
   // Generate's workings, with its keys (Ctrl+G, Esc stops the draft, Ctrl+Z on the dock), and the steer box's words for
   // the next draft (Add below, Draft the scene, a choice from Ctrl+G).
-  const g = useGenerate(sceneId, { keys: true, steer: { get: () => steerOf(sceneId), taken: () => steerTaken(sceneId) } })
+  const g = useGenerate(sceneId, { keys: true, steer: { get: () => steerOf(sceneId), taken: () => steerTaken(sceneId, 'draft') } })
   const { activity, changeId } = useActivity(editor, sceneId, g)
-  const busy = isBusy(activity)
   const hasWords = useApp((s) => (s.sceneId === sceneId ? s.sceneWords > 0 : false))
   // Messages show above the dock, never over it.
   const dockRef = useRef<HTMLDivElement>(null)
@@ -115,18 +115,8 @@ export function Dock({
     setInstant(keyboardDriven())
   }, [kind])
 
-  // The steer box's words come back if the writing they started ends with no words at all.
-  const wrote = useRef(false)
-  const wasBusy = useRef(false)
-  useEffect(() => {
-    if (busy) {
-      if (!wasBusy.current) wrote.current = false
-      if (activity.kind === 'writing' && activity.words > 0) wrote.current = true
-    } else if (wasBusy.current) {
-      steerSettled(sceneId, wrote.current || activity.kind === 'review')
-    }
-    wasBusy.current = busy
-  }, [busy, activity, sceneId])
+  // The steer box's words are used once the AI starts with them: the box stays empty after (steerTaken), and ↑ in it or
+  // its recent directions bring them back.
 
   /** Continue from the end of the scene, steered by the box; on an empty page, a first draft of the scene. */
   const runContinue = useCallback(
@@ -190,25 +180,24 @@ export function Dock({
           {/* Idle: steer, Add below, Continue, more. */}
           <div className="desk-dock-layer" data-layer="idle" inert={kind !== 'idle'} aria-hidden={kind !== 'idle' || undefined}>
             <span aria-hidden className="desk-dock-dot" />
-            <label htmlFor={`steer-${sceneId}`} className="sr-only">
-              Steer the next bit (optional)
-            </label>
-            <input
+            {/* The steer box is the direction composer (features/direction): Enter continues with it, ↑ brings back the
+                last direction, and the clock beside it holds the quick asks and the directions given before. */}
+            <DirectionComposer
               id={`steer-${sceneId}`}
-              type="text"
-              className="desk-steer"
-              placeholder="Steer the next bit… (optional)"
-              autoComplete="off"
-              spellCheck
+              lines="one"
+              tools="menu"
+              bare
+              className="min-w-0 flex-1"
+              boxClassName="desk-steer"
+              menuClassName="desk-steer-tools"
+              ariaLabel="Steer the next bit (optional)"
+              // Short, so it fits beside the clock in a narrow dock (the box's name still says it is optional).
+              placeholder="Steer the next bit…"
+              side="top"
               value={steer}
-              onChange={(e) => setSteer(sceneId, e.target.value)}
-              onKeyDown={(e) => {
-                // Enter in the box: Continue (with what it says).
-                if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  runContinue(true)
-                }
-              }}
+              onChange={(text) => setSteer(sceneId, text)}
+              // Enter in the box: Continue (with what it says).
+              onSubmit={() => runContinue(true)}
             />
             <button
               type="button"
