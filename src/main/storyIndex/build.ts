@@ -11,18 +11,20 @@
 // - dated facts from the memory's changes in the scene: what someone learns or forgets (never a wrong belief), a
 //   relationship set or ended, a plot thread opened or closed, a death the memory is sure of (ai/deaths.ts surelyDied)
 //   and any other note of what is now different, each stopped where the memory says it stops (its "true until");
-// - plot thread events: the memory's thread changes, the card's "sets up" and "pays off", and a thread named in the words.
+// - plot thread events: the memory's thread changes, the card's "sets up" and "pays off", and a thread named in the words;
+// - things left in the card's place, and taken or gone from it (place memory, storyIndex/placed.ts).
 // Pure: the world is read by storyIndex/index.ts.
 
 import type { Change, Entry, ID, SceneCard } from '@shared/types'
 import { calledFor, findName, soleFirstName, type CalledName } from '@shared/names'
 import { clothesOf, pieceSource, sourceKey, type CharacterState, type SceneState, type StateSource } from '@shared/continuity'
-import { isAllClothes, isOff, itemKey } from '@shared/stageItems'
+import { isAllClothes, isOff, itemKey, type StageItem } from '@shared/stageItems'
 import { namedIn } from '../keeper/presence'
 import { textParas } from '../keeper/text'
 import { isPerson } from '../ai/mustStay'
 import { deathRecord, surelyDied } from '../ai/deaths'
 import type { IndexFactKind, IndexOrigin, NewIndexFact, NewThreadEvent } from './types'
+import { placedFacts } from './placed'
 
 /** The world's entries, read once for a build: names to look for, and who the stage's names are. */
 export interface IndexWorld {
@@ -104,6 +106,11 @@ export interface SceneSource {
   stage: { state: SceneState; edited: boolean } | null
   /** Where things stood at the end of the last scene before it in this story with such a state; null for none. */
   stageBefore: SceneState | null
+  /**
+   * The things in the place as the scene right before this one ended, with that scene's card place, when it has where
+   * things stand (place memory, storyIndex/placed.ts: a thing gone from the place since). Null or left out: not known.
+   */
+  thingsBefore?: { placeId: ID | null; things: StageItem[] } | null
   /** True for a scene of this story: where a fact stops in another story's scene isn't kept. */
   inStory: (sceneId: ID) => boolean
 }
@@ -127,6 +134,8 @@ export function buildScene(src: SceneSource, world: IndexWorld): SceneBuild {
   const named = namedHere(src, world)
   const memory = memoryFacts(src, world, facts, threads)
   const staged = stageFacts(src, world, facts)
+  // Place memory: the things left in the card's place, and those taken or gone (storyIndex/placed.ts).
+  facts.push(...placedFacts(src, world))
 
   // The card's place is where its people are (a fact of its own, so a value read from the words isn't replaced by the
   // card's broader one while nothing moves).

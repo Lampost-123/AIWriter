@@ -3,7 +3,7 @@
 // for one round. Each is a ToolSpec with a short description, answered in compact plain text (the short form unless
 // `full` is asked for); a look-up that finds nothing says what to try next.
 // - the story index's look-ups (storyIndex/lookup.ts): state_of, last_seen, who_knows, open_threads, what_happened,
-//   who_was_there, timeline;
+//   who_was_there, timeline; and where_is (storyIndex/placed.ts: where a thing was left, or who has it);
 // - get_entry: a codex entry as it stands at this scene (the memory's own view of it, what it knows, its ties);
 // - find_in_story: earlier passages found by searching the story so far (retrieval/, passed in as `find`);
 // - read_passage: the exact words of part of an earlier scene.
@@ -17,6 +17,7 @@ import { loadShape } from '../../db/memory'
 import * as sidx from '../../db/storyIndex'
 import { storyOfScene } from '../../memory/line'
 import { lastSeen, openThreads, presentAt, sceneGists, stateOf, timeline, whoKnows } from '../../storyIndex/lookup'
+import { whereIs } from '../../storyIndex/placed'
 import { clip, entryText, firstLines, passageOf, wholeSentences } from './text'
 
 type DB = Database.Database
@@ -36,6 +37,11 @@ export const LOOKUP_TOOLS: ToolSpec[] = [
     name: 'last_seen',
     description: 'The last earlier scene someone was in, where, and what happened there.',
     parameters: { type: 'object', properties: { name: str }, required: ['name'] }
+  },
+  {
+    name: 'where_is',
+    description: 'Where a thing is now, or was last: where it was left and since when, or who has it.',
+    parameters: { type: 'object', properties: { thing: { type: 'string', description: 'The thing: "the letter", "the brass key".' } }, required: ['thing'] }
   },
   {
     name: 'who_knows',
@@ -315,6 +321,19 @@ async function answer(call: ToolCall, ctx: LookupContext): Promise<LookupAnswer>
       if (!seen) return said(call.name, `Where ${e.name} was last`, `${e.name} isn't in any scene of this story before this one. Try get_entry.`, { ok: false })
       const line = seen.gist ? seen.line.replace(seen.gist, wholeSentences(seen.gist, 300)) : seen.line
       return said(call.name, `Where ${e.name} was last`, line, { facts: withoutHidden(ctx, [line]) })
+    }
+    case 'where_is': {
+      const thing = clean(a.thing ?? a.name)
+      if (!thing) throw new Miss('Say what thing: a few words, such as "the letter".')
+      indexed(ctx)
+      const lines = withoutHidden(ctx, whereIs(ctx.db, ctx.storyId, thing, ctx.sceneId, at(ctx)).lines).map((l) => clip(l, 300))
+      const label = `Where “${clip(thing, 60)}” is`
+      if (!lines.length) {
+        return said(call.name, label, `Nothing in the story so far says where “${clip(thing, 80)}” is. Try find_in_story, or state_of for whoever had it last.`, {
+          ok: false
+        })
+      }
+      return said(call.name, label, lines.join('\n'), { facts: lines })
     }
     case 'who_knows': {
       const fact = clean(a.fact)

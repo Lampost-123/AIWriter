@@ -4155,6 +4155,45 @@ when it can't. No migration; the stores, hashes and rules are the tracker's and 
   reply read again alone), `keeper/oneReadingWorld.test.ts` (before a draft, in the open world: one call for the scene
   just written), `keeper/keeper.test.ts` (the retry), `keeper/prompts.test.ts`.
 
+## Place memory, and can each beat happen (2026-10-19)
+
+A live finding: a letter's hiding place drifted across chapters. Where things stand keeps a place's things only while the
+story stays there (`shared/continuity.ts` `newSceneStage`: a scene somewhere else starts without them), and nothing brought
+them back when the story returned. The tracker's own rules are unchanged: nothing is put back into where things stand.
+
+- **Placed facts** (`storyIndex/placed.ts`, story index kind `placed`, no migration: `kind` is free text; `INDEX_RULES` 4):
+  built for free from where things stand per scene: each thing in the card's place whose words are the scene's own (or
+  Adam's Recall), when it can be left somewhere (`leftable`: said where it is; never part of the place, such as a door, a
+  lamp or the fire; never on someone: held, worn, in a hand or a pocket). The fact's entry is the place, its slot the thing
+  as compared, its value "the letter: under the loose hearthstone", with the words. It stops (`placedEnds`, asked by
+  `link.ts` `factEnds`) when someone holds it by a later scene's words (an end `taken:<thing>` whose entry is who took it,
+  wherever they are), when the same thing is put somewhere else or said otherwise in the same place, or when the scene right
+  before, at the same place, had it and this one doesn't (never with the list full).
+- **Left here before** (`leftHere`): for a scene whose card is at the place, a room inside it, or the house its room is in,
+  "Left here before: the letter under the loose hearthstone (since Ch 2, Sc 3)" (", in the study" when it is another of those
+  places), without what where things stand as told already has there (`leftHereLines`). In the plan's gathered core
+  (`plan/core.ts` `left`, the planner's part "Left in this place on an earlier visit") and the writer's briefing (block
+  `left-here`, priority 3, right before where things stand; `ai/gather.ts` reads the index as it stands, and a plan passes
+  its own reading, made with the index just brought up to date, through `MadePlan.leftHere`, in place of it: `keepsRoom`
+  lets that part change), and Continue's briefing
+  (`edits/briefing.ts`, the same part, after `continuePeople` brings the index up to date).
+- **where_is** (`ai/lookups`, `whereIs`): where a thing was left and since when, who carries it, or, with neither, where it
+  was last left and what became of it ("taken by Mara Venn in Ch 3, Sc 1").
+- **Can each beat happen?** (`plan/preconditions.ts` `beatsCanHappen`, no AI call, `PlanCall.preconditions`): after the plan
+  is checked, a beat that has someone use a particular thing ("reads the letter"; never "a letter", nor things there are
+  many of) that the index has elsewhere, or has someone act who isn't in the scene and whom the index last had in another
+  place. A thing in another room of the same house, or one someone here has, gets a note after that beat in the writer's
+  plan (`ScenePlan.first`: "2. Mara reads the letter to Ash. First Mara Venn must fetch the letter from the study, where it
+  was left under the loose hearthstone (Ch 1, Sc 1)."). What can't be put right is left as planned and noted for Adam on the
+  plan's record in What the AI saw ("Steps it took", `BEATS_CHECK_LABEL`, `generations.addSteps`). Never when the stage,
+  the words so far, a beat so far (fetching it, or someone arriving), a change, the card or the direction bring it.
+- **Tests**: `storyIndex/placed.test.ts` (across visits, taken, moved, gone, nested rooms, where_is),
+  `plan/preconditions.test.ts` (a thing elsewhere, a person elsewhere, controls with no false alarm, the notes, and the
+  hidden-letter trap end to end on the briefing), `plan/plan.test.ts` (the core's part; the check's notes and record),
+  `ai/lookups/lookups.test.ts` (where_is), `edits/briefing.test.ts` (Continue's part).
+- **Not done here**: the trap harness (`tests/traps`) has no hidden-letter probe yet; the check doesn't look at the
+  plan's changes or closing image, only its beats.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

@@ -26,15 +26,17 @@ import { factEnds } from './link'
 
 export * from './lookup'
 export * from './checks'
+export { leftHere, leftHereLines, thingsLeft, whereIs, type LeftThing } from './placed'
 export type * from './types'
 
 type DB = Database.Database
 
 /**
  * Goes up whenever the build's rules change, so every scene is built again by them (2: a row says when its details are in;
- * 3: someone the stage has but the words name only as thought of or far away is named, not there).
+ * 3: someone the stage has but the words name only as thought of or far away is named, not there; 4: things left in a
+ * place, taken and gone, placed.ts).
  */
-export const INDEX_RULES = 3
+export const INDEX_RULES = 4
 
 export interface IndexBuild {
   storyId: ID
@@ -107,6 +109,10 @@ function sourceOf(db: DB, r: Reading, storyId: ID, sceneId: ID): { src: SceneSou
   for (const l of linksInScene(db, sceneId))
     if (l.factKind === 'change' && l.state === 'ok' && !quotes.has(l.factId)) quotes.set(l.factId, l.quote)
   const before = stageBefore(r, sceneId)
+  // The things in the place as the scene right before ended, with its card's place (placed.ts: a thing gone since).
+  const at = r.order.indexOf(sceneId)
+  const thingsBefore =
+    before && at > 0 && before.id === r.order[at - 1] ? { placeId: r.cards.get(before.id)?.locationId || null, things: before.state.things ?? [] } : null
   const src: SceneSource = {
     sceneId,
     storyId,
@@ -118,6 +124,7 @@ function sourceOf(db: DB, r: Reading, storyId: ID, sceneId: ID): { src: SceneSou
     summary: mem.getSummary(db, 'scene', sceneId)?.text ?? '',
     stage: r.stages.get(sceneId) ?? null,
     stageBefore: before?.state ?? null,
+    thingsBefore,
     inStory: (id) => r.inStory.has(id)
   }
   const hash = hashText(
@@ -132,6 +139,7 @@ function sourceOf(db: DB, r: Reading, storyId: ID, sceneId: ID): { src: SceneSou
       src.summary,
       src.stage,
       before,
+      thingsBefore?.placeId ?? null,
       r.names
     ])
   )

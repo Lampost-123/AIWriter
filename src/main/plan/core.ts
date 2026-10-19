@@ -1,6 +1,7 @@
 // What the planner gets at no cost before it plans a scene (overhaul, "Plan before writing, done properly", step 1),
 // from the story index (storyIndex/): everyone in the scene as things stand there, what happens in the scenes of the last
-// two chapters (so it doesn't plan as still to come what has already happened), and the plot threads open there. The
+// two chapters (so it doesn't plan as still to come what has already happened), the plot threads open there, and what was
+// left in the scene's place on an earlier visit (place memory, storyIndex/placed.ts: "Left here before: …"). The
 // index is brought up to date first (cheap when little changed: a scene is built again only when what it is built from
 // changed). Reads the database; no Electron imports.
 
@@ -9,7 +10,7 @@ import type { ID } from '@shared/types'
 import { namedThere, stageFor } from '../ai/mustStay'
 import { toldStage, type ContextInput } from '../ai/context'
 import * as sidx from '../db/storyIndex'
-import { buildStoryIndex, openThreads, stateOf, type EntryNow } from '../storyIndex'
+import { buildStoryIndex, leftHere, leftHereLines, openThreads, stateOf, type EntryNow } from '../storyIndex'
 import { clip, wholeSentences } from '../ai/lookups/text'
 
 type DB = Database.Database
@@ -28,10 +29,18 @@ export interface PlanCore {
   recent: string[]
   /** The plot threads open here, longest open first. */
   threads: string[]
+  /**
+   * What was left in the scene's place (or a room in it, or the house its room is in) on an earlier visit and not taken
+   * or moved since, a line each ("Left here before: the letter under the loose hearthstone (since Ch 2, Sc 3)"); never
+   * what where things stand, as told here, already has in the place.
+   */
+  left: string[]
+  /** Everyone in the scene (the card, and whoever the stage and the words put there), for what the plan's beats need. */
+  present: ID[]
 }
 
-/** The most lines: of each person's state, of everyone's, of the scenes before, of the threads. */
-export const CORE_MOST = { each: 7, people: 28, recent: 16, threads: 8 }
+/** The most lines: of each person's state, of everyone's, of the scenes before, of the threads, of the things left here. */
+export const CORE_MOST = { each: 7, people: 28, recent: 16, threads: 8, left: 6 }
 /** How many chapters back the scenes before are told from (this one and the one before). */
 const RECENT_CHAPTERS = 2
 
@@ -92,7 +101,14 @@ export function planCore(db: DB, input: ContextInput, sceneId: ID, o: { carrying
     .lines.filter(free)
     .slice(0, CORE_MOST.threads)
     .map((l) => clip(l, 240))
-  return { storyId, asItBegins, people: lines.slice(0, CORE_MOST.people), known, recent, threads }
+  const left = leftHereLines(
+    leftHere(db, storyId, sceneId, card.locationId, { asItBegins }).things,
+    stage
+  )
+    .filter(free)
+    .slice(0, CORE_MOST.left)
+    .map((l) => clip(l, 240))
+  return { storyId, asItBegins, people: lines.slice(0, CORE_MOST.people), known, recent, threads, left, present: people }
 }
 
 /** What the index says of one person, by the stage's field: where (never only "last seen"), what they wear, carry and suffer. */

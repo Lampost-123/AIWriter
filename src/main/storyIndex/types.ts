@@ -10,8 +10,11 @@ import type { ID } from '@shared/types'
  */
 export type IndexFilled = 'free' | 'ai' | 'hand'
 
-/** The kinds of dated fact. */
-export type IndexFactKind = 'where' | 'wearing' | 'carrying' | 'condition' | 'knows' | 'relationship' | 'thread' | 'status'
+/**
+ * The kinds of dated fact. 'placed' (place memory, 2026-10-19): a thing left in a place (storyIndex/placed.ts), its entry the
+ * place, its slot the thing as compared, its value "the letter: under the loose hearthstone".
+ */
+export type IndexFactKind = 'where' | 'wearing' | 'carrying' | 'condition' | 'knows' | 'relationship' | 'thread' | 'status' | 'placed'
 
 /**
  * Where a fact comes from: the scene card, the memory's changes, where things stand (the stage tracker), or Adam (a change
@@ -48,7 +51,8 @@ export interface IndexScene {
 /**
  * A dated fact, or where one stops (`value` ''). `slot` tells facts of one kind apart: '' for where (from the words),
  * 'card' for where (from the card), carrying and condition; the piece for wearing ("grey coat"); the fact's id for knows;
- * 'with:<entry id>' for a relationship; 'life' for being dead, 'note:<change id>' for any other status.
+ * 'with:<entry id>' for a relationship; 'life' for being dead, 'note:<change id>' for any other status; the thing for
+ * placed ("letter"; an end 'taken:<thing>' when someone takes it, with the one who took it as its entry).
  */
 export interface IndexFact {
   id: ID

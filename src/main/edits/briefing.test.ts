@@ -543,6 +543,15 @@ describe('Continue in the scene’s own words (stand-in test, 2026-10-19)', () =
     expect(ids.indexOf('people-now')).toBe(ids.indexOf('stand') - 1)
     expect(go().blocks.some((x) => x.id === 'people-now')).toBe(false)
   })
+
+  it('what was left in this place on an earlier visit, right before where things stand (place memory)', () => {
+    const stand = { time: '', weather: '', light: '', characters: [{ name: 'Mara', where: 'by the door', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }] }
+    const b = go({ stand, leftHere: ['Left here before: the letter under the loose hearthstone (since Ch 2, Sc 3)'] })
+    expect(part(b, 'left-here')).toContain('- Left here before: the letter under the loose hearthstone (since Ch 2, Sc 3)')
+    const ids = b.blocks.map((x) => x.id)
+    expect(ids.indexOf('left-here')).toBe(ids.indexOf('stand') - 1)
+    expect(go().blocks.some((x) => x.id === 'left-here')).toBe(false)
+  })
 })
 
 describe('Continue’s plan and the scene before (2026-10-19)', () => {
