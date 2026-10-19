@@ -159,11 +159,21 @@ export interface DraftBriefing {
  * stand at their end is worked out first (never for long) and told in place of where the previous scene ended.
  * `plan` (on unless false; Variants turn it off, and Beat by beat plans the beat itself with withPlan): one short call
  * to the memory model plans the scene first, when Settings › Models says to (plan/), never for long (withPlan).
+ * `brief: false`: the plan writes no continuity brief (Write the whole chapter, whose study wrote one; plan/index.ts).
  */
 export async function draftBriefing(
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
-  o: { extras?: ContextExtras; signal?: AbortSignal; catchUp?: boolean; catchUpMs?: number; soFar?: string; plan?: boolean; focus?: string } = {}
+  o: {
+    extras?: ContextExtras
+    signal?: AbortSignal
+    catchUp?: boolean
+    catchUpMs?: number
+    soFar?: string
+    plan?: boolean
+    focus?: string
+    brief?: boolean
+  } = {}
 ): Promise<DraftBriefing> {
   const { choice, target, thinking } = writerModel()
   const db = world.db()
@@ -184,7 +194,7 @@ export async function draftBriefing(
     entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks),
     contract: made.prepared.contract ?? null
   }
-  if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal })
+  if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal, brief: o.brief })
   // Where things stand as the previous scene ended goes on being worked out after the draft's wait, so it is looked up
   // again now (review, 2026-10-16): one that came in during the plan's own wait (up to two minutes) is told after all.
   if (!carryOn && !b.input.continuity) b = await withStageNow(sceneId, b, o.extras)
@@ -262,11 +272,13 @@ async function withStageNow(sceneId: ID, b: DraftBriefing, extras?: ContextExtra
 export async function withPlan(
   sceneId: ID,
   b: DraftBriefing,
-  o: { extras?: ContextExtras; signal?: AbortSignal; focus?: string } = {}
+  o: { extras?: ContextExtras; signal?: AbortSignal; focus?: string; brief?: boolean } = {}
 ): Promise<DraftBriefing> {
   if (!b.prepared) return b
   const db = world.db()
-  const plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, o.focus)
+  const plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, o.focus, {
+    brief: o.brief
+  })
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
   if (!plan) return b

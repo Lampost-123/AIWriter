@@ -4,6 +4,7 @@ import type { ChapterWriterProgress } from '@shared/contracts/chapterWriter'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
+import * as gens from '../db/generations'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
@@ -11,9 +12,9 @@ import { checkScene } from '../checks/run'
 import { runCritique } from '../critique/run'
 import { dropRepeats, pageFrom, proseBlocks } from './page'
 import { ProgressGuard, Tries, findingKey, sameFinding, wordsOverlap } from './progress'
-import { ChapterRun, LATER_START, cardReady, type RunDeps } from './run'
-import { LOOKUPS_ALLOWED, studySystem } from './prompts'
-import { ChapterSession, type Finding } from './tools'
+import { ChapterRun, FOLLOW_ON_CHECKS, LATER_START, cardReady, type RunDeps } from './run'
+import { LOOKUPS_ALLOWED, STEPS, studySystem } from './prompts'
+import { ChapterSession, type Finding, type SessionDeps } from './tools'
 import { loadBefore, loadReport } from './store'
 import { critiqueAsk } from '../critique/prompts'
 
@@ -71,8 +72,8 @@ function deps(db: RunDeps['db'], o: { again?: boolean; agent?: string; progress?
     save: (sceneId, page) => {
       repo.saveSceneText(db, sceneId, page.doc, page.text)
     },
-    check: async (sceneId) => {
-      const r = await checkScene({ db, model: model('fake/writer', 'check'), prefs: PREFS, stopped: () => false, retryDelays: [] }, sceneId, ALL_CHECKS)
+    check: async (sceneId, _signal, checks = ALL_CHECKS) => {
+      const r = await checkScene({ db, model: model('fake/writer', 'check'), prefs: PREFS, stopped: () => false, retryDelays: [] }, sceneId, checks)
       return r.status === 'error' ? { status: 'error', error: r.error } : { status: r.status }
     },
     critique: (target, again) =>
@@ -167,6 +168,15 @@ describe('a sentence printed twice in a row', () => {
     expect(dropRepeats('No. No. Not now.').dropped).toEqual([])
     expect(dropRepeats(`${once} Then she waited. ${once}`).dropped).toEqual([])
     expect(dropRepeats(`*${once} ${once}* After.`).dropped).toEqual([])
+  })
+})
+
+describe('how far each session goes', () => {
+  it('keeps sessions short (token audit, 2026-10-19), with requests left to act after every look-up it may make', () => {
+    expect(STEPS).toEqual({ study: 10, review: 12, chapter: 14, proofread: 6 })
+    expect(LOOKUPS_ALLOWED).toEqual({ study: 15, review: 8, chapter: 10, proofread: 0 })
+    // A model asks for about three look-ups a request; then it still has two requests to write the brief or fix.
+    for (const job of ['study', 'review', 'chapter', 'proofread'] as const) expect(Math.ceil(LOOKUPS_ALLOWED[job] / 3) + 2).toBeLessThanOrEqual(STEPS[job])
   })
 })
 
@@ -401,8 +411,10 @@ describe('writing a whole chapter', () => {
     const d = deps(db)
     const real = { check: d.check, critique: d.critique }
     const checked: ID[] = []
-    d.check = async (sceneId, signal) => {
+    const asked: string[] = []
+    d.check = async (sceneId, signal, checks = ALL_CHECKS) => {
       checked.push(sceneId)
+      asked.push(checks.join(', '))
       // The next chapter's scene: the check finds its opening no longer follows on.
       if (sceneId === road) {
         cdb.saveFound(
@@ -413,7 +425,7 @@ describe('writing a whole chapter', () => {
         )
         return { status: 'done' }
       }
-      return real.check(sceneId, signal)
+      return real.check(sceneId, signal, checks)
     }
     // The critic has notes for Sc 1 only, so only Sc 1's review changes anything.
     d.critique = (target, again, signal) => {
@@ -429,9 +441,48 @@ describe('writing a whole chapter', () => {
     // Round 1 checks both scenes, then the next chapter's first scene with words (its last scene was just written);
     // round 2 checks Sc 2 again although only Sc 1 changed: its opening follows on from Sc 1's new end.
     expect(checked).toEqual([s1, s2, road, s1, s2])
+    // A scene that didn't change itself is checked for what is so only (token audit, 2026-10-19).
+    const all = ALL_CHECKS.join(', ')
+    const follow = FOLLOW_ON_CHECKS.join(', ')
+    expect(asked).toEqual([all, all, follow, all, follow])
     // The next chapter's scene is never changed: what its check found is noted for Adam.
     expect(repo.getScene(db, road).text).toBe('Mara walked on in the blue dress, wet through.')
     expect(report.notes).toEqual(['Ch 2, Sc 2 may no longer follow on: Mara took the blue dress off at the inn. (“in the blue dress”)'])
+  })
+
+  it('checks no scene again that check_again read as it is now, with nothing before it changed since (token audit)', { timeout: 30_000 }, async () => {
+    const { db, chapterId, s1, s2 } = world()
+    const d = deps(db, { agent: 'fake/agent-checks-again' })
+    const real = d.check
+    const checked: ID[] = []
+    d.check = async (sceneId, signal, checks) => {
+      checked.push(sceneId)
+      return real(sceneId, signal, checks)
+    }
+    const run = new ChapterRun(d, 'run-again', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    // Round 1 checks both scenes; each review revises its scene and has it checked again; round 2 has nothing to read.
+    expect(checked).toEqual([s1, s2, s1, s2])
+    expect(report.rounds).toBe(2)
+  })
+
+  it('opens each review and proofread with the scene’s words before what was found in them (token audit)', { timeout: 30_000 }, async () => {
+    const { db, chapterId } = world()
+    const run = new ChapterRun(deps(db), 'run-order', chapterId)
+    run.prepare()
+    await run.run()
+    const openings = (db.prepare("SELECT id FROM generations WHERE job = 'chapter' ORDER BY created_at").all() as { id: ID }[])
+      .map((r) => gens.getGeneration(db, r.id).messages)
+      .filter((m) => /^\[AIWRITE-CHAPTER v1\] (review|proofread)/.test(m[0]?.content ?? ''))
+      .map((m) => m[1].content)
+    expect(openings.length).toBeGreaterThan(2)
+    for (const o of openings) {
+      const words = o.indexOf("## The scene's words")
+      expect(words).toBeGreaterThan(0)
+      expect(Math.max(o.indexOf('## What the checks and the critic found'), o.indexOf('## Common AI phrases'))).toBeGreaterThan(words)
+    }
   })
 
   it('never keeps a cut-off draft or a refusal as the scene', async () => {
@@ -498,7 +549,7 @@ describe('writing a whole chapter', () => {
 })
 
 describe('setting a finding aside', () => {
-  const session = (db: RunDeps['db'], storyId: ID, chapterId: ID, s1: ID, findings: Finding[]) =>
+  const session = (db: RunDeps['db'], storyId: ID, chapterId: ID, s1: ID, findings: Finding[], more: Partial<SessionDeps> = {}) =>
     new ChapterSession({
       db,
       job: 'review',
@@ -515,7 +566,8 @@ describe('setting a finding aside', () => {
       checkAgain: async () => [],
       setAside: () => undefined,
       wrote: () => undefined,
-      noted: { fix: () => undefined, setAside: () => undefined, rewritten: () => undefined }
+      noted: { fix: () => undefined, setAside: () => undefined, rewritten: () => undefined },
+      ...more
     })
 
   it('needs words quoted from the story or the memory, and then marks the issue ignored', async () => {
@@ -555,6 +607,55 @@ describe('setting a finding aside', () => {
     for (let i = 1; i < LOOKUPS_ALLOWED.review; i++) expect(await one('get_entry', { name: 'Mara' })).not.toMatch(/No more look-ups/)
     expect(await one('get_entry', { name: 'Mara' })).toMatch(/^No more look-ups in this session/)
     expect(await one('timeline')).toMatch(/^No more look-ups in this session/)
+  })
+
+  it('sends a scene again in full once the result that showed it was taken out to save room (token audit)', async () => {
+    const { db, storyId, chapterId, s1, s2 } = world()
+    repo.saveSceneText(db, s2, null, 'The inn was full and loud. Nobody made room for her at the fire.')
+    const s = session(db, storyId, chapterId, s1, [], {
+      scenes: [
+        { id: s1, n: 1, title: 'The ferry', label: 'Sc 1 “The ferry”' },
+        { id: s2, n: 2, title: 'The inn', label: 'Sc 2 “The inn”' }
+      ]
+    })
+    const read = async (id: string) => (await s.runAll([{ id, name: 'read_scene', arguments: '{"scene":"Sc 2"}' }])).results[0].content
+    expect(await read('c1')).toContain('Nobody made room for her')
+    expect(await read('c2')).toMatch(/hasn't changed/)
+    s.removed(['c0'])
+    expect(await read('c3')).toMatch(/hasn't changed/)
+    s.removed(['c1'])
+    expect(await read('c4')).toContain('Nobody made room for her')
+    // The scene being worked on is in the session's opening, which is never taken out.
+    s.removed(['', 'c4'])
+    expect((await s.runAll([{ id: 'c5', name: 'read_scene', arguments: '{}' }])).results[0].content).toMatch(/hasn't changed/)
+  })
+
+  it('never takes another chapter’s scene for this one’s: "Ch 2, Sc 1" read from Ch 1 is sent', async () => {
+    const { db, storyId, chapterId, s1 } = world()
+    const road = repo.createScene(db, repo.createChapter(db, storyId, { title: 'The road' }).id).id
+    repo.saveSceneText(db, road, null, 'Mara walked on in the blue dress, wet through.')
+    const s = session(db, storyId, chapterId, s1, [])
+    const read = async () => (await s.runAll([{ id: 'r', name: 'read_scene', arguments: '{"scene":"Ch 2, Sc 1"}' }])).results[0].content
+    expect(await read()).toContain('in the blue dress')
+    expect(await read()).toContain('in the blue dress')
+  })
+
+  it('checks again once in a session (token audit, 2026-10-19), and stops offering it once used', async () => {
+    const { db, storyId, chapterId, s1 } = world()
+    const f: Finding = { id: 'F1', sceneId: s1, from: 'critic', issueId: null, kind: 'critic · pacing · high', what: 'Slow', quote: '', advice: '', status: 'open' }
+    let checked = 0
+    const s = session(db, storyId, chapterId, s1, [f], {
+      checkAgain: async () => {
+        checked++
+        return [{ sceneId: s1, from: 'critic', issueId: null, kind: 'critic · pacing · high', what: 'Slow', quote: '', advice: '', status: 'open' }]
+      }
+    })
+    const one = async (name: string) => (await s.runAll([{ id: 'c', name, arguments: '{"summary":"All done."}' }])).results[0].content
+    expect(await one('done')).toMatch(/call check_again to have it read again/)
+    expect(await one('check_again')).toMatch(/^Still open in Sc 1 “The ferry”:\nF1 /)
+    expect(await one('check_again')).toMatch(/^check_again works once in a session/)
+    expect(checked).toBe(1)
+    expect(await one('done')).not.toMatch(/check_again/)
   })
 
   it('turns done down while findings are open, twice, then lets it end', async () => {

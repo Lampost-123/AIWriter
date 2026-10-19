@@ -117,7 +117,9 @@ function deps(runId: ID): RunDeps {
         : []
       let b: Awaited<ReturnType<typeof draftBriefing>>
       try {
-        b = await draftBriefing(sceneId, options, { extras: { extraBlocks }, signal: o.signal, catchUpMs: DRAFT_CATCH_UP_MS })
+        // The plan before writing writes no continuity brief (token audit, 2026-10-19): the study's notes for the scene
+        // say what it would, and its planner would read up to 150,000 tokens of the book for every scene.
+        b = await draftBriefing(sceneId, options, { extras: { extraBlocks }, signal: o.signal, catchUpMs: DRAFT_CATCH_UP_MS, brief: false })
       } catch (e) {
         if (o.signal.aborted) return { status: 'stopped', text: '', error: null }
         if (e instanceof UserError) return { status: 'error', text: '', error: e.message }
@@ -155,7 +157,7 @@ function deps(runId: ID): RunDeps {
       if ((now.text ?? '').trim()) currentHistory()?.take({ sceneId, kind: 'ai', label, doc: now.doc, text: now.text })
       coreHandlers.saveSceneText(sceneId, page.doc, page.text)
     },
-    check: async (sceneId, signal) => {
+    check: async (sceneId, signal, checks = ALL_CHECKS) => {
       // As the checks do: the memory reads earlier scenes first, then this scene's own waiting read.
       await catchUpBeforeDraft(db, sceneId, CATCH_UP_MS, signal)
       const k = currentKeeper()
@@ -187,7 +189,7 @@ function deps(runId: ID): RunDeps {
               byMeaning: (queries, docs, s) => meaningForCheck(db, queries, docs, s)
             },
             sceneId,
-            ALL_CHECKS
+            checks
           )
       )
       return r.status === 'error' ? { status: 'error', error: r.error } : { status: r.status }

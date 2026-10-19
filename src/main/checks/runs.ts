@@ -21,7 +21,7 @@ import type { WorldShape } from '../memory/types'
 import { newId, now, UserError } from '../util'
 import { openSince } from '../db/checks'
 import { checkScene, type CheckOptions } from './run'
-import { savedContract } from './report'
+import { checkedAsIs, savedContract } from './report'
 import { compareStories, storyComparisons } from './stories'
 
 type DB = Database.Database
@@ -209,7 +209,8 @@ const upper = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
 /**
  * Marking a scene done checks its facts, knowledge and timeline in the background. Never slows marking
- * done or says anything: with no model set up, or no words in the scene, nothing happens.
+ * done or says anything: with no model set up, or no words in the scene, nothing happens; nor when the scene's latest
+ * check (the one after its draft, say) read it as it is now, with nothing before it changed since (checkedAsIs).
  */
 export function checkWhenDone(db: DB, sceneId: ID): ID | null {
   if (!deps) return null
@@ -224,6 +225,7 @@ export function checkWhenDone(db: DB, sceneId: ID): ID | null {
   if (mine && mine.checks.some((c) => DONE_CHECKS.includes(c)) && mine.sceneIds.includes(sceneId) && !mine.checked.has(sceneId) && mine.current !== sceneId) {
     return null
   }
+  if (checkedAsIs(db, sceneId, DONE_CHECKS)) return null
   try {
     const target: CheckTarget = { scope: 'scene', id: sceneId }
     const { ids, labels } = scenesFor(db, loadShape(db), target)
@@ -241,7 +243,8 @@ export function checkWhenDone(db: DB, sceneId: ID): ID | null {
  * The critic (Adam, 2026-10-04): a draft that landed in a scene is checked in the background with every check,
  * continuity included, and its report says what was checked, what was good and where there were issues. Quiet like
  * Mark done's: with no model set up, or no words in the scene, nothing happens. A check already waiting for the
- * scene reads it as it is then. `checks`: fewer than all, when the new words were already checked claim by claim as
+ * scene reads it as it is then; one that read its words as they are now, with nothing before it changed since, isn't
+ * made again (checkedAsIs). `checks`: fewer than all, when the new words were already checked claim by claim as
  * they landed (check and repair, repair/index.ts: continuity, who knows what and the timeline).
  */
 export function checkAfterDraft(db: DB, sceneId: ID, checks: CheckKind[] = ALL_CHECKS): ID | null {
@@ -252,6 +255,7 @@ export function checkAfterDraft(db: DB, sceneId: ID, checks: CheckKind[] = ALL_C
     return null
   }
   if (waiting.some((r) => r.background && r.db === db && r.target.id === sceneId)) return null
+  if (checkedAsIs(db, sceneId, checks.length ? checks : ALL_CHECKS)) return null
   try {
     const target: CheckTarget = { scope: 'scene', id: sceneId }
     const { ids, labels } = scenesFor(db, loadShape(db), target)

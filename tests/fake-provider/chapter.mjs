@@ -11,9 +11,25 @@
 //              sentence; then done (asked again while findings are open, it calls done again: the third time is accepted).
 //   proofread  done.
 // The model fake/agent-words answers every request in words, never calling a tool (the app sends it back twice,
-// then the session ends). Returns null for any other request.
+// then the session ends). The model fake/agent-greedy first looks things up, three at a time (Ch 1's scenes, Mara,
+// Tobin, a search, the story so far, the outline), in study, review and chapter sessions, as a live model did
+// (2026-10-16), until the app says there are no more look-ups; then it goes on as above. The model
+// fake/agent-checks-again calls check_again after its revise in a review, before done. Returns null for any other
+// request.
 
 const MARKER = '[AIWRITE-CHAPTER v1]'
+
+/** What fake/agent-greedy looks up, in turn. */
+const GREEDY = [
+  ['read_scene', { scene: 'Ch 1, Sc 1' }],
+  ['get_entry', { name: 'Mara' }],
+  ['read_scene', { scene: 'Ch 1, Sc 2' }],
+  ['search', { query: 'ferry' }],
+  ['read_scene', { scene: 'Ch 1, Sc 3' }],
+  ['get_entry', { name: 'Tobin' }],
+  ['story_so_far', {}],
+  ['outline', {}]
+]
 
 const contentOf = (m) => (typeof m?.content === 'string' ? m.content : Array.isArray(m?.content) ? m.content.map((p) => p.text ?? '').join('') : '')
 
@@ -26,6 +42,11 @@ export function chapterToolCalls(system, messages, tools, model = '') {
   const called = (name) => calls.includes(name)
   const last = messages[messages.length - 1]
   const lastResult = last?.role === 'tool' ? contentOf(last) : ''
+  if (model === 'fake/agent-greedy' && job !== 'proofread' && !messages.some((m) => m.role === 'tool' && contentOf(m).startsWith('No more look-ups'))) {
+    const offered = new Set(tools.map((t) => t.function?.name ?? t.name))
+    const looks = GREEDY.filter(([name]) => offered.has(name))
+    if (looks.length) return [0, 1, 2].map((i) => ({ name: looks[(calls.length + i) % looks.length][0], arguments: looks[(calls.length + i) % looks.length][1] }))
+  }
 
   if (job === 'study') {
     if (called('write_brief')) return null
@@ -83,5 +104,6 @@ export function chapterToolCalls(system, messages, tools, model = '') {
     }
     if (out.length) return out
   }
+  if (model === 'fake/agent-checks-again' && called('revise') && !called('check_again')) return [{ name: 'check_again', arguments: {} }]
   return [{ name: 'done', arguments: { summary: 'Fixed what was found.' } }]
 }

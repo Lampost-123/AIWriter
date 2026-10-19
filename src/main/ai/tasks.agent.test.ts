@@ -9,7 +9,7 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { saveProposals, setOptionMark } from '../db/ask'
 import { setSpendHooks } from '../usage/gate'
-import { fitToRoom, repeatKey, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
+import { AGENT_ROOM, fitToRoom, repeatKey, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
 import { forgetParams } from './client'
 import { STEP_PREAMBLE_WORDS, stepPreamble } from '../ask/history'
 
@@ -213,6 +213,56 @@ describe('the editor chat tool loop', () => {
     expect(lastMessage(sent[1])).toEqual({ role: 'user', content: LAST })
     expect(toolContents(sent[1])).toEqual([RESULT_REMOVED])
     expect(done.status).toBe('complete')
+  })
+
+  it('takes earlier results out past AGENT_ROOM however much the model reads, keeping the newest and the tools (token audit)', async () => {
+    const long = (tag: string): string => `${tag} `.repeat(15_000) // 60,000 characters, about 17,000 tokens
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r2', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r3', 'read_scene'), finish('tool_calls')],
+      [text('Done reading.'), finish('stop')]
+    ])
+    const results: Record<string, string> = { r1: long('one'), r2: long('two'), r3: long('six') }
+    const removed: string[][] = []
+    const done = await runTask(
+      request(
+        fetchImpl,
+        {
+          run: async (calls) => ({ results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: results[c.id] })), steps: [] }),
+          onRemoved: (ids) => removed.push(ids)
+        },
+        { contextLength: 1_000_000 }
+      )
+    )
+    expect(done.status).toBe('complete')
+    expect(sent).toHaveLength(4)
+    // Two results (about 34,000 tokens) are within it; a third is not: the oldest goes, the step after still has tools.
+    expect(toolContents(sent[2])).toEqual([results.r1, results.r2])
+    expect(toolContents(sent[3])).toEqual([RESULT_REMOVED, results.r2, results.r3])
+    expect(sent[3].tools).toHaveLength(1)
+    expect(removed).toEqual([['r1']])
+    expect(messagesTokens(sent[3].messages.map((m) => ({ role: 'user', content: String(m.content ?? '') })))).toBeLessThanOrEqual(AGENT_ROOM)
+  })
+
+  it('keeps a big briefing’s room for its tools’ results on top of it (the editor chat)', async () => {
+    const result = 'word '.repeat(1600) // 8,000 characters, about 2,300 tokens
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r2', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r3', 'read_scene'), finish('tool_calls')],
+      [text('Done reading.'), finish('stop')]
+    ])
+    const req = request(
+      fetchImpl,
+      { run: async (calls) => ({ results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: result })), steps: [] }) },
+      { contextLength: 1_000_000 }
+    )
+    // A briefing of about 115,000 tokens, far past AGENT_ROOM.
+    req.messages = [{ role: 'system', content: 'brief '.repeat(80_000) }, ...req.messages.slice(1)]
+    await runTask(req)
+    expect(sent).toHaveLength(4)
+    expect(toolContents(sent[3])).toEqual([result, result, result])
   })
 
   it('stops at the monthly limit partway, keeping what was written, and says so (E16)', async () => {

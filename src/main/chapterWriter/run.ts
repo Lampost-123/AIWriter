@@ -5,8 +5,9 @@
 //   2. Draft: each scene in order through the app's writer (the memory catches up first, so each scene is written
 //      knowing what the scene before it now says), with its notes from the brief.
 //   3. Check: the consistency checks read every scene changed since the last round (a sentence printed twice in a row
-//      taken out first); the critic reads every scene and the chapter in the first round only, and its notes not yet
-//      dealt with carry to the next (re-read, it found something new to say every time: live test, 2026-10-16).
+//      taken out first; one check_again read as it is now isn't read again), and what is so in the scene after each;
+//      the critic reads every scene and the chapter in the first round only, and its notes not yet dealt with carry to
+//      the next (re-read, it found something new to say every time: live test, 2026-10-16).
 //   4. Fix: an agent session for each scene with findings, then one for the chapter as a whole.
 //   5. When a round finds nothing: proofread each scene, and check again if anything changed.
 //   6. At the end, the critic reads once more what changed since it read it, for the Critique tab (not acted on).
@@ -24,6 +25,8 @@ import type {
   ChapterWriterStatus
 } from '@shared/contracts/chapterWriter'
 import type { CritiqueNote, CritiqueOutcome, CritiqueTarget } from '@shared/contracts/critique'
+import type { CheckKind } from '@shared/contracts/checks'
+import { ALL_CHECKS } from '@shared/contracts/checks'
 import type { ChatMessage, ID, SceneCard, WritingPrefs } from '@shared/types'
 import { CHAPTER_WRITER_LIMITS } from '@shared/contracts/chapterWriter'
 import { CARRY_LABELS } from '@shared/chapterCard'
@@ -32,6 +35,7 @@ import { findSlop } from '@shared/slop'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
 import { isLiveKind, type IssuePayload } from '../db/checks'
+import { checkedAsIs } from '../checks/report'
 import { runTask, stopTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import type { SnapshotSource } from '../ask/extraTools'
@@ -85,8 +89,11 @@ export interface RunDeps {
   catchUp?: (sceneId: ID, signal: AbortSignal) => Promise<unknown>
   /** Saves a scene's new page the way the editor's saves go, after keeping the page before in History. */
   save: (sceneId: ID, page: Page, label: string) => void
-  /** Runs every consistency check on a scene (the memory caught up first); what they find is saved as issues. */
-  check: (sceneId: ID, signal: AbortSignal) => Promise<{ status: 'done' | 'empty' | 'stopped' | 'error'; error?: string }>
+  /**
+   * Runs the consistency checks on a scene, every one or `checks` (the memory caught up first); what they find is saved
+   * as issues.
+   */
+  check: (sceneId: ID, signal: AbortSignal, checks?: CheckKind[]) => Promise<{ status: 'done' | 'empty' | 'stopped' | 'error'; error?: string }>
   /** The craft critic on a scene or the chapter; `again`: a re-read after revisions. */
   critique: (target: CritiqueTarget, again: boolean, signal: AbortSignal) => Promise<CritiqueOutcome>
   /**
@@ -117,6 +124,13 @@ class Failed extends Error {
 /** Said under a later scene's notes from the study: its start comes from the scene before as written, not from them. */
 export const LATER_START =
   'Where everyone is as this scene starts, what they wear and hold, and how they are placed, is where the scene before it ends, as written: keep to that, whatever these notes say of it.'
+
+/**
+ * What a scene is checked for when the scene before it changed but it didn't (token audit, 2026-10-19): what is so (its
+ * facts, the timeline, where everyone is and what they wear and hold), which a changed ending can break; who knows what
+ * and how it reads are its own words', checked when they change.
+ */
+export const FOLLOW_ON_CHECKS: CheckKind[] = ['facts', 'timeline', 'continuity']
 
 /** A card says enough to write a scene from it. */
 export const cardReady = (c: SceneCard | null | undefined): boolean =>
@@ -577,9 +591,9 @@ export class ChapterRun {
    * Checks and critiques the scenes changed, and the chapter when any did; returns every open finding, numbered. The
    * scene after each one changed is checked too (review, 2026-10-16): a scene's checks look back at the stage before it,
    * never forward, so an ending changed in a review (her dress back on) was never read against the opening after it (the
-   * dress still on the floor). One of this chapter's is checked like the rest (its findings go to its review); one the
-   * run doesn't write (the next chapter's first scene, a scene with no card) is checked and what it finds is noted for
-   * Adam, never changed.
+   * dress still on the floor), for what is so (FOLLOW_ON_CHECKS). One of this chapter's is checked like the rest (its
+   * findings go to its review); one the run doesn't write (the next chapter's first scene, a scene with no card) is
+   * checked and what it finds is noted for Adam, never changed. A scene already checked as it now is isn't again.
    */
   private async gather(changed: Set<ID>): Promise<{ give: Finding[]; leave: Finding[] }> {
     const { db } = this.d
@@ -592,9 +606,14 @@ export class ChapterRun {
       const mine = changed.has(r.id)
       if (!mine && !after.has(r.id)) continue
       if (mine) this.tidy(r.id)
-      this.check()
-      this.tell('checking', mine ? `Checking ${r.label}, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id)
-      await this.checkScene(r.id)
+      const checks = mine ? ALL_CHECKS : FOLLOW_ON_CHECKS
+      // Read already as it is now (check_again, after its last change), with nothing before it changed since: what that
+      // check left open is this round's (token audit, 2026-10-19).
+      if (!checkedAsIs(db, r.id, checks)) {
+        this.check()
+        this.tell('checking', mine ? `Checking ${r.label}, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id)
+        await this.checkScene(r.id, checks)
+      }
       if (!mine || !critic) continue
       if (!first) {
         this.unread.add(r.id)
@@ -684,8 +703,8 @@ export class ChapterRun {
     }
   }
 
-  private async checkScene(sceneId: ID): Promise<void> {
-    const c = await this.d.check(sceneId, this.controller.signal)
+  private async checkScene(sceneId: ID, checks: CheckKind[] = ALL_CHECKS): Promise<void> {
+    const c = await this.d.check(sceneId, this.controller.signal, checks)
     if (c.status === 'stopped') throw new Stopped()
     if (c.status === 'error') this.failed(c.error)
   }
@@ -698,7 +717,7 @@ export class ChapterRun {
     this.tell('checking', `Checking that ${where} still follows on, round ${this.round}`)
     // What was open there before the run first looked is Adam's already: only what its checks find since is noted.
     if (!this.outsideBefore.has(sceneId)) this.outsideBefore.set(sceneId, new Set(issueFindings(db, sceneId).map((f) => f.issueId!)))
-    await this.checkScene(sceneId)
+    if (!checkedAsIs(db, sceneId, FOLLOW_ON_CHECKS)) await this.checkScene(sceneId, FOLLOW_ON_CHECKS)
     cdb.sweepGone(db, { sceneId })
     const before = this.outsideBefore.get(sceneId)!
     const found = issueFindings(db, sceneId).filter((f) => !before.has(f.issueId!))
@@ -779,8 +798,11 @@ export class ChapterRun {
       },
       checkAgain: async (id) => {
         this.tidy(id)
-        const c = await this.d.check(id, this.controller.signal)
-        if (c.status === 'stopped') throw new Stopped()
+        // Read already as it is now, with nothing before it changed since: what that check left open is still so.
+        if (!checkedAsIs(db, id, ALL_CHECKS)) {
+          const c = await this.d.check(id, this.controller.signal)
+          if (c.status === 'stopped') throw new Stopped()
+        }
         cdb.sweepGone(db, { sceneId: id })
         // The checks' findings, and the critic's first notes still to deal with: the critic isn't asked again.
         const now = [...issueFindings(db, id), ...this.carried(id).map((n) => noteFinding(n, id))].filter((f) => this.tries.verdict(f, this.ownWords(f)) === 'give')
@@ -824,7 +846,8 @@ export class ChapterRun {
         lastWords: () => LAST_WORDS,
         nudge: () => (s.ended() ? null : nudgeFor(job)),
         maxNudges: 2,
-        ended: () => s.ended()
+        ended: () => s.ended(),
+        onRemoved: (ids) => s.removed(ids)
       },
       fetchImpl: this.d.fetchImpl,
       retryDelays: this.d.retryDelays
@@ -883,6 +906,10 @@ export class ChapterRun {
       const card = repo.sceneCards(db, [here.id]).get(here.id)
       parts.push(`## The scene you are working on: ${here.label}\nScene card:\n${card ? cardLines(card, names) || '(empty)' : '(empty)'}`)
     }
+    // The words before what was found in them (token audit, 2026-10-19): the findings change from round to round when the
+    // words may not, and a provider reuses only the start of a prompt it has seen (its cache).
+    if (sceneId) parts.push(`## The scene's words ([n] numbers each paragraph; *asterisks* mark italics)\n${numberedScene(db, sceneId)}`)
+    else parts.push('## The scenes\nRead each with read_scene (name it: "Sc 2").')
     if (job === 'proofread' && sceneId) {
       const slop = findSlop(repo.getScene(db, sceneId).text ?? '')
       parts.push(
@@ -893,8 +920,6 @@ export class ChapterRun {
     } else {
       parts.push(`## What the checks and the critic found\n${findings.map((f) => findingLine(f, this.refs)).join('\n')}`)
     }
-    if (sceneId) parts.push(`## The scene's words ([n] numbers each paragraph; *asterisks* mark italics)\n${numberedScene(db, sceneId)}`)
-    else parts.push('## The scenes\nRead each with read_scene (name it: "Sc 2").')
     parts.push(
       job === 'proofread'
         ? '## What to do\nProofread the scene: fix each slip with revise, then call done.'
