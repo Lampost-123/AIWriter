@@ -124,7 +124,8 @@ test('the writing loop: world, model, characters, place, scene card, draft, edit
     // The draft is on the page, word for word as the model wrote it, and listed under Drafts.
     await expect.poll(async () => paragraphs(await prose(win).innerText())).toEqual(paragraphs(draft))
     await win.getByRole('tab', { name: 'Drafts' }).click()
-    const draftRow = win.getByRole('button', { name: /What the AI saw/ })
+    // The draft's row in Drafts (the row under a draft just written has its own What the AI saw, with no word count).
+    const draftRow = win.getByRole('button', { name: /What the AI saw/ }).filter({ hasText: /\d+ words/ })
     await expect(draftRow).toHaveCount(1)
     await expect(draftRow).toContainText(`${countWords(draft)} words`)
     const sent = fake.lastRequest()!.body

@@ -48,7 +48,7 @@ describe('one note per draft', () => {
     noteDraftCheck('s1', 2)
     expect(shown.items).toHaveLength(1)
     expect(shown.items[0].message).toBe(
-      'Draft written · 2 small slips fixed in amber · 1 question in Issues · 2 more things to look at · 1 common AI phrase underlined'
+      '2 small slips fixed in amber · 1 question in Issues · 2 more things to look at · 1 common AI phrase underlined'
     )
     expect(shown.items[0].action?.label).toBe('Undo')
     expect(shown.items[0].secondary?.label).toBe('Show')
@@ -67,11 +67,11 @@ describe('one note per draft', () => {
     beginDraftNote('s1', 'g1')
     noteDraftEnd('s1', { kind: 'written' }, { away: null, handlers: {} })
     noteDraftRepair('s1', 'g1', repair(1, 0))
-    expect(shown.items.map((t) => t.message)).toEqual(['Draft written · 1 small slip fixed in amber'])
+    expect(shown.items.map((t) => t.message)).toEqual(['1 small slip fixed in amber'])
     // The note goes (its time is up).
     shown.items.length = 0
     noteDraftCheck('s1', 1)
-    expect(shown.items.map((t) => t.message)).toEqual(['Draft written · 1 thing to look at in Issues'])
+    expect(shown.items.map((t) => t.message)).toEqual(['1 thing to look at in Issues'])
   })
 
   it('says how the draft was briefed as it starts, in the same note it ends with', () => {
@@ -80,7 +80,7 @@ describe('one note per draft', () => {
     expect(shown.items).toHaveLength(1)
     noteDraftEnd('s1', { kind: 'written' }, { away: null, handlers: {} })
     expect(shown.items).toHaveLength(1)
-    expect(shown.items[0].message).toBe('Draft written. Written without where things stood as the scene before ended, so check the opening follows on.')
+    expect(shown.items[0].message).toBe('Written without where things stood as the scene before ended, so check the opening follows on.')
   })
 
   it('offers to try a refused draft again with another model', () => {

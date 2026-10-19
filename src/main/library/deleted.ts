@@ -9,11 +9,12 @@
 import { existsSync, mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { DELETED_WORLDS_FOLDER, DELETED_WORLD_DAYS, type DeletedWorld } from '@shared/contracts/library'
+import { DELETED_WORLDS_FOLDER, type DeletedWorld } from '@shared/contracts/library'
 import type { ID } from '@shared/types'
 import { readJson, renameRetry, slugify, UserError, writeFileAtomic } from '../util'
 import { factsOf, readWorldDb } from './read'
 import { isReservedName } from './names'
+import { purgeAtFor } from './purgeAt'
 
 export { isReservedName }
 
@@ -30,7 +31,6 @@ export interface DeletedNote {
 }
 
 export const NOTE_FILE = 'deleted.json'
-const DAY_MS = 24 * 60 * 60 * 1000
 /** A folder move is tried for about two seconds while another program holds a file in it. */
 const MOVE_TRIES = 16
 const MOVE_WAIT_MS = 125
@@ -106,7 +106,7 @@ const toDeleted = (trashId: string, n: DeletedNote): DeletedWorld => ({
   stories: n.stories,
   words: n.words,
   deletedAt: n.deletedAt,
-  purgeAt: new Date(Date.parse(n.deletedAt) + DELETED_WORLD_DAYS * DAY_MS).toISOString()
+  purgeAt: purgeAtFor(n.deletedAt)
 })
 
 /**

@@ -154,11 +154,12 @@ test('one note per draft: what check and repair found is said in the same messag
     // Add below: the draft below a scene break slips twice; each slip is asked about (repair.spec.ts).
     await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
-    const note = toasts(win).filter({ hasText: /^Draft written · 2 questions in Issues/ })
+    const note = toasts(win).filter({ hasText: /^2 questions in Issues/ })
     await expect(note).toBeVisible({ timeout: 60_000 })
     // One message for the draft, never one for each thing said.
     await expect(toasts(win).filter({ hasText: /questions about the new words|underlined in the new draft|is finished/ })).toHaveCount(0)
-    await expect(toasts(win).filter({ hasText: /Draft/ })).toHaveCount(1)
+    // The row under the draft says "Draft written"; the note gives only the news.
+    await expect(toasts(win).filter({ hasText: /questions in Issues/ })).toHaveCount(1)
     // Its button goes to the questions.
     await note.getByRole('button', { name: 'Show' }).click()
     await expect(section(win, 'questions').getByRole('article')).toHaveCount(2)

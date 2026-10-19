@@ -21,16 +21,16 @@ describe('the note after a draft', () => {
 
   it('gathers what check and repair did and found into one line', () => {
     const note = composeDraftNote({ ...written, mended: { count: 2, why: null }, questions: 1 })
-    expect(note).toEqual({ message: 'Draft written · 2 small slips fixed in amber · 1 question in Issues', tone: 'neutral', buttons: ['undo', 'issues'] })
+    expect(note).toEqual({ message: '2 small slips fixed in amber · 1 question in Issues', tone: 'neutral', buttons: ['undo', 'issues'] })
   })
 
   it('adds the phrases underlined and what the check after it found', () => {
     const note = composeDraftNote({ ...written, questions: 1, checkFound: 2, phrases: { phrase: 1, ai: 3 } })
-    expect(note?.message).toBe('Draft written · 1 question in Issues · 2 more things to look at · 1 phrase to avoid and 3 common AI phrases underlined')
+    expect(note?.message).toBe('1 question in Issues · 2 more things to look at · 1 phrase to avoid and 3 common AI phrases underlined')
     expect(note?.buttons).toEqual(['issues', 'phrases'])
-    expect(composeDraftNote({ ...written, checkFound: 1 })?.message).toBe('Draft written · 1 thing to look at in Issues')
+    expect(composeDraftNote({ ...written, checkFound: 1 })?.message).toBe('1 thing to look at in Issues')
     expect(composeDraftNote({ ...written, phrases: { phrase: 0, ai: 2 } })).toEqual({
-      message: 'Draft written · 2 common AI phrases underlined',
+      message: '2 common AI phrases underlined',
       tone: 'neutral',
       buttons: ['phrases']
     })
@@ -48,7 +48,7 @@ describe('the note after a draft', () => {
 
   it('says how it was briefed, and how to have the old text back', () => {
     const note = composeDraftNote({ ...written, startNote: 'Written without where things stood as the scene before ended', oldText: 'Ctrl+Z puts the scene’s old text back.' })
-    expect(note?.message).toBe('Draft written. Written without where things stood as the scene before ended. Ctrl+Z puts the scene’s old text back.')
+    expect(note?.message).toBe('Written without where things stood as the scene before ended. Ctrl+Z puts the scene’s old text back.')
     // While it is still being written, only that.
     expect(composeDraftNote({ end: null, away: null, startNote: 'Written without where things stood.' })?.message).toBe('Written without where things stood.')
   })

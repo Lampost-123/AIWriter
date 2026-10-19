@@ -100,7 +100,12 @@ export function composeDraftNote(p: DraftNoteParts): ComposedNote | null {
   // A draft written here, with nothing found and nothing to tell: the page shows it.
   if (!more.length && !p.startNote && (quietEnd || !p.end)) return null
   let message: string
-  if (first && !problem && p.end?.kind !== 'cutOff') {
+  // Written here: the row under the draft already says "Draft written" (edits/JustWritten.tsx), so the note gives only
+  // the news, never the same words twice.
+  const saidOnPage = quietEnd && p.end?.kind === 'written' && !p.end.stopped
+  if (saidOnPage) {
+    message = upper(more.join(' · '))
+  } else if (first && !problem && p.end?.kind !== 'cutOff') {
     message = [first, ...more].join(' · ')
   } else if (first) {
     // A problem says itself in full; anything else found comes after it.

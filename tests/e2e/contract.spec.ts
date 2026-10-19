@@ -46,7 +46,7 @@ test('a draft keeps to its scene contract: shown in the Context tab, planned, ch
     // checked against the contract as it lands.
     await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
     // The draft's one note says so (the calm overhaul).
-    await expect(toasts(win).getByText('Draft written · 1 question in Issues')).toBeVisible({ timeout: 60_000 })
+    await expect(toasts(win).getByText('1 question in Issues')).toBeVisible({ timeout: 60_000 })
     const [draft] = (await invoke(win, 'listGenerations', sceneId)).filter((g) => g.job === 'draft')
     const rec = await invoke(win, 'getGeneration', draft.id)
     const sent = rec.blocks.find((b) => b.id === 'scene-contract')!
