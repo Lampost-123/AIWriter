@@ -295,8 +295,13 @@ describe('Quick start', () => {
     const done = await w.done('q5')
     expect(done.status).toBe('complete')
     expect(f.calls()).toBe(2)
-    const second = f.bodies()[1].messages as { role: string; content: string }[]
+    const [first, second] = f.bodies().map((b) => b.messages as { role: string; content: string }[])
     expect(second.at(-1)!.content).toMatch(/couldn't be used, because there was no JSON object in it/)
+    // The same request again, the line at its end, never the reply that couldn't be used (2026-10-19).
+    expect(second.map((m) => m.role)).toEqual(first.map((m) => m.role))
+    expect(second.slice(0, -1)).toEqual(first.slice(0, -1))
+    expect(second.at(-1)!.content.startsWith(`${first.at(-1)!.content}\n\n`)).toBe(true)
+    expect(second.some((m) => m.content.includes('Brann sounds great'))).toBe(false)
     expect(repo.getEntry(w.db, done.entryId!).fields.hair).toBe('Grey')
   })
 
@@ -692,7 +697,12 @@ describe('Follow-up questions', () => {
     const w = setup({ fetchImpl: f })
     startQuestions(w.ctx, { jobId: 'q2', kind: 'place', notes: 'A port.' }, w.brief('place'))
     expect((await w.done('q2')).options).toEqual(['A?', 'B?', 'C?', 'D?', 'E?'])
-    expect((f.bodies()[1].messages as { content: string }[]).at(-1)!.content).toMatch(/Reply again with only the JSON object/)
+    // Asked again (2026-10-19): the same request with a line saying why at its end, never the reply that couldn't be used.
+    const [first, again] = f.bodies().map((b) => b.messages as { role: string; content: string }[])
+    expect(again.map((m) => m.role)).toEqual(first.map((m) => m.role))
+    expect(again.at(-1)!.content.startsWith(`${first.at(-1)!.content}\n\nYour last reply to this couldn't be used, because `)).toBe(true)
+    expect(again.at(-1)!.content).toMatch(/Reply with only the JSON object/)
+    expect(again.some((m) => m.content.includes('Happy to help!'))).toBe(false)
 
     const w2 = setup({ fetchImpl: canned(['1. Who rules it?\n2. What does it smell of?']) })
     startQuestions(w2.ctx, { jobId: 'q3', kind: 'place', notes: 'A port.' }, w2.brief('place'))

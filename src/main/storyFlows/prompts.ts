@@ -82,6 +82,6 @@ export const SYSTEMS: Record<StoryFlowKind, string> = {
   when: WHEN_SYSTEM
 }
 
-/** Said when a reply couldn't be read, before asking once more. */
+/** Said when a reply couldn't be read, at the end of the same request asked once more (without the reply: 2026-10-19). */
 export const retryMessage = (why: string): string =>
-  `Your reply couldn't be used: ${why}. Reply again with only the JSON object, in exactly the format given, using only the ids given.`
+  `Your last reply to this couldn't be used: ${why}. Reply with only the JSON object, in exactly the format given, using only the ids given.`

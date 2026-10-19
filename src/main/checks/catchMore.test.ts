@@ -23,7 +23,7 @@ import {
   threadDueWords,
   MOST_RELATED
 } from './context'
-import { sceneSystem } from './prompts'
+import { CHECK_SYSTEM } from './prompts'
 import { lessonsBefore, lessonsFrom, RECENT_SCENES } from './lessons'
 import { codexLines, repairSystem } from '../repair/prompts'
 import { meaningScores } from '../retrieval/recall'
@@ -221,7 +221,7 @@ describe('the author’s plan, the story calendar and the threads (fix 4), and w
       ].join('\n')
     )
     expect(planText(emptySceneCard(), () => null)).toBe('')
-    expect(sceneSystem(['facts'])).toContain('What the plan asks for (someone lying, mistaken, hiding something or changing) is not a slip')
+    expect(CHECK_SYSTEM).toContain('What the plan asks for (someone lying, mistaken, hiding something or changing) is not a slip')
   })
 
   it('says when an open thread is due', () => {
@@ -261,10 +261,10 @@ describe('the author’s plan, the story calendar and the threads (fix 4), and w
   })
 
   it('asks the facts check what the scene says about the past', () => {
-    const facts = sceneSystem(['facts'])
+    const facts = CHECK_SYSTEM
     for (const words of ['what the scene says about the past', 'which way a place lies', 'how long a journey took', 'how someone died', 'who heard or saw what', 'mistaken or lying'])
       expect(facts).toContain(words)
-    expect(sceneSystem(['facts'])).toContain('The scene card\'s story date says how much time has passed since the scene before')
+    expect(CHECK_SYSTEM).toContain('The scene card\'s story date says how much time has passed since the scene before')
   })
 })
 

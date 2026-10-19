@@ -452,7 +452,15 @@ export function fillFoundUser(kind: BuilderKind, values: BuilderValues, targets:
 
 // ---------- Asking again ----------
 
-/** Asked once more when a reply couldn't be used, saying why. */
+/** Asked once more when a reply couldn't be used, saying why, after that reply (the World builder's). */
 export function retryMessage(why: string, shape: string): string {
   return `That reply couldn't be used, because ${why}. Reply again with only the JSON object, in this shape: ${shape}`
+}
+
+/**
+ * Said at the end of the same request asked once more when a reply couldn't be used (2026-10-19): the builders send the
+ * request again without the reply (repair/retry.ts withCorrection), so a provider's cache serves all of it but this line.
+ */
+export function retryLine(why: string, shape: string): string {
+  return `Your last reply to this couldn't be used, because ${why}. Reply with only the JSON object, in this shape: ${shape}`
 }

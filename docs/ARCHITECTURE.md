@@ -1259,8 +1259,9 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   `src/shared/contracts/checks.ts`; its handlers are `src/main/ipc/checks*.ts`.
 - **The model.** AI checks are the job `check`: "Consistency check model" in Settings › Models
   (`settings.models.check`, the memory model until Adam picks one, then the writer model), with its own
-  Thinking (`settings.thinking.check`, Off). Generation records use job `'check'`; prompts start with
-  `[AIWRITE-CHECK v1] <check>`.
+  Thinking (`settings.thinking.check`, Off). Generation records use job `'check'`; a scene's checks share the system
+  prompt `[AIWRITE-CHECK v2] scene` and name their checks in their task, `[AIWRITE-CHECK-TASK v1] <checks>` (see "The
+  checks' cost" below); comparing stories starts `[AIWRITE-CHECK v1] story`.
 - **Ties to people not in this scene** (block 11, priority 11, `ties`): for each character present, the
   characters they have a relationship with who aren't in the scene, as of the scene: the other person's one
   line, where the relationship stands, and the events and changes that name both, newest first. Closest
@@ -4187,13 +4188,55 @@ when it can't. No migration; the stores, hashes and rules are the tracker's and 
   same for every reading, so a provider's cache serves them.
 - **Not done here**: a scene summary is still written again whole for each Add below or Continue (its words changed by
   more than `DUE_WORDS`), the largest upkeep left in the chain; the import estimate (`importing/estimate.ts`) still counts a
-  summary call for each scene, so it now says a little more than it costs; the other JSON jobs' retries
-  (`checks/run.ts`, `checks/stories.ts`, `storyFlows/call.ts`, the builder, the critic) still send the failed reply back.
+  summary call for each scene, so it now says a little more than it costs. (The other JSON jobs' retries send the failed
+  reply back no more: "The checks' cost", below.)
 - **Tests**: `keeper/oneReading.test.ts` (a new scene; words added at the end; an edit in the middle, a stale start and a
   summary not due or Adam's going to their own calls; a small reply limit; the summary kept, and only for the words it was
   written from; refusals; no ghosts; values only from what was read; Recall edits kept; the index told; a cut-off or broken
   reply read again alone), `keeper/oneReadingWorld.test.ts` (before a draft, in the open world: one call for the scene
   just written), `keeper/keeper.test.ts` (the retry), `keeper/prompts.test.ts`.
+
+## The checks' cost: one opening for every request about a scene (overhaul, 2026-10-19)
+
+An audit found the consistency checks were about 15-20% of a chapter run's tokens, and none of it reused: the two groups of
+checks had different system prompts, the second opinion wrapped the same material its own way, and a format retry sent
+everything again with the failed reply on top. No migration, no new call; what the checks catch is unchanged.
+
+- **One opening** (`checks/prompts.ts` `CHECK_SYSTEM`, `checks/context.ts` `checkOpening`, `checks/run.ts` `checkLayout`):
+  every request about a scene (both groups of checks, the contract's ruling `contractRuling`, the second opinion
+  `findingsRuling`) sends the same system prompt (what all six checks look for, the rules and the reply's shape; the same
+  for every scene), then the same material and the scene's words, byte for byte, and only then its own task (`## Your
+  task`: `checkTask`, the checks it makes and, in the request about what is so, the contract's rules and C lines;
+  `CHECK_SECOND_TASK`; `contractRulingTask`, the second opinion's own instructions with the whole scene as its new words).
+  The user message's `cacheUpTo` marks the opening for a model that caches only where asked. The second opinion takes it
+  through `repair/second.ts` `SharedOpening`.
+- **The material** is what every check asked was told (`checkSections` for all of them), so each group now reads a little
+  more than its own: the facts check the 40 facts of who knows what and the style guide, the knowledge check where things
+  stood and the scenes before. Nothing either group had is lost (tested): the facts the words touch are added to the list
+  of who knows what, "About this story" goes to every check but style, and what the author said is meant keeps
+  `MOST_MEANT` for each group (`CHECK_GROUPS`, now in `context.ts`). One split of a long scene serves every request (the
+  room left by the largest task); the contract is left out, never the check, when it doesn't fit.
+- **Two requests still**: a live run found one request for all six spread the model thin and missed plain contradictions;
+  the fake run can't tell (it answers by rule, whatever it is asked: merged, the book's planted slips came out the same),
+  so merging waits for a real A/B. Write the whole chapter keeps its one request (`together`).
+- **Asking again** (`repair/retry.ts` `withCorrection`, as the memory keeper's own): a reply that can't be used is asked for
+  with the same request and a short line at the end of its last message ("Your last reply to this couldn't be used: ..."),
+  never the reply itself, in the checks, story comparisons (`checks/stories.ts`), the story flows (`storyFlows/call.ts`),
+  the builders (`builder/jobs.ts`, `retryLine`) and the critic (`critique/run.ts`). The World builder keeps its own.
+- **The fake provider** (`tests/fake-provider/m5/check.mjs`) reads the checks asked from the task's line and the scene up to
+  the task; a request with another task (a second opinion) isn't the checks'.
+- **Measured** (fake provider; "cached" is the tokens a request shares with the start of the one before it, which DeepSeek
+  bills at a tenth). A check of one scene (four entries, 1,500 words): Mark done 9,070 tokens in, none cached, to 12,320,
+  64% cached (as billed, 9,058 to 5,246: −42%); through its contract, four requests, 11,998 to 17,194, 69% cached (11,983 to
+  6,586: −45%). The trap harness's book (`npm run traps -- --fake --story book --samples 1 --measure`), its 43 check
+  requests: 166,560 tokens in, 37% shared with one of the 40 before, to 208,821, 73% (as billed 111,820 to 72,338: −35%);
+  the whole run 2.03 to 2.08 million in, as billed −6%. Write the whole chapter (`chapterWriter/requests.test.ts`): 140,819
+  to 151,216 characters with the greedy agent, 128,235 to 138,632 with the other; its 8 check requests, 16% to 54% shared
+  with the one before (as billed −34%). Without a cache the checks send about a quarter more. The book's planted slips: 2
+  of 13 caught and 5 false alarms on the fake, before and after, the same issues.
+- **Tests**: `checks/run.test.ts` ("every request about a scene opens alike": the four requests' openings byte for byte,
+  the retry without the reply), `checks/checks.test.ts` (the shared material holds all each group had; the task last),
+  `repair/retry.test.ts`, and the retries in `builder/jobs.test.ts`, `storyFlows/flows.test.ts`, `critique/critique.test.ts`.
 
 ## Pay-offs read for sure, leaner dead, and what the reader knows (overhaul, 2026-10-19)
 

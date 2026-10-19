@@ -1,8 +1,8 @@
 // Calls the model for a story flow: one request, saved as a generation record (job 'story', no scene)
 // so "What the AI saw" works for it, streamed with streamChat (which retries rate limits and server
-// errors and hides "thinking"). A reply that can't be read is asked for once more, saying what was
-// wrong. Never throws: the result says what happened, in plain words when it went wrong. No Electron
-// imports.
+// errors and hides "thinking"). A reply that can't be read is asked for once more: the same request with a
+// line saying what was wrong, never the reply (2026-10-19). Never throws: the result says what happened, in
+// plain words when it went wrong. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ContextBlock, ID, ModelChoice, ThinkingLevel } from '@shared/types'
@@ -14,6 +14,7 @@ import { CUT_OFF, parseLenient } from '../keeper/json'
 import { memoryReplyLimits, sentAs } from '../keeper/model'
 import { newId, now } from '../util'
 import { retryMessage } from './prompts'
+import { withCorrection } from '../repair/retry'
 
 type DB = Database.Database
 
@@ -272,8 +273,9 @@ async function callOnce(o: FlowCallOptions, messages: ChatMessage[]): Promise<On
 
 /**
  * Asks the model and reads its reply as one JSON object checked by `check` (which says what is wrong
- * with one it can't use). A reply that can't be read is asked for once more; one cut off by the reply
- * limit isn't, as it would be cut off again.
+ * with one it can't use). A reply that can't be read is asked for once more, with the same request and a
+ * line saying what was wrong, never the reply itself (2026-10-19: a provider's cache serves the rest); one
+ * cut off by the reply limit isn't, as it would be cut off again.
  */
 export async function askForJson<T>(
   o: FlowCallOptions,
@@ -293,7 +295,7 @@ export async function askForJson<T>(
     if (call.cutOff || (checked.why === CUT_OFF && estimateTokens(call.text) >= o.budget.reply * 0.6)) {
       return { status: 'failed', error: CUT_REPLY, totals }
     }
-    messages = [...o.messages, { role: 'assistant', content: call.text }, { role: 'user', content: retryMessage(checked.why) }]
+    messages = withCorrection(o.messages, retryMessage(checked.why))
   }
   return { status: 'failed', error: BROKEN_REPLY, totals }
 }
