@@ -12,6 +12,9 @@ import { hasEmphasis, parseEmphasis } from '@/features/editor/streamText'
 
 export const NOT_FOUND =
   'The words this change looks for aren’t in the scene any more: another change or your own editing changed them. Ask again for a fresh one.'
+/** The words stand in more than one place now and the change's own place is gone: never guessed (2026-10-19). */
+export const AMBIGUOUS =
+  'The words this change looks for now stand in more than one place in the scene, so it wasn’t applied in case it went in the wrong one. Ask again for a fresh one.'
 export const NOT_PLAIN =
   'This rewrite runs across a scene break (or something that isn’t a paragraph), so it wasn’t applied. Ask for one that stays between the breaks.'
 
@@ -80,15 +83,39 @@ export function findQuoteAt(doc: PMNode, quote: string, a: ParaAnchor, edge: 'fr
 /** Where a passage stands by its anchors (start words at `at.start`, end words ending at `at.end`), else as before. */
 export function findPassageAt(doc: PMNode, start: string, end: string, at?: { start: ParaAnchor; end: ParaAnchor }): Range | null {
   const s = at ? findQuoteAt(doc, start, at.start) : null
-  if (!at || !s) return findPassage(doc, start, end)
+  if (!at || !s) return onlyPassage(doc, start, end)
   const p = paragraphAt(doc, at.end)
   const e = p ? nearest(hitsIn(doc, end, p).filter((h) => h.from >= s.from && h.to >= s.to), 'to', p.start + at.end.offset) : null
   const to = e ?? findEnd(doc, end, s)
-  return to ? { from: s.from, to: to.to } : findPassage(doc, start, end)
+  return to ? { from: s.from, to: to.to } : onlyPassage(doc, start, end)
 }
 
-/** Where a proposed edit's words are: by its anchor when it has one that still holds, else the first place they are. */
-export const findEditAt = (doc: PMNode, find: string, at?: ParaAnchor): Range | null => (at ? findQuoteAt(doc, find, at) : null) ?? findQuote(doc, find)
+/** A passage found without its anchors only when its start words stand in one place (never guessed). */
+const onlyPassage = (doc: PMNode, start: string, end: string): Range | null => (quoteCount(doc, start) === 1 ? findPassage(doc, start, end) : null)
+
+/** How many places quoted words stand in the scene, counted up to `max`. */
+export function quoteCount(doc: PMNode, quote: string, max = 2): number {
+  let n = 0
+  for (let at = 0; n < max; n++) {
+    const r = findQuoteAfter(doc, quote, at)
+    if (!r) break
+    at = r.from + 1
+  }
+  return n
+}
+
+/** Where quoted words are when they stand in one place only; null when they're gone, or in several (never guessed). */
+const onlyQuote = (doc: PMNode, quote: string): Range | null => (quoteCount(doc, quote) === 1 ? findQuote(doc, quote) : null)
+
+/**
+ * Where a proposed edit's words are: by its anchor when it has one that still holds, else the one place they are.
+ * Words that now stand in several places with no anchor to say which aren't guessed at (the first was taken until
+ * 2026-10-19, which could change the wrong one): planText says so.
+ */
+export const findEditAt = (doc: PMNode, find: string, at?: ParaAnchor): Range | null => (at ? findQuoteAt(doc, find, at) : null) ?? onlyQuote(doc, find)
+
+/** Why words couldn't be found for a change: gone from the scene, or in several places with nothing to say which. */
+const notFoundWhy = (doc: PMNode, quote: string): string => (quoteCount(doc, quote) > 1 ? AMBIGUOUS : NOT_FOUND)
 
 /** A paragraph's words as inline content: *italics* and **bold** become marks; unpaired markers stay as they are. */
 export function inlineNodes(schema: Schema, text: string): PMNode[] {
@@ -119,7 +146,7 @@ export type Plan = PlannedEdit | { why: string }
  */
 export function planText(doc: PMNode, find: string, replace: string, at?: ParaAnchor): Plan {
   const range = findEditAt(doc, find, at)
-  if (!range) return { why: NOT_FOUND }
+  if (!range) return { why: notFoundWhy(doc, find) }
   const $from = doc.resolve(range.from)
   if ($from.depth !== 1 || !$from.parent.isTextblock) return { why: NOT_PLAIN }
   return { from: range.from, to: range.to, content: replace || Fragment.empty, first: $from.index(0), count: 1 }
@@ -150,7 +177,7 @@ export function findPassage(doc: PMNode, start: string, end: string): { from: nu
  */
 export function planPassage(doc: PMNode, start: string, end: string, replace: string, at?: { start: ParaAnchor; end: ParaAnchor }): Plan {
   const found = findPassageAt(doc, start, end, at)
-  if (!found) return { why: NOT_FOUND }
+  if (!found) return { why: notFoundWhy(doc, start) }
   const $a = doc.resolve(found.from)
   const $b = doc.resolve(found.to)
   if ($a.depth !== 1 || $b.depth !== 1) return { why: NOT_PLAIN }

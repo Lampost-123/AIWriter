@@ -2025,7 +2025,8 @@ it uses the Chat and brainstorm model, with no setting of its own.
   `revises: N` replaces change N instead. Before the last request (no tools) the model is told what it proposed
   (`lastWords`). An answer with no proposals that clearly claims or hands over changes (`claimsChanges`), or that
   answers a request for edits (`asksForChanges`, both in `shared/askChanges.ts`), is sent back once (`nudge` in the task runner, `PROPOSE_NOW`), and its words are taken out of the reply; if it still
-  proposes nothing, the chat says so under it. Earlier answers are sent again with the changes they proposed noted
+  proposes nothing, the claim is put right in plain words (since 2026-10-19: see "The chat never claims a change it
+  didn't make"). Earlier answers are sent again with the changes they proposed noted
   (`withProposals`, `ipc/ask.ts`), so the model sees itself using the tools.
 - **A model that can't use tools** is said so in plain words (`ai/errors.ts`), pointing to Settings › Models.
 - **Ask about this** on the selection bar opens Ask with the words quoted in the box (`features/ask/open.ts`).
@@ -4803,6 +4804,59 @@ the record alone (no AI call) and moves it there; Undo puts it back.
   tidy-up with its Undo). Fixture: `tests/unit/eventWorld.ts`.
 - **Not done here**: an event the memory keeper reads in a scene but the world already has from a build (it records
   nothing new for it) waits for its date, a card or the build's own words; no AI is asked where an event goes.
+
+## The chat never claims a change it didn't make (Adam, 2026-10-19)
+
+Adam: "I was still getting responses from the chat claiming it had edited or proposed a change while it did nothing",
+and "an error with the chat saying it could not access something to edit".
+
+- **How a false claim got through** (each reproduced in `ask/agent.truth.test.ts` with a scripted model, and as fake
+  models): a claim with no tool call on a question routed as an answer or ideas (never nudged); a proposal its check
+  turned down, the model carrying on as if it worked; a provider that turns tool_choice down; the last request (at
+  `MAX_STEPS`, the room cap or the runaway guard) is asked without tools and was never looked at; a model still claiming
+  after its nudges (the claim stayed, with only a note under it); the claim patterns caught only some wordings ("I've
+  updated Mara's entry", "Done.", "the change is ready" slipped through).
+- **The truth check** (`shared/askTruth.ts`, pure, no AI call): `changeClaims` reads an answer's own words for claims (I've
+  edited / changed / updated / added / removed / proposed / applied / renamed / moved…, "X's entry has been updated",
+  "Done.", "the change is ready", the old hand-overs), never words in quotation marks, questions, offers ("I'd…", "I
+  can…"), conditions ("once I've…"), what the story's people did, or an earlier answer; `unbackedClaims` compares them
+  with the proposals recorded this answer (all, when none; else the ones naming a kind of change none of them is: an
+  entry, a card, a title, something new, words). Every answer goes through it (`ask/loop.ts` gives the agent's hooks to
+  `ai/tasks.ts`): `recheck` sends a claim back once ("Your answer gives a change as made that wasn't…", with why the
+  last proposal was turned down), with propose_changes forced on the next request (not before a change to words was
+  read; never for a question or ideas, which are told to take the claim back instead); after the last request it buys
+  up to three more requests, once. `settle` puts any claim still standing right before Adam sees it (`honestReply`):
+  "No change was made, so there's nothing to apply. Here's what I'd suggest:" (or "No change was made: I couldn't make
+  it because <the check's reason in plain words, `writerReason`>"), a first-person claim turned into an offer ("I'd
+  update…"), a "Done." or hand-over left out; with some changes proposed, "Only change 1 is ready to apply; nothing
+  else was changed." Proposal cards come only from tool results (`ask:proposals`), never from the answer's words.
+- **Tool errors say what to fix**: an entry's field given by its label is taken as its key ("Eye colour" → eyes,
+  `fieldKey`), one it hasn't got lists the fields by key and label; a name no entry has suggests names like it; a kind
+  given by its tool's name is taken as that kind (`KIND_ALIASES`); an unknown propose tool names propose_changes; a
+  kind whose guidance waits in a pack (issue_fix, chapter_card, thread, replace_all) brings its full line with its
+  mistake while the pack isn't loaded (the full schema is always in the tool). The last words carry the last refusal and
+  no longer give "the scene you couldn't read" as an example reason (models echoed it as "I couldn't access the scene").
+  When nothing came of an answer, the chat says why under it in plain words (`notProposedNote`, `data-not-proposed`).
+- **Refusals about reaching something**: read_passage of the open scene or a later one is answered with read_scene
+  (the shared look-up reads only earlier scenes); an entry known here only by name says from which story, and to ask
+  there; a card naming one says so, never "there is no character called…". Apply: a scene Write the chapter holds is
+  turned down before the page moves to it (`sceneInPage.ts` `HELD_APPLY`; the page's hold used to drop the edit while
+  Apply said "Change applied"), a page that drops a change is never said as applied (`PAGE_REFUSED`), a scene that
+  doesn't open says whether it was deleted (Settings › Recently deleted) or is slow (the wait is 10 s, not 4), words
+  that now stand in several places with their anchor gone are never guessed at (`AMBIGUOUS`; the first was taken), and a
+  card's mark says "Not found" only when its words are gone, else "Not applied".
+- **Measured** (`npm run chat-eval -- --model fake/<sloppy one>`, core set, 44 turns; the report's "Truth check" rows):
+  answers claiming a change never made, before → after: fake/claims-stubborn, fake/bad-proposal and
+  fake/claims-no-toolchoice 31 → 0 each, fake/bad-field 14 → 0, fake/claims 2 → 0, fake/sloppy 1 → 0, fake/chat 0 → 0;
+  edit turns ending with a real proposal unchanged (the fakes recover on the old nudge, or never, by design); false
+  proposals on questions 0 of 8 throughout; requests only where a claim was caught (fake/claims 96 → 98, bad-proposal
+  192 → 196, bad-field 118 → 160, fake/chat 106 → 106). No stand-in run: the stand-in kit has no mixed mode for the
+  chat, and the sloppy fakes reproduce each case deterministically.
+- **Tests**: `shared/askTruth.test.ts` (claims and their controls, the rewrite, plain reasons), `ask/agent.truth.test.ts`
+  (each way a false claim got through, the forced retry, the fallback text, errors that say what to fix, pack-free
+  kinds), `ask/agent.access.test.ts`, `ai/tasks.agent.test.ts` (recheck and settle in the loop), the window's
+  `applyProposal.test.ts`, `applyDraft.test.ts`, `askEdits.test.ts`, `askWords.test.ts`, and `tests/e2e/editorChat.spec.ts`
+  (fake/claims-stubborn and fake/bad-proposal: the honest result on screen).
 
 ## Milestone 1 scope
 

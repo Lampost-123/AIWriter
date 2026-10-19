@@ -21,6 +21,7 @@ import type { Node as PMNode, Schema } from '@tiptap/pm/model'
 import type { AgentStep } from '@shared/types'
 import type { Proposal } from '@shared/contracts/ask'
 import { CHAT_SWITCHES, chatSwitchOn, chatSwitchVar } from '@shared/askIntent'
+import { claimsUnmade } from '@shared/askTruth'
 import { appEvents } from '../traps/fakeElectron'
 import { pickFlash } from '../traps/models'
 import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
@@ -342,7 +343,8 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big
         const fake = await startFakeProvider({ delayMs: 0, words: 120 })
         stopServer = () => fake.close()
         const p = providers.saveProvider({ kind: 'custom', name: 'Fake', baseUrl: fake.url, apiKey: 'chat-eval-fake' })
-        model = 'fake/chat'
+        // --model picks one of the fake's own models (a sloppy one: m4/ask.mjs SLOPPY); else its chat model.
+        model = cfg.model?.startsWith('fake/') ? cfg.model : 'fake/chat'
         providerName = 'fake provider (plumbing only)'
         settings.updateSettings({ models: { writer: { providerId: p.id, modelId: model, label: model, ...big } } } as never)
       } else if (cfg.backend === 'bridge') {
@@ -633,6 +635,11 @@ export interface TurnResult {
   forced?: string[]
   /** The intent the app recorded on the turn (params.intent), when it records one. */
   intent?: string | null
+  /**
+   * The answer as kept claims a change none of its proposals is (shared/askTruth.ts, the truth check): it said it
+   * edited, changed or proposed something it didn't. Older reports lack it (the score reads it again from the answer).
+   */
+  claimsUnmade?: boolean
 }
 
 /** The tool_choice a request forced, or null ("auto", "none" or none sent). */
@@ -781,7 +788,8 @@ export async function runScenario(app: EvalApp, s: Scenario, limitMs = 90 * 60_0
         ? replies.flatMap((r) => r?.toolCalls ?? [])
         : (params.steps ?? []).map((st) => ({ name: st.tool, arguments: st.arguments })),
       forced: sent.map((r) => forcedChoice(r.body.tool_choice)).filter((c): c is string => !!c),
-      intent: typeof params.intent === 'string' ? params.intent : null
+      intent: typeof params.intent === 'string' ? params.intent : null,
+      claimsUnmade: claimsUnmade(row?.response ?? '', proposals)
     })
     if (app.stopped()) break
   }

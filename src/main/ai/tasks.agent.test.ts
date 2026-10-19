@@ -170,6 +170,38 @@ describe('the editor chat tool loop', () => {
     expect(done.text).toBe('Here is what I would change, if you ask.')
   })
 
+  it('the truth check: asked before the nudge, sent once (the last answer too), and settle has the last word', async () => {
+    const CHECK = '[truth] You said you changed it; nothing was proposed.'
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [text("I've fixed the line for you."), finish('stop')],
+      [call(0, 'a2', 'read_scene'), finish('tool_calls')],
+      [text("I've fixed the line, really."), finish('stop')]
+    ])
+    const checked: string[] = []
+    const done = await runTask(
+      request(
+        fetchImpl,
+        {
+          recheck: (reply) => (checked.push(reply), /fixed/.test(reply) ? CHECK : null),
+          nudge: () => NUDGE,
+          settle: (reply) => reply.replace(/I've fixed/, "I'd fix")
+        },
+        { maxSteps: 2 }
+      )
+    )
+    // Request 2 was the last; its claim bought more requests with the tools (the check's note first). The note was the
+    // answer's one nudge, so the words that came next are kept (and settled).
+    expect(sent).toHaveLength(4)
+    expect(sent[1].tools).toBeUndefined()
+    expect(lastMessage(sent[2])).toEqual({ role: 'user', content: CHECK })
+    expect(sent[2].tools).toHaveLength(1)
+    expect(sent[3].tools).toHaveLength(1)
+    // Asked of the whole reply, once: never again after its note was sent.
+    expect(checked).toEqual(["I've fixed the line for you."])
+    expect(done.text).toBe("I'd fix the line, really.")
+  })
+
   it('takes the oldest tool results out when they no longer fit, and keeps the newest (E11)', async () => {
     const long = (tag: string): string => `${tag} `.repeat(1000) // 4,000 characters, about 1,150 tokens
     const { fetchImpl, sent } = scripted([

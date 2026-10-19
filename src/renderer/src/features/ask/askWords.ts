@@ -1,6 +1,8 @@
 // The words Ask the world shows: its example questions, when a chat was last asked in, where answers
 // are from, how an answer ended, and what saving a note did. Pure, so it is unit-tested.
 import type { SavedNote } from '@shared/contracts/ask'
+import { NO_CHANGE_LEAD, writerReason } from '@shared/askTruth'
+import type { ToolActivity } from '@shared/toolActivity'
 import { formatCost } from '@/features/generate/format'
 
 /**
@@ -92,4 +94,24 @@ export const NO_CHANGES_CAME = 'No changes came with this answer, so there’s n
 
 /** True when an answer clearly says it made or proposed changes (shared/askChanges.ts): "apply pressure" doesn't count. */
 export { claimsChanges as speaksOfChanges } from '@shared/askChanges'
+
+/**
+ * Said under an answer whose changes were all turned down by their checks (Adam, 2026-10-19: the reason was only in a
+ * folded tool row): why, in plain words, from the last one turned down. Null when a change came with the answer, none
+ * was tried, or the answer already says so itself (the truth check's "No change was made: …").
+ */
+export function notProposedNote(answer: string, tools: Pick<ToolActivity, 'status' | 'kind' | 'result' | 'outcome'>[] | undefined, proposals: number): string | null {
+  if (proposals) return null
+  const failed = (tools ?? []).filter((t) => t.status === 'not-proposed' && (t.kind === 'propose' || t.kind === 'draft'))
+  const last = failed.at(-1)
+  if (!last || answer.trim().startsWith(NO_CHANGE_LEAD)) return null
+  return `Nothing was proposed: ${writerReason(last.result || last.outcome || '')}.`
+}
+
+/**
+ * The mark on a change that couldn't be applied: "Not found" when its words or paragraphs are gone from the scene,
+ * else "Not applied" (a scene being written, one that didn't open: the reason under it says which).
+ */
+export const staleBadge = (why: string): string =>
+  /aren’t in the scene|isn’t in the scene|aren’t there any more|more than one place|isn’t in the story any more|any more:/i.test(why) ? 'Not found' : 'Not applied'
 
