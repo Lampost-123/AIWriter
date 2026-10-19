@@ -18,6 +18,7 @@ import { PlanPage, ResultsEmpty } from '@/features/planning/PlanShell'
 import { suggestSteps } from '@/features/planning/planLogic'
 import { checkKept, dismissProblem, helperKey, openHelper, stopOutline, treeOf, useOutlineHelper } from '@/features/outline/helperStore'
 import { Suggestions } from '@/features/outline/Suggestions'
+import { EarlierSuggestions } from '@/features/outline/EarlierSuggestions'
 import { SIZE_CHOICES, fitSize } from '@/features/outline/size'
 import { countLine, countNodes, totalOf, withoutGone } from '@/features/outline/tree'
 import { premiseOf, recipeName, sizeForRecipe } from './recipeLogic'
@@ -197,6 +198,7 @@ function Plan({ storyId, recipeId, storyTitle }: { storyId: string; recipeId: st
             <>
               {plan.premise.taskId === run.taskId ? <PremiseCard storyId={storyId} text={run.text} ended={ended} desk /> : null}
               {shown && (tree.length || running) ? <Suggestions storyId={storyId} run={shown} tree={tree} open={open} starter={null} /> : null}
+              <EarlierSuggestions storyId={storyId} />
             </>
           ) : (
             <ResultsEmpty
@@ -313,6 +315,7 @@ function Plan({ storyId, recipeId, storyTitle }: { storyId: string; recipeId: st
         {run && plan.premise.taskId === run.taskId ? <PremiseCard storyId={storyId} text={run.text} ended={ended} /> : null}
 
         {shown && (tree.length || running) ? <Suggestions storyId={storyId} run={shown} tree={tree} open={open} starter={null} /> : null}
+        <EarlierSuggestions storyId={storyId} />
       </div>
     </div>
   )

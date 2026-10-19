@@ -3718,7 +3718,8 @@ recipes when they are used"; "a way to interact with the chat when building a pl
 Story builder (View `storyBuilder`, `features/storyBuilder/`, contract `contracts/storyBuilder.ts`, main
 `src/main/storyBuilder/` and `ipc/storyBuilder.ts`) is one page per story, in steps shown across the top of each:
 
-1. **Your idea** (`IdeaStep.tsx`): the plot (as long as he likes), setting, must happen, must never happen, length, his
+1. **Your idea** (`IdeaStep.tsx`): the plot (as long as he likes), setting, must happen, must never happen, length (its
+   hint says what each lays out at first, `sizeForLength`; "Not sure yet" is the outline helper's usual start), his
    own characters and places (kept exactly, marked **Yours**), questions (the World builder's interview, asked of the
    brief), the story's style (presets, how far it goes, tone; "Fine-tune" opens the style guide's This story tab) and a
    recipe. It is the story's **brief**, kept in the world's meta as `story_brief:<storyId>` (no migration;
@@ -3735,7 +3736,8 @@ Story builder (View `storyBuilder`, `features/storyBuilder/`, contract `contract
    the world's events, marker `[AIWRITE-STORY v1] outline`), with a `Premise:` line first when the story has none (a
    card keeps it). Once the codex is built, a keep starts the World build only for pages it made (`setKeepBuild`).
    A story made from a recipe opens the recipe's plan page here (`RecipeStoryPlan`), and follows the recipe from then on.
-4. **Done**: what was made and kept, and where to go next.
+4. **Done**: what was made and kept, and where to go next. It says only what is true: "Your story is built" once the
+   codex is built and something of the outline kept, else what is built so far (or "Nothing is built yet").
 
 **What wins:** the idea and his own entries, then the recipe (with the story's own changes, `brief.recipe.tweaks`; Save
 back puts them in the library), then the AI's own ideas. Every prompt says so.
@@ -3743,11 +3745,24 @@ back puts them in the library), then the AI's own ideas. Every prompt says so.
 **Talking it over** (`features/planning/talkStore.ts`, `TalkPanel.tsx`): one talk per thing (the outline's suggestions,
 the codex list, a recipe), kept while the app is open, never saved. A revision waits as a preview for Apply or Decline;
 Apply has Undo. The outline's talk (`startPlanChat`) streams; its revised plan follows a line `=== Revised plan ===`
-and replaces the open suggestions (`helperStore.applyRevision`, which keeps what was kept by matching titles).
+and replaces the open suggestions (`helperStore.applyRevision`, `features/outline/revision.ts`, 2026-10-19): each revised
+part is matched to the one it was by the trail the revision keeps (`PlanRevision.from`: the talk's tags, through
+`openKeys` to the suggestions' own keys), else by its title in the same act or chapter. What was kept stays kept, back in
+its place, and is never offered to keep twice; what Adam discarded since stays discarded; his edits stay where the talk
+didn't change that part. A revision made for suggestions since moved under Earlier suggestions isn't applied.
 **Redo** on an open act, chapter or scene (`startPlanRedo`) streams a new version beside it; Use this swaps it in
 (`applyRedo`). That works because `features/outline/outlineText.ts` writes the suggestions back out in the outline form
 so that reading them again gives every other suggestion the same key (unit-tested round trip). Recipes: `recipeChat` and
 `redoRecipePart`, on the recipe page too.
+
+**The outline helper's suggestions (2026-10-19).** Edit shows and edits every part a suggestion goes into the story with
+(`SuggestionParts.tsx`): a chapter's point of view, characters, location, When and mood, where a scene differs from its
+chapter, and a scene's plot threads, picked from the codex with the scene card's `CastPicker` or typed in (a name the
+codex doesn't have stands for itself, `codexNames.ts`, and gets a page when kept); `NodeEdit.card`, `setsUp` and
+`paysOff` go into `keepPlan`. **Suggest again** never drops what Adam hadn't decided on: the batch moves to
+`HelperSession.earlier` (newest first) and shows folded under the new ones as "Earlier suggestions"
+(`EarlierSuggestions.tsx`, on the outline helper's page, a chapter's plan and a recipe's plan), each batch with its own
+Keep, Edit, Discard and Undo (by its task id: `KeepOptions.runId`) and "Put these away" (`putAwayEarlier`, with Undo).
 
 **Writing style presets** (`src/shared/stylePresets.ts`, `features/style/StylePresets.tsx`): one click sets genres,
 content levels, point of view, tense and prose style (and the tone, in the Story builder), with Undo; those marked

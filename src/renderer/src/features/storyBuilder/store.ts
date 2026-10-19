@@ -16,6 +16,7 @@ import { registerFlusher } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { say, settlePreview, talkOf } from '@/features/planning/talkStore'
 import { setKeepBuild } from '@/features/outline/helperStore'
+import { defaultSize } from '@/features/outline/size'
 import { madeWords } from '@/features/worldBuilder/storyBuild'
 
 export type Step = 'idea' | 'codex' | 'outline' | 'done'
@@ -473,7 +474,10 @@ export async function undoCodexBuild(storyId: ID): Promise<void> {
 
 // ---------- The outline ----------
 
-/** How much a story of this length lays out. */
+/**
+ * How much a story of this length lays out at first. With no length chosen ("Not sure yet"), the outline helper's own
+ * start for a new story (outline/size.ts defaultSize), so the Idea step's hint says what the Outline step does.
+ */
 export function sizeForLength(length: StoryBrief['length'], recipeChapters: number): OutlineSize {
   if (length === 'short') return { acts: 0, chapters: 5, scenes: 3 }
   if (length === 'novella') return { acts: 3, chapters: 12, scenes: 3 }
@@ -482,5 +486,5 @@ export function sizeForLength(length: StoryBrief['length'], recipeChapters: numb
     const c = Math.max(1, Math.min(30, recipeChapters))
     return { acts: Math.min(3, c), chapters: c, scenes: Math.max(1, Math.min(3, Math.floor(100 / c))) }
   }
-  return { acts: 3, chapters: 12, scenes: 3 }
+  return defaultSize(0, 0)
 }

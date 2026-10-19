@@ -49,6 +49,39 @@ export interface NodeEdit {
   beats: string[]
   /** A scene's When as Adam changed it; left out: the AI's. */
   when?: string
+  /**
+   * The card as Adam changed it (2026-10-19: the Edit form shows every part): a chapter's point of view, characters,
+   * location, When and mood; a scene's, where it differs from its chapter (its When is `when`). Left out: the AI's.
+   */
+  card?: SuggestedCard
+  /** The plot threads a scene sets up and pays off, as Adam changed them; left out: the AI's. */
+  setsUp?: string[]
+  paysOff?: string[]
+}
+
+/** A suggestion's words as they stand: Adam's where he changed them, else the AI's. */
+export interface Words {
+  title: string
+  text: string
+  beats: string[]
+  /** A scene's When; '' for acts and chapters (a chapter's is its card's). */
+  when: string
+  /** None for an act. */
+  card: SuggestedCard | undefined
+  setsUp: string[]
+  paysOff: string[]
+}
+
+export function wordsOf(node: TreeNode, edit?: NodeEdit): Words {
+  return {
+    title: edit?.title ?? node.title,
+    text: edit?.text ?? node.text,
+    beats: edit?.beats ?? node.beats,
+    when: node.kind === 'scene' ? (edit?.when ?? node.when) : '',
+    card: node.kind === 'act' ? undefined : (edit?.card ?? node.card),
+    setsUp: node.kind === 'scene' ? (edit?.setsUp ?? node.setsUp ?? []) : [],
+    paysOff: node.kind === 'scene' ? (edit?.paysOff ?? node.paysOff ?? []) : []
+  }
 }
 
 /** What became of a suggestion. Not listed: still open. */
@@ -194,19 +227,22 @@ export function keepPlan(tree: TreeNode[], decisions: Decisions, edits: Edits, k
       .reverse()
       .find((s) => decisions[s.key]?.status === 'kept' || keeping.has(s.key))
     const before = after ? undefined : siblings.slice(at + 1).find((s) => decisions[s.key]?.status === 'kept')
-    const words = edits[node.key] ?? node
+    // Adam's words where he changed them (any part, his card and plot threads too), else the AI's.
+    const words = wordsOf(node, edits[node.key])
     const item: KeepItem = { key: node.key, kind: node.kind, title: words.title.trim(), text: words.text.trim() }
     if (node.kind === 'scene') {
       item.beats = words.beats.map((b) => b.trim()).filter(Boolean)
-      // Adam's When if he changed it, else the AI's; empty, the story fills it in (keepOutline).
-      const when = (edits[node.key]?.when ?? node.when).trim()
+      // Empty, the story fills it in (keepOutline).
+      const when = words.when.trim()
       if (when) item.when = when
       // The plot threads it sets up and pays off go on its card (new ones are made: outline/structure.ts).
-      if (node.setsUp?.length) item.setsUp = node.setsUp
-      if (node.paysOff?.length) item.paysOff = node.paysOff
+      const setsUp = words.setsUp.map((t) => t.trim()).filter(Boolean)
+      const paysOff = words.paysOff.map((t) => t.trim()).filter(Boolean)
+      if (setsUp.length) item.setsUp = setsUp
+      if (paysOff.length) item.paysOff = paysOff
     }
     // Chapter cards: a chapter's card, and where a scene differs from its chapter's (its When is `when` above).
-    const card = node.kind === 'act' ? undefined : cardNames(node.card, node.kind === 'chapter')
+    const card = node.kind === 'act' ? undefined : cardNames(words.card, node.kind === 'chapter')
     if (card) item.card = card
     const p = ref(parent)
     if (p) item.parent = p

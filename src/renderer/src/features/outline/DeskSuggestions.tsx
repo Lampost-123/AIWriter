@@ -20,9 +20,10 @@ import { WaitingCards } from '@/features/planning/LampThinking'
 import { useDealDelay } from '@/features/planning/deal'
 import { flyCard, landingOf, landingSoon } from '@/features/planning/fly'
 import { discardSuggestion, keepSuggestions, type HelperRun } from './helperStore'
-import { EditForm, focusNext, KEEP_TITLES, KIND_LABELS, type TreeProps } from './Suggestions'
+import { EditForm, focusNext, KEEP_TITLES, KIND_LABELS, runIdOf, type TreeProps } from './Suggestions'
 import { RedoButton, RedoPanel } from './PlanTalkParts'
-import { countLine, countNodes, lastNodeKey, totalOf, type Counts, type TreeNode } from './tree'
+import { CardLines, whenOf } from './SuggestionParts'
+import { countLine, countNodes, lastNodeKey, totalOf, wordsOf, type Counts, type TreeNode } from './tree'
 
 export function DeskSuggestions({
   storyId,
@@ -120,6 +121,27 @@ export function DeskSuggestions({
   )
 }
 
+/** An earlier batch's suggestions on the desk (EarlierSuggestions.tsx): the same cards, without the tray over them. */
+export function DeskEarlierList({ storyId, chapterId = null, run, tree }: { storyId: ID; chapterId?: ID | null; run: HelperRun; tree: TreeNode[] }): React.JSX.Element {
+  const [editing, setEditing] = useState<string | null>(null)
+  const top = chapterId ? (tree[0]?.children ?? []) : tree
+  const shown = top.filter((n) => run.decisions[n.key]?.status !== 'discarded')
+  const props: TreeProps = { storyId, chapterId, run, current: null, editing, setEditing, earlier: true }
+  return top.every((n) => n.kind === 'scene') ? (
+    <div className="plan-scenes" data-suggestions>
+      {shown.map((n) => (
+        <DeskNode key={n.key} node={n} {...props} />
+      ))}
+    </div>
+  ) : (
+    <div className="plan-tree" data-suggestions>
+      {shown.map((n, i) => (
+        <DeskNode key={n.key} node={n} n={i} {...props} />
+      ))}
+    </div>
+  )
+}
+
 /** "2 acts · 3 chapters · 9 scene cards" still to decide, in amber (the AI's). */
 function CountChips({ counts }: { counts: Counts }): React.JSX.Element | null {
   const parts: [number, string, string][] = [
@@ -154,7 +176,7 @@ function DeskNode({ node, n = 0, ...props }: TreeProps & { node: TreeNode; n?: n
     'data-state': kept ? 'kept' : 'open'
   } as const
   const editing = props.editing === node.key
-  const redo = !props.chapterId ? <RedoPanel storyId={props.storyId} node={node} /> : null
+  const redo = !props.chapterId && !props.earlier ? <RedoPanel storyId={props.storyId} node={node} /> : null
   if (node.kind === 'scene') {
     return (
       <div {...group}>
@@ -188,14 +210,15 @@ function DeskNode({ node, n = 0, ...props }: TreeProps & { node: TreeNode; n?: n
 }
 
 /** One suggestion: a scene's index card, or the header of a chapter or an act. */
-function Card({ node, n = 0, storyId, chapterId, run, current, setEditing }: TreeProps & { node: TreeNode; n?: number }): React.JSX.Element {
+function Card({ node, n = 0, storyId, chapterId, run, current, setEditing, earlier }: TreeProps & { node: TreeNode; n?: number }): React.JSX.Element {
   const box = useRef<HTMLDivElement>(null)
   const deal = useDealDelay()
   const decision = run.decisions[node.key]
   const kept = decision?.status === 'kept'
   const edit = run.edits[node.key]
-  const words = edit ?? node
-  const when = (edit?.when ?? node.when).trim()
+  const words = wordsOf(node, edit)
+  const when = whenOf(node.kind, words)
+  const runId = runIdOf({ run, earlier })
   const running = run.status === 'running'
   const writing = running && node.key === current
   const title = words.title.trim()
@@ -230,13 +253,13 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing }: Tre
   const keep = (): void => {
     const from = focused() ? box.current : null
     flying.current = box.current?.getBoundingClientRect() ?? null
-    void keepSuggestions(storyId, [node.key], chapterId).then(() => focusNext(from))
+    void keepSuggestions(storyId, [node.key], chapterId, { runId }).then(() => focusNext(from))
   }
   const discard = (): void => {
     if (focused()) focusNext(box.current, true)
-    if (reducedMotion() || keyboardDriven()) return discardSuggestion(storyId, node.key, chapterId)
+    if (reducedMotion() || keyboardDriven()) return discardSuggestion(storyId, node.key, chapterId, runId)
     setLeaving(true)
-    setTimeout(() => discardSuggestion(storyId, node.key, chapterId), 140)
+    setTimeout(() => discardSuggestion(storyId, node.key, chapterId, runId), 140)
   }
 
   const head = node.kind !== 'scene'
@@ -248,7 +271,7 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing }: Tre
         {kept ? null : <Sparkles size={11} aria-hidden />}
         <span>{caps}</span>
         {when ? (
-          <span className="plan-ic-when" title="When it happens in the story" data-when>
+          <span className="plan-ic-when" title={node.kind === 'chapter' ? 'When the chapter starts in the story' : 'When it happens in the story'} data-when>
             · {when}
           </span>
         ) : null}
@@ -278,13 +301,7 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing }: Tre
           ))}
         </ol>
       ) : null}
-      {node.setsUp?.length || node.paysOff?.length ? (
-        <p className="plan-ic-threads" data-threads>
-          {node.setsUp?.length ? <span>Sets up: {node.setsUp.join('; ')}</span> : null}
-          {node.setsUp?.length && node.paysOff?.length ? <span> · </span> : null}
-          {node.paysOff?.length ? <span>Pays off: {node.paysOff.join('; ')}</span> : null}
-        </p>
-      ) : null}
+      <CardLines kind={node.kind} words={words} className="plan-ic-threads" />
     </>
   )
   const actions = kept ? (
@@ -309,7 +326,7 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing }: Tre
       <button type="button" className="plan-txt" data-edit onClick={() => setEditing(node.key)} aria-label={`Edit ${title ? `“${title}”` : `this ${node.kind}`}`}>
         Edit
       </button>
-      {!chapterId ? <RedoButton storyId={storyId} node={node} className="plan-txt" /> : null}
+      {!chapterId && !earlier ? <RedoButton storyId={storyId} node={node} className="plan-txt" /> : null}
       <button type="button" className="plan-txt" onClick={discard} title="Leave this out. Undo brings it back." aria-label={`Discard ${title ? `“${title}”` : `this ${node.kind}`}`}>
         Discard
       </button>

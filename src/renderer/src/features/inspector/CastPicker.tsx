@@ -29,6 +29,7 @@ export const CastPicker = memo(function CastPicker({
   noun = 'character',
   listLabel = 'Characters',
   aiIds,
+  addPlaceholder = 'Add…',
   'aria-describedby': describedBy
 }: {
   /** Chips the AI put there (plot threads the memory linked): shown with an AI tag, removable like any other. */
@@ -47,6 +48,8 @@ export const CastPicker = memo(function CastPicker({
   noun?: string
   /** The list's name for screen readers. */
   listLabel?: string
+  /** The text box's hint once something is picked (default "Add…"; "Change…" where one replaces the other). */
+  addPlaceholder?: string
   'aria-describedby'?: string
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -178,7 +181,7 @@ export const CastPicker = memo(function CastPicker({
             aria-activedescendant={open ? `${listId}-${hi}` : undefined}
             aria-describedby={describedBy}
             value={query}
-            placeholder={chosen.length ? 'Add…' : (placeholder ?? 'Type a name…')}
+            placeholder={chosen.length ? addPlaceholder : (placeholder ?? 'Type a name…')}
             onChange={(e) => {
               setQuery(e.target.value)
               setHighlight(0)
