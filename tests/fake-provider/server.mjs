@@ -78,7 +78,8 @@
 //
 // Milestone 4's AI calls (AI edits, Ask the world, the outline helper, read aloud) are answered by
 // the modules in m4/ (see m4/index.mjs), by the marker their system prompt starts with; milestone 5's
-// (the consistency checks) by those in m5/; Story recipes' by recipes.mjs; check and repair's by repair.mjs.
+// (the consistency checks) by those in m5/; Story recipes' by recipes.mjs; check and repair's by repair.mjs; Directed
+// writing's director, and the writer's stretches, by director.mjs.
 //
 // Use from code:  const fake = await startFakeProvider({ delayMs: 5 }); ... fake.url ... await fake.close()
 // Or from a shell: node tests/fake-provider/server.mjs --port 4545 --delay 20
@@ -94,6 +95,7 @@ import { recipeReply } from './recipes.mjs'
 import { storyReply } from './story.mjs'
 import { critiqueReply } from './critique.mjs'
 import { repairReply } from './repair.mjs'
+import { directorReply, stretchProse } from './director.mjs'
 
 /** How long fake/overthinker thinks, in tokens. */
 const OVERTHINK_TOKENS = 3000
@@ -610,13 +612,21 @@ export async function startFakeProvider(options = {}) {
     memory ??= critiqueReply(system, firstUser, model)
     // Write the whole chapter's plan (asked at its last request, without tools) and its fixes, answered by chapter.mjs.
     memory ??= chapterReply(system, messages, model)
+    // Directed writing's director (src/main/director), answered by director.mjs.
+    memory ??= directorReply(system, messages)
     // fake/prude turns down whatever has the word EXPLICIT in it, in so many words (a reply that finishes as usual, not a
     // content filter): a memory read, a summary, where things stand, a plan, a check or a draft alike.
     if (model === 'fake/prude' && messages.some((m) => textOf(m.content).includes('EXPLICIT'))) memory = PRUDE_REFUSAL
     let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : model === 'fake/refuse-words' ? "I'm sorry, but I can't write this scene." : fakeProse(words))
-    // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.
     const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)
-    if (memory === null && lastUser.includes('put who says it and how it is said in curly braces')) {
+    // Directed writing: each stretch opens with its beat and reads on from a place of its own; a paragraph taken again
+    // is one new paragraph (director.mjs).
+    const stretch = memory === null && full ? stretchProse(lastUser, words, SENTENCES, fakeProse) : null
+    if (stretch) full = stretch
+    // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would (a later
+    // stretch of a directed draft was asked in its briefing, the first user message).
+    const tagsAsked = (t) => t.includes('put who says it and how it is said in curly braces')
+    if (memory === null && (tagsAsked(lastUser) || (stretch !== null && tagsAsked(firstUser)))) {
       full = full.replaceAll('"You came,"', '{Tobin|dry, a little amused}"You came,"').replaceAll('"I said I would."', '{Mara|flat and certain}"I said I would."')
     }
     // With varyBeats, each beat of Beat by beat reads differently (its number picks the sentences).

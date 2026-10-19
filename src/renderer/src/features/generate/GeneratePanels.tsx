@@ -16,6 +16,7 @@ import { LengthField } from './LengthField'
 import { setPolishOn } from './polishRun'
 import { CREATIVITY_HINTS } from './format'
 import { PopoverPanel, Segmented } from './parts'
+import { DirectedToggle } from '@/features/director/DirectedToggle'
 import type { DraftMode, Generate } from './useGenerate'
 
 const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map((k) => ({ value: k, label: CREATIVITY_PRESETS[k].label }))
@@ -265,6 +266,8 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
               </span>
             </span>
           </label>
+          {/* Directed writing, for this draft (src/main/director). */}
+          <DirectedToggle sceneId={g.sceneId} />
           <div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-[12px] text-muted">
             <span className="min-w-0 truncate">
               Writer:{' '}

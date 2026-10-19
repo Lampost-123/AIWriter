@@ -93,6 +93,19 @@ export class SpeakerTagFilter {
     return res
   }
 
+  /**
+   * Directed writing (src/main/director): the last `chars` characters given out were taken back (a paragraph written
+   * again), so the tags in them go and what is given out next follows on from what is left.
+   */
+  takeBack(chars: number): void {
+    const at = Math.max(0, this.out - chars)
+    this.tags = this.tags.filter((t) => t.at < at)
+    this.out = at
+    this.held = ''
+    this.eat = false
+    this.last = '\n'
+  }
+
   /** What is still held back at the end: a tag that never closed is dropped, anything else given out. */
   flush(): string {
     const h = this.held

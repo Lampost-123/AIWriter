@@ -18,6 +18,7 @@ import { memorySettingsChanged } from '../keeper'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
 import { noteWriterSpeakers } from '../readAloud'
 import { chapterWriterHolds, HELD } from '../chapterWriter/active'
+import { directDraft, directedWanted, directorModel } from '../director'
 
 type AiMethods =
   | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
@@ -69,6 +70,19 @@ export const aiHandlers: Handlers<AiMethods> = {
         block ? options : { ...options, addBelow: false },
         block ? { signal: stop.signal, soFar, extras: { extraBlocks: [block] } } : { signal: stop.signal }
       )
+      // Directed writing (src/main/director): a stretch at a time, with the director's notes between, when the draft options
+      // or Settings › Models say so.
+      const settings = getSettings()
+      const stream = directedWanted(options, settings)
+        ? directDraft({
+            db,
+            sceneId,
+            briefing: b,
+            carryOn: block ? soFar : '',
+            model: directorModel({ settings, getProvider: providers.getProvider, providerTarget: providers.providerTarget }),
+            emit
+          })
+        : null
       const started = startDraftJob({
         db,
         sceneId,
@@ -81,6 +95,7 @@ export const aiHandlers: Handlers<AiMethods> = {
         entryVersions: b.entryVersions,
         emit,
         onSpeakers: (speakers) => noteWriterSpeakers(sceneId, speakers),
+        ...(stream ? { stream } : {}),
         ...providerNotes(b.target.id)
       })
       // Check and repair: the draft's words are checked against where things stood as the writer was told it, and against

@@ -397,8 +397,10 @@ export interface ModelChoice {
  * (Story recipes: reads a whole story and sums it up as a recipe; the memory model until Adam picks one).
  * 'chapter' is the Chapter writer model (Write the whole chapter's agent, which must use tools; the chat and
  * brainstorm model until Adam picks one; the scenes themselves are drafted by the writer model).
+ * 'director' is the Director model (Directed writing, src/main/director: watches the writer between stretches and gives
+ * it notes; never writes prose; the memory model until Adam picks one).
  */
-export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter'
+export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter' | 'director'
 
 /**
  * The jobs with a Thinking level of their own: every job, and those with no model choice of their own: 'sounds', the AI
@@ -475,6 +477,13 @@ export interface Settings {
    * before writing. Off: the plan's call and the briefing as before. Left out (settings saved before it): on.
    */
   continuityBrief?: boolean
+  /**
+   * Directed writing for every draft (Settings › Models; off by default; src/main/director): Generate, Add below and Write
+   * the chapter's drafts are written a stretch at a time, and a director reads each stretch and steers the writer with a
+   * short note before the next. The draft options can turn it on or off for one draft (DraftOptions.directed). Left out
+   * (settings saved before it): off.
+   */
+  directedWriting?: boolean
   theme: ThemeName
   editor: EditorSettings
   /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */
@@ -883,6 +892,11 @@ export interface DraftOptions {
    * afresh. The writer is given the scene so far and where things stand at its end. Left out: off.
    */
   addBelow?: boolean
+  /**
+   * Directed writing for this draft (src/main/director): written a stretch at a time with a director's note between.
+   * Left out: as Settings › Models says (Settings.directedWriting).
+   */
+  directed?: boolean
 }
 
 export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
@@ -904,6 +918,7 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * me"; sceneId '') and 'polish' (the polish pass that revises a finished Generate draft; `params.polishOf`).
  * The critic adds 'critique': craft feedback on a scene (its sceneId) or a chapter (sceneId '').
  * Write the whole chapter adds 'chapter': one session of its agent (the scene it works on, or '' for the chapter).
+ * Directed writing adds 'director': one short call of the director between stretches of a draft (src/main/director).
  */
 export type GenerationJob =
   | 'draft'
@@ -924,6 +939,7 @@ export type GenerationJob =
   | 'polish'
   | 'critique'
   | 'chapter'
+  | 'director'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'
@@ -1030,6 +1046,12 @@ export interface GenerationRecord extends GenerationSummary {
      * tagged and gave a tone, its narration moods, and tags that matched no line.
      */
     speakerTags?: { quotes: number; tagged: number; toned: number; moods: number; dropped: number }
+    /**
+     * Directed writing (src/main/director): the draft was written a stretch at a time with a director's notes between:
+     * how many stretches, paragraphs taken again, calls to the director, and notes of Adam's that went in. Each stretch's
+     * note and why are in `steps`.
+     */
+    directed?: { stretches: number; retakes: number; directorCalls: number; notes: number }
   }
   direction: string
   blocks: ContextBlock[]

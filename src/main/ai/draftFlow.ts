@@ -24,7 +24,7 @@ import { carryOnFrom, catchUpBeforeDraft, gatherContextInput, stageNote, stageWh
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { memoryReady } from '../keeper'
 import { planBeforeWriting, planWanted } from '../plan'
-import { keepsRoom, type BeatAt } from '../plan/plan'
+import { keepsRoom, type BeatAt, type ScenePlan } from '../plan/plan'
 import { countTokens } from './tokenService'
 import { isLocalUrl, providerWho } from './errors'
 import { recallForBriefing } from '../retrieval'
@@ -147,6 +147,11 @@ export interface DraftBriefing {
   contract?: SceneContract | null
   /** Something Adam should know about how the draft was briefed, in plain words (gather.ts stageNote); null: nothing. */
   note?: string | null
+  /**
+   * The scene plan the writer was given (plan before writing), checked: its beats and closing image. Directed writing
+   * (src/main/director) writes the draft a beat at a time by it. Null or left out: no plan went in.
+   */
+  scenePlan?: ScenePlan | null
 }
 
 /**
@@ -319,7 +324,9 @@ export async function withPlan(
         preview: again.preview,
         prepared: again.prepared,
         entryVersions: sentEntryVersions(input.memory, again.preview.blocks),
-        contract: again.prepared.contract ?? null
+        contract: again.prepared.contract ?? null,
+        // Directed writing (src/main/director) writes by the plan's beats, when its notes went in.
+        scenePlan: p.text ? (p.plan ?? null) : null
       }
     }
   }
