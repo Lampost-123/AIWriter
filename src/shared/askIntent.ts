@@ -20,7 +20,11 @@ export type AskIntent = 'edit' | 'brainstorm' | 'answer' | 'unsure'
  * for an edit (or a selection), so the first request can propose without read_scene; CACHE keeps the briefing's front
  * the same from question to question (provider prefix caching); CAP fits an edit's briefing into EDIT_BRIEFING_CAP
  * tokens. Off, each as Phase 2 left it. EXTRATOOLS (Phase 4): scene_state, story_so_far, compare_version and
- * propose_changes' kind replace_all (ask/extraTools.ts); off, none of them.
+ * propose_changes' kind replace_all (ask/extraTools.ts); off, none of them. LOOKUPS (overhaul phase 2): the story index's
+ * look-ups every agent shares (ai/lookups: state_of, where_is, who_knows, last_seen, who_was_there, timeline,
+ * read_passage; what_happened and open_threads only where story_so_far and list_threads aren't offered); off, none.
+ * PACKS (overhaul phase 2): instruction packs (ai/packs: the list in the instructions, load_instructions, and the rarer
+ * kinds' details in propose_changes moved into their packs); off, as before.
  */
 export const CHAT_SWITCHES = [
   'CONTRACT',
@@ -38,7 +42,9 @@ export const CHAT_SWITCHES = [
   'SCENE',
   'CACHE',
   'CAP',
-  'EXTRATOOLS'
+  'EXTRATOOLS',
+  'LOOKUPS',
+  'PACKS'
 ] as const
 export type ChatSwitch = (typeof CHAT_SWITCHES)[number]
 

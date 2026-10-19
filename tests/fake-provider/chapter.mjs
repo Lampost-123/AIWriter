@@ -11,8 +11,9 @@
 // The model fake/agent-words answers every request in words, never calling a tool nor writing the plan's JSON (the app
 // makes the plan from the cards alone). The model fake/agent-greedy first looks things up, three at a time (Mara, what
 // happened, a search, Ch 1's scenes, Tobin, the threads, the timeline), as a live model did (2026-10-16), until the app
-// says there are no more look-ups; then it goes on as above. The model fake/fix-same sends a fix back unchanged (the app
-// can't use it). Returns null for any other request.
+// says there are no more look-ups; then it goes on as above. The model fake/agent-packs first loads the check-continuity
+// instruction pack (load_instructions, when offered) with its look-up of Mara, as the list asks; then as above. The
+// model fake/fix-same sends a fix back unchanged (the app can't use it). Returns null for any other request.
 
 const MARKER = '[AIWRITE-CHAPTER v1]'
 
@@ -68,6 +69,9 @@ export function chapterToolCalls(system, messages, tools, model = '') {
     if (looks.length) return [0, 1, 2].map((i) => ({ name: looks[(calls.length + i) % looks.length][0], arguments: looks[(calls.length + i) % looks.length][1] }))
   }
   const answered = messages.some((m) => m.role === 'tool')
+  if (model === 'fake/agent-packs' && !answered && offered.has('load_instructions')) {
+    return [{ name: 'load_instructions', arguments: { name: 'check-continuity' } }, { name: 'state_of', arguments: { name: 'Mara' } }]
+  }
   if (!answered && offered.has('state_of') && /\bMara\b/.test(user)) return [{ name: 'state_of', arguments: { name: 'Mara' } }]
   return [{ name: 'write_chapter_plan', arguments: fakePlan(user) }]
 }

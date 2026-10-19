@@ -120,6 +120,10 @@ export function askReply(system, messages, model) {
  *                    ("She hesitated at the door.", with *hesitated* in italics)
  *   cut              "cut the paragraph" / "cut the bit": reads the scene, then a cut of paragraph 2
  *   beats            "add a beat": one beat put in at the end ("She finds the letter")
+ * The overhaul's phase 2 tools, only when offered (AIWRITE_EXP_CHAT_LOOKUPS, AIWRITE_EXP_CHAT_PACKS):
+ *   where_is         "where is the X" / "where's the X": where_is on "the X", then an answer in words
+ *   who_knows        "who knows about X" / "who knows X": who_knows on X, then words
+ *   load_instructions  "how does the memory work" / "explain the memory": the explain-memory pack, then words
  * Only the words he typed count for these (not a selection quoted above them). A forced tool_choice is obeyed.
  */
 export function askToolCalls(system, messages, tools, toolChoice) {
@@ -254,6 +258,9 @@ function scriptedCalls(system, messages, tools) {
   const seen = last?.role === 'tool' ? last.content : !toolResults.length && page ? page : null
   const mustRead = !toolResults.length && !page
   const fresh = (last?.role === 'tool' && toolResults.length === 1) || (!toolResults.length && !!page)
+  // The overhaul's phase 2 tools, when offered: the shared look-ups and the instruction packs.
+  const shared = sharedCalls(typed, tools, called)
+  if (shared !== undefined) return shared
   // The Phase 4 tools (EXTRATOOLS), when offered: replace all, what is true at a point, the story so far, a version.
   const raw = users.filter((u) => !u.startsWith('[AI Write, not the writer]')).at(-1) ?? ''
   const extra = extraCalls(raw.toLowerCase().startsWith('about this passage:') ? raw.slice(raw.lastIndexOf('\n\n') + 2) : raw, tools, called)
@@ -287,6 +294,20 @@ function scriptedCalls(system, messages, tools) {
     return [changesCall(tools, changes)]
   }
   return legacyCalls(question, nudged, { toolResults, tools, seen, mustRead, fresh })
+}
+
+/**
+ * The overhaul's phase 2 tools (LOOKUPS, PACKS), only when offered (plumbing only): see askToolCalls. Returns the calls to
+ * send, null to answer in words, or undefined when none of these fits.
+ */
+function sharedCalls(typed, tools, called) {
+  const once = (name, args) => (called(name) ? null : [{ name, arguments: args }])
+  const where = /\bwhere(?: is|['’]s) (the [^?.!]+)/.exec(typed)
+  if (where && offered(tools, 'where_is')) return once('where_is', { thing: where[1].trim() })
+  const knows = /\bwho knows (?:about )?([^?.!]+)/.exec(typed)
+  if (knows && offered(tools, 'who_knows')) return once('who_knows', { fact: knows[1].trim() })
+  if (/\b(how does the memory work|explain the memory)\b/.test(typed) && offered(tools, 'load_instructions')) return once('load_instructions', { name: 'explain-memory' })
+  return undefined
 }
 
 /** One story change: an item of propose_changes where it is offered, else its own propose_ tool. */

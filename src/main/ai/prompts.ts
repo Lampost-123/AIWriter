@@ -46,7 +46,7 @@ export function povRule(pov: string): string {
  * habits; `plain` keeps the plain-word rule, left out where the prose style asks for rich prose. `end`: Generate's rule
  * about how the scene ends (Add below's stop rule says where it stops).
  */
-function craftRules(o: { aiPhrases: boolean; plain: boolean; end: boolean }): string[] {
+export function craftRules(o: { aiPhrases: boolean; plain: boolean; end: boolean }): string[] {
   const rules = [
     '- Be specific: a few telling details that belong to this place and these people, not to any story; the precise noun and the active verb.',
     '- Give each character their own voice, as their profile describes, with subtext: people rarely say exactly what they mean. Never reuse a sample line word for word, or any line already said in the story.',

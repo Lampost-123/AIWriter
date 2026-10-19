@@ -27,9 +27,11 @@ import { lineAt } from '../memory/asOf'
 import { labeler } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import type { WorldShape } from '../memory/types'
+import { LOOKUP_TOOLS, runLookup, type LookupContext } from '../ai/lookups'
+import { LOAD_INSTRUCTIONS, loadInstructions, loadInstructionsTool } from '../ai/packs'
 import { askedFrom, askPoint, NOT_YET, type AskPoint } from './context'
 import { chatExp } from './exp'
-import { proposedTail } from './prompts'
+import { ASK_PACKS, proposedTail } from './prompts'
 import {
   SCENE_CARD_WITH_NAMES,
   STORY_CHANGE_KINDS,
@@ -299,6 +301,10 @@ export interface ToolSwitches {
   storyTools?: boolean
   /** EXTRATOOLS (chat Phase 4): scene_state, story_so_far, compare_version and the replace_all change. */
   extraTools?: boolean
+  /** LOOKUPS (overhaul phase 2): the story index's look-ups every agent shares (askLookupTools). */
+  lookups?: boolean
+  /** PACKS (overhaul phase 2): load_instructions, and the rarer kinds' details in propose_changes moved into their packs. */
+  packs?: boolean
 }
 
 export const toolSwitches = (): ToolSwitches => ({
@@ -309,7 +315,9 @@ export const toolSwitches = (): ToolSwitches => ({
   actFirst: chatExp('ACTFIRST'),
   textTools: chatExp('TEXTTOOLS'),
   storyTools: chatExp('STORYTOOLS'),
-  extraTools: chatExp('EXTRATOOLS')
+  extraTools: chatExp('EXTRATOOLS'),
+  lookups: chatExp('LOOKUPS'),
+  packs: chatExp('PACKS')
 })
 
 const num = { type: 'number' } as const
@@ -401,7 +409,7 @@ export const ASK_KIND = 'ask'
  * an item can be a question for the writer instead, as ask_user asks it, so a request made to propose can still ask
  * when the request could mean clearly different things. An ask goes alone: given with changes, it isn't asked.
  */
-function proposeChangesTool(anchor: boolean, ask = false, text = false, story = false, extra = false): ToolSpec {
+function proposeChangesTool(anchor: boolean, ask = false, text = false, story = false, extra = false, packs = false): ToolSpec {
   const words = anchor
     ? "edit: `paragraph` (its [n] from read_scene), `find` (the words there; quotes and spacing needn't match exactly), `occurrence` if they occur more than once in it, `replace` ('' cuts). One paragraph only, and it can't add or remove italics.\n- rewrite: `replace_paragraphs: [from, to]` for whole paragraphs, or `start` + `paragraph` and `end` for a passage that starts or ends inside one; `replace` is the whole new passage, a blank line between paragraphs and *asterisks* for italics."
     : "edit: `find` (copied exactly from the scene, inside one paragraph, long enough to occur once) and `replace` ('' cuts). It can't add or remove italics.\n- rewrite: `start` and `end` (the passage's first and last few words, copied exactly; `start` must occur once) and `replace`, the whole new passage, a blank line between paragraphs and *asterisks* for italics."
@@ -419,8 +427,8 @@ function proposeChangesTool(anchor: boolean, ask = false, text = false, story = 
       '- new_chapter: `title`, at the end of this story.',
       '- rename: a `scene` or a `chapter`, and its new title as `to`.',
       ...(text ? textKindLines(anchor) : []),
-      ...(story ? STORY_KIND_LINES : []),
-      ...(extra ? EXTRA_KIND_LINES : []),
+      ...(story ? (packs ? STORY_KIND_SHORT : STORY_KIND_LINES) : []),
+      ...(extra ? (packs ? EXTRA_KIND_SHORT : EXTRA_KIND_LINES) : []),
       ...(ask
         ? [
             "- ask: instead of proposing, ask the writer one short question, only when you can't tell which passage is meant or two readings would give clearly different changes (never to ask permission). Give `question` and 2 to 4 `options`, each with a short `label` (and `detail` if it needs one); `recommended` is the number of the option you would pick (1 = the first); `multi` is true when more than one may be picked. No `why`. It ends your answer: their pick comes back as their next message. An ask goes alone, as the only item: given with changes, it is not asked and the changes are checked as usual."
@@ -561,12 +569,81 @@ export function editorTools(s: ToolSwitches): ToolSpec[] {
   if (s.storyTools && !s.toolChoice) out.push(...storyProposeTools())
   // EXTRATOOLS (Phase 4) without TOOLCHOICE: replace_all as its own propose_ tool.
   if (s.extraTools && !s.toolChoice) out.push(...extraProposeTools())
-  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser, s.textTools, !!s.storyTools, !!s.extraTools))
+  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser, s.textTools, !!s.storyTools, !!s.extraTools, !!s.packs))
   if (s.draft) out.push(PROPOSE_DRAFT)
   if (s.askUser) out.push(ASK_USER)
   if (s.textTools) out.push(FIND_MENTIONS)
   if (s.extraTools) out.push(...extraReadTools())
+  // Overhaul phase 2: the look-ups every agent shares, and the instruction packs (last, the same on every request).
+  if (s.lookups) out.push(...askLookupTools(s))
+  if (s.packs) out.push(loadInstructionsTool(ASK_PACKS))
   return out
+}
+
+// ---------- LOOKUPS and PACKS (overhaul phase 2): the shared look-ups, and the instruction packs ----------
+
+/**
+ * The look-ups the chat takes from the set every agent shares (ai/lookups), answered from the story index at no cost as
+ * things stand at the open scene (or the story's end). Left out where the chat has its own: get_entry (the chat's gives
+ * the field keys its entry changes use, and labels what comes later) and find_in_story (its search); what_happened
+ * where story_so_far is offered (EXTRATOOLS), open_threads where list_threads is (STORYTOOLS).
+ */
+export function askLookupTools(s: ToolSwitches): ToolSpec[] {
+  const own = new Set(['get_entry', 'find_in_story', ...(s.extraTools ? ['what_happened'] : []), ...(s.storyTools ? ['open_threads'] : [])])
+  return LOOKUP_TOOLS.filter((t) => !own.has(t.name))
+}
+
+/**
+ * A look-up's answer in the chat's own tools' names: what it says to try next names the chat's tool that does the same
+ * (its search for find_in_story; story_so_far and list_threads where the shared ones aren't offered).
+ */
+export function inChatWords(text: string, s: ToolSwitches): string {
+  const own: [string, string][] = [['find_in_story', 'search']]
+  if (s.extraTools) own.push(['what_happened', 'story_so_far'])
+  if (s.storyTools) own.push(['open_threads', 'list_threads'])
+  return own.reduce((t, [shared, mine]) => t.replace(new RegExp(String.raw`\b${shared}\b`, 'g'), mine), text)
+}
+
+/**
+ * With PACKS, propose_changes says the story kinds and replace_all in a line each, naming their fields; how to use them
+ * is in the packs (fix-a-slip, plan-a-scene), to which the chat adds the kinds' full lines (askPackExtra).
+ */
+const STORY_KIND_SHORT = [
+  '- issue_fix: an issue list_issues shows, by `issue_id`, with `how` text or memory (the fix-a-slip pack has the details).',
+  '- chapter_card: a chapter card’s parts, by `chapter`; thread: a plot thread on a scene’s card, by `thread` and `action` (the plan-a-scene pack has the details of both).',
+  '- card may also set `pov`, `characters` (the whole list) and `location`, by name.'
+]
+const EXTRA_KIND_SHORT = ['- replace_all: every place `find` stands in this story’s scenes, as `replace` (the fix-a-slip pack has the details).']
+
+/**
+ * What the chat adds to a pack for its own tools (load_instructions' `extra`): the kinds' full lines that propose_changes
+ * no longer carries with PACKS, or the separate tools that make those changes without TOOLCHOICE.
+ */
+export function askPackExtra(name: string, s: ToolSwitches): string {
+  const kinds = (lines: readonly string[]): string => (lines.length ? `In this chat, propose these with propose_changes:\n${lines.join('\n')}` : '')
+  const tools = (names: string[]): string => (names.length ? `In this chat, propose these with ${orList(names)}.` : '')
+  switch (name) {
+    case 'plan-a-scene':
+      return s.toolChoice
+        ? kinds(s.storyTools ? STORY_KIND_LINES.slice(1) : [])
+        : tools([
+            'propose_scene_card',
+            'propose_new_scene',
+            'propose_new_chapter',
+            ...(s.storyTools ? ['propose_chapter_card', 'propose_thread'] : [])
+          ])
+    case 'fix-a-slip':
+      return s.toolChoice
+        ? kinds([...(s.storyTools ? STORY_KIND_LINES.slice(0, 1) : []), ...(s.extraTools ? EXTRA_KIND_LINES : [])])
+        : tools([...(s.storyTools ? ['propose_issue_fix'] : []), ...(s.extraTools ? ['propose_replace_all'] : [])])
+    case 'check-continuity':
+      return [
+        `In this chat, ${s.storyTools ? 'list_issues' : 'scene_issues'} shows what the app's checks have already found${s.extraTools ? ', and scene_state where things stand at a paragraph of a scene' : ''}.`,
+        'A scene after the open one is later: what happens there is no slip for the scenes before it.'
+      ].join(' ')
+    default:
+      return ''
+  }
 }
 
 // ---------- TEXTTOOLS (chat Phase 3): find_mentions, and propose_changes' kinds insert, cut and beats ----------
@@ -987,6 +1064,12 @@ export class EditorAgent {
   private started = new Map<number, ToolActivity>()
   /** Calls made so far in this answer (for their ids). */
   private callCount = 0
+  /** The look-ups offered (LOOKUPS), by name: answered in runAll, as a look-up may wait. */
+  private readonly lookupNames: Set<string>
+  /** What the look-ups are answered from (worked out once per answer); null when there is no story or scene to look in. */
+  private lookupCache: LookupContext | null | undefined
+  /** The packs sent already this answer (PACKS): each is sent once. */
+  private readonly packsLoaded = new Set<string>()
 
   constructor(
     private readonly db: DB,
@@ -1001,6 +1084,7 @@ export class EditorAgent {
   ) {
     this.switches = toolSwitches()
     this.tools = editorTools(this.switches)
+    this.lookupNames = new Set(this.switches.lookups ? askLookupTools(this.switches).map((t) => t.name) : [])
   }
 
   /**
@@ -2218,6 +2302,7 @@ export class EditorAgent {
     if (name === 'propose_changes' && this.switches.toolChoice) return this.proposeChanges(a)
     if (name === 'ask_user' && this.switches.askUser) return this.askUser(a)
     if (name === 'propose_draft' && this.switches.draft) return this.proposeDraft(a)
+    if (name === LOAD_INSTRUCTIONS && this.switches.packs) return this.loadPack(a)
     const textTool = this.switches.textTools ? this.textTool(name, a) : null
     if (textTool) return textTool
     if (this.switches.storyTools) {
@@ -2495,6 +2580,75 @@ export class EditorAgent {
     }
   }
 
+  // ---------- LOOKUPS and PACKS (overhaul phase 2) ----------
+
+  /**
+   * What the look-ups are answered from: the open scene as its words so far end (with no scene open, the story's last
+   * scene as it ends: the story so far), the memory as the chat sees it there, and what Adam keeps out. Null with no
+   * story, or a story with no scenes yet.
+   */
+  private lookupContext(): LookupContext | null {
+    if (this.lookupCache !== undefined) return this.lookupCache
+    this.lookupCache = null
+    const storyId = this.place.storyId
+    if (!storyId) return null
+    const o = this.outline()
+    const open = this.place.sceneId && o.scenes.some((x) => x.id === this.place.sceneId) ? this.place.sceneId : null
+    const sceneId = open ?? o.scenes.at(-1)?.id ?? null
+    if (!sceneId) return null
+    const v = this.view()
+    const card = repo.getScene(this.db, sceneId).card
+    const people = [card.povId, ...card.presentIds]
+      .filter((id): id is ID => !!id && !v.hidden.has(id))
+      .map((id) => v.point.names.get(id) ?? '')
+      .filter(Boolean)
+    this.lookupCache = {
+      db: this.db,
+      sceneId,
+      storyId,
+      asItBegins: false,
+      entries: [...v.point.here.values()],
+      facts: v.point.facts,
+      relationships: v.point.relationships,
+      people: [...new Set(people)],
+      hidden: v.hidden
+    }
+    return this.lookupCache
+  }
+
+  /** Answers one of the shared look-ups (LOOKUPS), as run answers the chat's own tools: never throws. */
+  private async lookUp(call: ToolCall, started: ToolActivity, cutOff: boolean): Promise<{ result: string; step: ToolActivity }> {
+    let args: Record<string, unknown>
+    try {
+      args = call.arguments.trim() ? (JSON.parse(call.arguments) as Record<string, unknown>) : {}
+    } catch {
+      // Arguments that aren't JSON (or were cut off) are said back as for any other tool.
+      return this.run(call, started, cutOff)
+    }
+    this.notes = []
+    this.mark = { summary: argSummary(call.name, args) }
+    try {
+      const ctx = this.lookupContext()
+      if (!ctx) {
+        const why = this.place.storyId ? 'This story has no scenes yet, so there is nothing to look up in it.' : 'No story is open, so there is no story to look things up in.'
+        return this.done(call, started, args, 'Looking something up', why, { status: 'failed', outcome: shortReason(why) })
+      }
+      const a = await runLookup(call, ctx)
+      const text = inChatWords(a.text, this.switches)
+      return this.done(call, started, args, a.label, text, a.ok ? {} : { outcome: shortReason(text) })
+    } catch (e) {
+      const why = `That look-up didn't work (${(e as Error)?.message ?? e}). Try another.`
+      return this.done(call, started, args, 'Looking something up', why, { status: 'failed', outcome: shortReason(why) })
+    }
+  }
+
+  /** load_instructions (PACKS): a pack's text, with the chat's own lines for it; each pack once an answer. */
+  private loadPack(a: Record<string, unknown>): [string, string] {
+    const p = loadInstructions(a, { offered: ASK_PACKS, loaded: this.packsLoaded, extra: (name) => askPackExtra(name, this.switches) })
+    this.mark = { summary: p.pack?.title ?? '', ...(p.ok ? {} : { status: 'failed' as const, outcome: shortReason(p.text) }) }
+    return [p.label, p.text]
+  }
+
   /** Answers a model turn's calls, in order: the tool messages to send back, and the steps for "What the AI saw". */
   async runAll(calls: ToolCall[], step?: number, cutOff = false): Promise<{ results: ChatMessage[]; steps: ToolActivity[] }> {
     // The calls as they were shown starting, in their order in the request (a call's id may only come later, so each
@@ -2504,7 +2658,8 @@ export class EditorAgent {
     const results: ChatMessage[] = []
     const steps: ToolActivity[] = []
     for (const [i, c] of calls.entries()) {
-      const { result, step: done } = this.run(c, begun[i] ?? this.begin(c.name, step ?? null), cutOff)
+      const started = begun[i] ?? this.begin(c.name, step ?? null)
+      const { result, step: done } = this.lookupNames.has(c.name) ? await this.lookUp(c, started, cutOff) : this.run(c, started, cutOff)
       results.push({ role: 'tool', toolCallId: c.id, content: result })
       steps.push(done)
     }

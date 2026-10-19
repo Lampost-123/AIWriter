@@ -25,6 +25,9 @@ const WHAT: Record<CheckKind, string> = {
     "style: the scene against the style guide's point of view and tense (a slip into another point of view, or another tense, outside dialogue), the tone against the scene card's mood when it is far from it, and, when a genre or content levels are given, passages that clearly break the genre's feel or go further than a content level allows."
 }
 
+/** What each check looks for (the instruction packs, ai/packs/, give the chat and the planner the same words). */
+export const CHECK_WHAT: Readonly<Record<CheckKind, string>> = WHAT
+
 /** The check names a reply may use, for the instructions. */
 const NAMES = ALL_CHECKS.join(', ')
 

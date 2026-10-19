@@ -621,6 +621,12 @@ export interface TurnResult {
   /** Characters of the system message (the briefing) and of every message, in the turn's first request. */
   systemChars?: number
   promptChars?: number
+  /**
+   * Characters of every request's whole body as sent (messages, tools and the rest) over the turn, and of the first
+   * request's alone: what a provider reads, tools included (the fake provider's usage counts the messages only).
+   */
+  bodyChars?: number
+  firstBodyChars?: number
   /** Every tool the model called this turn, in order, with its arguments (read from the replies as they streamed). */
   toolCalls?: { name: string; arguments: string }[]
   /** The tool_choice each request forced (anything but none / "auto"), e.g. "required" or "propose_changes". */
@@ -769,6 +775,8 @@ export async function runScenario(app: EvalApp, s: Scenario, limitMs = 90 * 60_0
       history: i === 0 ? (s.history?.length ?? 0) : (s.history?.length ?? 0) + i,
       systemChars: typeof sys === 'string' ? sys.length : 0,
       promptChars: (sent[0]?.body.messages ?? []).reduce((a, m) => a + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content ?? '').length), 0),
+      bodyChars: sent.reduce((a, r) => a + JSON.stringify(r.body).length, 0),
+      firstBodyChars: sent[0] ? JSON.stringify(sent[0].body).length : 0,
       toolCalls: replies.some((r) => r)
         ? replies.flatMap((r) => r?.toolCalls ?? [])
         : (params.steps ?? []).map((st) => ({ name: st.tool, arguments: st.arguments })),

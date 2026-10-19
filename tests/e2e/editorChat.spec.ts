@@ -608,3 +608,37 @@ test('replace all: the card shows how many and where, Apply changes every scene 
     await fake.close()
   }
 })
+
+// The overhaul's phase 2 (LOOKUPS, PACKS; on by default, named here so this test keeps them whatever the defaults).
+const SHARED = { env: { AIWRITE_EXP_CHAT_LOOKUPS: 'on', AIWRITE_EXP_CHAT_PACKS: 'on', AIWRITE_KEEPER_QUIET_MS: '600000' } }
+
+test('the chat looks a thing up in the story index and loads an instruction pack, each a row in plain words', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(SHARED)
+    await createWorldFromWelcome(win, 'Saltreach')
+    await useFakeModel(win, fake)
+    await areaButton(win, 'Ask').click()
+
+    await ask(win, 'Where is the letter?')
+    const where = panel(win).getByRole('list', { name: 'Tool calls' }).last().locator('[data-tool="where_is"]')
+    await expect(where).toHaveAttribute('data-status', 'done')
+    await expect(where).toContainText('Checked where “the letter” is')
+    // Offered the shared look-ups (the chat's own search and get_entry, once each) and load_instructions, with the packs
+    // listed in its instructions.
+    const sent = fake.lastRequest()!.body as { messages: { role: string; content: string }[]; tools?: { function: { name: string } }[] }
+    const names = sent.tools?.map((t) => t.function.name) ?? []
+    expect(names).toEqual(expect.arrayContaining(['where_is', 'state_of', 'who_knows', 'load_instructions', 'search', 'get_entry']))
+    expect(names).not.toContain('find_in_story')
+    expect(names.filter((n) => n === 'get_entry')).toHaveLength(1)
+    expect(sent.messages[0].content).toContain('Instruction packs')
+
+    await ask(win, 'How does the memory work?')
+    const pack = panel(win).getByRole('list', { name: 'Tool calls' }).last().locator('[data-tool="load_instructions"]')
+    await expect(pack).toHaveAttribute('data-status', 'done')
+    await expect(pack).toContainText('Read the instructions for explaining the memory')
+    expect(JSON.stringify(fake.lastRequest()!.body)).toContain('How AI Write')
+  } finally {
+    await fake.close()
+  }
+})

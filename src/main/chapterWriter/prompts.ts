@@ -7,6 +7,7 @@
 import type { StyleGuide, ToolSpec } from '@shared/types'
 import { instructionsText } from '../ai/prompts'
 import { LOOKUPS_MOST } from '../ai/lookups'
+import { packList } from '../ai/packs'
 
 export const CHAPTER_MARKER = '[AIWRITE-CHAPTER v1]'
 
@@ -23,6 +24,12 @@ export const PLAN_REPLY = 3200
 export const PLAN_STEPS = 4
 /** How many look-ups the chapter plan may make in all (at most LOOKUPS_MOST a round). */
 export const PLAN_LOOKUPS = 16
+
+/**
+ * The instruction packs the planner may load (overhaul phase 2, ai/packs): the consistency checks' own words for what must
+ * carry on from scene to scene. Listed in its system prompt, which stays the same, so a provider's cache keeps it.
+ */
+export const PLAN_PACKS: readonly string[] = ['check-continuity']
 
 /** The most of each part of a scene's part of the plan. */
 export const PLAN_PART_MOST = { threads: 4, changes: 6, keep: 4 }
@@ -50,7 +57,9 @@ Rules
 - The story so far and the author's cards are the truth. Never invent events, people or facts they don't give.
 - A character knows only what they know by then. The dead stay dead. Things are where they were last left. Time moves forward.
 - Nothing that has already happened is planned again.
-- Notes, not prose: don't write the scenes.`
+- Notes, not prose: don't write the scenes.
+
+${packList(PLAN_PACKS)}`
 }
 
 export const WRITE_CHAPTER_PLAN: ToolSpec = {

@@ -6,6 +6,7 @@
 import type { AskIntent } from '@shared/askIntent'
 import type { ChatMessage, StyleGuide } from '@shared/types'
 import { instructionsText } from '../ai/prompts'
+import { PACK_NAMES, packList } from '../ai/packs'
 import { chatExp } from './exp'
 
 /** The first words of every Ask the world system prompt, followed by the job. */
@@ -111,6 +112,27 @@ export function formatRules(): string {
   return chatExp('ACTFIRST') ? FORMAT_RULES.replace(OPTIONS_LINE, OPTIONS_LINE_IDEAS_ONLY).replace(NEXT_LINE, NEXT_LINE_NOT_A_QUESTION) : FORMAT_RULES
 }
 
+// ---------- LOOKUPS and PACKS (overhaul phase 2) ----------
+
+/** The instruction packs the chat may load (PACKS): every one. */
+export const ASK_PACKS: readonly string[] = PACK_NAMES
+
+/** Where both intros list the chat's own look-ups; LOOKUPS says the story index's after it. */
+const OWN_LOOKUPS = "the style guide, and a scene's open issues."
+
+/** LOOKUPS: what the instructions say of the story index's look-ups (the tools say what each gives). */
+export const LOOKUPS_LINE =
+  " For what is so now (who wears or carries what, where someone or something is, who knows what), the story index's look-ups answer at once, at no cost."
+
+/**
+ * An intro with the story index's look-ups said (LOOKUPS) and the list of instruction packs after it (PACKS): in the
+ * instructions, which stay the same from question to question, so a provider's prompt cache keeps them.
+ */
+const withAgentTools = (intro: string): string => {
+  const looked = chatExp('LOOKUPS') ? intro.replace(OWN_LOOKUPS, `${OWN_LOOKUPS}${LOOKUPS_LINE}`) : intro
+  return chatExp('PACKS') ? `${looked}\n\n${packList(ASK_PACKS)}` : looked
+}
+
 /** An intro with the answer format in place of the plain-text rule (and of the contract's length rule), switch on. */
 const withFormat = (intro: string): string => (chatExp('FORMAT') ? intro.replace(`${LENGTH_RULE}\n`, '').replace(PLAIN_RULE, formatRules()) : intro)
 
@@ -198,7 +220,8 @@ export function contractReminder(intent?: AskIntent | null, unclear = false): st
  */
 export function askInstructions(style: StyleGuide, short = false): string {
   const shown = short ? { ...style, samplePassage: '' } : style
-  return instructionsText(shown, { intro: withFormat(chatExp('CONTRACT') ? withActFirst(CONTRACT_INTRO) : INTRO), trimSample: true, proseRules: false })
+  const intro = withAgentTools(withFormat(chatExp('CONTRACT') ? withActFirst(CONTRACT_INTRO) : INTRO))
+  return instructionsText(shown, { intro, trimSample: true, proseRules: false })
 }
 
 /** One earlier question and the answer that came back. */
