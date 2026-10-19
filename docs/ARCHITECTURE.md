@@ -251,7 +251,8 @@ approval step and no Review inbox.
   added, changed or deleted since the last processed version (by paragraph hash; `scenes.text_version`,
   `memory_version`, `memory_paragraphs_json`), sends them to the memory model with the scene card
   and the linked facts, and applies the model's keep/update/remove/add reply. Runs are idempotent.
-  A malformed reply is repaired or retried once; if that fails the scene shows "Memory not updated"
+  A malformed reply is repaired or retried once (the same request, the reply not sent back: "One reading of a scene");
+  if that fails the scene shows "Memory not updated"
   (`scenes.memory_status = 'failed'`) and is retried on the next trigger and at app start.
 - **What changed** (`memory_log`) lists every change grouped by run, newest first: the entry, before
   and after, and the words it came from. Judgement calls apply a default and carry a question mark
@@ -3581,7 +3582,8 @@ place, who is there, clothes, positions). A code review found these gaps in the 
   report (`ChapterWriterReport.tsx`).
 - **Where things stand is read alongside the catch-up** (`ai/gather.ts` `withStageRead`, registered by `keeper/index.ts`).
   It ran after the keeper's catch-up inside the same wait, and the summaries a draft needs first (fix 15) could take it
-  all. It is looked up again once the plan is made (`draftFlow.ts` `withStageNow`: one that came in during the plan's wait
+  all. Since 2026-10-19 it waits for the reads of the scenes just before, whose reading says it too ("One reading of a
+  scene"), and still goes alongside the scene's own read and those summaries. It is looked up again once the plan is made (`draftFlow.ts` `withStageNow`: one that came in during the plan's wait
   is told after all). A draft that still goes without it tells Adam (`gather.ts` `stageNote`, `STAGE_LATE`,
   `STAGE_LATE_SO_FAR`): `startDraft` returns `note`, shown as a toast (`draftRun.ts`); the chapter writer's report lists
   it. Not when nothing comes before the scene in its story, or the memory can't work (`keeper/index.ts` `memoryReady`).
@@ -3926,6 +3928,75 @@ planning every beat. Plan before writing (`settings.planFirst`) stays a switch, 
   the system prompt (keeping the tools with `tool_choice` none would keep it, for the agent loop as a whole); "the scenes
   before, word for word" still go to the writer when there is room, though the planner can now read what it needs of them;
   the continuity brief's length (750 to 800 words) is as fix 14 set it.
+
+## One reading of a scene (overhaul phase 1, item 1, 2026-10-19)
+
+Measured with the trap harness's fake run, memory upkeep was about four fifths of the tokens sent: the memory keeper, where
+things stand (the tracker) and the scene's summary each sent the same scene to the memory model on its own. Now the
+keeper's reading of a scene says all three in one call when it can (`keeper/oneReading.ts`), and the others ask only
+when it can't. No migration; the stores, hashes and rules are the tracker's and the summaries' own.
+
+- **When** (`oneReadingFor`, in `keeper/run.ts`): the scene is read in one request (one chunk), and
+  - **where things stand** is asked when the paragraphs read are exactly the words the tracker would read next
+    (`continuity/tracker.ts` `stageToRead`: the whole scene from its start, or everything after its latest checkpoint
+    that still matches, as `readUpTo` would; compared without spacing) and the last `CATCH_UP` (3) scenes before have
+    theirs kept from their words as they are now, built on the one before (`startsKept`; else the tracker would work them
+    out first and change this scene's start). Not when it is kept already for these words, nor for words this model
+    turned the tracker down on (`continuity-refused`). So a new scene and words added at the end (Generate, Add below,
+    Continue, a beat) are read once; an edit in the middle, a scene read in parts or a stale start go to the tracker as
+    before.
+  - **the summary** is asked when every paragraph is read and it is due as the engine reckons it after the read
+    (`RunOptions.oneReading.summaryDue`: summaries on, `sceneSummaryDue` with the scene marked done or not; never for
+    Adam's own, one he undid, or words turned down for a summary).
+  - Only when the request with them fits the reading's window as the reading alone would, the memory it is told never cut
+    for them, and the reply room (the reading's, plus `STAGE_REPLY` 3,000 and `SCENE_SUMMARY_REPLY` 700) is within the
+    model's reply limit (`request.ts` `oneReadingParts`).
+- **The request**: the reading's instructions as they are (`READING_SYSTEM`, so every reading shares the start of its
+  prompt), then `[AIWRITE-ONE-READING v1]` with the tracker's own shape and rules (`continuity/stagePrompt.ts`, one copy
+  for both; "the scene" is the P paragraphs, quotes only from them, someone new goes by the name of their new entry) and
+  the summary's own rules (`SUMMARY_RULES`, shared with `SUMMARY_SYSTEM`); after the scene, "Where things stand before
+  the P paragraphs" (the checkpoint's or the scene's start, as the tracker would say it) with the cast list (`castFor`),
+  and the summary's length. The reply adds `"stage"` and `"summary"` to the reading's JSON.
+- **Kept by the same rules** (`keepStageRead`): each value only with words from what was read (`readChanges`), laid over
+  the state before (`mergeState`), kept as a checkpoint and as the scene's end (`Kept.hash` of the words read, `base` of
+  the start), Adam's Recall edits staying while the words are those he edited against, the story index told
+  (`onStageKept`). Nothing is kept when the start changed since it was asked (no ghosts); the end only while the scene's
+  words are still those read (else just the checkpoint, which the tracker reads on from); one worked out meanwhile for
+  the same words stays. The summary (`summaries.ts` `keepSceneSummary`) is kept as one written on its own would be
+  (What changed with Undo, its `sourceHash`), only while the scene's words are those it was written from, never over
+  Adam's own; tidied by `cleanSummary`, and a refusal in it is never kept (the summary's own call follows). Its call is the
+  reading's, counted with that run.
+- **After the read** (`engine.ts` `after`, `keeper/index.ts` `standUp`): the follow-on finds where things stand already
+  kept (`onSceneRead`'s `staged`: Recall reloads) and the summary is kept from the read, else written as before.
+- **Before a draft** where things stand as the scenes before end is worked out once their reads are done
+  (`Keeper.whenReadBefore`, the last `CATCH_UP` scenes with words), still alongside the scene's own read and the summaries
+  a draft needs: side by side, the tracker read the scene just written while the keeper was reading it.
+- **A reply that can't be used** (`run.ts`): asked once more with the same request, without the reply that couldn't be
+  used (a provider's cache serves it), and what was wrong said at the end of the last message (`withCorrection`,
+  `retryMessage`). A reading that also asked where things stand or for the summary is asked again for the reading alone,
+  the request that has always worked (a summary's prose in JSON is the likelier slip), and one cut off by its reply limit
+  is read again alone rather than in halves; where things stand and the summary then make their own calls.
+- **JSON mode** (DeepSeek's `response_format: {"type": "json_object"}`) is not sent. DeepSeek says it may answer an empty
+  reply in JSON mode, which the client counts as a failed call (a read marked "Memory not updated" rather than one more
+  try); servers turn it down in their own words (LM Studio wants `json_schema`), which the client's guesses about an
+  unexplained 400 (min_p, thinking, usage) would have to learn too, for every job; and the lenient reader already forgives
+  fences, comments and trailing commas, with a retry now served from the cache.
+- **Measured** (`npm run traps -- --fake --samples 1 --measure`, chain K1, the fake answering a one reading with the
+  stage and summary its own requests would get: `tests/fake-provider/server.mjs` `oneReadingReply`): the keeper 43 calls,
+  165,077 tokens in, to 43 calls, 232,992; where things stand 43 calls, 136,233, to none; summaries 74 calls, 162,794
+  (43 scene summaries, 150,573), to 43, 97,572 (12 scene summaries, 85,351: the chain's own scene, written again whole after
+  each step). Upkeep 160 calls and 464,104 tokens to 86 and 330,564 (−29%); every job 215 calls and 729,733 tokens to 141
+  and 596,226 (−18%). The chain's outcomes are the same. The reading's added instructions (about 5,800 characters) are the
+  same for every reading, so a provider's cache serves them.
+- **Not done here**: a scene summary is still written again whole for each Add below or Continue (its words changed by
+  more than `DUE_WORDS`), the largest upkeep left in the chain; the import estimate (`importing/estimate.ts`) still counts a
+  summary call for each scene, so it now says a little more than it costs; the other JSON jobs' retries
+  (`checks/run.ts`, `checks/stories.ts`, `storyFlows/call.ts`, the builder, the critic) still send the failed reply back.
+- **Tests**: `keeper/oneReading.test.ts` (a new scene; words added at the end; an edit in the middle, a stale start and a
+  summary not due or Adam's going to their own calls; a small reply limit; the summary kept, and only for the words it was
+  written from; refusals; no ghosts; values only from what was read; Recall edits kept; the index told; a cut-off or broken
+  reply read again alone), `keeper/oneReadingWorld.test.ts` (before a draft, in the open world: one call for the scene
+  just written), `keeper/keeper.test.ts` (the retry), `keeper/prompts.test.ts`.
 
 ## Milestone 1 scope
 
