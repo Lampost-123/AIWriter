@@ -1,14 +1,15 @@
 // Check and repair (contracts/repair.ts, src/main/repair/): new AI words checked claim by claim as they land. This
 // file connects it to the open world, the memory model and the settings. Quiet: with Adam's switch off (Settings ›
-// Models, "Check new words straight away"), AIWRITE_REPAIR=off (app tests that aren't about it; it wins over the
-// switch), no memory model, or AI spending paused at Adam's limit, nothing is checked.
+// Models, "Check new words straight away") or AIWRITE_REPAIR=off (app tests that aren't about it; it wins over the
+// switch), nothing is checked; with no memory model, or AI spending paused at Adam's limit, only the free rules over
+// the new words run (repair/free.ts: no AI call).
 import type { Handlers } from './index'
 import type { RepairApi } from '@shared/contracts/repair'
 import * as world from '../world'
 import { getSettings, getWritingPrefs } from '../settings'
 import { memoryModel } from '../keeper'
 import { pausedNote } from '../usage/gate'
-import { checkIfWanted, repairsApplied, repairWanted } from '../repair'
+import { checkIfWanted, freeCheckNewWords, repairsApplied, repairWanted } from '../repair'
 
 const NOTHING = { repairId: null, fixes: [], questions: 0, claims: 0, slips: 0 }
 
@@ -24,7 +25,8 @@ export const repairHandlers: Handlers<keyof RepairApi> = {
     if (!repairWanted(settings)) return NOTHING
     const w = world.maybeCurrentWorld()
     const m = memoryModel()
-    if (!w || 'error' in m || pausedNote()) return NOTHING
+    if (!w) return NOTHING
+    if ('error' in m || pausedNote()) return freeCheckNewWords(w.db, input)
     const stop = new AbortController()
     running.set(stop, w.db)
     try {

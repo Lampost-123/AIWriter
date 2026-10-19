@@ -6,7 +6,7 @@ import type { ID, SceneCard } from '@shared/types'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
-import { buildStoryIndex, indexChecks } from '.'
+import { buildStoryIndex, gettingHere, indexChecks } from '.'
 
 type DB = Database.Database
 
@@ -169,5 +169,69 @@ describe('someone on a scene card after they died', () => {
     })
     buildStoryIndex(w.db, w.storyId)
     expect(indexChecks(w.db, w.storyId)).toEqual([])
+  })
+})
+
+describe('someone somewhere too soon for the road between (free rules, 2026-10-19)', () => {
+  /** Linmouth and Carrow, three days apart by cart in Adam's entry for Carrow; the Wheatsheaf is in Carrow. */
+  function roads(scenes: { card: Partial<SceneCard>; text?: string }[], carrow = 'A grey market town, three days by cart from Linmouth.') {
+    const w = world(scenes.map(() => ({ card: {} })))
+    const lin = repo.createEntry(w.db, 'place', { name: 'Linmouth', summary: 'A harbour town.' }).id
+    const car = repo.createEntry(w.db, 'place', { name: 'Carrow', summary: carrow }).id
+    const whe = repo.createEntry(w.db, 'place', { name: 'The Wheatsheaf', summary: 'An inn on the square.', parentId: car }).id
+    const at = { lin, car, whe } as Record<string, ID>
+    fill(
+      w.db,
+      w.ids,
+      scenes.map((s) => ({ ...s, card: { ...s.card, locationId: s.card.locationId ? at[s.card.locationId] : null, povId: w.mara } }))
+    )
+    buildStoryIndex(w.db, w.storyId)
+    return { ...w, lin, car, whe }
+  }
+
+  it('is found when the cards are closer than the road allows, and the writer gets the line', () => {
+    const w = roads([
+      { card: { locationId: 'lin', when: 'Day 3, morning' } },
+      { card: { locationId: 'whe', when: 'Day 4, evening' } }
+    ])
+    expect(indexChecks(w.db, w.storyId)).toEqual([
+      {
+        check: 'too-fast',
+        sceneId: w.ids[1],
+        otherSceneId: w.ids[0],
+        entryId: w.mara,
+        message: 'Mara is at Linmouth in Ch 1, Sc 1 (Day 3 · morning) and at The Wheatsheaf in Ch 1, Sc 2 (Day 4 · evening), but Linmouth to Carrow is about 3 days by cart.'
+      }
+    ])
+    expect(gettingHere(w.db, w.storyId, w.ids[1])).toEqual(['Getting here: Linmouth to Carrow is about 3 days by cart.'])
+    expect(gettingHere(w.db, w.storyId, w.ids[0])).toEqual([])
+  })
+
+  it('reads a route the narration gives, and holds later scenes to it', () => {
+    const w = roads(
+      [
+        { card: { locationId: 'lin', when: 'Day 1' }, text: 'The coach from Linmouth to Carrow took two days, the driver said, and Mara believed him.' },
+        { card: { locationId: 'lin', when: 'Day 3, morning' } },
+        { card: { locationId: 'car', when: 'Day 3, evening' } }
+      ],
+      'A grey market town.'
+    )
+    const found = indexChecks(w.db, w.storyId)
+    expect(found.map((f) => [f.check, f.sceneId])).toEqual([['too-fast', w.ids[2]]])
+    expect(found[0].message).toMatch(/Linmouth to Carrow is about 2 days by coach\.$/)
+  })
+
+  it('says nothing when the cards allow the journey, leave the time open, go back, or no road is known', () => {
+    const cases: [string, Partial<SceneCard>, Partial<SceneCard>, string?][] = [
+      ['time enough', { locationId: 'lin', when: 'Day 3, morning' }, { locationId: 'car', when: 'Day 5, evening' }],
+      ['no day on a card', { locationId: 'lin', when: 'Day 3, morning' }, { locationId: 'car', when: 'Later' }],
+      ['a flashback', { locationId: 'lin', when: 'Day 3, morning' }, { locationId: 'car', when: 'Flashback: Day 3, evening' }],
+      ['the same town', { locationId: 'car', when: 'Day 3, morning' }, { locationId: 'whe', when: 'Day 3, evening' }],
+      ['no road known', { locationId: 'lin', when: 'Day 3, morning' }, { locationId: 'car', when: 'Day 3, evening' }, 'A grey market town.']
+    ]
+    for (const [why, a, b, carrow] of cases) {
+      const w = roads([{ card: a }, { card: b }], carrow)
+      expect(indexChecks(w.db, w.storyId), why).toEqual([])
+    }
   })
 })

@@ -12,7 +12,7 @@
 // Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { ID, SceneCard } from '@shared/types'
+import type { Entry, ID, SceneCard } from '@shared/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as sidx from '../db/storyIndex'
@@ -23,15 +23,21 @@ import type { SceneState } from '@shared/continuity'
 import { hashText } from '../keeper/text'
 import { buildScene, indexWorld, type IndexWorld, type SceneSource } from './build'
 import { factEnds } from './link'
+import { entryRoutes, type Route } from './routes'
+import type { IndexOrigin } from './types'
 
 export * from './lookup'
 export * from './checks'
+export { gettingHere, routeLine } from './routes'
 export type * from './types'
 
 type DB = Database.Database
 
-/** Goes up whenever the build's rules change, so every scene is built again by them (2: a row says when its details are in). */
-export const INDEX_RULES = 2
+/**
+ * Goes up whenever the build's rules change, so every scene is built again by them (2: a row says when its details are
+ * in; 3: routes between places, free rules 2026-10-19).
+ */
+export const INDEX_RULES = 3
 
 export interface IndexBuild {
   storyId: ID
@@ -65,7 +71,13 @@ interface Reading {
   inStory: Set<ID>
   /** Where things stand as each scene ends, read from its words as they are now. */
   stages: Map<ID, { state: SceneState; edited: boolean }>
+  /** The routes the codex's place entries state (routes.ts), for the story's first scene. */
+  placeRoutes: { route: Route; origin: IndexOrigin }[]
 }
+
+/** The routes every place entry's own words state: Adam's ('hand') when he made or edited the entry, else the memory's. */
+const placeRoutesOf = (entries: readonly Entry[]): { route: Route; origin: IndexOrigin }[] =>
+  entryRoutes(entries).map(({ route, entry }) => ({ route, origin: entry.origin === 'adam' || entry.byHand ? 'hand' : 'memory' }))
 
 function readStory(db: DB, order: ID[]): Reading {
   const entries = repo.listEntries(db)
@@ -73,6 +85,7 @@ function readStory(db: DB, order: ID[]): Reading {
   const stages = new Map<ID, { state: SceneState; edited: boolean }>()
   for (const [id, k] of keptStates(db, order)) if (k.fresh) stages.set(id, { state: k.state, edited: k.edited })
   return {
+    placeRoutes: placeRoutesOf(entries),
     world,
     names: hashText(JSON.stringify(entries.map((e) => [e.id, e.kind, e.name, e.aliases, world.people.has(e.id)]))),
     health: factHealth(db),
@@ -115,7 +128,9 @@ function sourceOf(db: DB, r: Reading, storyId: ID, sceneId: ID): { src: SceneSou
     summary: mem.getSummary(db, 'scene', sceneId)?.text ?? '',
     stage: r.stages.get(sceneId) ?? null,
     stageBefore: before?.state ?? null,
-    inStory: (id) => r.inStory.has(id)
+    inStory: (id) => r.inStory.has(id),
+    // The place entries' routes are true from the story's start: its first scene has them.
+    ...(r.order[0] === sceneId && r.placeRoutes.length ? { routes: r.placeRoutes } : {})
   }
   const hash = hashText(
     JSON.stringify([
@@ -129,7 +144,8 @@ function sourceOf(db: DB, r: Reading, storyId: ID, sceneId: ID): { src: SceneSou
       src.summary,
       src.stage,
       before,
-      r.names
+      r.names,
+      src.routes ?? null
     ])
   )
   return { src, hash }

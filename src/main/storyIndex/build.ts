@@ -11,7 +11,9 @@
 // - dated facts from the memory's changes in the scene: what someone learns or forgets (never a wrong belief), a
 //   relationship set or ended, a plot thread opened or closed, a death the memory is sure of (ai/deaths.ts surelyDied)
 //   and any other note of what is now different, each stopped where the memory says it stops (its "true until");
-// - plot thread events: the memory's thread changes, the card's "sets up" and "pays off", and a thread named in the words.
+// - plot thread events: the memory's thread changes, the card's "sets up" and "pays off", and a thread named in the words;
+// - routes (free rules, 2026-10-19; routes.ts): how long it takes between two codex places, from the place entries' own
+//   words (at the story's first scene) and from narration that gives a journey's length.
 // Pure: the world is read by storyIndex/index.ts.
 
 import type { Change, Entry, ID, SceneCard } from '@shared/types'
@@ -22,6 +24,8 @@ import { namedIn } from '../keeper/presence'
 import { textParas } from '../keeper/text'
 import { isPerson } from '../ai/mustStay'
 import { deathRecord, surelyDied } from '../ai/deaths'
+import { quoteSpans } from '../checks/speakers'
+import { routeSlot, routesIn, routeWords, type Route, type RoutePlace } from './routes'
 import type { IndexFactKind, IndexOrigin, NewIndexFact, NewThreadEvent } from './types'
 
 /** The world's entries, read once for a build: names to look for, and who the stage's names are. */
@@ -106,6 +110,11 @@ export interface SceneSource {
   stageBefore: SceneState | null
   /** True for a scene of this story: where a fact stops in another story's scene isn't kept. */
   inStory: (sceneId: ID) => boolean
+  /**
+   * The routes the codex's place entries state (storyIndex/routes.ts), given to the story's first scene only, so they
+   * are true from the start (free rules, 2026-10-19). Left out: none.
+   */
+  routes?: { route: Route; origin: IndexOrigin }[]
 }
 
 /** One scene's rows, but for where it sits in its story and what it was built from. */
@@ -127,6 +136,7 @@ export function buildScene(src: SceneSource, world: IndexWorld): SceneBuild {
   const named = namedHere(src, world)
   const memory = memoryFacts(src, world, facts, threads)
   const staged = stageFacts(src, world, facts)
+  routeFacts(src, world, facts)
 
   // The card's place is where its people are (a fact of its own, so a value read from the words isn't replaced by the
   // card's broader one while nothing moves).
@@ -307,6 +317,29 @@ function stageFacts(src: SceneSource, world: IndexWorld, out: NewIndexFact[]): I
     }
   }
   return there
+}
+
+// ---------- How long it takes between places ----------
+
+/** The world's places, as the routes find them. */
+const placesOf = (world: IndexWorld): RoutePlace[] =>
+  [...world.entries.values()].filter((e) => e.kind === 'place').map((e) => ({ id: e.id, name: e.name, aliases: e.aliases ?? [] }))
+
+/**
+ * Route facts (free rules, 2026-10-19; storyIndex/routes.ts): those the codex's place entries state (the story's first
+ * scene only: `src.routes`), and journeys the narration gives the length of between two codex places (or one and the
+ * card's place), never a line of dialogue (someone may be wrong).
+ */
+function routeFacts(src: SceneSource, world: IndexWorld, out: NewIndexFact[]): void {
+  for (const { route, origin } of src.routes ?? []) out.push(fact(src, route.a, 'route', routeSlot(route), routeWords(route), route.words, origin))
+  if (!src.text.trim() || !/\b(?:hours?|days?|nights?|weeks?|fortnight|months?)\b/i.test(src.text)) return
+  const places = placesOf(world)
+  if (!places.length) return
+  // Dialogue blanked out, so what the narration says keeps its place in the words.
+  let narration = src.text
+  for (const q of quoteSpans(src.text)) narration = narration.slice(0, q.start) + ' '.repeat(q.end - q.start) + narration.slice(q.end)
+  const here = src.card.locationId && world.entries.get(src.card.locationId)?.kind === 'place' ? src.card.locationId : null
+  for (const r of routesIn(narration, places, here)) out.push(fact(src, r.a, 'route', routeSlot(r), routeWords(r), r.words, 'words'))
 }
 
 // ---------- The memory's changes ----------

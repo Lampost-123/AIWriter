@@ -16,6 +16,11 @@
 //   age           an age set in this scene, or given on its card, a year or more from what the memory works out.
 //   knows-early   someone tells a secret the memory has no sign they learned (only when the memory says they said it),
 //                 in no scene before this one in reading order or dated before it; never in a flashback.
+//   time-claim    a month, year, weekday or season the narration gives as now, a length of time since something, how
+//                 the scene opens ("The next morning") or a journey's length, against the story calendar and the codex
+//                 (free rules 2026-10-19, timeClaims.ts); a month or year made up in a story that only counts its days.
+//   place-name    the words name the scene card's place (or a place it is in) by another name of the same kind ("St
+//                 Chad's" for St Anne's church), a name that is no codex place (placeNames.ts).
 // A promise long overdue is not here: Worth a look already asks about it (fix 10), and a rule finding would say it twice.
 // Pure.
 
@@ -41,9 +46,10 @@ import {
 } from '../memory/calendar'
 import { findQuote, wordCount } from '../keeper/text'
 import { narratorI, spokenLines } from './speakers'
+import { openingOf, placeRuleFindings, timeRuleFindings, type FreeContext } from './freeRules'
 
 /** Which rule found something. */
-export type RuleId = 'dead' | 'gone-item' | 'two-hands' | 'pov-elsewhere' | 'pov-unnamed' | 'time-back' | 'age' | 'knows-early'
+export type RuleId = 'dead' | 'gone-item' | 'two-hands' | 'pov-elsewhere' | 'pov-unnamed' | 'time-back' | 'age' | 'knows-early' | 'time-claim' | 'place-name'
 
 /** One thing a rule found in a scene. */
 export interface RuleFinding {
@@ -58,6 +64,10 @@ export interface RuleFinding {
   sources: IssueSource[]
   entryId?: ID
   field?: string
+  /** The quote put right, when that is obvious (Fix the text offers it). */
+  fix?: string
+  /** Where the words it is about are in the text read (the free rules over words: check and repair mends by it). */
+  at?: { start: number; end: number }
 }
 
 /** Another scene at this very clock time, somewhere else (both cards give their own day and the same exact time). */
@@ -113,6 +123,11 @@ export interface RuleScene {
    * dated before this scene counts (knows-early). Left out: none.
    */
   learnedIn?: (entryId: ID, factId: ID) => ID[]
+  /**
+   * What the free rules over words hold the scene's words to (free rules 2026-10-19: the story calendar, the codex's
+   * dated events, places and routes; checks/freeContext.ts). Left out: those rules say nothing.
+   */
+  free?: FreeContext | null
 }
 
 /** How long a scene must be before its point of view is expected to be named in it. */
@@ -690,10 +705,27 @@ export function knowsEarly(s: RuleScene): RuleFinding[] {
   return out
 }
 
+// ---------- Time claims and the card place's name (free rules, 2026-10-19) ----------
+
+/**
+ * The scene's words against the story calendar: a month, year, weekday or season given as now, a length of time since
+ * something, how the scene opens, a journey's length (timeClaims.ts). Not in a flashback, a dream or a memory.
+ */
+export function timeClaimsHere(s: RuleScene): RuleFinding[] {
+  if (!s.free || notThePresent(s)) return []
+  return timeRuleFindings(s.text, s.free.time, openingOf(s.text))
+}
+
+/** The words name the scene card's place by another name of its kind (placeNames.ts). */
+export function placeNamesHere(s: RuleScene): RuleFinding[] {
+  if (!s.free || dreamlikeCard(s.card)) return []
+  return placeRuleFindings(s.text, s.free.place).findings
+}
+
 // ---------- All of them ----------
 
 /** Every rule, in the order their findings are listed. */
-export const RULES: ((s: RuleScene) => RuleFinding[])[] = [deadHere, inHand, povHere, timeBack, agesHere, knowsEarly]
+export const RULES: ((s: RuleScene) => RuleFinding[])[] = [deadHere, inHand, povHere, timeBack, agesHere, knowsEarly, timeClaimsHere, placeNamesHere]
 
 /** What every rule finds in a scene. A rule that fails says nothing; the others still run. */
 export function ruleFindings(s: RuleScene): RuleFinding[] {

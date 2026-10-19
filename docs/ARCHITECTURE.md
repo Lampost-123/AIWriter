@@ -3942,7 +3942,8 @@ go with their scene when it is emptied from Recently deleted (foreign keys). All
 - **Free checks** (`storyIndex/checks.ts` `indexChecks`, plain findings with scene ids, nothing stored): `same-moment`,
   someone in two scenes the cards put at the very same moment (same day, same clock time, neither leaning on the scene
   before nor going back) in places apart, with a card having them there; `after-death`, someone on a scene card after
-  the memory is sure they died, never in a dream, memory or flashback, nor a scene the calendar dates before the death.
+  the memory is sure they died, never in a dream, memory or flashback, nor a scene the calendar dates before the death;
+  `too-fast`, someone somewhere sooner than the road between allows (below, "Free rules for time and places").
 - **Kept current** (`storyIndex/upkeep.ts`, wired for the open world in `keeper/indexing.ts`; never throws into the
   caller, never holds it up: changes are gathered for 400 ms, then taken in a story at a time between other work). When a
   world opens, 3 seconds after (the window comes up first), every story is built and the stories gone dropped. A scene
@@ -4117,6 +4118,78 @@ when it can't. No migration; the stores, hashes and rules are the tracker's and 
   written from; refusals; no ghosts; values only from what was read; Recall edits kept; the index told; a cut-off or broken
   reply read again alone), `keeper/oneReadingWorld.test.ts` (before a draft, in the open world: one call for the scene
   just written), `keeper/keeper.test.ts` (the retry), `keeper/prompts.test.ts`.
+
+## Free rules for time and places (overhaul, 2026-10-19)
+
+A 30,000-word live test on DeepSeek Flash (16 October) found the commonest big slips were the timeline: months, years
+and travel times the writer made up; and a church named otherwise than the scene card's place. Reading dates by rule
+beats asking an AI judge, so three checks were added that cost no tokens. No migration: routes are story index facts of
+a new kind (`index_facts.kind` is text).
+
+- **Time claims** (`checks/timeClaims.ts`, pure; the world read by `checks/freeContext.ts`). In the words: a month, a day of
+  the month, a year, a weekday or a season the narration gives as now, in plain frames only ("It was a raw March
+  morning", "It was the third of June", "It was 1823", "It was a Tuesday", "It was deep winter", a dateline "Linmouth,
+  March 1847"), held to what is sure of the scene's date (`dateFacts`: a real date and its weekday, a counted day the
+  cards place on the real calendar, or a month or season the card's own When names; a season carried 50 days on a count
+  is no month). Never in dialogue, nor "last March", "in March they would sail", "It was March when…" (a memory), "not
+  March yet". A season only when it can't be so (spring in June may be late spring; a month either side of a season
+  fits). In a story that only counts its days (`storyCounts`: no card names a real month or year) a month or year given
+  as now is new, worth a look ("minor"), unless the codex or a card names it. A month or year beside a dated event (an
+  event entry's When) that dates it otherwise, in dialogue too. A length since something ("three weeks since the mill
+  fire", "four days since they left Linmouth", "the fire, a month ago", "in 1815, eight years ago") against the calendar:
+  a dated event, the last scene at the place left (`lastAt`), or a year; a quarter either way (at least a day; twice as
+  much "nearly", "about"); never "it feels like", "or so". How the scene's first sentence opens ("The next morning",
+  "That night", "Three days later") against the cards' distance from the scene before (only the first sentence: "That
+  afternoon" later on is the scene's own day; not after a scene in the small hours, nor in a flashback). A journey's
+  length between two codex places against what the codex's place entries say, by the same means or one not said, when
+  one is at least twice the other. Each finding quotes its sentence (`checks/freeRules.ts` `sentenceAround`) with the
+  sentence put right as its fix where that is obvious: the right month, day, year, weekday, season, or length in days
+  ("four days"), or the opening ("Later that morning", "Three days later").
+- **The card place's name** (`checks/placeNames.ts`, pure). Named places of a kind in the narration ("St Chad's", "the
+  Red Lion Inn", "Mill Lane", a kind from `KINDS`) held to the scene card's place and the places it is in: when one of
+  those has a name of that kind and the words' name is no codex place, person, thing or group ("Tobin's Mill", "Venn
+  Lane" are someone's), the words name it wrong. Never in dialogue, never with the codex's name in the same paragraph
+  ("from St Anne's she could see St Chad's"), never a feast, a plant or something of a saint's ("St John's Day", "St
+  John's wort", "St Anthony's medal"), nor a saint named bare ("prayed to St Anthony"). A street, bridge, hill, market
+  and the like (`PASSED`: another is often passed) only against the card's own place, never one it is in, and only
+  asked. `safe` (a building or a saint's, one card place of that kind, at most three words each way, the codex's name
+  nowhere else in the scene): mended in place; else asked with the swap to review.
+- **Where they run.** As rules (`checks/rules.ts` `time-claim` and `place-name`, over the scene's words: after every reading
+  and in every check, as fix 8's rules; `RuleScene.free`, `RuleFinding.fix`, which `ruleIssue` keeps as the issue's fix),
+  never in a flashback, a dream or a memory. And as new words land (`repair/free.ts`, called from `checkNewWords` before
+  the memory model's call and whatever comes of it, and by `freeCheckNewWords` when there is no memory model or AI
+  spending is paused; not with "Check new words straight away" off): over the AI's new words alone, the time claims and
+  any place-name slip that isn't safe are asked at once; a safe one in a paragraph that is all the AI's own is one more of
+  check and repair's small fixes (amber, Undo; `why` "This scene is at St Anne's church, Ashby, so it is St Anne's, not
+  St Chad's."). Both are kept under the rule's own key (`ruleKey`), so the rules after the reading find the same row, a
+  mend the page made is kept fixed (a slip later writers are warned of), and one Adam took back with Undo (ignored) is
+  never mended or asked again. On screen: "Found by a rule, not the AI", as fix 8's.
+- **Routes** (`storyIndex/routes.ts`). `readJourneys` reads how long and how ("a day's ride", "three days by cart", "half a
+  day's walk", "it took them four days to reach", "the ride from X to Y took three days", "a day east of X"); `routesIn`
+  joins two codex places (both named, or one named and the place the words are about); none from somewhere not in the
+  codex ("from the coast") or with three places in one sentence. Story index facts of kind `route` (`IndexFactKind`;
+  `IndexOrigin` 'words' added): from the place entries' words at the story's first scene (Adam's 'hand' when he made or
+  edited the entry, else 'memory'; `INDEX_RULES` 3, so every scene is built once more) and from narration, never
+  dialogue (`build.ts` `routeFacts`); `routeSlot` keeps means and length in the slot, so routes never stop each other.
+  `db/storyIndex.ts` `storyRouteFacts` reads them.
+- **Too fast** (`storyIndex/checks.ts` `tooFast`, in `indexChecks`, so the chapter writer's plan asks it too): someone on
+  two scene cards at places apart (neither inside the other), the later card's day known on the same count as the earlier
+  (neither going back nor a dream), with the most time the cards allow (from the start of one's time of day to the end
+  of the other's; whole days when none is given) less than the quickest known route needs (`travelNeeds`: a day's journey
+  8 hours, three days 56, three quarters of hours told; a quarter less hedged): "Mara is at Linmouth in Ch 1, Sc 1 (Day 3
+  · morning) and at The Wheatsheaf in Ch 1, Sc 2 (Day 4 · evening), but Linmouth to Carrow is about 3 days by cart."
+- **For the planner** (not wired here): `gettingHere(db, storyId, sceneId)` (exported from `storyIndex`) gives "Getting
+  here: Linmouth to Carrow is about 3 days by cart." for each person on the card who comes from a place apart with a
+  known route (Adam's first, then the quickest); `routeLine` says one.
+- **The trap book** (`tests/traps/book.ts`, `BOOK_PROBES_VERSION` 2): planted passage X13, a month made up in a book that
+  counts its days, caught by the rule; the time rule raises nothing in the other passages (`checks/timeClaims.test.ts`).
+- **Tests**: `checks/timeClaims.test.ts`, `checks/placeNames.test.ts`, `storyIndex/routes.test.ts` (each kind with its
+  controls: remembered dates in dialogue, a second real codex place, a person's name, a story with a real calendar, a
+  length about right), `checks/freeRules.test.ts` (in a world: the rules after a reading with their fixes; check and
+  repair mending the church's name with the model's call failing, the month asked under the rule's key, no memory model,
+  Undo), `storyIndex/checks.test.ts` (too fast, from an entry and from narration, and what it never says).
+- **Known limits**: time claims read plain English frames only; a weekday only on a real date with a year; seasons are
+  the northern hemisphere's; place kinds are a fixed list; "since the fire" needs an event entry with a When.
 
 ## Milestone 1 scope
 

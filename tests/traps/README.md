@@ -267,7 +267,7 @@ to show forgetting, and asked for a made-up test book of at least 50,000 words, 
   33; the debt's secret told to one person after another (Fane, Kit, overheard by Wilmot, Pim last); six dogs then five;
   three pigeons sent one by one; the watch pawned, then sold; the key moved into a boot heel; the thaw bell closing the
   river.
-- **3. Planted contradictions** (the FlawedFictions way): 18 short passages set just after the book ends, 12 with one
+- **3. Planted contradictions** (the FlawedFictions way): 19 short passages set just after the book ends, 13 with one
   slip each (two or more of each ConStory kind) and 6 without (4 of them decoys: a real change a careless checker calls
   a slip, like the healed wrist or the dog left behind). After the probes, each is put in a new scene on a fresh copy of
   the world as the whole book left it and checked by the app's own consistency checker, as Adam's "Check this scene"

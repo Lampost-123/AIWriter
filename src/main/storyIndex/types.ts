@@ -10,14 +10,18 @@ import type { ID } from '@shared/types'
  */
 export type IndexFilled = 'free' | 'ai' | 'hand'
 
-/** The kinds of dated fact. */
-export type IndexFactKind = 'where' | 'wearing' | 'carrying' | 'condition' | 'knows' | 'relationship' | 'thread' | 'status'
+/**
+ * The kinds of dated fact. 'route' (free rules, 2026-10-19): how long it takes from one place (`entryId`) to another
+ * (storyIndex/routes.ts routeSlot), from a place entry's text (at the story's first scene) or from narration.
+ */
+export type IndexFactKind = 'where' | 'wearing' | 'carrying' | 'condition' | 'knows' | 'relationship' | 'thread' | 'status' | 'route'
 
 /**
- * Where a fact comes from: the scene card, the memory's changes, where things stand (the stage tracker), or Adam (a change
- * he made himself, or a value he set in Recall).
+ * Where a fact comes from: the scene card, the memory's changes, where things stand (the stage tracker), Adam (a change
+ * he made himself, a value he set in Recall, his own place entry's words), or the story's own words read by a rule
+ * ('words': a journey's length the narration states).
  */
-export type IndexOrigin = 'card' | 'memory' | 'tracker' | 'hand'
+export type IndexOrigin = 'card' | 'memory' | 'tracker' | 'hand' | 'words'
 
 /** What a scene does to a plot thread. */
 export type ThreadEvent = 'opened' | 'moved' | 'closed'
