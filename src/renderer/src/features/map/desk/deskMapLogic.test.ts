@@ -5,12 +5,14 @@ import {
   arcOf,
   changeWords,
   chapterSpans,
+  fitWithin,
   hull,
   hullPath,
   medalScale,
   moodOf,
   nextOver,
   rankOf,
+  roomAt,
   roomFor,
   sidesOf,
   sinceOf,
@@ -123,6 +125,28 @@ describe('lines and fitting', () => {
     expect(2000 * big.k + big.ty).toBeLessThanOrEqual(1200 - 80 + 0.01)
   })
 
+  it('fits a cast clear of what lies over the map, with room for the medallions as big as they show', () => {
+    const chrome = { top: 140, bottom: 60, side: 100 }
+    const half = 28
+    const pts = Array.from({ length: 25 }, (_, i) => ({ x: (i % 5) * 300, y: Math.floor(i / 5) * 150 }))
+    // A small canvas: the map is fitted further out, where the medallions show smaller and need less room than at life
+    // size, so the cast has more of the canvas than a life-size allowance would leave it.
+    const v = fitWithin(pts, 630, 436, chrome, half)
+    const s = medalScale(v.k)
+    expect(s).toBeLessThan(1)
+    expect(v.k).toBeGreaterThan(spreadView(pts, 630, 436, roomAt(chrome, half, 1)).k)
+    // Every medallion clear of the strip above, and of the legend below with its name under it.
+    for (const p of pts) {
+      const y = p.y * v.k + v.ty
+      expect(y - half * s).toBeGreaterThanOrEqual(chrome.top)
+      expect(y + half * s + 25).toBeLessThanOrEqual(436 - chrome.bottom + 0.5)
+    }
+    // A big canvas: life size, as before.
+    const big = fitWithin(pts, 4000, 2400, chrome, half)
+    expect(medalScale(big.k)).toBe(1)
+    expect(big).toEqual(spreadView(pts, 4000, 2400, roomAt(chrome, half, 1)))
+  })
+
   it('zooms about a point, keeping it still', () => {
     const v = zoomAbout({ tx: 10, ty: 20, k: 1 }, 2, 100, 100)
     expect(v.k).toBe(2)
@@ -140,6 +164,31 @@ describe('lines and fitting', () => {
       ]
     )
     expect([...shown]).toEqual(['name1', 'pillC'])
+  })
+
+  it('a name whose place is taken goes to the first of its other places still free, after every box has had its own', () => {
+    const discs = [
+      { key: 'a', x: 0, y: 0, r: 10 },
+      { key: 'b', x: 0, y: 40, r: 10 }
+    ]
+    // Under a, b is in the way: a's name goes over it.
+    const placed = new Map<string, { x: number; y: number; place: string }>()
+    const over = { x: 0, y: -30, place: 'above' }
+    const shown = roomFor(discs, [{ key: 'n:a', owner: 'a', x: 0, y: 30, w: 40, h: 20, alts: [{ x: 0, y: 30, place: 'none' }, over] }], placed)
+    expect([...shown]).toEqual(['n:a'])
+    expect(placed.get('n:a')).toEqual(over)
+    // A box wanting that room as its own place has it, even when it comes later.
+    const other = new Map<string, { x: number; y: number; place: string }>()
+    const both = roomFor(
+      discs,
+      [
+        { key: 'n:a', owner: 'a', x: 0, y: 30, w: 40, h: 20, alts: [over] },
+        { key: 'pill', x: 0, y: -30, w: 40, h: 20 }
+      ],
+      other
+    )
+    expect([...both]).toEqual(['pill'])
+    expect(other.size).toBe(0)
   })
 })
 

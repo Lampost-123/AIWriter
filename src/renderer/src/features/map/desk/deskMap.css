@@ -735,6 +735,38 @@
 [data-look='new'] .dm-node[data-rank='lead'] .dm-label {
   top: calc(100% + 16px);
 }
+/* Where the room under a medallion is taken (a crowd), its name goes under it set off to one side, over it, or beside
+   it (MapStage's nameBox; set off, it still reaches 12px back past the medallion's middle). */
+[data-look='new'] .dm-node .dm-label[data-place^='above'] {
+  top: auto;
+  bottom: calc(100% + 10px);
+}
+[data-look='new'] .dm-node[data-rank='lead'] .dm-label[data-place^='above'] {
+  top: auto;
+  bottom: calc(100% + 16px);
+}
+[data-look='new'] .dm-node .dm-label:is([data-place='below-right'], [data-place='above-right']) {
+  left: calc(50% - 12px);
+  align-items: flex-start;
+}
+[data-look='new'] .dm-node .dm-label:is([data-place='below-left'], [data-place='above-left']) {
+  left: auto;
+  right: calc(50% - 12px);
+  align-items: flex-end;
+}
+[data-look='new'] .dm-node .dm-label:is([data-place='right'], [data-place='left']) {
+  top: 50%;
+  translate: 0 -50%;
+}
+[data-look='new'] .dm-node .dm-label[data-place='right'] {
+  left: calc(100% + 8px);
+  align-items: flex-start;
+}
+[data-look='new'] .dm-node .dm-label[data-place='left'] {
+  left: auto;
+  right: calc(100% + 8px);
+  align-items: flex-end;
+}
 [data-look='new'] .dm-name {
   max-width: 170px;
   font: 600 14px/18px var(--heading-font);
@@ -1158,10 +1190,36 @@
   background: color-mix(in oklab, var(--fg) 8%, transparent);
   color: var(--fg);
 }
+[data-look='new'] .dm-lg-t {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
 [data-look='new'] .dm-lg b {
   font-weight: 600;
   color: var(--faint);
   font-variant-numeric: tabular-nums;
+}
+/* A narrow page (MapStage's LEGEND_FULL_FROM): one row of lines and dots, which grows its words upwards while it is
+   pointed at or has the keyboard. The words stay for screen readers. */
+[data-look='new'] .dm-legend[data-compact]:not(:hover, :focus-within) {
+  gap: 6px 10px;
+}
+[data-look='new'] .dm-legend[data-compact]:not(:hover, :focus-within) .dm-lg-t {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+[data-look='new'] .dm-legend[data-compact]:is(:hover, :focus-within) .dm-lg-t {
+  animation: dm-legend-words var(--dm-quick) var(--dm-ease);
+}
+@keyframes dm-legend-words {
+  from {
+    opacity: 0;
+  }
 }
 [data-look='new'] .dm-lg svg.dm-swatch path {
   fill: none;
