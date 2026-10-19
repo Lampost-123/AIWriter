@@ -24,6 +24,8 @@ export interface TreeNode {
   paysOff?: string[]
   /** A chapter's card as the reply gave it, or where a scene differs from its chapter's (chapter cards); none for an act. */
   card?: SuggestedCard
+  /** An act's rough number of chapters (its "Chapters:" line, the outline in stages); left out: not said. */
+  about?: number
   /** Fully arrived (see parse.ts). */
   complete: boolean
   children: TreeNode[]
@@ -57,6 +59,8 @@ export interface NodeEdit {
   /** The plot threads a scene sets up and pays off, as Adam changed them; left out: the AI's. */
   setsUp?: string[]
   paysOff?: string[]
+  /** An act's rough number of chapters, as Adam changed it; left out: the AI's. */
+  about?: number
 }
 
 /** A suggestion's words as they stand: Adam's where he changed them, else the AI's. */
@@ -70,6 +74,8 @@ export interface Words {
   card: SuggestedCard | undefined
   setsUp: string[]
   paysOff: string[]
+  /** An act's rough number of chapters; null for none said (and for chapters and scenes). */
+  about: number | null
 }
 
 export function wordsOf(node: TreeNode, edit?: NodeEdit): Words {
@@ -80,7 +86,8 @@ export function wordsOf(node: TreeNode, edit?: NodeEdit): Words {
     when: node.kind === 'scene' ? (edit?.when ?? node.when) : '',
     card: node.kind === 'act' ? undefined : (edit?.card ?? node.card),
     setsUp: node.kind === 'scene' ? (edit?.setsUp ?? node.setsUp ?? []) : [],
-    paysOff: node.kind === 'scene' ? (edit?.paysOff ?? node.paysOff ?? []) : []
+    paysOff: node.kind === 'scene' ? (edit?.paysOff ?? node.paysOff ?? []) : [],
+    about: node.kind === 'act' ? (edit?.about ?? node.about ?? null) : null
   }
 }
 
@@ -133,6 +140,7 @@ export function outlineTree(o: ParsedOutline): TreeNode[] {
       text: a.purpose,
       beats: [],
       when: '',
+      ...(a.chapterCount ? { about: a.chapterCount } : {}),
       complete: a.complete,
       children: [...(i === 0 ? o.chapters : []), ...a.chapters].map(chapterNode)
     })
@@ -253,6 +261,46 @@ export function keepPlan(tree: TreeNode[], decisions: Decisions, edits: Edits, k
     items.push(item)
   }
   return items
+}
+
+/**
+ * Where Adam chose to keep an act or chapter (2026-10-19: Keep went at the end of the binder, with no choice): the end
+ * of the story, just after an act or chapter in the story (a chapter with the act it is in, null for none), or first in
+ * an act (a chapter: before the act's first chapter, or into an empty act) or in the story (an act: before its first act).
+ */
+export type KeepPlace =
+  | { at: 'end' }
+  | { at: 'after'; id: ID; actId?: ID | null }
+  | { at: 'first'; actId: ID | null; beforeId: ID | null }
+
+/**
+ * What Keep on one act or chapter adds once Adam has chosen its place: it goes there, with what is inside it, rather
+ * than where the outline would put it. A chapter put in an act of the story's leaves its suggested act out (that act
+ * stays a suggestion). Scenes have no choice: they go into their chapter.
+ */
+export function placeKeep(items: KeepItem[], key: string, place: KeepPlace): KeepItem[] {
+  const main = items.find((i) => i.key === key)
+  if (!main || main.kind === 'scene') return items
+  const out = main.kind === 'chapter' ? items.filter((i) => !(i.kind === 'act' && key.startsWith(i.key) && i.key !== key)) : [...items]
+  const at = out.indexOf(main)
+  const next: KeepItem = { ...main }
+  delete next.after
+  delete next.before
+  if (main.kind === 'act') {
+    if (place.at === 'after') next.after = { id: place.id }
+    else if (place.at === 'first' && place.beforeId) next.before = { id: place.beforeId }
+  } else if (place.at === 'end') {
+    // The end of the story: its last act, when it has acts (keepOutline's own rule for a chapter with no act given).
+    delete next.parent
+  } else if (place.at === 'after') {
+    next.parent = { id: place.actId ?? null }
+    next.after = { id: place.id }
+  } else {
+    next.parent = { id: place.actId }
+    if (place.beforeId) next.before = { id: place.beforeId }
+  }
+  out[at] = next
+  return out
 }
 
 /** The decisions once the story has what keepOutline made. */

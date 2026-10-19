@@ -28,6 +28,8 @@ import {
   earlierShown,
   helperKey,
   openHelper,
+  runBusy,
+  setHelperMode,
   setHelperSize,
   stopOutline,
   suggestOutline,
@@ -37,7 +39,11 @@ import {
   type HelperSession
 } from './helperStore'
 import { cardIsEmpty } from './ideasLogic'
-import { SIZE_CHOICES, defaultSize, fitSize } from './size'
+import { SIZE_CHOICES, STAGE_CHAPTER_CHOICES, defaultSize, fitSize, fitStageSize } from './size'
+import { defaultMode, WHOLE_MOST_CHAPTERS, type PlanMode } from './stages'
+import { findNode, wordsOf } from './tree'
+import { Segmented } from '@/features/generate/parts'
+import { StoryBuildLine } from '@/features/worldBuilder/StoryBuildLine'
 import { EarlierSuggestions } from './EarlierSuggestions'
 import { Suggestions } from './Suggestions'
 import { countLine, countNodes, totalOf, withoutGone } from './tree'
@@ -85,10 +91,15 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   // The Story builder's idea (2026-10-17): its length sets how much a fresh story lays out, until Adam picks.
   const brief = useBuilders((st) => st.builders[builderKey(story.id)]?.brief ?? null)
   const size = s.size ?? (fresh && brief?.length ? sizeForLength(brief.length, 0) : defaultSize(fresh ? 0 : chapterCount, acts.length))
+  // In stages (the acts first, then each act's chapters and each chapter's scenes) for a long story, unless Adam picks.
+  const mode: PlanMode = s.mode ?? defaultMode(size.chapters)
+  const staged = mode === 'stages'
   const run = s.run
   // As the page shows it: anything kept but deleted from the story since waits for a decision again.
   const shown = useMemo(() => (run && s.gone.length ? { ...run, decisions: withoutGone(run.decisions, s.gone) } : run), [run, s.gone])
-  const running = run?.status === 'running'
+  // The outline arriving, or a stage of it under one act or chapter: the page waits for it either way.
+  const running = runBusy(run)
+  const stage = run?.stage ?? null
   const premiseBox = useRef<HTMLTextAreaElement>(null)
   const desk = useDesk()
 
@@ -120,10 +131,15 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
 
   const suggest = useCallback(() => {
     if (!premise.trim() && !fromPlot) premiseBox.current?.focus()
-    void flushBrief(story.id).then(() => suggestOutline(story.id, premise, size, { premiseOptional: fromPlot }))
-  }, [story.id, premise, size, fromPlot])
+    void flushBrief(story.id).then(() => suggestOutline(story.id, premise, size, { premiseOptional: fromPlot, mode }))
+  }, [story.id, premise, size, fromPlot, mode])
 
-  const changeSize = (patch: Partial<OutlineSize>): void => setHelperSize(story.id, fitSize(size, patch))
+  const changeSize = (patch: Partial<OutlineSize>): void => setHelperSize(story.id, staged ? fitStageSize(size, patch) : fitSize(size, patch))
+  const changeMode = (next: PlanMode): void => {
+    setHelperMode(story.id, next)
+    // All at once is for a short story: a longer one comes down to what one answer holds well.
+    if (next === 'whole') setHelperSize(story.id, fitSize(size, { chapters: Math.min(size.chapters, WHOLE_MOST_CHAPTERS), scenes: size.scenes || 3 }))
+  }
 
   const tree = useMemo(() => (run ? treeOf(run) : []), [run])
   // Suggestions from before the last Suggest again, still to decide (EarlierSuggestions.tsx).
@@ -134,24 +150,51 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   const ended = !!run && !running
   const nothingRead = ended && tree.length === 0
   const scenes = size.chapters * size.scenes
+  // The act or chapter the last stage was asked for under, and its title as it stands.
+  const stageNode = stage ? findNode(tree, stage.key) : null
+  const stageTitle = stageNode && run ? wordsOf(stageNode, run.edits[stageNode.key]).title.trim() || `this ${stageNode.kind}` : ''
+  const stagePart = stage?.level === 'chapters' ? 'chapter' : 'scene'
+  const stageArrived = stage && stageNode ? Math.max(0, stageNode.children.length - stage.before) : 0
 
   const status = running
-    ? (run.retrying ?? (totalOf(arrived) ? `Suggesting… ${countLine(arrived)} so far` : 'Suggesting an outline…'))
+    ? stage?.status === 'running'
+      ? (stage.retrying ??
+        `Planning the ${stagePart}s of “${stageTitle}”…${stageArrived ? ` ${plural(stageArrived, stagePart)} so far` : ''}`)
+      : (run?.retrying ??
+        (totalOf(arrived)
+          ? `Suggesting… ${countLine(arrived)} so far`
+          : staged
+            ? size.acts
+              ? 'Suggesting the acts…'
+              : 'Suggesting the chapters…'
+            : 'Suggesting an outline…'))
     : null
+  // Planned in stages: what came has nothing inside it yet, and the next step is to plan inside it.
+  const firstStage = arrived.scenes === 0 && totalOf(arrived) > 0
   const doneLine =
-    ended && !nothingRead
-      ? run.status === 'complete'
-        ? `Here is the outline: ${countLine(arrived)}. Keep what you like.`
-        : run.status === 'stopped'
-          ? `Stopped. What had arrived is below: ${countLine(arrived)}.`
-          : `It stopped part way. What had arrived is below: ${countLine(arrived)}.`
-      : null
+    ended && stage && stage.status !== 'error' && (stage.merged || stage.status === 'stopped')
+      ? stage.merged
+        ? `${stage.status === 'complete' ? 'Here' : 'Stopped. Here'} ${stage.count === 1 ? 'is' : 'are'} ${plural(stage.count, stagePart)} for “${stageTitle}”. Keep what you like.`
+        : 'Stopped before anything arrived.'
+      : ended && !nothingRead
+        ? run.status === 'complete'
+          ? firstStage
+            ? arrived.acts
+              ? `Here are the acts: ${countLine(arrived)}. Keep what you like, and plan each act’s chapters when you’re ready.`
+              : `Here are the chapters: ${countLine(arrived)}. Keep what you like, and plan each chapter’s scenes when you’re ready.`
+            : `Here is the outline: ${countLine(arrived)}. Keep what you like.`
+          : run.status === 'stopped'
+            ? `Stopped. What had arrived is below: ${countLine(arrived)}.`
+            : `It stopped part way. What had arrived is below: ${countLine(arrived)}.`
+        : null
 
-  const whatTheAISaw = run?.generationId
+  // The last request's record: a stage's, once one was asked for, else the outline's.
+  const lastGeneration = stage?.generationId ?? run?.generationId ?? null
+  const whatTheAISaw = lastGeneration
     ? () =>
         useApp.getState().navigate({
           kind: 'generation',
-          generationId: run.generationId!,
+          generationId: lastGeneration,
           back: { view: { kind: 'outline', storyId: story.id }, label: 'Back to the outline helper', what: 'this outline' }
         })
     : null
@@ -186,7 +229,8 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
         {ended && run.cutOff && !nothingRead ? (
           <div className="mt-2">
             <Notice>
-              The answer reached its length limit, so the outline stops early. Keep what is here, or ask for fewer chapters at a time.
+              The answer reached its length limit, so the outline stops early. Keep what is here, or plan in stages: the acts first, then each
+              act’s chapters and each chapter’s scenes, so every answer is short.
             </Notice>
           </div>
         ) : null}
@@ -205,8 +249,14 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
             </Notice>
           </div>
         ) : null}
+        {/* A Keep started building the story's cast: how it goes, where Adam is planning. */}
+        <StoryBuildLine storyId={story.id} className="mt-2" />
       </div>
   )
+
+  const sizeProps = { mode, onMode: changeMode, size, onSize: changeSize, hasActs: acts.length > 0, where, desk }
+  const suggestLabel = run ? 'Suggest again' : staged ? (size.acts ? 'Suggest the acts' : 'Suggest the chapters') : 'Suggest an outline'
+  const sizeStep = staged ? `About ${plural(size.chapters, 'chapter')}` : `About ${plural(scenes, 'scene')}`
 
   if (desk) {
     const title = story.title.trim()
@@ -226,7 +276,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
         steps={{
           steps: suggestSteps({
             from: { label: 'Premise', written: !!premise.trim(), sub: premise.trim() ? 'Written' : 'A line or two' },
-            size: `About ${plural(scenes, 'scene')}`,
+            size: sizeStep,
             running,
             arrived: totalOf(arrived),
             open,
@@ -261,36 +311,11 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
               <p className="plan-hint">What the story is about, in a few sentences. It is the story’s premise, so changes here are saved to it.</p>
             </div>
 
-            <fieldset className="plan-group">
-              <legend className="plan-field-l mb-1.5">How much to suggest</legend>
-              <div className="plan-sizes">
-                <SizeSelect
-                  label="Acts"
-                  value={size.acts}
-                  options={SIZE_CHOICES.acts.map((n) => ({ value: n, label: n === 0 ? (acts.length ? 'No new acts' : 'No acts') : plural(n, 'act') }))}
-                  onChange={(acts) => changeSize({ acts })}
-                />
-                <SizeSelect
-                  label="Chapters"
-                  value={size.chapters}
-                  options={SIZE_CHOICES.chapters.map((n) => ({ value: n, label: plural(n, 'chapter') }))}
-                  onChange={(chapters) => changeSize({ chapters })}
-                />
-                <SizeSelect
-                  label="Scenes in each chapter"
-                  value={size.scenes}
-                  options={SIZE_CHOICES.scenes.map((n) => ({ value: n, label: `${plural(n, 'scene')} in each` }))}
-                  onChange={(scenes) => changeSize({ scenes })}
-                />
-              </div>
-              <p className="plan-sizes-sum">
-                About {plural(scenes, 'scene')}.{where ? <span className="text-faint"> {where}</span> : null}
-              </p>
-            </fieldset>
+            <PlanSize {...sizeProps} />
 
             {running ? (
               <div className="plan-working">
-                <LampStatus text={status ?? ''} title={run.retrying ?? undefined} />
+                <LampStatus text={status ?? ''} title={(stage?.status === 'running' ? stage.retrying : run?.retrying) ?? undefined} />
                 <Button icon={<Square size={11} fill="currentColor" />} onClick={() => stopOutline(story.id)} title="Stop. What has arrived stays, to keep or discard.">
                   Stop
                 </Button>
@@ -298,7 +323,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
             ) : (
               <button type="button" className="plan-ai-btn" onClick={suggest} title={`Press ${modKey()}+Enter in the premise to suggest`}>
                 <Sparkles size={17} aria-hidden />
-                <span>{run ? 'Suggest again' : 'Suggest an outline'}</span>
+                <span>{suggestLabel}</span>
                 <span className="plan-keys" aria-hidden>
                   <span>{modKey()}</span>
                   <span>Enter</span>
@@ -349,8 +374,8 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
                 </>
               }
             >
-              Write the premise, choose how much to suggest, then Suggest an outline. Each act, chapter and scene card arrives here as a card to keep,
-              change or put aside.
+              Write the premise, choose how to plan, then {suggestLabel}. Each act, chapter and scene card arrives here as a card to keep, change
+              or put aside.
             </ResultsEmpty>
           )
         }
@@ -402,37 +427,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
           What the story is about, in a few sentences. It is the story’s premise, so changes here are saved to it.
         </p>
 
-        <fieldset className="mt-5">
-          <legend className="text-[12px] font-medium text-muted">How much to suggest</legend>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <SizeSelect
-              label="Acts"
-              className="w-[150px]"
-              value={size.acts}
-              options={SIZE_CHOICES.acts.map((n) => ({
-                value: n,
-                label: n === 0 ? (acts.length ? 'No new acts' : 'No acts') : plural(n, 'act')
-              }))}
-              onChange={(acts) => changeSize({ acts })}
-            />
-            <SizeSelect
-              label="Chapters"
-              className="w-[140px]"
-              value={size.chapters}
-              options={SIZE_CHOICES.chapters.map((n) => ({ value: n, label: plural(n, 'chapter') }))}
-              onChange={(chapters) => changeSize({ chapters })}
-            />
-            <SizeSelect
-              label="Scenes in each chapter"
-              className="w-[180px]"
-              value={size.scenes}
-              options={SIZE_CHOICES.scenes.map((n) => ({ value: n, label: `${plural(n, 'scene')} in each` }))}
-              onChange={(scenes) => changeSize({ scenes })}
-            />
-            <span className="ml-1 text-[12.5px] tabular-nums text-muted">About {plural(scenes, 'scene')}.</span>
-          </div>
-          <p className="mt-1.5 min-h-[18px] text-[12px] text-faint">{where}</p>
-        </fieldset>
+        <PlanSize {...sizeProps} />
 
         <div className="mt-3 flex h-10 items-center gap-2">
           {running ? (
@@ -445,12 +440,12 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
               >
                 Stop
               </Button>
-              <WritingStatus text={status ?? ''} title={run.retrying ?? undefined} />
+              <WritingStatus text={status ?? ''} />
             </>
           ) : (
             <>
               <Button variant="primary" size="lg" icon={<Sparkles size={15} />} onClick={suggest}>
-                {run ? 'Suggest again' : 'Suggest an outline'}
+                {suggestLabel}
               </Button>
               <div className="flex-1" />
               <span className="flex items-center gap-1 text-[12px] text-faint" title={`Press ${modKey()}+Enter in the premise to suggest`}>
@@ -536,6 +531,88 @@ function useStarter(shape: Outline | null, run: HelperRun | null): Chapter | nul
     }
   }, [sceneKey, candidate])
   return candidate && first && empty?.key === sceneKey && empty.empty ? first : null
+}
+
+/**
+ * How to plan, and how much (2026-10-19): in stages (the acts first, each with about how many chapters; then each act's
+ * chapters and each chapter's scenes when Adam asks, so every answer is short and whole) or all at once (a short story,
+ * up to WHOLE_MOST_CHAPTERS chapters, with the same number of scenes in each).
+ */
+function PlanSize({
+  mode,
+  onMode,
+  size,
+  onSize,
+  hasActs,
+  where,
+  desk
+}: {
+  mode: PlanMode
+  onMode: (m: PlanMode) => void
+  size: OutlineSize
+  onSize: (patch: Partial<OutlineSize>) => void
+  hasActs: boolean
+  where: string | null
+  desk: boolean
+}): React.JSX.Element {
+  const staged = mode === 'stages'
+  const scenes = size.chapters * size.scenes
+  const actOptions = SIZE_CHOICES.acts.map((n) => ({ value: n, label: n === 0 ? (hasActs ? 'No new acts' : 'No acts') : plural(n, 'act') }))
+  const chapterOptions = staged
+    ? STAGE_CHAPTER_CHOICES.map((n) => ({ value: n, label: `About ${plural(n, 'chapter')}` }))
+    : SIZE_CHOICES.chapters.filter((n) => n <= Math.max(WHOLE_MOST_CHAPTERS, size.chapters)).map((n) => ({ value: n, label: plural(n, 'chapter') }))
+  const how = staged
+    ? size.acts
+      ? 'First the acts, each with what happens in it and about how many chapters it needs. Then plan each act’s chapters, and each chapter’s scenes, when you are ready. Every answer is short, so it comes quickly and whole.'
+      : 'First the chapters, each with its goal. Then plan each chapter’s scenes when you are ready: as many as each one needs.'
+    : `The whole outline in one answer, with the same number of scenes in each chapter: for a short story of up to ${WHOLE_MOST_CHAPTERS} chapters.`
+  const sum = staged ? `About ${plural(size.chapters, 'chapter')} in all.` : `About ${plural(scenes, 'scene')}.`
+  return (
+    <fieldset className={desk ? 'plan-group' : 'mt-5'} data-plan-mode={mode}>
+      <legend className={desk ? 'plan-field-l mb-1.5' : 'text-[12px] font-medium text-muted'}>How to plan</legend>
+      <Segmented<PlanMode>
+        label="How to plan"
+        value={mode}
+        onChange={onMode}
+        options={[
+          { value: 'stages', label: 'In stages' },
+          { value: 'whole', label: 'All at once' }
+        ]}
+        className={desk ? 'w-full' : 'mt-1 w-[280px]'}
+      />
+      <p className={desk ? 'plan-hint' : 'mt-1.5 text-[12px] leading-relaxed text-faint'}>{how}</p>
+      <div className={desk ? 'plan-sizes mt-2' : 'mt-2 flex flex-wrap items-center gap-2'}>
+        <SizeSelect label="Acts" className={desk ? undefined : 'w-[150px]'} value={size.acts} options={actOptions} onChange={(acts) => onSize({ acts })} />
+        <SizeSelect
+          label="Chapters"
+          className={desk ? undefined : staged ? 'w-[190px]' : 'w-[140px]'}
+          value={size.chapters}
+          options={chapterOptions}
+          onChange={(chapters) => onSize({ chapters })}
+        />
+        {staged ? null : (
+          <SizeSelect
+            label="Scenes in each chapter"
+            className={desk ? undefined : 'w-[180px]'}
+            value={size.scenes}
+            options={SIZE_CHOICES.scenes.map((n) => ({ value: n, label: `${plural(n, 'scene')} in each` }))}
+            onChange={(scenes) => onSize({ scenes })}
+          />
+        )}
+      </div>
+      {desk ? (
+        <p className="plan-sizes-sum">
+          {sum}
+          {where ? <span className="text-faint"> {where}</span> : null}
+        </p>
+      ) : (
+        <p className="mt-1.5 min-h-[18px] text-[12px] text-faint">
+          <span className="tabular-nums text-muted">{sum}</span>
+          {where ? ` ${where}` : null}
+        </p>
+      )}
+    </fieldset>
+  )
 }
 
 function SizeSelect({

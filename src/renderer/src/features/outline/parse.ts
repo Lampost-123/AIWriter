@@ -55,6 +55,11 @@ export interface SuggestedAct {
   key: string
   title: string
   purpose: string
+  /**
+   * About how many chapters it needs, from its "Chapters:" line (the outline in stages, 2026-10-19: the acts come first,
+   * and each act's chapters are asked for later). Left out: the reply didn't say.
+   */
+  chapterCount?: number
   chapters: SuggestedChapter[]
   complete: boolean
 }
@@ -188,7 +193,16 @@ function splitTitle(s: string): { title: string; text: string } {
 }
 
 const LABEL =
-  /^(purpose|goal|aim|summary|what happens|beats|logline|title|when|sets up|pays off|point of view|pov|viewpoint|characters present|characters|cast|location|setting|mood or tone|mood|tone)\s*(?:[:：—–-]\s*(.*))?$/i
+  /^(purpose|goal|aim|summary|what happens|beats|logline|title|when|sets up|pays off|point of view|pov|viewpoint|characters present|characters|cast|location|setting|mood or tone|mood|tone|chapters|number of chapters)\s*(?:[:：—–-]\s*(.*))?$/i
+
+/** "about 4", "4 chapters", "Four", "3-4": the number of chapters an act's "Chapters:" line gives (the most of a range), or null. */
+export function chapterCountOf(text: string): number | null {
+  const t = plain(text).toLowerCase()
+  const digits = [...t.matchAll(/\d{1,3}/g)].map((m) => Number(m[0]))
+  if (digits.length) return Math.max(1, Math.min(99, Math.max(...digits.slice(0, 2))))
+  const word = NUMBER_WORDS.findIndex((w) => new RegExp(`\\b${w}\\b`).test(t))
+  return word >= 0 ? word + 1 : null
+}
 
 /** "The drowned bell; Who keeps the key" (or with commas, or "none"): the plot thread names on a Sets up / Pays off line. */
 export function threadNames(text: string): string[] {
@@ -380,6 +394,13 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
         const names = threadNames(field.text)
         if (field.label === 'sets up') s.setsUp = [...new Set([...(s.setsUp ?? []), ...names])]
         else s.paysOff = [...new Set([...(s.paysOff ?? []), ...names])]
+      }
+      inBeats = false
+    } else if (field?.label === 'chapters' || field?.label === 'number of chapters') {
+      // An act's rough number of chapters (the outline in stages); a chapter or scene has none.
+      if (a && !c && !s && a.chapterCount === undefined) {
+        const n = chapterCountOf(field.text)
+        if (n) a.chapterCount = n
       }
       inBeats = false
     } else if (s) {

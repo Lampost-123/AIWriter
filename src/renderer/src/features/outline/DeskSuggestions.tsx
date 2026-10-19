@@ -19,11 +19,13 @@ import { FreshText } from '@/features/planning/FreshText'
 import { WaitingCards } from '@/features/planning/LampThinking'
 import { useDealDelay } from '@/features/planning/deal'
 import { flyCard, landingOf, landingSoon } from '@/features/planning/fly'
-import { discardSuggestion, keepSuggestions, type HelperRun } from './helperStore'
-import { EditForm, focusNext, KEEP_TITLES, KIND_LABELS, runIdOf, type TreeProps } from './Suggestions'
+import { discardSuggestion, keepSuggestions, runBusy, type HelperRun } from './helperStore'
+import { currentOf, EditForm, focusNext, KEEP_TITLES, KIND_LABELS, NEXT_STAGE, runIdOf, stillToPlan, waitsFor, type TreeProps } from './Suggestions'
+import { KeepPlaceMenu, StageRow, WriteChapterButton } from './StageParts'
+import { openChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { RedoButton, RedoPanel } from './PlanTalkParts'
 import { CardLines, whenOf } from './SuggestionParts'
-import { countLine, countNodes, lastNodeKey, totalOf, wordsOf, type Counts, type TreeNode } from './tree'
+import { countLine, countNodes, totalOf, wordsOf, type Counts, type TreeNode } from './tree'
 
 export function DeskSuggestions({
   storyId,
@@ -42,7 +44,7 @@ export function DeskSuggestions({
   starter: Chapter | null
   landing: string | null
 }): React.JSX.Element {
-  const running = run.status === 'running'
+  const busy = runBusy(run)
   // A chapter's plan lists the chapter's scene cards, not the chapter.
   const top = chapterId ? (tree[0]?.children ?? []) : tree
   const [editing, setEditing] = useState<string | null>(null)
@@ -50,15 +52,16 @@ export function DeskSuggestions({
   const kept = totalOf(keptCounts)
   const openCounts = countNodes(top, run.decisions, 'open')
   const shown = top.filter((n) => run.decisions[n.key]?.status !== 'discarded')
-  const decided = !running && open === 0 && top.length > 0
-  const current = running ? lastNodeKey(tree) : null
+  const toPlan = chapterId ? 0 : stillToPlan(top, run.decisions)
+  const decided = !busy && open === 0 && top.length > 0 && toPlan === 0
+  const current = currentOf(run, tree)
   const starterTitle = starter?.title.trim() || 'Chapter 1'
   const props: TreeProps = { storyId, chapterId, run, current, editing, setEditing }
   // Acts, or chapters numbered from one.
   const scenesOnly = top.every((n) => n.kind === 'scene')
 
   return (
-    <section aria-label="Suggestions" aria-busy={running} className="plan-suggestions">
+    <section aria-label="Suggestions" aria-busy={busy} className="plan-suggestions">
       <div className="plan-tray">
         <h2 className="plan-tray-t">{chapterId ? 'Scene cards' : 'Suggestions'}</h2>
         <div className="plan-counts" aria-live="polite">
@@ -71,7 +74,7 @@ export function DeskSuggestions({
           ) : null}
         </div>
         <div className="plan-tray-end">
-          {starter && !running ? (
+          {starter && !busy ? (
             <Button
               size="sm"
               variant="ghost"
@@ -81,7 +84,7 @@ export function DeskSuggestions({
               Remove the empty “{starterTitle}”
             </Button>
           ) : null}
-          {!running && open > 0 ? (
+          {!busy && open > 0 ? (
             <Button
               size="sm"
               icon={<Check size={13} />}
@@ -92,7 +95,7 @@ export function DeskSuggestions({
             </Button>
           ) : null}
         </div>
-        {!running && open > 0 ? (
+        {!busy && open > 0 ? (
           <p className="w-full text-[12.5px] leading-[18px] text-muted" data-plan-receipt>
             Keep all that’s left adds <b className="font-semibold text-fg">{countLine(openCounts).replace(/\bscenes?\b/, (w) => (w === 'scene' ? 'scene card' : 'scene cards'))}</b>{' '}
             {chapterId ? 'to this chapter' : 'to the story'}, each scene’s card filled in.{landing ? ` ${landing}` : ''}
@@ -116,7 +119,12 @@ export function DeskSuggestions({
         </div>
       )}
 
-      {decided ? <DeskAllDecided run={run} tree={tree} storyId={storyId} kept={kept} chapter={!!chapterId} /> : null}
+      {decided ? <DeskAllDecided run={run} tree={tree} storyId={storyId} kept={kept} chapter={!!chapterId} chapterId={chapterId} /> : null}
+      {!busy && open === 0 && toPlan > 0 ? (
+        <p className="mt-6 text-[13px] leading-relaxed text-muted animate-fade-in" data-next-stage>
+          {NEXT_STAGE}
+        </p>
+      ) : null}
     </section>
   )
 }
@@ -204,6 +212,7 @@ function DeskNode({ node, n = 0, ...props }: TreeProps & { node: TreeNode; n?: n
     <div {...group} className={node.kind === 'act' ? 'plan-act' : 'plan-chap'}>
       {editing ? <EditForm node={node} {...props} className="plan-edit" /> : <Card node={node} n={n} {...props} />}
       {redo}
+      {!props.chapterId && !props.earlier ? <StageRow storyId={props.storyId} node={node} run={run} desk /> : null}
       {kids}
     </div>
   )
@@ -219,7 +228,7 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing, earli
   const words = wordsOf(node, edit)
   const when = whenOf(node.kind, words)
   const runId = runIdOf({ run, earlier })
-  const running = run.status === 'running'
+  const running = waitsFor(run, node.key)
   const writing = running && node.key === current
   const title = words.title.trim()
   const [leaving, setLeaving] = useState(false)
@@ -315,6 +324,7 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing, earli
           Open
         </button>
       ) : null}
+      {!chapterId ? <WriteChapterButton node={node} run={run} /> : null}
     </div>
   ) : (
     // While the answer arrives the buttons keep their room, so nothing moves when they appear.
@@ -323,6 +333,7 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing, earli
         <Check size={13} aria-hidden />
         Keep
       </button>
+      {node.kind !== 'scene' && !chapterId ? <KeepPlaceMenu storyId={storyId} node={node} run={run} runId={runId} title={title} className="-ml-1" /> : null}
       <button type="button" className="plan-txt" data-edit onClick={() => setEditing(node.key)} aria-label={`Edit ${title ? `“${title}”` : `this ${node.kind}`}`}>
         Edit
       </button>
@@ -365,7 +376,21 @@ function Card({ node, n = 0, storyId, chapterId, run, current, setEditing, earli
 const toRoman = (n: number): string => ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'][n - 1] ?? String(n)
 
 /** Every suggestion is decided: what was kept is in the story, and one click starts writing it. */
-function DeskAllDecided({ run, tree, storyId, kept, chapter }: { run: HelperRun; tree: TreeNode[]; storyId: ID; kept: number; chapter: boolean }): React.JSX.Element {
+function DeskAllDecided({
+  run,
+  tree,
+  storyId,
+  kept,
+  chapter,
+  chapterId = null
+}: {
+  run: HelperRun
+  tree: TreeNode[]
+  storyId: ID
+  kept: number
+  chapter: boolean
+  chapterId?: ID | null
+}): React.JSX.Element {
   const firstScene = (nodes: TreeNode[]): ID | null => {
     for (const n of nodes) {
       const d = run.decisions[n.key]
@@ -391,6 +416,11 @@ function DeskAllDecided({ run, tree, storyId, kept, chapter }: { run: HelperRun;
       <p className="min-w-0 flex-1 text-[13.5px] leading-relaxed text-fg">
         Everything is decided. What you kept is in the story’s spine{sceneId ? ', with each scene’s card filled in' : ''}.
       </p>
+      {chapterId && sceneId ? (
+        <Button size="sm" onClick={() => openChapterWriter(chapterId)} title="Write the whole chapter with AI, from its scene cards">
+          Write this chapter
+        </Button>
+      ) : null}
       {sceneId ? (
         <Button size="sm" variant="primary" onClick={() => useApp.getState().selectScene(sceneId, storyId)}>
           Start writing
