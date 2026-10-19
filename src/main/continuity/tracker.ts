@@ -287,6 +287,32 @@ function save(db: DB, all: Stored): void {
   repo.setMeta(db, META_KEY, JSON.stringify(all))
 }
 
+/** Told when where things stand as a scene ends is kept anew (worked out, carried on through it, or changed by Adam). */
+export type StageKept = (db: DB, sceneId: ID) => void
+const stageListeners: StageKept[] = []
+
+/**
+ * Listens for a scene's end state being kept anew (the story index brings that scene's rows up to date: storyIndex/
+ * upkeep.ts). Returns the way to stop listening. A listener that throws is logged; it never stops the tracker.
+ */
+export function onStageKept(fn: StageKept): () => void {
+  stageListeners.push(fn)
+  return () => {
+    const i = stageListeners.indexOf(fn)
+    if (i >= 0) stageListeners.splice(i, 1)
+  }
+}
+
+function stageKept(db: DB, sceneId: ID): void {
+  for (const fn of [...stageListeners]) {
+    try {
+      fn(db, sceneId)
+    } catch (e) {
+      console.warn('Something listening for where things stand failed', e)
+    }
+  }
+}
+
 /** Nothing known yet. */
 const EMPTY: SceneState = { time: '', weather: '', light: '', things: [], characters: [] }
 
@@ -306,6 +332,7 @@ export function editState(db: DB, sceneId: ID, change: (edits: StateEdits, state
   change(edits, withEdits(k.state, k.edits))
   k.edits = edits
   save(db, all)
+  stageKept(db, sceneId)
   // When the scene goes on from here, the reading starts from his version. Only when his version still stands (one laid
   // over an old start would set aside the checkpoints that do), and was read from the scene's words: one carried on
   // from the scene before would stand in for the reading it is waiting for.
@@ -412,6 +439,7 @@ export async function stateAfter(o: TrackOptions, sceneId: ID, force = false): P
     now[sceneId] = { hash, base: stateHash(before), state: carried, ...(edits ? { edits } : {}), unchecked: true, refusedBy: model }
   } else now[sceneId] = { hash, base: stateHash(before), state: read, ...(edits ? { edits } : {}) }
   save(o.db, now)
+  stageKept(o.db, sceneId)
   return withEdits(now[sceneId].state, now[sceneId].edits)
 }
 

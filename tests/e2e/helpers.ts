@@ -70,6 +70,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // aren't about it leave it out, and ask for it with { env: { AIWRITE_CONTRACT: 'on' } }.
   // The continuity brief (long story memory fix 14) makes the plan read and write more: app tests that aren't about it
   // leave it out, and ask for it with { env: { AIWRITE_BRIEF: 'on' } }.
+  // The story index works out where things stand for the last two chapters by itself a few seconds after a world opens
+  // (one AI call a scene not yet read): app tests that aren't about it leave it out, and ask for it with
+  // { env: { AIWRITE_INDEX_FILL: 'on' } }.
   const background = process.env.AIWRITE_BACKGROUND ?? (process.env.CI ? 'off' : 'on')
   Object.assign(
     env,
@@ -84,7 +87,8 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
       AIWRITE_PLAN: 'off',
       AIWRITE_TOUR: 'off',
       AIWRITE_CONTRACT: 'off',
-      AIWRITE_BRIEF: 'off'
+      AIWRITE_BRIEF: 'off',
+      AIWRITE_INDEX_FILL: 'off'
     },
     opts.env
   )

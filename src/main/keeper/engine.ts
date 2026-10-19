@@ -576,6 +576,14 @@ export class Keeper {
     return this.closed
   }
 
+  /**
+   * True while the keeper is at work or has scenes waiting to be read (or summaries a draft waits for): background work of
+   * lower priority (the story index's physical details, storyIndex/fill.ts) gives way meanwhile.
+   */
+  get busy(): boolean {
+    return !this.closed && (!!this.current || !!this.tidying || this.queue.length > 0 || this.urgent.length > 0 || this.summaryNow.length > 0)
+  }
+
   // ---------- Status ----------
 
   status(): MemoryStatus {

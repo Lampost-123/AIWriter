@@ -13,6 +13,7 @@ import { getSettings } from '../settings'
 import { emit } from '../events'
 import { refreshDefaultExistsPoints, loadShape } from '../db/memory'
 import { scenesDeleted, scenesRestored } from '../keeper'
+import { indexStories } from '../keeper/indexing'
 import { actDeleteNotes, createChapterAt, keepOutline, unkeepOutline } from '../outline/structure'
 import { startIdeasJob, startOutlineJob, type JobDeps } from '../outline/jobs'
 import { isBlankPlan, storyPlan } from '../outline/context'
@@ -95,6 +96,8 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
   keepOutline: (storyId, items) => {
     const kept = write(() => keepOutline(world.db(), storyId, items ?? []))
     madeChanged(kept)
+    // New scenes and their cards (who, where, when): the story index takes them in, in the background.
+    indexStories(world.db(), [storyId])
     return kept
   },
   unkeepOutline: async (kept) => {

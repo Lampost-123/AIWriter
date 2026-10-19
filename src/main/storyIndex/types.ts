@@ -4,7 +4,10 @@
 
 import type { ID } from '@shared/types'
 
-/** How a scene's row was filled: from what the world holds (no AI), by the AI, or by Adam. Only 'free' is built yet. */
+/**
+ * How a scene's row was filled: from what the world holds alone (no AI), or with where things stand read from the scene's
+ * words by the AI (its physical details: storyIndex/fill.ts), or by Adam ('hand': not built yet).
+ */
 export type IndexFilled = 'free' | 'ai' | 'hand'
 
 /** The kinds of dated fact. */

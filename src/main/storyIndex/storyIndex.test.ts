@@ -154,7 +154,8 @@ describe('building the story index for free', () => {
       placeEntryId: w.inn,
       whenText: 'Day 1, 9pm',
       gist: 'Mara and Tobin wait out the night at the Swan.',
-      filled: 'free'
+      // Where things stand was read from its words: its physical details are in (the AI's part).
+      filled: 'ai'
     })
     // Ash comes in (named as there); Mara is found by another name; the letter is a thing named; the card's place isn't "named".
     expect(two.present).toEqual(expect.arrayContaining([w.mara, w.ash]))
