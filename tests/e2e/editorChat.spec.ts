@@ -86,10 +86,60 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(tidied).toContainText('Tidied, as claimed.')
     await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
     await expect(panel(win)).not.toContainText('I’ve tidied up the opening.')
-    // One that still doesn't propose them is put right under its answer.
+    // One that still doesn't propose them never shows the claim (the truth check, 2026-10-19): it says no change was
+    // made, with what it would suggest.
     await ask(win, 'Pretend stubbornly to tidy the opening')
-    await expect(panel(win).locator('[data-no-changes]')).toHaveText('No changes came with this answer, so there’s nothing to apply. Ask again to have them proposed.')
-    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(1)
+    const stubborn = panel(win).locator('[data-turn-status]').last()
+    await expect(stubborn).toHaveAttribute('data-turn-status', 'complete')
+    await expect(stubborn.locator('[data-answer]')).toContainText('No change was made, so there’s nothing to apply. Here’s what I’d suggest:')
+    await expect(stubborn.locator('[data-answer]')).toContainText('I’d tidy up the opening.')
+    await expect(stubborn.locator('[data-answer]')).not.toContainText('I’ve tidied')
+    await expect(stubborn.locator('[data-answer]')).not.toContainText('Apply the changes below')
+    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a model that claims changes it never made: the chat shows the honest result, and why when a check turned one down (2026-10-19)', async ({
+  launch
+}) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 2 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    // A model that says it made the change and never calls a tool, even when made to (m4/ask.mjs fake/claims-stubborn).
+    await useFakeModel(win, fake, 'fake/claims-stubborn')
+    await prose(win).click()
+    await win.keyboard.type('The tide came in over the flats. The gulls went quiet.')
+    const sceneId = await firstScene(win)
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('gulls went quiet')
+    await areaButton(win, 'Ask').click()
+    await ask(win, 'Tighten the opening line')
+    const turn = panel(win).locator('[data-turn-status]').last()
+    await expect(turn).toHaveAttribute('data-turn-status', 'complete')
+    const answer = turn.locator('[data-answer]')
+    await expect(answer).toContainText('No change was made, so there’s nothing to apply. Here’s what I’d suggest:')
+    await expect(answer).toContainText('I’d tighten the opening line for you.')
+    await expect(answer).not.toContainText('I’ve tightened')
+    await expect(answer).not.toContainText('ready to apply')
+    await expect(turn.locator('[data-proposal]')).toHaveCount(0)
+    await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
+
+    // A model whose change its check turns down (words not in the scene), and that claims it all the same: the reason,
+    // in plain words, in place of the claim.
+    await useFakeModel(win, fake, 'fake/bad-proposal')
+    if (!(await box(win).isVisible())) await areaButton(win, 'Ask').click()
+    await ask(win, 'Fix the first sentence')
+    const bad = panel(win).locator('[data-turn-status]').last()
+    await expect(bad).toHaveAttribute('data-turn-status', 'complete')
+    await expect(bad.locator('[data-answer]')).toContainText(
+      'No change was made: I couldn’t make it because the words it meant to change aren’t in the scene as written.'
+    )
+    await expect(bad.locator('[data-answer]')).not.toContainText('I’ve fixed')
+    await expect(bad.locator('[data-proposal]')).toHaveCount(0)
+    await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
   } finally {
     await fake.close()
   }

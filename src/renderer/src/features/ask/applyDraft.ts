@@ -19,7 +19,7 @@ import { beatBeingWritten } from '@/features/beats/flow'
 import { redoBeat, redoing } from '@/features/beats/redo'
 import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { beatNumber, continueAt } from './askEdits'
-import { sceneInPage } from './sceneInPage'
+import { heldWhy, notOpened, sceneInPage } from './sceneInPage'
 
 export type DraftProposal = Extract<Proposal, { kind: 'draft' }>
 
@@ -31,6 +31,8 @@ export const DRAFT_WAITING = 'The AI’s change in this scene is waiting for you
 
 /** Why nothing more can be written into the scene now, or null. */
 function busyIn(sceneId: ID): string | null {
+  const held = heldWhy(sceneId)
+  if (held) return held
   const bridge = editorBridge()
   const draft = useDraft.getState()
   if (draft.sceneId === sceneId && draft.phase !== 'idle') return DRAFT_BUSY
@@ -45,9 +47,12 @@ function busyIn(sceneId: ID): string | null {
 export async function startProposedDraft(p: DraftProposal, storyId?: ID | null): Promise<DraftStarted> {
   try {
     if (!useApp.getState().settings?.models.writer) return { ok: false, why: 'Choose a writer model in Settings first, then apply the draft.' }
+    // Write the chapter holds the scene: said before the page is moved to it.
+    const held = heldWhy(p.sceneId)
+    if (held) return { ok: false, why: held }
     const editor = await sceneInPage(p.sceneId, storyId)
     const bridge = editorBridge()
-    if (!editor || !bridge || bridge.sceneId !== p.sceneId) return { ok: false, why: `${p.sceneLabel} couldn’t be opened.` }
+    if (!editor || !bridge || bridge.sceneId !== p.sceneId) return { ok: false, why: await notOpened(p.sceneId, p.sceneLabel) }
     const busy = busyIn(p.sceneId)
     if (busy) return { ok: false, why: busy }
     let started = false

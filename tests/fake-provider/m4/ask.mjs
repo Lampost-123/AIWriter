@@ -515,6 +515,8 @@ function sloppyOn(model, question) {
 const notedBack = (messages) =>
   messages.some((m) => m.role === 'user' && String(m.content ?? '').startsWith('[AI Write, not the writer] Your answer gives'))
 const proposedIn = (messages) => messages.some((m) => m.role === 'tool' && /^Proposed to the writer/.test(String(m.content ?? '')))
+/** The truth check told it the writer asked a question, not for a change. */
+const toldNoChange = (messages) => messages.some((m) => m.role === 'user' && String(m.content ?? '').includes('asked a question, not for a change'))
 
 /** The first entry the briefing says the question names, or null. */
 const namedEntry = (system) => headed([...sections(system)].find(([title]) => title.startsWith('Named '))?.[1])[0] ?? null
@@ -546,6 +548,8 @@ function sloppyCalls(model, system, messages, tools, toolChoice) {
   }
   // fake/claims, fake/claims-no-toolchoice, fake/sloppy: a claim in words until told, or made to call a tool.
   if (!forced && (model === 'fake/claims-no-toolchoice' || !notedBack(messages))) return null
+  // Told it was asked a question, not for a change, it takes the claim back in words (sloppyWords) and proposes nothing.
+  if (!forced && toldNoChange(messages)) return null
   if (proposedIn(messages)) return null
   const name = ENTRYISH.test(typedOf(question)) ? namedEntry(system) : null
   if (name) return [proposeCall(tools, { kind: 'entry', name, fields: { eyes: 'green' }, why: 'As asked.' })]
@@ -563,6 +567,8 @@ function sloppyWords(model, question, names, messages) {
   const who = names[0] ?? 'Mara'
   const entry = model === 'fake/bad-field' || ENTRYISH.test(typedOf(question))
   if (proposedIn(messages)) return entry ? `I’ve updated ${who}’s entry: the eyes are green now.` : 'I’ve proposed the change: it’s ready to apply.'
+  // Told it was asked a question, not for a change (the truth check's note), it offers the change in words.
+  if (model !== 'fake/claims-stubborn' && model !== 'fake/bad-proposal' && toldNoChange(messages)) return 'The opening line could be tighter; I’d cut it to its first clause.'
   if (model === 'fake/bad-proposal') return 'I’ve fixed the first sentence. Apply the change when you’re ready.'
   if (entry) return `I’ve updated ${who}’s entry: the eyes are green now.`
   return 'I’ve tightened the opening line for you. The change is ready to apply.'

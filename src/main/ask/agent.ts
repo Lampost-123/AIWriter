@@ -2837,6 +2837,27 @@ export class EditorAgent {
     }
     this.notes = []
     this.mark = { summary: argSummary(call.name, args) }
+    // The shared read_passage reads only scenes before the point; in the chat the open scene is the one being edited,
+    // so asking for it is answered (as read_scene), never turned down as "only earlier scenes can be read" (2026-10-19:
+    // Adam saw the chat say it couldn't reach the scene to edit). A later scene stays unread here (read_scene marks it).
+    if (call.name === 'read_passage' && this.place.storyId && this.place.sceneId) {
+      let id: ID | null = null
+      try {
+        id = this.scene(args.scene)
+      } catch {
+        // Not a scene of this story: the shared look-up says what there is.
+      }
+      if (id === this.place.sceneId) {
+        try {
+          const [label, result] = this.answer('read_scene', { scene: args.scene })
+          return this.done(call, started, args, label, result)
+        } catch (e) {
+          const why = e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`
+          return this.done(call, started, args, 'Looking something up', why, { status: 'failed', outcome: shortReason(why) })
+        }
+      }
+      this.notes = []
+    }
     try {
       const ctx = this.lookupContext()
       if (!ctx) {
@@ -2844,7 +2865,9 @@ export class EditorAgent {
         return this.done(call, started, args, 'Looking something up', why, { status: 'failed', outcome: shortReason(why) })
       }
       const a = await runLookup(call, ctx)
-      const text = inChatWords(a.text, this.switches)
+      // A later scene read_passage won't read: the chat's own read_scene does, marked later.
+      const later = call.name === 'read_passage' && /only earlier scenes can be read/.test(a.text) ? ' In this chat, read_scene reads it, marked later.' : ''
+      const text = inChatWords(a.text, this.switches) + later
       return this.done(call, started, args, a.label, text, a.ok ? {} : { outcome: shortReason(text) })
     } catch (e) {
       const why = `That look-up didn't work (${(e as Error)?.message ?? e}). Try another.`

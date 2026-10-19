@@ -5,13 +5,19 @@ import type { Proposal } from '@shared/contracts/ask'
 
 const s = vi.hoisted(() => ({
   hasText: true,
+  /** Write the chapter holds the scene (sceneInPage.ts heldWhy). */
+  held: false,
   calls: [] as { replace?: boolean; options: Record<string, unknown> }[]
 }))
 
 vi.mock('@/lib/api', () => ({ api: { getScene: async () => ({ card: { beats: [] } }) } }))
 vi.mock('@/lib/store', () => ({ useApp: { getState: () => ({ settings: { models: { writer: { modelId: 'w' } } }, draftOptions: {}, activeGeneration: null }) } }))
 vi.mock('@/lib/editorBridge', () => ({ editorBridge: () => ({ sceneId: 'sc1', busy: () => false, hasText: () => s.hasText }) }))
-vi.mock('./sceneInPage', () => ({ sceneInPage: async () => ({ state: { doc: null } }) }))
+vi.mock('./sceneInPage', () => ({
+  sceneInPage: async () => ({ state: { doc: null } }),
+  heldWhy: () => (s.held ? 'Write the chapter is writing this scene right now.' : null),
+  notOpened: async () => 'It didn’t open.'
+}))
 vi.mock('@/features/generate/draftOptions', () => ({ BLANK_DRAFT_OPTIONS: { direction: '' } }))
 vi.mock('@/features/generate/draftRun', () => ({
   busyElsewhere: () => false,
@@ -33,6 +39,7 @@ const draft = (mode: string): Parameters<typeof startProposedDraft>[0] =>
 
 beforeEach(() => {
   s.calls.length = 0
+  s.held = false
 })
 
 describe('a proposed draft on a scene that has words', () => {
@@ -55,5 +62,13 @@ describe('a proposed draft on an empty scene', () => {
     await startProposedDraft(draft('generate'))
     expect(s.calls[0].replace).toBe(false)
     expect(s.calls[0].options).not.toHaveProperty('addBelow')
+  })
+})
+
+describe('a proposed draft on a scene Write the chapter is writing', () => {
+  it('is turned down in plain words, and nothing starts', async () => {
+    s.held = true
+    expect(await startProposedDraft(draft('generate'))).toEqual({ ok: false, why: 'Write the chapter is writing this scene right now.' })
+    expect(s.calls).toEqual([])
   })
 })
