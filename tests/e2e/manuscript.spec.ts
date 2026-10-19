@@ -588,14 +588,16 @@ test('a small window keeps the page wide enough to read, and the binder floats o
   expect(await pagePadding(win)).toBe('40px')
 
   // Large text in the smallest window: the page can't be given its full minimum, so it keeps the
-  // narrow padding and leaves that room to the words.
+  // narrow padding and leaves that room to the words. (In the New look the area rail's 64 px and the sheet's margins
+  // come out of the window too, so beside the scene panel at its narrowest the words have 562 px: about 48 characters
+  // at 22 px, where the wide padding would leave them about 44. Classic, with neither, had room for 55.)
   await binder(win).locator('[data-row]', { hasText: 'The Knock at the Door' }).click()
   await invoke(win, 'updateSettings', { editor: { ...(await invoke(win, 'getSettings')).editor, fontSize: 22 } })
   await win.reload()
   await expect(prose(win)).toContainText('The harbour lamps')
   await resize(app, win, 960, 600)
   expect(await pagePadding(win)).toBe('24px')
-  expect(Math.min(...(await charsPerLine(win)))).toBeGreaterThanOrEqual(55)
+  expect(Math.min(...(await charsPerLine(win)))).toBeGreaterThanOrEqual(46)
 })
 
 const MANY = Array.from({ length: 13 }, (_, i) =>

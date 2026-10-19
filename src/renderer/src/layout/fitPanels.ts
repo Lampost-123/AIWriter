@@ -22,6 +22,11 @@ export const PAGE_PADDING = 2 * 24 + 10
 export const WIDE_PAGE_PADDING = 2 * 40 + 10
 /** The narrowest page (scroll bar included) with the wide padding, at any text size. */
 export const WIDE_PAGE = 700
+/**
+ * The New look's sheet: the page lies on the window's frame with 8 px of it showing either side (SceneView's
+ * scene-sheet, mx-2), so the words have that much less than the room between the panels.
+ */
+export const SHEET_MARGINS = 2 * 8
 
 /** The room the words need for about 55 characters a line at Adam's text size, never more than the page width setting gives them. */
 export function proseMinFor(fontSize: number, pageWidthCh = 70): number {
@@ -30,11 +35,12 @@ export function proseMinFor(fontSize: number, pageWidthCh = 70): number {
 
 /**
  * The narrowest the writing page gets while the panels beside it can give up width: room for about
- * 55 characters a line at Adam's text size (about 614 px at the default 19 px), plus the narrow padding.
- * Never more than the page's own column at its widest (the page width setting), which is all it uses.
+ * 55 characters a line at Adam's text size (about 630 px at the default 19 px), plus the narrow padding
+ * and the sheet's margins. Never more than the page's own column at its widest (the page width setting),
+ * which is all it uses. (The area rail is not in it: App takes the rail off the window's width first.)
  */
 export function pageMinFor(fontSize: number, pageWidthCh = 70): number {
-  return proseMinFor(fontSize, pageWidthCh) + PAGE_PADDING
+  return proseMinFor(fontSize, pageWidthCh) + PAGE_PADDING + SHEET_MARGINS
 }
 
 /**
