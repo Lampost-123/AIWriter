@@ -4374,6 +4374,55 @@ same size).
   `tests/e2e/editorChat.spec.ts` (where_is and a pack, each a row in plain words); the fake chat model calls where_is,
   who_knows and load_instructions on set words (`tests/fake-provider/m4/ask.mjs`).
 
+## Adam's own words as the voice sample (overhaul, 2026-10-19)
+
+The sample passage is empty unless Adam fills it, and "Write a sample for me" has the model write it, so the writer
+copied its own voice; the previous scene's end and the scenes before are mostly AI drafts too, so the voice drifted
+towards the average. Few-shot examples from the author's own writing beat none (EMNLP 2025).
+
+- **Which words are his** (`style/ownWords.ts` `readParagraphs`, SQL in `db/ownWords.ts`): every text an AI wrote for a
+  scene is kept: the replies of its `draft`, `beat`, `edit`, `polish` and `chapter` records (`PROSE_JOBS`; never the
+  memory's or the checks', which quote his words) and the editor chat's text and passage proposals for it not turned
+  down (`chatTexts`, from `params.proposals`). A paragraph of the scene as it stands is his when under a quarter of its
+  four-word runs are found in them and no sentence of six words or more is 60% found (so one AI sentence left as it was
+  rules the paragraph out); under four words, when its words don't stand together in them. A scene with no AI record is
+  all his (typed, dictated, imported). Limits: text pasted from elsewhere or written with another AI counts as his; an AI
+  rewrite he turned down that kept many of his words can rule his paragraph out (the safe way round); the sample world's
+  scenes never count (`isSampleWorld`).
+- **The scenes read** (`style/ownWriting.ts`): those before the scene on its line, nearest first, then its story's later
+  scenes, at most `MOST_SCENES` (40) or `MOST_WORDS`; never the scene being written (its words are in the briefing, and
+  the sample, in the system message, stays the same while he works on it, for the cache). Each scene's reading is kept
+  (per world, `MOST_KEPT`) until its words' hash or its AI records' mark (`proseMarks`, `chatTexts`) change.
+- **The sample** (`pickOwnSample`, `OWN_SAMPLE` in `shared/ownSample.ts`): about 400 words (never over 500) in stretches
+  of at most 220 from one scene, one stretch a scene first, nearest first, each the run of his paragraphs with both
+  dialogue and narration where there is one, a long paragraph cut at a sentence end; then more while short; then a line
+  of dialogue or a paragraph of narration if it has none. Under 150 words of his own: null, and the writer goes on as
+  before. Block 1's "Sample passage" then says "These passages are the author's own writing, from the story so far",
+  each stretch in its own quotes (`ai/prompts.ts` `ownSampleText`; short form: the first, trimmed), in place of the style
+  guide's. About 120 words of it (`echoOf`: the first stretch with dialogue and narration) come again as the last part
+  before the closing instruction, "Sound like this" (`SOUND_BLOCK`, priority 2, `soundLikeText`, after what must stay
+  true in `SEND_ORDER` and `prepareContext`).
+- **The switch** (`WritingPrefs.ownSample`, `ownSampleOn`, `ownSamplePref`): "Use my own writing as the sample". Left
+  out: on while the sample passage in effect is empty; true: also over a sample passage; false: never. On the Style
+  guide screen under the sample passage (`style/OwnSampleSwitch.tsx`: shows what applies to the sample there; turned on
+  under a filled one it saves true) and in Settings › My writing preferences (on or never), and in Find a setting.
+- **What the AI saw** (`ContextBlock.ownWriting`: words and where from; `ownWritingNote`): the instructions part is
+  tagged "Your own writing" and says "The sample passage is your own writing: 412 words from Ch 3, Sc 2 and Ch 1, Sc 4.
+  Nothing the AI wrote unchanged is in it."; Sound like this says it is his words again. The Context tab says the same.
+- **How they sound, from their lines** (`style/voiceMarks.ts`, `ContextInput.voiceMarks`): each character's lines in the
+  scenes read (`checks/speakers.ts` `spokenLines`, with the rest of the same speech in that paragraph; and the memory
+  keeper's sample lines the scenes read lack, his own when he set them), his own lines alone when he wrote at least 3
+  lines and 20 words of theirs, else all. Cheap marks: sentence length (short ≤ 6, long ≥ 16 words), line length, no
+  contractions, a dropped g, what they call people (a word set off by a comma at a sentence's start or end: "girl", "my
+  lord", "Captain", another's other name), swearing, up to two words or pairs they use three (four) times as often as
+  everyone else, questions, exclamations, trailing or breaking off, please never or often; at most five. One line each
+  for those in the scene, under the profiles' lines in "How they sound": "How their lines so far read (the author's own
+  lines where there are enough):" then "- Bryn: short sentences (about 4 words); calls people "girl"; often says "aye"."
+  The lines themselves are never sent.
+- **Tests**: `style/ownWords.test.ts`, `style/voiceMarks.test.ts`, `style/ownWriting.test.ts` (in a world: records,
+  chat proposals, the cache, the briefing and the switch), `ai/ownVoice.test.ts`, `shared/ownSample.test.ts`, and the
+  Style guide e2e (`genres.spec.ts`).
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

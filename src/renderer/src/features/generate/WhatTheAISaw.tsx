@@ -8,6 +8,7 @@ import type { ContextBlock, GenerationRecord, ID, MemoryTag } from '@shared/type
 import { countMemoryTags } from '@shared/memoryTags'
 import { KIND_LABELS } from '@shared/fields'
 import { countWords } from '@shared/defaults'
+import { ownWritingNote } from '@shared/ownSample'
 import { Button, Card, Notice, SectionTitle, toast } from '@/components/ui'
 import { api, modKey, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
@@ -675,6 +676,8 @@ function BlockRow({
 }): React.JSX.Element {
   const navigate = useApp((s) => s.navigate)
   const linked = block.entryIds.map((id) => entries.get(id)).filter((e): e is Entry => !!e)
+  // The sample passage is Adam's own writing (2026-10-19), and some of it again just before the AI writes.
+  const own = ownWritingNote(block)
   return (
     <div className={cn('aisaw-block overflow-hidden rounded-xl border border-line bg-surface transition-colors duration-150', block.dropped && 'bg-surface-2/60')} data-dropped={block.dropped || undefined}>
       <button
@@ -694,6 +697,11 @@ function BlockRow({
           {number ?? '–'}
         </span>
         <span className={cn('min-w-0 flex-1 truncate text-[13.5px] font-medium', block.dropped ? 'text-faint' : 'text-fg')}>{block.title}</span>
+        {!block.dropped && own ? (
+          <span className="shrink-0 text-[12px] font-medium text-muted" title={own}>
+            Your own writing
+          </span>
+        ) : null}
         {!block.dropped && blockTagNote(block.memory) ? (
           <span className="shrink-0 text-[12px] font-medium text-ai" title="Some of what this part told the AI was a guess or out of date. Open it to see which.">
             {blockTagNote(block.memory)}
@@ -721,6 +729,7 @@ function BlockRow({
             </div>
           ) : null}
           {block.memory?.length ? <RestsOn tags={block.memory} /> : null}
+          {own ? <p className="mb-3 text-[12.5px] leading-relaxed text-muted">{own}</p> : null}
           <BlockText text={block.text} />
         </div>
       ) : null}

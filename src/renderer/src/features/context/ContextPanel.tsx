@@ -6,6 +6,7 @@ import * as M from '@radix-ui/react-dropdown-menu'
 import { Check, ChevronRight, EyeOff, MoreHorizontal, Pin, PinOff, Undo2 } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { KIND_LABELS } from '@shared/fields'
+import { ownWritingNote } from '@shared/ownSample'
 import type { BlockMode, ContextBlock, ContextEntry, ContextPreview, Entry, ID, PinScope } from '@shared/types'
 import { Button, Notice, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -477,6 +478,7 @@ function BlockRow({
       {open ? (
         <div id={bodyId} className="flex flex-col gap-3 border-t border-line px-3 pb-3 pt-2.5">
           <p className="text-[12px] leading-relaxed text-faint">{blockStateNote(block)}</p>
+          {ownWritingNote(block) ? <p className="text-[12px] leading-relaxed text-muted">{ownWritingNote(block)}</p> : null}
           {block.hasShort ? (
             <div className="flex flex-col gap-1">
               <Segmented value={mode} onChange={onMode} options={MODE_OPTIONS} label={`How “${block.title}” is sent`} className="w-full" />

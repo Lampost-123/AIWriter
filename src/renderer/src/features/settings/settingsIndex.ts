@@ -54,7 +54,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         id: 'preferences',
         label: 'My writing preferences',
         blurb: 'Your own defaults, used in every world. Each world can change them.',
-        finds: ['Point of view', 'Tense', 'Spelling', 'UK or US', 'How the prose should sound', 'Style', 'Genre', 'Writing style']
+        finds: ['Point of view', 'Tense', 'Spelling', 'UK or US', 'How the prose should sound', 'Style', 'Genre', 'Writing style', 'Use my own writing as the sample', 'Sample passage', 'My own writing']
       },
       {
         id: 'editor',

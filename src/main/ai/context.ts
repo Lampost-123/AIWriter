@@ -96,7 +96,10 @@ import { FIELD_GROUPS, KIND_LABELS, type FieldGroup } from '@shared/fields'
 import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { sameWhen, stateText, type SceneState } from '@shared/continuity'
-import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
+import { finalInstruction, indentMore, instructionsText, soundLikeText, trimPassage, type FinalOptions } from './prompts'
+import { SOUND_BLOCK } from '@shared/ownSample'
+import { echoOf, sampleFrom, wordsOf as wordsIn, type OwnSample } from '../style/ownWords'
+import type { VoiceMark } from '../style/voiceMarks'
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost, openThreadsShort, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
@@ -233,6 +236,17 @@ export interface ContextInput {
    * Null or left out: no brief (switched off, no plan, or it said nothing), exactly as before.
    */
   brief?: ContinuityBrief | null
+  /**
+   * Adam's own writing as the voice sample (style/ownWriting.ts, 2026-10-19), in place of the style guide's sample
+   * passage, with about OWN_SAMPLE.echo words of it said again right above the closing instruction ("Sound like this").
+   * Null or left out: the style guide's sample passage, if any, as before.
+   */
+  ownSample?: OwnSample | null
+  /**
+   * How each character's lines so far read (style/voiceMarks.ts), Adam's own lines first, by entry id: one compact line
+   * each for those in the scene, in "How they sound". Left out or empty: none.
+   */
+  voiceMarks?: Record<ID, VoiceMark>
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -303,6 +317,8 @@ export interface BlockDraft {
    */
   smaller: string[]
   entryIds: ID[]
+  /** The block holds Adam's own writing as the voice sample (ContextBlock.ownWriting), and how much of it its short form keeps. */
+  ownWriting?: { words: number; from: string[]; short?: { words: number; from: string[] } }
 }
 
 /** Every form of a block, longest first: full, short, then any smaller ones. */
@@ -792,14 +808,27 @@ export const VOICES_BLOCK = { id: 'voices', priority: 3, title: 'How they sound'
 export const VOICE_WORDS = 35
 const VOICES_LEAD = 'Keep each voice distinct in every line they speak:'
 
-function voicesText(people: EntryState[]): string {
+/**
+ * The lead of the lines read from what each person has said so far (style/voiceMarks.ts, 2026-10-19), under their
+ * profiles' lines: Adam's own lines where he has written enough of someone's.
+ */
+export const MARKS_LEAD = "How their lines so far read (the author's own lines where there are enough):"
+
+function voicesText(people: EntryState[], marks: Record<ID, VoiceMark> = {}): string {
   const lines = people.flatMap((e) => {
     const field = (key: string): string => clean(e.fields?.[key]).replace(/\s+/g, ' ').replace(/[.;,\s]+$/, '')
     const parts = [field('speech'), field('tics') && `verbal tics: ${field('tics')}`, field('neverSays') && `never says: ${field('neverSays')}`]
     const said = parts.filter(Boolean).join('; ')
     return said ? [`- ${e.name}: ${openingSentences(`${said}.`, VOICE_WORDS)}`] : []
   })
-  return lines.length ? `${VOICES_LEAD}\n${lines.join('\n')}` : ''
+  const read = people.flatMap((e) => {
+    const m = clean(marks[e.id]?.text)
+    return m ? [`- ${e.name}: ${m}.`] : []
+  })
+  const parts: string[] = []
+  if (lines.length) parts.push(`${VOICES_LEAD}\n${lines.join('\n')}`)
+  if (read.length) parts.push(`${lines.length ? MARKS_LEAD : `${VOICES_LEAD.replace(/:$/, '.')} ${MARKS_LEAD}`}\n${read.join('\n')}`)
+  return parts.join('\n')
 }
 
 // ---------- Selection ----------
@@ -1724,14 +1753,29 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
   // 1 Instructions and style guide (short: the sample passage trimmed, one genre, the rules without the phrase
   // list). `add` keeps the short form only when it is actually shorter.
   const addBelow = !!input.options.addBelow
+  // Adam's own writing takes the place of the sample passage when gather picked some (style/ownWriting.ts).
+  const own = input.ownSample?.passages.length ? input.ownSample : null
   add(
     'instructions',
     1,
     'Instructions and style guide',
-    instructionsText(input.style, { addBelow }),
-    instructionsText(input.style, { trimSample: true, addBelow }),
+    instructionsText(input.style, { addBelow, ownSample: own }),
+    instructionsText(input.style, { trimSample: true, addBelow, ownSample: own }),
     []
   )
+  if (own) {
+    const b = blocks.find((x) => x.id === 'instructions')
+    const first = own.passages[0]
+    const shortWords = first ? wordsIn(trimPassage(first.text)).length : 0
+    if (b) b.ownWriting = { words: own.words, from: sampleFrom(own), short: { words: shortWords, from: [first?.where ?? ''].filter(Boolean) } }
+    // About OWN_SAMPLE.echo words of it again, right above the closing instruction (prepareContext puts it last).
+    const echo = echoOf(own)
+    if (echo) {
+      add(SOUND_BLOCK.id, 2, SOUND_BLOCK.title, soundLikeText(echo), null, [])
+      const s = blocks.find((x) => x.id === SOUND_BLOCK.id)
+      if (s) s.ownWriting = { words: echo.words, from: [echo.where].filter(Boolean) }
+    }
+  }
 
   // 2 Scene card and direction (no short form).
   add('scene-card', 2, 'Scene card', sceneCardText(input, sel), null, [])
@@ -1908,8 +1952,12 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
     )
   }
 
-  // How the people in the scene sound, one line each, sent late (VOICES_BLOCK); only when someone here has a voice profile.
-  const voices = voicesText([sel.pov, ...present].filter((e): e is EntryState => !!e && e.kind === 'character'))
+  // How the people in the scene sound, one line each, sent late (VOICES_BLOCK); only when someone here has a voice profile
+  // or lines enough to read how they talk (voiceMarks).
+  const voices = voicesText(
+    [sel.pov, ...present].filter((e): e is EntryState => !!e && e.kind === 'character'),
+    input.voiceMarks
+  )
   if (voices) add(VOICES_BLOCK.id, VOICES_BLOCK.priority, VOICES_BLOCK.title, voices, null, [])
 
   // 6 Relationships among those present (the spec gives it no short form: "these are short").
@@ -2179,7 +2227,9 @@ export const SEND_ORDER = [
   'continuity',
   // The scene's contract (fix 13): what this draft must keep to and bring about, right above what must stay true.
   CONTRACT_BLOCK.id,
-  MUST_BLOCK
+  MUST_BLOCK,
+  // Some of Adam's own words again (2026-10-19), right above the closing instruction.
+  SOUND_BLOCK.id
 ]
 const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
   const i = SEND_ORDER.indexOf(b.id)
@@ -2258,9 +2308,10 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
   for (const b of extras.extraBlocks ?? []) {
     if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
   }
-  // Where things stand goes last, after the scene so far too, then the scene's contract and what must stay true, right
-  // above the closing instruction; the plan, if any, after that (finishContext sends it after the closing instruction).
-  for (const id of [LEFT_HERE_BLOCK.id, 'continuity', CONTRACT_BLOCK.id, MUST_BLOCK]) {
+  // Where things stand goes last, after the scene so far too, then the scene's contract and what must stay true, then
+  // Adam's own words again ("Sound like this"), right above the closing instruction; the plan, if any, after that
+  // (finishContext sends it after the closing instruction).
+  for (const id of [LEFT_HERE_BLOCK.id, 'continuity', CONTRACT_BLOCK.id, MUST_BLOCK, SOUND_BLOCK.id]) {
     const at = blocks.findIndex((b) => b.id === id)
     if (at >= 0) blocks.push(...blocks.splice(at, 1))
   }
@@ -2571,7 +2622,8 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       mode: s.mode,
       // Short because the continuity brief says what of it matters, not for room (any shorter is for room).
       ...(s.forBrief && !s.dropped && s.level === s.min ? { shortFor: 'brief' as const } : {}),
-      ...(memory ? { memory } : {})
+      ...(memory ? { memory } : {}),
+      ...(s.b.ownWriting ? { ownWriting: ownWritingSent(s.b.ownWriting, s.level > 0) } : {})
     }
   })
   const sent = blocks.filter((b) => !b.dropped)
@@ -2589,6 +2641,12 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     { role: 'user', content: user, ...(cacheUpTo ? { cacheUpTo } : {}) }
   ]
   return { blocks, budget: { ...budget, used: measure() }, messages, knows: prepared.knows, entries: prepared.entries }
+}
+
+/** How much of Adam's own writing a block sent holds: its short form keeps less. */
+function ownWritingSent(own: NonNullable<BlockDraft['ownWriting']>, short: boolean): { words: number; from: string[] } {
+  const sent = short && own.short ? own.short : own
+  return { words: sent.words, from: sent.from }
 }
 
 /** The blocks that carry the story's own words, whole: the scene so far (and what comes after an earlier beat), the end of the previous scene, the scenes before. */
