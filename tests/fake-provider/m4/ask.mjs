@@ -58,6 +58,9 @@ export function askReply(system, messages, model) {
   const cited = names.map((n) => `[[${n}]]`)
   const who =
     cited.length > 1 ? `${cited.slice(0, -1).join(', ')} and ${cited[cited.length - 1]}` : (cited[0] ?? 'nothing in the memory yet')
+  // The sloppy models (see SLOPPY below): a change asked for is claimed in words, made or not.
+  const sloppy = sloppyWords(model, question, names, messages)
+  if (sloppy !== null) return sloppy
   // A model that claims changes it never proposed (the app must say nothing came with the answer).
   if (/\bpretend\b/i.test(question))
     return proposed ? 'I proposed a tidier opening line.' : 'I’ve tidied up the opening. Apply the changes below when you’re ready.'
@@ -126,8 +129,11 @@ export function askReply(system, messages, model) {
  *   load_instructions  "how does the memory work" / "explain the memory": the explain-memory pack, then words
  * Only the words he typed count for these (not a selection quoted above them). A forced tool_choice is obeyed.
  */
-export function askToolCalls(system, messages, tools, toolChoice) {
+export function askToolCalls(system, messages, tools, toolChoice, model = '') {
   if (!system.startsWith(MARKER) || !Array.isArray(tools) || !tools.length) return null
+  // The sloppy models (see SLOPPY below) decide for themselves, forced or not.
+  const sloppy = sloppyCalls(model, system, messages, tools, toolChoice)
+  if (sloppy !== undefined) return sloppy
   const calls = scriptedCalls(system, messages, tools)
   // A request that forces a tool (tool_choice, the chat overhaul's TOOLCHOICE switch) gets that tool, as a real API
   // would insist; "required" with nothing scripted asks the writer (ask_user) when it is offered.
@@ -466,4 +472,98 @@ function legacyCalls(question, nudged, { toolResults, tools, seen, mustRead, fre
     return [{ name: 'propose_edit', arguments: change }]
   }
   return null
+}
+
+// ---------- The sloppy models (Adam, 2026-10-19: the chat claimed changes it never made) ----------
+// Each says in words that it made a change it was asked for; what it does with the tools differs (plumbing for the
+// truth check, src/shared/askTruth.ts; never a score):
+//   fake/claims               answers a change with a claim and no tool call; once the app sends a note back ("Your
+//                             answer gives…") or forces a tool (tool_choice), it makes the change properly: an entry
+//                             change (the first entry the question names, its eyes) when the question is about an
+//                             entry, else the open scene's first sentence in capitals (read first when it must)
+//   fake/claims-stubborn      claims, and never calls a tool, forced or not
+//   fake/claims-no-toolchoice as fake/claims, but the server turns tool_choice down (400 naming it), so it is never
+//                             forced, and goes on claiming after a note too
+//   fake/bad-proposal         proposes an edit of words that aren't in the scene each time it may call a tool (forced
+//                             too), then claims "I've fixed the first sentence."
+//   fake/bad-field            proposes an entry change with a field the entry hasn't got ("Favourite colour"); told the
+//                             fields, it proposes again with `eyes`, then says what it did
+//   fake/sloppy               every other change asked for (a question of even length) as fake/claims, else as fake/chat
+const SLOPPY = new Set(['fake/claims', 'fake/claims-stubborn', 'fake/claims-no-toolchoice', 'fake/bad-proposal', 'fake/bad-field', 'fake/sloppy'])
+
+const CHANGE =
+  /\b(fix|tighten|change|make|push|cut|add|update|rename|rewrite|shorten|drags|punch|sort|angrier|harder|flat|darker|trim|edit|revise|polish|improve|redo|swap|replace|move|set|lengthen|expand|sharpen|reword|rephrase|do it|do that|go ahead|option \d)\b|^yes\b/i
+const ENTRYISH = /\b(entry|memory|codex|eyes?|eye colou?r|hair)\b/i
+
+/** Adam's question: the last user message that isn't the app's own note. */
+const questionOf = (messages) =>
+  String([...messages].reverse().find((m) => m.role === 'user' && !String(m.content ?? '').startsWith('[AI Write, not the writer]'))?.content ?? '')
+/** What he typed, after a quoted selection, lower case. */
+const typedOf = (q) => {
+  const l = q.toLowerCase()
+  return l.startsWith('about this passage:') ? l.slice(l.lastIndexOf('\n\n') + 2) : l
+}
+
+/** Whether this model is sloppy about this question. */
+function sloppyOn(model, question) {
+  if (!SLOPPY.has(model)) return false
+  const typed = typedOf(question).trim()
+  if (!CHANGE.test(typed)) return false
+  return model !== 'fake/sloppy' || typed.length % 2 === 0
+}
+
+const notedBack = (messages) =>
+  messages.some((m) => m.role === 'user' && String(m.content ?? '').startsWith('[AI Write, not the writer] Your answer gives'))
+const proposedIn = (messages) => messages.some((m) => m.role === 'tool' && /^Proposed to the writer/.test(String(m.content ?? '')))
+
+/** The first entry the briefing says the question names, or null. */
+const namedEntry = (system) => headed([...sections(system)].find(([title]) => title.startsWith('Named '))?.[1])[0] ?? null
+
+/** One change: an item of propose_changes where it is offered, else its own propose_ tool. */
+function proposeCall(tools, change) {
+  if (offered(tools, 'propose_changes')) return changesCall(tools, [change])
+  const { kind, ...rest } = change
+  return { name: kind === 'entry' ? 'propose_entry_change' : 'propose_edit', arguments: rest }
+}
+
+/** A sloppy model's tool calls: the calls, null to answer in words, or undefined when it isn't being sloppy here. */
+function sloppyCalls(model, system, messages, tools, toolChoice) {
+  const question = questionOf(messages)
+  if (!sloppyOn(model, question)) return undefined
+  const forced = typeof toolChoice === 'object' && toolChoice?.function?.name ? toolChoice.function.name : toolChoice === 'required' ? 'required' : null
+  const last = messages[messages.length - 1]
+  const results = messages.filter((m) => m.role === 'tool').map((m) => String(m.content ?? ''))
+  if (model === 'fake/claims-stubborn') return null
+  if (model === 'fake/bad-proposal') {
+    if (last?.role === 'tool') return null
+    return [proposeCall(tools, { kind: 'edit', find: 'The lighthouse keeper sang to the gulls.', replace: 'The lighthouse keeper SANG to the gulls.', why: 'Livelier.' })]
+  }
+  if (model === 'fake/bad-field') {
+    const name = namedEntry(system) ?? 'Mara'
+    if (results.some((r) => /Proposed to the writer/.test(r))) return null
+    if (results.some((r) => /isn['’]t one of/.test(r))) return [proposeCall(tools, { kind: 'entry', name, fields: { eyes: 'green' }, why: 'As asked.' })]
+    return [proposeCall(tools, { kind: 'entry', name, fields: { 'Favourite colour': 'green' }, why: 'As asked.' })]
+  }
+  // fake/claims, fake/claims-no-toolchoice, fake/sloppy: a claim in words until told, or made to call a tool.
+  if (!forced && (model === 'fake/claims-no-toolchoice' || !notedBack(messages))) return null
+  if (proposedIn(messages)) return null
+  const name = ENTRYISH.test(typedOf(question)) ? namedEntry(system) : null
+  if (name) return [proposeCall(tools, { kind: 'entry', name, fields: { eyes: 'green' }, why: 'As asked.' })]
+  const read = [...results].reverse().find((c) => /\nText(?: \([^)\n]*\))?:\n/.test(c))
+  const seen = read ?? pageWords(system)
+  if (!seen) return [{ name: 'read_scene', arguments: {} }]
+  const first = firstSentence(seen)
+  if (!first) return null
+  return [proposeCall(tools, { kind: 'edit', find: first, replace: first.replace(/\s+/g, ' ').toUpperCase(), why: 'As asked.' })]
+}
+
+/** A sloppy model's words: a claim of the change asked for, made or not; null when it isn't being sloppy here. */
+function sloppyWords(model, question, names, messages) {
+  if (!sloppyOn(model, question)) return null
+  const who = names[0] ?? 'Mara'
+  const entry = model === 'fake/bad-field' || ENTRYISH.test(typedOf(question))
+  if (proposedIn(messages)) return entry ? `I’ve updated ${who}’s entry: the eyes are green now.` : 'I’ve proposed the change: it’s ready to apply.'
+  if (model === 'fake/bad-proposal') return 'I’ve fixed the first sentence. Apply the change when you’re ready.'
+  if (entry) return `I’ve updated ${who}’s entry: the eyes are green now.`
+  return 'I’ve tightened the opening line for you. The change is ready to apply.'
 }
