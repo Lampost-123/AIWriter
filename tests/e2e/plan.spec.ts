@@ -75,7 +75,11 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
     const again = await draft(win, next.id)
     expect(again.blocks.find((b) => b.id === 'plan')).toBeUndefined()
     expect(again.blocks.find((b) => b.id === 'must-stay-true')?.text).toContain('- Mara: No left hand')
-    expect(again.messages.find((m) => m.role === 'user')!.content.trimEnd().endsWith('- Never contradict the facts given above.')).toBe(true)
+    // The closing instruction is last, with no notes after it.
+    const plain = again.messages.find((m) => m.role === 'user')!.content
+    expect(plain).toContain('Write the scene now.')
+    expect(plain).not.toContain('My notes before I write')
+    expect(plain.trimEnd().endsWith('Now the prose itself:')).toBe(false)
   } finally {
     await fake.close()
   }

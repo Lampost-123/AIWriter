@@ -371,7 +371,7 @@ describe('"not known by" never the person the fact is about', () => {
 describe('no stock phrase named in the writer prompt', () => {
   it('the craft rule says what to do, the AI-phrase rules name none', () => {
     const text = instructionsText(defaultStyleGuide())
-    expect(text).toContain('show feeling through what someone does or says')
+    expect(text).toContain('Show feeling through what someone does or says')
     expect(text).not.toContain("a breath someone didn't know they were holding")
     expect(text).not.toContain('Never use stock phrases like these')
     // Adam's own words to avoid stay.

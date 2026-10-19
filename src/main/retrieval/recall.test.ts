@@ -278,8 +278,11 @@ describe('a small model gives step 5 a share of its room, and loses nothing more
         expect({ length, id, dropped: now?.dropped }).toEqual({ length, id, dropped: false })
         if (spareRoom) expect({ length, id, kept: now!.text.length >= was.text.length }).toEqual({ length, id, kept: true })
       }
-      // With a little room, what was said gets in (short), where it used to wait for room left over.
-      if (length >= 10_000) expect(b.blocks.find((x) => x.id === 'said')?.dropped).toBe(false)
+      // With a little room, step 5 gets in, where it used to wait for room left over. Since the writing instructions
+      // overhaul (2026-10-19) block 1 is about 80 tokens smaller, so at 10,000 the setting (more important) keeps its full
+      // form and step 5's share holds the entries recalled; what was said follows with a little more room.
+      if (length >= 10_000) expect(b.blocks.some((x) => isRecallBlock(x.id) && !x.dropped)).toBe(true)
+      if (length >= 14_000) expect(b.blocks.find((x) => x.id === 'said')?.dropped).toBe(false)
     }
   })
 })

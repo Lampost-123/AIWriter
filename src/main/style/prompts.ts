@@ -82,7 +82,7 @@ export const POLISH_SAMPLING = { temperature: 0.6, topP: 0.9 } as const
 export const POLISH_CHECKS = [
   'Clichés and stock phrases: replace each with something particular to this scene, or cut it.',
   "Needless explaining: cut lines that tell the reader what the scene already shows, and any closing summary or moral.",
-  'Purple prose: prefer plain, exact words to ornate ones; trim stacked adjectives and strained metaphors.',
+  'Purple prose: trim stacked adjectives and strained metaphors, and prefer plain, exact words to ornate ones unless the style guide asks for richer prose.',
   'Flat or repetitive sentence patterns: vary sentence length and openings, and break up runs of sentences built the same way.',
   'Vague detail: swap general words for concrete ones the point-of-view character would actually notice.',
   'Odd word choice: fix words that are wrong, strained, repeated too closely or out of keeping with the voice.',

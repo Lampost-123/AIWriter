@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { defaultStyleGuide } from '@shared/defaults'
 import { cleanGenres, genreLabel, GENRES, MAX_GENRES } from '@shared/genres'
 import { cleanIntensity, INTENSITY, intensityHigh, intensityLines } from '@shared/intensity'
-import { PROMPT_SLOP, SLOP_RULES } from '@shared/slop'
+import { PLAIN_RULE, PROMPT_SLOP, SLOP_RULES } from '@shared/slop'
+import { stylePresetById, withPreset } from '@shared/stylePresets'
 import { effectiveStyle } from '@shared/style'
 import type { StyleGuide, WritingPrefs } from '@shared/types'
 import { getEncoding } from 'js-tiktoken'
-import { aiPhrasesText, avoidLine, contentText, feelLine, finalInstruction, genreText, instructionsText, sexSceneText } from './prompts'
+import { aiPhrasesText, asksForRichProse, avoidLine, contentText, feelLine, finalInstruction, genreText, instructionsText, sexSceneText, writerInstructions } from './prompts'
 
 const prefs = (p: Partial<WritingPrefs> = {}): WritingPrefs => ({ spelling: 'UK', pov: 'Close third person', tense: 'Past tense', voiceNotes: '', avoidWords: [], ...p })
 const guide = (g: Partial<StyleGuide> = {}): StyleGuide => ({ ...defaultStyleGuide(), ...g })
@@ -122,13 +123,23 @@ describe('the genre and feel in the writer instructions', () => {
     // Nor does the craft rule list clichés by example: it says what to do instead.
     const prompt = instructionsText(guide())
     expect(prompt).not.toContain("a breath someone didn't know they were holding")
-    expect(prompt).toContain('show feeling through what someone does or says')
+    expect(prompt).toContain('Show feeling through what someone does or says')
   })
 
   it('leaves the AI phrasing rules out when I turn them off, or for jobs that write no prose', () => {
-    expect(instructionsText({ ...guide(), avoidAiPhrases: false })).not.toContain('Write like a person')
+    // The writer's own rules carry them, merged (the overhaul, 2026-10-19); other jobs get them as their own list.
+    const on = instructionsText(guide())
+    const off = instructionsText({ ...guide(), avoidAiPhrases: false })
+    expect(on).toContain(`avoid "it wasn't X, it was Y" and lists of three adjectives`)
+    expect(on).toContain(PLAIN_RULE)
+    expect(off).not.toContain(`it wasn't X, it was Y`)
+    expect(off).not.toContain(PLAIN_RULE)
+    // The craft itself stays either way.
+    for (const t of [on, off]) expect(t).toContain('Show feeling through what someone does or says')
+    expect(on).not.toContain('Write like a person')
     expect(instructionsText(guide(), { intro: 'Answer questions.', proseRules: false })).not.toContain('Write like a person')
-    expect(instructionsText(guide())).toContain('Write like a person')
+    expect(instructionsText(guide(), { intro: 'Revise it.' })).toContain('Write like a person')
+    expect(instructionsText({ ...guide(), avoidAiPhrases: false }, { intro: 'Revise it.' })).not.toContain('Write like a person')
   })
 
   it('grows block 1 by about 550 tokens at most (a blend, all three content levels, the AI phrases), and much less in its short form', () => {
@@ -137,7 +148,8 @@ describe('the genre and feel in the writer instructions', () => {
     const plain = { ...guide({ pov: 'Close third person', tense: 'Past tense' }), avoidAiPhrases: false }
     const feel = { ...plain, genres: ['fantasy', 'romance'], intensity: { romance: 2, violence: 3, language: 2 } as StyleGuide['intensity'], avoidAiPhrases: true }
     const grow = estimateTokens(instructionsText(feel)) - estimateTokens(instructionsText(plain))
-    expect(grow).toBeGreaterThan(350)
+    // The AI phrases are two clauses of the writer's own rules since the overhaul, not a list of six.
+    expect(grow).toBeGreaterThan(250)
     expect(grow).toBeLessThan(600)
     const growShort = estimateTokens(instructionsText(feel, { trimSample: true })) - estimateTokens(instructionsText(plain, { trimSample: true }))
     expect(growShort).toBeLessThan(350)
@@ -201,5 +213,102 @@ describe('speech in quote marks', () => {
     expect(instructionsText(guide())).toContain('Put everything said aloud in quote marks, whoever or whatever says it')
     expect(instructionsText(guide(), { trimSample: true })).not.toContain('Put everything said aloud')
     expect(instructionsText(guide(), { proseRules: false })).not.toContain('Put everything said aloud')
+  })
+})
+
+// ---------- The writing instructions overhaul (2026-10-19) ----------
+
+describe("the writer's rules, each said once", () => {
+  const epic = stylePresetById('epic-fantasy')!
+  const style = { ...withPreset(guide(), epic), pov: 'Close third person', tense: 'Past tense', spelling: 'UK' as const, avoidPhrases: ['suddenly', 'a beat'], avoidAiPhrases: true }
+  const rules = (text: string): string[] => text.split('\n\n').find((p) => /^How to (write|carry)/.test(p))!.split('\n').filter((l) => l.startsWith('- '))
+  const times = (text: string, words: string): number => text.split(words).length - 1
+
+  it('merges the craft rules and the rules against AI phrasing into about ten', () => {
+    const text = instructionsText(style)
+    expect(rules(text)).toHaveLength(10)
+    expect(text).not.toContain('Write like a person, not like an AI')
+    // Each meaning once: feeling, explaining, sentences, the ending, the facts, the format, the point of view.
+    expect(times(text, 'body reactions')).toBe(1)
+    expect(times(text, "don't explain")).toBe(1)
+    expect(times(text, 'Vary sentence')).toBe(1)
+    expect(times(text, 'sums up')).toBe(1)
+    expect(times(text, 'contradict')).toBe(1)
+    expect(times(text, '*asterisks*')).toBe(1)
+    expect(times(text, 'point of view the style guide sets')).toBe(1)
+    // What must stay: the point of view, the tense, the format, canon, the words to avoid.
+    expect(text).toContain('- Point of view: Close third person')
+    expect(text).toContain('- Tense: Past tense')
+    expect(text).toContain('wrap them in single *asterisks*')
+    expect(text).toContain("Never contradict it or break the world's rules")
+    expect(text).toContain('Keep every name, title and spelling exactly as given.')
+    expect(text).toContain('Words and phrases to avoid\nNever use any of these:\n- suddenly\n- a beat')
+    // Add below keeps its own rules, with the same craft after them.
+    const add = instructionsText(style, { addBelow: true })
+    expect(rules(add)).toHaveLength(13)
+    expect(times(add, 'body reactions')).toBe(1)
+    expect(add).toContain('never stop on a line that sums up or looks ahead')
+  })
+
+  it('wants and pushing against each other happen within the planned events, not as new ones', () => {
+    expect(writerInstructions('Close third person')).toContain(
+      'Tension comes from what the characters want and how they push against each other within those events, not from new ones.'
+    )
+    expect(writerInstructions('Close third person', true)).toContain('Invent no new events of your own')
+  })
+})
+
+describe('the style guide outranks the plain-word rules', () => {
+  it('says so first, and keeps the plain-word rule only where the prose style doesn’t ask for rich prose', () => {
+    const lead = 'Where the style guide or the sample passage below asks for a different style, follow it over these rules.'
+    const plain = instructionsText({ ...guide(), proseStyle: 'Measured, textured prose.' })
+    expect(plain).toContain(`How to write the scene\n${lead}`)
+    expect(plain).toContain(PLAIN_RULE)
+    expect(PLAIN_RULE).toContain('unless the style guide asks for richer prose')
+    for (const id of ['lyrical-literary', 'spicy-romantasy', 'steamy-romance']) {
+      const preset = stylePresetById(id)!
+      expect(asksForRichProse(preset.style.proseStyle), id).toBe(true)
+      expect(instructionsText(withPreset(guide(), preset)), id).not.toContain(PLAIN_RULE)
+      expect(aiPhrasesText(preset.style.proseStyle), id).not.toContain(PLAIN_RULE)
+    }
+    for (const id of ['epic-fantasy', 'spare-minimalist', 'pacy-thriller']) expect(asksForRichProse(stylePresetById(id)!.style.proseStyle), id).toBe(false)
+    expect(aiPhrasesText()).toContain(PLAIN_RULE)
+  })
+})
+
+describe("Generate's closing instruction", () => {
+  const base = { targetWords: 1500, style: guide({ pov: 'Close third person', tense: 'Past tense', spelling: 'UK' }), hasBeats: true, hasPrevious: true, hasDirection: false }
+
+  it("opens with the scene's point and two craft priorities, and keeps the beats with the goal, conflict and outcome", () => {
+    const text = finalInstruction({
+      ...base,
+      hasGoal: true,
+      hasOutcome: true,
+      point: { pov: 'Wren Hollis', goal: 'Get the case across the river.', conflict: 'The ferryman wants a toll', outcome: 'She trades the compass' }
+    })
+    expect(text).toMatch(
+      /^Write the scene now\.\nThe scene's point: what Wren Hollis wants here, what stands against it, and how it turns\.\nWants: Get the case across the river\.\nAgainst it: The ferryman wants a toll\.\nHow it turns: She trades the compass\.\n\n- Play it out moment by moment/
+    )
+    expect(text).toContain('- Make it particular:')
+    expect(text).toContain('- Hit every beat on the scene card, in order, and let them carry the goal, the conflict and the outcome.')
+    expect(text).toContain('- Aim for about 1,500 words.')
+    expect(text).toContain("- Continue seamlessly from where the previous scene ends. Don't repeat or recap it.")
+  })
+
+  it('asks for the point in general terms when the card gives none', () => {
+    const text = finalInstruction(base)
+    expect(text).toContain("First find the scene's point: what the point-of-view character wants here, what stands against it, and how it turns by the end.")
+    expect(text).toContain('- Hit every beat on the scene card, in order.')
+  })
+
+  it('no longer says again what the system prompt and what must stay true say', () => {
+    const text = finalInstruction(base)
+    expect(text).not.toContain('Prose only')
+    expect(text).not.toContain('Keep to close third person')
+    expect(text).not.toContain('Never contradict')
+    // Add below's closing is its own, as the writer lab left it.
+    const add = finalInstruction({ ...base, addBelow: true, direction: 'Ash comes back' })
+    expect(add).toContain('- Never contradict the facts given above.')
+    expect(add).not.toContain("The scene's point")
   })
 })

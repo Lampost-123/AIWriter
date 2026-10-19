@@ -43,6 +43,7 @@ import {
   FACTS_LABEL,
   MENTIONED_TITLE,
   SEND_ORDER,
+  VOICES_BLOCK,
   WHY
 } from './context'
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
@@ -649,7 +650,6 @@ describe('blocks', () => {
       ['setting', 7],
       ['story-so-far', 8],
       ['earlier-scenes', 8],
-      ['previous-scene', 3],
       ['threads', 7],
       ['pov', 4],
       ['present', 5],
@@ -657,6 +657,9 @@ describe('blocks', () => {
       ['ties', 11],
       ['mentioned', 9],
       ['knowledge', 6],
+      // Since the overhaul (2026-10-19): how they sound, then the end of the previous scene, right above the scene card.
+      ['voices', 3],
+      ['previous-scene', 3],
       ['scene-card', 2],
       ['must-stay-true', 2]
     ])
@@ -693,10 +696,12 @@ describe('blocks', () => {
     expect(block.text).toContain('UK English')
     expect(block.text).toContain('The river kept its own counsel.')
     expect(block.text).toContain('- suddenly')
-    expect(block.text).toContain('Write like a person, not like an AI')
-    // A short sample passage has nothing to trim: the short form only leaves out the list of AI phrases.
+    // The rules against AI phrasing are the writer's own, merged and each said once (the overhaul, 2026-10-19).
+    expect(block.text).toContain(`avoid "it wasn't X, it was Y" and lists of three adjectives`)
+    expect(block.text).not.toContain('Write like a person, not like an AI')
+    // A short sample passage has nothing to trim: the short form keeps the rules too.
     expect(block.short).toContain('The river kept its own counsel.')
-    expect(block.short).toContain('Write like a person, not like an AI')
+    expect(block.short).toContain(`avoid "it wasn't X, it was Y" and lists of three adjectives`)
     expect(block.short).not.toContain('Never use stock phrases like these')
 
     const sample = Array.from({ length: 40 }, (_, i) => `Sentence ${i} runs on a little.`).join(' ')
@@ -706,6 +711,36 @@ describe('blocks', () => {
     expect(long.short).not.toContain('Sentence 39')
     expect(long.short).toContain('- suddenly')
     expect(long.short!.length).toBeLessThan(long.text.length)
+  })
+
+  it('how they sound: one line each for those in the scene with a voice, sent right before the end of the previous scene (the overhaul)', () => {
+    const inp = input()
+    Object.assign(named(inp, 'Mara Venn').fields, { tics: 'Says "right" before bad news.', neverSays: 'Sorry.' })
+    const block = blockOf(inp, VOICES_BLOCK.id)!
+    expect(block).toMatchObject({ priority: 3, title: 'How they sound', short: null, entryIds: [] })
+    expect(block.text).toBe(
+      'Keep each voice distinct in every line they speak:\n- Mara Venn: Short, dry sentences; verbal tics: Says "right" before bad news; never says: Sorry.\n- Tobin: Rambling, warm.'
+    )
+    // Never the sample lines (a line copied word for word is a known fault), nor anything but the voice.
+    expect(block.text).not.toContain("I've had worse")
+    expect(block.text).not.toContain('Loyal to a fault')
+    // Sent late: after who knows what and the brief, then the end of the previous scene, then the scene card.
+    const ids = buildBlocks(inp).map((b) => b.id)
+    expect(ids.slice(ids.indexOf(VOICES_BLOCK.id), ids.indexOf('scene-card') + 1)).toEqual([VOICES_BLOCK.id, 'previous-scene', 'scene-card'])
+    expect(SEND_ORDER.indexOf('previous-scene')).toBe(SEND_ORDER.indexOf('scene-card') - 1)
+    expect(SEND_ORDER.indexOf(VOICES_BLOCK.id)).toBeGreaterThan(SEND_ORDER.indexOf(LEDGER_BLOCK.id))
+  })
+
+  it('how they sound: kept short, and left out when no one in the scene has a voice', () => {
+    const inp = input()
+    named(inp, 'Mara Venn').fields.speech = Array.from({ length: 12 }, (_, i) => `Clause ${i} of how she talks.`).join(' ')
+    const line = blockOf(inp, VOICES_BLOCK.id)!.text.split('\n')[1]
+    expect(line.split(/\s+/).length).toBeLessThan(40)
+    expect(line).toMatch(/^- Mara Venn: Clause 0 of how she talks\. .*\.$/)
+    const quiet = input()
+    delete named(quiet, 'Mara Venn').fields.speech
+    delete named(quiet, 'Tobin').fields.speech
+    expect(blockOf(quiet, VOICES_BLOCK.id)).toBeUndefined()
   })
 
   it('trims a passage at a sentence end near the length asked for', () => {
@@ -1365,8 +1400,8 @@ function counts(
  * (their own tests are below), so the numbers here stay simple.
  */
 function withoutMust(p: PreparedContext): PreparedContext {
-  // Who knows what (fix 9) too: it has its own tests.
-  const blocks = p.blocks.filter((b) => b.id !== MUST_BLOCK && b.id !== EARLIER_BLOCK.id && b.id !== LEDGER_BLOCK.id)
+  // Who knows what (fix 9) and how they sound (the overhaul) too: they have their own tests.
+  const blocks = p.blocks.filter((b) => b.id !== MUST_BLOCK && b.id !== EARLIER_BLOCK.id && b.id !== LEDGER_BLOCK.id && b.id !== VOICES_BLOCK.id)
   return { ...p, blocks, texts: [...blocks.flatMap((b) => formsOf(b).map((t) => blockAsSent(b, t))), p.finals.withPrevious, p.finals.withoutPrevious] }
 }
 
@@ -1600,7 +1635,8 @@ describe('fitting the briefing to the model', () => {
 
     const large = assembleContext(scene(128_000), countRaw)
     expect(large.blocks.filter((b) => b.dropped || b.short)).toEqual([])
-    expect(large.blocks).toHaveLength(15)
+    // How they sound (the overhaul) among them: Mara's profile says how she speaks.
+    expect(large.blocks).toHaveLength(16)
     expect(large.messages[1].content).toContain('## Ties to people not in this scene')
     expect(large.messages[0].content).toContain(sample)
     expect(large.messages[1].content).toContain('Born in the Narrows')
@@ -1814,7 +1850,7 @@ describe('a small-context model and a large-context model both get a sensible br
   function sensible(b: ReturnType<typeof briefing>, o: { pov?: boolean } = {}): void {
     expect(b.p.budget.used).toBeLessThanOrEqual(b.p.budget.available)
     // Every part is listed, sent or not, so the Context tab and "What the AI saw" show what was left out.
-    expect(b.p.blocks).toHaveLength(16)
+    expect(b.p.blocks).toHaveLength(17)
     // What must stay true is never left out (2026-10-15).
     for (const id of ['instructions', 'scene-card', 'previous-scene', MUST_BLOCK]) expect(b.sent(id), id).toBe(true)
     if (o.pov === false) return
@@ -1830,7 +1866,10 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(b.user).toMatch(/- Sample lines of dialogue:\n {4}"/)
     expect(b.user).toContain('What Mara Venn knows:\n- ')
     expect(b.user).toContain('## End of the previous scene\n\n')
-    expect(b.user.trimEnd().endsWith('- Never contradict the facts given above.')).toBe(true)
+    // The closing instruction comes last, with nothing after it; it opens with the scene's point (the overhaul).
+    const closing = b.user.slice(b.user.lastIndexOf('Write the scene now.'))
+    expect(closing).toContain("Mara Venn wants here, what stands against it, and how it turns")
+    expect(closing).not.toContain('## ')
     // Nothing is cut off mid-sentence: every part starts and ends on whole sentences (the timeline's brief lines are cut
     // short on purpose, and say so with "…").
     for (const x of b.p.blocks.filter((x) => !x.dropped && x.id !== 'story-so-far')) expect(x.text, x.id).not.toContain('…')
@@ -2018,13 +2057,15 @@ describe('assembleContext', () => {
       '## Themes and tone',
       '## Setting',
       '## The story so far',
-      '## End of the previous scene',
       '## Plot threads in this scene',
       '## Point-of-view character: Mara Venn',
       '## Also in the scene',
       '## Relationships',
       '## Also relevant',
       '## Who knows what',
+      // Since the overhaul (2026-10-19): how they sound, and the end of the previous scene right above the scene card.
+      '## How they sound',
+      '## End of the previous scene',
       '## Scene card',
       'Write the scene now.'
     ]
@@ -2034,12 +2075,21 @@ describe('assembleContext', () => {
       expect(i, h).toBeGreaterThan(at)
       at = i
     }
-    expect(user).toContain('Hit every beat on the scene card, in order.')
-    expect(user).toContain('Aim for about 1,200 words.')
-    expect(user).toContain('Keep to close third person, past tense and UK spelling.')
-    expect(user).toContain('Continue seamlessly from where the previous scene ends')
-    expect(user).toContain("Follow the author's direction for this draft.")
-    expect(user).toContain('Never contradict the facts given above.')
+    // The closing opens with the scene's point and two craft priorities (the overhaul, 2026-10-19).
+    const closing = user.slice(user.indexOf('Write the scene now.'))
+    expect(closing).toContain(
+      "Write the scene now.\nThe scene's point: what Mara Venn wants here, what stands against it, and how it turns.\nWants: Get passage out of Varn.\nAgainst it: Tobin wants a favour first.\nHow it turns: She agrees, then someone knocks.\n\n- Play it out moment by moment"
+    )
+    expect(closing).toContain('- Make it particular:')
+    expect(closing).toContain('- Hit every beat on the scene card, in order, and let them carry the goal, the conflict and the outcome.')
+    expect(closing).toContain('Aim for about 1,200 words.')
+    expect(closing).toContain('Continue seamlessly from where the previous scene ends')
+    expect(closing).toContain("Follow the author's direction for this draft.")
+    // What only says again what the system prompt and what must stay true say is gone: the format, the point of view,
+    // never contradict.
+    expect(closing).not.toContain('Keep to close third person, past tense and UK spelling.')
+    expect(closing).not.toContain('Never contradict the facts given above.')
+    expect(closing).not.toContain('*asterisks*')
   })
 
   it('returns the "knows what happened in" sentence and every entry with why, for the Context tab', () => {
@@ -2087,7 +2137,8 @@ describe('assembleContext', () => {
     for (const b of preview.blocks) expect(b.tokens).toBeGreaterThan(0)
     const sum = preview.blocks.reduce((s, b) => s + b.tokens, 0)
     expect(preview.budget.used).toBeGreaterThan(sum)
-    expect(preview.budget.used).toBeLessThan(sum + 200)
+    // The rest is the closing instruction (with the scene's point since the overhaul) and the messages' overhead.
+    expect(preview.budget.used).toBeLessThan(sum + 300)
     expect(preview.blocks.every((b) => !b.dropped)).toBe(true)
   })
 
@@ -2149,13 +2200,19 @@ describe('the writer instructions', () => {
 
   it('aims the scene at whatever the card holds', () => {
     expect(user({ beats: ['She arrives'] })).toContain('Hit every beat on the scene card, in order.')
-    expect(user({ goal: 'Escape', outcome: 'She is caught' })).toContain('from its goal to its outcome')
-    expect(user({ goal: 'Escape' })).toContain("Build the scene around the scene card's goal.")
-    expect(user({ outcome: 'She is caught' })).toContain("arrives at the scene card's outcome")
+    // With beats, they carry the goal, the conflict and the outcome (the overhaul, 2026-10-19), which open the closing.
+    const shaped = user({ beats: ['She arrives'], goal: 'Escape', conflict: 'The gate is watched', outcome: 'She is caught' })
+    expect(shaped).toContain('- Hit every beat on the scene card, in order, and let them carry the goal, the conflict and the outcome.')
+    expect(shaped).toContain('Wants: Escape.\nAgainst it: The gate is watched.\nHow it turns: She is caught.')
+    expect(user({ goal: 'Escape', outcome: 'She is caught' })).toContain('- Shape the whole scene around the goal and the outcome on the scene card.')
+    expect(user({ goal: 'Escape' })).toContain('- Shape the whole scene around the goal on the scene card.')
+    expect(user({ outcome: 'She is caught' })).toContain('How it turns: She is caught.')
     expect(user({ notes: 'A quiet scene by the fire.' })).toContain("Write the scene the author's notes on the scene card describe.")
     const empty = user({})
     expect(empty).toContain('The scene card gives no plan beyond its title')
-    expect(empty).not.toContain('from its goal to its outcome')
+    // With nothing on the card, the closing still asks for the scene's point, in general terms.
+    expect(empty).toContain("First find the scene's point: what the point-of-view character wants here, what stands against it, and how it turns by the end.")
+    expect(empty).not.toContain('Shape the whole scene')
     const directed = user({}, 'Make it tense')
     expect(directed).not.toContain('no plan beyond its title')
     expect(directed).toContain("Follow the author's direction for this draft.")

@@ -8,14 +8,24 @@ import type { StyleGuide } from '@shared/types'
 import { AUTO_LENGTH } from '@shared/defaults'
 import { genresOf } from '@shared/genres'
 import { intensityLines } from '@shared/intensity'
-import { SLOP_RULES } from '@shared/slop'
+import { PLAIN_RULE, SLOP_RULES } from '@shared/slop'
+
+/**
+ * The writer's rules lead with this (overhaul, 2026-10-19): the style guide outranks the craft rules, so a preset that
+ * asks for lush or musical prose is no longer talked down by "prefer the plain word".
+ */
+const STYLE_WINS = 'Where the style guide or the sample passage below asks for a different style, follow it over these rules.'
+
+/** The one rule about how the words are set down (said once: the closing instruction no longer repeats it). */
+const formatRule = (what: string): string =>
+  `- Write ${what}, as plain prose: no title, headings, lists, notes or comments before or after, and no bold or underscores. To put words in italics (a character's thoughts, emphasis, the name of a ship or a book), wrap them in single *asterisks*.`
 
 const INTRO = `You are a skilled novelist drafting one scene of a longer work of fiction. The author plans each scene on a scene card and will edit your draft afterwards, so write a complete, polished scene that follows the plan closely and reads like a finished page of the book.
 
 How to write the scene
-- Write only the scene itself, as prose, from its first line to its last. No title, no headings, no notes, no comments before or after.
-- Write plain text. To put words in italics (a character's thoughts, emphasis, the name of a ship or a book), wrap them in single *asterisks*. Use no other formatting: no bold, no underscores, no headings, no lists.
-- Follow the scene card. Every beat happens on the page, in the order given. Dramatise the beats through action, dialogue and the point-of-view character's thoughts and senses; don't summarise them.`
+${STYLE_WINS}
+${formatRule('only the scene itself, from its first line to its last')}
+- Follow the scene card: every beat happens on the page, in the order given, dramatised through action, dialogue and the point-of-view character's thoughts and senses, never summarised. Tension comes from what the characters want and how they push against each other within those events, not from new ones.`
 
 /** The point-of-view rule, following the style guide (an omniscient narrator may move between minds). */
 export function povRule(pov: string): string {
@@ -28,14 +38,40 @@ export function povRule(pov: string): string {
   return "- Keep to the point of view the style guide sets. In a close third-person, first-person or second-person point of view, the reader knows only what the point-of-view character sees, hears, notices, remembers and feels, and other people's thoughts show only through what they say and do."
 }
 
-const REST = (end: string): string => `- Be specific and concrete. Ground each moment in the place with a few telling sensory details rather than lists of them. Prefer the precise noun and the active verb.
-- Let the characters want things and push against each other. Keep subtext in dialogue: people rarely say exactly what they mean.
-- Give each character their own voice, as their profile describes. Their sample lines show how they sound: never reuse a sample line word for word, or a line already said in the story.
-- Vary sentence length and paragraph rhythm. Trust the reader: don't explain feelings the scene already shows, and don't close on a summary or a moral.${end}
-- Say each thing freshly, in the terms of this place and these people: show feeling through what someone does or says, not through the body reactions any story would use.
-- The briefing gives the characters, places and world as they stand at this point in the story. Anything marked as an aim or a target (what this scene should bring about, what the story leads into) is where the story is heading, not something that has already happened.
-- Never contradict the facts you are given about the characters, places and world, or break the world's rules. Where the briefing is silent, stay consistent with what it implies, and don't invent major new facts (new powers, deaths, family ties, revelations) that the scene card doesn't call for.
-- Keep every name, title and spelling exactly as given.`
+/**
+ * The craft rules both writers share, after the point-of-view rule: the old list and the rules against AI phrasing
+ * (shared/slop.ts SLOP_RULES) merged, each meaning said once (overhaul, 2026-10-19: the system prompt had 27 rules, with
+ * "show feeling, not stock body reactions" three times and "don't explain what's shown", "vary sentences" and "no
+ * summing-up ending" twice). `aiPhrases` (Adam's "Steer clear of common AI phrases") adds the two rules only about AI
+ * habits; `plain` keeps the plain-word rule, left out where the prose style asks for rich prose. `end`: Generate's rule
+ * about how the scene ends (Add below's stop rule says where it stops).
+ */
+function craftRules(o: { aiPhrases: boolean; plain: boolean; end: boolean }): string[] {
+  const rules = [
+    '- Be specific: a few telling details that belong to this place and these people, not to any story; the precise noun and the active verb.',
+    '- Give each character their own voice, as their profile describes, with subtext: people rarely say exactly what they mean. Never reuse a sample line word for word, or any line already said in the story.',
+    "- Show feeling through what someone does or says, in fresh terms, never the body reactions any story would use. Trust the reader: say each thing once, and don't explain what the scene already shows.",
+    o.aiPhrases
+      ? '- Vary sentence length and shape, and paragraph rhythm; avoid "it wasn\'t X, it was Y" and lists of three adjectives.'
+      : '- Vary sentence length and shape, and paragraph rhythm.'
+  ]
+  if (o.aiPhrases && o.plain) rules.push(`- ${PLAIN_RULE}`)
+  if (o.end) rules.push("- End on the scene's final beat. Close on action, dialogue or an image, never on a line that sums up, draws a moral or looks ahead.")
+  rules.push(
+    "- Keep to the briefing, which gives the characters, places and world as they stand at this point in the story. Never contradict it or break the world's rules; where it is silent, stay consistent with it, and invent no major new facts (new powers, deaths, family ties, revelations) the scene card doesn't call for. An aim or a target (what this scene should bring about, what the story leads into) is where the story is heading, not something that has already happened. Keep every name, title and spelling exactly as given."
+  )
+  return rules
+}
+
+/**
+ * True when a prose style asks for rich, lush or musical prose (the presets Lyrical literary, Steamy romance and Spicy
+ * romantasy, or Adam's own words): the plain-word rule is then left out, since the style guide outranks it.
+ */
+export function asksForRichProse(proseStyle: string | undefined): boolean {
+  return /\b(?:lush|lyrical|musical|poetic|ornate|florid|lavish|baroque|sumptuous|opulent)\b|\brich(?:ly)?\s+(?:\w+\s+)?(?:prose|imagery|language|description)\b/i.test(
+    proseStyle ?? ''
+  )
+}
 
 /**
  * Add below's own introduction (Adam, 2026-10-08): an audit of 122 real writer calls found Add below given Generate's
@@ -45,17 +81,22 @@ const REST = (end: string): string => `- Be specific and concrete. Ground each m
 const ADD_BELOW_INTRO = `You are a skilled novelist writing a longer work of fiction with its author, one stretch at a time. The scene so far is already on the page. Write only the next stretch: carry the scene on from exactly where it stands, as finished prose that reads like the page it continues.
 
 How to carry the scene on
-- Write only the new words, as prose, carrying straight on from the last words on the page. No title, no headings, no notes, no comments before or after.
-- Write plain text. To put words in italics (a character's thoughts, emphasis, the name of a ship or a book), wrap them in single *asterisks*. Use no other formatting: no bold, no underscores, no headings, no lists.
+${STYLE_WINS}
+${formatRule('only the new words, carrying straight on from the last words on the page')}
 - Write what the author asks for next (their direction, or with none the next beat on the scene card not on the page yet), and nothing beyond it. Invent no new events of your own: no arrivals, discoveries, news, decisions or turns the author didn't ask for.
-- Once that has happened, stop, even part-way through the scene and in the middle of a movement. Don't wrap up, settle anyone down, have them fall asleep or fall silent, or close the scene, unless the author asks for it.
+- Once that has happened, stop, even part-way through the scene and in the middle of a movement. Don't wrap up, settle anyone down, have them fall asleep or fall silent, or close the scene, unless the author asks for it, and never stop on a line that sums up or looks ahead.
 - The length given is a ceiling, not a target: if what is asked is done in fewer words, use fewer. Never pad, and never add events to reach a length.
 - Beats on the scene card that are already on the page are done: never write them again.
-- Dramatise what happens through action, dialogue and the point-of-view character's thoughts and senses; don't summarise it.`
+- Dramatise what happens through action, dialogue and the point-of-view character's thoughts and senses; don't summarise it. Tension comes from what the characters want and how they push against each other within it.`
 
-/** The writer instructions, with the point-of-view rule that fits the style guide. `addBelow`: Add below's own (ADD_BELOW_INTRO). */
-export function writerInstructions(pov: string, addBelow = false): string {
-  return addBelow ? `${ADD_BELOW_INTRO}\n${povRule(pov)}\n${REST('')}` : `${INTRO}\n${povRule(pov)}\n${REST(" End on the scene's final beat.")}`
+/**
+ * The writer instructions, with the point-of-view rule that fits the style guide. `addBelow`: Add below's own
+ * (ADD_BELOW_INTRO). `aiPhrases` (on unless Adam turned the AI phrases off) and `proseStyle` decide the rules only about
+ * AI habits (craftRules).
+ */
+export function writerInstructions(pov: string, addBelow = false, o: { aiPhrases?: boolean; proseStyle?: string } = {}): string {
+  const craft = craftRules({ aiPhrases: o.aiPhrases !== false, plain: !asksForRichProse(o.proseStyle), end: !addBelow })
+  return [addBelow ? ADD_BELOW_INTRO : INTRO, povRule(pov), ...craft].join('\n')
 }
 
 const SPELLING = {
@@ -89,14 +130,16 @@ export function trimPassage(text: string, words = SHORT_SAMPLE_WORDS): string {
  * (milestone 4's AI edits, say); '' leaves the introduction out (the style guide alone).
  * The short form (`trimSample`) keeps only the opening of the sample passage, the leading genre without its
  * worn-out moves, and the rules without the list of phrases. `proseRules: false` leaves out the rules against
- * AI phrasing (for jobs that don't write prose, such as Ask the world).
+ * AI phrasing (for jobs that don't write prose, such as Ask the world). The drafting writer's own rules carry the
+ * rules against AI phrasing (writerInstructions); a job with an `intro` of its own gets them as their own list.
  */
 export function instructionsText(
   style: StyleGuide & { avoidAiPhrases?: boolean },
   opts: { trimSample?: boolean; intro?: string; proseRules?: boolean; addBelow?: boolean } = {}
 ): string {
   const short = !!opts.trimSample
-  const intro = opts.intro ?? writerInstructions(style.pov, !!opts.addBelow)
+  const aiPhrases = opts.proseRules !== false && style.avoidAiPhrases !== false
+  const intro = opts.intro ?? writerInstructions(style.pov, !!opts.addBelow, { aiPhrases, proseStyle: style.proseStyle })
   const parts: string[] = intro ? [intro] : []
 
   const rules: string[] = []
@@ -130,7 +173,7 @@ export function instructionsText(
   if (style.avoidPhrases.length) {
     parts.push(`Words and phrases to avoid\nNever use any of these:\n${style.avoidPhrases.map((p) => `- ${p}`).join('\n')}`)
   }
-  if (opts.proseRules !== false && style.avoidAiPhrases !== false) parts.push(aiPhrasesText())
+  if (aiPhrases && opts.intro !== undefined) parts.push(aiPhrasesText(style.proseStyle))
   return parts.join('\n\n')
 }
 
@@ -194,10 +237,13 @@ export function contentText(style: Pick<StyleGuide, 'intensity' | 'contentLimits
 
 /**
  * The rules against common AI phrasing. No stock phrase is named (the writer lab, 2026-10-08: naming a phrase can prime
- * it); the stock phrases that still get through are found after writing and said afresh (repair/slop.ts).
+ * it); the stock phrases that still get through are found after writing and said afresh (repair/slop.ts). For jobs with
+ * instructions of their own (a sample, the polish pass, the AI edits); the plain-word rule is left out where the prose
+ * style asks for rich prose.
  */
-export function aiPhrasesText(): string {
-  return `Write like a person, not like an AI\n${SLOP_RULES.map((r) => `- ${r}`).join('\n')}`
+export function aiPhrasesText(proseStyle = ''): string {
+  const rules = asksForRichProse(proseStyle) ? SLOP_RULES.filter((r) => r !== PLAIN_RULE) : SLOP_RULES
+  return `Write like a person, not like an AI\n${rules.map((r) => `- ${r}`).join('\n')}`
 }
 
 const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
@@ -254,15 +300,20 @@ export function finalInstruction(o: {
   /** Add below: the scene card's beats (blank ones left out), and how many of them, from the first, are on the page already. */
   beats?: string[]
   beatsDone?: number
+  /**
+   * The scene's point, which Generate's closing opens with: the point-of-view character's name and the scene card's
+   * goal, conflict and outcome (each a few sentences at most). Any left out are asked for in general terms.
+   */
+  point?: ScenePoint
 }): string {
   if (o.addBelow) return addBelowFinal(o)
-  const lines: string[] = [
-    '- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no notes or comments before or after.'
-  ]
+  // Generate's closing (overhaul, 2026-10-19): it was 8 to 10 lines, one about craft and the rest saying again what the
+  // system prompt says (the format, the point of view, never contradict). Now it opens with the scene's point and two
+  // craft priorities; what must stay true, right above it, and the system prompt carry the rest.
+  const lines: string[] = [...CRAFT_FIRST]
   const plan = planLine(o)
   if (plan) lines.push(plan)
   lines.push(lengthLine(o))
-  lines.push(keepLine(o.style))
   const feel = feelLine(o.style, o.tone)
   if (feel) lines.push(feel)
   if (o.style.intensity?.romance === 4) {
@@ -281,9 +332,39 @@ export function finalInstruction(o: {
   } else if (o.hasPrevious) lines.push("- Continue seamlessly from where the previous scene ends. Don't repeat or recap it.")
   if (o.hasBringAbout) lines.push('- Make the scene bring about what the scene card says it should.')
   if (o.hasDirection) lines.push("- Follow the author's direction for this draft.")
-  lines.push('- Never contradict the facts given above.')
-  return `Write the scene now.\n${lines.join('\n')}`
+  return `Write the scene now.\n${pointText(o.point)}\n\n${lines.join('\n')}`
 }
+
+/** What the scene is about, for the closing instruction (FinalOptions.point). */
+export interface ScenePoint {
+  pov?: string
+  goal?: string
+  conflict?: string
+  outcome?: string
+}
+
+/**
+ * The opening of Generate's closing: the scene's point, what the point-of-view character wants, what stands against it
+ * and how it turns, with the card's own words for each it has.
+ */
+function pointText(p: ScenePoint = {}): string {
+  const one = (s: string | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
+  const ended = (s: string): string => (/[.!?…]["'”’)\]]*$/.test(s) ? s : `${s}.`)
+  const who = one(p.pov) || 'the point-of-view character'
+  const told = [
+    ['Wants', one(p.goal)],
+    ['Against it', one(p.conflict)],
+    ['How it turns', one(p.outcome)]
+  ].filter(([, v]) => v)
+  if (!told.length) return `First find the scene's point: what ${who} wants here, what stands against it, and how it turns by the end.`
+  return `The scene's point: what ${who} wants here, what stands against it, and how it turns.\n${told.map(([k, v]) => `${k}: ${ended(v)}`).join('\n')}`
+}
+
+/** Generate's two craft priorities, said first in its closing, where the model attends most. */
+const CRAFT_FIRST = [
+  '- Play it out moment by moment in action and dialogue, slowing down at the turn; never summarise it or explain what it meant.',
+  '- Make it particular: details only these people in this place would have, and dialogue in which each sounds like themselves and rarely says exactly what they mean.'
+]
 
 const STAND_LINE =
   '- Keep to where things stand at the end of the scene so far: where each person is, what they wear and how it sits, how they are placed and what they hold. Anything that changes, changes on the page.'
@@ -384,11 +465,16 @@ function planLine(o: {
   hasOutcome?: boolean
   hasNotes?: boolean
   hasDirection: boolean
+  point?: ScenePoint
 }): string | null {
-  if (o.hasBeats) return '- Hit every beat on the scene card, in order.'
-  if (o.hasGoal && o.hasOutcome) return '- Cover what the scene card describes, from its goal to its outcome.'
-  if (o.hasGoal) return "- Build the scene around the scene card's goal."
-  if (o.hasOutcome) return "- Write the scene so it arrives at the scene card's outcome."
+  // The beats carry the scene's point (overhaul, 2026-10-19: with beats it said only "Hit every beat in order").
+  const shape = [
+    o.hasGoal || o.point?.goal?.trim() ? 'the goal' : '',
+    o.point?.conflict?.trim() ? 'the conflict' : '',
+    o.hasOutcome || o.point?.outcome?.trim() ? 'the outcome' : ''
+  ].filter(Boolean)
+  if (o.hasBeats) return `- Hit every beat on the scene card, in order${shape.length ? `, and let them carry ${joinAnd(shape)}` : ''}.`
+  if (shape.length) return `- Shape the whole scene around ${joinAnd(shape)} on the scene card.`
   if (o.hasNotes) return "- Write the scene the author's notes on the scene card describe."
   // The direction line below covers it.
   if (o.hasDirection) return null

@@ -741,6 +741,27 @@ function previousStory(input: ContextInput): { title: string; ended: boolean; ti
   return { title: p.storyTitle.trim() || 'the story before', ended: p.otherStory.ended, timeGap: p.otherStory.timeGap.trim() }
 }
 
+/**
+ * How the people in the scene sound, one line each (overhaul, 2026-10-19: their voices sat mid-briefing, far from the
+ * writing). Sent late (SEND_ORDER: right before the end of the previous scene and the scene card), only for those whose
+ * profile says how they speak, their verbal tics or what they never say, never their sample lines (a line copied word
+ * for word is a known fault). No short form: it is small. Its entries stay with the point of view and those present.
+ */
+export const VOICES_BLOCK = { id: 'voices', priority: 3, title: 'How they sound' } as const
+/** The most words of each person's line (whole sentences). */
+export const VOICE_WORDS = 35
+const VOICES_LEAD = 'Keep each voice distinct in every line they speak:'
+
+function voicesText(people: EntryState[]): string {
+  const lines = people.flatMap((e) => {
+    const field = (key: string): string => clean(e.fields?.[key]).replace(/\s+/g, ' ').replace(/[.;,\s]+$/, '')
+    const parts = [field('speech'), field('tics') && `verbal tics: ${field('tics')}`, field('neverSays') && `never says: ${field('neverSays')}`]
+    const said = parts.filter(Boolean).join('; ')
+    return said ? [`- ${e.name}: ${openingSentences(`${said}.`, VOICE_WORDS)}`] : []
+  })
+  return lines.length ? `${VOICES_LEAD}\n${lines.join('\n')}` : ''
+}
+
 // ---------- Selection ----------
 
 /** Why an entry is in the briefing, in plain words, as the Context tab shows it. */
@@ -1829,6 +1850,10 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
     )
   }
 
+  // How the people in the scene sound, one line each, sent late (VOICES_BLOCK); only when someone here has a voice profile.
+  const voices = voicesText([sel.pov, ...present].filter((e): e is EntryState => !!e && e.kind === 'character'))
+  if (voices) add(VOICES_BLOCK.id, VOICES_BLOCK.priority, VOICES_BLOCK.title, voices, null, [])
+
   // 6 Relationships among those present (the spec gives it no short form: "these are short").
   const rel = relationshipsText(input, sel)
   add('relationships', 6, 'Relationships', rel.text, null, rel.entryIds)
@@ -2054,6 +2079,9 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
  * that changed at every step. Blocks a part adds (the scene so far) go after the scene card, and where things stand
  * and what must stay true after them (prepareContext). Adam's direction for Add below is the closing instruction's last
  * words; the plan, when there is one, comes after the closing instruction (finishContext).
+ * Since the overhaul (2026-10-19) the previous scene's end goes right above the scene card, so the writer reads where
+ * the story stopped just before what happens next (about 1k tokens a step no longer come from the cache), with how
+ * the people in the scene sound (VOICES_BLOCK) just before it.
  */
 export const SEND_ORDER = [
   // The same for every step of a scene, and mostly for every scene of a story.
@@ -2063,7 +2091,6 @@ export const SEND_ORDER = [
   'setting',
   'story-so-far',
   EARLIER_BLOCK.id,
-  'previous-scene',
   'threads',
   OPEN_THREADS_BLOCK,
   // The same within a scene unless the memory learns something new.
@@ -2078,8 +2105,11 @@ export const SEND_ORDER = [
   'recalled',
   // Who knows what (fix 9): who is in the scene can change at every step (the stage, the scene so far).
   LEDGER_BLOCK.id,
-  // The continuity brief (fix 14): written for each draft, so late; right before the scene card.
+  // The continuity brief (fix 14): written for each draft, so late.
   BRIEF_BLOCK.id,
+  // How the people in the scene sound, one line each, then the end of the previous scene right above the scene card.
+  VOICES_BLOCK.id,
+  'previous-scene',
   'scene-card',
   'continuity',
   // The scene's contract (fix 13): what this draft must keep to and bring about, right above what must stay true.
@@ -2154,6 +2184,9 @@ export interface ContextExtras {
   speakerTags?: boolean
 }
 
+/** The most words of the card's goal, conflict and outcome each that the closing instruction says again (whole sentences). */
+const POINT_WORDS = 40
+
 export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
   const sel = selectEntries(input)
   const { blocks, contract } = buildBriefing(input, sel)
@@ -2194,7 +2227,14 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     // Add below: Adam's direction last of all, and the beats already on the page (repetition.ts beatsOnPage).
     direction: clean(input.options.direction),
     beats: card.beats.map((b) => b.trim()).filter(Boolean),
-    beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0
+    beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0,
+    // Generate's closing opens with the scene's point (overhaul, 2026-10-19): who wants what, against what, and the turn.
+    point: {
+      pov: sel.pov?.name ?? '',
+      goal: openingSentences(card.goal, POINT_WORDS),
+      conflict: openingSentences(card.conflict, POINT_WORDS),
+      outcome: openingSentences(card.outcome, POINT_WORDS)
+    }
   }
   const closing = extras.final ?? finalInstruction
   const tagLines = extras.speakerTags ? [SPEAKER_TAG_LINE] : []

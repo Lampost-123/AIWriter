@@ -1589,7 +1589,9 @@ keys in JSON that already reads with defaults (world meta `style`, `stories.styl
   `PROMPT_SLOP` short list), on while `WritingPrefs.avoidAiPhrases` isn't false. Its short form keeps the lead genre and the
   rules without the phrase list. It grows by about 400 tokens for one genre and about 540 for a blend with all three levels
   (`ai/feel.test.ts`). Ask the world passes `proseRules: false`. `finalInstruction` ends with `feelLine` (the genre's feel and
-  the story's, series' or world's tone), since models follow what comes last most closely.
+  the story's, series' or world's tone), since models follow what comes last most closely. Since the writing instructions
+  overhaul (below) the drafting writer gets the rules against AI phrasing merged into its own rules, and only jobs with
+  instructions of their own (a sample, the polish pass, the AI edits) get the "Write like a person" list.
 - **Common AI phrases** (`src/shared/slop.ts`): about 40 patterns in groups, `findSlop` for the underlines. The prompt names
   only the worst offenders: naming a phrase can prime it. They are a live check of kind `'ai'` (`shared/liveChecks.ts`,
   `features/liveChecks/`): a dotted amber underline while `avoidAiPhrases` is on, a card with **Fix** (Rewrite on the
@@ -2076,6 +2078,8 @@ lab's winners in the next section):
   cache breakpoint ends before the people. Measured on an invented scene, two Add below steps in a row
   (`tests/unit/writerRound.test.ts`): the second step's prompt that the first already sent went from 29% to 69% with a
   short story so far, and from 11% to 71% with a long one (12,234 tokens down to 4,431, the timeline below included).
+  Since the writing instructions overhaul (2026-10-19, below) the previous scene's end goes right above the scene card
+  instead, after how the people in the scene sound: 56% of that short-story step is sent again, not 69%.
 - **A cleaner briefing** (who knows what moved to its own block in long story memory fix 9, below, with the same
   rules): "X does not know" only for real secrets (`ai/mustStay.ts` `realSecrets`: what one person here
   knows and another here doesn't, never kept from someone it is about, at most 3); "What X knows" gives each fact once
@@ -2109,6 +2113,35 @@ lab's winners in the next section):
   full, 1,500 short, 800 smaller (Continue's), then only the most recent parts, the oldest detail going first. Its words
   depend only on scenes before this one, so it reads the same at every step. Ask the world, the checks and the
   interview keep the prose summaries (`storySoFarText`).
+
+## The writing instructions overhaul (Phase 3, 2026-10-19)
+
+Drafts read as mediocre. A review of the writer's prompts found a system prompt of about 890 words with 27 bullets, the
+same rule said two or three times ("show feeling, not stock body reactions" three times), plain-word rules talking down
+presets that ask for lush prose, and a closing instruction mostly saying again what the system prompt says.
+
+- **About ten rules, each said once** (`ai/prompts.ts` `writerInstructions`, `craftRules`): the format; the scene card
+  (wants and pushing against each other within the planned events, never new ones); point of view; specific detail; voice
+  and subtext; feeling shown, not explained; rhythm; plain words; the ending; the briefing (canon, aims, names). The two
+  rules only about AI habits ("it wasn't X, it was Y", plain words) go with "Steer clear of common AI phrases"; the "Write
+  like a person" list (`shared/slop.ts` `SLOP_RULES`, `aiPhrasesText`) is only for jobs with instructions of their own.
+  Add below keeps its lab-tested rules first, then the same craft. Measured (epic fantasy, close third, past, UK, no
+  sample, two phrases to avoid): 892 words to 826, 18 rules to 10 (27 bullets to 19 with the style guide and the rest).
+- **The style guide outranks the plain-word rules**: the list opens "Where the style guide or the sample passage below
+  asks for a different style, follow it over these rules."; `PLAIN_RULE` ends "unless the style guide asks for richer
+  prose" and is left out where the prose style asks for rich prose (`asksForRichProse`: Lyrical literary, Steamy romance,
+  Spicy romantasy, or Adam's own words). The polish pass's "Purple prose" check says the same (`style/prompts.ts`).
+- **Generate's closing instruction is about craft** (`finalInstruction`, `ScenePoint`): it opens with the scene's point
+  (what the point-of-view character wants, what stands against it, how it turns: the card's goal, conflict and outcome,
+  each at most `POINT_WORDS`), then two craft priorities, then "Hit every beat on the scene card, in order, and let them
+  carry the goal, the conflict and the outcome". The format, point-of-view and "never contradict" lines are gone: the
+  system prompt and what must stay true, right above, carry them. Add below's and Beat by beat's closings are unchanged.
+- **Late in the briefing** (`ai/context.ts` `SEND_ORDER`): the previous scene's end goes right above the scene card
+  (about 1k tokens a step no longer come from the cache), after "How they sound" (`VOICES_BLOCK`, priority 3, no short
+  form): one line each for those in the scene whose profile says how they speak, their tics or what they never say
+  (`VOICE_WORDS`; never sample lines), sent only when someone has one.
+- Not changed: the epic fantasy preset's prose style still says much of the fantasy genre's guidance again; rewording a
+  preset would stop stories that use it matching it (`presetOf`).
 
 ## The writer lab's winners, as defaults (0.6.35, 2026-10-08)
 
@@ -3345,7 +3378,8 @@ store, no migration; the memory keeper's prompt is unchanged (its 58 characters 
 - **The writer's briefing** (`ai/brief.ts`, `ai/context.ts`; `ContextInput.brief`). Block `continuity-brief`, "Continuity
   brief" (`BRIEF_BLOCK`), priority 2, never left out (it goes in only where there is room: `withPlan`), short form only
   what matters and what must not be contradicted, shortened before the contract and what must stay true. It is written for
-  each step, so it is sent late (`SEND_ORDER`: after who knows what, right before the scene card), and every block before
+  each step, so it is sent late (`SEND_ORDER`: after who knows what; since the writing instructions overhaul only how they
+  sound and the previous scene's end come between it and the scene card), and every block before
   it reads the same from one step to the next (tested). Its lead says whether the book was read. **Not said twice**
   (`briefShortens`, `PreparedContext.briefShortens`, `finishContext`): with a brief, the story so far (its older detail),
   the earlier passages found by searching (the planner read every one) and, when the brief says who knows what, block 6's
