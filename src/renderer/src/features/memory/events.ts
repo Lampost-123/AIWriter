@@ -3,6 +3,8 @@
 // and telling the memory when Adam leaves a scene, so it reads that scene's latest words then.
 import type { ID } from '@shared/types'
 import { api, onEvent } from '@/lib/api'
+import { toast } from '@/components/ui'
+import { fillDoneWords } from './storyFill'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { createChangeBatcher } from './changeBatch'
@@ -33,6 +35,11 @@ export function installMemoryEvents(): () => void {
     if (r.stories) void app.refreshStories().catch(() => undefined)
   })
   const offChanged = onEvent('memory:changed', (change) => batch.push(change))
+  // "Fill in the whole story" is over: a quiet note says how it went (nothing after Adam's own Stop, which says so).
+  const offFilled = onEvent('storyFill:done', (done) => {
+    const words = fillDoneWords(done)
+    if (words) toast(words)
+  })
 
   // Each world has its own memory: ask what it is doing whenever a world opens.
   let worldId: ID | null = null
@@ -68,6 +75,7 @@ export function installMemoryEvents(): () => void {
   return () => {
     offStatus()
     offChanged()
+    offFilled()
     batch.cancel()
     offState()
   }

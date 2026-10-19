@@ -19,6 +19,7 @@ import { fullDate, relativeTime } from '@/features/generate/format'
 import { Skeleton } from '@/features/generate/parts'
 import { EntryMark, useEntryLook } from '@/features/consistency/desk/marks'
 import { beforeAfter, canUndo, groupHeading, keeperState, pointsToSettings, readingNote, wordsGone, type LogGroup } from './logic'
+import { StoryFillCard } from './StoryFillCard'
 import '@/features/consistency/check.css'
 import './ledger.css'
 
@@ -96,6 +97,7 @@ export function DeskLedger(p: DeskLedgerProps): React.JSX.Element {
             ) : null}
           </div>
           <KeeperCard />
+          {p.sceneId ? null : <StoryFillCard desk />}
           <div className="lg-tally" role="group" aria-label="Show changes">
             {FILTERS.map((f) => (
               <button key={f.id} type="button" className="lg-tally-row" data-kind={f.id} aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
