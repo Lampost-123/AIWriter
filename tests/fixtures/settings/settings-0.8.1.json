@@ -1,0 +1,663 @@
+{
+  "made": "AI Write 0.8.1: settings.json and writing-preferences.json as that code saved them, and what it read back",
+  "classic": {
+    "raw": {
+      "libraryPath": "<LIBRARY>",
+      "providers": [
+        {
+          "id": "prov-1",
+          "name": "Invented provider",
+          "kind": "custom",
+          "baseUrl": "http://127.0.0.1:9/v1",
+          "hasKey": false,
+          "lastCheck": {
+            "ok": true,
+            "at": "2026-10-01T10:00:00.000Z"
+          }
+        }
+      ],
+      "models": {
+        "writer": {
+          "providerId": "prov-1",
+          "modelId": "made-up/writer",
+          "label": "Writer",
+          "contextLength": 64000,
+          "promptPrice": 0.1,
+          "completionPrice": 0.2,
+          "maxOutput": 8000,
+          "sampling": true
+        },
+        "memory": {
+          "providerId": "prov-1",
+          "modelId": "made-up/memory",
+          "label": "Memory",
+          "contextLength": 32000,
+          "promptPrice": null,
+          "completionPrice": null
+        },
+        "chat": null,
+        "builder": null,
+        "speech": null,
+        "world": null,
+        "check": null,
+        "recipe": null,
+        "chapter": null
+      },
+      "thinking": {
+        "writer": "low",
+        "memory": "off",
+        "chat": "off",
+        "builder": "off",
+        "speech": "off",
+        "world": "off",
+        "check": "off",
+        "recipe": "off",
+        "chapter": "high",
+        "sounds": "off",
+        "sample": "off",
+        "polish": "off"
+      },
+      "creativity": "adventurous",
+      "planFirst": false,
+      "sceneContracts": false,
+      "continuityBrief": false,
+      "theme": "sepia",
+      "editor": {
+        "fontSize": 21,
+        "lineHeight": 1.9,
+        "pageWidth": 60,
+        "paragraphStyle": "indented",
+        "smartPunctuation": false,
+        "spellCheck": false,
+        "typewriter": true
+      },
+      "goals": {
+        "daily": 1200,
+        "days": [
+          {
+            "date": "2026-10-01",
+            "words": 900
+          }
+        ]
+      },
+      "layout": {
+        "binderWidth": 300,
+        "inspectorWidth": 360,
+        "binderOpen": false,
+        "inspectorOpen": true,
+        "deskStory": "slim"
+      },
+      "lastWorldId": "65882802-e47c-4b00-b701-3a525e0e5a2b",
+      "lastStoryId": "e1de140a-2a52-4c52-97ee-97bb8a715d03",
+      "lastSceneId": "003af454-d938-4539-825a-71a047ec140f",
+      "lastPlaces": {
+        "65882802-e47c-4b00-b701-3a525e0e5a2b": {
+          "storyId": "e1de140a-2a52-4c52-97ee-97bb8a715d03",
+          "sceneId": "003af454-d938-4539-825a-71a047ec140f"
+        }
+      },
+      "backup": {
+        "extraFolder": null
+      },
+      "speech": {
+        "readAloud": true,
+        "runServer": false,
+        "serverUrl": "http://127.0.0.1:8766/v1",
+        "engine": "breeze",
+        "narratorVoice": "invented-voice",
+        "narratorDescription": "",
+        "dialogueVoice": "",
+        "sample": "The rain had not stopped for three days, and the river was beginning to remember its old shape.",
+        "speed": 1.2,
+        "castVoices": true,
+        "studioVoices": true,
+        "actFeelings": true,
+        "checkWords": false,
+        "style": "A seasoned audiobook narrator: warm, unhurried, with natural pauses. Give dialogue life without overacting.",
+        "steadyNarrator": true,
+        "voicedLines": true,
+        "skipSpeechTags": true,
+        "markSpeakers": false,
+        "showSpeakers": false,
+        "sounds": true,
+        "keepReading": true,
+        "followAlong": true,
+        "soundEffects": false,
+        "soundVolume": 0.3,
+        "cacheLimitGb": 2,
+        "dictationEngine": "none",
+        "dictationKey": "",
+        "microphone": ""
+      },
+      "accent": "#3366aa",
+      "usage": {
+        "monthlyLimit": 12.5,
+        "notice": {
+          "month": "2026-10",
+          "limit": 12.5,
+          "warned": true,
+          "reached": false,
+          "carryOn": false
+        }
+      },
+      "startWith": "last",
+      "tourSeen": true,
+      "worldsSeenAt": {
+        "65882802-e47c-4b00-b701-3a525e0e5a2b": "2026-10-02T09:00:00.000Z"
+      },
+      "look": "classic",
+      "lookNote": false,
+      "arrangement": "panels",
+      "arrangementNote": false,
+      "checkNewWords": false,
+      "checkWhenDone": true,
+      "checkAfterDraft": false,
+      "checkSecondOpinion": false,
+      "chapterCritic": true,
+      "findByMeaning": false,
+      "searchModelAuto": false,
+      "firstRun": null
+    },
+    "read": {
+      "libraryPath": "<LIBRARY>",
+      "providers": [
+        {
+          "id": "prov-1",
+          "name": "Invented provider",
+          "kind": "custom",
+          "baseUrl": "http://127.0.0.1:9/v1",
+          "hasKey": false,
+          "lastCheck": {
+            "ok": true,
+            "at": "2026-10-01T10:00:00.000Z"
+          }
+        }
+      ],
+      "models": {
+        "writer": {
+          "providerId": "prov-1",
+          "modelId": "made-up/writer",
+          "label": "Writer",
+          "contextLength": 64000,
+          "promptPrice": 0.1,
+          "completionPrice": 0.2,
+          "maxOutput": 8000,
+          "sampling": true
+        },
+        "memory": {
+          "providerId": "prov-1",
+          "modelId": "made-up/memory",
+          "label": "Memory",
+          "contextLength": 32000,
+          "promptPrice": null,
+          "completionPrice": null
+        },
+        "chat": null,
+        "builder": null,
+        "speech": null,
+        "world": null,
+        "check": null,
+        "recipe": null,
+        "chapter": null
+      },
+      "thinking": {
+        "writer": "low",
+        "memory": "off",
+        "chat": "off",
+        "builder": "off",
+        "speech": "off",
+        "world": "off",
+        "check": "off",
+        "recipe": "off",
+        "chapter": "high",
+        "sounds": "off",
+        "sample": "off",
+        "polish": "off"
+      },
+      "creativity": "adventurous",
+      "planFirst": false,
+      "sceneContracts": false,
+      "continuityBrief": false,
+      "theme": "sepia",
+      "editor": {
+        "fontSize": 21,
+        "lineHeight": 1.9,
+        "pageWidth": 60,
+        "paragraphStyle": "indented",
+        "smartPunctuation": false,
+        "spellCheck": false,
+        "typewriter": true
+      },
+      "goals": {
+        "daily": 1200,
+        "days": [
+          {
+            "date": "2026-10-01",
+            "words": 900
+          }
+        ]
+      },
+      "layout": {
+        "binderWidth": 300,
+        "inspectorWidth": 360,
+        "binderOpen": false,
+        "inspectorOpen": true,
+        "deskStory": "slim"
+      },
+      "lastWorldId": "65882802-e47c-4b00-b701-3a525e0e5a2b",
+      "lastStoryId": "e1de140a-2a52-4c52-97ee-97bb8a715d03",
+      "lastSceneId": "003af454-d938-4539-825a-71a047ec140f",
+      "lastPlaces": {
+        "65882802-e47c-4b00-b701-3a525e0e5a2b": {
+          "storyId": "e1de140a-2a52-4c52-97ee-97bb8a715d03",
+          "sceneId": "003af454-d938-4539-825a-71a047ec140f"
+        }
+      },
+      "backup": {
+        "extraFolder": null
+      },
+      "speech": {
+        "readAloud": true,
+        "runServer": false,
+        "serverUrl": "http://127.0.0.1:8766/v1",
+        "engine": "breeze",
+        "narratorVoice": "invented-voice",
+        "narratorDescription": "",
+        "dialogueVoice": "",
+        "sample": "The rain had not stopped for three days, and the river was beginning to remember its old shape.",
+        "speed": 1.2,
+        "castVoices": true,
+        "studioVoices": true,
+        "actFeelings": true,
+        "checkWords": false,
+        "style": "A seasoned audiobook narrator: warm, unhurried, with natural pauses. Give dialogue life without overacting.",
+        "steadyNarrator": true,
+        "voicedLines": true,
+        "skipSpeechTags": true,
+        "markSpeakers": false,
+        "showSpeakers": false,
+        "sounds": true,
+        "keepReading": true,
+        "followAlong": true,
+        "soundEffects": false,
+        "soundVolume": 0.3,
+        "cacheLimitGb": 2,
+        "dictationEngine": "none",
+        "dictationKey": "",
+        "microphone": ""
+      },
+      "accent": "#3366aa",
+      "usage": {
+        "monthlyLimit": 12.5,
+        "notice": {
+          "month": "2026-10",
+          "limit": 12.5,
+          "warned": true,
+          "reached": false,
+          "carryOn": false
+        }
+      },
+      "startWith": "last",
+      "tourSeen": true,
+      "worldsSeenAt": {
+        "65882802-e47c-4b00-b701-3a525e0e5a2b": "2026-10-02T09:00:00.000Z"
+      },
+      "look": "classic",
+      "lookNote": false,
+      "arrangement": "panels",
+      "arrangementNote": false,
+      "checkNewWords": false,
+      "checkWhenDone": true,
+      "checkAfterDraft": false,
+      "checkSecondOpinion": false,
+      "chapterCritic": true,
+      "findByMeaning": false,
+      "searchModelAuto": false,
+      "firstRun": null
+    }
+  },
+  "newLook": {
+    "raw": {
+      "libraryPath": "<LIBRARY>",
+      "providers": [
+        {
+          "id": "prov-1",
+          "name": "Invented provider",
+          "kind": "custom",
+          "baseUrl": "http://127.0.0.1:9/v1",
+          "hasKey": false,
+          "lastCheck": {
+            "ok": true,
+            "at": "2026-10-01T10:00:00.000Z"
+          }
+        }
+      ],
+      "models": {
+        "writer": {
+          "providerId": "prov-1",
+          "modelId": "made-up/writer",
+          "label": "Writer",
+          "contextLength": 64000,
+          "promptPrice": 0.1,
+          "completionPrice": 0.2,
+          "maxOutput": 8000,
+          "sampling": true
+        },
+        "memory": {
+          "providerId": "prov-1",
+          "modelId": "made-up/memory",
+          "label": "Memory",
+          "contextLength": 32000,
+          "promptPrice": null,
+          "completionPrice": null
+        },
+        "chat": null,
+        "builder": null,
+        "speech": null,
+        "world": null,
+        "check": null,
+        "recipe": null,
+        "chapter": null
+      },
+      "thinking": {
+        "writer": "low",
+        "memory": "off",
+        "chat": "off",
+        "builder": "off",
+        "speech": "off",
+        "world": "off",
+        "check": "off",
+        "recipe": "off",
+        "chapter": "high",
+        "sounds": "off",
+        "sample": "off",
+        "polish": "off"
+      },
+      "creativity": "adventurous",
+      "planFirst": false,
+      "sceneContracts": false,
+      "continuityBrief": false,
+      "theme": "sepia",
+      "editor": {
+        "fontSize": 21,
+        "lineHeight": 1.9,
+        "pageWidth": 60,
+        "paragraphStyle": "indented",
+        "smartPunctuation": false,
+        "spellCheck": false,
+        "typewriter": true
+      },
+      "goals": {
+        "daily": 1200,
+        "days": [
+          {
+            "date": "2026-10-01",
+            "words": 900
+          }
+        ]
+      },
+      "layout": {
+        "binderWidth": 300,
+        "inspectorWidth": 360,
+        "binderOpen": false,
+        "inspectorOpen": true,
+        "deskStory": "slim"
+      },
+      "lastWorldId": "65882802-e47c-4b00-b701-3a525e0e5a2b",
+      "lastStoryId": "e1de140a-2a52-4c52-97ee-97bb8a715d03",
+      "lastSceneId": "003af454-d938-4539-825a-71a047ec140f",
+      "lastPlaces": {
+        "65882802-e47c-4b00-b701-3a525e0e5a2b": {
+          "storyId": "e1de140a-2a52-4c52-97ee-97bb8a715d03",
+          "sceneId": "003af454-d938-4539-825a-71a047ec140f"
+        }
+      },
+      "backup": {
+        "extraFolder": null
+      },
+      "speech": {
+        "readAloud": true,
+        "runServer": false,
+        "serverUrl": "http://127.0.0.1:8766/v1",
+        "engine": "breeze",
+        "narratorVoice": "invented-voice",
+        "narratorDescription": "",
+        "dialogueVoice": "",
+        "sample": "The rain had not stopped for three days, and the river was beginning to remember its old shape.",
+        "speed": 1.2,
+        "castVoices": true,
+        "studioVoices": true,
+        "actFeelings": true,
+        "checkWords": false,
+        "style": "A seasoned audiobook narrator: warm, unhurried, with natural pauses. Give dialogue life without overacting.",
+        "steadyNarrator": true,
+        "voicedLines": true,
+        "skipSpeechTags": true,
+        "markSpeakers": false,
+        "showSpeakers": false,
+        "sounds": true,
+        "keepReading": true,
+        "followAlong": true,
+        "soundEffects": false,
+        "soundVolume": 0.3,
+        "cacheLimitGb": 2,
+        "dictationEngine": "none",
+        "dictationKey": "",
+        "microphone": ""
+      },
+      "accent": "#3366aa",
+      "usage": {
+        "monthlyLimit": 12.5,
+        "notice": {
+          "month": "2026-10",
+          "limit": 12.5,
+          "warned": true,
+          "reached": false,
+          "carryOn": false
+        }
+      },
+      "startWith": "last",
+      "tourSeen": true,
+      "worldsSeenAt": {
+        "65882802-e47c-4b00-b701-3a525e0e5a2b": "2026-10-02T09:00:00.000Z"
+      },
+      "look": "new",
+      "lookNote": false,
+      "arrangement": "desk",
+      "arrangementNote": false,
+      "checkNewWords": false,
+      "checkWhenDone": true,
+      "checkAfterDraft": false,
+      "checkSecondOpinion": false,
+      "chapterCritic": true,
+      "findByMeaning": false,
+      "searchModelAuto": false,
+      "firstRun": null
+    },
+    "read": {
+      "libraryPath": "<LIBRARY>",
+      "providers": [
+        {
+          "id": "prov-1",
+          "name": "Invented provider",
+          "kind": "custom",
+          "baseUrl": "http://127.0.0.1:9/v1",
+          "hasKey": false,
+          "lastCheck": {
+            "ok": true,
+            "at": "2026-10-01T10:00:00.000Z"
+          }
+        }
+      ],
+      "models": {
+        "writer": {
+          "providerId": "prov-1",
+          "modelId": "made-up/writer",
+          "label": "Writer",
+          "contextLength": 64000,
+          "promptPrice": 0.1,
+          "completionPrice": 0.2,
+          "maxOutput": 8000,
+          "sampling": true
+        },
+        "memory": {
+          "providerId": "prov-1",
+          "modelId": "made-up/memory",
+          "label": "Memory",
+          "contextLength": 32000,
+          "promptPrice": null,
+          "completionPrice": null
+        },
+        "chat": null,
+        "builder": null,
+        "speech": null,
+        "world": null,
+        "check": null,
+        "recipe": null,
+        "chapter": null
+      },
+      "thinking": {
+        "writer": "low",
+        "memory": "off",
+        "chat": "off",
+        "builder": "off",
+        "speech": "off",
+        "world": "off",
+        "check": "off",
+        "recipe": "off",
+        "chapter": "high",
+        "sounds": "off",
+        "sample": "off",
+        "polish": "off"
+      },
+      "creativity": "adventurous",
+      "planFirst": false,
+      "sceneContracts": false,
+      "continuityBrief": false,
+      "theme": "sepia",
+      "editor": {
+        "fontSize": 21,
+        "lineHeight": 1.9,
+        "pageWidth": 60,
+        "paragraphStyle": "indented",
+        "smartPunctuation": false,
+        "spellCheck": false,
+        "typewriter": true
+      },
+      "goals": {
+        "daily": 1200,
+        "days": [
+          {
+            "date": "2026-10-01",
+            "words": 900
+          }
+        ]
+      },
+      "layout": {
+        "binderWidth": 300,
+        "inspectorWidth": 360,
+        "binderOpen": false,
+        "inspectorOpen": true,
+        "deskStory": "slim"
+      },
+      "lastWorldId": "65882802-e47c-4b00-b701-3a525e0e5a2b",
+      "lastStoryId": "e1de140a-2a52-4c52-97ee-97bb8a715d03",
+      "lastSceneId": "003af454-d938-4539-825a-71a047ec140f",
+      "lastPlaces": {
+        "65882802-e47c-4b00-b701-3a525e0e5a2b": {
+          "storyId": "e1de140a-2a52-4c52-97ee-97bb8a715d03",
+          "sceneId": "003af454-d938-4539-825a-71a047ec140f"
+        }
+      },
+      "backup": {
+        "extraFolder": null
+      },
+      "speech": {
+        "readAloud": true,
+        "runServer": false,
+        "serverUrl": "http://127.0.0.1:8766/v1",
+        "engine": "breeze",
+        "narratorVoice": "invented-voice",
+        "narratorDescription": "",
+        "dialogueVoice": "",
+        "sample": "The rain had not stopped for three days, and the river was beginning to remember its old shape.",
+        "speed": 1.2,
+        "castVoices": true,
+        "studioVoices": true,
+        "actFeelings": true,
+        "checkWords": false,
+        "style": "A seasoned audiobook narrator: warm, unhurried, with natural pauses. Give dialogue life without overacting.",
+        "steadyNarrator": true,
+        "voicedLines": true,
+        "skipSpeechTags": true,
+        "markSpeakers": false,
+        "showSpeakers": false,
+        "sounds": true,
+        "keepReading": true,
+        "followAlong": true,
+        "soundEffects": false,
+        "soundVolume": 0.3,
+        "cacheLimitGb": 2,
+        "dictationEngine": "none",
+        "dictationKey": "",
+        "microphone": ""
+      },
+      "accent": "#3366aa",
+      "usage": {
+        "monthlyLimit": 12.5,
+        "notice": {
+          "month": "2026-10",
+          "limit": 12.5,
+          "warned": true,
+          "reached": false,
+          "carryOn": false
+        }
+      },
+      "startWith": "last",
+      "tourSeen": true,
+      "worldsSeenAt": {
+        "65882802-e47c-4b00-b701-3a525e0e5a2b": "2026-10-02T09:00:00.000Z"
+      },
+      "look": "new",
+      "lookNote": false,
+      "arrangement": "desk",
+      "arrangementNote": false,
+      "checkNewWords": false,
+      "checkWhenDone": true,
+      "checkAfterDraft": false,
+      "checkSecondOpinion": false,
+      "chapterCritic": true,
+      "findByMeaning": false,
+      "searchModelAuto": false,
+      "firstRun": null
+    }
+  },
+  "prefs": {
+    "raw": {
+      "spelling": "US",
+      "pov": "First person",
+      "tense": "Present tense",
+      "voiceNotes": "Invented voice notes.",
+      "avoidWords": [
+        "very",
+        "suddenly"
+      ],
+      "avoidAiPhrases": false,
+      "sceneLength": 2200,
+      "chapterLength": 6000
+    },
+    "read": {
+      "spelling": "US",
+      "pov": "First person",
+      "tense": "Present tense",
+      "voiceNotes": "Invented voice notes.",
+      "avoidWords": [
+        "very",
+        "suddenly"
+      ],
+      "avoidAiPhrases": false,
+      "sceneLength": 2200,
+      "chapterLength": 6000
+    }
+  }
+}
