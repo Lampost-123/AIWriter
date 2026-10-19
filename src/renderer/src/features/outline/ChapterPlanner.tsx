@@ -18,7 +18,8 @@ import { ProblemNotice, WritingStatus } from '@/features/builder/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
-import { chapterHelperKey, checkKept, stopOutline, treeOf, useOutlineHelper } from './helperStore'
+import { chapterHelperKey, checkKept, earlierShown, stopOutline, treeOf, useOutlineHelper } from './helperStore'
+import { EarlierSuggestions } from './EarlierSuggestions'
 import { PlanInterview, usePlanSession } from './PlanInterview'
 import { answeredOf, lastChapterAnswers, noteChapterStory, planChapter, startPlanInterview } from './planInterviewStore'
 import { Suggestions } from './Suggestions'
@@ -58,6 +59,8 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
   )
   const tree = useMemo(() => (run ? treeOf(run) : []), [run])
   const scenes = tree[0]?.children ?? []
+  // Scene cards from before the last Suggest again, still to decide (EarlierSuggestions.tsx).
+  const hasEarlier = useMemo(() => (session ? earlierShown(session).length > 0 : false), [session])
   const arrived = scenes.length
   const open = shown ? totalOf(countNodes(scenes, shown.decisions, 'open')) : 0
   const ended = !!run && !running
@@ -226,7 +229,12 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
         }
         right={
           shown && (arrived || running) ? (
-            <Suggestions storyId={storyId} chapterId={chapter.id} run={shown} tree={tree} open={open} starter={null} landing={`They go into “${title}”, after its scenes.`} />
+            <>
+              <Suggestions storyId={storyId} chapterId={chapter.id} run={shown} tree={tree} open={open} starter={null} landing={`They go into “${title}”, after its scenes.`} />
+              <EarlierSuggestions storyId={storyId} chapterId={chapter.id} />
+            </>
+          ) : hasEarlier ? (
+            <EarlierSuggestions storyId={storyId} chapterId={chapter.id} className="mt-0 border-t-0 pt-0" />
           ) : (
             <ResultsEmpty
               title="This chapter’s scene cards will lie here"
@@ -336,6 +344,7 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
         {shown && (arrived || running) ? (
           <Suggestions storyId={storyId} chapterId={chapter.id} run={shown} tree={tree} open={open} starter={null} />
         ) : null}
+        <EarlierSuggestions storyId={storyId} chapterId={chapter.id} />
       </div>
     </div>
   )

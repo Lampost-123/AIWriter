@@ -10,6 +10,11 @@
 // its own for that chapter (`chapterId`): its run's reply has no chapter heading, so `lead` gives it the
 // chapter's, and that chapter node starts out kept (it is the chapter itself), so its scene cards are
 // kept into it one by one exactly as the outline's are.
+//
+// Suggest again (2026-10-19, after "the only way back is an Undo that goes at the first Keep"): the new suggestions
+// come in at the top, and the ones Adam hadn't decided on stay, as they were, under "Earlier suggestions" (`earlier`),
+// to keep, change or discard just the same, until he keeps them or puts them away. Nothing he hasn't decided on goes
+// without his say. Each batch is its own run, found by its task id, so every Keep, Discard and Undo works on either.
 import { create } from 'zustand'
 import type { KeptItem, OutlineSize, PlanAnswer } from '@shared/contracts/outline'
 import type { ID } from '@shared/types'
@@ -22,6 +27,7 @@ import { useOutlineStore } from '@/features/binder/outlineStore'
 import { notifyChapterCard } from '@/features/chapterCard/chapterCardEvents'
 import { buildStoryWorldSoon } from '@/features/worldBuilder/storyBuild'
 import { parseOutline } from './parse'
+import { carryRevision, type RevisionTrail } from './revision'
 import {
   countKinds,
   describeCounts,
@@ -65,12 +71,20 @@ export interface HelperRun {
   edits: Edits
   /** A chapter's plan: the chapter's heading, read before the reply (which has none). */
   lead?: string
+  /** When it was asked for (ms), for naming it among the earlier suggestions. */
+  at?: number
 }
 
 export interface HelperSession {
   /** How much to suggest; null until Adam picks (the page then suggests a size that suits the story). */
   size: OutlineSize | null
+  /** The newest suggestions. */
   run: HelperRun | null
+  /**
+   * Earlier suggestions, newest first: each batch there was when Adam suggested again, as he left it (shown while it
+   * has anything still to decide). Never asked for again, so never running.
+   */
+  earlier: HelperRun[]
   problem: Problem | null
   /** What was kept but has since been deleted from the story (in the binder): it waits for a decision again. */
   gone: ID[]
@@ -81,10 +95,23 @@ export interface HelperSession {
   blank: boolean | null
 }
 
-const fresh = (): HelperSession => ({ size: null, run: null, problem: null, gone: [], blank: null })
+const fresh = (): HelperSession => ({ size: null, run: null, earlier: [], problem: null, gone: [], blank: null })
 
 /** The decisions as the page shows them and its buttons go by: the run's, less what has left the story since. */
-export const decisionsOf = (s: HelperSession): Decisions => (s.run ? withoutGone(s.run.decisions, s.gone) : {})
+export const decisionsOf = (s: HelperSession, run: HelperRun | null = s.run): Decisions => (run ? withoutGone(run.decisions, s.gone) : {})
+
+/** The run as the page shows it: its decisions less what has left the story since. */
+export const shownRun = (s: HelperSession, run: HelperRun): HelperRun =>
+  s.gone.length ? { ...run, decisions: withoutGone(run.decisions, s.gone) } : run
+
+/** The session's run with this task id (an earlier batch's), or its newest when none is given. */
+function runIn(s: HelperSession, taskId?: ID | null): HelperRun | null {
+  if (!taskId || s.run?.taskId === taskId) return s.run
+  return (s.earlier ?? []).find((r) => r.taskId === taskId) ?? null
+}
+
+/** Every batch of the session: the newest, then the earlier ones. */
+const allRuns = (s: HelperSession): HelperRun[] => [...(s.run ? [s.run] : []), ...(s.earlier ?? [])]
 
 export const useOutlineHelper = create<{ sessions: Record<string, HelperSession> }>(() => ({ sessions: {} }))
 
@@ -105,11 +132,20 @@ const get = (key: string): HelperSession => useOutlineHelper.getState().sessions
 const put = (key: string, patch: Partial<HelperSession>): void =>
   useOutlineHelper.setState((st) => ({ sessions: { ...st.sessions, [key]: { ...(st.sessions[key] ?? fresh()), ...patch } } }))
 
-/** Changes the run, if it is still the one with this task id (a newer request leaves an older one's events alone). */
+/**
+ * Changes the run with this task id, the newest or an earlier batch (a newer request leaves an older one's events alone,
+ * and a Keep's or Discard's Undo still finds its suggestions once they are among the earlier ones).
+ */
 function patchRun(key: string, taskId: ID, patch: Partial<HelperRun> | ((r: HelperRun) => Partial<HelperRun>)): boolean {
-  const run = get(key).run
-  if (!run || run.taskId !== taskId) return false
-  put(key, { run: { ...run, ...(typeof patch === 'function' ? patch(run) : patch) } })
+  const s = get(key)
+  const next = (r: HelperRun): HelperRun => ({ ...r, ...(typeof patch === 'function' ? patch(r) : patch) })
+  if (s.run?.taskId === taskId) {
+    put(key, { run: next(s.run) })
+    return true
+  }
+  const at = (s.earlier ?? []).findIndex((r) => r.taskId === taskId)
+  if (at < 0) return false
+  put(key, { earlier: s.earlier.map((r, i) => (i === at ? next(r) : r)) })
   return true
 }
 
@@ -155,7 +191,7 @@ function listen(): void {
       const { storyId, chapterId } = partsOf(key.slice(prefix.length))
       const showing = !!view && view.storyId === storyId && (view.chapterId ?? null) === chapterId
       const toastShows = keepBatch?.key === key && liveToast(keepBatch.toastId)
-      if ((showing || toastShows) && (s.gone.length || hasKept(s.run))) void checkKept(storyId, chapterId)
+      if ((showing || toastShows) && (s.gone.length || allRuns(s).some(hasKept))) void checkKept(storyId, chapterId)
       // A chapter's plan doesn't ask whether the story is blank.
       if (chapterId) continue
       if (showing) {
@@ -205,9 +241,10 @@ const checks = new Map<string, number>()
  */
 export async function checkKept(storyId: ID, chapterId?: ID | null): Promise<void> {
   const key = keyOf(storyId, chapterId)
-  const run = get(key).run
-  if (!run || (!hasKept(run) && !get(key).gone.length)) return
-  const decisions = run.decisions
+  const runs = allRuns(get(key))
+  if (!runs.length || (!runs.some(hasKept) && !get(key).gone.length)) return
+  // What every batch had kept when it looked (ids are the story's, so one list serves them all).
+  const decisions: Decisions = Object.fromEntries(runs.flatMap((r, i) => Object.entries(r.decisions).map(([k, d]) => [`${i}:${k}`, d])))
   const turn = (checks.get(key) ?? 0) + 1
   checks.set(key, turn)
   let present: Set<ID>
@@ -219,13 +256,13 @@ export async function checkKept(storyId: ID, chapterId?: ID | null): Promise<voi
   }
   const now = get(key)
   // A later look knows better.
-  if (checks.get(key) !== turn || now.run?.taskId !== run.taskId) return
+  if (checks.get(key) !== turn) return
   const gone = goneIds(decisions, present)
   if (gone.length !== now.gone.length || gone.some((id, i) => id !== now.gone[i])) put(key, { gone })
   // The last Keep's toast speaks of what has left the story since: the next Keep gets a toast of its
   // own, and a toast offering to take back only what is gone already goes.
   const batch = keepBatch
-  if (batch?.key === key && batch.taskId === run.taskId && batch.kept.some((k) => gone.includes(k.id))) {
+  if (batch?.key === key && batch.kept.some((k) => gone.includes(k.id))) {
     if (batch.kept.every((k) => gone.includes(k.id))) useToasts.getState().dismiss(batch.toastId)
     keepBatch = null
   }
@@ -251,16 +288,48 @@ export function treeOf(run: HelperRun): TreeNode[] {
 
 // ---------- Suggest ----------
 
-// The toast offering back suggestions that a new request replaced, while it shows.
+// The toast offering back the suggestions as they were before a talk's revision took their place, while it shows.
 let replaced: { toastId: number; key: string; taskId: ID; run: HelperRun } | null = null
 const dropReplaced = (): void => {
   if (replaced) useToasts.getState().dismiss(replaced.toastId)
   replaced = null
 }
 
+/** At most this many earlier batches are held; the oldest with nothing left to decide go first, never one that has. */
+const MOST_EARLIER = 10
+
 /**
- * Asks for an outline from the premise as it is in the box. Suggestions still waiting for a decision
- * give way to the new ones, and Undo in a toast brings them back. A story with nothing planned yet is
+ * The earlier batches once `previous` joins them (newest first). Batches with nothing left to decide stay, out of
+ * sight, so a Keep's Undo can still open them again; past MOST_EARLIER the oldest of those go.
+ */
+function withEarlier(s: HelperSession, previous: HelperRun | null): HelperRun[] {
+  const list = [...(previous && treeOf(previous).length ? [previous] : []), ...(s.earlier ?? [])]
+  let spare = list.length - MOST_EARLIER
+  if (spare <= 0) return list
+  const out: HelperRun[] = []
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (spare > 0 && !hasOpen(list[i], s.gone)) {
+      spare--
+      continue
+    }
+    out.unshift(list[i])
+  }
+  return out
+}
+
+/** The earlier batches the page shows: those with something still to decide, newest first, as the page shows them. */
+export function earlierShown(s: HelperSession): HelperRun[] {
+  return (s.earlier ?? []).filter((r) => hasOpen(r, s.gone)).map((r) => shownRun(s, r))
+}
+
+/** Says where the suggestions Adam hadn't decided on went, when a new request moves them. */
+function noteEarlier(): void {
+  toast('Your earlier suggestions are still here, under “Earlier suggestions”.')
+}
+
+/**
+ * Asks for an outline from the premise as it is in the box. Suggestions still waiting for a decision move under
+ * "Earlier suggestions" (see `earlier`). A story with nothing planned yet is
  * planned from its premise alone, so that needs a word or two first (a hint, not a failure: 'no-premise').
  */
 export async function suggestOutline(storyId: ID, premise: string, size: OutlineSize, o: { premiseOptional?: boolean } = {}): Promise<void> {
@@ -290,30 +359,32 @@ export async function suggestOutlineWith(storyId: ID, size: OutlineSize, start: 
   put(key, {
     size,
     problem: null,
-    gone: [],
-    run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions: {}, edits: {} }
+    earlier: withEarlier(s, previous),
+    run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions: {}, edits: {}, at: Date.now() }
   })
   try {
     const { generationId } = await start(taskId)
     patchRun(key, taskId, (r) => ({ generationId: r.generationId ?? generationId }))
   } catch (e) {
     if (get(key).run?.taskId !== taskId) return
-    // Nothing started: what was on the page stays.
-    put(key, { run: previous, gone: s.gone, problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined } })
+    // Nothing started: what was on the page stays where it was.
+    put(key, { run: previous, earlier: s.earlier, problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined } })
     return
   }
-  if (previous && wasOpen) offerBack(storyId, taskId, previous)
+  if (wasOpen) noteEarlier()
 }
 
-const hasOpen = (run: HelperRun, gone: ID[]): boolean => {
+/** True while the run has a suggestion still waiting for a decision (what has left the story since counts as waiting). */
+export function hasOpen(run: HelperRun, gone: ID[]): boolean {
   const decisions = withoutGone(run.decisions, gone)
   const open = (nodes: TreeNode[]): boolean => nodes.some((n) => !decisions[n.key] || open(n.children))
   return open(treeOf(run))
 }
 
+/** The Undo for a talk's revision: the suggestions as they were before it (until one of the new ones is decided on). */
 function offerBack(storyId: ID, taskId: ID, run: HelperRun, chapterId?: ID | null): void {
   const key = keyOf(storyId, chapterId)
-  const toastId = toast('Replaced the earlier suggestions you hadn’t decided on.', {
+  const toastId = toast('Changed the suggestions as you asked.', {
     action: {
       label: 'Undo',
       run: () => {
@@ -323,7 +394,7 @@ function offerBack(storyId: ID, taskId: ID, run: HelperRun, chapterId?: ID | nul
         if (replaced?.toastId === toastId) replaced = null
         if (!now || now.taskId !== taskId) return
         if (now.status === 'running') void api.stopTask(taskId).catch(() => undefined)
-        put(key, { run: back, problem: null, gone: [] })
+        put(key, { run: back, problem: null })
         // What it kept may have been deleted from the story since.
         void checkKept(storyId, chapterId)
       }
@@ -333,7 +404,7 @@ function offerBack(storyId: ID, taskId: ID, run: HelperRun, chapterId?: ID | nul
 }
 
 /**
- * A first Keep or Discard among the new suggestions settles on them: the toast offering back the ones
+ * A first Keep or Discard among a revision's suggestions settles on them: the toast offering back the ones
  * they replaced goes, rather than swapping away what Adam has started deciding on.
  */
 function settledOnNew(key: string, taskId: ID): void {
@@ -342,7 +413,7 @@ function settledOnNew(key: string, taskId: ID): void {
 
 /**
  * A chapter's plan, from its interview's answers (none: from the chapter and the outline around it).
- * Scene cards still waiting from an earlier plan give way to the new ones, and Undo brings them back.
+ * Scene cards still waiting from an earlier plan move under "Earlier suggestions", as on the outline's page.
  */
 export async function suggestChapter(storyId: ID, chapterId: ID, title: string, answers: PlanAnswer[]): Promise<void> {
   listen()
@@ -361,64 +432,67 @@ export async function suggestChapter(storyId: ID, chapterId: ID, title: string, 
   put(key, {
     size,
     problem: null,
-    gone: [],
     blank: false,
-    run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions, edits: {}, lead }
+    earlier: withEarlier(s, previous),
+    run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions, edits: {}, lead, at: Date.now() }
   })
   try {
     const { generationId } = await api.startChapterPlan({ taskId, chapterId, answers })
     patchRun(key, taskId, (r) => ({ generationId: r.generationId ?? generationId }))
   } catch (e) {
     if (get(key).run?.taskId !== taskId) return
-    put(key, { run: previous, gone: s.gone, problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined } })
+    put(key, { run: previous, earlier: s.earlier, problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined } })
     return
   }
-  if (previous && wasOpen) offerBack(storyId, taskId, previous, chapterId)
+  if (wasOpen) noteEarlier()
 }
 
 // ---------- Talking it over, and doing one again (the Story builder, 2026-10-17) ----------
 
-/** The session's run as it is now (null when there is none, or a request is still arriving). */
+/**
+ * The session's run as the page shows it (what has left the story since waits for a decision again); null when there
+ * is none, or a request is still arriving.
+ */
 export function settledRun(storyId: ID): HelperRun | null {
-  const run = get(keyOf(storyId)).run
-  return run && run.status !== 'running' ? run : null
+  const s = get(keyOf(storyId))
+  return s.run && s.run.status !== 'running' ? shownRun(s, s.run) : null
 }
 
-const sameTitle = (a: string, b: string): boolean => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase()
+/** A talk's revised plan, and what it knows of where its parts came from (planTalk.ts PlanRevision). */
+export interface RevisionInput extends RevisionTrail {
+  text: string
+  /** The suggestions' text its trail goes by: the trail holds only while they still read so. */
+  base?: string
+}
 
 /**
  * Applies a revised plan from talking it over: it takes the place of the suggestions, and Undo in a toast brings them
- * back. What was kept stays kept: a revised act or chapter with the same title as one already kept is that one, so
- * what is inside it still goes into it.
+ * back. What Adam did carries over (revision.ts): what was kept stays kept, in its place, and is never offered to keep
+ * twice; what he discarded since stays discarded; his own changes stay his where the talk didn't change that part.
  */
-export function applyRevision(storyId: ID, text: string): boolean {
+export function applyRevision(storyId: ID, revision: RevisionInput): boolean {
   listen()
   const key = keyOf(storyId)
   const s = get(key)
   const previous = s.run
   if (!previous || previous.status === 'running') return false
-  const oldTree = treeOf(previous)
-  const decisions: Decisions = {}
-  const keptNodes: TreeNode[] = []
-  const collect = (nodes: TreeNode[]): void =>
-    nodes.forEach((n) => {
-      if (previous.decisions[n.key]?.status === 'kept' && !s.gone.includes((previous.decisions[n.key] as { id: ID }).id)) keptNodes.push(n)
-      collect(n.children)
-    })
-  collect(oldTree)
+  // A redo or another revision since moves the parts about: then they are matched by their titles alone.
+  const trail: RevisionTrail = revision.base === undefined || revision.base === previous.text ? revision : {}
+  const next = carryRevision(previous.text, decisionsOf(s), previous.edits, revision.text, trail)
   const taskId = crypto.randomUUID()
-  const run: HelperRun = { taskId, generationId: null, text, status: 'complete', cutOff: false, retrying: null, size: previous.size, decisions: {}, edits: {} }
-  const visit = (nodes: TreeNode[]): void =>
-    nodes.forEach((n) => {
-      const was = keptNodes.find((k) => k.kind === n.kind && n.kind !== 'scene' && sameTitle(k.title, n.title))
-      const d = was ? previous.decisions[was.key] : undefined
-      if (d) decisions[n.key] = d
-      visit(n.children)
-    })
-  visit(treeOf(run))
-  run.decisions = decisions
+  const run: HelperRun = {
+    ...previous,
+    taskId,
+    generationId: null,
+    text: next.text,
+    status: 'complete',
+    cutOff: false,
+    retrying: null,
+    decisions: next.decisions,
+    edits: next.edits
+  }
   dropReplaced()
-  put(key, { run, problem: null, gone: [] })
+  put(key, { run, problem: null })
   offerBack(storyId, taskId, previous)
   return true
 }
@@ -465,9 +539,10 @@ export function dismissProblem(storyId: ID, chapterId?: ID | null): void {
 
 // ---------- Edit ----------
 
-export function saveEdit(storyId: ID, nodeKey: string, edit: NodeEdit, chapterId?: ID | null): void {
+/** Adam's own words for a suggestion. `runId`: an earlier batch's (left out: the newest suggestions). */
+export function saveEdit(storyId: ID, nodeKey: string, edit: NodeEdit, chapterId?: ID | null, runId?: ID | null): void {
   const key = keyOf(storyId, chapterId)
-  const run = get(key).run
+  const run = runIn(get(key), runId)
   if (run) patchRun(key, run.taskId, (r) => ({ edits: { ...r.edits, [nodeKey]: edit } }))
 }
 
@@ -480,6 +555,8 @@ export interface KeepOptions {
    * codex is built).
    */
   build?: 'always' | 'new-pages'
+  /** The suggestions to keep from: an earlier batch's task id (left out: the newest suggestions). */
+  runId?: ID | null
 }
 
 /** Stories whose keeps build as the Story builder says (see KeepOptions), whichever page the Keep is clicked on. */
@@ -518,10 +595,10 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?:
     // What was kept but deleted from the story since is made anew, rather than looked for in vain.
     await checkKept(storyId, chapterId)
     const s = get(key)
-    const run = s.run
+    const run = runIn(s, o.runId)
     if (!run || run.status === 'running') return
     const tree = treeOf(run)
-    const items = keepPlan(tree, decisionsOf(s), run.edits, keys)
+    const items = keepPlan(tree, decisionsOf(s, run), run.edits, keys)
     if (!items.length) return
     let kept: KeptItem[]
     try {
@@ -592,6 +669,12 @@ async function undoKeep(b: KeepBatch): Promise<void> {
     }
     moveOffScenes(gone)
     patchRun(b.key, b.taskId, (r) => ({ decisions: withoutKept(r.decisions, b.kept) }))
+    // A talk's revision since carried those keeps over, under keys of its own: open there too.
+    const ids = new Set(b.kept.map((k) => k.id))
+    const reopen = (d: Decisions): Decisions => Object.fromEntries(Object.entries(d).filter(([, x]) => !(x.status === 'kept' && ids.has(x.id))))
+    for (const r of allRuns(get(b.key)))
+      if (r.taskId !== b.taskId && Object.values(r.decisions).some((x) => x.status === 'kept' && ids.has(x.id)))
+        patchRun(b.key, r.taskId, (x) => ({ decisions: reopen(x.decisions) }))
     // Suggestions replaced since, and offered back: they show these as open again too.
     if (replaced?.run.taskId === b.taskId) replaced.run = { ...replaced.run, decisions: withoutKept(replaced.run.decisions, b.kept) }
     useApp.getState().bumpOutline()
@@ -622,14 +705,17 @@ interface DiscardBatch {
 
 let discardBatch: DiscardBatch | null = null
 
-/** Discard: the suggestion, and everything still open inside it, goes from the list. Undo brings it back. */
-export function discardSuggestion(storyId: ID, nodeKey: string, chapterId?: ID | null): void {
+/**
+ * Discard: the suggestion, and everything still open inside it, goes from the list. Undo brings it back. `runId`: an
+ * earlier batch's (left out: the newest suggestions).
+ */
+export function discardSuggestion(storyId: ID, nodeKey: string, chapterId?: ID | null, runId?: ID | null): void {
   const key = keyOf(storyId, chapterId)
   const s = get(key)
-  const run = s.run
+  const run = runIn(s, runId)
   if (!run || run.status === 'running') return
   const tree = treeOf(run)
-  const keys = discardKeys(tree, decisionsOf(s), nodeKey)
+  const keys = discardKeys(tree, decisionsOf(s, run), nodeKey)
   if (!keys.length) return
   patchRun(key, run.taskId, (r) => ({ decisions: withDiscarded(r.decisions, keys) }))
   settledOnNew(key, run.taskId)
@@ -650,6 +736,31 @@ export function discardSuggestion(storyId: ID, nodeKey: string, chapterId?: ID |
     }
   })
   discardBatch = batch
+}
+
+/**
+ * "Put these away" on an earlier batch: everything in it still waiting for a decision is discarded at once, so the
+ * batch leaves the page. Undo in a toast brings it all back.
+ */
+export function putAwayEarlier(storyId: ID, runId: ID, chapterId?: ID | null): void {
+  const key = keyOf(storyId, chapterId)
+  const s = get(key)
+  const run = (s.earlier ?? []).find((r) => r.taskId === runId)
+  if (!run) return
+  const decisions = decisionsOf(s, run)
+  const open: TreeNode[] = []
+  const walk = (nodes: TreeNode[]): void =>
+    nodes.forEach((n) => {
+      if (!decisions[n.key]) open.push(n)
+      walk(n.children)
+    })
+  walk(treeOf(run))
+  if (!open.length) return
+  const keys = open.map((n) => n.key)
+  patchRun(key, runId, (r) => ({ decisions: withDiscarded(r.decisions, keys) }))
+  toast(`Put away ${describeCounts(countKinds(open.map((n) => n.kind)))} from earlier.`, {
+    action: { label: 'Undo', run: () => void patchRun(key, runId, (r) => ({ decisions: withoutDiscarded(r.decisions, keys) })) }
+  })
 }
 
 function findKind(tree: TreeNode[], key: string): TreeNode['kind'] | null {

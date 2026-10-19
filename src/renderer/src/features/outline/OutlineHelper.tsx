@@ -25,6 +25,7 @@ import {
   checkBlank,
   checkKept,
   dismissProblem,
+  earlierShown,
   helperKey,
   openHelper,
   setHelperSize,
@@ -37,6 +38,7 @@ import {
 } from './helperStore'
 import { cardIsEmpty } from './ideasLogic'
 import { SIZE_CHOICES, defaultSize, fitSize } from './size'
+import { EarlierSuggestions } from './EarlierSuggestions'
 import { Suggestions } from './Suggestions'
 import { countLine, countNodes, totalOf, withoutGone } from './tree'
 import { PlanTalk } from './PlanTalkParts'
@@ -124,6 +126,8 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   const changeSize = (patch: Partial<OutlineSize>): void => setHelperSize(story.id, fitSize(size, patch))
 
   const tree = useMemo(() => (run ? treeOf(run) : []), [run])
+  // Suggestions from before the last Suggest again, still to decide (EarlierSuggestions.tsx).
+  const hasEarlier = useMemo(() => earlierShown(s).length > 0, [s])
   const starter = useStarter(shape, shown)
   const arrived = countNodes(tree, {}, 'all')
   const open = shown ? totalOf(countNodes(tree, shown.decisions, 'open')) : 0
@@ -328,7 +332,12 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
         }
         right={
           shown && (tree.length || running) ? (
-            <Suggestions storyId={story.id} run={shown} tree={tree} open={open} starter={starter} landing={where} />
+            <>
+              <Suggestions storyId={story.id} run={shown} tree={tree} open={open} starter={starter} landing={where} />
+              <EarlierSuggestions storyId={story.id} />
+            </>
+          ) : hasEarlier ? (
+            <EarlierSuggestions storyId={story.id} className="mt-0 border-t-0 pt-0" />
           ) : (
             <ResultsEmpty
               title="Your outline will lie here"
@@ -481,6 +490,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
         {shown && (tree.length || running) ? (
           <Suggestions storyId={story.id} run={shown} tree={tree} open={open} starter={starter} />
         ) : null}
+        <EarlierSuggestions storyId={story.id} />
       </div>
     </div>
   )

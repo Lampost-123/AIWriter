@@ -8,6 +8,7 @@ import {
   firstOfKind,
   keysUnder,
   nodeText,
+  openKeys,
   openText,
   outlineText,
   spliceText,
@@ -16,7 +17,8 @@ import {
   stripTags,
   taggedText,
   titleOfTag,
-  touchesOf
+  touchesOf,
+  wholePlanChanges
 } from './outlineText'
 import { outlineTree, type TreeNode } from './tree'
 
@@ -117,6 +119,28 @@ describe('writing suggestions back out', () => {
     expect(all).not.toContain('Grey Water')
   })
 
+  it('writes Adam’s card and plot threads in place of the AI’s', () => {
+    const card = { pov: 'Bram Holt', characters: ['Bram Holt', 'Mara'], location: 'The kitchen', when: '', mood: 'Sly' }
+    const text = nodeText(REPLY, 'a0c0s1', { a0c0s1: { title: 'Salvage', text: 'Bram counts.', beats: ['He smiles'], card, setsUp: ['The ledger'], paysOff: [] } })
+    expect(text).toContain('Point of view: Bram Holt')
+    expect(text).toContain('Characters: Bram Holt, Mara')
+    expect(text).toContain('Location: The kitchen')
+    expect(text).toContain('Mood: Sly')
+    expect(text).toContain('Sets up: The ledger')
+    const chapter = nodeText(REPLY, 'a0c0', { a0c0: { title: 'Grey Water', text: 'Ada finds the lamp cold.', beats: [], card: { ...card, when: 'Day 9' } } })
+    expect(chapter).toContain('When: Day 9')
+    expect(chapter).not.toContain('Gull Harbour')
+  })
+
+  it('says where each part it sends to a talk is among the suggestions', () => {
+    const decisions = { a0c0: { status: 'kept' as const, id: 'c1' }, a0c0s0: { status: 'kept' as const, id: 's1' }, a0c1: { status: 'discarded' as const } }
+    const map = openKeys(REPLY, decisions)
+    // Read back, the open form's own keys run from the start again: each says which suggestion it is.
+    const sent = tree(openText(REPLY, decisions, {}))
+    expect(sent[0].children.map((c) => c.title)).toEqual(['Grey Water'])
+    expect(map).toEqual({ a0: 'a0', a0c0: 'a0c0', a0c0s0: 'a0c0s1', a1: 'a1', a1c0: 'a1c0', a1c0s0: 'a1c0s0' })
+  })
+
   it('finds what a suggestion holds', () => {
     expect(keysUnder('a0c1', ['a0', 'a0c1', 'a0c1s0', 'a0c10', 'a0c10s0', 'a1c1'])).toEqual(['a0c1', 'a0c1s0'])
   })
@@ -195,5 +219,34 @@ describe('a talk’s changes', () => {
   it('says nothing when nothing could be used', () => {
     expect(applyPlanChanges(current, '### Scene: Nowhere [#a9c9s9]\n- x')).toBeNull()
     expect(applyPlanChanges(current, 'Just words.')).toBeNull()
+  })
+
+  it('says which part each one was, and which it changed or added', () => {
+    const out = applyPlanChanges(
+      current,
+      '### Scene: The Kettle [new after #a0c0s0]\n- It whistles\n\n### Scene: Salvage [#a0c0s1]\nSummary: Bram counts in the kitchen.\n\nRemove: #a1c0s0'
+    )!
+    // The kettle comes second, so Salvage reads back as the third scene: it was the second.
+    expect(out.origin).toMatchObject({ a0: 'a0', a0c0: 'a0c0', a0c0s0: 'a0c0s0', a0c0s2: 'a0c0s1', a1c0: 'a1c0' })
+    expect(out.origin.a0c0s1).toBeUndefined()
+    expect(out.changed.sort()).toEqual(['a0c0s1', 'a0c0s2'])
+  })
+})
+
+describe('a whole plan sent again', () => {
+  const current = outlineText(parseOutline(REPLY, true))
+
+  it('knows each part by its tag, else by its title in the same place', () => {
+    const plan = taggedText(current)
+      .replace('### Scene: Salvage [#a0c0s1]', '### Scene: Salvage')
+      .replace('Summary: The lamp burns.', 'Summary: The lamp burns bright.')
+      .replace('## Chapter: Long Night [#a0c1]', '## Chapter: Longest Night')
+    const out = wholePlanChanges(current, plan)
+    expect(out.text).not.toContain('[#')
+    expect(out.origin).toMatchObject({ a0c0s0: 'a0c0s0', a0c0s1: 'a0c0s1', a1c0s0: 'a1c0s0' })
+    // A new title and no tag: a new chapter (its scene still had its tag).
+    expect(out.origin.a0c1).toBeUndefined()
+    expect(out.origin.a0c1s0).toBe('a0c1s0')
+    expect(out.changed.sort()).toEqual(['a0c1', 'a1c0s0'])
   })
 })

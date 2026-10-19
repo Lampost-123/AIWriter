@@ -180,6 +180,27 @@ describe('what Keep adds', () => {
     expect(keepPlan(dated, {}, { c0s0: { title: 'A', text: '', beats: [], when: ' ' } }, ['c0s0'])[1].when).toBeUndefined()
   })
 
+  it('keeps the card and plot threads as Adam changed them, and the AI’s where he didn’t', () => {
+    const carded = outlineTree(
+      parseOutline(
+        '## Chapter: One\nPoint of view: Mara\nCharacters: Mara, Tobin\nLocation: The docks\nWhen: Day 1\nMood: Wary\n### Scene: A\nLocation: The quay\nSets up: The debt\n- Beat\n### Scene: B\nPays off: The debt\n- Beat',
+        true
+      )
+    )
+    const card = { pov: 'Tobin', characters: ['Tobin', 'Old Bren'], location: '', when: 'Day 2', mood: 'Grim' }
+    const edits = {
+      c0: { title: 'One', text: '', beats: [], card },
+      c0s0: { title: 'A', text: '', beats: ['Beat'], card: { pov: '', characters: [], location: 'Kitchen, Venn House', when: '', mood: '' }, setsUp: [' The ledger '], paysOff: [] }
+    }
+    const items = keepPlan(carded, {}, edits, 'all')
+    expect(items[0].card).toEqual({ pov: 'Tobin', characters: ['Tobin', 'Old Bren'], when: 'Day 2', mood: 'Grim' })
+    expect(items[1]).toMatchObject({ card: { location: 'Kitchen, Venn House' }, setsUp: ['The ledger'] })
+    expect(items[1].paysOff).toBeUndefined()
+    // Untouched, the AI's.
+    expect(items[2]).toMatchObject({ paysOff: ['The debt'] })
+    expect(keepPlan(carded, {}, {}, ['c0'])[0].card).toEqual({ pov: 'Mara', characters: ['Mara', 'Tobin'], location: 'The docks', when: 'Day 1', mood: 'Wary' })
+  })
+
   it('keeps a chapter of a reply with no acts on its own, for the story to place', () => {
     const flat = outlineTree(parseOutline('## Chapter: One\n### Scene: A\n- Beat\n## Chapter: Two\n### Scene: B', true))
     expect(show(keepPlan(flat, {}, {}, ['c1s0']))).toEqual(['chapter c1 Two', 'scene c1s0 B in=c1'])
