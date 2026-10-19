@@ -3762,7 +3762,8 @@ from any story, and points to the Story builder while a story is open.
 
 A look-up table that says, scene by scene, who is where, with what, and what changed, kept as dated facts, so a question
 such as "what is Mara wearing as Ch 12, Sc 3 begins" or "who knows the seal was stolen" is a database read rather than a
-walk over the memory or an AI call. This part is free: no AI call builds or reads it. Not wired in yet (below).
+walk over the memory or an AI call. The free part needs no AI call to build or read; the physical details come from
+where things stand, filled in where Adam chose (below).
 
 **Migration 5: the story index.** The written reason: answering those questions today means building the line and the
 state for a scene (`memory/scene.ts`), reading the stage tracker's store and the calendar, every time, and nothing keeps
@@ -3803,11 +3804,32 @@ go with their scene when it is emptied from Recently deleted (foreign keys). All
   someone in two scenes the cards put at the very same moment (same day, same clock time, neither leaning on the scene
   before nor going back) in places apart, with a card having them there; `after-death`, someone on a scene card after
   the memory is sure they died, never in a dream, memory or flashback, nor a scene the calendar dates before the death.
-- **To wire in next** (not done here): call `refreshSceneIndex` after the memory keeper applies a run and the stage is
-  brought up to date (`keeper/index.ts` `standLater`, beside `rulesAfterRead`), when a scene card is saved, and when a
-  scene is deleted or restored (`rulesAfterDeleting`); `buildStoryIndex` (hash-guarded, so cheap when little changed)
-  when a world opens, in the background, story by story, and after scenes or chapters move, a summary is written, or
-  Adam edits the memory by hand on an entry page. A scene moved to another story: refresh it (both stories follow).
+- **Kept current** (`storyIndex/upkeep.ts`, wired for the open world in `keeper/indexing.ts`; never throws into the
+  caller, never holds it up: changes are gathered for 400 ms, then taken in a story at a time between other work). When a
+  world opens, 3 seconds after (the window comes up first), every story is built and the stories gone dropped. A scene
+  is refreshed after the memory reads it (`keeper/index.ts` `standLater`, beside `rulesAfterRead`), whenever where things
+  stand is kept anew for it (`continuity/tracker.ts` `onStageKept`: a read, a draft's catch-up, Recall, a fill), and when
+  the keeper says a scene changed (a summary written). Its stories are built again after `recordEdited` (a card saved,
+  scenes or chapters moved, the memory or an entry edited by hand), after an outline is kept, and every story after
+  scenes are deleted or brought back (beside `rulesAfterDeleting`). The free part is built for every story.
+- **The physical details** (what people wear, carry and suffer, and where they end up) come from where things stand,
+  which costs a memory-model call a scene (`storyIndex/fill.ts`; a row says `filled: 'ai'` once it has them, INDEX_RULES 2).
+  Adam, 2026-10-19: only for the last chapters of an existing story by themselves. After the opening build, the scenes with
+  words of the last two chapters with words of each story being written (changed within 60 days, and always the latest)
+  not yet read for their words are queued (`recentScenesToFill`) in the `StageFiller`, which works one scene at a time
+  and, before each, gives way while the keeper reads or has scenes waiting, a draft waits for the memory (counted around
+  the before-draft catch-up) or where things stand is being brought up to date after a read: never in front of a draft.
+  An older scene is filled the first time a look-up needs it: `fillSceneForLookup(db, sceneId, model)` (stateBefore, as a
+  draft brings the scenes before up to date, then stateAfter, then the story is built again). New scenes get theirs as
+  part of the memory's usual work (`standLater`).
+- **Fill in the whole story** (the What changed page in the New look only, Classic being retired; the desk has it under
+  how the memory is doing): an
+  estimate first (`estimateStoryFill`: the scenes with words not yet filled, one call each, about 1.4 tokens a word plus
+  the instructions, at the memory model's prices; free with a model on this computer; "about N AI calls" when its price
+  isn't known), then `startStoryFill` (asks first under the spending limit) runs the story's scenes through the same
+  StageFiller ahead of the recent chapters, with `MemoryStatus.filling` ("Filling in scene 3 of 42…" in the top bar and
+  on the card), Stop (`stopStoryFill`: what was filled stays), and a quiet note when done (`storyFill:done`). It gives up
+  after three calls in a row fail. Drafts still wait for the memory as usual; the fill waits for them.
 
 ## Milestone 1 scope
 

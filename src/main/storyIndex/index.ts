@@ -8,7 +8,8 @@
 //   before, the summary, and the world's names). Then where each fact stops is worked out again (link.ts).
 // - `refreshSceneIndex` does the same for one scene (and the next scene with a stage, whose facts are told against it),
 //   plus any scene of its story not in the index yet.
-// Not wired in yet: see docs/ARCHITECTURE.md, "The story index", for where they are to be called. No Electron imports.
+// Kept current by storyIndex/upkeep.ts (wired in keeper/indexing.ts); the physical details filled in by fill.ts. No
+// Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { ID, SceneCard } from '@shared/types'
@@ -29,8 +30,8 @@ export type * from './types'
 
 type DB = Database.Database
 
-/** Goes up whenever the build's rules change, so every scene is built again by them. */
-export const INDEX_RULES = 1
+/** Goes up whenever the build's rules change, so every scene is built again by them (2: a row says when its details are in). */
+export const INDEX_RULES = 2
 
 export interface IndexBuild {
   storyId: ID
@@ -157,7 +158,8 @@ function buildScenes(db: DB, r: Reading, storyId: ID, places: Map<ID, { position
         placeEntryId: b.placeEntryId,
         whenText: b.whenText,
         sourceHash: hash,
-        filled: 'free'
+        // With where things stand read from the scene's words, its physical details are in (the AI's part: fill.ts).
+        filled: src.stage ? 'ai' : 'free'
       },
       b.facts,
       b.threads
