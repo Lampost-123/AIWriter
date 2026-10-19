@@ -88,14 +88,16 @@ export function registerInterviewCard(sceneId: ID, card: LiveCard): () => void {
   }
 }
 
-async function cardNow(sceneId: ID): Promise<SceneCard> {
+/** The scene card as the card on screen has it (else as saved): Plan this scene and Suggest beats read it too. */
+export async function cardNow(sceneId: ID): Promise<SceneCard> {
   const live = liveCards.get(sceneId)?.current()
   if (live) return live
   const scene = await api.getScene(sceneId)
   return { ...emptySceneCard(), ...scene.card }
 }
 
-async function patchCard(sceneId: ID, p: Partial<SceneCard>): Promise<void> {
+/** Puts parts on the scene card, on screen when it shows (saving as typing does), else saved at once. */
+export async function patchCard(sceneId: ID, p: Partial<SceneCard>): Promise<void> {
   const live = liveCards.get(sceneId)
   if (live) return live.patch(p)
   const now = await cardNow(sceneId)
