@@ -906,6 +906,10 @@ export class ChapterRun {
       const card = repo.sceneCards(db, [here.id]).get(here.id)
       parts.push(`## The scene you are working on: ${here.label}\nScene card:\n${card ? cardLines(card, names) || '(empty)' : '(empty)'}`)
     }
+    // The words before what was found in them (token audit, 2026-10-19): the findings change from round to round when the
+    // words may not, and a provider reuses only the start of a prompt it has seen (its cache).
+    if (sceneId) parts.push(`## The scene's words ([n] numbers each paragraph; *asterisks* mark italics)\n${numberedScene(db, sceneId)}`)
+    else parts.push('## The scenes\nRead each with read_scene (name it: "Sc 2").')
     if (job === 'proofread' && sceneId) {
       const slop = findSlop(repo.getScene(db, sceneId).text ?? '')
       parts.push(
@@ -916,8 +920,6 @@ export class ChapterRun {
     } else {
       parts.push(`## What the checks and the critic found\n${findings.map((f) => findingLine(f, this.refs)).join('\n')}`)
     }
-    if (sceneId) parts.push(`## The scene's words ([n] numbers each paragraph; *asterisks* mark italics)\n${numberedScene(db, sceneId)}`)
-    else parts.push('## The scenes\nRead each with read_scene (name it: "Sc 2").')
     parts.push(
       job === 'proofread'
         ? '## What to do\nProofread the scene: fix each slip with revise, then call done.'

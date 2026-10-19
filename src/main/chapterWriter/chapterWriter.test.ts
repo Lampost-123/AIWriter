@@ -4,6 +4,7 @@ import type { ChapterWriterProgress } from '@shared/contracts/chapterWriter'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
+import * as gens from '../db/generations'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
@@ -465,6 +466,23 @@ describe('writing a whole chapter', () => {
     // Round 1 checks both scenes; each review revises its scene and has it checked again; round 2 has nothing to read.
     expect(checked).toEqual([s1, s2, s1, s2])
     expect(report.rounds).toBe(2)
+  })
+
+  it('opens each review and proofread with the scene’s words before what was found in them (token audit)', { timeout: 30_000 }, async () => {
+    const { db, chapterId } = world()
+    const run = new ChapterRun(deps(db), 'run-order', chapterId)
+    run.prepare()
+    await run.run()
+    const openings = (db.prepare("SELECT id FROM generations WHERE job = 'chapter' ORDER BY created_at").all() as { id: ID }[])
+      .map((r) => gens.getGeneration(db, r.id).messages)
+      .filter((m) => /^\[AIWRITE-CHAPTER v1\] (review|proofread)/.test(m[0]?.content ?? ''))
+      .map((m) => m[1].content)
+    expect(openings.length).toBeGreaterThan(2)
+    for (const o of openings) {
+      const words = o.indexOf("## The scene's words")
+      expect(words).toBeGreaterThan(0)
+      expect(Math.max(o.indexOf('## What the checks and the critic found'), o.indexOf('## Common AI phrases'))).toBeGreaterThan(words)
+    }
   })
 
   it('never keeps a cut-off draft or a refusal as the scene', async () => {
