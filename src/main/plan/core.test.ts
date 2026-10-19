@@ -15,7 +15,6 @@ function world() {
   const db = memoryWorld()
   const story = repo.listStories(db)[0]
   const o = repo.getOutline(db, story.id)
-  const ch1 = o.chapters[0].id
   const ch2 = repo.createChapter(db, story.id, { title: 'Two' }).id
   const ch3 = repo.createChapter(db, story.id, { title: 'Three' }).id
   const s1 = o.scenes[0].id

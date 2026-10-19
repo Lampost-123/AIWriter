@@ -23,8 +23,8 @@ const target = () => ({ id: 'p1', name: 'Fake', kind: 'custom' as const, baseUrl
 vi.mock('../world', () => ({ db: () => h.db, maybeCurrentWorld: () => (h.db ? { db: h.db } : null) }))
 vi.mock('../settings', () => ({
   getSettings: () => ({
-    ...defaultSettings(),
-    models: { ...defaultSettings().models, writer: choice('fake/writer'), memory: choice('fake/memory') },
+    ...defaultSettings('library'),
+    models: { ...defaultSettings('library').models, writer: choice('fake/writer'), memory: choice('fake/memory') },
     planFirst: h.planFirst,
     continuityBrief: false
   }),
@@ -126,7 +126,7 @@ function world() {
   return { db, scene, before }
 }
 
-const OPTIONS: Partial<DraftOptions> = { targetWords: 300, creativity: 'balanced', direction: '' }
+const OPTIONS: DraftOptions = { targetWords: 300, creativity: 'balanced', direction: '' }
 const plans = (): Sent[] => sent.filter((s) => s.system.startsWith(PLAN_MARKER))
 const writes = (): Sent[] => sent.filter((s) => s.model === 'fake/writer')
 
@@ -225,7 +225,7 @@ describe('every writing path plans first while "Plan before writing" is on', () 
     const w = world()
     const events: { name: string; payload: unknown }[] = []
     const set = await startVariantSet(
-      { setId: 'set-1', sceneId: w.scene, count: 2, options: { ...OPTIONS, targetWords: 300, creativity: 'balanced', direction: '' } as DraftOptions },
+      { setId: 'set-1', sceneId: w.scene, count: 2, options: OPTIONS },
       {
         db: w.db,
         emit: (name, payload) => void events.push({ name, payload }),
@@ -288,7 +288,7 @@ describe('with "Plan before writing" off, no path plans', () => {
     await ended(generationId)
     const events: { name: string; payload: unknown }[] = []
     const set = await startVariantSet(
-      { setId: 'set-2', sceneId: w.scene, count: 2, options: { ...OPTIONS, targetWords: 300, creativity: 'balanced', direction: '' } as DraftOptions },
+      { setId: 'set-2', sceneId: w.scene, count: 2, options: OPTIONS },
       { db: w.db, emit: (name, payload) => void events.push({ name, payload }), briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal }) }
     )
     for (const id of set.generationIds) await ended(id, 'generation:done', events)
