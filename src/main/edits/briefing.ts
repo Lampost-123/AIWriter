@@ -7,8 +7,10 @@
 // timeline's short form (ai/timeline.ts), a few entries recalled near the cursor, what was said word for word, the
 // point-of-view character's facts to keep, an optional "what happens next" from Adam, and the phrases the scene has
 // used already (ai/repetition.ts). What stays the same from one Continue to the next comes first (the cache). Since long
-// story memory fix 13, Continue also gets the scene's contract (ai/contract.ts) built by the app alone (Continue has no
-// plan): what must not change, what must happen next when Adam says, and how much time has passed.
+// story memory fix 13, Continue also gets the scene's contract (ai/contract.ts) built by the app alone: what must not
+// change, what must happen next when Adam says (pointed to, as his words are said last), and how much time has passed.
+// Since 2026-10-19 Continue also gets the end of the previous scene, and the plan made before the scene was drafted
+// while its words haven't moved on past it (plan/index.ts planForContinueOf); it makes no plan call of its own.
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
