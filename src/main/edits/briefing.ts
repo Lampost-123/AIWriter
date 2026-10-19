@@ -9,8 +9,10 @@
 // used already (ai/repetition.ts). What stays the same from one Continue to the next comes first (the cache). Since long
 // story memory fix 13, Continue also gets the scene's contract (ai/contract.ts) built by the app alone: what must not
 // change, what must happen next when Adam says (pointed to, as his words are said last), and how much time has passed.
-// Since 2026-10-19 Continue also gets the end of the previous scene, and the plan made before the scene was drafted
-// while its words haven't moved on past it (plan/index.ts planForContinueOf); it makes no plan call of its own.
+// Since 2026-10-19 Continue also gets the end of the previous scene while the scene's own words are short, the beats of
+// the plan made before the scene was drafted still to come, the next marked (plan/index.ts planForContinueOf), the card's
+// beats marked the same way, and everyone in the scene as the story index has them; someone only thought of or talked of
+// near the words is named nearby, never among the characters in the scene. It makes no plan call of its own.
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
@@ -21,7 +23,7 @@ import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, 
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
-import { MUST_TITLE, mustLines, mustStayTrue, mustText, stageFor } from '../ai/mustStay'
+import { MUST_TITLE, mustLines, mustStayTrue, mustText, namedThere, stageFor } from '../ai/mustStay'
 import { CONTRACT_BLOCK, contractSays, contractText, SAID, sceneContract, type SceneContract } from '../ai/contract'
 import { holdingsOf } from '../memory/items'
 import { freshLooks, pastProfile } from '../ai/briefingFixes'
@@ -31,6 +33,7 @@ import { CONTINUE_THREADS_MOST, OPEN_THREADS_TITLE, openThreadsText, type OpenTh
 import type { SaidLine } from '../retrieval/types'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
+import { CONTINUE_MARKS } from '../plan/echo'
 
 /** What the briefing is made from, read from the open world by the caller. */
 export interface EditWorld {
@@ -85,11 +88,32 @@ export interface EditWorld {
    */
   previous?: { lead: string; text: string }
   /**
-   * Continue (2026-10-19): the plan made before the scene was drafted (plan/index.ts planForContinueOf), while the words
-   * haven't moved on past what it was for. No call is made for it. '' or left out: none.
+   * Continue (2026-10-19): the plan made before the scene was drafted for the whole of it (plan/index.ts
+   * planForContinueOf), its beats on the page marked done and the next marked. No call is made for it. '' or left out:
+   * none.
    */
   plan?: string
+  /**
+   * Continue (2026-10-19): how many of the scene card's beats, from the first, are on the page before the cursor; the
+   * scene card then marks them done and the next one "next" (or says every beat is on the page). Left out: not marked.
+   */
+  beatsDone?: number
+  /**
+   * Continue (2026-10-19): everyone in the scene as the story index has them at the cursor, a few lines each
+   * (edits/index.ts continuePeople). Left out or empty: none.
+   */
+  people?: string[]
 }
+
+/** The part for people the words near only name: thought of, talked of or far away, never in the scene. */
+export const NAMED_NEARBY_TITLE = 'Named nearby, not in the scene'
+/** Continue's part for everyone in the scene as the story index has them. */
+export const PEOPLE_NOW_TITLE = 'Everyone in the scene, as the story so far has them'
+const PEOPLE_NOW_LEAD = 'Everyone in the scene, as the story so far has them (where things stand, below, says how they are at this very point):'
+
+/** What Continue's scene card says once every one of its beats is on the page. */
+export const BEATS_ALL_DONE =
+  "Every beat on the scene card is on the page: add no new beats of your own; carry on towards the card's outcome."
 
 /** The most of each part of Continue's memory core. */
 export const CORE_MOST = { recalled: 3, said: 4, threads: CONTINUE_THREADS_MOST }
@@ -240,7 +264,11 @@ function sceneText(world: EditWorld, byId: Map<ID, EntryState>, full: boolean): 
     if (c.conflict?.trim()) lines.push(`Conflict: ${indentMore(c.conflict)}`)
     if (c.outcome?.trim()) lines.push(`Outcome: ${indentMore(c.outcome)}`)
     const beats = (c.beats ?? []).map((b) => b.trim()).filter(Boolean)
-    if (beats.length) lines.push(`Beats, in order:\n${beats.map((b, i) => `${i + 1}. ${indentMore(b, '   ')}`).join('\n')}`)
+    // Continue (2026-10-19): the beats on the page marked done and the next one marked, or all of them done.
+    const done = world.beatsDone == null ? null : Math.min(beats.length, Math.max(0, world.beatsDone))
+    const mark = (i: number): string => (done == null ? '' : i < done ? ` ${CONTINUE_MARKS.done}` : i === done ? ` ${CONTINUE_MARKS.next}` : '')
+    if (beats.length) lines.push(`Beats, in order:\n${beats.map((b, i) => `${i + 1}. ${indentMore(b, '   ')}${mark(i)}`).join('\n')}`)
+    if (beats.length && done === beats.length) lines.push(BEATS_ALL_DONE)
     if (c.notes?.trim()) lines.push(`The author's notes: ${indentMore(c.notes)}`)
   }
   return { text: lines.join('\n'), entryIds: ids }
@@ -296,9 +324,18 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   add(card.povId)
   for (const l of lines) add(l.speakerId)
   for (const id of card.presentIds ?? []) add(id)
-  for (const e of characters) if ([e.name, ...(e.aliases ?? [])].some((n) => mentions(near, n))) add(e.id)
+  // Someone the words near put there, or the stage has here (2026-10-19: never someone only thought of, talked of or far
+  // away; they are named nearby, not in the scene).
+  const namedNear: ID[] = []
+  for (const e of characters) {
+    const names = [e.name, ...(e.aliases ?? [])]
+    if (!names.some((n) => mentions(near, n))) continue
+    if (stageFor(e, world.stand) || names.some((n) => n.trim().length >= 2 && namedThere(near, n))) add(e.id)
+    else if (!order.includes(e.id)) namedNear.push(e.id)
+  }
   const keys = tool === 'voice' ? KEYS.voice : isContinue ? KEYS.continue : KEYS.other
   const people = order.slice(0, tool === 'voice' ? MAX_CHARACTERS.voice : MAX_CHARACTERS.other).map((id) => byId.get(id)!)
+  const elsewhere = namedNear.slice(0, Math.max(0, MAX_CHARACTERS.other - people.length) || 2).map((id) => byId.get(id)!)
   // What must stay true at this point (step 4): where things stand, when known here, and the codex facts of the people
   // in the briefing. Sent right before the closing ask: in full, then short with less room, and left out on the last
   // try, so an edit a small model could do before still fits. With what those people gave away, lost or got, however
@@ -320,7 +357,7 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
         reach: world.stand ? ('here' as const) : ('none' as const),
         // Their usual looks put right for this moment, and their profiles' relative times made past (ai/briefingFixes.ts).
         people: here.map((e) => pastProfile(freshLooks(e, stageFor(e, world.stand)))),
-        named: away,
+        named: [...away, ...elsewhere],
         ...world.must,
         holdings,
         about,
@@ -409,7 +446,17 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
         entryIds: []
       })
     }
-    const recalled = (core?.recalled ?? []).filter((e) => !describe.some((d) => d.id === e.id)).slice(0, CORE_MOST.recalled)
+    // Someone the words near only think of, talk of or tell as far away: named, never among those in the scene.
+    if (withPeople && elsewhere.length) {
+      parts.push({
+        id: 'named-nearby',
+        priority: 3,
+        title: NAMED_NEARBY_TITLE,
+        text: [`${NAMED_NEARBY_TITLE}:`, ...elsewhere.map((e) => `- ${e.name}${e.summary?.trim() ? `: ${e.summary.trim()}` : ''}`)].join('\n'),
+        entryIds: elsewhere.map((e) => e.id)
+      })
+    }
+    const recalled = (core?.recalled ?? []).filter((e) => !describe.some((d) => d.id === e.id) && !elsewhere.some((d) => d.id === e.id)).slice(0, CORE_MOST.recalled)
     if (recalled.length) {
       parts.push({
         id: 'recalled',
@@ -464,6 +511,11 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     // The scene's plan, made before its draft (2026-10-19): where it is heading, near the end (left out on the last try).
     const plan = isContinue && scale > 0 ? (world.plan ?? '').trim() : ''
     if (plan) parts.push({ id: 'plan', priority: 2, title: 'The scene’s plan', text: plan, entryIds: [] })
+    // Everyone in the scene as the story index has them at the cursor (2026-10-19), right before where things stand.
+    const indexed = isContinue && withPeople ? (world.people ?? []).filter((l) => l.trim()) : []
+    if (indexed.length) {
+      parts.push({ id: 'people-now', priority: 3, title: PEOPLE_NOW_TITLE, text: [PEOPLE_NOW_LEAD, ...indexed.map((l) => `- ${l}`)].join('\n'), entryIds: [] })
+    }
     // A door locked from inside with someone outside is said in one line after the stage (ai/lockRule.ts).
     const stand = isContinue && world.stand ? withLockLines(stateText(world.stand), world.stand) : ''
     if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })

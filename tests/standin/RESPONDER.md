@@ -33,7 +33,9 @@ node tests/standin/server.mjs --dir <folder> --port 4646
 - Answer as a capable but ordinary writing model would. Do what the system prompt and the last message ask, in the
   format they ask for. When a reply must be JSON, send only that JSON in `content`, with nothing around it.
 - Keep within the reply limit (about 4 characters a token). Draft prose at the length asked for.
-- Use the tools on offer when the request needs facts the briefing doesn't hold, as a model would.
+- Use the tools on offer when the request needs facts the briefing doesn't hold, as a model would. With
+  `TOOL CHOICE: "none"` the tools are only listed (the planner's answering request keeps them so a provider's cache
+  holds): call none, and answer in words.
 - Don't fix the app's mistakes for it. If the briefing leaves something out, write as a model would without it, and
   note the gap in the run notes rather than in the reply.
 - Never read anything except the requests printed by `next.mjs`.

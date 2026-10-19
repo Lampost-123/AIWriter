@@ -617,7 +617,7 @@ describe('the plan writes the brief in its own call', () => {
     const made = await done
     expect(f.asked).toHaveLength(1)
     expect(f.asked[0].user).toContain('Wren held the silver key')
-    expect(made!.text).toContain('1. Osric climbs up.')
+    expect(made!.text).toContain('1. Osric Hale, where: below → the loft. Osric climbs up.')
     expect(made!.text).not.toContain('silver key')
     expect(made!.brief).toEqual({
       parts: {

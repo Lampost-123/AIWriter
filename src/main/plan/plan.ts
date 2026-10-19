@@ -15,7 +15,9 @@
 //   Where the stage says nothing (not known, or empty), what people wear, hold and suffer is taken from the story index
 //   in its own words, else kept when it is in what the planner was given or looked up (2026-10-19: starting facts were
 //   mostly dropped before, against a stage that knew nothing);
-// - a fact only when its words are in what the planner was given or looked up (never one kept from someone here);
+// - a fact only when what the planner was given or looked up, the whole scene so far or the previous scene's end backs it,
+//   in its words or in other words, and the scene so far's latest word on it doesn't say otherwise (2026-10-19: facts set
+//   up earlier in the scene were dropped); never one kept from someone here;
 // - a change is left out when it is already so, starts from something the stage says isn't so, is made by someone
 //   dead, has someone learn what is kept from them (unless the scene card says so), or is an event the scene card or the
 //   author's direction doesn't call for (moving, dressing, picking things up need no asking); a beat or the closing
@@ -48,7 +50,8 @@ import { BRIEF_BLOCK, type ContinuityBrief } from '../ai/brief'
 import { runTask, stopTask } from '../ai/tasks'
 import { answerLookups, LOOKUP_TOOLS, PASSAGE_WORDS, type LookupAnswer, type LookupContext } from '../ai/lookups'
 import { clip } from '../ai/lookups/text'
-import { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
+import { coveredShare, REPEAT_SHARE, wordRuns } from '../ai/repeats'
+import { CONTINUE_MARKS, PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
 import type { KnownFacts, PlanCore } from './core'
 import {
   BRIEF_LIMIT_MS,
@@ -63,7 +66,7 @@ import {
   type RawBrief
 } from './brief'
 
-export { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
+export { CONTINUE_MARKS, PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
 
 type DB = Database.Database
 
@@ -134,6 +137,12 @@ export interface PlanMaterial {
   brief?: BriefMaterial
   /** Said to the memory model when the style guide sets content above its second step (keeper/model.ts contentNoteFor). */
   contentNote?: string | null
+  /**
+   * The words a fact the plan rests on may come from besides what the planner reads (2026-10-19: a stand-in test found
+   * facts set up earlier in the same scene dropped, as only the last few hundred words were read): the whole scene so far
+   * and the end of the previous scene as the writer gets it. Only for the check; never sent to the planner.
+   */
+  page?: { soFar?: string; previous?: string }
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -203,7 +212,9 @@ export function planMaterial(
   const beats = card.beats.map(clean).filter(Boolean)
   const onPage = soFar ? beatsOnPage(beats, input.soFar ?? soFar) : 0
   const pov = card.povId ? byId.get(card.povId)?.name : undefined
+  const page = { soFar: soFar ? (input.soFar?.trim() || soFar) : '', previous }
   return {
+    ...(page.soFar || page.previous ? { page } : {}),
     ask: askText(input, { carrying, beats: !!o.beats, soFar: !!soFar, onPage }),
     card: cardText,
     must,
@@ -517,11 +528,17 @@ const tokens = (s: string): string[] =>
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean)
 
+/** Words that say how a thing is only when no "the", "a" or "her" comes after them: "boots on" but "boots on the hearth". */
+const PREPOSITIONS = new Set(['on', 'off', 'in', 'out', 'up', 'down'])
+const DETERMINERS = new Set(['the', 'a', 'an', 'his', 'her', 'their', 'its', 'my', 'our', 'your', 'this', 'that', 'these', 'those'])
+
 /** The word saying how a thing is, nearest to it (within three words; after it on a tie), or null. */
 function stateNear(words: string[], at: number): string | null {
   let best: { word: string; d: number; after: boolean } | null = null
   for (let j = Math.max(0, at - 3); j <= Math.min(words.length - 1, at + 3); j++) {
     if (j === at || !STATE_WORDS.has(words[j])) continue
+    // Where it is, not how it is: "on the hearth", "in her pocket".
+    if (PREPOSITIONS.has(words[j]) && DETERMINERS.has(words[j + 1] ?? '')) continue
     const d = Math.abs(j - at)
     if (!best || d < best.d || (d === best.d && j > at && !best.after)) best = { word: words[j], d, after: j > at }
   }
@@ -623,6 +640,14 @@ export interface CheckWith {
   present?: string[]
   /** The beats of the card already on the page ("Beat 1: …"): a plan beat that says one again is left out. */
   done?: string[]
+  /**
+   * The scene so far, whole, when the writing carries on from it: a fact or position it gives (anywhere in it, not only in
+   * the last few hundred words the planner reads) is one the plan may rest on, and one its latest words say otherwise of
+   * is not (2026-10-19).
+   */
+  soFar?: string
+  /** The end of the previous scene as the writer gets it: what people wear, hold and suffer, and facts, may rest on it. */
+  previous?: string
 }
 
 export interface ScenePlan {
@@ -748,6 +773,30 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
     return !named.length && SOMEONE.test(text) && !says(w.calls, text, names)
   }
 
+  /**
+   * The words a fact or position may rest on, besides what the planner was given and looked up: the scene so far, for
+   * anything (they are this scene's own words); the end of the previous scene for what people wear, hold and suffer, the
+   * things in the place and facts (only injuries after a later day). The previous scene's end comes first: the scene so
+   * far is after it.
+   */
+  const pageFor = (f: Field | null): string[] => {
+    const out: string[] = []
+    const carried = f == null || CARRIED.includes(f) || f === 'thing'
+    if (clean(w.previous) && carried && (w.reach !== 'later' || f == null || f === 'condition')) out.push(w.previous!)
+    if (clean(w.soFar)) out.push(w.soFar!)
+    return out
+  }
+  /**
+   * True when what the plan relies on is backed: its words are in what the planner was given or looked up (`given`), or in
+   * the words of the scene so far or the scene before (pageFor), and the scene so far's latest word on it doesn't say
+   * otherwise. Never a secret kept from someone here.
+   */
+  const backed = (value: string, who: string, f: Field | null, given: string): boolean => {
+    if (tellsSecret(value)) return false
+    const found = quoteFound(value, given) || saysIn(value, who, given, names) || pageFor(f).some((t) => quoteFound(value, t) || saysIn(value, who, t, names))
+    return found && !latestSaysOtherwise(value, w.soFar ?? '', names)
+  }
+
   for (const r of raw.relies.slice(0, PLAN_MOST.relies)) {
     if (!r.value) continue
     const f0 = fieldOf(r.what)
@@ -774,15 +823,17 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
         for (const v of agrees.length ? agrees : known) put(stageLine(nameOf(r.who), f, v))
         continue
       }
-      // Otherwise only what the planner was given or looked up; where people are, how they are placed and the like at a
-      // new scene's start only when the scene card says it, never where they were in the scene before.
-      const source = reaches(f) || CARRIED.includes(f) ? w.material : w.card
-      if (quoteFound(r.value, source)) put(stageLine(r.who || '', f, r.value))
+      // Otherwise only what the planner was given or looked up, or the words of the scene so far (and, for what people
+      // wear, hold and suffer, of the scene before); where people are, how they are placed and the like at a new scene's
+      // start only when the scene card says it, never where they were in the scene before.
+      const source = reaches(f) || CARRIED.includes(f) || clean(w.soFar) ? w.material : w.card
+      if (backed(r.value, r.who, f, source)) put(stageLine(r.who || '', f, r.value))
       else dropped++
       continue
     }
-    // A fact: only one in what the planner was given or looked up, and never one kept from someone here.
-    if (!quoteFound(r.value, w.material) || tellsSecret(r.value)) {
+    // A fact: only one in what the planner was given or looked up, or in the words before, and never one kept from
+    // someone here.
+    if (!backed(r.value, r.who, null, w.material)) {
       dropped++
       continue
     }
@@ -816,8 +867,8 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
       dropped++
       continue
     }
-    const line = c.how || `${c.who ? `${c.who}: ` : ''}${c.what ? `${c.what} ` : ''}now ${c.to}`
-    if (!changes.some((l) => l.toLowerCase() === line.toLowerCase())) changes.push(clip(line, LINE_MOST))
+    const line = clip(changeLine(c, f, names), LINE_MOST)
+    if (line && !changes.some((l) => l.toLowerCase() === line.toLowerCase())) changes.push(line)
   }
 
   // What it asks for: an entry by its name or other name exactly (a note after it in brackets, or "the" before it,
@@ -893,6 +944,133 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
   return { point, beats, whoWhere, keep, changes, mustStay, closing: shaped(raw.closing), needs, must, checked: { corrected, dropped } }
 }
 
+/** How a change line names what changes, by the stage's field ("Wren, holding: …"); knowing is said as learning. */
+const CHANGE_LABEL: Partial<Record<Field, string>> = {
+  where: 'where',
+  wearing: 'wearing',
+  posture: 'position',
+  touching: 'touching',
+  sees: 'sees',
+  holding: 'holding',
+  condition: 'condition',
+  mood: 'mood',
+  lastAction: 'doing',
+  time: 'time',
+  light: 'light',
+  weather: 'weather'
+}
+
+/**
+ * A change as the writer's notes say it, whole in itself (2026-10-19: the notes kept only the planner's "how", so the
+ * writer got "She sets it down" with no "it"): who, what about them, how it is now and how it is after, and how it
+ * happens when that adds something ("Wren, holding: the key → nothing. She sets it down on the table."). A thing in the
+ * place is named once ("the door: unbarred → barred from inside"); someone learning something says what they learn.
+ */
+export function changeLine(c: RawPlan['changes'][number], f: Field | null = fieldOf(c.what), names: ReadonlySet<string> = new Set()): string {
+  const who = clean(c.who)
+  let from = clean(c.from).replace(/[.;]+$/, '')
+  let to = clean(c.to).replace(/[.;]+$/, '')
+  const how = clean(c.how)
+  let head = ''
+  if (f === 'knows') {
+    head = who ? `${who} learns` : 'Learned'
+    from = ''
+  } else if (f === 'thing') {
+    // "the door: unbarred" → "the door: barred from inside": the thing named once, before both.
+    const thing = (s: string): string => /^([^:]{1,60}):\s*\S/.exec(s)?.[1]?.trim() ?? ''
+    const a = thing(from)
+    const b = thing(to)
+    const name = a && b ? (a.toLowerCase() === b.toLowerCase() ? a : '') : a || b
+    if (name) {
+      const off = (s: string): string => (s.toLowerCase().startsWith(`${name.toLowerCase()}:`) ? s.slice(name.length + 1).trim() : s)
+      from = off(from)
+      to = off(to)
+    }
+    head = [who, name].filter(Boolean).join(', ')
+  } else {
+    head = [who, f ? (CHANGE_LABEL[f] ?? '') : ''].filter(Boolean).join(', ')
+  }
+  const move = from && to ? `${from} → ${to}` : to ? (f === 'knows' ? to : `now ${to}`) : ''
+  const said = move ? `${head ? `${head}: ` : ''}${move}` : ''
+  // How it happens, when it says more than who, what and how things are before and after.
+  const known = new Set(meaningWords([who, from, to, head].join(' '), names))
+  const adds = !!how && [...meaningWords(how, names)].some((x) => !known.has(x))
+  const line = !said
+    ? how
+      ? who && !namedInProse(how, who.split(' ')[0])
+        ? `${who}: ${ended(how)}`
+        : ended(how)
+      : ''
+    : adds
+      ? `${ended(said)} ${ended(how)}`
+      : ended(said)
+  return line.charAt(0).toUpperCase() + line.slice(1)
+}
+
+/** Words that only say which of the stage's fields a value is (the field says it), never what it is. */
+const FIELD_WORDS = new Set(['wearing', 'wears', 'wore', 'worn', 'holding', 'holds', 'held', 'carrying', 'carries', 'carried', 'still', 'now', 'has', 'have', 'had', 'is', 'are', 'was', 'were'])
+/** A word as compared for what backs a value: its ending off, its first five letters ("pegs" and "peg", "stables" and "stable"). */
+const root = (w: string): string => (w.length > 4 ? w.replace(/(?:ing|ed|es|s)$/, '') : w.replace(/s$/, '')).slice(0, 5)
+/** The words of a value that say what it is: no filler, no field words, no names of the people in the scene. */
+const valueRoots = (s: string, names: ReadonlySet<string>): string[] => [
+  ...new Set(
+    tokens(s)
+      .filter((w) => w.length >= 3 && !FILLER.has(w) && !FIELD_WORDS.has(w) && !names.has(w))
+      .map(root)
+  )
+]
+/** A text's sentences (and its lines), in order. */
+const sentencesOf = (text: string): string[] =>
+  text
+    .split(/(?<=[.!?…]["'”’)\]]*)\s+|\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+/**
+ * True when `text` says what a value says, though not in its words exactly (2026-10-19: "boots off, by the hearth" against
+ * "She set her boots by the hearth"): within a sentence and the one after it, every word of it that matters (all but one
+ * of five or more), and, for a value of one such word, the person's name or the word saying how it is ("off", "barred");
+ * never in words that say otherwise of it ("boots on" against "pulled her boots off").
+ */
+export function saysIn(value: string, who: string, text: string, names: ReadonlySet<string> = new Set()): boolean {
+  const v = valueRoots(value, names)
+  if (!v.length || !clean(text)) return false
+  const need = v.length <= 4 ? v.length : v.length - 1
+  const whoRoots = tokens(who)
+    .filter((w) => w.length >= 3)
+    .map(root)
+  const states = tokens(value).filter((w) => STATE_WORDS.has(w))
+  const ss = sentencesOf(text)
+  for (let i = 0; i < ss.length; i++) {
+    const win = `${ss[i]} ${ss[i + 1] ?? ''}`
+    const words = tokens(win)
+    const have = new Set(words.map(root))
+    if (v.filter((x) => have.has(x)).length < need) continue
+    if (v.length === 1 && !whoRoots.some((x) => have.has(x)) && !states.some((x) => words.includes(x))) continue
+    if (contradicts(value, win)) continue
+    return true
+  }
+  return false
+}
+
+/**
+ * True when the latest sentence of the scene so far to speak of what a value is about says otherwise ("boots off, by the
+ * hearth", and later "she pulled her boots back on"): the plan would rest on what no longer holds.
+ */
+export function latestSaysOtherwise(value: string, soFar: string, names: ReadonlySet<string> = new Set()): boolean {
+  const v = valueRoots(value, names)
+  if (!v.length || !clean(soFar)) return false
+  const ss = sentencesOf(soFar)
+  for (let i = ss.length - 1; i >= 0; i--) {
+    const have = new Set(tokens(ss[i]).map(root))
+    const hits = v.filter((x) => have.has(x)).length
+    if (!hits) continue
+    if (contradicts(value, ss[i])) return true
+    if (hits >= Math.min(v.length, 2)) return false
+  }
+  return false
+}
+
 /** True when most of what `text` says (three in five of its words that matter) is in `material`. */
 function grounded(text: string, material: string, names: ReadonlySet<string>): boolean {
   const t = meaningWords(text, names)
@@ -949,20 +1127,35 @@ export function planText(p: Partial<ScenePlan> & Pick<ScenePlan, 'keep' | 'chang
 /**
  * The plan as Continue is given it (no extra call; the plan made before the scene's draft): where the scene is heading
  * (the point, the beats, what must stay true, the closing image), not how things stood as it started, which the scene
- * so far and where things stand at the cursor say now. '' when it says nothing of that.
+ * so far and where things stand at the cursor say now. `done`: how many of its beats, from the first, are on the page
+ * (2026-10-19: Continue was given beats already written as still to come): each marked done, the next marked "next";
+ * with all of them done, the plan is complete, and Continue carries on towards the card's `outcome` and the closing
+ * image. '' when it says nothing of that.
  */
-export function planForContinue(p: Partial<ScenePlan>, pov?: string): string {
+export function planForContinue(p: Partial<ScenePlan>, pov?: string, o: { done?: number; outcome?: string } = {}): string {
   const point = p.point ?? { wants: '', against: '', turn: '' }
   const said = [
     wantsText(point.wants, pov),
     point.against ? `Against it: ${ended(point.against)}` : '',
     point.turn ? `How it turns: ${ended(point.turn)}` : ''
   ].filter(Boolean)
+  const beats = p.beats ?? []
+  const done = Math.max(0, Math.min(beats.length, o.done ?? 0))
+  const mark = (i: number): string => (i < done ? ` ${CONTINUE_MARKS.done}` : i === done ? ` ${CONTINUE_MARKS.next}` : '')
+  const closing = clean(p.closing)
+  const outcome = clean(o.outcome)
+  const complete =
+    beats.length && done >= beats.length
+      ? `Every beat of the plan is on the page: the plan is complete. Add no new beats of your own: carry on towards ${
+          outcome ? `the scene card's outcome (${outcome.replace(/[.]$/, '')})` : 'the end of the scene'
+        }${closing ? ` and the image it ends on (${closing.replace(/[.]$/, '')})` : ''}.`
+      : ''
   const parts = [
     said.length ? `${PLAN_PARTS.point} ${said.join(' ')}` : '',
-    p.beats?.length ? `${PLAN_PARTS.beats}:\n${p.beats.map((l, i) => `${i + 1}. ${l}`).join('\n')}` : '',
+    beats.length ? `${PLAN_PARTS.beats}:\n${beats.map((l, i) => `${i + 1}. ${l}${mark(i)}`).join('\n')}` : '',
+    complete,
     p.mustStay?.length ? `${PLAN_PARTS.stay}\n${p.mustStay.map((l) => `- ${l}`).join('\n')}` : '',
-    clean(p.closing) ? `${PLAN_PARTS.end} ${ended(clean(p.closing))}` : ''
+    closing ? `${PLAN_PARTS.end} ${ended(closing)}` : ''
   ].filter(Boolean)
   if (!parts.length) return ''
   return ['The plan made for this scene before it was drafted. Carry on towards it from where the words are now; what is on the page already has happened.', ...parts].join('\n')
@@ -975,7 +1168,19 @@ export function planForContinue(p: Partial<ScenePlan>, pov?: string): string {
 export function lookedUpText(answers: readonly LookupAnswer[], short = false): string {
   const facts: string[] = []
   for (const a of answers) for (const f of a.facts) if (!facts.includes(f)) facts.push(f)
-  const passages = short ? [] : answers.flatMap((a) => a.passages).slice(0, LOOKED_UP_MOST.passages)
+  // Each passage once (2026-10-19): one read twice (a search and a read of the same scene) goes in the first time only.
+  const seen = new Set<string>()
+  const passages = short
+    ? []
+    : answers
+        .flatMap((a) => a.passages)
+        .filter((p) => {
+          const runs = wordRuns(p.text)
+          if (runs.size && coveredShare(runs, seen) >= REPEAT_SHARE) return false
+          for (const r of runs) seen.add(r)
+          return true
+        })
+        .slice(0, LOOKED_UP_MOST.passages)
   const parts = [
     facts.length ? facts.slice(0, LOOKED_UP_MOST.facts).map((l) => `- ${l}`).join('\n') : '',
     ...passages.map((p) => {
@@ -1106,8 +1311,10 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
         ? {
             agent: {
               tools: LOOKUP_TOOLS,
-              // One round: the look-ups, then the plan (the last request goes without tools).
+              // One round: the look-ups, then the plan. The answering request keeps the tools listed, none to be called
+              // (tool_choice 'none'), so it starts as the first did and a provider's cache keeps all of it (2026-10-19).
               maxSteps: 2,
+              lastKeepsTools: true,
               run: async (calls) => {
                 const r = await answerLookups(calls, lookups)
                 answers.push(...r.answers)
@@ -1152,7 +1359,9 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
       calls: m.calls,
       people: m.people,
       secrets: m.secrets,
-      ...(m.done?.length ? { done: m.done } : {})
+      ...(m.done?.length ? { done: m.done } : {}),
+      ...(m.page?.soFar ? { soFar: m.page.soFar } : {}),
+      ...(m.page?.previous ? { previous: m.page.previous } : {})
     })
     // What it looked up by name comes into the briefing, as what it asked for does.
     for (const a of answers) {

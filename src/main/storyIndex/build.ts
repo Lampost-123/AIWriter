@@ -136,7 +136,10 @@ export function buildScene(src: SceneSource, world: IndexWorld): SceneBuild {
       if (world.entries.get(id)?.kind === 'character') facts.push(fact(src, id, 'where', 'card', place, '', 'card'))
   }
 
-  const present = [...new Set([...cast, ...named.there, ...memory.there, ...staged])].filter(
+  // Whoever where things stand has values for is there, unless the words name them only as thought of, talked of or far
+  // away (2026-10-19: a stage read can list someone only remembered; they are named, not there).
+  const onlyNamed = new Set(named.only)
+  const present = [...new Set([...cast, ...named.there, ...memory.there, ...staged.filter((id) => !onlyNamed.has(id))])].filter(
     (id) => world.entries.has(id) && id !== placeEntryId
   )
   const here = new Set(present)

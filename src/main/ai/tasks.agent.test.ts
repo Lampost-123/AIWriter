@@ -497,6 +497,61 @@ describe('the chat overhaul’s hooks in the loop', () => {
     expect(gens.getGeneration(req.db, done.generationId).params.toolChoice).toEqual({ tool: 'propose_changes', step: 1, dropped: true })
   })
 
+  it('the planner’s last request keeps the tools listed with tool_choice none, so it starts as the one before (2026-10-19)', async () => {
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [text('{"beats": []}'), finish('stop')]
+    ])
+    const req = request(fetchImpl, { lastKeepsTools: true }, { maxSteps: 2 })
+    const done = await runTask(req)
+    expect(done.status).toBe('complete')
+    expect(done.text).toBe('{"beats": []}')
+    expect(sent[1].tools).toEqual(sent[0].tools)
+    expect(choiceOf(sent[1])).toBe('none')
+    expect(choiceOf(sent[0])).toBeUndefined()
+    // What the AI saw: the last request offered no tool it could call.
+    const requests = gens.getGeneration(req.db, done.generationId).params.requests ?? []
+    expect(requests.map((r) => r.tools)).toEqual([true, false])
+    // Other callers' last requests go without tools, as ever.
+    const plain = scripted([[call(0, 'r1', 'read_scene'), finish('tool_calls')], [text('Done.'), finish('stop')]])
+    await runTask(request(plain.fetchImpl, {}, { maxSteps: 2 }))
+    expect(plain.sent[1].tools).toBeUndefined()
+  })
+
+  it('a provider that turns tool_choice none down, or a tool called all the same: asked once more without the tools', async () => {
+    const sent: Record<string, unknown>[] = []
+    const fetchImpl = (async (_url: unknown, init?: { body?: unknown }) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      sent.push(body)
+      if (body.tool_choice === 'none') {
+        return new Response(JSON.stringify({ error: { message: 'tool_choice "none" is not supported' } }), { status: 400, headers: { 'content-type': 'application/json' } })
+      }
+      const chunks = sent.length === 1 ? [call(0, 'r1', 'read_scene'), finish('tool_calls')] : [text('The plan.'), finish('stop')]
+      return new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }) as unknown as typeof fetch
+    const done = await runTask(request(fetchImpl, { lastKeepsTools: true }, { maxSteps: 2 }))
+    expect(done.status).toBe('complete')
+    expect(done.text).toBe('The plan.')
+    expect(sent.map((s) => [!!s.tools, s.tool_choice ?? null])).toEqual([
+      [true, null],
+      [true, 'none'],
+      [false, null]
+    ])
+    // Nothing is remembered against the model: a forced tool is still sent next time.
+    const again = scripted([[text('ok'), finish('stop')]])
+    await runTask(request(again.fetchImpl, { tools: [...TOOLS, PROPOSE], forceTool: () => 'propose_changes' }, { maxSteps: 2 }))
+    expect(choiceOf(again.sent[0])).toEqual({ type: 'function', function: { name: 'propose_changes' } })
+    // A tool called despite none: the same request again without the tools.
+    const stubborn = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r2', 'read_scene'), finish('tool_calls')],
+      [text('The plan.'), finish('stop')]
+    ])
+    const plan = await runTask(request(stubborn.fetchImpl, { lastKeepsTools: true }, { maxSteps: 2 }))
+    expect(plan.text).toBe('The plan.')
+    expect(stubborn.sent.map((s) => !!s.tools)).toEqual([true, true, false])
+  })
+
   it('leaves short narration written before tool calls out of the reply (the contract), keeping longer words and the answer', async () => {
     const long = `Two things matter here. ${'The tide scene runs long because the gulls and the ledger both get a full paragraph each, '.repeat(3)}so I will look at both.`
     const { fetchImpl, sent } = scripted([

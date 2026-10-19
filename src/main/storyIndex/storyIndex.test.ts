@@ -315,6 +315,16 @@ describe('building the story index for free', () => {
     expect(sidx.indexScene(w.db, w.s5)?.present).toEqual([w.mara, w.ash, w.tobin])
   })
 
+  it('someone the stage lists but the words only think of or talk of is named, not there (2026-10-19)', () => {
+    const w = world()
+    repo.saveSceneText(w.db, w.s5, null, 'Mara sat alone by the fire.\n\nShe thought of Tobin, and of the river.')
+    setCard(w.db, w.s5, { povId: w.mara, presentIds: [] })
+    keepStages(w.db, { [w.s5]: stage(w.s5, [person('Mara Venn', { where: 'by the fire' }), person('Tobin', { where: 'the river' })], { 'mara venn|where': 'by the fire', 'tobin|where': 'of the river' }) })
+    buildStoryIndex(w.db, w.storyId)
+    expect(sidx.indexScene(w.db, w.s5)?.present).toEqual([w.mara])
+    expect(sidx.indexScene(w.db, w.s5)?.mentioned).toContain(w.tobin)
+  })
+
   it('never keeps a wrong belief as known, nor takes a piece of clothing as off when it is only no longer listed', () => {
     const w = world()
     mem.insertChange(w.db, {

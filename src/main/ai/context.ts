@@ -119,6 +119,7 @@ import { calledFor, foldApostrophes, namedInProse, type CalledName } from '@shar
 import { sameDay, sameMoment, type SceneCalendar } from '../memory/calendar'
 import { eventVsDate } from '../worldViews/eventPlace'
 import { datesOf, elapsedNote, storyDateLines, type DateInput } from './storyDate'
+import { withoutRepeats, wordRuns } from './repeats'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -1724,8 +1725,9 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
     add('previous-scene', 3, title, `${lead}\n\n${sceneTail(prev)}`, `${lead}\n\n${sceneTail(prev, SHORT_TAIL)}`, [])
   } else if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
-  // 8 The scenes before, word for word (EARLIER_BLOCK): only where there is room to spare.
-  const earlier = earlierForms(input)
+  // 8 The scenes before, word for word (EARLIER_BLOCK): only where there is room to spare, and never beside a plan
+  //   (2026-10-19: they took about half a draft's request; the plan, what it looked up and the scenes' gists carry them).
+  const earlier = clean(input.plan?.text) ? [] : earlierForms(input)
   if (earlier.length) add(EARLIER_BLOCK.id, EARLIER_BLOCK.priority, EARLIER_BLOCK.title, earlier[0], earlier[1] ?? null, [], earlier.slice(2))
 
   // 3b Where things stand as the previous scene ended (continuity/tracker.ts): where each character is, what they
@@ -2494,6 +2496,30 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     if (ceiling !== prepared.autoMax && prepared.autoFinals) finals = prepared.autoFinals(ceiling)
   }
 
+  // Each passage once (2026-10-19: the end of the previous scene went three times in one request): the earlier passages a
+  // search found, then the passages of what the plan looked up, leave out any the words already sent carry (the scene so
+  // far, the end of the previous scene, the scenes before) or a part before them did. A block left with no passage goes.
+  // What the plan looked up gives way, not the search: a briefing with a plan never has less of a part the briefing
+  // without one had (plan.ts keepsRoom).
+  const seen = new Set<string>()
+  for (const id of PAGE_BLOCKS) {
+    const s = state.find((x) => x.b.id === id && !x.dropped)
+    if (s) for (const r of wordRuns(s.forms[s.level])) seen.add(r)
+  }
+  for (const id of PASSAGE_BLOCKS) {
+    const s = state.find((x) => x.b.id === id && !x.dropped)
+    if (!s) continue
+    const text = s.forms[s.level]
+    const r = withoutRepeats(text, seen)
+    if (!r.removed) continue
+    if (!r.left && (id !== LOOKED_UP_BLOCK.id || !/^- \S/m.test(r.text))) {
+      s.dropped = true
+      continue
+    }
+    s.forms = s.forms.map((f, i) => (i === s.level ? r.text : f))
+    s.tokensAt = s.tokensAt.map((t, i) => (i === s.level ? Math.ceil((t * r.text.length) / Math.max(1, text.length)) : t))
+  }
+
   const blocks: ContextBlock[] = state.map((s) => {
     const memory = sentTags(prepared.tags?.get(s.b.id), s.forms[s.level])
     return {
@@ -2528,6 +2554,11 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   ]
   return { blocks, budget: { ...budget, used: measure() }, messages, knows: prepared.knows, entries: prepared.entries }
 }
+
+/** The blocks that carry the story's own words, whole: the scene so far (and what comes after an earlier beat), the end of the previous scene, the scenes before. */
+const PAGE_BLOCKS: readonly string[] = ['scene-so-far', 'scene-after', 'previous-scene', EARLIER_BLOCK.id]
+/** The blocks of passages that may say some of them again, in the order they keep theirs: what a search found, what the plan looked up. */
+const PASSAGE_BLOCKS: readonly string[] = ['recalled', LOOKED_UP_BLOCK.id]
 
 /** The whole assembly with a synchronous token counter (used by tests and as a fallback). */
 export function assembleContext(input: ContextInput, countRaw: (text: string) => number): ContextPreview {

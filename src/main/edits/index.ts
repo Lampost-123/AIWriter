@@ -23,11 +23,14 @@ import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
 import { calendarFor, CATCH_UP_LIMIT_MS, catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
 import { sceneTail, SHORT_TAIL, stageScope, timelineFrom } from '../ai/context'
-import { planForContinueOf } from '../plan'
+import { continueBeatsDone, planForContinueOf } from '../plan'
+import { buildStoryIndex, stateOf } from '../storyIndex'
+import { clip } from '../ai/lookups/text'
+import { countWords } from '@shared/defaults'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
 import type { SceneMemory } from '../memory/types'
-import { stageInScene } from '../ai/mustStay'
+import { namedThere, stageFor, stageInScene } from '../ai/mustStay'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { noteContract, noteStage } from '../repair'
 import { contractWanted } from '../ai/contract'
@@ -87,25 +90,78 @@ async function continueCore(
 
 /** How much of the previous scene's end Continue is given: about 200 words. */
 export const CONTINUE_PREVIOUS = SHORT_TAIL
+/**
+ * Continue is given the end of the previous scene only while the scene's own words before the cursor are fewer than this
+ * (2026-10-19: deep into a scene it only took room; the scene's own words say where it has got to).
+ */
+export const CONTINUE_PREVIOUS_UNDER = 300
 
 /**
- * What Continue gets besides (2026-10-19): the end of the previous scene, with where it comes from, and the scene's plan
- * (plan/index.ts planForContinueOf) while the words before the cursor are within what it was made for.
+ * What Continue gets besides (2026-10-19): the end of the previous scene, with where it comes from, while the scene's own
+ * words are short; the beats of the scene's plan made for the whole of it, those on the page marked done and the next
+ * marked (plan/index.ts planForContinueOf); and how many of the card's beats are on the page (continueBeatsDone), so
+ * Continue's scene card marks them too.
  */
 export function continueExtras(
   input: Pick<EditInput, 'sceneId' | 'before'>,
   memory: Pick<SceneMemory, 'previous' | 'storyId'>,
   card: SceneCard,
   storyTitle: string
-): Pick<EditWorld, 'previous' | 'plan'> {
+): Pick<EditWorld, 'previous' | 'plan' | 'beatsDone'> {
   const prev = memory.previous
-  const text = prev?.text?.trim() ? sceneTail(prev.text, CONTINUE_PREVIOUS) : ''
+  const short = countWords(input.before) < CONTINUE_PREVIOUS_UNDER
+  const text = short && prev?.text?.trim() ? sceneTail(prev.text, CONTINUE_PREVIOUS) : ''
   const other = !!prev?.otherStory && prev.storyId !== memory.storyId
   const lead = other
     ? `This is how ${prev!.storyTitle.trim() || 'the story before'} ${prev!.otherStory!.ended ? 'ended' : 'had got to'}; this story (${storyTitle}) comes after it.`
     : 'This is how the scene before this one ended.'
-  const plan = planForContinueOf(input.sceneId, card, input.before.split(/\s+/).filter(Boolean).length)
-  return { ...(text ? { previous: { lead, text } } : {}), ...(plan ? { plan } : {}) }
+  const plan = planForContinueOf(input.sceneId, card, input.before)
+  return { ...(text ? { previous: { lead, text } } : {}), ...(plan ? { plan } : {}), beatsDone: continueBeatsDone(card, input.before) }
+}
+
+/** The most lines Continue is given of everyone in the scene as the story index has them: each, and all together. */
+export const CONTINUE_PEOPLE_MOST = { each: 7, all: 28 }
+
+/**
+ * Everyone in the scene at Continue's cursor as the story index has them (2026-10-19): the card's point of view and
+ * people, and whoever the words before the cursor put there (never someone only thought of, talked of or far away:
+ * ai/mustStay.ts namedThere), each with what the index knows of them (where, what they wear and carry, how they are,
+ * what they know, their ties); for someone where things stand at the cursor already tells, only what they know and their
+ * ties. As the scene ends when the cursor is at its end, else as it begins. Nothing when the index can't be read.
+ */
+export function continuePeople(
+  db: ReturnType<typeof world.db>,
+  input: Pick<EditInput, 'sceneId' | 'before' | 'after'>,
+  memory: Pick<SceneMemory, 'storyId' | 'entries'>,
+  card: SceneCard,
+  stand: SceneState | null
+): string[] {
+  try {
+    const storyId = memory.storyId
+    if (!storyId) return []
+    buildStoryIndex(db, storyId)
+    const chars = memory.entries.filter((e) => e.kind === 'character')
+    const ids = [card.povId, ...(card.presentIds ?? [])].filter((id): id is string => !!id)
+    for (const e of chars) {
+      if (ids.includes(e.id)) continue
+      if ([e.name, ...(e.aliases ?? [])].some((n) => n.trim().length >= 2 && namedThere(input.before, n))) ids.push(e.id)
+    }
+    const out: string[] = []
+    for (const id of ids) {
+      const e = chars.find((x) => x.id === id)
+      const now = e ? stateOf(db, storyId, id, input.sceneId, { asItBegins: !!input.after.trim() }) : null
+      if (!e || !now) continue
+      const knows = now.lines.filter((l) => l.startsWith(`${now.name} knows:`))
+      const ties = now.lines.filter((l) => l.startsWith(`${now.name} and `))
+      const rest = now.lines.filter((l) => !knows.includes(l) && !ties.includes(l))
+      const told = stageFor(e, stand) ? [] : rest
+      out.push(...[...told, ...ties.slice(0, 2), ...knows.slice(0, 2)].slice(0, CONTINUE_PEOPLE_MOST.each).map((l) => clip(l, 240)))
+    }
+    return out.slice(0, CONTINUE_PEOPLE_MOST.all)
+  } catch (e) {
+    console.warn('Continue goes without the story index this time', e instanceof Error ? e.message : e)
+    return []
+  }
 }
 
 /**
@@ -165,9 +221,10 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     ...(core ? { core } : {}),
     // The scene's contract (long story memory fix 13), when Settings › Models says to.
     ...(tool === 'continue' && contractWanted(settings) ? { contract: true } : {}),
-    // Continue (2026-10-19): the end of the previous scene, and the plan made before the scene was drafted while the words
-    // haven't moved on past it (no call; none with Plan before writing off).
-    ...(tool === 'continue' ? continueExtras(input, memory, scene.card, story.title) : {})
+    // Continue (2026-10-19): the end of the previous scene while the scene's words are short, the beats of the scene's plan
+    // (or card) still to come with the next marked (no call; no plan with Plan before writing off), and everyone in the
+    // scene as the story index has them.
+    ...(tool === 'continue' ? { ...continueExtras(input, memory, scene.card, story.title), people: continuePeople(db, input, memory, scene.card, stand) } : {})
   })
   if (!briefing.ok) return briefing
 

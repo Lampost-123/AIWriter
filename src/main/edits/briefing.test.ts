@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { EntryState } from '@shared/types'
 import type { EditInput } from '@shared/contracts/edits'
 import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
-import { STAND_LEAD_HERE, editBriefing, replyRoom, type EditWorld } from './briefing'
+import { BEATS_ALL_DONE, NAMED_NEARBY_TITLE, STAND_LEAD_HERE, editBriefing, replyRoom, type EditWorld } from './briefing'
 import { EDIT_MARKER } from './prompts'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 import { OPEN_THREADS_LEAD } from '../ai/openThreads'
@@ -507,6 +507,41 @@ describe('Continue’s scene contract (long story memory fix 13)', () => {
     expect(b.contract!.items.every((i) => i.part === 'keep')).toBe(true)
     const rewrite = ok(editBriefing(input('rewrite', { direction: 'Sadder' }), { ...world(), must, contract: true }))
     expect(rewrite.blocks.some((x) => x.id === 'scene-contract')).toBe(false)
+  })
+})
+
+describe('Continue in the scene’s own words (stand-in test, 2026-10-19)', () => {
+  const go = (w: Partial<EditWorld> = {}, before = BEFORE.trim()) =>
+    ok(editBriefing(input('continue', { selection: '', before, after: '' }), { ...world(), ...w }))
+  const part = (b: ReturnType<typeof go>, id: string): string => b.blocks.find((x) => x.id === id)?.text ?? ''
+
+  it('the scene card’s beats on the page marked done and the next marked; with all of them done, it says so', () => {
+    expect(part(go({ beatsDone: 1 }), 'scene')).toContain(
+      'Beats, in order:\n1. Mara arrives (done: on the page already)\n2. Tobin lies (next: write this now)\n3. The knock'
+    )
+    const all = part(go({ beatsDone: 3 }), 'scene')
+    expect(all).toContain('3. The knock (done: on the page already)')
+    expect(all).toContain(BEATS_ALL_DONE)
+    // Not worked out (the other tools): no marks.
+    expect(part(go(), 'scene')).toContain('Beats, in order:\n1. Mara arrives\n2. Tobin lies\n3. The knock')
+  })
+
+  it('someone only thought of near the words is named nearby, never among the characters in the scene', () => {
+    const thought = go({}, 'Mara thought of Rose and all her questions.')
+    expect(part(thought, 'characters')).not.toContain('### Rose')
+    expect(part(thought, 'named-nearby')).toBe(`${NAMED_NEARBY_TITLE}:\n- Rose`)
+    const came = go({}, 'Rose came in out of the rain, talking.')
+    expect(part(came, 'characters')).toContain('### Rose')
+    expect(came.blocks.some((x) => x.id === 'named-nearby')).toBe(false)
+  })
+
+  it('everyone in the scene as the story index has them, right before where things stand', () => {
+    const stand = { time: '', weather: '', light: '', characters: [{ name: 'Mara', where: 'by the door', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }] }
+    const b = go({ stand, people: ['Tobin: wearing oilskin (since Ch 1, Sc 1)'] })
+    expect(part(b, 'people-now')).toContain('- Tobin: wearing oilskin (since Ch 1, Sc 1)')
+    const ids = b.blocks.map((x) => x.id)
+    expect(ids.indexOf('people-now')).toBe(ids.indexOf('stand') - 1)
+    expect(go().blocks.some((x) => x.id === 'people-now')).toBe(false)
   })
 })
 

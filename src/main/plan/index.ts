@@ -2,14 +2,17 @@
 // briefing, with what the story index gives at no cost (core.ts) and the look-ups it may make (ai/lookups/). ai/draftFlow.ts
 // asks for a plan before Generate, Add below, each set of Variants (one plan the set shares), each scene of Write the
 // whole chapter, and Beat by beat (one plan for the scene, its beats its structure, kept for its later beats). Continue
-// makes no call: it is given the scene's last plan while its words haven't moved on too far (planForContinueOf). With a
-// continuity brief (long story memory fix 14, brief.ts), what the plan reads besides comes from the world here: as much
-// of the book so far as goes in, how each earlier chapter ended, and the rule checks' findings still open in the scene.
+// makes no call: it is given the scene's last plan made for the whole of it, its beats on the page marked done and the
+// next marked (planForContinueOf). A look-up may fill in a scene's physical details first, only when quick
+// (fillQuickly). With a continuity brief (long story memory fix 14, brief.ts), what the plan reads besides comes from the
+// world here: as much of the book so far as goes in, how each earlier chapter ended, and the rule checks' findings still
+// open in the scene.
 
 import type Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
 import type { ContextPreview, ID, SceneCard } from '@shared/types'
 import { AUTO_LENGTH } from '@shared/defaults'
+import { beatsOnPage } from '@shared/beats'
 import { getSettings } from '../settings'
 import * as world from '../world'
 import { memoryModel } from '../keeper'
@@ -27,6 +30,10 @@ import { storedSnapshots } from '../db/snapshots'
 import { loadShape } from '../memory/scene'
 import { buildLine, labeler, storyOfScene } from '../memory/line'
 import { findInStory } from '../retrieval'
+import type { MemoryModel } from '../keeper/model'
+import { fillSceneForLookup } from '../storyIndex/fill'
+import { storyFillScenes } from '../db/indexFill'
+import { keptStates } from '../continuity/tracker'
 import { planCore, type PlanCore } from './core'
 import {
   makePlan,
@@ -70,7 +77,8 @@ export function planWanted(): boolean {
 
 /**
  * Each scene's last plan (2026-10-19), in memory for the scenes planned most recently: Beat by beat's later beats are
- * written from it (one plan a scene, with its brief), and Continue is given it while its words haven't moved on too far.
+ * written from it (one plan a scene, with its brief). Continue is given the scene's last plan made for the whole of it
+ * (wholePlans: a stretch planned for Add below covers only what was then written, which is on the page now).
  */
 interface KeptPlan {
   /** What it was made from: the scene card and the author's direction (planKey). */
@@ -84,14 +92,22 @@ interface KeptPlan {
   pov: string
   /** Made for Beat by beat: the whole scene, beat by beat. */
   beats: boolean
-  /** Words in the scene when it was made, and how far into the scene it reaches (words), for Continue. */
+  /** Made for the whole scene (Generate, Variants, Write the whole chapter, Beat by beat), not a stretch carried on. */
+  whole: boolean
+  /** Words in the scene when it was made, and how many words it was made for (the whole scene, or the stretch). */
   words: number
-  reach: number
+  asked: number
 }
 const scenePlans = new Map<ID, KeptPlan>()
+const wholePlans = new Map<ID, KeptPlan>()
 const MOST_KEPT = 20
-/** Continue is given the scene's plan while its words reach no further than what the plan was for and half as much again. */
-const CONTINUE_REACH = 1.5
+
+/** Keeps a scene's plan, the newest last, no more than MOST_KEPT scenes. */
+function keep(map: Map<ID, KeptPlan>, sceneId: ID, k: KeptPlan): void {
+  map.delete(sceneId)
+  map.set(sceneId, k)
+  for (const old of [...map.keys()].slice(0, Math.max(0, map.size - MOST_KEPT))) map.delete(old)
+}
 
 /** What a scene's plan was made from: its card and the author's direction. */
 export const planKey = (card: SceneCard, direction: string): string =>
@@ -108,6 +124,7 @@ export function cardKey(card: SceneCard): string {
 /** Forgets every kept plan (tests). */
 export function forgetScenePlans(): void {
   scenePlans.clear()
+  wholePlans.clear()
 }
 
 const wordsIn = (text: string | undefined): number => (text ?? '').split(/\s+/).filter(Boolean).length
@@ -175,7 +192,8 @@ export async function planBeforeWriting(
           people: material.people,
           hidden,
           find: async (query, most) =>
-            (await findInStory(db, sceneId, query, most, signal))?.map((p) => ({ where: shortPlace(p.where, storyTitle), text: p.text })) ?? null
+            (await findInStory(db, sceneId, query, most, signal))?.map((p) => ({ where: shortPlace(p.where, storyTitle), text: p.text })) ?? null,
+          fill: (id) => fillQuickly(db, storyId, id, model, { signal, closed: () => !live() })
         }
       : undefined
     const plan = await makePlan({
@@ -201,8 +219,7 @@ export async function planBeforeWriting(
     if (plan?.plan && live()) {
       const words = wordsIn(b.input.soFar)
       const asked = b.input.options.targetWords ?? AUTO_LENGTH.typical
-      scenePlans.delete(sceneId)
-      scenePlans.set(sceneId, {
+      const k: KeptPlan = {
         key,
         card: cardKey(card),
         plan: plan.plan,
@@ -211,15 +228,68 @@ export async function planBeforeWriting(
         lookedUp: plan.lookedUp ?? '',
         pov: material.pov ?? '',
         beats: !!o.beat,
+        whole: !carryingOn || !!o.beat,
         words,
-        reach: words + Math.round(asked * (o.beat ? o.beat.of : 1) * CONTINUE_REACH)
-      })
-      for (const old of [...scenePlans.keys()].slice(0, Math.max(0, scenePlans.size - MOST_KEPT))) scenePlans.delete(old)
+        asked: asked * (o.beat ? o.beat.of : 1)
+      }
+      keep(scenePlans, sceneId, k)
+      if (k.whole) keep(wholePlans, sceneId, k)
     }
     return plan
   } catch (e) {
     console.warn('Could not plan the scene; writing without a plan', e)
     return null
+  }
+}
+
+/** How long a look-up waits for a scene's physical details to be filled in before saying they aren't recorded yet. */
+export const LOOKUP_FILL_MS = 8_000
+/** How many scenes before the one a look-up needs the fill brings up to date with it (continuity/tracker.ts stateBefore). */
+const FILL_BEFORE = 3
+
+/**
+ * A scene's physical details filled in for a look-up (storyIndex/fill.ts fillSceneForLookup), only when that is one
+ * memory call at most (the scene itself; the few scenes before it it builds on already read) and done within
+ * LOOKUP_FILL_MS: otherwise stopped, and the look-up says they aren't recorded yet. Never holds the plan up long; never
+ * throws. True when the scene's details are in the index.
+ */
+export async function fillQuickly(
+  db: DB,
+  storyId: ID,
+  sceneId: ID,
+  model: MemoryModel,
+  o: { signal?: AbortSignal; closed: () => boolean; ms?: number; fill?: typeof fillSceneForLookup }
+): Promise<boolean> {
+  try {
+    if (o.signal?.aborted || o.closed()) return false
+    const worded = storyFillScenes(db, storyId).filter((s) => s.words > 0)
+    const at = worded.findIndex((s) => s.id === sceneId)
+    if (at < 0) return false
+    const ids = worded.slice(Math.max(0, at - FILL_BEFORE), at + 1).map((s) => s.id)
+    const kept = keptStates(db, ids)
+    const unread = ids.filter((id) => !kept.get(id)?.fresh)
+    // Already read: nothing to add. More than the scene itself to read: not quick.
+    if (!unread.length || unread.length > 1 || unread[0] !== sceneId) return false
+    const stop = new AbortController()
+    const off = (): void => stop.abort()
+    o.signal?.addEventListener('abort', off, { once: true })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const late = new Promise<{ filled: boolean }>((resolve) => {
+        timer = setTimeout(() => {
+          stop.abort()
+          resolve({ filled: false })
+        }, o.ms ?? LOOKUP_FILL_MS)
+      })
+      const done = (o.fill ?? fillSceneForLookup)(db, sceneId, model, { signal: stop.signal, closed: () => o.closed() || stop.signal.aborted })
+      return (await Promise.race([done, late])).filled && !stop.signal.aborted
+    } finally {
+      clearTimeout(timer)
+      o.signal?.removeEventListener('abort', off)
+    }
+  } catch (e) {
+    console.warn('Could not fill in a scene’s details for a look-up', e)
+    return false
   }
 }
 
@@ -238,15 +308,31 @@ function keptFor(k: KeptPlan, carryingOn: boolean, beat: BeatAt): MadePlan {
 }
 
 /**
- * The scene's last plan as Continue is given it (no call; plan.ts planForContinue), or '' when there is none to give:
- * planning is off, the scene has no plan kept, its card has changed since, or the words before the cursor are before
- * where the plan began or have moved on past what it was for (half as much again as the words it planned).
+ * What Continue is given of where the scene is heading (2026-10-19; no call), or '' with nothing to give: the beats of
+ * the scene's last plan made for the whole of it while its card is as it was (planning on), each marked done when it is
+ * on the page (its words in the scene so far, or by position: past where it falls in the words the plan was made for,
+ * a beat to spare), the next marked "next"; with every beat done, that the plan is complete and to carry on towards the
+ * card's outcome and the closing image. Never a stretch's plan made for Add below: its beats are on the page already.
+ * With no such plan, '' (the card's beats are marked in Continue's scene card instead: continueBeatsDone).
  */
-export function planForContinueOf(sceneId: ID, card: SceneCard, wordsBefore: number): string {
+export function planForContinueOf(sceneId: ID, card: SceneCard, before: string): string {
   if (!planWanted()) return ''
-  const k = scenePlans.get(sceneId)
-  if (!k || k.card !== cardKey(card) || wordsBefore < k.words || wordsBefore > k.reach) return ''
-  return planForContinue(k.plan, k.pov)
+  const k = wholePlans.get(sceneId)
+  if (!k || k.card !== cardKey(card) || !k.plan.beats.length) return ''
+  const words = wordsIn(before)
+  const beats = k.plan.beats
+  const matched = beatsOnPage(beats, before)
+  const since = Math.max(0, words - k.words)
+  const byPosition = k.asked > 0 ? Math.max(0, Math.min(beats.length, Math.floor((beats.length * since) / k.asked) - 1)) : 0
+  return planForContinue(k.plan, k.pov, { done: Math.max(matched, byPosition), outcome: card.outcome ?? '' })
+}
+
+/** How many of the scene card's beats, from the first, are on the page before Continue's cursor (@shared/beats beatsOnPage). */
+export function continueBeatsDone(card: SceneCard, before: string): number {
+  return beatsOnPage(
+    (card.beats ?? []).map((b) => b.trim()).filter(Boolean),
+    before
+  )
 }
 
 /**

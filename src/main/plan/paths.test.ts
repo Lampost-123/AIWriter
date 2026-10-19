@@ -61,7 +61,7 @@ import { PLAN_HEAD, PLAN_MARKER } from './plan'
 import { forgetScenePlans } from '.'
 
 /** Every chat request sent, as the provider got it. */
-type Sent = { model: string; system: string; user: string; all: string; tools: string[] }
+type Sent = { model: string; system: string; user: string; all: string; tools: string[]; toolChoice: unknown }
 let sent: Sent[] = []
 const realFetch = globalThis.fetch
 let fake: FakeProvider
@@ -72,14 +72,20 @@ beforeAll(async () => {
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     if (url.includes('/chat/completions') && typeof init?.body === 'string') {
-      const body = JSON.parse(init.body) as { model: string; messages: { role: string; content: unknown }[]; tools?: { function: { name: string } }[] }
+      const body = JSON.parse(init.body) as {
+        model: string
+        messages: { role: string; content: unknown }[]
+        tools?: { function: { name: string } }[]
+        tool_choice?: unknown
+      }
       const text = (c: unknown): string => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p: { text?: string }) => p.text ?? '').join('') : '')
       sent.push({
         model: body.model,
         system: text(body.messages.find((m) => m.role === 'system')?.content),
         user: text(body.messages.find((m) => m.role === 'user')?.content),
         all: body.messages.map((m) => text(m.content)).join('\n\n'),
-        tools: (body.tools ?? []).map((t) => t.function.name)
+        tools: (body.tools ?? []).map((t) => t.function.name),
+        toolChoice: body.tool_choice ?? null
       })
     }
     return realFetch(input, init)
@@ -167,10 +173,13 @@ describe('every writing path plans first while "Plan before writing" is on', () 
     const w = world()
     const b = await draftBriefing(w.scene, OPTIONS)
     await draft(w.db, w.scene, b)
-    // One round of look-ups: the request offered the tools, then the plan without them.
+    // One round of look-ups: the request offered the tools, then the plan with them still listed, none to be called, so
+    // the second request starts as the first did and a provider's cache keeps it (2026-10-19).
     expect(plans()).toHaveLength(2)
     expect(plans()[0].tools).toContain('state_of')
-    expect(plans()[1].tools).toEqual([])
+    expect(plans()[0].toolChoice).toBeNull()
+    expect(plans()[1].tools).toEqual(plans()[0].tools)
+    expect(plans()[1].toolChoice).toBe('none')
     expect(plans()[0].user).toContain('## What is being written\nA whole scene, about 300 words.')
     const writer = writes()
     expect(writer).toHaveLength(1)
@@ -273,6 +282,33 @@ describe('every writing path plans first while "Plan before writing" is on', () 
     expect(edit.user).toContain('The beats, in order:\n1. Wren and Ash stop for the night at the inn')
     expect(edit.user).toContain('This is how the scene before this one ended.')
     expect(edit.user).toContain('neither of them said anything for a mile or more')
+  })
+
+  it('Continue deep in a scene (stand-in test, 2026-10-19): the beats still to come, the next marked; no previous scene; who is here', async () => {
+    const w = world()
+    await draft(w.db, w.scene, await draftBriefing(w.scene, OPTIONS))
+    // Over 300 words in, the first beat on the page; Ash only thought of at the end.
+    const rain = Array.from({ length: 50 }, () => 'The rain kept on at the shutters.').join(' ')
+    const before = `Wren and Ash stopped for the night at the inn on the coast road.\n\n${rain}\n\nWren thought of the drover's dog, and of Ash's brother far away in the south.`
+    repo.saveSceneText(w.db, w.scene, null, before)
+    const { generationId } = (await startEdit({
+      tool: 'continue',
+      taskId: 'continue-deep',
+      sceneId: w.scene,
+      before,
+      selection: '',
+      after: '',
+      direction: '',
+      continueAs: 'paragraph'
+    })) as { generationId: ID }
+    await ended(generationId, 'task:done')
+    const edit = sent[sent.length - 1]
+    expect(edit.user).toContain('1. Wren and Ash stop for the night at the inn (done: on the page already)')
+    expect(edit.user).toMatch(/2\. [^\n]+ \(next: write this now\)/)
+    expect(edit.user).toContain('2. They talk about what comes next. (next: write this now)')
+    // The scene's own words say where it has got to: no end of the scene before.
+    expect(edit.user).not.toContain('This is how the scene before this one ended.')
+    expect(edit.user).not.toContain('neither of them said anything for a mile or more')
   })
 })
 

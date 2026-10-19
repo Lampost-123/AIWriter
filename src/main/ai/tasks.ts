@@ -131,6 +131,13 @@ export interface TaskRequest {
      * calls' ids, so a step that said "you have seen this already" says it no more (the chapter writer's read_scene).
      */
     onRemoved?: (toolCallIds: string[]) => void
+    /**
+     * The last request keeps the tools listed, with tool_choice 'none' (2026-10-19, the planner's look-ups): the request
+     * then starts as the one before did, so a provider's prompt cache keeps all of it, and no tool may be called. Should
+     * that request fail, or call a tool all the same, it is asked once more without the tools, as other callers' last
+     * requests always are. Left out: the last request goes without tools.
+     */
+    lastKeepsTools?: boolean
   }
   /**
    * The writer was asked to tag who says each line (ai/speakerTags.ts): the tags are taken out of the text as it
@@ -367,8 +374,8 @@ async function stream(
   }
 
   /** One request: `request` counts the answer's requests from 1 (for the tool calls it asks for). */
-  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined, force: string | null = null, request = 1): Promise<StreamOutcome> => {
-    const onCallStart = tools?.length ? req.agent?.onCallStart : undefined
+  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined, force: string | null = null, request = 1, none = false): Promise<StreamOutcome> => {
+    const onCallStart = tools?.length && !none ? req.agent?.onCallStart : undefined
     return streamChat({
       ...(onCallStart ? { onToolCall: (slot: number, name: string) => onCallStart(slot, name, request) } : {}),
       ...(req.background ? backgroundPatience(model.target) : {}),
@@ -381,7 +388,8 @@ async function stream(
         max_tokens: o.limit,
         min_p: req.minP ?? null,
         ...(tools?.length ? { tools } : {}),
-        ...(tools?.length && force ? { tool_choice: { type: 'function' as const, function: { name: force } } } : {})
+        ...(tools?.length && none ? { tool_choice: 'none' as const } : {}),
+        ...(tools?.length && force && !none ? { tool_choice: { type: 'function' as const, function: { name: force } } } : {})
       },
       signal: r.controller.signal,
       onText: (raw) => {
@@ -568,11 +576,23 @@ async function stream(
         progressTimer ??= setTimeout(progress, PROGRESS_MS)
       }
       stepFrom = r.text.length
-      const tools = last ? undefined : agent.tools
-      const force = tools ? forceFor(step + 1) : null
-      outcome = await once(messages, tools, force, step + 1)
+      // The planner's last request keeps the tools listed, none to be called (lastKeepsTools): the cache keeps it all.
+      const keepsTools = last && !!agent.lastKeepsTools
+      const tools = last && !keepsTools ? undefined : agent.tools
+      const force = tools && !last ? forceFor(step + 1) : null
+      outcome = await once(messages, tools, force, step + 1, keepsTools)
+      // Turned down, or a tool called all the same: asked once more without the tools, as any last request is.
+      if (keepsTools && !r.controller.signal.aborted && (outcome.status === 'error' || (outcome.status === 'complete' && !!outcome.toolCalls?.length))) {
+        total.prompt = add(total.prompt, outcome.promptTokens)
+        total.cached = add(total.cached, outcome.cachedTokens)
+        total.completion = add(total.completion, outcome.completionTokens)
+        total.cost = add(total.cost, outcome.cost)
+        spent += costOf(outcome, model, messagesTokens(messages)) ?? 0
+        r.text = r.text.slice(0, stepFrom)
+        outcome = await once(messages, undefined, null, step + 1)
+      }
       forcedTurnedDown(outcome)
-      noteRequest(step + 1, messages.slice(sentBefore), !!tools, force, {
+      noteRequest(step + 1, messages.slice(sentBefore), !!tools && !keepsTools, force, {
         ...(nudge ? {} : { after: calls.map((c) => c.name) }),
         ...(earlier.removed + fitted.removed ? { removed: earlier.removed + fitted.removed } : {})
       })

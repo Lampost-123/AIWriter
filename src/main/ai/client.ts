@@ -46,8 +46,11 @@ export interface ChatBody {
   /**
    * A tool the reply must call (the editor chat, lab switch TOOLCHOICE), sent as OpenAI's `tool_choice` with the tools.
    * A model that turns it down is asked again without it (the provider then chooses), and not sent it again this session.
+   * 'none' (the planner's answering request, 2026-10-19): the tools are listed, so the provider's cache keeps the request
+   * the same from the start, but none may be called; a provider that turns it down (or isn't sent tool_choice this
+   * session) is asked without the tools instead, and nothing is remembered for it.
    */
-  tool_choice?: ToolChoice
+  tool_choice?: ToolChoice | 'none'
 }
 
 /** OpenAI's way of making a reply call one tool. */
@@ -517,12 +520,14 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     arm(headersTimeout)
     try {
       const { max_tokens: _limit, temperature, top_p, min_p, ...rest } = o.body
-      const { tools, tool_choice: toolChoice, ...plain } = rest
+      const { tools: listed, tool_choice: toolChoice, ...plain } = rest
       const payload: Record<string, unknown> = {
         ...plain,
         messages: sentMessages(o.target, plain.model, plain.messages, o.cache !== false),
         stream: true
       }
+      // Tools listed only to keep the request's start the same go when 'none' can't be sent: no call can come back.
+      const tools = toolChoice === 'none' && (noToolsInstead || sent.toolChoice === false) ? undefined : listed
       if (tools?.length) {
         payload.tools = tools.map((t) => ({
           type: 'function',
@@ -656,6 +661,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   let triedNoSampling = false
   let triedNoMinP = false
   let triedNoToolChoice = false
+  /** tool_choice 'none' was turned down: asked again without the tools at all (nothing remembered for the model). */
+  let noToolsInstead = false
   /** How many times a provider that didn't answer in time has been asked again. */
   let timeouts = 0
   for (;;) {
@@ -664,6 +671,10 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     if (r.kind === 'stopped') return finish('stopped', null)
     // A model (or the service behind OpenRouter) that won't be made to call a tool: asked once more letting it choose,
     // and not asked that way again this session. It names tool_choice, so nothing else is changed for it.
+    if (r.kind === 'fail' && r.rejectedToolChoice && o.body.tool_choice === 'none' && !noToolsInstead) {
+      noToolsInstead = true
+      continue
+    }
     if (r.kind === 'fail' && r.rejectedToolChoice && !triedNoToolChoice) {
       triedNoToolChoice = true
       sent = { ...sent, toolChoice: false }

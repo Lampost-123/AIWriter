@@ -56,7 +56,8 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
     expect(plan.text).toContain('- Mara is wearing: grey cloak')
     expect(plan.text).not.toContain('red coat')
     expect(plan.text).not.toContain('silver knife')
-    expect(plan.text).toContain('1. Mara takes off the grey cloak and hangs it over the chair.')
+    // Each change whole in itself (2026-10-19): who, what, from and to, and how it happens.
+    expect(plan.text).toContain('1. Mara, wearing: grey cloak → grey cloak off, over the chair. Mara takes off the grey cloak and hangs it over the chair.')
     expect(plan.text).not.toContain('puts on')
     expect(plan.text).not.toContain('stranger')
     expect(user.trimEnd().endsWith('Now the prose itself:')).toBe(true)

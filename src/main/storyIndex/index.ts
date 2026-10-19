@@ -30,8 +30,11 @@ export type * from './types'
 
 type DB = Database.Database
 
-/** Goes up whenever the build's rules change, so every scene is built again by them (2: a row says when its details are in). */
-export const INDEX_RULES = 2
+/**
+ * Goes up whenever the build's rules change, so every scene is built again by them (2: a row says when its details are in;
+ * 3: someone the stage has but the words name only as thought of or far away is named, not there).
+ */
+export const INDEX_RULES = 3
 
 export interface IndexBuild {
   storyId: ID

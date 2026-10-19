@@ -2622,6 +2622,62 @@ describe('the scenes before, word for word (2026-10-15)', () => {
   })
 })
 
+describe('each passage once; beside a plan, only the previous scene’s end word for word (stand-in test, 2026-10-19)', () => {
+  // The stand-in found the end of the previous scene three times in one draft request, and the scenes before word for
+  // word taking about half of it.
+  const para = (n: number, w: string): string => `${Array.from({ length: n }, () => w).join(' ')}.`
+  const previousText = Array.from({ length: 15 }, (_, i) => `Paragraph ${i + 1} of the docks, ${para(40, 'tide')} Gulls ${i + 1} rose.`).join('\n\n')
+  const earlier = [{ sceneId: 'e1', title: 'The ford', text: `The ford scene, where the cart went over. ${para(200, 'ford')}`, label: 'Book 2, Ch 3, Sc 1', when: 'Day 11' }]
+  const passage = (where: string, text: string, order: number) => ({ kind: 'scene' as const, where, text, order })
+  const end = sceneTail(previousText)
+  const fresh = 'Mara swore on her mother’s grave that she would never cross the river at night again, whatever Tobin paid her.'
+  const withRecall = (over: Partial<ContextInput> = {}): ContextInput =>
+    input(
+      {
+        contextLength: 128_000,
+        // A search found the previous scene's end, the ford scene, and something new.
+        recall: {
+          sticky: [],
+          found: [],
+          said: [],
+          passages: [passage('Book 2, Ch 3, Sc 2', end, 2), passage('Book 2, Ch 3, Sc 1', earlier[0].text, 1), passage('Book 2, Ch 1, Sc 1', fresh, 0)]
+        },
+        ...over
+      },
+      { previous: { sceneId: 'p', title: 'The docks', text: previousText, label: 'Book 2, Ch 3, Sc 2', ...inBook2 }, earlier }
+    )
+  const sent = (inp: ContextInput, id: string) => assembleContext(inp, countRaw).blocks.find((b) => b.id === id && !b.dropped)
+  const heads = (text: string | undefined): string[] => (text ?? '').match(/^### .*$/gm) ?? []
+
+  it('beside a plan, the scenes before word for word are left out: the plan and the gists carry them', () => {
+    expect(sent(withRecall(), EARLIER_BLOCK.id)).toBeDefined()
+    const planned = withRecall({ plan: { needs: [], text: 'My notes before I write (I keep to them as I go):\nThe point: Mara wants out.' } })
+    expect(blockOf(planned, EARLIER_BLOCK.id)).toBeUndefined()
+    expect(sent(planned, 'previous-scene')?.text).toContain('Gulls 15 rose.')
+  })
+
+  it('a passage the words already sent carry, or a part before it, goes once', () => {
+    // With the scenes before word for word: the search's copy of the previous scene's end and of the ford scene go.
+    const recalled = sent(withRecall(), 'recalled')
+    expect(heads(recalled?.text)).toEqual(['### Book 2, Ch 1, Sc 1'])
+    // Beside a plan, what it looked up gives way: its passage of the previous scene's end goes, and so does its copy of
+    // what the search found; the ford scene (no longer sent word for word) stays once, with the search.
+    const lookedUp = `Looked up from the story so far just before writing, as things stand at this scene:\n\n- Mara Venn: at the docks\n\n### Ch 3, Sc 2, its end\n${end}\n\n### Ch 1, Sc 1, around “swore”\n${fresh}`
+    const planned = withRecall({ plan: { needs: [], text: 'My notes before I write (I keep to them as I go):\nThe point: Mara wants out.', lookedUp } })
+    const looked = sent(planned, 'looked-up')
+    expect(looked?.text).toContain('- Mara Venn: at the docks')
+    expect(heads(looked?.text)).toEqual([])
+    expect(heads(sent(planned, 'recalled')?.text)).toEqual(['### Book 2, Ch 1, Sc 1', '### Book 2, Ch 3, Sc 1'])
+    // What it looked up and nothing else new: the block goes; with only passages already sent, too.
+    const only = `Looked up from the story so far just before writing, as things stand at this scene:\n\n### Ch 3, Sc 2, its end\n${end}`
+    expect(sent(withRecall({ plan: { needs: [], text: 'My notes before I write (I keep to them as I go):\nThe point.', lookedUp: only } }), 'looked-up')).toBeUndefined()
+    // Each passage once in the whole request.
+    const all = assembleContext(planned, countRaw).messages.map((m) => m.content).join('\n')
+    expect(all.split('Gulls 15 rose.')).toHaveLength(2)
+    expect(all.split('never cross the river at night again')).toHaveLength(2)
+  })
+})
+
 describe('characters however they are named (long story memory fix 12)', () => {
   const happened = Array.from({ length: 5 }, (_, i) => ({ note: `happened ${i + 1}`, where: `Ch 1, Sc ${i + 1}`, changeId: `h${i}` }))
   /** The scene as before, with Bryn Tally in the world: on no card, named in no beat, tied to no one. */

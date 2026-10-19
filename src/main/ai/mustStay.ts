@@ -41,6 +41,7 @@ import { deathOf } from './deaths'
 import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './knows'
 import { clearStalePlacing } from './briefingFixes'
 import { animalNotPerson } from '../keeper/kinds'
+import { namedIn } from '../keeper/presence'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
 export const MUST_MOST = 12
@@ -370,6 +371,15 @@ export function lastingCondition(v: string): string {
 }
 
 /** The names a stage person goes by: as the stage has them, their codex entry's names, and their first name when no one else here shares it. */
+/**
+ * True when some line of `words` names someone as there (keeper/presence.ts namedIn): not only thought of, remembered,
+ * talked or written of, or told as far away (2026-10-19: a stand-in test found people only mentioned listed as in the
+ * scene, in the plan's "everyone in the scene" and Continue's state).
+ */
+export function namedThere(words: string, name: string): boolean {
+  return words.split(/\n+/).some((line) => namedIn(line, { id: '', name, kind: 'character' }) === 'there')
+}
+
 function namesFor(c: CharacterState, scope: StageScope, stand: SceneState): string[] {
   const e = scope.cast.find((x) => stageFor(x, { ...stand, characters: [c] }))
   const names = [c.name, ...(e ? [e.name, ...(e.aliases ?? [])] : [])].map(clean).filter((n) => n.length >= 2)
@@ -383,9 +393,10 @@ function namesFor(c: CharacterState, scope: StageScope, stand: SceneState): stri
 }
 
 /**
- * Where things stand as told for one scene: only the people in it (on its card, or named in its card's words, Adam's
- * direction or the scene so far), and the scene's time, light and weather only from its own words or when they carry
- * over (scope.timeCarries). Each value keeps its words. Null when nothing is known.
+ * Where things stand as told for one scene: only the people in it (on its card, or named as there in its card's words,
+ * Adam's direction or the scene so far: never someone only thought of, talked of or far away, keeper/presence.ts namedIn;
+ * 2026-10-19), and the scene's time, light and weather only from its own words or when they carry over
+ * (scope.timeCarries). Each value keeps its words. Null when nothing is known.
  */
 export function stageInScene(stand: SceneState | null | undefined, scope: StageScope): SceneState | null {
   if (!stand) return null
@@ -399,7 +410,7 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
       .map(([, v]) => v)
   }
   const onCard = (c: CharacterState): boolean => scope.onCard.some((e) => stageFor(e, { ...stand, characters: [c] }))
-  const named = (c: CharacterState): boolean => namesFor(c, scope, stand).some((n) => nameIn(scope.words, n))
+  const named = (c: CharacterState): boolean => namesFor(c, scope, stand).some((n) => nameIn(scope.words, n) && namedThere(scope.words, n))
   /** Only named in the scene's words: in it only with words from this scene (or the one before, its time carrying on). */
   const seenHere = (c: CharacterState): boolean => {
     const from = sourcesOf(c)

@@ -37,7 +37,7 @@ vi.mock('./plan', () => ({
     { role: 'user', content: 'card' }
   ],
   planText: (_p: unknown, carryingOn: boolean, o: { beat?: { index: number } }) => `notes for beat ${o.beat?.index}${carryingOn ? ', carrying on' : ''}`,
-  planForContinue: (p: { beats: string[] }, pov: string) => `${pov}'s plan: ${p.beats.join('; ')}`,
+  planForContinue: (p: { beats: string[] }, pov: string, o: { done?: number } = {}) => `${pov}'s plan: ${p.beats.join('; ')} (done ${o.done ?? 0})`,
   makePlan: async (o: { material: Record<string, unknown>; beat?: unknown }) => {
     h.made++
     h.materials.push(o.material)
@@ -49,7 +49,7 @@ vi.mock('./plan', () => ({
       text: 'notes',
       must: ['Osric reaches the loft'],
       checked: { corrected: 0, dropped: 0 },
-      plan: { beats: [`Plan ${n}`] },
+      plan: { beats: [`Plan ${n}: Osric climbs the ladder`, 'They argue about the weir', 'Wren hands him the ledger'] },
       ...(o.material.brief && h.writesBrief ? { brief: { parts: { keep: [`Brief ${n}.`] } } } : {})
     }
   }
@@ -77,7 +77,10 @@ vi.mock('./brief', () => ({
   }
 }))
 
-import { forgetScenePlans, planBeforeWriting, planForContinueOf, planWanted } from './index'
+import { memoryWorld } from '../../../tests/unit/helpers'
+import { keepStages, person, stage } from '../../../tests/unit/storyIndexWorld'
+import * as repo from '../db/repo'
+import { continueBeatsDone, fillQuickly, forgetScenePlans, planBeforeWriting, planForContinueOf, planWanted } from './index'
 
 const was = { plan: process.env.AIWRITE_PLAN, brief: process.env.AIWRITE_BRIEF }
 beforeEach(() => {
@@ -241,30 +244,78 @@ describe('Beat by beat plans the scene once (2026-10-19)', () => {
   })
 })
 
-describe('Continue gets the scene’s last plan, with no call', () => {
+describe('Continue gets the beats of the scene’s plan still to come, with no call (stand-in test, 2026-10-19)', () => {
   beforeEach(() => {
     h.model = { target: {}, choice: { contextLength: 64_000 }, thinking: 'off' }
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   })
-  const words = (n: number): number => n
+  const words = (n: number): string => Array.from({ length: n }, () => 'rain').join(' ')
 
-  it('while the words before the cursor are within what the plan was for, and the card is as it was', async () => {
-    expect(planForContinueOf('s', card as never, 10)).toBe('')
+  it('only a plan made for the whole scene, never a stretch’s plan for Add below, while the card is as it was', async () => {
+    expect(planForContinueOf('s', card as never, '')).toBe('')
     await planBeforeWriting(db, 's', briefing())
-    // A whole scene of 400 words: until 600 words in.
-    expect(planForContinueOf('s', card as never, words(0))).toBe("Wren's plan: Plan 1")
-    expect(planForContinueOf('s', card as never, words(600))).toBe("Wren's plan: Plan 1")
-    expect(planForContinueOf('s', card as never, words(601))).toBe('')
-    expect(planForContinueOf('s', { ...card, when: 'Day 9' } as never, words(10))).toBe('')
-    expect(planForContinueOf('other', card as never, words(10))).toBe('')
+    expect(planForContinueOf('s', card as never, '')).toBe("Wren's plan: Plan 1: Osric climbs the ladder; They argue about the weir; Wren hands him the ledger (done 0)")
+    // Add below plans only the stretch it writes, which is on the page by the time Continue is asked: the scene's plan stays.
+    await planBeforeWriting(db, 's', briefing({ soFar: 'The ladder creaked.' }))
+    expect(h.made).toBe(2)
+    expect(planForContinueOf('s', card as never, 'The ladder creaked.')).toMatch(/^Wren's plan: Plan 1:/)
+    // However far into the scene the words are (before, the plan went once they passed what it was made for).
+    expect(planForContinueOf('s', card as never, words(5_000))).toMatch(/^Wren's plan: Plan 1:/)
+    expect(planForContinueOf('s', { ...card, when: 'Day 9' } as never, '')).toBe('')
+    expect(planForContinueOf('other', card as never, '')).toBe('')
     // Plan before writing off: none.
     h.planFirst = false
-    expect(planForContinueOf('s', card as never, words(10))).toBe('')
+    expect(planForContinueOf('s', card as never, '')).toBe('')
   })
 
-  it('never before where the plan began (a stretch planned further on)', async () => {
-    await planBeforeWriting(db, 's', briefing({ soFar: Array.from({ length: 300 }, () => 'word').join(' ') }))
-    expect(planForContinueOf('s', card as never, 299)).toBe('')
-    expect(planForContinueOf('s', card as never, 500)).toBe("Wren's plan: Plan 1")
+  it('marks the beats on the page done: by their words in the scene so far, or by position in the words planned', async () => {
+    await planBeforeWriting(db, 's', briefing())
+    const done = (before: string): string => /\(done (\d+)\)$/.exec(planForContinueOf('s', card as never, before))?.[1] ?? ''
+    expect(done('')).toBe('0')
+    expect(done('Osric climbed the ladder to the loft.')).toBe('1')
+    // A later beat on the page: every beat before it is done too.
+    expect(done('Osric climbed up. Wren handed him the ledger at last.')).toBe('3')
+    // 400 words planned for three beats: past 400 words, two of them by position (a beat to spare), whatever the words.
+    expect(done(words(200))).toBe('0')
+    expect(done(words(420))).toBe('2')
+    expect(done(words(5_000))).toBe('3')
+  })
+
+  it('the card’s beats on the page, for Continue’s scene card when there is no plan', () => {
+    const c = { ...card, beats: ['Osric climbs up the ladder', 'They argue about the weir', ''] }
+    expect(continueBeatsDone(c as never, '')).toBe(0)
+    expect(continueBeatsDone(c as never, 'Osric climbed up the ladder. They argued about the weir until dark.')).toBe(2)
+  })
+})
+
+describe('a look-up fills in a scene’s details only when that is quick (stand-in test, 2026-10-19)', () => {
+  it('one call at most, within its time; otherwise not tried, or stopped, and nothing recorded', async () => {
+    const w = memoryWorld()
+    const story = repo.listStories(w)[0]
+    const ch = repo.getOutline(w, story.id).chapters[0].id
+    const s1 = repo.getOutline(w, story.id).scenes[0].id
+    const s2 = repo.createScene(w, ch, { title: 'Two' }).id
+    const s3 = repo.createScene(w, ch, { title: 'Three' }).id
+    repo.saveSceneText(w, s1, null, 'Mara set the lantern on the table.')
+    repo.saveSceneText(w, s2, null, 'Mara pulled her boots off.')
+    repo.saveSceneText(w, s3, null, 'Tobin came in from the rain.')
+    const asked: string[] = []
+    const fill = (async (_db: unknown, id: string) => {
+      asked.push(id)
+      return { filled: true, asked: true }
+    }) as never
+    const model = { target: {}, choice: {}, thinking: 'off' } as never
+    const live = { closed: () => false, fill }
+    // Three scenes not read yet: more than one call; not quick.
+    expect(await fillQuickly(w, story.id, s2, model, live)).toBe(false)
+    expect(asked).toEqual([])
+    // The scenes before it read: the one call is made.
+    keepStages(w, { [s1]: stage(s1, [person('Mara', { where: 'by the table' })], { 'mara|where': 'set the lantern' }) })
+    expect(await fillQuickly(w, story.id, s2, model, live)).toBe(true)
+    expect(asked).toEqual([s2])
+    // A call that takes too long is stopped: nothing recorded yet.
+    const slow = (async (_db: unknown, _id: string, _m: unknown, o: { signal: AbortSignal }) =>
+      new Promise((resolve) => o.signal.addEventListener('abort', () => resolve({ filled: false, asked: true })))) as never
+    expect(await fillQuickly(w, story.id, s2, model, { closed: () => false, fill: slow, ms: 20 })).toBe(false)
   })
 })
