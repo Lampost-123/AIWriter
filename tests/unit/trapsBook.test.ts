@@ -175,7 +175,7 @@ describe('the planted contradictions', () => {
       if (x.decoy) expect(all.includes(x.decoy), x.id).toBe(true)
       expect(all.match(/["']/), x.id).toBeNull()
     }
-    expect(PLANTED.filter((x) => x.flaw)).toHaveLength(12)
+    expect(PLANTED.filter((x) => x.flaw)).toHaveLength(13)
     expect(PLANTED.filter((x) => !x.flaw)).toHaveLength(6)
     for (const k of CONSTORY_KINDS) expect(PLANTED.filter((x) => x.flaw && x.kind === k.id).length, k.id).toBeGreaterThanOrEqual(2)
   })

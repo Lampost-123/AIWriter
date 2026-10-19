@@ -10,7 +10,9 @@
 // the scene just read), and a scene deleted takes its open findings with it (keeper/index.ts scenesDeleted).
 // Cheap: a check passes the memory it has already read; otherwise one reading of what is true as the scene begins
 // (memory/scene.ts sceneStart, without the story so far), with the story calendar and the scene cards kept until a date
-// or a card changes (memory/storyCalendar.ts calendarVersion), and the stage kept for the scene.
+// or a card changes (memory/storyCalendar.ts calendarVersion), and the stage kept for the scene. The time and place
+// rules over the words (free rules 2026-10-19) read the codex and the calendar through freeContext.ts, as check and
+// repair does as new words land, so both find the same things under the same keys.
 // No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -30,6 +32,8 @@ import { parentChain } from '../ai/context'
 import { shortPlace } from '../ai/mustStay'
 import { UserError } from '../util'
 import { dreamlikeCard, onStage, ruleFindings, type Meanwhile, type RuleFinding, type RuleScene } from './rules'
+import { freeContext } from './freeContext'
+import type { FreeContext } from './freeRules'
 
 type DB = Database.Database
 
@@ -154,7 +158,18 @@ export function ruleScene(db: DB, sceneId: ID, opts: RuleOptions = {}): RuleScen
     back: back && { beforeId: back.beforeId, elapsed: back.elapsed },
     age: (e) => (cal ? ageHere(cal, e, sceneId) : null),
     meanwhile,
-    learnedIn: (entryId, factId) => mem.knowledgeScenes(db, entryId, factId)
+    learnedIn: (entryId, factId) => mem.knowledgeScenes(db, entryId, factId),
+    free: freeOf(db, sceneId)
+  }
+}
+
+/** What the free rules over words read (freeContext.ts); null when it can't be read (those rules then say nothing). */
+function freeOf(db: DB, sceneId: ID): FreeContext | null {
+  try {
+    return freeContext(db, sceneId)
+  } catch (e) {
+    console.warn('Could not read what the time and place rules need', e)
+    return null
   }
 }
 
@@ -172,7 +187,7 @@ export function ruleIssue(f: RuleFinding, sceneId: ID, storyId: ID): cdb.FoundIs
       by: 'rule',
       rule: f.rule,
       sources: f.sources,
-      fix: null,
+      fix: f.fix ?? null,
       memoryFix: null,
       ...(f.entryId ? { entryId: f.entryId } : {}),
       ...(f.field ? { field: f.field } : {})

@@ -9,7 +9,10 @@
 // (repairsApplied tells which it could) and the rest are asked as questions in the Issues tab. When the draft had a scene
 // contract (long story memory fix 13, ai/contract.ts; noteContract, kept by record as noteStage is), the same call goes
 // through it item by item (repair/contract.ts): what the words go against, and what must change that they don't show
-// yet, are asked; how each item came out is kept with the scene's check report. No Electron imports.
+// yet, are asked; how each item came out is kept with the scene's check report. Before the call, and whatever comes of
+// it, the free rules read the new words with no AI call (repair/free.ts, 2026-10-19): a time claim the story calendar
+// says otherwise is asked at once, and the scene card's place named wrong is one more small fix where that is safe
+// (`freeCheckNewWords` runs them alone when there is no memory model). No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { RepairFix, RepairInput, RepairOutcome } from '@shared/contracts/repair'
@@ -33,6 +36,8 @@ import { SLOP_MARKER, withSlopFixes } from './slop'
 import type { SceneContract } from '../ai/contract'
 import { contractCounts, contractResults, contractSection, contractSources, judgeContract, notYetIssue, readContractAnswers } from './contract'
 import { saveContractCheck } from '../checks/report'
+import * as repo from '../db/repo'
+import { askFree, freeFound, type FreeFound } from './free'
 
 type DB = Database.Database
 
@@ -313,6 +318,9 @@ export async function checkNewWords(o: RepairOptions, raw: RepairInput): Promise
   }
   const stage = stageLines(stageAt(input), input.sceneId)
   const codex = codexLines(ctx, newWords)
+  // The free rules over the new words first (no AI call): their questions at once, their fixes with the model's.
+  const free = freeFound(o.db, input, ctx.storyId, aiText)
+  const freeAsked = askFree(o.db, input.sceneId, free.questions)
   // The critic after the draft waits for this check, and leaves out what it covered once it has (criticChecks).
   let settle!: () => void
   const entry: Checked = { done: new Promise<void>((r) => (settle = r)), covered: null }
@@ -320,11 +328,13 @@ export async function checkNewWords(o: RepairOptions, raw: RepairInput): Promise
   checked.set(input.recordId, entry)
   while (checked.size > MOST_CHECKED) checked.delete(checked.keys().next().value!)
   try {
-    const checkedOut = await checkWith(o, input, ctx, aiText, stage, codex, newWords)
-    if (checkedOut.repairId) entry.covered = coveredBy(stage, codex.lines)
+    const modelOut = await checkWith(o, input, ctx, aiText, stage, codex, newWords)
+    if (modelOut.repairId) entry.covered = coveredBy(stage, codex.lines)
+    if (o.closed() || !o.db.open) return modelOut
+    const checkedOut = withFree(o.db, input.sceneId, ctx.storyId, modelOut, free, freeAsked)
     // Stock phrases in the new words said afresh, as more fixes, by one short call (repair/slop.ts); not when Adam has
     // turned off "Steer clear of common AI phrases".
-    if (o.closed() || !o.db.open || o.prefs?.avoidAiPhrases === false) return checkedOut
+    if (o.prefs?.avoidAiPhrases === false) return checkedOut
     const out = await withSlopFixes(o, input, checkedOut)
     forgetPrompts(o, input.sceneId, SLOP_MARKER)
     return out
@@ -332,6 +342,48 @@ export async function checkNewWords(o: RepairOptions, raw: RepairInput): Promise
     entry.covered ??= []
     settle()
   }
+}
+
+/**
+ * The outcome with the free rules' part added (repair/free.ts): their fixes after the model's (none where one of the
+ * model's already is), kept waiting for the page as the model's are, and their questions counted. A landing the free
+ * rules found something in is checked, even when the model's call wasn't made or failed.
+ */
+function withFree(db: DB, sceneId: ID, storyId: ID, out: RepairOutcome, free: FreeFound, asked: number): RepairOutcome {
+  const fixes = free.fixes.filter((x) => !out.fixes.some((f) => f.para === x.fix.para && f.start < x.fix.end && x.fix.start < f.end))
+  if (!fixes.length && !asked && !free.questions.length) return out
+  const repairId = out.repairId ?? newId()
+  if (fixes.length) {
+    const p = pending.get(repairId)
+    if (p) p.fixes.push(...fixes)
+    else pending.set(repairId, { db, sceneId, storyId, fixes })
+    while (pending.size > MOST_PENDING) pending.delete(pending.keys().next().value!)
+  }
+  const found = fixes.length + free.questions.length
+  return { ...out, repairId, fixes: [...out.fixes, ...fixes.map((x) => x.fix)], questions: out.questions + asked, claims: out.claims + found, slips: out.slips + found }
+}
+
+/**
+ * New words checked by the free rules alone (repair/free.ts): with no memory model, or AI spending paused at Adam's
+ * limit, the free part still runs. Never throws: nothing found.
+ */
+export function freeCheckNewWords(db: DB, raw: RepairInput): RepairOutcome {
+  const input = cleanInput(raw)
+  if (!input.sceneId || !input.recordId || !db.open) return NOTHING
+  let storyId: ID
+  try {
+    storyId = repo.sceneLocation(db, input.sceneId).story.id
+  } catch {
+    return NOTHING
+  }
+  let aiText = ''
+  try {
+    aiText = gens.getGeneration(db, input.recordId).response ?? ''
+  } catch {
+    aiText = ''
+  }
+  const free = freeFound(db, input, storyId, aiText)
+  return withFree(db, input.sceneId, storyId, NOTHING, free, askFree(db, input.sceneId, free.questions))
 }
 
 /** The call and what comes of it, for checkNewWords. */

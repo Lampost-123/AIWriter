@@ -9,6 +9,12 @@
 //   (ai/deaths.ts surelyDied: never "presumed dead"), until a note says they live. Being named in the words is never
 //   enough (a body, a grave, a memory). Not a dream, a vision, a ghost, a memory or a flashback (the card says so, or its
 //   When goes back), nor a scene the calendar dates before the death.
+// - `too-fast` (free rules, 2026-10-19): someone on two scene cards, the later one at a place apart from the earlier
+//   (the last scene before it with them on its card and a place), when the cards' times are closer than any route the
+//   index knows between the two places can be travelled (storyIndex/routes.ts travelNeeds: a day's ride takes at least 8
+//   hours, three days by cart at least 56). Only when both cards' days are known on one count, neither goes back nor is a
+//   dream, and with the most time the two cards allow (a morning to an evening, the start of one day to the end of the
+//   next when no time of day is given). The quickest route known decides, so it says nothing a faster way could explain.
 // Findings are plain data with the scenes they are about; nothing here stores them. No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -17,11 +23,12 @@ import * as repo from '../db/repo'
 import * as sidx from '../db/storyIndex'
 import { storyCalendar } from '../memory/storyCalendar'
 import { dateLabel, type StoryDate } from '../memory/calendar'
+import { joins, placeChain, quickest, routeOfFact, routeWords, travelNeeds, type Route } from './routes'
 import type { IndexScene } from './types'
 
 type DB = Database.Database
 
-export type IndexCheck = 'same-moment' | 'after-death'
+export type IndexCheck = 'same-moment' | 'after-death' | 'too-fast'
 
 export interface IndexFinding {
   check: IndexCheck
@@ -77,7 +84,7 @@ export function indexChecks(db: DB, storyId: ID): IndexFinding[] {
   } catch (e) {
     console.warn('Could not read the story calendar for the story index checks', e)
   }
-  const out = [...sameMoment(db, scenes, cards, dates), ...afterDeath(db, storyId, scenes, cards, dates)]
+  const out = [...sameMoment(db, scenes, cards, dates), ...afterDeath(db, storyId, scenes, cards, dates), ...tooFast(db, storyId, scenes, cards, dates)]
   const at = new Map(scenes.map((s) => [s.sceneId, s.position]))
   return out.sort((a, b) => (at.get(a.sceneId) ?? 0) - (at.get(b.sceneId) ?? 0))
 }
@@ -171,5 +178,64 @@ function afterDeath(
       })
     }
   }
+  return out
+}
+
+/** The most minutes the two cards allow between them: from the start of the first's time of day to the end of the second's. */
+function mostMinutes(a: StoryDate, b: StoryDate): number {
+  const from = a.span ? a.span[0] : 0
+  const to = b.span ? b.span[1] : 1440
+  return (b.n! - a.n!) * 1440 + to - from
+}
+
+/** A date both cards can be held to: its own day on a count, not going back, read (not vague). */
+const dayKnown = (d: StoryDate | undefined): d is StoryDate => !!d && d.reading === 'read' && !d.back && d.axis !== null && d.n !== null
+
+function tooFast(
+  db: DB,
+  storyId: ID,
+  scenes: readonly IndexScene[],
+  cards: ReadonlyMap<ID, SceneCard>,
+  dates: ReadonlyMap<ID, StoryDate>
+): IndexFinding[] {
+  const routes = sidx
+    .storyRouteFacts(db, storyId)
+    .map(routeOfFact)
+    .filter((r): r is Route => !!r)
+  if (!routes.length) return []
+  const parents = sidx.placeParents(db)
+  const names = sidx.entryNames(db, [...new Set([...routes.flatMap((r) => [r.a, r.b]), ...scenes.flatMap((s) => [...(s.placeEntryId ? [s.placeEntryId] : []), ...s.present])])])
+  const out: IndexFinding[] = []
+  scenes.forEach((s, j) => {
+    const card = cards.get(s.sceneId)
+    const to = dates.get(s.sceneId)
+    if (!s.placeEntryId || !card || dreamlike(card) || !dayKnown(to)) return
+    const people = [...new Set([card.povId, ...(card.presentIds ?? [])])].filter((id): id is ID => !!id && names.get(id)?.kind === 'character')
+    for (const id of people) {
+      // The last scene before this one with them on its card and a place.
+      let before: IndexScene | undefined
+      for (let i = j - 1; i >= 0 && !before; i--) if (scenes[i].placeEntryId && onCard(cards.get(scenes[i].sceneId), id)) before = scenes[i]
+      if (!before) continue
+      const from = dates.get(before.sceneId)
+      if (!dayKnown(from) || from.axis !== to.axis || to.n! < from.n! || dreamlike(cards.get(before.sceneId))) continue
+      if (!apart(before.placeEntryId!, s.placeEntryId, parents)) continue
+      const here = placeChain(before.placeEntryId!, parents)
+      const there = placeChain(s.placeEntryId, parents)
+      const r = quickest(routes.filter((x) => joins(x, here, there)))
+      if (!r || mostMinutes(from, to) >= travelNeeds(r) * 60) continue
+      const a = here.includes(r.a) ? r.a : r.b
+      const b = a === r.a ? r.b : r.a
+      const who = names.get(id)?.name ?? 'Someone'
+      const placeA = names.get(before.placeEntryId!)?.name ?? 'one place'
+      const placeB = names.get(s.placeEntryId)?.name ?? 'another'
+      out.push({
+        check: 'too-fast',
+        sceneId: s.sceneId,
+        otherSceneId: before.sceneId,
+        entryId: id,
+        message: `${who} is at ${placeA} in ${before.label} (${dateLabel(from)}) and at ${placeB} in ${s.label} (${dateLabel(to)}), but ${names.get(a)?.name ?? placeA} to ${names.get(b)?.name ?? placeB} is ${routeWords(r)}.`
+      })
+    }
+  })
   return out
 }

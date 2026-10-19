@@ -298,6 +298,14 @@ export function entryNames(db: DB, entryIds: readonly ID[]): Map<ID, { name: str
   )
 }
 
+/**
+ * A story's routes (facts of kind 'route', free rules 2026-10-19: how long it takes from one place to another, from
+ * Adam's place entries and from narration), in story order, whatever scene they were stated in: places don't move.
+ */
+export function storyRouteFacts(db: DB, storyId: ID): PlacedFact[] {
+  return (db.prepare(`${PLACED} WHERE f.story_id = ? AND f.kind = 'route' AND f.value <> '' ${IN_ORDER}`).all(storyId) as Row[]).map(toPlaced)
+}
+
 /** Every live place's parent place, by id (a room in an inn in a town). */
 export function placeParents(db: DB): Map<ID, ID | null> {
   const rows = db.prepare("SELECT id, parent_id FROM entries WHERE deleted_at IS NULL AND kind = 'place'").all() as Row[]
