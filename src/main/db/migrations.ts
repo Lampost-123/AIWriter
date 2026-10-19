@@ -366,6 +366,63 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE changes ADD COLUMN until_origin TEXT;
   ALTER TABLE changes ADD COLUMN until_quote TEXT NOT NULL DEFAULT '';
   ALTER TABLE changes ADD COLUMN until_paragraph_id TEXT;
+  `,
+  // 5: the story index (overhaul phase 1, 2026-10-19; the reason is in docs/ARCHITECTURE.md, "The story index"). A
+  // look-up table built from what the world already holds (scene cards, names in the words, the memory's changes, where
+  // things stand, scene summaries): scene by scene, who is there, who is only named, where and when, and dated facts with
+  // the scene they start in and the scene they stop being true in. Every row can be built again from the world, so older
+  // worlds open unchanged (empty tables until a build).
+  //   index_scenes: one row a scene. position: its place in its story (1, 2, 3...) and label ("Ch 3, Sc 2"), both kept up
+  //     to date as scenes move; source_hash: what the row and its facts were built from; filled: free | ai | hand.
+  //   index_facts: kind where | wearing | carrying | condition | knows | relationship | thread | status; slot tells facts
+  //     of one kind apart (a piece of clothing, a fact known, the other side of a relationship); value '' marks where one
+  //     stops; until_scene_id: the scene a later one changes it in (null: still true). origin card | memory | tracker | hand.
+  //   index_threads: a plot thread opened, moved on or closed in a scene.
+  `
+  CREATE TABLE index_scenes (
+    scene_id TEXT PRIMARY KEY REFERENCES scenes(id) ON DELETE CASCADE,
+    story_id TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    label TEXT NOT NULL DEFAULT '',
+    gist TEXT NOT NULL DEFAULT '',
+    present_json TEXT NOT NULL DEFAULT '[]',
+    mentioned_json TEXT NOT NULL DEFAULT '[]',
+    place_entry_id TEXT,
+    when_text TEXT NOT NULL DEFAULT '',
+    source_hash TEXT NOT NULL DEFAULT '',
+    filled TEXT NOT NULL DEFAULT 'free',
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX index_scenes_story ON index_scenes(story_id, position);
+
+  CREATE TABLE index_facts (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL,
+    entry_id TEXT,
+    kind TEXT NOT NULL,
+    slot TEXT NOT NULL DEFAULT '',
+    value TEXT NOT NULL DEFAULT '',
+    from_scene_id TEXT NOT NULL,
+    until_scene_id TEXT,
+    source_scene_id TEXT NOT NULL REFERENCES scenes(id) ON DELETE CASCADE,
+    quote TEXT NOT NULL DEFAULT '',
+    origin TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX index_facts_entry ON index_facts(story_id, entry_id, kind);
+  CREATE INDEX index_facts_kind ON index_facts(story_id, kind);
+  CREATE INDEX index_facts_source ON index_facts(source_scene_id);
+
+  CREATE TABLE index_threads (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL,
+    thread_entry_id TEXT NOT NULL,
+    scene_id TEXT NOT NULL REFERENCES scenes(id) ON DELETE CASCADE,
+    event TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX index_threads_story ON index_threads(story_id, thread_entry_id);
+  CREATE INDEX index_threads_scene ON index_threads(scene_id);
   `
 ]
 

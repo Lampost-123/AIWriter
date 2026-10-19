@@ -255,6 +255,32 @@ export function storedState(
   }
 }
 
+/**
+ * The states kept for these scenes' ends (with Adam's edits), from one read of the store (the story index,
+ * storyIndex/index.ts, reads a whole story at once). `fresh`: read from the scene's words as they are now. Unlike
+ * storedState's `current`, it doesn't ask whether the scenes before still stand: the index keeps only the values a scene's
+ * own words gave (`said`), which no earlier scene's new words can make a ghost.
+ */
+export function keptStates(
+  db: DB,
+  sceneIds: readonly ID[]
+): Map<ID, { state: SceneState; fresh: boolean; edited: boolean }> {
+  const out = new Map<ID, { state: SceneState; fresh: boolean; edited: boolean }>()
+  if (!sceneIds.length) return out
+  const all = load(db)
+  for (const id of sceneIds) {
+    const kept = all[id]
+    if (!kept) continue
+    const scene = kdb.keeperScene(db, id)
+    out.set(id, {
+      state: withEdits(kept.state, kept.edits),
+      fresh: !!scene && kept.hash === hashOf(scene.text),
+      edited: !!kept.edits
+    })
+  }
+  return out
+}
+
 function save(db: DB, all: Stored): void {
   // Scenes that are gone take their state with them.
   for (const id of Object.keys(all)) if (!kdb.keeperScene(db, id)) delete all[id]

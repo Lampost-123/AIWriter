@@ -253,7 +253,8 @@ describe('migration 4', () => {
       `INSERT INTO changes (id, entry_id, anchor, kind, payload_json, created_at, updated_at)
        VALUES ('c1', 'e1', 'baseline', 'update', '{"note":"lost her knife"}', '2026-01-01', '2026-01-01')`
     ).run()
-    expect(migrate(db)).toEqual({ from: 3, to: 4 })
+    // Later migrations run after it (5: the story index).
+    expect(migrate(db)).toEqual({ from: 3, to: MIGRATIONS.length })
     const cols = (db.prepare('PRAGMA table_info(changes)').all() as { name: string }[]).map((c) => c.name)
     expect(cols).toEqual(expect.arrayContaining(['until_scene_id', 'until_when', 'until_origin', 'until_quote', 'until_paragraph_id']))
     const c = mem.getChange(db, 'c1')
