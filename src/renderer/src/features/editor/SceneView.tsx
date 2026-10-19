@@ -28,7 +28,9 @@ import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
 import { Dock } from '@/features/desk/dock/Dock'
 import { DeskSceneKeys } from '@/features/desk/keys/DeskSceneKeys'
 import { NextBeatChip } from '@/features/desk/dock/NextBeatChip'
+import { ToastsAbove } from '@/features/desk/dock/ToastsAbove'
 import { DirectorBar } from '@/features/director/DirectorBar'
+import { listenForDirector, useDirector } from '@/features/director/store'
 import { useSceneCardWatch } from '@/features/desk/sceneCard'
 import { MarginLayer } from '@/features/desk/margin/MarginLayer'
 import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
@@ -299,10 +301,41 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // What lies over the sheet (its fade, its tools) also keeps the scrollbar's room, as the page does (desk.css).
   const overSheet = desk ? { paddingLeft: sides.left, paddingRight: sides.right + 10, transition: glide } : undefined
 
+  // The desk's foot: the dock and what lies over it (the director's line, the receipt, the next beat). Messages show
+  // above all of it, never over a button there, and the page's fade reaches as high as it does (--desk-foot), so the
+  // words never run into it.
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const footRef = useRef<HTMLDivElement>(null)
+  // The panels: the director's line has the foot of the page while a directed draft writes (and a moment after).
+  useEffect(listenForDirector, [])
+  const directing = useDirector((d) => !!shown && !!d.byScene[shown.id])
+  const footShown = desk && !!shown && !error
+  useLayoutEffect(() => {
+    const sheet = sheetRef.current
+    const foot = footRef.current
+    if (!sheet) return
+    if (!footShown || !foot) {
+      sheet.style.removeProperty('--desk-foot')
+      return
+    }
+    const measure = (): void => {
+      const room = Math.round(sheet.getBoundingClientRect().bottom - foot.getBoundingClientRect().top)
+      if (room > 0) sheet.style.setProperty('--desk-foot', `${room}px`)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(foot)
+    window.addEventListener('resize', measure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [footShown])
+
   return (
     // The New look: the page is a sheet of paper lying on the window's frame (scene-sheet, styles.css). On the desk it is
     // the column itself that is the sheet (desk-sheet), lying on the desk.
-    <div className="scene-sheet relative flex h-full min-h-0 flex-col bg-page look-new:mx-2 look-new:overflow-hidden look-new:rounded-t-[14px] look-new:shadow-sheet">
+    <div ref={sheetRef} className="scene-sheet relative flex h-full min-h-0 flex-col bg-page look-new:mx-2 look-new:overflow-hidden look-new:rounded-t-[14px] look-new:shadow-sheet">
       {desk ? null : shown && !error ? (
         <SceneHeader sceneId={shown.id} fallbackTitle={shown.title} fallbackStatus={shown.status} />
       ) : (
@@ -376,23 +409,24 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           </div>
         ) : null}
       </div>
-      {draftBelow && !error && !desk ? (
-        // Over the page, so nothing moves: where the new draft is being written. (On the desk the AI dock says so.)
-        <button
-          type="button"
-          onClick={() => ctrlRef.current?.revealDraft()}
-          className="absolute bottom-5 left-1/2 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-ai/40 bg-ai-soft px-3.5 text-[12.5px] font-medium text-ai shadow-pop transition-colors duration-150 hover:border-ai animate-fade-in desk:bottom-[92px] desk:z-20"
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
-          Writing the new draft below
-          <ArrowDown size={13} aria-hidden />
-        </button>
-      ) : null}
-      {/* Directed writing (the panels): the director's line and Adam's notes over the foot of the page, above the pointer to
-          a draft being written out of sight. On the desk it sits over the AI dock (below). */}
-      {shown && !error && !desk ? (
-        <div className={cn('pointer-events-none absolute inset-x-0 z-20 flex justify-center px-6', draftBelow ? 'bottom-16' : 'bottom-5')}>
+      {/* The panels' foot: one place over the foot of the page for what the AI is doing there, the director's line (and
+          Adam's notes) above the pointer to a draft being written out of sight, on a band of the page's own colour so the
+          words never show through around them. (On the desk the AI dock and what lies over it say so.) */}
+      {shown && !error && !desk && (directing || draftBelow) ? (
+        <div className="pointer-events-none absolute bottom-0 left-0 right-2.5 z-20 flex flex-col items-center gap-2.5 bg-[linear-gradient(to_top,var(--page)_calc(100%-28px),transparent)] px-6 pb-5 pt-8">
           <DirectorBar sceneId={shown.id} />
+          {draftBelow ? (
+            // Over the page, so nothing moves: where the new draft is being written.
+            <button
+              type="button"
+              onClick={() => ctrlRef.current?.revealDraft()}
+              className="pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-ai/40 bg-ai-soft px-3.5 text-[12.5px] font-medium text-ai shadow-pop outline-none transition-colors duration-150 hover:border-ai focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)] animate-fade-in"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
+              Writing the new draft below
+              <ArrowDown size={13} aria-hidden />
+            </button>
+          ) : null}
         </div>
       ) : null}
       {shown && !error ? (
@@ -419,9 +453,14 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           <ChangeBoxLayer editor={editor} sceneId={shown.id} />
         )
       ) : null}
-      {/* The desk: the page fades out at the foot of the window, under its tools, so the words never run into them. */}
+      {/* The desk: the page fades out at the foot of the window, under its tools, so the words never run into them. It
+          reaches as high as what lies over the dock (the director's line, the receipt, the next beat) and a little more. */}
       {desk ? (
-        <div aria-hidden className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[132px]" style={overSheet}>
+        <div
+          aria-hidden
+          className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[calc(var(--desk-foot,72px)+60px)] transition-[height] duration-(--dur-base) ease-glide motion-reduce:transition-none"
+          style={overSheet}
+        >
           <div className="desk-page-fade mx-auto h-full" style={{ maxWidth: frame.sheetW }} />
         </div>
       ) : null}
@@ -434,7 +473,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-[calc(1rem+var(--read-aloud-lift,0px))] z-20 flex justify-center transition-[bottom] duration-150 ease-out motion-reduce:transition-none"
           style={overSheet}
         >
-          <div className="flex w-full flex-col items-center gap-3" style={{ maxWidth: Math.min(640, frame.sheetW - 48) }}>
+          <div ref={footRef} className="flex w-full flex-col items-center gap-3" style={{ maxWidth: Math.min(640, frame.sheetW - 48) }}>
             <DirectionReceipt sceneId={shown.id} />
             {/* Directed writing: the director's line and Adam's notes, while a directed draft writes (features/director). */}
             <DirectorBar sceneId={shown.id} />
@@ -447,6 +486,9 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
               onRevealDraft={() => ctrlRef.current?.revealDraft()}
             />
           </div>
+          {/* After the foot (so its ref is set): messages show above all of it, unless the drawer lies over the page
+              (a small window), when nothing at the foot can be pressed and they keep their corner. */}
+          {frame.drawerOver ? null : <ToastsAbove target={footRef} />}
           <DeskSceneKeys sceneId={shown.id} fallbackStatus={shown.status} />
         </div>
       ) : null}

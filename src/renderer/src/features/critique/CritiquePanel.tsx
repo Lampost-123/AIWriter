@@ -431,14 +431,14 @@ function NoteCard({
 export function CritiqueLabel({ crowded }: { crowded: boolean }): React.JSX.Element {
   return crowded ? (
     <>
-      <span className="@max-[459px]:sr-only">Critique</span>
+      <span className="@max-[460px]:sr-only">Critique</span>
       <span aria-hidden title="Critique" className="@min-[460px]:hidden">
         <MessageSquareQuote size={15} />
       </span>
     </>
   ) : (
     <>
-      <span className="@max-[359px]:sr-only">Critique</span>
+      <span className="@max-[360px]:sr-only">Critique</span>
       <span aria-hidden title="Critique" className="@min-[360px]:hidden">
         <MessageSquareQuote size={15} />
       </span>

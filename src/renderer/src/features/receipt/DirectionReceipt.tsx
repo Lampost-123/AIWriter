@@ -20,6 +20,8 @@ import { waitingSuggestion } from '@/features/edits/session'
 import { useDraft } from '@/features/generate/draftRun'
 import { usePolish } from '@/features/generate/polishRun'
 import { reducedMotion } from '@/features/look/motion'
+import { useDirector } from '@/features/director/store'
+import { setReceiptShown, useFoot } from '@/features/desk/dock/foot'
 import { allLanded, isFresh, receiptLabel, receiptOf, toWriteIn, writeInDirection, type Receipt } from './receipt'
 import { autoWriteInFor, claimAutoWriteIn, markWrittenIn, wasClaimed, wasStartedHere, watchDraftsStarted, writtenInFor } from './autoWriteIn'
 
@@ -115,19 +117,31 @@ export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Elemen
 
   useEffect(() => setLeaving(false), [receipt?.recordId])
 
-  // Every ask landed: one quiet line that fades by itself.
+  // The foot takes turns (desk/dock/foot.ts): the director's line first; the receipt, then the next-beat chip. While the
+  // AI writes the receipt waits; while a change waits for Accept or Reject, only a receipt with nothing to press shows
+  // (what was written in below, or every ask landed), so Accept and Reject are the dock's only choice.
+  const directing = useDirector((d) => !!d.byScene[sceneId])
+  const dockKind = useFoot((f) => f.dock[sceneId] ?? 'idle')
+  const quietDock = dockKind === 'idle' || (dockKind === 'review' && !!receipt && (!!written?.length || allLanded(receipt)))
+  const visible = !!receipt && !drafting && !beatsOn && !directing && quietDock
   useEffect(() => {
-    if (!receipt || !allLanded(receipt)) return
+    setReceiptShown(sceneId, visible)
+    return () => setReceiptShown(sceneId, false)
+  }, [sceneId, visible])
+
+  // Every ask landed: one quiet line that fades by itself, once it has been in sight for a moment.
+  useEffect(() => {
+    if (!receipt || !visible || !allLanded(receipt)) return
     const t = setTimeout(() => leaveRef.current(receipt), LANDED_MS)
     return () => clearTimeout(t)
-  }, [receipt])
+  }, [receipt, visible])
 
   // The next draft starts: this receipt was the last one's.
   useEffect(() => {
     if (drafting && receipt) leaveRef.current(receipt, 0)
   }, [drafting, receipt])
 
-  if (!receipt || drafting || beatsOn) return null
+  if (!visible || !receipt) return null
   if (written?.length) return <WrittenIn receipt={receipt} written={written} leaving={leaving} onDismiss={() => leave(receipt)} />
   const done = allLanded(receipt)
   const missing = toWriteIn(receipt)

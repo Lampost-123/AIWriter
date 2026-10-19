@@ -340,14 +340,9 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         sceneId={sceneId}
         card={card}
         onUse={fillFromIdea}
-        beside={
-          interview ? null : (
-            <>
-              <PlanSceneButton sceneId={sceneId} card={card} />
-              <InterviewButton target={interviewTarget} />
-            </>
-          )
-        }
+        // Plan this scene first (the AI fills the card), then Ideas for this scene, then Interview me, in every state.
+        lead={interview ? null : <PlanSceneButton sceneId={sceneId} card={card} />}
+        beside={interview ? null : <InterviewButton target={interviewTarget} />}
       />
       <Group title="Who and where" icon={Users} action={<SaveNote status={autosave.status} error={autosave.error} />}>
         <CarryRow
