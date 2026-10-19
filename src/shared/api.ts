@@ -211,7 +211,11 @@ export interface AppApi
   // ----- World bible entries -----
   listEntries(kind?: EntryKind): Promise<Entry[]>
   getEntry(id: ID): Promise<Entry>
-  createEntry(kind: EntryKind, input?: EntryInput): Promise<Entry>
+  /**
+   * Makes an entry (Adam's). `at`: an event made from a scene (Add to memory on its words, an Ask the world proposal
+   * for it, 2026-10-19) first exists at that scene, as one the memory finds there does; other kinds ignore it.
+   */
+  createEntry(kind: EntryKind, input?: EntryInput, at?: { sceneId: ID } | null): Promise<Entry>
   updateEntry(id: ID, patch: EntryInput): Promise<Entry>
   deleteEntry(id: ID): Promise<void>
 

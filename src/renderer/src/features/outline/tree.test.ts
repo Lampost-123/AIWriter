@@ -11,6 +11,7 @@ import {
   keptMessage,
   lastNodeKey,
   madePagesNote,
+  placedEventsNote,
   outlineTree,
   withDiscarded,
   withKept,
@@ -270,6 +271,14 @@ describe('the words for what happened', () => {
     expect(madePagesNote([{ entryNames: ['Gull Quay'] }])).toBe(' Made a page for Gull Quay.')
     expect(madePagesNote([{ entryNames: ['Holt', 'Bren', 'Ilsa', 'Odo', 'Gull Quay'] }])).toBe(' Made pages for Holt, Bren, Ilsa and 2 more.')
     expect(madePagesNote([{}])).toBe('')
+  })
+
+  it('says which events a keep put in the scenes they happen in (2026-10-19)', () => {
+    const move = (name: string) => ({ entryId: name, name, pointId: 'p', from: { kind: 'world' as const, storyId: null, sceneId: null }, originSceneId: null, storyId: 's', sceneId: 'sc' })
+    expect(placedEventsNote([{ events: [move('The Storm')] }, {}])).toBe(' The Storm now happens in its scene.')
+    expect(placedEventsNote([{ events: [move('The Storm')] }, { events: [move('The Wedding')] }])).toBe(' The Storm and The Wedding now happen in their scenes.')
+    expect(placedEventsNote([{ events: ['A', 'B', 'C'].map(move) }])).toBe(' 3 events now happen in their scenes.')
+    expect(placedEventsNote([{}])).toBe('')
   })
 
   it('counts in plain words', () => {

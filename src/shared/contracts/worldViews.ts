@@ -5,7 +5,7 @@
 // (spec, Multi-story rules: "every as-of view uses it too"), and comes back in one call with everything
 // its screen needs. Places are in plain words ("Book 1, Ch 3, Sc 2").
 
-import type { AsOf, AsOfStop, EntryKind, ID, MemoryCheckUndo, SceneStatus, ThreadDue, ThreadPlanChange, ThreadStanding } from '../types'
+import type { AsOf, AsOfStop, EntryKind, ExistsKind, ID, MemoryCheckUndo, SceneStatus, ThreadDue, ThreadPlanChange, ThreadStanding } from '../types'
 
 export interface WorldViewsApi {
   /**
@@ -48,9 +48,55 @@ export interface WorldViewsApi {
   getBoardMarks(): Promise<BoardMarks>
   /** Marks a scene as planned from an AI idea (or not); marks for scenes that are gone are dropped as it saves. */
   markAiIdea(sceneId: ID, on: boolean): Promise<BoardMarks>
+  /**
+   * Put events in their place (2026-10-19): the events earlier builds left at the story's start that the record can put
+   * at the scene they happen in (src/main/worldViews/eventHomes.ts), each with that scene and why. Nothing is changed.
+   */
+  getEventHomes(storyId: ID): Promise<EventHome[]>
+  /**
+   * Moves these events (ids from getEventHomes, worked out again now) to their scenes; returns what Undo needs. An event
+   * that can no longer move is left out.
+   */
+  placeEvents(storyId: ID, entryIds: ID[]): Promise<EventMove[]>
+  /** Undo: puts moved events back where they were, each only while it is still where it was moved to. */
+  unplaceEvents(moves: EventMove[]): Promise<void>
 }
 
 export interface WorldViewsEvents {}
+
+// ---------- Events in the scene they happen in (2026-10-19) ----------
+
+/**
+ * What says an event happens in a scene, strongest first: the memory keeper read it in that scene's words (`text`), the
+ * build's own words for it are that scene's line of the story's plan (`plan`), the scene's card names it (`card`), or
+ * its When is that scene's day (`date`).
+ */
+export type EventHomeWhy = 'text' | 'plan' | 'card' | 'date'
+
+/** An event that waits at its story's start, and the scene the record says it happens in. */
+export interface EventHome {
+  entryId: ID
+  name: string
+  storyId: ID
+  sceneId: ID
+  /** The scene in plain words: "Ch 2, Sc 3 “The Wreck”". */
+  place: string
+  why: EventHomeWhy
+}
+
+/** An event put at the scene it happens in, as its Undo needs it. */
+export interface EventMove {
+  entryId: ID
+  name: string
+  /** Its first-exists point, and where it was before the move. */
+  pointId: ID
+  from: { kind: ExistsKind; storyId: ID | null; sceneId: ID | null }
+  /** Its scene of origin before the move. */
+  originSceneId: ID | null
+  /** Where it was moved to. */
+  storyId: ID
+  sceneId: ID
+}
 
 // ---------- Timeline ----------
 

@@ -1,9 +1,10 @@
 // SQL for the timeline, relationship map and plot threads board (milestone 3). The views work out the
 // in-world order themselves and never write it into the scene cards; the only thing they keep is where
-// each character sits on the relationship map (in `meta`, so no table of their own).
+// each character sits on the relationship map (in `meta`, so no table of their own). Putting events in the
+// scene they happen in (worldViews/eventHomes.ts) moves their first-exists points, with Undo.
 import type Database from 'better-sqlite3'
 import type { BoardMarks, BoardSceneCard } from '@shared/contracts/worldViews'
-import type { ID, SceneCard, SceneStatus } from '@shared/types'
+import type { ExistsKind, ID, SceneCard, SceneStatus } from '@shared/types'
 import { getMeta, setMeta } from './repo'
 
 type DB = Database.Database
@@ -190,4 +191,82 @@ function liveScenes(db: DB, ids: ID[]): ID[] {
   if (!ids.length) return []
   const live = new Set((db.prepare('SELECT id FROM scenes WHERE deleted_at IS NULL').all() as Row[]).map((r) => r.id as ID))
   return ids.filter((x) => live.has(x))
+}
+
+// ---------- Events in the scene they happen in (2026-10-19, worldViews/eventHomes.ts) ----------
+
+/**
+ * The live events a World build made (the Story builder's and a recipe story's builds are World builds too), each with
+ * the summary's words its line in What changed quotes: only while that line isn't undone.
+ */
+export function builtEvents(db: DB): Map<ID, { runId: ID; quote: string }> {
+  const rows = db
+    .prepare(
+      `SELECT l.entry_id AS id, l.run_id AS run, l.quote AS quote FROM memory_log l JOIN entries e ON e.id = l.entry_id
+       WHERE l.scene_id IS NULL AND l.what = 'entry' AND l.action = 'added' AND l.undone_at IS NULL
+         AND l.undo_json LIKE '{"op":"world-build"%' AND e.kind = 'event' AND e.deleted_at IS NULL
+       ORDER BY l.rowid`
+    )
+    .all() as Row[]
+  const out = new Map<ID, { runId: ID; quote: string }>()
+  for (const r of rows) if (!out.has(r.id as ID)) out.set(r.id as ID, { runId: r.run as ID, quote: (r.quote as string) ?? '' })
+  return out
+}
+
+/**
+ * The scenes where the memory keeper read something of these events in the words, by event: a change it made there
+ * about one, or tying someone to one ("involved in"), still live. (The words its facts rest on: history.entryLinkScenes.)
+ */
+export function textChangeScenes(db: DB, eventIds: ID[]): Map<ID, Set<ID>> {
+  const out = new Map<ID, Set<ID>>()
+  if (!eventIds.length) return out
+  const rows = db
+    .prepare(
+      `SELECT CASE WHEN c.entry_id IN (SELECT value FROM json_each(@ids)) THEN c.entry_id ELSE json_extract(c.payload_json, '$.otherId') END AS id,
+         c.scene_id AS scene
+       FROM changes c
+       WHERE c.deleted_at IS NULL AND c.origin = 'text' AND c.anchor = 'scene' AND c.scene_id IS NOT NULL
+         AND (c.entry_id IN (SELECT value FROM json_each(@ids))
+           OR (c.kind = 'relationship' AND json_extract(c.payload_json, '$.otherId') IN (SELECT value FROM json_each(@ids))))`
+    )
+    .all({ ids: JSON.stringify([...new Set(eventIds)]) }) as Row[]
+  for (const r of rows) {
+    const id = r.id as ID
+    const set = out.get(id)
+    if (set) set.add(r.scene as ID)
+    else out.set(id, new Set([r.scene as ID]))
+  }
+  return out
+}
+
+/** Where a first-exists point is (an event put at its scene, or put back). */
+export function setExistsPointPlace(db: DB, pointId: ID, p: { kind: ExistsKind; storyId: ID | null; sceneId: ID | null }): void {
+  db.prepare('UPDATE exists_points SET kind = ?, story_id = ?, scene_id = ? WHERE id = ?').run(p.kind, p.storyId, p.sceneId, pointId)
+}
+
+/** An entry's scene of origin (where it first exists by default). */
+export function setOriginScene(db: DB, entryId: ID, sceneId: ID | null): void {
+  db.prepare('UPDATE entries SET origin_scene_id = ? WHERE id = ?').run(sceneId, entryId)
+}
+
+/** One first-exists point as it is now; null when it is gone. */
+export function existsPointPlace(db: DB, pointId: ID): { entryId: ID; kind: ExistsKind; storyId: ID | null; sceneId: ID | null; byHand: boolean } | null {
+  const r = db.prepare('SELECT entry_id, kind, story_id, scene_id, by_hand FROM exists_points WHERE id = ?').get(pointId) as Row | undefined
+  return r
+    ? { entryId: r.entry_id as ID, kind: r.kind as ExistsKind, storyId: (r.story_id as ID) ?? null, sceneId: (r.scene_id as ID) ?? null, byHand: !!r.by_hand }
+    : null
+}
+
+/** An entry's scene of origin as it is now (deleted entries too); undefined when it is gone for good. */
+export function originSceneOf(db: DB, entryId: ID): ID | null | undefined {
+  const r = db.prepare('SELECT origin_scene_id FROM entries WHERE id = ?').get(entryId) as Row | undefined
+  return r ? ((r.origin_scene_id as ID) ?? null) : undefined
+}
+
+/** The story a live scene is in; null when the scene (or its chapter) is deleted or gone. */
+export function liveSceneStory(db: DB, sceneId: ID): ID | null {
+  const r = db
+    .prepare('SELECT c.story_id AS storyId FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ? AND s.deleted_at IS NULL AND c.deleted_at IS NULL')
+    .get(sceneId) as Row | undefined
+  return r ? (r.storyId as ID) : null
 }

@@ -93,6 +93,13 @@ const SEARCH_HITS = 12
  */
 export const MAX_ITEM_WORDS = 600
 
+/** What a new event's `scene` is (2026-10-19): where it happens, so it sits there on the timeline. */
+export const EVENT_SCENE_WORDS =
+  'the scene it happens in ("Ch 2, Sc 1" or its title; left out, the open one), or "before the story" for one that happened before the story begins.'
+
+/** A new event's `scene` saying it happened before the story: it is made at no scene. */
+const BEFORE_STORY = /^\s*(?:before|none|no scene|backstory|earlier|in the past)\b/i
+
 const wordsIn = (s: string): number => (s.match(/[\p{L}\p{N}’']+/gu) ?? []).length
 
 /**
@@ -256,7 +263,15 @@ export const EDITOR_TOOLS: ToolSpec[] = [
     description: 'Propose a new entry in the memory. The writer decides.',
     parameters: {
       type: 'object',
-      properties: { kind: { type: 'string', enum: [...ENTRY_KINDS] }, name: str, summary: str, description: str, why: str },
+      properties: {
+        kind: { type: 'string', enum: [...ENTRY_KINDS] },
+        name: str,
+        summary: str,
+        description: str,
+        when: { ...str, description: 'An event: when it happens, as the story dates its scenes.' },
+        scene: { ...str, description: EVENT_SCENE_WORDS },
+        why: str
+      },
       required: ['kind', 'name', 'why']
     }
   },
@@ -422,7 +437,7 @@ function proposeChangesTool(anchor: boolean, ask = false, text = false, story = 
       `  ${SIZE_LINE}`,
       "- card: new values for parts of a scene's card (`goal`, `conflict`, `outcome`, `mood`, `when`, `notes`, `beats` as the whole list).",
       '- entry: an existing entry by `name`, with new `summary`, `description`, `aliases` or `fields` (by the keys get_entry shows).',
-      '- new_entry: `entry_kind`, `name`, and `summary` / `description` if you have them.',
+      `- new_entry: \`entry_kind\`, \`name\`, and \`summary\` / \`description\` if you have them. An event also \`when\` if you know it, and \`scene\`: ${EVENT_SCENE_WORDS}`,
       '- new_scene: at the end of `chapter` ("Ch 2" or its title), with `title`, and `goal` / `beats` if you have them.',
       '- new_chapter: `title`, at the end of this story.',
       '- rename: a `scene` or a `chapter`, and its new title as `to`.',
@@ -2539,9 +2554,24 @@ export class EditorAgent {
         if (repo.listEntries(this.db).some((e) => lower(e.name) === lower(name))) {
           throw new Mistake(`There is already an entry called “${name}”. Propose a change to it instead.`)
         }
+        // An event happens in a scene (2026-10-19): the one named, else the open one, and first exists there once
+        // applied, so it sits there on the timeline and earlier scenes never hear of it. Before the story: none.
+        const event = kind === 'event'
+        const sceneId = event && !BEFORE_STORY.test(text('scene')) && (text('scene').trim() || this.place.sceneId) ? this.scene(a.scene) : null
+        const at = sceneId ? { sceneId, sceneLabel: sceneLabelIn(this.outline(), sceneId) } : {}
+        const when = event ? squash(text('when')) : ''
         return [
           `Proposing a new ${KIND_LABELS[kind].one.toLowerCase()}`,
-          this.propose({ kind: 'newEntry', entryKind: kind, name, summary: text('summary').trim(), description: text('description').trim(), why: text('why') })
+          this.propose({
+            kind: 'newEntry',
+            entryKind: kind,
+            name,
+            summary: text('summary').trim(),
+            description: text('description').trim(),
+            ...at,
+            ...(when ? { when } : {}),
+            why: text('why')
+          })
         ]
       }
       case 'propose_new_scene': {

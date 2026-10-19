@@ -31,9 +31,13 @@ function write<T>(fn: () => T): T {
   return result
 }
 
-/** The codex and pages showing the plot threads, characters and places a keep made (or its Undo took back) reload. */
+/** The codex and pages showing the plot threads, characters, places and events a keep made or moved (or its Undo took back) reload. */
 function madeChanged(kept: KeptItem[]): void {
-  const entryIds = [...new Set((Array.isArray(kept) ? kept : []).flatMap((k) => [...(k?.threadIds ?? []), ...(k?.entryIds ?? [])]))]
+  const entryIds = [
+    ...new Set(
+      (Array.isArray(kept) ? kept : []).flatMap((k) => [...(k?.threadIds ?? []), ...(k?.entryIds ?? []), ...(Array.isArray(k?.events) ? k.events.map((e) => e?.entryId) : [])])
+    )
+  ].filter((id): id is ID => typeof id === 'string' && !!id)
   if (entryIds.length) emit('memory:changed', { sceneId: null, entryIds })
 }
 

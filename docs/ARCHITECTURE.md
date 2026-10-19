@@ -542,7 +542,9 @@ is built on migrations 1 and 2.
   before the story's first day, then those with no date, then the rest by date. Existing events are never rewritten; a
   build ties a new one only to a scene that agrees with its date, else the first scene on or after its day
   (`worldBuilder/save.ts` `eventScene`, `sceneOnDay`). The brief leaves out an event on a later day, or later the same
-  day when both say a time, unless it first exists at the scene being written.
+  day when both say a time, unless it first exists at the scene being written. Events earlier builds left at the story's
+  start go to their scene on keeping an outline, or with "Put events in their place" (see "Events in the scene they
+  happen in").
 - Clashes: the same named day (same calendar, same calendar words) at different most-specific places
   (a place inside another isn't a clash). They use neutral colours; amber is for AI suggestions and the
   board's long-open note (`LONG_OPEN_CHAPTERS = 10` in `threads.ts`).
@@ -4753,6 +4755,54 @@ keeping the sentences he marks word for word.
   test `tests/e2e/revise.spec.ts` (selected words: keep, note, only what moved, Change again with a sentence put back,
   Accept, Ctrl+Z; the draft just written: the row, the box, Esc, Reject) and `beats.spec.ts` (Change it… on a beat);
   the fake answers `revise` (`tests/fake-provider/m4/edits.mjs`).
+
+## Events in the scene they happen in (Adam, 2026-10-19)
+
+Adam: "before, all the events being added by the AI went right after the first chapter's scene as a long line, and not
+actually where they were supposed to be added in the timeline". 0.7.7 put the World builder's events for a story's plan
+in their scene; events made before that, and the Story builder's (laid out before the outline has scenes for them),
+still first exist at the story's start, so the timeline could place them only by a date, and with none (or one it can't
+read) they sat just after the opening scene. One module, `worldViews/eventHomes.ts`, finds each such event's scene from
+the record alone (no AI call) and moves it there; Undo puts it back.
+
+- **Which events.** Made by a World build for this story (`db/worldViews.ts` `builtEvents`: its line in What changed,
+  not undone; the Story builder's and a recipe story's builds are World builds), never one Adam made himself; one
+  first-exists point, not set by hand, at the world's or the story's start; not before the story (the timeline shows it
+  ahead of the story's scenes, `eventPlace.ts`, or its When says long ago, `longAgo`); and not when its scene would be the
+  opening one (it shows there already).
+- **Its scene**, strongest first: `text`, the memory keeper read something of it in that scene's words (a source link,
+  `history.entryLinkScenes`, or a text change there about it or tying someone to it, `textChangeScenes`); `plan`, the
+  build line's words are that scene's line of the story's plan ("- Scene The Wreck: ...", old and new forms, matched by
+  title); `card`, the scene card's title, goal or beats name it (whole words); `date`, its When on the story calendar: the
+  first scene of the story's present on or after its day (the build's `sceneOnDay` rule), on the day itself when an
+  outline is kept. A scene its date disagrees with is passed over for the next reason.
+- **Moving** sets the point to that scene and the entry's `originSceneId`, as a build that knew the scene makes it, so
+  `refreshDefaultExistsPoints` keeps it there (`EventMove` records what it was; `unmoveEvents` puts back only what is
+  still where it was moved to, never a point Adam has set by hand since). The characters involved in it are involved from
+  there, as the memory reads a relationship only while both exist.
+- **Keeping an outline** (`outline/structure.ts` `keepOutline`, every keep: the outline helper, its stages, a chapter's
+  plan, the Story builder, a recipe's plan) puts the story's waiting events in the kept scenes (`within`, `exactDay`),
+  each listed on its scene's `KeptItem.events`; the keep's toast says so (`tree.ts` `placedEventsNote`) and its Undo
+  (`unkeepOutline`) puts them back first.
+- **Put events in their place** (timeline, `features/timeline/EventPlaces.tsx`, `eventPlacesLogic.ts`): the timeline asks
+  `getEventHomes` with the river (one load, no shift); when anything can move, a line under the header says how many
+  ("12 events from the World builder can go to the scenes they belong to."), Show which lists each with its scene and why
+  and a tick to leave it, Move them calls `placeEvents` (worked out again in main) and its toast's Undo `unplaceEvents`.
+  Not now hides it on this computer (localStorage `aiwrite.timeline.eventPlaces`) until another event can move.
+- **Made from a scene.** `createEntry(kind, input, at)`: an event made with Add to memory on a scene's words, or an Ask
+  the world proposal, first exists at that scene (`makingAt`). Ask's new event names its `scene` (the open one when left
+  out; "before the story" for none) and `when`; the proposal shows "Happens in".
+- **Already right**: the World builder from a story's plan (0.7.7) and a recipe story's build (the same summary with the
+  recipe's lines after it); the memory keeper (an event found in a scene first exists there); filling in the gaps never
+  touches an event (`fillTargets`); Build from a summary keeps an event true from where Adam said, and the timeline shows
+  a dated one on its day; the Plan hub and chapter plans make no events (their keeps go through `keepOutline`).
+- **Tests**: `worldViews/eventHomes.test.ts` (each reason, what stays: placed by hand, Adam's own, before the story, the
+  opening scene, another story; one Undo; keeping an outline), `worldViews/eventPaths.test.ts` (each path against the fake
+  provider: an event for Ch 2, Sc 3 shows right after it), `features/timeline/eventPlacesLogic.test.ts`, the toast note in
+  `features/outline/tree.test.ts`, and `tests/e2e/timelineEvents.spec.ts` (the New look: after a World build, and the
+  tidy-up with its Undo). Fixture: `tests/unit/eventWorld.ts`.
+- **Not done here**: an event the memory keeper reads in a scene but the world already has from a build (it records
+  nothing new for it) waits for its date, a card or the build's own words; no AI is asked where an event goes.
 
 ## Milestone 1 scope
 

@@ -46,6 +46,7 @@ import {
   keepPlan,
   keptMessage,
   madePagesNote,
+  placedEventsNote,
   outlineTree,
   placeKeep,
   withDiscarded,
@@ -828,13 +829,14 @@ function announceKept(b: Omit<KeepBatch, 'toastId'>, message: string): void {
     keepBatch.building ||= b.building
     useToasts.getState().update(keepBatch.toastId, {
       // A chapter's plan (its session's key names the chapter) adds to the chapter.
-      message: `Added ${describeCounts(countKinds(keepBatch.kept.map((k) => k.kind)))} to the ${keepBatch.key.includes('#') ? 'chapter' : 'story'}.${madePagesNote(keepBatch.kept)}${keepBatch.building ? BUILD_NOTE : ''}`
+      message: `Added ${describeCounts(countKinds(keepBatch.kept.map((k) => k.kind)))} to the ${keepBatch.key.includes('#') ? 'chapter' : 'story'}.${madePagesNote(keepBatch.kept)}${placedEventsNote(keepBatch.kept)}${keepBatch.building ? BUILD_NOTE : ''}`
     })
     return
   }
   const batch: KeepBatch = { ...b, toastId: 0, kept: [...b.kept] }
-  // It names the characters and places it made pages for (2026-10-17), and says when it starts building them (2026-10-19).
-  batch.toastId = toast(`${message}${madePagesNote(b.kept)}${b.building ? BUILD_NOTE : ''}`, {
+  // It names the characters and places it made pages for (2026-10-17), the events it put in their scenes, and says when it
+  // starts building them (2026-10-19).
+  batch.toastId = toast(`${message}${madePagesNote(b.kept)}${placedEventsNote(b.kept)}${b.building ? BUILD_NOTE : ''}`, {
     action: {
       label: 'Undo',
       run: () => {
