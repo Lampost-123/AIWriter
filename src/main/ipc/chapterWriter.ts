@@ -33,6 +33,7 @@ import type { Page } from '../chapterWriter/page'
 import { contractWanted, type SceneContract } from '../ai/contract'
 import { findInStory, meaningForCheck } from '../retrieval'
 import { shortPlace } from '../ai/mustStay'
+import { directDraft, directedWanted, directorModel } from '../director'
 
 /**
  * How long the run waits for the memory to read the scenes before the one it drafts or checks next, and write their
@@ -168,10 +169,17 @@ function deps(runId: ID): RunDeps {
         contracts.delete(sceneId)
         asked.delete(sceneId)
       }
+      // Directed writing (src/main/director): with Settings › Models' switch on, each scene is written a stretch at a time
+      // with the director's notes between, quietly (the run says how it goes itself).
+      const settings = getSettings()
+      const stream = directedWanted(undefined, settings)
+        ? directDraft({ db, sceneId, briefing: b, carryOn: '', model: directorModel(sources()), emit, quiet: true })
+        : null
       const started = startDraftJob({
         db,
         sceneId,
         partOf: { chapterWriter: { runId } },
+        ...(stream ? { stream } : {}),
         options: b.input.options,
         preview: b.preview,
         provider: b.target,

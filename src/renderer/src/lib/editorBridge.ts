@@ -53,6 +53,11 @@ export interface EditorBridge {
   beginStream(sceneId: ID, generationId: ID, opts?: { replace?: boolean; noBreak?: boolean; quiet?: boolean; keepWriting?: boolean }): boolean
   appendStream(generationId: ID, text: string): void
   /**
+   * Directed writing (src/main/director): the draft's last paragraph is taken back for a retake; the paragraph written
+   * again streams in where it was. Does nothing when that draft isn't writing here.
+   */
+  takeBackStream?(generationId: ID): void
+  /**
    * Ends the draft. `failed`: it ended with a problem that Generate reports itself, so the page says
    * nothing. Returns whether the draft took the place of the scene's text, and `away` when it ended
    * while Adam was in another scene (whoever started it says so; the page can't).

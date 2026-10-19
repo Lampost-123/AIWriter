@@ -28,6 +28,7 @@ import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
 import { Dock } from '@/features/desk/dock/Dock'
 import { DeskSceneKeys } from '@/features/desk/keys/DeskSceneKeys'
 import { NextBeatChip } from '@/features/desk/dock/NextBeatChip'
+import { DirectorBar } from '@/features/director/DirectorBar'
 import { useSceneCardWatch } from '@/features/desk/sceneCard'
 import { MarginLayer } from '@/features/desk/margin/MarginLayer'
 import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
@@ -382,6 +383,13 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           <ArrowDown size={13} aria-hidden />
         </button>
       ) : null}
+      {/* Directed writing (the panels): the director's line and Adam's notes over the foot of the page, above the pointer to
+          a draft being written out of sight. On the desk it sits over the AI dock (below). */}
+      {shown && !error && !desk ? (
+        <div className={cn('pointer-events-none absolute inset-x-0 z-20 flex justify-center px-6', draftBelow ? 'bottom-16' : 'bottom-5')}>
+          <DirectorBar sceneId={shown.id} />
+        </div>
+      ) : null}
       {shown && !error ? (
         desk ? (
           // The desk: Beat by beat's bar takes the AI dock's place, over the foot of the sheet (and over its fade).
@@ -410,6 +418,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           style={overSheet}
         >
           <div className="flex w-full flex-col items-center gap-3" style={{ maxWidth: Math.min(640, frame.sheetW - 48) }}>
+            {/* Directed writing: the director's line and Adam's notes, while a directed draft writes (features/director). */}
+            <DirectorBar sceneId={shown.id} />
             <NextBeatChip sceneId={shown.id} fallbackStatus={shown.status} />
             <Dock
               editor={editor}

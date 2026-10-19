@@ -32,6 +32,7 @@ src/main/        Electron main process
                  the memory in step with it, plus summaries at every level
   storyIndex/    The story index (overhaul phase 1): who is where, with what, and what changed, scene by scene, as dated
                  facts built with no AI call; look-ups and free checks over it (SQL in db/storyIndex.ts)
+  director/      Directed writing (an option): a draft written a stretch at a time, with a director's notes between
   retrieval/     Story memory step 5: sticky entries, what was said, and searching the story so far by
                  keyword and by meaning (its own file, search-index.db, and the search model in model/:
                  onnxruntime-node, or a TypeScript reader where that can't start)
@@ -4319,6 +4320,91 @@ a new kind (`index_facts.kind` is text).
   Undo), `storyIndex/checks.test.ts` (too fast, from an entry and from narration, and what it never says).
 - **Known limits**: time claims read plain English frames only; a weekday only on a real date with a year; seasons are
   the northern hemisphere's; place kinds are a fixed list; "since the fire" needs an event entry with a When.
+
+## Directed writing (an option) (Adam's spec, 2026-10-19)
+
+With Directed writing on, a director watches the writer while it writes and steers it between stretches, like a film
+director giving notes between takes; it never writes prose. Off by default; on for every draft (Settings › Models,
+"Direct every draft", `settings.directedWriting`) or for one draft (the draft options' "Directed writing",
+`DraftOptions.directed`, which wins either way). It applies to Generate, Add below and Write the chapter's drafts; Continue,
+Beat by beat and Variants stay as they are. No migration: the record keeps it in `params`.
+
+- **One draft, written in stretches** (`director/run.ts`, a `DraftStream`): `ai/drafts.ts` `startDraftJob` takes
+  `stream`, which stands in for the one `streamChat` call with the same options and the page (`DraftPage`: the words so
+  far, `settle` for the filters between stretches, `takeBack` for a paragraph). So a directed draft is one record, one
+  stream into the page, one Stop, and the same speaker tags, plan-echo filter, saving, refusal handling, watchers and
+  `generation:done` as any draft; its params get `directed` (stretches, retakes, director calls, Adam's notes) and `steps`
+  (each stretch's note and why: "Steps it took" in What the AI saw).
+- **Stretches** (`director/stretch.ts`, pure): one beat of the scene plan (`DraftBriefing.scenePlan`, set by `withPlan`
+  when the plan's notes went in), else the card's (Add below: those not on the page yet), short beats written together,
+  at most `MOST_STRETCHES` (12); no beats: about `STRETCH_WORDS` (250) each; Auto about 280 words a beat. Each stretch
+  is asked with a reply limit sized to its words (`stretchTokens`, 1.7 times over) and stops cleanly (`StretchCutter`):
+  at the first paragraph's end past 1.15 times its words (the request is stopped there); past 0.9 times, a sentence still
+  being written waits for its end, so one cut off by the limit never reaches the page (one cut off sooner, by a model
+  that writes less in one go, comes back off the page).
+- **The writer's requests** (`stretchMessages`, `stretchAsk`): the briefing's messages exactly as built (its start is
+  what the provider's cache keeps), then the draft so far as the writer's own words (an assistant message), then the ask:
+  Adam's notes, the director's note, "Write stretch 2 of 3, about 220 words: “…”", the last ending on the plan's closing
+  image. The first stretch has no words yet: its ask follows the briefing's closing words in the same message.
+- **The free checks first** (`director/checks.ts`, no AI call; the world read once a draft): over the stretch's words,
+  the card place's name and time claims (`checks/freeRules.ts`, as check and repair runs them), the dead speaking
+  (`checks/rules.ts` `deadHere`, through `ruleScene` with `RuleOptions.text`), a piece of clothing already off used as
+  worn (`director/clothes.ts`: where things stand as told, `toldStage`, with the draft's own taking off and putting on
+  since; narration only; "her" only when the sentence opens with that person, or with "She" and one person here goes by
+  it), and a thing the story index has elsewhere or someone it has in another place (`plan/preconditions.ts`
+  `beatsCanHappen`, each sentence read as a beat). Each finding says whether it is in the stretch's last paragraph.
+- **The director, only when needed** (`director/decide.ts`, `director/prompts.ts`): asked when a check found something,
+  a beat the stretches so far were asked for isn't on the page (`shared/beats.ts` `beatsOnPage`), an ask of the checklist
+  isn't (the scene contract's "must change" items, `ai/contract.ts`, the list the receipt uses too; `mostlyIn`) once the
+  plan's stretches are written or 80% of the words are, Adam gave a note, or the plan's stretches are written and the
+  closing image isn't on the page yet. One short call (`[AIWRITE-DIRECTOR v1]`, `DIRECTOR_REPLY_TOKENS` 300, through the
+  task runner: its own record, job `director`, stopped with the draft) answers `{"verdict": "continue" | "retake" |
+  "done", "note", "reason"}`. Otherwise, and when the call fails or can't be read, `freeDecision`: a must-fix slip in the
+  last paragraph is taken again; once the plan's stretches are written the scene is done when everything landed, or after
+  one stretch more to land what didn't; else carry on with what is overdue as the note.
+- **A retake** replaces only the last paragraph: it goes from the record and the speaker tags
+  (`SpeakerTagFilter.takeBack`) and, by `generation:takeBack`, from the page (`streamDoc.ts` `takeBackStream`: the
+  paragraph emptied, nothing recorded, so the draft is still one Ctrl+Z; the editor's `takeBackStream`, a scene kept for
+  the draft too), and is written anew from the paragraph before with the reason and the note. At most `MOST_RETAKES` (2)
+  a paragraph; then the decision is made as if none were left.
+- **Limits**: 12 stretches a scene, 2 retakes a paragraph, no longer than 1.6 times the draft's words (`LONGEST`); Stop
+  works at any time (the draft's own: the words so far are kept). Drafts still wait for the memory first.
+- **Adam's notes** (`director/live.ts`; `directorNote(generationId, note)`, `shared/contracts/director.ts`): typed (or
+  dictated) while it writes, they go in at the next pause: to the director as a reason to be asked, and to the writer's
+  next ask.
+- **The director model**: its own job in Settings › Models ("Director model", `models.director`, `thinking.director`),
+  the memory model until Adam picks one (`jobModel` `director`: director, memory, writer), so a stronger model can direct
+  while DeepSeek Flash writes; with none, decisions are made for free.
+- **On the screen** (`features/director/`): `DirectorBar` over the foot of the page (on the desk above the AI dock): the
+  director's line ("Writing: the knock at the door", "Carry on — next, the knock at the door", "Taking the last paragraph
+  again — …", "That's the scene."), the stretch, the note for the next stretch, and a box for Adam's note ("Your note goes
+  in at the next pause."); `director:progress` events, the last line kept a moment after the draft ends. `DirectedToggle`
+  in the draft options (for one draft: `store.ts` `withDirected`, used by `draftRun.ts`); `DirectorSettings` in Settings ›
+  Models after the continuity brief. The settings carry test names the new settings (`NEW_SINCE_081`).
+- **Write the chapter**: its scene drafts are directed when the switch is on (`ipc/chapterWriter.ts`), quietly (no line
+  in the window; the run says how it goes).
+- **The cost**: each stretch sends the briefing again (mostly from the provider's cache) plus the draft so far and a short
+  ask; the director's call is about 1,400 tokens and is made only when needed. Measured with the fake trap runs
+  (`npm run traps -- --fake --samples 1 --measure <file> --directed off|on`; `--directed` sets `AIWRITE_DIRECTED`):
+  probes v3 (two Generates of 600 words, three Add belows of 400): the writer's requests 5 to 12 (2.4 a draft), their
+  tokens in 27,190 to 67,947 (about 5,440 to 5,660 a request: the same briefing, plus the draft so far), and 4 director
+  calls, 5,577 tokens; every job 108 calls and 357,164 tokens to 118 and 406,879 (+14%; the fake writes at most 220
+  words a request, so the undirected drafts were shorter). Chain K1 (six one-beat Add belows written whole by the
+  stand-in): one stretch each and one director call each (the closing image), 128 calls and 484,006 tokens to 134 and
+  493,411 (+1.9%). On DeepSeek Flash's prices, with its cache, a three-stretch scene's writing costs about 1.5 times as
+  much (the later stretches read the briefing from the cache), and takes a request's first-word wait more per stretch,
+  plus a few seconds for each director call.
+- **Tests**: `director/stretch.test.ts`, `decide.test.ts` (with the clothes rule and the director's request and reply),
+  `checks.test.ts` (the free checks in a world), `run.test.ts` (the loop through a draft against a scripted provider:
+  sizing, the clean stop, a free check's retake with and without a director model, the director only when needed, the
+  limits, Stop, Adam's notes, an unreadable reply), `paths.test.ts` (Generate and Add below through `ipc/ai.ts` against
+  the fake provider, its director's retake, off), `index.test.ts` (the switch, the job, the fake director),
+  `features/director/takeBack.test.ts` (the page), `tests/unit/settingsCarry.test.ts`, and `tests/e2e/director.spec.ts`.
+  The fake provider (`tests/fake-provider/director.mjs`) answers the director (a retake for `[[fake: director retake]]`, a
+  finding in the last paragraph, or a "wouldn't" note) and writes each stretch with its beat.
+- **Not done here**: the free checks read plain English only (the clothes rule's verbs are a short list); a beat or ask
+  said in other words is left to the director to judge; a real-model run (trap book) with and without it would judge it
+  at length.
 
 ## Milestone 1 scope
 

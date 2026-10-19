@@ -61,6 +61,11 @@ export interface RuleOptions {
   prefs?: WritingPrefs
   /** The memory as the scene begins, as the writer is given it, when the caller has read it already (a check). */
   memory?: RuleMemory
+  /**
+   * Directed writing (src/main/director): read these words in place of the scene's own (a stretch of a draft still being
+   * written, which the scene doesn't hold yet). Left out: the scene's words.
+   */
+  text?: string
 }
 
 /** True when two places are apart: neither is the other, nor inside it (the back room is in the Inn). */
@@ -98,7 +103,7 @@ export function ruleScene(db: DB, sceneId: ID, opts: RuleOptions = {}): RuleScen
   const node = storyOfScene(shape, sceneId)
   if (!node) return null
   const scene = repo.getScene(db, sceneId)
-  const text = scene.text ?? ''
+  const text = opts.text ?? scene.text ?? ''
   if (!text.trim()) return null
   const { story } = repo.sceneLocation(db, sceneId)
   const memory = opts.memory ?? memoryAt(db, sceneId)

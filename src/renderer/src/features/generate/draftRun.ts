@@ -23,6 +23,7 @@ import { blockIndexAt, draftPlace, polishable } from './polish'
 import { polishingScene, startPolish, stopPolish, usePolish } from './polishRun'
 import { repairLanded } from '@/features/repair/repairRun'
 import { cardLength } from '@shared/defaults'
+import { withDirected } from '@/features/director/store'
 
 export type Phase = 'idle' | 'starting' | 'streaming' | 'stopping'
 
@@ -120,6 +121,12 @@ export function listenForDrafts(): void {
     if (p.generationId !== r.generationId) return
     r.bridge.appendStream(p.generationId, p.text)
     if (useDraft.getState().retrying) useDraft.setState({ retrying: null })
+  })
+  // Directed writing (src/main/director): the draft's last paragraph is taken back for a retake.
+  onEvent('generation:takeBack', (p) => {
+    const r = run
+    if (!r || r.cancelled || r.generationId !== p.generationId) return
+    r.bridge.takeBackStream?.(p.generationId)
   })
   onEvent('generation:retrying', (p) => {
     const r = run
@@ -255,7 +262,11 @@ export async function startDraft(
     // Save the card and the page first, so the draft is built from the latest of both.
     await flushAll()
     const card = (await api.getScene(sceneId)).card
-    const options = resolveDraftOptions(o.options(), cardLength(card), useApp.getState().settings?.creativity ?? 'balanced', usePolish.getState().on)
+    // Directed writing: the draft options' choice for this one draft, if Adam made one (features/director).
+    const options = withDirected(
+      resolveDraftOptions(o.options(), cardLength(card), useApp.getState().settings?.creativity ?? 'balanced', usePolish.getState().on),
+      sceneId
+    )
     r.polish = !!options.polish
     if (r.cancelled) return giveUp()
     const { generationId, note } = await api.startDraft(sceneId, options)
