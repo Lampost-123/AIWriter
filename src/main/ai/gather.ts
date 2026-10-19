@@ -17,6 +17,8 @@ import { lessonsBefore } from '../checks/lessons'
 import { sceneCalendar, type SceneCalendar } from '../memory/storyCalendar'
 import { leftHere, leftHereLines } from '../storyIndex/placed'
 import { readerKnows } from './readerKnows'
+import { ownSampleOn } from '@shared/ownSample'
+import { ownWritingFor } from '../style/ownWriting'
 import type { ContextInput } from './context'
 
 type DB = Database.Database
@@ -88,8 +90,12 @@ export function gatherContextInput(
   const series = story.seriesId ? repo.listSeries(db).find((s) => s.id === story.seriesId) : undefined
   const stand = keptStateBefore(db, sceneId)
   const memory = sceneMemory(db, sceneId, { forWriter: true, ...(extra.soFar?.trim() ? { soFar: extra.soFar } : {}) })
+  const style = effectiveStyle(extra.prefs, repo.getWorldStyle(db), story.style)
+  // Adam's own writing (2026-10-19): passages he wrote himself as the voice sample, when "Use my own writing as the
+  // sample" is on for this sample passage, and how each character's lines read, his own lines first.
+  const own = ownWritingFor(db, sceneId, { sample: ownSampleOn(extra.prefs.ownSample, style.samplePassage), people: memory.entries })
   return {
-    style: effectiveStyle(extra.prefs, repo.getWorldStyle(db), story.style),
+    style,
     scene: { title: scene.title, card: scene.card },
     memory,
     // What this scene's words and the previous scene's call their characters (long story memory fix 12).
@@ -116,7 +122,9 @@ export function gatherContextInput(
     slips: lessonsBefore(db, sceneId).slips,
     // The story calendar (long story memory fix 11): the scene's date, the sums since the scene before and earlier days,
     // and the ages of those on its card.
-    calendar: calendarFor(db, sceneId, memory, scene.card)
+    calendar: calendarFor(db, sceneId, memory, scene.card),
+    ownSample: own.sample,
+    voiceMarks: own.voices
   }
 }
 

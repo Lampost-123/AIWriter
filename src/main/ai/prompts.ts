@@ -9,6 +9,7 @@ import { AUTO_LENGTH } from '@shared/defaults'
 import { genresOf } from '@shared/genres'
 import { intensityLines } from '@shared/intensity'
 import { PLAIN_RULE, SLOP_RULES } from '@shared/slop'
+import type { OwnPassage, OwnSample } from '../style/ownWords'
 
 /**
  * The writer's rules lead with this (overhaul, 2026-10-19): the style guide outranks the craft rules, so a preset that
@@ -124,6 +125,24 @@ export function trimPassage(text: string, words = SHORT_SAMPLE_WORDS): string {
 }
 
 /**
+ * Block 1's sample passage made of Adam's own writing (2026-10-19), each stretch in its own quotes, nearest scene first.
+ * The short form keeps the first stretch, trimmed.
+ */
+export function ownSampleText(sample: Pick<OwnSample, 'passages'>, short = false): string {
+  const passages = short ? sample.passages.slice(0, 1).map((p) => ({ ...p, text: trimPassage(p.text) })) : sample.passages
+  const one = passages.length === 1
+  const lead = one
+    ? "This passage is the author's own writing, from the story so far. Match its voice, rhythm, sentence length and level of detail, in the narration and in the dialogue. It shows how the book should sound: don't copy its sentences or replay its events."
+    : "These passages are the author's own writing, from the story so far. Match their voice, rhythm, sentence length and level of detail, in the narration and in the dialogue. They show how the book should sound: don't copy their sentences or replay their events."
+  return `Sample passage\n${lead}\n\n${passages.map((p) => `"""\n${p.text.trim()}\n"""`).join('\n\n')}`
+}
+
+/** "Sound like this": some of Adam's own words said again just above the closing instruction (OWN_SAMPLE.echo words). */
+export function soundLikeText(echo: Pick<OwnPassage, 'text'>): string {
+  return `The author's own words, from the story so far. Write the new words in this voice: its rhythm, its plainness or richness, how its people talk. Never reuse its sentences.\n\n"""\n${echo.text.trim()}\n"""`
+}
+
+/**
  * Block 1: the writer instructions, the style guide, the genre and feel, how far content goes, one sample
  * passage, the phrases to avoid and the rules against common AI phrasing.
  * `intro` takes the place of the drafting introduction for jobs that aren't writing a whole scene
@@ -132,10 +151,12 @@ export function trimPassage(text: string, words = SHORT_SAMPLE_WORDS): string {
  * worn-out moves, and the rules without the list of phrases. `proseRules: false` leaves out the rules against
  * AI phrasing (for jobs that don't write prose, such as Ask the world). The drafting writer's own rules carry the
  * rules against AI phrasing (writerInstructions); a job with an `intro` of its own gets them as their own list.
+ * `ownSample`: passages of Adam's own writing (style/ownWords.ts) in place of the style guide's sample passage (short
+ * form: the first of them, trimmed).
  */
 export function instructionsText(
   style: StyleGuide & { avoidAiPhrases?: boolean },
-  opts: { trimSample?: boolean; intro?: string; proseRules?: boolean; addBelow?: boolean } = {}
+  opts: { trimSample?: boolean; intro?: string; proseRules?: boolean; addBelow?: boolean; ownSample?: OwnSample | null } = {}
 ): string {
   const short = !!opts.trimSample
   const aiPhrases = opts.proseRules !== false && style.avoidAiPhrases !== false
@@ -161,7 +182,8 @@ export function instructionsText(
     if (sex) parts.push(sex)
   }
 
-  if (style.samplePassage.trim()) {
+  if (opts.ownSample?.passages.length) parts.push(ownSampleText(opts.ownSample, short))
+  else if (style.samplePassage.trim()) {
     const sample = short ? trimPassage(style.samplePassage) : style.samplePassage.trim()
     parts.push(
       `Sample passage\nThis passage is by the author. Match its voice, rhythm, sentence length and level of detail. It shows how the book should sound: don't copy its sentences or replay its events.\n\n"""\n${sample}\n"""`

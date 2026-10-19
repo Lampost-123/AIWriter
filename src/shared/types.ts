@@ -66,6 +66,12 @@ export interface WritingPrefs {
   avoidWords: string[]
   /** Steer the AI clear of common AI phrases (src/shared/slop.ts), and underline them in drafts. On unless Adam turns it off. */
   avoidAiPhrases?: boolean
+  /**
+   * "Use my own writing as the sample" (shared/ownSample.ts): the writer is shown passages Adam wrote himself in place of
+   * the style guide's sample passage. Left out: on while the sample passage is empty; true: also over a sample passage;
+   * false: never.
+   */
+  ownSample?: boolean
   /** The length a scene aims for when neither it nor its chapter says (shared/lengths.ts); null or left out: Auto. */
   sceneLength?: number | null
   /** The target for a whole chapter when its chapter card has none (shared/lengths.ts); null or left out: none. */
@@ -702,6 +708,11 @@ export interface ContextBlock {
    * leave it out.
    */
   memory?: MemoryTag[]
+  /**
+   * The part holds passages of Adam's own writing (style/ownWords.ts) as the voice sample: how many words, and where in
+   * the story they come from ("Ch 3, Sc 2"). Left out otherwise.
+   */
+  ownWriting?: { words: number; from: string[] }
 }
 
 /**

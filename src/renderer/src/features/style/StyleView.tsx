@@ -17,6 +17,7 @@ import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { useSlow } from '@/features/world/parts/useSlow'
 import { usePrefs } from './prefsStore'
+import { OwnSampleSwitch } from './OwnSampleSwitch'
 import { SampleWriter } from './SampleWriter'
 import { StoryFeel } from './StoryFeel'
 import { Group, short, StyleFields } from './StyleFields'
@@ -192,7 +193,12 @@ function WorldStyleForm({ world, prefs }: { world: World; prefs: WritingPrefs })
         below={below}
         prefsPhrases={prefs.avoidWords}
         mode="world"
-        afterSample={<SampleWriter worldId={world.id} storyId={null} style={sampleStyle} current={draft.style.samplePassage} onUse={putSample} />}
+        afterSample={
+          <>
+            <OwnSampleSwitch sample={draft.style.samplePassage} />
+            <SampleWriter worldId={world.id} storyId={null} style={sampleStyle} current={draft.style.samplePassage} onUse={putSample} />
+          </>
+        }
       />
       <Group title="Themes and tone">
         <Field label="World themes" hint="What the world is about underneath, and how it should surface.">
@@ -318,7 +324,13 @@ function StoryStyleForm({ story, world, prefs }: { story: Story; world: World; p
         below={below}
         prefsPhrases={prefs.avoidWords}
         mode="story"
-        afterSample={<SampleWriter worldId={world.id} storyId={story.id} style={sampleStyle} current={draft.style.samplePassage} onUse={putSample} />}
+        afterSample={
+          <>
+            {/* The sample in effect for this story: its own, else the world's. */}
+            <OwnSampleSwitch sample={draft.style.samplePassage.trim() || fullStyle(world.style).samplePassage} />
+            <SampleWriter worldId={world.id} storyId={story.id} style={sampleStyle} current={draft.style.samplePassage} onUse={putSample} />
+          </>
+        }
       />
     </div>
   )

@@ -51,6 +51,10 @@ test('Story feel: pick genres and content levels, write a sample, and drafts are
     const phrases = main(win).getByRole('switch', { name: 'Steer clear of common AI phrases' })
     await expect(phrases).toBeChecked()
 
+    // Use my own writing as the sample: on while the sample passage is empty.
+    const own = main(win).getByRole('switch', { name: 'Use my own writing as the sample' })
+    await expect(own).toBeChecked()
+
     // Write a sample for me: it streams into a card, and Use this puts it in the sample passage.
     await main(win).getByRole('button', { name: 'Write a sample for me' }).click()
     await expect(main(win).getByRole('button', { name: 'Use this' })).toBeEnabled({ timeout: 15_000 })
@@ -58,6 +62,11 @@ test('Story feel: pick genres and content levels, write a sample, and drafts are
     await main(win).getByRole('button', { name: 'Use this' }).click()
     await expect(main(win).getByLabel('Sample passage')).not.toHaveValue('')
     expect(JSON.stringify(fake.lastRequest()?.body.messages ?? [])).toContain('[AIWRITE-STYLE v1] sample')
+    // With a sample passage, his own writing takes its place only when he turns it on.
+    await expect(own).not.toBeChecked()
+    await own.click()
+    await expect(own).toBeChecked()
+    await expect.poll(async () => (await invoke(win, 'getWritingPrefs')).ownSample).toBe(true)
 
     // A draft's briefing carries the genre, the content levels and the rules against AI phrasing.
     const story = (await invoke(win, 'listStories'))[0]
@@ -70,6 +79,20 @@ test('Story feel: pick genres and content levels, write a sample, and drafts are
     // The rules against AI phrasing are merged into the writer's own rules (the overhaul, 2026-10-19).
     expect(sent).toContain(`avoid "it wasn't X, it was Y" and lists of three adjectives`)
     expect(sent).toContain('Keep the slow-building dread of horror, with the sharp, fair-play curiosity of mystery.')
+
+    // Words Adam wrote himself in the scene before (no AI record for them) become the sample, and some of them come
+    // again just before the closing instruction; What the AI saw is told they are his.
+    const own1 = Array.from({ length: 12 }, (_, i) => `The marsh lamp ${i} guttered in the wind off the saltings, and nobody went to trim it.`).join(' ')
+    await invoke(win, 'saveSceneText', sceneId, null, `${own1}\n\n"Leave it," said the warden. "It knows the way home."`)
+    const next = await invoke(win, 'createScene', outline.chapters[0].id, { title: 'The causeway' })
+    const later = await invoke(win, 'previewContext', next.id, { direction: '', targetWords: 1000, creativity: 'balanced' })
+    const first = later.blocks.find((b) => b.id === 'instructions')!
+    expect(first.text).toContain("the author's own writing, from the story so far")
+    expect(first.text).toContain('The marsh lamp 0 guttered')
+    expect(first.ownWriting?.words).toBeGreaterThanOrEqual(150)
+    const user = String(later.messages[1].content)
+    expect(user.indexOf('## Sound like this')).toBeGreaterThan(0)
+    expect(user.indexOf('Write the scene now.')).toBeGreaterThan(user.indexOf('## Sound like this'))
   } finally {
     await fake.close()
   }
