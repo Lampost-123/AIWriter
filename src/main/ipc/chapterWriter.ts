@@ -117,7 +117,9 @@ function deps(runId: ID): RunDeps {
         : []
       let b: Awaited<ReturnType<typeof draftBriefing>>
       try {
-        b = await draftBriefing(sceneId, options, { extras: { extraBlocks }, signal: o.signal, catchUpMs: DRAFT_CATCH_UP_MS })
+        // The plan before writing writes no continuity brief (token audit, 2026-10-19): the study's notes for the scene
+        // say what it would, and its planner would read up to 150,000 tokens of the book for every scene.
+        b = await draftBriefing(sceneId, options, { extras: { extraBlocks }, signal: o.signal, catchUpMs: DRAFT_CATCH_UP_MS, brief: false })
       } catch (e) {
         if (o.signal.aborted) return { status: 'stopped', text: '', error: null }
         if (e instanceof UserError) return { status: 'error', text: '', error: e.message }

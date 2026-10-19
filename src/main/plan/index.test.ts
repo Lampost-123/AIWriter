@@ -170,6 +170,11 @@ describe('the continuity brief, in the same call (fix 14)', () => {
     expect(h.materials).toEqual([{ threads: 'the writer’s few' }, { threads: 'the writer’s few' }])
   })
 
+  it('is never asked for when the draft says not (Write the whole chapter: its study wrote one), the plan still made', async () => {
+    expect(await planBeforeWriting(db, 's', briefing, undefined, '', { brief: false })).toMatchObject({ text: 'notes' })
+    expect(h.materials).toEqual([{ threads: 'the writer’s few' }])
+  })
+
   it('a brief that cannot be put together leaves the plan as it was, and still makes it', async () => {
     h.briefFails = true
     expect(await planBeforeWriting(db, 's', briefing)).toMatchObject({ text: 'notes' })

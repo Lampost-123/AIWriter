@@ -79,7 +79,8 @@ export function forgetSceneBriefs(): void {
  * or the plan failed, was stopped or took too long. Never throws. `focus`: for Beat by beat, the one beat to plan. With
  * "Write a continuity brief before each scene" on (fix 14), the same call also writes the brief; a later beat of a scene
  * gets the brief its first beat's plan wrote, while its card and record read the same, and its plan reads no more than
- * it always did.
+ * it always did. `brief: false`: never a brief, whatever the setting (Write the whole chapter: its study wrote one for
+ * every scene, and the brief's planner reads up to 150,000 tokens of the book for each; token audit, 2026-10-19).
  */
 export async function planBeforeWriting(
   db: Database.Database,
@@ -90,7 +91,8 @@ export async function planBeforeWriting(
     prepared: Pick<PreparedContext, 'finals' | 'contract'> & Partial<Pick<PreparedContext, 'blocks'>>
   },
   signal?: AbortSignal,
-  focus = ''
+  focus = '',
+  o: { brief?: boolean } = {}
 ): Promise<MadePlan | null> {
   try {
     if (!planWanted() || pausedNote()) return null
@@ -100,9 +102,10 @@ export async function planBeforeWriting(
     const entries = b.preview.entries ?? []
     const plain = planMaterial(b.input, b.preview, b.prepared, focus)
     // With a continuity brief (fix 14) when Adam wants one; a brief that can't be put together leaves the plan as it was.
-    const briefed = briefWanted(getSettings())
-      ? safely(() => withBrief(db, sceneId, b, plain, model.choice.contextLength ?? DEFAULT_MEMORY_CONTEXT), plain)
-      : plain
+    const briefed =
+      o.brief !== false && briefWanted(getSettings())
+        ? safely(() => withBrief(db, sceneId, b, plain, model.choice.contextLength ?? DEFAULT_MEMORY_CONTEXT), plain)
+        : plain
     const key = focus && briefed.brief ? briefKey(b.input, briefed.brief) : null
     const kept = key ? sceneBriefs.get(sceneId) : undefined
     const reuse = kept && kept.key === key ? kept.brief : null
