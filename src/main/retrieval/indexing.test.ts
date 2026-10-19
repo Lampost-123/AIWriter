@@ -4,9 +4,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import * as repo from '../db/repo'
+import * as mem from '../db/memory'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { indexPath, memorySearchIndex, openSearchIndex } from './store'
-import { readPassages, scenesToSync, syncNow, syncSlowly } from './indexing'
+import { readPassages, scenesToSync, syncNow, syncSlowly, syncSummaries } from './indexing'
 import { stubEmbedder } from './stub'
 
 const folders: string[] = []
@@ -71,5 +72,59 @@ describe('keeping the index in step', () => {
     expect(await readPassages(index, embedder, (t) => embedder.embed(t, 'passage'), { signal: stop.signal })).toBe(0)
     expect(await syncSlowly(w.db, memorySearchIndex(), stop.signal)).toMatchObject({ changed: expect.any(Array) })
     expect(await readPassages(index, embedder, (t) => embedder.embed(t, 'passage'), { signal: new AbortController().signal })).toBe(2)
+  })
+})
+
+describe('keeping the summaries in step (summary-level recall, 2026-10-19)', () => {
+  const withSummaries = () => {
+    const w = world()
+    const chapter = repo.getOutline(w.db, repo.listStories(w.db)[0].id).chapters[0].id
+    mem.putSummary(w.db, { level: 'scene', targetId: w.a, text: 'By the end, Mara had crossed the river on the ferry.', origin: 'text' })
+    mem.putSummary(w.db, { level: 'chapter', targetId: chapter, text: 'The crossing, and the coins counted at the inn.', origin: 'text' })
+    return { ...w, chapter }
+  }
+
+  it('puts in each scene’s and chapter’s summary as it now reads, and forgets those gone', () => {
+    const w = withSummaries()
+    const index = memorySearchIndex()
+    syncNow(w.db, index)
+    expect([...index.summaryHashes().keys()].sort()).toEqual([`chapter:${w.chapter}`, `scene:${w.a}`].sort())
+    expect(syncSummaries(w.db, index)).toEqual({ changed: 0, removed: 0 })
+    // Written again (by Adam, say): the new words are searched, the old ones no longer.
+    mem.putSummary(w.db, { level: 'scene', targetId: w.a, text: 'By the end, Mara had lost the rope in the flood.', origin: 'adam' })
+    expect(syncSummaries(w.db, index)).toEqual({ changed: 1, removed: 0 })
+    expect(index.keywordSummaries(['flood'], [`scene:${w.a}`])).toHaveLength(1)
+    expect(index.keywordSummaries(['ferry'], [`scene:${w.a}`])).toEqual([])
+    // An emptied summary, and a deleted scene's, are forgotten.
+    mem.putSummary(w.db, { level: 'chapter', targetId: w.chapter, text: '  ', origin: 'adam' })
+    repo.deleteScene(w.db, w.a)
+    syncNow(w.db, index)
+    expect(index.summaryHashes().size).toBe(0)
+  })
+
+  it('reads the summaries for meaning in the background, first, and kept as summaries', async () => {
+    const w = withSummaries()
+    const index = memorySearchIndex()
+    await syncSlowly(w.db, index, new AbortController().signal, 1)
+    expect(index.summaryHashes().size).toBe(2)
+    const embedder = stubEmbedder()
+    const read: string[][] = []
+    const n = await readPassages(
+      index,
+      embedder,
+      (t) => {
+        read.push(t)
+        return embedder.embed(t, 'passage')
+      },
+      { signal: new AbortController().signal }
+    )
+    expect(n).toBe(4)
+    expect(read[0].slice(0, 2).sort()).toEqual(['By the end, Mara had crossed the river on the ferry.', 'The crossing, and the coins counted at the inn.'])
+    const kinds = index.db.prepare('SELECT kind, COUNT(*) AS n FROM vectors GROUP BY kind ORDER BY kind').all()
+    expect(kinds).toEqual([
+      { kind: 'passage', n: 2 },
+      { kind: 'summary', n: 2 }
+    ])
+    expect(index.counts('stub')).toEqual({ passages: 2, withVectors: 2 })
   })
 })

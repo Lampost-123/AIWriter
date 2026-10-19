@@ -46,11 +46,31 @@ const SCHEMA_V1 = `
   ) WITHOUT ROWID;
 `
 
+/**
+ * The scenes' and chapters' summaries, searched like passages (2026-10-19, summary-level recall). Added to the layout of
+ * version 1 as it stands, not as a new version: they are made in any index without them, and an older AI Write leaves
+ * them alone (it checks only its own tables and tidies only its own kinds of vector), so going back a version never
+ * sets the file aside.
+ */
+const SUMMARIES = `
+  CREATE TABLE IF NOT EXISTS summaries (
+    id INTEGER PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    level TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    hash TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS summaries_by_hash ON summaries (hash);
+  CREATE VIRTUAL TABLE IF NOT EXISTS summary_words USING fts5(text, tokenize = 'porter unicode61 remove_diacritics 2');
+`
+
 const COLUMNS: Record<string, string[]> = {
   meta: ['key', 'value'],
   scenes: ['scene_id', 'hash'],
   passages: ['id', 'scene_id', 'n', 'text', 'hash'],
-  vectors: ['hash', 'model', 'kind', 'vec', 'at']
+  vectors: ['hash', 'model', 'kind', 'vec', 'at'],
+  summaries: ['id', 'key', 'level', 'target_id', 'text', 'hash']
 }
 
 /** The file was written by a newer AI Write: it is left as it is. */
@@ -73,6 +93,7 @@ function migrate(db: DB, nowIso: string): void {
       db.pragma(`user_version = ${INDEX_VERSION}`)
     })()
   }
+  db.exec(SUMMARIES)
   for (const [table, want] of Object.entries(COLUMNS)) {
     const have = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((r) => r.name as string))
     if (want.some((c) => !have.has(c))) throw new StrangeIndexError(`${INDEX_FILE} has no ${table} table this version can use`)
@@ -194,6 +215,27 @@ const toPassage = (r: Row): StoredPassage => ({
   hash: r.hash as string
 })
 
+/** A scene's or chapter's summary as the index holds it. */
+export interface StoredSummary {
+  /** 'scene:<id>' or 'chapter:<id>'. */
+  key: string
+  level: 'scene' | 'chapter'
+  targetId: ID
+  text: string
+  hash: string
+}
+
+const toSummary = (r: Row): StoredSummary => ({
+  key: r.key as string,
+  level: r.level as 'scene' | 'chapter',
+  targetId: r.target_id as string,
+  text: r.text as string,
+  hash: r.hash as string
+})
+
+/** What a vector was made from: a passage, a summary, or another text (a fact, a search). */
+export type VectorKind = 'passage' | 'summary' | 'other'
+
 const toVec = (b: Buffer): Float32Array => {
   const copy = new Uint8Array(b.byteLength)
   copy.set(b)
@@ -284,6 +326,56 @@ export class SearchIndex {
     return rows.map((r) => ({ passage: toPassage(r), score: -(r.score as number) }))
   }
 
+  /** Each summary's hash, by key. */
+  summaryHashes(): Map<string, string> {
+    return new Map((this.db.prepare('SELECT key, hash FROM summaries').all() as Row[]).map((r) => [r.key as string, r.hash as string]))
+  }
+
+  /** Puts these summaries in place of what the index had for them (by key). */
+  putSummaries(items: StoredSummary[]): void {
+    if (!items.length) return
+    const db = this.db
+    const add = db.prepare('INSERT INTO summaries (key, level, target_id, text, hash) VALUES (?, ?, ?, ?, ?)')
+    const words = db.prepare('INSERT INTO summary_words (rowid, text) VALUES (?, ?)')
+    db.transaction(() => {
+      this.dropSummaries(items.map((x) => x.key))
+      for (const x of items) words.run(add.run(x.key, x.level, x.targetId, x.text, x.hash).lastInsertRowid, x.text)
+    })()
+  }
+
+  private dropSummaries(keys: string[]): void {
+    if (!keys.length) return
+    const k = JSON.stringify(keys)
+    this.db.prepare('DELETE FROM summary_words WHERE rowid IN (SELECT id FROM summaries WHERE key IN (SELECT value FROM json_each(?)))').run(k)
+    this.db.prepare('DELETE FROM summaries WHERE key IN (SELECT value FROM json_each(?))').run(k)
+  }
+
+  /** Forgets summaries gone from the world (their scene or chapter deleted, or the summary emptied). */
+  removeSummaries(keys: string[]): void {
+    if (!keys.length) return
+    this.db.transaction(() => this.dropSummaries(keys))()
+  }
+
+  /** Keyword search over these summaries (by key), as `keyword` is over passages: best first, higher is better. */
+  keywordSummaries(words: string[], keys: string[], limit = 12): { summary: StoredSummary; score: number }[] {
+    if (!words.length || !keys.length) return []
+    const match = words.map((w) => `"${w.replace(/"/g, '""')}"`).join(' OR ')
+    const rows = this.db
+      .prepare(
+        `SELECT s.*, bm25(summary_words) AS score FROM summary_words JOIN summaries s ON s.id = summary_words.rowid
+         WHERE summary_words MATCH ? AND s.key IN (SELECT value FROM json_each(?))
+         ORDER BY score LIMIT ?`
+      )
+      .all(match, JSON.stringify(keys), limit) as Row[]
+    return rows.map((r) => ({ summary: toSummary(r), score: -(r.score as number) }))
+  }
+
+  /** These summaries (by key), those the index has. */
+  summariesIn(keys: string[]): StoredSummary[] {
+    if (!keys.length) return []
+    return (this.db.prepare('SELECT * FROM summaries WHERE key IN (SELECT value FROM json_each(?)) ORDER BY key').all(JSON.stringify(keys)) as Row[]).map(toSummary)
+  }
+
   /** Every passage of these scenes. */
   passagesIn(sceneIds: ID[]): StoredPassage[] {
     if (!sceneIds.length) return []
@@ -302,15 +394,27 @@ export class SearchIndex {
     return { passages, withVectors }
   }
 
-  /** Passages with no vector from this model yet (one per distinct text), at most `limit`. */
-  withoutVectors(model: string, limit: number): { hash: string; text: string }[] {
-    return this.db
-      .prepare(
-        `SELECT p.hash, MIN(p.text) AS text FROM passages p
-         WHERE NOT EXISTS (SELECT 1 FROM vectors v WHERE v.hash = p.hash AND v.model = ?)
-         GROUP BY p.hash LIMIT ?`
-      )
+  /**
+   * Summaries, then passages, with no vector from this model yet (one per distinct text), at most `limit`. Summaries
+   * come first: they are few, and each stands for a whole scene or chapter.
+   */
+  withoutVectors(model: string, limit: number): { hash: string; text: string; kind: 'passage' | 'summary' }[] {
+    const missing = 'NOT EXISTS (SELECT 1 FROM vectors v WHERE v.hash = x.hash AND v.model = ?)'
+    const summaries = this.db
+      .prepare(`SELECT x.hash, MIN(x.text) AS text FROM summaries x WHERE ${missing} GROUP BY x.hash LIMIT ?`)
       .all(model, limit) as { hash: string; text: string }[]
+    const rest = limit - summaries.length
+    const passages =
+      rest > 0
+        ? (this.db
+            .prepare(`SELECT x.hash, MIN(x.text) AS text FROM passages x WHERE ${missing} GROUP BY x.hash LIMIT ?`)
+            .all(model, rest) as { hash: string; text: string }[])
+        : []
+    const seen = new Set(summaries.map((x) => x.hash))
+    return [
+      ...summaries.map((x) => ({ ...x, kind: 'summary' as const })),
+      ...passages.filter((x) => !seen.has(x.hash)).map((x) => ({ ...x, kind: 'passage' as const }))
+    ]
   }
 
   /** The vectors this model made for these texts (by hash), those there are. */
@@ -324,8 +428,8 @@ export class SearchIndex {
     return out
   }
 
-  /** Keeps vectors this model made. `kind`: a passage's, or another text's (a fact, a summary, a search). */
-  putVectors(model: string, kind: 'passage' | 'other', items: { hash: string; vec: Float32Array }[], nowMs = Date.now()): void {
+  /** Keeps vectors this model made. `kind`: a passage's, a summary's, or another text's (a fact, a search). */
+  putVectors(model: string, kind: VectorKind, items: { hash: string; vec: Float32Array }[], nowMs = Date.now()): void {
     if (!items.length) return
     const put = this.db.prepare('INSERT OR REPLACE INTO vectors (hash, model, kind, vec, at) VALUES (?, ?, ?, ?, ?)')
     this.db.transaction(() => {
@@ -334,14 +438,15 @@ export class SearchIndex {
   }
 
   /**
-   * Tidies the vectors: those of another model go (the model changed), passages' vectors whose words are gone go,
-   * and only the newest OTHER_VECTORS_KEPT of the rest are kept.
+   * Tidies the vectors: those of another model go (the model changed), passages' and summaries' vectors whose words are
+   * gone go, and only the newest OTHER_VECTORS_KEPT of the rest are kept.
    */
   tidy(model: string | null): void {
     const db = this.db
     db.transaction(() => {
       if (model) db.prepare('DELETE FROM vectors WHERE model <> ?').run(model)
       db.prepare("DELETE FROM vectors WHERE kind = 'passage' AND NOT EXISTS (SELECT 1 FROM passages p WHERE p.hash = vectors.hash)").run()
+      db.prepare("DELETE FROM vectors WHERE kind = 'summary' AND NOT EXISTS (SELECT 1 FROM summaries s WHERE s.hash = vectors.hash)").run()
       db.prepare(
         `DELETE FROM vectors WHERE kind = 'other' AND hash IN (
            SELECT hash FROM vectors WHERE kind = 'other' ORDER BY at DESC LIMIT -1 OFFSET ?)`

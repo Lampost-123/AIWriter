@@ -1100,35 +1100,55 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
     was said, word for word" (priority 9) has one line for each time something was said (`recall.ts` `saidTimes`):
     those said or heard there by someone in the scene, newest first, then those a search found; at most 8 lines, 60
     words a line and about 300 words in all.
-  - **Searching the story so far** (`recall.ts`): the scene card's parts, each beat, Adam's direction and the end of
-    the scene so far (or of the scene before) are each searched for, over the passages of earlier scenes (a few
-    paragraphs each, `text.ts` `scenePassages`), the codex facts as of this scene (profiles, what happened, ties,
-    things said; names of those on the card are left out of this search) and the scene and chapter summaries of the
-    other stories on the line. Only what comes before the scene on its story's line is searched (`buildLine`, as the
-    memory does), so later scenes, what-ifs and prequels never leak in; the end of the previous scene already sent in
-    block 3 isn't offered again. Keyword search uses SQLite's full-text search (FTS5, already in better-sqlite3) for
-    passages and BM25 in memory for the rest; meaning search compares the search model's vectors; every list is joined
-    by reciprocal rank fusion (`rank.ts`). Entries found join "Also in mind" ("Found by searching for what the scene
-    is about"); the best passages and summaries are the block "Earlier passages that may matter" (priority 9, word for
-    word, oldest first; short: the best two, then one). No re-ranking model and no AI call: a draft costs nothing more
-    than the extra words in its briefing.
+  - **Searching the story so far** (`recall.ts`): the scene card's parts, each beat, Adam's direction and the end of the
+    scene so far (or of the scene before) are each searched for, over the passages of earlier scenes (a few paragraphs
+    each, `text.ts` `scenePassages`), the codex facts as of this scene (profiles, what happened, ties, things said;
+    names of those on the card are left out of this search) and the scene and chapter summaries on the line: the other
+    stories', and since 2026-10-19 this story's own (summary-level recall, below). Only what comes before the scene on
+    its story's line is searched (`buildLine`, as the memory does), so later scenes, what-ifs and prequels never leak
+    in; the end of the previous scene already sent in block 3 isn't offered again. Keyword search uses SQLite's
+    full-text search (FTS5, already in better-sqlite3) for passages and BM25 in memory for the rest; meaning search
+    compares the search model's vectors; every list is joined by reciprocal rank fusion (`rank.ts`). Entries found join
+    "Also in mind" ("Found by searching for what the scene is about"); the best passages and summaries are the block
+    "Earlier passages that may matter" (priority 9, word for word, oldest first; short: the best two, then one; a
+    summary is marked "(in short)"). No re-ranking model and no AI call: a draft costs nothing more than the extra words
+    in its briefing.
+  - **Summary-level recall** (2026-10-19, measured first: `tests/recall-eval/`): each scene's and chapter's summary is a
+    searchable item in the search index (`store.ts` tables `summaries` and `summary_words`, added to version 1 in place:
+    an older AI Write checks only its own tables, so going back never sets the file aside), kept current with the
+    summaries by the hash of their words just before each search and in the background (`indexing.ts`
+    `syncSummaries`; a deleted scene's or chapter's, or an emptied one, goes), searched by keyword (FTS5) and by meaning
+    (their vectors read in the background before passages', kept as kind `summary`, tidied once their words are gone).
+    A find is its own kind (`RecalledPassage.kind` 'summary', with `sceneId` or `chapterId`, as a passage has its
+    `sceneId`): the best three are joined with the passages by rank (`SUMMARIES_MOST`), so up to half of what is
+    offered is summaries. Only chapters that ended before the scene, and never the previous scene's (its end is sent
+    already and the story so far tells its opening). The planner's own search (`findPassages`) still finds passages
+    only. Why: a fact is one sentence in a 70 to 220 word passage, and a search in other words than the page's rarely
+    finds that passage, while a summary says the fact plainly. The offline measure (no AI: the trap stories, each
+    probe's search as the app forms it, a fact counted found when a passage holds its sentence or a summary of its
+    scene or chapter holds its words; stand-in summaries written once from the text with the keeper's prompt):
+    among the six offered, the book (story-v4, 28 facts asked late in other words) 11% by keyword and 11% with the
+    search model before, 50% and 46% after; story version 3 (20 facts) 0% and 0% before, 45% and 40% after.
+    A re-ranker (cross-encoder/ms-marco-MiniLM-L6-v2, 23 MB, on the first 30 finds) was tried and left out: 11% to 18%
+    without summaries, and with them at best 46% to 50% on the book and 40% to 45% on version 3, for 0.5 to 3.5
+    seconds more a search; re-ranking everything put summaries out and lost (39%, 15%).
   - **The search's own words and the model's queue** (`vectors.ts`): a search's own words are read at the front of the
     model's queue and stopped with the search: after `MEANING_WAIT_MS` (6 seconds) it goes ahead by keyword alone and
     its words are taken out of the queue (`withLimit`, `pool.ts`). Facts' and summaries' vectors are read in the
     background, behind any search's words, waited for while there is time and kept (memory and the index) for the next
     search; passages' vectors come only from the background indexing. A text being read is never read twice, however
     many searches (the Context tab, a draft, the cost estimate) ask for it at once.
-  - **The search index** (`store.ts`; Adam's go, 2026-10-07): one file in each world folder, `search-index.db`,
-    beside world.db and history.db. It holds the passages with a full-text index, and the search model's vectors by
-    the hash of their words. Everything in it can be made again from the world, so it never stops a world opening: a
-    missing file is made; a damaged one is moved aside as `search-index.db.damaged-<time>` (never deleted, as
-    history.db's) and started afresh; one locked by another program or from a newer AI Write is left as it is, and an
-    index in memory stands in for that session. It is brought up to date by the hash of each scene's words
-    (`indexing.ts`), so a backup brought back or a copied world is caught: in the background 4 seconds after a world
-    opens (a few scenes at a time, each batch's words read again just before they go in, stopped when the world closes:
-    `world.ts`), and for the scenes changed since, just before each search; when that catch-up fails, the search goes
-    without earlier passages rather than send words that may be gone. Exports, world copies and backups leave it out
-    (it is made again where the world lands); deleting a world moves it with the folder.
+  - **The search index** (`store.ts`; Adam's go, 2026-10-07): one file in each world folder, `search-index.db`, beside
+    world.db and history.db. It holds the passages with a full-text index, the scenes' and chapters' summaries with one
+    of their own (2026-10-19), and the search model's vectors by the hash of their words. Everything in it can be made
+    again from the world, so it never stops a world opening: a missing file is made; a damaged one is moved aside as
+    `search-index.db.damaged-<time>` (never deleted, as history.db's) and started afresh; one locked by another program
+    or from a newer AI Write is left as it is, and an index in memory stands in for that session. It is brought up to
+    date by the hash of each scene's words (`indexing.ts`), so a backup brought back or a copied world is caught: in the
+    background 4 seconds after a world opens (a few scenes at a time, each batch's words read again just before they go
+    in, stopped when the world closes: `world.ts`), and for the scenes changed since, just before each search; when that
+    catch-up fails, the search goes without earlier passages rather than send words that may be gone. Exports, world
+    copies and backups leave it out (it is made again where the world lands); deleting a world moves it with the folder.
   - **The search model** (`model/`): bge-small-en-v1.5 (BAAI, MIT licence), downloaded once, like the speech models,
     into the app's data folder (`search-model/`, never the app, git, a world or a backup) from Hugging Face at a fixed
     revision, each file checked by size and hash, with installed.json last (`files.ts`, `download.ts`). Two engines

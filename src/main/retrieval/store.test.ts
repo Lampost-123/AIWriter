@@ -3,8 +3,8 @@ import Database from 'better-sqlite3'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { INDEX_FILE, INDEX_VERSION, indexPath, openSearchIndex, OTHER_VECTORS_KEPT } from './store'
-import { scenePassages } from './text'
+import { INDEX_FILE, INDEX_VERSION, indexPath, openSearchIndex, OTHER_VECTORS_KEPT, type StoredSummary } from './store'
+import { scenePassages, textHash } from './text'
 
 const folders: string[] = []
 const folder = (): string => {
@@ -96,7 +96,7 @@ describe('what the index holds', () => {
     const { index } = openSearchIndex(folder())
     index.putScene('s1', 'a', scenePassages('One passage of words.'))
     const [p] = index.passagesIn(['s1'])
-    expect(index.withoutVectors('m1', 10)).toEqual([{ hash: p.hash, text: p.text }])
+    expect(index.withoutVectors('m1', 10)).toEqual([{ hash: p.hash, text: p.text, kind: 'passage' }])
     index.putVectors('m1', 'passage', [{ hash: p.hash, vec: vec(0.6, 0.8) }])
     index.putVectors('m1', 'other', [{ hash: 'fact', vec: vec(1, 0) }])
     index.putVectors('m0', 'passage', [{ hash: p.hash, vec: vec(0, 1) }])
@@ -112,5 +112,64 @@ describe('what the index holds', () => {
     expect(index.vectors('m1', ['fact']).size).toBe(1)
     expect(OTHER_VECTORS_KEPT).toBeGreaterThan(1000)
     index.close()
+  })
+})
+
+describe('the summaries it holds (summary-level recall, 2026-10-19)', () => {
+  const sum = (key: string, text: string): StoredSummary => {
+    const [level, targetId] = key.split(':') as ['scene' | 'chapter', string]
+    return { key, level, targetId, text, hash: textHash(text) }
+  }
+
+  it('finds them by keyword, only those asked, replaced by key and forgotten when gone', () => {
+    const { index } = openSearchIndex(folder())
+    index.putSummaries([sum('scene:s1', 'Tamsin promised Fane a snowbell from Hollin.'), sum('chapter:c1', 'The guild found the debt in the ledger.')])
+    const found = index.keywordSummaries(['promises', 'ledger'], ['scene:s1', 'chapter:c1'])
+    expect(found.map((r) => r.summary.key).sort()).toEqual(['chapter:c1', 'scene:s1'])
+    expect(found[0].score).toBeGreaterThan(0)
+    expect(index.keywordSummaries(['snowbell'], ['chapter:c1'])).toEqual([])
+    // Written again: the old words go.
+    index.putSummaries([sum('scene:s1', 'Tamsin left for the north at dawn.')])
+    expect(index.keywordSummaries(['snowbell'], ['scene:s1'])).toEqual([])
+    expect(index.summariesIn(['scene:s1', 'scene:none'])).toMatchObject([{ key: 'scene:s1', level: 'scene', targetId: 's1', text: 'Tamsin left for the north at dawn.' }])
+    index.removeSummaries(['chapter:c1'])
+    expect(index.keywordSummaries(['ledger'], ['chapter:c1'])).toEqual([])
+    expect([...index.summaryHashes().keys()]).toEqual(['scene:s1'])
+    index.close()
+  })
+
+  it('reads summaries for their vectors before passages, keeps them apart, and tidies one whose words are gone', () => {
+    const { index } = openSearchIndex(folder())
+    index.putScene('s1', 'a', scenePassages('One passage of words.'))
+    index.putSummaries([sum('scene:s1', 'A summary of the scene.')])
+    const todo = index.withoutVectors('m1', 10)
+    expect(todo.map((x) => x.kind)).toEqual(['summary', 'passage'])
+    expect(index.withoutVectors('m1', 1).map((x) => x.kind)).toEqual(['summary'])
+    index.putVectors('m1', 'summary', [{ hash: todo[0].hash, vec: vec(1, 0) }])
+    expect(index.withoutVectors('m1', 10).map((x) => x.kind)).toEqual(['passage'])
+    // Settings counts the passages read, as before.
+    expect(index.counts('m1')).toEqual({ passages: 1, withVectors: 0 })
+    index.tidy('m1')
+    expect(index.vectors('m1', [todo[0].hash]).size).toBe(1)
+    index.putSummaries([sum('scene:s1', 'Another summary now.')])
+    index.tidy('m1')
+    expect(index.vectors('m1', [todo[0].hash]).size).toBe(0)
+    index.close()
+  })
+
+  it('are added to an index made before them, which keeps its passages', () => {
+    const f = folder()
+    const { index } = openSearchIndex(f)
+    index.putScene('s1', 'h1', scenePassages('Mara swore at the old well that she would come back.'))
+    // As an index from before summaries were searched: without their tables.
+    index.db.exec('DROP TABLE summary_words; DROP TABLE summaries')
+    index.close()
+    const again = openSearchIndex(f)
+    expect(again.setAside).toBeNull()
+    expect(again.problem).toBeNull()
+    expect(again.index.sceneHashes().get('s1')).toBe('h1')
+    again.index.putSummaries([sum('scene:s1', 'Mara swore an oath at the well.')])
+    expect(again.index.keywordSummaries(['oath'], ['scene:s1'])).toHaveLength(1)
+    again.index.close()
   })
 })
