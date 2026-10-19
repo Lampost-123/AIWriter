@@ -284,6 +284,21 @@ test('a draft that stops short offers to carry on from where it stopped', async 
   }
 })
 
+test('a draft whose connection drops part-way offers to carry on too', async ({ launch }) => {
+  const fake = await fakeProvider()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    await useWriter(win, fake, 'fake/drop')
+    await generateButton(win).click()
+    await expect(toasts(win).getByText(/dropped before the draft was finished\. The text that arrived is kept\./)).toBeVisible()
+    await expect(toasts(win).getByRole('button', { name: 'Continue from here' })).toBeVisible()
+    await expect(toasts(win).getByRole('button', { name: 'What the AI saw' })).toBeVisible()
+  } finally {
+    await fake.close()
+  }
+})
+
 test('a length the model cannot write is refused before anything is sent', async ({ launch }) => {
   const fake = await fakeProvider()
   try {
