@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AppEvents } from '@shared/api'
 import type { CheckDone, CheckKind, CheckProgress } from '@shared/contracts/checks'
-import { DONE_CHECKS } from '@shared/contracts/checks'
+import { ALL_CHECKS, DONE_CHECKS } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
@@ -20,7 +20,7 @@ import { issueFindings } from '../chapterWriter/run'
 import type { SceneContract } from '../ai/contract'
 import { CHECK_CONTRACT_RULES, contractSection } from '../repair/contract'
 import { checkReport, checkReportNow, reportItems } from './report'
-import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
+import { checkAfterDraft, checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
 import { Keeper } from '../keeper/engine'
 import * as kdb from '../db/keeper'
 
@@ -192,6 +192,32 @@ describe('check runs', () => {
     expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0]).messages[0].content.split('\n')[0]).toBe(
       '[AIWRITE-CHECK v1] facts, timeline, continuity'
     )
+  })
+
+  it('makes no background check when the latest read the words as they are now, with nothing before them changed (token audit)', async () => {
+    const w = world()
+    const { ended } = deps()
+    const end = ended('r1')
+    startCheck(w.db, { runId: 'r1', target: { scope: 'scene', id: w.s2 }, checks: [...ALL_CHECKS] })
+    await end
+    // Every check read the scene as it is: marking it done, or a draft's critic, would only pay for the same again.
+    expect(checkWhenDone(w.db, w.s2)).toBeNull()
+    expect(checkAfterDraft(w.db, w.s2)).toBeNull()
+    // The scene before written in since: its facts may read otherwise now, so it is checked.
+    repo.saveSceneText(w.db, w.s1, null, 'The mill burned. Tobin died in the fire, and the rain came after.')
+    const done = checkWhenDone(w.db, w.s2)!
+    expect(done).toBeTruthy()
+    await ended(done)
+    // That check read four of the six: a draft's critic, asking all six, still checks.
+    expect(checkWhenDone(w.db, w.s2)).toBeNull()
+    const critic = checkAfterDraft(w.db, w.s2)!
+    expect(critic).toBeTruthy()
+    await ended(critic)
+    // Its own words changed: checked.
+    repo.saveSceneText(w.db, w.s2, null, `${SCENE_2} The rain went on.`)
+    const mine = checkWhenDone(w.db, w.s2)!
+    expect(mine).toBeTruthy()
+    await ended(mine)
   })
 
   it('stops on request, keeping what was found', async () => {
@@ -377,7 +403,10 @@ describe('findings that stay current (2026-10-16)', () => {
     expect(lastFirstRequest(w.db, w.s2)).toContain('## The scene’s contract (C ids)')
     expect(notYet(w.db, w.s2)).toEqual([])
     expect(checkReport(w.db, w.s2)!.contract!.items.map((i) => i.result)).not.toContain('not yet')
+    // Marked done as that check read it: not checked again (token audit, 2026-10-19).
+    expect(checkWhenDone(w.db, w.s2)).toBeNull()
     // Mark done's check goes through it too.
+    repo.saveSceneText(w.db, w.s2, null, `${SCENE_2} Mara found the ledger under the floor. The rain went on.`)
     const runId = checkWhenDone(w.db, w.s2)!
     expect((await ended(runId)).status).toBe('complete')
     expect(lastFirstRequest(w.db, w.s2)).toContain('## The scene’s contract (C ids)')
