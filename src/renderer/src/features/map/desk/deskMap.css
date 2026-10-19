@@ -56,14 +56,17 @@
   --dm-t: var(--dm-quick);
 }
 [data-look='new'] .dm-head {
+  container: dm-head / inline-size;
+  padding: 22px 32px 16px;
+  border-bottom: 1px solid var(--desk-line);
+}
+[data-look='new'] .dm-head-in {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px 28px;
-  padding: 22px 32px 16px;
-  border-bottom: 1px solid var(--desk-line);
 }
-[data-look='new'] .dm-head > :first-child {
+[data-look='new'] .dm-head-t {
   flex: 1 1 380px;
   min-width: 0;
 }
@@ -84,9 +87,10 @@
   align-items: flex-end;
   gap: 10px 14px;
 }
+/* Level with the choices' boxes, 14px before them. */
 [data-look='new'] .dm-count {
-  align-self: center;
-  margin-bottom: -14px;
+  align-self: flex-end;
+  margin: 0 -14px 10px 0;
   font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
@@ -95,6 +99,47 @@
 [data-look='new'] .dm-count b {
   font-weight: 600;
   color: var(--fg);
+}
+/* A narrow page (the smallest window, beside the area's list): the count goes above the choices, so they stay beside
+   the title rather than taking a row of their own, and the map keeps its height. Narrower still, one under another. */
+@container dm-head (max-width: 779px) {
+  [data-look='new'] .dm-head-in {
+    display: grid;
+    grid-template-columns: minmax(min(240px, 100%), 1fr) minmax(0, max-content);
+    grid-template-areas:
+      'title count'
+      'title choices';
+    align-items: end;
+    gap: 4px 24px;
+  }
+  [data-look='new'] .dm-head-t {
+    grid-area: title;
+  }
+  [data-look='new'] .dm-count {
+    grid-area: count;
+    justify-self: end;
+    margin: 0;
+  }
+  [data-look='new'] .dm-head-r {
+    grid-area: choices;
+    justify-content: flex-end;
+  }
+}
+@container dm-head (max-width: 499px) {
+  [data-look='new'] .dm-head-in {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'title'
+      'count'
+      'choices';
+    gap: 10px;
+  }
+  [data-look='new'] .dm-count {
+    justify-self: start;
+  }
+  [data-look='new'] .dm-head-r {
+    justify-content: flex-start;
+  }
 }
 
 /* ---------- The stage: chart paper and a pool of light ---------- */
