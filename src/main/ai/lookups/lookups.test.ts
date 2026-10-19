@@ -88,6 +88,7 @@ describe('the look-up tools', () => {
     expect(LOOKUP_TOOLS.map((t) => t.name)).toEqual([
       'state_of',
       'last_seen',
+      'where_is',
       'who_knows',
       'open_threads',
       'what_happened',
@@ -101,6 +102,27 @@ describe('the look-up tools', () => {
       expect(t.description.length).toBeLessThan(170)
       expect(t.parameters).toMatchObject({ type: 'object' })
     }
+  })
+
+  it('where_is: where a thing was left and since when, who has it, and what to try when nothing says', async () => {
+    const w = world()
+    const kept = stage(w.s3, [person('Mara Venn', { where: 'by the strongbox' })], { 'mara venn|where': 'found the strongbox' })
+    keepStages(w.db, {
+      [w.s3]: {
+        ...kept,
+        things: [{ name: 'the ledger', state: 'hidden behind the loose brick' }],
+        said: { ...kept.said, '|thing:ledger': { quote: 'pushed the ledger behind the loose brick', sceneId: w.s3 } }
+      }
+    })
+    buildStoryIndex(w.db, w.storyId)
+    const a = await runLookup(call('where_is', { thing: 'the ledger' }), w.ctx())
+    expect(a).toMatchObject({ ok: true, label: 'Where “the ledger” is' })
+    expect(a.text).toBe('Now: the ledger hidden behind the loose brick, at The Swan (since Ch 2, Sc 1).')
+    expect(a.facts).toEqual([a.text])
+    const none = await runLookup(call('where_is', { thing: 'the compass' }), w.ctx())
+    expect(none.ok).toBe(false)
+    expect(none.text).toContain('Try find_in_story')
+    expect((await runLookup(call('where_is', {}), w.ctx())).text).toContain('Say what thing')
   })
 
   it('state_of: where someone is and what they wear, from the story index, as the scene begins', async () => {

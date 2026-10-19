@@ -40,7 +40,7 @@ import type { MemoryModel } from '../keeper/model'
 import { MEMORY_TEMPERATURE } from '../keeper/model'
 import { modelKeyOf, noteRefusal } from '../keeper/refusals'
 import { estimateTokens } from '../keeper/text'
-import { EARLIER_BLOCK, MUST_BLOCK, sceneTail, stageReach, type ContextInput, type PreparedContext } from '../ai/context'
+import { EARLIER_BLOCK, LEFT_HERE_BLOCK, MUST_BLOCK, sceneTail, stageReach, type ContextInput, type PreparedContext } from '../ai/context'
 import { OPEN_THREADS_BLOCK } from '../ai/openThreads'
 import { deathOf } from '../ai/deaths'
 import { pieceLine, secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
@@ -53,6 +53,7 @@ import { clip } from '../ai/lookups/text'
 import { coveredShare, REPEAT_SHARE, wordRuns } from '../ai/repeats'
 import { CONTINUE_MARKS, PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
 import type { KnownFacts, PlanCore } from './core'
+import type { CanHappen } from './preconditions'
 import {
   BRIEF_LIMIT_MS,
   BRIEF_REPLY_SHARE,
@@ -116,8 +117,11 @@ export interface PlanMaterial {
    * never paid off unless the card or the direction asks. '' or left out: none (the story index's, below, then).
    */
   threads?: string
-  /** What the story index gives at no cost (core.ts): everyone here as things stand, the scenes before, the threads. */
-  core?: Pick<PlanCore, 'people' | 'recent' | 'threads'> | null
+  /**
+   * What the story index gives at no cost (core.ts): everyone here as things stand, the scenes before, the threads, and
+   * what was left in this place on an earlier visit (place memory; left out: none).
+   */
+  core?: (Pick<PlanCore, 'people' | 'recent' | 'threads'> & Partial<Pick<PlanCore, 'left'>>) | null
   /** The beats of the scene card already on the page (carrying on), as "Beat 1: …" lines. */
   done?: string[]
   /** The point-of-view character's name, for the writer's notes ("The point: Wren wants …"). */
@@ -238,7 +242,7 @@ export function planMaterial(
     secrets: secretsAmong(people, input.memory.facts),
     calls: [cardText, carrying && direction ? `The author's direction for this stretch:\n${direction}` : ''].filter(Boolean).join('\n\n'),
     threads: text(OPEN_THREADS_BLOCK),
-    ...(o.core ? { core: { people: o.core.people, recent: o.core.recent, threads: o.core.threads } } : {}),
+    ...(o.core ? { core: { people: o.core.people, recent: o.core.recent, threads: o.core.threads, left: o.core.left ?? [] } } : {}),
     ...(onPage ? { done: beats.slice(0, onPage).map((b, i) => `Beat ${i + 1}: ${b}`) } : {}),
     ...(pov ? { pov } : {}),
     // A scene planned once for its beats leaves each beat's own contract as the card says it.
@@ -362,6 +366,7 @@ export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
     part('Also in the world (not in the briefing)', m.others.join('; ')),
     part('Open plot threads', threads),
     part('Everyone in the scene, as things stand (from the story so far)', lines(m.core?.people)),
+    part('Left in this place on an earlier visit (from the story so far)', lines(m.core?.left)),
     part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
     m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
     part('Already on the page in this scene (done: never plan it again)', lines(m.done)),
@@ -682,6 +687,11 @@ export interface ScenePlan {
   must: string[]
   /** How the check went: values put right from the stage or the story index, and things left out. */
   checked: { corrected: number; dropped: number }
+  /**
+   * What must happen first for a beat to be able to happen (plan/preconditions.ts, 2026-10-19), by the beat's index from 0:
+   * "First Mara must fetch the letter from the vestry, …". Said after that beat in the writer's notes. Left out: none.
+   */
+  first?: { beat: number; note: string }[]
 }
 
 /** A plan that says nothing yet. */
@@ -1124,7 +1134,12 @@ export function planText(p: Partial<ScenePlan> & Pick<ScenePlan, 'keep' | 'chang
   if (beats.length) {
     const now = o.beat ? ` (I write only beat ${o.beat.index} of ${o.beat.of} now, and stop at its end)` : ''
     const mark = (i: number): string => (o.beat && beats.length === o.beat.of && i + 1 === o.beat.index ? ' (now)' : '')
-    parts.push(`${PLAN_PARTS.beats}${now}:\n${beats.map((l, i) => `${i + 1}. ${l}${mark(i)}`).join('\n')}`)
+    // What must happen first for a beat to be able to happen (preconditions.ts), after it: "2. Mara reads … First Mara must …".
+    const first = (i: number, l: string): string => {
+      const notes = (p.first ?? []).filter((f) => f.beat === i && clean(f.note)).map((f) => ended(clean(f.note)))
+      return notes.length ? `${ended(l)}${mark(i)} ${notes.join(' ')}` : `${l}${mark(i)}`
+    }
+    parts.push(`${PLAN_PARTS.beats}${now}:\n${beats.map((l, i) => `${i + 1}. ${first(i, l)}`).join('\n')}`)
   }
   if (p.changes.length) {
     parts.push(`${PLAN_PARTS.changes}${o.beat ? ', over the whole scene' : ''}:\n${p.changes.map((l, i) => `${i + 1}. ${l}`).join('\n')}`)
@@ -1217,8 +1232,9 @@ export function keepsRoom(before: Pick<ContextPreview, 'blocks' | 'budget'>, aft
   const forBrief = new Set(after.blocks.some((x) => x.id === BRIEF_BLOCK.id && !x.dropped) ? after.blocks.filter((x) => x.shortFor === 'brief').map((x) => x.id) : [])
   for (const x of before.blocks) {
     // The scenes before word for word go only in room to spare: the plan may have that room (2026-10-15). The scene's
-    // contract (fix 13) is the plan's to change: what it says must change takes the place of the card's own words.
-    if (x.dropped || x.id === EARLIER_BLOCK.id || x.id === CONTRACT_BLOCK.id || forBrief.has(x.id)) continue
+    // contract (fix 13) is the plan's to change: what it says must change takes the place of the card's own words. What
+    // was left in this place is read again with the plan, with the story index brought up to date (place memory).
+    if (x.dropped || x.id === EARLIER_BLOCK.id || x.id === CONTRACT_BLOCK.id || x.id === LEFT_HERE_BLOCK.id || forBrief.has(x.id)) continue
     const y = now.get(x.id)
     if (!y || y.dropped || y.tokens < x.tokens) return false
   }
@@ -1247,6 +1263,12 @@ export interface PlanCall {
   limitMs?: number
   fetchImpl?: typeof fetch
   retryDelays?: number[]
+  /**
+   * Can each planned beat happen (plan/preconditions.ts, no AI call)? Asked of the checked plan: what must happen first goes
+   * in the writer's notes (ScenePlan.first), and what can't be put right is noted for Adam on the plan's record (What the
+   * AI saw, "Steps it took"). Left out: not checked.
+   */
+  preconditions?: (plan: ScenePlan) => CanHappen
 }
 
 export interface MadePlan {
@@ -1262,6 +1284,44 @@ export interface MadePlan {
   plan?: ScenePlan
   /** What the planner looked up that the writer gets beside the plan (lookedUpText); '' or left out: nothing. */
   lookedUp?: string
+  /** Beats that can't happen as planned, as Adam is told on the plan's record (preconditions.ts); left out: none. */
+  flags?: string[]
+  /**
+   * What was left in the scene's place on an earlier visit ("Left here before: …", plan/core.ts), read with the story index
+   * just brought up to date, for the writer's briefing (ContextInput.leftHere), in place of the briefing's own reading
+   * (empty: nothing is left there now). Left out: not read (no core).
+   */
+  leftHere?: string[]
+}
+
+/** The step on the plan's record that says what the check of each beat found (What the AI saw, "Steps it took"). */
+export const BEATS_CHECK_LABEL = 'Can each beat happen? (checked on this computer, no AI)'
+
+/** What the check of each beat found, for the plan's record: what was added to the writer's notes, and what Adam should see. */
+export function beatsCheckText(can: CanHappen, beats: readonly string[]): string {
+  const added = can.notes.map((n) => `- Beat ${n.beat + 1}${beats[n.beat] ? ` (“${clip(beats[n.beat], 80)}”)` : ''}: ${n.note}`)
+  return [
+    added.length ? ['Added to the writer’s plan:', ...added].join('\n') : '',
+    can.flags.length ? ['For you to look at (the plan was left as it is):', ...can.flags.map((f) => `- ${f}`)].join('\n') : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/** Checks the plan's beats can happen (o.preconditions), notes what must come first in the plan, and keeps what it found on the record. */
+function beatsChecked(o: PlanCall, plan: ScenePlan, generationId: ID): CanHappen | null {
+  if (!o.preconditions || !plan.beats.length) return null
+  try {
+    const can = o.preconditions(plan)
+    if (can.notes.length) plan.first = can.notes
+    if ((can.notes.length || can.flags.length) && o.db.open && !o.closed()) {
+      gens.addSteps(o.db, generationId, [{ label: BEATS_CHECK_LABEL, tool: 'check', arguments: '', result: beatsCheckText(can, plan.beats) }])
+    }
+    return can
+  } catch (e) {
+    console.warn('Could not check the plan’s beats can happen', e)
+    return null
+  }
 }
 
 /** Nothing happens when the plan's call is told of its progress: no window is listening. */
@@ -1379,6 +1439,8 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
       if (!a.entryId || plan.needs.length >= PLAN_MOST.needs || plan.needs.includes(a.entryId)) continue
       if (!o.check.inBriefing.has(a.entryId) && !o.check.hidden.has(a.entryId)) plan.needs.push(a.entryId)
     }
+    // Can each planned beat happen? What must come first goes in the notes; what can't be put right, on the record.
+    const can = beatsChecked(o, plan, got.generationId)
     const text = planText(plan, o.carryingOn, { ...(m.pov ? { pov: m.pov } : {}), ...(o.beat ? { beat: o.beat } : {}) })
     const must = m.contract ? plan.must : []
     // The brief cites only chapters and scenes the planner was given (all of it, the book so far too), and never names what
@@ -1395,7 +1457,16 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
         : null
     if (!text && !plan.needs.length && !must.length && !brief) return null
     const lookedUp = lookedUpText(answers.filter((a) => a.ok))
-    return { needs: plan.needs, text, must, checked: plan.checked, ...(brief ? { brief } : {}), plan, ...(lookedUp ? { lookedUp } : {}) }
+    return {
+      needs: plan.needs,
+      text,
+      must,
+      checked: plan.checked,
+      ...(brief ? { brief } : {}),
+      plan,
+      ...(lookedUp ? { lookedUp } : {}),
+      ...(can?.flags.length ? { flags: can.flags } : {})
+    }
   } catch (e) {
     console.warn('Could not plan the scene; writing without a plan', e)
     return null

@@ -164,6 +164,13 @@ export interface ContextInput {
   /** Where each scene the stage's words come from is, in plain words ("Book 1, Ch 3, Sc 2"), by id (ai/gather.ts). */
   stageWhere?: Record<ID, string>
   /**
+   * What was left in the scene's place on an earlier visit and not taken or moved since (place memory, the story index's
+   * storyIndex/placed.ts), a line each: "Left here before: the letter under the loose hearthstone (since Ch 2, Sc 3)". Where
+   * things stand drops the things of a place when the story goes elsewhere; these bring them back for the writer. Left out
+   * or empty: none.
+   */
+  leftHere?: string[]
+  /**
    * The plan made before writing (src/main/plan/): the codex entries it asked for, brought into the briefing, and the
    * writer's own notes it carries on from, sent after the closing instruction. Null or left out: no plan.
    */
@@ -233,6 +240,13 @@ const lookedUpShort = (text: string): string | null => {
   const at = text.indexOf('\n\n### ')
   return at > 0 ? text.slice(0, at) : null
 }
+/**
+ * What was left in the scene's place on an earlier visit (ContextInput.leftHere), right before where things stand. Priority
+ * 3, as where things stand; no short form (a few lines).
+ */
+export const LEFT_HERE_BLOCK = { id: 'left-here', priority: 3, title: 'Left here before' } as const
+/** What the writer is told before the things left here. */
+export const LEFT_HERE_LEAD = 'From the story so far: what was left in this place on an earlier visit, and has not been taken or moved since. It is still there unless this scene moves it.'
 /** The "must stay true" list's block (mustStay.ts), sent last before the closing instruction. */
 export const MUST_BLOCK = 'must-stay-true'
 /** Its priority: as the scene card's, never left out (2026-10-15), though it has a short form for when room is short. */
@@ -1753,6 +1767,12 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
     )
   }
 
+  // What was left in this place on an earlier visit (place memory, 2026-10-19): where things stand drops a place's things
+  // when the story goes elsewhere, so a letter hidden under a hearthstone chapters ago is told again on coming back. Sent
+  // late, right before where things stand (prepareContext).
+  const left = (input.leftHere ?? []).map(clean).filter(Boolean)
+  if (left.length) add(LEFT_HERE_BLOCK.id, LEFT_HERE_BLOCK.priority, LEFT_HERE_BLOCK.title, [LEFT_HERE_LEAD, ...left.map((l) => `- ${l}`)].join('\n'), null, [])
+
   // What must stay true (mustStay.ts): a short list the app writes from where things stand and the codex entries of
   // those in the scene, current values only, each with since when, what the scene is most likely to break first (who
   // is dead, what is kept from someone here, injuries, how much time has passed). Sent last, right above the closing
@@ -2140,6 +2160,7 @@ export const SEND_ORDER = [
   VOICES_BLOCK.id,
   'previous-scene',
   'scene-card',
+  LEFT_HERE_BLOCK.id,
   'continuity',
   // The scene's contract (fix 13): what this draft must keep to and bring about, right above what must stay true.
   CONTRACT_BLOCK.id,
@@ -2224,7 +2245,7 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
   }
   // Where things stand goes last, after the scene so far too, then the scene's contract and what must stay true, right
   // above the closing instruction; the plan, if any, after that (finishContext sends it after the closing instruction).
-  for (const id of ['continuity', CONTRACT_BLOCK.id, MUST_BLOCK]) {
+  for (const id of [LEFT_HERE_BLOCK.id, 'continuity', CONTRACT_BLOCK.id, MUST_BLOCK]) {
     const at = blocks.findIndex((b) => b.id === id)
     if (at >= 0) blocks.push(...blocks.splice(at, 1))
   }

@@ -7,6 +7,7 @@
 import type { ID } from '@shared/types'
 import type { IndexFact, PlacedFact } from './types'
 import { sameValue } from './build'
+import { placedEnds } from './placed'
 
 /** The chain a fact belongs to. A relationship is one per pair, whichever side it was read from. */
 export function chainKey(f: Pick<IndexFact, 'kind' | 'entryId' | 'slot'>): string {
@@ -21,6 +22,8 @@ export function chainKey(f: Pick<IndexFact, 'kind' | 'entryId' | 'slot'>): strin
 export function factEnds(rows: readonly PlacedFact[]): { id: ID; untilSceneId: ID | null }[] {
   const chains = new Map<string, PlacedFact[]>()
   for (const r of rows) {
+    // Things left in a place stop by their own rules (placed.ts): taken, moved or gone, whichever place it was.
+    if (r.kind === 'placed') continue
     const key = chainKey(r)
     const list = chains.get(key)
     if (list) list.push(r)
@@ -37,5 +40,6 @@ export function factEnds(rows: readonly PlacedFact[]): { id: ID; untilSceneId: I
       next = { value: r.value, from: r.fromSceneId, until }
     }
   }
+  out.push(...placedEnds(rows))
   return out
 }

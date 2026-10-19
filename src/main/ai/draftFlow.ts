@@ -305,7 +305,9 @@ export async function withPlan(
     const input: ContextInput = {
       ...b.input,
       plan: { needs: p.needs, text: p.text, ...(p.lookedUp ? { lookedUp: p.lookedUp } : {}) },
-      ...(p.brief ? { brief: p.brief } : {})
+      ...(p.brief ? { brief: p.brief } : {}),
+      // What was left in this place on an earlier visit, as the plan read it with the story index brought up to date.
+      ...(p.leftHere ? { leftHere: p.leftHere } : {})
     }
     // What the plan says must change takes the place of the card's own words in the scene's contract (fix 13).
     if (b.input.contract && p.must.length) input.contract = { ...b.input.contract, planned: p.must }

@@ -137,6 +137,17 @@ const storedParams = (db: DB, id: ID): StoredParams | null => {
   return row ? json<StoredParams>(row.params_json, { temperature: 0, top_p: 1, max_tokens: 0 }) : null
 }
 
+/**
+ * Adds steps to a finished record's "Steps it took" (What the AI saw), after those it has: a check the app made on this
+ * computer of what came back (plan/plan.ts: can each planned beat happen?). Nothing when the record is gone.
+ */
+export function addSteps(db: DB, id: ID, steps: NonNullable<GenerationRecord['params']['steps']>): void {
+  const params = storedParams(db, id)
+  if (!params || !steps.length) return
+  const next: StoredParams = { ...params, steps: [...(Array.isArray(params.steps) ? params.steps : []), ...steps] }
+  db.prepare('UPDATE generations SET params_json = ? WHERE id = ?').run(JSON.stringify(next), id)
+}
+
 /** `params`, with the text the draft replaced if its record already keeps some. */
 function withReplacedText(db: DB, id: ID, params: GenerationRecord['params']): StoredParams {
   const replaced = storedParams(db, id)?.replaced

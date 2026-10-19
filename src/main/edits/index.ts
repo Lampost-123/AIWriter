@@ -21,7 +21,7 @@ import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
-import { calendarFor, CATCH_UP_LIMIT_MS, catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
+import { calendarFor, CATCH_UP_LIMIT_MS, catchUpBeforeDraft, gatherContextInput, leftHereFor, stageWhere, standAtText, standKept } from '../ai/gather'
 import { sceneTail, SHORT_TAIL, stageScope, timelineFrom } from '../ai/context'
 import { continueBeatsDone, planForContinueOf } from '../plan'
 import { buildStoryIndex, stateOf } from '../storyIndex'
@@ -224,7 +224,14 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     // Continue (2026-10-19): the end of the previous scene while the scene's words are short, the beats of the scene's plan
     // (or card) still to come with the next marked (no call; no plan with Plan before writing off), and everyone in the
     // scene as the story index has them.
-    ...(tool === 'continue' ? { ...continueExtras(input, memory, scene.card, story.title), people: continuePeople(db, input, memory, scene.card, stand) } : {})
+    ...(tool === 'continue'
+      ? {
+          ...continueExtras(input, memory, scene.card, story.title),
+          people: continuePeople(db, input, memory, scene.card, stand),
+          // After continuePeople, which brings the story index up to date: what was left in this place on an earlier visit.
+          leftHere: leftHereFor(db, input.sceneId, memory.storyId, scene.card.locationId, { asItBegins: !!input.after.trim(), stand })
+        }
+      : {})
   })
   if (!briefing.ok) return briefing
 

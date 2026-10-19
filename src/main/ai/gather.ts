@@ -15,6 +15,7 @@ import { sceneMemory } from '../memory/scene'
 import { loadShapeSafe, sceneWords } from '../keeper/places'
 import { lessonsBefore } from '../checks/lessons'
 import { sceneCalendar, type SceneCalendar } from '../memory/storyCalendar'
+import { leftHere, leftHereLines } from '../storyIndex/placed'
 import type { ContextInput } from './context'
 
 type DB = Database.Database
@@ -105,11 +106,35 @@ export function gatherContextInput(
     // Where things stand as the previous scene ended, if it still stands (brought up to date before a draft).
     continuity: stand,
     stageWhere: stageWhere(db, stand),
+    // What was left in the scene's place on an earlier visit (place memory: the story index as it stands; a plan reads it
+    // again with the index brought up to date).
+    leftHere: leftHereFor(db, sceneId, memory.storyId, scene.card.locationId, { asItBegins: !extra.soFar?.trim(), stand }),
     // Slips the checks found in earlier scenes and that were put right: what must stay true warns of those about the people here.
     slips: lessonsBefore(db, sceneId).slips,
     // The story calendar (long story memory fix 11): the scene's date, the sums since the scene before and earlier days,
     // and the ages of those on its card.
     calendar: calendarFor(db, sceneId, memory, scene.card)
+  }
+}
+
+/**
+ * What was left in a scene's place on an earlier visit, a line each ("Left here before: …", storyIndex/placed.ts), as the
+ * story index has it (kept current by its upkeep; not built here), without what where things stand has in the place
+ * already. Empty rather than stopping a draft.
+ */
+export function leftHereFor(
+  db: DB,
+  sceneId: ID,
+  storyId: ID | null | undefined,
+  placeId: ID | null | undefined,
+  o: { asItBegins: boolean; stand?: SceneState | null }
+): string[] {
+  if (!storyId || !placeId) return []
+  try {
+    return leftHereLines(leftHere(db, storyId, sceneId, placeId, { asItBegins: o.asItBegins }).things, o.stand)
+  } catch (e) {
+    console.warn('Could not read what was left in this place; the briefing goes without it', e)
+    return []
   }
 }
 

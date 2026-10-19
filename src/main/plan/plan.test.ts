@@ -17,6 +17,7 @@ import { assembleContext, EARLIER_BLOCK, finishContext, prepareContext, type Con
 import { countRaw } from '../ai/tokens'
 import { CONTRACT_BLOCK } from '../ai/contract'
 import {
+  BEATS_CHECK_LABEL,
   changeLine,
   checkPlan,
   contradicts,
@@ -39,8 +40,10 @@ import {
   saysIn,
   type CheckWith,
   type PlanMaterial,
-  type RawPlan
+  type RawPlan,
+  type ScenePlan
 } from './plan'
+import type { CanHappen } from './preconditions'
 
 let seq = 0
 const entry = (kind: EntryKind, name: string, extra: Partial<EntryState> = {}): EntryState => ({
@@ -604,6 +607,12 @@ describe('room for the plan', () => {
     const gone = [...before.blocks, block(EARLIER_BLOCK.id, 400, true), block('plan', 80)]
     expect(keepsRoom(spare, { blocks: gone, budget: budget(680) })).toBe(true)
   })
+
+  it('what was left in this place is the plan’s to read again: shorter or gone with it is no loss (place memory)', () => {
+    const left = { ...before, blocks: [...before.blocks, block('left-here', 40)] }
+    expect(keepsRoom(left, { blocks: [...before.blocks, block('plan', 80)], budget: budget(640) })).toBe(true)
+    expect(keepsRoom(left, { blocks: [...before.blocks, block('left-here', 20), block('plan', 80)], budget: budget(660) })).toBe(true)
+  })
 })
 
 // ---------- What the planner reads ----------
@@ -721,7 +730,9 @@ describe('what the planner reads', () => {
       people: ['Wren: at the mill (since Ch 1, Sc 1)', 'Wren: wearing oilskin coat (since Ch 1, Sc 2)'],
       known: {},
       recent: ['Ch 1, Sc 1: The wheel stops in the sleet.', 'Ch 1, Sc 2: Osric counts the sacks.'],
-      threads: ['The forged tax (open since Ch 1, Sc 1)']
+      threads: ['The forged tax (open since Ch 1, Sc 1)'],
+      left: ['Left here before: the ledger under the loose floorboard (since Ch 1, Sc 1)'],
+      present: []
     }
     const m = materialOf(draftInput(), { core })
     const user = planMessages(m)[1].content
@@ -730,6 +741,10 @@ describe('what the planner reads', () => {
     )
     expect(user).toContain('## Everyone in the scene, as things stand (from the story so far)\n- Wren: at the mill (since Ch 1, Sc 1)')
     expect(user).toContain('## Open plot threads\n- The forged tax (open since Ch 1, Sc 1)')
+    // Place memory (2026-10-19): what was left in this place on an earlier visit.
+    expect(user).toContain(
+      '## Left in this place on an earlier visit (from the story so far)\n- Left here before: the ledger under the loose floorboard (since Ch 1, Sc 1)'
+    )
   })
 
   it('sends what stays the same through a scene first, and what is being written (the direction, said once) last (for the cache)', () => {
@@ -808,7 +823,10 @@ const silent = (async (_input: unknown, init?: RequestInit) =>
     init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })))
   })) as typeof fetch
 
-function call(fetchImpl: typeof fetch, over: { signal?: AbortSignal; limitMs?: number; db?: ReturnType<typeof memoryWorld> } = {}) {
+function call(
+  fetchImpl: typeof fetch,
+  over: { signal?: AbortSignal; limitMs?: number; db?: ReturnType<typeof memoryWorld>; preconditions?: (p: ScenePlan) => CanHappen } = {}
+) {
   const db = over.db ?? memoryWorld()
   const sceneId = repo.getOutline(db, repo.listStories(db)[0].id).scenes[0].id
   const material: PlanMaterial = {
@@ -841,7 +859,8 @@ function call(fetchImpl: typeof fetch, over: { signal?: AbortSignal; limitMs?: n
       fetchImpl,
       retryDelays: [],
       limitMs: over.limitMs,
-      signal: over.signal
+      signal: over.signal,
+      ...(over.preconditions ? { preconditions: over.preconditions } : {})
     }),
     w
   }
@@ -867,6 +886,42 @@ describe('making the plan', () => {
     })
     expect(plan).not.toHaveProperty('lookedUp')
     expect(db.prepare('SELECT job, scene_id, status FROM generations').all()).toEqual([{ job: 'memory', scene_id: sceneId, status: 'complete' }])
+  })
+
+  it('checks each beat can happen: what must come first goes after its beat in the notes, and what can’t is kept on the record for Adam', async () => {
+    const reply = JSON.stringify({ beats: ['Osric climbs up to the loft', 'Wren reads the letter to Osric'], relies: [], changes: [], needs: [] })
+    let seen: string[] = []
+    const { db, done } = call(answering(reply), {
+      preconditions: (p) => {
+        seen = p.beats
+        return {
+          notes: [{ beat: 1, note: 'First Wren must fetch the letter from the loft, where it was left under the loose board (Ch 1, Sc 1).' }],
+          flags: ['Beat 1 (“Osric climbs up to the loft”) has Ash there, but Ash isn’t in this scene.']
+        }
+      }
+    })
+    const plan = await done
+    expect(seen).toEqual(['Osric climbs up to the loft', 'Wren reads the letter to Osric'])
+    expect(plan?.text).toContain(
+      '1. Osric climbs up to the loft\n2. Wren reads the letter to Osric. First Wren must fetch the letter from the loft, where it was left under the loose board (Ch 1, Sc 1).'
+    )
+    expect(plan?.plan?.first).toEqual([{ beat: 1, note: expect.stringMatching(/^First Wren must fetch/) }])
+    expect(plan?.flags).toEqual(['Beat 1 (“Osric climbs up to the loft”) has Ash there, but Ash isn’t in this scene.'])
+    const id = (db.prepare('SELECT id FROM generations').get() as { id: string }).id
+    const step = gens.getGeneration(db, id).params.steps?.find((s) => s.label === BEATS_CHECK_LABEL)
+    expect(step?.result).toBe(
+      'Added to the writer’s plan:\n- Beat 2 (“Wren reads the letter to Osric”): First Wren must fetch the letter from the loft, where it was left under the loose board (Ch 1, Sc 1).\n\nFor you to look at (the plan was left as it is):\n- Beat 1 (“Osric climbs up to the loft”) has Ash there, but Ash isn’t in this scene.'
+    )
+    // A check that finds nothing changes nothing, and one that fails leaves the plan as it was.
+    const quiet = await call(answering(reply), { preconditions: () => ({ notes: [], flags: [] }) }).done
+    expect(quiet?.text).toContain('1. Osric climbs up to the loft\n2. Wren reads the letter to Osric\n')
+    expect(quiet).not.toHaveProperty('flags')
+    const broken = await call(answering(reply), {
+      preconditions: () => {
+        throw new Error('index gone')
+      }
+    }).done
+    expect(broken?.text).toBe(quiet?.text)
   })
 
   it(`only a scene's newest ${KEEP_PLAN_PROMPTS} planning calls keep their whole prompt`, async () => {

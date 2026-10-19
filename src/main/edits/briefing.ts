@@ -12,14 +12,25 @@
 // Since 2026-10-19 Continue also gets the end of the previous scene while the scene's own words are short, the beats of
 // the plan made before the scene was drafted still to come, the next marked (plan/index.ts planForContinueOf), the card's
 // beats marked the same way, and everyone in the scene as the story index has them; someone only thought of or talked of
-// near the words is named nearby, never among the characters in the scene. It makes no plan call of its own.
+// near the words is named nearby, never among the characters in the scene. It makes no plan call of its own. And what was
+// left in the scene's place on an earlier visit ("Left here before: …", place memory).
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
 import type { BeliefState, ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, RelationshipState, SceneCard, StyleGuide } from '@shared/types'
 import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
 import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defaults'
-import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
+import {
+  fieldSections,
+  LEFT_HERE_BLOCK,
+  LEFT_HERE_LEAD,
+  mentions,
+  openingSentences,
+  REPLY_LIMIT_CAP,
+  sceneTail,
+  TAG_ALLOWANCE,
+  TOKENS_PER_WORD
+} from '../ai/context'
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
@@ -103,6 +114,11 @@ export interface EditWorld {
    * (edits/index.ts continuePeople). Left out or empty: none.
    */
   people?: string[]
+  /**
+   * Continue (place memory, 2026-10-19): what was left in the scene's place on an earlier visit and not taken or moved
+   * since, a line each ("Left here before: …", storyIndex/placed.ts). Left out or empty: none.
+   */
+  leftHere?: string[]
 }
 
 /** The part for people the words near only name: thought of, talked of or far away, never in the scene. */
@@ -515,6 +531,11 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     const indexed = isContinue && withPeople ? (world.people ?? []).filter((l) => l.trim()) : []
     if (indexed.length) {
       parts.push({ id: 'people-now', priority: 3, title: PEOPLE_NOW_TITLE, text: [PEOPLE_NOW_LEAD, ...indexed.map((l) => `- ${l}`)].join('\n'), entryIds: [] })
+    }
+    // What was left in this place on an earlier visit (place memory, 2026-10-19), right before where things stand.
+    const left = isContinue && withPeople ? (world.leftHere ?? []).filter((l) => l.trim()) : []
+    if (left.length) {
+      parts.push({ id: LEFT_HERE_BLOCK.id, priority: 3, title: LEFT_HERE_BLOCK.title, text: [LEFT_HERE_LEAD, ...left.map((l) => `- ${l}`)].join('\n'), entryIds: [] })
     }
     // A door locked from inside with someone outside is said in one line after the stage (ai/lockRule.ts).
     const stand = isContinue && world.stand ? withLockLines(stateText(world.stand), world.stand) : ''

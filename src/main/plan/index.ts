@@ -35,6 +35,7 @@ import { fillSceneForLookup } from '../storyIndex/fill'
 import { storyFillScenes } from '../db/indexFill'
 import { keptStates } from '../continuity/tracker'
 import { planCore, type PlanCore } from './core'
+import { beatsCanHappen } from './preconditions'
 import {
   makePlan,
   planForContinue,
@@ -214,6 +215,28 @@ export async function planBeforeWriting(
       carryingOn,
       ...(lookups ? { lookups } : {}),
       ...(o.beat ? { beat: o.beat } : {}),
+      // Can each planned beat happen (preconditions.ts)? Against the story index as the core read it.
+      ...(core
+        ? {
+            preconditions: (p: ScenePlan) =>
+              beatsCanHappen(
+                {
+                  db,
+                  storyId: core.storyId,
+                  sceneId,
+                  asItBegins: core.asItBegins,
+                  card,
+                  present: core.present,
+                  entries: b.input.memory.entries,
+                  stand,
+                  calls: material.calls,
+                  soFar: b.input.soFar,
+                  hidden
+                },
+                p
+              )
+          }
+        : {}),
       signal,
       closed: () => !live()
     })
@@ -236,7 +259,9 @@ export async function planBeforeWriting(
       keep(scenePlans, sceneId, k)
       if (k.whole) keep(wholePlans, sceneId, k)
     }
-    return plan
+    // What was left in this place on an earlier visit, read with the index just brought up to date, for the writer too
+    // (none now takes the place of a reading made before the index was).
+    return plan && core ? { ...plan, leftHere: core.left } : plan
   } catch (e) {
     console.warn('Could not plan the scene; writing without a plan', e)
     return null
