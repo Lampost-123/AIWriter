@@ -1,7 +1,7 @@
 // "Written with AI" on a chapter's card: the way in to Write this chapter with AI, and the latest run's report: how it
 // ended, the things in the scene cards that didn't fit the memory (for Adam: his cards are never changed), what was
-// fixed in each scene and why, findings the AI judged not a problem (with its reasons; they are Ignored in the Issues
-// tab, where they can be reopened), anything left, and the brief the scenes were written to. Undo puts the chapter back.
+// fixed in each scene and why, anything left, and the chapter plan the scenes were written to (a report kept before
+// 2026-10-19 lists findings set aside, and the brief, instead). Undo puts the chapter back.
 
 import { useEffect, useState } from 'react'
 import type { ChapterWriterReport as Report } from '@shared/contracts/chapterWriter'
@@ -46,7 +46,7 @@ export function ChapterWriterReport({ chapterId }: { chapterId: ID }): React.JSX
       <p className="text-[12.5px] leading-relaxed text-muted">
         {here
           ? 'The AI is writing this chapter now. Its scenes can be read but not typed in until it finishes.'
-          : 'The AI writes every scene from its card, then checks the chapter against the memory, fixes what it finds and proofreads, until it is clean.'}
+          : 'The AI plans the chapter, writes every scene to the plan, checks each against the plan and the story so far, and fixes only what is flagged.'}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" disabled={busy} onClick={() => openChapterWriter(chapterId)}>
@@ -134,7 +134,7 @@ function ReportBody({ report }: { report: Report }): React.JSX.Element {
       )}
       {report.brief ? (
         <details className={details}>
-          <summary>The brief the scenes were written to</summary>
+          <summary>{report.plan ? 'The chapter plan the scenes were written to' : 'The brief the scenes were written to'}</summary>
           <p className="mt-1.5 whitespace-pre-wrap">{report.brief}</p>
         </details>
       ) : null}

@@ -1,11 +1,11 @@
-// Write the whole chapter (Adam, 2026-10-10): the AI drafts every scene of a chapter from its scene cards, then works
-// on the chapter by itself until it is right. An agent (a model with tools) studies the chapter before writing, looks
-// things up in the memory (codex entries, Recall, the canon timeline, the story so far), reads what the consistency
-// checks and the craft critic find, fixes the words straight in, rewrites a scene when it is wrong at its core, sets
-// aside a finding it can show is wrong, and proofreads. The app, not the agent, decides when it is done: it runs the
-// checks and the critic again itself, and the chapter is finished only when they come back clean, or every finding
-// left has been answered with a reason the app accepted. It stops when clean, on Stop, at the monthly spending limit,
-// when a round makes no progress, or at CHAPTER_WRITER_LIMITS (what is left then is listed for Adam).
+// Write the whole chapter (Adam, 2026-10-10; reworked 2026-10-19, spec "Write the chapter, reworked"): the AI plans the
+// whole chapter first (an agent reads the chapter card and the scene cards and looks up what it needs: what each scene
+// must do, which threads move on, what changes for each person), shows Adam the plan, which he may change, then writes
+// every scene in order against its part of the plan. A state check compares each scene with the plan and the story so
+// far (free checks first, then one short AI call), the critic reads the chapter once for craft, and only what they flag
+// is fixed: one passage at a time, in the writer's voice, a whole scene written again only when it misses its plan. It
+// stops when clean, on Stop, at the monthly spending limit, when a round makes no progress, or at CHAPTER_WRITER_LIMITS
+// (what is left then is listed for Adam).
 //
 // Every scene's words before the run are kept (with the report, and in History), so one Undo puts the chapter back.
 // The scenes being worked on can't be typed in meanwhile: the page holds them and follows each change.
@@ -13,14 +13,55 @@ import type { ID } from '../types'
 
 /**
  * How far one run goes (live test, 2026-10-16: with no cap it took 14 rounds and 2 hours on one chapter, and most of the
- * test's cost). At most `fixRounds` rounds of fixing what the checks and the critic found; no new round of fixing starts
- * after `minutes`. Whatever is still open then is listed in the report, and in the Issues and Critique tabs. The start
- * dialog says so.
+ * test's cost). At most `fixRounds` rounds of fixing what the checks and the critic found (Adam's spec, 2026-10-19: 2),
+ * each problem tried at most twice; no new round of fixing starts after `minutes` of work (the time Adam takes over the
+ * plan isn't counted). Whatever is still open then is listed in the report, and in the Issues and Critique tabs. The
+ * start dialog says so.
  */
-export const CHAPTER_WRITER_LIMITS = { fixRounds: 3, minutes: 60 } as const
+export const CHAPTER_WRITER_LIMITS = { fixRounds: 2, minutes: 60 } as const
 
-/** Where a run is. */
-export type ChapterWriterStage = 'study' | 'drafting' | 'reviewing' | 'checking' | 'proofreading'
+/**
+ * Where a run is. Since 2026-10-19: 'planning' (the chapter plan), 'review' (the plan waits for Adam), 'drafting',
+ * 'checking' and 'fixing'. 'study', 'reviewing' and 'proofreading' were the earlier flow's.
+ */
+export type ChapterWriterStage = 'planning' | 'review' | 'drafting' | 'checking' | 'fixing' | 'study' | 'reviewing' | 'proofreading'
+
+/** One scene's part of the chapter plan. */
+export interface ChapterWritingPlanScene {
+  sceneId: ID
+  /** "Sc 2 “The ferry”". */
+  label: string
+  /** What the scene must do in the chapter, in a sentence or two. */
+  does: string
+  /** The plot threads it moves on, and how. */
+  threads: string[]
+  /** What changes for each person: where they end up, what they learn. */
+  changes: { who: string; change: string }[]
+  /** Facts the scene keeps to that its card doesn't say (from the look-ups). */
+  keep: string[]
+  /** The part as the writer is given it, and as Adam reads and changes it. */
+  text: string
+  /** Adam changed it before writing: `text` is his. */
+  changed?: boolean
+}
+
+/** The chapter plan: made before any scene is written, shown to Adam, and each scene written against its part. */
+export interface ChapterWritingPlan {
+  /** What the chapter does, in a few lines. */
+  overview: string
+  scenes: ChapterWritingPlanScene[]
+  /** Things in Adam's cards that don't fit the story so far (his cards are never changed). */
+  questions: string[]
+}
+
+/** Adam's word on the plan: write to it (with his changes to any scene's part), or cancel. */
+export interface ChapterPlanAnswer {
+  runId: ID
+  /** Each scene part Adam changed, as its new text. Left out or empty: the plan as it was. */
+  scenes?: { sceneId: ID; text: string }[]
+  /** A new overview, when he changed it. */
+  overview?: string
+}
 
 export interface ChapterWriterProgress {
   runId: ID
@@ -30,12 +71,14 @@ export interface ChapterWriterProgress {
   sceneId: ID | null
   /** What it is doing, in a few plain words: "Writing Sc 2 of 4", "Checking the chapter, round 2". */
   note: string
-  /** Rounds of checking so far (0 while studying and drafting). */
+  /** Rounds of checking so far (0 while planning and drafting). */
   round: number
   /** What the run has cost so far, in dollars (what is known). */
   cost: number
   /** The scenes being worked on (the page holds these). */
   sceneIds: ID[]
+  /** While `stage` is 'review': the chapter plan waiting for Adam (answerChapterPlan). */
+  plan?: ChapterWritingPlan | null
 }
 
 /** One scene of the chapter, as the start dialog lists it. */
@@ -85,7 +128,8 @@ export interface ChapterWriterSceneReport {
   rewritten: string[]
 }
 
-export type ChapterWriterStatus = 'running' | 'done' | 'stopped' | 'stuck' | 'limit' | 'error'
+/** 'cancelled': Adam cancelled at the plan, before anything was written. */
+export type ChapterWriterStatus = 'running' | 'done' | 'stopped' | 'stuck' | 'limit' | 'error' | 'cancelled'
 
 export interface ChapterWriterReport {
   runId: ID
@@ -97,8 +141,10 @@ export interface ChapterWriterReport {
   endedAt: string | null
   rounds: number
   cost: number
-  /** What the study found: the plan the scenes were written to, in the agent's words. */
+  /** The chapter plan the scenes were written to, as text (before 2026-10-19: the study's brief). */
   brief: string
+  /** The chapter plan itself (left out of reports kept before it was added). */
+  plan?: ChapterWritingPlan
   /** Things in the scene cards that don't fit the memory, for Adam (his cards are never changed). */
   questions: string[]
   scenes: ChapterWriterSceneReport[]
@@ -134,6 +180,11 @@ export interface ChapterWriterApi {
   stopChapterWriter(runId: ID): Promise<void>
   /** The run going now, if any (a window that reloads picks it up). */
   chapterWriterNow(): Promise<ChapterWriterProgress | null>
+  /**
+   * Adam's word on the chapter plan the run is waiting with (progress stage 'review'): write the chapter to it, with any
+   * scene's part he changed. Cancel is stopChapterWriter (nothing has been written then).
+   */
+  answerChapterPlan(answer: ChapterPlanAnswer): Promise<void>
   /** The latest run's report for a chapter, or null. */
   getChapterWriterReport(chapterId: ID): Promise<ChapterWriterReport | null>
   /** Puts every scene of the chapter back as it was before the latest run. Returns how many scenes changed. */

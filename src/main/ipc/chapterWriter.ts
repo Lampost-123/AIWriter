@@ -2,10 +2,10 @@
 // src/main/chapterWriter/; this file connects it to the open world, the settings, the writer, the checks, the critic,
 // History, the saves (the way the editor's go, so the memory keeper and search follow) and the window.
 import type { Handlers } from './index'
-import type { ChapterWriterApi } from '@shared/contracts/chapterWriter'
+import type { ChapterPlanAnswer, ChapterWriterApi } from '@shared/contracts/chapterWriter'
 import type { DraftOptions, ID } from '@shared/types'
 import { ALL_CHECKS } from '@shared/contracts/checks'
-import { cardLength } from '@shared/defaults'
+import { CREATIVITY_PRESETS, cardLength, writerTemperature } from '@shared/defaults'
 import * as world from '../world'
 import * as repo from '../db/repo'
 import * as providers from '../ai/providers'
@@ -31,7 +31,8 @@ import { activeRun, setActiveRun } from '../chapterWriter/active'
 import { loadBefore, loadReport, saveReport } from '../chapterWriter/store'
 import type { Page } from '../chapterWriter/page'
 import { contractWanted, type SceneContract } from '../ai/contract'
-import { meaningForCheck } from '../retrieval'
+import { findInStory, meaningForCheck } from '../retrieval'
+import { shortPlace } from '../ai/mustStay'
 
 /**
  * How long the run waits for the memory to read the scenes before the one it drafts or checks next, and write their
@@ -73,6 +74,15 @@ const busy = (sceneId: ID): boolean => isDrafting(sceneId) || isStartingDraft(sc
 
 let watching = false
 
+/**
+ * The run waiting for Adam's word on its chapter plan, by run id: what answerChapterPlan resolves (null: cancel). Stop
+ * resolves it with null too.
+ */
+const waitingPlans = new Map<ID, (answer: Pick<ChapterPlanAnswer, 'scenes' | 'overview'> | null) => void>()
+
+/** What a scene's part of the chapter plan is called in the writer's briefing. */
+const PART_BLOCK = { id: 'chapter-plan', title: 'This scene’s part of the chapter plan (keep to it)' }
+
 function deps(runId: ID): RunDeps {
   const db = world.db()
   if (!watching) {
@@ -99,27 +109,53 @@ function deps(runId: ID): RunDeps {
       return contracts.get(sceneId) ?? null
     }
   }
+  // The targeted fixes write as the writer does: its model and Thinking, at its temperature (Generate's).
+  const creativity = getSettings().creativity
+  const preset = CREATIVITY_PRESETS[creativity] ?? CREATIVITY_PRESETS.balanced
   return {
     db,
     agentModel: jobModel('chapter', sources()),
+    writer: { model: jobModel('writer', sources()), temperature: writerTemperature(creativity), topP: preset.top_p, minP: preset.min_p },
     prefs: getWritingPrefs(),
-    history: currentHistory(),
-    // The agent's calls go quietly: the run says how it goes itself (chapterWriter:progress).
+    // The run's calls go quietly: it says how it goes itself (chapterWriter:progress).
     taskEmit: () => undefined,
     progress: (p) => emit('chapterWriter:progress', p),
     sceneChanged: (sceneId: ID, page: Page) => emit('chapterWriter:sceneChanged', { runId, sceneId, doc: page.doc, text: page.text }),
+    // The plan waits for Adam in the window (the progress event carries it) until answerChapterPlan, or Stop.
+    review: (_plan, signal) =>
+      new Promise((resolve) => {
+        if (signal.aborted) return resolve(null)
+        const done = (answer: Pick<ChapterPlanAnswer, 'scenes' | 'overview'> | null): void => {
+          waitingPlans.delete(runId)
+          signal.removeEventListener('abort', cancel)
+          resolve(answer)
+        }
+        const cancel = (): void => done(null)
+        waitingPlans.set(runId, done)
+        signal.addEventListener('abort', cancel, { once: true })
+      }),
+    find: async (sceneId, query, most) => {
+      const title = repo.sceneLocation(db, sceneId).story.title
+      return (await findInStory(db, sceneId, query, most))?.map((p) => ({ where: shortPlace(p.where, title), text: p.text })) ?? null
+    },
     draft: async (sceneId, o) => {
       if (busy(sceneId)) return { status: 'error', text: '', error: 'A draft is being written in this scene. Stop it, then start again.' }
       const card = repo.getScene(db, sceneId).card
       const options: DraftOptions = { direction: o.direction, targetWords: cardLength(card), creativity: getSettings().creativity, fresh: true }
-      const extraBlocks = o.notes.trim()
-        ? [{ id: 'chapter-brief', title: 'Notes for this scene, from studying the chapter (keep to these)', text: o.notes.trim() }]
-        : []
+      const extraBlocks = o.notes.trim() ? [{ ...PART_BLOCK, text: o.notes.trim() }] : []
       let b: Awaited<ReturnType<typeof draftBriefing>>
       try {
-        // The plan before writing writes no continuity brief (token audit, 2026-10-19): the study's notes for the scene
-        // say what it would, and its planner would read up to 150,000 tokens of the book for every scene.
-        b = await draftBriefing(sceneId, options, { extras: { extraBlocks }, signal: o.signal, catchUpMs: DRAFT_CATCH_UP_MS, brief: false })
+        // The scene's part of the chapter plan goes to the writer, and to the plan before writing, which builds the scene
+        // plan on it with its own round of look-ups (spec "Write the chapter, reworked", 2026-10-19). No continuity brief
+        // (token audit, 2026-10-19): the chapter plan says what it would, and its planner would read up to 150,000 tokens
+        // of the book for every scene.
+        b = await draftBriefing(sceneId, options, {
+          extras: { extraBlocks },
+          signal: o.signal,
+          catchUpMs: DRAFT_CATCH_UP_MS,
+          brief: false,
+          ...(o.notes.trim() ? { chapterPlan: o.notes.trim() } : {})
+        })
       } catch (e) {
         if (o.signal.aborted) return { status: 'stopped', text: '', error: null }
         if (e instanceof UserError) return { status: 'error', text: '', error: e.message }
@@ -186,7 +222,9 @@ function deps(runId: ID): RunDeps {
               contractsOff: !contractWanted(getSettings()),
               secondOpinionOff: getSettings().checkSecondOpinion === false,
               // The facts the scene touches, by meaning too when the search model is on (2026-10-16).
-              byMeaning: (queries, docs, s) => meaningForCheck(db, queries, docs, s)
+              byMeaning: (queries, docs, s) => meaningForCheck(db, queries, docs, s),
+              // The state check: what is so and who knows what in one short request (2026-10-19).
+              together: true
             },
             sceneId,
             checks
@@ -258,6 +296,15 @@ export const chapterWriterHandlers: Handlers<keyof ChapterWriterApi> = {
   stopChapterWriter: async (runId) => {
     const run = activeRun()
     if (run && run.runId === runId) await run.stop()
+  },
+  answerChapterPlan: (answer) => {
+    const runId = String(answer?.runId ?? '')
+    const waiting = waitingPlans.get(runId)
+    if (!waiting) throw new UserError('The AI isn’t waiting for this plan any more. Start writing the chapter again.')
+    const scenes = Array.isArray(answer?.scenes)
+      ? answer.scenes.flatMap((x) => (x && typeof x.sceneId === 'string' && typeof x.text === 'string' ? [{ sceneId: x.sceneId, text: x.text.slice(0, 8000) }] : []))
+      : []
+    waiting({ scenes, ...(typeof answer?.overview === 'string' ? { overview: answer.overview.slice(0, 4000) } : {}) })
   },
   chapterWriterNow: () => activeRun()?.progressNow() ?? null,
   getChapterWriterReport: (chapterId) => loadReport(world.db(), chapterId),

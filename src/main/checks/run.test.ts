@@ -554,7 +554,7 @@ describe('the scene’s contract after the review (fix 13)', () => {
     expect(issueFindings(w.db, w.s2).some((f) => f.kind.includes('scene contract'))).toBe(false)
   })
 
-  it('the chapter writer puts right only what a second opinion agreed goes against it; what isn’t shown yet is Adam’s', async () => {
+  it('the chapter writer puts right only what a second opinion agreed goes against it; what isn’t shown yet is never patched in (a plan miss: the scene is written again)', async () => {
     const ruled = async (second: unknown) => {
       const w = world()
       const fetchImpl = stubbed((system) => (system.startsWith(SECOND_MARKER) ? second : null))

@@ -1,14 +1,17 @@
 // What one run of Write the whole chapter asks of the AI (token audit, 2026-10-19): a fake-provider run of a chapter of
-// three scenes after a chapter of long ones, with models that read a million tokens (as DeepSeek Flash does) and an
-// agent that looks things up three at a time until it is told there are no more look-ups (fake/agent-greedy, as a live
-// model did). Every chat request is counted, with the characters of its messages, by what asked it; the run must stay
-// within what the quick wins brought it down to. Before them: 84 requests and 3,598,372 characters with the greedy agent
-// (and its reads of Ch 1 were wrongly answered "hasn't changed"), 37 and 347,190 with the other; after: 61 and
-// 2,669,425, 35 and 328,615. The drafts are stood in for, so the continuity brief they no longer ask for isn't counted.
-// The limits leave a little room for prompts to grow.
+// three scenes after a chapter of long ones, with models that read a million tokens (as DeepSeek Flash does) and a
+// planner that looks things up three at a time until it is told there are no more look-ups (fake/agent-greedy, as a live
+// model did). Every chat request is counted, with the characters of its messages, by what asked it. Before the quick
+// wins: 84 requests and 3,598,372 characters with the greedy agent, 37 and 347,190 with the other; after them: 61 and
+// 2,669,425, 35 and 328,615. With the chapter reworked (spec "Write the chapter, reworked", 2026-10-19: the chapter plan
+// with compact look-ups, one state check request a scene, one read of the chapter by the critic, fixes of the flagged
+// passages alone, no review, chapter or proofread sessions): 15 and 139,611, 13 and 127,690. The drafts are stood in for
+// (each draft's own scene plan, with its round of look-ups, is as it was, with its part of the chapter plan added), so
+// neither is counted. The limits leave a little room for prompts to grow.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
 import { ALL_CHECKS } from '@shared/contracts/checks'
+import { writerTemperature } from '@shared/defaults'
 import * as repo from '../db/repo'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { fakeProse, startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
@@ -65,6 +68,7 @@ function deps(db: RunDeps['db'], scenes: ID[], agent: string): RunDeps {
   return {
     db,
     agentModel: model(agent, 'chapter'),
+    writer: { model: model('fake/writer', 'writer'), temperature: writerTemperature('balanced'), topP: 0.95 },
     prefs: PREFS,
     taskEmit: () => undefined,
     progress: () => undefined,
@@ -74,7 +78,7 @@ function deps(db: RunDeps['db'], scenes: ID[], agent: string): RunDeps {
       repo.saveSceneText(db, sceneId, page.doc, page.text)
     },
     check: async (sceneId, _signal, checks = ALL_CHECKS) => {
-      const r = await checkScene({ db, model: model('fake/writer', 'check'), prefs: PREFS, stopped: () => false, retryDelays: [] }, sceneId, checks)
+      const r = await checkScene({ db, model: model('fake/writer', 'check'), prefs: PREFS, stopped: () => false, retryDelays: [], together: true }, sceneId, checks)
       return r.status === 'error' ? { status: 'error', error: r.error } : { status: r.status }
     },
     critique: (target, again) =>
@@ -135,16 +139,16 @@ describe('what a chapter run asks of the AI', () => {
   it('with an agent that looks things up until it is stopped', { timeout: 60_000 }, async () => {
     const { report, total } = await measure('fake/agent-greedy')
     expect(['done', 'stuck']).toContain(report.status)
-    // The study writes its brief within its requests (with 16 requests and 40 look-ups it ran out first).
+    // The plan is written within its requests, with a part for the last scene too.
     expect(report.brief).toContain('Keep Sc 3 true to the memory.')
-    expect(total.requests).toBeLessThanOrEqual(61)
-    expect(total.chars).toBeLessThanOrEqual(2_800_000)
+    expect(total.requests).toBeLessThanOrEqual(18)
+    expect(total.chars).toBeLessThanOrEqual(170_000)
   })
 
   it('with an agent that goes straight to work', { timeout: 60_000 }, async () => {
     const { report, total } = await measure('fake/writer')
     expect(report.status).toBe('done')
-    expect(total.requests).toBeLessThanOrEqual(35)
-    expect(total.chars).toBeLessThanOrEqual(345_000)
+    expect(total.requests).toBeLessThanOrEqual(15)
+    expect(total.chars).toBeLessThanOrEqual(150_000)
   })
 })

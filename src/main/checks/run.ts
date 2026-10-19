@@ -100,6 +100,11 @@ export interface CheckOptions {
    * by keyword alone.
    */
   byMeaning?: (queries: string[], docs: { key: string; text: string }[], signal: AbortSignal) => Promise<Map<string, number> | null>
+  /**
+   * Every check asked for in one request, not CHECK_GROUPS' two (Write the whole chapter's state check, spec "Write the
+   * chapter, reworked", 2026-10-19: one short call with the facts the scene touches, what is so and who knows what).
+   */
+  together?: boolean
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -178,7 +183,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
 
   // The checks in two focused requests (a live run found one request for all six spread the model thin and missed
   // plain contradictions): what is so (facts, timeline, continuity), then who knows what and how it reads.
-  const groups = CHECK_GROUPS.map((g) => checks.filter((c) => g.includes(c))).filter((g) => g.length)
+  const groups = o.together && checks.length ? [checks] : CHECK_GROUPS.map((g) => checks.filter((c) => g.includes(c))).filter((g) => g.length)
   // The scene's contract (fix 13) rides in the request about what is so (or the only one), item by item.
   const contract = o.contract?.items.length ? o.contract : null
   const contractGroup = contract ? (groups.find((g) => g.includes('facts')) ?? groups[0]) : null

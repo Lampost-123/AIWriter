@@ -1,15 +1,28 @@
-// Write the whole chapter (contracts/chapterWriter.ts), end to end against the fake AI server: the agent's calls are
-// scripted (tests/fake-provider/chapter.mjs: a brief, one fix per scene with findings, then done), the checks find
-// nothing in the fake prose, and the critic's notes come the first time and none on a re-read. Started from the
-// palette's "Whole chapter with AI"; the dialog lists the scenes; while it works the top bar says so and the open scene
-// can't be typed in; it ends in a message with Show (the report on the chapter card) and Undo (the words before).
+// Write the whole chapter (contracts/chapterWriter.ts), end to end against the fake AI server in the New look: the
+// chapter plan is scripted (tests/fake-provider/chapter.mjs: a look-up, then a part for each scene), the checks find
+// nothing in the fake prose, the critic reads the chapter once and its notes on words in the scenes are fixed, each
+// passage rewritten (the fake adds "The rain went on."). Started from the palette's "Whole chapter with AI"; the dialog
+// lists the scenes; the plan shows before anything is written, with Write, Change the plan and Cancel; while it works the
+// top bar says so and the open scene can't be typed in; it ends in a message with Show (the report on the chapter card)
+// and Undo (the words before).
 import type { Page } from '@playwright/test'
 import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const row = (win: Page, title: string) => binder(win).locator('[data-row]', { hasText: title }).first()
 const dialog = (win: Page) => win.getByRole('dialog', { name: 'Write this chapter with AI' })
+const planView = (win: Page) => win.getByRole('dialog', { name: 'The chapter plan' })
 const status = (win: Page) => win.getByTestId('chapter-writer-status')
+const NEW_LOOK = { AIWRITE_KEEPER_QUIET_MS: '600000', AIWRITE_LOOK: 'new' }
+
+/** Opens Write this chapter with AI from the palette and starts it. */
+async function start(win: Page): Promise<void> {
+  await win.keyboard.press('Control+K')
+  await win.keyboard.type('Whole chapter')
+  await win.getByRole('option', { name: /^Whole chapter with AI/ }).first().click()
+  await dialog(win).getByTestId('chapter-writer-start').click()
+  await expect(dialog(win)).toBeHidden()
+}
 
 const FERRY = 'Old words of the ferry scene.'
 
@@ -33,11 +46,13 @@ async function setUp(win: Page, fake: Awaited<ReturnType<typeof startFake>>): Pr
   return { ferry, inn, chapterId }
 }
 
-test('Whole chapter with AI: writes every scene, holds the open one while it works, ends clean with Show and Undo', async ({ launch }) => {
+test('Whole chapter with AI: plans first, writes every scene to the plan Adam changed, holds the open one, ends clean with Show and Undo', async ({
+  launch
+}) => {
   test.setTimeout(180_000)
   const fake = await startFake({ delayMs: 25 })
   try {
-    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    const { win } = await launch({ env: NEW_LOOK })
     const { ferry, inn, chapterId } = await setUp(win, fake)
 
     await win.keyboard.press('Control+K')
@@ -52,6 +67,25 @@ test('Whole chapter with AI: writes every scene, holds the open one while it wor
     await dialog(win).getByTestId('chapter-writer-start').click()
     await expect(dialog(win)).toBeHidden()
 
+    // The plan, before anything is written: a part for each scene, and what in the cards doesn't fit the memory.
+    const view = planView(win)
+    await expect(view).toBeVisible({ timeout: 60_000 })
+    await expect(view.getByTestId('chapter-plan')).toContainText('Sc 1 “The ferry”')
+    await expect(view.getByTestId('chapter-plan')).toContainText('What it must do: Sc 1 moves the chapter on.')
+    await expect(view.getByTestId('chapter-plan')).toContainText("Sc 1's card has Mara at the inn; the memory has her at the ferry.")
+    expect((await invoke(win, 'getScene', inn)).text).toBe('')
+    // Closed, it waits: the top bar opens it again.
+    await win.keyboard.press('Escape')
+    await expect(view).toBeHidden()
+    await expect(status(win)).toContainText('The chapter plan is ready for you')
+    await status(win).getByRole('button').click()
+    await expect(view).toBeVisible()
+    // Adam changes Sc 2's part, then writes.
+    await view.getByTestId('chapter-plan-change').click()
+    await view.getByRole('textbox', { name: 'Sc 2 “The inn”: its part of the plan' }).fill('Mara finds no room at the inn and sleeps in the stable.')
+    await view.getByTestId('chapter-plan-write').click()
+    await expect(view).toBeHidden()
+
     // While it works: the top bar says what it is doing, and the open scene can be read but not typed in.
     await expect(status(win)).toBeVisible()
     await expect(win.locator('.scene-prose.chapter-held')).toHaveCount(1)
@@ -65,6 +99,8 @@ test('Whole chapter with AI: writes every scene, holds the open one while it wor
     const report = await invoke(win, 'getChapterWriterReport', chapterId)
     expect(report?.status).toBe('done')
     expect(report?.brief).toContain('Keep Sc 1 true to the memory.')
+    expect(report?.brief).toContain('Mara finds no room at the inn and sleeps in the stable.')
+    expect(report?.plan?.scenes[1].changed).toBe(true)
     // The page shows the run's words, and can be typed in again.
     await expect(prose(win)).toContainText('The rain went on.')
     await expect(prose(win)).not.toContainText(FERRY)
@@ -88,16 +124,24 @@ test('Whole chapter with AI: writes every scene, holds the open one while it wor
   }
 })
 
-test('Whole chapter with AI can be stopped from the top bar, keeping what was written', async ({ launch }) => {
+test('Whole chapter with AI: Cancel at the plan changes nothing; once writing, it can be stopped from the top bar, keeping what was written', async ({
+  launch
+}) => {
   test.setTimeout(120_000)
   const fake = await startFake({ delayMs: 60 })
   try {
-    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
-    const { chapterId } = await setUp(win, fake)
-    await win.keyboard.press('Control+K')
-    await win.keyboard.type('Whole chapter')
-    await win.getByRole('option', { name: /^Whole chapter with AI/ }).first().click()
-    await dialog(win).getByTestId('chapter-writer-start').click()
+    const { win } = await launch({ env: NEW_LOOK })
+    const { chapterId, ferry } = await setUp(win, fake)
+    await start(win)
+    await planView(win).getByTestId('chapter-plan-cancel').click({ timeout: 60_000 })
+    await expect(win.getByText('Cancelled before writing: nothing in the chapter changed.')).toBeVisible({ timeout: 30_000 })
+    await expect(status(win)).toBeHidden()
+    expect((await invoke(win, 'getChapterWriterReport', chapterId))?.status).toBe('cancelled')
+    expect((await invoke(win, 'getScene', ferry)).text).toBe(FERRY)
+
+    await start(win)
+    await planView(win).getByTestId('chapter-plan-write').click({ timeout: 60_000 })
+    await expect(planView(win)).toBeHidden()
     await status(win).getByRole('button').first().click()
     await win.getByTestId('chapter-writer-stop').click()
     await expect(win.getByText('Stopped writing Chapter 1. The words so far are kept; Undo puts the chapter back.')).toBeVisible({ timeout: 30_000 })

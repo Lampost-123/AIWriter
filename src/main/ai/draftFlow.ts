@@ -160,7 +160,9 @@ export interface DraftBriefing {
  * `plan` (on unless false; Beat by beat plans the scene itself with withPlan, once a scene): the memory model plans
  * the scene first, with one round of look-ups, when Settings › Models says to (plan/), never for long (withPlan). A set of
  * Variants is briefed once, so its drafts share the one plan.
- * `brief: false`: the plan writes no continuity brief (Write the whole chapter, whose study wrote one; plan/index.ts).
+ * `brief: false`: the plan writes no continuity brief (Write the whole chapter, whose chapter plan has a part for every
+ * scene; plan/index.ts). `chapterPlan`: Write the whole chapter's part of its plan for this scene, which the scene plan
+ * builds on (spec "Write the chapter, reworked", 2026-10-19).
  */
 export async function draftBriefing(
   sceneId: ID,
@@ -174,6 +176,7 @@ export async function draftBriefing(
     plan?: boolean
     focus?: string
     brief?: boolean
+    chapterPlan?: string
   } = {}
 ): Promise<DraftBriefing> {
   const { choice, target, thinking } = writerModel()
@@ -195,7 +198,7 @@ export async function draftBriefing(
     entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks),
     contract: made.prepared.contract ?? null
   }
-  if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal, brief: o.brief })
+  if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal, brief: o.brief, ...(o.chapterPlan?.trim() ? { chapterPlan: o.chapterPlan } : {}) })
   // Where things stand as the previous scene ended goes on being worked out after the draft's wait, so it is looked up
   // again now (review, 2026-10-16): one that came in during the plan's own wait (up to two minutes) is told after all.
   if (!carryOn && !b.input.continuity) b = await withStageNow(sceneId, b, o.extras)
@@ -275,13 +278,14 @@ async function withStageNow(sceneId: ID, b: DraftBriefing, extras?: ContextExtra
 export async function withPlan(
   sceneId: ID,
   b: DraftBriefing,
-  o: { extras?: ContextExtras; signal?: AbortSignal; beat?: BeatAt; brief?: boolean } = {}
+  o: { extras?: ContextExtras; signal?: AbortSignal; beat?: BeatAt; brief?: boolean; chapterPlan?: string } = {}
 ): Promise<DraftBriefing> {
   if (!b.prepared) return b
   const db = world.db()
   const plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, {
     brief: o.brief,
-    ...(o.beat ? { beat: o.beat } : {})
+    ...(o.beat ? { beat: o.beat } : {}),
+    ...(o.chapterPlan?.trim() ? { chapter: o.chapterPlan } : {})
   })
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')

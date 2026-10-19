@@ -119,8 +119,9 @@ const wordsIn = (text: string | undefined): number => (text ?? '').split(/\s+/).
  * (fix 14), the same call also writes the brief. `beat`: Beat by beat, the beat being written: the scene is planned once,
  * as a whole, with its first beat written (or the first after a scene card or direction that changed), and its later
  * beats are given that plan with no call. `brief: false`: never a brief, whatever the setting (Write the whole chapter:
- * its study wrote one for every scene, and the brief's planner reads up to 150,000 tokens of the book for each; token
- * audit, 2026-10-19).
+ * its chapter plan has a part for every scene, and the brief's planner reads up to 150,000 tokens of the book for each;
+ * token audit, 2026-10-19). `chapter`: Write the whole chapter's part of its plan for this scene, which the scene plan
+ * builds on (spec "Write the chapter, reworked", 2026-10-19).
  */
 export async function planBeforeWriting(
   db: Database.Database,
@@ -131,7 +132,7 @@ export async function planBeforeWriting(
     prepared: Pick<PreparedContext, 'finals' | 'contract'> & Partial<Pick<PreparedContext, 'blocks'>>
   },
   signal?: AbortSignal,
-  o: { brief?: boolean; beat?: BeatAt } = {}
+  o: { brief?: boolean; beat?: BeatAt; chapter?: string } = {}
 ): Promise<MadePlan | null> {
   try {
     if (!planWanted() || pausedNote()) return null
@@ -151,7 +152,7 @@ export async function planBeforeWriting(
     // What the story index gives at no cost: everyone here as things stand, the scenes before, the open threads.
     const core: PlanCore | null = safely(() => planCore(db, b.input, sceneId, { carryingOn, hidden }), null)
     const plain: PlanMaterial = {
-      ...planMaterial(b.input, b.preview, b.prepared, { core, beats: !!o.beat }),
+      ...planMaterial(b.input, b.preview, b.prepared, { core, beats: !!o.beat, ...(o.chapter?.trim() ? { chapter: o.chapter } : {}) }),
       contentNote: contentNoteFor(b.input.style.intensity)
     }
     // With a continuity brief (fix 14) when Adam wants one; a brief that can't be put together leaves the plan as it was.
