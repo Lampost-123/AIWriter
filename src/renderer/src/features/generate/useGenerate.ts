@@ -15,7 +15,7 @@ import { layerOpen } from '@/lib/layers'
 import { useApp } from '@/lib/store'
 import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { useNewLook } from '@/features/look/look'
-import { BLANK_DRAFT_OPTIONS, draftLength, type SceneDraftOptions } from './draftOptions'
+import { BLANK_DRAFT_OPTIONS, draftDirection, draftLength, type SceneDraftOptions } from './draftOptions'
 import { busyElsewhere, listenForDrafts, startDraft, stopDraft, useDraft, type Phase } from './draftRun'
 import { castBuilding, useBuildWatch, watchBuilds } from './buildWatch'
 import { usePolish } from './polishRun'
@@ -134,6 +134,8 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   phaseRef.current = phase
   const popoverRef = useRef(popover)
   popoverRef.current = popover
+  const choiceFromOptionsRef = useRef(choiceFromOptions)
+  choiceFromOptionsRef.current = choiceFromOptions
   const steerRef = useRef(o.steer)
   steerRef.current = o.steer
   const creativity = opts.creativity ?? defaultCreativity
@@ -236,9 +238,12 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   const building = useBuildWatch((b) => castBuilding(b.running, storyId))
   /** The draft the note was shown for, and one waiting for the build to end. */
   const asked = useRef<{ mode?: DraftMode; byKey: boolean } | null>(null)
+  /** Whether the draft waiting for the cast's build was asked from the Draft options (draftDirection). */
+  const optionsAsked = useRef<boolean | null>(null)
   const [waiting, setWaiting] = useState<{ mode?: DraftMode } | null>(null)
   useEffect(() => {
     asked.current = null
+    optionsAsked.current = null
     setWaiting(null)
   }, [sceneId])
 
@@ -274,28 +279,41 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
         setPopover('choose')
         return
       }
+      // Asked from the Draft options (or the choice they opened), whose Direction is in front of Adam; after the note that
+      // the cast is being built, as it was asked before it.
+      const fromOptions =
+        now && optionsAsked.current !== null
+          ? optionsAsked.current
+          : popoverRef.current === 'options' || (popoverRef.current === 'choose' && choiceFromOptionsRef.current)
       // The story's cast is still being built: a quiet note first, so Adam can wait for the AI to know more.
       if (!now && castBuilding(useBuildWatch.getState().running, useApp.getState().storyId)) {
         asked.current = { mode, byKey }
+        optionsAsked.current = fromOptions
         setPopover('building')
         return
       }
+      optionsAsked.current = null
       setWaiting(null)
       // Emptied since the choice was made: there's nothing to replace.
       setPopover(null)
-      // The desk's steer box: its words steer this draft (in place of the options' Direction), once.
+      // The desk's steer box: its words steer this draft (in place of the options' Direction), once. Empty, Add below has
+      // no direction (draftDirection: never the last whole draft's, written again as "what happens now").
       const steer = steerRef.current
       const steered = steer?.get().trim() ?? ''
+      const addBelow = mode === 'add' && filled
       void startDraft(sceneId, bridge, {
         replace: (mode === 'replace' || mode === 'fresh') && filled,
         takeKeyboard: !!mode,
         // A fresh take doesn't build on what the earlier draft established; Add below carries on from the scene's words.
-        options: () => ({
-          ...(useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS),
-          ...(steered ? { direction: steered } : {}),
-          ...(mode === 'fresh' ? { fresh: true } : {}),
-          ...(mode === 'add' && filled ? { addBelow: true } : {})
-        })
+        options: () => {
+          const saved = useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS
+          return {
+            ...saved,
+            direction: draftDirection({ saved: saved.direction, ...(steer ? { steer: steered } : {}), addBelow, fromOptions }),
+            ...(mode === 'fresh' ? { fresh: true } : {}),
+            ...(addBelow ? { addBelow: true } : {})
+          }
+        }
       })
       if (steered) steer?.taken()
     },
