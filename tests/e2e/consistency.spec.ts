@@ -13,7 +13,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import type { CheckStart, Issue } from '@shared/contracts/checks'
 import type { ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
-import { binder, createWorldFromWelcome, expect, invoke, test } from './helpers'
+import { areaRow, binder, createWorldFromWelcome, expect, invoke, openPage, openWrite, test } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 const sceneRow = (win: Page, title: string) => binder(win).getByRole('treeitem', { name: title })
@@ -185,7 +185,7 @@ test('the Consistency page: issues by scene, the reports, badges, checking, and 
   await win.keyboard.press('Enter')
   await expect(main(win).getByRole('heading', { level: 1, name: 'Consistency' })).toBeVisible()
   await expect(main(win)).toContainText(m.storyTitle)
-  await expect(binder(win).getByRole('button', { name: 'Consistency', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(areaRow(win, 'Consistency')).toHaveAttribute('aria-current', 'page')
 
   // Issues: the whole story first, then by chapter and scene in story order, must fix first.
   await expect(main(win).getByRole('tab', { name: /Issues/ })).toHaveAttribute('aria-selected', 'true')
@@ -209,14 +209,17 @@ test('the Consistency page: issues by scene, the reports, badges, checking, and 
   await expect(ford.locator('[data-issue]').nth(1)).toContainText('Ignored')
   await main(win).getByLabel('Show ignored (1)').uncheck()
 
-  // Ignore, then Undo from its toast; the badge follows.
+  // Ignore, then Undo from its toast; the badge follows (on the scene's row, in the Write area's list).
   await main(win).locator('[data-issue="issue-knows"]').getByRole('button', { name: 'Ignore' }).click()
   await expect(win.getByText('Issue ignored. It won’t be raised again.')).toBeVisible()
   await expect(main(win).locator('[data-issue="issue-knows"]')).toHaveCount(0)
+  await openWrite(win)
+  await expect(sceneRow(win, 'The ferry').getByTitle('2 issues, 1 must fix')).toBeVisible()
   await expect(sceneRow(win, 'The landing').getByTitle(/issue/)).toHaveCount(0)
   await win.getByRole('button', { name: 'Undo' }).click()
-  await expect(main(win).locator('[data-issue="issue-knows"]')).toBeVisible()
   await expect(sceneRow(win, 'The landing').getByTitle('1 issue', { exact: true })).toBeVisible()
+  await openPage(win, 'Consistency')
+  await expect(main(win).locator('[data-issue="issue-knows"]')).toBeVisible()
 
   // Clicking an issue opens its scene at the words, with the Issues tab.
   await cards.nth(0).getByRole('button', { name: 'Mara’s eyes are grey in the memory, but brown here.' }).click()
@@ -226,7 +229,7 @@ test('the Consistency page: issues by scene, the reports, badges, checking, and 
   await expect.poll(() => selection(win)).toBe('her brown eyes')
 
   // Repetition: the word Ch 1 leans on, and the pet phrase across three chapters, which opens where it is first used.
-  await binder(win).getByRole('button', { name: 'Consistency', exact: true }).click()
+  await openPage(win, 'Consistency')
   await main(win).getByRole('tab', { name: /Repetition/ }).click()
   const byChapter = main(win).getByRole('region', { name: 'By chapter' })
   await expect(byChapter.getByRole('button', { name: 'suddenly, used 9 times' })).toBeVisible()
@@ -238,7 +241,7 @@ test('the Consistency page: issues by scene, the reports, badges, checking, and 
   await expect.poll(() => selection(win)).toBe('ghost of a smile')
 
   // Plot threads: one open too long, one paid off with no setup, each linking to its scene and its page.
-  await binder(win).getByRole('button', { name: 'Consistency', exact: true }).click()
+  await openPage(win, 'Consistency')
   await expect(main(win).getByRole('tab', { name: /Repetition/ })).toHaveAttribute('aria-selected', 'true')
   await main(win).getByRole('tab', { name: /Plot threads/ }).click()
   const long = main(win).getByRole('region', { name: 'Open too long' })
@@ -248,25 +251,31 @@ test('the Consistency page: issues by scene, the reports, badges, checking, and 
   await expect(noSetup).toContainText('The lost map')
   await noSetup.getByRole('button', { name: `${m.storyTitle}, Ch 2, Sc 1` }).click()
   await expect(sceneRow(win, 'At the ford')).toHaveAttribute('aria-selected', 'true')
-  await binder(win).getByRole('button', { name: 'Consistency', exact: true }).click()
+  await openPage(win, 'Consistency')
   await main(win).getByRole('button', { name: 'The lost map' }).click()
   await expect(binder(win).getByRole('button', { name: /^Plot threads\s*\d/ })).toHaveAttribute('aria-current', 'page')
 
-  // Checking the story: facts, knowledge, timeline and continuity, with progress on the page and in the binder, and Stop.
-  await binder(win).getByRole('button', { name: 'Consistency', exact: true }).click()
+  // Checking the story: facts, knowledge, timeline and continuity, with progress on the page and, on the writing page,
+  // under the story's chapters and scenes; and Stop.
+  await openPage(win, 'Consistency')
   await main(win).getByRole('button', { name: 'Check this story', exact: true }).click()
   await expect(main(win).getByText('Checking Ch 1, Sc 1: The ferry · 1 of 3')).toBeVisible()
+  await openWrite(win)
   await expect(binder(win).getByRole('status', { name: 'Check running' })).toContainText('Checking Ch 1, Sc 1 · 1 of 3')
   await expect.poll(() => checkStarts(app).then((s) => s.length)).toBe(1)
   expect((await checkStarts(app))[0]).toMatchObject({ target: { scope: 'story', id: m.storyId }, checks: ['facts', 'knowledge', 'timeline', 'continuity'] })
+  await openPage(win, 'Consistency')
   await main(win).getByRole('button', { name: 'Stop' }).click()
   await expect(win.getByText(`Check of ${m.storyTitle} stopped.`)).toBeVisible()
-  await expect(binder(win).getByRole('status', { name: 'Check running' })).toHaveCount(0)
   await expect(main(win).getByRole('button', { name: 'Check this story', exact: true })).toBeVisible()
+  await openWrite(win)
+  await expect(binder(win).getByRole('status', { name: 'Check running' })).toHaveCount(0)
 
   // Voice and style too, from the small menu.
+  await openPage(win, 'Consistency')
   await main(win).getByRole('button', { name: 'More ways to check this story' }).click()
   await win.getByRole('menuitem', { name: /Voice and style too/ }).click()
+  await openWrite(win)
   await expect(binder(win).getByRole('status', { name: 'Check running' })).toBeVisible()
   await expect.poll(() => checkStarts(app).then((s) => s.length)).toBe(2)
   expect((await checkStarts(app))[1].checks).toEqual(['facts', 'knowledge', 'timeline', 'continuity', 'voice', 'style'])

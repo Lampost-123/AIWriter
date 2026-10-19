@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { binder, createWorldFromWelcome, expect, invoke, newDataDir, openSettings, startFake, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, newDataDir, openSettings, openWrite, startFake, test, useFakeModel } from './helpers'
 
 interface FakeSpeech {
   url: string
@@ -154,6 +154,7 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     await expect(win.getByRole('radiogroup', { name: 'Sound effects thinking' }).getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
 
     // Back to the scene: the Sounds tab, empty, in plain words.
+    await openWrite(win)
     await binder(win).locator('[data-row]', { hasText: 'Scene 1' }).first().click()
     await expect(prose(win)).toBeVisible()
     await soundsTab(win).click()

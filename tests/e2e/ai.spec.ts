@@ -4,7 +4,7 @@
 // Models page's key checks.
 import type { Page } from '@playwright/test'
 import type { FakeProvider, FakeProviderOptions } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, openSettings, sceneTitle, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
@@ -45,7 +45,7 @@ test('a draft keeps writing while another page is open, and every word reaches t
 
     await generateButton(win).click()
     await expect(prose(win)).toContainText('The rain')
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await expect(win.getByRole('heading', { name: 'No characters yet' })).toBeVisible()
     // The top bar says a draft is still being written, and Esc on this page leaves it alone.
     const writing = topBar(win).getByRole('button', { name: 'Writing…' })
@@ -55,7 +55,7 @@ test('a draft keeps writing while another page is open, and every word reaches t
     await expect(prose(win)).toBeVisible()
     await expect(generateButton(win)).toBeHidden()
 
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 30_000 }).toBe('complete')
     await expect(writing).toBeHidden()
     const [gen] = await invoke(win, 'listGenerations', sceneId)
@@ -83,7 +83,7 @@ test('a draft keeps writing into its own scene while another scene is open, says
     await generateButton(win).click()
     await expect(prose(win)).toContainText('The rain')
     await row('The Ferry').click()
-    await expect(win.locator('main header').getByRole('button', { name: 'The Ferry' })).toBeVisible()
+    await expect(sceneTitle(win, 'The Ferry')).toBeVisible()
     await expect(prose(win)).not.toContainText('The rain')
     // The top bar can take Adam back to it from here.
     await expect(topBar(win).getByRole('button', { name: 'Writing…' })).toBeVisible()
@@ -104,7 +104,7 @@ test('a draft keeps writing into its own scene while another scene is open, says
 
     // Show goes to it; the whole draft is one step there, as if Adam had stayed.
     await toasts(win).locator(':scope > div').filter({ hasText: 'The draft of “Scene 1” is finished.' }).getByRole('button', { name: 'Show' }).click()
-    await expect(win.locator('main header').getByRole('button', { name: 'Scene 1' })).toBeVisible()
+    await expect(sceneTitle(win, 'Scene 1')).toBeVisible()
     await expect(prose(win)).toContainText('The rain')
     await prose(win).click()
     await win.keyboard.press('Control+z')
@@ -170,7 +170,7 @@ test('deleting the scene a draft is writing into stops the draft, nothing is lef
       toasts(win).getByText('Drafting stopped because the scene was deleted. Undo brings it back with the text so far.')
     ).toBeVisible()
     await expect(toasts(win).getByText('“Scene 1” deleted.')).toBeVisible()
-    await expect(win.locator('main header').getByRole('button', { name: 'The Ferry' })).toBeVisible()
+    await expect(sceneTitle(win, 'The Ferry')).toBeVisible()
     expect((await invoke(win, 'listGenerations', sceneId))[0].status).toBe('stopped')
 
     // Nothing keeps trying to save into the deleted scene, and the open one saves as usual.
@@ -395,7 +395,7 @@ test('Models page: a rejected key is marked Not working, also after coming back;
     await expect(card).toBeVisible()
     await expect(win.getByText(/Click Edit and paste it again/)).toBeVisible()
 
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await openSettings(win, 'Models')
     await expect(card).toBeVisible()
   } finally {

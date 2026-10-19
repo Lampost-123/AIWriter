@@ -1,5 +1,5 @@
 import type { ElectronApplication, Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, openSettings, openWrite, sceneTitle, test } from './helpers'
 
 /** Closes the window the way Adam does (the X), so pending saves run first, and waits for the app to exit. */
 async function closeWindow(app: ElectronApplication): Promise<void> {
@@ -96,9 +96,9 @@ test('leaving the page and coming back keeps the place in a long scene', async (
   await expect(prose(win)).toContainText('300. The harbour')
 
   await scroller(win).evaluate((el) => (el.scrollTop = 8000))
-  await binder(win).getByRole('button', { name: 'Characters' }).click()
+  await openPage(win, 'Characters')
   await expect(win.getByRole('heading', { name: 'No characters yet' })).toBeVisible()
-  await row(win, 'Scene 1').click()
+  await openWrite(win)
   await expect(prose(win)).toBeVisible()
   expect(await scrollTop(win)).toBeCloseTo(8000, -1)
 
@@ -114,7 +114,7 @@ test('leaving the page and coming back keeps the place in a long scene', async (
 test('a scene title being typed is kept when the window closes before Enter', async ({ launch }) => {
   const first = await launch()
   await createWorldFromWelcome(first.win, 'Alpha')
-  await first.win.locator('main header').getByRole('button', { name: 'Scene 1' }).click()
+  await sceneTitle(first.win, 'Scene 1').click()
   await first.win.getByRole('textbox', { name: 'Scene title' }).fill('The Knock at the Door')
   await closeWindow(first.app)
 
@@ -162,11 +162,11 @@ test("the top bar's Saved is the scene's, so it shows only on the writing page",
   await expect(note).toHaveText('Saved')
   await expect(note).toHaveCSS('opacity', '1')
   // An entry page has its own save note: the bar's goes quiet, and screen readers aren't told "Saved".
-  await binder(win).getByRole('button', { name: 'Characters' }).click()
+  await openPage(win, 'Characters')
   await expect(win.getByRole('heading', { name: 'No characters yet' })).toBeVisible()
   await expect(note).toHaveCSS('opacity', '0')
   await expect(note.locator('[aria-hidden="true"]')).toHaveText('Saved')
-  await row(win, 'Scene 1').click()
+  await openWrite(win)
   await expect(note).toHaveCSS('opacity', '1')
 })
 

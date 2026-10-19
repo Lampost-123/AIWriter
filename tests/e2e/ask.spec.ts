@@ -7,7 +7,7 @@
 // provider answers as tests/fake-provider/m4/ask.mjs says.
 import type { Page } from '@playwright/test'
 import type { ModelChoice } from '@shared/types'
-import { closeWindow, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+import { areaButton, closeWindow, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
 
 const scenePanel = (win: Page) => win.getByRole('complementary', { name: 'Scene panel' })
 const panel = (win: Page) => win.getByRole('region', { name: 'Ask the world' })
@@ -45,7 +45,7 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await useFakeModel(win, fake, 'fake/writer')
 
     // Opened from the top bar, beside the page, with the keyboard in its box and the spec's examples.
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await expect(scenePanel(win).getByRole('region', { name: 'Ask the world' })).toBeVisible()
     await expect(box(win)).toBeFocused()
     await expect(panel(win).getByText('As of Book 1, Ch 1, Sc 1')).toBeVisible()
@@ -172,7 +172,7 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await closeWindow(first.app)
     const again = await launch({ dataDir: first.dataDir })
     await expect(again.win.locator('.scene-prose')).toBeVisible()
-    await again.win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(again.win, 'Ask').click()
     await expect(turns(again.win)).toHaveCount(4)
     await expect(turns(again.win).first()).toContainText('What would Mara Venn do if Tobin lied?')
     await expect(turns(again.win).first().locator('[data-answer]').getByRole('button', { name: 'Mara Venn' })).toBeVisible()
@@ -196,7 +196,7 @@ test('Ask the world’s answers in blocks: quick actions, option cards and what 
     const beats = async (): Promise<string[]> => (await invoke(win, 'getScene', sceneId)).card.beats
 
     // A quick action over the empty box starts the question.
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     // All four fit on the row in the panel's own width (short words there), with no scrolling sideways.
     const row = panel(win).locator('[data-context-row]')
     await expect(row.locator('[data-quick]')).toHaveCount(4)
@@ -258,7 +258,7 @@ test('Ask the world’s answers in blocks: quick actions, option cards and what 
     await expect(panel(win).locator('[data-density="compact"]')).toHaveCount(1)
     await win.reload()
     await expect(win.locator('.scene-prose')).toBeVisible()
-    if (!(await panel(win).count())) await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    if (!(await panel(win).count())) await areaButton(win, 'Ask').click()
     await expect(panel(win).locator('[data-density="compact"]')).toHaveCount(1)
 
     // What was made of the option cards is kept with the answer (chat Phase 4): the earlier chat, read back from its
@@ -284,9 +284,9 @@ test('Ask the world opens on the writing page with no scene open, says plainly w
   const { scenes } = await invoke(win, 'getOutline', story.id)
   await invoke(win, 'deleteScene', scenes[0].id)
   await win.reload()
-  await expect(win.getByRole('button', { name: 'Ask the world', exact: true })).toBeVisible()
+  await expect(areaButton(win, 'Ask')).toBeVisible()
 
-  await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+  await areaButton(win, 'Ask').click()
   const ask = win.getByRole('complementary', { name: 'Ask the world' }).getByRole('region', { name: 'Ask the world' })
   await expect(ask).toBeVisible()
   await expect(ask.getByText('As of the end of Book 1')).toBeVisible()
@@ -347,6 +347,6 @@ test('Ask the world opens on the writing page with no scene open, says plainly w
   }
 
   // The top bar's button closes it again.
-  await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+  await areaButton(win, 'Ask').click()
   await expect(ask).toHaveCount(0)
 })

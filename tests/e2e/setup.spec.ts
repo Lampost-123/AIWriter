@@ -4,7 +4,7 @@
 // The sample world opens from the first run, shows its codex and its story with its memory read, and opening it
 // again never makes a second one.
 import type { Page } from '@playwright/test'
-import { binder, closeWindow, expect, invoke, startFake, test } from './helpers'
+import { binder, closeWindow, expect, invoke, openPage, startFake, test } from './helpers'
 
 // A graphics card that can run the voices, so the read-aloud step offers its download (never started here).
 const SETUP = { AIWRITE_SETUP: 'on', AIWRITE_FAKE_SPEECH_GPU: 'NVIDIA GeForce RTX 4090', AIWRITE_FAKE_SPEECH_GPU_MEMORY: '24564', AIWRITE_FAKE_SPEECH_GPU_CAP: '8.9' }
@@ -127,9 +127,9 @@ test('the sample world opens from the first run with its story, codex and memory
   await expect(heading(win, 'Name your world')).toBeVisible()
   await win.getByRole('button', { name: 'Explore a sample world first' }).click()
 
-  // Its story, open at its first scene, and the line saying it is the sample.
+  // Its story, open at its first scene, and the chip in the top bar saying it is the sample.
   await expect(binder(win)).toBeVisible()
-  await expect(win.getByRole('region', { name: 'Sample world' })).toContainText('You’re exploring the sample world')
+  await expect(win.getByRole('region', { name: 'Sample world' })).toContainText('Sample world')
   await expect(binder(win).getByText('Lighting the Lamp')).toBeVisible()
   await expect(binder(win).getByText('Low Tide')).toBeVisible()
   await expect(prose(win)).toContainText('A hundred and twelve steps to the lamp room.')
@@ -142,7 +142,7 @@ test('the sample world opens from the first run with its story, codex and memory
   expect(status).toMatchObject({ behind: 0, failed: 0 })
 
   // The codex shows its people and places.
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
   for (const name of ['Wren Halloway', 'Iska Vey', 'The Gullhaven Light', 'The light is never dark']) {
     await expect(main(win).locator('[data-codex-card]').filter({ hasText: name }).first()).toBeVisible()
@@ -158,6 +158,6 @@ test('the sample world opens from the first run with its story, codex and memory
   expect((await invoke(win, 'listWorlds')).filter((w) => w.name.startsWith('Sample world'))).toHaveLength(1)
 
   // "Start my own world" goes back to the setup's first step.
-  await win.getByRole('region', { name: 'Sample world' }).getByRole('button', { name: 'Start my own world' }).click()
+  await win.getByRole('region', { name: 'Sample world' }).getByRole('button', { name: /^Start my own/ }).click()
   await expect(heading(win, 'Name your world')).toBeVisible()
 })

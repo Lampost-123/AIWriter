@@ -287,31 +287,6 @@ test('the panels show the river too', async ({ launch }) => {
   await expect(river(win).locator('.tl-lh-name')).toHaveText(['Wren Halloway', 'Edric Halloway', 'Ansel Crane', 'Iska Vey'])
 })
 
-test('Classic shows the river too, in its own look: lanes, the side card, and a double-click into the scene', async ({ launch }) => {
-  const { win } = await sampleWorld(launch, { AIWRITE_KEEPER_QUIET_MS: '600000' })
-  await expect(win.locator('html')).toHaveAttribute('data-look', 'classic')
-  await win.getByRole('complementary', { name: 'Binder' }).getByRole('button', { name: 'Timeline', exact: true }).click()
-  await expect(river(win)).toBeVisible()
-  await expect(cards(win).getByRole('listitem')).toHaveCount(4)
-  await expect(river(win).locator('.tl-lh-name')).toHaveText(['Wren Halloway', 'Edric Halloway', 'Ansel Crane', 'Iska Vey'])
-  // Classic's own type (not the New look's serif) and lane inks of its own, not all one grey.
-  const font = await river(win)
-    .locator('.tl-h1')
-    .evaluate((e) => e.ownerDocument.defaultView!.getComputedStyle(e).fontFamily)
-  expect(font).not.toContain('Literata')
-  const inks = await river(win)
-    .locator('.tl-run')
-    .evaluateAll((els) => [...new Set(els.map((e) => e.ownerDocument.defaultView!.getComputedStyle(e).stroke))])
-  expect(inks.length).toBeGreaterThanOrEqual(3)
-  await card(win, 'Low Tide').click()
-  await expect(side(win).getByRole('heading', { level: 2 })).toHaveText('Low Tide')
-  await card(win, 'What the Letter Said').dblclick()
-  await expect(win.getByRole('complementary', { name: 'Binder' }).getByRole('treeitem', { name: 'What the Letter Said' })).toHaveAttribute(
-    'aria-selected',
-    'true'
-  )
-})
-
 test('until Adam picks, the lanes are the main cast of the chapter in view, following him chapter by chapter; his pick then stays', async ({
   launch
 }) => {

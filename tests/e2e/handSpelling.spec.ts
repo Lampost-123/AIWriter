@@ -7,7 +7,8 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
-const countButton = (win: Page) => win.getByRole('button', { name: /^[\d,]+ words?$/ })
+// The top bar's word count (with today's share of a daily target beside it, once one is set: " · 58%").
+const countButton = (win: Page) => win.getByRole('button', { name: /^[\d,]+ words?(\s*·\s*\d+%)?$/ })
 const panel = (win: Page) => win.getByRole('dialog')
 
 /** Back to the page from Settings (the top bar's Settings button goes back where Adam was). */
@@ -72,7 +73,7 @@ test('the word count shows the scene, chapter, story and selection, and today’
 
   await prose(win).click()
   await win.keyboard.type('The lamps of Harrowgate burned low over the wet stones.')
-  await expect(countButton(win)).toHaveText('10 words')
+  await expect(countButton(win)).toHaveText(/^10 words\s*·\s*100%$/)
 
   await countButton(win).click()
   const p = panel(win)

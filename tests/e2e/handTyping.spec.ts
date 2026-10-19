@@ -8,7 +8,7 @@
 //    Ctrl+Shift+V pasting plain text in the page.
 //  - Settings › Appearance › Paragraphs: Book (indented, no gap). Settings › Editor › Typewriter scrolling.
 import type { ElectronApplication, Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openSettings, openWrite, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const para = (win: Page, i: number) => prose(win).locator(':scope > p').nth(i)
@@ -16,7 +16,9 @@ const selectionBar = (win: Page) => win.getByRole('toolbar', { name: 'Selected w
 const sceneRow = (win: Page) => binder(win).locator('[data-row]', { hasText: 'Scene 1' }).first()
 const formatMenu = (win: Page) => win.getByRole('menu')
 
+/** From Settings (whose own list covers the side pane), back to the scene through Write's list. */
 async function backToPage(win: Page): Promise<void> {
+  await openWrite(win)
   await sceneRow(win).click()
   await expect(prose(win)).toBeVisible()
 }

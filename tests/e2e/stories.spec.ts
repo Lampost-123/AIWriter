@@ -7,10 +7,11 @@
 import type { Locator, Page } from '@playwright/test'
 import type { StoryPlacement } from '../../src/shared/api'
 import type { Story } from '../../src/shared/types'
-import { binder, closeWindow, createWorldFromWelcome, expect, invoke, startFake, test } from './helpers'
+import { binder, closeWindow, createWorldFromWelcome, expect, invoke, openPage, startFake, test } from './helpers'
 
 const crumbs = (win: Page) => win.locator('main header').first()
-const switcher = (win: Page, title: string) => binder(win).getByRole('button', { name: title, exact: true })
+/** The story menu at the head of the Write area's list, showing this story as the one open. */
+const switcher = (win: Page, title: string) => binder(win).locator('[data-story-menu]', { has: win.getByText(title, { exact: true }) })
 
 async function openNewStory(win: Page, current: string): Promise<Locator> {
   await switcher(win, current).click()
@@ -481,8 +482,8 @@ test('the New story dialog keeps Ctrl+G to itself, and closed without a story th
     await win.keyboard.type('Back to it.')
     await expect.poll(async () => (await invoke(win, 'getScene', scenes[0].id)).text).toBe('Back to it.')
 
-    // From another page, Cancel puts the keyboard back on the story menu.
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    // From another page, Cancel puts the keyboard back on the story menu (the Write area's pages have it).
+    await openPage(win, 'Style guide')
     dialog = await openNewStory(win, 'Book 1')
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(dialog).toBeHidden()

@@ -5,7 +5,7 @@
 // a folder, screenshots of each step are saved there.
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, openWrite, test } from './helpers'
 
 const shots = process.env.AIWRITE_SHOTS
 const prose = (win: Page) => win.locator('.scene-prose')
@@ -63,7 +63,7 @@ test('the memory opens a plot thread from the text and resolves it from the payo
     await shot(win, 'scene-card-ai-link')
 
     // On the board: open, found by the AI, with its promise.
-    await binder(win).getByRole('button', { name: 'Plot threads board', exact: true }).click()
+    await openPage(win, 'Plot threads board')
     const card = main(win).getByRole('listitem').filter({ hasText: BELL })
     const column = (name: string) => main(win).getByRole('region', { name, exact: true })
     await expect(column('Open').getByRole('listitem').filter({ hasText: BELL })).toBeVisible()
@@ -72,6 +72,7 @@ test('the memory opens a plot thread from the text and resolves it from the payo
     await shot(win, 'board-open-found-by-ai')
 
     // The payoff, on the page in a later scene: resolved on its own, with the words that paid it off.
+    await openWrite(win)
     await binder(win).getByRole('treeitem', { name: 'The ferryman' }).click()
     await prose(win).click()
     await win.keyboard.type('At last the answer came: the ferryman rang it for his drowned son.')
@@ -80,7 +81,7 @@ test('the memory opens a plot thread from the text and resolves it from the payo
     expect(paid.paysOffIds).toHaveLength(1)
     expect(paid.threadLinks?.[`paysOff:${paid.paysOffIds[0]}`]).toBe('ai')
 
-    await binder(win).getByRole('button', { name: 'Plot threads board', exact: true }).click()
+    await openPage(win, 'Plot threads board')
     await expect(column('Resolved').getByRole('listitem').filter({ hasText: BELL })).toBeVisible()
     await expect(card.getByTestId('thread-payoff')).toHaveText('“At last the answer came: the ferryman rang it for his drowned son.”')
     await expect(card).toContainText('Resolved by AI')
@@ -120,7 +121,7 @@ test('the promises ledger: an overdue thread in Worth a look, Pay off later and 
   const due = async () => (await threadsBoard(win, story.id)).find((t) => t.id === bell.id)?.due ?? null
 
   // Worth a look: due by the end of Ch 1, and the story is written into Ch 3.
-  await binder(win).getByRole('button', { name: 'What changed' }).click()
+  await openPage(win, 'What changed')
   const waiting = () => main(win).getByRole('group', { name: 'Plot threads left waiting' })
   await expect(waiting()).toContainText('The drowned bell: Still open, and due by the end of Ch 1')
   await expect(waiting()).toContainText('Last touched in')
@@ -140,7 +141,7 @@ test('the promises ledger: an overdue thread in Worth a look, Pay off later and 
   await waiting().getByRole('button', { name: /^Mark as dropped: / }).click()
   await expect(win.getByText('Marked “The drowned bell” as dropped. The AI won’t bring it up again.')).toBeVisible()
   await expect(waiting()).toHaveCount(0)
-  await binder(win).getByRole('button', { name: 'Plot threads board', exact: true }).click()
+  await openPage(win, 'Plot threads board')
   const column = (name: string) => main(win).getByRole('region', { name, exact: true })
   await expect(column('Dropped').getByRole('listitem').filter({ hasText: 'The drowned bell' })).toBeVisible()
   await shot(win, 'board-dropped')

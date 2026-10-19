@@ -26,7 +26,7 @@
 //     Use this adds to what the card has; What the AI saw and back.
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, openSettings, openWrite, sceneTitle, test, useFakeModel } from './helpers'
 
 const PREMISE =
   'Mara, a ferryman who owes the Duke more than she can pay, is hired to smuggle the heir out of Varn before the river freezes.'
@@ -63,11 +63,20 @@ async function choose(win: Page, label: string, option: string): Promise<void> {
   await expect(main(win).getByRole('combobox', { name: label, exact: true })).toHaveText(option)
 }
 
-/** Opens the outline helper from the story menu. */
+/** Opens the outline helper from the story menu (at the head of Write's list, which also says what the story holds). */
 async function openHelper(win: Page, story = 'Book 1'): Promise<void> {
-  await binder(win).getByRole('button', { name: story, exact: true }).click()
+  const menu = binder(win).locator('[data-story-menu]')
+  await expect(menu).toContainText(story)
+  await menu.click()
   await win.getByRole('menuitem', { name: 'Outline helper' }).click()
   await expect(main(win).getByLabel('Premise', { exact: true })).toBeVisible()
+}
+
+/** Opens Earlier suggestions on the helper (folded away each time the helper opens). */
+async function openEarlier(win: Page): Promise<void> {
+  const toggle = main(win).getByRole('region', { name: 'Earlier suggestions', exact: true }).getByRole('button', { name: 'Earlier suggestions' })
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
 }
 
 /** The fake server, its slow model ("fake/slow") taking `slowDelayMs` between pieces. */
@@ -193,19 +202,22 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     ] as const)
       await expect(suggestion(win, kind, title)).toHaveAttribute('data-state', 'kept')
     await expect(suggestion(win, 'Scene', 'Arrival in the rain')).toHaveAttribute('data-state', 'open')
+    await expect(main(win).getByRole('button', { name: /^Remove the empty/ })).toHaveCount(0)
+    expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Rain on the Narrows'])
+    // In the binder (Write's list): the act, its chapter and the scene.
+    await openWrite(win)
     await expect(actRows(win)).toHaveCount(1)
     await expect(actBlock(win, 'The Arrival').locator('[data-row="chapter"]')).toContainText(['Rain on the Narrows'])
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toHaveCount(1)
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['A bargain at the docks'])
     // The first Keep takes the place of the empty Chapter 1 and Scene 1 the story was made with: nothing is left above it.
     await expect(chapterRow(win, 'Chapter 1')).toHaveCount(0)
-    await expect(main(win).getByRole('button', { name: /^Remove the empty/ })).toHaveCount(0)
-    expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Rain on the Narrows'])
 
     // Undo takes them out of the story again, and they wait for a decision once more.
     await undoIn(win, keptOne).click()
     await expect(actRows(win)).toHaveCount(0)
     await expect(chapterRow(win, 'Chapter 1')).toHaveCount(1)
+    await openHelper(win)
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'open')
     expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Chapter 1'])
 
@@ -219,7 +231,8 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     ).toBeVisible()
     await expect(main(win).getByRole('button', { name: 'Keep all that’s left' })).toHaveCount(0)
 
-    // In the binder: each act with its chapters and scenes, in the order suggested.
+    // In the binder (Write's list): each act with its chapters and scenes, in the order suggested.
+    await openWrite(win)
     await expect(actRows(win)).toHaveCount(2)
     await expect(actRows(win)).toContainText(['The Arrival', 'The Turning'])
     await expect(actBlock(win, 'The Arrival').locator('[data-row="chapter"]')).toHaveCount(1)
@@ -262,6 +275,7 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     ).toMatchObject([{ when: 'Day 1, before dawn' }, { when: 'Day 1, midday' }, { when: 'Day 3, morning' }, { when: 'Day 3, midday' }])
 
     // ----- What the AI saw, and back -----
+    await openHelper(win)
     await main(win).getByRole('button', { name: 'What the AI saw' }).click()
     await expect(main(win).getByRole('heading', { level: 1, name: 'What the AI saw' })).toBeVisible()
     await expect(main(win).getByText(/^The exact briefing for this outline, written /)).toBeVisible()
@@ -271,7 +285,7 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
 
     // ----- Start writing: the first scene kept, its card filled in, offers no ideas -----
     await main(win).getByRole('button', { name: 'Start writing' }).click()
-    await expect(win.locator('main header').getByRole('button', { name: 'Arrival in the rain', exact: true })).toBeVisible()
+    await expect(sceneTitle(win, 'Arrival in the rain')).toBeVisible()
     await win.getByRole('tab', { name: 'Scene card' }).click()
     await expect(sceneCard(win).getByRole('textbox', { name: 'Beats', exact: true })).toHaveValue('Mara lands in the rain')
     await expect(sceneCard(win).getByRole('textbox', { name: 'Beat 3', exact: true })).toHaveValue('She slips away')
@@ -317,6 +331,8 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     expect(again).toContain('Its last scene with a When is set at “Day 3, morning”')
     await keepButton(win, "The Ferryman's Price").click()
     await expect(toastWith(win, "Added “The Ferryman's Price” to the story, with a scene.")).toBeVisible()
+    // The binder (Write's list) has it.
+    await openWrite(win)
     await expect(actBlock(win, 'The Turning').locator('[data-row="chapter"]')).toHaveCount(2)
     await expect(actBlock(win, 'The Turning').locator('[data-row="chapter"]')).toContainText([
       'Lanterns at Low Tide',
@@ -324,7 +340,7 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     ])
 
     // ----- The Timeline shows every kept scene on its day, in order -----
-    await binder(win).getByRole('button', { name: 'Timeline', exact: true }).click()
+    await openPage(win, 'Timeline')
     const timeline = main(win).getByRole('list', { name: 'Timeline' })
     await expect(timeline.getByRole('listitem').first()).toBeVisible()
     await expect(main(win).getByText('No dates yet', { exact: false })).toHaveCount(0)
@@ -361,8 +377,9 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(keepButton(win, 'The Arrival')).toHaveCount(0)
 
     // Away to the scene and back: it is still arriving, with Stop.
+    await openWrite(win)
     await sceneRow(win, 'Scene 1').click()
-    await expect(win.locator('main header').getByRole('button', { name: 'Scene 1', exact: true })).toBeVisible()
+    await expect(sceneTitle(win, 'Scene 1')).toBeVisible()
     await openHelper(win)
     await expect(main(win).getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
     await expect(main(win).getByText(/^Suggesting… .+ so far$/)).toBeVisible()
@@ -374,7 +391,10 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(main(win).getByText(/^Stopped\. What had arrived is below: /)).toBeVisible()
     await keepButton(win, 'Arrival at the docks').click()
     await expect(toastWith(win, 'Added “Arrival at the docks” to the story, in a new chapter and act.')).toBeVisible()
+    // The binder (Write's list) has it; then back to the helper.
+    await openWrite(win)
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks'])
+    await openHelper(win)
 
     // A request that fails says why in plain words. The suggestions not decided on stay, as they were, under Earlier
     // suggestions: folded away until opened.
@@ -390,19 +410,25 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'kept')
     await expect(suggestion(win, 'Scene', 'A bargain at the docks')).toHaveAttribute('data-state', 'open')
 
-    // Deleted from the binder, what was kept waits for a decision again, and Keep makes it anew.
+    // Deleted from the binder (Write's list), what was kept waits for a decision again, and Keep makes it anew.
+    await openWrite(win)
     await actRow(win, 'The Arrival').click({ button: 'right' })
     await win.getByRole('menuitem', { name: 'Delete act' }).click()
     await expect(toastWith(win, '“The Arrival” and its chapter deleted.')).toBeVisible()
     await expect(actRows(win)).toHaveCount(0)
+    await openHelper(win)
     await expect(heading(win)).toHaveText('Plan the story from its premise')
+    // Back on the helper, the earlier ones are folded away again.
+    await openEarlier(win)
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'open')
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toHaveAttribute('data-state', 'open')
     await keepButton(win, 'Arrival at the docks').click()
     await expect(toastWith(win, 'Added “Arrival at the docks” to the story, in a new chapter and act.')).toHaveCount(1)
-    await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks'])
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toHaveAttribute('data-state', 'kept')
     expect((await invoke(win, 'getOutline', story.id)).acts!.map((a) => a.title)).toEqual(['The Arrival'])
+    await openWrite(win)
+    await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks'])
+    await openHelper(win)
 
     // Asked again, the new ones come in at the top, and the earlier ones stay there as long as Adam likes, even after
     // he keeps one of the new ones; they can be kept from, or put away with Undo.
@@ -412,6 +438,7 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     const newest = main(win).getByRole('region', { name: 'Suggestions', exact: true })
     await newest.locator('[data-suggestion="scene"][data-state="open"]').first().getByRole('button', { name: /^Keep/ }).click()
     await expect(newest.locator('[data-suggestion="scene"][data-state="kept"]')).toHaveCount(1)
+    await openEarlier(win)
     const bargain = earlier.getByRole('group', { name: 'Scene: A bargain at the docks', exact: true })
     await expect(bargain).toHaveAttribute('data-state', 'open')
     await earlier.getByRole('button', { name: 'Put these away' }).click()
@@ -421,8 +448,9 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     // Kept from there, it goes into its own chapter; with nothing left to decide in it, the batch leaves the page.
     await bargain.getByRole('button', { name: 'Keep “A bargain at the docks”' }).click()
     await expect(toastWith(win, 'Added “A bargain at the docks” to the story.')).toBeVisible()
-    await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks', 'A bargain at the docks'])
     await expect(earlier).toHaveCount(0)
+    await openWrite(win)
+    await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks', 'A bargain at the docks'])
   } finally {
     await fake.close()
   }
@@ -622,7 +650,7 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
       'Tobin calls in the favour Mara owes him, and it costs her an old friend.'
     )
     await expect(sceneRow(win, 'A debt called in')).toBeVisible()
-    await expect(win.locator('main header').getByRole('button', { name: 'A debt called in', exact: true })).toBeVisible()
+    await expect(sceneTitle(win, 'A debt called in')).toBeVisible()
     // A card with something on it offers no ideas.
     await expect(sceneCard(win).getByRole('button', { name: 'Ideas for this scene' })).toHaveCount(0)
     await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).card.beats).toEqual(beats)

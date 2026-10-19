@@ -10,7 +10,7 @@
 //     when the AI has enough, the chapter gets a goal and scene cards to keep, edit or discard. The first
 //     kept takes the place of the chapter's empty "Scene 1"; Undo puts it back.
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openWrite, test, useFakeModel } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
@@ -109,6 +109,9 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     await useFakeModel(win, fake)
     const [chapter] = (await invoke(win, 'getOutline', story.id)).chapters
     const [lone] = (await invoke(win, 'getOutline', story.id)).scenes
+    // The chapter's scenes, in order (the chapter's page is in the Plan area, so the story's tree isn't beside it).
+    const chapterScenes = async (): Promise<string[]> =>
+      (await invoke(win, 'getOutline', story.id)).scenes.filter((s) => s.chapterId === chapter.id).map((s) => s.title)
 
     // ----- From the chapter's menu in the binder -----
     fake.reset()
@@ -135,15 +138,14 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     await page.getByRole('button', { name: 'Keep “Questions at the market”', exact: true }).click()
     const kept = 'Added “Questions at the market” to the chapter.'
     await expect(toastWith(win, kept)).toBeVisible()
-    await expect(sceneRow(win, 'Questions at the market')).toBeVisible()
-    await expect(sceneRow(win, 'Scene 1')).toHaveCount(0)
+    await expect.poll(chapterScenes).toEqual(['Questions at the market'])
     await expect.poll(async () => (await invoke(win, 'getScene', lone.id)).title).toBe('Questions at the market')
 
     // ----- Discard one, keep the rest -----
     await page.getByRole('button', { name: 'Discard “The name on the door”', exact: true }).click()
     await expect(suggestion('The name on the door')).toHaveCount(0)
     await page.getByRole('button', { name: 'Keep all that’s left' }).click()
-    await expect(sceneRow(win, 'A letter at dawn')).toBeVisible()
+    await expect.poll(chapterScenes).toEqual(['A letter at dawn', 'Questions at the market'])
     await expect(page.getByText('Everything is decided.', { exact: false })).toBeVisible()
     const scenes = (await invoke(win, 'getOutline', story.id)).scenes.filter((s) => s.chapterId === chapter.id)
     expect(scenes.map((s) => s.title)).toEqual(['A letter at dawn', 'Questions at the market'])
@@ -153,10 +155,13 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
 
     // ----- Undo (one toast for both keeps): "Scene 1" is back as it was -----
     await undoIn(win, 'Added 2 scenes to the chapter.').click()
+    await expect.poll(chapterScenes).toEqual(['Scene 1'])
+    await expect(page.getByRole('button', { name: 'Keep “A letter at dawn”', exact: true })).toBeVisible()
+    // The story's tree says the same.
+    await openWrite(win)
     await expect(sceneRow(win, 'Scene 1')).toBeVisible()
     await expect(sceneRow(win, 'Questions at the market')).toHaveCount(0)
     await expect(sceneRow(win, 'A letter at dawn')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Keep “A letter at dawn”', exact: true })).toBeVisible()
   } finally {
     await fake.close()
   }

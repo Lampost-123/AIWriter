@@ -4,7 +4,7 @@
 import type { Page } from '@playwright/test'
 import type { Entry } from '@shared/types'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { createWorldFromWelcome, expect, invoke, openPage, openSettings, test } from './helpers'
 
 /** One paragraph: two characters, two places (one inside the other), a group, an item, an absolute rule, a dated event, a question and a word. */
 const SUMMARY = [
@@ -36,7 +36,6 @@ const MADE = [
 const VOICE = 'A woman in her thirties with a low, steady voice, a slight northern lilt and a dry, unhurried delivery.'
 
 const main = (win: Page) => win.locator('main')
-const worldNav = (win: Page) => win.getByRole('navigation', { name: 'World' })
 const summaryBox = (win: Page) => main(win).getByRole('textbox', { name: 'Your summary' })
 const soFar = (win: Page) => main(win).getByRole('region', { name: 'Made so far' })
 const results = (win: Page) => main(win).getByRole('region', { name: 'Made from your summary' })
@@ -75,7 +74,7 @@ async function connect(win: Page, fake: FakeProvider, world?: string): Promise<v
 }
 
 async function openFromBinder(win: Page): Promise<void> {
-  await worldNav(win).getByRole('button', { name: 'Build from a summary' }).click()
+  await openPage(win, 'Build from a summary')
   await expect(main(win).getByRole('heading', { level: 1, name: 'Build the world from a summary' })).toBeVisible()
 }
 
@@ -184,7 +183,7 @@ test('one paragraph builds the world in one click, saving as it goes: his words 
     await expect(results(win).getByRole('button', { name: 'Open Mara Venn', exact: true })).toBeVisible()
 
     // What changed: the whole build is one run, and any line of it can be undone there.
-    await worldNav(win).getByRole('button', { name: 'What changed' }).click()
+    await openPage(win, 'What changed')
     const run = main(win).getByRole('region', { name: 'Built from your summary' })
     await expect(run).toHaveCount(1)
     // 2026-10-17: the opening scene's "Day 1" is a line of the build too, so Undo takes it back.
@@ -210,7 +209,7 @@ test('one paragraph builds the world in one click, saving as it goes: his words 
     await expect(results(win).getByRole('button', { name: 'Open Mara Venn', exact: true })).toBeVisible()
 
     // The Timeline has something to show: the opening scene on Day 1, and the flood the summary dates.
-    await worldNav(win).getByRole('button', { name: 'Timeline', exact: true }).click()
+    await openPage(win, 'Timeline')
     const timeline = main(win).getByRole('list', { name: 'Timeline' })
     await expect(timeline.getByRole('button', { name: /^Book 1, Ch 1, Sc 1, Scene 1\. Day 1\./ })).toBeVisible()
     await expect(timeline.getByRole('button', { name: /The Great Flood\. in the year 312\./ })).toBeVisible()
@@ -296,7 +295,7 @@ test('Cancel stops the build and keeps what was saved; one Undo still takes it a
     await connect(win, fake, 'fake/slow')
 
     // From the empty codex, beside its other two ways to start.
-    await worldNav(win).getByRole('button', { name: 'Codex' }).click()
+    await openPage(win, 'Codex')
     await expect(main(win).getByRole('button', { name: 'Quick start from a few notes' })).toBeVisible()
     await main(win).getByRole('button', { name: 'Build from a summary' }).click()
     await expect(main(win).getByRole('heading', { level: 1, name: 'Build the world from a summary' })).toBeVisible()

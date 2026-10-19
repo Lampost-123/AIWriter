@@ -3,7 +3,7 @@
 // adds a fact, editing it changes the fact, deleting it takes the fact away, with no clicks.
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, openSettings, openWrite, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const row = (win: Page, title: string) => binder(win).locator('[data-row]', { hasText: title }).first()
@@ -42,13 +42,14 @@ test('typing a sentence adds a fact; editing it changes the fact; deleting it ta
 
     // A moment without typing and the memory reads it: Mara, and what happened to her.
     await expect.poll(() => notes(win), { timeout: 30_000 }).toEqual(['lost her left hand'])
-    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    await openPage(win, 'What changed')
     const list = win.locator('main')
     await expect(list.getByRole('region', { name: 'Book 1, Ch 1, Sc 1' })).toBeVisible()
     await expect(list.getByRole('button', { name: 'Undo: Mara, New character' })).toBeVisible()
     await expect(list.getByRole('button', { name: 'Undo: Mara, Lost her left hand' })).toBeVisible()
 
     // Editing the words changes the fact.
+    await openWrite(win)
     await row(win, 'Scene 1').click()
     await prose(win).click()
     await win.keyboard.press('Control+End')
@@ -65,7 +66,7 @@ test('typing a sentence adds a fact; editing it changes the fact; deleting it ta
     expect(log.every((l) => l.where === 'Book 1, Ch 1, Sc 1')).toBe(true)
 
     // Words that were deleted are shown quietly, not as a way to words that aren't there.
-    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    await openPage(win, 'What changed')
     const gone = list.getByRole('listitem').filter({ hasText: 'Lost her right hand: those words were deleted' })
     await expect(gone.getByTitle('These words are no longer in the scene')).toContainText('right hand')
     await expect(gone.getByTitle('Show these words in the scene')).toHaveCount(0)
@@ -96,6 +97,7 @@ test('Settings › Models: the memory can have a model of its own, and go back t
 
     // The memory reads with it; the writer model isn't asked.
     fake.reset()
+    await openWrite(win)
     await row(win, 'Scene 1').click()
     await prose(win).click()
     await win.keyboard.type('Mara lost her left hand.')
@@ -125,7 +127,7 @@ test('a thing the memory finds is kept as an item, and only what the story says 
     const entry = async (name: string) => (await invoke(win, 'listEntries')).find((e) => e.name === name) ?? null
     await expect.poll(async () => (await entry("Pell's blue bead"))?.kind, { timeout: 30_000 }).toBe('item')
     expect((await entry('Pell'))?.kind).toBe('character')
-    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    await openPage(win, 'What changed')
     await expect(win.locator('main').getByRole('button', { name: "Undo: Pell's blue bead, New item" })).toBeVisible()
 
     // Then each gets what the scene says of it, as the AI's; the fake model's guesses for the rest had no words from
@@ -168,7 +170,7 @@ test('a new name the story calls someone is underlined in its scene and offered 
     await win.mouse.move(5, 5)
 
     // Offered as another name in What changed, under Worth a look; Add name makes it one of hers, with Undo.
-    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    await openPage(win, 'What changed')
     const list = win.locator('main')
     const group = list.getByRole('group', { name: 'Other names the story uses' })
     await expect(group).toContainText('Also called “the Captain”')

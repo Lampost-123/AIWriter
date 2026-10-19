@@ -28,7 +28,7 @@ test('keeping an outline gives the story its cast and places before anything is 
     await invoke(win, 'updateStory', story.id, { premise: PREMISE })
     await useFakeModel(win, fake)
 
-    await binder(win).getByRole('button', { name: 'Book 1', exact: true }).click()
+    await binder(win).locator('[data-story-menu]').click()
     await win.getByRole('menuitem', { name: 'Outline helper' }).click()
     await choose(win, 'Acts', '2 acts')
     await choose(win, 'Chapters', '3 chapters')

@@ -57,8 +57,10 @@ test('the page adds up the AI calls, and a small limit asks before the next draf
       })
       .toBeGreaterThan(1)
     await expect(win.getByRole('heading', { name: 'By job' })).toBeVisible()
-    await expect(win.getByText('Writing', { exact: true })).toBeVisible()
-    await expect(win.getByText('fake/writer', { exact: true })).toBeVisible()
+    const byJob = win.getByRole('list', { name: 'By job' })
+    await expect(byJob.getByText('Writing', { exact: true })).toBeVisible()
+    // Each model by its name, its maker beside it (fake/writer is "writer", by "fake").
+    await expect(win.getByRole('list', { name: 'By model' }).getByTitle('fake/writer', { exact: true })).toHaveText('writer')
     await win.getByRole('radio', { name: 'All time' }).click()
     await expect(win.getByText('By month')).toBeVisible()
 

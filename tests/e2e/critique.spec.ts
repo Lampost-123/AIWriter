@@ -228,11 +228,9 @@ test('a note whose words changed says so in place; Not needed (with Undo) and No
   }
 })
 
-for (const look of ['classic', 'new'] as const) {
-  test(`the Critique tab fits beside the others at the panel’s narrowest, with the Sounds tab too (${look === 'new' ? 'the New look' : 'Classic'})`, async ({
-    launch
-  }) => {
-    const { win } = await launch({ env: { AIWRITE_LOOK: look } })
+{
+  test('the Critique tab fits beside the others at the panel’s narrowest, with the Sounds tab too', async ({ launch }) => {
+    const { win } = await launch()
     await createWorldFromWelcome(win, 'Lowtown')
     await invoke(win, 'updateSettings', { layout: { inspectorWidth: 260 } })
     await win.reload()
