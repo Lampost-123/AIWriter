@@ -478,7 +478,7 @@ describe('drafting', () => {
   it('takes the plan’s notes off the start of the draft when the writer says them again (step 4)', async () => {
     const { emit, done, events } = recorder()
     const input = gatherContextInput(w.db, w.second.id, { targetWords: 600 }, { prefs: { spelling: 'UK', pov: 'Close third', tense: 'Past', voiceNotes: '', avoidWords: [] }, contextLength: 32000, creativity: 'steady' })
-    const notes = `${PLAN_HEAD}\nWhat happens on the page, in order:\n1. Tobin opens the door.\n${PLAN_GO.start}`
+    const notes = `${PLAN_HEAD}\nWhat changes on the page, in order:\n1. Tobin opens the door.\n${PLAN_GO.start}`
     const preview = assembleContext({ ...input, plan: { needs: [], text: notes } }, countRaw)
     expect(preview.messages.at(-1)!.content.endsWith(notes)).toBe(true)
     const prose = 'Tobin opened the door.\n\nThe rain came in with him.'

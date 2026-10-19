@@ -1,9 +1,23 @@
 // The plan's notes said again before the prose are taken off the start of a draft as it streams, in pieces of any size;
 // prose that only looks like them for a moment goes through untouched. Invented test text only.
 import { describe, expect, it } from 'vitest'
-import { carriesPlan, PLAN_GO, PLAN_HEAD, PlanEchoFilter } from './echo'
+import { carriesPlan, PLAN_GO, PLAN_HEAD, PLAN_PARTS, PlanEchoFilter } from './echo'
 
-const NOTES = `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren: left arm in a sling\nWhat happens on the page, in order:\n1. Osric climbs up.\n${PLAN_GO.start}`
+const NOTES = [
+  PLAN_HEAD,
+  `${PLAN_PARTS.point} Wren wants: to keep the ledger. Against it: Osric. How it turns: he finds it.`,
+  `${PLAN_PARTS.where} Wren: in the loft; Osric: at the hatch.`,
+  PLAN_PARTS.keep,
+  '- Wren: left arm in a sling',
+  `${PLAN_PARTS.beats}:`,
+  '1. Osric climbs up.',
+  `${PLAN_PARTS.changes}:`,
+  '1. Osric climbs up.',
+  PLAN_PARTS.stay,
+  '- Osric does not know of the forgery',
+  `${PLAN_PARTS.end} The ladder, empty.`,
+  PLAN_GO.start
+].join('\n')
 const PROSE = 'The ladder creaked under him.\n\n"You came," she said.'
 
 /** The text in pieces of `size` characters, through a filter, as a draft streams. */

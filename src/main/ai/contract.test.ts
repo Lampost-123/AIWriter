@@ -504,7 +504,9 @@ describe('in the writer’s briefing', () => {
       'Wren shows him the case Ash left'
     ])
     const beat = prepareContext(briefingInput({ contract: { asks: 'beat', focus: 'Wren shows him the case' } }))
-    expect(beat.blocks.find((b) => b.id === CONTRACT_BLOCK.id)!.text).toContain('Must change by the end of this beat:\n1. Wren shows him the case')
+    expect(beat.blocks.find((b) => b.id === CONTRACT_BLOCK.id)!.text).toContain('Must change by the end of this beat:\n1. This beat, as given last of all, below.')
+    // The check still reads the beat itself.
+    expect(contractText(beat.contract!, { codes: true })).toContain('Wren shows him the case')
   })
 
   it('is never left out, even for a model with very little room', () => {

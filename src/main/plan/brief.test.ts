@@ -421,8 +421,6 @@ describe('what the plan reads for the brief', () => {
 const PLAIN: PlanMaterial = {
   ask: 'Write the scene now.',
   card: 'Scene: The hatch\nPoint of view: Wren\nBeats, in order:\n1. Osric climbs up',
-  direction: '',
-  focus: '',
   must: '- Wren: left arm in a sling (since Ch 1, Sc 2)',
   reach: 'here',
   stand: '',
@@ -463,20 +461,17 @@ describe('the plan’s request with a brief', () => {
     expect(planMessages({ ...PLAIN, brief: { ...MATERIAL, words: 1_450 } })[0].content).toBe(asked)
   })
 
-  it('the book first, then the record, the plan’s own parts, the passages after the words before, and what the writer is asked last', () => {
+  it('the book first, then the record, the plan’s own parts, the passages after the words before, and what is being written last', () => {
     const [, user] = planMessages({ ...PLAIN, brief: MATERIAL })
     const at = (s: string) => user.content.indexOf(s)
     expect(at('## The book so far, word for word')).toBe(0)
     expect(at('## The book so far')).toBeLessThan(at('## Who knows what'))
     expect(at('## Who knows what')).toBeLessThan(at('## The scene card'))
     expect(at('## The end of the previous scene')).toBeLessThan(at('## Earlier passages found'))
-    expect(at('## Earlier passages found')).toBeLessThan(at('## What the writer is asked'))
+    expect(at('## Earlier passages found')).toBeLessThan(at('## What is being written'))
     expect(
       user.content.trimEnd().endsWith('Plan the scene and write its continuity brief (at most about 750 words) now, as one JSON object.')
     ).toBe(true)
-    expect(planMessages({ ...PLAIN, focus: 'Beat 2 of 3: Osric climbs up', brief: MATERIAL })[1].content.trimEnd()).toMatch(
-      /Plan the beat and write its continuity brief \(at most about 750 words\) now, as one JSON object\.$/
-    )
     // A model that caches only where asked keeps the book up to its last scene: the same at the next scene, but for what is
     // added; never its last line, which says where it ends and so is new every scene (fix 14's review).
     const book = bookPart(BOOK)

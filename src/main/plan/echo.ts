@@ -2,9 +2,20 @@
 // those notes again before its prose; they are taken off the start of the draft as it streams (drafts.ts), so they
 // never reach the page, the record or the word count. Pure.
 
-/** What the plan's notes say first, the heads of their two parts, and their last line, leading into the prose. */
+/** What the plan's notes say first, the heads of their parts, and their last line, leading into the prose. */
 export const PLAN_HEAD = 'My notes before I write (I keep to them as I go):'
-export const PLAN_PARTS = { keep: 'What the scene rests on, as things stand:', changes: 'What happens on the page, in order:' } as const
+export const PLAN_PARTS = {
+  /** One line: what the point-of-view character wants, what stands in the way, and the turn. */
+  point: 'The point:',
+  /** One line: who is there and where. */
+  where: 'Who is where:',
+  keep: 'What the scene rests on, as things stand:',
+  beats: 'The beats, in order',
+  changes: 'What changes on the page, in order',
+  stay: 'What must stay true:',
+  /** One line: the closing image. */
+  end: 'It ends on:'
+} as const
 export const PLAN_GO = {
   start: 'Now the prose itself:',
   here: 'Now the prose, carrying straight on from the very end of the scene so far:'
@@ -14,12 +25,12 @@ export const PLAN_GO = {
 export const carriesPlan = (messages: readonly { content: unknown }[]): boolean =>
   messages.some((m) => typeof m.content === 'string' && m.content.includes(PLAN_HEAD))
 
-const STARTERS: string[] = [PLAN_HEAD, PLAN_PARTS.keep, PLAN_PARTS.changes, PLAN_GO.start, PLAN_GO.here]
+const STARTERS: string[] = [PLAN_HEAD, ...Object.values(PLAN_PARTS), PLAN_GO.start, PLAN_GO.here]
 const isGo = (line: string): boolean => line.trim() === PLAN_GO.start || line.trim() === PLAN_GO.here
-/** A line the notes are made of: one of their own lines, a "- " line, a numbered line, or a blank. */
+/** A line the notes are made of: one of their own lines (a part's head starts it), a "- " line, a numbered line, or a blank. */
 const notesLine = (line: string): boolean => {
   const l = line.trim()
-  return !l || STARTERS.includes(l) || /^- \S/.test(l) || /^\d+\. \S/.test(l)
+  return !l || STARTERS.some((s) => l.startsWith(s)) || /^- \S/.test(l) || /^\d+\. \S/.test(l)
 }
 /** Notes longer than this are not waited for: what is held goes out. */
 const HOLD_MOST = 8_000

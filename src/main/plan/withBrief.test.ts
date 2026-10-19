@@ -77,8 +77,6 @@ function input(sceneId: string, storyTitle: string, threads = 0): ContextInput {
 const PLAIN: PlanMaterial = {
   ask: 'Write the scene now.',
   card: 'Scene: The hatch\nPoint of view: Wren\nBeats, in order:\n1. Wren climbs up',
-  direction: '',
-  focus: '',
   must: '',
   reach: 'none',
   stand: '',

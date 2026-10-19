@@ -40,7 +40,7 @@ import { cleanKnows, happenedOf } from '../ai/knows'
 import { isPerson, namesPerson, shortPlace } from '../ai/mustStay'
 import { deathOf } from '../ai/deaths'
 import { openThreadsAt, openThreadsMost, openThreadsText } from '../ai/openThreads'
-import { contractText } from '../ai/contract'
+import { contractText, SAID } from '../ai/contract'
 import { BRIEF_MAY_SHORTEN, BRIEF_PARTS, type BriefPart, type ContinuityBrief } from '../ai/brief'
 import { LEDGER_BLOCK } from '../ai/whoKnows'
 import { memoryScale } from '../ai/memoryRoom'
@@ -81,6 +81,8 @@ const OVER = 1.2
 
 const PASSAGES_TITLE = 'Earlier passages found by searching the story (best first)'
 const CONTRACT_TITLE = 'This scene’s contract'
+/** The direction in the planner's copy of the contract, carrying on: it reads it in full under what is being written. */
+const SAID_PLAN = 'What the author directs, as given under "What is being written".'
 const LEFT_OUT_TITLE = 'Left out by the author'
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -429,7 +431,9 @@ export function briefMaterial(input: ContextInput, prepared: Pick<PreparedContex
   ]
   // The scene's contract is never cut: it is short, and the plan is checked against it; nor is the list of what Adam kept
   // out. They take their room first.
-  const contract = prepared.contract ? contractText(prepared.contract) : ''
+  // Adam's direction is said once (2026-10-19): on the scene card for a whole scene, else under what is being written.
+  const said = [{ text: clean(input.options.direction), as: input.options.addBelow ? SAID_PLAN : SAID.card }]
+  const contract = prepared.contract ? contractText(prepared.contract, { said }) : ''
   const contractPart = contract ? [{ title: CONTRACT_TITLE, body: contract }] : []
   const leftOut = hiddenNames.length ? [{ title: LEFT_OUT_TITLE, body: `Never name these in the brief: ${hiddenNames.join('; ')}.` }] : []
   const fixed = [...contractPart, ...leftOut].reduce((n, p) => n + estimateTokens(`## ${p.title}\n${p.body}`), 0)

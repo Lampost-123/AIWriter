@@ -488,7 +488,10 @@ describe('Continue’s scene contract (long story memory fix 13)', () => {
     // Everything what must stay true had to say is in the contract here, so it goes.
     expect(b.blocks.map((x) => x.id).slice(-3)).toEqual(['stand', 'scene-contract', 'ask'])
     const text = b.blocks.find((x) => x.id === 'scene-contract')!.text
-    expect(text).toContain('Must happen next:\n1. Tobin admits he lied about the ledger')
+    // Adam's words are said once, last of all (2026-10-19): the contract points to them, and the check reads them.
+    expect(text).toContain('Must happen next:\n1. What the author asks for next, as given last of all, below.')
+    expect(b.messages[1].content.split('Tobin admits he lied about the ledger')).toHaveLength(2)
+    expect(b.contract!.items[0].text).toBe('Tobin admits he lied about the ledger')
     // What happens next is about a lie, not the forgery: the secret stays kept.
     expect(text).toContain('Must not change:\n- Kept from Tobin: The ledger is forged')
     expect(text).toContain('- Mara: soaked through (since Ch 2, Sc 1)')

@@ -9,10 +9,11 @@ import type { SceneState } from '@shared/continuity'
 import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
+import * as gens from '../db/generations'
 import type { MemoryModel } from '../keeper/model'
 import { refusalsOf } from '../keeper/refusals'
 import type { Secret } from '../ai/mustStay'
-import { assembleContext, EARLIER_BLOCK, prepareContext, type ContextInput } from '../ai/context'
+import { assembleContext, EARLIER_BLOCK, finishContext, prepareContext, type ContextInput } from '../ai/context'
 import { countRaw } from '../ai/tokens'
 import { CONTRACT_BLOCK } from '../ai/contract'
 import {
@@ -20,6 +21,7 @@ import {
   contradicts,
   fieldOf,
   KEEP_PLAN_PROMPTS,
+  LOOKUP_RULE,
   keepsRoom,
   makePlan,
   PLAN_GO,
@@ -113,15 +115,42 @@ describe('reading the plan', () => {
     const r = readPlan(
       'Here is the plan:\n{"relies": [{"who": "Wren", "what": "wearing", "value": " linen  shirt "}], "changes": [{"who": "Wren", "how": "She stands."}, "junk"], "needs": ["The weir", {"name": "The tithe ledger"}, 4]}\nDone.'
     )
+    const shape = { wants: '', against: '', turn: '', beats: [], whoWhere: [], mustStay: [], closing: '' }
     expect(r).toEqual({
       relies: [{ who: 'Wren', what: 'wearing', value: 'linen shirt' }],
       changes: [{ who: 'Wren', what: '', from: '', to: '', how: 'She stands.' }],
       needs: ['The weir', 'The tithe ledger'],
-      must: []
+      must: [],
+      ...shape
     })
-    expect(readPlan('{}')).toEqual({ relies: [], changes: [], needs: [], must: [] })
+    expect(readPlan('{}')).toEqual({ relies: [], changes: [], needs: [], must: [], ...shape })
     expect(readPlan('The scene should be tense.')).toBeNull()
     expect(readPlan('[1, 2]')).toBeNull()
+  })
+
+  it('reads the scene’s shape: the point, the beats, who is where, what must stay true and the closing image', () => {
+    const r = readPlan(
+      JSON.stringify({
+        wants: ' Wren wants  the ledger ',
+        against: 'Osric guards it',
+        turn: 'He gives it up',
+        beats: ['1. Osric climbs up', { text: 'They argue' }, 7],
+        who_where: ['Wren: in the loft', { who: 'Osric Hale', where: 'at the hatch' }],
+        must_stay: ['Osric does not know of the forgery'],
+        closing_image: 'The ladder, empty.'
+      })
+    )!
+    expect(r).toMatchObject({
+      wants: 'Wren wants the ledger',
+      against: 'Osric guards it',
+      turn: 'He gives it up',
+      beats: ['1. Osric climbs up', 'They argue'],
+      whoWhere: ['Wren: in the loft', 'Osric Hale: at the hatch'],
+      mustStay: ['Osric does not know of the forgery'],
+      closing: 'The ladder, empty.'
+    })
+    expect(fieldOf('knowledge')).toBe('knows')
+    expect(fieldOf('learns')).toBe('knows')
   })
 
   it("knows the stage's fields by other words, and anything else is a fact", () => {
@@ -344,10 +373,82 @@ describe('checking the plan against the stage', () => {
   it("is written as the writer's own notes, leading into the prose; nothing when it says nothing", () => {
     const text = planText({ keep: ['Wren: left arm in a sling'], changes: ['Wren gets up.', 'Someone knocks.'] }, false)
     expect(text).toBe(
-      `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren: left arm in a sling\nWhat happens on the page, in order:\n1. Wren gets up.\n2. Someone knocks.\n${PLAN_GO.start}`
+      `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren: left arm in a sling\nWhat changes on the page, in order:\n1. Wren gets up.\n2. Someone knocks.\n${PLAN_GO.start}`
     )
     expect(planText({ keep: [], changes: ['Wren gets up.'] }, true).endsWith(PLAN_GO.here)).toBe(true)
     expect(planText({ keep: [], changes: [] }, false)).toBe('')
+  })
+
+  it('the whole shape: the point, who is where, the beats, what changes, what must stay true and the closing image', () => {
+    const p = {
+      point: { wants: 'to keep the ledger from Osric', against: 'Osric has the key', turn: 'she gives it up to save the mill' },
+      whoWhere: ['Wren: in the loft', 'Osric Hale: at the hatch'],
+      keep: ['Wren: left arm in a sling'],
+      beats: ['Osric climbs up', 'They argue about the weir', 'Wren hands him the ledger'],
+      changes: ['Wren hands Osric the ledger.'],
+      mustStay: ['Osric does not know the flour tax was forged'],
+      closing: 'The ladder, empty'
+    }
+    expect(planText(p, false, { pov: 'Wren' })).toBe(
+      [
+        PLAN_HEAD,
+        'The point: Wren wants: to keep the ledger from Osric. Against it: Osric has the key. How it turns: she gives it up to save the mill.',
+        'Who is where: Wren: in the loft; Osric Hale: at the hatch.',
+        'What the scene rests on, as things stand:\n- Wren: left arm in a sling',
+        'The beats, in order:\n1. Osric climbs up\n2. They argue about the weir\n3. Wren hands him the ledger',
+        'What changes on the page, in order:\n1. Wren hands Osric the ledger.',
+        'What must stay true:\n- Osric does not know the flour tax was forged',
+        'It ends on: The ladder, empty.',
+        PLAN_GO.start
+      ].join('\n')
+    )
+    // Beat by beat: the scene's plan, saying which beat is now; the closing image only with the last beat.
+    const two = planText(p, true, { beat: { index: 2, of: 3 } })
+    expect(two).toContain('The beats, in order (I write only beat 2 of 3 now, and stop at its end):\n1. Osric climbs up\n2. They argue about the weir (now)')
+    expect(two).toContain('What changes on the page, in order, over the whole scene:')
+    expect(two).not.toContain('It ends on')
+    expect(planText(p, true, { beat: { index: 3, of: 3 } })).toContain('It ends on: The ladder, empty.')
+  })
+
+  it('where the stage says nothing, takes what people wear and hold from the story index, else from what it was given (2026-10-19)', () => {
+    // A new scene with nothing known of where things stand: before, every starting fact not on the card was dropped.
+    const known = { wren: { wearing: ['oilskin coat'], holding: ['the survey case'] } }
+    const w = world({ stand: null, reach: 'none', known, material: `${MATERIAL}\n\n## Looked up\nOsric Hale: carrying a lantern (since Ch 1, Sc 2)` })
+    const p = checkPlan(
+      raw({
+        relies: [
+          { who: 'Wren', what: 'wearing', value: 'oilskin coat' },
+          { who: 'Wren', what: 'holding', value: 'a silver knife' },
+          { who: 'Osric Hale', what: 'holding', value: 'a lantern' },
+          { who: 'Osric Hale', what: 'where', value: 'the foot of the stairs' }
+        ]
+      }),
+      w
+    )
+    // The index's own words for Wren, what was looked up for Osric; where people were, never without the card.
+    expect(p.keep).toEqual(['Wren is wearing: oilskin coat', 'Wren is holding: the survey case', 'Osric Hale is holding: a lantern'])
+    expect(p.checked).toEqual({ corrected: 1, dropped: 1 })
+  })
+
+  it('keeps the shape only where it is safe: no stranger, no secret, who is where for those here, what must stay true as given', () => {
+    const p = checkPlan(
+      raw({
+        wants: 'Wren wants Osric gone before dawn',
+        against: 'Osric means to search the loft',
+        turn: 'Wren tells Osric the flour tax was forged',
+        beats: ['Osric climbs up to the loft', 'A stranger bursts in with a crossbow', 'Mara arrives at the hatch', 'They argue about the weir'],
+        whoWhere: ['Wren: in the loft', 'Mara: at the door', 'Abbot Fen: by the wheel', 'nobody here'],
+        mustStay: ['Wren has a burn scar on her right hand', 'Osric owns the mill'],
+        closing: 'Osric alone at the foot of the stairs'
+      }),
+      world()
+    )
+    expect(p.point).toEqual({ wants: 'Wren wants Osric gone before dawn', against: 'Osric means to search the loft', turn: '' })
+    expect(p.beats).toEqual(['Osric climbs up to the loft', 'They argue about the weir'])
+    expect(p.whoWhere).toEqual(['Wren: in the loft'])
+    expect(p.mustStay).toEqual(['Wren has a burn scar on her right hand'])
+    expect(p.closing).toBe('Osric alone at the foot of the stairs')
+    expect(p.checked.dropped).toBe(7)
   })
 })
 
@@ -410,8 +511,14 @@ function draftInput(over: Partial<ContextInput> = {}): ContextInput {
   }
 }
 
-const materialOf = (input: ContextInput, focus = ''): PlanMaterial =>
-  planMaterial(input, assembleContext(input, countRaw), prepareContext(input, { speakerTags: true }), focus)
+const materialOf = (input: ContextInput, o: Parameters<typeof planMaterial>[3] = {}): PlanMaterial =>
+  planMaterial(input, assembleContext(input, countRaw), prepareContext(input, { speakerTags: true }), o)
+
+/** What the planner reads carrying on from the scene so far (Add below): the briefing with it, as a draft has it. */
+function carryingOn(input: ContextInput): PlanMaterial {
+  const p = prepareContext(input, { speakerTags: true, extraBlocks: [{ id: 'scene-so-far', title: 'The scene so far', text: input.soFar ?? '' }] })
+  return planMaterial(input, finishContext(p, p.texts.map(countRaw)), p)
+}
 
 describe('what the planner reads', () => {
   it('the scene card, what must stay true, where things stand as it holds here, the words before and the codex', () => {
@@ -429,22 +536,27 @@ describe('what the planner reads', () => {
     expect(m.stand).not.toContain('sitting on a sack')
     expect(m.stand).not.toContain('boots off')
     expect(m.before).toEqual({ title: 'The end of the previous scene', text: 'The sleet came on, and the wheel stopped.' })
-    expect(m.ask.startsWith('Write the scene now.')).toBe(true)
-    // Not the reading-aloud tags: the planner writes none of the prose.
-    expect(m.ask).not.toContain('curly braces')
+    // What is being written, in a line: not the writer's closing instruction, nor the reading-aloud tags.
+    expect(m.ask).toBe('A whole scene, about 800 words.')
     expect(m.inBriefing).toEqual(['Wren (character): A miller’s daughter.', 'Osric Hale (character)'])
     expect(m.others).toEqual(['The weir (place)'])
     expect(m.people).toEqual(['Wren', 'Osric Hale'])
+    expect(m.pov).toBe('Wren')
     expect(m.secrets).toEqual([{ fact: 'The flour tax was forged', knownBy: ['Wren'], keptFrom: ['Osric Hale'] }])
     expect(m.calls).toBe(m.card)
     const [system, user] = planMessages(m)
     expect(system.content.startsWith(PLAN_MARKER)).toBe(true)
     expect(system.content).toContain('Add no events of your own.')
-    expect(system.content).not.toContain('a secret told')
+    expect(system.content).toContain('- wants, against, turn:')
+    expect(system.content).toContain('"closing_image": ""')
+    expect(system.content).not.toContain('look it up with the tools')
     // Told it is how the scene before ended, and what of it may have changed.
     expect(user.content).toContain('## Where things stand as the previous scene ended\nThis was as the scene before ended, earlier the same day.')
     expect(user.content).toContain('## Also in the world (not in the briefing)\nThe weir (place)')
+    expect(user.content).toContain('## What is being written\nA whole scene, about 800 words.')
     expect(user.content.trimEnd().endsWith('Plan the scene now, as one JSON object.')).toBe(true)
+    // Adam's direction for a whole scene is on the card, once.
+    expect(user.content.split('Keep it quiet.')).toHaveLength(2)
   })
 
   it('reads the open plot threads as the writer gets them, and plans no payoff the card does not ask for (2026-10-08)', () => {
@@ -472,51 +584,70 @@ describe('what the planner reads', () => {
     expect(planMessages(m)[1].content).not.toContain('## Where things stand')
   })
 
-  it('sends the card, what must stay true and the codex first, and what the writer is asked and the direction last (for the cache)', () => {
+  it('gets the story index’s core: what has already happened, everyone here as things stand, and its threads with none of the writer’s', () => {
+    const core = {
+      storyId: 'mill',
+      asItBegins: true,
+      people: ['Wren: at the mill (since Ch 1, Sc 1)', 'Wren: wearing oilskin coat (since Ch 1, Sc 2)'],
+      known: {},
+      recent: ['Ch 1, Sc 1: The wheel stops in the sleet.', 'Ch 1, Sc 2: Osric counts the sacks.'],
+      threads: ['The forged tax (open since Ch 1, Sc 1)']
+    }
+    const m = materialOf(draftInput(), { core })
+    const user = planMessages(m)[1].content
+    expect(user).toContain(
+      '## Already happened (a line a scene; never plan any of it again)\n- Ch 1, Sc 1: The wheel stops in the sleet.\n- Ch 1, Sc 2: Osric counts the sacks.'
+    )
+    expect(user).toContain('## Everyone in the scene, as things stand (from the story so far)\n- Wren: at the mill (since Ch 1, Sc 1)')
+    expect(user).toContain('## Open plot threads\n- The forged tax (open since Ch 1, Sc 1)')
+  })
+
+  it('sends what stays the same through a scene first, and what is being written (the direction, said once) last (for the cache)', () => {
     const input = draftInput()
     input.options = { ...input.options, addBelow: true, direction: 'Osric asks about the tax.' }
-    const m = materialOf(input)
+    input.soFar = 'Wren heard the ladder creak.'
+    const m = carryingOn(input)
     expect(m.card).not.toContain("The author's direction")
-    expect(m.direction).toBe("The author's direction for this stretch:\nOsric asks about the tax.")
-    expect(m.calls).toBe(`${m.card}\n\n${m.direction}`)
+    expect(m.ask).toBe(
+      'The next stretch of the scene, carrying straight on from the end of the scene so far, at most about 800 words. Plan only this stretch: what the author directs:\nOsric asks about the tax.'
+    )
+    expect(m.calls).toBe(`${m.card}\n\nThe author's direction for this stretch:\nOsric asks about the tax.`)
     const user = planMessages(m)[1].content
     const heads = user.split('\n').filter((l) => l.startsWith('## ')).map((l) => l.replace(/^## /, ''))
-    expect(heads).toEqual(['The scene card', 'Must stay true', 'In the briefing', 'Also in the world (not in the briefing)', m.standTitle, m.before!.title, 'What the writer is asked'])
-    expect(user.trimEnd().endsWith(`${m.ask.trim()}\n\n${m.direction}\n\nPlan the scene now, as one JSON object.`)).toBe(true)
+    expect(heads).toEqual(['The scene card', 'Must stay true', 'In the briefing', 'Also in the world (not in the briefing)', m.standTitle, m.before!.title, 'What is being written'])
+    expect(user.split('Osric asks about the tax.')).toHaveLength(2)
+    expect(user.trimEnd().endsWith(`${m.ask}\n\nPlan the scene now, as one JSON object.`)).toBe(true)
   })
 
-  it('only the order changes: the same parts, each word for word, as when what the writer is asked came first', () => {
+  it('carrying on with no direction: the next beat not on the page, and the beats on the page as done', () => {
     const input = draftInput()
-    input.options = { ...input.options, addBelow: true, direction: 'Osric asks about the tax.' }
-    const m = materialOf(input)
-    const parts = planMessages(m)[1].content.split('\n\n## ')
-    // The order before: the ask, the card with the direction, must stay true, the stage, the words before, the codex.
-    const part = (title: string, body: string): string => `## ${title}\n${body.trim()}`
-    const before = [
-      part('What the writer is asked', m.ask),
-      part('The scene card', `${m.card}\n\n${m.direction}`),
-      part('Must stay true', m.must),
-      part(m.standTitle, [m.standNote, m.stand].filter(Boolean).join('\n')),
-      part(m.before!.title, `"""\n${m.before!.text}\n"""`),
-      part('In the briefing', m.inBriefing.map((l) => `- ${l}`).join('\n')),
-      part('Also in the world (not in the briefing)', m.others.join('; ')),
-      'Plan the scene now, as one JSON object.'
-    ].join('\n\n')
-    const sorted = (s: string): string => s.split('\n').sort().join('\n')
-    expect(sorted(planMessages(m)[1].content)).toBe(sorted(before))
-    expect(parts).toHaveLength(7)
-    // With no scene card, the direction stands as the card, as before.
-    const bare = planMessages({ ...m, card: '' })[1].content
-    expect(bare).toContain(`## The scene card\n${m.direction}`)
-    expect(bare.match(/The author's direction/g)).toHaveLength(1)
+    input.scene.card.beats = ['Osric climbs up the ladder to the loft', 'They argue about the weir']
+    input.options = { ...input.options, addBelow: true, direction: '' }
+    input.soFar = 'Osric climbed up the ladder to the loft, slowly.'
+    const m = carryingOn(input)
+    expect(m.ask).toContain('Plan only this stretch: the next beat on the scene card, beat 2 of 2:\nThey argue about the weir')
+    expect(m.done).toEqual(['Beat 1: Osric climbs up the ladder to the loft'])
+    expect(planMessages(m)[1].content).toContain('## Already on the page in this scene (done: never plan it again)\n- Beat 1: Osric climbs up the ladder to the loft')
   })
 
-  it('for one beat: plans only that beat, which is what its events must answer to', () => {
-    const m = materialOf(draftInput(), 'Beat 1 of 1: Osric climbs up')
-    expect(m.calls).toBe('Beat 1 of 1: Osric climbs up\nKeep it quiet.')
-    const user = planMessages(m)[1].content
-    expect(user).toContain('## Plan only this beat\nBeat 1 of 1: Osric climbs up\nThe beats after it are written later: plan nothing from them.')
-    expect(user.trimEnd().endsWith('Plan the beat now, as one JSON object.')).toBe(true)
+  it('Beat by beat: the whole scene, one plan beat for each on the card; no "must" for a beat’s own contract', () => {
+    const input = draftInput({ contract: { asks: 'beat', focus: 'Osric climbs up' } })
+    const m = materialOf(input, { beats: true })
+    expect(m.ask).toBe('The whole scene, written one beat at a time, about 800 words a beat. Give "beats" one line for each beat on the scene card not yet on the page, in the same order (1 in all).')
+    expect(m.contract).toBeUndefined()
+  })
+
+  it('may look things up first: the instructions say so, and the last line asks for the look-ups or the plan', () => {
+    const m = { ...materialOf(draftInput()), lookups: true }
+    const [system, user] = planMessages(m)
+    expect(system.content).toContain('look it up with the tools. Ask for everything you need at once: you get one round of look-ups.')
+    expect(user.content.trimEnd().endsWith('Look up anything else the scene needs, all at once; or plan the scene now, as one JSON object.')).toBe(true)
+    expect(planSystem(false, false, true).replace(`\n${LOOKUP_RULE}`, '')).toBe(planSystem())
+  })
+
+  it('told when the story means strong content, as every memory job is', () => {
+    const m = { ...materialOf(draftInput()), contentNote: 'About this story: it is fiction for adult readers.' }
+    expect(planMessages(m)[0].content.endsWith('\n\nAbout this story: it is fiction for adult readers.')).toBe(true)
   })
 })
 
@@ -553,8 +684,6 @@ function call(fetchImpl: typeof fetch, over: { signal?: AbortSignal; limitMs?: n
   const material: PlanMaterial = {
     ask: 'Write the scene now.',
     card: CARD,
-    direction: '',
-    focus: '',
     must: '- Wren: a burn scar on her right hand',
     reach: 'here',
     stand: '',
@@ -600,12 +729,13 @@ describe('making the plan', () => {
     const plan = await done
     expect(f.asked).toHaveLength(1)
     expect(f.asked[0].system.startsWith(PLAN_MARKER)).toBe(true)
-    expect(plan).toEqual({
+    expect(plan).toMatchObject({
       needs: [w.weir.id],
-      text: `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren is wearing: linen shirt; boots off by the hatch\nWhat happens on the page, in order:\n1. Wren stands to meet him.\n${PLAN_GO.start}`,
+      text: `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren is wearing: linen shirt; boots off by the hatch\nWhat changes on the page, in order:\n1. Wren stands to meet him.\n${PLAN_GO.start}`,
       must: [],
       checked: { corrected: 1, dropped: 0 }
     })
+    expect(plan).not.toHaveProperty('lookedUp')
     expect(db.prepare('SELECT job, scene_id, status FROM generations').all()).toEqual([{ job: 'memory', scene_id: sceneId, status: 'complete' }])
   })
 
@@ -640,10 +770,89 @@ describe('making the plan', () => {
     expect(f.asked).toHaveLength(0)
   })
 
+  it('may look things up first, one round answered here, then plans in the same exchange; what it looked up reaches the writer', async () => {
+    const asked: { tools: string[]; messages: { role: string; content: string }[] }[] = []
+    const reply = JSON.stringify({
+      wants: 'Wren wants Osric gone',
+      beats: ['Osric climbs up to the loft'],
+      relies: [{ who: 'Wren', what: 'fact', value: 'Osric counted the sacks twice' }]
+    })
+    const sse = (delta: Record<string, unknown>, finish: string): Response =>
+      new Response(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }] })}\n\ndata: [DONE]\n\n`, {
+        headers: { 'Content-Type': 'text/event-stream' }
+      })
+    const f = (async (_input: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { tools?: { function: { name: string } }[]; messages: { role: string; content: string }[] }
+      asked.push({ tools: (body.tools ?? []).map((t) => t.function.name), messages: body.messages })
+      if (asked.length === 1) {
+        const call = { index: 0, id: 'c1', type: 'function', function: { name: 'find_in_story', arguments: '{"query": "the sacks"}' } }
+        return sse({ tool_calls: [call] }, 'tool_calls')
+      }
+      return sse({ content: reply }, 'stop')
+    }) as typeof fetch
+    const db = memoryWorld()
+    const sceneId = repo.getOutline(db, repo.listStories(db)[0].id).scenes[0].id
+    const w = world()
+    const plan = await makePlan({
+      db,
+      model,
+      sceneId,
+      material: {
+        ask: 'A whole scene, about 600 words.',
+        card: CARD,
+        must: '',
+        reach: 'here',
+        stand: '',
+        standTitle: 'Where things stand',
+        standNote: '',
+        before: null,
+        inBriefing: [],
+        others: [],
+        people: ['Wren', 'Osric Hale'],
+        secrets: [],
+        calls: CARD
+      },
+      check: { stand: w.stand, entries: w.entries, inBriefing: w.inBriefing, hidden: w.hidden },
+      carryingOn: false,
+      lookups: {
+        db,
+        sceneId,
+        storyId: 'story',
+        asItBegins: true,
+        entries: w.entries,
+        people: ['Wren', 'Osric Hale'],
+        hidden: new Set(),
+        find: async () => [{ where: 'Ch 1, Sc 4', text: 'Osric counted the sacks twice, and said nothing of the tax.' }]
+      },
+      closed: () => false,
+      fetchImpl: f,
+      retryDelays: []
+    })
+    // Two requests: the first offered the look-ups, the second (with their answers) asked for the plan without them.
+    expect(asked).toHaveLength(2)
+    expect(asked[0].tools).toContain('find_in_story')
+    expect(asked[0].messages[0].content).toContain('you get one round of look-ups')
+    expect(asked[1].tools).toEqual([])
+    expect(asked[1].messages.find((m) => m.role === 'tool')?.content).toBe('### Ch 1, Sc 4\nOsric counted the sacks twice, and said nothing of the tax.')
+    expect(asked[1].messages[asked[1].messages.length - 1].content).toBe('Now plan the scene, as one JSON object. Reply with only the JSON object.')
+    // The fact it relied on is in what it looked up, so it is kept; the passage goes to the writer beside the plan.
+    expect(plan?.text).toContain('- Wren: Osric counted the sacks twice')
+    expect(plan?.text).toContain('The beats, in order:\n1. Osric climbs up to the loft')
+    expect(plan?.lookedUp).toContain('### Ch 1, Sc 4\nOsric counted the sacks twice, and said nothing of the tax.')
+    // One record, with each request and what was looked up, for "What the AI saw".
+    const rec = gens.listGenerations(db, sceneId)
+    expect(rec).toHaveLength(0)
+    const row = db.prepare("SELECT job, params_json FROM generations WHERE job = 'memory'").get() as { job: string; params_json: string }
+    const params = JSON.parse(row.params_json) as { steps: { tool: string }[]; requests: unknown[] }
+    expect(params.steps.map((s) => s.tool)).toEqual(['find_in_story'])
+    expect(params.requests).toHaveLength(2)
+  })
+
   it('no plan when the memory model turns the scene down, and the top bar is told the draft went without one', async () => {
     const { db, sceneId, done } = call(answering("I'm sorry, but I can't help with this request. It involves explicit sexual content."))
     expect(await done).toBeNull()
-    expect(db.prepare('SELECT status FROM generations').get()).toEqual({ status: 'error' })
+    // The call's record keeps the reply as it came; no plan is made of it.
+    expect(db.prepare('SELECT job FROM generations').get()).toEqual({ job: 'memory' })
     expect(refusalsOf(db)).toMatchObject([{ task: 'plan', model: 'memory', sceneId }])
   })
 })
@@ -653,7 +862,7 @@ describe('making the plan', () => {
 describe('what must change, for the scene’s contract (fix 13)', () => {
   it('is asked for only when the draft has a contract; otherwise the planner’s instructions are as they always were', () => {
     expect(planSystem()).not.toContain('"must"')
-    expect(planSystem(true)).toContain('- must: what must be different by the end of the scene')
+    expect(planSystem(true)).toContain('- must: what must be different by the end of what is being written')
     expect(planSystem(true)).toContain('"needs": [""], "must": [""]}')
     expect(planSystem(true).replace(/\n- must: [^\n]*/, '').replace(', "must": [""]', '')).toBe(planSystem())
     const plain = materialOf(draftInput())
@@ -707,8 +916,6 @@ describe('what must change, for the scene’s contract (fix 13)', () => {
     const material: PlanMaterial = {
       ask: 'Write the scene now.',
       card: CARD,
-      direction: '',
-      focus: '',
       must: '',
       reach: 'here',
       stand: '',
@@ -733,7 +940,7 @@ describe('what must change, for the scene’s contract (fix 13)', () => {
         fetchImpl: answering(reply),
         retryDelays: []
       })
-    expect(await make(true)).toEqual({ needs: [], text: '', must: ['Osric reaches the loft'], checked: { corrected: 0, dropped: 0 } })
+    expect(await make(true)).toMatchObject({ needs: [], text: '', must: ['Osric reaches the loft'], checked: { corrected: 0, dropped: 0 } })
     expect(await make(false)).toBeNull()
   })
 })
