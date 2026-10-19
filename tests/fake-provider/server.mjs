@@ -157,9 +157,16 @@ const MENTION_AFTER = /^(?:['’]s\b|\s+(?:would|could|can|might|may|must|should
  * what they once said or may do.
  */
 function onStage(name, sentences) {
+  /** True when `at` is inside quotation marks: the last mark before it opens them ("‘Gale can have it’" but "‘Come in,’ Gale said"). */
+  const quoted = (s, at) => {
+    const before = s.slice(0, at)
+    const open = Math.max(-1, ...[...before.matchAll(/(?:^|\s)[‘“"']/g)].map((m) => m.index + m[0].length))
+    const close = Math.max(-1, ...[...before.matchAll(/[’”"'](?=[\s.,;:!?]|$)/g)].map((m) => m.index + 1))
+    return open > close
+  }
   return sentences.some((s) => {
     for (let at = s.indexOf(name); at >= 0; at = s.indexOf(name, at + 1)) {
-      if (/(?:^|\s)[‘“"']/.test(s.slice(0, at))) continue
+      if (quoted(s, at)) continue
       if (!MENTION_AFTER.test(s.slice(at + name.length))) return true
     }
     return false
