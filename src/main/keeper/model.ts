@@ -17,6 +17,7 @@ import * as gens from '../db/generations'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from '../ai/client'
 import { REPLY_LIMIT_CAP, THINKING_ROOM, withThinkingShare } from '../ai/context'
 import { describeFailure, looksLikeContextTooLong, looksLikeRefusal, looksLikeRefusalReply, providerWho, type Failure } from '../ai/errors'
+import { backgroundPatience } from '../ai/patience'
 import { newId, now } from '../util'
 import { heldAt } from '../usage/gate'
 import { estimateTokens } from './text'
@@ -84,6 +85,11 @@ export interface CallOptions {
   closed: () => boolean
   /** Told the record's id as soon as it exists, so a closing world can finish it. */
   onRecord?: (generationId: ID) => void
+  /**
+   * Work Adam isn't watching (the memory reading a scene, a summary, where things stand): a provider that has stopped
+   * answering is given up on after about a minute rather than ten (ai/patience.ts). Left out: streamChat's own patience.
+   */
+  background?: boolean
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -259,6 +265,7 @@ export async function callModel(given: CallOptions): Promise<CallResult> {
     thinkingRoom,
     // A provider that turns the bigger limit down is asked with the reply's own room.
     fallbackMaxTokens: o.maxTokens,
+    ...(o.background ? backgroundPatience(o.model.target) : {}),
     fetchImpl: o.fetchImpl,
     delays: o.retryDelays
   }).catch((e: unknown) => ({

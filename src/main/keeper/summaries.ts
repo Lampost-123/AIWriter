@@ -136,6 +136,8 @@ async function ask(o: SummaryOptions, targetId: ID, a: SummaryAsk, reply: number
     signal: o.signal,
     closed: o.closed,
     onRecord: o.onRecord,
+    // Written in the background: a provider that has stopped answering is given up on sooner (ai/patience.ts).
+    background: true,
     fetchImpl: o.fetchImpl,
     retryDelays: o.retryDelays
   })

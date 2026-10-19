@@ -125,6 +125,11 @@ export interface StreamChatOptions {
   /** How long the stream may stay silent before giving up. */
   idleTimeoutMs?: number
   /**
+   * At most how many times a provider that didn't answer in time is asked again (left out: as often as any other
+   * failure, MAX_RETRIES). Work Adam isn't watching gives up sooner (ai/patience.ts).
+   */
+  timeoutRetries?: number
+  /**
    * A smaller max_tokens to ask with once if the provider rejects `body.max_tokens`
    * (some models can't write that much in one reply).
    */
@@ -651,6 +656,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   let triedNoSampling = false
   let triedNoMinP = false
   let triedNoToolChoice = false
+  /** How many times a provider that didn't answer in time has been asked again. */
+  let timeouts = 0
   for (;;) {
     if (o.signal.aborted) return finish('stopped', null)
     const r = await attemptOnce()
@@ -749,8 +756,14 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       usageMode = 'none'
       continue
     }
-    if (r.retry && shouldRetry(r.retry, { textReceived: s.text.length > 0, retriesDone: retries })) {
+    const timedOut = r.retry?.kind === 'timeout'
+    if (
+      r.retry &&
+      shouldRetry(r.retry, { textReceived: s.text.length > 0, retriesDone: retries }) &&
+      !(timedOut && o.timeoutRetries != null && timeouts >= o.timeoutRetries)
+    ) {
       retries++
+      if (timedOut) timeouts++
       const wait = retryDelay(retries, r.retryAfterMs, o.delays)
       const cause = r.retry
       o.onRetry?.({
