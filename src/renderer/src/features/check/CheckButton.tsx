@@ -46,7 +46,7 @@ export function CheckButton(): React.JSX.Element | null {
         {busy ? <Spinner size={14} className="shrink-0" /> : <ListChecks size={16} className="shrink-0" />}
         {/* The word when the bar has room for it (the desk's is fuller: the word goes sooner there); its name says it always. */}
         <span className="max-[1279px]:hidden desk:max-[1679px]:hidden">Check</span>
-        <ChevronDown size={13} className="shrink-0 opacity-70" aria-hidden />
+        <ChevronDown size={13} className="shrink-0 opacity-70 desk:max-[1599px]:hidden" aria-hidden />
       </M.Trigger>
       <M.Portal>
         <M.Content

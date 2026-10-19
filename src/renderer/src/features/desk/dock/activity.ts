@@ -59,7 +59,7 @@ export function activityOf(i: ActivityInput): Activity {
   const c = i.change
   if (c) {
     const words = countWords(c.text)
-    if (c.status === 'starting') return { kind: 'starting', what: c.tool, memory: false }
+    if (c.status === 'starting') return { kind: 'starting', what: c.tool, memory: false, ...(i.waitLine ? { line: i.waitLine } : {}) }
     if (c.status === 'writing' || c.status === 'stopping') {
       return { kind: 'writing', what: c.tool, words, target: null, retrying: !!c.retrying, stopping: c.status === 'stopping' }
     }

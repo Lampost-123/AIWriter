@@ -80,14 +80,14 @@ describe('check runs in one place', () => {
       'Waiting for the memory to catch up: scene 2 of 4'
     )
     expect(runLine(waiting, { memory: { catchingUp: [{ sceneId: 's1', done: 0, total: 1, stage: 'scene' }] } })).toBe(
-      'Waiting for the memory to catch up: reading this scene’s latest words…'
+      'Waiting for the memory to catch up: this scene’s latest words…'
     )
   })
 
   it('counts the memory’s scenes from one and never past the last', () => {
     expect(memoryWords({ done: 0, total: 5, stage: 'earlier' })).toBe('Catching up the memory: scene 1 of 5')
     expect(memoryWords({ done: 5, total: 5, stage: 'earlier' })).toBe('Catching up the memory: scene 5 of 5')
-    expect(memoryWords({ done: 0, total: 1, stage: 'earlier' })).toBe('Catching up the memory: reading the scene before…')
+    expect(memoryWords({ done: 0, total: 1, stage: 'earlier' })).toBe('Catching up the memory: the scene before…')
     expect(memoryWords(null)).toBe('Catching up the memory…')
   })
 })

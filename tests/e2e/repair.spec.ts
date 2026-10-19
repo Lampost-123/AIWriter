@@ -41,7 +41,8 @@ test('a draft below a scene break that slips is asked about, never changed: each
     await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
 
-    await expect(toasts(win).getByText('2 questions about the new words are in the Issues tab.')).toBeVisible({ timeout: 60_000 })
+    // Said in the draft's one note (the calm overhaul).
+    await expect(toasts(win).getByText('Draft written · 2 questions in Issues')).toBeVisible({ timeout: 60_000 })
     await expect(prose(win).locator('.aw-repair')).toHaveCount(0)
     await expect(prose(win)).toContainText('Mara kept her hood low and her left sleeve pinned')
     await expect(prose(win).locator('p').first()).toHaveText(ADAMS)

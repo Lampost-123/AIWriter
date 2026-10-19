@@ -31,6 +31,8 @@ import { setSteer, steerOf, steerTaken, useDeskStore } from '../deskStore'
 import { activityLine, activityOf, progressOf, type Activity } from './activity'
 import { DockMenu } from './DockMenu'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { memoryFor, memoryWords } from '@/features/consistency/runsLogic'
+import { useCalmLine } from '@/features/waits/useDraftWait'
 
 /** The change waiting (or being written) in the page for this scene, followed as the editor changes. */
 function useChange(editor: Editor, sceneId: ID): Suggestion | null {
@@ -56,14 +58,17 @@ function useActivity(editor: Editor, sceneId: ID, g: Generate): { activity: Acti
   const beats = useBeats((s) => s.session?.sceneId === sceneId)
   const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
   const change = useChange(editor, sceneId)
+  const catching = useApp((s) => memoryFor(s.memoryStatus, sceneId))
+  const changeWait = useCalmLine(catching ? memoryWords(catching) : '') || null
   const activity = activityOf({
     draft: { phase: draftPhase, retrying, written: g.written, target: g.targetWords },
     polish: { running: polishing, stopping: polishStopping },
     change,
     beats,
     memoryReading,
-    // Each step before the first word, named calmly (the same words as Generate's status: useGenerate's `status`).
-    waitLine: draftPhase === 'starting' ? g.status : null
+    // Each step before the first word, named calmly (the same words as Generate's status: useGenerate's `status`); for
+    // Continue getting ready, the memory catching up when it is (features/waits).
+    waitLine: draftPhase === 'starting' ? g.status : change?.status === 'starting' ? changeWait : null
   })
   return { activity, changeId: change?.id ?? null }
 }

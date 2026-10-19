@@ -55,7 +55,11 @@ describe('the note after a draft', () => {
 
   it('says a problem in full, in red, with the way to its fix', () => {
     const note = composeDraftNote({ end: { kind: 'error', message: 'Out of credit. Add some in Settings › Models.' }, away: null, fixes: ['settings'] })
-    expect(note).toEqual({ message: 'Out of credit. Add some in Settings › Models', tone: 'danger', buttons: ['settings'] })
+    expect(note).toEqual({ message: 'Out of credit. Add some in Settings › Models.', tone: 'danger', buttons: ['settings'] })
+    // With what else was found after it.
+    expect(composeDraftNote({ end: { kind: 'error', message: 'The connection dropped.' }, away: null, fixes: ['continue', 'record'], questions: 1 })?.message).toBe(
+      'The connection dropped. 1 question in Issues'
+    )
     const cut = composeDraftNote({ end: { kind: 'cutOff' }, away: null, fixes: ['continue', 'record'] })
     expect(cut?.message).toMatch(/^The model ran out of room before the end of the scene/)
     expect(cut?.buttons).toEqual(['continue', 'record'])
@@ -63,10 +67,10 @@ describe('the note after a draft', () => {
 
   it('offers another of Adam’s models after a refusal, in one click', () => {
     const note = composeDraftNote({ end: { kind: 'refused', message: 'This model turned the request down. Try another model.' }, away: null, retryWith: 'Fake writer' })
-    expect(note).toEqual({ message: 'This model turned the request down. Try another model', tone: 'danger', buttons: ['retry', 'settings'] })
+    expect(note).toEqual({ message: 'This model turned the request down. Try another model.', tone: 'danger', buttons: ['retry', 'settings'] })
     // With no other model: Settings.
     expect(composeDraftNote({ end: { kind: 'refused', message: null }, away: null, retryWith: null })).toEqual({
-      message: 'The writer model turned this scene down',
+      message: 'The writer model turned this scene down.',
       tone: 'danger',
       buttons: ['settings', 'record']
     })

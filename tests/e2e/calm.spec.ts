@@ -186,24 +186,27 @@ test('plain waits: the status line names each step before the first word', async
     await expect(prose(win)).toBeVisible()
 
     // Every status the line shows is written down as it shows.
-    await win.evaluate(() => {
-      const seen: string[] = []
-      ;(window as unknown as { seenStatus: string[] }).seenStatus = seen
-      const header = document.querySelector('main header')!
+    // (A string, as the app tests' own TypeScript has no window: tests/e2e run in Node.)
+    await win.evaluate(`(() => {
+      const seen = []
+      window.seenStatus = seen
+      const header = document.querySelector('main header')
       new MutationObserver(() => {
         for (const el of header.querySelectorAll('[role="status"] .truncate')) {
-          const t = el.textContent ?? ''
+          const t = el.textContent || ''
           if (t && seen[seen.length - 1] !== t) seen.push(t)
         }
       }).observe(header, { subtree: true, childList: true, characterData: true })
-    })
+    })()`)
     await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
     await expect(prose(win)).toContainText('The rain had not let up', { timeout: 60_000 })
-    const seen = await win.evaluate(() => (window as unknown as { seenStatus: string[] }).seenStatus)
+    const seen = await win.evaluate<string[]>('window.seenStatus')
     // The memory catching up with the scene before, then planning, then writing: never a bare "Getting ready…" all along.
+    // (The scene header has little room: its words are the short ones, "Updating memory…", the full ones on hover.)
     const at = (re: RegExp): number => seen.findIndex((t) => re.test(t))
-    expect(at(/^Catching up the memory/)).toBeGreaterThanOrEqual(0)
-    expect(at(/^Planning the scene…$/)).toBeGreaterThan(at(/^Catching up the memory/))
+    const memory = /^(Catching up the memory|Updating memory…|Memory: \d+ of \d+)/
+    expect(at(memory)).toBeGreaterThanOrEqual(0)
+    expect(at(/^Planning the scene…$/)).toBeGreaterThan(at(memory))
     expect(at(/^Writing…$/)).toBeGreaterThan(at(/^Planning the scene…$/))
   } finally {
     await fake.close()

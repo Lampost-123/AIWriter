@@ -99,8 +99,10 @@ export interface Generate {
   stop: () => void
   /** The New look: the words the draft has written so far, while it streams. */
   written: number | null
-  /** What the draft is doing, in a few words ("Writing…", "Updating memory…"), and why, for its tooltip. */
+  /** What the draft is doing, in a few words ("Writing…", "Planning the scene…"), and why, for its tooltip. */
   status: string
+  /** The same in fewer words while it gets ready ("Memory: 3 of 5"), for a small room; null: `status` fits. */
+  statusShort: string | null
   statusTitle: string | undefined
   /** The status is worth showing (a quick start shows none). */
   showStatus: boolean
@@ -426,9 +428,11 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
           : phase === 'stopping'
             ? 'Stopping…'
             : 'Writing…'
+  // The same step in fewer words, for the scene header's small room (the full words are its tooltip).
+  const statusShort = phase === 'starting' && wait ? wait.short : null
   const statusTitle =
     phase === 'starting'
-      ? (wait?.title ?? 'Getting the draft ready.')
+      ? (wait ? `${wait.words} ${wait.title}` : 'Getting the draft ready.')
       : phase === 'polishing'
         ? 'The draft is written. A second pass is polishing it; you can accept or reject the result.'
         : (retrying ?? undefined)
@@ -467,6 +471,7 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
     stop,
     written,
     status,
+    statusShort,
     statusTitle,
     showStatus
   }

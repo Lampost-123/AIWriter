@@ -6,6 +6,9 @@ describe('what a draft says before its first word', () => {
   it('names each step', () => {
     const memory = { catchingUp: [{ sceneId: 's1', done: 2, total: 5, stage: 'earlier' as const }], reading: null }
     expect(draftWaitWords({ step: 'memory' }, memory, 's1').words).toBe('Catching up the memory: scene 3 of 5')
+    // In fewer words, for the scene header's small room.
+    expect(draftWaitWords({ step: 'memory' }, memory, 's1').short).toBe('Memory: 3 of 5')
+    expect(draftWaitWords({ step: 'gathering' }, null, 's1').short).toBe('Gathering notes…')
     expect(draftWaitWords({ step: 'gathering' }, null, 's1').words).toBe('Gathering what the scene needs…')
     expect(draftWaitWords({ step: 'plan' }, null, 's1').words).toBe('Planning the scene…')
     expect(draftWaitWords({ step: 'lookups', count: 3 }, null, 's1').words).toBe('Looking up 3 things…')

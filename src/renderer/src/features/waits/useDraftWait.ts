@@ -50,7 +50,7 @@ export function useCalmLine(text: string): string {
  * What the status line says while the scene's draft gets ready (`starting`), calmly; null otherwise. The steps are
  * forgotten once it is no longer getting ready, so the next draft starts from "Getting ready…".
  */
-export function useDraftWait(sceneId: ID, starting: boolean): { words: string; title: string } | null {
+export function useDraftWait(sceneId: ID, starting: boolean): { words: string; short: string; title: string } | null {
   listen()
   const heard = useDraftSteps((s) => s.steps[sceneId] ?? null)
   const memory = useApp((s) => s.memoryStatus)
@@ -64,8 +64,9 @@ export function useDraftWait(sceneId: ID, starting: boolean): { words: string; t
   }, [starting, sceneId])
   const now = draftWaitWords(starting ? step : null, memory, sceneId)
   const words = useCalmLine(starting ? now.words : '')
+  const short = useCalmLine(starting ? now.short : '')
   if (!starting) return null
   // The hover goes with the words showing.
   const title = words === now.words ? now.title : draftWaitWords(null, memory, sceneId).title
-  return { words: words || now.words, title }
+  return { words: words || now.words, short: short || now.short, title }
 }

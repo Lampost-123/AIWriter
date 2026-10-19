@@ -65,11 +65,11 @@ function head(p: DraftNoteParts): string | null {
       if (scene && e.unpolished) return `Draft of ${scene} written · not polished, as you were in another scene when it finished`
       return scene ? `Draft of ${scene} written` : 'Draft written'
     case 'cutOff':
-      return `The model ran out of room before the end of ${scene ?? 'the scene'}, so the draft stops mid-way. The text so far is kept. Try a shorter target length, or a writer model that can write more in one go`
+      return `The model ran out of room before the end of ${scene ?? 'the scene'}, so the draft stops mid-way. The text so far is kept. Try a shorter target length, or a writer model that can write more in one go.`
     case 'refused':
-      return e.message?.trim() ? e.message.trim().replace(/[.]$/, '') : `The writer model turned ${scene ?? 'this scene'} down`
+      return sentence(e.message?.trim() || `The writer model turned ${scene ?? 'this scene'} down.`)
     case 'error':
-      return `${scene ? `The draft of ${scene} ran into a problem. ` : ''}${e.message.trim().replace(/[.]$/, '')}`
+      return sentence(`${scene ? `The draft of ${scene} ran into a problem. ` : ''}${e.message.trim()}`)
   }
 }
 

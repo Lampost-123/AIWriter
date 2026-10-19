@@ -53,6 +53,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const g = useGenerate(sceneId, { keys: true })
   const { writer, phase, busy, popover, setPopover, hasText, checkText, loadCard, hasPrices, polishOn, draftCost, modelName } = g
   const { generate, stop, written, status, statusTitle, showStatus, openSettings } = g
+  // The header has little room: each step's short words (the calm overhaul), the full ones on hover.
+  const statusWords = g.statusShort ?? status
   const rootRef = useRef<HTMLDivElement>(null)
   const compact = useNarrowHeader(rootRef)
   const afterText = AFTER_TEXT
@@ -77,8 +79,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           ) : null}
         </span>
       ) : (
-        // Wide enough for the longest words that show while drafting ("Updating memory…"), so they never
-        // spill over the buttons beside them whatever the writer model is called.
+        // Wide enough for the words that show while drafting (each step's short words here: "Memory: 3 of 5",
+        // "Planning the scene…"; the full words in its tooltip), so they never spill over the buttons beside them.
         <div className="relative flex h-8 min-w-[150px] items-center justify-end">
           {direction ? (
             // The direction the next draft will follow, in the model's place, until a draft has used it.
@@ -113,7 +115,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
               className="absolute inset-0 flex items-center justify-end gap-2 overflow-hidden whitespace-nowrap pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
             >
               <span className="h-2 w-2 shrink-0 rounded-full bg-ai animate-pulse" aria-hidden />
-              <span className="truncate">{status}</span>
+              <span className="truncate">{statusWords}</span>
               {written !== null && written > 0 ? (
                 <span className="shrink-0 font-normal tabular-nums opacity-80">· {written.toLocaleString()} words</span>
               ) : null}

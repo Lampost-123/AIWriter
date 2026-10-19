@@ -70,8 +70,8 @@ export function memoryFor(status: Pick<MemoryStatus, 'catchingUp'> | null | unde
 /** "Catching up the memory: scene 3 of 5" (`lead`: what is waiting, "Catching up the memory" or "Waiting for the memory"). */
 export function memoryWords(m: { done: number; total: number; stage: 'earlier' | 'scene' } | null, lead = 'Catching up the memory'): string {
   if (!m) return `${lead}…`
-  if (m.stage === 'scene') return `${lead}: reading this scene’s latest words…`
-  if (m.total <= 1) return `${lead}: reading the scene before…`
+  if (m.stage === 'scene') return `${lead}: this scene’s latest words…`
+  if (m.total <= 1) return `${lead}: the scene before…`
   return `${lead}: scene ${Math.min(m.done + 1, m.total)} of ${m.total}`
 }
 
