@@ -2,6 +2,8 @@
 // one used whole or paragraphs taken from several. Against the fake OpenAI-compatible server
 // (tests/fake-provider/server.mjs), which writes the same prose for every draft: its paragraphs are
 // told apart by their first words.
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
 import type { TakeSnapshotInput } from '@shared/contracts/history'
@@ -387,6 +389,105 @@ test('while variants are being written the toolbar says so, from any page; Esc s
     await expect(win.getByRole('button', { name: 'Back to the variants' })).toHaveCount(0)
     await win.getByRole('button', { name: 'Back to “The knock”' }).click()
     await expect(prose(win).locator('p')).toHaveText(OLD)
+  } finally {
+    await fake.close()
+  }
+})
+
+/** Pictures for checking the look by eye, when AIWRITE_SHOTS names a folder. */
+async function shot(win: Page, name: string): Promise<void> {
+  const dir = process.env.AIWRITE_SHOTS
+  if (!dir) return
+  mkdirSync(dir, { recursive: true })
+  await win.mouse.move(2, 2)
+  await win.waitForTimeout(400)
+  await win.screenshot({ path: join(dir, `${name}.png`) })
+}
+
+/** The window's inner size, as Adam might have it. */
+async function size(app: ElectronApplication, win: Page, w: number, h: number): Promise<void> {
+  await app.evaluate(({ BrowserWindow }, [cw, ch]) => {
+    const b = BrowserWindow.getAllWindows()[0]
+    b.unmaximize()
+    b.setContentSize(cw, ch)
+  }, [w, h] as [number, number])
+  await expect.poll(() => win.evaluate('innerWidth')).toBe(w)
+  await expect.poll(() => win.evaluate('innerHeight')).toBe(h)
+}
+
+test('desk: three variants fit side by side in a small window (1024 by 700) and a large one, with nothing behind a sideways scroll', async ({ launch }) => {
+  const fake = await fakeProvider()
+  try {
+    const { app, win } = await launch({ env: { AIWRITE_ARRANGEMENT: 'desk', AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+    await win.getByLabel('World name').fill('Alpha')
+    await win.getByRole('button', { name: 'Create world' }).click()
+    await expect(prose(win)).toBeVisible()
+    const { knock } = await setUpScenes(win)
+    await useModels(win, fake, 'fake/slow')
+    await win.getByRole('complementary', { name: 'Chapters and scenes' }).getByRole('treeitem', { name: /The knock/ }).click()
+    await expect(prose(win).locator('p')).toHaveText(OLD)
+    await size(app, win, 1024, 700)
+
+    // Three variants, each with a direction of its own, from the dock's menu.
+    await win.getByRole('toolbar', { name: 'AI dock' }).getByRole('button', { name: /^More ways to write/ }).click()
+    await win.getByRole('menuitem', { name: /^Draft three/ }).click()
+    await win.getByLabel('Direction for these drafts (optional)').fill('End on the knock.')
+    await win.getByRole('button', { name: 'Give each variant its own direction' }).click()
+    const own = (n: number) => win.getByRole('textbox', { name: `Direction for variant ${n}` })
+    await own(1).fill('Tense, with the rain loud on the shutters')
+    await own(2).fill('Tender')
+    await own(3).fill('Funny')
+    await own(3).press('Enter')
+    // While they are written, each column's head has its number, its words and Stop, whole (Writing… is its pulsing dot
+    // in a column this narrow, and said in words in the page's head).
+    await expect(column(win, 1).locator('header')).toContainText(/\d+ words/)
+    for (const n of [1, 2, 3]) {
+      await expect(column(win, n).getByRole('status')).toHaveText('Writing…')
+      await expect(column(win, n).getByRole('button', { name: 'Stop', exact: true })).toBeInViewport({ ratio: 1 })
+      const head = column(win, n).locator('header')
+      expect(await head.evaluate((h) => h.scrollWidth - h.clientWidth)).toBeLessThanOrEqual(0)
+      expect(await head.getByText(/ words$/).evaluate((w) => w.scrollWidth - w.clientWidth)).toBeLessThanOrEqual(0)
+    }
+    await expect(win.locator('header').getByRole('status').filter({ hasText: 'Writing…' }).first()).toBeVisible()
+    expect(await win.locator('[data-variant-row]').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    await shot(win, 'desk-variants-1024-writing')
+    await expect.poll(async () => (await invoke(win, 'getVariantSet', knock))?.variants.every((v) => v.status === 'complete'), { timeout: 60_000 }).toBe(true)
+    for (const n of [1, 2, 3]) await expect(column(win, n)).toContainText(P1)
+    // Paragraphs picked from two, so the numbers show.
+    await paragraphs(win, 1).nth(0).click()
+    await paragraphs(win, 3).nth(1).click()
+
+    /** Every column whole on screen, inside the window, none behind a sideways scroll, and wide enough to read. */
+    const fits = async (min: number): Promise<void> => {
+      const row = win.locator('[data-variant-row]')
+      expect(await row.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+      const width = (await win.evaluate('innerWidth')) as number
+      for (const n of [1, 2, 3]) {
+        const box = (await column(win, n).boundingBox())!
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(width)
+        expect(box.width).toBeGreaterThanOrEqual(min)
+        // The column's own head (its number, words, Use and Stop) keeps to the column.
+        expect(await column(win, n).locator('header').evaluate((h) => h.scrollWidth - h.clientWidth)).toBeLessThanOrEqual(0)
+      }
+      await expect(usePicked(win)).toBeInViewport({ ratio: 1 })
+    }
+    for (const [w, h] of [
+      [1024, 700],
+      [1440, 900]
+    ] as const) {
+      await size(app, win, w, h)
+      await fits(w < 1200 ? 240 : 300)
+      for (const scheme of ['light', 'dark'] as const) {
+        await win.emulateMedia({ colorScheme: scheme })
+        await expect(win.locator('html')).toHaveAttribute('data-theme', scheme)
+        await shot(win, `desk-variants-${w}-${scheme}`)
+      }
+    }
+    // The smallest window the app opens to (960 wide) still has all three in sight.
+    await size(app, win, 960, 700)
+    await fits(240)
   } finally {
     await fake.close()
   }

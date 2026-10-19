@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityLine, activityOf, isBusy, progressOf, type ActivityInput } from './activity'
+import { activityLine, activityOf, dockKindOf, isBusy, progressOf, type ActivityInput } from './activity'
 
 const quiet: ActivityInput = {
   draft: { phase: 'idle', retrying: false, written: null, target: null },
@@ -75,5 +75,17 @@ describe('what the AI dock shows', () => {
 
   it('keeps a change waiting in the page ahead of Beat by beat, so Accept and Reject are never under its bar', () => {
     expect(activityOf({ ...quiet, beats: true, change: { tool: 'rewrite', status: 'ready', text: 'A b.' } })).toMatchObject({ kind: 'review' })
+  })
+})
+
+describe('what the foot of the page takes turns by (the dock on the desk, the same said for the panels)', () => {
+  it('is busy while anything writes, review while a change waits, and beats while Beat by beat has the foot', () => {
+    expect(dockKindOf(activityOf(quiet))).toBe('idle')
+    expect(dockKindOf(activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'starting' } }))).toBe('busy')
+    expect(dockKindOf(activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'streaming' } }))).toBe('busy')
+    expect(dockKindOf(activityOf({ ...quiet, polish: { running: true, stopping: false } }))).toBe('busy')
+    expect(dockKindOf(activityOf({ ...quiet, change: { tool: 'continue', status: 'writing', text: 'A b.' } }))).toBe('busy')
+    expect(dockKindOf(activityOf({ ...quiet, change: { tool: 'continue', status: 'ready', text: 'A b.' } }))).toBe('review')
+    expect(dockKindOf(activityOf({ ...quiet, beats: true }))).toBe('beats')
   })
 })

@@ -237,7 +237,7 @@ export function VariantColumn({
   return (
     <section
       aria-label={`Variant ${index}`}
-      className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-page shadow-soft"
+      className="@container flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-page shadow-soft"
     >
       <header className="shrink-0 border-b border-line/70">
         <div className="flex h-11 items-center gap-2 pl-4 pr-2">
@@ -248,11 +248,13 @@ export function VariantColumn({
               <>
                 <span
                   role="status"
-                  title={variant.retrying ?? undefined}
+                  title={variant.retrying ?? status_}
                   className="flex items-center gap-1.5 whitespace-nowrap text-[12px] font-medium text-ai"
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
-                  {status_}
+                  {/* Once it writes, a narrow column (a small window) keeps its words and Stop whole: the pulsing dot says
+                      it is being written, as the page's own head does in words. */}
+                  <span className={starting ? undefined : '@max-[320px]:sr-only'}>{status_}</span>
                 </span>
                 {!starting ? (
                   <Button

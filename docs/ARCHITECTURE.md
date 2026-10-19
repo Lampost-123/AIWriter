@@ -4518,7 +4518,8 @@ dialogue") dropped, and the check's answer folded away in the Issues tab.
   how long are never a "not shown yet" question. The report keeps each ask's kind and result (`ContractCheckItem.ask`, a
   model's "not yet" kept as such) and the record checked (`ContractCheck.recordId`, set only as words land).
 - **The receipt** (`features/receipt/`, `receiptOf`): over the AI dock after a draft (Generate, Add below) written with a
-  direction, once its check is in: "✓ Mira lies about the key · ○ More dialogue" with Write it in (`continueAtEnd` steered
+  direction, once its check is in (in the panels, at the foot of the page: `DirectionReceipt place="panels"`, a pill of
+  the panels' own with Write it in in the AI's amber): "✓ Mira lies about the key · ○ More dialogue" with Write it in (`continueAtEnd` steered
   by what didn't land, never a length) and Dismiss; every ask landed, one quiet ✓ line that fades (4.5 s). From the scene's
   check report, refreshed on `issues:changed`, for 15 minutes, once per draft; gone while the next draft or Beat by beat
   runs. What the AI saw shows the same under the direction for the draft it was checked for (`ReceiptInSaw`).
@@ -4528,7 +4529,8 @@ dialogue") dropped, and the check's answer folded away in the Issues tab.
 - **Tests**: `ai/contract.test.ts` (the split, length, the contract and the briefing: said once, last), `context.test.ts`,
   `plan.test.ts`, `echo.test.ts`, `repair/contract.test.ts` (asks in the check and the report), `receipt/receipt.test.ts`,
   `draftOptions.test.ts`, `tests/unit/writerRound.test.ts`; app test `tests/e2e/directionReceipt.spec.ts` (the desk, the
-  fake writer leaving "More dialogue" out; Write it in; What the AI saw; the stale direction).
+  fake writer leaving "More dialogue" out; Write it in; What the AI saw; the stale direction; the panels: the receipt at
+  the foot of the page, Write it in, at 1024 px, and written in by itself).
 
 ## The direction composer (overhaul, 2026-10-19)
 
@@ -4697,14 +4699,13 @@ settings carry test), one draft option, and steps on records.
   length), the app writes it in once by itself with the steered Continue Write it in uses (`continueAtEnd`), only when
   nothing else is being written in the scene and only for a draft this window started; the receipt then says what was
   written in ("+", `data-direction-receipt="written"`, "Written in below"), and What the AI saw notes it. At most once a
-  draft (`claimAutoWriteIn`). On the desk, where the receipt shows.
+  draft (`claimAutoWriteIn`). Wherever the receipt shows: on the desk, and at the foot of the panels' page.
 - **Tests**: `plan/cardCheck.test.ts` (each finding with its controls), `plan/review.test.ts` (end to end against the
   fake provider: the plan waits with no call of its own, the changed beat reaches the writer and Continue, Cancel and Stop
   write nothing, the card's notes reach the planner and the record; the pure parts), `features/receipt/autoWriteIn.test.ts`
   (once only), `features/planReview/logic.test.ts`, `tests/unit/settingsCarry.test.ts`; app test `tests/e2e/planFirst.spec.ts`
   (the desk: a beat changed, Write; Cancel; written in once by itself).
-- **Not done here**: the panels layout has no receipt, so nothing is written in by itself there; the card check reads
-  plain English and doesn't look at the card's mood or notes for things used.
+- **Not done here**: the card check reads plain English and doesn't look at the card's mood or notes for things used.
 
 ## Keep this, change that (Change it…, 2026-10-19)
 
@@ -4874,8 +4875,11 @@ director's line and the pointer to a draft written out of sight, over the words.
   draft go?", measured once placed; a panel reaching into the window's top half, the draft options, leaves them be; while
   the drawer lies over the page in a small window they keep their corner). The
   director's line is of the dock's material (`.desk-foot-card`, desk.css).
-- **The panels**: the director's line and "Writing the new draft below" share one band at the page's foot, on the page's
-  own colour, the line above the pointer, only while one of them shows.
+- **The panels**: the direction receipt, the director's line and "Writing the new draft below" share one band at the
+  page's foot (`[data-page-foot]`), on the page's own colour, only while one of them shows (`empty:hidden`), lifted clear
+  of read aloud's bar (`--read-aloud-lift`). They take the desk's turns: with no dock, `FootActivity` (`desk/dock/Dock.tsx`,
+  `activity.ts` `dockKindOf`) says what the AI is doing in the scene, so the receipt waits while the AI writes and, while
+  a change waits for Accept or Reject in the page, shows only with nothing to press.
 - Unchanged: the just-written row stays under the draft's last line (it steps aside while the AI is busy, a change waits,
   the change box is open or Beat by beat runs); the change box and Beat by beat's bar each take the whole foot while open.
 - Also in the pass: the draft options' choices scroll between the direction and Generate in a short window (the panel never
@@ -4884,8 +4888,12 @@ director's line and the pointer to a draft written out of sight, over the words.
   this scene, Interview me: `SceneIdeas` `lead`); Beat by beat's "no beats" answers share a row; under 1200 px the desk's
   rooms not showing are their icons alone and the top bar's right-hand buttons keep the room they need, so nothing runs
   under them.
-- Tests: `features/desk/dock/foot.test.ts`; the app tests of the parts (desk, director, directionReceipt, planFirst,
-  revise, beats, variants, direction).
+- Variants (polish, 2026-10-19): the columns share the width, 240 to 560 px each (`VariantsView` `COLUMN_MIN`), so all
+  three show whole side by side down to the smallest window (960 px, the desk with its spine); only a row narrower still
+  scrolls sideways. In a column under 320 px a variant being written says so with its pulsing dot (the page's head says
+  "Writing…"), so its words and Stop stay whole.
+- Tests: `features/desk/dock/foot.test.ts`, `activity.test.ts` (`dockKindOf`); the app tests of the parts (desk, director,
+  directionReceipt, planFirst, revise, beats, variants (the desk at 1024 by 700, 1440 by 900 and 960), direction).
 
 ## Milestone 1 scope
 
