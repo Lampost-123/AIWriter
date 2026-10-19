@@ -13,9 +13,9 @@
 //     deleted while the helper isn't showing waits for a decision again when it opens. Asked again, it
 //     carries on from what the story has.
 //  2. A suggestion can be stopped part way, and leaving the page doesn't lose it; what arrived can be
-//     kept. One that fails says why in plain words, and Undo brings back the suggestions it replaced.
-//     What was kept and is then deleted in the binder waits for a decision again. Replaced suggestions
-//     can be brought back until one of the new ones is kept.
+//     kept. One that fails says why in plain words, and the suggestions not decided on stay under
+//     "Earlier suggestions". What was kept and is then deleted in the binder waits for a decision again.
+//     Asked again, the earlier ones stay beside the new ones, to keep from or put away (with Undo).
 //  3. Acts in the binder: a story without acts looks as it always has, and is given one from a
 //     chapter's menu (with Undo); acts fold and unfold, are renamed and given a purpose, get a new
 //     chapter, take a chapter moved from another act (with Undo), and are deleted with their chapters
@@ -367,6 +367,8 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(main(win).getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
     await expect(main(win).getByText(/^Suggesting… .+ so far$/)).toBeVisible()
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toBeVisible()
+    // Stopped once the next scene has started arriving, so there is something still to decide after one Keep.
+    await expect(suggestion(win, 'Scene', 'A bargain at the docks')).toBeVisible({ timeout: 30_000 })
 
     await main(win).getByRole('button', { name: 'Stop', exact: true }).click()
     await expect(main(win).getByText(/^Stopped\. What had arrived is below: /)).toBeVisible()
@@ -374,16 +376,19 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(toastWith(win, 'Added “Arrival at the docks” to the story, in a new chapter and act.')).toBeVisible()
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks'])
 
-    // A request that fails says why in plain words. The suggestions it replaced come back with Undo.
+    // A request that fails says why in plain words. The suggestions not decided on stay, as they were, under Earlier
+    // suggestions: folded away until opened.
     await setModel(win, 'fake/credit')
     await main(win).getByRole('button', { name: 'Suggest again' }).click()
     await expect(main(win).getByText(/says your account is out of credit\. Top up there/)).toBeVisible()
+    await expect(toastWith(win, 'Your earlier suggestions are still here, under “Earlier suggestions”.')).toBeVisible()
+    const earlier = main(win).getByRole('region', { name: 'Earlier suggestions', exact: true })
+    await expect(earlier).toContainText(/\d+ still to decide/)
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveCount(0)
-    await undoIn(win, 'Replaced the earlier suggestions you hadn’t decided on.').click()
+    await earlier.getByRole('button', { name: 'Earlier suggestions' }).click()
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toHaveAttribute('data-state', 'kept')
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'kept')
-    await expect(main(win).getByText(/out of credit/)).toHaveCount(0)
-    await expect(main(win).getByText(/^Stopped\. What had arrived is below: /)).toBeVisible()
+    await expect(suggestion(win, 'Scene', 'A bargain at the docks')).toHaveAttribute('data-state', 'open')
 
     // Deleted from the binder, what was kept waits for a decision again, and Keep makes it anew.
     await actRow(win, 'The Arrival').click({ button: 'right' })
@@ -399,15 +404,25 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toHaveAttribute('data-state', 'kept')
     expect((await invoke(win, 'getOutline', story.id)).acts!.map((a) => a.title)).toEqual(['The Arrival'])
 
-    // Asked again, the undecided ones can come back with Undo until Adam keeps one of the new ones.
+    // Asked again, the new ones come in at the top, and the earlier ones stay there as long as Adam likes, even after
+    // he keeps one of the new ones; they can be kept from, or put away with Undo.
     await setModel(win, 'fake/writer')
     await main(win).getByRole('button', { name: 'Suggest again' }).click()
-    const replacedNote = toastWith(win, 'Replaced the earlier suggestions you hadn’t decided on.')
-    await expect(replacedNote).toBeVisible()
     await expect(main(win).getByText(/^Here is the outline: /)).toBeVisible()
-    await main(win).locator('[data-suggestion="scene"][data-state="open"]').first().getByRole('button', { name: /^Keep/ }).click()
-    await expect(main(win).locator('[data-suggestion="scene"][data-state="kept"]')).toHaveCount(1)
-    await expect(replacedNote).toHaveCount(0)
+    const newest = main(win).getByRole('region', { name: 'Suggestions', exact: true })
+    await newest.locator('[data-suggestion="scene"][data-state="open"]').first().getByRole('button', { name: /^Keep/ }).click()
+    await expect(newest.locator('[data-suggestion="scene"][data-state="kept"]')).toHaveCount(1)
+    const bargain = earlier.getByRole('group', { name: 'Scene: A bargain at the docks', exact: true })
+    await expect(bargain).toHaveAttribute('data-state', 'open')
+    await earlier.getByRole('button', { name: 'Put these away' }).click()
+    await expect(earlier).toHaveCount(0)
+    await toastWith(win, 'from earlier.').getByRole('button', { name: 'Undo' }).click()
+    await expect(bargain).toHaveAttribute('data-state', 'open')
+    // Kept from there, it goes into its own chapter; with nothing left to decide in it, the batch leaves the page.
+    await bargain.getByRole('button', { name: 'Keep “A bargain at the docks”' }).click()
+    await expect(toastWith(win, 'Added “A bargain at the docks” to the story.')).toBeVisible()
+    await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks', 'A bargain at the docks'])
+    await expect(earlier).toHaveCount(0)
   } finally {
     await fake.close()
   }

@@ -161,10 +161,11 @@ export function CardFields({
   }
   const scene = kind === 'scene'
   const head = 'text-[11px] font-semibold uppercase tracking-wide text-faint'
-  const grid = 'grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(176px,1fr))]'
+  // Two columns where the form is wide enough (container queries: the desk's index cards are narrow), else one.
+  const grid = 'grid grid-cols-1 gap-3 @md/card:grid-cols-2'
   return (
     <>
-      <div className="flex flex-col gap-2" data-card-fields>
+      <div className="@container/card flex flex-col gap-2" data-card-fields>
         <div>
           <p className={head}>{scene ? 'Where it differs from its chapter' : 'Who and where'}</p>
           <p className="text-[12px] text-faint">
@@ -183,7 +184,7 @@ export function CardFields({
                 onChange={(n) => onCard({ pov: n[0] ?? '' })}
                 noun="character"
                 listLabel="Characters"
-                placeholder="Whose eyes it is seen through"
+                placeholder="Type a name…"
               />
             )}
           </Field>
@@ -198,11 +199,11 @@ export function CardFields({
                 onChange={(n) => onCard({ location: n[0] ?? '' })}
                 noun="place"
                 listLabel="Places"
-                placeholder="Where it happens"
+                placeholder="Type a place…"
               />
             )}
           </Field>
-          <Field label="Characters present" className="col-span-full">
+          <Field label="Characters present" className="@md/card:col-span-2">
             {(id) => (
               <NamesPicker
                 id={id}
@@ -228,7 +229,7 @@ export function CardFields({
         </div>
       </div>
       {scene ? (
-        <div className="flex flex-col gap-2">
+        <div className="@container/card flex flex-col gap-2">
           <p className={head}>Plot threads</p>
           <div className={grid}>
             <Field label="Sets up" hint="Mysteries, promises and setups it opens.">

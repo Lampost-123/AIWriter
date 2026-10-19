@@ -382,9 +382,9 @@ export function hasOpen(run: HelperRun, gone: ID[]): boolean {
 }
 
 /** The Undo for a talk's revision: the suggestions as they were before it (until one of the new ones is decided on). */
-function offerBack(storyId: ID, taskId: ID, run: HelperRun, chapterId?: ID | null): void {
-  const key = keyOf(storyId, chapterId)
-  const toastId = toast('Changed the suggestions as you asked.', {
+function offerBack(storyId: ID, taskId: ID, run: HelperRun, keptAsWas: string[] = []): void {
+  const key = keyOf(storyId)
+  const toastId = toast(`Changed the suggestions as you asked.${keptNote(keptAsWas)}`, {
     action: {
       label: 'Undo',
       run: () => {
@@ -396,11 +396,19 @@ function offerBack(storyId: ID, taskId: ID, run: HelperRun, chapterId?: ID | nul
         if (now.status === 'running') void api.stopTask(taskId).catch(() => undefined)
         put(key, { run: back, problem: null })
         // What it kept may have been deleted from the story since.
-        void checkKept(storyId, chapterId)
+        void checkKept(storyId)
       }
     }
   })
   replaced = { toastId, key, taskId, run }
+}
+
+/** What a revision's toast adds for kept parts the talk would have changed (they are in the story already). */
+function keptNote(titles: string[]): string {
+  const named = [...new Set(titles.filter(Boolean))].map((t) => `“${t}”`)
+  if (!named.length) return ''
+  const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`
+  return ` ${list} ${named.length === 1 ? 'is' : 'are'} already in the story, so ${named.length === 1 ? 'it wasn’t' : 'they weren’t'} changed here.`
 }
 
 /**
@@ -493,7 +501,7 @@ export function applyRevision(storyId: ID, revision: RevisionInput): boolean {
   }
   dropReplaced()
   put(key, { run, problem: null })
-  offerBack(storyId, taskId, previous)
+  offerBack(storyId, taskId, previous, next.keptAsWas)
   return true
 }
 

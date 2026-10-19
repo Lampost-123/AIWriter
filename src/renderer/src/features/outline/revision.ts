@@ -25,6 +25,8 @@ export interface Carried {
   text: string
   decisions: Decisions
   edits: Edits
+  /** The titles of kept parts the talk would have changed: they are in the story already, so they stay as they are. */
+  keptAsWas: string[]
 }
 
 const flat = (s: string | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -152,6 +154,7 @@ export function carryRevision(text: string, decisions: Decisions, edits: Edits, 
 
   const nextDecisions: Decisions = {}
   const nextEdits: Edits = {}
+  const keptAsWas: string[] = []
   walkKeyed(rev, (node, kind, key) => {
     const from = origin.get(node)
     if (!from) return
@@ -159,7 +162,10 @@ export function carryRevision(text: string, decisions: Decisions, edits: Edits, 
     const was = parts.get(from)!.node
     if (d) nextDecisions[key] = d
     // Kept: as it was kept, with Adam's words on it (the story has it so).
-    if (d?.status === 'kept') restoreOwn(kind, node, was)
+    if (d?.status === 'kept') {
+      if (ownWords(kind, withEdit(kind, was, edits)) !== ownWords(kind, node)) keptAsWas.push((edits[from]?.title ?? was.title).trim())
+      restoreOwn(kind, node, was)
+    }
     const e = edits[from]
     if (!e) return
     // His changes stay his where the talk didn't change the part (by what it says, else by its words).
@@ -168,5 +174,5 @@ export function carryRevision(text: string, decisions: Decisions, edits: Edits, 
   })
   const lead = preambleOf(text)
   const body = outlineText(rev)
-  return { text: lead ? `${lead}\n\n${body}` : body, decisions: nextDecisions, edits: nextEdits }
+  return { text: lead ? `${lead}\n\n${body}` : body, decisions: nextDecisions, edits: nextEdits, keptAsWas }
 }

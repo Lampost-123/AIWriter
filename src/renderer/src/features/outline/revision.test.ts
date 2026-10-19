@@ -119,8 +119,9 @@ describe('applying a talk’s revision', () => {
     const lines = show(out.text, out.decisions)
     expect(lines).toContain('a0c0s1 Salvage (kept)')
     expect(lines).toContain('a0c1 Long Night (discarded)')
-    // Kept, it shows as it was kept (the story has it so), not as the talk would have changed it.
+    // Kept, it shows as it was kept (the story has it so), not as the talk would have changed it; the toast says so.
     expect(tree(out.text)[0].children[0].children[1].text).toBe('Bram counts his luck.')
+    expect(out.keptAsWas).toEqual(['Salvage'])
   })
 
   it('takes a kept scene the AI sent again for the kept one, never a second to keep', () => {
