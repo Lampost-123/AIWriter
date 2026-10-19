@@ -40,7 +40,7 @@ const prose = (tag: string, paragraphs: number): string =>
     ].join(' ')
   ).join('\n\n')
 
-/** Chapter 1: three long scenes, written. Chapter 2: three scene cards, to be written. */
+/** Chapter 1: three long scenes, written. Chapter 2: three scene cards, to be written. Chapter 3: a scene, written. */
 function world() {
   const db = memoryWorld()
   const [story] = repo.listStories(db)
@@ -53,6 +53,8 @@ function world() {
   repo.createEntry(db, 'character', { name: 'Mara', summary: 'Runs the ferry.' })
   repo.createEntry(db, 'character', { name: 'Tobin', summary: 'A ferryman.' })
   scenes.forEach((id, i) => repo.updateSceneCard(db, id, { ...repo.getScene(db, id).card, goal: `Mara crosses, part ${i + 1}.` }))
+  const three = repo.createChapter(db, story.id, { title: 'The road on' }).id
+  repo.saveSceneText(db, repo.createScene(db, three).id, null, prose('Ch3', 12))
   return { db, chapterId: two, scenes }
 }
 

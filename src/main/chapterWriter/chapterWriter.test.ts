@@ -11,7 +11,7 @@ import { checkScene } from '../checks/run'
 import { runCritique } from '../critique/run'
 import { dropRepeats, pageFrom, proseBlocks } from './page'
 import { ProgressGuard, Tries, findingKey, sameFinding, wordsOverlap } from './progress'
-import { ChapterRun, LATER_START, cardReady, type RunDeps } from './run'
+import { ChapterRun, FOLLOW_ON_CHECKS, LATER_START, cardReady, type RunDeps } from './run'
 import { LOOKUPS_ALLOWED, STEPS, studySystem } from './prompts'
 import { ChapterSession, type Finding, type SessionDeps } from './tools'
 import { loadBefore, loadReport } from './store'
@@ -71,8 +71,8 @@ function deps(db: RunDeps['db'], o: { again?: boolean; agent?: string; progress?
     save: (sceneId, page) => {
       repo.saveSceneText(db, sceneId, page.doc, page.text)
     },
-    check: async (sceneId) => {
-      const r = await checkScene({ db, model: model('fake/writer', 'check'), prefs: PREFS, stopped: () => false, retryDelays: [] }, sceneId, ALL_CHECKS)
+    check: async (sceneId, _signal, checks = ALL_CHECKS) => {
+      const r = await checkScene({ db, model: model('fake/writer', 'check'), prefs: PREFS, stopped: () => false, retryDelays: [] }, sceneId, checks)
       return r.status === 'error' ? { status: 'error', error: r.error } : { status: r.status }
     },
     critique: (target, again) =>
@@ -410,8 +410,10 @@ describe('writing a whole chapter', () => {
     const d = deps(db)
     const real = { check: d.check, critique: d.critique }
     const checked: ID[] = []
-    d.check = async (sceneId, signal) => {
+    const asked: string[] = []
+    d.check = async (sceneId, signal, checks = ALL_CHECKS) => {
       checked.push(sceneId)
+      asked.push(checks.join(', '))
       // The next chapter's scene: the check finds its opening no longer follows on.
       if (sceneId === road) {
         cdb.saveFound(
@@ -422,7 +424,7 @@ describe('writing a whole chapter', () => {
         )
         return { status: 'done' }
       }
-      return real.check(sceneId, signal)
+      return real.check(sceneId, signal, checks)
     }
     // The critic has notes for Sc 1 only, so only Sc 1's review changes anything.
     d.critique = (target, again, signal) => {
@@ -438,9 +440,31 @@ describe('writing a whole chapter', () => {
     // Round 1 checks both scenes, then the next chapter's first scene with words (its last scene was just written);
     // round 2 checks Sc 2 again although only Sc 1 changed: its opening follows on from Sc 1's new end.
     expect(checked).toEqual([s1, s2, road, s1, s2])
+    // A scene that didn't change itself is checked for what is so only (token audit, 2026-10-19).
+    const all = ALL_CHECKS.join(', ')
+    const follow = FOLLOW_ON_CHECKS.join(', ')
+    expect(asked).toEqual([all, all, follow, all, follow])
     // The next chapter's scene is never changed: what its check found is noted for Adam.
     expect(repo.getScene(db, road).text).toBe('Mara walked on in the blue dress, wet through.')
     expect(report.notes).toEqual(['Ch 2, Sc 2 may no longer follow on: Mara took the blue dress off at the inn. (“in the blue dress”)'])
+  })
+
+  it('checks no scene again that check_again read as it is now, with nothing before it changed since (token audit)', { timeout: 30_000 }, async () => {
+    const { db, chapterId, s1, s2 } = world()
+    const d = deps(db, { agent: 'fake/agent-checks-again' })
+    const real = d.check
+    const checked: ID[] = []
+    d.check = async (sceneId, signal, checks) => {
+      checked.push(sceneId)
+      return real(sceneId, signal, checks)
+    }
+    const run = new ChapterRun(d, 'run-again', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    // Round 1 checks both scenes; each review revises its scene and has it checked again; round 2 has nothing to read.
+    expect(checked).toEqual([s1, s2, s1, s2])
+    expect(report.rounds).toBe(2)
   })
 
   it('never keeps a cut-off draft or a refusal as the scene', async () => {

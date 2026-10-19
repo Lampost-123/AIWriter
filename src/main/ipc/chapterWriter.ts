@@ -157,7 +157,7 @@ function deps(runId: ID): RunDeps {
       if ((now.text ?? '').trim()) currentHistory()?.take({ sceneId, kind: 'ai', label, doc: now.doc, text: now.text })
       coreHandlers.saveSceneText(sceneId, page.doc, page.text)
     },
-    check: async (sceneId, signal) => {
+    check: async (sceneId, signal, checks = ALL_CHECKS) => {
       // As the checks do: the memory reads earlier scenes first, then this scene's own waiting read.
       await catchUpBeforeDraft(db, sceneId, CATCH_UP_MS, signal)
       const k = currentKeeper()
@@ -189,7 +189,7 @@ function deps(runId: ID): RunDeps {
               byMeaning: (queries, docs, s) => meaningForCheck(db, queries, docs, s)
             },
             sceneId,
-            ALL_CHECKS
+            checks
           )
       )
       return r.status === 'error' ? { status: 'error', error: r.error } : { status: r.status }

@@ -13,7 +13,8 @@
 // The model fake/agent-words answers every request in words, never calling a tool (the app sends it back twice,
 // then the session ends). The model fake/agent-greedy first looks things up, three at a time (Ch 1's scenes, Mara,
 // Tobin, a search, the story so far, the outline), in study, review and chapter sessions, as a live model did
-// (2026-10-16), until the app says there are no more look-ups; then it goes on as above. Returns null for any other
+// (2026-10-16), until the app says there are no more look-ups; then it goes on as above. The model
+// fake/agent-checks-again calls check_again after its revise in a review, before done. Returns null for any other
 // request.
 
 const MARKER = '[AIWRITE-CHAPTER v1]'
@@ -103,5 +104,6 @@ export function chapterToolCalls(system, messages, tools, model = '') {
     }
     if (out.length) return out
   }
+  if (model === 'fake/agent-checks-again' && called('revise') && !called('check_again')) return [{ name: 'check_again', arguments: {} }]
   return [{ name: 'done', arguments: { summary: 'Fixed what was found.' } }]
 }
