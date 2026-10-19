@@ -30,6 +30,8 @@ src/main/        Electron main process
                  main word), calendar.ts and storyCalendar.ts (the story calendar, fix 11). Pure where it can be.
   keeper/        The memory keeper (milestone 2): reads scene text with the memory model and keeps
                  the memory in step with it, plus summaries at every level
+  storyIndex/    The story index (overhaul phase 1): who is where, with what, and what changed, scene by scene, as dated
+                 facts built with no AI call; look-ups and free checks over it (SQL in db/storyIndex.ts)
   retrieval/     Story memory step 5: sticky entries, what was said, and searching the story so far by
                  keyword and by meaning (its own file, search-index.db, and the search model in model/:
                  onnxruntime-node, or a TypeScript reader where that can't start)
@@ -3755,6 +3757,57 @@ content levels, point of view, tense and prose style (and the tone, in the Story
 New story dialog's "Build it with the AI next"; the start screen's **Build a story with AI…** tile (picks a world,
 then opens the New story dialog with that box ticked: `newStoryIn(worldId, { withAi: true })`, `useApp.newStoryWithAi`). The World builder page stays for a world built from a summary apart
 from any story, and points to the Story builder while a story is open.
+
+## The story index (overhaul phase 1, items 2 and 3, 2026-10-19)
+
+A look-up table that says, scene by scene, who is where, with what, and what changed, kept as dated facts, so a question
+such as "what is Mara wearing as Ch 12, Sc 3 begins" or "who knows the seal was stolen" is a database read rather than a
+walk over the memory or an AI call. This part is free: no AI call builds or reads it. Not wired in yet (below).
+
+**Migration 5: the story index.** The written reason: answering those questions today means building the line and the
+state for a scene (`memory/scene.ts`), reading the stage tracker's store and the calendar, every time, and nothing keeps
+when a value stopped being true; a long story's briefing, checks and Ask need it per scene, fast. The tables hold only
+what can be built again from the world (scene cards, words, the memory's changes, where things stand, summaries), so
+nothing in them is ever the only copy, and older worlds open unchanged with them empty. `index_scenes` (one row a
+scene: its place in its story and its "Ch 3, Sc 2", the gist, who is there, who is only named, the card's place and When,
+the source hash, how it was filled), `index_facts` (kind where, wearing, carrying, condition, knows, relationship,
+thread or status; `slot` tells facts of a kind apart; from a scene until a scene, null while still true; the words; the
+origin: card, memory, tracker or hand) and `index_threads` (a plot thread opened, moved on or closed in a scene). Rows
+go with their scene when it is emptied from Recently deleted (foreign keys). All SQL is in `db/storyIndex.ts`.
+
+- **Building** (`storyIndex/build.ts`, pure; `storyIndex/index.ts` reads the world): who is there is the card's point of
+  view and people, anyone the words name as there by the keeper's own rule (`keeper/presence.ts` `namedIn`: not when only
+  thought of, talked of or far away; by name, other name, a first name no one else goes by, or what the scene's words
+  call them, `db/called.ts`), whoever the memory saw there (a knowledge change's `there`, a speaker and who heard) and
+  whoever the stage has values for from the scene's own words. Facts: where, each piece worn, what is carried and the
+  condition from where things stand, only where a scene changes them from the last scene before it with a stage, and
+  only from values its own words gave (`said`) or Adam set in Recall, so a value carried on in a state built on an
+  earlier scene's older reading never starts a fact (`continuity/tracker.ts` `keptStates`: read from the words as they
+  are now; not `storedState`'s `current`, which would drop every later scene's facts after one early edit); the card's
+  place for its people (slot `card`; a look-up prefers the words unless the card moved them on since); and from the
+  memory's changes, as the writer is given them (unconfirmed facts left out): what someone learns or forgets (never a
+  wrong belief), relationships, threads, a death the memory is sure of (`ai/deaths.ts` `surelyDied`, undone by a note
+  that they live) and any other note of what is different, each stopped at its "true until".
+- **Never patched.** A scene's rows are rebuilt whole when its source hash changes (its words, card, called names,
+  changes and their words, its stage and the one before, its summary, the world's names, `INDEX_RULES`). Where each fact
+  stops is then worked out for the whole story (`storyIndex/link.ts`): a fact stops at the next row of its chain (one
+  person's place, one piece, one fact known, one pair) that says something else, an end included.
+- **Entry points**: `buildStoryIndex(db, storyId)` (every scene checked, only changed ones built; 50 scenes of 1,500
+  words: about 140 ms the first time, 15 ms with nothing changed; 300 scenes: 400 ms and 60 ms) and
+  `refreshSceneIndex(db, sceneId)` (that scene and the next scene with a stage; drops a deleted scene).
+- **Look-ups** (`storyIndex/lookup.ts`, a query or two each, under 3 ms on 300 scenes), each with plain data and short
+  lines for a prompt: `stateOf` ("Mara Venn: wearing grey coat (since Ch 1, Sc 1)"), `lastSeen`, `whoKnows` (a fact's
+  words, or a thread's name or main word), `openThreads` (with how long each has been quiet), `sceneGists`, `presentAt`
+  and `timeline` (the card's When and the story calendar's date). At a scene means as it ends; `asItBegins` as it begins.
+- **Free checks** (`storyIndex/checks.ts` `indexChecks`, plain findings with scene ids, nothing stored): `same-moment`,
+  someone in two scenes the cards put at the very same moment (same day, same clock time, neither leaning on the scene
+  before nor going back) in places apart, with a card having them there; `after-death`, someone on a scene card after
+  the memory is sure they died, never in a dream, memory or flashback, nor a scene the calendar dates before the death.
+- **To wire in next** (not done here): call `refreshSceneIndex` after the memory keeper applies a run and the stage is
+  brought up to date (`keeper/index.ts` `standLater`, beside `rulesAfterRead`), when a scene card is saved, and when a
+  scene is deleted or restored (`rulesAfterDeleting`); `buildStoryIndex` (hash-guarded, so cheap when little changed)
+  when a world opens, in the background, story by story, and after scenes or chapters move, a summary is written, or
+  Adam edits the memory by hand on an entry page. A scene moved to another story: refresh it (both stories follow).
 
 ## Milestone 1 scope
 
