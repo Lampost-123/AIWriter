@@ -4039,8 +4039,8 @@ planning every beat. Plan before writing (`settings.planFirst`) stays a switch, 
   brief; short: the facts without the passages; `lookedUpText`: at most 14 facts and 2 passages of 180 words). It goes in
   only where there is room (`withPlan` tries with all of it, without what it looked up, without what it asked for).
 - **Said once** (`ai/contract.ts` `contractText` `said`, `SAID`): the contract points to Adam's direction where the
-  writer reads it in full: on the scene card for a whole scene ("What the author directs, as the scene card gives it."),
-  last of all carrying on, and for a beat ("This beat, as given last of all, below."); Continue's "what happens next" too.
+  writer reads it in full: last of all for a whole scene too since "Adam's direction, said last" below (on the scene card
+  only for Beat by beat), and for a beat ("This beat, as given last of all, below."); Continue's "what happens next" too.
   The check still reads every item in full (`codes`). The planner reads the direction once, under what is being written
   (its copy of the contract points there).
 - **Every writing path**: Generate and Add below (a plan before each draft, `draftBriefing`); Variants (`ipc/variants.ts`
@@ -4319,6 +4319,45 @@ a new kind (`index_facts.kind` is text).
   Undo), `storyIndex/checks.test.ts` (too fast, from an entry and from narration, and what it never says).
 - **Known limits**: time claims read plain English frames only; a weekday only on a real date with a year; seasons are
   the northern hemisphere's; place kinds are a fixed list; "since the fire" needs an event entry with a When.
+
+## Adam's direction, said last and checked ask by ask (overhaul, 2026-10-19)
+
+The app's main job is writing what Adam tells it. A review found a whole scene's direction in the middle of the scene card
+("followed loosely", as Add below's had been), the team's own tests had DeepSeek follow events it carried on from and
+ignore them as rules, the contract kept the direction as one item cut at 320 characters with how-it-reads asks ("more
+dialogue") dropped, and the check's answer folded away in the Issues tab.
+
+- **Last of all** (`ai/prompts.ts` `finalInstruction`, `DIRECTION_LEAD`): Generate's closing ends "The author's direction
+  for this draft (make every part of it happen on the page):" and the direction word for word, as Add below's "What happens
+  now" does; the line "Follow the author's direction" is gone. The scene card leaves it out (`context.ts` `sceneCardText`,
+  `buildBriefing` `directionOnCard`) unless the closing is a draft's own (Beat by beat, `ContextExtras.final`). Said once:
+  the contract points to it (`SAID.below`); the planner reads it under what is being written for a whole scene too
+  (`plan.ts` `askText`, `calls`; the brief's copy of the contract `SAID_PLAN`). Measured: the writer's request for a whole
+  scene with a direction is the same size to a token (4,950 to 4,951 with a contract); the trap harness's fake run
+  (`--measure`, chain K1) unchanged (writer 8,019, Continue 2,919, check 3,604 tokens on average).
+- **Ask by ask** (`ai/contract.ts` `directionAsks`, `AskKind`): sentences, lines and parts between semicolons, and inside
+  a sentence a clause that bids something of its own ("…, end on the knock"), says how it reads ("…, more dialogue") or has
+  someone act next ("…, then Tobin leaves"); a comma or "and" inside one happening never splits it; each whole, at most
+  `ASKS_MOST` (6). Each is a "must change" item with its kind (`ContractItem.ask`: event, reads, length), with places of
+  their own (the card and the plan share what is left, the direction counting as one); the writer reads one pointer line
+  for all of them. Continue keeps only what happens. How it reads and how long go into the plan's notes as their last line
+  ("How it reads, as the author asks: …", `PLAN_PARTS.reads`, `PlanMaterial.reads`).
+- **Checked in the same call** (`repair/contract.ts`): each ask is a C line (about 100 tokens in per ask); an ask of length
+  ("keep it under 800 words", `lengthAsk`, `keepsLength`) is never sent: the app counts the new words. How it reads and
+  how long are never a "not shown yet" question. The report keeps each ask's kind and result (`ContractCheckItem.ask`, a
+  model's "not yet" kept as such) and the record checked (`ContractCheck.recordId`, set only as words land).
+- **The receipt** (`features/receipt/`, `receiptOf`): over the AI dock after a draft (Generate, Add below) written with a
+  direction, once its check is in: "✓ Mira lies about the key · ○ More dialogue" with Write it in (`continueAtEnd` steered
+  by what didn't land, never a length) and Dismiss; every ask landed, one quiet ✓ line that fades (4.5 s). From the scene's
+  check report, refreshed on `issues:changed`, for 15 minutes, once per draft; gone while the next draft or Beat by beat
+  runs. What the AI saw shows the same under the direction for the draft it was checked for (`ReceiptInSaw`).
+- **The stale direction** (`generate/draftOptions.ts` `draftDirection`, `useGenerate.ts`): on the desk, Add below with the
+  steer box empty has no direction (it took the Draft options' one, kept from a whole draft, as "what happens now");
+  asked from the Draft options themselves, theirs.
+- **Tests**: `ai/contract.test.ts` (the split, length, the contract and the briefing: said once, last), `context.test.ts`,
+  `plan.test.ts`, `echo.test.ts`, `repair/contract.test.ts` (asks in the check and the report), `receipt/receipt.test.ts`,
+  `draftOptions.test.ts`, `tests/unit/writerRound.test.ts`; app test `tests/e2e/directionReceipt.spec.ts` (the desk, the
+  fake writer leaving "More dialogue" out; Write it in; What the AI saw; the stale direction).
 
 ## Milestone 1 scope
 

@@ -385,6 +385,10 @@ describe('the direction’s asks in the check', () => {
     ])
     // Too long: the length ask isn't kept.
     expect(judgeContract([], ASKED, `${AI} ${'word '.repeat(20)}`).counted!.get('C3')).toBe('not yet')
+    // Said not yet, but its words are there: the model missed it, so it isn't asked and counts as done.
+    const missed = judgeContract([a('C1', 'not yet')], ASKED, 'Tobin told Mara the letter was forged.')
+    expect(missed.notYet).toEqual([])
+    expect(contractResults(ASKED, missed, { broken: new Set(), notYet: new Set() })[0].result).toBe('kept')
   })
 
   it('as the draft lands: the report keeps the asks with the record they were checked for', async () => {

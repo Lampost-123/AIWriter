@@ -125,6 +125,8 @@ export interface JudgedContract {
   said: Map<string, ContractAnswer>
   /** The asks of length, by code, as the app counted the new words (never sent to the model). */
   counted?: Map<string, 'kept' | 'not yet'>
+  /** What must change that the model said isn't shown yet, though most of its words are in the new words: shown. */
+  inWords?: Set<string>
 }
 
 /** The words in a text, as the app counts them. */
@@ -137,7 +139,8 @@ const neverAsked = (item: Pick<ContractItem, 'text' | 'ask'>): boolean => item.a
 export function judgeContract(answers: ContractAnswer[], c: SceneContract, newWords: string): JudgedContract {
   const said = new Map(answers.map((a) => [a.item, a] as const))
   const counted = new Map<string, 'kept' | 'not yet'>()
-  const out: JudgedContract = { broken: [], notYet: [], said, counted }
+  const inWords = new Set<string>()
+  const out: JudgedContract = { broken: [], notYet: [], said, counted, inWords }
   const words = countOf(newWords)
   for (const item of c.items) {
     const length = item.ask === 'length' ? lengthAsk(item.text) : null
@@ -160,9 +163,11 @@ export function judgeContract(answers: ContractAnswer[], c: SceneContract, newWo
         fix: a.fix,
         question: a.question
       })
-    } else if (a.result === 'not yet' && item.part === 'change' && c.asks !== 'continue' && !neverAsked(item) && !mostlyIn(item.text, newWords)) {
-      // Never for how the words should read ("make it darker", "more dialogue") or how long they are: the receipt shows those.
-      out.notYet.push(item)
+    } else if (a.result === 'not yet' && item.part === 'change' && c.asks !== 'continue' && !neverAsked(item)) {
+      // Never for how the words should read ("make it darker", "more dialogue") or how long they are: the receipt shows
+      // those. Most of its words in the new words: the model missed it.
+      if (mostlyIn(item.text, newWords)) inWords.add(item.code)
+      else out.notYet.push(item)
     }
   }
   return out
@@ -221,22 +226,16 @@ export function contractResults(
 ): ContractCheckItem[] {
   return c.items.map((i) => {
     const a = j.said.get(i.code)
-    const counted = j.counted?.get(i.code)
-    const result: ContractResult = asked.broken.has(i.code)
-      ? 'broken'
-      : asked.notYet.has(i.code)
-        ? 'not yet'
-        : asked.shown?.has(i.code)
-          ? 'kept'
-          : counted
-            ? counted
-            : !a
-              ? 'unchecked'
-              : a.result === 'kept'
-                ? 'kept'
-                : i.ask && a.result === 'not yet'
-                  ? 'not yet'
-                  : 'untouched'
+    const result = ((): ContractResult => {
+      if (asked.broken.has(i.code)) return 'broken'
+      if (asked.notYet.has(i.code)) return 'not yet'
+      if (asked.shown?.has(i.code) || j.inWords?.has(i.code)) return 'kept'
+      const counted = j.counted?.get(i.code)
+      if (counted) return counted
+      if (!a) return 'unchecked'
+      if (a.result === 'kept') return 'kept'
+      return i.ask && a.result === 'not yet' ? 'not yet' : 'untouched'
+    })()
     const quote = (result === 'kept' || result === 'broken') && a?.quote ? a.quote : ''
     // The item itself goes with it, so a later check of the whole scene can go through the contract again (checks/report.ts savedContract).
     return {
