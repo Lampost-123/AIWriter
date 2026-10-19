@@ -36,6 +36,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           'Consistency check model',
           'Creativity',
           'Thinking',
+          'Automatic AI',
           'Plan before writing',
           'Scene contract',
           'Continuity brief',

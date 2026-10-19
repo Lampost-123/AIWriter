@@ -19,6 +19,7 @@ import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePe
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
 import { RepairSettings } from '@/features/repair/RepairSettings'
 import { AutoCheckSettings } from './AutoCheckSettings'
+import { AutomaticAiSettings } from './AutomaticAiSettings'
 import { useNewLook } from '@/features/look/look'
 import { ProviderMark } from './ProviderMark'
 import { FindByMeaningSettings } from '@/features/retrieval/FindByMeaningSettings'
@@ -196,6 +197,7 @@ export function ModelsSettings(): React.JSX.Element {
       </div>
       <DefaultCreativity />
       {/* Before writing and straight after: the plan, the scene's contract and brief, then the check of the new words. */}
+      <AutomaticAiSettings />
       <PlanSettings />
       <ContractSettings />
       <BriefSettings />
