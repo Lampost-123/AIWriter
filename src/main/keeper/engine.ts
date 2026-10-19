@@ -90,9 +90,21 @@ export interface KeeperDeps {
   /** Between two summaries from the backlog (BACKLOG_GAP_MS), and before a failed one is tried again (RETRY_FIRST_MS): for tests. */
   backlogGapMs?: number
   retryFirstMs?: number
+  /**
+   * How long a story must go without a change before its own summary and its series' are written again
+   * (ROLLUP_QUIET_MS; 0 in tests that want them at once).
+   */
+  rollUpQuietMs?: number
 }
 
 export const QUIET_MS = 30_000
+/**
+ * A story's own summary and its series' are read only when another story is written (a sequel, a book in the series:
+ * memory/scene.ts storySoFar), never for the story being written. So while Adam is working on a story they wait until
+ * it has had no change for this long (the AI overhaul, 2026-10-19: a short test run wrote each about 30 times), and are
+ * written once then. Chapter summaries are not held back: the scenes after a chapter read them.
+ */
+export const ROLLUP_QUIET_MS = 5 * 60_000
 const RECHECK_MS = 60_000
 /** How long the AI waits for the scene's own unread words to be read before it writes (World Memory Overhaul A6). */
 export const FRESH_READ_MS = 8_000
@@ -127,6 +139,9 @@ export class Keeper {
   /** Scenes whose summary a draft is waiting for (summariesFirst), written before any other summary. */
   private summaryNow: ID[] = []
   private readonly dirtyStories = new Set<ID>()
+  /** When each story last changed (storyChanged), for holding back its own summary and its series' (ROLLUP_QUIET_MS). */
+  private readonly storyTouched = new Map<ID, number>()
+  private readonly rollUpQuietMs: number
   /** Stories whose end-of-chapter snapshots may be out of date (fix 15), brought up to date before their roll-ups. */
   private readonly recordStories = new Set<ID>()
   /** Scene summaries marked out of date before, brought up to date one at a time when there is nothing else to do. */
@@ -155,6 +170,7 @@ export class Keeper {
   constructor(private readonly deps: KeeperDeps) {
     this.db = deps.db
     this.quietMs = deps.quietMs ?? QUIET_MS
+    this.rollUpQuietMs = deps.rollUpQuietMs ?? ROLLUP_QUIET_MS
   }
 
   // ---------- Triggers ----------
@@ -879,9 +895,11 @@ export class Keeper {
     } catch (e) {
       console.warn('Could not tell which stories read this one', e)
     }
+    const now = Date.now()
     for (const id of ids) {
       this.dirtyStories.add(id)
       this.recordStories.add(id)
+      this.storyTouched.set(id, now)
     }
   }
 
@@ -1033,9 +1051,19 @@ export class Keeper {
     if ('error' in m) return false
     const shape = loadShapeSafe(this.db)
     const label = (place: { storyId: ID; chapterId?: ID | null }): string => placeWords(this.db, shape, place)
-    const r = nextRollUp(this.db, this.dirtyStories, label, m, this.waiting)
+    const now = Date.now()
+    /** How long until a story has been quiet long enough for its own summary and its series'; 0 when it has. */
+    const quietIn = (storyId: ID): number => Math.max(0, (this.storyTouched.get(storyId) ?? 0) + this.rollUpQuietMs - now)
+    const r = nextRollUp(this.db, this.dirtyStories, label, m, this.waiting, (storyId) => quietIn(storyId) === 0)
     if (!r) {
-      this.dirtyStories.clear()
+      // Stories still being worked on keep their place, and the keeper looks again once they have been quiet long enough.
+      let wait = Infinity
+      for (const id of [...this.dirtyStories]) {
+        const left = quietIn(id)
+        if (left > 0) wait = Math.min(wait, left)
+        else this.dirtyStories.delete(id)
+      }
+      if (wait < Infinity) this.wakeIn(wait)
       return false
     }
     const controller = new AbortController()

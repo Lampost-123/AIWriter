@@ -204,3 +204,21 @@ describe('only what rests on a change is out of date', () => {
     expect(stale(w.db, 'chapter', w.chapters[0])).toBe(false)
   })
 })
+
+describe('a story still being worked on (the AI overhaul, 2026-10-19)', () => {
+  it('has only its chapters summed up; its own summary and its series wait until it has been quiet', async () => {
+    const w = summarised()
+    const model = fakeModel(fake)
+    const busy = (): boolean => false
+    const done: RollUp[] = []
+    for (let r = nextRollUp(w.db, [w.storyId], label, model, () => false, busy); r; r = nextRollUp(w.db, [w.storyId], label, model, () => false, busy)) {
+      expect(await writeRollUp(options(w.db), r)).toBe(true)
+      markOutOfDate(w.db, w.storyId)
+      done.push(r)
+      if (done.length > 10) throw new Error('roll-ups never settle')
+    }
+    expect(done.map((r) => r.level)).toEqual(['chapter', 'chapter', 'chapter'])
+    // Once it is quiet, the story and then the series are written, once each.
+    expect((await rollAll(w)).map((r) => r.level)).toEqual(['story', 'series'])
+  })
+})

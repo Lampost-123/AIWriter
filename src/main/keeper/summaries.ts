@@ -515,7 +515,9 @@ export function nextRollUp(
   storyIds: Iterable<ID>,
   label: (place: { storyId: ID; chapterId?: ID | null }) => string,
   model: MemoryModel,
-  skip: (key: string) => boolean = () => false
+  skip: (key: string) => boolean = () => false,
+  /** False for a story still being worked on: only its chapters are summed up for now, not it or its series (engine.ts ROLLUP_QUIET_MS). */
+  settled: (storyId: ID) => boolean = () => true
 ): RollUp | null {
   const room = textRoom(model, ROLLUP_REPLY)
   const stories = repo.listStories(db)
@@ -530,7 +532,8 @@ export function nextRollUp(
   for (const storyId of storyIds) {
     const story = stories.find((s) => s.id === storyId)
     if (!story) continue
-    if (story.seriesId && !apart(story.id)) seriesToCheck.add(story.seriesId)
+    const whole = settled(storyId)
+    if (whole && story.seriesId && !apart(story.id)) seriesToCheck.add(story.seriesId)
     const src = storySources(db, storyId)
     for (const ch of src.chapters) {
       if (!changedSince(db, ch, skip)) continue
@@ -545,7 +548,7 @@ export function nextRollUp(
       }
     }
     const st = src.story
-    if (st?.lastSceneId && changedSince(db, st, skip)) {
+    if (whole && st?.lastSceneId && changedSince(db, st, skip)) {
       const a = inputs(st)
       return {
         level: 'story',
