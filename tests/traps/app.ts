@@ -632,6 +632,9 @@ export async function openApp(
       standin = await startStandin({ dir: cfg.standin })
       const pick = new RegExp(process.env.TRAPS_STANDIN_JOBS?.trim() || 'novelist', 'i')
       const inner = budget.wrap(withStandIns(realFetch))
+      // The stand-in's jobs skip the fake run's own stand-ins (withStandIns), which would answer a draft carrying a
+      // chain's directions themselves: the helper carries them out.
+      const toStandin = budget.wrap(realFetch)
       const base = fake.url.replace(/\/+$/, '')
       cfg.log(`mixed run: jobs matching /${pick.source}/ go to the stand-in model at ${standin.url}; the rest to the fake provider`)
       globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
@@ -639,7 +642,7 @@ export async function openApp(
         if (url.startsWith(base) && url.includes('/chat/completions') && typeof init?.body === 'string') {
           try {
             const body = JSON.parse(init.body) as { messages?: { role: string; content: unknown }[] }
-            if (pick.test(jobOf(body.messages ?? []))) return inner(url.replace(base, standin!.url), init)
+            if (pick.test(jobOf(body.messages ?? []))) return toStandin(url.replace(base, standin!.url), init)
           } catch {
             // Not JSON: the fake provider's.
           }
