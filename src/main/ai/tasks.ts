@@ -115,6 +115,11 @@ export interface TaskRequest {
      * The model is still sent them with its calls, and the steps are unchanged. Left out, they stay.
      */
     dropBeforeTools?: (text: string) => boolean
+    /**
+     * Told the tool results taken out of the messages to keep them within their room (fitToRoom, AGENT_ROOM), by their
+     * calls' ids, so a step that said "you have seen this already" says it no more (the chapter writer's read_scene).
+     */
+    onRemoved?: (toolCallIds: string[]) => void
   }
   /**
    * The writer was asked to tag who says each line (ai/speakerTags.ts): the tags are taken out of the text as it
@@ -231,6 +236,15 @@ function begin(req: TaskRequest): Running {
 export const RESULT_REMOVED = '[result removed to save room — call the tool again if you need it]'
 /** Of the context, the share kept spare when the editor chat's messages are measured (estimates are rough). */
 export const CONTEXT_SPARE = 0.05
+/**
+ * The most tokens an agent's messages may grow to, however much the model reads, before the results of its earlier
+ * steps are taken out (a line each, RESULT_REMOVED). Every request sends the whole conversation again, and with a model
+ * that reads a million tokens (DeepSeek Flash) nothing was ever taken out, so a chapter writer session paid for every
+ * scene it had read at every step after (token audit, 2026-10-19). A first request bigger than this (the editor chat's
+ * briefing) has its tools and the room they were given on top (toolRoomFor). Only earlier steps' results go for it: the
+ * newest stay, and only the context itself makes a request the last. A model that reads less than this is unchanged.
+ */
+export const AGENT_ROOM = 40_000
 
 /**
  * A fast, cautious estimate of the tokens messages take as sent (characters, as estimateTokens counts them): the
@@ -439,6 +453,8 @@ async function stream(
     // The room the messages have: the context, less the reply limit and a little spare. The estimate is corrected by
     // what the provider counted for the latest request, when it says (estimates run high for English prose).
     const room = o.contextLength - o.limit - Math.ceil(o.contextLength * CONTEXT_SPARE)
+    // Within it, earlier steps' results go past AGENT_ROOM (or past the first request, its tools and their room).
+    const kept = Math.min(room, Math.max(AGENT_ROOM, o.promptTokens + toolsSize + toolRoomFor(o.contextLength)))
     const correction = (sent: ChatMessage[], tools: ToolSpec[] | undefined, counted: number | null): number | null => {
       if (counted == null || counted <= 0) return null
       const guess = messagesTokens(sent) + (tools?.length ? toolsSize : 0)
@@ -522,8 +538,15 @@ async function stream(
       let last = step === agent.maxSteps - 1 || repeated
       const lastWords = agent.lastWords?.() ?? ''
       const notes = estimateTokens(nudge ?? '') + estimateTokens(lastWords) + 8
-      const fitted = fitToRoom(next, room - corrected - toolsSize - notes, keepFrom)
+      const spare = corrected + toolsSize + notes
+      const newest = next.slice(keepFrom)
+      const earlier = fitToRoom(next.slice(0, keepFrom), kept - spare - messagesTokens(newest), keepFrom)
+      const fitted = fitToRoom([...earlier.messages, ...newest], room - spare, keepFrom)
       if (!fitted.fits) last = true
+      const gone = fitted.messages.flatMap((m, i) =>
+        m.role === 'tool' && m.toolCallId && m.content === RESULT_REMOVED && next[i]?.content !== RESULT_REMOVED ? [m.toolCallId] : []
+      )
+      if (gone.length) agent.onRemoved?.(gone)
       messages = fitted.messages
       // A nudge asks for tools; on the last request, which has none, the last words go instead.
       const note = last ? lastWords || nudge : nudge
@@ -539,7 +562,7 @@ async function stream(
       forcedTurnedDown(outcome)
       noteRequest(step + 1, messages.slice(sentBefore), !!tools, force, {
         ...(nudge ? {} : { after: calls.map((c) => c.name) }),
-        ...(fitted.removed ? { removed: fitted.removed } : {})
+        ...(earlier.removed + fitted.removed ? { removed: earlier.removed + fitted.removed } : {})
       })
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)

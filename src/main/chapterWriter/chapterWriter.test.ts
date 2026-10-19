@@ -13,7 +13,7 @@ import { dropRepeats, pageFrom, proseBlocks } from './page'
 import { ProgressGuard, Tries, findingKey, sameFinding, wordsOverlap } from './progress'
 import { ChapterRun, LATER_START, cardReady, type RunDeps } from './run'
 import { LOOKUPS_ALLOWED, studySystem } from './prompts'
-import { ChapterSession, type Finding } from './tools'
+import { ChapterSession, type Finding, type SessionDeps } from './tools'
 import { loadBefore, loadReport } from './store'
 import { critiqueAsk } from '../critique/prompts'
 
@@ -498,7 +498,7 @@ describe('writing a whole chapter', () => {
 })
 
 describe('setting a finding aside', () => {
-  const session = (db: RunDeps['db'], storyId: ID, chapterId: ID, s1: ID, findings: Finding[]) =>
+  const session = (db: RunDeps['db'], storyId: ID, chapterId: ID, s1: ID, findings: Finding[], more: Partial<SessionDeps> = {}) =>
     new ChapterSession({
       db,
       job: 'review',
@@ -515,7 +515,8 @@ describe('setting a finding aside', () => {
       checkAgain: async () => [],
       setAside: () => undefined,
       wrote: () => undefined,
-      noted: { fix: () => undefined, setAside: () => undefined, rewritten: () => undefined }
+      noted: { fix: () => undefined, setAside: () => undefined, rewritten: () => undefined },
+      ...more
     })
 
   it('needs words quoted from the story or the memory, and then marks the issue ignored', async () => {
@@ -555,6 +556,37 @@ describe('setting a finding aside', () => {
     for (let i = 1; i < LOOKUPS_ALLOWED.review; i++) expect(await one('get_entry', { name: 'Mara' })).not.toMatch(/No more look-ups/)
     expect(await one('get_entry', { name: 'Mara' })).toMatch(/^No more look-ups in this session/)
     expect(await one('timeline')).toMatch(/^No more look-ups in this session/)
+  })
+
+  it('sends a scene again in full once the result that showed it was taken out to save room (token audit)', async () => {
+    const { db, storyId, chapterId, s1, s2 } = world()
+    repo.saveSceneText(db, s2, null, 'The inn was full and loud. Nobody made room for her at the fire.')
+    const s = session(db, storyId, chapterId, s1, [], {
+      scenes: [
+        { id: s1, n: 1, title: 'The ferry', label: 'Sc 1 “The ferry”' },
+        { id: s2, n: 2, title: 'The inn', label: 'Sc 2 “The inn”' }
+      ]
+    })
+    const read = async (id: string) => (await s.runAll([{ id, name: 'read_scene', arguments: '{"scene":"Sc 2"}' }])).results[0].content
+    expect(await read('c1')).toContain('Nobody made room for her')
+    expect(await read('c2')).toMatch(/hasn't changed/)
+    s.removed(['c0'])
+    expect(await read('c3')).toMatch(/hasn't changed/)
+    s.removed(['c1'])
+    expect(await read('c4')).toContain('Nobody made room for her')
+    // The scene being worked on is in the session's opening, which is never taken out.
+    s.removed(['', 'c4'])
+    expect((await s.runAll([{ id: 'c5', name: 'read_scene', arguments: '{}' }])).results[0].content).toMatch(/hasn't changed/)
+  })
+
+  it('never takes another chapter’s scene for this one’s: "Ch 2, Sc 1" read from Ch 1 is sent', async () => {
+    const { db, storyId, chapterId, s1 } = world()
+    const road = repo.createScene(db, repo.createChapter(db, storyId, { title: 'The road' }).id).id
+    repo.saveSceneText(db, road, null, 'Mara walked on in the blue dress, wet through.')
+    const s = session(db, storyId, chapterId, s1, [])
+    const read = async () => (await s.runAll([{ id: 'r', name: 'read_scene', arguments: '{"scene":"Ch 2, Sc 1"}' }])).results[0].content
+    expect(await read()).toContain('in the blue dress')
+    expect(await read()).toContain('in the blue dress')
   })
 
   it('turns done down while findings are open, twice, then lets it end', async () => {

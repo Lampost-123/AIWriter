@@ -138,9 +138,12 @@ export class ChapterSession {
   /** Scenes this session changed. */
   readonly changed = new Set<ID>()
   private hay: string | null = null
-  /** Look-ups so far (LOOKUPS_ALLOWED), and the words of each scene as last shown to the model. */
+  /**
+   * Look-ups so far (LOOKUPS_ALLOWED), and the words of each scene as last shown to the model, with the read_scene call
+   * that showed them ('' for the session's opening, which is never taken out).
+   */
   private lookups = 0
-  private readonly shown = new Map<ID, string>()
+  private readonly shown = new Map<ID, { words: string; via: string }>()
 
   constructor(private readonly d: SessionDeps) {
     const focus = d.sceneId ?? d.scenes[d.scenes.length - 1]?.id ?? null
@@ -153,7 +156,7 @@ export class ChapterSession {
     const looks = this.look ? this.look.tools.filter((t) => LOOKUPS.has(t.name)) : []
     this.tools = [...looks, ...ownTools(d.job)]
     // The scene being worked on is in the session's opening message.
-    if (d.sceneId && d.job !== 'study') this.shown.set(d.sceneId, this.wordsOf(d.sceneId))
+    if (d.sceneId && d.job !== 'study') this.shown.set(d.sceneId, { words: this.wordsOf(d.sceneId), via: '' })
   }
 
   private wordsOf(sceneId: ID): string {
@@ -174,11 +177,16 @@ export class ChapterSession {
       if (typeof a.scene !== 'string' || !a.scene.trim() || /\bch(?:apter)?\b/i.test(a.scene)) return c
       const ref = this.d.scenes.find((s) => s.id === this.sceneOf(a.scene as string))
       if (!ref) return c
-      const ch = repo.getOutline(this.d.db, this.d.storyId).chapters.findIndex((x) => x.id === this.d.chapterId) + 1
+      const ch = this.chapterNumber()
       return ch > 0 ? { ...c, arguments: JSON.stringify({ ...a, scene: `Ch ${ch}, Sc ${ref.n}` }) } : c
     } catch {
       return c
     }
+  }
+
+  /** This chapter's number in its story, from 1 (0 if it can't be found). */
+  private chapterNumber(): number {
+    return repo.getOutline(this.d.db, this.d.storyId).chapters.findIndex((x) => x.id === this.d.chapterId) + 1
   }
 
   /** The scene a read_scene call names (the one being worked on when none), from the start; null otherwise. */
@@ -186,7 +194,11 @@ export class ChapterSession {
     try {
       const a = c.arguments.trim() ? (JSON.parse(c.arguments) as Record<string, unknown>) : {}
       if (a.from_paragraph != null && a.from_paragraph !== '') return null
-      return typeof a.scene === 'string' && a.scene.trim() ? this.sceneOf(a.scene) : this.d.sceneId
+      if (typeof a.scene !== 'string' || !a.scene.trim()) return this.d.sceneId
+      // "Ch 1, Sc 2" from Ch 3 is another chapter's scene, never this one's Sc 2.
+      const ch = /\bch(?:apter)?\.?\s*(\d+)/i.exec(a.scene)
+      if (ch && Number(ch[1]) !== this.chapterNumber()) return null
+      return this.sceneOf(a.scene)
     } catch {
       // A scene of another chapter, or arguments that can't be read: looked up as they are.
       return null
@@ -200,7 +212,7 @@ export class ChapterSession {
    */
   private lookedEnough(c: ToolCall): string | null {
     const id = c.name === 'read_scene' ? this.readsWhole(c) : null
-    if (id && this.shown.get(id) === this.wordsOf(id)) {
+    if (id && this.shown.get(id)?.words === this.wordsOf(id)) {
       return `${this.labelOf(id)} hasn't changed since you were last shown it: its words are above. Use them.`
     }
     return this.spend()
@@ -213,6 +225,14 @@ export class ChapterSession {
     }
     this.lookups++
     return null
+  }
+
+  /**
+   * Tool results taken out of the conversation to keep it within its room (ai/tasks.ts AGENT_ROOM): a scene they showed
+   * is no longer above, so read_scene sends it again.
+   */
+  removed(toolCallIds: string[]): void {
+    for (const [id, s] of this.shown) if (s.via && toolCallIds.includes(s.via)) this.shown.delete(id)
   }
 
   /** Once the session has ended itself (the brief written, or done accepted): its last words; null while it goes on. */
@@ -237,7 +257,7 @@ export class ChapterSession {
           label = r.step.label || c.name
           result = r.result
           const id = c.name === 'read_scene' ? this.readsWhole(c) : null
-          if (id) this.shown.set(id, this.wordsOf(id))
+          if (id) this.shown.set(id, { words: this.wordsOf(id), via: c.id })
         }
       } else {
         let args: Record<string, unknown> = {}
@@ -411,7 +431,7 @@ export class ChapterSession {
     this.d.noted.fix(sceneId, { why: reason, words: clip(squash(replace), 240) })
     this.d.wrote(sceneId, replace)
     // The model knows the scene as it was, with this change: it needn't read it all again.
-    this.shown.set(sceneId, this.wordsOf(sceneId))
+    this.shown.set(sceneId, { words: this.wordsOf(sceneId), via: this.shown.get(sceneId)?.via ?? '' })
     return [
       `Changing ${this.labelOf(sceneId)}`,
       `Changed in ${this.labelOf(sceneId)}${fixes.length ? ` (for ${fixes.join(', ')})` : ''}. The rest of the scene is as it was. revise finds passages by their words, so go on to the next finding without reading the scene again.`

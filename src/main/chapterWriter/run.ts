@@ -824,7 +824,8 @@ export class ChapterRun {
         lastWords: () => LAST_WORDS,
         nudge: () => (s.ended() ? null : nudgeFor(job)),
         maxNudges: 2,
-        ended: () => s.ended()
+        ended: () => s.ended(),
+        onRemoved: (ids) => s.removed(ids)
       },
       fetchImpl: this.d.fetchImpl,
       retryDelays: this.d.retryDelays

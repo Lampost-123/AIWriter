@@ -47,7 +47,7 @@ function world() {
   const outline = repo.getOutline(db, story.id)
   const one = outline.chapters[0].id
   const earlier = [outline.scenes[0].id, repo.createScene(db, one).id, repo.createScene(db, one).id]
-  for (const id of earlier) repo.saveSceneText(db, id, null, fakeProse(1500))
+  for (const id of earlier) repo.saveSceneText(db, id, null, fakeProse(4000))
   const two = repo.createChapter(db, story.id, { title: 'The crossing' }).id
   const scenes = [repo.createScene(db, two, { title: 'The ferry' }).id, repo.createScene(db, two, { title: 'The inn' }).id, repo.createScene(db, two, { title: 'The road' }).id]
   repo.createEntry(db, 'character', { name: 'Mara', summary: 'Runs the ferry.' })
