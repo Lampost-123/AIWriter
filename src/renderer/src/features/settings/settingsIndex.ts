@@ -76,8 +76,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       {
         id: 'appearance',
         label: 'Appearance',
-        blurb: 'Style and layout, theme, accent colour, and how the page reads.',
-        finds: ['Theme', 'Dark', 'Light', 'Sepia', 'New look', 'Classic', 'Layout', 'Desk', 'Panels', 'Accent colour', 'Text size', 'Font size', 'Line spacing', 'Page width', 'Paragraphs', 'When AI Write opens', 'Start screen']
+        blurb: 'Layout, theme, accent colour, and how the page reads.',
+        finds: ['Theme', 'Dark', 'Light', 'Sepia', 'Layout', 'Desk', 'Panels', 'Accent colour', 'Text size', 'Font size', 'Line spacing', 'Page width', 'Paragraphs', 'When AI Write opens', 'Start screen']
       }
     ]
   },

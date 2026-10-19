@@ -46,8 +46,12 @@ const main = (win: Page) => win.locator('main')
 const chapterCard = (win: Page, title: string) => main(win).getByRole('region', { name: `Chapter: ${title}` })
 const entries = (win: Page): Promise<Entry[]> => invoke(win, 'listEntries')
 
+/** The story switcher at the head of Write's list (its name also says how many chapters and scenes the story holds). */
+const storyMenu = (win: Page) => binder(win).locator('[data-story-menu]')
+
 async function openImport(win: Page, storyTitle: string): Promise<void> {
-  await binder(win).getByRole('button', { name: storyTitle, exact: true }).click()
+  await expect(storyMenu(win)).toContainText(storyTitle)
+  await storyMenu(win).click()
   await win.getByRole('menuitem', { name: 'Import a manuscript…' }).click()
   await expect(main(win).getByRole('heading', { level: 1, name: 'Import a manuscript' })).toBeVisible()
 }
@@ -87,7 +91,7 @@ test('a Word manuscript imports, splits correctly and builds the memory; an impo
     await expect(main(win).getByRole('heading', { level: 1, name: 'Imported' })).toBeVisible()
     await expect(main(win).getByText('“The Ferry Crossing” is in your world: 2 chapters, 4 scenes', { exact: false })).toBeVisible()
     await expect(win.getByText('Imported “The Ferry Crossing”: 2 chapters, 4 scenes.')).toBeVisible()
-    await expect(binder(win).getByRole('button', { name: 'The Ferry Crossing', exact: true })).toBeVisible()
+    await expect(storyMenu(win)).toContainText('The Ferry Crossing')
     await expect(binder(win).getByText('Chapter One')).toBeVisible()
     await expect(binder(win).getByText('Chapter Two')).toBeVisible()
     await expect(binder(win).getByText('Chapter Three')).toBeVisible()
@@ -173,11 +177,10 @@ test('building the memory carries on after a restart, and Stop leaves the rest u
     // The window learns of stories made through the API when it loads again.
     await second.win.reload()
     await expect(second.win.locator('.scene-prose')).toBeVisible()
-    const storyMenu = second.win.locator('[data-story-menu]')
-    await storyMenu.click()
+    await storyMenu(second.win).click()
     await second.win.getByRole('menuitem', { name: 'Second Book', exact: true }).click()
-    await expect(storyMenu).toHaveText('Second Book')
-    await storyMenu.click()
+    await expect(storyMenu(second.win)).toContainText('Second Book')
+    await storyMenu(second.win).click()
     await expect(second.win.getByRole('menuitem', { name: 'Build the memory from this story' })).toBeVisible()
   } finally {
     await fake.close()

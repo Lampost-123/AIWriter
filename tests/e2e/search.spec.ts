@@ -2,7 +2,7 @@
 // scene, an entry by another name, a summary and a private note; running actions; and keyboard
 // focus going back where it was. Also the top bar's search box at the smallest window.
 import type { ElectronApplication, Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
+import { areaButton, areaRow, binder, createWorldFromWelcome, expect, invoke, openPage, test, useFakeModel } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const palette = (win: Page) => win.getByRole('dialog', { name: 'Search' })
@@ -113,7 +113,8 @@ test('Ctrl+K finds words in a scene, an entry by another name, a summary and a p
   await win.keyboard.type('codex')
   await expect(palette(win).getByRole('option', { name: 'Codex' })).toHaveAttribute('aria-selected', 'true')
   await win.keyboard.press('Enter')
-  await expect(binder(win).getByRole('button', { name: 'Codex' })).toHaveAttribute('aria-current', 'page')
+  // The codex is the World area's Everything.
+  await expect(areaRow(win, 'Everything')).toHaveAttribute('aria-current', 'page')
 
   // Nothing found says so plainly.
   await search(win, 'zzyzx')
@@ -188,7 +189,7 @@ test('Generate a draft and Stop the draft run from the palette, from any page', 
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
 
     // From another page, Generate goes back to the scene and starts the draft, as Ctrl+G does there.
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await search(win, 'generate')
     await expect(palette(win).getByRole('option', { name: 'Generate a draft' })).toHaveAttribute('aria-selected', 'true')
     await win.keyboard.press('Enter')
@@ -223,7 +224,8 @@ test('Keys pressed before the list catches up act on what was typed; a note open
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
   })()`)
   await expect(palette(win)).toBeHidden()
-  await expect(binder(win).getByRole('button', { name: 'Codex' })).toHaveAttribute('aria-current', 'page')
+  // The codex is the World area's Everything.
+  await expect(areaRow(win, 'Everything')).toHaveAttribute('aria-current', 'page')
   await expect(win.getByText('Choose a writer model first')).toHaveCount(0)
 
   // A scene's notes for the AI: opening one shows the scene with its card scrolled to the notes.
@@ -338,14 +340,14 @@ test('An entry opens where the words were found; a scene action from another pag
   // Mark scene done from another page, from the top bar's search box: back at the scene, the caret
   // is in the page (not on the search box), as when the binder opens a scene. Reopening it likewise.
   const searchBox = win.getByRole('banner').getByRole('button', { name: 'Search (Ctrl+K)' })
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await searchBox.click()
   await win.keyboard.type('mark scene done')
   await expect(palette(win).getByRole('option', { name: 'Mark scene done' })).toHaveAttribute('aria-selected', 'true')
   await win.keyboard.press('Enter')
   await expect(prose(win)).toBeFocused()
   await expect.poll(async () => (await invoke(win, 'getOutline', story.id)).scenes[0].status).toBe('done')
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await searchBox.click()
   await win.keyboard.type('reopen')
   await expect(palette(win).getByRole('option', { name: 'Reopen this scene' })).toHaveAttribute('aria-selected', 'true')
@@ -378,11 +380,13 @@ test('The top bar fits the smallest window with a long world name, on every page
   const writing = (await searchBox.boundingBox())!
   // On the writing page a window this small floats the binder over the page; the top bar's button shows it.
   await bar.getByRole('button', { name: 'Show or hide the binder' }).click()
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await expect(count).toHaveCount(0)
   expect((await searchBox.boundingBox())!.width).toBe(writing.width)
   await fits()
-  await scenes(win).first().click()
+  // Back to the writing page from the rail (the binder floats over it again at this size).
+  await areaButton(win, 'Write').click()
+  await expect(prose(win)).toBeVisible()
 
   // An update offered in the middle of the bar: its buttons fit beside the word count.
   await app.evaluate(({ BrowserWindow }) => {
@@ -393,8 +397,8 @@ test('The top bar fits the smallest window with a long world name, on every page
   await expect(count).toBeVisible()
   await fits()
   expect((await restart.boundingBox())!.x + (await restart.boundingBox())!.width).toBeLessThanOrEqual((await count.boundingBox())!.x)
-  expect((await searchBox.boundingBox())!.x + (await searchBox.boundingBox())!.width).toBeLessThanOrEqual(
-    (await bar.getByRole('button', { name: 'Later' }).boundingBox())!.x
-  )
+  // The search box is on the bar's right, between the offer and the word count, clear of both.
+  expect((await restart.boundingBox())!.x + (await restart.boundingBox())!.width).toBeLessThanOrEqual((await searchBox.boundingBox())!.x)
+  expect((await searchBox.boundingBox())!.x + (await searchBox.boundingBox())!.width).toBeLessThanOrEqual((await count.boundingBox())!.x)
 })
 

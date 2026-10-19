@@ -72,8 +72,8 @@ src/renderer/src/
   settle from amber into ink, never slide, and the page follows a draft being written by easing over time, never by
   jumps. A screen's pieces arrive once a session (the desk's rooms), never again on coming back. Loops are only for
   the AI at work (its dock's shimmer) and stop with less motion. Less motion
-  (Windows' Animation effects off) makes every change instant, View Transitions too. Classic keeps the 150–200 ms it
-  always had, except presses, which go in and come back as in the New look. See "The two looks", Motion.
+  (Windows' Animation effects off) makes every change instant, View Transitions too. See "The New look (Classic
+  retired)", Motion.
 - **No jank.** No layout shift while loading (reserve space, render nothing rather than a
   flash), no modals or "are you sure?" for routine actions (make them undoable and show a
   toast), saving is automatic and silent, every AI action streams and can be stopped.
@@ -1791,15 +1791,32 @@ deleted, and a new story can be planned from one. The data model stays frozen: w
 |---|---|
 | Story recipes | `contracts/recipes.ts`, `ipc/recipes.ts`, `src/main/recipes/`, `features/recipes/`, the `recipe` job (types, defaults, `jobModel`, providers, Settings › Models), `tests/fake-provider/recipes.mjs`, `tests/e2e/recipes.spec.ts` |
 
-## The two looks: the New look and Classic
+## The New look (Classic retired)
 
-Settings › Appearance › Style chooses between the **New look** ("Lamplight", the default) and **Classic** (the app
-exactly as it was before it). It is the setting `look` in settings.json; the window opens in it (`--aiwrite-look=…`,
-as the theme and accent, `window.aiwrite.initialLook`) and `<html data-look>` paints it (`features/look/look.ts`).
-Someone updating from before the New look (a settings.json with no `look`) gets the one-time note offering Classic
-(`lookNote`, `lookNoteDue` in `contracts/look.ts`, `features/look/LookNote.tsx`); a fresh install doesn't. App tests
-start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`); a test asks for the New look with
-`env: { AIWRITE_LOOK: 'new' }`, or `''` for what Adam gets.
+(Code comments still call this section "The two looks".) **Classic is retired** (Adam, 2026-10-19: "retire classic
+gui and no longer update it from now on"): the **New look** ("Lamplight") is the only look, and Classic is no longer
+updated. Settings › Appearance has no Style choice any more, only the Layout (desk or panels, below). The setting `look`
+is still kept in settings.json and painted as `<html data-look>` (`features/look/look.ts`; the window opens in it,
+`--aiwrite-look=…`, `window.aiwrite.initialLook`), but it is always `'new'`: `lookOf` (`contracts/look.ts`) answers the
+New look whatever is kept, `getSettings` (`src/main/settings.ts`) moves a kept `'classic'` to `'new'` keeping every
+other setting, and `updateSettings` never keeps anything else.
+- **One-time notes** (`features/look/LookNote.tsx`, one at a time): someone whose settings still kept Classic is told
+  once that it has been retired and that their stories and settings are unchanged (`classicNote`, `classicNoteDue`);
+  someone updating from before the New look (a settings.json with no `look`) is told about the New look once, offered
+  the panels on the desk, never Classic (`lookNote`, `lookNoteDue`); someone already on the New look moved to the desk
+  gets the desk's note (`arrangementNote`, below). A fresh install gets none.
+- **App tests** run in the New look, on the panels unless they ask for the desk (`AIWRITE_LOOK=new` and
+  `AIWRITE_ARRANGEMENT=panels` in `tests/e2e/helpers.ts`); `AIWRITE_LOOK=new` only keeps the one-time notes away (a
+  leftover `'classic'` means the same), and `AIWRITE_LOOK: ''` gives what Adam gets. `tests/e2e/look.spec.ts` covers
+  the move from Classic and the notes. Specs reach the panels' places with the helpers in `tests/e2e/helpers.ts`:
+  `openPage` (a page Classic's binder listed: its area on the rail, then its row), `openWrite` / `showTree` (back to
+  the story's tree, which only the Write area's list holds), `areaButton`, `areaRow` and `sceneTitle`.
+- **Classic-only code awaits removal** (a later tidy-up): the `look === 'classic'` branches and the components and
+  CSS only they reach (`ClassicSettings`, `ClassicAppearance`, Classic's binder, map, timeline table and Consistency
+  page, the `look-classic:` variant, Classic's Literata and Lucide icons, the `classic` background colours in
+  `main/index.ts`). Nothing in the interface can reach them; don't change or fix them, and don't add to them.
+
+What follows is how the New look was built over Classic; read "Classic's values" as the tokens' fallbacks.
 
 - **Not a fork of screens.** The same components read the same tokens. `styles.css` adds the New look's tokens with
   Classic's values (exactly what each place used before): `--raise`, elevation (`--elev-1..3`, `--elev-page`; Tailwind
@@ -1866,12 +1883,12 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   area. The selection glides (`components/ui/GlidePill.tsx`: one pill behind a list, moved by transform), and a
   new page crossfades in with a View Transition (`features/look/viewTransition.ts`; instant from the keyboard and
   when coming back to the writing page).
-- **Classic can't drift**: `tests/e2e/classic.spec.ts` compares the main screens in Classic, Light and Dark, on the
-  sample world, with screenshots taken before the New look began (one set per platform).
+- **Classic's screenshot guard is retired** with Classic (`tests/e2e/classic.spec.ts` and its baselines are gone);
+  `desk.visual.spec.ts` keeps the New look's pictures.
 - Contrast: `tests/unit/contrast.test.ts` checks the New look's colours and kind inks in every theme and accent.
 - **The New look's two layouts** (UI overhaul, phase 2; spec notes/ui-overhaul-v2/desk-build-spec.md): Settings ›
   Appearance › Layout chooses the **desk** or the **panels** (the rail and side list above), kept as `arrangement` and
-  painted as `<html data-arrangement>` (`features/look/look.ts`: `useDesk()`, the `desk:` variant; Classic ignores it).
+  painted as `<html data-arrangement>` (`features/look/look.ts`: `useDesk()`, the `desk:` variant).
   The desk is the New look's default (`DESK_READY` true in `src/shared/defaults.ts`, step D3.7, Adam 2026-10-08): the
   Layout choice shows for everyone in the New look, and `src/main/settings.ts` moves anyone on the New look who never
   chose a layout to the desk, with a one-time note offering the panels (`features/look/LookNote.tsx`; not for a fresh
@@ -1895,7 +1912,7 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
 
 The New look's desk layout (`arrangement: 'desk'`), the New look's default since Phase 6 (`DESK_READY` true), in Dark
 by default (`theme: 'dark'` for anyone who never chose a theme; a theme already chosen is kept). The panels stay a
-choice in Settings › Appearance › Layout; Classic is unchanged.
+choice in Settings › Appearance › Layout.
 
 - **Where things go** is one pure function, `deskFit` (`layout/desk/deskFit.ts`, unit-tested), from the window's width,
   the page's measured column (Adam's page width) and whether the spine is full and the drawer open. The sheet is
@@ -1938,8 +1955,8 @@ choice in Settings › Appearance › Layout; Classic is unchanged.
 
 ### The first run, Settings and moving work in and out (UI overhaul)
 
-The New look draws these its own way (both layouts); Classic keeps the pages it always had (a `look === 'classic'`
-branch in each, never a change to Classic's markup).
+The New look draws these its own way (both layouts). The pages Classic had stay behind a `look === 'classic'` branch
+in each until the tidy-up removes them (Classic is retired, so nothing reaches them).
 - **First run**: `features/setup/SetupDesk.tsx` (the rail of steps, the step on a sheet, the finishing moment:
   `setupStore.finishing`, 900 ms, skipped with less motion) and `SetupScene.tsx` (the lighthouse picture, lit by `stage`;
   layers like the start screen's harbour, its colours `--sx-*` in `setupScene.css`). `ProviderMark.tsx` draws a service

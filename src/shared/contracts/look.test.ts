@@ -1,22 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { ARRANGEMENTS, arrangementNoteDue, arrangementOf, lookNoteDue, lookOf } from './look'
+import { ARRANGEMENTS, arrangementNoteDue, arrangementOf, classicNoteDue, lookNoteDue, lookOf } from './look'
 
-describe('the two looks', () => {
-  it('is the New look unless Classic is asked for', () => {
-    expect(lookOf('classic')).toBe('classic')
-    expect(lookOf('new')).toBe('new')
-    for (const other of [undefined, null, '', 'Classic', 'old', 3, {}]) expect(lookOf(other)).toBe('new')
+describe('the look (Classic retired)', () => {
+  it('is always the New look, even where Classic is kept', () => {
+    for (const kept of ['classic', 'new', undefined, null, '', 'Classic', 'old', 3, {}]) expect(lookOf(kept)).toBe('new')
   })
 
-  it('offers Classic once, only to someone who used AI Write before the New look', () => {
+  it('tells someone who used AI Write before the New look about it once', () => {
     // A fresh install: no settings yet, nothing to compare the New look with.
     expect(lookNoteDue(null)).toBe(false)
     // Settings from before the New look: never a look in them.
     expect(lookNoteDue({})).toBe(true)
     expect(lookNoteDue({ theme: 'dark', accent: 'teal' })).toBe(true)
-    // Once a look has been kept (chosen, or the note answered), never again.
+    // Once a look has been kept, never again.
     expect(lookNoteDue({ look: 'new' })).toBe(false)
     expect(lookNoteDue({ look: 'classic', theme: 'sepia' })).toBe(false)
+  })
+
+  it('tells someone still on Classic, once, that it has been retired', () => {
+    expect(classicNoteDue(null)).toBe(false)
+    expect(classicNoteDue({})).toBe(false)
+    expect(classicNoteDue({ look: 'new' })).toBe(false)
+    expect(classicNoteDue({ look: 'classic' })).toBe(true)
+    expect(classicNoteDue({ look: 'classic', theme: 'sepia', arrangement: 'panels' })).toBe(true)
   })
 })
 
@@ -36,7 +42,7 @@ describe('the New look’s two layouts', () => {
     // On the New look with no layout yet: the note is due.
     expect(arrangementNoteDue({ look: 'new' })).toBe(true)
     expect(arrangementNoteDue({ look: 'new', theme: 'sepia', layout: { binderOpen: true } })).toBe(true)
-    // Classic never sees the desk.
+    // Someone moved from Classic gets the note about Classic instead.
     expect(arrangementNoteDue({ look: 'classic' })).toBe(false)
     // Once a layout has been kept (chosen, or the note answered), never again.
     expect(arrangementNoteDue({ look: 'new', arrangement: 'panels' })).toBe(false)

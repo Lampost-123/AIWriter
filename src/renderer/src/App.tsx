@@ -149,7 +149,7 @@ export function App(): React.JSX.Element | null {
         <NoWorld />
       ) : null}
       {showStart ? <StartScreen /> : null}
-      {/* The New look: the one-time note offering Classic, after updating. */}
+      {/* The one-time notes about the look: Classic retired, the New look, the desk (LookNote.tsx). */}
       {setupStep ? null : <LookNote />}
       <Toaster />
       {/* Milestone 6: the monthly limit's toasts and its ask before an AI action. */}

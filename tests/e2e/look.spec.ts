@@ -4,8 +4,8 @@
 //  - Focus mode: F11 hides everything but the page (the window fills the screen); Esc and F11 leave it, and the
 //    panels come back with the same widths. The caret, the text and the line Adam is on stay where they were.
 //  - Less motion when the system asks for it: transitions and animations stop.
-//  - The New look: the default after updating, with a one-time note offering Classic; Settings › Appearance › Style
-//    switches between the two at once, and the window opens in the one chosen.
+//  - The New look, the only look since Classic was retired: told once after updating from before it; someone still on
+//    Classic is moved to it with every other setting kept, and told once; Settings › Appearance has only the layout.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -174,9 +174,10 @@ test('when the system asks for less motion, transitions and animations stop', as
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Harbour')
   const pane = binderPane(win)
-  await expect(pane).toHaveCSS('transition-duration', '0.2s')
+  // The panes slide at the New look's base speed (220 ms), and not at all with less motion.
+  await expect(pane).toHaveCSS('transition-duration', '0.22s')
   await win.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(pane).toHaveCSS('transition-duration', '1e-05s')
+  await expect(pane).toHaveCSS('transition-duration', /^(0s|1e-05s)$/)
   // Animations end at once, once (a pulsing dot doesn't flicker).
   const anim = await win.evaluate<{ duration: string; count: string }>(`(() => {
     const el = document.createElement('div')
@@ -189,7 +190,7 @@ test('when the system asks for less motion, transitions and animations stop', as
   })()`)
   expect(anim).toEqual({ duration: '1e-05s', count: '1' })
   await win.emulateMedia({ reducedMotion: 'no-preference' })
-  await expect(pane).toHaveCSS('transition-duration', '0.2s')
+  await expect(pane).toHaveCSS('transition-duration', '0.22s')
 })
 
 /** What Adam gets (no look chosen for the test), from settings kept by a version before the New look when `before`. */
@@ -206,68 +207,76 @@ const ADAM = { AIWRITE_LOOK: '', AIWRITE_ARRANGEMENT: '', AIWRITE_THEME: '' }
 /** The page's sheet, in either layout (the desk's spine has no "Binder" landmark of its own). */
 const ready = (win: Page) => win.locator('.scene-prose')
 
-test('the New look: the default after updating, offered Classic once; Style switches at once and is kept', async ({ launch }) => {
+test('the New look: told once after updating from before it, with no Classic to go back to; Appearance has only the layout', async ({
+  launch
+}) => {
   const note = (win: Page) => win.getByRole('region', { name: 'The new look' })
 
-  // Updating from before the New look: it shows, with the note.
+  // Updating from before the New look: it shows, on the desk, with the note (the panels offered, never Classic).
   const first = await asAdam(launch, true)
   await createWorldFromWelcomeAnywhere(first.win)
   expect(await lookAttr(first.win)).toBe('new')
   await expect(note(first.win)).toContainText('AI Write has a new look')
+  await expect(note(first.win)).toContainText('Settings › Appearance')
+  await expect(note(first.win).getByRole('button', { name: 'Use the panels' })).toBeVisible()
+  await expect(first.win.getByRole('button', { name: /Classic/ })).toHaveCount(0)
   await note(first.win).getByRole('button', { name: 'Keep the new look' }).click()
   await expect(note(first.win)).toBeHidden()
   await expect.poll(async () => (await invoke(first.win, 'getSettings')).lookNote).toBe(false)
   await first.close()
 
-  // Never again.
+  // Never again; the window opens in the New look.
   const second = await launch({ dataDir: first.dataDir, env: ADAM })
   await expect(ready(second.win)).toBeVisible()
   expect(await second.win.evaluate<string | null>('window.aiwrite.initialLook ?? null')).toBe('new')
   await expect(note(second.win)).toBeHidden()
 
-  // Settings › Appearance › Style: Classic, at once (the radio follows), and kept.
-  await openSettings(second.win, 'Appearance')
-  const style = second.win.getByRole('radiogroup', { name: 'Style' })
-  await expect(style.getByRole('radio', { name: 'New look' })).toHaveAttribute('aria-checked', 'true')
-  await style.getByRole('radio', { name: 'Classic' }).click()
-  expect(await lookAttr(second.win)).toBe('classic')
-  await expect(style.getByRole('radio', { name: 'Classic' })).toHaveAttribute('aria-checked', 'true')
-  await expect.poll(async () => (await invoke(second.win, 'getSettings')).look).toBe('classic')
-  // Classic draws today's line icons; the New look its two-tone ones.
-  await expect(second.win.locator('header svg.lucide').first()).toBeVisible()
-  // The arrow keys move between the two, picking as they go.
-  await style.getByRole('radio', { name: 'Classic' }).focus()
-  await second.win.keyboard.press('ArrowLeft')
-  await expect(style.getByRole('radio', { name: 'New look' })).toBeFocused()
-  expect(await lookAttr(second.win)).toBe('new')
-  await expect(second.win.locator('header svg.lucide')).toHaveCount(0)
-  await second.win.keyboard.press('ArrowRight')
-  expect(await lookAttr(second.win)).toBe('classic')
-  await expect.poll(async () => (await invoke(second.win, 'getSettings')).look).toBe('classic')
-  await second.close()
-
-  // Restarted: the window opens in Classic, before the settings have even been read.
-  const third = await launch({ dataDir: first.dataDir, env: ADAM })
-  await expect(ready(third.win)).toBeVisible()
-  expect(await third.win.evaluate<string | null>('window.aiwrite.initialLook ?? null')).toBe('classic')
-  expect(await lookAttr(third.win)).toBe('classic')
+  // Settings › Appearance: no Style to choose, only the layout.
+  await second.win.keyboard.press('Control+,')
+  await second.win.getByRole('navigation').getByRole('button', { name: 'Appearance' }).click()
+  await expect(second.win.getByRole('radiogroup', { name: 'Layout' })).toBeVisible()
+  await expect(second.win.getByRole('radiogroup', { name: 'Style' })).toHaveCount(0)
+  await expect(second.win.getByRole('radio', { name: 'Classic' })).toHaveCount(0)
+  // Nothing can choose Classic again.
+  await invoke(second.win, 'updateSettings', { look: 'classic' })
+  expect((await invoke(second.win, 'getSettings')).look).toBe('new')
 })
 
-test('the New look: "Switch to Classic" in the note switches for good; a fresh install gets no note', async ({ launch }) => {
-  const { win, dataDir, close } = await asAdam(launch, true)
-  await createWorldFromWelcomeAnywhere(win)
-  const note = win.getByRole('region', { name: 'The new look' })
-  await note.getByRole('button', { name: 'Switch to Classic' }).click()
+test('Classic retired: someone on it is moved to the New look with every other setting kept, and told once', async ({ launch }) => {
+  const dataDir = newDataDir()
+  mkdirSync(join(dataDir, 'app'), { recursive: true })
+  writeFileSync(
+    join(dataDir, 'app', 'settings.json'),
+    JSON.stringify({ look: 'classic', theme: 'light', accent: 'teal', arrangement: 'panels', editor: { fontSize: 21 } })
+  )
+  const first = await launch({ dataDir, env: ADAM })
+  await createWorldFromWelcomeAnywhere(first.win)
+  expect(await lookAttr(first.win)).toBe('new')
+  expect(await first.win.evaluate<string | null>('window.aiwrite.initialLook ?? null')).toBe('new')
+  expect(await first.win.evaluate<string>("document.documentElement.dataset.arrangement ?? ''")).toBe('panels')
+  expect(await painted(first.win)).toBe('light')
+  expect(await accentAttr(first.win)).toBe('teal')
+  const note = first.win.getByRole('region', { name: 'Classic has been retired' })
+  await expect(note).toContainText('AI Write now uses the New look')
+  await expect(note).toContainText('Your stories and settings are unchanged')
+  // Only one note: not the New look's or the desk's too.
+  await expect(first.win.getByRole('region', { name: 'The new look' })).toHaveCount(0)
+  await expect(first.win.getByRole('region', { name: 'The desk' })).toHaveCount(0)
+  await note.getByRole('button', { name: 'Got it' }).click()
   await expect(note).toBeHidden()
-  expect(await lookAttr(win)).toBe('classic')
-  await expect.poll(async () => await invoke(win, 'getSettings')).toMatchObject({ look: 'classic', lookNote: false })
-  await close()
+  await expect
+    .poll(async () => await invoke(first.win, 'getSettings'))
+    .toMatchObject({ look: 'new', classicNote: false, lookNote: false, theme: 'light', accent: 'teal', arrangement: 'panels', editor: { fontSize: 21 } })
+  await first.close()
+
+  // Never told again.
   const again = await launch({ dataDir, env: ADAM })
   await expect(ready(again.win)).toBeVisible()
-  expect(await lookAttr(again.win)).toBe('classic')
-  await expect(again.win.getByRole('region', { name: 'The new look' })).toBeHidden()
+  expect(await lookAttr(again.win)).toBe('new')
+  await expect(again.win.getByRole('region', { name: 'Classic has been retired' })).toHaveCount(0)
+})
 
-  // A fresh install: the New look on the desk, in Dark, with nothing to compare it with, so no note.
+test('a fresh install: the New look on the desk, in Dark, with no note', async ({ launch }) => {
   const fresh = await asAdam(launch, false)
   await expect(fresh.win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   expect(await lookAttr(fresh.win)).toBe('new')
@@ -275,7 +284,8 @@ test('the New look: "Switch to Classic" in the note switches for good; a fresh i
   expect(await fresh.win.evaluate<string>("document.documentElement.dataset.arrangement ?? ''")).toBe('desk')
   await expect(fresh.win.getByRole('region', { name: 'The new look' })).toBeHidden()
   await expect(fresh.win.getByRole('region', { name: 'The desk' })).toBeHidden()
-  expect(await invoke(fresh.win, 'getSettings')).toMatchObject({ lookNote: false, arrangementNote: false, theme: 'dark', arrangement: 'desk' })
+  await expect(fresh.win.getByRole('region', { name: 'Classic has been retired' })).toBeHidden()
+  expect(await invoke(fresh.win, 'getSettings')).toMatchObject({ lookNote: false, arrangementNote: false, classicNote: false, theme: 'dark', arrangement: 'desk' })
 })
 
 test('the desk is the New look’s layout: someone on the panels is moved to it once, told so, and can go back; their theme is kept', async ({

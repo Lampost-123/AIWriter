@@ -1,7 +1,7 @@
 // The desk's relationship map (UI overhaul), walked through on the sample world: medallions and kinds of tie, pointing
 // at a character lights its ties and shows both sides' feelings, a character's card and a tie's history, the timeline
 // strip changing who is tied and saying what changed, the keyboard, dragging a character, and less motion. The panels
-// and Classic keep their own map (world-views.spec.ts).
+// show the same map.
 import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, invoke, test, type LaunchOptions } from './helpers'
 
@@ -243,7 +243,7 @@ test('with less motion the map changes at once: nothing draws, glides or fades',
   await win.emulateMedia({ reducedMotion: 'no-preference' })
 })
 
-test('the panels’ New look has the same map; Classic keeps its own', async ({ launch }) => {
+test('the panels have the same map as the desk', async ({ launch }) => {
   const { win } = await launch({ env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'panels', AIWRITE_KEEPER_QUIET_MS: '600000' } })
   await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   await invoke(win, 'openSampleWorld')
@@ -264,18 +264,6 @@ test('the panels’ New look has the same map; Classic keeps its own', async ({ 
   expect(c.x + c.width).toBeLessThanOrEqual((await win.evaluate<number>('innerWidth')) + 1)
   await node(win, 'Wren Halloway').click()
   await expect(win.locator('[data-map-card="character"]')).toContainText('Fiercely protective')
-
-  // Classic (a window of its own): the old map.
-  const classic = (await launch()).win
-  await expect(classic.getByRole('heading', { name: 'Create a world' })).toBeVisible()
-  await invoke(classic, 'openSampleWorld')
-  await classic.reload()
-  await expect(classic.locator('.scene-prose')).toBeVisible()
-  await classic.keyboard.press('Control+K')
-  await classic.keyboard.type('Relationship map')
-  await classic.getByRole('option', { name: /^Relationship map/ }).first().click()
-  await expect(classic.getByRole('group', { name: 'Relationship map' })).toBeVisible()
-  await expect(classic.locator('[data-desk-map]')).toHaveCount(0)
 })
 
 test('Reset layout puts dragged characters back, and Undo moves them again', async ({ launch }) => {

@@ -19,7 +19,7 @@ test('a plot becomes a whole cast and world, then an outline, each part talked o
     await useFakeModel(win, fake)
 
     // ----- From the story menu, at its first step -----
-    await binder(win).getByRole('button', { name: 'Book 1', exact: true }).click()
+    await binder(win).locator('[data-story-menu]').click()
     await win.getByRole('menuitem', { name: 'Story builder' }).click()
     await expect(main(win).getByRole('heading', { level: 1 })).toHaveText('Build “Book 1” with the AI')
     await expect(main(win).locator('[data-step="idea"]')).toHaveAttribute('aria-current', 'step')

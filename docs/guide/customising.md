@@ -3,22 +3,18 @@
 AI Write should feel comfortable for long writing sessions. This page covers its look, the page itself, the editor,
 your writing preferences, focus mode, and every keyboard shortcut.
 
-## Choose a look
+## Choose a layout
 
-Open **Settings › Appearance**. Under **Style**:
-
-- **New look** (the default): depth, colour and motion.
-- **Classic**: flat and quiet, with everything in the binder.
-
-In the New look, **Layout** chooses how the window is laid out:
+Open **Settings › Appearance**. **Layout** chooses how the window is laid out:
 
 - **Desk** (the default): the page in the middle, the story down a spine on the left, the rooms (Write, Plan, World,
   Check) in the top bar and the AI dock under the page.
 - **Panels**: the areas down the left side, a list beside them, and the scene panel beside the page.
 
-They all have the same features. Switch whenever you like.
+Both have the same features. Switch whenever you like. (The old **Classic** look has been retired: if you used it,
+AI Write moved you to the New look and kept all your stories and settings.)
 
-<p align="center"><img src="../images/look-classic.png" alt="AI Write in the Classic look" width="800"></p>
+<p align="center"><img src="../images/layout-panels.png" alt="AI Write in the Panels layout" width="800"></p>
 
 ## Theme and colour
 

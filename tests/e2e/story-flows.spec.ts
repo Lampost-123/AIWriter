@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
 import type { ID, StoryKind } from '@shared/types'
 import type { StoryFlowKind, StoryFlowStatus } from '@shared/contracts/storyFlows'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, openSettings, openWrite, startFake, test } from './helpers'
 
 /** Connects the fake server as both the writer model and the memory model. */
 async function useFake(win: Page, fake: FakeProvider, memory = 'fake/memory'): Promise<void> {
@@ -59,7 +59,7 @@ const notes = async (win: Page, entryId: ID): Promise<string[]> =>
   )
 
 async function openWhatChanged(win: Page) {
-  await binder(win).getByRole('button', { name: 'What changed' }).click()
+  await openPage(win, 'What changed')
   const list = win.locator('main')
   await expect(list.getByRole('heading', { level: 1, name: 'What changed' })).toBeVisible()
   return list
@@ -282,8 +282,10 @@ test('restoring a backup while a flow is working leaves no line saying it still 
     await expect(rows).toHaveCount(2)
     await expect(rows.first()).toContainText('Made by you')
 
+    // Settings covers the side list, so back to Write for the story menu at its head.
     const openBook2 = async (): Promise<void> => {
-      await binder(win).getByRole('button', { name: 'Book 1', exact: true }).click()
+      await openWrite(win)
+      await binder(win).locator('[data-story-menu]').click()
       await win.getByRole('menuitem', { name: 'Settings for Book 2' }).click()
       await expect(win.getByRole('heading', { level: 1, name: 'Book 2' })).toBeVisible()
     }

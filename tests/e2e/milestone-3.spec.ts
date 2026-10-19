@@ -32,7 +32,7 @@ import type { ApiMethod, Bridge, IpcResult } from '@shared/api'
 import type { SearchGroupId, SearchResults } from '@shared/contracts/search'
 import { CHARACTER_GROUPS } from '@shared/fields'
 import type { Entry, EntryInput, EntryKind, ID } from '@shared/types'
-import { binder, closeWindow, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
+import { areaRow, binder, closeWindow, createWorldFromWelcome, expect, invoke, openPage, openSettings, sceneTitle, startFake, test, useFakeModel } from './helpers'
 
 /** How long the memory may take to catch up (it usually takes a second or two). */
 const MEMORY = { timeout: 30_000 }
@@ -42,7 +42,6 @@ const MEMORY = { timeout: 30_000 }
 const main = (win: Page) => win.locator('main')
 const prose = (win: Page) => win.locator('.scene-prose')
 const paragraph = (win: Page, text: string) => prose(win).locator('p', { hasText: text })
-const sceneHeader = (win: Page) => win.locator('main header')
 const sceneRow = (win: Page, title: string) => binder(win).locator('[data-row="scene"]', { hasText: title })
 const nameBox = (win: Page) => win.getByRole('textbox', { name: 'Name', exact: true })
 /** A section of an entry page that opens and closes, by its title (its button also says how many of its fields are filled). */
@@ -53,7 +52,7 @@ const fieldBox = (win: Page, label: string) => main(win).getByLabel(label, { exa
 /** Opens a scene from the binder and waits for its page. */
 async function openScene(win: Page, title: string): Promise<void> {
   await sceneRow(win, title).click()
-  await expect(sceneHeader(win).getByRole('button', { name: title, exact: true })).toBeVisible()
+  await expect(sceneTitle(win, title)).toBeVisible()
   await expect(prose(win)).toBeVisible()
 }
 
@@ -69,10 +68,13 @@ async function writeParagraphs(win: Page, paras: string[]): Promise<void> {
   await expect(paragraph(win, paras[paras.length - 1])).toBeVisible()
 }
 
-/** Opens an entry from its list (the binder opens the list first if another is showing). */
+/**
+ * Opens an entry from its list (the World area's side list, beside the entry pages, opens the list first if another is
+ * showing: its row, not the rail, which would go to the codex first and leave the view as of a scene).
+ */
 async function openEntry(win: Page, list: 'Characters' | 'Places', name: string): Promise<void> {
   const listbox = main(win).getByRole('listbox', { name: list, exact: true })
-  if (!(await listbox.isVisible())) await binder(win).getByRole('button', { name: list }).click()
+  if (!(await listbox.isVisible())) await areaRow(win, list).click()
   const row = listbox.getByRole('option', { name: new RegExp(`^${name}`) })
   await row.click()
   await expect(row).toHaveAttribute('aria-selected', 'true')
@@ -174,7 +176,7 @@ test('milestone 3, check 1: a full character is built from a few lines of notes 
     })
 
     await test.step('1. Quick start from the Characters list: Adam pastes his notes and clicks once', async () => {
-      await binder(win).getByRole('button', { name: 'Characters' }).click()
+      await openPage(win, 'Characters')
       await expect(main(win).getByRole('heading', { name: 'No characters yet' })).toBeVisible()
       await main(win).getByRole('button', { name: 'Quick start from a few notes' }).click()
       await expect(main(win).getByRole('heading', { level: 1, name: 'Build a character from a few notes' })).toBeVisible()
@@ -208,7 +210,7 @@ test('milestone 3, check 1: a full character is built from a few lines of notes 
       await expect(binder(again)).toBeVisible()
       expectWholeCharacter(await entryNamed(again, TOBIN))
 
-      await binder(again).getByRole('button', { name: 'Characters' }).click()
+      await openPage(again, 'Characters')
       await main(again)
         .getByRole('listbox', { name: 'Characters', exact: true })
         .getByRole('option', { name: /^Tobin Reed/ })
@@ -470,7 +472,7 @@ test('milestone 3, check 2: any entry can be viewed as of any scene', async ({ l
         await openScene(win, s.title)
         await writeParagraphs(win, s.text)
       }
-      await binder(win).getByRole('button', { name: 'Characters' }).click()
+      await openPage(win, 'Characters')
       await expect.poll(() => memoryOf(win), MEMORY).toEqual(REMEMBERED)
     })
 
@@ -722,7 +724,7 @@ test('milestone 3, check 3: search finds anything in under 100 ms', async ({ lau
 
   const made = await test.step('setup: 300 scenes of about 100 words, 12 chapter summaries and 200 entries', async () => {
     // On the style guide, which lists nothing that grows as the world does.
-    await binder(win).getByRole('button', { name: 'Style guide' }).click()
+    await openPage(win, 'Style guide')
     await expect(win.getByRole('heading', { level: 1, name: 'Style guide' })).toBeVisible()
     const started = Date.now()
     const made = await makeBigWorld(win, book.id, world)
@@ -814,7 +816,7 @@ test('milestone 3, check 3: search finds anything in under 100 ms', async ({ lau
     await expect(hit).toHaveAttribute('aria-selected', 'true')
     await win.keyboard.press('Enter')
     await expect(palette(win)).toBeHidden()
-    await expect(sceneHeader(win).getByRole('button', { name: FIND.scene.title, exact: true })).toBeVisible()
+    await expect(sceneTitle(win, FIND.scene.title)).toBeVisible()
     await expect(paragraph(win, FIND.scene.words)).toBeVisible()
   })
 })

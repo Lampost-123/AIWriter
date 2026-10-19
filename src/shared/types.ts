@@ -509,13 +509,18 @@ export interface Settings {
   tourSeen?: boolean
   /** When Adam last had each world open (by world id, ISO), written as it closes: the start screen's "last opened". */
   worldsSeenAt: Record<ID, string>
-  /** The New look: Settings › Appearance › Style, the New look ('new', the default) or Classic (see contracts/look.ts). */
-  look: 'new' | 'classic'
-  /** The New look: the one-time note offering Classic is still to show (true only after updating from before it). */
-  lookNote?: boolean
   /**
-   * The New look's layout (Settings › Appearance › Layout): the desk or the panels (see contracts/look.ts). Classic
-   * ignores it. Missing in settings from before the desk.
+   * The look: always the New look ('new') since Classic was retired (2026-10-19); settings that still keep 'classic'
+   * are moved to it when read (src/main/settings.ts, contracts/look.ts).
+   */
+  look: 'new' | 'classic'
+  /** The one-time note about the New look is still to show (true only after updating from before it). */
+  lookNote?: boolean
+  /** The one-time note saying Classic has been retired is still to show (true only for someone moved from Classic). */
+  classicNote?: boolean
+  /**
+   * The New look's layout (Settings › Appearance › Layout): the desk or the panels (see contracts/look.ts). Missing in
+   * settings from before the desk.
    */
   arrangement?: 'desk' | 'panels'
   /** The one-time note about the desk (offering the panels) is still to show (true only after updating to it). */

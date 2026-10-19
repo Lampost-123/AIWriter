@@ -5,7 +5,7 @@
 // so, and the memory asks with its own choice.
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, closeWindow, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { binder, closeWindow, createWorldFromWelcome, expect, invoke, openPage, openSettings, openWrite, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
@@ -76,6 +76,7 @@ test('Settings › Models: the writer and the memory each choose how much to thi
     await expect(thinking(win, 'Character builder model').getByRole('radio', { name: 'Low' })).toHaveAttribute('aria-checked', 'true')
 
     // A draft asks the writer model to think hard; for an OpenAI-compatible provider that's reasoning_effort.
+    await openWrite(win)
     await row(win, 'Scene 1').click()
     await expect(prose(win)).toBeVisible()
     fake.reset()
@@ -100,7 +101,7 @@ test('Settings › Models: the writer and the memory each choose how much to thi
     await expect(win.getByText('Thinking: High', { exact: true })).toBeVisible()
 
     // Leaving the scene lets the memory read the draft, with its own choice (Off), though it uses the writer model.
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await expect.poll(() => requests(fake), { timeout: 30_000 }).toBeGreaterThan(1)
     expect(fake.lastRequest()!.body.reasoning_effort).toBe('none')
   } finally {

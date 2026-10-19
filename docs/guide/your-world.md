@@ -4,7 +4,7 @@ Your world is everything the AI should remember: the people, the places, the his
 its own page, called an entry. The AI reads the entries that matter before every scene, and the memory keeps them
 up to date as you write.
 
-You'll find it all in the **World** room, in the top bar (in the **Classic** look, in the binder's **World** section).
+You'll find it all in the **World** room, in the top bar.
 
 <p align="center"><img src="../images/world-gallery.png" alt="The World room: the characters as portrait cards, then the places" width="800"></p>
 

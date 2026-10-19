@@ -27,7 +27,7 @@ import type { Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { binder, createWorldFromWelcome, expect, invoke, newDataDir, openSettings, startFake, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, newDataDir, openPage, openSettings, openWrite, startFake, test, useFakeModel } from './helpers'
 
 // These tests type straight quotes and look for them as typed (smart punctuation is Writing by hand's).
 test.use({ smartPunctuation: false })
@@ -128,7 +128,7 @@ test('Ctrl+L reads from the cursor with the narrator and Mara in her own voice; 
     await expect(win.getByRole('radiogroup', { name: "Narrator's voice" }).getByRole('radio')).toHaveCount(9)
 
     // Mara's page: Suggest describes her voice, and nothing is kept until Use this.
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await win.locator('[data-entry]').filter({ hasText: 'Mara' }).first().click()
     const voiceBox = win.getByRole('region', { name: 'Read-aloud voice' })
     await expect(voiceBox).toBeVisible()
@@ -146,6 +146,7 @@ test('Ctrl+L reads from the cursor with the narrator and Mara in her own voice; 
     await expect.poll(async () => (await invoke(win, 'getEntryReadAloud', mara.id)).say).toBe('MAH-ra')
 
     // The scene: Ctrl+L from the top reads it in order, the narrator first, then Mara.
+    await openWrite(win)
     await sceneRow(win).click()
     await prose(win).click()
     for (const [i, para] of SCENE.entries()) {
@@ -419,6 +420,7 @@ test('Settings: Hear a voice, Sample, pick the narrator, clear saved audio; List
     await expect(win.getByText('0 clips', { exact: true })).toBeVisible()
 
     // Listen from here, over selected words: reading starts at the first of them, in the voice picked.
+    await openWrite(win)
     await sceneRow(win).click()
     await prose(win).click()
     await win.keyboard.type('The ferry was late again. Mara counted the lamps on the far shore, one by one, and waited.')
@@ -797,6 +799,7 @@ test('the speech engine not running, then its voices not ready: plain words, and
     ).toBeVisible()
 
     // Back in the scene, Try again in the bar reads again, and says the voices aren't ready.
+    await openWrite(win)
     await sceneRow(win).click()
     await expect(readingBar(win)).toContainText("The speech engine isn't running.")
     await readingBar(win).getByRole('button', { name: 'Try again' }).click()
@@ -867,7 +870,7 @@ test('a character’s voice box is near the top of their page, with read aloud o
     expect((await invoke(win, 'getSettings')).speech.readAloud).toBe(false)
 
     // Read aloud is off, and Mara's page still has her voice box, under her description and above the sections.
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await win.locator('[data-entry]').filter({ hasText: 'Mara' }).first().click()
     const box = voiceBox(win)
     await expect(box).toBeVisible()
@@ -891,7 +894,7 @@ test('a character’s voice box is near the top of their page, with read aloud o
     await expect(box.getByLabel('How they sound')).toHaveValue('A low, quick voice with a harbour burr.')
 
     // A place has no voice of its own: its "Say it as" stays at the foot of its page.
-    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openPage(win, 'Places')
     await win.locator('[data-entry]').filter({ hasText: 'The Quay' }).first().click()
     const said = win.getByRole('region', { name: 'Read aloud', exact: true })
     await expect(said).toBeVisible()

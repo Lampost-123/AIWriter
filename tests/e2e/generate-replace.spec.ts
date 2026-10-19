@@ -2,7 +2,7 @@
 // below it. Against the fake OpenAI-compatible server (tests/fake-provider/server.mjs).
 import type { Page } from '@playwright/test'
 import type { FakeProvider, FakeProviderOptions } from '../fake-provider/server.mjs'
-import { binder, closeWindow, createWorldFromWelcome, expect, invoke, test } from './helpers'
+import { binder, closeWindow, createWorldFromWelcome, expect, invoke, sceneTitle, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const scroller = (win: Page) => prose(win).locator('xpath=ancestor::div[contains(@class, "overflow-y-auto")][1]')
@@ -424,7 +424,7 @@ test('opening another scene during a Replace keeps the draft writing into its ow
     await replaceIt(win).click()
     await expect(prose(win)).toContainText('The rain')
     await row(win, 'Scene 2').click()
-    await expect(win.locator('main header').getByRole('button', { name: 'Scene 2' })).toBeVisible()
+    await expect(sceneTitle(win, 'Scene 2')).toBeVisible()
     // Scene 2 is free to write in; the draft goes on in Scene 1, which the binder marks.
     await expect(generateButton(win)).toBeVisible()
     await expect(prose(win)).not.toContainText('The rain')

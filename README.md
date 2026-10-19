@@ -230,9 +230,9 @@ beside the words, so that doesn't happen.
   <img src="docs/images/start-screen.png" alt="The start screen with worlds and stories" width="49%">
 </p>
 <p align="center">
-  <img src="docs/images/look-classic.png" alt="AI Write in the Classic look" width="49%">
+  <img src="docs/images/layout-panels.png" alt="AI Write in the Panels layout" width="49%">
 </p>
-<p align="center"><sub>The first-run setup, the start screen, and the same app in the <b>Classic</b> look. If you prefer the areas down the side and the scene panel beside the page, choose <b>Panels</b> in <b>Settings › Appearance › Layout</b>. Every picture here uses the Dark theme, the default; there are Light and Sepia themes too.</sub></p>
+<p align="center"><sub>The first-run setup, the start screen, and the same app in the <b>Panels</b> layout: the areas down the side and the scene panel beside the page. Choose it in <b>Settings › Appearance › Layout</b>. Every picture here uses the Dark theme, the default; there are Light and Sepia themes too.</sub></p>
 
 ## Quick start
 

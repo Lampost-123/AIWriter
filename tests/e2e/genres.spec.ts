@@ -2,7 +2,7 @@
 // Style guide screen (genre tiles, how far it goes, the AI phrases switch), "Write a sample for me", and a draft's
 // briefing carrying the genre, the content levels and the rules against AI phrasing. Every word here is made up.
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+import { createWorldFromWelcome, expect, invoke, openPage, startFake, test, useFakeModel } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 // A picked tile's name carries its Main or Blend mark.
@@ -16,7 +16,7 @@ test('Story feel: pick genres and content levels, write a sample, and drafts are
     await createWorldFromWelcome(win, 'Saltmarsh')
     await useFakeModel(win, fake)
 
-    await binder(win).getByRole('button', { name: 'Style guide' }).click()
+    await openPage(win, 'Style guide')
     await expect(win.getByRole('heading', { level: 1, name: 'Style guide' })).toBeVisible()
     await expect(main(win).getByText('Story feel', { exact: true })).toBeVisible()
 

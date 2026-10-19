@@ -10,7 +10,7 @@
 //
 // With AIWRITE_SHOTS set to a folder, pictures of the window go there once every animation has ended.
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openSettings, openWrite, test, useFakeModel } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
@@ -194,6 +194,7 @@ test('the palette opens the chapter card; a scene restored from Recently deleted
   const list = win.getByRole('list', { name: 'Recently deleted' })
   await list.getByRole('button', { name: 'Restore “Scene 2”' }).click()
   await expect(win.getByText('Nothing deleted lately')).toBeVisible()
+  await openWrite(win)
   await sceneRow(win, 'Scene 2').click()
   await expect(sceneCard(win)).toBeVisible()
   await expect(sceneCard(win).getByRole('combobox', { name: /^Location/ })).toHaveText('Gull Quay')
@@ -217,7 +218,7 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
     })
     await useFakeModel(win, fake)
 
-    await binder(win).getByRole('button', { name: 'Book 1', exact: true }).click()
+    await binder(win).locator('[data-story-menu]').click()
     await win.getByRole('menuitem', { name: 'Outline helper' }).click()
     for (const [label, option] of [
       ['Acts', 'No acts'],
@@ -258,6 +259,8 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
     await expect(second).toContainText('Changed by you')
 
     await main(win).getByRole('button', { name: 'Keep all that’s left' }).click()
+    // The outline helper is in the Plan area: the story's tree is in the Write area's list.
+    await openWrite(win)
     await expect(chapterRow(win, 'Rain on the Narrows')).toBeVisible()
 
     // The chapter's card, from the outline.

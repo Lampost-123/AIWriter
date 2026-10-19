@@ -8,7 +8,7 @@
 // started on a free port for this test and stopped at the end.
 import type { ElectronApplication, Page } from '@playwright/test'
 import { countWords } from '../../src/shared/defaults'
-import { binder, createWorldFromWelcome, expect, openSettings, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, openPage, openSettings, openWrite, test } from './helpers'
 
 /** Closes the window the way Adam does (the X), so pending saves run first, and waits for the app to exit. */
 async function closeWindow(app: ElectronApplication): Promise<void> {
@@ -70,7 +70,7 @@ test('the writing loop: world, model, characters, place, scene card, draft, edit
     await expect(win.getByText(/The model answered in/)).toBeVisible()
 
     // ----- Two characters and a place, from their screens -----
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await expect(win.getByRole('heading', { name: 'No characters yet' })).toBeVisible()
     await newEntry(win, 'Create a character', MARA.name)
     await win.getByLabel('Short summary').fill(MARA.summary)
@@ -78,13 +78,14 @@ test('the writing loop: world, model, characters, place, scene card, draft, edit
     await newEntry(win, 'New character', TOBIN.name)
     await win.getByLabel('Short summary').fill(TOBIN.summary)
 
-    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openPage(win, 'Places')
     await expect(win.getByRole('heading', { name: 'No places yet' })).toBeVisible()
     await newEntry(win, 'Create a place', EEL.name)
     await win.getByLabel('Short summary').fill(EEL.summary)
     await win.getByLabel('Atmosphere').fill(EEL.atmosphere)
 
     // ----- The scene card: point of view, who is there, where, and the beats -----
+    await openWrite(win)
     await binder(win).locator('[data-row]', { hasText: 'Scene 1' }).first().click()
     await expect(prose(win)).toBeVisible()
     const card = sceneCard(win)
@@ -182,7 +183,7 @@ test('the writing loop: world, model, characters, place, scene card, draft, edit
     )
 
     // ----- The characters and the place are still there -----
-    await binder(again).getByRole('button', { name: 'Characters' }).click()
+    await openPage(again, 'Characters')
     const list = again.locator('[data-entry]')
     await expect(list).toHaveCount(2)
     await expect(list.filter({ hasText: MARA.name })).toContainText(MARA.summary)
@@ -190,7 +191,7 @@ test('the writing loop: world, model, characters, place, scene card, draft, edit
     await list.filter({ hasText: MARA.name }).click()
     await expect(nameBox(again)).toHaveValue(MARA.name)
     await expect(again.getByLabel('Pronouns')).toHaveValue(MARA.pronouns)
-    await binder(again).getByRole('button', { name: 'Places' }).click()
+    await openPage(again, 'Places')
     await expect(list).toHaveCount(1)
     await list.filter({ hasText: EEL.name }).click()
     await expect(nameBox(again)).toHaveValue(EEL.name)
