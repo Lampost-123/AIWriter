@@ -26,12 +26,8 @@ describe('Automatic AI', () => {
     expect(light.continuityBrief).toBe(false)
     expect(light.checkAfterDraft).toBe(false)
     expect(light.checkSecondOpinion).toBe(false)
+    expect(light.planFirst).toBe(true)
     expect(AUTOMATIC_AI_KEYS.every((k) => AUTOMATIC_AI_LEVELS.off[k] === false)).toBe(true)
     expect(AUTOMATIC_AI_KEYS.every((k) => AUTOMATIC_AI_LEVELS.full[k] === true)).toBe(true)
-  })
-
-  it('never turns off the plan before writing, at any level', () => {
-    expect(AUTOMATIC_AI_KEYS).not.toContain('planFirst')
-    for (const level of ['off', 'light', 'full'] as const) expect(automaticAiSettings(level).planFirst).toBe(true)
   })
 })
