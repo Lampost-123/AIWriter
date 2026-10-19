@@ -635,7 +635,8 @@ export async function startFakeProvider(options = {}) {
     // and name, then its arguments.
     // Write the whole chapter's agent (chapter.mjs), else the editor chat's.
     // Plan before writing's look-ups (plan.mjs), else Write the whole chapter's agent (chapter.mjs), else the editor chat's.
-    const calls = body.tools?.length
+    // tool_choice 'none' (the planner's answering request): the tools are listed, but none may be called.
+    const calls = body.tools?.length && body.tool_choice !== 'none'
       ? (planToolCalls(system, messages, body.tools) ??
         chapterToolCalls(system, messages, body.tools, model) ??
         askToolCalls(system, messages, body.tools, body.tool_choice))

@@ -14,6 +14,28 @@ export function clip(line: string, most: number): string {
   return `${(at > most / 2 ? cut.slice(0, at) : cut).replace(/[\s,;:.]+$/, '')}…`
 }
 
+/**
+ * A text as one line in whole sentences, up to `most` characters (2026-10-19: what_happened gave each scene's gist cut
+ * part-way): as many whole sentences as fit; a first sentence longer than that cut at a word, with "…". Words after the
+ * last full stop are left out when a whole sentence comes before them (a summary that stops part-way through one).
+ */
+export function wholeSentences(text: string, most: number): string {
+  const t = clean(text)
+  if (!t) return ''
+  const sentences = t.match(/[^.!?…]+(?:[.!?…]+["'”’)\]]*|$)/g)?.map((s) => s.trim()).filter(Boolean) ?? [t]
+  const ends = (s: string): boolean => /[.!?…]["'”’)\]]*$/.test(s)
+  const whole = sentences.filter(ends)
+  const list = whole.length ? sentences.slice(0, sentences.findLastIndex(ends) + 1) : sentences
+  let out = ''
+  for (const s of list) {
+    const next = out ? `${out} ${s}` : s
+    if (next.length > most) break
+    out = next
+  }
+  if (out) return !whole.length && !ends(out) ? `${out.replace(/[\s,;:]+$/, '')}…` : out
+  return clip(list[0], most)
+}
+
 /** The first `most` lines, with a note of how many more there are. */
 export function firstLines(lines: readonly string[], most: number, more = 'more'): string[] {
   if (lines.length <= most) return [...lines]

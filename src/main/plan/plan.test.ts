@@ -17,10 +17,12 @@ import { assembleContext, EARLIER_BLOCK, finishContext, prepareContext, type Con
 import { countRaw } from '../ai/tokens'
 import { CONTRACT_BLOCK } from '../ai/contract'
 import {
+  changeLine,
   checkPlan,
   contradicts,
   fieldOf,
   KEEP_PLAN_PROMPTS,
+  latestSaysOtherwise,
   LOOKUP_RULE,
   keepsRoom,
   makePlan,
@@ -28,11 +30,13 @@ import {
   PLAN_HEAD,
   PLAN_MARKER,
   PLAN_MOST,
+  planForContinue,
   planMaterial,
   planMessages,
   planSystem,
   planText,
   readPlan,
+  saysIn,
   type CheckWith,
   type PlanMaterial,
   type RawPlan
@@ -234,7 +238,11 @@ describe('checking the plan against the stage', () => {
       'Where Wren is: the market square',
       'Time: Day 3, midnight'
     ])
-    expect(p.changes).toEqual(['Wren walks back towards the mill.', 'Wren sits on a sack.'])
+    // Each change whole in itself (2026-10-19): who, what, from and to, and how it happens.
+    expect(p.changes).toEqual([
+      'Wren, where: the market square → the mill loft. Wren walks back towards the mill.',
+      'Wren, position: standing → sitting on a sack. Wren sits on a sack.'
+    ])
     expect(p.checked).toEqual({ corrected: 1, dropped: 2 })
   })
 
@@ -293,9 +301,9 @@ describe('checking the plan against the stage', () => {
     )
     expect(p.keep).toEqual(['Wren: boots off, by the hearth', 'The door: shut and barred from inside'])
     expect(p.changes).toEqual([
-      'Wren pulls her boots on and laces them.',
-      'Wren picks up the survey case.',
-      "Wren lays a hand on Osric's arm."
+      'Wren, wearing: boots off → boots on, laced. Wren pulls her boots on and laces them.',
+      'Wren, the survey case: on the windowsill → gone. Wren picks up the survey case.',
+      "Wren, touching: now a hand on Osric's arm. Wren lays a hand on Osric's arm."
     ])
     expect(p.checked).toEqual({ corrected: 2, dropped: 4 })
     expect(fieldOf('touching')).toBe('touching')
@@ -315,7 +323,7 @@ describe('checking the plan against the stage', () => {
     const none = checkPlan(raw({ relies, changes: [{ who: 'Wren', what: 'wearing', from: '', to: 'linen shirt, boots off by the hatch', how: 'Wren dresses.' }] }), world({ reach: 'none' }))
     expect(none.keep).toEqual([])
     // Nothing on the stage holds here, so dressing as she was is no "already so".
-    expect(none.changes).toEqual(['Wren dresses.'])
+    expect(none.changes).toEqual(['Wren, wearing: now linen shirt, boots off by the hatch. Wren dresses.'])
   })
 
   it("leaves out a change that is already so, starts from what the stage says isn't so, or is the dead's", () => {
@@ -332,7 +340,7 @@ describe('checking the plan against the stage', () => {
       }),
       world()
     )
-    expect(p.changes).toEqual(['Wren gets up and goes to the hatch.', 'Osric Hale: where now the loft'])
+    expect(p.changes).toEqual(['Wren, position: sitting on a sack → standing at the hatch. Wren gets up and goes to the hatch.', 'Osric Hale, where: now the loft.'])
     expect(p.checked.dropped).toBe(3)
   })
 
@@ -345,10 +353,13 @@ describe('checking the plan against the stage', () => {
       // Someone not on the card turning up is an event too.
       { who: 'Mara', what: 'where', from: '', to: 'the loft', how: 'Mara climbs into the loft.' }
     ]
-    expect(checkPlan(raw({ changes }), world()).changes).toEqual(['Osric climbs the ladder to the loft.', 'They argue about the failing weir.'])
+    expect(checkPlan(raw({ changes }), world()).changes).toEqual([
+      'Osric Hale, where: the foot of the stairs → the loft. Osric climbs the ladder to the loft.',
+      'They argue about the failing weir.'
+    ])
     // For one beat: only what that beat calls for.
     const beat = checkPlan(raw({ changes }), world({ calls: 'Beat 1 of 2: Osric climbs up to the loft' }))
-    expect(beat.changes).toEqual(['Osric climbs the ladder to the loft.'])
+    expect(beat.changes).toEqual(['Osric Hale, where: the foot of the stairs → the loft. Osric climbs the ladder to the loft.'])
   })
 
   it('never lets out what is kept from someone in the scene, unless the scene card says so', () => {
@@ -461,6 +472,113 @@ describe('checking the plan against the stage', () => {
     expect(p.mustStay).toEqual(['Wren has a burn scar on her right hand'])
     expect(p.closing).toBe('Osric alone at the foot of the stairs')
     expect(p.checked.dropped).toBe(7)
+  })
+})
+
+describe('what the plan rests on, and what changes, said whole (stand-in test, 2026-10-19)', () => {
+  // A stand-in test found the boots on the hearth, the coat on its peg and Ash out at the stable dropped: only words the
+  // planner read word for word in the last few hundred words of the scene were taken.
+  const soFar = [
+    'Wren came in out of the rain and lit the lamp. She pulled her boots off and set them by the hearth. She hung her coat on its peg by the door.',
+    'Ash went out to the stable to see to the horses.',
+    // Hundreds of words later, the scene's latest word on the lamp.
+    Array.from({ length: 60 }, () => 'The rain kept on at the shutters.').join(' '),
+    'She blew the lamp out and sat in the dark.'
+  ].join('\n\n')
+  const previous = 'They rode hard for the ford. The bridge at Carrow was down, the river over its stones.'
+  const stand: SceneState = { time: '', weather: '', light: '', characters: [{ ...blank, name: 'Wren', where: 'the inn parlour' }] }
+  const relies = [
+    // Set up earlier in the scene so far, in other words.
+    { who: 'Wren', what: 'thing', value: 'her boots on the hearth' },
+    { who: '', what: 'thing', value: 'her coat on its peg' },
+    { who: 'Ash', what: 'where', value: 'out at the stable' },
+    // The end of the previous scene.
+    { who: '', what: 'fact', value: 'the bridge at Carrow is down' },
+    // What was looked up in this plan's own call.
+    { who: 'Osric Hale', what: 'holding', value: 'a lantern' },
+    // Never: invented, a secret kept from someone here, or what the scene's latest words say otherwise of.
+    { who: 'Wren', what: 'holding', value: 'a silver knife' },
+    { who: '', what: 'fact', value: 'The flour tax was forged' },
+    { who: '', what: 'thing', value: 'the lamp: lit' }
+  ]
+  const w = (over: Partial<CheckWith> = {}): CheckWith =>
+    world({
+      stand,
+      soFar,
+      previous,
+      material: `${MATERIAL}\nThe flour tax was forged.\n\n## Looked up\nOsric Hale: carrying a lantern (since Ch 1, Sc 2)`,
+      ...over
+    })
+
+  it('takes a fact the scene so far, the previous scene’s end, the story index or a look-up backs, in other words too', () => {
+    const p = checkPlan(raw({ relies }), w())
+    expect(p.keep).toEqual([
+      'Her boots on the hearth',
+      'Her coat on its peg',
+      'Where Ash is: out at the stable',
+      'the bridge at Carrow is down',
+      'Osric Hale is holding: a lantern'
+    ])
+    expect(p.checked.dropped).toBe(3)
+    // Without the scene so far and the scene before, only what the planner read in so many words.
+    expect(checkPlan(raw({ relies }), w({ soFar: undefined, previous: undefined })).keep).toEqual(['Osric Hale is holding: a lantern'])
+  })
+
+  it('backs a value in other words only with every word that matters, never words saying otherwise', () => {
+    expect(saysIn('boots off, by the hearth', 'Wren', 'She set her boots by the hearth to dry.')).toBe(true)
+    expect(saysIn('boots off, by the hearth', 'Wren', 'She pulled her boots on by the hearth.')).toBe(false)
+    expect(saysIn('the door barred', '', 'The door stood shut.')).toBe(false)
+    expect(saysIn('out at the stable', 'Ash', 'Ash went out to the stable.')).toBe(true)
+    // One word that matters, and nothing to say whose: not enough.
+    expect(saysIn('out at the stable', 'Ash', 'The stable roof leaked.')).toBe(false)
+    expect(latestSaysOtherwise('the lamp lit', 'Wren lit the lamp. Later she blew the lamp out.')).toBe(true)
+    expect(latestSaysOtherwise('the lamp lit', 'The lamp was out. Wren lit the lamp again.')).toBe(false)
+    // "On the hearth" says where, not how: no clash with boots taken off.
+    expect(contradicts('her boots on the hearth', 'She pulled her boots off')).toBe(false)
+    expect(contradicts('her boots on', 'She pulled her boots off')).toBe(true)
+  })
+
+  it('a change line says who, what, from and to, with how it happens when that adds something', () => {
+    expect(changeLine({ who: 'Wren', what: 'holding', from: 'the key', to: 'nothing', how: 'She sets it down on the table.' })).toBe(
+      'Wren, holding: the key → nothing. She sets it down on the table.'
+    )
+    expect(changeLine({ who: 'Osric Hale', what: 'knows', from: '', to: 'the tax was forged', how: 'Wren tells him.' })).toBe(
+      'Osric Hale learns: the tax was forged. Wren tells him.'
+    )
+    expect(changeLine({ who: '', what: 'thing', from: 'the door: unbarred', to: 'the door: barred from inside', how: 'Wren bars the door.' })).toBe(
+      'The door: unbarred → barred from inside. Wren bars the door.'
+    )
+    // How it happens says nothing more: left out.
+    expect(changeLine({ who: 'Ash', what: 'where', from: 'the kitchen', to: 'the yard', how: 'the kitchen to the yard' })).toBe('Ash, where: the kitchen → the yard.')
+    // Only how: whose it is, before it.
+    expect(changeLine({ who: 'Wren', what: 'mood', from: '', to: '', how: 'She softens.' })).toBe('Wren: She softens.')
+  })
+})
+
+describe('the plan as Continue gets it (stand-in test, 2026-10-19)', () => {
+  const p = {
+    point: { wants: 'to keep the ledger', against: '', turn: '' },
+    beats: ['Osric climbs up', 'They argue about the weir', 'Wren hands him the ledger'],
+    mustStay: ['Osric does not know the tax was forged'],
+    closing: 'The ladder, empty'
+  }
+
+  it('the beats on the page marked done, the next marked, the rest as they come', () => {
+    const t = planForContinue(p, 'Wren', { done: 1 })
+    expect(t).toContain(
+      'The beats, in order:\n1. Osric climbs up (done: on the page already)\n2. They argue about the weir (next: write this now)\n3. Wren hands him the ledger\n'
+    )
+    expect(t).not.toContain('the plan is complete')
+    expect(planForContinue(p, 'Wren')).toContain('1. Osric climbs up (next: write this now)')
+  })
+
+  it('every beat on the page: the plan is complete, carry on towards the card’s outcome and the closing image', () => {
+    const t = planForContinue(p, 'Wren', { done: 3, outcome: 'Osric leaves with the ledger.' })
+    expect(t).toContain('3. Wren hands him the ledger (done: on the page already)')
+    expect(t).toContain(
+      "Every beat of the plan is on the page: the plan is complete. Add no new beats of your own: carry on towards the scene card's outcome (Osric leaves with the ledger) and the image it ends on (The ladder, empty)."
+    )
+    expect(t).not.toContain('(next: write this now)')
   })
 })
 
@@ -743,7 +861,7 @@ describe('making the plan', () => {
     expect(f.asked[0].system.startsWith(PLAN_MARKER)).toBe(true)
     expect(plan).toMatchObject({
       needs: [w.weir.id],
-      text: `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren is wearing: linen shirt; boots off by the hatch\nWhat changes on the page, in order:\n1. Wren stands to meet him.\n${PLAN_GO.start}`,
+      text: `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren is wearing: linen shirt; boots off by the hatch\nWhat changes on the page, in order:\n1. Wren, position: sitting on a sack → standing. Wren stands to meet him.\n${PLAN_GO.start}`,
       must: [],
       checked: { corrected: 1, dropped: 0 }
     })
@@ -783,7 +901,7 @@ describe('making the plan', () => {
   })
 
   it('may look things up first, one round answered here, then plans in the same exchange; what it looked up reaches the writer', async () => {
-    const asked: { tools: string[]; messages: { role: string; content: string }[] }[] = []
+    const asked: { tools: string[]; toolChoice: unknown; messages: { role: string; content: string }[] }[] = []
     const reply = JSON.stringify({
       wants: 'Wren wants Osric gone',
       beats: ['Osric climbs up to the loft'],
@@ -794,8 +912,12 @@ describe('making the plan', () => {
         headers: { 'Content-Type': 'text/event-stream' }
       })
     const f = (async (_input: unknown, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body ?? '{}')) as { tools?: { function: { name: string } }[]; messages: { role: string; content: string }[] }
-      asked.push({ tools: (body.tools ?? []).map((t) => t.function.name), messages: body.messages })
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        tools?: { function: { name: string } }[]
+        tool_choice?: unknown
+        messages: { role: string; content: string }[]
+      }
+      asked.push({ tools: (body.tools ?? []).map((t) => t.function.name), toolChoice: body.tool_choice ?? null, messages: body.messages })
       if (asked.length === 1) {
         const call = { index: 0, id: 'c1', type: 'function', function: { name: 'find_in_story', arguments: '{"query": "the sacks"}' } }
         return sse({ tool_calls: [call] }, 'tool_calls')
@@ -840,11 +962,13 @@ describe('making the plan', () => {
       fetchImpl: f,
       retryDelays: []
     })
-    // Two requests: the first offered the look-ups, the second (with their answers) asked for the plan without them.
+    // Two requests: the first offered the look-ups, the second (with their answers) asked for the plan with the tools
+    // still listed and none to be called (tool_choice 'none'), so it starts as the first did (the cache, 2026-10-19).
     expect(asked).toHaveLength(2)
     expect(asked[0].tools).toContain('find_in_story')
     expect(asked[0].messages[0].content).toContain('you get one round of look-ups')
-    expect(asked[1].tools).toEqual([])
+    expect(asked[1].tools).toEqual(asked[0].tools)
+    expect(asked[1].toolChoice).toBe('none')
     expect(asked[1].messages.find((m) => m.role === 'tool')?.content).toBe('### Ch 1, Sc 4\nOsric counted the sacks twice, and said nothing of the tax.')
     expect(asked[1].messages[asked[1].messages.length - 1].content).toBe('Now plan the scene, as one JSON object. Reply with only the JSON object.')
     // The fact it relied on is in what it looked up, so it is kept; the passage goes to the writer beside the plan.

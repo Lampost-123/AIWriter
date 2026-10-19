@@ -17,7 +17,7 @@ import { loadShape } from '../../db/memory'
 import * as sidx from '../../db/storyIndex'
 import { storyOfScene } from '../../memory/line'
 import { lastSeen, openThreads, presentAt, sceneGists, stateOf, timeline, whoKnows } from '../../storyIndex/lookup'
-import { clip, entryText, firstLines, passageOf } from './text'
+import { clip, entryText, firstLines, passageOf, wholeSentences } from './text'
 
 type DB = Database.Database
 
@@ -117,6 +117,11 @@ export interface LookupContext {
   hidden: ReadonlySet<ID>
   /** Searches the story so far (retrieval); left out: find_in_story isn't available. */
   find?: (query: string, most: number) => Promise<FoundPassage[] | null>
+  /**
+   * Fills in a scene's physical details (what people wear, carry and suffer: storyIndex/fill.ts fillSceneForLookup) when
+   * that can be done quickly, for state_of; true once they are in the index. Never waits long. Left out: not tried.
+   */
+  fill?: (sceneId: ID) => Promise<boolean>
 }
 
 /** One look-up's answer. */
@@ -237,6 +242,24 @@ const said = (tool: string, label: string, text: string, more: Partial<LookupAns
 
 const at = (ctx: LookupContext): { asItBegins: boolean } => ({ asItBegins: ctx.asItBegins })
 
+/** The most ties and facts known state_of gives in its short form. */
+export const STATE_MOST = 5
+/** The longest gist what_happened gives a scene in its short form, in characters (whole sentences). */
+export const GIST_MOST = 300
+
+/**
+ * The scene whose words what people wear, carry and suffer here comes from: this one carrying on (its words so far), or
+ * the last earlier scene with words. Null when there is none.
+ */
+function detailsFrom(ctx: LookupContext): ID | null {
+  if (!ctx.asItBegins) return ctx.sceneId
+  const before = scenesBefore(ctx)
+  for (let i = before.length - 1; i >= 0; i--) {
+    if (clean(sidx.sceneWords(ctx.db, [before[i].id]).get(before[i].id)?.text)) return before[i].id
+  }
+  return null
+}
+
 /** Answers one look-up. Never throws: a look-up that can't be answered says why, and what to try next. */
 export async function runLookup(call: ToolCall, ctx: LookupContext): Promise<LookupAnswer> {
   try {
@@ -255,22 +278,42 @@ async function answer(call: ToolCall, ctx: LookupContext): Promise<LookupAnswer>
     case 'state_of': {
       const e = entryNamed(ctx, a.name)
       indexed(ctx)
-      const now = stateOf(ctx.db, ctx.storyId, e.id, ctx.sceneId, at(ctx))
+      let now = stateOf(ctx.db, ctx.storyId, e.id, ctx.sceneId, at(ctx))
+      // Nothing of what they wear, carry or suffer: the scene it would come from filled in first, when that is quick.
+      if (now && !now.wearing.length && !now.carrying && !now.condition && ctx.fill) {
+        const from = detailsFrom(ctx)
+        if (from && (await ctx.fill(from).catch(() => false))) now = stateOf(ctx.db, ctx.storyId, e.id, ctx.sceneId, at(ctx)) ?? now
+      }
       const all = withoutHidden(ctx, now?.lines ?? [])
       const knows = all.filter((l) => l.startsWith(`${e.name} knows:`))
       const ties = all.filter((l) => l.startsWith(`${e.name} and `))
       const rest = all.filter((l) => !knows.includes(l) && !ties.includes(l))
-      const lines = full ? all : [...rest, ...firstLines(ties, 3), ...firstLines(knows, 3)]
-      if (!lines.length) return said(call.name, `Looking up ${e.name}`, `Nothing is kept of where ${e.name} is or what they have at this point. Try last_seen or get_entry.`, { ok: false })
-      const facts = rest.concat(full ? [...ties, ...knows] : [...ties.slice(0, 3), ...knows.slice(0, 3)]).map((l) => clip(l, 240))
-      return said(call.name, `Looking up ${e.name}`, lines.map((l) => clip(l, 240)).join('\n'), { facts })
+      const most = full ? Infinity : STATE_MOST
+      const lines = full ? all : [...rest, ...firstLines(ties, most), ...firstLines(knows, most)]
+      if (!lines.length) {
+        return said(call.name, `Looking up ${e.name}`, `Nothing is recorded yet of where ${e.name} is, what they wear or carry, how they are, what they know or their ties at this point. Try last_seen or get_entry.`, {
+          ok: false
+        })
+      }
+      // Everything the index has, and what it has nothing on yet, kind by kind (2026-10-19: only the place came back).
+      const missing = [
+        !now?.place ? 'where they are' : '',
+        !now?.wearing.length ? 'what they wear' : '',
+        !now?.carrying ? 'what they carry' : '',
+        !now?.condition ? 'how they are (injuries and the like)' : '',
+        !knows.length ? 'what they know' : '',
+        !ties.length ? 'their ties to others' : ''
+      ].filter(Boolean)
+      const note = missing.length ? [`Not recorded yet for ${e.name}: ${missing.join(', ')}.`] : []
+      const facts = rest.concat(full ? [...ties, ...knows] : [...ties.slice(0, STATE_MOST), ...knows.slice(0, STATE_MOST)]).map((l) => clip(l, 240))
+      return said(call.name, `Looking up ${e.name}`, [...lines.map((l) => clip(l, 240)), ...note].join('\n'), { facts })
     }
     case 'last_seen': {
       const e = entryNamed(ctx, a.name)
       indexed(ctx)
       const seen = lastSeen(ctx.db, ctx.storyId, e.id, ctx.sceneId)
       if (!seen) return said(call.name, `Where ${e.name} was last`, `${e.name} isn't in any scene of this story before this one. Try get_entry.`, { ok: false })
-      const line = clip(seen.line, 400)
+      const line = seen.gist ? seen.line.replace(seen.gist, wholeSentences(seen.gist, 300)) : seen.line
       return said(call.name, `Where ${e.name} was last`, line, { facts: withoutHidden(ctx, [line]) })
     }
     case 'who_knows': {
@@ -295,10 +338,16 @@ async function answer(call: ToolCall, ctx: LookupContext): Promise<LookupAnswer>
       if (!before.length) return said(call.name, 'What happened before', 'This is the story’s first scene: nothing has happened in it before.', { ok: false })
       const from = clean(a.from) ? earlierScene(ctx, a.from) : before[Math.max(0, before.length - (full ? 30 : 6))]
       const to = clean(a.to) ? earlierScene(ctx, a.to) : before[before.length - 1]
-      const lines = withoutHidden(ctx, sceneGists(ctx.db, ctx.storyId, from.id, to.id).lines).map((l) => clip(l, 360))
+      // Each scene's gist from its summary in whole sentences (2026-10-19: never its first sentence cut part-way), and
+      // "no summary yet" for a scene the memory hasn't summed up.
+      const scenes = sceneGists(ctx.db, ctx.storyId, from.id, to.id).scenes
+      const told = scenes.map((s) => ({ ...s, line: `${s.label}: ${s.gist ? wholeSentences(s.gist, full ? 600 : GIST_MOST) : 'no summary yet'}` }))
+      const kept = new Set(withoutHidden(ctx, told.map((s) => s.line)))
+      const shown = told.filter((s) => kept.has(s.line))
       const label = `What happened, ${from.label} to ${to.label}`
-      if (!lines.length) return said(call.name, label, `Nothing is kept yet of what happens from ${from.label} to ${to.label}. Try read_passage.`, { ok: false })
-      return said(call.name, label, firstLines(lines, full ? 40 : 12).join('\n'), { facts: lines.slice(-8) })
+      if (!shown.some((s) => s.gist)) return said(call.name, label, `Nothing is kept yet of what happens from ${from.label} to ${to.label}. Try read_passage.`, { ok: false })
+      const lines = shown.map((s) => s.line)
+      return said(call.name, label, firstLines(lines, full ? 40 : 12).join('\n'), { facts: shown.filter((s) => s.gist).map((s) => s.line).slice(-8) })
     }
     case 'who_was_there': {
       const s = earlierScene(ctx, a.scene)

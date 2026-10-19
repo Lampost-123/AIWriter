@@ -22,6 +22,7 @@ import {
   namesUpTo,
   shortPlace,
   stageFor,
+  namedThere,
   stageInScene,
   type MustInput
 } from './mustStay'
@@ -381,6 +382,14 @@ describe('what must stay true', () => {
     // A first name counts only when no one else here shares it: "Mother" could be Mother Agate.
     expect(stageInScene(s, { ...scope, words: 'Mother Agate waved.' })!.characters.map((c) => c.name)).toEqual(['Wren'])
     expect(stageInScene(s, { ...scope, words: 'Bryn came back for her whip.' })!.characters.map((c) => c.name)).toContain('Bryn Tally')
+    // Someone only thought of, talked of or told as far away is never in the scene, whatever the stage lists
+    // (stand-in test, 2026-10-19); named as there in another line of the words, they are.
+    const only = (words: string): string[] => stageInScene(s, { ...scope, words })!.characters.map((c) => c.name)
+    expect(only('Wren thought of Mother Rook and her kitchen.')).not.toContain('Mother Rook')
+    expect(only('“Mother Rook would know,” Wren said.')).not.toContain('Mother Rook')
+    expect(only('Wren thought of Mother Rook.\nMother Rook called up from the kitchen.')).toContain('Mother Rook')
+    expect(namedThere('She missed Bryn Tally.', 'Bryn Tally')).toBe(false)
+    expect(namedThere('Bryn Tally came in out of the rain.', 'Bryn Tally')).toBe(true)
     // Carrying on with no one on the card: everyone told, no one else.
     const lines = mustStayTrue(base({ stand: told, people: [] })).join('\n')
     expect(lines).toContain('Where Mother Rook is: the kitchen')

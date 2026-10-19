@@ -3952,7 +3952,8 @@ go with their scene when it is emptied from Recently deleted (foreign keys). All
   scenes or chapters moved, the memory or an entry edited by hand), after an outline is kept, and every story after
   scenes are deleted or brought back (beside `rulesAfterDeleting`). The free part is built for every story.
 - **The physical details** (what people wear, carry and suffer, and where they end up) come from where things stand,
-  which costs a memory-model call a scene (`storyIndex/fill.ts`; a row says `filled: 'ai'` once it has them, INDEX_RULES 2).
+  which costs a memory-model call a scene (`storyIndex/fill.ts`; a row says `filled: 'ai'` once it has them, INDEX_RULES 2; 3: someone the stage
+  lists whom the words name only as thought of, talked of or far away is named, not there).
   Adam, 2026-10-19: only for the last chapters of an existing story by themselves. After the opening build, the scenes with
   words of the last two chapters with words of each story being written (changed within 60 days, and always the latest)
   not yet read for their words are queued (`recentScenesToFill`) in the `StageFiller`, which works one scene at a time
@@ -4030,9 +4031,9 @@ planning every beat. Plan before writing (`settings.planFirst`) stays a switch, 
   the scene, made with its first beat (or the first after the card or the direction changed, or beat 1 started afresh),
   kept in memory (`plan/index.ts` scene plans, the 20 most recent) and given to the later beats with no call, the notes
   saying "(I write only beat 2 of 3 now…)", its brief with it, no scene-level "must" in a beat's contract; Continue
-  (`edits/index.ts` `continueExtras`): no call; the scene's last plan (`planForContinueOf`: the point, the beats, what must
-  stay true, the closing image) while the card is the same and the words before the cursor are within what the plan was
-  for and half as much again, and the end of the previous scene (about 200 words, `CONTINUE_PREVIOUS`).
+  (`edits/index.ts` `continueExtras`): no call; the scene's last plan made for the whole of it (`planForContinueOf`: the
+  point, the beats still to come, what must stay true, the closing image) while the card is the same, and the end of the
+  previous scene (about 200 words, `CONTINUE_PREVIOUS`) while the scene's own words are short (below).
 - **Measured** with the trap harness's fake run (`npm run traps -- --fake --samples 1 --measure`, chain K1: six Add
   below steps and six Continues; the harness no longer answers the planner's or the memory's requests with its stand-in
   writer, which had made every fake plan prose): the writer's request 13,066 to 13,177 tokens on average (+0.8%: the
@@ -4044,10 +4045,46 @@ planning every beat. Plan before writing (`settings.planFirst`) stays a switch, 
   path end to end against the fake provider, planning while the switch is on with the plan in the writer's request, and
   none off. The fake planner (`tests/fake-provider/plan.mjs`) looks the point of view up first (`planToolCalls`), then
   plans in the new format.
-- **Not done here**: the second request of the round goes without the tools, so a provider's cache misses the part after
-  the system prompt (keeping the tools with `tool_choice` none would keep it, for the agent loop as a whole); "the scenes
-  before, word for word" still go to the writer when there is room, though the planner can now read what it needs of them;
-  the continuity brief's length (750 to 800 words) is as fix 14 set it.
+- **What a second stand-in test found, put right (2026-10-19)** (Claude as planner and writer through the trap harness,
+  fake memory):
+  - *What the plan rests on* (`checkPlan`, `saysIn`, `latestSaysOtherwise`): a relies line is kept when what the planner
+    read or looked up backs it in so many words, or in other words (within a sentence and the next, every word that
+    matters, and for one such word the person's name or the word saying how it is), or when the whole scene so far
+    (`PlanMaterial.page`, never sent to the planner) or the previous scene's end does (that one for what people wear, hold
+    and suffer, things in the place and facts), and the scene so far's latest word on it doesn't say otherwise. Never a
+    secret kept from someone here; where people are at a new scene's start still only from the card. "On the hearth"
+    says where, not how ("boots on the hearth" is no clash with boots off).
+  - *What changes* (`changeLine`): each line whole in itself, who, what, from → to, and how when it adds something
+    ("Wren, holding: the key → nothing. She sets it down on the table."; "Osric learns: …"; a thing named once).
+  - *Continue* (`edits/index.ts` `continueExtras`, `continuePeople`; `plan/index.ts` `planForContinueOf`): the scene's last
+    plan made for the whole of it (`wholePlans`; never a stretch planned for Add below, whose beats are on the page), its
+    beats marked done (their words in the scene so far, `beatsOnPage`, or by position, a beat to spare) and the next marked;
+    every beat done: the plan is complete, carry on towards the card's outcome and the closing image. With no such plan,
+    the card's beats are marked the same way in Continue's scene card. Everyone in the scene as the story index has them
+    (block `people-now`, right before where things stand). The previous scene's end only while the scene's words before
+    the cursor are under 300 (`CONTINUE_PREVIOUS_UNDER`).
+  - *Present, not mentioned* (`ai/mustStay.ts` `namedThere`, keeper/presence.ts `namedIn`): someone the stage lists but
+    the words only think of, talk of or tell as far away is never told as in the scene (`stageInScene`), nor in the plan
+    core's "everyone in the scene", nor present in the story index (INDEX_RULES 3); Continue lists them under "Named
+    nearby, not in the scene", never among its characters.
+  - *Each passage once* (`ai/repeats.ts`, `finishContext`): once the briefing is fitted, a passage of what a search found
+    or of what the plan looked up is left out when the words already sent carry it (the scene so far, the previous
+    scene's end, the scenes before) or a part before it did; the search keeps its passages, what the plan looked up gives
+    way (`keepsRoom`). Beside a plan the scenes before word for word are not sent at all: the plan, what it looked up and
+    the gists carry them.
+  - *Look-ups*: `what_happened` gives each scene's gist in whole sentences (`wholeSentences`), "no summary yet" for a
+    scene with none; `state_of` gives everything the index has and says what it has nothing on yet ("Not recorded yet for
+    Mara: what they carry, …"); with nothing of what someone wears, carries or suffers, the scene it would come from is
+    filled in first (`plan/index.ts` `fillQuickly`: `fillSceneForLookup` only when that is one memory call, within
+    `LOOKUP_FILL_MS` 8 s, else stopped).
+  - *The cache*: the answering request keeps the tools listed with `tool_choice` "none" (`ai/tasks.ts` agent
+    `lastKeepsTools`, the planner only), so it starts exactly as the first did; a provider that turns "none" down is
+    asked without the tools (nothing remembered for the model), and one that calls a tool all the same is asked again
+    without them.
+  - *Measured* (`npm run traps -- --fake --samples 1 --measure`, chain K1): the writer's request 13,177 to 8,019 tokens on
+    average (the scenes before word for word gone beside the plan, passages said once); Continue 3,165 to 2,961; the
+    plan's answering request 6,037 to about 6,950 tokens, all but about 150 of them the first request again (the cache).
+- **Not done here**: the continuity brief's length (750 to 800 words) is as fix 14 set it.
 
 ## One reading of a scene (overhaul phase 1, item 1, 2026-10-19)
 

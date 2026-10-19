@@ -315,7 +315,9 @@ describe("the plan's notes keep a holding change that tells no secret", () => {
   const change = { who: 'Nell', what: 'holding', from: 'the tithe ledger, under her arm', to: 'the tithe ledger, under her arm; the key in her pocket', how: 'She puts the key in her pocket.' }
 
   it('the key into her pocket is kept; telling the secret outright is still dropped', () => {
-    expect(checkPlan({ relies: [], changes: [change], needs: [] }, w).changes).toEqual(['She puts the key in her pocket.'])
+    expect(checkPlan({ relies: [], changes: [change], needs: [] }, w).changes).toEqual([
+      'Nell, holding: the tithe ledger, under her arm → the tithe ledger, under her arm; the key in her pocket. She puts the key in her pocket.'
+    ])
     expect(checkPlan({ relies: [], changes: [{ ...change, how: 'She tells Tam what is in the tithe ledger.' }], needs: [] }, w).changes).toEqual([])
     expect(newWordsOf('the tithe ledger; the key in her pocket', 'the tithe ledger')).toBe('key in her pocket')
   })

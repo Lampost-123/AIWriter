@@ -21,6 +21,9 @@ export const PLAN_GO = {
   here: 'Now the prose, carrying straight on from the very end of the scene so far:'
 } as const
 
+/** How Continue marks a beat of the scene's plan or card (2026-10-19): on the page already, or the one to write now. */
+export const CONTINUE_MARKS = { done: '(done: on the page already)', next: '(next: write this now)' } as const
+
 /** True when a draft's messages carry a plan's notes. */
 export const carriesPlan = (messages: readonly { content: unknown }[]): boolean =>
   messages.some((m) => typeof m.content === 'string' && m.content.includes(PLAN_HEAD))

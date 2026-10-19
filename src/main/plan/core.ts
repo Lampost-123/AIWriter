@@ -6,11 +6,11 @@
 
 import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
-import { stageFor } from '../ai/mustStay'
+import { namedThere, stageFor } from '../ai/mustStay'
 import { toldStage, type ContextInput } from '../ai/context'
 import * as sidx from '../db/storyIndex'
 import { buildStoryIndex, openThreads, stateOf, type EntryNow } from '../storyIndex'
-import { clip } from '../ai/lookups/text'
+import { clip, wholeSentences } from '../ai/lookups/text'
 
 type DB = Database.Database
 
@@ -52,11 +52,16 @@ export function planCore(db: DB, input: ContextInput, sceneId: ID, o: { carrying
   if (!point || point.storyId !== storyId) return null
   const asItBegins = !o.carryingOn
 
-  // Everyone in the scene: the card's point of view and people, and anyone on the stage as told here.
+  // Everyone in the scene: the card's point of view and people, and anyone on the stage as told here whom the words put
+  // there (2026-10-19: never someone only thought of or talked of, whatever the stage lists).
   const card = input.scene.card
   const stage = toldStage(input)
   const ids = [card.povId, ...card.presentIds].filter((id): id is ID => !!id)
-  for (const e of input.memory.entries) if (e.kind === 'character' && stageFor(e, stage)) ids.push(e.id)
+  const words = [card.goal, card.conflict, card.outcome, card.notes, ...card.beats, input.options.direction, input.soFar].filter((t) => t?.trim()).join('\n')
+  for (const e of input.memory.entries) {
+    const on = e.kind === 'character' && !ids.includes(e.id) ? stageFor(e, stage) : null
+    if (on && [on.name, e.name, ...(e.aliases ?? [])].some((n) => n.trim().length >= 2 && namedThere(words, n))) ids.push(e.id)
+  }
   const people = [...new Set(ids)].filter((id) => !o.hidden.has(id))
   const hiddenNames = input.memory.entries.filter((e) => o.hidden.has(e.id)).map((e) => e.name.toLowerCase())
   const free = (l: string): boolean => !hiddenNames.some((n) => n.length >= 2 && l.toLowerCase().includes(n))
@@ -79,7 +84,7 @@ export function planCore(db: DB, input: ContextInput, sceneId: ID, o: { carrying
   const recent = sidx
     .indexScenesBetween(db, storyId, 1, Math.max(0, point.position - 1))
     .filter((s) => s.gist && (at == null || (chapterOf(s.label) ?? 0) > at - RECENT_CHAPTERS))
-    .map((s) => clip(`${s.label}: ${s.gist}`, 320))
+    .map((s) => `${s.label}: ${wholeSentences(s.gist, 300)}`)
     .filter(free)
     .slice(-CORE_MOST.recent)
 

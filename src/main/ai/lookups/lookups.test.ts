@@ -11,7 +11,7 @@ import * as mem from '../../db/memory'
 import { sceneMemory } from '../../memory/scene'
 import { buildStoryIndex } from '../../storyIndex'
 import { answerLookups, LOOKUP_TOOLS, LOOKUPS_MOST, runLookup, sceneLabel, type LookupContext } from '.'
-import { passageOf } from './text'
+import { passageOf, wholeSentences } from './text'
 
 /** Two chapters: Mara and Tobin at the Swan; the market; the seal goes missing; then the scene being written. */
 function world() {
@@ -217,6 +217,77 @@ describe('the look-up tools', () => {
     expect(r.results[0]).toMatchObject({ role: 'tool', toolCallId: calls[0].id })
     expect(r.results[LOOKUPS_MOST].content).toBe(`Not looked up: at most ${LOOKUPS_MOST} look-ups at once.`)
     expect(r.steps[0]).toMatchObject({ label: 'The open plot threads', tool: 'open_threads' })
+  })
+})
+
+describe('the look-ups a stand-in test found short (2026-10-19)', () => {
+  it('what_happened: each scene’s gist in whole sentences, never cut part-way, and “no summary yet” for a scene with none', async () => {
+    const w = world()
+    const ch1 = repo.getOutline(w.db, w.storyId).chapters[0].id
+    mem.putSummary(w.db, {
+      level: 'scene',
+      targetId: w.s2,
+      text: 'Ash comes to the market. Mara buys bread and haggles over the price of salt with a trader who will not',
+      origin: 'text'
+    })
+    const long = Array.from({ length: 12 }, (_, i) => `Mara counts the river stones for the ${i + 1}th time while Tobin waits.`).join(' ')
+    mem.putSummary(w.db, { level: 'scene', targetId: w.s1, text: long, origin: 'text' })
+    // A scene the memory hasn't summed up yet.
+    repo.createScene(w.db, ch1, { title: 'The ford' })
+    buildStoryIndex(w.db, w.storyId)
+    const a = await runLookup(call('what_happened'), w.ctx())
+    const lines = a.text.split('\n')
+    expect(lines).toHaveLength(4)
+    // As many whole sentences as fit in the line, ending at a full stop.
+    expect(lines[0]).toMatch(/^Ch 1, Sc 1: Mara counts the river stones for the 1th time while Tobin waits\. .*waits\.$/)
+    expect(lines[0].length).toBeLessThan(320)
+    // A summary that stops part-way through a sentence: its whole sentences only.
+    expect(lines[1]).toBe('Ch 1, Sc 2: Ash comes to the market.')
+    expect(lines[2]).toBe('Ch 1, Sc 3: no summary yet')
+    expect(lines[3]).toBe('Ch 2, Sc 1: The seal is gone from the strongbox.')
+    // Only scenes with a gist are facts for the writer.
+    expect(a.facts.some((f) => f.includes('no summary yet'))).toBe(false)
+    expect(wholeSentences('One very long sentence that goes on and on without ever stopping anywhere at all', 30)).toBe('One very long sentence that…')
+  })
+
+  it('state_of: everything the index has, kind by kind, and what it has nothing on yet', async () => {
+    const w = world()
+    const tobin = await runLookup(call('state_of', { name: 'Tobin', full: true }), w.ctx())
+    expect(tobin.text).toContain('Tobin: at The Swan (since Ch 1, Sc 1)')
+    expect(tobin.text).toContain(
+      'Not recorded yet for Tobin: what they wear, what they carry, how they are (injuries and the like), what they know, their ties to others.'
+    )
+    expect(tobin.facts.some((f) => f.startsWith('Not recorded yet'))).toBe(false)
+    const mara = await runLookup(call('state_of', { name: 'Mara' }), w.ctx())
+    expect(mara.text).toContain('Not recorded yet for Mara Venn: what they carry, how they are (injuries and the like), their ties to others.')
+  })
+
+  it('state_of: with nothing of what someone wears, carries or suffers, the scene before is filled in first when that is quick', async () => {
+    const w = world()
+    const asked: string[] = []
+    const fill = async (sceneId: string): Promise<boolean> => {
+      asked.push(sceneId)
+      keepStages(w.db, {
+        [w.s3]: stage(w.s3, [person('Mara Venn', { where: 'by the strongbox', clothes: [{ name: 'grey coat', state: 'on' }] }), person('Tobin', { clothes: [{ name: 'oilskin', state: 'on' }] })], {
+          'mara venn|where': 'found the strongbox',
+          'mara venn|clothes:grey coat': 'found the strongbox empty',
+          'tobin|clothes:oilskin': 'Tobin swore'
+        })
+      })
+      buildStoryIndex(w.db, w.storyId)
+      return true
+    }
+    const a = await runLookup(call('state_of', { name: 'Tobin' }), w.ctx({ fill }))
+    expect(asked).toEqual([w.s3])
+    expect(a.text).toContain('Tobin: wearing oilskin (since Ch 2, Sc 1)')
+    // Not quick (or it failed): nothing more, and it says what isn't recorded yet.
+    const fresh = world()
+    const b = await runLookup(call('state_of', { name: 'Tobin' }), fresh.ctx({ fill: async () => false }))
+    expect(b.text).toContain('Not recorded yet for Tobin: what they wear')
+    // Something of it known already: nothing filled in.
+    asked.length = 0
+    await runLookup(call('state_of', { name: 'Mara' }), w.ctx({ fill }))
+    expect(asked).toEqual([])
   })
 })
 

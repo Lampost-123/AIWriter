@@ -43,7 +43,7 @@ function world() {
     })
   })
   const input = gatherContextInput(db, s4, { direction: '', targetWords: 400, creativity: 'balanced' }, { prefs: defaultWritingPrefs(), contextLength: 64_000, creativity: 'balanced' })
-  return { db, input, s4, mara, tobin, gale, storyId: story.id }
+  return { db, input, s2, s4, mara, tobin, gale, storyId: story.id }
 }
 
 describe('the core the planner gets at no cost', () => {
@@ -57,6 +57,27 @@ describe('the core the planner gets at no cost', () => {
     // Chapter 1 is three chapters back: only chapters 2 and 3.
     expect(core.recent).toEqual(['Ch 2, Sc 1: Gale watches Mara at the market.', 'Ch 3, Sc 1: The seal is gone from the strongbox.'])
     expect(core.threads[0]).toMatch(/^The stolen seal \(open since Ch 3, Sc 1/)
+  })
+
+  it('everyone in the scene: the card and whoever the words put there, never someone only thought of (2026-10-19)', () => {
+    const w = world()
+    const here = stage(w.s4, [person('Mara Venn', { where: 'by the strongbox' }), person('Gale', { where: 'the market' })], {
+      'mara venn|where': 'by the strongbox',
+      'gale|where': 'Gale'
+    })
+    const carrying = (soFar: string) => ({ ...w.input, soFar, continuity: here, continuityAtSoFar: true, continuityAtStart: here })
+    const thought = planCore(w.db, carrying('Mara thought of Gale and the market, and of the bread.'), w.s4, { carryingOn: true, hidden: new Set<ID>() })!
+    expect(Object.keys(thought.known)).not.toContain('gale')
+    const came = planCore(w.db, carrying('Gale came in from the market with the bread.'), w.s4, { carryingOn: true, hidden: new Set<ID>() })!
+    expect(Object.keys(came.known)).toContain('gale')
+    expect(Object.keys(came.known)).toContain('mara venn')
+  })
+
+  it('what happened before, each scene’s gist in whole sentences', () => {
+    const w = world()
+    mem.putSummary(w.db, { level: 'scene', targetId: w.s2, text: 'Gale watches Mara at the market. She counts the coins and', origin: 'text' })
+    const core = planCore(w.db, w.input, w.s4, { carryingOn: false, hidden: new Set<ID>() })!
+    expect(core.recent).toEqual(['Ch 2, Sc 1: Gale watches Mara at the market.', 'Ch 3, Sc 1: The seal is gone from the strongbox.'])
   })
 
   it('never names what Adam kept out of the scene', () => {
