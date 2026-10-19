@@ -247,21 +247,23 @@ export function MapStage({
   const half = useMemo(() => Math.max(MEDAL.minor, ...base.map((n) => MEDAL[n.rank])) / 2, [base])
   const halfRef = useRef(half)
   halfRef.current = half
-  /** How big the medallions showed at the last fit, and the room their centres had then. */
+  /** The biggest medallion's half and how big the medallions showed at the last fit, and the room their centres had then. */
+  const fitHalf = useRef(half)
   const fitScale = useRef(1)
   const fitRoom = useRef(roomAt(chrome, half, 1))
-  // A small cast's places stretched to the shape of the room left for it (deskMapLogic.stretchFor); everything on the
-  // stage is drawn from the stretched places, and a dragged character's place is kept unstretched.
+  // A small cast's places stretched to the shape of the room left for it at the last fit (deskMapLogic.stretchFor), so
+  // nobody moves as the strip does; everything on the stage is drawn from the stretched places, and a dragged
+  // character's place is kept unstretched.
   const stretch = useMemo(
     () =>
       stretchFor(
         map.everyone.length ? map.everyone : base,
         width,
         height,
-        roomAt(chrome, half, fitScale.current),
+        roomAt(chrome, fitHalf.current, fitScale.current),
         Math.max(map.everyone.length, base.length)
       ),
-    [map.everyone, base, width, height, chrome, half]
+    [map.everyone, base, width, height, chrome]
   )
   const stretchRef = useRef(stretch)
   stretchRef.current = stretch
@@ -358,8 +360,9 @@ export function MapStage({
     const all = fitWithin(everyoneRef.current, w, h, c, halfRef.current)
     const v = grouped.current ? fitWithin(fitRef.current, w, h, c, halfRef.current, Math.max(all.k, 0.0001)) : all
     fitK.current = v.k
+    fitHalf.current = halfRef.current
     fitScale.current = medalScale(v.k)
-    fitRoom.current = roomAt(c, halfRef.current, fitScale.current)
+    fitRoom.current = roomAt(c, fitHalf.current, fitScale.current)
     move(() => v, animate)
   }, [move])
   useLayoutEffect(() => {
