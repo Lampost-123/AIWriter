@@ -172,6 +172,78 @@ describe('recall for a briefing', () => {
   })
 })
 
+describe('summaries searched like passages (summary-level recall, 2026-10-19)', () => {
+  /**
+   * Scene 3's words say only that Kell slipped the ring into his coat; its summary says he took the lantern. The
+   * previous scene's (4) and a later scene's (6) summaries say "lantern" too, and so does the chapter's, still going.
+   */
+  const withSummaries = () => {
+    const w = world()
+    const put = (id: ID, text: string, level: 'scene' | 'chapter' = 'scene') => mem.putSummary(w.db, { level, targetId: id, text, origin: 'text' })
+    put(w.ids[2], 'By the end, Kell had taken the lantern from the inn and hidden it in his coat.')
+    put(w.ids[3], 'By the end, Kell had waited at the ferry steps with the lantern until dark.')
+    put(w.ids[5], 'By the end, the lantern was found in the river.')
+    const chapter = repo.getOutline(w.db, repo.listStories(w.db)[0].id).chapters[0].id
+    put(chapter, 'The lantern goes missing from the inn, and the snow comes.', 'chapter')
+    const input = inputFor(w.db, w.scene)
+    input.options = { ...input.options, direction: 'Mara asks who took the lantern from the inn.' }
+    return { ...w, chapter, input }
+  }
+
+  it('finds a scene by its summary when no passage says it, as a summary pointing at the scene', async () => {
+    const w = withSummaries()
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const r = await recallFor({ db: w.db, index, embedder: null }, w.scene, w.input)
+    const sums = r.passages.filter((p) => p.kind === 'summary')
+    expect(sums).toEqual([
+      { kind: 'summary', where: 'Book 1, Ch 1, Sc 3', text: 'By the end, Kell had taken the lantern from the inn and hidden it in his coat.', order: expect.any(Number), sceneId: w.ids[2] }
+    ])
+    // The previous scene's summary (its end is sent already), a later scene's and the chapter still being written: never.
+    const all = r.passages.map((p) => p.text).join('\n')
+    expect(all).not.toContain('ferry steps with the lantern')
+    expect(all).not.toContain('found in the river')
+    expect(all).not.toContain('goes missing')
+    // Passages still come, each pointing at its scene.
+    expect(r.passages.find((p) => p.kind === 'scene')?.sceneId).toBeTruthy()
+    // In the briefing, said to be in short.
+    w.input.recall = r
+    expect(assembleContext(w.input, countRaw).messages[1].content).toContain('### Book 1, Ch 1, Sc 3 (in short)\nBy the end, Kell had taken the lantern')
+  })
+
+  it('finds them without the search index too, and a finished chapter’s summary from the next chapter on', async () => {
+    const w = withSummaries()
+    const none = await recallFor({ db: w.db, index: null, embedder: null }, w.scene, w.input)
+    expect(none.passages).toMatchObject([{ kind: 'summary', sceneId: w.ids[2] }])
+    // A scene in a new chapter: the first chapter has ended, so its summary is searched, pointing at the chapter.
+    const story = repo.listStories(w.db)[0].id
+    const two = repo.createChapter(w.db, story, { title: 'Two' })
+    const next = repo.createScene(w.db, two.id, { title: 'Next' }).id
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const input = inputFor(w.db, next)
+    input.options = { ...input.options, direction: 'Where did the lantern go missing?' }
+    const r = await recallFor({ db: w.db, index, embedder: null }, next, input)
+    expect(r.passages.find((p) => p.chapterId === w.chapter)).toMatchObject({ kind: 'summary', where: 'Book 1, Ch 1', text: 'The lantern goes missing from the inn, and the snow comes.' })
+  })
+
+  it('finds a summary by meaning alone, its vector read with the passages', async () => {
+    const w = world()
+    mem.putSummary(w.db, { level: 'scene', targetId: w.ids[1], text: 'By the end, the vessel had gone down off the point.', origin: 'text' })
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const embedder = stubEmbedder()
+    await readPassages(index, embedder, (t) => embedder.embed(t, 'passage'), { signal: new AbortController().signal })
+    expect(index.withoutVectors('stub', 10)).toEqual([])
+    const input = inputFor(w.db, w.scene)
+    input.options = { ...input.options, direction: 'Who sank the boat?' }
+    const plain = await recallFor({ db: w.db, index, embedder: null }, w.scene, input)
+    expect(plain.passages.some((p) => p.kind === 'summary')).toBe(false)
+    const meant = await recallFor({ db: w.db, index, embedder, vectors: new Vectors() }, w.scene, input)
+    expect(meant.passages.find((p) => p.kind === 'summary')).toMatchObject({ sceneId: w.ids[1], where: 'Book 1, Ch 1, Sc 2' })
+  })
+})
+
 describe('what is searched for and searched', () => {
   it('asks each part of the card on its own, and the end of the scene so far', () => {
     const w = world()
