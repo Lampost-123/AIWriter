@@ -4,7 +4,7 @@
 // checkout being run (--root).
 
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, appendFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, appendFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type Database from 'better-sqlite3'
@@ -657,6 +657,11 @@ export async function openApp(
           try {
             const r = requestRecord(String(++n), JSON.parse(init.body))
             appendFileSync(file, JSON.stringify({ n, job: r.job, messages: r.messages.length, tokens_in: r.estimated_tokens_in, tools: r.tools.length, max_tokens: r.max_tokens }) + '\n')
+            // TRAPS_MEASURE_FULL: also every request whole, one file each, to see what a job really reads.
+            if (process.env.TRAPS_MEASURE_FULL) {
+              mkdirSync(process.env.TRAPS_MEASURE_FULL, { recursive: true })
+              writeFileSync(join(process.env.TRAPS_MEASURE_FULL, `${String(n).padStart(5, '0')}.json`), JSON.stringify(r, null, 1))
+            }
           } catch {
             // Not JSON: not ours to measure.
           }
