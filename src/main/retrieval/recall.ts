@@ -575,7 +575,27 @@ export async function findPassages(
     if (meaning) lists.push(meaning)
   }
   const label = labeler(shape)
-  return fuse(lists, (p) => `p:${p.id}`)
-    .slice(0, Math.max(1, most))
-    .map((r) => passageFound(r.item, onLine, label))
+  const passages = fuse(lists, (p) => `p:${p.id}`).map((r) => passageFound(r.item, onLine, label))
+  // Summary-level recall (2026-10-19) for the planner's search too: a scene's or chapter's summary often says in a few
+  // plain words what its passages tell at length. At most half the results, by keyword, as the briefing's own search.
+  let summaries: RecalledPassage[] = []
+  try {
+    const docs = summaryDocs(listSummaries(deps.db), line, label)
+    const byKey = new Map(docs.map((d) => [d.key, d]))
+    const found = index
+      .keywordSummaries(searchWords(q), docs.map((d) => d.key), LIST_SIZE)
+      .flatMap((r) => byKey.get(r.summary.key) ?? [])
+    summaries = found.slice(0, Math.max(0, Math.floor(most / 2))).map((d) => ({
+      kind: 'summary' as const,
+      where: d.where,
+      text: d.text,
+      order: d.order * 10_000,
+      ...(d.sceneId ? { sceneId: d.sceneId } : {}),
+      ...(d.chapterId ? { chapterId: d.chapterId } : {})
+    }))
+  } catch (e) {
+    console.warn('Searching the summaries for the planner failed; passages only', e instanceof Error ? e.message : e)
+  }
+  const room = Math.max(1, most)
+  return [...passages.slice(0, room - summaries.length), ...summaries].slice(0, room)
 }

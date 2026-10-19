@@ -96,6 +96,20 @@ describe('the planner’s own search (find_in_story)', () => {
     expect(meant.map((p) => p.text).join(' ')).toContain('I swear I will come back for you before the snow')
     expect(await findPassages({ db: w.db, index: null, embedder: null }, w.scene, 'the old well', 2)).toEqual([])
   })
+
+  it('finds a scene by its summary too, at most half of what it gives, never a later scene’s (2026-10-19)', async () => {
+    const w = world()
+    mem.putSummary(w.db, { level: 'scene', targetId: w.ids[1], text: 'Ana, the village healer, nurses Tobin through his sickness.', origin: 'text' })
+    mem.putSummary(w.db, { level: 'scene', targetId: w.ids[5], text: 'Much later the village healer leaves for the coast.', origin: 'text' })
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const found = await findPassages({ db: w.db, index, embedder: null }, w.scene, 'the village healer', 4)
+    const summaries = found.filter((p) => p.kind === 'summary')
+    expect(summaries.map((p) => p.text)).toEqual(['Ana, the village healer, nurses Tobin through his sickness.'])
+    expect(summaries[0]).toMatchObject({ where: 'Book 1, Ch 1, Sc 2', sceneId: w.ids[1] })
+    expect(found.length).toBeLessThanOrEqual(4)
+    expect(found.map((p) => p.text).join(' ')).not.toContain('leaves for the coast')
+  })
 })
 
 describe('recall for a briefing', () => {
