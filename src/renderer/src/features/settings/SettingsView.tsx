@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { SettingsTab } from '@/lib/store'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
@@ -136,8 +136,9 @@ function NewSettings({ tab }: { tab: SettingsTab }): React.JSX.Element {
   const navigate = useApp((s) => s.navigate)
   const current = SETTINGS_PAGES.find((t) => t.id === tab) ?? SETTINGS_PAGES[0]
   const scroller = useRef<HTMLDivElement>(null)
-  // A new page starts at its top.
-  useEffect(() => {
+  // A new page starts at its top: before the page's own effects run, so one that shows a part of itself (Read aloud's
+  // Cast, opened from a character's page) isn't put back to the top afterwards.
+  useLayoutEffect(() => {
     scroller.current?.scrollTo({ top: 0 })
   }, [current.id])
   return (
