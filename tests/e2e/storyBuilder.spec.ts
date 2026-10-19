@@ -74,7 +74,8 @@ test('a plot becomes a whole cast and world, then an outline, each part talked o
     const people = (await invoke(win, 'listEntries', 'character')).map((e) => e.name).sort()
     expect(people).toEqual(expect.arrayContaining(['Ada Lorne', 'Bram Holt', 'Corin Vale', 'Ida Marr']))
     expect((await invoke(win, 'listEntries', 'place')).map((e) => e.name)).toContain('Gull Harbour')
-    expect((await invoke(win, 'getStoryBrief', story.id)).built).not.toBeNull()
+    // The brief is saved a moment after the build ends (patchBrief waits 400 ms for more changes).
+    await expect.poll(async () => (await invoke(win, 'getStoryBrief', story.id)).built).not.toBeNull()
 
     // ----- The outline: planned from the idea and the codex, with a premise written for it -----
     await main(win).locator('[data-step-bar] [data-step="outline"]').first().click()

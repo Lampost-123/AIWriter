@@ -3773,6 +3773,48 @@ New story dialog's "Build it with the AI next"; the start screen's **Build a sto
 then opens the New story dialog with that box ticked: `newStoryIn(worldId, { withAi: true })`, `useApp.newStoryWithAi`). The World builder page stays for a world built from a summary apart
 from any story, and points to the Story builder while a story is open.
 
+## The outline in stages, Keep where Adam chooses, and no dead ends (overhaul phase 5, items 2, 5 and 6, 2026-10-19)
+
+Adam found the outline helper "extremely poor and hard to use": "A full novel" came as up to 96 scene cards in one reply,
+often cut off, every chapter with the same number of scenes; Keep always went at the end of the binder; keeping a chapter
+started a cast build he never saw until Generate asked "Write now / Wait".
+
+- **In stages** (`features/outline/stages.ts`, `src/main/outline/stages.ts`, `OutlineApi.startOutlineStage`, marker
+  `[AIWRITE-OUTLINE v1] stage acts|chapters|scenes|scene`). The outline helper's page (and so the Story builder's Outline
+  step) has **How to plan**: In stages, the default past `WHOLE_MOST_CHAPTERS` (12) chapters (`defaultMode`), or All at
+  once (as before, at most 12 chapters). In stages the first request asks only for the acts (each with a `Chapters:` line,
+  read into `SuggestedAct.chapterCount` and written back by `outlineText`), or, with no new acts, only the chapters. Each act
+  card then offers **Plan its chapters** (about its own number) and each chapter card **Plan its scenes** (as many as it
+  needs, at most 8) while it holds nothing (`StageParts.tsx` `StageRow`). A stage is `HelperRun.stage`: it streams under its
+  act or chapter (`treeOf` splices it in, its last part not complete yet, so it has the caret and no buttons; that subtree,
+  Keep all, the talk and Redo wait for it, `runBusy`, `stageHolds`), and when it ends its parts join the run's own text
+  there (`spliceStage`), so every other suggestion keeps its key, decision and edits. Each stage is told the story, what it
+  has (`planText`, and a kept chapter's place from the story, `chapterAroundText`), the outline being planned
+  (`planSoFar`: Adam's changes in, discarded parts out, "(in the story)" and "(plan this one)" marks; headings only when it
+  must be cut), open threads and the cast, cut to fit; replies are small (`stageReplyTokens`: six acts about 900 tokens, a
+  chapter's scenes 1,660). A story with an idea in the Story builder is planned from it (`startStoryStage`: idea, style
+  and recipe first, events after, `storyStageRules`, a `Premise:` line on the first stage of a story with none). A chapter's
+  plan page keeps its own request (`startChapterPlan`: it already asks for one chapter's scenes, as many as it needs).
+- **Keep where Adam chooses** (`tree.ts` `placeKeep`, `KeepOptions.place`, `StageParts.tsx` `KeepPlaceMenu`): beside Keep on
+  an act or chapter, a menu: where the outline puts it (named first: after the one it follows that is kept, else at the
+  end), first in an act or at the start, after any act or chapter of the binder, or at the end. A chapter put in the
+  story's own act leaves its suggested act a suggestion; `KeepRef` with neither id nor key means "among the chapters with
+  no act" (`keepOutline`). The toast says where ("…, after “The Docks”.").
+- **The cast build shows** (`helperStore` `BUILD_NOTE`, `worldBuilder/storyBuild.ts` `useStoryBuild`, `StoryBuildLine.tsx`):
+  a Keep that starts building the story's characters and places says so on its toast, and the outline helper's page and a
+  chapter's plan show it waiting and then what it is doing, with See progress and Stop.
+- **No dead ends.** An empty scene card offers **Plan this scene** (the scene card panel beside Interview me, and the
+  desk's margin card; `scenePlanStore.ts`): the stage job's `scene` level plans that one card, which fills only the card's
+  empty parts (`scenePlanLogic.planOnCard`: goal, beats, When, point of view, characters and place matched to the codex,
+  mood) with Undo, naming a scene still called "Scene N". Beat by beat with no beats offers **Suggest beats**
+  (`outline/suggestBeats.ts`: `fillSceneCard` with no answers, only its beats used) and then Write beat by beat. A kept
+  chapter whose scenes are kept offers **Write this chapter** (on its card, and on a chapter's plan), opening Write the
+  whole chapter for it; that dialog names scenes with nothing on their cards and offers **Plan these scenes** (one after
+  another, Stop, one Undo) instead of leaving them out.
+- Tests: `src/main/outline/stages.test.ts`, `features/outline/stages.test.ts`, `scenePlanLogic.test.ts`, the staged part of
+  `helperStore.test.ts`, and `tests/e2e/outlineStages.spec.ts` (the New look's desk). `AIWRITE_E2E_LOOK=new` runs specs that
+  don't choose a look in the New look.
+
 ## The story index (overhaul phase 1, items 2 and 3, 2026-10-19)
 
 A look-up table that says, scene by scene, who is where, with what, and what changed, kept as dated facts, so a question

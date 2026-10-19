@@ -662,6 +662,8 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     const askButton = sceneCard(win).getByRole('button', { name: 'Ideas for this scene' })
     await expect(askButton).toBeVisible()
     const goal = sceneCard(win).getByLabel('Goal', { exact: true })
+    // In view first, so typing doesn't scroll the panel to show the caret (that isn't the card moving).
+    await goal.scrollIntoViewIfNeeded()
     const goalTop = (await goal.boundingBox())!.y
     await goal.pressSequentially('Get the ledger back')
     await expect(askButton).toBeVisible()

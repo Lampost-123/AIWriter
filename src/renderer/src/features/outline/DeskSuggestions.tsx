@@ -98,7 +98,7 @@ export function DeskSuggestions({
         {!busy && open > 0 ? (
           <p className="w-full text-[12.5px] leading-[18px] text-muted" data-plan-receipt>
             Keep all that’s left adds <b className="font-semibold text-fg">{countLine(openCounts).replace(/\bscenes?\b/, (w) => (w === 'scene' ? 'scene card' : 'scene cards'))}</b>{' '}
-            {chapterId ? 'to this chapter' : 'to the story'}, each scene’s card filled in.{landing ? ` ${landing}` : ''}
+            {chapterId ? 'to this chapter' : 'to the story'}{openCounts.scenes ? ', each scene’s card filled in' : ''}.{landing ? ` ${landing}` : ''}
           </p>
         ) : null}
       </div>

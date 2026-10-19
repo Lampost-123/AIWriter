@@ -50,7 +50,7 @@ export function InterviewButton({ target }: { target: PlanTarget }): React.JSX.E
       type="button"
       onClick={() => startPlanInterview(target)}
       title={BUTTON_TITLES[target.kind]}
-      className="-mx-1.5 inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      className="-mx-1.5 inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
     >
       <MessageCircleQuestion size={14} className="shrink-0 text-ai" aria-hidden />
       Interview me

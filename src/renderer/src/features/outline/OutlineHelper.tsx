@@ -158,8 +158,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
 
   const status = running
     ? stage?.status === 'running'
-      ? (stage.retrying ??
-        `Planning the ${stagePart}s of “${stageTitle}”…${stageArrived ? ` ${plural(stageArrived, stagePart)} so far` : ''}`)
+      ? (stage.retrying ?? `Planning “${stageTitle}”…${stageArrived ? ` ${plural(stageArrived, stagePart)} so far` : ''}`)
       : (run?.retrying ??
         (totalOf(arrived)
           ? `Suggesting… ${countLine(arrived)} so far`
@@ -559,7 +558,7 @@ function PlanSize({
   const scenes = size.chapters * size.scenes
   const actOptions = SIZE_CHOICES.acts.map((n) => ({ value: n, label: n === 0 ? (hasActs ? 'No new acts' : 'No acts') : plural(n, 'act') }))
   const chapterOptions = staged
-    ? STAGE_CHAPTER_CHOICES.map((n) => ({ value: n, label: `About ${plural(n, 'chapter')}` }))
+    ? STAGE_CHAPTER_CHOICES.map((n) => ({ value: n, label: plural(n, 'chapter') }))
     : SIZE_CHOICES.chapters.filter((n) => n <= Math.max(WHOLE_MOST_CHAPTERS, size.chapters)).map((n) => ({ value: n, label: plural(n, 'chapter') }))
   const how = staged
     ? size.acts

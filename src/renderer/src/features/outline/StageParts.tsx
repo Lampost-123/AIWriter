@@ -152,7 +152,7 @@ export function naturalWords(items: KeepItem[], key: string, outline: Outline | 
   }
   if (main.after?.id) return `after ${chapterTitle(main.after.id)}`
   if (main.before?.id) return `before ${chapterTitle(main.before.id)}`
-  if (main.parent?.key) return 'in its new act'
+  if (main.parent?.key) return `in a new act, ${q(items.find((i) => i.key === main.parent?.key)?.title ?? '', 'Untitled act')}`
   if (main.parent?.id) return `at the end of ${actTitle(main.parent.id)}`
   return 'at the end of the story'
 }
@@ -166,14 +166,15 @@ export function placeChoices(kind: 'act' | 'chapter', outline: Outline | null): 
     if (acts.length) out.push({ place: { at: 'first', actId: null, beforeId: acts[0].id }, label: 'At the start of the story', words: 'at the start of the story' })
     for (const a of acts.slice(0, -1)) out.push({ place: { at: 'after', id: a.id }, label: `After ${q(a.title, 'Untitled act')}`, words: `after ${q(a.title, 'Untitled act')}` })
   } else {
-    for (const g of groupsOf(outline)) {
-      const where = g.act ? q(g.act.title, 'Untitled act') : 'the chapters with no act'
-      out.push({
-        place: { at: 'first', actId: g.act?.id ?? null, beforeId: g.chapters[0]?.id ?? null },
-        label: g.act ? `First in ${where}` : 'First, before any act',
-        words: g.act ? `first in ${where}` : 'first, before any act'
-      })
-      for (const c of g.chapters)
+    const groups = groupsOf(outline)
+    const acted = (outline.acts ?? []).length > 0
+    const last = outline.chapters[outline.chapters.length - 1]?.id
+    for (const g of groups) {
+      const where = g.act ? q(g.act.title, 'Untitled act') : ''
+      const first = g.act ? `First in ${where}` : acted ? 'First, before any act' : 'At the start of the story'
+      out.push({ place: { at: 'first', actId: g.act?.id ?? null, beforeId: g.chapters[0]?.id ?? null }, label: first, words: first.charAt(0).toLowerCase() + first.slice(1) })
+      // After the story's last chapter is the end of the story, offered once below.
+      for (const c of g.chapters.filter((x) => x.id !== last))
         out.push({ place: { at: 'after', id: c.id, actId: g.act?.id ?? null }, label: `After ${q(c.title, 'Untitled chapter')}`, words: `after ${q(c.title, 'Untitled chapter')}` })
     }
   }

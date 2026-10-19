@@ -2,7 +2,7 @@
 // scenes, scenes with no chapter heading), putting a stage's reply under its act or chapter so every other suggestion
 // keeps its key, what a stage is told, and where Adam chose to keep an act or chapter.
 import { describe, expect, it } from 'vitest'
-import { chapterCountOf, outlineScenes, parseOutline } from './parse'
+import { chapterCountOf, outlineScenes, parseOutline, type SuggestedChapter, type SuggestedScene } from './parse'
 import { outlineText } from './outlineText'
 import { arrivingKey, canPlanInside, chaptersFor, defaultMode, isUnder, markArriving, planSoFar, spliceStage, stageParts } from './stages'
 import { keepPlan, outlineTree, placeKeep, type TreeNode } from './tree'
@@ -55,11 +55,11 @@ describe('reading each level', () => {
   })
 
   it('reads chapters with no scenes, and scenes with no chapter heading', () => {
-    expect(stageParts(CHAPTERS, 'chapters', true).map((c) => [c.title, c.goal, c.scenes.length])).toEqual([
+    expect((stageParts(CHAPTERS, 'chapters', true) as SuggestedChapter[]).map((c) => [c.title, c.goal, c.scenes.length])).toEqual([
       ['Rain on the Narrows', 'Mara lands.', 0],
       ["The Ferryman's Price", 'The debt comes due.', 0]
     ])
-    expect(stageParts(SCENES, 'scenes', true).map((s) => [s.title, s.when, s.beats.length])).toEqual([
+    expect((stageParts(SCENES, 'scenes', true) as SuggestedScene[]).map((s) => [s.title, s.when, s.beats.length])).toEqual([
       ['Arrival at the docks', 'Day 1, morning', 2],
       ['A bargain at the docks', 'Day 1, midday', 1]
     ])

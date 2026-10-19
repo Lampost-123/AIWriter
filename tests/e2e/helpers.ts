@@ -77,8 +77,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
       AIWRITE_DATA_DIR: dataDir,
       AIWRITE_SETUP: 'off',
       AIWRITE_START: 'off',
-      AIWRITE_LOOK: 'classic',
-      AIWRITE_ARRANGEMENT: 'panels',
+      // AIWRITE_E2E_LOOK=new (and AIWRITE_E2E_ARRANGEMENT=desk) runs specs that don't choose a look in the New look (2026-10-19).
+      AIWRITE_LOOK: process.env.AIWRITE_E2E_LOOK ?? 'classic',
+      AIWRITE_ARRANGEMENT: process.env.AIWRITE_E2E_ARRANGEMENT ?? 'panels',
       AIWRITE_THEME: 'system',
       AIWRITE_BACKGROUND: background,
       AIWRITE_PLAN: 'off',
