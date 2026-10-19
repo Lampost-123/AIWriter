@@ -17,6 +17,7 @@ import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { useNewLook } from '@/features/look/look'
 import { BLANK_DRAFT_OPTIONS, draftDirection, draftLength, type SceneDraftOptions } from './draftOptions'
 import { busyElsewhere, listenForDrafts, startDraft, stopDraft, useDraft, type Phase } from './draftRun'
+import { takeShowPlan } from '@/features/planReview/store'
 import { castBuilding, useBuildWatch, watchBuilds } from './buildWatch'
 import { usePolish } from './polishRun'
 import { withPolish } from './polish'
@@ -307,11 +308,14 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
         // A fresh take doesn't build on what the earlier draft established; Add below carries on from the scene's words.
         options: () => {
           const saved = useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS
+          // Show me the plan first: the draft options' choice for this one draft, if Adam made one (features/planReview).
+          const showPlan = takeShowPlan(sceneId)
           return {
             ...saved,
             direction: draftDirection({ saved: saved.direction, ...(steer ? { steer: steered } : {}), addBelow, fromOptions }),
             ...(mode === 'fresh' ? { fresh: true } : {}),
-            ...(addBelow ? { addBelow: true } : {})
+            ...(addBelow ? { addBelow: true } : {}),
+            ...(showPlan !== undefined ? { showPlan } : {})
           }
         }
       })

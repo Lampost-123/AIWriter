@@ -49,6 +49,8 @@ const here = <T>(v: T): T => JSON.parse(JSON.stringify(v).split('<LIBRARY>').joi
 const NEW_SINCE_081 = (look: string): Record<string, unknown> => ({
   classicNote: look === 'classic',
   directedWriting: false,
+  showPlanFirst: false,
+  autoWriteIn: false,
   'models.director': null,
   'thinking.director': 'off'
 })

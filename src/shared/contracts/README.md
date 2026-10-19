@@ -49,3 +49,4 @@ Writing by hand: find.ts (find and replace across the story; finding in the open
 Writing by hand: spelling.ts (spell check in the writer's spelling, the world's names, synonyms on right-click).
 The scene and chapter critic: critique.ts (craft feedback on a scene or a chapter, the Critique tab).
 The direction composer: direction.ts (the directions given before, read from the records, and the starred ones).
+Show me the plan first: planReview.ts (a scene plan waiting for Adam before a draft is written).

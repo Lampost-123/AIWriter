@@ -97,6 +97,9 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   continuityBrief: true,
   // Directed writing (src/main/director): off by default; Settings › Models or the draft options turn it on.
   directedWriting: false,
+  // Show me the plan before writing, and Write in what a draft missed: off by default (src/main/plan/review.ts, features/receipt).
+  showPlanFirst: false,
+  autoWriteIn: false,
   // Dark, the desk's "Night harbour", for a new install or anyone who never chose a theme (Adam, 2026-10-08: "desk is new
   // default in dark mode"). A theme Adam picked (Light, Sepia, Dark or Match the system) is kept in his settings.
   theme: 'dark',

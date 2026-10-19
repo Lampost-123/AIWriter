@@ -4,18 +4,24 @@
 // every ask landed it is one quiet ✓ line that fades by itself. Gone once seen, dismissed or written in, when the next
 // draft starts, and while Beat by beat has the foot of the page. What the AI saw shows the same for its draft
 // (ReceiptInSaw). No AI call of its own: the check as the words land answers each ask.
+// With "Write in what a draft missed" on (autoWriteIn.ts), the app writes in what didn't land once by itself, as Write it
+// in would, and the chip then says what was written in (the Continue waits below for Adam to keep or not).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { toast } from '@/components/ui'
 import { X } from '@/components/ui/icons'
 import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { useBeats } from '@/features/beats/session'
 import { continueAtEnd } from '@/features/edits/continue'
+import { waitingSuggestion } from '@/features/edits/session'
 import { useDraft } from '@/features/generate/draftRun'
+import { usePolish } from '@/features/generate/polishRun'
 import { reducedMotion } from '@/features/look/motion'
 import { allLanded, isFresh, receiptLabel, receiptOf, toWriteIn, writeInDirection, type Receipt } from './receipt'
+import { autoWriteInFor, claimAutoWriteIn, markWrittenIn, wasClaimed, wasStartedHere, watchDraftsStarted, writtenInFor } from './autoWriteIn'
 
 /** How long a receipt where every ask landed stays before it fades. */
 const LANDED_MS = 4_500
@@ -55,12 +61,41 @@ function useReceipt(sceneId: ID): [Receipt | null, (r: Receipt | null) => void] 
   return [receipt, setReceipt]
 }
 
+/** Nothing else is being written into the scene: no draft, no polish, no change waiting to be kept. */
+function quietFor(sceneId: ID): boolean {
+  const bridge = editorBridge()
+  return (
+    useApp.getState().sceneId === sceneId &&
+    !!bridge &&
+    bridge.sceneId === sceneId &&
+    !bridge.busy() &&
+    !waitingSuggestion() &&
+    usePolish.getState().sceneId !== sceneId
+  )
+}
+
 /** The chip over the AI dock (the desk). */
 export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
   const [receipt, setReceipt] = useReceipt(sceneId)
   const [leaving, setLeaving] = useState(false)
   const drafting = useDraft((d) => d.sceneId === sceneId && d.phase !== 'idle')
   const beatsOn = useBeats((s) => s.session?.sceneId === sceneId)
+  const autoOn = useApp((s) => s.settings?.autoWriteIn === true)
+  // What was written in by itself for the receipt's draft (kept for the session: autoWriteIn.ts).
+  const [written, setWritten] = useState<string[] | null>(null)
+
+  useEffect(() => watchDraftsStarted(), [])
+  useEffect(() => setWritten(receipt ? writtenInFor(receipt.recordId) : null), [receipt])
+
+  // Write in what a draft missed: once a draft, by itself, as Write it in would, when nothing else is being written here.
+  useEffect(() => {
+    if (!receipt || drafting || beatsOn) return
+    const direction = autoWriteInFor(receipt, { on: autoOn, startedHere: wasStartedHere(receipt.recordId), claimed: wasClaimed(receipt.recordId) })
+    if (!direction || !quietFor(sceneId) || !claimAutoWriteIn(receipt.recordId)) return
+    if (!continueAtEnd(direction)) return
+    markWrittenIn(receipt)
+    setWritten(writtenInFor(receipt.recordId))
+  }, [receipt, autoOn, drafting, beatsOn, sceneId])
 
   /** It goes (quickly, the way it came), and is never shown again. */
   const leave = useCallback(
@@ -93,6 +128,7 @@ export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   }, [drafting, receipt])
 
   if (!receipt || drafting || beatsOn) return null
+  if (written?.length) return <WrittenIn receipt={receipt} written={written} leaving={leaving} onDismiss={() => leave(receipt)} />
   const done = allLanded(receipt)
   const missing = toWriteIn(receipt)
   const writeIn = (): void => {
@@ -167,6 +203,52 @@ export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   )
 }
 
+/**
+ * The receipt once what didn't land was written in by itself: each ask, "+" for one written in below (amber: the AI's
+ * words, waiting to be kept or not, as any Continue), and a way to dismiss it.
+ */
+function WrittenIn({ receipt, written, leaving, onDismiss }: { receipt: Receipt; written: string[]; leaving: boolean; onDismiss: () => void }): React.JSX.Element {
+  const isWritten = (text: string): boolean => written.includes(text)
+  const label = `Your direction: ${receipt.asks
+    .map((a) => `${a.text.replace(/[.!?]+$/, '')}, ${a.landed ? 'done' : isWritten(a.text) ? 'written in below for you to keep or not' : 'not yet'}`)
+    .join('; ')}.`
+  return (
+    <div role="status" aria-label={label} data-direction-receipt="written" data-focus-chrome className={cn('desk-chip pointer-events-auto min-w-0 overflow-hidden', leaving && 'is-out')}>
+      <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+        {receipt.asks.map((a, i) => (
+          <span
+            key={i}
+            className={cn('flex items-center gap-1', a.landed ? 'min-w-[5.5ch] shrink' : 'max-w-[30ch] shrink-0')}
+            data-ask={a.landed ? 'landed' : isWritten(a.text) ? 'written' : 'missing'}
+          >
+            {i > 0 ? (
+              <span aria-hidden className="mr-0.5 text-faint">
+                ·
+              </span>
+            ) : null}
+            <span aria-hidden className={cn('shrink-0 font-semibold', a.landed ? 'text-success' : isWritten(a.text) ? 'text-ai' : 'font-normal text-muted')}>
+              {a.landed ? '✓' : isWritten(a.text) ? '+' : '○'}
+            </span>
+            <span className={cn('min-w-0 truncate', a.landed ? 'text-muted' : 'text-fg')} title={a.text}>
+              {a.text}
+            </span>
+          </span>
+        ))}
+      </span>
+      <span className="shrink-0 text-[12px] text-faint">Written in below</span>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        title="Dismiss"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-muted outline-none transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-[var(--focus)]"
+        onClick={onDismiss}
+      >
+        <X size={12} aria-hidden />
+      </button>
+    </div>
+  )
+}
+
 /** The same receipt in What the AI saw, under the direction, for the draft it was checked for. */
 export function ReceiptInSaw({ rec }: { rec: { id: ID; sceneId: ID } }): React.JSX.Element | null {
   const [receipt, setReceipt] = useState<Receipt | null>(null)
@@ -195,7 +277,11 @@ export function ReceiptInSaw({ rec }: { rec: { id: ID; sceneId: ID } }): React.J
             </span>
             <span className="min-w-0 select-text text-fg">
               {a.text}
-              <span className="text-faint"> · {a.landed ? 'in the draft' : a.kind === 'length' ? 'not kept to' : 'not in the draft'}</span>
+              <span className="text-faint">
+                {' · '}
+                {a.landed ? 'in the draft' : a.kind === 'length' ? 'not kept to' : 'not in the draft'}
+                {!a.landed && writtenInFor(rec.id)?.includes(a.text) ? ', written in after it by itself' : ''}
+              </span>
             </span>
           </li>
         ))}

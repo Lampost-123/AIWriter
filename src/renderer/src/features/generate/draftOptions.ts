@@ -14,6 +14,8 @@ export interface SceneDraftOptions {
   fresh?: boolean
   /** For one draft only, never kept: Add below carries on from the scene's words (DraftOptions.addBelow). */
   addBelow?: boolean
+  /** For one draft only, never kept: show the plan first, or not (DraftOptions.showPlan); left out, as Settings say. */
+  showPlan?: boolean
 }
 
 export const BLANK_DRAFT_OPTIONS: SceneDraftOptions = { direction: '', targetWords: null, creativity: null }
@@ -37,7 +39,8 @@ export function resolveDraftOptions(
     creativity: o.creativity ?? defaultCreativity,
     ...(polish ? { polish: true } : {}),
     ...(o.fresh ? { fresh: true } : {}),
-    ...(o.addBelow ? { addBelow: true } : {})
+    ...(o.addBelow ? { addBelow: true } : {}),
+    ...(typeof o.showPlan === 'boolean' ? { showPlan: o.showPlan } : {})
   }
 }
 

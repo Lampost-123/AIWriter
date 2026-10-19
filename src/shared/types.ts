@@ -484,6 +484,18 @@ export interface Settings {
    * (settings saved before it): off.
    */
   directedWriting?: boolean
+  /**
+   * Show me the plan before writing (Settings › Models, under Planning; off by default): Generate and Add below stop once
+   * the scene is planned and show the plan, to change, write or cancel (src/main/plan/review.ts). The draft options can turn
+   * it on or off for one draft (DraftOptions.showPlan). Needs Plan before writing. Left out (settings saved before it): off.
+   */
+  showPlanFirst?: boolean
+  /**
+   * Write in what a draft missed (Settings › Models; off by default): when the direction receipt shows an ask that didn't
+   * land (never one of length), the app writes it in once by itself with the steered Continue that "Write it in" uses,
+   * before Adam looks (features/receipt). Left out (settings saved before it): off.
+   */
+  autoWriteIn?: boolean
   theme: ThemeName
   editor: EditorSettings
   /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */
@@ -897,6 +909,11 @@ export interface DraftOptions {
    * Left out: as Settings › Models says (Settings.directedWriting).
    */
   directed?: boolean
+  /**
+   * Show me the plan first, for this draft (src/main/plan/review.ts): the draft stops once the scene is planned and the
+   * plan waits for Adam (change it, write, or cancel). Left out: as Settings › Models says (Settings.showPlanFirst).
+   */
+  showPlan?: boolean
 }
 
 export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'

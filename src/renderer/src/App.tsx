@@ -45,6 +45,7 @@ import { RereadDialog } from '@/features/memory/RereadDialog'
 import { StoryFillDialog } from '@/features/memory/StoryFillDialog'
 import { ChapterWriterDialog } from '@/features/chapterWriter/ChapterWriterDialog'
 import { ChapterPlanReview } from '@/features/chapterWriter/ChapterPlanReview'
+import { ScenePlanReview } from '@/features/planReview/ScenePlanReview'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
@@ -437,6 +438,8 @@ function Workspace(): React.JSX.Element {
       <StoryFillDialog />
       <ChapterWriterDialog />
       <ChapterPlanReview />
+      {/* Show me the plan first: a scene's plan waiting for Adam before its draft is written. */}
+      <ScenePlanReview />
       <FocusLayer />
       <FindLayer />
     </>

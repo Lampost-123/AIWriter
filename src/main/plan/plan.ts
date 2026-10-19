@@ -127,7 +127,7 @@ export interface PlanMaterial {
    * What the story index gives at no cost (core.ts): everyone here as things stand, the scenes before, the threads, and
    * what was left in this place on an earlier visit (place memory; left out: none).
    */
-  core?: (Pick<PlanCore, 'people' | 'recent' | 'threads'> & Partial<Pick<PlanCore, 'left' | 'travel'>>) | null
+  core?: (Pick<PlanCore, 'people' | 'recent' | 'threads'> & Partial<Pick<PlanCore, 'left' | 'travel' | 'notes'>>) | null
   /** The beats of the scene card already on the page (carrying on), as "Beat 1: …" lines. */
   done?: string[]
   /** The point-of-view character's name, for the writer's notes ("The point: Wren wants …"). */
@@ -159,6 +159,13 @@ export interface PlanMaterial {
    */
   page?: { soFar?: string; previous?: string }
 }
+
+/**
+ * The heading of what the card check found (plan/cardCheck.ts), in what the planner reads: the scene card against the story
+ * so far, each line "Before writing, note: …", for the plan to resolve.
+ */
+export const CARD_NOTES_TITLE =
+  'The scene card against the story so far (plan so that each of these is resolved: keep to the story so far, and never write what it rules out)'
 
 /** The heading of the scene's part of the chapter plan, in what the planner reads. */
 export const CHAPTER_PART_TITLE =
@@ -252,7 +259,18 @@ export function planMaterial(
       .join('\n\n'),
     ...(reads.length ? { reads } : {}),
     threads: text(OPEN_THREADS_BLOCK),
-    ...(o.core ? { core: { people: o.core.people, recent: o.core.recent, threads: o.core.threads, left: o.core.left ?? [], travel: o.core.travel ?? [] } } : {}),
+    ...(o.core
+      ? {
+          core: {
+            people: o.core.people,
+            recent: o.core.recent,
+            threads: o.core.threads,
+            left: o.core.left ?? [],
+            travel: o.core.travel ?? [],
+            ...(o.core.notes?.length ? { notes: o.core.notes } : {})
+          }
+        }
+      : {}),
     ...(onPage ? { done: beats.slice(0, onPage).map((b, i) => `Beat ${i + 1}: ${b}`) } : {}),
     ...(pov ? { pov } : {}),
     // A scene planned once for its beats leaves each beat's own contract as the card says it.
@@ -382,6 +400,7 @@ export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
     part('Everyone in the scene, as things stand (from the story so far)', lines(m.core?.people)),
     part('Left in this place on an earlier visit (from the story so far)', lines(m.core?.left)),
     part('Getting here (from the story so far)', lines(m.core?.travel)),
+    part(CARD_NOTES_TITLE, lines(m.core?.notes)),
     part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
     m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
     part('Already on the page in this scene (done: never plan it again)', lines(m.done)),
@@ -1382,7 +1401,15 @@ export interface MadePlan {
    * (empty: nothing is left there now). Left out: not read (no core).
    */
   leftHere?: string[]
+  /**
+   * The writer's notes for this plan made again from a plan Adam changed (plan-first, plan/review.ts), with the same point of
+   * view, the same stretch or beat and the same asks of how it reads. Left out: planText as a whole scene.
+   */
+  writeAgain?: (plan: ScenePlan) => string
 }
+
+/** The step on the plan's record that says what the card check found (plan/cardCheck.ts; What the AI saw, "Steps it took"). */
+export const CARD_CHECK_LABEL = 'The scene card against the story so far (checked on this computer, no AI)'
 
 /** The step on the plan's record that says what the check of each beat found (What the AI saw, "Steps it took"). */
 export const BEATS_CHECK_LABEL = 'Can each beat happen? (checked on this computer, no AI)'
@@ -1411,6 +1438,19 @@ function beatsChecked(o: PlanCall, plan: ScenePlan, generationId: ID): CanHappen
   } catch (e) {
     console.warn('Could not check the plan’s beats can happen', e)
     return null
+  }
+}
+
+/** Keeps what the card check found (cardCheck.ts) on the plan's record, as a step Adam can read in What the AI saw. */
+function cardChecked(o: Pick<PlanCall, 'db' | 'closed'>, m: PlanMaterial, generationId: ID): void {
+  const notes = m.core?.notes ?? []
+  if (!notes.length) return
+  try {
+    if (o.db.open && !o.closed()) {
+      gens.addSteps(o.db, generationId, [{ label: CARD_CHECK_LABEL, tool: 'check', arguments: '', result: notes.map((n) => `- ${n}`).join('\n') }])
+    }
+  } catch (e) {
+    console.warn('Could not keep what the card check found', e)
   }
 }
 
@@ -1498,6 +1538,8 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     const got = await Promise.race([call, gaveUp])
     forgetOld(o)
     if (!got || stopped || o.closed()) return null
+    // What the card check found before planning (cardCheck.ts), on the plan's record for Adam (What the AI saw).
+    cardChecked(o, m, got.generationId)
     // Turned down in so many words: no plan, and the top bar is told the draft went without one (as for any memory job).
     if (got.status === 'complete' && looksLikeRefusalReply(got.text)) {
       noteRefused(o)
@@ -1531,11 +1573,13 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     }
     // Can each planned beat happen? What must come first goes in the notes; what can't be put right, on the record.
     const can = beatsChecked(o, plan, got.generationId)
-    const text = planText(plan, o.carryingOn, {
-      ...(m.pov ? { pov: m.pov } : {}),
-      ...(o.beat ? { beat: o.beat } : {}),
-      ...(m.reads?.length ? { reads: m.reads } : {})
-    })
+    const notesOf = (p: ScenePlan): string =>
+      planText(p, o.carryingOn, {
+        ...(m.pov ? { pov: m.pov } : {}),
+        ...(o.beat ? { beat: o.beat } : {}),
+        ...(m.reads?.length ? { reads: m.reads } : {})
+      })
+    const text = notesOf(plan)
     const must = m.contract ? plan.must : []
     // The brief cites only chapters and scenes the planner was given (all of it, the book so far too), and never names what
     // Adam kept out of the scene's briefing.
@@ -1559,7 +1603,8 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
       ...(brief ? { brief } : {}),
       plan,
       ...(lookedUp ? { lookedUp } : {}),
-      ...(can?.flags.length ? { flags: can.flags } : {})
+      ...(can?.flags.length ? { flags: can.flags } : {}),
+      writeAgain: notesOf
     }
   } catch (e) {
     console.warn('Could not plan the scene; writing without a plan', e)

@@ -73,8 +73,10 @@ clutches|clutched|hides?|hid|hiding|pockets?|pocketed|uses?|used|using|wields?|w
 wears?|wore|signs?|signed|studies|studied|examines?|examined|inspects?|inspected|produces?|produced|slides?|slid|throws?|threw|
 drops?|dropped|tosses|tossed|pours?|poured|lays?|laid|sets?|puts?|places?|placed|returns?|returned|seals?|sealed|presses|pressed`.replace(/\s+/g, '')
 const USE = new RegExp(`\\b(?:${USE_WORDS})\\b`, 'gi')
+/** A verb of using a thing one must have to hand (the card check, cardCheck.ts, reads the card's beats with it). */
+export const USE_WORD = new RegExp(`\\b(?:${USE_WORDS})\\b`, 'i')
 /** Words of getting a thing, or going for it: a beat with one of these and the thing brings it. */
-const FETCH =
+export const FETCH =
   /\b(?:fetch\w*|retriev\w*|recover\w*|collect\w*|gets?|got|getting|finds?|found|finding|digs?|dug|takes?|took|taking|picks? up|picked up|lifts?|lifted|pulls? out|pulled out|search\w*|looks? for|looked for|bring\w*|brought|steal\w*|stole|snatch\w*|grab\w*|seiz\w*|receiv\w*|is given|was given|goes (?:back )?(?:to|for)|went (?:back )?(?:to|for)|returns (?:to|for)|returned (?:to|for)|sends? for|sent for)\b/i
 
 const PARTICLE = new Set('out up back down away aside over on off open round around aloud again'.split(' '))
