@@ -2451,6 +2451,9 @@ rewrite it suggested skipped every consistency check. No migration; everything n
 
 ## Write the whole chapter (Adam, 2026-10-10)
 
+Reworked on 2026-10-19 (see "Write the chapter, reworked" below): the study, the agent's sessions and the proofread are
+gone; what follows is how it was built, and what still holds (the pages, Undo, the hold, the job, the window).
+
 One action writes a whole chapter from its scene cards and keeps working on it until it is right: in line with the
 codex, Recall and the timeline, consistent from scene to scene, the critic's notes dealt with, and proofread. Adam's
 choices: it is agentic (the AI decides what to look up and how to fix things), the AI corrects itself (its changes go
@@ -2562,6 +2565,81 @@ fewer calls):
   look-ups and unchanged reads; `Tries`, `sameFinding`, `dropRepeats`). The fake agent's chapter session now reads Sc 1
   and sets its findings aside, quoting it (`tests/fake-provider/chapter.mjs`), as a chapter-wide note nobody deals with
   is now left for Adam rather than forgotten by a re-read.
+
+## Write the chapter, reworked (Adam's spec, 2026-10-19)
+
+Adam: "Write this chapter with AI" was limited, basic and gave poor results. The spec ("Write the chapter, reworked"):
+plan the whole chapter first, then write every scene against that plan; make fixes from a short list of real problems,
+not repeated full read-throughs. The study, the review, chapter and proofread sessions and the critic's last read are
+gone (`ChapterSession`, `write_brief`, `revise`, `not_a_problem`, `check_again`); the drafts, the checks, the critic,
+Undo, History, the hold on the page, Stop, the hour and `ProgressGuard` stay. No migration (the report and the words
+before are in `meta`, as before; `ChapterWriterReport.plan` is new and optional).
+
+- **1. The chapter plan** (`chapterWriter/plan.ts` `makeChapterPlan`, prompts `planSystem`, `WRITE_CHAPTER_PLAN`): one
+  agent session (the chapter writer model, job 'chapter', `[AIWRITE-CHAPTER v1] plan`) reads the chapter card and each
+  scene card, with what the story index gives at no cost as the chapter begins (`chapterCore`: everyone on the cards,
+  `stateOf`; the scenes of the last two chapters, a line each; the open threads; the index's free checks on this
+  chapter's cards, `indexChecks`, which go straight into the questions), looks up what else it needs with the look-up
+  tools (`ai/lookups/`, at the chapter's first scene as it begins; `LOOKUPS_MOST` a round, `PLAN_LOOKUPS` 16 in all,
+  `PLAN_STEPS` 4 requests) and calls `write_chapter_plan` (or, at its last request, which has no tools, replies with the
+  same JSON). For each scene: `does`, `threads` moved on, `changes` ({who, change}: where they end up, what they learn),
+  `keep` (facts from the look-ups), and `questions` for Adam. `checkChapterPlan`: a part for every scene in order (one
+  left out is planned from its card's goal and outcome; asked once to cover every scene), only people the codex has under
+  changes, lists kept short; `partText` makes each part the words the writer is given and Adam reads. A plan never
+  written is made from the cards, with a question saying so; a call that fails stops the run as before.
+- **The plan is shown to Adam before writing** (`RunDeps.review`; ipc: progress stage 'review' carries
+  `ChapterWriterProgress.plan`, and the run waits, with no time limit, for `answerChapterPlan` or Stop). The window
+  (`features/chapterWriter/ChapterPlanReview.tsx`, mounted beside the start dialog, which is unchanged): the overview and
+  each scene's part, with Write, Change the plan (each part, and the overview, as text boxes) and Cancel. Escape only hides
+  it: the top bar says "The chapter plan is ready for you" and opens it again. A part Adam changes is his words from then
+  on (`withAnswer`, `changed`); Cancel (or Stop while planning) ends the run as `cancelled`, "Cancelled before writing:
+  nothing in the chapter changed." The time spent over the plan isn't counted against the hour.
+- **2. Each scene in order** (`draftAll`, as before: the memory catches up on the scene before first). Its part of the plan
+  (with the overview, and `LATER_START` for a later scene) goes to the draft: as the writer's block "This scene's part of
+  the chapter plan (keep to it)" and, through `draftBriefing({ chapterPlan })` → `withPlan` → `planBeforeWriting({
+  chapter })` → `planMaterial`, to the scene plan, which reads it right after the scene card (`CHAPTER_PART_TITLE`: build
+  the scene plan on it) and makes its own round of look-ups. Plan before writing off: the writer still gets the part.
+- **3. The state check** (`gather`): for each scene written or changed, plain matching first: someone the plan has change
+  in the scene whom the words never name (`planMisses`; never the card's point of view, who may tell the scene unnamed),
+  a stock AI phrase or two in a fresh draft (`phraseFindings`, `PHRASES_MOST` 2, first round only: the proofread's part
+  that stays), the free rule checks (with the check, as always); then one short AI call, `checkScene` with
+  `STATE_CHECKS` (facts, timeline, continuity, knowledge) and the new `CheckOptions.together` (one request, not
+  `CHECK_GROUPS`' two), through the scene's contract made from its plan, so what the plan says must change is checked
+  item by item. Voice and style are left to the critic. The scene after each changed one is checked for what is so
+  (`FOLLOW_ON_CHECKS`), the next chapter's first scene noted for Adam, as before. **The critic reads the chapter once**
+  (scope chapter, never `again`), in the first round; its notes of some weight on words in a scene are fixed, the rest
+  (small ones, ones about the whole chapter) are one line for Adam under Worth a look.
+- **4. Fix only what was flagged** (`fixAll`, `chapterWriter/fix.ts`): a scene that misses its plan (a plain miss, or what
+  its contract says must change and the words don't show: `contractMisses`, the contract's "not yet") is written again
+  whole, once (`REWRITES_MOST`), with a direction naming what it missed (`missedDirection`); what it still misses then is
+  Adam's. Everything else, one problem at a time: the words it points at are found in the scene (`passageFor`, ask/anchor
+  tolerant matching), widened to their whole paragraphs (at most `MAX_FIX_WORDS`), and the writer model rewrites only
+  that passage (`[AIWRITE-CHAPTER v1] fix`, `fixSystem`: the job, then `instructionsText` with the writer's own rules,
+  style guide and whole sample passage; at the writer's temperature, `writerTemperature`, and the preset's top_p and min_p;
+  given the scene card, its part of the plan, about 160 words before and 90 after, and the problem with its advice).
+  Before, the agent's revise wrote at 0.3 without the style guide. A reply that isn't a passage (empty, the same, far
+  longer or shorter) changes nothing; one whose words have gone is dropped; a fixed check issue is marked fixed, a
+  fixed critic note done in the Critique tab (`settleNote`, with the new words). Words found but not in the scene, or
+  with no words, are left for Adam untried.
+- **Limits** (`CHAPTER_WRITER_LIMITS` `{ fixRounds: 2, minutes: 60 }`; each problem at most `MAX_TRIES` 2 tries,
+  `Tries`, once only on words the run wrote): the checks after the last round still run and what they find is listed.
+  `ProgressGuard` still stops a run going round in circles, but only after a round that changed words (a round whose
+  fixes changed nothing is tried again within the tries).
+- **5. Hand over**: the report's fixes in plain words ("The critic: The middle slows", or what the check said), scenes
+  written again with why, Still open, Worth a look, and "The chapter plan the scenes were written to" (`report.brief`, the
+  plan as text; `report.plan`). The start dialog's words and the top bar's say the new flow.
+- **Measured** (`chapterWriter/requests.test.ts`, three scenes after a chapter of long ones, fake provider, the drafts
+  and their scene plans stood in for as before): with a planner that looks things up until stopped, 61 requests and
+  2,669,425 characters before, 15 and 139,611 after (plan 4 / 17,181, state checks 8 / 95,742, critic 1 / 16,244, fixes
+  2 / 10,444); with one that goes straight to work, 35 and 328,615 before, 13 and 127,690 after.
+- **Tests**: `chapterWriter/chapterWriter.test.ts` (the plan first, read and checked; the plan reaches each draft; Adam's
+  changes and Cancel; the state check once a scene in one request; the critic once; targeted fixes in the writer's voice
+  and settings; a plan miss written again once; two rounds; two tries; an hour; Stop), `plan/paths.test.ts` (the scene
+  plan builds on its part), `tests/e2e/chapterWriter.spec.ts` (the New look: the plan view, Change the plan, Cancel,
+  Stop). The fake (`tests/fake-provider/chapter.mjs`) looks Mara up, then plans a part for each "### Sc N", and fixes a
+  passage by adding "The rain went on.".
+- **Not done here**: the fix doesn't say which appearance of words found twice in a scene it means (it takes the first);
+  the critic's notes about the chapter as a whole are left for Adam, never acted on.
 
 ## Long story memory: the quick wins (2026-10-15)
 
@@ -3904,7 +3982,7 @@ planning every beat. Plan before writing (`settings.planFirst`) stays a switch, 
   (its copy of the contract points there).
 - **Every writing path**: Generate and Add below (a plan before each draft, `draftBriefing`); Variants (`ipc/variants.ts`
   no longer turns the plan off: the set is briefed once, so its drafts share one plan); Write the whole chapter (its drafts
-  through `draftBriefing`, with no brief, as before); Beat by beat (`beats/index.ts`, `withPlan` with `beat`): one plan for
+  through `draftBriefing`, with no brief, the scene plan built on the scene's part of the chapter plan); Beat by beat (`beats/index.ts`, `withPlan` with `beat`): one plan for
   the scene, made with its first beat (or the first after the card or the direction changed, or beat 1 started afresh),
   kept in memory (`plan/index.ts` scene plans, the 20 most recent) and given to the later beats with no call, the notes
   saying "(I write only beat 2 of 3 now…)", its brief with it, no scene-level "must" in a beat's contract; Continue

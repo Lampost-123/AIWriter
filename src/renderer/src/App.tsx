@@ -44,6 +44,7 @@ import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 import { RereadDialog } from '@/features/memory/RereadDialog'
 import { StoryFillDialog } from '@/features/memory/StoryFillDialog'
 import { ChapterWriterDialog } from '@/features/chapterWriter/ChapterWriterDialog'
+import { ChapterPlanReview } from '@/features/chapterWriter/ChapterPlanReview'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
@@ -435,6 +436,7 @@ function Workspace(): React.JSX.Element {
       <RereadDialog />
       <StoryFillDialog />
       <ChapterWriterDialog />
+      <ChapterPlanReview />
       <FocusLayer />
       <FindLayer />
     </>

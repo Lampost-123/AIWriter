@@ -173,7 +173,8 @@ export function notYetIssue(
       sources: contractSources(item.entryIds, where.names),
       fix: null,
       memoryFix: null,
-      // Never written in by itself, not even by the chapter writer (fix 13's review): it is Adam's to decide.
+      // Never written in by itself (fix 13's review): it is Adam's to decide. The chapter writer takes it for its scene
+      // missing its plan, and writes that scene again once, whole (2026-10-19); what it still misses is left for Adam.
       contract: { part: item.part, text: item.text, missing: true }
     }
   }

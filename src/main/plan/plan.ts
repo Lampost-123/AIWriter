@@ -134,7 +134,16 @@ export interface PlanMaterial {
   brief?: BriefMaterial
   /** Said to the memory model when the style guide sets content above its second step (keeper/model.ts contentNoteFor). */
   contentNote?: string | null
+  /**
+   * Write the whole chapter (spec "Write the chapter, reworked", 2026-10-19): this scene's part of the chapter plan, made
+   * before any scene was written, which the scene plan builds on. Left out: none.
+   */
+  chapter?: string
 }
+
+/** The heading of the scene's part of the chapter plan, in what the planner reads. */
+export const CHAPTER_PART_TITLE =
+  "This scene's part of the chapter plan (made before any scene was written: build the scene plan on it, so its beats carry it out and what it says changes is among your changes)"
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 
@@ -157,7 +166,7 @@ export function planMaterial(
   input: ContextInput,
   preview: ContextPreview,
   prepared: Pick<PreparedContext, 'finals' | 'contract'>,
-  o: { core?: PlanCore | null; beats?: boolean } = {}
+  o: { core?: PlanCore | null; beats?: boolean; chapter?: string } = {}
 ): PlanMaterial {
   const sent = preview.blocks.filter((b) => !b.dropped)
   const block = (id: string) => sent.find((b) => b.id === id)
@@ -222,7 +231,8 @@ export function planMaterial(
     ...(onPage ? { done: beats.slice(0, onPage).map((b, i) => `Beat ${i + 1}: ${b}`) } : {}),
     ...(pov ? { pov } : {}),
     // A scene planned once for its beats leaves each beat's own contract as the card says it.
-    ...(input.contract && !o.beats ? { contract: true } : {})
+    ...(input.contract && !o.beats ? { contract: true } : {}),
+    ...(o.chapter?.trim() ? { chapter: o.chapter.trim() } : {})
   }
 }
 
@@ -335,6 +345,7 @@ export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
     ...(b?.record ?? []).map((p) => part(p.title, p.body)),
     part('Already happened (a line a scene; never plan any of it again)', lines(m.core?.recent)),
     part('The scene card', m.card),
+    part(CHAPTER_PART_TITLE, m.chapter ?? ''),
     part('Must stay true', m.must),
     part('In the briefing', lines(m.inBriefing)),
     part('Also in the world (not in the briefing)', m.others.join('; ')),

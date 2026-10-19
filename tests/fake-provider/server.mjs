@@ -81,7 +81,7 @@ import { pathToFileURL } from 'node:url'
 import { m4Reply } from './m4/index.mjs'
 import { planReply, planToolCalls } from './plan.mjs'
 import { askToolCalls } from './m4/ask.mjs'
-import { chapterToolCalls } from './chapter.mjs'
+import { chapterReply, chapterToolCalls } from './chapter.mjs'
 import { m5Reply } from './m5/index.mjs'
 import { recipeReply } from './recipes.mjs'
 import { storyReply } from './story.mjs'
@@ -507,6 +507,8 @@ export async function startFakeProvider(options = {}) {
     memory ??= storyReply(system, messages)
     // The scene and chapter critic, answered by critique.mjs.
     memory ??= critiqueReply(system, firstUser, model)
+    // Write the whole chapter's plan (asked at its last request, without tools) and its fixes, answered by chapter.mjs.
+    memory ??= chapterReply(system, messages, model)
     // fake/prude turns down whatever has the word EXPLICIT in it, in so many words (a reply that finishes as usual, not a
     // content filter): a memory read, a summary, where things stand, a plan, a check or a draft alike.
     if (model === 'fake/prude' && messages.some((m) => textOf(m.content).includes('EXPLICIT'))) memory = PRUDE_REFUSAL

@@ -1,82 +1,88 @@
-// One run of Write the whole chapter (contracts/chapterWriter.ts): study, draft, then rounds of checking and fixing
-// until the chapter is clean, then a proofread, checked again. The agent decides what to do inside each session; this
-// file decides when the chapter is done:
-//   1. Study: one agent session reads the cards against the memory and writes the brief.
-//   2. Draft: each scene in order through the app's writer (the memory catches up first, so each scene is written
-//      knowing what the scene before it now says), with its notes from the brief.
-//   3. Check: the consistency checks read every scene changed since the last round (a sentence printed twice in a row
-//      taken out first; one check_again read as it is now isn't read again), and what is so in the scene after each;
-//      the critic reads every scene and the chapter in the first round only, and its notes not yet dealt with carry to
-//      the next (re-read, it found something new to say every time: live test, 2026-10-16).
-//   4. Fix: an agent session for each scene with findings, then one for the chapter as a whole.
-//   5. When a round finds nothing: proofread each scene, and check again if anything changed.
-//   6. At the end, the critic reads once more what changed since it read it, for the Critique tab (not acted on).
-// It stops when clean, on Stop, at the spending limit, when a round makes no progress, or at CHAPTER_WRITER_LIMITS; a
-// finding that keeps coming back is left for Adam (progress.ts Tries). The words before the run are kept (store.ts) so
-// Undo can put the chapter back.
+// One run of Write the whole chapter (contracts/chapterWriter.ts), as Adam's spec "Write the chapter, reworked"
+// (2026-10-19) has it: the whole chapter is planned first, then every scene is written against that plan, and only a
+// short list of real problems is fixed, never repeated full read-throughs.
+//   1. Plan the chapter (plan.ts): an agent reads the chapter card and the scene cards, looks up what it needs, and writes
+//      a part for each scene (what it must do, which threads move on, what changes for each person). Adam reads the plan
+//      and may change it (RunDeps.review); left out, the run goes straight on.
+//   2. Write each scene in order through the app's writer, with its part of the plan as the scene plan's input
+//      (draftBriefing: the scene plan builds on it, with its own round of look-ups); the memory catches up on the scene
+//      before first, so each scene is written knowing what the one before now says.
+//   3. Check against the plan and the story so far: plain matching first (who the plan has change in the scene and the
+//      words never name; stock AI phrases; the free rule checks, with the check), then the state check, one short AI
+//      call (checks/: facts, timeline, continuity and who knows what, through the scene's contract made from its plan);
+//      the critic reads the chapter once for craft, in the first round.
+//   4. Fix only what was flagged (fix.ts): one problem at a time, the flagged passage rewritten in the writer's voice; a
+//      scene that misses its part of the plan is written again whole, once. At most CHAPTER_WRITER_LIMITS.fixRounds
+//      rounds, each problem tried at most MAX_TRIES times (progress.ts Tries); the changed scenes, and the scene after
+//      each, are checked again.
+//   5. Hand over: the report lists what was fixed, in plain words, and anything left for Adam.
+// It stops when clean, on Stop, at the spending limit, when a round makes no progress (ProgressGuard), or at
+// CHAPTER_WRITER_LIMITS. The words before the run are kept (store.ts) so Undo can put the chapter back.
 // No Electron imports: everything outside the world's database comes through RunDeps.
 
 import type Database from 'better-sqlite3'
 import type {
+  ChapterPlanAnswer,
   ChapterWriterProgress,
   ChapterWriterReport,
   ChapterWriterSceneReport,
   ChapterWriterStage,
-  ChapterWriterStatus
+  ChapterWriterStatus,
+  ChapterWritingPlan
 } from '@shared/contracts/chapterWriter'
 import type { CritiqueNote, CritiqueOutcome, CritiqueTarget } from '@shared/contracts/critique'
 import type { CheckKind } from '@shared/contracts/checks'
-import { ALL_CHECKS } from '@shared/contracts/checks'
-import type { ChatMessage, ID, SceneCard, WritingPrefs } from '@shared/types'
+import type { ID, SceneCard, StyleGuide, WritingPrefs } from '@shared/types'
 import { CHAPTER_WRITER_LIMITS } from '@shared/contracts/chapterWriter'
-import { CARRY_LABELS } from '@shared/chapterCard'
 import { effectiveStyle } from '@shared/style'
 import { findSlop } from '@shared/slop'
+import { namedInProse } from '@shared/names'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
 import { isLiveKind, type IssuePayload } from '../db/checks'
 import { checkedAsIs } from '../checks/report'
-import { runTask, stopTask, type Emit } from '../ai/tasks'
+import { stopTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
-import type { SnapshotSource } from '../ask/extraTools'
-import { cardLines } from '../outline/context'
-import { newId, now, UserError } from '../util'
+import type { FoundPassage } from '../ai/lookups'
+import { settleNote } from '../critique/store'
+import { now, UserError } from '../util'
 import { sceneWords } from '../ask/agent'
 import { cleanProse, dropRepeats, pageFrom, type Page } from './page'
 import { findingKey, foldWords, ProgressGuard, Tries, wordsHash, wordsOverlap } from './progress'
-import {
-  AGENT_REPLY,
-  AGENT_TEMPERATURE,
-  LAST_WORDS,
-  STEPS,
-  nudgeFor,
-  proofreadSystem,
-  reviewSystem,
-  studySystem,
-  type ChapterJob
-} from './prompts'
+import { missedDirection } from './prompts'
+import { chapterPlanText, makeChapterPlan, withAnswer } from './plan'
+import { fixPassage, type FixDeps } from './fix'
 import { loadReport, saveBefore, saveReport, scenesNow } from './store'
-import { ChapterSession, findingLine, numberedScene, type Brief, type Finding, type SceneRef } from './tools'
+import { findingLine, type Finding, type SceneRef } from './tools'
 
 type DB = Database.Database
 
 export interface RunDeps {
   db: DB
-  /** The agent's model (the chapter writer model): it must be able to use tools. */
+  /** The chapter plan's model (the chapter writer model): it must be able to use tools. */
   agentModel: JobModel
+  /**
+   * The writer model and its sampling (writerTemperature, the creativity preset's top_p and min_p), for the targeted
+   * fixes: the flagged passages are rewritten in the writer's voice, with its style guide and sample.
+   */
+  writer: { model: JobModel; temperature: number; topP: number; minP?: number | null }
   prefs: WritingPrefs
-  history?: SnapshotSource | null
-  /** The task runner's events for the agent's calls (the run says how it goes itself). */
+  /** The task runner's events for the run's own calls (the run says how it goes itself). */
   taskEmit: Emit
   /** How the run goes, for the window. */
   progress: (p: ChapterWriterProgress) => void
   /** A scene's words changed. */
   sceneChanged: (sceneId: ID, page: Page) => void
   /**
-   * Drafts a scene from its card with the app's writer (the memory caught up first), with the notes from the brief
-   * and, for a scene written again, a direction. Resolves with its words; `cutOff`: the writer ran into its reply limit;
-   * `refused`: it sent back a refusal as words; `note`: something Adam should know about how it was written (where
-   * things stand wasn't ready, say), in plain words.
+   * Shows Adam the chapter plan and waits for his word: the answer to write to (with any part he changed), or null to
+   * cancel. Ends with null when `signal` is aborted. Left out: the run goes straight on to writing.
+   */
+  review?: (plan: ChapterWritingPlan, signal: AbortSignal) => Promise<Pick<ChapterPlanAnswer, 'scenes' | 'overview'> | null>
+  /**
+   * Drafts a scene from its card with the app's writer (the memory caught up first). `notes`: its part of the chapter plan
+   * (the scene plan builds on it, and the writer is given it); `direction`, for a scene written again. Resolves with its
+   * words; `cutOff`: the writer ran into its reply limit; `refused`: it sent back a refusal as words; `note`: something
+   * Adam should know about how it was written (where things stand wasn't ready, say), in plain words.
    */
   draft: (
     sceneId: ID,
@@ -90,17 +96,19 @@ export interface RunDeps {
   /** Saves a scene's new page the way the editor's saves go, after keeping the page before in History. */
   save: (sceneId: ID, page: Page, label: string) => void
   /**
-   * Runs the consistency checks on a scene, every one or `checks` (the memory caught up first); what they find is saved
-   * as issues.
+   * The state check of a scene: these checks (the memory caught up first) in one short request, through the scene's
+   * contract (made from its plan) where it has one; what they find is saved as issues, with the free rule checks'.
    */
   check: (sceneId: ID, signal: AbortSignal, checks?: CheckKind[]) => Promise<{ status: 'done' | 'empty' | 'stopped' | 'error'; error?: string }>
   /** The craft critic on a scene or the chapter; `again`: a re-read after revisions. */
   critique: (target: CritiqueTarget, again: boolean, signal: AbortSignal) => Promise<CritiqueOutcome>
   /**
    * Whether the critic reads at all (Settings › Models, 2026-10-17, to save on costs): false, the run is checked and
-   * fixed by the consistency checks alone, and the critic never reads. Left out: it reads.
+   * fixed by the state check alone. Left out: it reads.
    */
   critic?: () => boolean
+  /** Searches the story so far, for the chapter plan's find_in_story; left out: not available. */
+  find?: (sceneId: ID, query: string, most: number) => Promise<FoundPassage[] | null>
   /** The monthly spending limit is holding AI calls: what to say, or null. */
   limitNote: () => string | null
   /** True once the world has closed. */
@@ -121,16 +129,27 @@ class Failed extends Error {
   }
 }
 
-/** Said under a later scene's notes from the study: its start comes from the scene before as written, not from them. */
+/** Said under a later scene's part of the plan: its start comes from the scene before as written, not from the plan. */
 export const LATER_START =
   'Where everyone is as this scene starts, what they wear and hold, and how they are placed, is where the scene before it ends, as written: keep to that, whatever these notes say of it.'
 
 /**
- * What a scene is checked for when the scene before it changed but it didn't (token audit, 2026-10-19): what is so (its
- * facts, the timeline, where everyone is and what they wear and hold), which a changed ending can break; who knows what
- * and how it reads are its own words', checked when they change.
+ * The state check (spec, step 3): what is so (facts, the timeline, where everyone is and what they wear and hold) and
+ * who knows what, in one request. How it reads is the critic's.
+ */
+export const STATE_CHECKS: CheckKind[] = ['facts', 'timeline', 'continuity', 'knowledge']
+
+/**
+ * What a scene is checked for when the scene before it changed but it didn't (token audit, 2026-10-19): what is so, which
+ * a changed ending can break; who knows what is its own words', checked when they change.
  */
 export const FOLLOW_ON_CHECKS: CheckKind[] = ['facts', 'timeline', 'continuity']
+
+/** The most stock AI phrases a freshly written scene has said another way (the plain check that took the proofread's place). */
+export const PHRASES_MOST = 2
+
+/** A scene that misses its part of the plan is written again whole at most this many times in a run. */
+export const REWRITES_MOST = 1
 
 /** A card says enough to write a scene from it. */
 export const cardReady = (c: SceneCard | null | undefined): boolean =>
@@ -197,34 +216,39 @@ export const ownTitle = (title: string): string => (/^\s*chapter\s+[\w-]+\s*$/i.
 export class ChapterRun {
   private readonly controller = new AbortController()
   private currentTask: ID | null = null
-  private stage: ChapterWriterStage = 'study'
+  private stage: ChapterWriterStage = 'planning'
   private note = ''
   private sceneNow: ID | null = null
   private round = 0
   private readonly startedAt = now()
   private readonly startedClock: number
+  /** Time spent waiting for Adam over the plan: not counted against CHAPTER_WRITER_LIMITS.minutes. */
+  private waited = 0
   private refs: SceneRef[] = []
   private storyId: ID = ''
   private label = ''
-  private brief: Brief | null = null
+  private plan: ChapterWritingPlan | null = null
+  /** The run has begun writing (before that, Stop or Cancel at the plan changed nothing). */
+  private writing = false
   private readonly findings: Finding[] = []
   private findingCount = 0
-  /** What has been given to the agent to fix, and set aside (progress.ts). */
+  /** What has been given to the AI to fix (progress.ts). */
   private readonly tries = new Tries()
-  /** Findings that kept coming back, left for Adam: the latest round's. */
+  /** Findings left for Adam: the latest round's. */
   private leftOver: Finding[] = []
-  /** The new words the agent put in each scene this run. */
+  /** Of those, the ones left because they came back after their tries (the rest couldn't be placed, or a scene was written again). */
+  private readonly cameBack = new Set<string>()
+  /** The new words the run's fixes and rewrites put in each scene. */
   private readonly written = new Map<ID, string[]>()
+  /** How many times each scene was written again for missing its plan. */
+  private readonly rewrites = new Map<ID, number>()
   /** Rounds of fixing so far (CHAPTER_WRITER_LIMITS.fixRounds). */
   private fixRounds = 0
-  /** The critic's notes from its first read of each scene, and of the chapter. */
-  private readonly sceneNotes = new Map<ID, CritiqueNote[]>()
+  /** The critic's notes from its one read of the chapter, and that critique's time. */
   private chapterNotes: CritiqueNote[] = []
-  /** Scenes changed since the critic read them (and the chapter), for its last read. */
-  private readonly unread = new Set<ID>()
-  private chapterUnread = false
-  /** What the critic's last read found, for Adam. */
-  private lastReadNote = ''
+  private critiqueAt = ''
+  /** What the critic said that the run doesn't act on (small notes, notes on the chapter as a whole), for Adam. */
+  private criticNote = ''
   /** What Adam should know about how each scene was drafted (draft's `note`), by scene. */
   private readonly draftNotes = new Map<ID, string>()
   /**
@@ -278,7 +302,7 @@ export class ChapterRun {
     return this.controller.signal.aborted
   }
 
-  /** Stops the run: the call under way stops; what was saved stays. */
+  /** Stops the run: the call under way stops; what was saved stays. While the plan waits for Adam, this is Cancel. */
   async stop(): Promise<void> {
     this.controller.abort()
     const t = this.currentTask
@@ -308,12 +332,17 @@ export class ChapterRun {
   /** Runs to the end. Never throws: how it ended is in the report. */
   async run(): Promise<ChapterWriterReport> {
     try {
-      await this.study()
+      await this.planChapter()
+      await this.reviewPlan()
       await this.draftAll()
       await this.rounds()
     } catch (e) {
       const limit = e instanceof Failed ? null : this.d.limitNote()
-      if (e instanceof Stopped || this.stopped) {
+      if ((e instanceof Stopped || this.stopped) && !this.writing) {
+        // Stopped while planning, or Cancel at the plan: nothing in the chapter changed.
+        this.report.status = 'cancelled'
+        this.report.message = 'Cancelled before writing: nothing in the chapter changed.'
+      } else if (e instanceof Stopped || this.stopped) {
         this.report.status = 'stopped'
         this.report.message = 'Stopped. The words written so far are kept; Undo puts the chapter back as it was.'
       } else if (limit) {
@@ -364,7 +393,8 @@ export class ChapterRun {
       note: this.note,
       round: this.round,
       cost: this.cost(),
-      sceneIds: this.sceneIds
+      sceneIds: this.sceneIds,
+      plan: this.stage === 'review' ? this.plan : null
     }
   }
 
@@ -390,42 +420,75 @@ export class ChapterRun {
     throw new Failed(`${error || 'Something went wrong talking to the AI.'} The words written so far are kept; Undo puts the chapter back as it was.`)
   }
 
-  // ---------- 1. Study ----------
+  private onTask = (taskId: ID | null): void => {
+    this.currentTask = taskId
+  }
 
-  private async study(): Promise<void> {
+  // ---------- 1. The chapter plan ----------
+
+  private async planChapter(): Promise<void> {
     this.check()
-    this.tell('study', `Studying ${this.label}`)
-    const s = await this.session('study', null, [])
-    this.brief = s.brief ?? { overview: '', scenes: [], questions: [] }
-    this.report.brief = this.briefText()
-    this.report.questions = this.brief.questions
+    this.tell('planning', `Planning ${this.label}`)
+    const r = await makeChapterPlan({
+      db: this.d.db,
+      storyId: this.storyId,
+      chapterId: this.chapterId,
+      label: this.label,
+      scenes: this.refs,
+      prefs: this.d.prefs,
+      model: this.d.agentModel,
+      signal: this.controller.signal,
+      onTask: this.onTask,
+      taskEmit: this.d.taskEmit,
+      ...(this.d.find ? { find: this.d.find } : {}),
+      fetchImpl: this.d.fetchImpl,
+      retryDelays: this.d.retryDelays
+    })
+    if (r.status === 'stopped' || this.stopped) throw new Stopped()
+    if (r.status === 'error') this.failed(r.error)
+    this.keepPlan(r.plan)
+  }
+
+  private keepPlan(plan: ChapterWritingPlan): void {
+    this.plan = plan
+    this.report.plan = plan
+    this.report.brief = chapterPlanText(plan)
+    this.report.questions = plan.questions
     this.save()
   }
 
-  private briefText(): string {
-    const b = this.brief
-    if (!b) return ''
-    const parts = [b.overview.trim()]
-    for (const r of this.refs) {
-      const notes = b.scenes.find((s) => s.sceneId === r.id)?.notes.trim()
-      if (notes) parts.push(`${r.label}:\n${notes}`)
-    }
-    return parts.filter(Boolean).join('\n\n')
+  /** Adam reads the plan and may change it; the time he takes isn't counted against the hour. */
+  private async reviewPlan(): Promise<void> {
+    if (!this.d.review || !this.plan) return
+    this.check()
+    const at = this.clock()
+    this.tell('review', 'The chapter plan is ready for you to read')
+    const answer = await this.d.review(this.plan, this.controller.signal)
+    this.waited += this.clock() - at
+    if (!answer || this.stopped) throw new Stopped()
+    this.keepPlan(withAnswer(this.plan, answer))
   }
 
+  /** A scene's part of the plan, as its draft is given it. */
   private notesFor(sceneId: ID): string {
-    const b = this.brief
-    if (!b) return ''
-    const mine = b.scenes.find((s) => s.sceneId === sceneId)?.notes.trim() ?? ''
-    // The study is made before any scene is written, so where everyone is at a later scene's start is only its guess
+    const p = this.plan
+    if (!p) return ''
+    const mine = p.scenes.find((s) => s.sceneId === sceneId)?.text.trim() ?? ''
+    // The plan is made before any scene is written, so where everyone is at a later scene's start is only its guess
     // (review, 2026-10-16): the end of the scene before, as now written, says it (the briefing's "Where things stand").
     const later = this.refs.findIndex((r) => r.id === sceneId) > 0 && !!mine
-    return [b.overview.trim() && `The chapter: ${b.overview.trim()}`, mine, later ? LATER_START : ''].filter(Boolean).join('\n\n')
+    return [p.overview.trim() && `The chapter: ${p.overview.trim()}`, mine, later ? LATER_START : ''].filter(Boolean).join('\n\n')
   }
 
-  // ---------- 2. Draft ----------
+  private partOf(sceneId: ID): string {
+    return this.plan?.scenes.find((s) => s.sceneId === sceneId)?.text.trim() ?? ''
+  }
+
+  // ---------- 2. Write each scene ----------
 
   private async draftAll(): Promise<void> {
+    this.check()
+    this.writing = true
     for (const [i, r] of this.refs.entries()) {
       this.check()
       if (i > 0 && this.d.catchUp) {
@@ -471,12 +534,11 @@ export class ChapterRun {
     this.d.sceneChanged(sceneId, page)
   }
 
-  // ---------- 3–5. Rounds ----------
+  // ---------- 3–4. Check, then fix what was flagged ----------
 
   private async rounds(): Promise<void> {
     const guard = new ProgressGuard()
     let changed = new Set(this.sceneIds)
-    let proofread = false
     for (;;) {
       this.check()
       this.round++
@@ -484,21 +546,19 @@ export class ChapterRun {
       const { give, leave } = await this.gather(changed)
       this.leftOver = leave
       this.save()
-      if (!give.length) {
-        if (!proofread) {
-          changed = await this.proofreadAll()
-          proofread = true
-          if (changed.size) continue
-        }
-        return this.finish(leave)
-      }
+      if (!give.length) return this.finish(leave)
       // How far one run goes (CHAPTER_WRITER_LIMITS): what is open then is listed for Adam.
-      const late = this.clock() - this.startedClock >= CHAPTER_WRITER_LIMITS.minutes * 60_000
+      const late = this.clock() - this.startedClock - this.waited >= CHAPTER_WRITER_LIMITS.minutes * 60_000
       if (late || this.fixRounds >= CHAPTER_WRITER_LIMITS.fixRounds) return this.capped([...give, ...leave], late)
-      const verdict = guard.round(
-        give.map((f) => findingKey(f.sceneId ?? '', f.what, f.quote)),
-        wordsHash(this.sceneIds.map((id) => repo.getScene(this.d.db, id).text ?? ''))
-      )
+      // Only after words changed: a round whose fixes changed nothing (the writer's reply couldn't be used) is tried again
+      // as it was, within each problem's tries.
+      const verdict =
+        this.round === 1 || changed.size
+          ? guard.round(
+              give.map((f) => findingKey(f.sceneId ?? '', f.what, f.quote)),
+              wordsHash(this.sceneIds.map((id) => repo.getScene(this.d.db, id).text ?? ''))
+            )
+          : null
       if (verdict) {
         this.report.left = [...give, ...leave].map((f) => findingLine(f, this.refs))
         throw new Failed(
@@ -507,32 +567,13 @@ export class ChapterRun {
         )
       }
       this.fixRounds++
-      for (const f of give) this.tries.given(f)
-      changed = new Set()
-      for (const r of this.refs) {
-        const mine = give.filter((f) => f.sceneId === r.id)
-        if (!mine.length) continue
-        this.check()
-        this.tell('reviewing', `Fixing ${r.label}, round ${this.round}`, r.id)
-        const s = await this.session('review', r.id, mine)
-        for (const id of s.changed) changed.add(id)
-        if (s.summary) this.report.summary = s.summary
-      }
-      const whole = give.filter((f) => f.sceneId === null && f.status === 'open')
-      if (whole.length) {
-        this.check()
-        this.tell('reviewing', `Fixing ${this.label} as a whole, round ${this.round}`)
-        const s = await this.session('chapter', null, whole)
-        for (const id of s.changed) changed.add(id)
-        if (s.summary) this.report.summary = s.summary
-      }
-      if (changed.size) proofread = false
+      changed = await this.fixAll(give)
     }
   }
 
-  /** Clean, or clean but for what kept coming back (left for Adam). */
-  private async finish(leave: Finding[]): Promise<void> {
-    await this.lastRead()
+  /** Clean, or clean but for what was left for Adam. */
+  private finish(leave: Finding[]): void {
+    this.notesNow()
     this.report.left = leave.map((f) => findingLine(f, this.refs))
     if (!leave.length) {
       this.report.status = 'done'
@@ -540,12 +581,15 @@ export class ChapterRun {
       return
     }
     this.report.status = 'stuck'
-    this.report.message = `The AI fixed what it could, but ${things(leave.length)} came back after it had tried, so it left ${leave.length === 1 ? 'it' : 'them'} for you: listed below, and in the Issues and Critique tabs.`
+    const tried = leave.every((f) => this.cameBack.has(f.id))
+    this.report.message = tried
+      ? `The AI fixed what it could, but ${things(leave.length)} came back after it had tried, so it left ${leave.length === 1 ? 'it' : 'them'} for you: listed below, and in the Issues and Critique tabs.`
+      : `The AI fixed what it could and left ${things(leave.length)} for you: listed below, and in the Issues and Critique tabs.`
   }
 
   /** At the limit of rounds or time, with findings still open: they are listed for Adam. */
-  private async capped(open: Finding[], late: boolean): Promise<void> {
-    await this.lastRead()
+  private capped(open: Finding[], late: boolean): void {
+    this.notesNow()
     this.report.status = 'stuck'
     this.report.left = open.map((f) => findingLine(f, this.refs))
     const after = late ? `about ${CHAPTER_WRITER_LIMITS.minutes === 60 ? 'an hour' : `${CHAPTER_WRITER_LIMITS.minutes} minutes`} of work` : `${CHAPTER_WRITER_LIMITS.fixRounds} rounds of fixes`
@@ -553,141 +597,183 @@ export class ChapterRun {
   }
 
   /**
-   * The critic reads once more each scene changed since it read it, and the chapter, so the Critique tab shows the
-   * chapter as it now is. Its notes are for Adam: the run doesn't act on them. A read that fails is passed over.
-   */
-  private async lastRead(): Promise<void> {
-    if (!this.criticOn()) return
-    const scenes = this.refs.filter((r) => this.unread.has(r.id))
-    if (!scenes.length && !this.chapterUnread) return
-    const found: string[] = []
-    let count = 0
-    try {
-      for (const r of scenes) {
-        this.check()
-        this.tell('checking', `The critic is reading ${r.label} once more`, r.id)
-        const n = (await this.notes({ scope: 'scene', id: r.id }, true)).length
-        if (n) found.push(`${r.label}: ${n}`)
-        count += n
-      }
-      if (this.chapterUnread) {
-        this.check()
-        this.tell('checking', `The critic is reading ${this.label} once more`)
-        const n = (await this.notes({ scope: 'chapter', id: this.chapterId }, true)).length
-        if (n) found.push(`the chapter: ${n}`)
-        count += n
-      }
-    } catch (e) {
-      if (e instanceof Stopped) throw e
-      console.warn('The critic’s last read of the chapter failed', e)
-    }
-    this.lastReadNote = count
-      ? `The critic read the changed scenes once more at the end and has ${count === 1 ? 'one more note' : `${count} more notes`} (${found.join(', ')}). They are in the Critique tab for you to weigh: the AI didn't act on them.`
-      : ''
-    this.notesNow()
-  }
-
-  /**
-   * Checks and critiques the scenes changed, and the chapter when any did; returns every open finding, numbered. The
-   * scene after each one changed is checked too (review, 2026-10-16): a scene's checks look back at the stage before it,
-   * never forward, so an ending changed in a review (her dress back on) was never read against the opening after it (the
-   * dress still on the floor), for what is so (FOLLOW_ON_CHECKS). One of this chapter's is checked like the rest (its
-   * findings go to its review); one the run doesn't write (the next chapter's first scene, a scene with no card) is
-   * checked and what it finds is noted for Adam, never changed. A scene already checked as it now is isn't again.
+   * The state check of every scene changed, and the scene after each (a scene's checks look back at the stage before it,
+   * never forward: its opening is read against the new end before it, for what is so, FOLLOW_ON_CHECKS); the critic's one
+   * read of the chapter in the first round. Returns what to fix this round (numbered) and what is left for Adam. A scene
+   * of this chapter after one changed is checked like the rest; one the run doesn't write (the next chapter's first
+   * scene, a scene with no card) is checked and what it finds noted for Adam, never changed. A scene already checked as
+   * it now is isn't checked again.
    */
   private async gather(changed: Set<ID>): Promise<{ give: Finding[]; leave: Finding[] }> {
     const { db } = this.d
-    // The critic reads in the first round only (its notes not yet dealt with carry on), then once more at the end; never
-    // when Adam has switched it off.
-    const critic = this.criticOn()
     const first = this.round === 1
     const after = new Set([...changed].map((id) => sceneAfter(db, id)).filter((id): id is ID => !!id && !changed.has(id)))
     for (const r of this.refs) {
       const mine = changed.has(r.id)
       if (!mine && !after.has(r.id)) continue
       if (mine) this.tidy(r.id)
-      const checks = mine ? ALL_CHECKS : FOLLOW_ON_CHECKS
-      // Read already as it is now (check_again, after its last change), with nothing before it changed since: what that
-      // check left open is this round's (token audit, 2026-10-19).
+      const checks = mine ? STATE_CHECKS : FOLLOW_ON_CHECKS
       if (!checkedAsIs(db, r.id, checks)) {
         this.check()
-        this.tell('checking', mine ? `Checking ${r.label}, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id)
+        this.tell('checking', mine ? `Checking ${r.label} against the plan, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id)
         await this.checkScene(r.id, checks)
       }
-      if (!mine || !critic) continue
-      if (!first) {
-        this.unread.add(r.id)
-        continue
-      }
-      this.check()
-      this.tell('checking', `The critic is reading ${r.label}, round ${this.round}`, r.id)
-      this.sceneNotes.set(r.id, await this.notes({ scope: 'scene', id: r.id }, false))
     }
     for (const id of after) if (!this.sceneIds.includes(id)) await this.checkOutside(id)
-    if (critic && changed.size && first) {
+    // The critic reads the chapter once, for craft (spec, step 3); never when Adam has switched it off.
+    if (first && this.criticOn()) {
       this.check()
-      this.tell('checking', `The critic is reading ${this.label}, round ${this.round}`)
-      this.chapterNotes = await this.notes({ scope: 'chapter', id: this.chapterId }, false)
-    } else if (critic && changed.size) this.chapterUnread = true
-    // This round's findings take the place of what was still open: fixed or gone ones drop out, set-asides stay out.
+      this.tell('checking', `The critic is reading ${this.label}`)
+      const c = await this.critiqueOf({ scope: 'chapter', id: this.chapterId })
+      this.chapterNotes = c.notes
+      this.critiqueAt = c.at
+      this.criticNote = criticWords(c.notes.filter((n) => !this.actsOn(n)))
+      this.notesNow()
+    }
+    // This round's findings take the place of what was still open: fixed or gone ones drop out.
     for (const f of this.findings) if (f.status === 'open') f.status = 'gone'
     const give: Finding[] = []
     const leave: Finding[] = []
-    const add = (f: Omit<Finding, 'id' | 'status'>): void => {
+    const add = (f: Omit<Finding, 'id' | 'status'>, placeable: boolean): void => {
       const key = findingKey(f.sceneId ?? '', f.what, f.quote)
       if ([...give, ...leave].some((x) => findingKey(x.sceneId ?? '', x.what, x.quote) === key)) return
-      const verdict = this.tries.verdict(f, this.ownWords(f))
-      if (verdict === 'skip') {
-        // Set aside before, found again: set aside again, never given again.
-        if (f.issueId) this.setAsideIssue(f.issueId)
-        return
-      }
       const nf: Finding = { ...f, id: this.nextFinding(), status: 'open' }
-      if (verdict === 'leave') return void leave.push(nf)
+      // A scene written again once already for missing its plan is not written again: what it still misses is Adam's.
+      const rewritten = f.from === 'plan' && (this.rewrites.get(f.sceneId ?? '') ?? 0) >= REWRITES_MOST
+      const verdict = this.tries.verdict(f, this.ownWords(f))
+      if (verdict === 'skip') return
+      if (verdict === 'leave') this.cameBack.add(nf.id)
+      if (verdict === 'leave' || !placeable || rewritten) return void leave.push(nf)
       give.push(nf)
       this.findings.push(nf)
     }
     for (const r of this.refs) {
       cdb.sweepGone(db, { sceneId: r.id })
-      for (const f of issueFindings(db, r.id)) add(f)
-      for (const n of this.carried(r.id)) add(noteFinding(n, r.id))
+      const text = repo.getScene(db, r.id).text ?? ''
+      const s = sceneWords(db, r.id)
+      const found = (quote: string): boolean => !!s && !!quote.trim() && foldWords(s.plain).includes(foldWords(quote))
+      for (const f of planMisses(db, r.id, this.plan, text)) add(f, true)
+      for (const f of contractMisses(db, r.id)) add(f, true)
+      for (const f of issueFindings(db, r.id)) add(f, found(f.quote))
+      if (first) for (const f of phraseFindings(r.id, text)) add(f, true)
+      for (const n of this.carried(r.id)) add(noteFinding(n, r.id, this.critiqueAt, this.chapterId), true)
     }
-    for (const n of this.carried(null)) add(noteFinding(n, n.sceneId && this.sceneIds.includes(n.sceneId) ? n.sceneId : null))
     return { give, leave }
   }
 
+  /** A critic note the run acts on: of some weight, on words in a scene of the chapter. */
+  private actsOn(n: CritiqueNote): boolean {
+    return n.weight !== 'low' && !!n.quote.trim() && !!n.sceneId && this.sceneIds.includes(n.sceneId)
+  }
+
   /**
-   * The critic's notes from its first read still to deal with: not fixed or set aside, and their words still there (a
-   * note whose words have changed has been acted on). `sceneId` null: the chapter's.
+   * The critic's notes on a scene still to deal with: of some weight, not fixed, and their words still there (a note whose
+   * words have changed has been acted on).
    */
-  private carried(sceneId: ID | null): CritiqueNote[] {
-    const notes = sceneId ? (this.sceneNotes.get(sceneId) ?? []) : this.chapterNotes
-    const texts = (sceneId ? [sceneId] : this.sceneIds).map((id) => foldWords(repo.getScene(this.d.db, id).text ?? ''))
-    return notes.filter((n) => {
-      const where = sceneId ?? (n.sceneId && this.sceneIds.includes(n.sceneId) ? n.sceneId : null)
-      const key = findingKey(where ?? '', n.title, n.quote)
-      const dealt = this.findings.some((f) => f.from === 'critic' && (f.status === 'fixed' || f.status === 'set-aside') && findingKey(f.sceneId ?? '', f.what, f.quote) === key)
-      const quote = foldWords(n.quote)
-      return !dealt && (!quote || texts.some((t) => t.includes(quote)))
+  private carried(sceneId: ID): CritiqueNote[] {
+    const text = foldWords(repo.getScene(this.d.db, sceneId).text ?? '')
+    return this.chapterNotes.filter((n) => {
+      if (n.sceneId !== sceneId || !this.actsOn(n)) return false
+      const key = findingKey(sceneId, n.title, n.quote)
+      const dealt = this.findings.some((f) => f.from === 'critic' && f.status === 'fixed' && findingKey(f.sceneId ?? '', f.what, f.quote) === key)
+      return !dealt && text.includes(foldWords(n.quote))
     })
   }
 
-  /** The finding is on words the agent itself put in this run. */
+  /** The finding is on words the run itself put in. */
   private ownWords(f: Pick<Finding, 'sceneId' | 'quote'>): boolean {
     return !!f.sceneId && !!f.quote.trim() && (this.written.get(f.sceneId) ?? []).some((w) => wordsOverlap(f.quote, w))
   }
 
-  private setAsideIssue(issueId: ID): void {
+  /**
+   * Fixes what this round gives, one problem at a time: first each scene that misses its part of the plan is written
+   * again whole (its other findings wait for its new words), then each flagged passage is rewritten in the writer's
+   * voice. Returns the scenes changed.
+   */
+  private async fixAll(give: Finding[]): Promise<Set<ID>> {
+    const changed = new Set<ID>()
+    const rewritten = new Set<ID>()
+    for (const r of this.refs) {
+      const misses = give.filter((f) => f.sceneId === r.id && f.from === 'plan')
+      if (!misses.length) continue
+      this.check()
+      this.tell('fixing', `Writing ${r.label} again: it missed part of the chapter plan`, r.id)
+      for (const m of misses) this.tries.given(m)
+      const text = await this.write(r.id, missedDirection(misses.map((m) => m.what)))
+      this.rewrites.set(r.id, (this.rewrites.get(r.id) ?? 0) + 1)
+      // Every word of it is the run's now.
+      this.written.set(r.id, [text])
+      for (const m of misses) m.status = 'fixed'
+      this.sceneReport(r.id)?.rewritten.push(clip(misses.map((m) => squash(m.what)).join(' '), 600))
+      rewritten.add(r.id)
+      changed.add(r.id)
+    }
+    const fixDeps: FixDeps = {
+      db: this.d.db,
+      model: this.d.writer.model,
+      temperature: this.d.writer.temperature,
+      topP: this.d.writer.topP,
+      minP: this.d.writer.minP ?? null,
+      style: this.style(),
+      signal: this.controller.signal,
+      onTask: this.onTask,
+      taskEmit: this.d.taskEmit,
+      fetchImpl: this.d.fetchImpl,
+      retryDelays: this.d.retryDelays
+    }
+    for (const r of this.refs) {
+      // A scene written again: its other findings wait for the check of its new words (they weren't tried).
+      if (rewritten.has(r.id)) continue
+      for (const f of give.filter((x) => x.sceneId === r.id && x.from !== 'plan')) {
+        this.check()
+        this.tell('fixing', `Fixing ${r.label}: ${clip(squash(f.what), 80)}`, r.id)
+        this.tries.given(f)
+        const out = await fixPassage(fixDeps, r, f, this.partOf(r.id))
+        if (out.status === 'stopped' || this.stopped) throw new Stopped()
+        if (out.status === 'error') this.failed(out.error)
+        if (out.status === 'unplaced') {
+          // Its words are gone (an earlier fix this round may have changed them): the next check says if it still holds.
+          f.status = 'gone'
+          continue
+        }
+        if (out.status === 'unusable') continue
+        this.saveScene(r.id, out.page, `Before the chapter writer’s fix: ${clip(squash(f.what), 80)}`)
+        changed.add(r.id)
+        f.status = 'fixed'
+        this.written.set(r.id, [...(this.written.get(r.id) ?? []), out.words])
+        this.sceneReport(r.id)?.fixed.push({ why: fixWhy(f), words: clip(squash(out.words), 240) })
+        if (f.issueId) this.issueFixed(f.issueId)
+        if (f.note) this.noteDone(f.note, out.words)
+      }
+    }
+    return changed
+  }
+
+  private style(): StyleGuide {
+    const { db } = this.d
+    return effectiveStyle(this.d.prefs, repo.getWorldStyle(db), repo.getStory(db, this.storyId).style)
+  }
+
+  private issueFixed(issueId: ID): void {
     try {
-      cdb.setAsideByChapter(this.d.db, issueId)
+      cdb.setIssueStatus(this.d.db, issueId, 'fixed')
     } catch (e) {
-      console.warn('Could not set an issue aside', e)
+      console.warn('Could not mark an issue fixed', e)
+    }
+  }
+
+  /** A critic note whose words were rewritten is marked done in the Critique tab, with the new words. */
+  private noteDone(note: NonNullable<Finding['note']>, words: string): void {
+    try {
+      settleNote(this.d.db, { target: note.target, noteId: note.id, status: 'done', newWords: words, ...(note.at ? { at: note.at } : {}) })
+    } catch (e) {
+      console.warn('Could not mark the critic’s note done', e)
     }
   }
 
   /**
-   * Takes out the second copy of a sentence printed twice in a row (page.ts dropRepeats), before the scene is checked:
-   * the agent's revise can't name one copy of words that are there twice. Saved like any change, and in the report.
+   * Takes out the second copy of a sentence printed twice in a row (page.ts dropRepeats), before the scene is checked.
+   * Saved like any change, and in the report.
    */
   private tidy(sceneId: ID): void {
     const { db } = this.d
@@ -703,7 +789,7 @@ export class ChapterRun {
     }
   }
 
-  private async checkScene(sceneId: ID, checks: CheckKind[] = ALL_CHECKS): Promise<void> {
+  private async checkScene(sceneId: ID, checks: CheckKind[] = STATE_CHECKS): Promise<void> {
     const c = await this.d.check(sceneId, this.controller.signal, checks)
     if (c.status === 'stopped') throw new Stopped()
     if (c.status === 'error') this.failed(c.error)
@@ -730,14 +816,10 @@ export class ChapterRun {
 
   /**
    * The report's notes for Adam: how scenes were drafted, what the scenes after the run's may no longer follow, and what
-   * the critic's last read found.
+   * the critic said that the run didn't act on.
    */
   private notesNow(): void {
-    this.report.notes = [
-      ...this.refs.flatMap((r) => this.draftNotes.get(r.id) ?? []),
-      ...[...this.outsideNotes.values()].flat(),
-      ...(this.lastReadNote ? [this.lastReadNote] : [])
-    ]
+    this.report.notes = [...this.refs.flatMap((r) => this.draftNotes.get(r.id) ?? []), ...[...this.outsideNotes.values()].flat(), ...(this.criticNote ? [this.criticNote] : [])]
   }
 
   /** Whether the critic reads (Adam's switch; on when the run isn't told). */
@@ -745,121 +827,15 @@ export class ChapterRun {
     return this.d.critic?.() ?? true
   }
 
-  private async notes(target: CritiqueTarget, again: boolean): Promise<CritiqueNote[]> {
-    const c = await this.d.critique(target, again, this.controller.signal)
+  private async critiqueOf(target: CritiqueTarget): Promise<{ notes: CritiqueNote[]; at: string }> {
+    const c = await this.d.critique(target, false, this.controller.signal)
     if (c.status === 'stopped') throw new Stopped()
     if (c.status === 'error') this.failed(c.error)
-    return c.critique.notes
+    return { notes: c.critique.notes, at: c.critique.at }
   }
 
   private nextFinding(): string {
     return `F${++this.findingCount}`
-  }
-
-  private async proofreadAll(): Promise<Set<ID>> {
-    const changed = new Set<ID>()
-    for (const r of this.refs) {
-      this.check()
-      this.tell('proofreading', `Proofreading ${r.label}`, r.id)
-      const s = await this.session('proofread', r.id, [])
-      for (const id of s.changed) changed.add(id)
-    }
-    return changed
-  }
-
-  // ---------- A session of the agent ----------
-
-  private async session(job: ChapterJob, sceneId: ID | null, findings: Finding[]): Promise<ChapterSession> {
-    this.check()
-    const { db } = this.d
-    const s = new ChapterSession({
-      db,
-      job,
-      storyId: this.storyId,
-      chapterId: this.chapterId,
-      sceneId,
-      scenes: this.refs,
-      prefs: this.d.prefs,
-      history: this.d.history ?? null,
-      findings: job === 'review' || job === 'chapter' ? findings : [],
-      nextFinding: () => this.nextFinding(),
-      brief: () => this.briefText(),
-      save: (id, page, label) => this.saveScene(id, page, label),
-      rewrite: async (id, direction) => {
-        try {
-          const text = await this.write(id, direction)
-          // Every word of it is the agent's now.
-          this.written.set(id, [text])
-          return { ok: true, text }
-        } catch (e) {
-          if (e instanceof Stopped) throw e
-          return { ok: false, error: (e as Error)?.message ?? String(e) }
-        }
-      },
-      checkAgain: async (id) => {
-        this.tidy(id)
-        // Read already as it is now, with nothing before it changed since: what that check left open is still so.
-        if (!checkedAsIs(db, id, ALL_CHECKS)) {
-          const c = await this.d.check(id, this.controller.signal)
-          if (c.status === 'stopped') throw new Stopped()
-        }
-        cdb.sweepGone(db, { sceneId: id })
-        // The checks' findings, and the critic's first notes still to deal with: the critic isn't asked again.
-        const now = [...issueFindings(db, id), ...this.carried(id).map((n) => noteFinding(n, id))].filter((f) => this.tries.verdict(f, this.ownWords(f)) === 'give')
-        // What was open for the scene and is no longer found is done with.
-        for (const f of this.findings) {
-          if (f.sceneId !== id || f.status !== 'open') continue
-          const still = now.some((n) => (f.issueId && n.issueId === f.issueId) || (n.from === f.from && squash(n.what) === squash(f.what)))
-          if (!still) f.status = 'fixed'
-        }
-        return now.map((f) => ({ ...f, status: 'open' as const }))
-      },
-      setAside: (f) => this.tries.setAside(f),
-      wrote: (id, words) => this.written.set(id, [...(this.written.get(id) ?? []), words]),
-      noted: {
-        fix: (id, fix) => this.sceneReport(id)?.fixed.push(fix),
-        setAside: (id, x) => (id ? this.sceneReport(id) : this.report.scenes[0])?.setAside.push(x),
-        rewritten: (id, why) => this.sceneReport(id)?.rewritten.push(why)
-      }
-    })
-    const messages: ChatMessage[] = [
-      { role: 'system', content: job === 'study' ? studySystem() : job === 'proofread' ? proofreadSystem() : reviewSystem(job) },
-      { role: 'user', content: this.opening(job, sceneId, findings) }
-    ]
-    const taskId = newId()
-    this.currentTask = taskId
-    const done = await runTask({
-      background: true,
-      db,
-      taskId,
-      job: 'chapter',
-      sceneId: sceneId ?? '',
-      model: this.d.agentModel,
-      messages,
-      reply: AGENT_REPLY,
-      temperature: AGENT_TEMPERATURE,
-      direction: this.note,
-      emit: this.d.taskEmit,
-      agent: {
-        tools: s.tools,
-        maxSteps: STEPS[job],
-        run: (calls) => s.runAll(calls),
-        lastWords: () => LAST_WORDS,
-        nudge: () => (s.ended() ? null : nudgeFor(job)),
-        maxNudges: 2,
-        ended: () => s.ended(),
-        onRemoved: (ids) => s.removed(ids)
-      },
-      fetchImpl: this.d.fetchImpl,
-      retryDelays: this.d.retryDelays
-    }).finally(() => {
-      if (this.currentTask === taskId) this.currentTask = null
-    })
-    if (done.status === 'stopped' || this.stopped) throw new Stopped()
-    if (done.status === 'error') this.failed(done.error)
-    if (!s.summary && job !== 'study') s.summary = squash(done.text).slice(0, 600)
-    this.save()
-    return s
   }
 
   private sceneReport(id: ID): ChapterWriterSceneReport | undefined {
@@ -870,82 +846,6 @@ export class ChapterRun {
     this.report.cost = this.cost()
     if (this.d.db.open && !this.d.closed()) saveReport(this.d.db, this.report)
   }
-
-  // ---------- What each session is told first ----------
-
-  private opening(job: ChapterJob, sceneId: ID | null, findings: Finding[]): string {
-    const { db } = this.d
-    const story = repo.getStory(db, this.storyId)
-    const style = effectiveStyle(this.d.prefs, repo.getWorldStyle(db), story.style)
-    const names = nameOf(db)
-    const parts: string[] = []
-    const styleLines = [
-      `Title: ${story.title.trim() || 'Untitled story'}`,
-      style.pov && `Point of view: ${style.pov}`,
-      style.tense && `Tense: ${style.tense}`,
-      style.spelling && `Spelling: ${style.spelling}`,
-      style.proseStyle && `Prose style: ${clip(style.proseStyle, 400)}`
-    ].filter(Boolean)
-    parts.push(`## The story\n${styleLines.join('\n')}`)
-    const scenesLine = this.refs.map((r) => `${r.label} (${repo.getScene(db, r.id).wordCount} words)`).join('; ')
-    parts.push(`## The chapter: ${this.label}\n${this.chapterCard(names)}\nIts scenes: ${scenesLine}`)
-
-    if (job === 'study') {
-      const cards = repo.sceneCards(db, this.sceneIds)
-      for (const r of this.refs) {
-        const card = cards.get(r.id)
-        parts.push(`### ${r.label}\n${card ? cardLines(card, names) || '(The card is empty.)' : '(The card is empty.)'}`)
-      }
-      parts.push('## What to do\nStudy the chapter against the memory with the tools, then call write_brief.')
-      return parts.join('\n\n')
-    }
-
-    const brief = this.briefText()
-    if (brief && job !== 'proofread') parts.push(`## The brief the chapter was written to\n${clip(brief, 8000)}`)
-    const here = sceneId ? this.refs.find((r) => r.id === sceneId) : null
-    if (here) {
-      const card = repo.sceneCards(db, [here.id]).get(here.id)
-      parts.push(`## The scene you are working on: ${here.label}\nScene card:\n${card ? cardLines(card, names) || '(empty)' : '(empty)'}`)
-    }
-    // The words before what was found in them (token audit, 2026-10-19): the findings change from round to round when the
-    // words may not, and a provider reuses only the start of a prompt it has seen (its cache).
-    if (sceneId) parts.push(`## The scene's words ([n] numbers each paragraph; *asterisks* mark italics)\n${numberedScene(db, sceneId)}`)
-    else parts.push('## The scenes\nRead each with read_scene (name it: "Sc 2").')
-    if (job === 'proofread' && sceneId) {
-      const slop = findSlop(repo.getScene(db, sceneId).text ?? '')
-      parts.push(
-        slop.length
-          ? `## Common AI phrases in this scene (say each another way)\n${[...new Set(slop.map((m) => `“${m.text}”`))].slice(0, 20).join('\n')}`
-          : '## Common AI phrases in this scene\nNone found.'
-      )
-    } else {
-      parts.push(`## What the checks and the critic found\n${findings.map((f) => findingLine(f, this.refs)).join('\n')}`)
-    }
-    parts.push(
-      job === 'proofread'
-        ? '## What to do\nProofread the scene: fix each slip with revise, then call done.'
-        : '## What to do\nDeal with every finding above: fix it with revise (or rewrite_scene), or set it aside with not_a_problem and your reason. Then call done.'
-    )
-    return parts.join('\n\n')
-  }
-
-  private chapterCard(name: (id: ID) => string): string {
-    const { db } = this.d
-    const chapter = repo.getChapter(db, this.chapterId)
-    const card = repo.getChapterCard(db, this.chapterId)
-    const lines: string[] = []
-    const add = (label: string, v: string): void => {
-      if (v.trim()) lines.push(`${label}: ${v.trim()}`)
-    }
-    add('Goal', chapter.goal)
-    add(CARRY_LABELS.pov, card.povId ? name(card.povId) : '')
-    add(CARRY_LABELS.present, card.presentIds.map(name).filter(Boolean).join(', '))
-    add(CARRY_LABELS.location, card.locationId ? name(card.locationId) : '')
-    add(CARRY_LABELS.when, card.when)
-    add(CARRY_LABELS.mood, card.mood)
-    add(CARRY_LABELS.notes, clip(card.notes, 800))
-    return lines.join('\n') || '(No chapter card.)'
-  }
 }
 
 /** "one thing", "3 things" (`are`: "3 things are", "one thing is"). */
@@ -955,27 +855,39 @@ const things = (n: number, are = false): string => {
   return are ? `${said} ${n === 1 ? 'is' : 'are'}` : said
 }
 
-/** Entry names by id. */
-function nameOf(db: DB): (id: ID) => string {
-  const byId = new Map(repo.listEntries(db).map((e) => [e.id, e.name]))
-  return (id) => byId.get(id) ?? ''
+/** What the report says was fixed, in plain words. */
+function fixWhy(f: Finding): string {
+  const what = clip(squash(f.what), 300)
+  if (f.from === 'critic') return `The critic: ${what}`
+  return what
+}
+
+/** The critic's notes the run doesn't act on, in a line for Adam; '' for none. */
+function criticWords(notes: CritiqueNote[]): string {
+  if (!notes.length) return ''
+  return `The critic has ${notes.length === 1 ? 'one more note' : `${notes.length} more notes`} on the chapter that the AI didn't act on (${notes
+    .slice(0, 4)
+    .map((n) => `“${clip(squash(n.title), 60)}”`)
+    .join(', ')}${notes.length > 4 ? '…' : ''}). They are in the Critique tab for you to weigh.`
 }
 
 const SEVERITY_WORDS: Record<string, string> = { 'must-fix': 'must fix', warning: 'worth a look', minor: 'minor' }
 
+const payloadOf = (r: Record<string, unknown>): IssuePayload => {
+  try {
+    return typeof r.payload_json === 'string' && r.payload_json ? (JSON.parse(r.payload_json) as IssuePayload) : {}
+  } catch {
+    return {}
+  }
+}
+
 /**
- * A scene's open issues from the checks (and the memory keeper's clashes), as findings. Of what a check through the
- * scene's contract found (long story memory fix 13), only what the words go against that a second opinion agreed with is
- * put right without asking; what isn't shown yet, or wasn't confirmed, stays in the Issues tab for Adam.
+ * A scene's open issues from the checks (and the memory keeper's clashes), as findings to put right. Of what a check
+ * through the scene's contract found (long story memory fix 13), only what the words go against that a second opinion
+ * agreed with is put right without asking; what isn't shown yet is a plan miss (contractMisses), and what wasn't
+ * confirmed stays in the Issues tab for Adam.
  */
 export function issueFindings(db: DB, sceneId: ID): Omit<Finding, 'id' | 'status'>[] {
-  const payloadOf = (r: Record<string, unknown>): IssuePayload => {
-    try {
-      return typeof r.payload_json === 'string' && r.payload_json ? (JSON.parse(r.payload_json) as IssuePayload) : {}
-    } catch {
-      return {}
-    }
-  }
   const forReview = (r: Record<string, unknown>, p: IssuePayload): boolean => !p.contract || (!!p.contract.confirmed && !p.contract.missing && !!String(r.quote ?? '').trim())
   return cdb
     .sceneIssueRows(db, sceneId)
@@ -988,7 +900,7 @@ export function issueFindings(db: DB, sceneId: ID): Omit<Finding, 'id' | 'status
         sceneId,
         from: 'check' as const,
         issueId: r.id as ID,
-        // Something the scene's contract asked for (fix 13): the review is told so.
+        // Something the scene's contract asked for (fix 13): the fix is told so.
         kind: `${SEVERITY_WORDS[r.severity as string] ?? 'worth a look'} · ${p.contract ? 'scene contract' : (p.check ?? (r.kind as string))}`,
         what: (r.message as string) ?? '',
         quote: (r.quote as string) ?? '',
@@ -997,8 +909,79 @@ export function issueFindings(db: DB, sceneId: ID): Omit<Finding, 'id' | 'status
     })
 }
 
-/** A critic note as a finding. */
-export function noteFinding(n: CritiqueNote, sceneId: ID | null): Omit<Finding, 'id' | 'status'> {
+/**
+ * What the scene's contract says must change that its words don't show yet (fix 13's "not yet", once a second opinion
+ * had its say): the scene misses its plan, so it is written again (once), never patched in.
+ */
+export function contractMisses(db: DB, sceneId: ID): Omit<Finding, 'id' | 'status'>[] {
+  return cdb
+    .sceneIssueRows(db, sceneId)
+    .filter((r) => r.status === 'open' && !!payloadOf(r).contract?.missing)
+    .map((r) => ({
+      sceneId,
+      from: 'plan' as const,
+      issueId: r.id as ID,
+      kind: 'plan · not shown',
+      what: (r.message as string) || `The scene doesn't show: ${payloadOf(r).contract?.text ?? ''}`,
+      quote: '',
+      advice: ''
+    }))
+}
+
+/**
+ * Plain matching of a scene against its part of the plan: someone the plan has change in the scene (where they end up,
+ * what they learn) whom the words never name, by name, other name or first name, misses it. Never the card's point of
+ * view, who may tell the scene without once being named (in the first person, say).
+ */
+export function planMisses(db: DB, sceneId: ID, plan: ChapterWritingPlan | null, text: string): Omit<Finding, 'id' | 'status'>[] {
+  const part = plan?.scenes.find((s) => s.sceneId === sceneId)
+  if (!part || !text.trim()) return []
+  const people = repo.listEntries(db).filter((e) => e.kind === 'character')
+  const pov = repo.sceneCards(db, [sceneId]).get(sceneId)?.povId ?? null
+  const out: Omit<Finding, 'id' | 'status'>[] = []
+  for (const c of part.changes) {
+    const e = people.find((p) => p.name === c.who)
+    if (e && e.id === pov) continue
+    const names = e ? [e.name, ...(e.aliases ?? []), e.name.split(/\s+/)[0]] : [c.who]
+    if (names.some((n) => n.trim().length >= 2 && namedInProse(text, n))) continue
+    out.push({
+      sceneId,
+      from: 'plan',
+      issueId: null,
+      kind: 'plan · who is there',
+      what: `The chapter plan has ${c.who} here (${clip(squash(c.change), 200)}), but the scene never names ${c.who}.`,
+      quote: '',
+      advice: ''
+    })
+  }
+  return out
+}
+
+/** The sentence around a place in plain words. */
+function sentenceAt(text: string, from: number, to: number): string {
+  const start = Math.max(text.lastIndexOf('\n', from - 1) + 1, ...['. ', '! ', '? ', '… '].map((m) => text.lastIndexOf(m, from - 1) + (text.lastIndexOf(m, from - 1) >= 0 ? m.length : 0)))
+  const ends = ['.', '!', '?', '…', '\n'].map((m) => text.indexOf(m, to)).filter((i) => i >= 0)
+  const end = ends.length ? Math.min(...ends) + 1 : text.length
+  return text.slice(start, end).trim()
+}
+
+/** Stock AI phrases in a freshly written scene (shared/slop.ts), at most PHRASES_MOST, each in its sentence. */
+export function phraseFindings(sceneId: ID, text: string): Omit<Finding, 'id' | 'status'>[] {
+  return findSlop(text)
+    .slice(0, PHRASES_MOST)
+    .map((m) => ({
+      sceneId,
+      from: 'phrase' as const,
+      issueId: null,
+      kind: 'phrase',
+      what: `“${m.text}” is a stock phrase: say it another way, in the book's own voice.`,
+      quote: sentenceAt(text, m.from, m.to) || m.text,
+      advice: ''
+    }))
+}
+
+/** A critic note on a scene of the chapter, as a finding. */
+export function noteFinding(n: CritiqueNote, sceneId: ID, at: string, chapterId: ID): Omit<Finding, 'id' | 'status'> {
   return {
     sceneId,
     from: 'critic',
@@ -1006,7 +989,8 @@ export function noteFinding(n: CritiqueNote, sceneId: ID | null): Omit<Finding, 
     kind: `critic · ${n.category} · ${n.weight}`,
     what: n.title,
     quote: n.quote,
-    advice: n.suggestion
+    advice: n.suggestion,
+    note: { id: n.id, at, target: { scope: 'chapter', id: chapterId } }
   }
 }
 

@@ -57,7 +57,7 @@ import { soFarBlock } from '../beats/instructions'
 import { startBeat } from '../beats'
 import { resetVariantsForTests, startVariantSet } from '../variants'
 import { startEdit } from '../edits'
-import { PLAN_HEAD, PLAN_MARKER } from './plan'
+import { CHAPTER_PART_TITLE, PLAN_HEAD, PLAN_MARKER } from './plan'
 import { forgetScenePlans } from '.'
 
 /** Every chat request sent, as the provider got it. */
@@ -241,11 +241,18 @@ describe('every writing path plans first while "Plan before writing" is on', () 
     expect(writer[0].user).toBe(writer[1].user)
   })
 
-  it('Write the whole chapter’s drafts: a scene plan for each (briefed as ipc/chapterWriter.ts briefs them, without a brief)', async () => {
+  it('Write the whole chapter’s drafts: a scene plan for each, built on the scene’s part of the chapter plan (briefed as ipc/chapterWriter.ts briefs them, without a brief)', async () => {
     const w = world()
-    const extraBlocks = [{ id: 'chapter-study', title: 'Notes for this scene, from studying the chapter', text: 'Keep it quiet.' }]
-    const b = await draftBriefing(w.scene, OPTIONS, { extras: { extraBlocks }, brief: false })
+    const part = 'What it must do: Wren finds the inn shut and talks her way in.\nWhat changes by its end:\n- Wren: ends up in the loft'
+    const extraBlocks = [{ id: 'chapter-plan', title: 'This scene’s part of the chapter plan (keep to it)', text: part }]
+    const b = await draftBriefing(w.scene, OPTIONS, { extras: { extraBlocks }, brief: false, chapterPlan: part })
     expect(plans()).toHaveLength(2)
+    // The scene plan builds on the scene's part, right after the card, in both its requests.
+    expect(plans()[0].user).toContain(`## ${CHAPTER_PART_TITLE}\n${part}`)
+    expect(plans()[0].user.indexOf(CHAPTER_PART_TITLE)).toBeGreaterThan(plans()[0].user.indexOf('## The scene card'))
+    expect(plans()[1].user).toContain(part)
+    // The writer gets the part, and the scene plan made on it.
+    expect(b.preview.messages[1].content).toContain(part)
     expect(b.preview.messages[1].content).toContain(PLAN_HEAD)
   })
 
