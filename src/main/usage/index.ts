@@ -45,6 +45,7 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'startEdit',
   'askWorld',
   'startOutline',
+  'startOutlineStage',
   'startSceneIdeas',
   'askPlanQuestion',
   'fillSceneCard',

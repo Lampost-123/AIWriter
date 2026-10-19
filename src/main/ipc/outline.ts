@@ -15,11 +15,12 @@ import { refreshDefaultExistsPoints, loadShape } from '../db/memory'
 import { scenesDeleted, scenesRestored } from '../keeper'
 import { actDeleteNotes, createChapterAt, keepOutline, unkeepOutline } from '../outline/structure'
 import { startIdeasJob, startOutlineJob, type JobDeps } from '../outline/jobs'
+import { startStageJob } from '../outline/stages'
 import { isBlankPlan, storyPlan } from '../outline/context'
 import { askPlanQuestion, fillSceneCard, startChapterPlan } from '../outline/interview'
 import { cancelBuildFor } from '../worldBuilder/run'
 import { readBrief } from '../storyBuilder/brief'
-import { hasIdea, startStoryOutline } from '../storyBuilder/jobs'
+import { hasIdea, startStoryOutline, startStoryStage } from '../storyBuilder/jobs'
 import { storyBuilderDeps } from './storyBuilder'
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
@@ -91,6 +92,12 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
     const brief = readBrief(world.db(), String(input?.storyId ?? ''))
     if (hasIdea(brief)) return startStoryOutline(storyBuilderDeps(), input, brief)
     return startOutlineJob(jobDeps(), input)
+  },
+  startOutlineStage: (input) => {
+    // The outline in stages (2026-10-19): a story with an idea in the Story builder is planned from it, as above.
+    const brief = readBrief(world.db(), String(input?.storyId ?? ''))
+    if (hasIdea(brief)) return startStoryStage(storyBuilderDeps(), input, brief)
+    return startStageJob(jobDeps(), input)
   },
   keepOutline: (storyId, items) => {
     const kept = write(() => keepOutline(world.db(), storyId, items ?? []))

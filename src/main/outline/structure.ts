@@ -273,8 +273,10 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
       } else if (item.kind === 'chapter') {
         // Into its act; with none given, into the story's last act (if it has acts).
         const all = acts.listActs(db, storyId)
-        const actId = resolve(item.parent, 'act') ?? (item.parent ? null : (all[all.length - 1]?.id ?? null))
-        if (item.parent && !actId) throw new UserError('That act no longer exists.')
+        // A parent naming nothing: among the chapters with no act (Adam chose a place there).
+        const noAct = !!item.parent && !item.parent.id && !item.parent.key
+        const actId = noAct ? null : (resolve(item.parent, 'act') ?? (item.parent ? null : (all[all.length - 1]?.id ?? null)))
+        if (item.parent && !noAct && !actId) throw new UserError('That act no longer exists.')
         // The story's untouched first chapter takes this one's place, rather than staying behind.
         const chapter = spareChapter ? repo.getChapter(db, spareChapter) : repo.createChapter(db, storyId, title ? { title } : {})
         if (spareChapter && title) repo.updateChapter(db, chapter.id, { title })
