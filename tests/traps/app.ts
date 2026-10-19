@@ -622,7 +622,31 @@ export async function openApp(
   }
 
   try {
-    if (cfg.standin) {
+    if (cfg.standin && cfg.fake) {
+      // Mixed: the fake provider answers everything except the jobs in TRAPS_STANDIN_JOBS (a pattern matched against the
+      // start of a request's instructions, e.g. "novelist|PLAN"), which go to the stand-in model for a Claude helper to
+      // answer. Keeps a helper's part of a run to the writing itself.
+      const { startFakeProvider } = await import('../fake-provider/server.mjs')
+      const { startStandin, jobOf } = await import('../standin/server.mjs')
+      fake = await startFakeProvider({ delayMs: 0, words: 220 })
+      standin = await startStandin({ dir: cfg.standin })
+      const pick = new RegExp(process.env.TRAPS_STANDIN_JOBS?.trim() || 'novelist', 'i')
+      const inner = budget.wrap(withStandIns(realFetch))
+      const base = fake.url.replace(/\/+$/, '')
+      cfg.log(`mixed run: jobs matching /${pick.source}/ go to the stand-in model at ${standin.url}; the rest to the fake provider`)
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        if (url.startsWith(base) && url.includes('/chat/completions') && typeof init?.body === 'string') {
+          try {
+            const body = JSON.parse(init.body) as { messages?: { role: string; content: unknown }[] }
+            if (pick.test(jobOf(body.messages ?? []))) return inner(url.replace(base, standin!.url), init)
+          } catch {
+            // Not JSON: the fake provider's.
+          }
+        }
+        return inner(input, init)
+      }) as typeof fetch
+    } else if (cfg.standin) {
       // The stand-in model: no key, no network beyond this computer, no cost. Its replies come from a Claude helper.
       const { startStandin } = await import('../standin/server.mjs')
       standin = await startStandin({ dir: cfg.standin })
@@ -710,7 +734,7 @@ export async function openApp(
 
     // The provider and the models, as Settings › Models would have them: DeepSeek through the app's DeepSeek preset
     // (a custom, OpenAI-compatible provider), or OpenRouter. The fake run is a custom provider too.
-    const provider = cfg.standin
+    const provider = cfg.standin && !cfg.fake
       ? providers.saveProvider({ kind: 'custom', name: 'Stand-in', baseUrl: standin!.url, apiKey: 'standin' })
       : cfg.fake
       ? providers.saveProvider({ kind: 'custom', name: 'Fake', baseUrl: fake!.url, apiKey: 'traps-fake' })
@@ -720,7 +744,7 @@ export async function openApp(
     // The model list costs nothing.
     const listed = await providers.listModels(provider.id)
     const flash = (): string => {
-      if (cfg.standin) return 'standin/model'
+      if (cfg.standin && !cfg.fake) return 'standin/model'
       if (cfg.fake) return 'fake/writer'
       const found = pickFlash(
         listed.map((m) => m.id),

@@ -137,6 +137,15 @@ export async function startStandin({ dir, port = 0, timeoutMs = 15 * 60_000, pol
 
       let reply = answer ? await answer(record) : null
       const replyPath = join(outbox, `${id}.json`)
+      // A helper can take minutes to write a scene, longer than the app waits for a reply to start: the reply starts
+      // now (as a streamed one would) and its words follow when they are written.
+      let early = false
+      if (!reply) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.flushHeaders()
+        early = true
+      }
+      const finish = (status, out) => (early ? res.end(JSON.stringify(out)) : send(res, status, out))
       let aborted = false
       res.on('close', () => {
         if (!res.writableEnded) aborted = true
@@ -166,15 +175,15 @@ export async function startStandin({ dir, port = 0, timeoutMs = 15 * 60_000, pol
       if (aborted) return appendFileSync(logPath, JSON.stringify({ ...entry, outcome: 'stopped by the app' }) + '\n')
       if (!reply) {
         appendFileSync(logPath, JSON.stringify({ ...entry, outcome: 'timed out' }) + '\n')
-        return send(res, 504, { error: { message: 'The stand-in did not answer in time.' } })
+        return finish(504, { error: { message: 'The stand-in did not answer in time.' } })
       }
       if (reply.error) {
         appendFileSync(logPath, JSON.stringify({ ...entry, outcome: 'error' }) + '\n')
-        return send(res, 500, { error: { message: String(reply.error) } })
+        return finish(500, { error: { message: String(reply.error) } })
       }
       const out = replyBody(id, body.model, reply, record.estimated_tokens_in)
       appendFileSync(logPath, JSON.stringify({ ...entry, outcome: 'answered', tokens_out: out.usage.completion_tokens, tool_calls: out.choices[0].message.tool_calls?.length ?? 0 }) + '\n')
-      send(res, 200, out)
+      finish(200, out)
     })
   })
 

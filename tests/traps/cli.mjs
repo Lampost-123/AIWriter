@@ -16,6 +16,7 @@
 //   --measure <file>       log every chat request's size (job, messages, estimated tokens in) to a JSON-lines file
 //   --standin <folder>     use the stand-in model (tests/standin/server.mjs): every request is saved in <folder>/inbox and
 //                          answered from <folder>/outbox by a Claude helper (tests/standin/RESPONDER.md). No key, no cost.
+//                          With --fake, only the jobs in --standin-jobs <pattern> (default "novelist", the writer) go there.
 //   --provider <name>      deepseek (the default: DeepSeek's own API, with the app's DeepSeek preset) or openrouter
 //   --root <folder>        score the app code in another checkout (say the step 2 branch's worktree); it needs its own
 //                          node_modules (npm ci there). Default: this checkout.
@@ -79,7 +80,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--check-samples', '--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare', '--standin', '--measure']
+const known = ['--check-samples', '--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare', '--standin', '--standin-jobs', '--measure']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -113,6 +114,10 @@ if (flag('--rescore')) {
   const standin = value('--standin')
   if (standin) env.TRAPS_STANDIN = resolve(standin)
   else delete env.TRAPS_STANDIN
+  // With --fake: only these jobs go to the stand-in model, the rest to the fake provider (a pattern, e.g. "novelist|PLAN").
+  const standinJobs = value('--standin-jobs')
+  if (standinJobs) env.TRAPS_STANDIN_JOBS = standinJobs
+  else delete env.TRAPS_STANDIN_JOBS
   // Logs every chat request's size, by job, to this JSON-lines file.
   const measure = value('--measure')
   if (measure) env.TRAPS_MEASURE = resolve(measure)
