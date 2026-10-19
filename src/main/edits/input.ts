@@ -1,11 +1,12 @@
 // An AI edit as the window sends it, checked and cut to size before the briefing is made from it. Pure (no
 // database), so it can be tested.
 
-import type { EditInput } from '@shared/contracts/edits'
+import { KEEP_MOST, type EditInput } from '@shared/contracts/edits'
 import type { EditTool } from '@shared/types'
+import { keepsIn } from '@shared/revise'
 import { UserError } from '../util'
 
-const TOOLS: EditTool[] = ['rewrite', 'expand', 'condense', 'vivid', 'tone', 'voice', 'alternatives', 'continue']
+const TOOLS: EditTool[] = ['rewrite', 'expand', 'condense', 'vivid', 'tone', 'voice', 'alternatives', 'continue', 'revise']
 
 /** Longest text taken from the window for each part (a whole scene is far smaller). */
 export const MAX_CHARS = 400_000
@@ -17,7 +18,17 @@ export const MAX_CHARS = 400_000
 const text = (v: unknown, keep: 'start' | 'end' = 'start'): string =>
   typeof v !== 'string' ? '' : keep === 'end' ? v.slice(-MAX_CHARS) : v.slice(0, MAX_CHARS)
 
-/** The edit, checked. Throws (plain words) when the tool is unknown, or Rewrite or Change tone has nothing to go on. */
+/**
+ * Change it…'s kept sentences: strings only, each kept to a sensible length, and only those the passage has (in its order,
+ * once each), at most KEEP_MOST.sentences.
+ */
+function keeps(v: unknown, passage: string): string[] {
+  if (!Array.isArray(v)) return []
+  const list = v.filter((x): x is string => typeof x === 'string' && !!x.trim() && x.length <= KEEP_MOST.chars)
+  return keepsIn(passage, list).slice(0, KEEP_MOST.sentences)
+}
+
+/** The edit, checked. Throws (plain words) when the tool is unknown, or Rewrite, Change tone or Change it has nothing to go on. */
 export function editInput(raw: EditInput): EditInput {
   const tool = raw?.tool
   if (!TOOLS.includes(tool)) throw new UserError('Something went wrong starting that. Try again.')
@@ -31,8 +42,12 @@ export function editInput(raw: EditInput): EditInput {
     after: text(raw.after),
     continueAs: raw.continueAs === 'inline' ? 'inline' : 'paragraph'
   }
-  if ((tool === 'rewrite' || tool === 'tone') && !input.direction) {
-    throw new UserError(tool === 'rewrite' ? 'Say how to rewrite the words first.' : 'Pick a tone first.')
+  if (tool === 'revise') {
+    const kept = keeps(raw.keep, input.selection)
+    if (kept.length) input.keep = kept
+  }
+  if ((tool === 'rewrite' || tool === 'tone' || tool === 'revise') && !input.direction) {
+    throw new UserError(tool === 'rewrite' ? 'Say how to rewrite the words first.' : tool === 'revise' ? 'Say what to change first.' : 'Pick a tone first.')
   }
   return input
 }

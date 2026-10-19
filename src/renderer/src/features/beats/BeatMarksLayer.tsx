@@ -1,19 +1,18 @@
 // Beat markers on the page (2026-10-08; SceneView, in the page's scrolling area): while writing beat by beat, and
 // after Finish with "Show beats" on, a band down the edge of each beat's paragraphs (beatMarks.ts) and a small
 // "Beat N" label beside where it begins, shown when the pointer is over the beat or the label has the keyboard (Tab
-// reaches the labels after the page). The label opens the beat's menu: Redo this beat, Change and redo (a one-line
-// note), What the AI saw for it, Remove this beat; and for a beat written before an earlier beat changed, a quiet
+// reaches the labels after the page). The label opens the beat's menu: Redo this beat, Change it… (the change box:
+// a note, and the sentences to keep word for word; edits/changeStore.ts), What the AI saw for it, Remove this beat; and for
+// a beat written before an earlier beat changed, a quiet
 // note under its label, Keep it as it is, and (from the changed beat) Redo the beats after this. What the menu does
 // is in redo.ts. Owned by the Beat by beat part. Restylable: the labels sit in the page's left margin, drawn from
 // data attributes and classes in beatMarks.css.
 import * as M from '@radix-ui/react-dropdown-menu'
-import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import { Check, FileSearch, ListRestart, RotateCcw, SquarePen, Trash2 } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
-import { Button, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { setBeatMarks } from './beatMarks'
@@ -22,7 +21,9 @@ import { adoptSplits, beatsShown, writtenBefore, type BeatOnPage } from './marks
 import { changeMarks, installMarks, loadMarks, useBeatMarks } from './marksStore'
 import { keepBeat, redoAfter, redoBeat, redoing, removeBeat, showBeatRecord } from './redo'
 import { useBeats } from './session'
-import { MAX_NOTE_CHARS } from './sessionLogic'
+import { beatRange } from './sessionLogic'
+import { focusChangeBox, openChangeBox } from '@/features/edits/changeStore'
+import { textOf } from '@/features/edits/text'
 import './beatMarks.css'
 
 /** Room between a label and the band. */
@@ -52,9 +53,8 @@ export function BeatMarksLayer({
   const [placed, setPlaced] = useState<Placed[]>([])
   const [margin, setMargin] = useState<{ right: number; inside: boolean; left: number }>({ right: 0, inside: false, left: 0 })
   const [hot, setHot] = useState<number | null>(null)
-  /** The label whose menu (or note box) is open. */
+  /** The label whose menu is open. */
   const [open, setOpen] = useState<number | null>(null)
-  const [noteFor, setNoteFor] = useState<number | null>(null)
   // A beat written again shows its label while it is.
   const [busyBeat, setBusyBeat] = useState<number | null>(null)
 
@@ -63,7 +63,6 @@ export function BeatMarksLayer({
     if (sceneId) void loadMarks(sceneId)
     setHot(null)
     setOpen(null)
-    setNoteFor(null)
   }, [sceneId])
 
   // A beat's paragraph split in two: the second half joins the beat (even while the markers are hidden).
@@ -130,7 +129,8 @@ export function BeatMarksLayer({
     const out: Placed[] = []
     for (const b of shown) {
       const el = editor.view.nodeDOM(b.pos)
-      if (!(el instanceof HTMLElement)) continue
+      // A beat whose words make way for a change of only what moved (edits/suggestions.ts) has no place to show for now.
+      if (!(el instanceof HTMLElement) || !el.getClientRects().length) continue
       out.push({ index: b.index, top: Math.round(el.getBoundingClientRect().top - box.top + scroller.scrollTop) })
     }
     setPlaced((p) => (p.length === out.length && p.every((x, i) => x.index === out[i].index && x.top === out[i].top) ? p : out))
@@ -188,16 +188,24 @@ export function BeatMarksLayer({
             left={margin.left}
             inside={margin.inside}
             later={later}
-            shownNow={hot === b.index || open === b.index || noteFor === b.index || busyBeat === b.index || writingInBar === b.index}
+            shownNow={hot === b.index || open === b.index || busyBeat === b.index || writingInBar === b.index}
             menuOpen={open === b.index}
             onMenu={(o) => setOpen(o ? b.index : null)}
-            noteOpen={noteFor === b.index}
-            onNote={(o) => setNoteFor(o ? b.index : null)}
+            onChange={() => changeBeat(editor, sceneId, b)}
           />
         )
       })}
     </div>
   )
+}
+
+/** Change it… on a beat: the change box on its words (sent with the version on the page, as any beat written again). */
+function changeBeat(editor: Editor, sceneId: ID, beat: BeatOnPage): void {
+  if (editor.isDestroyed) return
+  const doc = editor.state.doc
+  const range = beatRange(doc, beat.pids)
+  if (!range) return
+  openChangeBox({ kind: 'beat', sceneId, index: beat.index, from: range.from, to: range.to, text: textOf(doc, range.from, range.to), what: `Beat ${beat.index}` })
 }
 
 const ITEM =
@@ -214,8 +222,7 @@ function BeatLabel({
   shownNow,
   menuOpen,
   onMenu,
-  noteOpen,
-  onNote
+  onChange
 }: {
   sceneId: ID
   beat: BeatOnPage
@@ -227,17 +234,15 @@ function BeatLabel({
   shownNow: boolean
   menuOpen: boolean
   onMenu: (open: boolean) => void
-  noteOpen: boolean
-  onNote: (open: boolean) => void
+  /** Change it… on this beat. */
+  onChange: () => void
 }): React.JSX.Element {
   const n = beat.index
   const stale = beat.staleBy
   const showBeats = useApp((s) => !!s.settings?.editor?.showBeats)
   const buttonRef = useRef<HTMLButtonElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  /** Change and redo was picked: the note box opens once the menu has closed. */
-  const noteNext = useRef(false)
-  const [note, setNote] = useState('')
+  /** Change it… was picked: the keyboard goes to the change box once the menu has closed. */
+  const toBox = useRef(false)
   const style: React.CSSProperties = inside ? { top, left } : { top, right }
   return (
     <div
@@ -247,132 +252,90 @@ function BeatLabel({
       className="aw-beat-label"
       style={style}
     >
-      <P.Root open={noteOpen} onOpenChange={onNote}>
-        <M.Root open={menuOpen} onOpenChange={onMenu} modal={false}>
-          <P.Anchor asChild>
-            <M.Trigger asChild>
-              <button
-                ref={buttonRef}
-                type="button"
-                className="aw-beat-tag"
-                aria-label={`Beat ${n}${stale != null ? `, written before beat ${stale} changed` : ''}: what you can do with it`}
-                // The caret stays in the page until the menu takes the keyboard.
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                Beat {n}
-              </button>
-            </M.Trigger>
-          </P.Anchor>
-          <M.Portal>
-            <M.Content
-              aria-label={`Beat ${n}`}
-              align={inside ? 'start' : 'end'}
-              side={inside ? 'bottom' : 'left'}
-              sideOffset={6}
-              collisionPadding={8}
-              onCloseAutoFocus={(e) => {
-                if (!noteNext.current) return
-                // Change and redo: the keyboard goes to the note box rather than back to the label.
-                noteNext.current = false
-                e.preventDefault()
-                onNote(true)
-              }}
-              className="z-50 min-w-[220px] rounded-lg border border-line bg-surface p-1 font-sans shadow-pop data-[state=open]:animate-pop-in"
-            >
-              <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => void redoBeat(sceneId, n)}>
-                <RotateCcw size={14} className="text-muted" aria-hidden />
-                Redo this beat
-              </M.Item>
-              <M.Item
-                className={cn(ITEM, 'text-fg')}
-                onSelect={() => {
-                  setNote('')
-                  // Once the menu has gone, the note box opens beside the label (see onCloseAutoFocus).
-                  noteNext.current = true
-                }}
-              >
-                <SquarePen size={14} className="text-muted" aria-hidden />
-                Change and redo…
-              </M.Item>
-              <M.Item className={cn(ITEM, 'text-fg')} disabled={!beat.recordId} onSelect={() => showBeatRecord(beat.recordId)}>
-                <FileSearch size={14} className="text-muted" aria-hidden />
-                What the AI saw
-              </M.Item>
-              {stale != null || later.length ? <M.Separator className="my-1 h-px bg-line" /> : null}
-              {stale != null ? (
-                <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => keepBeat(sceneId, n)}>
-                  <Check size={14} className="text-muted" aria-hidden />
-                  Keep it as it is
-                </M.Item>
-              ) : null}
-              {later.length ? (
-                <>
-                  <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => void redoAfter(sceneId, n, 'next')}>
-                    <ListRestart size={14} className="text-muted" aria-hidden />
-                    {`Redo the next one after this (beat ${later[0]})`}
-                  </M.Item>
-                  {later.length > 1 ? (
-                    <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => void redoAfter(sceneId, n, 'all')}>
-                      <ListRestart size={14} className="text-muted" aria-hidden />
-                      {`Redo all ${later.length} after this, in order`}
-                    </M.Item>
-                  ) : null}
-                </>
-              ) : null}
-              <M.Separator className="my-1 h-px bg-line" />
-              <M.Item className={cn(ITEM, 'text-danger')} onSelect={() => void removeBeat(sceneId, n)}>
-                <Trash2 size={14} aria-hidden />
-                Remove this beat
-              </M.Item>
-              <M.Separator className="my-1 h-px bg-line" />
-              <M.CheckboxItem className={cn(ITEM, 'text-fg')} checked={showBeats} onCheckedChange={(v) => void setShowBeats(v === true)}>
-                <span className="flex w-[14px] justify-center text-muted" aria-hidden>
-                  <M.ItemIndicator>
-                    <Check size={14} />
-                  </M.ItemIndicator>
-                </span>
-                Show beats after you finish
-              </M.CheckboxItem>
-            </M.Content>
-          </M.Portal>
-        </M.Root>
-        <P.Portal>
-          <P.Content
+      <M.Root open={menuOpen} onOpenChange={onMenu} modal={false}>
+        <M.Trigger asChild>
+          <button
+            ref={buttonRef}
+            type="button"
+            className="aw-beat-tag"
+            aria-label={`Beat ${n}${stale != null ? `, written before beat ${stale} changed` : ''}: what you can do with it`}
+            // The caret stays in the page until the menu takes the keyboard.
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            Beat {n}
+          </button>
+        </M.Trigger>
+        <M.Portal>
+          <M.Content
+            aria-label={`Beat ${n}`}
+            align={inside ? 'start' : 'end'}
             side={inside ? 'bottom' : 'left'}
-            align="start"
             sideOffset={6}
             collisionPadding={8}
-            onOpenAutoFocus={(e) => {
-              e.preventDefault()
-              inputRef.current?.focus()
+            onCloseAutoFocus={(e) => {
+              if (!toBox.current) return
+              // Change it…: the keyboard goes to the change box rather than back to the label.
+              toBox.current = false
+              if (focusChangeBox()) e.preventDefault()
             }}
-            className="z-50 w-[min(380px,calc(100vw-32px))] rounded-lg border border-line bg-surface p-2.5 font-sans shadow-pop data-[state=open]:animate-pop-in"
-            aria-label={`Change and redo beat ${n}`}
+            className="z-50 min-w-[220px] rounded-lg border border-line bg-surface p-1 font-sans shadow-pop data-[state=open]:animate-pop-in"
           >
-            <form
-              className="flex items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                onNote(false)
-                void redoBeat(sceneId, n, note)
+            <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => void redoBeat(sceneId, n)}>
+              <RotateCcw size={14} className="text-muted" aria-hidden />
+              Redo this beat
+            </M.Item>
+            <M.Item
+              className={cn(ITEM, 'text-fg')}
+              onSelect={() => {
+                toBox.current = true
+                onChange()
               }}
             >
-              <Input
-                ref={inputRef}
-                value={note}
-                maxLength={MAX_NOTE_CHARS}
-                onChange={(e) => setNote(e.target.value)}
-                aria-label={`What to change in beat ${n}`}
-                placeholder={`What should change in beat ${n}?`}
-                className="min-w-0 flex-1"
-              />
-              <Button type="submit" variant="primary" size="sm" icon={<RotateCcw size={13} />}>
-                Redo
-              </Button>
-            </form>
-          </P.Content>
-        </P.Portal>
-      </P.Root>
+              <SquarePen size={14} className="text-muted" aria-hidden />
+              Change it…
+            </M.Item>
+            <M.Item className={cn(ITEM, 'text-fg')} disabled={!beat.recordId} onSelect={() => showBeatRecord(beat.recordId)}>
+              <FileSearch size={14} className="text-muted" aria-hidden />
+              What the AI saw
+            </M.Item>
+            {stale != null || later.length ? <M.Separator className="my-1 h-px bg-line" /> : null}
+            {stale != null ? (
+              <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => keepBeat(sceneId, n)}>
+                <Check size={14} className="text-muted" aria-hidden />
+                Keep it as it is
+              </M.Item>
+            ) : null}
+            {later.length ? (
+              <>
+                <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => void redoAfter(sceneId, n, 'next')}>
+                  <ListRestart size={14} className="text-muted" aria-hidden />
+                  {`Redo the next one after this (beat ${later[0]})`}
+                </M.Item>
+                {later.length > 1 ? (
+                  <M.Item className={cn(ITEM, 'text-fg')} onSelect={() => void redoAfter(sceneId, n, 'all')}>
+                    <ListRestart size={14} className="text-muted" aria-hidden />
+                    {`Redo all ${later.length} after this, in order`}
+                  </M.Item>
+                ) : null}
+              </>
+            ) : null}
+            <M.Separator className="my-1 h-px bg-line" />
+            <M.Item className={cn(ITEM, 'text-danger')} onSelect={() => void removeBeat(sceneId, n)}>
+              <Trash2 size={14} aria-hidden />
+              Remove this beat
+            </M.Item>
+            <M.Separator className="my-1 h-px bg-line" />
+            <M.CheckboxItem className={cn(ITEM, 'text-fg')} checked={showBeats} onCheckedChange={(v) => void setShowBeats(v === true)}>
+              <span className="flex w-[14px] justify-center text-muted" aria-hidden>
+                <M.ItemIndicator>
+                  <Check size={14} />
+                </M.ItemIndicator>
+              </span>
+              Show beats after you finish
+            </M.CheckboxItem>
+          </M.Content>
+        </M.Portal>
+      </M.Root>
       {stale != null ? <span className="aw-beat-note">Written before beat {stale} changed</span> : null}
     </div>
   )

@@ -42,6 +42,14 @@ export interface BeatStart {
    * this beat". '' or missing: nothing comes after it (the usual case).
    */
   after?: string
+  /**
+   * A beat written again (Write it again, Redo this beat, Change it…): the beat's words on the page now, so the AI sees the
+   * version it replaces ("This beat as it is now"): with a note it changes that version as the note says; without one it
+   * writes a fresh take on the beat rather than the same words again. '' or missing: a beat written for the first time.
+   */
+  old?: string
+  /** Change it… on a beat: sentences of `old` Adam marked Keep, each exactly as it is there, to come back word for word. */
+  keep?: string[]
 }
 
 export type SoFarEnd = 'with-beat' | 'mid-beat' | 'after-beat'

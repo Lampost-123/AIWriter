@@ -253,6 +253,45 @@ describe('starting a beat', () => {
     expect(rec.blocks.find((b) => b.id === 'scene-after')?.text).toBe(AFTER)
   })
 
+  it('writes a beat again with the version on the page sent (Keep this, change that): the note changes it, kept sentences word for word', async () => {
+    const { db, sceneId } = setup()
+    const r = recorder()
+    const OLD = 'Tobin leaned in. “The ledger,” he said. The fire spat.\n\nMara kept her hands still.'
+    const KEPT = '“The ledger,” he said.'
+    const { generationId } = await startBeat(
+      input(sceneId, { steer: 'Closer, but shorter.', old: OLD, keep: [KEPT, 'A sentence the beat never had.'] }),
+      { emit: r.emit }
+    )
+    expect((await r.done(generationId)).status).toBe('complete')
+    const user = fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content
+    // The old version is quoted once, after the scene so far and before the closing instruction.
+    expect(count(user, 'Mara kept her hands still.')).toBe(1)
+    const soFar = user.indexOf('## The scene so far')
+    const old = user.indexOf('## This beat as it is now')
+    const keep = user.indexOf('## Sentences to keep')
+    const closing = user.indexOf('Write beat 2 of the 3 on the scene card again now, in place of the version on the page.')
+    expect(old).toBeGreaterThan(soFar)
+    expect(keep).toBeGreaterThan(old)
+    expect(closing).toBeGreaterThan(keep)
+    expect(user).toContain("The author's note for this beat: Closer, but shorter.")
+    expect(user).toContain('Change it as the author\'s note for this beat asks, and keep the rest of it as close to how it is as the change allows.')
+    // Only the kept sentence the beat has goes, once in its list.
+    expect(user).toContain(`## Sentences to keep\n\n- ${KEPT}`)
+    expect(user).not.toContain('A sentence the beat never had.')
+    expect(user).toContain('one of its sentences Keep (under "Sentences to keep"): it must be in the new version exactly as written')
+    const rec = gens.getGeneration(db, generationId)
+    expect(rec.blocks.find((b) => b.id === 'beat-as-it-is')?.text).toBe(OLD)
+    expect(rec.blocks.find((b) => b.id === 'beat-keep')?.text).toBe(`- ${KEPT}`)
+
+    // With no note, a fresh take that isn't the same sentences again; nothing kept, no list.
+    const fresh = await startBeat(input(sceneId, { steer: '', old: OLD }), { emit: r.emit })
+    await r.done(fresh.generationId)
+    const again = fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content
+    expect(again).toContain('## This beat as it is now')
+    expect(again).toContain('Write a fresh version of it: the same beat, told differently, not the same sentences again.')
+    expect(again).not.toContain('## Sentences to keep')
+  })
+
   it('says plainly when the scene card has no beats, or not that one', async () => {
     const r = recorder()
     const empty = setup(['', '  '])

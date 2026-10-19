@@ -12,6 +12,9 @@
 // - Once an earlier beat changes, the beats after it say they were written before it changed (marks.ts), and can
 //   be written again one at a time, or all of them in order (each a tracked change of its own).
 // - Taking a beat out keeps the scene in History first, then takes its paragraphs out as one undo step.
+// - Written again, a beat is sent with the version on the page now (2026-10-19, "Keep this, change that"): with a note the
+//   AI changes it, without one it writes a fresh take. Change it… on a beat (the change box, edits/changeStore.ts) adds the
+//   sentences Adam marked Keep, checked word for word once the words are in, and shows only what moved.
 
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { AppEvents } from '@shared/api'
@@ -29,8 +32,9 @@ import { resolveDraftOptions } from '@/features/generate/draftOptions'
 import { busyElsewhere } from '@/features/generate/draftRun'
 import { WORDS_META } from '@/features/goals/wordsMeta'
 import { repairLanded } from '@/features/repair/repairRun'
-import { cleanReply } from '@/features/edits/text'
-import { dropReplacement, showReplacement, updateReplacement, waitingSuggestion } from '@/features/edits/session'
+import { cleanReply, textOf } from '@/features/edits/text'
+import { dropReplacement, keptNote, showReplacement, updateReplacement, waitingSuggestion } from '@/features/edits/session'
+import { restoreKeeps } from '@shared/revise'
 import { beatBeingWritten, recount, writeAgainFromPage } from './flow'
 import { beatOf, beatSig, beatsShown, keptAsIs, paragraphsOf, withPids, withVersion, writtenBefore } from './marks'
 import { changeMarks, installMarks, loadMarks, marksOf } from './marksStore'
@@ -69,6 +73,8 @@ interface Redo {
   ended: boolean
   /** The change also replaces paragraphs Adam wrote himself, between the beat's own: says so ('' with none). */
   warning: string
+  /** Change it…: the sentences Adam marked Keep, checked once the words are in (and put back if need be). */
+  keeps: string[]
 }
 
 let redo: Redo | null = null
@@ -86,7 +92,12 @@ export const redoing = (sceneId: ID): number | null => (redo && redo.sceneId ===
  * last beat, else as a tracked change in place (see the top of this file). Resolves true once it is being written
  * again (false when it can't be; why has been shown).
  */
-export async function redoBeat(sceneId: ID, index: number, note = '', o: { tracked?: boolean } = {}): Promise<boolean> {
+export async function redoBeat(
+  sceneId: ID,
+  index: number,
+  note = '',
+  o: { tracked?: boolean; keeps?: string[]; diff?: boolean } = {}
+): Promise<boolean> {
   install()
   /** It can't be written now: says why, and "all in order" stops here. */
   const refuse = (message?: string, o?: Parameters<typeof toast>[1]): false => {
@@ -120,6 +131,9 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
   const soFar = soFarText(doc, marks.mode, beats, index)
   const soFarEnds = soFar ? howSoFarEnds(doc, beats, index) : undefined
   const after = afterText(doc, beat.pids)
+  // The version on the page now, which the AI changes (with the note) or writes afresh.
+  const old = textOf(doc, range.from, range.to)
+  const keeps = o.keeps ?? []
   const steer = note.trim()
   // Paragraphs Adam typed or pasted between the beat's own go with it: the change says so from the start, so he can Reject.
   const warning = alsoReplaces(othersInBeat(doc, beat.pids))
@@ -134,7 +148,8 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
     earlyDone: null,
     cancelled: false,
     ended: false,
-    warning
+    warning,
+    keeps
   }
   const changeId = showReplacement({
     from: range.from,
@@ -147,7 +162,9 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
     snapshot: `Before beat ${index} was written again`,
     stop: () => stopRedo(r),
     onGone: (reason) => gone(r, reason),
-    onAccepted: (words) => accepted(r, words)
+    // A change made of it with Change again is accepted with its own record.
+    onAccepted: (words, recordId) => accepted(r, words, recordId),
+    ...(o.diff ? { diff: true, keeps } : {})
   })
   if (!changeId) {
     queue = null
@@ -162,7 +179,18 @@ export async function redoBeat(sceneId: ID, index: number, note = '', o: { track
     const now = useApp.getState()
     const options = resolveDraftOptions(now.draftOptions[sceneId], cardLength(card), now.settings?.creativity ?? 'balanced')
     if (r.cancelled) return false
-    const { generationId, of } = await api.startBeat({ sceneId, sessionId: marks.sessionId, index, options, steer, soFar, soFarEnds, after })
+    const { generationId, of } = await api.startBeat({
+      sceneId,
+      sessionId: marks.sessionId,
+      index,
+      options,
+      steer,
+      soFar,
+      soFarEnds,
+      after,
+      old,
+      ...(keeps.length ? { keep: keeps } : {})
+    })
     if (r.cancelled || redo !== r) {
       void api.stopGeneration(generationId).catch(() => undefined)
       return false
@@ -240,16 +268,23 @@ function done(r: Redo, p: AppEvents['generation:done']): void {
     return
   }
   const notes: string[] = r.warning ? [r.warning] : []
+  // Change it…: the sentences Adam marked Keep, word for word (put back where the AI changed them).
+  let final = text
+  if (r.keeps.length) {
+    const check = restoreKeeps(text, r.keeps)
+    final = check.text
+    notes.push(keptNote(r.keeps.length, check.restored, check.missing.length))
+  }
   if (p.status === 'stopped') notes.push('Stopped before the end: these are the words that came.')
   if (p.status === 'error') notes.push(`The AI stopped part-way. ${p.error ?? ''}`.trim())
   if (p.cutOff) notes.push('The AI ran out of room before the end, so the new words may stop short.')
-  updateReplacement(r.changeId, { text, status: 'ready', retrying: false, note: notes.join(' ') || null })
+  updateReplacement(r.changeId, { text: final, status: 'ready', retrying: false, note: notes.join(' ') || null })
 }
 
 /** Accept: the new version is the beat's now (its paragraphs and record); the beats after it say if they were written before it. */
-function accepted(r: Redo, at: { from: number; to: number }): void {
+function accepted(r: Redo, at: { from: number; to: number }, record?: ID | null): void {
   const ed = editorBridge()?.sceneId === r.sceneId ? editorBridge()?.editor : null
-  const recordId = r.generationId
+  const recordId = record ?? r.generationId
   if (!ed || !recordId) return
   const doc = ed.state.doc
   const pids = pidsBetween(doc, at.from, at.to)

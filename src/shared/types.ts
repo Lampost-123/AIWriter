@@ -941,8 +941,11 @@ export type GenerationJob =
   | 'chapter'
   | 'director'
 
-/** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
-export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'
+/**
+ * The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). 'revise' is "Keep this,
+ * change that" (Change it…, 2026-10-19): a passage revised as Adam's note says, the sentences he marked Keep word for word.
+ */
+export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue' | 'revise'
 
 export interface GenerationSummary {
   id: ID

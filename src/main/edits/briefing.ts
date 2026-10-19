@@ -14,6 +14,9 @@
 // beats marked the same way, and everyone in the scene as the story index has them; someone only thought of or talked of
 // near the words is named nearby, never among the characters in the scene. It makes no plan call of its own. And what was
 // left in the scene's place on an earlier visit ("Left here before: …", place memory).
+// Change it… ("Keep this, change that", 2026-10-19) gets the passage as it is now, Adam's note, the sentences he marked
+// Keep (each to come back word for word), the scene card in full, the scene's plan when there is one, where things stand
+// at the start of the passage when that is kept, and his own writing as the voice sample when that is on.
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
@@ -42,6 +45,7 @@ import { withLockLines } from '../ai/lockRule'
 import { saidText } from '../retrieval/said'
 import { CONTINUE_THREADS_MOST, OPEN_THREADS_TITLE, openThreadsText, type OpenThread } from '../ai/openThreads'
 import type { SaidLine } from '../retrieval/types'
+import type { OwnSample } from '../style/ownWords'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
 import { CONTINUE_MARKS } from '../plan/echo'
@@ -99,7 +103,7 @@ export interface EditWorld {
    */
   previous?: { lead: string; text: string }
   /**
-   * Continue (2026-10-19): the plan made before the scene was drafted for the whole of it (plan/index.ts
+   * Continue and Change it… (2026-10-19): the plan made before the scene was drafted for the whole of it (plan/index.ts
    * planForContinueOf), its beats on the page marked done and the next marked. No call is made for it. '' or left out:
    * none.
    */
@@ -119,6 +123,11 @@ export interface EditWorld {
    * since, a line each ("Left here before: …", storyIndex/placed.ts). Left out or empty: none.
    */
   leftHere?: string[]
+  /**
+   * Change it…: passages of Adam's own writing as the voice sample (style/ownWriting.ts), when "Use my own writing as the
+   * sample" is on for the sample passage in effect. Left out or null: the style guide's sample passage.
+   */
+  ownSample?: OwnSample | null
 }
 
 /** The part for people the words near only name: thought of, talked of or far away, never in the scene. */
@@ -152,6 +161,14 @@ export type EditBriefing =
     }
   | { ok: false; problem: string; entryId?: ID; entryName?: string }
 
+/** What Change it…'s passage part says first. */
+export const PASSAGE_LEAD = 'The passage as it is now (your reply takes its place):'
+/** What Change it…'s kept sentences part says first. */
+export const KEEP_LEAD = 'Sentences the author marked Keep. Each must be in your version exactly as written here, word for word, in this order:'
+/** What Change it…'s "Where things stand" says first. */
+export const STAND_LEAD_PASSAGE =
+  'Where things stand just before the passage. Keep to it: where each person is, what they wear and how it sits, how they are placed and what they hold. Anything that changes, changes in the passage.'
+
 /** What Continue's "Where things stand" says first. */
 export const STAND_LEAD_HERE =
   'Where things stand at the point you carry on from. Keep to it exactly: where each person is, each piece of what they wear and how it sits, how they are placed and what they hold, and where the things in the place are. Nothing changes unless it happens on the page, in your words.'
@@ -181,7 +198,9 @@ const CREATIVITY: Record<EditInput['tool'], Creativity> = {
   tone: 'balanced',
   voice: 'steady',
   alternatives: 'adventurous',
-  continue: 'balanced'
+  continue: 'balanced',
+  // A revision keeps close to what is there (and to the sentences kept word for word).
+  revise: 'steady'
 }
 
 /** Room for the reply, in tokens: the selection's length times how much the tool may grow it, and a little more. */
@@ -192,7 +211,7 @@ export function replyRoom(tool: EditInput['tool'], selectionWords: number): numb
       ? CONTINUE_WORDS.max * TOKENS_PER_WORD * 2
       : tool === 'alternatives'
         ? 3 * t * 1.6 + 150
-        : tool === 'expand' || tool === 'rewrite'
+        : tool === 'expand' || tool === 'rewrite' || tool === 'revise'
           ? t * 2.4 + 200
           : tool === 'condense'
             ? t * 1.1 + 150
@@ -304,6 +323,9 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   const direction = (input.direction ?? '').trim()
   const selection = input.selection.trim()
   const isContinue = tool === 'continue'
+  const isRevise = tool === 'revise'
+  // Change it…: the sentences Adam marked Keep, as the window sent them (edits/input.ts keeps those the passage has).
+  const keeps = isRevise ? (input.keep ?? []).map((k) => k.trim()).filter(Boolean) : []
   const words = countWords(selection)
   const max = tool === 'alternatives' ? MAX_WORDS.alternatives : MAX_WORDS.other
   if (!isContinue && !words) return { ok: false, problem: 'Select some words first.' }
@@ -377,7 +399,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
         ...world.must,
         holdings,
         about,
-        stageShown: isContinue && !!world.stand
+        // Continue and Change it… send where things stand right above the list: the list doesn't say it again.
+        stageShown: (isContinue || isRevise) && !!world.stand
       }
     : null
   // The scene's contract (fix 13), Continue's: what must not change, and what must happen next when Adam says. What must
@@ -407,7 +430,9 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     continueAs: input.continueAs ?? 'paragraph',
     hasAfter: !!input.after.trim(),
     lineBreaks: keepsLineBreaks(input),
-    ...(world.speakerTags ? { speakerTags: true } : {})
+    ...(world.speakerTags ? { speakerTags: true } : {}),
+    ...(keeps.length ? { keeps: keeps.length } : {}),
+    ...(isRevise && world.ownSample?.passages.length ? { ownSample: world.ownSample } : {})
   }
   const system = systemPrompt(tool, world.style, o)
   const reply = Math.ceil(replyRoom(tool, words) * (world.speakerTags ? 1 + TAG_ALLOWANCE : 1))
@@ -429,7 +454,7 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     if (previous) {
       parts.push({ id: 'previous-scene', priority: 3, title: 'End of the previous scene', text: `${previous.lead}\n${fence(previous.text.trim())}`, entryIds: [] })
     }
-    const scene = sceneText(world, byId, isContinue)
+    const scene = sceneText(world, byId, isContinue || isRevise)
     if (scene.text) parts.push({ id: 'scene', priority: 2, title: 'The scene', text: scene.text, entryIds: scene.entryIds })
     const shown = withPeople ? people.slice(0, Math.max(tool === 'voice' ? people.length : 1, Math.round(people.length * scale))) : []
     const voiced = tool === 'voice' ? people.filter((p) => lines.some((l) => l.speakerId === p.id)) : []
@@ -513,10 +538,12 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       parts.push({
         id: 'selection',
         priority: 1,
-        title: 'The selected words',
-        text: `The selected words (your reply takes their place):\n${fence(selection)}\n${placeLine(input.before, input.after)}`,
+        title: isRevise ? 'The passage to revise' : 'The selected words',
+        text: `${isRevise ? PASSAGE_LEAD : 'The selected words (your reply takes their place):'}\n${fence(selection)}\n${placeLine(input.before, input.after)}`,
         entryIds: []
       })
+      // Change it…: the sentences to keep word for word, right after the passage they are in.
+      if (keeps.length) parts.push({ id: 'keep', priority: 1, title: 'Sentences to keep', text: [KEEP_LEAD, ...keeps.map((k) => `- ${k}`)].join('\n'), entryIds: [] })
     }
     const after = withAfter ? firstWords(input.after, Math.round(aroundWords.after * scale)) : ''
     if (after) {
@@ -525,7 +552,7 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       parts.push({ id: 'after', priority: 4, title, text: `${lead}\n${fence(after)}`, entryIds: [] })
     }
     // The scene's plan, made before its draft (2026-10-19): where it is heading, near the end (left out on the last try).
-    const plan = isContinue && scale > 0 ? (world.plan ?? '').trim() : ''
+    const plan = (isContinue || isRevise) && scale > 0 ? (world.plan ?? '').trim() : ''
     if (plan) parts.push({ id: 'plan', priority: 2, title: 'The scene’s plan', text: plan, entryIds: [] })
     // Everyone in the scene as the story index has them at the cursor (2026-10-19), right before where things stand.
     const indexed = isContinue && withPeople ? (world.people ?? []).filter((l) => l.trim()) : []
@@ -538,8 +565,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       parts.push({ id: LEFT_HERE_BLOCK.id, priority: 3, title: LEFT_HERE_BLOCK.title, text: [LEFT_HERE_LEAD, ...left.map((l) => `- ${l}`)].join('\n'), entryIds: [] })
     }
     // A door locked from inside with someone outside is said in one line after the stage (ai/lockRule.ts).
-    const stand = isContinue && world.stand ? withLockLines(stateText(world.stand), world.stand) : ''
-    if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
+    const stand = (isContinue || isRevise) && world.stand ? withLockLines(stateText(world.stand), world.stand) : ''
+    if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${isRevise ? STAND_LEAD_PASSAGE : STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
     // The scene's contract, right above what must stay true (left out with it on the last try).
     // Adam's "what happens next" is said once, last of all (2026-10-19): the contract points to it.
     if (contract && scale > 0) {

@@ -40,6 +40,7 @@ import {
 import { TOOL_NAMES } from './names'
 import { cleanReply, continuePlace, parseAlternatives, sameWords, selectedWords, textOf, wordsIn, type Target } from './text'
 import { repairLanded } from '@/features/repair/repairRun'
+import { keepsIn, restoreKeeps } from '@shared/revise'
 
 /** Why a suggestion went without Adam accepting or rejecting it, in plain words. */
 const DROPPED: Partial<Record<GoneReason | 'scene', string>> = {
@@ -73,6 +74,13 @@ interface Live {
   direction: string
   /** The words sent (for telling the AI's quotation marks from the text's own). */
   selection: string
+  /**
+   * The page's words where it is, as they were when it started (the same as `selection`, but for Change it… on a waiting
+   * change, whose words aren't the page's yet): to tell they are still there.
+   */
+  page: string
+  /** Change it…: the sentences Adam marked Keep, checked (and put back if need be) once the words are in. */
+  keeps: string[]
   /** Where it was, for Try again. */
   from: number
   to: number
@@ -236,7 +244,7 @@ function backInScene(): void {
   const doc = v.state.doc
   const size = doc.content.size
   const fits =
-    l.to <= size && textOf(doc, 0, l.from) === l.before && textOf(doc, l.from, l.to) === l.selection && textOf(doc, l.to, size) === l.after
+    l.to <= size && textOf(doc, 0, l.from) === l.before && textOf(doc, l.from, l.to) === l.page && textOf(doc, l.to, size) === l.after
   if (!fits || current()) {
     letGoAway(l)
     toast(CHANGED_AWAY)
@@ -399,6 +407,12 @@ function finish(d: Pick<TaskDone, 'text' | 'status' | 'error' | 'cutOff'>): void
     return
   }
   const notes = [l.note]
+  // Change it…: every sentence Adam marked Keep is in the new words word for word, or put back (shared/revise.ts).
+  if (l.tool === 'revise' && l.keeps.length) {
+    const check = restoreKeeps(s.text, l.keeps)
+    if (check.text !== s.text) patch(s.id, { text: check.text })
+    notes.push(keptNote(l.keeps.length, check.restored, check.missing.length))
+  }
   if (d.status === 'stopped') notes.push(stoppedNote(l.tool))
   if (d.status === 'error') notes.push(`The AI stopped part-way. ${d.error ?? ''}`.trim())
   if (d.cutOff) notes.push('The AI ran out of room before the end, so the new words may stop short.')
@@ -420,7 +434,7 @@ function unchanged(l: Live, id: ID): void {
   drop(id)
   const v = view()
   const fits =
-    !!v && editorBridge()?.sceneId === l.sceneId && l.to <= v.state.doc.content.size && textOf(v.state.doc, l.from, l.to) === l.selection
+    !!v && editorBridge()?.sceneId === l.sceneId && l.to <= v.state.doc.content.size && textOf(v.state.doc, l.from, l.to) === l.page
   if (must.retried || !fits) {
     toast(must.giveUp)
     return
@@ -431,6 +445,67 @@ function unchanged(l: Live, id: ID): void {
     ...(accepted ? { onAccepted: accepted } : {}),
     mustChange: { ...must, retried: true }
   })
+}
+
+/** What a Change it… says of the sentences Adam marked Keep, once its words are in. */
+export function keptNote(kept: number, restored: number, missing: number): string {
+  if (missing) {
+    return missing === 1
+      ? 'A sentence you marked Keep couldn’t be put back. Change again, or reject the change.'
+      : `${missing} sentences you marked Keep couldn’t be put back. Change again, or reject the change.`
+  }
+  if (restored) {
+    return restored === 1
+      ? 'The AI changed a sentence you marked Keep, so it was put back word for word.'
+      : `The AI changed ${restored} sentences you marked Keep, so they were put back word for word.`
+  }
+  return kept === 1 ? 'The sentence you marked Keep is word for word.' : `All ${kept} sentences you marked Keep are word for word.`
+}
+
+/** What a Change it… is called beside it: what Adam asked, on one line and kept short. */
+export function changeLabel(note: string): string {
+  const one = note.replace(/\s+/g, ' ').trim()
+  return `${TOOL_NAMES.revise}: “${one.length > 60 ? `${one.slice(0, 59).trimEnd()}…` : one}”`
+}
+
+/**
+ * Takes the waiting change away quietly for one that takes its place (Change it… on it): the part that wrote it is told
+ * it went, and what its Accept was to do, and History's label for it, are handed on.
+ */
+function takeOver(id: ID): { onAccepted?: OnAccepted; snapshot?: string } {
+  const then = onAccepted.get(id)
+  const snapshot = snapshotLabels.get(id)
+  onAccepted.delete(id)
+  snapshotLabels.delete(id)
+  if (live?.taskId === id) clearLive()
+  if (known === id) known = null
+  tellGone(id, 'cleared')
+  const v = view()
+  if (v && activeSuggestion(v.state)?.id === id) v.dispatch(clearSuggestion(v.state, id))
+  return { ...(then ? { onAccepted: then } : {}), ...(snapshot ? { snapshot } : {}) }
+}
+
+// ---------- Change it… ----------
+
+/**
+ * Change it… on words in the page (selected words, the draft just written): revised as `note` says, the `keep` sentences
+ * word for word, shown as a tracked change of only what moved. Resolves true once it is on its way.
+ */
+export function changeWords(range: Target, note: string, keep: string[]): Promise<boolean> {
+  return startTool('revise', { direction: note, range, keep })
+}
+
+/**
+ * Change it… on the change waiting in the page (and Change again on one): its words revised as `note` says, in place of
+ * it. What its Accept was to do (a beat written again, a fix) carries over. Resolves true once it is on its way.
+ */
+export async function changeWaiting(id: ID, note: string, keep: string[]): Promise<boolean> {
+  const s = current()
+  if (!s || s.id !== id || s.status !== 'ready' || !s.text.trim()) {
+    toast('That change isn’t waiting any more.')
+    return false
+  }
+  return startTool('revise', { direction: note, range: { from: s.from, to: s.to }, passage: s.text, keep, takeOver: s.id, mode: s.mode })
 }
 
 // ---------- Starting ----------
@@ -471,14 +546,14 @@ function settingsAction(message: string, code?: string): { label: string; run: (
 }
 
 /** Try again, on the same words (if they are still as they were). */
-function retryAction(l: Pick<Live, 'sceneId' | 'tool' | 'direction' | 'from' | 'to' | 'selection'>): { label: string; run: () => void } {
+function retryAction(l: Pick<Live, 'sceneId' | 'tool' | 'direction' | 'from' | 'to' | 'selection' | 'page' | 'keeps'>): { label: string; run: () => void } {
   return {
     label: 'Try again',
     run: () => {
       const v = view()
       if (!v || editorBridge()?.sceneId !== l.sceneId) return
       const size = v.state.doc.content.size
-      const fits = l.to <= size && (l.tool === 'continue' || textOf(v.state.doc, l.from, l.to) === l.selection)
+      const fits = l.to <= size && (l.tool === 'continue' || textOf(v.state.doc, l.from, l.to) === l.page)
       if (!fits) {
         toast(
           l.tool === 'continue'
@@ -489,7 +564,14 @@ function retryAction(l: Pick<Live, 'sceneId' | 'tool' | 'direction' | 'from' | '
       }
       void startTool(
         l.tool,
-        l.tool === 'continue' ? { direction: l.direction, at: l.from } : { direction: l.direction, range: { from: l.from, to: l.to } }
+        l.tool === 'continue'
+          ? { direction: l.direction, at: l.from }
+          : {
+              direction: l.direction,
+              range: { from: l.from, to: l.to },
+              // Change it… on the AI's words: those words again, with the same sentences kept.
+              ...(l.tool === 'revise' ? { keep: l.keeps, ...(l.selection !== l.page ? { passage: l.selection } : {}) } : {})
+            }
       )
     }
   }
@@ -519,7 +601,21 @@ function continueFrom(state: EditorState): number {
  */
 export async function startTool(
   tool: EditTool,
-  o: { direction?: string; range?: Target; at?: number; onAccepted?: OnAccepted; mustChange?: MustChange } = {}
+  o: {
+    direction?: string
+    range?: Target
+    at?: number
+    onAccepted?: OnAccepted
+    mustChange?: MustChange
+    /** Change it…: the sentences to keep word for word. */
+    keep?: string[]
+    /** Change it… on the AI's waiting change: its words, revised in place of it (they aren't the page's yet). */
+    passage?: string
+    /** The waiting change this one takes the place of (Change it… on it, Change again): it goes quietly, its Accept with it. */
+    takeOver?: ID
+    /** With takeOver: where the new words go, as the change it takes the place of had it (Continue's paragraphs, say). */
+    mode?: Suggestion['mode']
+  } = {}
 ): Promise<boolean> {
   if (live?.away && !(await noneAway())) return false
   const v = view()
@@ -530,7 +626,8 @@ export async function startTool(
     toast('A draft is being written into this scene. Wait for it to finish (or stop it), then try again.')
     return false
   }
-  if (current()) {
+  const waiting = current()
+  if (waiting && !(o.takeOver && waiting.id === o.takeOver)) {
     toast('One change at a time: accept or reject the AI’s waiting change first.', {
       action: { label: 'Show it', run: () => hooks?.reveal() }
     })
@@ -540,7 +637,7 @@ export async function startTool(
   const doc = state.doc
   let from: number
   let to: number
-  let mode: Suggestion['mode'] = 'replace'
+  let mode: Suggestion['mode'] = o.takeOver && o.mode ? o.mode : 'replace'
   let continueAs: EditInput['continueAs']
   if (tool === 'continue') {
     const place = continuePlace(doc, o.at ?? continueFrom(state))
@@ -563,25 +660,49 @@ export async function startTool(
     to = r.to
   }
   const direction = (o.direction ?? '').trim()
+  const page = tool === 'continue' ? '' : textOf(doc, from, to)
+  const selection = tool === 'continue' ? '' : (o.passage ?? page)
+  // Change it…: the kept sentences the passage has, in its order.
+  const keep = tool === 'revise' ? keepsIn(selection, o.keep ?? []) : []
   const input: EditInput = {
     taskId: newTaskId(),
     sceneId,
     tool,
     direction,
-    selection: tool === 'continue' ? '' : textOf(doc, from, to),
+    selection,
     before: textOf(doc, 0, from),
     after: textOf(doc, to, doc.content.size),
-    ...(continueAs ? { continueAs } : {})
+    ...(continueAs ? { continueAs } : {}),
+    ...(keep.length ? { keep } : {})
   }
   const taskId = input.taskId
-  if (o.onAccepted) onAccepted.set(taskId, o.onAccepted)
-  const shown: NewSuggestion = { id: taskId, sceneId, tool, direction, from, to, mode, lineBreaks: keepsLineBreaks(input) }
+  // The change it takes the place of goes quietly; what its Accept was to do (and History's label) carries over.
+  const carried = o.takeOver ? takeOver(o.takeOver) : null
+  const then = o.onAccepted ?? carried?.onAccepted
+  if (then) onAccepted.set(taskId, then)
+  if (carried?.snapshot) snapshotLabels.set(taskId, carried.snapshot)
+  else if (tool === 'revise') snapshotLabels.set(taskId, `Before ${TOOL_NAMES.revise}`)
+  const shown: NewSuggestion = {
+    id: taskId,
+    sceneId,
+    tool,
+    direction,
+    from,
+    to,
+    mode,
+    lineBreaks: keepsLineBreaks(input),
+    // Change it…: only what moved shows (reviseDiff.ts), and the kept sentences go with it (for Change again).
+    // Named by what Adam asked ("Change it: “Closer, but shorter”").
+    ...(tool === 'revise' ? { diff: true, keeps: keep, label: changeLabel(direction) } : {})
+  }
   live = {
     taskId,
     sceneId,
     tool,
     direction,
     selection: input.selection,
+    page,
+    keeps: keep,
     from,
     to,
     raw: '',
@@ -710,6 +831,9 @@ export function showReplacement(o: {
   working?: string
   stop?: () => void
   onGone?: (reason: GoneReason | 'scene') => void
+  /** Change it… (a beat changed with a note): shown as a tracked change of only what moved, with the sentences kept. */
+  diff?: boolean
+  keeps?: string[]
 }): ID | null {
   const v = view()
   const bridge = editorBridge()
@@ -744,7 +868,8 @@ export function showReplacement(o: {
       note: o.note ?? null,
       label: o.label ?? null,
       working: o.working ?? null,
-      generationId: o.generationId ?? null
+      generationId: o.generationId ?? null,
+      ...(o.diff ? { diff: true, keeps: o.keeps ?? [] } : {})
     })
   )
   dropRejectedToast()
