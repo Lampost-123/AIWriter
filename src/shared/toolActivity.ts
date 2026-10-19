@@ -31,6 +31,10 @@ export type ToolKind =
   | 'propose'
   | 'draft'
   | 'ask'
+  /** The story index's look-ups (ai/lookups: state_of, where_is, who_knows...), LOOKUPS. */
+  | 'lookup'
+  /** load_instructions (an instruction pack, ai/packs), PACKS. */
+  | 'instructions'
   | 'other'
 
 /** One tool call of the editor chat, as it is kept with the turn's record and sent live as `ask:tool`. */
@@ -66,7 +70,18 @@ const KINDS: Record<string, ToolKind> = {
   story_so_far: 'sofar',
   compare_version: 'compare',
   propose_draft: 'draft',
-  ask_user: 'ask'
+  ask_user: 'ask',
+  // The look-ups every agent shares (overhaul phase 2, LOOKUPS); read_passage reads words, as read_scene does.
+  state_of: 'lookup',
+  last_seen: 'lookup',
+  where_is: 'lookup',
+  who_knows: 'lookup',
+  open_threads: 'lookup',
+  what_happened: 'lookup',
+  who_was_there: 'lookup',
+  timeline: 'lookup',
+  read_passage: 'read',
+  load_instructions: 'instructions'
 }
 
 /** A tool's kind from its name. */
@@ -155,9 +170,39 @@ export function argSummary(tool: string, args: Record<string, unknown>): string 
       return str('name')
     case 'ask':
       return str('question')
+    case 'lookup':
+      return lookupSummary(tool, str)
+    case 'instructions':
+      // The pack's name in words ("plan a scene"); the agent says it better, with the pack's own title.
+      return str('name').replace(/[-_]+/g, ' ')
     case 'propose':
       if (tool === 'propose_changes') return changesSummary(args.changes)
       return ''
+    default:
+      return ''
+  }
+}
+
+/** What a look-up was for, in a few words ("where “the letter” is", "who knows “the seal”"), from its arguments. */
+function lookupSummary(tool: string, str: (k: string) => string): string {
+  const quoted = (k: string): string => (str(k) ? `“${str(k)}”` : '')
+  switch (tool) {
+    case 'state_of':
+      return str('name') ? `what’s true of ${str('name')}` : ''
+    case 'last_seen':
+      return str('name') ? `where ${str('name')} was last seen` : ''
+    case 'where_is':
+      return str('thing') ? `where ${quoted('thing')} is` : ''
+    case 'who_knows':
+      return str('fact') ? `who knows ${quoted('fact')}` : ''
+    case 'who_was_there':
+      return str('scene') ? `who was in ${str('scene')}` : ''
+    case 'timeline':
+      return 'the story’s dates'
+    case 'open_threads':
+      return 'the open plot threads'
+    case 'what_happened':
+      return str('from') || str('to') ? `what happened, ${str('from') || 'earlier'} to ${str('to') || 'the open scene'}` : 'what happened before'
     default:
       return ''
   }

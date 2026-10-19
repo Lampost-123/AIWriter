@@ -54,6 +54,17 @@ describe('a tool call’s words', () => {
     expect(toolPhrase(call({ kind: 'compare', tool: 'compare_version', summary: 'Ch 1, Sc 1', status: 'failed' }))).toBe('Tried to compare Ch 1, Sc 1 with an earlier version')
   })
 
+  it('says what the shared look-ups and the instruction packs did (LOOKUPS, PACKS)', () => {
+    expect(toolPhrase(call({ kind: 'lookup', tool: 'where_is', summary: 'where “the letter” is' }))).toBe('Checked where “the letter” is')
+    expect(runningPhrase(call({ kind: 'lookup', tool: 'state_of', summary: 'what’s true of Mara Venn', status: 'running' }))).toBe('Checking what’s true of Mara Venn')
+    expect(toolPhrase(call({ kind: 'lookup', tool: 'state_of', summary: '', status: 'failed' }))).toBe('Tried to check the story so far')
+    expect(toolPhrase(call({ kind: 'instructions', tool: 'load_instructions', summary: 'planning a scene' }))).toBe('Read the instructions for planning a scene')
+    expect(runningPhrase(call({ kind: 'instructions', tool: 'load_instructions', summary: 'fixing a slip', status: 'running' }))).toBe(
+      'Reading the instructions for fixing a slip'
+    )
+    expect(toolPhrase(call({ kind: 'instructions', tool: 'load_instructions', summary: '', status: 'failed' }))).toBe('Tried to read the instructions')
+  })
+
   it('says what a call is doing while it runs, and what one that went wrong tried', () => {
     expect(runningPhrase(call({ status: 'running', summary: '' }))).toBe('Reading the scene')
     expect(toolPhrase(call({ kind: 'propose', tool: 'propose_changes', status: 'running' }))).toBe('Proposing changes')

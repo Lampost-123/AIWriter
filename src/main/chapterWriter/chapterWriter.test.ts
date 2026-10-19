@@ -227,6 +227,28 @@ describe('a scene card ready to write from', () => {
   })
 })
 
+describe('the planner’s instruction packs (overhaul phase 2)', () => {
+  it('lists check-continuity in its instructions and loads it with its look-ups, once, not as a look-up', { timeout: 30_000 }, async () => {
+    const { db, chapterId } = world()
+    const run = new ChapterRun(deps(db, { agent: 'fake/agent-packs' }), 'run-packs', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    const plan = chapterRecords(db)[0]
+    expect(plan.system).toContain('Instruction packs')
+    expect(plan.system).toContain('- check-continuity: ')
+    expect(plan.system).not.toContain('- plan-a-scene: ')
+    const steps = (plan.params as { steps?: { label: string; tool: string; result: string }[] }).steps ?? []
+    const loaded = steps.filter((s) => s.tool === 'load_instructions')
+    expect(loaded).toHaveLength(1)
+    expect(loaded[0].label).toBe('Reading the instructions for checking continuity')
+    expect(loaded[0].result.startsWith('Checking continuity')).toBe(true)
+    // The look-up made beside it was answered as usual.
+    expect(steps.some((s) => s.tool === 'state_of' && s.label === 'Looking up Mara')).toBe(true)
+    expect(report.brief).toContain('Sc 1 moves the chapter on.')
+  })
+})
+
 describe('the chapter plan, read and checked', () => {
   const scenes = [
     { id: 's1', n: 1, title: 'The ferry', label: 'Sc 1 “The ferry”' },

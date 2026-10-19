@@ -42,7 +42,8 @@ src/main/        Electron main process
   secrets.ts     API keys, encrypted with safeStorage, kept out of worlds and backups
   ipc/           One handler object per area; ipc/index.ts checks every AppApi method is implemented
   ai/            Providers, context assembly, generation records; ai/lookups/ the look-up tools an AI job may ask for
-                 (the story index, codex entries as they stand, the search, earlier scenes' words), answered here
+                 (the story index, codex entries as they stand, the search, earlier scenes' words), answered here;
+                 ai/packs/ the instruction packs an agent loads by name (load_instructions) only for the job at hand
   services/      backups.ts, updater.ts
 src/preload/     Exposes window.aiwrite (invoke + events). Nothing else.
 src/renderer/src/
@@ -4319,6 +4320,59 @@ a new kind (`index_facts.kind` is text).
   Undo), `storyIndex/checks.test.ts` (too fast, from an entry and from narration, and what it never says).
 - **Known limits**: time claims read plain English frames only; a weekday only on a real date with a year; seasons are
   the northern hemisphere's; place kinds are a fixed list; "since the fire" needs an event entry with a When.
+
+## One set of look-ups, and instruction packs (overhaul phase 2, 2026-10-19)
+
+Every agent uses one set of look-up tools, and each job's detailed instructions live in a short named pack the agent
+loads only when it does that job (the "skills" pattern: a name and a few words always listed, the text on request),
+instead of every rule riding in every prompt. Both are chat lab switches, on by default: `LOOKUPS` and `PACKS`
+(`shared/askIntent.ts`); off, the chat sends exactly what it sent before (the fake eval's requests are byte for byte the
+same size).
+
+- **The shared look-ups in Ask the world** (`ask/agent.ts` `askLookupTools`): state_of, last_seen, where_is, who_knows,
+  who_was_there, timeline and read_passage from `ai/lookups`, so "what is Mara wearing now?" or "where is the letter?" is
+  a story index read at no cost. One get_entry and one search: the chat's own (its get_entry shows the field keys entry
+  changes use and labels what comes later; its search covers entries, notes and summaries), never find_in_story or the
+  shared get_entry; what_happened and open_threads only where story_so_far and list_threads aren't offered. They are
+  answered in `runAll` (`lookUp`; a look-up may wait), as things stand at the open scene as its words so far end (with no
+  scene open, the story's last scene as it ends), from the memory as the chat sees it there and never about anyone Adam
+  kept out (`lookupContext`); only scenes before the point are ever told. No fill (an AI call) from the chat. What a
+  look-up says to try next names the chat's own tool (`inChatWords`). The instructions say it in one line
+  (`ask/prompts.ts` `LOOKUPS_LINE`). Rows: kind `lookup` ("Checked where “the letter” is"), read_passage as `read`
+  (`shared/toolActivity.ts`, `features/ask/toolView.ts`).
+- **Instruction packs** (`ai/packs/`): plan-a-scene, write-dialogue, revise-for-voice, fix-a-slip, check-continuity and
+  explain-memory, each a name, the job in a few words, a title for its row and its text, written from the app's own
+  prompts and rules (no new rules): the writer's craft rules with the rules against AI phrasing merged in, each
+  said once (`ai/prompts.ts` `craftRules`, `SPOKEN_LINE`, `SLOP_RULES`' ending rule), the checks' own words (`checks/prompts.ts` `CHECK_WHAT`), the planners' rules, the chapter writer's fix
+  and this file on the memory. `packList(names)` is the list for an agent's system prompt; `loadInstructionsTool(names)`
+  offers `load_instructions(name)`; `loadInstructions` answers it (a pack once an answer; an unknown one says which there
+  are; `extra` adds the agent's own lines).
+- **In the chat** (`ASK_PACKS`: all six): the list goes after the instructions' intro, in the block that stays the same
+  from question to question; a pack's text comes back as a tool result, after everything a provider caches. With
+  PACKS, propose_changes says issue_fix, chapter_card, thread, the card's names and replace_all in a line each, and their
+  full lines come with fix-a-slip and plan-a-scene (`askPackExtra`). What an edit needs is still always sent: an edit's
+  first request is often made to call propose_changes (TOOLCHOICE), before it could load anything. Row: kind
+  `instructions` ("Read the instructions for fixing a slip").
+- **In the chapter writer** (`chapterWriter/prompts.ts` `PLAN_PACKS`): the planner is offered check-continuity, listed at
+  the end of its system prompt (which stays the same); a load is answered beside its look-ups and never counted as one.
+  Its flow is unchanged.
+- **Measured** (tokens by the app's own counter, `ai/tokens.ts` `countRaw`; the fake eval in characters / 4, all 86
+  turns): the chat's instructions 1,169 to 1,355 tokens (1,613 to 1,799 with the epic fantasy preset and a sample: the
+  pack list 150, the look-ups line 36); its tools 4,555 to 4,891 (15 to 23 tools: the seven look-ups 535,
+  load_instructions 98, propose_changes 2,293 to 2,000), so the packs save 45 tokens a request while 2,143 tokens of
+  guidance wait in them, and the look-ups cost 571. The fake eval: the first request of a story A turn 7,516 to 8,101,
+  its system message 2,618 to 2,816, every request in all 1,988,180 to 2,105,765 (+5.9%; messages alone, as the fake's
+  usage counts them, 1,043,776 to 1,083,881); 201 requests and every score the same. The chapter run
+  (`chapterWriter/requests.test.ts`): 139,847 to 140,819 characters with the greedy planner, 127,749 to 128,235 with
+  the one that goes straight to work. The chat eval now records each turn's whole request bodies, tools included
+  (`bodyChars`, `firstBodyChars`).
+- **Tests**: `ai/packs/packs.test.ts` (the registry, the list, the tool, the words taken from the app's rules),
+  `ask/agent.lookups.test.ts` (an invented indexed world: what someone wears now, where a thing is, who knows, last seen,
+  who was there, dates, a passage, never a later scene nor anyone kept out, no story open, the chat's own tool names; the
+  packs listed, loaded once with the chat's lines, propose_changes shorter and still proposing),
+  `chapterWriter/chapterWriter.test.ts` (the planner loads check-continuity beside a look-up; `fake/agent-packs`),
+  `tests/e2e/editorChat.spec.ts` (where_is and a pack, each a row in plain words); the fake chat model calls where_is,
+  who_knows and load_instructions on set words (`tests/fake-provider/m4/ask.mjs`).
 
 ## Milestone 1 scope
 

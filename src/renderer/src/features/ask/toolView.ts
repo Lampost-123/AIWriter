@@ -40,6 +40,10 @@ export function runningPhrase(c: Call): string {
       return 'Proposing a draft'
     case 'ask':
       return 'Writing you a question'
+    case 'lookup':
+      return `Checking ${s || 'the story so far'}`
+    case 'instructions':
+      return `Reading the instructions for ${s || 'the job'}`
     default:
       return `Using ${c.tool || 'a tool'}`
   }
@@ -85,6 +89,11 @@ export function toolPhrase(c: Call): string {
       return `${tried ? 'Tried to propose' : 'Proposed'} ${s || 'a draft'}`
     case 'ask':
       return tried ? 'Tried to ask you a question' : 'Asked you a question'
+    case 'lookup':
+      // "Checked where “the letter” is", "Checked what’s true of Mara Venn".
+      return `${tried ? 'Tried to check' : 'Checked'} ${s || 'the story so far'}`
+    case 'instructions':
+      return tried ? `Tried to read the instructions${s ? ` for ${s}` : ''}` : `Read the instructions for ${s || 'the job'}`
     default:
       return `${tried ? 'Tried' : 'Used'} ${c.tool || 'a tool'}`
   }

@@ -20,6 +20,7 @@ import { runTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import { answerLookups, LOOKUP_NAMES, LOOKUP_TOOLS, LOOKUPS_MOST, type FoundPassage, type LookupContext } from '../ai/lookups'
 import { clip } from '../ai/lookups/text'
+import { LOAD_INSTRUCTIONS, loadInstructions, loadInstructionsTool } from '../ai/packs'
 import { sceneMemory } from '../memory/scene'
 import { buildStoryIndex, indexChecks, openThreads, stateOf } from '../storyIndex'
 import { cardLines } from '../outline/context'
@@ -29,6 +30,7 @@ import {
   PLAN_LAST_WORDS,
   PLAN_LOOKUPS,
   PLAN_NUDGE,
+  PLAN_PACKS,
   PLAN_PART_MOST,
   PLAN_REPLY,
   PLAN_STEPS,
@@ -375,10 +377,12 @@ class Mistake extends Error {}
 
 /** The planner at work: its look-ups (at most PLAN_LOOKUPS) and write_chapter_plan, which ends the session. */
 class Planner {
-  readonly tools = [...LOOKUP_TOOLS, WRITE_CHAPTER_PLAN]
+  readonly tools = [...LOOKUP_TOOLS, WRITE_CHAPTER_PLAN, loadInstructionsTool(PLAN_PACKS)]
   plan: ChapterWritingPlan | null = null
   private lookups = 0
   private askedAgain = false
+  /** The instruction packs sent already (each once). */
+  private readonly packs = new Set<string>()
 
   constructor(
     private readonly o: { db: DB; scenes: SceneRef[]; ctx: LookupContext; people: readonly EntryState[] }
@@ -414,6 +418,13 @@ class Planner {
         continue
       }
       await flush()
+      // An instruction pack (overhaul phase 2): its text, once; not counted as a look-up.
+      if (c.name === LOAD_INSTRUCTIONS) {
+        const p = loadInstructions(c.arguments, { offered: PLAN_PACKS, loaded: this.packs })
+        results.push({ role: 'tool', toolCallId: c.id, content: p.text })
+        steps.push({ label: p.label, tool: c.name, arguments: c.arguments.slice(0, 2000), result: p.text.slice(0, 1500) })
+        continue
+      }
       let result: string
       let label = 'Writing the chapter plan'
       try {
