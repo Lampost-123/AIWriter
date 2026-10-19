@@ -17,6 +17,7 @@ import { sceneSavedForMarks } from '../readAloud'
 import { syncSpelling } from '../spelling'
 import { findByMeaningChanged } from '../retrieval'
 import { sweepGone } from '../db/checks'
+import { makingAt } from '../worldViews/eventHomes'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
@@ -194,7 +195,7 @@ export const coreHandlers: Handlers<CoreMethods> = {
 
   listEntries: (kind) => repo.listEntries(world.db(), kind),
   getEntry: (id) => repo.getEntry(world.db(), id),
-  createEntry: (kind, input) => write(() => repo.createEntry(world.db(), kind, input)),
+  createEntry: (kind, input, at) => write(() => repo.createEntry(world.db(), kind, input, makingAt(world.db(), kind, input, at))),
   updateEntry: (id, patch) => {
     const entry = write(() => {
       const db = world.db()

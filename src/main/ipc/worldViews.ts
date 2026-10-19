@@ -11,6 +11,7 @@ import { markAiIdea, readBoardMarks, storySceneCards } from '../db/worldViews'
 import { planThread } from '../keeper/checkQueue'
 import { sceneDateView, storyDateViews } from '../memory/storyCalendar'
 import { timeCues } from '../continuity/tracker'
+import { eventHomes, moveEvents, unmoveEvents } from '../worldViews/eventHomes'
 
 export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
   getTimeline: (storyId) => timelineOf(world.db(), storyId),
@@ -43,5 +44,26 @@ export const worldViewsHandlers: Handlers<keyof WorldViewsApi> = {
     return sceneDateView(db, sceneId, (id) => timeCues(db, [id]))
   },
   getBoardMarks: () => readBoardMarks(world.db()),
-  markAiIdea: (sceneId, on) => markAiIdea(world.db(), sceneId, on)
+  markAiIdea: (sceneId, on) => markAiIdea(world.db(), sceneId, on),
+  // Put events in their place (2026-10-19): what earlier builds left at a story's start, moved to the scene the record
+  // says each happens in, all in one go, and put back with one Undo. The timeline, the memory and the briefs read again.
+  getEventHomes: (storyId) => eventHomes(world.db(), String(storyId ?? '')),
+  placeEvents: (storyId, entryIds) => {
+    const db = world.db()
+    const wanted = new Set(Array.isArray(entryIds) ? entryIds.filter((x) => typeof x === 'string') : [])
+    const moves = db.transaction(() => moveEvents(db, eventHomes(db, String(storyId ?? '')).filter((h) => wanted.has(h.entryId))))()
+    if (moves.length) {
+      repo.touchWorld(db)
+      emit('memory:changed', { sceneId: null, entryIds: moves.map((m) => m.entryId) })
+    }
+    return moves
+  },
+  unplaceEvents: (moves) => {
+    const db = world.db()
+    const back = db.transaction(() => unmoveEvents(db, Array.isArray(moves) ? moves : []))()
+    if (back.length) {
+      repo.touchWorld(db)
+      emit('memory:changed', { sceneId: null, entryIds: back })
+    }
+  }
 }

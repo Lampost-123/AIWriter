@@ -427,6 +427,8 @@ function Body({ p, pickKey = '', locked = false }: { p: Proposal; pickKey?: stri
           <Line label="Name" value={p.name} />
           {p.summary ? <Line label="Summary" value={p.summary} /> : null}
           {p.description ? <Line label="Description" value={p.description} /> : null}
+          {p.when ? <Line label="When" value={p.when} /> : null}
+          {p.sceneLabel ? <Line label="Happens in" value={p.sceneLabel} /> : null}
         </div>
       )
     case 'newScene':

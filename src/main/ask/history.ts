@@ -55,7 +55,7 @@ export function proposalLine(p: Proposal): string {
           .filter(Boolean)
           .join(', ')}`
       case 'newEntry':
-        return `new ${p.entryKind} ${q(p.name)}: ${q(p.summary || p.description)}`
+        return `new ${p.entryKind} ${q(p.name)}${p.sceneLabel ? ` in ${p.sceneLabel}` : ''}: ${q(p.summary || p.description)}`
       case 'newScene':
         return `new scene ${q(p.title)} at the end of ${p.chapterLabel}`
       case 'newChapter':
