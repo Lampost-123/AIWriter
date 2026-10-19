@@ -51,6 +51,7 @@ import { storyBuilderHandlers } from './storyBuilder'
 import { storyIndexHandlers } from './storyIndex'
 import { directionHandlers } from './direction'
 import { directorHandlers } from './director'
+import { planReviewHandlers } from './planReview'
 import { bindPhoneCall } from '../phone/runtime'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
@@ -123,7 +124,9 @@ const all: Handlers<ApiMethod> = {
   // The direction composer: directions given before, and the starred ones
   ...directionHandlers,
   // Directed writing: Adam's notes while a draft is directed
-  ...directorHandlers
+  ...directorHandlers,
+  // Show me the plan first: Adam's answer to a scene plan waiting for him
+  ...planReviewHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

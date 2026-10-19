@@ -6,8 +6,9 @@
 
 import { useEffect, useState } from 'react'
 import type { ID } from '@shared/types'
-import { Button, Dialog, Textarea } from '@/components/ui'
+import { Dialog, Textarea } from '@/components/ui'
 import { plainReason } from '@/lib/reason'
+import { PlanPart, PlanReviewFooter } from '@/features/planReview/parts'
 import { hideChapterPlan, stopChapterWriter, useChapterWriter, writeToChapterPlan } from './chapterWriterStore'
 
 export function ChapterPlanReview(): React.JSX.Element {
@@ -62,19 +63,14 @@ export function ChapterPlanReview(): React.JSX.Element {
       description="What each scene will do, before anything is written. Change any part you like, then write the chapter to it."
       width={600}
       footer={
-        <>
-          <Button onClick={() => void cancel()} loading={busy === 'cancel'} disabled={busy === 'write'} data-testid="chapter-plan-cancel">
-            Cancel
-          </Button>
-          {!editing ? (
-            <Button onClick={() => setEditing(true)} disabled={!!busy} data-testid="chapter-plan-change">
-              Change the plan
-            </Button>
-          ) : null}
-          <Button variant="primary" onClick={() => void write()} loading={busy === 'write'} disabled={busy === 'cancel'} data-autofocus data-testid="chapter-plan-write">
-            Write
-          </Button>
-        </>
+        <PlanReviewFooter
+          testId="chapter-plan"
+          busy={busy}
+          editing={editing}
+          onCancel={() => void cancel()}
+          onChange={() => setEditing(true)}
+          onWrite={() => void write()}
+        />
       }
     >
       {plan ? (
@@ -85,8 +81,7 @@ export function ChapterPlanReview(): React.JSX.Element {
             <p className="text-muted">{overview}</p>
           ) : null}
           {plan.scenes.map((s) => (
-            <section key={s.sceneId} className="flex flex-col gap-1.5">
-              <h3 className="text-[13px] font-semibold text-fg">{s.label}</h3>
+            <PlanPart key={s.sceneId} title={s.label}>
               {editing ? (
                 <Textarea
                   aria-label={`${s.label}: its part of the plan`}
@@ -98,7 +93,7 @@ export function ChapterPlanReview(): React.JSX.Element {
               ) : (
                 <p className="whitespace-pre-wrap text-muted">{(texts[s.sceneId] ?? s.text) || 'Written from its scene card.'}</p>
               )}
-            </section>
+            </PlanPart>
           ))}
           {plan.questions.length ? (
             <section className="flex flex-col gap-1.5 border-t border-line pt-3">

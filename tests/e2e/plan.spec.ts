@@ -68,7 +68,7 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
 
     // Settings › Models: "Plan before writing", on by default. Off: no plan; the list still goes in.
     await openSettings(win, 'Models')
-    const toggle = win.getByRole('switch', { name: 'Plan before writing' })
+    const toggle = win.getByRole('switch', { name: 'Plan before writing', exact: true })
     await expect(toggle).toBeChecked()
     await toggle.click()
     await expect(toggle).not.toBeChecked()

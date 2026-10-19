@@ -4610,6 +4610,55 @@ Beat by beat and Variants stay as they are. No migration: the record keeps it in
   said in other words is left to the director to judge; a real-model run (trap book) with and without it would judge it
   at length.
 
+## Show me the plan first, the card check, and writing in what a draft missed (overhaul, 2026-10-19)
+
+Three parts that help the AI write what Adam tells it, consistently. No migration: two settings (`NEW_SINCE_081` in the
+settings carry test), one draft option, and steps on records.
+
+- **Show me the plan first** (`plan/review.ts`, contract `shared/contracts/planReview.ts`, handlers `ipc/planReview.ts`):
+  the draft options' "Show me the plan first" (`DraftOptions.showPlan`, for one draft: `features/planReview/store.ts`
+  `takeShowPlan`, read in `useGenerate`) or Settings › Models › Planning, "Show me the plan before writing"
+  (`settings.showPlanFirst`, off by default). Generate and Add below (`ipc/ai.ts` `startDraft`, `reviewWanted`; never with
+  Plan before writing off) stop once the scene is planned: `ai/draftFlow.ts` `withPlan` calls `review` with the plan
+  (`MadePlan`, or null when none could be made) and what the card check noted, after the memory has caught up (drafts
+  still wait for it). The plan waits with no time limit (`waitForReview`, events `scenePlan:review` / `scenePlan:closed`,
+  `scenePlansWaiting` for a window opened meanwhile) until `answerScenePlan`: Write (as made, or with Adam's parts), Cancel
+  (`UserError` 'cancelled', "Cancelled before writing", which the window says nothing more about), Stop
+  (`cancelDraftStart`), or the world closing. Costs no tokens: the plan is made anyway. Adam's changes (`changedPlan`, pure:
+  the point, the beats, who is where, what changes, the closing image; empty lines out; what must happen first kept with its
+  beat while its words are the same) are what the writer gets: the notes are written again by `MadePlan.writeAgain` (the
+  same point of view, stretch and asks of how it reads), and the scene's kept plan becomes his (`plan/index.ts`
+  `keepChangedPlan`), so Continue and later beats follow it. Directed writing writes by the changed beats.
+  The window (`features/planReview/ScenePlanReview.tsx`, mounted beside the chapter's plan; parts shared with
+  `ChapterPlanReview` in `planReview/parts.tsx`): "Worth knowing before it writes" (the card check's notes and the beats
+  that can't happen), the point, what happens (with what must come first under its beat), who is where, what changes, it
+  ends on, what it keeps to; Change the plan (a box a beat, the lists a line each), Write, Cancel; closing it is Cancel.
+- **The card check** (`plan/cardCheck.ts`, no AI call): before planning (`planBeforeWriting`, with the story index just
+  brought up to date), the scene card is held to the index, saying something only when the index is sure: someone on the
+  card there sooner than the road from where they were allows (the index's too-fast check for this scene, unless the
+  words have moved them on since), or the card's beats have them at the place the story last had them, apart from the
+  card's Where (never a sentence of going, coming or remembering); someone on the card the memory is sure died, or who is
+  elsewhere at that very moment; something the beats or the direction have someone use that the index has left or carried
+  elsewhere (`beatsCanHappen`'s findings that can't be put right) or that the memory says they gave up (`holdingsOf`); a
+  When earlier than the scene before (`scenesGoingBack`); an age a year or more from the entry (`ageGiven`, `ageHere`; with
+  no dates, the entry's age two years either way). Place and time only as a scene begins. At most 8; never names what Adam
+  kept out. The findings go (a) into the planner's request as "Before writing, note: …" lines under their own heading
+  (`PlanCore.notes`, `CARD_NOTES_TITLE`), so the plan resolves them, and (b) to Adam: in the plan-first window and on the
+  plan's record in What the AI saw ("Steps it took", `CARD_CHECK_LABEL`).
+- **Write in what a draft missed** (`features/receipt/autoWriteIn.ts`; Settings › Models, "Write in what a draft missed",
+  `settings.autoWriteIn`, off by default): when the direction receipt shows an ask that didn't land (○, never one of
+  length), the app writes it in once by itself with the steered Continue Write it in uses (`continueAtEnd`), only when
+  nothing else is being written in the scene and only for a draft this window started; the receipt then says what was
+  written in ("+", `data-direction-receipt="written"`, "Written in below"), and What the AI saw notes it. At most once a
+  draft (`claimAutoWriteIn`). On the desk, where the receipt shows.
+- **Tests**: `plan/cardCheck.test.ts` (each finding with its controls), `plan/review.test.ts` (end to end against the
+  fake provider: the plan waits with no call of its own, the changed beat reaches the writer and Continue, Cancel and Stop
+  write nothing, the card's notes reach the planner and the record; the pure parts), `features/receipt/autoWriteIn.test.ts`
+  (once only), `features/planReview/logic.test.ts`, `tests/unit/settingsCarry.test.ts`; app test `tests/e2e/planFirst.spec.ts`
+  (the desk: a beat changed, Write; Cancel; written in once by itself).
+- **Not done here**: the panels layout has no receipt, so nothing is written in by itself there; the card check reads
+  plain English and doesn't look at the card's mood or notes for things used.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

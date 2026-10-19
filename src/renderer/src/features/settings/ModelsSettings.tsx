@@ -15,6 +15,7 @@ import { PlanSettings } from '@/features/plan/PlanSettings'
 import { ContractSettings } from '@/features/contract/ContractSettings'
 import { BriefSettings } from '@/features/brief/BriefSettings'
 import { DirectorSettings } from '@/features/director/DirectorSettings'
+import { WriteInSettings } from '@/features/receipt/WriteInSettings'
 import { cn } from '@/lib/cn'
 import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
@@ -213,6 +214,7 @@ export function ModelsSettings(): React.JSX.Element {
       <BriefSettings />
       <DirectorSettings />
       <RepairSettings />
+      <WriteInSettings />
       <AutoCheckSettings />
       <FindByMeaningSettings />
     </div>
