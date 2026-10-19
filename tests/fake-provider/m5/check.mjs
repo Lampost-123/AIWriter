@@ -1,8 +1,9 @@
-// Fake replies for the consistency checks (src/main/checks/prompts.ts: system prompts starting
-// "[AIWRITE-CHECK v1] <checks>"). They read the memory in the request (each entry under a heading
-// "### E1 Mara (character; ...)", its fields as "- Eyes: blue" lines and "What has happened so far:" items)
-// and the scene's text (everything after the "## The scene" heading), with these rules, so tests know
-// exactly what a scene raises:
+// Fake replies for the consistency checks (src/main/checks/prompts.ts: every request about a scene has the system prompt
+// "[AIWRITE-CHECK v2] scene ...", and one that makes checks says which in its task, after the scene:
+// "[AIWRITE-CHECK-TASK v1] <checks>"; a request with another task, a second opinion, isn't answered here). They read the
+// memory in the request (each entry under a heading "### E1 Mara (character; ...)", its fields as "- Eyes: blue" lines
+// and "What has happened so far:" items) and the scene's text (everything after the "## The scene" heading, up to the
+// task), with these rules, so tests know exactly what a scene raises:
 //   facts   "<Name>'s eyes are|were|flashed|shone <colour>" or "<Name>'s <colour> eyes" (either apostrophe), when the memory gives
 //           <Name> other eyes: a warning about the eyes field, with a fix that puts the memory's colour back
 //           (and "memory" / "text", so a field of Adam's can be updated from it).
@@ -19,6 +20,9 @@
 // properly). Returns null for any other request.
 
 const MARKER = '[AIWRITE-CHECK v1]'
+const SCENE_MARKER = '[AIWRITE-CHECK v2] scene'
+const TASK_MARKER = '[AIWRITE-CHECK-TASK v1]'
+const TASK_HEADING = '\n## Your task\n'
 let badJsonSeen = 0
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -63,8 +67,23 @@ function entriesIn(user) {
   return out
 }
 
-/** The scene's text: everything after its heading. */
-const sceneIn = (user) => user.match(/(?:^|\n)## The scene[^\n]*\n([\s\S]*)$/)?.[1] ?? ''
+/** The request without its task: the material and the scene. */
+const openingOf = (user) => (user.includes(TASK_HEADING) ? user.slice(0, user.indexOf(TASK_HEADING)) : user)
+
+/** The scene's text: everything after its heading, up to the task. */
+const sceneIn = (user) => openingOf(user).match(/(?:^|\n)## The scene[^\n]*\n([\s\S]*)$/)?.[1] ?? ''
+
+/** The checks a request makes, from its task's "[AIWRITE-CHECK-TASK v1] facts, timeline" line; null when it makes none. */
+function checksAsked(user) {
+  const line = user.split('\n').find((l) => l.startsWith(TASK_MARKER))
+  return line
+    ? line
+        .slice(TASK_MARKER.length)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : null
+}
 
 const dead = (e) => [...e.happened, e.text].some((t) => /\b(died|dead|killed)\b/i.test(t))
 
@@ -87,8 +106,8 @@ function contractIn(user) {
 
 /** Each item of the contract answered against the scene (see the top of this file). */
 function contractAnswers(user) {
-  // The scene's own text: the last part, under "## The scene" (or "## The scene (part 1 of 2)").
-  const scene = user.match(/\n## The scene(?: \(part \d+ of \d+\))?\n([\s\S]*)$/)?.[1] ?? ''
+  // The scene's own text: the last part of the opening, under "## The scene" (or "## The scene (part 1 of 2)").
+  const scene = openingOf(user).match(/\n## The scene(?: \(part \d+ of \d+\))?\n([\s\S]*)$/)?.[1] ?? ''
   const sentences = sentencesOf(scene)
   const words = new Set((scene.toLowerCase().match(/[a-z’']{4,}/g) ?? []))
   return contractIn(user).map((c) => {
@@ -107,8 +126,7 @@ function contractAnswers(user) {
   })
 }
 
-function checkIssues(system, user) {
-  const checks = system.split('\n')[0].slice(MARKER.length).split(',').map((s) => s.trim())
+function checkIssues(checks, user) {
   if (!checks.includes('facts')) return []
   const scene = sceneIn(user)
   const sentences = sentencesOf(scene)
@@ -154,13 +172,15 @@ function checkIssues(system, user) {
 
 /** The reply for a consistency check request, or null when it isn't one. */
 export function checkReply(system, messages, model = '') {
-  if (!system.startsWith(MARKER)) return null
+  if (!system.startsWith(MARKER) && !system.startsWith(SCENE_MARKER)) return null
   const users = (messages ?? []).filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
+  // A request about a scene with another task (a second opinion on what the checks found) isn't the checks'.
+  const checks = system.startsWith(SCENE_MARKER) ? checksAsked(users[0] ?? '') : []
+  if (!checks) return null
   if (model === 'fake/check-bad-json' && users.length === 1 && badJsonSeen++ === 0) return 'I found a couple of things worth a look in this scene.'
   if (/^\[AIWRITE-CHECK v1\] story/.test(system)) return JSON.stringify({ issues: [] })
-  const issues = checkIssues(system, users[0] ?? '')
+  const issues = checkIssues(checks, users[0] ?? '')
   // What each check looked at (the critic's report): "Looked at <check>." with ok unless it raised something.
-  const checks = system.split('\n')[0].slice(MARKER.length).split(',').map((c) => c.trim()).filter(Boolean)
   const checked = checks.map((check) => ({ check, ok: !issues.some((i) => i.check === check), note: `Looked at ${check}.` }))
   const contract = contractIn(users[0] ?? '').length ? contractAnswers(users[0] ?? '') : undefined
   return JSON.stringify({ issues, checked, ...(contract ? { contract } : {}) }, null, 1)

@@ -44,6 +44,11 @@ export interface PlanCore {
   travel: string[]
   /** Everyone in the scene (the card, and whoever the stage and the words put there), for what the plan's beats need. */
   present: ID[]
+  /**
+   * What the scene card says that the story so far doesn't allow ("Before writing, note: …"; plan/cardCheck.ts), for the
+   * planner to resolve. Left out: none (set by plan/index.ts once the card is checked).
+   */
+  notes?: string[]
 }
 
 /** The most lines: of each person's state, of everyone's, of the scenes before, of the threads, of the things left here. */

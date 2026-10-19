@@ -16,8 +16,17 @@ export const CALM_MS = 300
 export function draftWaitWords(
   step: Pick<DraftStep, 'step' | 'count'> | null,
   memory: Pick<MemoryStatus, 'catchingUp' | 'reading'> | null | undefined,
-  sceneId: string
+  sceneId: string,
+  o: { review?: boolean } = {}
 ): { words: string; short: string; title: string } {
+  // Show me the plan first (features/planReview): the plan waits for Adam, and nothing is written until he answers.
+  if (o.review) {
+    return {
+      words: 'The plan is ready for you to read',
+      short: 'Plan ready for you',
+      title: 'The scene is planned. Read the plan, change it if you like, then Write (or Cancel).'
+    }
+  }
   switch (step?.step) {
     case 'memory': {
       const m = memoryFor(memory, sceneId)

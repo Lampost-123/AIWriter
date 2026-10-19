@@ -273,6 +273,7 @@ function NewStoryForm(): React.JSX.Element {
       }}
       title="New story"
       width={620}
+      bodyScrolls
       footer={
         <>
           {/* The Story builder next: give it the plot and it plans the cast, the world and the outline (2026-10-17). */}
@@ -299,9 +300,9 @@ function NewStoryForm(): React.JSX.Element {
         </>
       }
     >
-      {/* The form scrolls inside the dialog (whose title, padding and buttons take about 122px of its 76vh),
-          with the line saying what the story is (and, while Change is open, what it will know) pinned at
-          its top, so they and Create stay in view however much Change shows. It is positioned so the
+      {/* The form scrolls inside the dialog (bodyScrolls: it has what the title, padding and buttons leave of the
+          dialog's 76vh), with the line saying what the story is (and, while Change is open, what it will know) pinned
+          at its top, so they and Create stay in view however much Change shows. It is positioned so the
           hidden radio buttons scroll with it. */}
       <form
         ref={formRef}
@@ -311,7 +312,7 @@ function NewStoryForm(): React.JSX.Element {
           void submit()
         }}
         onFocus={(e) => keepFocusInView(e.target)}
-        className="relative -mx-5 -my-1 flex max-h-[calc(76vh-124px)] flex-col gap-3.5 overflow-y-auto px-5 py-1"
+        className="relative -mx-5 -my-1 flex min-h-0 flex-col gap-3.5 overflow-y-auto px-5 py-1"
       >
         <div className="flex flex-col gap-1">
           <label htmlFor={`${id}-title`} className="text-[12px] font-medium text-muted">

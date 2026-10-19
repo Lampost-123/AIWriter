@@ -10,6 +10,7 @@ import {
   acceptSuggestion,
   activeSuggestion,
   clearSuggestion,
+  diffShape,
   mapRange,
   markTarget,
   rejectSuggestion,
@@ -384,5 +385,28 @@ describe('what shows', () => {
     const elsewhere = s1.apply(s1.tr.setSelection(TextSelection.create(s1.doc, 3)))
     const s2 = apply(elsewhere, acceptSuggestion(elsewhere, 't1'))
     expect(s2.selection.head).toBe(3)
+  })
+})
+
+describe('Change it… in the page: where the old words make way', () => {
+  it('within one paragraph, or from a paragraph start into a later one: the paragraphs before the last hidden whole', () => {
+    const doc = stateFrom(TEXT).doc
+    const inOne = rangeOf(doc, 'The tavern was warm')
+    expect(diffShape(doc, { ...inOne, mode: 'replace' })).toEqual({ blocks: [], from: inOne.from, to: inOne.to })
+    const first = rangeOf(doc, 'The rain had not')
+    const last = rangeOf(doc, 'Nobody looked up.')
+    const whole = diffShape(doc, { from: first.from, to: last.to, mode: 'replace' })
+    // The first two paragraphs go whole; the last one's words up to the end of the change.
+    expect(whole?.blocks).toHaveLength(2)
+    expect(whole?.from).toBe(last.from)
+    expect(whole?.to).toBe(last.to)
+  })
+
+  it('anything else shows the old way (struck through, then the new words)', () => {
+    const doc = stateFrom(TEXT).doc
+    const mid = rangeOf(doc, 'pushed the door')
+    const last = rangeOf(doc, 'Nobody')
+    expect(diffShape(doc, { from: mid.from, to: last.to, mode: 'replace' })).toBeNull()
+    expect(diffShape(doc, { from: mid.from, to: mid.from, mode: 'inline' })).toBeNull()
   })
 })

@@ -16,6 +16,10 @@ describe('what a draft says before its first word', () => {
     expect(draftWaitWords({ step: 'writing' }, null, 's1').words).toBe('Writing…')
   })
 
+  it('says when the plan waits for Adam (Show me the plan first)', () => {
+    expect(draftWaitWords({ step: 'plan' }, null, 's1', { review: true })).toMatchObject({ words: 'The plan is ready for you to read', short: 'Plan ready for you' })
+  })
+
   it('says getting ready before the first step, unless the memory is already reading', () => {
     expect(draftWaitWords(null, null, 's1').words).toBe('Getting ready…')
     expect(draftWaitWords(null, { reading: { sceneId: 's0', title: 'Before' } }, 's1').words).toBe('Catching up the memory…')

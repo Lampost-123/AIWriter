@@ -83,9 +83,9 @@ Reply with:
 {"summary": "...", "strengths": ["..."], "notes": [{"category": "pacing", "weight": "high", "title": "...", "quote": "...", "suggestion": "..."}]}`
 }
 
-/** Said when a reply couldn't be read, before asking once more. */
+/** Said when a reply couldn't be read, at the end of the same request asked once more (without the reply: 2026-10-19). */
 export const retryMessage = (why: string, cutOff: boolean): string =>
-  `Your reply couldn't be used: ${why}. Reply again with only the JSON object, in exactly the format given, with every quote copied exactly from the text.${
+  `Your last reply to this couldn't be used: ${why}. Reply with only the JSON object, in exactly the format given, with every quote copied exactly from the text.${
     cutOff ? ' Keep it shorter: fewer notes, and a sentence or two for each.' : ''
   }`
 

@@ -7,6 +7,7 @@ import type { DraftStep } from '@shared/contracts/calm'
 import type { ID } from '@shared/types'
 import { onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
+import { usePlanReview } from '@/features/planReview/store'
 import { calmStep, CALM_MS, draftWaitWords, type Calm } from './waitWords'
 
 interface Steps {
@@ -62,7 +63,8 @@ export function useDraftWait(sceneId: ID, starting: boolean): { words: string; s
   useEffect(() => {
     if (!starting) forgetSteps(sceneId)
   }, [starting, sceneId])
-  const now = draftWaitWords(starting ? step : null, memory, sceneId)
+  const review = usePlanReview((s) => s.waiting.some((r) => r.sceneId === sceneId))
+  const now = draftWaitWords(starting ? step : null, memory, sceneId, { review: starting && review })
   const words = useCalmLine(starting ? now.words : '')
   const short = useCalmLine(starting ? now.short : '')
   if (!starting) return null

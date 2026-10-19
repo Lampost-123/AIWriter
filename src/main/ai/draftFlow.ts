@@ -24,7 +24,9 @@ import { carryOnFrom, catchUpBeforeDraft, gatherContextInput, stageNote, stageWh
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { memoryReady } from '../keeper'
 import { planBeforeWriting, planWanted } from '../plan'
-import { keepsRoom, type BeatAt, type ScenePlan } from '../plan/plan'
+import { keepsRoom, type BeatAt, type MadePlan, type ScenePlan } from '../plan/plan'
+import { CANCELLED_BEFORE_WRITING, withAnswer } from '../plan/review'
+import type { ScenePlanAnswer } from '@shared/contracts/planReview'
 import { countTokens } from './tokenService'
 import { draftStep } from './steps'
 import { isLocalUrl, providerWho } from './errors'
@@ -135,6 +137,12 @@ async function fitted(input: ContextInput, extras?: ContextExtras): Promise<{ pr
 /** Adam stopped the draft before it began: nothing more is done or sent. */
 export const stoppedBeforeStart = (): UserError => new UserError('The draft was stopped before it began.', 'cancelled')
 
+/**
+ * Show me the plan first (plan/review.ts): shows Adam the plan made for the draft (null: none could be made) with what the
+ * card check noted, and waits for his answer; null when he cancels or the draft is stopped.
+ */
+export type PlanReview = (plan: MadePlan | null, notes: string[]) => Promise<ScenePlanAnswer | null>
+
 export interface DraftBriefing {
   input: ContextInput
   preview: ContextPreview
@@ -190,6 +198,7 @@ export async function draftBriefing(
     focus?: string
     brief?: boolean
     chapterPlan?: string
+    review?: PlanReview
   } = {}
 ): Promise<DraftBriefing> {
   const { choice, target, thinking } = writerModel(options?.model)
@@ -217,7 +226,14 @@ export async function draftBriefing(
     contract: made.prepared.contract ?? null
   }
   if (o.plan !== false && planWanted()) draftStep(sceneId, 'plan')
-  if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal, brief: o.brief, ...(o.chapterPlan?.trim() ? { chapterPlan: o.chapterPlan } : {}) })
+  if (o.plan !== false)
+    b = await withPlan(sceneId, b, {
+      extras: o.extras,
+      signal: o.signal,
+      brief: o.brief,
+      ...(o.chapterPlan?.trim() ? { chapterPlan: o.chapterPlan } : {}),
+      ...(o.review ? { review: o.review } : {})
+    })
   // Where things stand as the previous scene ended goes on being worked out after the draft's wait, so it is looked up
   // again now (review, 2026-10-16): one that came in during the plan's own wait (up to two minutes) is told after all.
   if (!carryOn && !b.input.continuity) b = await withStageNow(sceneId, b, o.extras)
@@ -297,17 +313,34 @@ async function withStageNow(sceneId: ID, b: DraftBriefing, extras?: ContextExtra
 export async function withPlan(
   sceneId: ID,
   b: DraftBriefing,
-  o: { extras?: ContextExtras; signal?: AbortSignal; beat?: BeatAt; brief?: boolean; chapterPlan?: string } = {}
+  o: { extras?: ContextExtras; signal?: AbortSignal; beat?: BeatAt; brief?: boolean; chapterPlan?: string; review?: PlanReview } = {}
 ): Promise<DraftBriefing> {
   if (!b.prepared) return b
   const db = world.db()
-  const plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, {
+  let notes: string[] = []
+  let plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, {
     brief: o.brief,
     ...(o.beat ? { beat: o.beat } : {}),
-    ...(o.chapterPlan?.trim() ? { chapter: o.chapterPlan } : {})
+    ...(o.chapterPlan?.trim() ? { chapter: o.chapterPlan } : {}),
+    // What the card check noted, for Adam to read with the plan (plan-first only).
+    ...(o.review
+      ? {
+          onCard: (n: string[]) => {
+            notes = n
+          }
+        }
+      : {})
   })
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
+  // Show me the plan first (plan/review.ts): the plan waits for Adam, who writes to it as he leaves it, or cancels.
+  if (o.review) {
+    const answer = await o.review(plan, notes)
+    if (o.signal?.aborted) throw stoppedBeforeStart()
+    if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
+    if (!answer) throw new UserError(CANCELLED_BEFORE_WRITING, 'cancelled')
+    if (plan) plan = withAnswer(sceneId, plan, answer.plan)
+  }
   if (!plan) return b
   // With what it asked for and what it looked up, else without what it looked up, then without what it asked for; with
   // the continuity brief (fix 14), else without it. Each only if it says anything.

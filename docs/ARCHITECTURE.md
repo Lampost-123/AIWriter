@@ -452,7 +452,8 @@ is built on migrations 1 and 2.
 - The scene panel's tabs are Scene card, Context, Cast and Drafts; an entry shown beside the page
   (`peekEntryId`) covers them until Back.
 - Narrow page: the workspace keeps `pageMinFor(fontSize, pageWidth)` for the page (about 55 characters
-  a line plus the narrow padding); the page gets 40 px padding only from `widePageFrom()` (measured
+  a line plus the narrow padding and the sheet's 8 px margins, `SHEET_MARGINS`; App takes the area rail off
+  the window's width first); the page gets 40 px padding only from `widePageFrom()` (measured
   with a ResizeObserver in `SceneView`). When even both panels at their narrowest can't leave that,
   the binder floats over the page (`binderFloats`, `useFloatingBinder`; the top bar's button and the
   palette's "Show or hide the binder" show it), leaving the saved layout alone. The Literata
@@ -541,7 +542,9 @@ is built on migrations 1 and 2.
   before the story's first day, then those with no date, then the rest by date. Existing events are never rewritten; a
   build ties a new one only to a scene that agrees with its date, else the first scene on or after its day
   (`worldBuilder/save.ts` `eventScene`, `sceneOnDay`). The brief leaves out an event on a later day, or later the same
-  day when both say a time, unless it first exists at the scene being written.
+  day when both say a time, unless it first exists at the scene being written. Events earlier builds left at the story's
+  start go to their scene on keeping an outline, or with "Put events in their place" (see "Events in the scene they
+  happen in").
 - Clashes: the same named day (same calendar, same calendar words) at different most-specific places
   (a place inside another isn't a clash). They use neutral colours; amber is for AI suggestions and the
   board's long-open note (`LONG_OPEN_CHAPTERS = 10` in `threads.ts`).
@@ -1259,8 +1262,9 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   `src/shared/contracts/checks.ts`; its handlers are `src/main/ipc/checks*.ts`.
 - **The model.** AI checks are the job `check`: "Consistency check model" in Settings › Models
   (`settings.models.check`, the memory model until Adam picks one, then the writer model), with its own
-  Thinking (`settings.thinking.check`, Off). Generation records use job `'check'`; prompts start with
-  `[AIWRITE-CHECK v1] <check>`.
+  Thinking (`settings.thinking.check`, Off). Generation records use job `'check'`; a scene's checks share the system
+  prompt `[AIWRITE-CHECK v2] scene` and name their checks in their task, `[AIWRITE-CHECK-TASK v1] <checks>` (see "The
+  checks' cost" below); comparing stories starts `[AIWRITE-CHECK v1] story`.
 - **Ties to people not in this scene** (block 11, priority 11, `ties`): for each character present, the
   characters they have a relationship with who aren't in the scene, as of the scene: the other person's one
   line, where the relationship stands, and the events and changes that name both, newest first. Closest
@@ -2289,7 +2293,7 @@ Owned by the Beat by beat part (`contracts/beats.ts`, `ipc/beats.ts`, `src/main/
   paragraphs, a band drawn by CSS (`beatMarks.css`, every size and colour a custom property, so the New look's
   layouts can restyle it). `BeatMarksLayer.tsx` (SceneView, in the scrolling area) puts a "Beat N" button in the
   left margin by each beat's first line (above it when the margin is narrow), shown on hover or keyboard focus (Tab
-  reaches it), with the beat's menu: Redo this beat, Change and redo (a one-line note), What the AI saw (that beat's
+  reaches it), with the beat's menu: Redo this beat, Change it… (the change box: a note and sentences to keep; "Keep this, change that"), What the AI saw (that beat's
   showing record), Keep it as it is, Redo the beats after this (the next, or all in order), Remove this beat, and
   Show beats after you finish. Shown during a session on the scene, and after Finish only with "Show beats"
   (`settings.editor.showBeats`: Settings › Editor, the palette's Show beats / Hide beats).
@@ -4188,13 +4192,55 @@ when it can't. No migration; the stores, hashes and rules are the tracker's and 
   same for every reading, so a provider's cache serves them.
 - **Not done here**: a scene summary is still written again whole for each Add below or Continue (its words changed by
   more than `DUE_WORDS`), the largest upkeep left in the chain; the import estimate (`importing/estimate.ts`) still counts a
-  summary call for each scene, so it now says a little more than it costs; the other JSON jobs' retries
-  (`checks/run.ts`, `checks/stories.ts`, `storyFlows/call.ts`, the builder, the critic) still send the failed reply back.
+  summary call for each scene, so it now says a little more than it costs. (The other JSON jobs' retries send the failed
+  reply back no more: "The checks' cost", below.)
 - **Tests**: `keeper/oneReading.test.ts` (a new scene; words added at the end; an edit in the middle, a stale start and a
   summary not due or Adam's going to their own calls; a small reply limit; the summary kept, and only for the words it was
   written from; refusals; no ghosts; values only from what was read; Recall edits kept; the index told; a cut-off or broken
   reply read again alone), `keeper/oneReadingWorld.test.ts` (before a draft, in the open world: one call for the scene
   just written), `keeper/keeper.test.ts` (the retry), `keeper/prompts.test.ts`.
+
+## The checks' cost: one opening for every request about a scene (overhaul, 2026-10-19)
+
+An audit found the consistency checks were about 15-20% of a chapter run's tokens, and none of it reused: the two groups of
+checks had different system prompts, the second opinion wrapped the same material its own way, and a format retry sent
+everything again with the failed reply on top. No migration, no new call; what the checks catch is unchanged.
+
+- **One opening** (`checks/prompts.ts` `CHECK_SYSTEM`, `checks/context.ts` `checkOpening`, `checks/run.ts` `checkLayout`):
+  every request about a scene (both groups of checks, the contract's ruling `contractRuling`, the second opinion
+  `findingsRuling`) sends the same system prompt (what all six checks look for, the rules and the reply's shape; the same
+  for every scene), then the same material and the scene's words, byte for byte, and only then its own task (`## Your
+  task`: `checkTask`, the checks it makes and, in the request about what is so, the contract's rules and C lines;
+  `CHECK_SECOND_TASK`; `contractRulingTask`, the second opinion's own instructions with the whole scene as its new words).
+  The user message's `cacheUpTo` marks the opening for a model that caches only where asked. The second opinion takes it
+  through `repair/second.ts` `SharedOpening`.
+- **The material** is what every check asked was told (`checkSections` for all of them), so each group now reads a little
+  more than its own: the facts check the 40 facts of who knows what and the style guide, the knowledge check where things
+  stood and the scenes before. Nothing either group had is lost (tested): the facts the words touch are added to the list
+  of who knows what, "About this story" goes to every check but style, and what the author said is meant keeps
+  `MOST_MEANT` for each group (`CHECK_GROUPS`, now in `context.ts`). One split of a long scene serves every request (the
+  room left by the largest task); the contract is left out, never the check, when it doesn't fit.
+- **Two requests still**: a live run found one request for all six spread the model thin and missed plain contradictions;
+  the fake run can't tell (it answers by rule, whatever it is asked: merged, the book's planted slips came out the same),
+  so merging waits for a real A/B. Write the whole chapter keeps its one request (`together`).
+- **Asking again** (`repair/retry.ts` `withCorrection`, as the memory keeper's own): a reply that can't be used is asked for
+  with the same request and a short line at the end of its last message ("Your last reply to this couldn't be used: ..."),
+  never the reply itself, in the checks, story comparisons (`checks/stories.ts`), the story flows (`storyFlows/call.ts`),
+  the builders (`builder/jobs.ts`, `retryLine`) and the critic (`critique/run.ts`). The World builder keeps its own.
+- **The fake provider** (`tests/fake-provider/m5/check.mjs`) reads the checks asked from the task's line and the scene up to
+  the task; a request with another task (a second opinion) isn't the checks'.
+- **Measured** (fake provider; "cached" is the tokens a request shares with the start of the one before it, which DeepSeek
+  bills at a tenth). A check of one scene (four entries, 1,500 words): Mark done 9,070 tokens in, none cached, to 12,320,
+  64% cached (as billed, 9,058 to 5,246: −42%); through its contract, four requests, 11,998 to 17,194, 69% cached (11,983 to
+  6,586: −45%). The trap harness's book (`npm run traps -- --fake --story book --samples 1 --measure`), its 43 check
+  requests: 166,560 tokens in, 37% shared with one of the 40 before, to 208,821, 73% (as billed 111,820 to 72,338: −35%);
+  the whole run 2.03 to 2.08 million in, as billed −6%. Write the whole chapter (`chapterWriter/requests.test.ts`): 140,819
+  to 151,216 characters with the greedy agent, 128,235 to 138,632 with the other; its 8 check requests, 16% to 54% shared
+  with the one before (as billed −34%). Without a cache the checks send about a quarter more. The book's planted slips: 2
+  of 13 caught and 5 false alarms on the fake, before and after, the same issues.
+- **Tests**: `checks/run.test.ts` ("every request about a scene opens alike": the four requests' openings byte for byte,
+  the retry without the reply), `checks/checks.test.ts` (the shared material holds all each group had; the task last),
+  `repair/retry.test.ts`, and the retries in `builder/jobs.test.ts`, `storyFlows/flows.test.ts`, `critique/critique.test.ts`.
 
 ## Pay-offs read for sure, leaner dead, and what the reader knows (overhaul, 2026-10-19)
 
@@ -4610,6 +4656,154 @@ Beat by beat and Variants stay as they are. No migration: the record keeps it in
 - **Not done here**: the free checks read plain English only (the clothes rule's verbs are a short list); a beat or ask
   said in other words is left to the director to judge; a real-model run (trap book) with and without it would judge it
   at length.
+
+## Show me the plan first, the card check, and writing in what a draft missed (overhaul, 2026-10-19)
+
+Three parts that help the AI write what Adam tells it, consistently. No migration: two settings (`NEW_SINCE_081` in the
+settings carry test), one draft option, and steps on records.
+
+- **Show me the plan first** (`plan/review.ts`, contract `shared/contracts/planReview.ts`, handlers `ipc/planReview.ts`):
+  the draft options' "Show me the plan first" (`DraftOptions.showPlan`, for one draft: `features/planReview/store.ts`
+  `takeShowPlan`, read in `useGenerate`) or Settings › Models › Planning, "Show me the plan before writing"
+  (`settings.showPlanFirst`, off by default). Generate and Add below (`ipc/ai.ts` `startDraft`, `reviewWanted`; never with
+  Plan before writing off) stop once the scene is planned: `ai/draftFlow.ts` `withPlan` calls `review` with the plan
+  (`MadePlan`, or null when none could be made) and what the card check noted, after the memory has caught up (drafts
+  still wait for it). The plan waits with no time limit (`waitForReview`, events `scenePlan:review` / `scenePlan:closed`,
+  `scenePlansWaiting` for a window opened meanwhile) until `answerScenePlan`: Write (as made, or with Adam's parts), Cancel
+  (`UserError` 'cancelled', "Cancelled before writing", which the window says nothing more about), Stop
+  (`cancelDraftStart`), or the world closing. Costs no tokens: the plan is made anyway. Adam's changes (`changedPlan`, pure:
+  the point, the beats, who is where, what changes, the closing image; empty lines out; what must happen first kept with its
+  beat while its words are the same) are what the writer gets: the notes are written again by `MadePlan.writeAgain` (the
+  same point of view, stretch and asks of how it reads), and the scene's kept plan becomes his (`plan/index.ts`
+  `keepChangedPlan`), so Continue and later beats follow it. Directed writing writes by the changed beats.
+  The window (`features/planReview/ScenePlanReview.tsx`, mounted beside the chapter's plan; parts shared with
+  `ChapterPlanReview` in `planReview/parts.tsx`): "Worth knowing before it writes" (the card check's notes and the beats
+  that can't happen), the point, what happens (with what must come first under its beat), who is where, what changes, it
+  ends on, what it keeps to; Change the plan (a box a beat, the lists a line each), Write, Cancel; closing it is Cancel.
+- **The card check** (`plan/cardCheck.ts`, no AI call): before planning (`planBeforeWriting`, with the story index just
+  brought up to date), the scene card is held to the index, saying something only when the index is sure: someone on the
+  card there sooner than the road from where they were allows (the index's too-fast check for this scene, unless the
+  words have moved them on since), or the card's beats have them at the place the story last had them, apart from the
+  card's Where (never a sentence of going, coming or remembering); someone on the card the memory is sure died, or who is
+  elsewhere at that very moment; something the beats or the direction have someone use that the index has left or carried
+  elsewhere (`beatsCanHappen`'s findings that can't be put right) or that the memory says they gave up (`holdingsOf`); a
+  When earlier than the scene before (`scenesGoingBack`); an age a year or more from the entry (`ageGiven`, `ageHere`; with
+  no dates, the entry's age two years either way). Place and time only as a scene begins. At most 8; never names what Adam
+  kept out. The findings go (a) into the planner's request as "Before writing, note: …" lines under their own heading
+  (`PlanCore.notes`, `CARD_NOTES_TITLE`), so the plan resolves them, and (b) to Adam: in the plan-first window and on the
+  plan's record in What the AI saw ("Steps it took", `CARD_CHECK_LABEL`).
+- **Write in what a draft missed** (`features/receipt/autoWriteIn.ts`; Settings › Models, "Write in what a draft missed",
+  `settings.autoWriteIn`, off by default): when the direction receipt shows an ask that didn't land (○, never one of
+  length), the app writes it in once by itself with the steered Continue Write it in uses (`continueAtEnd`), only when
+  nothing else is being written in the scene and only for a draft this window started; the receipt then says what was
+  written in ("+", `data-direction-receipt="written"`, "Written in below"), and What the AI saw notes it. At most once a
+  draft (`claimAutoWriteIn`). On the desk, where the receipt shows.
+- **Tests**: `plan/cardCheck.test.ts` (each finding with its controls), `plan/review.test.ts` (end to end against the
+  fake provider: the plan waits with no call of its own, the changed beat reaches the writer and Continue, Cancel and Stop
+  write nothing, the card's notes reach the planner and the record; the pure parts), `features/receipt/autoWriteIn.test.ts`
+  (once only), `features/planReview/logic.test.ts`, `tests/unit/settingsCarry.test.ts`; app test `tests/e2e/planFirst.spec.ts`
+  (the desk: a beat changed, Write; Cancel; written in once by itself).
+- **Not done here**: the panels layout has no receipt, so nothing is written in by itself there; the card check reads
+  plain English and doesn't look at the card's mood or notes for things used.
+
+## Keep this, change that (Change it…, 2026-10-19)
+
+No writing tool lets a writer say "closer, but shorter": Write it again on a beat wrote from scratch without seeing the
+version it replaced, and an AI edit could only be accepted or rejected. Change it… revises a passage as Adam says,
+keeping the sentences he marks word for word.
+
+- **Where he sees it.** Under the draft just written (`edits/JustWritten.tsx`: "Draft written · 640 words", Change it…,
+  What the AI saw, Undo while nothing else has changed the page; it goes once he types, opens another scene or closes it,
+  and steps aside while the AI is busy or a change waits). In the AI tools over selected words (Change it…, "Keep this,
+  change that"). Beside Accept and Reject on any AI change waiting in the page (`SuggestionLayer.tsx`; Change again… on
+  one made this way). On a beat's menu (`beats/BeatMarksLayer.tsx`: "Change it…" in place of "Change and redo…").
+- **The change box** (`edits/ChangeBox.tsx`, what it is about in `edits/changeStore.ts`): over the foot of the page (over
+  the AI dock on the desk), the passage's sentences to click to keep (`shared/revise.ts` `sentencesOf`; marked as a quick
+  ask that is on; arrow keys move between them, Space keeps), the direction composer for the note (kind `rewrite`: ↑, the
+  quick asks and Recent as everywhere; Enter changes it), Change it. Esc or × closes it. The words it is about are marked
+  softly in the page while it is open; a change inside them closes it with a word about why. A beat may be written again
+  with no note (the button says Write it again).
+- **The tool** (`EditTool` `'revise'`, `EditInput.keep`; `main/edits`): an `edit` record like the other AI tools, the
+  writer model, `steady` creativity. Its system prompt says the passage is to be revised, not rewritten (`REVISION_RULE`),
+  and with kept sentences `KEEP_RULE`; the briefing has the passage as it is now (`PASSAGE_LEAD`), the kept sentences listed
+  right after it (`KEEP_LEAD`; `edits/input.ts` keeps only those the passage has, in its order, at most `KEEP_MOST`), the
+  scene card in full, the scene's plan with no call (`planForContinueOf`), where things stand before the passage when it
+  is kept (`STAND_LEAD_PASSAGE`), Adam's own writing as the sample when that is on (`ownWritingFor`), and the ask last
+  ("Revise the passage as the author asked (“…”), keeping everything else as it is. Keep the 2 marked sentences word for
+  word."). On a waiting change, the passage is the AI's words and the change takes its place (`session.ts`
+  `changeWaiting`, `takeOver`: what its Accept was to do, a beat's say, and History's label carry over).
+- **Kept means kept** (`shared/revise.ts` `restoreKeeps`): once the words are in, each kept sentence is found word for word
+  (spacing and quotation marks' shapes aside); one the AI reworded goes back in place of the sentence most like it
+  (`LIKENESS_TO_SWAP`), one it left out goes back after the kept sentence before it (or before the one after); one with
+  nowhere to go is said to be missing ("Change again, or reject the change"). The change's note says which (`keptNote`).
+- **Only what moved** (`Suggestion.diff`; `edits/reviseDiff.ts` over Ask's `wordDiff`; `suggestions.ts` `diffShape`,
+  `renderDiff`): the old words make way (hidden, still the scene's text until Accept) and the passage shows once, cut words
+  struck through and added ones marked in amber, paragraph by paragraph with italics and bold; words cut from a
+  paragraph's end stay at its end. While it is written, the old words it hasn't reached are faint after the caret, so the
+  passage reads whole as it changes. A change that starts part-way through one paragraph and runs into the next shows
+  the old way. Accept is one undo step, kept in History first ("Before Change it"); the change is named by the note
+  ("Change it: “Closer, but shorter”").
+- **Beats written again see the old version** (`BeatStart.old`, `keep`; `beats/instructions.ts` `oldBlock`, `keepBlock`,
+  `oldNote`): Write it again in the bar, Redo this beat and Change it… send the beat's words on the page as "This beat as
+  it is now"; with a note the AI changes that version and keeps the rest close, with none it writes a fresh take, not the
+  same sentences again. Change it… on a beat is a tracked change of only what moved, its kept sentences checked as above
+  (`beats/redo.ts`).
+- **Cost**: about 220 tokens more than a Rewrite of the same words (the two rules, the card in full, the kept sentences):
+  a 400-word beat about 1,850 tokens in and 600 out, a 1,500-word draft about 3,500 in and 2,300 out (about $0.002 at
+  DeepSeek's prices), plus about 550 when Adam's own writing is the sample.
+- **Tests**: `shared/revise.test.ts`, `main/edits/revise.test.ts`, `main/beats/instructions.test.ts` and `start.test.ts`
+  (the old version and kept sentences sent), `edits/reviseDiff.test.ts`, `edits/suggestions.test.ts` (`diffShape`); app
+  test `tests/e2e/revise.spec.ts` (selected words: keep, note, only what moved, Change again with a sentence put back,
+  Accept, Ctrl+Z; the draft just written: the row, the box, Esc, Reject) and `beats.spec.ts` (Change it… on a beat);
+  the fake answers `revise` (`tests/fake-provider/m4/edits.mjs`).
+
+## Events in the scene they happen in (Adam, 2026-10-19)
+
+Adam: "before, all the events being added by the AI went right after the first chapter's scene as a long line, and not
+actually where they were supposed to be added in the timeline". 0.7.7 put the World builder's events for a story's plan
+in their scene; events made before that, and the Story builder's (laid out before the outline has scenes for them),
+still first exist at the story's start, so the timeline could place them only by a date, and with none (or one it can't
+read) they sat just after the opening scene. One module, `worldViews/eventHomes.ts`, finds each such event's scene from
+the record alone (no AI call) and moves it there; Undo puts it back.
+
+- **Which events.** Made by a World build for this story (`db/worldViews.ts` `builtEvents`: its line in What changed,
+  not undone; the Story builder's and a recipe story's builds are World builds), never one Adam made himself; one
+  first-exists point, not set by hand, at the world's or the story's start; not before the story (the timeline shows it
+  ahead of the story's scenes, `eventPlace.ts`, or its When says long ago, `longAgo`); and not when its scene would be the
+  opening one (it shows there already).
+- **Its scene**, strongest first: `text`, the memory keeper read something of it in that scene's words (a source link,
+  `history.entryLinkScenes`, or a text change there about it or tying someone to it, `textChangeScenes`); `plan`, the
+  build line's words are that scene's line of the story's plan ("- Scene The Wreck: ...", old and new forms, matched by
+  title); `card`, the scene card's title, goal or beats name it (whole words); `date`, its When on the story calendar: the
+  first scene of the story's present on or after its day (the build's `sceneOnDay` rule), on the day itself when an
+  outline is kept. A scene its date disagrees with is passed over for the next reason.
+- **Moving** sets the point to that scene and the entry's `originSceneId`, as a build that knew the scene makes it, so
+  `refreshDefaultExistsPoints` keeps it there (`EventMove` records what it was; `unmoveEvents` puts back only what is
+  still where it was moved to, never a point Adam has set by hand since). The characters involved in it are involved from
+  there, as the memory reads a relationship only while both exist.
+- **Keeping an outline** (`outline/structure.ts` `keepOutline`, every keep: the outline helper, its stages, a chapter's
+  plan, the Story builder, a recipe's plan) puts the story's waiting events in the kept scenes (`within`, `exactDay`),
+  each listed on its scene's `KeptItem.events`; the keep's toast says so (`tree.ts` `placedEventsNote`) and its Undo
+  (`unkeepOutline`) puts them back first.
+- **Put events in their place** (timeline, `features/timeline/EventPlaces.tsx`, `eventPlacesLogic.ts`): the timeline asks
+  `getEventHomes` with the river (one load, no shift); when anything can move, a line under the header says how many
+  ("12 events from the World builder can go to the scenes they belong to."), Show which lists each with its scene and why
+  and a tick to leave it, Move them calls `placeEvents` (worked out again in main) and its toast's Undo `unplaceEvents`.
+  Not now hides it on this computer (localStorage `aiwrite.timeline.eventPlaces`) until another event can move.
+- **Made from a scene.** `createEntry(kind, input, at)`: an event made with Add to memory on a scene's words, or an Ask
+  the world proposal, first exists at that scene (`makingAt`). Ask's new event names its `scene` (the open one when left
+  out; "before the story" for none) and `when`; the proposal shows "Happens in".
+- **Already right**: the World builder from a story's plan (0.7.7) and a recipe story's build (the same summary with the
+  recipe's lines after it); the memory keeper (an event found in a scene first exists there); filling in the gaps never
+  touches an event (`fillTargets`); Build from a summary keeps an event true from where Adam said, and the timeline shows
+  a dated one on its day; the Plan hub and chapter plans make no events (their keeps go through `keepOutline`).
+- **Tests**: `worldViews/eventHomes.test.ts` (each reason, what stays: placed by hand, Adam's own, before the story, the
+  opening scene, another story; one Undo; keeping an outline), `worldViews/eventPaths.test.ts` (each path against the fake
+  provider: an event for Ch 2, Sc 3 shows right after it), `features/timeline/eventPlacesLogic.test.ts`, the toast note in
+  `features/outline/tree.test.ts`, and `tests/e2e/timelineEvents.spec.ts` (the New look: after a World build, and the
+  tidy-up with its Undo). Fixture: `tests/unit/eventWorld.ts`.
+- **Not done here**: an event the memory keeper reads in a scene but the world already has from a build (it records
+  nothing new for it) waits for its date, a card or the build's own words; no AI is asked where an event goes.
 
 ## The calm overhaul: one Check, one Issues list, one note per draft (Adam, 2026-10-19)
 

@@ -226,7 +226,20 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       note: string
     }
   | { kind: 'entry'; entryId: ID; entryKind: EntryKind; name: string; patch: EntryProposal }
-  | { kind: 'newEntry'; entryKind: EntryKind; name: string; summary: string; description: string }
+  | {
+      kind: 'newEntry'
+      entryKind: EntryKind
+      name: string
+      summary: string
+      description: string
+      /**
+       * An event (2026-10-19): the scene it happens in, where it first exists once applied (the open one unless the
+       * chat named another), with that scene in plain words; none for one before the story begins. Its When, if given.
+       */
+      sceneId?: ID | null
+      sceneLabel?: string
+      when?: string
+    }
   | {
       /** A new scene at the end of a chapter, with a card if given. */
       kind: 'newScene'

@@ -36,6 +36,7 @@ import { storyFillScenes } from '../db/indexFill'
 import { keptStates } from '../continuity/tracker'
 import { planCore, type PlanCore } from './core'
 import { beatsCanHappen } from './preconditions'
+import { cardCheck, cardNoteLines } from './cardCheck'
 import {
   makePlan,
   planForContinue,
@@ -122,6 +123,17 @@ export function cardKey(card: SceneCard): string {
   return JSON.stringify([c.povId, c.presentIds, c.locationId, c.when, c.goal, c.conflict, c.outcome, c.mood, c.notes, c.beats, c.setsUpIds, c.paysOffIds])
 }
 
+/**
+ * Adam changed the plan before it was written to (plan-first, plan/review.ts): the scene's kept plan becomes his, so Beat by
+ * beat's later beats and Continue follow what he wrote. Only where the kept plan is the one he was shown.
+ */
+export function keepChangedPlan(sceneId: ID, was: ScenePlan, now: ScenePlan): void {
+  for (const map of [scenePlans, wholePlans]) {
+    const k = map.get(sceneId)
+    if (k && k.plan === was) map.set(sceneId, { ...k, plan: now })
+  }
+}
+
 /** Forgets every kept plan (tests). */
 export function forgetScenePlans(): void {
   scenePlans.clear()
@@ -150,7 +162,7 @@ export async function planBeforeWriting(
     prepared: Pick<PreparedContext, 'finals' | 'contract'> & Partial<Pick<PreparedContext, 'blocks'>>
   },
   signal?: AbortSignal,
-  o: { brief?: boolean; beat?: BeatAt; chapter?: string } = {}
+  o: { brief?: boolean; beat?: BeatAt; chapter?: string; onCard?: (notes: string[]) => void } = {}
 ): Promise<MadePlan | null> {
   try {
     if (!planWanted() || pausedNote()) return null
@@ -168,7 +180,34 @@ export async function planBeforeWriting(
     const entries = b.preview.entries ?? []
     const hidden = new Set(entries.filter((e) => e.hidden).map((e) => e.entryId))
     // What the story index gives at no cost: everyone here as things stand, the scenes before, the open threads.
-    const core: PlanCore | null = safely(() => planCore(db, b.input, sceneId, { carryingOn, hidden }), null)
+    const read: PlanCore | null = safely(() => planCore(db, b.input, sceneId, { carryingOn, hidden }), null)
+    // The scene card against the story index, just brought up to date (cardCheck.ts, no AI call): for the planner to
+    // resolve, and for Adam (the plan-first review, through onCard, and the plan's record).
+    const notes = read
+      ? safely(
+          () =>
+            cardNoteLines(
+              cardCheck({
+                db,
+                storyId: read.storyId,
+                sceneId,
+                card,
+                direction: b.input.options.direction ?? '',
+                entries: b.input.memory.entries,
+                relationships: b.input.memory.relationships,
+                present: read.present,
+                asItBegins: read.asItBegins,
+                stand: toldStage(b.input),
+                ...(b.input.soFar ? { soFar: b.input.soFar } : {}),
+                hidden,
+                storyTitle: b.input.story.title
+              })
+            ),
+          []
+        )
+      : []
+    o.onCard?.(notes)
+    const core: PlanCore | null = read ? { ...read, ...(notes.length ? { notes } : {}) } : null
     const plain: PlanMaterial = {
       ...planMaterial(b.input, b.preview, b.prepared, { core, beats: !!o.beat, ...(o.chapter?.trim() ? { chapter: o.chapter } : {}) }),
       contentNote: contentNoteFor(b.input.style.intensity)

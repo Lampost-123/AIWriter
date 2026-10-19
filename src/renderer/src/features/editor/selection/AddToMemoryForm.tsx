@@ -134,11 +134,12 @@ export function AddToMemoryForm({
     setBusy(true)
     try {
       if (mode === 'new') {
-        const e = await api.createEntry(kind, {
-          name: name.trim() || newEntryName(kind),
-          description: description.trim(),
-          originStoryId: names.storyId
-        })
+        // An event made from a scene's words happens in that scene (2026-10-19): it first exists there, on the timeline too.
+        const e = await api.createEntry(
+          kind,
+          { name: name.trim() || newEntryName(kind), description: description.trim(), originStoryId: names.storyId },
+          kind === 'event' && names.sceneId ? { sceneId: names.sceneId } : null
+        )
         useApp.getState().bumpEntries()
         const undo = (): Promise<void> => api.deleteEntry(e.id).then(() => useApp.getState().bumpEntries())
         announceAdded({ message: addedEntryMessage(displayName(e), kind), entryId: e.id, kind, isNew: true, undo })

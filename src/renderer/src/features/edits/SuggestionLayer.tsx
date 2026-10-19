@@ -1,11 +1,12 @@
 // What shows with an AI edit in the page: while it is written, what it's doing and Stop; once written,
-// Accept and Reject (and Alternatives' versions to pick from first), with What the AI saw. It sits in the
+// Accept and Reject (and Alternatives' versions to pick from first), Change it… (the change box on its words: keep this,
+// change that; Change again once it is such a change), with What the AI saw. It sits in the
 // room the tracked change makes below itself (suggestions.ts), lined up with the text, so it moves with
 // the words and covers none of them. Rendered by SceneView in the page's scrolling area. Its buttons never
 // take the caret from the page. Owned by the AI edits part.
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
-import { Check, Layers, ListRestart, Square, X } from '@/components/ui/icons'
+import { Check, Layers, ListRestart, Square, SquarePen, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'
@@ -18,6 +19,7 @@ import { TOOL_NAMES, TOOL_WORKING } from './names'
 import { picking, suggestionsOf, type Suggestion, type SuggestionsState } from './suggestions'
 import { accept, attachEditor, openRecord, pick, reject, sceneShown, setLayerHooks, stop, unpick } from './session'
 import { BREAK, newParagraphs } from './text'
+import { openChangeBox } from './changeStore'
 import './suggestions.css'
 
 /** Room left below the buttons, before the next paragraph. */
@@ -301,6 +303,35 @@ const BUTTON =
 
 const KEY = 'text-[11px] font-normal opacity-70'
 
+/** Change it… on the waiting change (Change again on one made that way): the change box on its words. */
+function ChangeButton({ s }: { s: Suggestion }): React.JSX.Element | null {
+  if (s.status !== 'ready' || !s.text.trim() || picking(s)) return null
+  const again = !!s.diff
+  return (
+    <button
+      type="button"
+      className={cn(BUTTON, 'text-fg hover:bg-surface-2')}
+      title="Say what to change, and mark the sentences to keep word for word"
+      onClick={() =>
+        openChangeBox(
+          {
+            kind: 'change',
+            sceneId: s.sceneId,
+            id: s.id,
+            text: s.text,
+            what: again ? 'The new version' : `The AI’s change (${s.label ?? TOOL_NAMES[s.tool]})`,
+            again
+          },
+          { keeps: s.keeps ?? [] }
+        )
+      }
+    >
+      <SquarePen size={13} className="text-ai" aria-hidden />
+      {again ? 'Change again…' : 'Change it…'}
+    </button>
+  )
+}
+
 /**
  * One row: what it's doing and Stop, or Accept and Reject; a note below when there is one. On the desk the AI dock
  * carries Stop, Accept and Reject (one clear place for them), so the row under the change keeps only what the dock
@@ -348,6 +379,7 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
                   : `${s.label ?? TOOL_NAMES[s.tool]} · Tab accepts, Esc rejects`}
               </span>
             </span>
+            <ChangeButton s={s} />
             {s.versions && s.versions.length > 1 ? (
               <button type="button" className={cn(BUTTON, 'text-muted hover:bg-surface-2 hover:text-fg')} onClick={unpick}>
                 <Layers size={13} aria-hidden />
@@ -375,6 +407,7 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
               <X size={14} aria-hidden />
               Reject <span className={KEY}>Esc</span>
             </button>
+            <ChangeButton s={s} />
             {s.versions && s.versions.length > 1 ? (
               <button type="button" className={cn(BUTTON, 'text-muted hover:bg-surface-2 hover:text-fg')} onClick={unpick}>
                 <Layers size={13} aria-hidden />

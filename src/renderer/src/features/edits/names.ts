@@ -11,7 +11,8 @@ export const TOOL_NAMES: Record<EditTool, string> = {
   tone: 'Change tone',
   voice: 'Fix voice',
   alternatives: 'Alternatives',
-  continue: 'Continue'
+  continue: 'Continue',
+  revise: 'Change it'
 }
 
 /** What shows while each tool writes. */
@@ -23,5 +24,6 @@ export const TOOL_WORKING: Record<EditTool, string> = {
   tone: 'Changing the tone',
   voice: 'Fixing the voices',
   alternatives: 'Writing three versions',
-  continue: 'Writing on'
+  continue: 'Writing on',
+  revise: 'Changing it'
 }

@@ -436,6 +436,18 @@ export function madePagesNote(kept: Pick<KeptItem, 'entryNames'>[]): string {
   return ` Made ${names.length === 1 ? 'a page' : 'pages'} for ${list}.`
 }
 
+/**
+ * What a keep's toast adds for the events it put in the scenes they happen in (2026-10-19): " The Storm now happens in
+ * its scene.", " The Storm and the Wedding now happen in their scenes.", " 5 events now happen in their scenes." ('' for none).
+ */
+export function placedEventsNote(kept: Pick<KeptItem, 'events'>[]): string {
+  const names = [...new Set(kept.flatMap((k) => k.events ?? []).map((e) => e.name.trim()).filter(Boolean))]
+  if (!names.length) return ''
+  if (names.length === 1) return ` ${names[0]} now happens in its scene.`
+  if (names.length === 2) return ` ${names[0]} and ${names[1]} now happen in their scenes.`
+  return ` ${names.length} events now happen in their scenes.`
+}
+
 /** The toast after one Discard: "Discarded “Rain on the Narrows” and its 2 scenes." */
 export function discardedMessage(tree: TreeNode[], keys: string[], edits: Edits): string {
   const main = keys.length ? findNode(tree, keys[0]) : null

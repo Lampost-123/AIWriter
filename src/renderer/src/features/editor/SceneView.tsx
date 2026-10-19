@@ -33,6 +33,8 @@ import { useSceneCardWatch } from '@/features/desk/sceneCard'
 import { MarginLayer } from '@/features/desk/margin/MarginLayer'
 import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
+import { ChangeBoxLayer } from '@/features/edits/ChangeBox'
+import { JustWritten } from '@/features/edits/JustWritten'
 import { BeatBar } from '@/features/beats/BeatBar'
 import { BeatMarksLayer } from '@/features/beats/BeatMarksLayer'
 import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
@@ -344,6 +346,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <NamesLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <SelectionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         <SuggestionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
+        {/* The draft just written: Change it…, What the AI saw and Undo under its last line (features/edits). */}
+        <JustWritten editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         <SpeakerLabelsLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <LiveChecksLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <TypewriterLayer editor={editor} scrollerRef={scrollerRef} />
@@ -401,6 +405,18 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           </div>
         ) : (
           <BeatBar sceneId={shown.id} />
+        )
+      ) : null}
+      {/* Change it… (features/edits/ChangeBox.tsx): the change box over the foot of the page, over the AI dock on the desk. */}
+      {shown && !error ? (
+        desk ? (
+          <div className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-0 z-30" style={overSheet}>
+            <div className="relative mx-auto h-0" style={{ maxWidth: frame.sheetW }}>
+              <ChangeBoxLayer editor={editor} sceneId={shown.id} />
+            </div>
+          </div>
+        ) : (
+          <ChangeBoxLayer editor={editor} sceneId={shown.id} />
         )
       ) : null}
       {/* The desk: the page fades out at the foot of the window, under its tools, so the words never run into them. */}

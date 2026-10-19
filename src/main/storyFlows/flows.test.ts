@@ -706,6 +706,13 @@ describe('When the model fails', () => {
     const r = await runStartingCast(opts(w.db), w.id('ym'), [w.id('tobin')])
     expect(r).toEqual({ status: 'failed', message: BROKEN_REPLY })
     expect(count(w.db, 'generations')).toBe(2)
+    // Asked again (2026-10-19): the same request with a line saying why at its end, never the reply that couldn't be used.
+    const ids = w.db.prepare('SELECT id FROM generations ORDER BY created_at, rowid').all() as { id: ID }[]
+    const [first, again] = ids.map((x) => gens.getGeneration(w.db, x.id).messages)
+    expect(again.map((m) => m.role)).toEqual(['system', 'user'])
+    expect(again[0].content).toBe(first[0].content)
+    expect(again[1].content.startsWith(`${first[1].content}\n\nYour last reply to this couldn't be used: `)).toBe(true)
+    expect(again[1].content).not.toContain('Here is what changed')
     expect(fdb.startChanges(w.db, w.id('ym')).map((c) => c.id)).toEqual(before)
     expect(count(w.db, 'memory_runs')).toBe(0)
   })

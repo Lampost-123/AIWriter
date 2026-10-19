@@ -103,6 +103,7 @@ import type { StoryIndexApi, StoryIndexEvents } from './contracts/storyIndex'
 import type { DirectionApi } from './contracts/direction'
 import type { DirectorApi, DirectorEvents } from './contracts/director'
 import type { CalmApi, CalmEvents } from './contracts/calm'
+import type { PlanReviewApi, PlanReviewEvents } from './contracts/planReview'
 
 /** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
 export interface AppApi
@@ -149,7 +150,8 @@ export interface AppApi
     StoryIndexApi,
     DirectionApi,
     DirectorApi,
-    CalmApi {
+    CalmApi,
+    PlanReviewApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -211,7 +213,11 @@ export interface AppApi
   // ----- World bible entries -----
   listEntries(kind?: EntryKind): Promise<Entry[]>
   getEntry(id: ID): Promise<Entry>
-  createEntry(kind: EntryKind, input?: EntryInput): Promise<Entry>
+  /**
+   * Makes an entry (Adam's). `at`: an event made from a scene (Add to memory on its words, an Ask the world proposal
+   * for it, 2026-10-19) first exists at that scene, as one the memory finds there does; other kinds ignore it.
+   */
+  createEntry(kind: EntryKind, input?: EntryInput, at?: { sceneId: ID } | null): Promise<Entry>
   updateEntry(id: ID, patch: EntryInput): Promise<Entry>
   deleteEntry(id: ID): Promise<void>
 
@@ -425,7 +431,8 @@ export interface AppEvents
     StoryBuilderEvents,
     StoryIndexEvents,
     DirectorEvents,
-    CalmEvents {
+    CalmEvents,
+    PlanReviewEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID
