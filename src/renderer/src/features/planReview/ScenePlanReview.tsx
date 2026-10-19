@@ -63,9 +63,11 @@ export function ScenePlanReview(): React.JSX.Element | null {
       title={review.carryingOn ? 'The plan for what comes next' : 'The plan for this scene'}
       description={`What the AI will write in ${named}, before it writes it. Change any part you like, then write to it.`}
       width={620}
+      bodyScrolls
       footer={<PlanReviewFooter testId="scene-plan" busy={busy} editing={editing || !plan} onCancel={() => void cancel()} onChange={() => setEditing(true)} onWrite={() => void write()} />}
     >
-      <div className="flex flex-col gap-4 text-[13px] leading-relaxed" data-testid="scene-plan">
+      {/* The plan scrolls on its own (bodyScrolls), so Write and Cancel stay in sight while a long plan is read or changed. */}
+      <div className="-mx-6 flex min-h-0 flex-col gap-4 overflow-y-auto px-6 pb-1 text-[13px] leading-relaxed" data-testid="scene-plan">
         {notes.length ? (
           <section className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-2.5" data-plan-notes aria-label="Worth knowing before it writes">
             <h3 className="text-[13px] font-semibold text-fg">Worth knowing before it writes</h3>

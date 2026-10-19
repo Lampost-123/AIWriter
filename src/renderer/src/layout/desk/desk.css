@@ -1895,6 +1895,16 @@
   opacity: 0;
   pointer-events: none;
 }
+/* What lies over the dock as a card (the director's line and its note box) is of the dock's own material and edge, so
+   the foot of the page reads as one family (features/desk/dock/foot.ts). */
+[data-arrangement='desk'] .desk-foot-card {
+  border-color: transparent;
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--raise) 96%, transparent);
+  box-shadow:
+    0 0 0 1px var(--desk-line),
+    var(--sh-pop);
+}
 
 /* ---------- The scene card as a ruled index card (phase 3) ---------- */
 [data-arrangement='desk'] .desk-icard {

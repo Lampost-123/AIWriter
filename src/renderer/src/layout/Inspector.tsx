@@ -33,7 +33,7 @@ const TABS_WITH_SOUNDS: InspectorTab[] = [...TABS, 'sounds']
 function CardLabel(): React.JSX.Element {
   return (
     <>
-      <span className="@max-[329px]:sr-only">Scene card</span>
+      <span className="@max-[330px]:sr-only">Scene card</span>
       <span aria-hidden className="@min-[330px]:hidden">
         Card
       </span>
@@ -45,7 +45,7 @@ function CardLabel(): React.JSX.Element {
 function SoundsLabel(): React.JSX.Element {
   return (
     <>
-      <span className="@max-[395px]:sr-only">Sounds</span>
+      <span className="@max-[396px]:sr-only">Sounds</span>
       <span aria-hidden title="Sounds" className="@min-[396px]:hidden">
         <AudioLines size={15} />
       </span>
@@ -117,8 +117,8 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
           // notes since the calm overhaul.)
           className={
             sounds
-              ? 'px-1! *:px-1 @max-[299px]:gap-0! @max-[299px]:*:px-0.5 @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2 @min-[440px]:*:px-2.5 @max-[299px]:look-new:*:px-0.5! @min-[300px]:@max-[439px]:look-new:*:px-1.5!'
-              : 'px-1! *:px-1 @max-[299px]:gap-0! @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2.5 @max-[299px]:look-new:*:px-1! @min-[300px]:@max-[439px]:look-new:*:px-1.5!'
+              ? 'px-1! *:px-1 @max-[300px]:gap-0! @max-[300px]:*:px-0.5 @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2 @min-[440px]:*:px-2.5 @max-[300px]:look-new:*:px-0.5! @min-[300px]:@max-[440px]:look-new:*:px-1.5!'
+              : 'px-1! *:px-1 @max-[300px]:gap-0! @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2.5 @max-[300px]:look-new:*:px-1! @min-[300px]:@max-[440px]:look-new:*:px-1.5!'
           }
           items={tabs.map((value) => ({
             value,

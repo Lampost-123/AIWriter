@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { countWords } from '@shared/defaults'
 import { sentencesOf } from '@shared/revise'
-import { Button, IconButton } from '@/components/ui'
+import { Button, IconButton, useToastsAbove } from '@/components/ui'
 import { SquarePen, X } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
@@ -73,6 +73,9 @@ function ChangeBox({ target }: { target: ChangeTarget }): React.JSX.Element {
   const state = { target, note, keeps }
   const boxRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const sectionRef = useRef<HTMLElement>(null)
+  // Messages show above the box, never over its buttons.
+  useToastsAbove(sectionRef)
   const [busy, setBusy] = useState(false)
   // The passage's paragraphs and their sentences, numbered in order (a scene break shows as one).
   const paras = useMemo(() => {
@@ -114,6 +117,7 @@ function ChangeBox({ target }: { target: ChangeTarget }): React.JSX.Element {
 
   return (
     <section
+      ref={sectionRef}
       role="dialog"
       aria-label="Change it"
       data-change-box=""

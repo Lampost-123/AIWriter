@@ -1,8 +1,10 @@
 // The next-beat chip over the AI dock (the desk, UI overhaul phase 3): the scene card's next beat still to write ("Next
 // beat · The night ferry comes in early"). When its words land on the page the ring fills, the beat is struck through
 // and the chip moves on to the next; once every beat is written it asks "Done for this scene: mark it done?" with Mark
-// done; a scene marked done shows "Scene done · 1,240 words". Hidden when the card has no beats, and while Beat by beat
-// has the foot of the page. Which beats are on the page comes from the scene's words (shared/beats.ts), no AI call.
+// done; a scene marked done shows "Scene done · 1,240 words". Hidden when the card has no beats, while Beat by beat
+// has the foot of the page, and while the director's line or the direction receipt has its place (foot.ts); "mark it
+// done?" waits while the AI writes or a change waits. Which beats are on the page comes from the scene's words
+// (shared/beats.ts), no AI call.
 import { useEffect, useRef, useState } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
 import { beatStand, type BeatStand } from '@shared/beats'
@@ -12,7 +14,9 @@ import { useBeats } from '@/features/beats/session'
 import { useOutline } from '@/features/binder/outlineStore'
 import { markSceneDone } from '@/features/editor/markDone'
 import { reducedMotion } from '@/features/look/motion'
+import { useDirector } from '@/features/director/store'
 import { useDeskCard, useSceneCard } from '../sceneCard'
+import { dockIdle, useFoot } from './foot'
 
 /** How long a beat just written stays, struck through, before the chip moves on. */
 const TICK_MS = 1400
@@ -71,8 +75,15 @@ export function NextBeatChip({ sceneId, fallbackStatus }: { sceneId: ID; fallbac
   standRef.current = stand
   useEffect(() => setShown({ stand: standRef.current, phase: 'in' }), [sceneId])
 
+  // The foot takes turns (foot.ts): the director's line and the direction receipt come first; "mark it done?" waits
+  // while the AI writes or a change waits, so the dock's Stop or Accept is the one thing to press.
+  const directing = useDirector((d) => !!d.byScene[sceneId])
+  const receipt = useFoot((f) => f.receipt === sceneId)
+  const idle = useFoot((f) => dockIdle(f, sceneId))
+
   const s = shown.stand
-  if (beatsOn || s.kind === 'none') return null
+  if (beatsOn || s.kind === 'none' || directing || receipt) return null
+  if (s.kind === 'all' && !idle) return null
   const phase = shown.phase === 'in' ? undefined : shown.phase
   return (
     <div

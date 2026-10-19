@@ -10,7 +10,6 @@ import * as P from '@radix-ui/react-popover'
 import { ArrowDown, ArrowDownToLine, Check, Sparkles, Square, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
-import { useToastsAbove } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { layerOpen } from '@/lib/layers'
 import { isShortcut, shortcutKeys, withShortcut } from '@/lib/shortcuts'
@@ -28,8 +27,9 @@ import { usePolish } from '@/features/generate/polishRun'
 import { useGenerate, type Generate } from '@/features/generate/useGenerate'
 import { keyboardDriven } from '@/features/look/motion'
 import { setSteer, steerOf, steerTaken, useDeskStore } from '../deskStore'
-import { activityLine, activityOf, progressOf, type Activity } from './activity'
+import { activityLine, activityOf, dockKindOf, progressOf, type Activity } from './activity'
 import { DockMenu } from './DockMenu'
+import { setDockKind } from './foot'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
 import { memoryFor, memoryWords } from '@/features/consistency/runsLogic'
 import { useCalmLine } from '@/features/waits/useDraftWait'
@@ -49,8 +49,8 @@ function useChange(editor: Editor, sceneId: ID): Suggestion | null {
   return active && active.sceneId === sceneId ? active : null
 }
 
-/** What the AI is doing in the scene now (activity.ts). */
-function useActivity(editor: Editor, sceneId: ID, g: Generate): { activity: Activity; changeId: ID | null } {
+/** What the AI is doing in the scene now (activity.ts); without Generate's workings (`g`), no words counted. */
+function useActivity(editor: Editor, sceneId: ID, g: Pick<Generate, 'written' | 'targetWords' | 'status'> | null): { activity: Activity; changeId: ID | null } {
   const draftPhase = useDraft((d) => (d.sceneId === sceneId ? d.phase : 'idle'))
   const retrying = useDraft((d) => (d.sceneId === sceneId ? !!d.retrying : false))
   const polishing = usePolish((p) => p.sceneId === sceneId)
@@ -61,16 +61,27 @@ function useActivity(editor: Editor, sceneId: ID, g: Generate): { activity: Acti
   const catching = useApp((s) => memoryFor(s.memoryStatus, sceneId))
   const changeWait = useCalmLine(catching ? memoryWords(catching) : '') || null
   const activity = activityOf({
-    draft: { phase: draftPhase, retrying, written: g.written, target: g.targetWords },
+    draft: { phase: draftPhase, retrying, written: g?.written ?? null, target: g?.targetWords ?? null },
     polish: { running: polishing, stopping: polishStopping },
     change,
     beats,
     memoryReading,
     // Each step before the first word, named calmly (the same words as Generate's status: useGenerate's `status`); for
     // Continue getting ready, the memory catching up when it is (features/waits).
-    waitLine: draftPhase === 'starting' ? g.status : change?.status === 'starting' ? changeWait : null
+    waitLine: draftPhase === 'starting' ? (g?.status ?? null) : change?.status === 'starting' ? changeWait : null
   })
   return { activity, changeId: change?.id ?? null }
+}
+
+/**
+ * The panels have no dock, but what lies at the foot of their page takes the same turns (foot.ts): this says what the AI
+ * is doing in the scene as the dock would, so the direction receipt waits while the AI writes, and while a change waits
+ * for Accept or Reject shows only with nothing to press.
+ */
+export function FootActivity({ editor, sceneId }: { editor: Editor; sceneId: ID }): null {
+  const kind = dockKindOf(useActivity(editor, sceneId, null).activity)
+  useLayoutEffect(() => setDockKind(sceneId, kind), [sceneId, kind])
+  return null
 }
 
 /** "Ctrl ⇧ ⏎": Continue's keys as small keycaps. */
@@ -107,13 +118,12 @@ export function Dock({
   const g = useGenerate(sceneId, { keys: true, steer: { get: () => steerOf(sceneId), taken: () => steerTaken(sceneId, 'draft') } })
   const { activity, changeId } = useActivity(editor, sceneId, g)
   const hasWords = useApp((s) => (s.sceneId === sceneId ? s.sceneWords > 0 : false))
-  // Messages show above the dock, never over it.
+  // Messages show above the dock and what lies over it, never over them (SceneView keeps them above the whole foot).
   const dockRef = useRef<HTMLDivElement>(null)
-  useToastsAbove(dockRef)
   const question = useBeats((s) => (s.question?.sceneId === sceneId && s.question.from === 'button' ? s.question : null))
 
   // A state change asked from the keyboard (Ctrl+Shift+Enter, Tab, Esc) shows at once; from a click, it crossfades.
-  const kind = activity.kind === 'starting' || activity.kind === 'writing' || activity.kind === 'polishing' ? 'busy' : activity.kind
+  const kind = dockKindOf(activity)
   const [instant, setInstant] = useState(false)
   const lastKind = useRef(kind)
   useLayoutEffect(() => {
@@ -121,6 +131,8 @@ export function Dock({
     lastKind.current = kind
     setInstant(keyboardDriven())
   }, [kind])
+  // What lies over the dock reads what it is doing (foot.ts): a prompt waits while the AI writes or a change waits.
+  useLayoutEffect(() => setDockKind(sceneId, kind), [sceneId, kind])
 
   // The steer box's words are used once the AI starts with them: the box stays empty after (steerTaken), and ↑ in it or
   // its recent directions bring them back.

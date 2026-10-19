@@ -40,6 +40,8 @@
 //   fake/no-thinking-option 400 for any thinking setting (reasoning / reasoning_effort), else a normal stream
 //   fake/content-parts     sends its reply as lists of content parts (with a thinking part that isn't text)
 //   fake/finish-error-once stops with finish_reason "error" and no text on the first request, then a normal stream
+//   fake/claims, fake/claims-stubborn, fake/claims-no-toolchoice, fake/bad-proposal, fake/bad-field, fake/sloppy
+//                          the editor chat says it made changes, made or not (m4/ask.mjs, SLOPPY)
 //   fake/stubborn          asked to fix an issue's words (Fix the text), sends them back unchanged every time (m4/edits.mjs)
 //   fake/critique-bad-json asked for a critique, answers the first time with words, not JSON (critique.mjs)
 //
@@ -660,6 +662,11 @@ export async function startFakeProvider(options = {}) {
       })
     }
 
+    // The editor chat: a model that won't be made to call a tool (m4/ask.mjs fake/claims-no-toolchoice) turns tool_choice
+    // down, naming it, as some providers do.
+    if (model === 'fake/claims-no-toolchoice' && body.tools?.length && body.tool_choice && typeof body.tool_choice === 'object') {
+      return json(res, 400, { error: { code: 400, message: 'tool_choice is not supported for this model' } })
+    }
     // The editor chat: a model that can't take tools turns them down, as OpenRouter does.
     if (body.tools?.length && model === 'fake/no-tools') {
       return json(res, 404, { error: { code: 404, message: 'No endpoints found that support tool use. To learn more about provider routing, visit: https://openrouter.ai/docs/provider-routing' } })
@@ -712,7 +719,7 @@ export async function startFakeProvider(options = {}) {
     const calls = body.tools?.length && body.tool_choice !== 'none'
       ? (planToolCalls(system, messages, body.tools) ??
         chapterToolCalls(system, messages, body.tools, model) ??
-        askToolCalls(system, messages, body.tools, body.tool_choice))
+        askToolCalls(system, messages, body.tools, body.tool_choice, model))
       : null
     if (calls) {
       for (const [i, c] of calls.entries()) {

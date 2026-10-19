@@ -79,6 +79,9 @@ export function activityOf(i: ActivityInput): Activity {
 /** True while the AI is busy in the scene (the dock shows what it is doing and Stop). */
 export const isBusy = (a: Activity): boolean => a.kind === 'starting' || a.kind === 'writing' || a.kind === 'polishing'
 
+/** What the dock is doing, as the foot of the page takes turns by it (foot.ts): 'idle', 'busy', 'review' or 'beats'. */
+export const dockKindOf = (a: Activity): 'idle' | 'busy' | 'review' | 'beats' => (isBusy(a) ? 'busy' : (a.kind as 'idle' | 'review' | 'beats'))
+
 /** The words the busy dock says: "Writing… 120 words", "Planning the scene…", "Polishing…". */
 export function activityLine(a: Activity): string {
   switch (a.kind) {

@@ -127,7 +127,8 @@ describe('following a draft as it streams in', () => {
     const at = (hz: number): number => {
       const el = fakeScroller(2000, 500)
       el.scrollTop = 1500 - 50
-      const f = new FollowScroll(() => el)
+      // The frames' own clock, so a busy machine's real time between the calls can't change the pace measured.
+      const f = new FollowScroll(() => el, () => now)
       f.check()
       ;(el as { scrollHeight: number }).scrollHeight = 3000
       f.nudge()

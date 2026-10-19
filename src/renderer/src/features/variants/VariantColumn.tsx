@@ -102,10 +102,13 @@ export function VariantColumn({
   starting,
   memoryReading,
   picks,
+  notes,
   onChangeLength
 }: {
   sceneId: ID
   variant: LiveVariant
+  /** Some variant of the set has a direction of its own: each column's head has a line for it. */
+  notes: boolean
   /** The set is getting ready (the memory catching up, the briefing being made). */
   starting: boolean
   memoryReading: boolean
@@ -234,52 +237,63 @@ export function VariantColumn({
   return (
     <section
       aria-label={`Variant ${index}`}
-      className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-page shadow-soft"
+      className="@container flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-page shadow-soft"
     >
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line/70 pl-4 pr-2">
-        <h2 className="shrink-0 text-[13px] font-semibold text-fg">Variant {index}</h2>
-        {/* Its own direction, when it had one ("tense"), so each column says how it was asked to differ. */}
-        {variant.note ? (
-          <span
-            data-variant-note=""
-            className="min-w-0 max-w-[45%] shrink truncate rounded-md bg-accent-soft px-1.5 py-px text-[12px] text-fg"
-            title={`Its own direction: “${variant.note}”`}
-          >
-            {variant.note}
-          </span>
-        ) : null}
-        <span className="min-w-0 truncate text-[12px] tabular-nums text-faint">{text ? `${words.toLocaleString()} words` : ''}</span>
-        <div className="ml-auto flex h-7 shrink-0 items-center gap-1.5">
-          {writing || starting ? (
-            <>
-              <span
-                role="status"
-                title={variant.retrying ?? undefined}
-                className="flex items-center gap-1.5 whitespace-nowrap text-[12px] font-medium text-ai"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
-                {status_}
-              </span>
-              {!starting ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-[12px]"
-                  icon={<Square size={9} fill="currentColor" />}
-                  disabled={variant.stopping}
-                  onClick={() => stopVariant(sceneId, generationId)}
-                  title="Stop this variant. What it has written so far is kept."
+      <header className="shrink-0 border-b border-line/70">
+        <div className="flex h-11 items-center gap-2 pl-4 pr-2">
+          <h2 className="shrink-0 text-[13px] font-semibold text-fg">Variant {index}</h2>
+          <span className="min-w-0 truncate text-[12px] tabular-nums text-faint">{text ? `${words.toLocaleString()} words` : ''}</span>
+          <div className="ml-auto flex h-7 shrink-0 items-center gap-1.5">
+            {writing || starting ? (
+              <>
+                <span
+                  role="status"
+                  title={variant.retrying ?? status_}
+                  className="flex items-center gap-1.5 whitespace-nowrap text-[12px] font-medium text-ai"
                 >
-                  Stop
-                </Button>
-              ) : null}
-            </>
-          ) : (
-            <span className="whitespace-nowrap pr-2 text-[12px] tabular-nums text-faint" title={endTitle}>
-              {status === 'stopped' ? 'Stopped' : status === 'error' ? 'Not finished' : variant.cutOff ? 'Cut short' : (cost ?? '')}
-            </span>
-          )}
+                  <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
+                  {/* Once it writes, a narrow column (a small window) keeps its words and Stop whole: the pulsing dot says
+                      it is being written, as the page's own head does in words. */}
+                  <span className={starting ? undefined : '@max-[320px]:sr-only'}>{status_}</span>
+                </span>
+                {!starting ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[12px]"
+                    icon={<Square size={9} fill="currentColor" />}
+                    disabled={variant.stopping}
+                    onClick={() => stopVariant(sceneId, generationId)}
+                    title="Stop this variant. What it has written so far is kept."
+                  >
+                    Stop
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <span className="whitespace-nowrap pr-2 text-[12px] tabular-nums text-faint" title={endTitle}>
+                {status === 'stopped' ? 'Stopped' : status === 'error' ? 'Not finished' : variant.cutOff ? 'Cut short' : (cost ?? '')}
+              </span>
+            )}
+          </div>
         </div>
+        {/* Its own direction ("tense"), on a line of its own so it is read whole, however narrow the column: each column
+            says how it was asked to differ. Every column has the line when any does, so their words start level. */}
+        {notes ? (
+          <div className="-mt-1 flex h-7 items-start pl-4 pr-3">
+            {variant.note ? (
+              <span
+                data-variant-note=""
+                className="min-w-0 max-w-full truncate rounded-md bg-accent-soft px-1.5 py-px text-[12px] text-fg"
+                title={`Its own direction: “${variant.note}”`}
+              >
+                {variant.note}
+              </span>
+            ) : (
+              <span className="py-px text-[12px] text-faint">No direction of its own</span>
+            )}
+          </div>
+        ) : null}
       </header>
 
       <div className="relative min-h-0 flex-1">

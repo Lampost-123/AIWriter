@@ -411,7 +411,14 @@ const KIND_WORD: Partial<Record<EntryKind, string>> = { character: 'character', 
 
 function needNamed(ctx: StoryCtx, name: string, kind: EntryKind): ID {
   const s = named(ctx, name, kind)
-  if (!s) ctx.fail(`There is no ${KIND_WORD[kind] ?? KIND_LABELS[kind].one.toLowerCase()} called “${name}” in this story's memory. Search for it, or propose it as a new entry first.`)
+  if (!s) {
+    // One known here only by name (from an earlier story, not in this one so far) is there, but can't go on a card here
+    // (2026-10-19: "There is no character called …" made it sound missing).
+    const want = lower(name)
+    const far = [...ctx.view().entries.values()].find((x) => x.nameOnly && x.e.kind === kind && [x.e.name, ...(x.e.aliases ?? [])].some((n) => lower(n) === want))
+    if (far) ctx.fail(`${far.e.name} is ${far.label ?? 'not in this story so far'}, so it can't be set on a card here. Tell the writer it needs to come into this story first.`)
+    ctx.fail(`There is no ${KIND_WORD[kind] ?? KIND_LABELS[kind].one.toLowerCase()} called “${name}” in this story's memory. Search for it, or propose it as a new entry first.`)
+  }
   return s!.e.id
 }
 

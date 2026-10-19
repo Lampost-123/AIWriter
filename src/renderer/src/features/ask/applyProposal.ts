@@ -25,7 +25,7 @@ import { changeOf, planCut, planInsert, planPassage, planRevert, planText, rever
 import { chatOfTurn, setProposalStatus, storyOfChat } from './askStore'
 import { startProposedDraft } from './applyDraft'
 import { applyReplaceAll } from './applyReplaceAll'
-import { sceneInPage } from './sceneInPage'
+import { heldWhy, notOpened, sceneInPage } from './sceneInPage'
 import { threadLinkKey, withListEdited } from '@shared/threadLinks'
 import { fixTheText, placesInPage, setMemoryFromIssue, settleFix } from '@/features/issues/actions'
 import { noteIssueFix } from '@/features/issues/fixHistory'
@@ -35,6 +35,8 @@ import { chapterCardShown, notifyChapterCard } from '@/features/chapterCard/chap
 
 const BUSY_APPLY = 'A draft is being written into this scene. Wait for it to finish, then apply.'
 const BUSY_UNDO = 'A draft is being written into this scene, so the change was left in. Wait for it to finish, then undo it by hand.'
+/** The page turned the change down (something holds it): nothing changed, so Apply never says it did. */
+export const PAGE_REFUSED = 'The page didn’t take the change (something else is changing this scene), so nothing was changed. Try Apply again in a moment.'
 const CHANGED_SINCE =
   'The words this change made were changed since, so Undo left the scene as it is. History has the scene as it was before the change.'
 
@@ -65,8 +67,10 @@ async function applyWords(
   /** Told where plain new words went and what they replaced (an issue's fix follows them: fixHistory.ts). */
   onMade?: (made: { from: number; to: number; was: string }) => void
 ): Promise<Applied> {
+  const held = heldWhy(sceneId)
+  if (held) return { ok: false, why: held }
   const editor = await sceneInPage(sceneId, storyId)
-  if (!editor) return { ok: false, why: `${sceneLabel} couldn’t be opened.` }
+  if (!editor) return { ok: false, why: await notOpened(sceneId, sceneLabel) }
   if (editorBridge()?.busy()) return { ok: false, why: BUSY_APPLY }
   const first = plan(editor.state.doc)
   if ('why' in first) return { ok: false, why: first.why }
@@ -85,6 +89,8 @@ async function applyWords(
   if (typeof planned.content === 'string') tr.insertText(planned.content, planned.from, planned.to)
   else tr.replaceWith(planned.from, planned.to, planned.content)
   view.dispatch(tr)
+  // A page that turned the change down (Write the chapter's hold, a draft's) changed nothing: never said as applied.
+  if (view.state.doc.eq(before)) return { ok: false, why: heldWhy(sceneId) ?? PAGE_REFUSED }
   view.dispatch(closeHistory(view.state.tr))
   if (onMade && typeof planned.content === 'string') {
     onMade({ from: planned.from, to: planned.from + planned.content.length, was: before.textBetween(planned.from, planned.to, '\n', '\n') })
@@ -324,8 +330,10 @@ async function applyIssueMemory(p: IssueFix): Promise<Kept> {
 export async function startIssueFix(p: IssueFix & { sceneId: ID }, storyId: ID | null | undefined): Promise<{ ok: true } | { ok: false; why: string }> {
   const open = await stillOpen(p)
   if ('why' in open) return { ok: false, why: open.why }
+  const held = heldWhy(p.sceneId)
+  if (held) return { ok: false, why: held }
   const editor = await sceneInPage(p.sceneId, storyId)
-  if (!editor) return { ok: false, why: `${p.sceneLabel} couldn’t be opened.` }
+  if (!editor) return { ok: false, why: await notOpened(p.sceneId, p.sceneLabel) }
   if (editorBridge()?.busy()) return { ok: false, why: BUSY_APPLY }
   fixTheText(open.issue)
   return { ok: true }
@@ -445,6 +453,9 @@ async function applyBeats(p: Extract<Proposal, { kind: 'beats' }>): Promise<Appl
 /** Carries out one proposed change. Never throws: a problem comes back in plain words. */
 export async function applyProposal(p: Proposal, place: ApplyPlace = {}): Promise<Applied> {
   try {
+    // Write the chapter holds the scene: nothing goes into it, its words or its card, until the run ends.
+    const held = p.kind === 'draft' ? null : heldWhy('sceneId' in p ? p.sceneId : null)
+    if (held) return { ok: false, why: held }
     switch (p.kind) {
       case 'text':
         return await applyText(p, place)

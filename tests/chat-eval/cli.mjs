@@ -14,7 +14,8 @@
 //                                  subset: 12 of the core; or ids, comma-separated; sets and ids mix)
 //   --out <folder>                 report folder (default ..\AIWriter-chat-results\<date>-<backend>); never written over
 //   --bridge-dir <folder>          the bridge's folder (default ..\AIWriter-chat-results\bridge)
-//   --model <id>                   OpenRouter model (default: DeepSeek Flash from OpenRouter's list)
+//   --model <id>                   OpenRouter model (default: DeepSeek Flash from OpenRouter's list); with --backend fake,
+//                                  one of the fake's own models, e.g. fake/sloppy or fake/claims (tests/fake-provider/m4/ask.mjs)
 //   --max-usd <n>                  the paid run's hard cap: no request is sent once it could pass it
 //   --root <folder>                run another checkout's app code (it needs its own node_modules: npm ci there)
 //   --env NAME=VALUE               set a switch for the app's code (repeatable), e.g. --env AIWRITE_EXP_CHAT_X=off

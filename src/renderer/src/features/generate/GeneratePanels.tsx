@@ -212,8 +212,9 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
   if (popover === 'options') {
     const { cardPlanned, cardWords, creativity, fixedCreativity, polishOn, modelName, draftCost } = g
     return (
-      <PopoverPanel key="options" className="w-[340px]" side={side}>
-        <div className="flex flex-col gap-4">
+      // In a short window the choices scroll on their own between the direction and Generate, which stay in sight.
+      <PopoverPanel key="options" className="flex max-h-[var(--radix-popover-content-available-height)] w-[340px] flex-col" side={side}>
+        <div className="flex min-h-0 flex-col gap-4">
           <div>
             <h3 className="text-[13.5px] font-semibold text-fg">Draft options</h3>
             <p className="text-[12px] leading-relaxed text-muted">{g.hasText ? AFTER_TEXT : "For this scene's next draft."}</p>
@@ -240,37 +241,39 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
               Tip: add a beat or two on the scene card, so the AI knows what happens in this scene.
             </p>
           ) : null}
-          <LengthField value={opts.targetWords} cardWords={cardWords} onChange={(targetWords) => updateOpts({ targetWords })} />
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-muted">Creativity</span>
-            {fixedCreativity ? (
-              <p className="text-[12px] leading-relaxed text-faint">This model sets its own creativity, so there's nothing to choose here.</p>
-            ) : (
-              <>
-                <Segmented label="Creativity" value={creativity} onChange={(c) => updateOpts({ creativity: c })} options={CREATIVITY_OPTIONS} className="w-full" />
-                <p className="text-[12px] text-faint">{CREATIVITY_HINTS[creativity]}</p>
-              </>
-            )}
-          </div>
-          <label className="-mt-1 flex cursor-pointer items-start gap-2.5">
-            <input
-              type="checkbox"
-              checked={polishOn}
-              onChange={(e) => setPolishOn(e.target.checked)}
-              className="mt-[3px] h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
-            />
-            <span className="min-w-0">
-              <span className="block text-[12.5px] font-medium text-fg">Polish after drafting</span>
-              <span className="block text-[12px] leading-relaxed text-faint">
-                A second pass tightens the draft against clichés, needless explaining and your style guide. You accept or reject the
-                result in one step. Costs about twice as much.
+          <div className="-mx-4 -my-1 flex min-h-0 flex-col gap-4 overflow-y-auto px-4 py-1" data-draft-choices>
+            <LengthField value={opts.targetWords} cardWords={cardWords} onChange={(targetWords) => updateOpts({ targetWords })} />
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-medium text-muted">Creativity</span>
+              {fixedCreativity ? (
+                <p className="text-[12px] leading-relaxed text-faint">This model sets its own creativity, so there's nothing to choose here.</p>
+              ) : (
+                <>
+                  <Segmented label="Creativity" value={creativity} onChange={(c) => updateOpts({ creativity: c })} options={CREATIVITY_OPTIONS} className="w-full" />
+                  <p className="text-[12px] text-faint">{CREATIVITY_HINTS[creativity]}</p>
+                </>
+              )}
+            </div>
+            <label className="-mt-1 flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={polishOn}
+                onChange={(e) => setPolishOn(e.target.checked)}
+                className="mt-[3px] h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+              />
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-medium text-fg">Polish after drafting</span>
+                <span className="block text-[12px] leading-relaxed text-faint">
+                  A second pass tightens the draft against clichés, needless explaining and your style guide. You accept or reject the
+                  result in one step. Costs about twice as much.
+                </span>
               </span>
-            </span>
-          </label>
-          {/* Directed writing, for this draft (src/main/director). */}
-          <DirectedToggle sceneId={g.sceneId} />
-          {/* Show me the plan first, for this draft (src/main/plan/review.ts). */}
-          <PlanFirstToggle sceneId={g.sceneId} />
+            </label>
+            {/* Directed writing, for this draft (src/main/director). */}
+            <DirectedToggle sceneId={g.sceneId} />
+            {/* Show me the plan first, for this draft (src/main/plan/review.ts). */}
+            <PlanFirstToggle sceneId={g.sceneId} />
+          </div>
           <div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-[12px] text-muted">
             <span className="min-w-0 truncate">
               Writer:{' '}

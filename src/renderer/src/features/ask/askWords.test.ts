@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerNote, asOfText, chatWhen, examples, savedMessage, speaksOfChanges } from './askWords'
+import { answerNote, asOfText, chatWhen, examples, notProposedNote, savedMessage, speaksOfChanges, staleBadge } from './askWords'
 
 describe('Ask the world’s words', () => {
   it('give examples that name the world’s own characters, never someone from elsewhere', () => {
@@ -76,5 +76,25 @@ describe('an answer that claims changes it never proposed', () => {
     expect(speaksOfChanges('Apply these edits when you’re ready.')).toBe(true)
     expect(speaksOfChanges('She could apply pressure to the wound, or run.')).toBe(false)
     expect(speaksOfChanges('Would you accept a darker ending?')).toBe(false)
+  })
+})
+
+describe('a change that didn’t go through, said plainly (Adam, 2026-10-19)', () => {
+  const tried = (result: string, status: 'not-proposed' | 'done' = 'not-proposed') => ({ status, kind: 'propose' as const, result, outcome: '' })
+  it('says why the changes an answer tried were turned down, when none came with it', () => {
+    const tools = [
+      tried('Not proposed: nothing is waiting for the writer.\n1. entry: Not proposed. “Favourite colour” isn’t one of Mara’s fields. Give fields by key; Mara’s are: eyes (Eyes).')
+    ]
+    expect(notProposedNote('I’d give her green eyes.', tools, 0)).toBe('Nothing was proposed: Mara has no “Favourite colour” field.')
+    // A change came with it, nothing was tried, or the answer already says it (the truth check's lead): no note.
+    expect(notProposedNote('Done.', tools, 1)).toBeNull()
+    expect(notProposedNote('Her eyes are grey.', [], 0)).toBeNull()
+    expect(notProposedNote('No change was made: I couldn’t make it because Mara has no “Favourite colour” field.', tools, 0)).toBeNull()
+  })
+  it('marks a change it couldn’t apply by why: its words gone, or something else', () => {
+    expect(staleBadge('The words this change looks for aren’t in the scene any more: another change changed them.')).toBe('Not found')
+    expect(staleBadge('The words this change looks for now stand in more than one place in the scene, so it wasn’t applied.')).toBe('Not found')
+    expect(staleBadge('Write the chapter is writing this scene right now, so the change can’t go in yet.')).toBe('Not applied')
+    expect(staleBadge('Ch 1, Sc 1 is taking longer than usual to open, so the change wasn’t made.')).toBe('Not applied')
   })
 })

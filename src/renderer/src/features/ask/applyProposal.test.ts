@@ -33,7 +33,11 @@ vi.mock('@/lib/api', () => ({
   ApiError: class ApiError extends Error {},
   onEvent: () => () => undefined,
   api: {
-    getScene: async (id: string) => ({ id, ...main.scenes.get(id)!, card: main.cards.get(id) }),
+    getScene: async (id: string) => {
+      // A scene deleted since is gone, as the main process says it.
+      if (!main.scenes.has(id) && !main.cards.has(id)) throw new Error('That scene no longer exists.')
+      return { id, ...main.scenes.get(id)!, card: main.cards.get(id) }
+    },
     updateSceneCard: async (id: string, card: { goal: string; beats: string[] }) => {
       main.cards.set(id, card)
       return card
@@ -77,7 +81,9 @@ vi.mock('./applyDraft', () => ({
 }))
 
 import { setEditorBridge, type EditorBridge } from '@/lib/editorBridge'
-import { applyAndKeep, applyChanges, undoChanges } from './applyProposal'
+import { applyAndKeep, applyChanges, PAGE_REFUSED, undoChanges } from './applyProposal'
+import { HELD_APPLY, notOpened } from './sceneInPage'
+import { setHeld } from '@/features/chapterWriter/hold'
 import { useAsk } from './askStore'
 
 const schema = getSchema(sceneExtensions())
@@ -352,5 +358,46 @@ describe('an insert, a cut, beats (TEXTTOOLS)', () => {
     const [r] = await undoChanges(third.undos)
     expect(r).toEqual({ ok: false, why: expect.stringMatching(/changed since, so Undo left them/) })
     expect(main.cards.get('sc1')?.beats).toEqual(['A', 'B', 'C', 'D'])
+  })
+})
+
+describe('when a change can’t go in, it says why and changes nothing (Adam: "it could not access something to edit")', () => {
+  it('a scene Write the chapter is writing: turned down in plain words, never said as applied', async () => {
+    const p = openPage('sc1', page('The tide came in.', 'The gulls went quiet.'))
+    setHeld(['sc1'])
+    try {
+      const { done, failedOf } = await applyAndKeep('g1', [edit('a', 'went quiet', 'fell silent')], {})
+      expect(done).toBe(0)
+      expect(failedOf.a).toBe(HELD_APPLY)
+      expect(textsOf(p.doc())).toEqual(['The tide came in.', 'The gulls went quiet.'])
+      expect(main.statuses).toEqual([])
+      // A card change for the held scene waits too.
+      main.cards.set('sc1', { goal: '', beats: [] })
+      const card = { id: 'c', kind: 'card', sceneId: 'sc1', sceneLabel: 'Ch 1, Sc 1', patch: { goal: 'Cross before dark.' }, status: 'pending' } as unknown as Proposal
+      expect((await applyAndKeep('g1', [card], {})).failedOf.c).toBe(HELD_APPLY)
+      expect(main.cards.get('sc1')?.goal).toBe('')
+    } finally {
+      setHeld([])
+    }
+  })
+
+  it('a page that turns the change down: never said as applied', async () => {
+    const p = openPage('sc1', page('The tide came in.', 'The gulls went quiet.'))
+    const bridge = { ...(await import('@/lib/editorBridge')).editorBridge()! }
+    const editor = bridge.editor as unknown as { view: { dispatch: (tr: Transaction) => void } }
+    const real = editor.view.dispatch
+    // As a hold's filterTransaction does: any change to the words is dropped.
+    editor.view.dispatch = (tr: Transaction) => (tr.docChanged ? undefined : real(tr))
+    const { done, failedOf } = await applyAndKeep('g1', [edit('a', 'went quiet', 'fell silent')], {})
+    expect(done).toBe(0)
+    expect(failedOf.a).toBe(PAGE_REFUSED)
+    expect(textsOf(p.doc())).toEqual(['The tide came in.', 'The gulls went quiet.'])
+    expect(main.statuses).toEqual([])
+  })
+
+  it('a scene that didn’t open: deleted since, or slow, each said plainly with what to do', async () => {
+    main.scenes.set('sc1', { doc: page('x').toJSON(), text: 'x' })
+    expect(await notOpened('gone', 'Ch 2, Sc 1')).toMatch(/^Ch 2, Sc 1 isn’t in the story any more \(it may have been deleted\).*Recently deleted/)
+    expect(await notOpened('sc1', 'Ch 1, Sc 1')).toMatch(/^Ch 1, Sc 1 is taking longer than usual to open, so the change wasn’t made\. Try Apply again/)
   })
 })

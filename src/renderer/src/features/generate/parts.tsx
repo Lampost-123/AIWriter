@@ -2,6 +2,7 @@
 import * as P from '@radix-ui/react-popover'
 import { useEffect, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { ToastsAboveElement } from '@/features/desk/dock/ToastsAbove'
 
 /** A row of choices where exactly one is picked (creativity presets). */
 export function Segmented<T extends string>({
@@ -64,9 +65,12 @@ export function PopoverPanel({
   onEscapeKeyDown?: (e: KeyboardEvent) => void
   onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
 }): React.JSX.Element {
+  // Opened over the desk's dock (side top), messages show above it, never over its buttons (ToastsAbove.tsx).
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
   return (
     <P.Portal>
       <P.Content
+        ref={side === 'top' ? setEl : undefined}
         align={align}
         side={side}
         sideOffset={side === 'top' ? 10 : 6}
@@ -78,6 +82,7 @@ export function PopoverPanel({
         className={cn('z-50 rounded-xl border border-line bg-surface p-4 shadow-pop focus:outline-none data-[state=open]:animate-pop-in', className)}
       >
         {children}
+        {side === 'top' ? <ToastsAboveElement el={el} /> : null}
       </P.Content>
     </P.Portal>
   )

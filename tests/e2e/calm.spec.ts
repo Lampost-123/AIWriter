@@ -304,3 +304,48 @@ test('a refused draft offers one click to try again with another model Adam has 
     await fake.close()
   }
 })
+
+test('panels: the corner messages keep clear of the receipt at the foot of the page, in a small window too', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { app, win } = await launch({
+      env: { AIWRITE_PLAN: 'on', AIWRITE_REPAIR: 'on', AIWRITE_CONTRACT: 'on', AIWRITE_KEEPER_QUIET_MS: '600000', AIWRITE_AFTER_DRAFT_MS: '600000' }
+    })
+    await createWorldFromWelcome(win, 'Harbour')
+    const mara = await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the ferry.' })
+    const [story] = await invoke(win, 'listStories')
+    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+    const card = (await invoke(win, 'getScene', sceneId)).card
+    await invoke(win, 'updateSceneCard', sceneId, { ...card, povId: mara.id, presentIds: [mara.id], beats: ['Mara waits in the tavern.'], targetWords: 600 })
+    await useFakeModel(win, fake)
+    await app.evaluate(({ BrowserWindow }) => {
+      const b = BrowserWindow.getAllWindows()[0]
+      b.unmaximize()
+      b.setContentSize(1024, 700)
+    })
+    await expect.poll(() => win.evaluate('innerWidth')).toBe(1024)
+    // A draft with a direction, part of which doesn't land: the receipt at the foot of the page.
+    await win.getByRole('button', { name: 'Draft options' }).click()
+    await win.getByLabel('Direction for this draft (optional)').fill('Mara counts the doors from the corner. More dialogue.')
+    await win.keyboard.press('Escape')
+    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    const receipt = win.locator('[data-page-foot] [data-direction-receipt]')
+    await expect(receipt).toHaveAttribute('data-direction-receipt', 'missing', { timeout: 60_000 })
+    // A message in the corner meanwhile (a check of the whole story ends with one).
+    await checkButton(win).click()
+    await win.getByRole('menu', { name: 'Check' }).getByRole('menuitem', { name: /^Check the whole story/ }).click()
+    const note = toasts(win).filter({ hasText: /^Checked Book 1/ })
+    await expect(note).toBeVisible({ timeout: 30_000 })
+    await expect(receipt).toBeVisible()
+    // Wholly above the receipt's band: never over the pill.
+    await expect
+      .poll(async () => {
+        const t = (await note.boundingBox())!
+        const r = (await receipt.boundingBox())!
+        return t.y + t.height <= r.y
+      })
+      .toBe(true)
+  } finally {
+    await fake.close()
+  }
+})
