@@ -829,6 +829,7 @@ export class ChapterRun {
     const taskId = newId()
     this.currentTask = taskId
     const done = await runTask({
+      background: true,
       db,
       taskId,
       job: 'chapter',

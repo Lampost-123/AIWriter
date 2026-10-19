@@ -20,6 +20,7 @@ import { heldAt } from '../usage/gate'
 import { toolRoomFor } from './toolRoom'
 import { newId, now, UserError } from '../util'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type SentParams, type StreamOutcome } from './client'
+import { backgroundPatience } from './patience'
 import { isKeyFailure } from './errors'
 import { jobFailure, type JobModel } from './jobModel'
 import { SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
@@ -67,6 +68,11 @@ export interface TaskRequest {
    * stop it (stopAllTasks); Stop, or its own world or file closing, still does.
    */
   outlivesWindow?: boolean
+  /**
+   * Work Adam isn't watching word by word (automatic checks, the critic, filling in new entries, Write the whole
+   * chapter's sessions): a provider that stops answering is given up on after about a minute, not ten (ai/patience.ts).
+   */
+  background?: boolean
   /**
    * The editor chat: tools the model may use on the way to its answer. Each time it asks for some, `run` answers
    * them (looking things up, or noting a change it proposes) and the model carries on, up to `maxSteps` requests;
@@ -360,6 +366,7 @@ async function stream(
     const onCallStart = tools?.length ? req.agent?.onCallStart : undefined
     return streamChat({
       ...(onCallStart ? { onToolCall: (slot: number, name: string) => onCallStart(slot, name, request) } : {}),
+      ...(req.background ? backgroundPatience(model.target) : {}),
       target: model.target,
       body: {
         model: model.choice.modelId,

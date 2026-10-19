@@ -240,6 +240,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
         let done
         try {
           done = await runTask({
+            background: true,
             db: o.db,
             taskId,
             job: 'check',

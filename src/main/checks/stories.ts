@@ -180,6 +180,7 @@ export async function compareStories(
     let done
     try {
       done = await runTask({
+        background: true,
         db,
         taskId,
         job: 'check',

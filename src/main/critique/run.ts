@@ -418,6 +418,7 @@ export async function runCritique(deps: CritiqueDeps, input: CritiqueRequest): P
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
     // The second asking goes under the same task id (the first has ended), so Stop stops whichever is running.
     const done = await runTask({
+      background: true,
       db,
       taskId,
       job: 'critique',
