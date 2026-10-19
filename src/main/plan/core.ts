@@ -7,11 +7,12 @@
 
 import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
-import { namedThere, stageFor } from '../ai/mustStay'
+import { stageFor } from '../ai/mustStay'
 import { toldStage, type ContextInput } from '../ai/context'
 import * as sidx from '../db/storyIndex'
 import { buildStoryIndex, leftHere, leftHereLines, openThreads, stateOf, type EntryNow } from '../storyIndex'
 import { clip, wholeSentences } from '../ai/lookups/text'
+import { onStageIn } from '../storyIndex/there'
 
 type DB = Database.Database
 
@@ -62,14 +63,15 @@ export function planCore(db: DB, input: ContextInput, sceneId: ID, o: { carrying
   const asItBegins = !o.carryingOn
 
   // Everyone in the scene: the card's point of view and people, and anyone on the stage as told here whom the words put
-  // there (2026-10-19: never someone only thought of or talked of, whatever the stage lists).
+  // there (2026-10-19: never someone only thought of or talked of, whatever the stage lists; nor someone named only by
+  // another's name, what is theirs, or what they once said or may do: storyIndex/there.ts).
   const card = input.scene.card
   const stage = toldStage(input)
   const ids = [card.povId, ...card.presentIds].filter((id): id is ID => !!id)
   const words = [card.goal, card.conflict, card.outcome, card.notes, ...card.beats, input.options.direction, input.soFar].filter((t) => t?.trim()).join('\n')
   for (const e of input.memory.entries) {
     const on = e.kind === 'character' && !ids.includes(e.id) ? stageFor(e, stage) : null
-    if (on && [on.name, e.name, ...(e.aliases ?? [])].some((n) => n.trim().length >= 2 && namedThere(words, n))) ids.push(e.id)
+    if (on && onStageIn(words, { ...e, aliases: [on.name, ...(e.aliases ?? [])].filter((n) => n !== e.name) })) ids.push(e.id)
   }
   const people = [...new Set(ids)].filter((id) => !o.hidden.has(id))
   const hiddenNames = input.memory.entries.filter((e) => o.hidden.has(e.id)).map((e) => e.name.toLowerCase())

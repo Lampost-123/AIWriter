@@ -1,6 +1,7 @@
 // One scene's rows in the story index, built with no AI call from what the world already holds (overhaul phase 1):
 // - who is there and who is only named: the scene card's point of view and people; anyone the words name as there (the
-//   memory keeper's own rule, keeper/presence.ts namedIn: not only thought of, talked of or far away), by name, other
+//   memory keeper's own rule, keeper/presence.ts namedIn: not only thought of, talked of or far away; nor only by someone
+//   else's name, what is theirs or what they once said or may do: there.ts onStageIn), by name, other
 //   name, a first name no one else goes by, or what this scene's words call them (db/called.ts); whoever the memory saw
 //   there (a knowledge change's `there`, who said something and who heard it); and whoever where things stand has values
 //   for from this scene's own words. Places, things and the rest the words name are only named;
@@ -21,7 +22,7 @@ import type { Change, Entry, ID, SceneCard } from '@shared/types'
 import { calledFor, findName, soleFirstName, type CalledName } from '@shared/names'
 import { clothesOf, pieceSource, sourceKey, type CharacterState, type SceneState, type StateSource } from '@shared/continuity'
 import { isAllClothes, isOff, itemKey, type StageItem } from '@shared/stageItems'
-import { namedIn } from '../keeper/presence'
+import { onStageIn } from './there'
 import { textParas } from '../keeper/text'
 import { isPerson } from '../ai/mustStay'
 import { deathRecord, surelyDied } from '../ai/deaths'
@@ -235,7 +236,7 @@ function namedHere(src: SceneSource, world: IndexWorld): { there: ID[]; only: ID
       continue
     }
     const person = { ...e, aliases: names.filter((n) => n !== e.name) }
-    if (hits.some((p) => namedIn(p.text, person) === 'there')) there.push(id)
+    if (hits.some((p) => onStageIn(p.text, person))) there.push(id)
     else only.push(id)
   }
   return { there, only }

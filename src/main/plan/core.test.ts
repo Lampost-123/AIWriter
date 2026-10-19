@@ -73,6 +73,20 @@ describe('the core the planner gets at no cost', () => {
     expect(Object.keys(came.known)).toContain('mara venn')
   })
 
+  it('never someone the words only guess at or quote, whatever the stage lists (stand-in run, 2026-10-19)', () => {
+    const w = world()
+    const here = stage(w.s4, [person('Mara Venn', { where: 'by the strongbox' }), person('Gale', { where: 'in the scene' })], {
+      'mara venn|where': 'by the strongbox',
+      'gale|where': 'Gale would be watching the road.'
+    })
+    const carrying = (soFar: string) => ({ ...w.input, soFar, continuity: here, continuityAtSoFar: true, continuityAtStart: here })
+    for (const soFar of ['Gale would be watching the road.', 'Tobin had said Gale’s men were on the road.', 'Gale had said she would come.']) {
+      const core = planCore(w.db, carrying(soFar), w.s4, { carryingOn: true, hidden: new Set<ID>() })!
+      expect(Object.keys(core.known)).not.toContain('gale')
+      expect(core.people.some((l) => l.startsWith('Gale'))).toBe(false)
+    }
+  })
+
   it('what happened before, each scene’s gist in whole sentences', () => {
     const w = world()
     mem.putSummary(w.db, { level: 'scene', targetId: w.s2, text: 'Gale watches Mara at the market. She counts the coins and', origin: 'text' })

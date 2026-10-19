@@ -101,6 +101,7 @@ import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost,
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { withoutMentioned } from '../storyIndex/there'
 import { CONTRACT_BLOCK, contractSays, contractText, SAID, sceneContract, type ContractInput, type SceneContract } from './contract'
 import { BRIEF_BLOCK, briefShortens, briefText, hasEarlierBooks, type ContinuityBrief } from './brief'
 import { LEDGER_BLOCK, ledgerPeople, ledgerText } from './whoKnows'
@@ -1362,7 +1363,8 @@ export function toldStage(
   const scope = stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar], input.calendar)
   // What the scene before left holds only as far as it carries here (Adam, 2026-10-16): at a new scene's start the stage is
   // all from before; carrying on, a value without words is from before when it is as it was as the scene began.
-  return stageInScene(input.continuity, { ...scope, began: input.continuityAtSoFar ? (input.continuityAtStart ?? null) : input.continuity })
+  // Never someone off the card the scene's words only mention (2026-10-19, storyIndex/there.ts).
+  return withoutMentioned(stageInScene(input.continuity, { ...scope, began: input.continuityAtSoFar ? (input.continuityAtStart ?? null) : input.continuity }), scope)
 }
 
 /** The draft carries on from words already in the scene (Add below, a later beat), rather than writing it whole. */

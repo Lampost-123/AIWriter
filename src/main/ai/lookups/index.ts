@@ -16,7 +16,10 @@ import { namedInProse } from '@shared/names'
 import { loadShape } from '../../db/memory'
 import * as sidx from '../../db/storyIndex'
 import { storyOfScene } from '../../memory/line'
-import { lastSeen, openThreads, presentAt, sceneGists, stateOf, timeline, whoKnows } from '../../storyIndex/lookup'
+import { lastSeen, openThreads, presentAt, sceneGists, stateOf, timeline, whoKnows, withStageNow, type EntryNow } from '../../storyIndex/lookup'
+import { clothesOf, pieceKey, sourceKey, type SceneState } from '@shared/continuity'
+import { pieceText } from '@shared/stageItems'
+import { stageFor } from '../mustStay'
 import { whereIs } from '../../storyIndex/placed'
 import { clip, entryText, firstLines, passageOf, wholeSentences } from './text'
 
@@ -128,6 +131,12 @@ export interface LookupContext {
    * that can be done quickly, for state_of; true once they are in the index. Never waits long. Left out: not tried.
    */
   fill?: (sceneId: ID) => Promise<boolean>
+  /**
+   * Where things stand at the point of writing, as the writer is told it, when it is read from the scene's words so far
+   * (carrying on): what it says of someone is newer than the story index, and state_of answers with it (2026-10-19: the
+   * planner was told "not recorded yet" of clothes and injuries the scene had just set up). Left out: the index alone.
+   */
+  stand?: SceneState | null
 }
 
 /** One look-up's answer. */
@@ -266,6 +275,34 @@ function detailsFrom(ctx: LookupContext): ID | null {
   return null
 }
 
+/**
+ * Someone as things stand at the point of writing: where things stand there (ctx.stand, read from the scene's words so
+ * far) put over the story index, field by field (storyIndex/lookup.ts withStageNow). As the index has them otherwise.
+ */
+function asNow(ctx: LookupContext, e: EntryState, now: EntryNow): EntryNow {
+  const c = stageFor(e, ctx.stand)
+  if (!c) return now
+  const said = ctx.stand?.said ?? {}
+  const quote = (key: string): string => said[key]?.quote ?? ''
+  const label = sidx.indexScene(ctx.db, ctx.sceneId)?.label
+  const pieces = clothesOf(c)
+  return withStageNow(
+    now,
+    {
+      where: c.where ?? '',
+      posture: c.posture ?? '',
+      holding: c.holding ?? '',
+      condition: c.condition ?? '',
+      wearing: pieces.map((p) => ({ piece: p.name, text: pieceText(p) })),
+      quotes: Object.fromEntries([
+        ...(['where', 'posture', 'holding', 'condition'] as const).map((f) => [f, quote(sourceKey(c.name, f))]),
+        ...pieces.map((p) => [p.name, quote(pieceKey(c.name, p.name))])
+      ])
+    },
+    label ? `${label}, in its words so far` : 'the scene so far'
+  )
+}
+
 /** Answers one look-up. Never throws: a look-up that can't be answered says why, and what to try next. */
 export async function runLookup(call: ToolCall, ctx: LookupContext): Promise<LookupAnswer> {
   try {
@@ -290,6 +327,7 @@ async function answer(call: ToolCall, ctx: LookupContext): Promise<LookupAnswer>
         const from = detailsFrom(ctx)
         if (from && (await ctx.fill(from).catch(() => false))) now = stateOf(ctx.db, ctx.storyId, e.id, ctx.sceneId, at(ctx)) ?? now
       }
+      if (now) now = asNow(ctx, e, now)
       const all = withoutHidden(ctx, now?.lines ?? [])
       const knows = all.filter((l) => l.startsWith(`${e.name} knows:`))
       const ties = all.filter((l) => l.startsWith(`${e.name} and `))

@@ -809,13 +809,18 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
   }
   /**
    * True when what the plan relies on is backed: its words are in what the planner was given or looked up (`given`), or in
-   * the words of the scene so far or the scene before (pageFor), and the scene so far's latest word on it doesn't say
-   * otherwise. Never a secret kept from someone here.
+   * the words of the scene so far or the scene before (pageFor), whole or each of its parts ("stockinged feet; jumper damp
+   * at the cuffs", told paragraphs apart), and the scene so far's latest word on it (on each part) doesn't say otherwise.
+   * The weather, the time and the light may be one word ("rain"). Never a secret kept from someone here.
    */
   const backed = (value: string, who: string, f: Field | null, given: string): boolean => {
     if (tellsSecret(value)) return false
-    const found = quoteFound(value, given) || saysIn(value, who, given, names) || pageFor(f).some((t) => quoteFound(value, t) || saysIn(value, who, t, names))
-    return found && !latestSaysOtherwise(value, w.soFar ?? '', names)
+    const alone = !!f && SCENE_FIELDS.includes(f)
+    const found = (v: string): boolean =>
+      quoteFound(v, given) || saysIn(v, who, given, names, { alone }) || pageFor(f).some((t) => quoteFound(v, t) || saysIn(v, who, t, names, { alone }))
+    const parts = partsOf(value)
+    if (!found(value) && !(parts.length && parts.every(found))) return false
+    return ![value, ...parts].some((v) => latestSaysOtherwise(v, w.soFar ?? '', names))
   }
 
   for (const r of raw.relies.slice(0, PLAN_MOST.relies)) {
@@ -1030,8 +1035,41 @@ export function changeLine(c: RawPlan['changes'][number], f: Field | null = fiel
 
 /** Words that only say which of the stage's fields a value is (the field says it), never what it is. */
 const FIELD_WORDS = new Set(['wearing', 'wears', 'wore', 'worn', 'holding', 'holds', 'held', 'carrying', 'carries', 'carried', 'still', 'now', 'has', 'have', 'had', 'is', 'are', 'was', 'were'])
-/** A word as compared for what backs a value: its ending off, its first five letters ("pegs" and "peg", "stables" and "stable"). */
-const root = (w: string): string => (w.length > 4 ? w.replace(/(?:ing|ed|es|s)$/, '') : w.replace(/s$/, '')).slice(0, 5)
+/**
+ * The forms of the verbs that most often say how things are placed, each to one word (2026-10-19: "the key drawn out"
+ * against "she drew it out"; "lying on the settle" against "she lay down on the settle").
+ */
+const VERB_FORMS: Record<string, string[]> = {
+  draw: ['draws', 'drawing', 'drew', 'drawn'],
+  take: ['takes', 'taking', 'took', 'taken'],
+  hang: ['hangs', 'hanging', 'hung', 'hanged'],
+  lie: ['lies', 'lying', 'lay', 'lays', 'laying', 'laid', 'lain'],
+  stand: ['stands', 'standing', 'stood'],
+  sit: ['sits', 'sitting', 'sat', 'seated'],
+  hold: ['holds', 'holding', 'held'],
+  keep: ['keeps', 'keeping', 'kept'],
+  throw: ['throws', 'throwing', 'threw', 'thrown'],
+  shake: ['shakes', 'shaking', 'shook', 'shaken'],
+  break: ['breaks', 'breaking', 'broke', 'broken'],
+  tear: ['tears', 'tearing', 'tore', 'torn'],
+  bind: ['binds', 'binding', 'bound'],
+  hide: ['hides', 'hiding', 'hid', 'hidden'],
+  fall: ['falls', 'falling', 'fell', 'fallen'],
+  give: ['gives', 'giving', 'gave', 'given'],
+  bring: ['brings', 'bringing', 'brought'],
+  kneel: ['kneels', 'kneeling', 'knelt'],
+  light: ['lights', 'lighting', 'lit', 'lighted'],
+  burn: ['burns', 'burning', 'burnt', 'burned'],
+  shut: ['shuts', 'shutting'],
+  put: ['puts', 'putting'],
+  set: ['sets', 'setting']
+}
+const VERB_OF = new Map(Object.entries(VERB_FORMS).flatMap(([base, forms]) => [base, ...forms].map((f) => [f, base] as const)))
+/**
+ * A word as compared for what backs a value: a verb's forms as one, else its ending off, its first five letters ("pegs"
+ * and "peg", "stables" and "stable").
+ */
+const root = (w: string): string => (VERB_OF.get(w) ?? (w.length > 4 ? w.replace(/(?:ing|ed|es|s)$/, '') : w.replace(/s$/, ''))).slice(0, 5)
 /** The words of a value that say what it is: no filler, no field words, no names of the people in the scene. */
 const valueRoots = (s: string, names: ReadonlySet<string>): string[] => [
   ...new Set(
@@ -1047,13 +1085,35 @@ const sentencesOf = (text: string): string[] =>
     .map((s) => s.trim())
     .filter(Boolean)
 
+/** The most sentences of one paragraph a value may be told over ("The boots came hard. … She stood them on their sides …"). */
+const PARAGRAPH_SENTENCES = 6
+
+/**
+ * Where in `text` a value may be told: each sentence with the one after it, and, for a value of more than one word that
+ * matters, a paragraph (or, in a longer one, each run of PARAGRAPH_SENTENCES of its sentences): a scene sets a thing up
+ * over a few sentences, with "them" and "it" between (2026-10-19).
+ */
+function windowsOf(text: string, wide: boolean): string[] {
+  const ss = sentencesOf(text)
+  const out = ss.map((s, i) => `${s} ${ss[i + 1] ?? ''}`)
+  if (!wide) return out
+  for (const para of text.split(/\n\s*\n/)) {
+    const ps = sentencesOf(para)
+    if (ps.length <= 2) continue
+    const size = Math.min(PARAGRAPH_SENTENCES, ps.length)
+    for (let i = 0; i + size <= ps.length; i++) out.push(ps.slice(i, i + size).join(' '))
+  }
+  return out
+}
+
 /**
  * True when `text` says what a value says, though not in its words exactly (2026-10-19: "boots off, by the hearth" against
- * "She set her boots by the hearth"): within a sentence and the one after it, every word of it that matters (all but one
- * of five or more), and, for a value of one such word, the person's name or the word saying how it is ("off", "barred");
- * never in words that say otherwise of it ("boots on" against "pulled her boots off").
+ * "She set her boots by the hearth"): within a sentence and the one after it, or a few sentences of one paragraph, every
+ * word of it that matters (all but one of five or more), and, for a value of one such word, within a sentence and the
+ * next, the person's name or the word saying how it is ("off", "barred"), unless `alone` (the weather, the time or the
+ * light: "rain"); never in words that say otherwise of it ("boots on" against "pulled her boots off").
  */
-export function saysIn(value: string, who: string, text: string, names: ReadonlySet<string> = new Set()): boolean {
+export function saysIn(value: string, who: string, text: string, names: ReadonlySet<string> = new Set(), o: { alone?: boolean } = {}): boolean {
   const v = valueRoots(value, names)
   if (!v.length || !clean(text)) return false
   const need = v.length <= 4 ? v.length : v.length - 1
@@ -1061,17 +1121,24 @@ export function saysIn(value: string, who: string, text: string, names: Readonly
     .filter((w) => w.length >= 3)
     .map(root)
   const states = tokens(value).filter((w) => STATE_WORDS.has(w))
-  const ss = sentencesOf(text)
-  for (let i = 0; i < ss.length; i++) {
-    const win = `${ss[i]} ${ss[i + 1] ?? ''}`
+  for (const win of windowsOf(text, v.length > 1)) {
     const words = tokens(win)
     const have = new Set(words.map(root))
     if (v.filter((x) => have.has(x)).length < need) continue
-    if (v.length === 1 && !whoRoots.some((x) => have.has(x)) && !states.some((x) => words.includes(x))) continue
+    if (v.length === 1 && !o.alone && !whoRoots.some((x) => have.has(x)) && !states.some((x) => words.includes(x))) continue
     if (contradicts(value, win)) continue
     return true
   }
   return false
+}
+
+/** A value that says two things or more ("stockinged feet; jumper damp at the cuffs"), each on its own; [] for one. */
+export function partsOf(value: string): string[] {
+  const parts = value
+    .split(';')
+    .map(clean)
+    .filter(Boolean)
+  return parts.length > 1 ? parts : []
 }
 
 /**
