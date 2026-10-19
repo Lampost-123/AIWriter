@@ -124,7 +124,8 @@ const SENTENCES = [
 
 /**
  * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v3]"): each
- * character from the cast list the scene names is "in the scene"; one named wearing something ("in her grey cloak")
+ * character from the cast list the scene puts on stage (onStage: not only in someone's words, as what is theirs, or as
+ * what they once said or may do) is "in the scene"; one named wearing something ("in her grey cloak")
  * wears it, a piece of clothing "on" ("<Name> took off her hood." takes it off: the hood "off"); "<Name> left for the
  * docks." puts them "gone to the docks"; "<Name> put his cup on the shelf." leaves them holding "nothing; his cup on the
  * shelf". "The door was barred." (or a window or gate locked, open or shut) is a thing in the place. The scene's time
@@ -147,13 +148,31 @@ function castOf(user) {
     .filter(Boolean)
 }
 
+/** After a name: only what is theirs, or what they once said or may do ("Gale's men", "Gale would be watching it"). */
+const MENTION_AFTER = /^(?:['’]s\b|\s+(?:would|could|can|might|may|must|should|will|shall|had\s+(?:said|told|written|warned))\b)/
+
+/**
+ * True when some sentence puts `name` on stage, as a memory model would read it (2026-10-19: every name anywhere was "in
+ * the scene", so Gale sat in an inn he was days from): named outside quotation marks, and not only as what is theirs, or
+ * what they once said or may do.
+ */
+function onStage(name, sentences) {
+  return sentences.some((s) => {
+    for (let at = s.indexOf(name); at >= 0; at = s.indexOf(name, at + 1)) {
+      if (/(?:^|\s)[‘“"']/.test(s.slice(0, at))) continue
+      if (!MENTION_AFTER.test(s.slice(at + name.length))) return true
+    }
+    return false
+  })
+}
+
 /** Where things stand at the end of `scene` (the words read), by the rules above, as the tracker's reply object. */
 function fakeStage(cast, scene) {
   const sentences = scene.split(/(?<=[.!?])\s+/)
   const cloak = /in (?:her|his) ([a-z ]+cloak)/.exec(scene)
   const door = /[Tt]he (door|window|gate) was (barred|locked|open|shut)/.exec(scene)
   const characters = cast
-    .filter((n) => scene.includes(n))
+    .filter((n) => onStage(n, sentences))
     .map((name) => {
       // Check and repair's tests: "<Name> took off her hood.", "<Name> left for the docks." and "<Name> put his cup on the shelf."
       const took = new RegExp(`${name} took off (?:her|his) ([a-z ]+?)[.,]`).exec(scene)

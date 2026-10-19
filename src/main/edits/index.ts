@@ -30,7 +30,8 @@ import { countWords } from '@shared/defaults'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
 import type { SceneMemory } from '../memory/types'
-import { namedThere, stageFor, stageInScene } from '../ai/mustStay'
+import { stageFor, stageInScene } from '../ai/mustStay'
+import { onStageIn, withoutMentioned } from '../storyIndex/there'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { noteContract, noteStage } from '../repair'
 import { contractWanted } from '../ai/contract'
@@ -124,10 +125,11 @@ export const CONTINUE_PEOPLE_MOST = { each: 7, all: 28 }
 
 /**
  * Everyone in the scene at Continue's cursor as the story index has them (2026-10-19): the card's point of view and
- * people, and whoever the words before the cursor put there (never someone only thought of, talked of or far away:
- * ai/mustStay.ts namedThere), each with what the index knows of them (where, what they wear and carry, how they are,
- * what they know, their ties); for someone where things stand at the cursor already tells, only what they know and their
- * ties. As the scene ends when the cursor is at its end, else as it begins. Nothing when the index can't be read.
+ * people, and whoever the words before the cursor put there (never someone only thought of, talked of or far away, nor
+ * named only by another's name, what is theirs, or what they once said or may do: storyIndex/there.ts onStageIn), each
+ * with what the index knows of them (where, what they wear and carry, how they are, what they know, their ties); for
+ * someone where things stand at the cursor already tells, only what they know and their ties. As the scene ends when the
+ * cursor is at its end, else as it begins. Nothing when the index can't be read.
  */
 export function continuePeople(
   db: ReturnType<typeof world.db>,
@@ -144,7 +146,7 @@ export function continuePeople(
     const ids = [card.povId, ...(card.presentIds ?? [])].filter((id): id is string => !!id)
     for (const e of chars) {
       if (ids.includes(e.id)) continue
-      if ([e.name, ...(e.aliases ?? [])].some((n) => n.trim().length >= 2 && namedThere(input.before, n))) ids.push(e.id)
+      if (onStageIn(input.before, e)) ids.push(e.id)
     }
     const out: string[] = []
     for (const id of ids) {
@@ -202,11 +204,10 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const kept = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
   const core = tool === 'continue' ? await continueCore(db, input, memory, story.title, scene.card) : undefined
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
-  // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07).
-  const stand = stageInScene(
-    kept,
-    stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after], calendarFor(db, input.sceneId, memory, scene.card))
-  )
+  // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07); never
+  // someone off the card the words only mention (2026-10-19).
+  const scope = stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after], calendarFor(db, input.sceneId, memory, scene.card))
+  const stand = withoutMentioned(stageInScene(kept, scope), scope)
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
   const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)
