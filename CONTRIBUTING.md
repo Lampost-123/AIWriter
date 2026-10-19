@@ -59,7 +59,8 @@ rules below in more detail.
 **Look**
 - Colours come only from the theme tokens in `src/renderer/src/styles.css` (`bg-surface`, `text-muted`,
   `border-line`, `bg-accent`, `text-ai` and so on). Amber marks AI suggestions, red only must-fix problems, green
-  done. Both looks (New look and Classic) and all three themes (Light, Dark, Sepia) must work.
+  done. Both layouts (desk and panels) and all three themes (Light, Dark, Sepia) must work. Classic is retired: don't
+  change or add to its code, which awaits removal.
 
 **No jank**
 - No layout shift while loading: reserve the space, or render nothing rather than a flash.

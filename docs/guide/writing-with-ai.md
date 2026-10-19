@@ -21,7 +21,7 @@ The AI dock sits at the foot of the page:
 While the AI writes, the dock shows how many words so far, the model, and **Stop**. When it's done, the dock has
 **Accept** (Tab) and **Reject** (Esc). Above the dock, a small chip shows the **Next beat** from the scene card.
 
-If you use the **Panels** layout or the **Classic** look, the same tools are in the toolbar above the page.
+If you use the **Panels** layout, the same tools are in the toolbar above the page.
 
 ## Plan the scene on its card
 

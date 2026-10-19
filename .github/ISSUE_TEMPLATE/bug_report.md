@@ -31,5 +31,5 @@ If it helps, add a screenshot. Please hide anything private.
 **Your setup**
 - AI Write version (Settings › About and updates):
 - Windows version (10 or 11):
-- Look (New look or Classic) and theme:
+- Layout (Desk or Panels) and theme:
 - AI service and writer model, if it's about AI writing (for example, OpenRouter with ...):
