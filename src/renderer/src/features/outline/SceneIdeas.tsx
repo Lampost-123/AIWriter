@@ -41,11 +41,14 @@ export function SceneIdeas({
   sceneId,
   card,
   onUse,
+  lead,
   beside
 }: {
   sceneId: ID
   card: SceneCard
   onUse: (patch: Partial<SceneCard>) => void
+  /** Shown first in the row, before the quiet button (Plan this scene), so it keeps its place whatever the ideas show. */
+  lead?: ReactNode
   /** Shown in the same row as the quiet button (the scene's "Interview me"), or above the ideas. */
   beside?: ReactNode
 }): React.JSX.Element | null {
@@ -81,7 +84,16 @@ export function SceneIdeas({
     setOffer({ phase, show })
   }
 
-  if (phase !== 'showing' && !show) return beside ? <div className="flex flex-wrap items-center gap-x-4 gap-y-1">{beside}</div> : null
+  // The row of quiet actions: what leads it, then the others. Its order never changes as the ideas open and close.
+  const row = (className: string): React.JSX.Element | null =>
+    lead || beside ? (
+      <div className={className}>
+        {lead}
+        {beside}
+      </div>
+    ) : null
+  if (phase !== 'showing' && !show) return row('flex flex-wrap items-center gap-x-4 gap-y-1')
+  const others = row('mb-2 flex flex-wrap items-center gap-x-4 gap-y-1')
   const ask = (): void => {
     setComposing(false)
     void askIdeas(sceneId)
@@ -91,12 +103,12 @@ export function SceneIdeas({
     <div ref={root} className="scroll-mt-4">
       {session && phase === 'showing' ? (
         <>
-          {beside ? <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">{beside}</div> : null}
+          {others}
           <Ideas sceneId={sceneId} s={session} card={card} onAsk={ask} />
         </>
       ) : composing ? (
         <>
-          {beside ? <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">{beside}</div> : null}
+          {others}
           <section aria-label="Ideas for this scene" className="flex flex-col gap-2">
             <h3 className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
               <Lightbulb size={12} className="shrink-0 text-ai" aria-hidden />
@@ -115,6 +127,7 @@ export function SceneIdeas({
         </>
       ) : (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {lead}
           <button
             type="button"
             onClick={() => setComposing(true)}

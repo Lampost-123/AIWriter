@@ -4858,6 +4858,35 @@ and "an error with the chat saying it could not access something to edit".
   `applyProposal.test.ts`, `applyDraft.test.ts`, `askEdits.test.ts`, `askWords.test.ts`, and `tests/e2e/editorChat.spec.ts`
   (fake/claims-stubborn and fake/bad-proposal: the honest result on screen).
 
+## The foot of the writing page (UI pass, 2026-10-19)
+
+The writing page's foot had grown five things that each found their own place: the direction receipt, the director's
+line, the next-beat chip and the dock on the desk, with messages in the corner over their buttons, and on the panels the
+director's line and the pointer to a draft written out of sight, over the words. They now share one place and take turns.
+- **The desk** (`SceneView`'s foot column over the dock; `features/desk/dock/foot.ts`): one thing over the dock at a time,
+  in this order: the director's line (while a directed draft writes, and its last line a moment after), the direction
+  receipt, the next-beat chip. The receipt says when it shows (`setReceiptShown`), the dock says what it is doing
+  (`setDockKind`), so the chip's "mark it done?" waits while the AI writes or a change waits (one thing to press); the
+  receipt waits while the AI writes, and while a change waits shows only with nothing to press (written in below, or all
+  landed). The receipt's quiet "all landed" line starts its fade only once in sight. The page's fade reaches as high as the column does
+  (`--desk-foot`, measured), and messages show above all of it (`features/desk/dock/ToastsAbove.tsx`: the column, the
+  change box, the director's line, and a small panel opened over the dock, Beat by beat's question or "where should the
+  draft go?", measured once placed; a panel reaching into the window's top half, the draft options, leaves them be; while
+  the drawer lies over the page in a small window they keep their corner). The
+  director's line is of the dock's material (`.desk-foot-card`, desk.css).
+- **The panels**: the director's line and "Writing the new draft below" share one band at the page's foot, on the page's
+  own colour, the line above the pointer, only while one of them shows.
+- Unchanged: the just-written row stays under the draft's last line (it steps aside while the AI is busy, a change waits,
+  the change box is open or Beat by beat runs); the change box and Beat by beat's bar each take the whole foot while open.
+- Also in the pass: the draft options' choices scroll between the direction and Generate in a short window (the panel never
+  runs off the window); the scene plan's body scrolls with Write in sight (`Dialog` `bodyScrolls`); each variant's own
+  direction has a line of its own in its column's head; the card's quiet actions keep one order (Plan this scene, Ideas for
+  this scene, Interview me: `SceneIdeas` `lead`); Beat by beat's "no beats" answers share a row; under 1200 px the desk's
+  rooms not showing are their icons alone and the top bar's right-hand buttons keep the room they need, so nothing runs
+  under them.
+- Tests: `features/desk/dock/foot.test.ts`; the app tests of the parts (desk, director, directionReceipt, planFirst,
+  revise, beats, variants, direction).
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

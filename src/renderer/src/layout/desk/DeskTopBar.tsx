@@ -49,7 +49,9 @@ export function DeskTopBar(): React.JSX.Element {
       data-desk-topbar
       // The rooms sit in the middle of the window; a long world or story name moves them along rather than being cut
       // short (under 1440px the sample world's chip steps aside, and only in the smallest windows do the names give way).
-      className="desk-topbar group/bar relative z-30 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 min-[1440px]:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]"
+      // Under 1200px the buttons on the right keep all the room they need and the rooms move along a little, rather than
+      // running under them.
+      className="desk-topbar group/bar relative z-30 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 max-[1200px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[1440px]:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]"
     >
       <div className="flex min-w-0 items-center">
         {/* Back to the start screen, where Adam picks what to work on. */}

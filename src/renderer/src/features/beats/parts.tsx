@@ -3,13 +3,14 @@
 // on the scene card, or a writer model. Shown under the toolbar button, or over the bar's Write button.
 import * as P from '@radix-ui/react-popover'
 import { ArrowDownToLine, ListOrdered, RefreshCw, Sparkles, Square } from '@/components/ui/icons'
-import { useId, useRef, type ReactNode } from 'react'
+import { useId, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import type { ID } from '@shared/types'
 import { WritingStatus } from '@/features/builder/parts'
+import { ToastsAboveElement } from '@/features/desk/dock/ToastsAbove'
 import { resetSuggestBeats, stopSuggestBeats, suggestBeats, useBeatSuggest } from '@/features/outline/suggestBeats'
 import { answer, dismissQuestion, openBeats, openCardAtBeats } from './flow'
 import { useBeats, type BeatQuestion } from './session'
@@ -124,9 +125,12 @@ export function QuestionPanel({ question, side }: { question: BeatQuestion; side
   /** Where the keyboard was when the question opened, so closing it puts the keyboard back. */
   const before = useRef<HTMLElement | null>(null)
   const { kind, byKey, sceneId, resume } = question
+  // Opened over the desk's dock (side top), messages show above it, never over its answers (ToastsAbove.tsx).
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
   return (
     <P.Portal>
       <P.Content
+        ref={side === 'top' ? setEl : undefined}
         side={side}
         align="end"
         sideOffset={6}
@@ -163,7 +167,8 @@ export function QuestionPanel({ question, side }: { question: BeatQuestion; side
         }}
         className={cn(
           'z-50 rounded-xl border border-line bg-surface p-4 shadow-pop focus:outline-none data-[state=open]:animate-pop-in',
-          kind === 'choose' ? 'w-[340px]' : 'w-[320px]'
+          // No beats: room for Suggest beats and Open the scene card side by side, as one row of answers.
+          kind === 'choose' ? 'w-[340px]' : kind === 'no-beats' ? 'w-[360px]' : 'w-[320px]'
         )}
       >
         {kind === 'choose' ? (
@@ -228,6 +233,7 @@ export function QuestionPanel({ question, side }: { question: BeatQuestion; side
             </Button>
           </>
         )}
+        {side === 'top' ? <ToastsAboveElement el={el} /> : null}
       </P.Content>
     </P.Portal>
   )

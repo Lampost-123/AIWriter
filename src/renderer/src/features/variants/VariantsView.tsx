@@ -230,6 +230,7 @@ function SetView({
               starting={set.starting}
               memoryReading={memoryReading}
               picks={picks}
+              notes={variants.some((x) => !!x.note)}
               onChangeLength={onChangeLength}
             />
           ))}

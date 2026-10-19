@@ -8,6 +8,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { Drama, Send } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
+import { ToastsAbove } from '@/features/desk/dock/ToastsAbove'
 import { listenForDirector, sendNote, useDirector } from './store'
 
 /** No notes (one array for all, so the store's selectors keep giving the same one). */
@@ -21,6 +22,7 @@ export function DirectorBar({ sceneId, className }: { sceneId: ID; className?: s
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const barRef = useRef<HTMLElement>(null)
   const id = useId()
   // Another draft (or scene): the box starts empty.
   const gen = p?.generationId ?? null
@@ -50,71 +52,77 @@ export function DirectorBar({ sceneId, className }: { sceneId: ID; className?: s
       : null
 
   return (
-    <section
-      aria-label="Director"
-      data-director={p.phase}
-      className={cn(
-        'pointer-events-auto w-full max-w-[560px] rounded-xl border border-line bg-surface/95 px-3 py-2 shadow-pop backdrop-blur-sm animate-fade-in',
-        className
-      )}
-    >
-      <div className="flex min-w-0 items-center gap-2 text-[12.5px] leading-5" role="status" aria-live="polite">
-        <Drama size={14} className="shrink-0 text-ai" aria-hidden />
-        <span className="shrink-0 font-medium text-fg">Director</span>
-        <span className="min-w-0 flex-1 truncate text-muted" data-director-line title={p.line}>
-          {p.line}
-        </span>
-        {step && writing ? (
-          <span className="shrink-0 tabular-nums text-[11.5px] text-faint" title="Stretch">
-            {step}
+    <>
+      <section
+        ref={barRef}
+        aria-label="Director"
+        data-director={p.phase}
+        className={cn(
+          'desk-foot-card pointer-events-auto w-full max-w-[560px] rounded-xl border border-line bg-surface/95 px-3 py-2 shadow-pop backdrop-blur-sm animate-fade-in',
+          className
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2 text-[12.5px] leading-5" role="status" aria-live="polite">
+          <Drama size={14} className="shrink-0 text-ai" aria-hidden />
+          <span className="shrink-0 font-medium text-fg">Director</span>
+          <span className="min-w-0 flex-1 truncate text-muted" data-director-line title={p.line}>
+            {p.line}
           </span>
+          {step && writing ? (
+            <span className="shrink-0 tabular-nums text-[11.5px] text-faint" title="Stretch">
+              {step}
+            </span>
+          ) : null}
+        </div>
+        {p.note && writing ? (
+          <p className="mt-0.5 truncate pl-[22px] text-[12px] leading-[18px] text-faint" data-director-note title={p.note}>
+            Note: {p.note}
+          </p>
         ) : null}
-      </div>
-      {p.note && writing ? (
-        <p className="mt-0.5 truncate pl-[22px] text-[12px] leading-[18px] text-faint" data-director-note title={p.note}>
-          Note: {p.note}
-        </p>
-      ) : null}
-      {writing ? (
-        <form
-          className="mt-1.5 flex items-center gap-1.5 pl-[22px]"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void send()
-          }}
-        >
-          <label htmlFor={id} className="sr-only">
-            Your note for the next stretch
-          </label>
-          <input
-            ref={inputRef}
-            id={id}
-            type="text"
-            value={note}
-            maxLength={400}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => {
-              // Esc here leaves the box; it never stops the draft (Stop does).
-              if (e.key === 'Escape') {
-                e.stopPropagation()
-                inputRef.current?.blur()
-              }
+        {writing ? (
+          <form
+            className="mt-1.5 flex items-center gap-1.5 pl-[22px]"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void send()
             }}
-            placeholder="A note for the next stretch: “slower”, “she wouldn’t say that”"
-            className="h-7 min-w-0 flex-1 rounded-md border border-line bg-page px-2 text-[12.5px] text-fg outline-none transition-colors duration-150 placeholder:text-faint focus:border-accent"
-          />
-          <button
-            type="submit"
-            disabled={!note.trim() || sending}
-            aria-label="Send the note"
-            title="Send the note (Enter)"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-40"
           >
-            <Send size={13} aria-hidden />
-          </button>
-        </form>
-      ) : null}
-      {hint ? <p className="mt-1 pl-[22px] text-[11.5px] leading-4 text-faint" data-director-hint>{hint}</p> : null}
-    </section>
+            <label htmlFor={id} className="sr-only">
+              Your note for the next stretch
+            </label>
+            <input
+              ref={inputRef}
+              id={id}
+              type="text"
+              value={note}
+              maxLength={400}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => {
+                // Esc here leaves the box; it never stops the draft (Stop does).
+                if (e.key === 'Escape') {
+                  e.stopPropagation()
+                  inputRef.current?.blur()
+                }
+              }}
+              placeholder="A note for the next stretch: “slower”, “she wouldn’t say that”"
+              className="h-7 min-w-0 flex-1 rounded-md border border-line bg-page px-2 text-[12.5px] text-fg outline-none transition-colors duration-150 placeholder:text-faint focus:border-accent"
+            />
+            <button
+              type="submit"
+              disabled={!note.trim() || sending}
+              aria-label="Send the note"
+              title="Send the note (Enter)"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted outline-none transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-[var(--focus)] disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Send size={13} aria-hidden />
+            </button>
+          </form>
+        ) : null}
+        {hint ? <p className="mt-1 pl-[22px] text-[11.5px] leading-4 text-faint" data-director-hint>{hint}</p> : null}
+      </section>
+      {/* After the bar (so its ref is set): messages show above it, never over its note box. */}
+      <ToastsAbove target={barRef} />
+    </>
   )
 }
+

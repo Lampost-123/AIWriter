@@ -10,7 +10,6 @@ import * as P from '@radix-ui/react-popover'
 import { ArrowDown, ArrowDownToLine, Check, Sparkles, Square, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
-import { useToastsAbove } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { layerOpen } from '@/lib/layers'
 import { isShortcut, shortcutKeys, withShortcut } from '@/lib/shortcuts'
@@ -30,6 +29,7 @@ import { keyboardDriven } from '@/features/look/motion'
 import { setSteer, steerOf, steerTaken, useDeskStore } from '../deskStore'
 import { activityLine, activityOf, progressOf, type Activity } from './activity'
 import { DockMenu } from './DockMenu'
+import { setDockKind } from './foot'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
 
 /** The change waiting (or being written) in the page for this scene, followed as the editor changes. */
@@ -100,9 +100,8 @@ export function Dock({
   const g = useGenerate(sceneId, { keys: true, steer: { get: () => steerOf(sceneId), taken: () => steerTaken(sceneId, 'draft') } })
   const { activity, changeId } = useActivity(editor, sceneId, g)
   const hasWords = useApp((s) => (s.sceneId === sceneId ? s.sceneWords > 0 : false))
-  // Messages show above the dock, never over it.
+  // Messages show above the dock and what lies over it, never over them (SceneView keeps them above the whole foot).
   const dockRef = useRef<HTMLDivElement>(null)
-  useToastsAbove(dockRef)
   const question = useBeats((s) => (s.question?.sceneId === sceneId && s.question.from === 'button' ? s.question : null))
 
   // A state change asked from the keyboard (Ctrl+Shift+Enter, Tab, Esc) shows at once; from a click, it crossfades.
@@ -114,6 +113,8 @@ export function Dock({
     lastKind.current = kind
     setInstant(keyboardDriven())
   }, [kind])
+  // What lies over the dock reads what it is doing (foot.ts): a prompt waits while the AI writes or a change waits.
+  useLayoutEffect(() => setDockKind(sceneId, kind), [sceneId, kind])
 
   // The steer box's words are used once the AI starts with them: the box stays empty after (steerTaken), and ↑ in it or
   // its recent directions bring them back.
