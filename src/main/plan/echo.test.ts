@@ -16,6 +16,7 @@ const NOTES = [
   PLAN_PARTS.stay,
   '- Osric does not know of the forgery',
   `${PLAN_PARTS.end} The ladder, empty.`,
+  `${PLAN_PARTS.reads} More dialogue.`,
   PLAN_GO.start
 ].join('\n')
 const PROSE = 'The ladder creaked under him.\n\n"You came," she said.'

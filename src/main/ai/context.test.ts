@@ -782,7 +782,7 @@ describe('blocks', () => {
     )
   })
 
-  it('block 2: the whole scene card and the direction, with no short form', () => {
+  it('block 2: the whole scene card, with no short form; the direction only for a closing of its own (Beat by beat)', () => {
     const block = blockOf(input(), 'scene-card')!
     for (const s of [
       'Scene: The knock',
@@ -797,13 +797,16 @@ describe('blocks', () => {
       'Outcome: She agrees, then someone knocks',
       'Mood: Tense',
       'Length: about 1,200 words',
-      'Keep the hand subtle.',
-      'Make it tense, end on the knock at the door'
+      'Keep the hand subtle.'
     ]) {
       expect(block.text).toContain(s)
     }
     expect(block.short).toBeNull()
     expect(block.text).not.toContain('bring about')
+    // Generate says Adam's direction last of all (2026-10-19), not on the card; a closing of its own reads it there.
+    expect(block.text).not.toContain('Make it tense')
+    const own = prepareContext(input(), { final: () => 'Write beat 1 now.' }).blocks.find((b) => b.id === 'scene-card')!
+    expect(own.text).toContain("The author's direction for this draft:\nMake it tense, end on the knock at the door")
   })
 
   it('block 2 on a redraft: what this scene should bring about, as aims rather than facts', () => {
@@ -2084,7 +2087,10 @@ describe('assembleContext', () => {
     expect(closing).toContain('- Hit every beat on the scene card, in order, and let them carry the goal, the conflict and the outcome.')
     expect(closing).toContain('Aim for about 1,200 words.')
     expect(closing).toContain('Continue seamlessly from where the previous scene ends')
-    expect(closing).toContain("Follow the author's direction for this draft.")
+    // Adam's direction is the closing's last words, word for word (2026-10-19), and said nowhere else.
+    expect(closing.trimEnd().endsWith("The author's direction for this draft (make every part of it happen on the page):\nMake it tense, end on the knock at the door")).toBe(true)
+    expect(closing).not.toContain("Follow the author's direction for this draft.")
+    expect(user.split('Make it tense, end on the knock at the door')).toHaveLength(2)
     // What only says again what the system prompt and what must stay true say is gone: the format, the point of view,
     // never contradict.
     expect(closing).not.toContain('Keep to close third person, past tense and UK spelling.')
@@ -2215,7 +2221,7 @@ describe('the writer instructions', () => {
     expect(empty).not.toContain('Shape the whole scene')
     const directed = user({}, 'Make it tense')
     expect(directed).not.toContain('no plan beyond its title')
-    expect(directed).toContain("Follow the author's direction for this draft.")
+    expect(directed.trimEnd().endsWith("The author's direction for this draft (make every part of it happen on the page):\nMake it tense")).toBe(true)
   })
 })
 

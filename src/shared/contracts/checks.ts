@@ -96,6 +96,11 @@ export interface ContractCheckItem {
   code?: string
   check?: CheckKind
   entryIds?: ID[]
+  /**
+   * One ask of Adam's direction for the draft, in his own words (the direction receipt, 2026-10-19): something that
+   * happens, how the words read ("more dialogue"), or how long they are (counted by the app). Left out: not an ask.
+   */
+  ask?: 'event' | 'reads' | 'length'
 }
 
 /** One check of a draft against its scene's contract. */
@@ -105,6 +110,11 @@ export interface ContractCheck {
   /** What the draft was asked to write: a whole scene, a stretch of one (Add below), a beat, or Continue's words. */
   asks: 'scene' | 'stretch' | 'beat' | 'continue'
   items: ContractCheckItem[]
+  /**
+   * The record of the AI's words checked as they landed (the direction receipt shows for that draft, there and in What the
+   * AI saw). Left out by the checks of a whole scene (Check this scene, Mark done, the chapter writer) and older reports.
+   */
+  recordId?: ID
 }
 
 /** What an issue conflicts with, for its links. */

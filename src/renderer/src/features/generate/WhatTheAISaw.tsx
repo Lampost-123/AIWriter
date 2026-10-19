@@ -20,6 +20,7 @@ import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, 
 import { Skeleton, useDelayed } from './parts'
 import { BriefingArt } from '@/components/art/RoomArt'
 import { useDesk } from '@/features/look/look'
+import { ReceiptInSaw } from '@/features/receipt/DirectionReceipt'
 import './aiSaw.css'
 import { laterMessageLabel, messageText, requestNote, requestsOf, requestTitle, toolOfResult } from './requestSteps'
 import { blockTagNote, recordTagNote, tagBadges, tagLabel, tagsInOrder } from './memoryTagsView'
@@ -334,6 +335,7 @@ function DraftRecord({
         <section className="aisaw-direction mt-6">
           <SectionTitle>{edit?.direction ?? (answer ? 'Your question' : 'Your direction for this draft')}</SectionTitle>
           <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
+          {rec.job === 'draft' ? <ReceiptInSaw rec={rec} /> : null}
         </section>
       ) : null}
 

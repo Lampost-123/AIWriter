@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { BLANK_DRAFT_OPTIONS, draftLength, patchDraftOptions, resolveDraftOptions } from './draftOptions'
+import { BLANK_DRAFT_OPTIONS, draftDirection, draftLength, patchDraftOptions, resolveDraftOptions } from './draftOptions'
+
+describe('the direction a draft is written with (the stale direction, 2026-10-19)', () => {
+  const saved = 'Mara lies about the key; end on the knock'
+
+  it('the steer box’s words, when it has any', () => {
+    for (const addBelow of [true, false]) {
+      expect(draftDirection({ saved, steer: '  Tobin leaves  ', addBelow, fromOptions: false })).toBe('Tobin leaves')
+      expect(draftDirection({ saved, steer: 'Tobin leaves', addBelow, fromOptions: true })).toBe('Tobin leaves')
+    }
+  })
+
+  it('an empty steer box means no direction for Add below, not the last Generate’s', () => {
+    expect(draftDirection({ saved, steer: '', addBelow: true, fromOptions: false })).toBe('')
+    expect(draftDirection({ saved, steer: '   ', addBelow: true, fromOptions: false })).toBe('')
+    // Asked from the Draft options, whose Direction Adam can see: that one.
+    expect(draftDirection({ saved, steer: '', addBelow: true, fromOptions: true })).toBe(saved)
+  })
+
+  it('a whole draft, or no steer box at all, takes the Draft options’ direction, as before', () => {
+    expect(draftDirection({ saved, steer: '', addBelow: false, fromOptions: false })).toBe(saved)
+    expect(draftDirection({ saved, addBelow: true, fromOptions: false })).toBe(saved)
+    expect(draftDirection({ saved: '', steer: '', addBelow: true, fromOptions: false })).toBe('')
+  })
+})
 
 describe('resolveDraftOptions', () => {
   it('carries a Fresh take and Add below through to the draft', () => {

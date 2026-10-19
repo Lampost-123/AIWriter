@@ -43,9 +43,11 @@ describe('Add below gets its own instructions', () => {
     expect(text.trimEnd().endsWith('What happens now, as the author directs (write this, and nothing beyond it):\nWren wonders which way the coast road runs')).toBe(true)
     expect(block(inp, 'scene-card')!.text).not.toContain('Wren wonders')
     expect(text.split('Wren wonders which way the coast road runs')).toHaveLength(2)
-    // Generate keeps the direction on the scene card.
+    // Generate says it last of all too (2026-10-19), and not on the scene card.
     const gen = { ...inp, options: { ...inp.options, addBelow: false }, soFar: undefined, continuityAtSoFar: false }
-    expect(block(gen, 'scene-card')!.text).toContain("The author's direction for this draft:\nWren wonders")
+    expect(block(gen, 'scene-card')!.text).not.toContain('Wren wonders')
+    expect(whole(gen).trimEnd().endsWith("The author's direction for this draft (make every part of it happen on the page):\nWren wonders which way the coast road runs")).toBe(true)
+    expect(whole(gen).split('Wren wonders which way the coast road runs')).toHaveLength(2)
   })
 
   it('marks the beats already on the page done, and with no direction asks for the next beat only', () => {

@@ -132,7 +132,9 @@ export function savedContract(db: DB, sceneId: ID): SceneContract | null {
       part: i.part,
       text: i.text,
       check: i.check && CHECKS.includes(i.check) ? i.check : ('facts' as CheckKind),
-      entryIds: Array.isArray(i.entryIds) ? i.entryIds.filter((x): x is ID => typeof x === 'string') : []
+      entryIds: Array.isArray(i.entryIds) ? i.entryIds.filter((x): x is ID => typeof x === 'string') : [],
+      // An ask of Adam's direction stays one (the direction receipt): one of length is counted, never asked about.
+      ...(i.ask === 'event' || i.ask === 'reads' || i.ask === 'length' ? { ask: i.ask } : {})
     }))
   return items.length ? { asks: c.asks, items } : null
 }

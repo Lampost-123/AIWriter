@@ -45,7 +45,7 @@ import { OPEN_THREADS_BLOCK } from '../ai/openThreads'
 import { deathOf } from '../ai/deaths'
 import { pieceLine, secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
 import { SO_FAR_BLOCK } from '../beats/instructions'
-import { CONTRACT_BLOCK, contractSays } from '../ai/contract'
+import { CONTRACT_BLOCK, contractSays, directionAsks } from '../ai/contract'
 import { BRIEF_BLOCK, type ContinuityBrief } from '../ai/brief'
 import { runTask, stopTask } from '../ai/tasks'
 import { answerLookups, LOOKUP_TOOLS, PASSAGE_WORDS, type LookupAnswer, type LookupContext } from '../ai/lookups'
@@ -112,6 +112,12 @@ export interface PlanMaterial {
   secrets: Secret[]
   /** What an event the plan has happen must answer to: the scene card, with the author's direction. */
   calls: string
+  /**
+   * The asks of Adam's direction about how the words read or how long they are ("more dialogue", "keep it under 800
+   * words"; ai/contract.ts directionAsks), for the writer's notes (2026-10-19: the plan carried what happens and dropped
+   * them). Left out: none.
+   */
+  reads?: string[]
   /**
    * The other plot threads still open, as the writer gets them (ai/openThreads.ts, 2026-10-08): kept alive gently, and
    * never paid off unless the card or the direction asks. '' or left out: none (the story index's, below, then).
@@ -213,11 +219,12 @@ export function planMaterial(
     .filter((e): e is EntryState => !!e && e.kind === 'character')
   const reach = stageReach(input)
   const stand = reach === 'none' ? null : block('continuity')
-  // Adam's direction is said once: in the scene card for a whole scene (as the writer gets it), or, carrying on, in what
-  // is being written (Add below's scene card leaves it out: it is the writer's closing instruction's last words).
+  // Adam's direction is said once, in what is being written (2026-10-19: the writer's scene card leaves it out for a whole
+  // scene too, as it is the closing instruction's last words); Beat by beat's scene card still says it.
   const direction = clean(input.options.direction)
   const carrying = !!input.options.addBelow && !!soFar
   const cardText = text('scene-card')
+  const reads = o.beats ? [] : directionAsks(direction).filter((a) => a.kind !== 'event').map((a) => a.text)
   // With a contract (fix 13), what must stay true leaves out what the contract says at the start and must not change:
   // the planner is told those lines with the rest of it.
   const contractLines = sent.some((b) => b.id === CONTRACT_BLOCK.id) ? [...contractSays(prepared.contract)].map((l) => `- ${l}`) : []
@@ -240,7 +247,10 @@ export function planMaterial(
     others,
     people: people.map((e) => e.name),
     secrets: secretsAmong(people, input.memory.facts),
-    calls: [cardText, carrying && direction ? `The author's direction for this stretch:\n${direction}` : ''].filter(Boolean).join('\n\n'),
+    calls: [cardText, direction && !o.beats ? `The author's direction for this ${carrying ? 'stretch' : 'draft'}:\n${direction}` : '']
+      .filter(Boolean)
+      .join('\n\n'),
+    ...(reads.length ? { reads } : {}),
     threads: text(OPEN_THREADS_BLOCK),
     ...(o.core ? { core: { people: o.core.people, recent: o.core.recent, threads: o.core.threads, left: o.core.left ?? [], travel: o.core.travel ?? [] } } : {}),
     ...(onPage ? { done: beats.slice(0, onPage).map((b, i) => `Beat ${i + 1}: ${b}`) } : {}),
@@ -251,7 +261,10 @@ export function planMaterial(
   }
 }
 
-/** What is being written, for the planner: a whole scene, a stretch carried on (the direction said here, once), or the scene beat by beat. */
+/**
+ * What is being written, for the planner: a whole scene or a stretch carried on (the direction said here, once), or the
+ * scene beat by beat (its direction on the scene card).
+ */
 function askText(input: ContextInput, o: { carrying: boolean; beats: boolean; soFar: boolean; onPage: number }): string {
   const words = input.options.targetWords
   const beats = input.scene.card.beats.map(clean).filter(Boolean)
@@ -276,7 +289,8 @@ function askText(input: ContextInput, o: { carrying: boolean; beats: boolean; so
         : 'a short way on from where the scene has got to, towards what the scene card describes.'
     return `The next stretch of the scene, carrying straight on from the end of the scene so far, ${most}. Plan only this stretch: ${what}`
   }
-  return `A whole scene, ${words == null ? 'as long as it needs to be' : `about ${words.toLocaleString('en-GB')} words`}.`
+  const whole = `A whole scene, ${words == null ? 'as long as it needs to be' : `about ${words.toLocaleString('en-GB')} words`}`
+  return direction ? `${whole}, as the author directs:\n${direction}` : `${whole}.`
 }
 
 const SYSTEM = `${PLAN_MARKER} plan
@@ -1182,9 +1196,15 @@ export interface BeatAt {
 
 /**
  * The plan as the writer's own notes, leading into the prose; '' when it says nothing. `carryingOn`: the prose carries
- * on from the scene so far. `beat`: the scene is written beat by beat, and this is the one being written now.
+ * on from the scene so far. `beat`: the scene is written beat by beat, and this is the one being written now. `reads`:
+ * the asks of Adam's direction about how the words read or how long they are, the notes' last line (2026-10-19: the
+ * plan carried what happens, and the writer carries on from its notes, but how it should read was left behind).
  */
-export function planText(p: Partial<ScenePlan> & Pick<ScenePlan, 'keep' | 'changes'>, carryingOn: boolean, o: { pov?: string; beat?: BeatAt } = {}): string {
+export function planText(
+  p: Partial<ScenePlan> & Pick<ScenePlan, 'keep' | 'changes'>,
+  carryingOn: boolean,
+  o: { pov?: string; beat?: BeatAt; reads?: string[] } = {}
+): string {
   const point = p.point ?? { wants: '', against: '', turn: '' }
   const beats = p.beats ?? []
   const whoWhere = p.whoWhere ?? []
@@ -1215,6 +1235,8 @@ export function planText(p: Partial<ScenePlan> & Pick<ScenePlan, 'keep' | 'chang
   if (mustStay.length) parts.push(`${PLAN_PARTS.stay}\n${mustStay.map((l) => `- ${l}`).join('\n')}`)
   if (closing && (!o.beat || o.beat.index === o.beat.of)) parts.push(`${PLAN_PARTS.end} ${ended(closing)}`)
   if (!parts.length) return ''
+  const reads = (o.reads ?? []).map((r) => clean(r).replace(/[.;]+$/, '')).filter(Boolean)
+  if (reads.length) parts.push(`${PLAN_PARTS.reads} ${reads.map(ended).join(' ')}`)
   return [PLAN_HEAD, ...parts, carryingOn ? PLAN_GO.here : PLAN_GO.start].join('\n')
 }
 
@@ -1509,7 +1531,11 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     }
     // Can each planned beat happen? What must come first goes in the notes; what can't be put right, on the record.
     const can = beatsChecked(o, plan, got.generationId)
-    const text = planText(plan, o.carryingOn, { ...(m.pov ? { pov: m.pov } : {}), ...(o.beat ? { beat: o.beat } : {}) })
+    const text = planText(plan, o.carryingOn, {
+      ...(m.pov ? { pov: m.pov } : {}),
+      ...(o.beat ? { beat: o.beat } : {}),
+      ...(m.reads?.length ? { reads: m.reads } : {})
+    })
     const must = m.contract ? plan.must : []
     // The brief cites only chapters and scenes the planner was given (all of it, the book so far too), and never names what
     // Adam kept out of the scene's briefing.

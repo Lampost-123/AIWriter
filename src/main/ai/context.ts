@@ -21,9 +21,9 @@
 //
 // Priorities, with each block's short form in brackets:
 //  1 instructions, style guide, sample passage, phrases to avoid (sample passage trimmed); never dropped
-//  2 scene card and Adam's direction, and on a redraft what the scene should bring about; with the story date, the time
-//    since the scene before and the ages of those on the card (the story calendar, long story memory fix 11,
-//    storyDate.ts); never dropped
+//  2 scene card (Adam's direction is the closing instruction's last words, but for Beat by beat), and on a redraft what
+//    the scene should bring about; with the story date, the time since the scene before and the ages of those on the
+//    card (the story calendar, long story memory fix 11, storyDate.ts); never dropped
 //  3 the end of the previous scene on the story's line, 400 to 800 words (the last 200 words)
 //  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory;
 //    smaller: the core of the profile, then less)
@@ -1243,7 +1243,7 @@ export function bringAboutLine(c: Change, name: (id: ID) => string): string | nu
   }
 }
 
-function sceneCardText(input: ContextInput, sel: Selection): string {
+function sceneCardText(input: ContextInput, sel: Selection, directionOnCard = false): string {
   const { card, title } = input.scene
   const name = (id: ID): string | null => {
     const e = sel.known.get(id)
@@ -1299,8 +1299,10 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
     parts.push(`${lead}:\n${aims.map((a) => `- ${indentMore(a)}`).join('\n')}`)
   }
   if (clean(card.notes)) parts.push(`Notes from the author:\n${clean(card.notes)}`)
-  // Add below says Adam's direction last of all, right before the writer starts (finalInstruction), not here.
-  if (clean(input.options.direction) && !input.options.addBelow) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
+  // Generate and Add below say Adam's direction last of all, right before the writer starts (finalInstruction), not here
+  // (2026-10-19: in the middle of the card it was followed loosely); only a draft with a closing of its own (Beat by beat)
+  // still reads it here.
+  if (clean(input.options.direction) && directionOnCard) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
   return parts.join('\n\n')
 }
 
@@ -1723,8 +1725,17 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   return buildBriefing(input, chosen).blocks
 }
 
-/** The blocks, and the scene's contract they tell (long story memory fix 13), when the input asks for one. */
-function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockDraft[]; contract: SceneContract | null } {
+/**
+ * The blocks, and the scene's contract they tell (long story memory fix 13), when the input asks for one.
+ * `directionOnCard`: the draft has a closing instruction of its own (Beat by beat), so Adam's direction is said on the
+ * scene card, as before; otherwise the closing says it last of all (finalInstruction).
+ */
+function buildBriefing(
+  input: ContextInput,
+  chosen: Selection,
+  o: { directionOnCard?: boolean } = {}
+): { blocks: BlockDraft[]; contract: SceneContract | null } {
+  const directionOnCard = !!o.directionOnCard && !input.options.addBelow
   // The people in the scene with their usual looks put right for this moment, and the relative times in their profiles
   // made past (briefingFixes.ts). The entries as kept are unchanged.
   const stage = toldStage(input)
@@ -1777,8 +1788,8 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
     }
   }
 
-  // 2 Scene card and direction (no short form).
-  add('scene-card', 2, 'Scene card', sceneCardText(input, sel), null, [])
+  // 2 Scene card (no short form); the direction only for a closing of its own (Beat by beat).
+  add('scene-card', 2, 'Scene card', sceneCardText(input, sel, directionOnCard), null, [])
 
   // 3 The end of the previous scene (short: the last 200 words). From another story (this story's
   // first scene): titled and introduced as how that story ended, with this story's time gap.
@@ -1885,10 +1896,11 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
         noStart: input.contract.noStart
       })
     : null
-  // Adam's direction (and a beat) is said once (2026-10-19): the contract points to where the writer reads it in full, the
-  // scene card for a whole scene, or last of all carrying on (Add below) and for a beat. The check still reads every item.
+  // Adam's direction (and a beat) is said once (2026-10-19): the contract points to where the writer reads it in full, last
+  // of all (Generate, Add below), the scene card for a closing of its own (Beat by beat), or last of all for a beat. The
+  // check still reads every item, the direction ask by ask.
   const said = [
-    { text: clean(input.options.direction), as: input.options.addBelow ? SAID.below : SAID.card },
+    { text: clean(input.options.direction), as: directionOnCard ? SAID.card : SAID.below },
     ...(input.contract?.asks === 'beat' && input.contract.focus ? [{ text: input.contract.focus, as: SAID.beat }] : [])
   ]
   if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract, { said }), contractText(contract, { short: true, said }), [])
@@ -2186,8 +2198,8 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
  * where the model attends most, the scene card, the scene so far, where things stand and what must stay true. An audit
  * of 122 real calls found only 40% of Add below's prompt reused, since the 8.8k-token story so far came after blocks
  * that changed at every step. Blocks a part adds (the scene so far) go after the scene card, and where things stand
- * and what must stay true after them (prepareContext). Adam's direction for Add below is the closing instruction's last
- * words; the plan, when there is one, comes after the closing instruction (finishContext).
+ * and what must stay true after them (prepareContext). Adam's direction (Generate, Add below) is the closing
+ * instruction's last words; the plan, when there is one, comes after the closing instruction (finishContext).
  * Since the overhaul (2026-10-19) the previous scene's end goes right above the scene card, so the writer reads where
  * the story stopped just before what happens next (about 1k tokens a step no longer come from the cache), with how
  * the people in the scene sound (VOICES_BLOCK) just before it.
@@ -2304,7 +2316,8 @@ const POINT_WORDS = 40
 
 export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
   const sel = selectEntries(input)
-  const { blocks, contract } = buildBriefing(input, sel)
+  // Generate's and Add below's closings say Adam's direction last of all; a closing of its own reads it on the scene card.
+  const { blocks, contract } = buildBriefing(input, sel, { directionOnCard: !!extras.final })
   for (const b of extras.extraBlocks ?? []) {
     if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
   }
@@ -2340,7 +2353,7 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     hasStand: !!input.continuityAtSoFar && blocks.some((b) => b.id === 'continuity'),
     previousStory: previousStory(input),
     tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? '',
-    // Add below: Adam's direction last of all, and the beats already on the page (repetition.ts beatsOnPage).
+    // Adam's direction last of all (Generate, Add below), and Add below's beats already on the page (repetition.ts beatsOnPage).
     direction: clean(input.options.direction),
     beats: card.beats.map((b) => b.trim()).filter(Boolean),
     beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0,

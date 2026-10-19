@@ -483,7 +483,10 @@ async function checkWith(
     pending.set(repairId, { db: o.db, sceneId: input.sceneId, storyId: ctx.storyId, fixes })
     while (pending.size > MOST_PENDING) pending.delete(pending.keys().next().value!)
   }
-  const items = contract && kept && answered.size ? keepContractCheck(o.db, where, contract, { ...kept, notYet: notYetItems }, judged.questions, shownAfterAll) : null
+  const items =
+    contract && kept && answered.size
+      ? keepContractCheck(o.db, where, contract, { ...kept, notYet: notYetItems }, judged.questions, shownAfterAll, input.recordId)
+      : null
   return {
     repairId,
     fixes: fixes.map((x) => x.fix),
@@ -495,8 +498,9 @@ async function checkWith(
 }
 
 /**
- * How the words kept to the scene's contract, item by item, kept with the scene's check report (the Issues tab shows it);
- * the window hears it as the scene's issues changing. Never stops the check.
+ * How the words kept to the scene's contract, item by item, kept with the scene's check report (the Issues tab shows it)
+ * with the record of the words checked (the direction receipt, on the desk and in What the AI saw); the window hears it
+ * as the scene's issues changing. Never stops the check.
  */
 function keepContractCheck(
   db: DB,
@@ -504,7 +508,8 @@ function keepContractCheck(
   contract: SceneContract,
   kept: ReturnType<typeof judgeContract>,
   questions: FoundQuestion[],
-  shown: ReadonlySet<string> = new Set()
+  shown: ReadonlySet<string> = new Set(),
+  recordId?: ID
 ): ContractCheckItem[] {
   const items = contractResults(contract, kept, {
     broken: new Set(questions.map((q) => q.claim.line).filter((l) => /^C\d+$/.test(l))),
@@ -512,7 +517,7 @@ function keepContractCheck(
     shown
   })
   try {
-    saveContractCheck(db, where.sceneId, { at: now(), asks: contract.asks, items })
+    saveContractCheck(db, where.sceneId, { at: now(), asks: contract.asks, items, ...(recordId ? { recordId } : {}) })
     cdb.issuesTouched(where.storyId, where.sceneId)
   } catch (e) {
     console.warn('Could not keep how the draft kept to its contract', e)

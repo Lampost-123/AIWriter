@@ -9,12 +9,15 @@
 //     way), and not when most of its words are in the new words after all; asked as a question with no words to point
 //     at ("…doesn't show it: …. Write it in, or leave it for later?");
 //   - anything else (kept, untouched, or not answered) raises nothing.
+// Adam's direction comes ask by ask (the direction receipt, 2026-10-19; ai/contract.ts directionAsks): an ask of how the
+// words read ("more dialogue") is answered like any other but is never a question, and an ask of length ("keep it under
+// 800 words") is never sent: the app counts the words itself.
 // What came of each item is kept with the scene's check report (checks/report.ts saveContractCheck). The chapter writer's
 // checks of a whole scene go through the contract the same way (checks/run.ts, CHECK_CONTRACT_RULES). Pure.
 
 import type { ContractCheckItem, ContractResult, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
-import { contractText, mostlyIn, toneOnly, type ContractItem, type SceneContract } from '../ai/contract'
+import { contractText, keepsLength, lengthAsk, mostlyIn, toneOnly, type ContractItem, type SceneContract } from '../ai/contract'
 import type { FoundIssue } from '../db/checks'
 import { KIND_OF_CHECK, plainQuote } from '../checks/quote'
 import { parseLenient, str } from '../keeper/json'
@@ -39,7 +42,9 @@ export const CONTRACT_SECTION = { id: 'contract', title: 'The scene’s contract
 /** The contract as C lines for the check, and its section of the request. */
 export function contractSection(c: SceneContract): { lines: CodexLine[]; section: { id: string; title: string; text: string; entryIds: ID[] } } {
   return {
-    lines: c.items.map((i) => ({ code: i.code, kind: 'contract' as const, label: i.text, ...(i.entryIds[0] ? { entryId: i.entryIds[0] } : {}) })),
+    lines: c.items
+      .filter((i) => i.ask !== 'length')
+      .map((i) => ({ code: i.code, kind: 'contract' as const, label: i.text, ...(i.entryIds[0] ? { entryId: i.entryIds[0] } : {}) })),
     section: { id: CONTRACT_SECTION.id, title: CONTRACT_SECTION.title, text: contractText(c, { codes: true }), entryIds: [] }
   }
 }
@@ -118,13 +123,31 @@ export interface JudgedContract {
   notYet: ContractItem[]
   /** What the model said of each item, by its code. */
   said: Map<string, ContractAnswer>
+  /** The asks of length, by code, as the app counted the new words (never sent to the model). */
+  counted?: Map<string, 'kept' | 'not yet'>
+  /** What must change that the model said isn't shown yet, though most of its words are in the new words: shown. */
+  inWords?: Set<string>
 }
+
+/** The words in a text, as the app counts them. */
+const countOf = (text: string): number => text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length
+
+/** True when an item is never asked about as "not shown yet": how the words read, or how long they are. */
+const neverAsked = (item: Pick<ContractItem, 'text' | 'ask'>): boolean => item.ask === 'reads' || item.ask === 'length' || toneOnly(item.text)
 
 /** Judges the model's answers (see the top of this file). */
 export function judgeContract(answers: ContractAnswer[], c: SceneContract, newWords: string): JudgedContract {
   const said = new Map(answers.map((a) => [a.item, a] as const))
-  const out: JudgedContract = { broken: [], notYet: [], said }
+  const counted = new Map<string, 'kept' | 'not yet'>()
+  const inWords = new Set<string>()
+  const out: JudgedContract = { broken: [], notYet: [], said, counted, inWords }
+  const words = countOf(newWords)
   for (const item of c.items) {
+    const length = item.ask === 'length' ? lengthAsk(item.text) : null
+    if (length) {
+      counted.set(item.code, keepsLength(length, words) ? 'kept' : 'not yet')
+      continue
+    }
     const a = said.get(item.code)
     if (!a) continue
     if (a.result === 'broken' && a.quote && quotedIn(newWords, a.quote)) {
@@ -140,9 +163,11 @@ export function judgeContract(answers: ContractAnswer[], c: SceneContract, newWo
         fix: a.fix,
         question: a.question
       })
-    } else if (a.result === 'not yet' && item.part === 'change' && c.asks !== 'continue' && !toneOnly(item.text) && !mostlyIn(item.text, newWords)) {
-      // Never for how the words should read ("make it darker", a contract kept from before tone-only directions were left out).
-      out.notYet.push(item)
+    } else if (a.result === 'not yet' && item.part === 'change' && c.asks !== 'continue' && !neverAsked(item)) {
+      // Never for how the words should read ("make it darker", "more dialogue") or how long they are: the receipt shows
+      // those. Most of its words in the new words: the model missed it.
+      if (mostlyIn(item.text, newWords)) inWords.add(item.code)
+      else out.notYet.push(item)
     }
   }
   return out
@@ -190,7 +215,9 @@ export function notYetMessage(text: string, asks: SceneContract['asks']): string
 /**
  * How each item came out, for the check report: broken when a question was raised for it (after the second opinion and
  * the judging), not yet when one was asked, kept when the second opinion found it shown after all (`shown`), else what
- * the model said (a broken item not stood behind is untouched), or unchecked when it said nothing.
+ * the model said (a broken item not stood behind is untouched), or unchecked when it said nothing. An ask of Adam's
+ * direction keeps its kind (the receipt), is not yet when the model says so though it was never asked about (how the
+ * words read), and an ask of length is as the app counted it.
  */
 export function contractResults(
   c: SceneContract,
@@ -199,20 +226,28 @@ export function contractResults(
 ): ContractCheckItem[] {
   return c.items.map((i) => {
     const a = j.said.get(i.code)
-    const result: ContractResult = asked.broken.has(i.code)
-      ? 'broken'
-      : asked.notYet.has(i.code)
-        ? 'not yet'
-        : asked.shown?.has(i.code)
-          ? 'kept'
-          : !a
-            ? 'unchecked'
-            : a.result === 'kept'
-              ? 'kept'
-              : 'untouched'
+    const result = ((): ContractResult => {
+      if (asked.broken.has(i.code)) return 'broken'
+      if (asked.notYet.has(i.code)) return 'not yet'
+      if (asked.shown?.has(i.code) || j.inWords?.has(i.code)) return 'kept'
+      const counted = j.counted?.get(i.code)
+      if (counted) return counted
+      if (!a) return 'unchecked'
+      if (a.result === 'kept') return 'kept'
+      return i.ask && a.result === 'not yet' ? 'not yet' : 'untouched'
+    })()
     const quote = (result === 'kept' || result === 'broken') && a?.quote ? a.quote : ''
     // The item itself goes with it, so a later check of the whole scene can go through the contract again (checks/report.ts savedContract).
-    return { part: i.part, text: i.text, result, ...(quote ? { quote } : {}), code: i.code, check: i.check, entryIds: i.entryIds }
+    return {
+      part: i.part,
+      text: i.text,
+      result,
+      ...(quote ? { quote } : {}),
+      code: i.code,
+      check: i.check,
+      entryIds: i.entryIds,
+      ...(i.ask ? { ask: i.ask } : {})
+    }
   })
 }
 

@@ -315,8 +315,9 @@ export function finalInstruction(o: {
   /** The briefing says where things stand at the end of the scene so far (block 3b). */
   hasStand?: boolean
   /**
-   * Add below: Adam's direction for this stretch, said last, right before the writer starts (Adam, 2026-10-08: in the
-   * middle of the scene card it was followed loosely). '' or left out: none.
+   * Adam's direction for this draft, said last, right before the writer starts (Adam, 2026-10-08: in the middle of the
+   * scene card it was followed loosely): Add below's "what happens now", and since 2026-10-19 a whole scene's too (with
+   * `hasDirection`). '' or left out: none.
    */
   direction?: string
   /** Add below: the scene card's beats (blank ones left out), and how many of them, from the first, are on the page already. */
@@ -353,9 +354,15 @@ export function finalInstruction(o: {
     )
   } else if (o.hasPrevious) lines.push("- Continue seamlessly from where the previous scene ends. Don't repeat or recap it.")
   if (o.hasBringAbout) lines.push('- Make the scene bring about what the scene card says it should.')
-  if (o.hasDirection) lines.push("- Follow the author's direction for this draft.")
-  return `Write the scene now.\n${pointText(o.point)}\n\n${lines.join('\n')}`
+  // Adam's direction last of all, word for word, right before the writer starts (2026-10-19, as Add below has it since
+  // 2026-10-08): in the middle of the scene card it was followed loosely. The scene card no longer says it.
+  const direction = o.hasDirection ? (o.direction ?? '').trim() : ''
+  const last = direction ? `\n\n${DIRECTION_LEAD}\n${direction}` : ''
+  return `Write the scene now.\n${pointText(o.point)}\n\n${lines.join('\n')}${last}`
 }
+
+/** What Generate's closing says before Adam's direction, its last words. */
+export const DIRECTION_LEAD = "The author's direction for this draft (make every part of it happen on the page):"
 
 /** What the scene is about, for the closing instruction (FinalOptions.point). */
 export interface ScenePoint {
