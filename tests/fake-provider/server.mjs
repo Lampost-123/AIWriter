@@ -58,6 +58,11 @@
 //   - "A clue: <x>."                                a clue for the first open plot thread listed (or one opened above)
 //   - "Things moved on: <x>."                       the same thread moves on (developing, note <x>)
 //   - "At last the answer came: <x>."               the same thread is closed (a "close" item, note <x>)
+//   - "In the end, <x>."                            the payoff read as a step on, as a live model once did: the same
+//                                                    thread only moves on (developing, note <x>)
+//   A request that asks a verdict on pay-offs ("## Pay-offs to judge", overhaul 2026-10-19) gets "payoffs": for each
+//   thread listed, "paid" with the sentence for "At last the answer came: …" or "In the end, …", "moved" (with its note)
+//   for "Things moved on: …", else "untouched"; a sentence goes to the listed thread whose name it says, else the first.
 //   - "<Name> found her|his|their <thing> again."   ends <Name>'s "lost her <thing>" (an "end" item; a leading
 //                                                    "The next morning," and the like is its "when")
 //   - "<Name> told them a secret: <x>."             a secret told by <Name> ("said", heard by nobody named: the
@@ -312,6 +317,8 @@ function readSentence(s) {
   if (m) return { kind: 'thread-developing', note: m[1].trim() }
   m = s.match(/^At last the answer came: ([^.!?]+)[.!?]/)
   if (m) return { kind: 'thread-resolved', note: m[1].trim() }
+  m = s.match(/^In the end, ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'thread-ended', note: m[1].trim() }
   m = s.match(/\b([A-Z][a-z]+), known as ([^,.!?]+),/)
   if (m) return { kind: 'name', name: m[1], called: m[2].trim() }
   return null
@@ -354,7 +361,7 @@ export function fakeMemoryReply(user) {
       const target = threads[0] ? { entry: threads[0] } : opened ? { name: opened } : null
       if (!target) continue
       if (r.kind === 'thread-clue') add.push({ type: 'thread', ...target, status: 'clue', clue: r.clue, quote: s })
-      if (r.kind === 'thread-developing') add.push({ type: 'thread', ...target, status: 'developing', note: r.note, quote: s })
+      if (r.kind === 'thread-developing' || r.kind === 'thread-ended') add.push({ type: 'thread', ...target, status: 'developing', note: r.note, quote: s })
       // Closed with the "close" action (World Memory Overhaul B7), as the reading prompt now asks.
       if (r.kind === 'thread-resolved') add.push({ type: 'close', ...target, note: r.note, quote: s })
       continue
@@ -401,7 +408,37 @@ export function fakeMemoryReply(user) {
     } else if (best && best.score >= 0.8) facts.push({ id: m[1], do: 'keep', quote: best.s })
     else facts.push({ id: m[1], do: 'remove' })
   }
-  return JSON.stringify({ facts, add, clashes: [] }, null, 1)
+  const payoffs = payoffVerdicts(lines, sentences)
+  return JSON.stringify({ facts, add, clashes: [], ...(payoffs ? { payoffs } : {}) }, null, 1)
+}
+
+/**
+ * The verdicts on the pay-offs a reading request asks about ("## Pay-offs to judge", src/main/keeper/prompts.ts): each
+ * listed thread is "untouched" unless a sentence pays it off ("At last the answer came: …", "In the end, …") or moves it
+ * on ("Things moved on: …"); a sentence goes to the listed thread whose name it says, else the first. Null when none are asked.
+ */
+function payoffVerdicts(lines, sentences) {
+  const at = lines.indexOf('## Pay-offs to judge')
+  if (at < 0) return null
+  const asked = []
+  for (const l of lines.slice(at + 1)) {
+    const m = l.match(/^- (E\d+) "([^"]+)":/)
+    if (m) asked.push({ id: m[1], name: m[2], is: 'untouched' })
+    else if (asked.length) break
+  }
+  if (!asked.length) return null
+  const rank = { untouched: 0, moved: 1, paid: 2 }
+  for (const s of sentences) {
+    const r = readSentence(s)
+    const is = r?.kind === 'thread-resolved' || r?.kind === 'thread-ended' ? 'paid' : r?.kind === 'thread-developing' ? 'moved' : null
+    if (!is) continue
+    const t = asked.find((x) => s.toLowerCase().includes(x.name.toLowerCase())) ?? asked[0]
+    if (rank[is] <= rank[t.is]) continue
+    t.is = is
+    t.quote = s
+    if (is === 'moved') t.note = r.note
+  }
+  return asked.map(({ id, is, note, quote }) => ({ id, is, ...(note ? { note } : {}), ...(quote ? { quote } : {}) }))
 }
 
 /**

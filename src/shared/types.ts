@@ -1560,8 +1560,13 @@ export type MemoryCheckFact =
   | { kind: 'summary'; sceneId: ID }
   | { kind: 'note'; logId: ID }
   | { kind: 'alias'; logId: ID }
-  /** Overdue: `due` is the chapter it was due by. Quiet: `touch` is the scene that last touched it, `quiet` how long since. */
-  | { kind: 'promise'; threadId: ID; why: 'overdue' | 'quiet'; due?: ID; touch?: ID | null; quiet?: number }
+  /**
+   * Overdue: `due` is the chapter it was due by. Quiet: `touch` is the scene that last touched it, `quiet` how long since.
+   * Since 2026-10-19 (the overhaul's pay-offs; keeper/apply.ts settlePayoffs), the memory's own notes, `logId` the line:
+   * 'payoff', "Did this scene pay it off?" (its card planned the pay-off there, the words didn't show it), and
+   * 'paid-before', paid off while a later scene's card still plans its pay-off. Keep dismisses either.
+   */
+  | { kind: 'promise'; threadId: ID; why: 'overdue' | 'quiet' | 'payoff' | 'paid-before'; due?: ID; touch?: ID | null; quiet?: number; logId?: ID }
 
 export interface MemoryCheckItem {
   /** Stable while the item stays in the list. */

@@ -21,6 +21,8 @@
 // Since 2026-10-19 (overhaul phase 1, one reading of a scene) a reading can also say where things stand at the end of what it
 // reads and write the scene's summary (oneReadingSystem; the tracker's rules from continuity/stagePrompt.ts, the summary's
 // from SUMMARY_RULES), and a reply that couldn't be read is asked for again without sending it back (retryMessage).
+// Since 2026-10-19 (the overhaul's pay-offs) a reading with an open thread due here (this scene's card pays it off, or it
+// is due now) asks, at the end of its request, for a verdict on each: paid, moved or untouched (PAYOFF_RULE).
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -136,6 +138,24 @@ export function oneReadingSystem(o: { stage: boolean; summary: boolean }): strin
     ...(o.summary ? [SUMMARY_PART] : []),
     `So the reply is one JSON object with ${keys.slice(0, -1).join(', ')} and ${keys.at(-1)}, each there even when there is nothing to report.`
   ].join('\n\n')
+}
+
+// ---------- A verdict on each pay-off due here (overhaul, 2026-10-19) ----------
+// Asked at the end of the request itself, only when some open thread is due here (keeper/oneReading.ts payoffAsks), so
+// the reading's instructions stay as they are (and under the 6,000 characters the tests hold them to), every reading still
+// shares the start of its prompt, and a reading with nothing due costs nothing more: about 80 tokens and a line a thread.
+
+/** The heading of the pay-offs a reading must judge (the fake provider finds them by it). */
+export const PAYOFFS_HEADING = '## Pay-offs to judge'
+
+/** What the reading is asked of them. */
+export const PAYOFF_RULE =
+  'Add "payoffs" to the reply, one for each thread below: {"id": "E5", "is": "paid|moved|untouched", "note": "for moved: what moved", "quote": "..."}. paid: the P paragraphs show the payoff itself; moved: they bring it closer without paying it off; untouched: neither (no quote).'
+
+/** Why a thread is asked about, as its line says it. */
+export function payoffWhy(a: { why: 'card' | 'due'; overdue?: boolean; dueBy?: string }): string {
+  if (a.why === 'card') return "this scene's card says it pays off here"
+  return a.overdue ? `overdue (due by the end of ${a.dueBy || 'an earlier chapter'})` : 'due by the end of this chapter'
 }
 
 // ---------- Summaries ----------

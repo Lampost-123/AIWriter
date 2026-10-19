@@ -485,6 +485,21 @@ export function openAliasNotes(db: DB, limit = 300): LogRow[] {
   ).map(toLog)
 }
 
+/**
+ * The memory's open notes about plot threads' pay-offs (overhaul, 2026-10-19; keeper/apply.ts settlePayoffs): "Did this
+ * scene pay it off?", and a thread paid off while a later card still plans it. For the memory check list, newest first.
+ */
+export function openPayoffNotes(db: DB, limit = 300): LogRow[] {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM memory_log WHERE undone_at IS NULL AND json_extract(undo_json, '$.op') = 'note'
+         AND json_extract(undo_json, '$.key') LIKE 'payoff:%' ORDER BY rowid DESC LIMIT ?`
+      )
+      .all(limit) as Row[]
+  ).map(toLog)
+}
+
 /** A live scene and its summary, as far as telling whether the summary is due needs, without the scene's words. */
 export interface SceneSummaryState {
   sceneId: ID

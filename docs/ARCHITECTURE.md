@@ -4155,6 +4155,42 @@ when it can't. No migration; the stores, hashes and rules are the tracker's and 
   reply read again alone), `keeper/oneReadingWorld.test.ts` (before a draft, in the open world: one call for the scene
   just written), `keeper/keeper.test.ts` (the retry), `keeper/prompts.test.ts`.
 
+## Pay-offs read for sure, leaner dead, and what the reader knows (overhaul, 2026-10-19)
+
+Live (16 Oct, DeepSeek Flash): threads stayed open after their payoff was on the page, and the dead crowded what must
+stay true. No migration, no new AI call.
+
+- **A verdict on each pay-off due here** (`keeper/oneReading.ts` `payoffAsks`, `keeper/request.ts`, `keeper/apply.ts`
+  `readPayoffs`/`settlePayoffs`). Each reading of a scene (the one reading too) ends with "## Pay-offs to judge"
+  (`prompts.ts` `PAYOFF_RULE`): every open thread this scene's card pays off (planned ones too), then those overdue or
+  due by the end of this chapter (not dropped, not resolved in this scene), `PAYOFF_ASKS` (4) at most, by E id. The reply's
+  `"payoffs"` says paid, moved or untouched with the quote (about 107 tokens for one thread, 16 a line more; nothing
+  when none is due). **Paid** (words found in the scene) resolves it, even while a later card plans the payoff or its
+  "How it should pay off" says later: the words win, and the later card is flagged (`laterCardPayingOff`, a note keyed
+  `payoff:later:<later scene>:<thread>`); a step on that the verdict calls paid is the payoff. **Moved** is a step on
+  with its note, unless the reply touched the thread already (on this card's own plan a step on is still the payoff, as
+  before). **Untouched** on this card's plan, when every paragraph was read, is a note keyed `payoff:ask:<scene>:<thread>`,
+  asked once per scene and thread and settled by a later paid or moved.
+- **Worth a look** (`keeper/checkQueue.ts` `payoffChecks`, under "Plot threads left waiting", `MemoryCheckFact` promise
+  `why` 'payoff' or 'paid-before' with `logId`): "Did Ch 1, Sc 2 pay this off? Its scene card plans the pay-off there,
+  but the memory didn't find it in the words." only while the thread is open, that card still plans it, Adam hasn't
+  dropped it or chosen a later Pay off by, and the scene is marked done or a later scene of its story has words (never
+  about the scene being written); Keep leaves it open, Pay off later, Mark as dropped. "Paid off in …, though the scene
+  card of … still plans its pay-off" while that resolve and that card stand; Keep dismisses it (no Remove).
+- **What must stay true** (`ai/mustStay.ts` `deadNearby`): a full "X is dead: …" line only for the dead on the card, on
+  the stage, named in the card's words, the direction or the scene so far, or tied to someone here (`MustInput.ties`,
+  the relationships, or either entry naming the other); the rest on one key line, "Also dead: A, B and C"
+  (`MUST_DEAD_NAMES` 8 names, then "and 4 more"). One alone keeps its own line. `ai/context.ts` can pass
+  `ties: input.memory.relationships` (not wired here).
+- **The reader ledger** (`ai/readerKnows.ts`, not in the briefing yet): `readerKnows(db, storyId, atSceneId, presentIds)`
+  and the pure `readerLines`: what the reader was shown (the first scene on the line where someone learned it on the
+  page) that someone present doesn't know, "The reader knows … (Ch 1, Sc 2); Mara doesn't: don't explain it again, or
+  let her learn or guess it without cause.", secrets someone here holds first, `READER_LINES` (4). The block's safety
+  rules (backed facts, cleanKnows, never of someone it is about) and never of a point of view of a scene it was learned
+  in. To wire: a late block beside `knowledge` in `ai/context.ts`, with the same people (`ledgerPeople(sceneKnowers(…))`).
+- **Tests**: `keeper/payoffs.test.ts`, `ai/mustStayDead.test.ts`, `ai/readerKnows.test.ts`; the fake provider answers
+  `"payoffs"` (`tests/fake-provider/server.mjs` `payoffVerdicts`; "In the end, …" is a payoff read as a step on).
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
