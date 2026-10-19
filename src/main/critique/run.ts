@@ -2,10 +2,10 @@
 // is written, the facts it must respect, what Adam has said he wants, on a re-read the notes last time, the card, who
 // is in it, how the scene or chapter before ends, and the words), fits it to the writer model (outline/briefing.ts
 // fitBlocks: the least important parts shorten first, then a long chapter's scenes, down to their summaries; the facts
-// and what Adam said shorten but are never left out), asks once (a reply that can't be read is asked for once more,
-// saying what was wrong), reads the notes against the words (parse.ts), keeps them to what Adam said (memory.ts
-// guardNotes) and keeps the result as the latest for that scene or chapter (store.ts), with the notes he acted on or
-// set aside carried along. It is a 'critique' record made by the shared task runner, so it streams, can be stopped and
+// and what Adam said shorten but are never left out), asks once (a reply that can't be read is asked for once more, the
+// same request with a line saying what was wrong, never the reply: 2026-10-19), reads the notes against the words
+// (parse.ts), keeps them to what Adam said (memory.ts guardNotes) and keeps the result as the latest for that scene or
+// chapter (store.ts), with the notes he acted on or set aside carried along. It is a 'critique' record made by the shared task runner, so it streams, can be stopped and
 // shows in "What the AI saw". Never writes once stopped or once the world has closed. No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -48,6 +48,7 @@ import {
   type FactsThread
 } from './prompts'
 import { cleanTarget, goneNotes, loadCritique, saveCritique, targetTexts, textsHash } from './store'
+import { withCorrection } from '../repair/retry'
 
 type DB = Database.Database
 
@@ -409,10 +410,11 @@ export async function runCritique(deps: CritiqueDeps, input: CritiqueRequest): P
   const entries = [...new Set(fitted.blocks.filter((x) => !x.dropped).flatMap((x) => x.entryIds))]
   const versions = new Map(repo.getEntries(db, entries).map((e) => [e.id, e.updatedAt]))
 
-  let messages: ChatMessage[] = [
+  const asked: ChatMessage[] = [
     { role: 'system', content: briefing.system },
     { role: 'user', content: fitted.text }
   ]
+  let messages = asked
   let raw: RawCritique | null = null
   let generationId: ID | null = null
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
@@ -446,11 +448,8 @@ export async function runCritique(deps: CritiqueDeps, input: CritiqueRequest): P
       break
     }
     if (attempt === 1) break
-    messages = [
-      ...messages,
-      { role: 'assistant', content: done.text },
-      { role: 'user', content: retryMessage(reply.why, reply.why === CUT_OFF || done.cutOff) }
-    ]
+    // Asked once more: the same request with a line on what was wrong, never the reply (2026-10-19, repair/retry.ts).
+    messages = withCorrection(asked, retryMessage(reply.why, reply.why === CUT_OFF || done.cutOff))
   }
   if (!db.open || deps.closed?.()) return { status: 'stopped' }
   if (!raw) return { status: 'error', error: WRONG_FORMAT }

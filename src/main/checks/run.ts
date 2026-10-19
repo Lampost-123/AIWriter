@@ -160,13 +160,19 @@ export interface CheckLayout {
  * checks, with the contract in the request about what is so). Too little room with the contract: it is left out, never the
  * check (fix 13's review).
  */
-export function checkLayout(model: Pick<JobModel, 'choice'>, ctx: SceneCheckContext, checks: CheckKind[], groups: CheckKind[][], contract: SceneContract | null): CheckLayout {
+export function checkLayout(
+  model: Pick<JobModel, 'choice'>,
+  ctx: SceneCheckContext,
+  checks: CheckKind[],
+  groups: CheckKind[][],
+  contract: SceneContract | null
+): CheckLayout {
   const budget = checkBudget(model, CHECK_SYSTEM)
   let sections = checkSections(ctx, checks)
   if (sizeOf(sections) > budget.available * 0.6) sections = checkSections(ctx, checks, true)
   const withIt = contract ? (groups.find((g) => g.includes('facts')) ?? groups[0] ?? null) : null
-  const roomWith = (group: CheckKind[] | null): number =>
-    budget.available - sizeOf(sections) - Math.max(0, ...groups.map((g) => estimateTokens(checkTask(g, contract && g === group ? contractWords(contract) : null)) + 8))
+  const task = (g: CheckKind[], group: CheckKind[] | null): number => estimateTokens(checkTask(g, contract && g === group ? contractWords(contract) : null)) + 8
+  const roomWith = (group: CheckKind[] | null): number => budget.available - sizeOf(sections) - Math.max(0, ...groups.map((g) => task(g, group)))
   const contractGroup = withIt && roomWith(withIt) >= 250 ? withIt : null
   return { sections, contractGroup, room: roomWith(contractGroup), budget }
 }

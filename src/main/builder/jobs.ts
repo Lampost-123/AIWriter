@@ -67,13 +67,14 @@ import {
   quickStartUser,
   relationshipsSystem,
   relationshipsUser,
-  retryMessage,
+  retryLine,
   sentTurns,
   worldText,
   type WorldBrief
 } from './prompts'
 import { cleanValues, createBuilt, linkedTo, noteWritten, sameEntry, saveBuilt, savedValues, type Written } from './save'
 import { sharesName } from '../worldBuilder/names'
+import { withCorrection } from '../repair/retry'
 import { replyItems } from '../worldBuilder/parse'
 
 type DB = Database.Database
@@ -481,13 +482,10 @@ async function quickStart(
     tick.cancel()
     if (run.closed) return { ...progress(), writing: null, status: 'stopped', error: null }
     view = viewOf({ value: finalValue(text), open: null })
-    // Nothing usable came back: ask once more, saying why.
+    // Nothing usable came back: ask once more, saying why (the same request and a line, never the reply: 2026-10-19).
     if (asked.status === 'complete' && !arrived() && attempt === 0) {
-      messages = [
-        ...messages,
-        { role: 'assistant', content: text },
-        { role: 'user', content: retryMessage(whyOf(text, existing ? 'it had none of the empty fields' : 'it had no "name"'), QUICK_SHAPE) }
-      ]
+      const why = whyOf(text, existing ? 'it had none of the empty fields' : 'it had no "name"')
+      messages = withCorrection(messages, retryLine(why, QUICK_SHAPE))
       view = viewOf({ value: null, open: null })
       ctx.emit('builder:progress', progress())
       continue
@@ -546,11 +544,10 @@ async function questions(ctx: JobContext, run: Run, input: QuestionsInput, notes
     let list = questionsFrom(finalValue(text), MAX_QUESTIONS)
     if (!list.length) list = questionsFromText(text, MAX_QUESTIONS)
     if (asked.status === 'complete' && !list.length && attempt === 0) {
-      messages = [
-        ...messages,
-        { role: 'assistant', content: text },
-        { role: 'user', content: retryMessage(whyOf(text, 'it had no questions in it'), '{"questions": ["first question?", "second question?", "third question?"]}') }
-      ]
+      messages = withCorrection(
+        messages,
+        retryLine(whyOf(text, 'it had no questions in it'), '{"questions": ["first question?", "second question?", "third question?"]}')
+      )
       ctx.emit('builder:progress', progressOf(run))
       continue
     }
@@ -612,11 +609,7 @@ async function fleshOut(
     found = fleshOutValues(kind, finalValue(text), targets)
     if (asked.status === 'complete' && !Object.keys(found).length && attempt === 0) {
       const shape = `{${targets.map((k) => `"${k}": "..."`).join(', ')}}`
-      messages = [
-        ...messages,
-        { role: 'assistant', content: text },
-        { role: 'user', content: retryMessage(whyOf(text, 'it had none of the fields asked for'), shape) }
-      ]
+      messages = withCorrection(messages, retryLine(whyOf(text, 'it had none of the fields asked for'), shape))
       ctx.emit('builder:progress', progressOf(run))
       continue
     }
@@ -672,11 +665,7 @@ async function options(ctx: JobContext, run: Run, input: OptionsInput, values: B
       const why = list.length
         ? `it gave ${list.length === 1 ? 'one option' : `${list.length} different options`} rather than three`
         : whyOf(text, 'it had no options in it')
-      messages = [
-        ...messages,
-        { role: 'assistant', content: text },
-        { role: 'user', content: retryMessage(why, '{"options": ["first", "second", "third"]}') }
-      ]
+      messages = withCorrection(messages, retryLine(why, '{"options": ["first", "second", "third"]}'))
       ctx.emit('builder:progress', progressOf(run))
       continue
     }
@@ -867,11 +856,10 @@ async function relationships(
     const list = read(value)
     // No list at all (not an empty one, which says nothing fits): ask once more, saying why.
     if (asked.status === 'complete' && !list.length && !Array.isArray(value?.relationships) && attempt === 0) {
-      messages = [
-        ...messages,
-        { role: 'assistant', content: text },
-        { role: 'user', content: retryMessage(whyOf(text, 'it had no "relationships" list'), '{"relationships": [{"with": "...", "type": "...", "feels": "...", "otherFeels": "..."}]}') }
-      ]
+      messages = withCorrection(
+        messages,
+        retryLine(whyOf(text, 'it had no "relationships" list'), '{"relationships": [{"with": "...", "type": "...", "feels": "...", "otherFeels": "..."}]}')
+      )
       ctx.emit('builder:progress', progressOf(run, { relationships: [] }))
       continue
     }
