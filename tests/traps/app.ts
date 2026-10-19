@@ -4,7 +4,7 @@
 // checkout being run (--root).
 
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type Database from 'better-sqlite3'
@@ -36,6 +36,8 @@ export interface TrapsConfig {
   apiKey: string | null
   /** Another address for the provider (to check the harness against a local fake server); null: the provider's own. */
   baseUrl: string | null
+  /** The stand-in model's folder (tests/standin): requests saved there, answered by a Claude helper. Null: not used. */
+  standin: string | null
   /**
    * USD per million tokens in (cache misses), in from the provider's cache, and out, for an estimated cost when the
    * provider reports none. DeepSeek's chat prices by default, as an estimate; null: tokens only.
@@ -107,6 +109,7 @@ export function configFromEnv(env = process.env): TrapsConfig {
     provider,
     apiKey: env[KEY_VARIABLE[provider]]?.trim() || null,
     baseUrl: env.TRAPS_BASE_URL?.trim() || null,
+    standin: env.TRAPS_STANDIN?.trim() ? resolve(env.TRAPS_STANDIN.trim()) : null,
     prices: { in: price(env.TRAPS_PRICE_IN, 0.28), cached: price(env.TRAPS_PRICE_CACHED, 0.028), out: price(env.TRAPS_PRICE_OUT, 0.42) },
     writer: env.TRAPS_WRITER_MODEL?.trim() || null,
     memory: env.TRAPS_MEMORY_MODEL?.trim() || null,
@@ -570,7 +573,7 @@ export async function openApp(
   /** A saved world to open in place of a new one (a copy is opened; the file is never changed). */
   worldFile: string | null = null
 ): Promise<App> {
-  if (!cfg.fake && !cfg.apiKey) throw new Error(`No ${KEY_VARIABLE[cfg.provider]} in the environment: a real run needs it (or use --fake).`)
+  if (!cfg.fake && !cfg.standin && !cfg.apiKey) throw new Error(`No ${KEY_VARIABLE[cfg.provider]} in the environment: a real run needs it (or use --fake).`)
   if (!cfg.fake && process.env.CI) throw new Error('A real trap run never runs in CI.')
   const dataDir = mkdtempSync(join(tmpdir(), 'aiwrite-traps-'))
   process.env.AIWRITE_DATA_DIR = dataDir
@@ -578,6 +581,7 @@ export async function openApp(
   process.env.AIWRITE_KEEPER_QUIET_MS = String(6 * 60 * 60_000)
   const realFetch = globalThis.fetch
   let fake: { url: string; close(): Promise<void> } | null = null
+  let standin: { url: string; close(): Promise<void> } | null = null
   let world: typeof import('@app/main/world') | null = null
   let dbRef: Database.Database | null = null
   let sinceRow = 0
@@ -612,12 +616,19 @@ export async function openApp(
     }
     globalThis.fetch = realFetch
     await fake?.close()
+    await standin?.close()
     if (cfg.keep) cfg.log(`data folder kept at ${dataDir}`)
     else rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
 
   try {
-    if (cfg.fake) {
+    if (cfg.standin) {
+      // The stand-in model: no key, no network beyond this computer, no cost. Its replies come from a Claude helper.
+      const { startStandin } = await import('../standin/server.mjs')
+      standin = await startStandin({ dir: cfg.standin })
+      cfg.log(`stand-in model at ${standin.url}; requests in ${join(cfg.standin, 'inbox')}`)
+      globalThis.fetch = budget.wrap(realFetch)
+    } else if (cfg.fake) {
       const { startFakeProvider } = await import('../fake-provider/server.mjs')
       fake = await startFakeProvider({ delayMs: 0, words: 220 })
       globalThis.fetch = budget.wrap(withStandIns(realFetch))
@@ -632,6 +643,27 @@ export async function openApp(
         }
       })
       globalThis.fetch = budget.wrap(guard)
+    }
+
+    if (process.env.TRAPS_MEASURE) {
+      // Every chat request's size, by job, to a JSON-lines file: what the app really sends, whoever answers.
+      const { requestRecord } = await import('../standin/server.mjs')
+      const file = process.env.TRAPS_MEASURE
+      const inner = globalThis.fetch
+      let n = 0
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        if (url.includes('/chat/completions') && typeof init?.body === 'string') {
+          try {
+            const r = requestRecord(String(++n), JSON.parse(init.body))
+            appendFileSync(file, JSON.stringify({ n, job: r.job, messages: r.messages.length, tokens_in: r.estimated_tokens_in, tools: r.tools.length, max_tokens: r.max_tokens }) + '\n')
+          } catch {
+            // Not JSON: not ours to measure.
+          }
+        }
+        return inner(input, init)
+      }) as typeof fetch
+      cfg.log(`measuring every request's size into ${file}`)
     }
 
     const settings = await import('@app/main/settings')
@@ -673,7 +705,9 @@ export async function openApp(
 
     // The provider and the models, as Settings › Models would have them: DeepSeek through the app's DeepSeek preset
     // (a custom, OpenAI-compatible provider), or OpenRouter. The fake run is a custom provider too.
-    const provider = cfg.fake
+    const provider = cfg.standin
+      ? providers.saveProvider({ kind: 'custom', name: 'Stand-in', baseUrl: standin!.url, apiKey: 'standin' })
+      : cfg.fake
       ? providers.saveProvider({ kind: 'custom', name: 'Fake', baseUrl: fake!.url, apiKey: 'traps-fake' })
       : cfg.provider === 'deepseek'
         ? providers.saveProvider({ kind: 'custom', name: 'DeepSeek', baseUrl: cfg.baseUrl ?? DEEPSEEK_BASE_URL, apiKey: cfg.apiKey! })
@@ -681,6 +715,7 @@ export async function openApp(
     // The model list costs nothing.
     const listed = await providers.listModels(provider.id)
     const flash = (): string => {
+      if (cfg.standin) return 'standin/model'
       if (cfg.fake) return 'fake/writer'
       const found = pickFlash(
         listed.map((m) => m.id),

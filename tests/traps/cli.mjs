@@ -13,6 +13,9 @@
 //                          4,000,000): no call is sent once it would be passed
 //   --write                write the story (with --out <file>, default tests/traps/story-v3.json; --resume <partial>)
 //   --fake                 use the fake provider and a stand-in judge (no key, no cost; checks the harness, not a score)
+//   --measure <file>       log every chat request's size (job, messages, estimated tokens in) to a JSON-lines file
+//   --standin <folder>     use the stand-in model (tests/standin/server.mjs): every request is saved in <folder>/inbox and
+//                          answered from <folder>/outbox by a Claude helper (tests/standin/RESPONDER.md). No key, no cost.
 //   --provider <name>      deepseek (the default: DeepSeek's own API, with the app's DeepSeek preset) or openrouter
 //   --root <folder>        score the app code in another checkout (say the step 2 branch's worktree); it needs its own
 //                          node_modules (npm ci there). Default: this checkout.
@@ -76,7 +79,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--check-samples', '--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--check-samples', '--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare', '--standin', '--measure']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -106,6 +109,14 @@ if (flag('--rescore')) {
   delete env.TRAPS_RUN
 } else {
   const fake = flag('--fake')
+  // The stand-in model (tests/standin): a local server whose replies a Claude helper writes. No key, no cost.
+  const standin = value('--standin')
+  if (standin) env.TRAPS_STANDIN = resolve(standin)
+  else delete env.TRAPS_STANDIN
+  // Logs every chat request's size, by job, to this JSON-lines file.
+  const measure = value('--measure')
+  if (measure) env.TRAPS_MEASURE = resolve(measure)
+  else delete env.TRAPS_MEASURE
   const provider = value('--provider') ?? 'deepseek'
   if (provider !== 'deepseek' && provider !== 'openrouter') {
     console.error('--provider is deepseek or openrouter.')
@@ -113,11 +124,11 @@ if (flag('--rescore')) {
   }
   env.TRAPS_PROVIDER = provider
   const keyVar = provider === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENROUTER_API_KEY'
-  if (!fake && !env[keyVar]?.trim()) {
+  if (!fake && !standin && !env[keyVar]?.trim()) {
     const saved = userVariable(keyVar)
     if (saved) env[keyVar] = saved
   }
-  if (!fake && !env[keyVar]?.trim()) {
+  if (!fake && !standin && !env[keyVar]?.trim()) {
     console.error(`A real trap run needs the API key in the ${keyVar} environment variable (it is never read from anywhere else). Or use --fake to check the harness without a model.`)
     process.exit(2)
   }
