@@ -35,12 +35,15 @@ import {
   removeAnswer,
   saveRecipeBack,
   setRecipePart,
+  sizeForLength,
   stopQuestion,
   useBuilders
 } from './store'
 
+// "Not sure yet" (2026-10-19: it was "Let the AI choose", but nothing chose: the outline just started at its usual
+// size). The hint under it says what each one lays out.
 const LENGTHS: { value: string; label: string }[] = [
-  { value: 'auto', label: 'Let the AI choose' },
+  { value: 'auto', label: 'Not sure yet' },
   { value: 'short', label: 'A short story' },
   { value: 'novella', label: 'A novella' },
   { value: 'novel', label: 'A full novel' }
@@ -83,7 +86,7 @@ export function IdeaStep({ storyId }: { storyId: ID }): React.JSX.Element {
               <AutoTextarea id={id} value={brief.setting} minRows={2} maxRows={8} placeholder="A cold northern harbour town, 1890s" onChange={(e) => patchBrief(storyId, { setting: e.target.value })} />
             )}
           </Field>
-          <Field label="How long">
+          <Field label="How long" hint={lengthHint(brief.length)}>
             {(id) => (
               <Select
                 id={id}
@@ -109,6 +112,13 @@ export function IdeaStep({ storyId }: { storyId: ID }): React.JSX.Element {
       </div>
     </div>
   )
+}
+
+/** What a length lays out at first: the outline step can always ask for more or less. */
+function lengthHint(length: StoryLength): string {
+  const size = sizeForLength(length, 0)
+  const acts = size.acts ? `${size.acts} acts and ` : ''
+  return `${length ? 'A new outline starts' : 'Until you choose, a new outline starts'} with ${acts}${size.chapters} chapters of ${size.scenes} scenes each. You can change that on the Outline step.`
 }
 
 // ---------- His own characters and places ----------
