@@ -1805,7 +1805,9 @@ other setting, and `updateSettings` never keeps anything else.
 - **App tests** run in the New look, on the panels unless they ask for the desk (`AIWRITE_LOOK=new` and
   `AIWRITE_ARRANGEMENT=panels` in `tests/e2e/helpers.ts`); `AIWRITE_LOOK=new` only keeps the one-time notes away (a
   leftover `'classic'` means the same), and `AIWRITE_LOOK: ''` gives what Adam gets. `tests/e2e/look.spec.ts` covers
-  the move from Classic and the notes.
+  the move from Classic and the notes. Specs reach the panels' places with the helpers in `tests/e2e/helpers.ts`:
+  `openPage` (a page Classic's binder listed: its area on the rail, then its row), `openWrite` / `showTree` (back to
+  the story's tree, which only the Write area's list holds), `areaButton`, `areaRow` and `sceneTitle`.
 - **Classic-only code awaits removal** (a later tidy-up): the `look === 'classic'` branches and the components and
   CSS only they reach (`ClassicSettings`, `ClassicAppearance`, Classic's binder, map, timeline table and Consistency
   page, the `look-classic:` variant, Classic's Literata and Lucide icons, the `classic` background colours in
