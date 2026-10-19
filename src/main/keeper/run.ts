@@ -7,7 +7,8 @@
 // the scene "Memory not updated" and lists it in What changed; it is tried again on the next trigger and
 // at app start. Re-running a processed version changes nothing. A scene the memory model turns down (some models won't
 // read explicit scenes) says so, and its words are remembered (refusals.ts), so the engine doesn't ask again until they
-// change, another memory model is picked, or Adam presses Try again.
+// change, another memory model is picked, or Adam presses Try again. Every request also asks a verdict on the pay-off of
+// each open plot thread due here (oneReading.ts payoffAsks; applied in apply.ts settlePayoffs).
 // Never writes once the world has closed. No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -23,7 +24,7 @@ import { estimateTokens, hashText } from './text'
 import { markRefused, modelKeyOf } from './refusals'
 import { nothingToDo, planRead } from './track'
 import { loadShapeSafe, memoryAt, placeWords, sideClashesFor } from './places'
-import { oneReadingFor, stageFromReply, summaryFromReply, type OneReading, type SummaryRead } from './oneReading'
+import { oneReadingFor, payoffAsks, stageFromReply, summaryFromReply, type OneReading, type SummaryRead } from './oneReading'
 import { keepStageRead } from '../continuity/tracker'
 
 type DB = Database.Database
@@ -199,6 +200,8 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   const chunks = planChunks(plan.paras, plan.toRead, plan.atRisk, budget)
   const card = repo.getScene(db, sceneId).card
   const versions = new Map(memory.entries.map((e) => [e.id, e.updatedAt]))
+  // The open plot threads due here: every request asks a verdict on their pay-off (overhaul, 2026-10-19).
+  const payoffs = payoffAsks(db, sceneId, card, memory)
   o.onReading?.()
 
   // One reading of a scene: read in one request, the same call can say where things stand and write the summary.
@@ -211,7 +214,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   while (chunks.length) {
     const chunk = chunks.shift()!
     const request = (one: OneReading | null): ReturnType<typeof buildRequest> =>
-      buildRequest({ where, title: scene.title, card, chunk, found: plan.found, memory, budget, one, maxOutput: model.choice.maxOutput })
+      buildRequest({ where, title: scene.title, card, chunk, found: plan.found, memory, budget, one, maxOutput: model.choice.maxOutput, payoffs })
     let req = request(chunks.length === 0 && !replies.length ? oneAsked : null)
     const ask = (messages: ChatMessage[]): Promise<CallResult> =>
       callModel({
@@ -278,7 +281,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
         "The memory model's reply wasn't in the right format; it will try again, or you can pick another memory model in Settings › Models."
       )
     }
-    replies.push({ ids: req.ids, reply, paras: chunk.paras })
+    replies.push({ ids: req.ids, reply, paras: chunk.paras, payoffs: req.payoffs })
   }
 
   if (o.closed() || !db.open) return { status: 'stopped' }

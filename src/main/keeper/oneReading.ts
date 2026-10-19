@@ -10,12 +10,15 @@
 // and every other case go on as before (the tracker and the summary make their own calls). The reading's facts are
 // applied exactly as before; what it says of where things stand is kept by the tracker's own rules (keepStageRead: only
 // values with words from what was read, never on a start that has changed since), and its summary by the summaries' own
-// (keepSceneSummary: only while the scene's words are those it was written from, never over Adam's own). Pure but for
-// the reads in stageToRead; no Electron imports.
+// (keepSceneSummary: only while the scene's words are those it was written from, never over Adam's own). Since
+// 2026-10-19 every reading also gives a verdict on the pay-off of each open thread due here (payoffAsks, below). Pure but
+// for the reads in stageToRead and payoffAsks; no Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { ID } from '@shared/types'
+import type { ID, SceneCard } from '@shared/types'
 import { countWords } from '@shared/defaults'
+import * as mem from '../db/memory'
+import type { SceneMemory } from '../memory/types'
 import { looksLikeRefusalReply } from '../ai/errors'
 import { stageToRead, type StageAsk } from '../continuity/tracker'
 import type { MemoryModel } from './model'
@@ -83,6 +86,80 @@ export function summaryFromReply(value: unknown, asked: OneReading['summary'], g
   if (typeof raw !== 'string' || !raw.trim() || looksLikeRefusalReply(raw)) return undefined
   const text = cleanSummary(raw)
   return text ? { text, sourceHash: asked.sourceHash, generationId } : undefined
+}
+
+// ---------- A verdict on each pay-off due here (overhaul, 2026-10-19) ----------
+// Live (16 Oct, DeepSeek Flash): threads stayed open after their payoff was on the page, the model reading the payoff as a
+// step on. Now the reading is asked, for each open thread this scene's card says it pays off ("Pays off") or that is due
+// now (by the end of this chapter, or overdue), whether the words read pay it off, move it on or leave it untouched, with
+// the quote: a few lines at the end of the request it already sends (request.ts), answered in its "payoffs" list
+// (apply.ts settlePayoffs).
+
+/** A plot thread the reading must give a verdict on. */
+export interface PayoffAsk {
+  threadId: ID
+  /** 'card': this scene's card plans its pay-off here; 'due': due by the end of this chapter ('now') or overdue. */
+  why: 'card' | 'due'
+  /** For 'due': whether it is overdue, and the chapter it was due by ("Ch 4"). */
+  overdue?: boolean
+  dueBy?: string
+}
+
+/** The most threads one reading is asked about (the card's first). */
+export const PAYOFF_ASKS = 4
+
+/** What a verdict says of a thread. */
+export type PayoffVerdict = 'paid' | 'moved' | 'untouched'
+
+/**
+ * The threads to ask about as this scene is read: open (not dropped, and not already resolved in this scene), this scene's
+ * card planning the pay-off here first (a planned one too: the card is Adam's plan), then those overdue, then those due by
+ * the end of this chapter. At most PAYOFF_ASKS. Never throws.
+ */
+export function payoffAsks(
+  db: DB,
+  sceneId: ID,
+  card: Pick<SceneCard, 'paysOffIds'>,
+  memory: Pick<SceneMemory, 'threads' | 'entries'> | null
+): PayoffAsk[] {
+  try {
+    const threads = memory?.threads ?? []
+    if (!threads.length) return []
+    const kinds = new Map(memory!.entries.map((e) => [e.id, e.kind]))
+    const resolvedHere = new Set(
+      mem
+        .changesInScene(db, sceneId)
+        .filter((c) => c.kind === 'thread' && c.payload.status === 'resolved')
+        .map((c) => c.entryId)
+    )
+    const onCard = new Set(card.paysOffIds ?? [])
+    const asks: (PayoffAsk & { order: number })[] = []
+    threads.forEach((t, i) => {
+      if (t.status !== 'open' || t.standing === 'dropped' || kinds.get(t.entryId) !== 'thread' || resolvedHere.has(t.entryId)) return
+      if (onCard.has(t.entryId)) asks.push({ threadId: t.entryId, why: 'card', order: i })
+      else if (!t.planned && (t.due?.state === 'overdue' || t.due?.state === 'now'))
+        asks.push({ threadId: t.entryId, why: 'due', overdue: t.due.state === 'overdue', dueBy: t.due.label, order: threads.length * (t.due.state === 'overdue' ? 1 : 2) + i })
+    })
+    return asks
+      .sort((a, b) => a.order - b.order)
+      .slice(0, PAYOFF_ASKS)
+      .map(({ order: _, ...a }) => a)
+  } catch (e) {
+    console.warn('Could not tell which plot threads are due here', e)
+    return []
+  }
+}
+
+/** The verdict a reply gives, read forgivingly ("paid off", "advanced", "none"); null when it says nothing usable. */
+export function payoffVerdict(v: unknown): PayoffVerdict | null {
+  const s = String(v ?? '')
+    .toLowerCase()
+    .replace(/[^a-z ]+/g, ' ')
+    .trim()
+  if (/^(paid|paid off|pays off|pays it off|resolved|closed|answered)$/.test(s)) return 'paid'
+  if (/^(moved|moved on|moves on|advanced|developing|closer|progress)$/.test(s)) return 'moved'
+  if (/^(untouched|none|no|not touched|nothing)$/.test(s)) return 'untouched'
+  return null
 }
 
 /** The reply's "stage" (where things stand), as the tracker reads its own reply; undefined when there is none. */

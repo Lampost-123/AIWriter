@@ -29,11 +29,12 @@ import { fieldKeys } from './prompts'
 import type { Ids } from './request'
 import { findMention, relocate, spotIn, type ReadPlan, type Spot } from './track'
 import { existedEarlier } from './places'
-import { scenesBefore } from '../memory/line'
+import { labeler, scenesBefore } from '../memory/line'
 import { contradicts } from './agree'
 import { isSaidKind } from '../retrieval/said'
 import { thingNotCharacter } from './kinds'
-import { CLUE_NOTE, clueList, laterCardPaysOff, payoffLater, threadPlace, threadStatus, threadStep } from './threads'
+import { CLUE_NOTE, clueList, laterCardPayingOff, payoffLater, threadPlace, threadStatus, threadStep } from './threads'
+import { payoffVerdict, type PayoffAsk, type PayoffVerdict } from './oneReading'
 import { LEFT_OR_DIED, onStageAt, paraIndexOf, WHISPERED } from './presence'
 import { deathOf } from '../ai/deaths'
 import { isPerson } from '../ai/mustStay'
@@ -68,6 +69,8 @@ export interface ChunkReply {
   ids: Ids
   reply: ReadingReply
   paras: Para[]
+  /** The plot threads its request asked a verdict on the pay-off of (oneReading.ts payoffAsks). Left out: none. */
+  payoffs?: PayoffAsk[]
 }
 
 /** Where a side story and its host both change the same thing (memory core's sideClashes). */
@@ -170,6 +173,14 @@ export type Undo = (
       alias?: string
       /** What the words call someone in this scene, not offered as another name ("her brother"; fix 12). */
       called?: string
+      /**
+       * A plot thread's pay-off (overhaul, 2026-10-19; settlePayoffs): "Did this scene pay it off?" keeps where the thread
+       * was last touched (`last`, plain words); a thread paid off here while a later card still plans it keeps that later
+       * scene and the change that resolved it (Worth a look shows it while both stand).
+       */
+      last?: string
+      later?: ID
+      changeId?: ID
     }
   /** Where a fact stops being true was set or cleared (World Memory Overhaul B1): Undo puts back what it was before. */
   | { op: 'until-set'; changeId: ID; before: ChangeUntil | null }
@@ -276,6 +287,8 @@ class Run {
   readonly called: (CalledName & { s: Spot })[] = []
   /** Characters this read found the words call something new: told as changed, so the page underlines it. */
   readonly calledKept = new Set<ID>()
+  /** The reply's verdict on each pay-off its request asked about, by thread (readPayoffs): the best across the chunks. */
+  readonly payoffs = new Map<ID, PayoffRead>()
   /**
    * Summaries to remove once the Trash has been seen to (null after): an entry moved there keeps its summary, so its
    * Undo brings it back whole, and no "Summary" line comes before "Moved to Trash".
@@ -1524,7 +1537,15 @@ function applyThread(run: Run, a: Record<string, unknown>, chunk: ChunkReply, re
   // it is resolved, not left open (live test, 2026-10-16: "Iris's wedding … on Christmas Eve" stayed open after the
   // wedding scene, the memory model reading the wedding as a step on). Read again later in the same scene, it stays
   // resolved. A later card's plan or the thread's own "How it should pay off" still holds it open (the resolved case).
-  if ((step === 'open' || step === 'developing') && !made && note && cardPaysOffHere(run, thread.id)) {
+  // A verdict on the pay-off that says the words only move it on (settlePayoffs, overhaul 2026-10-19) is treated the same:
+  // the live model read payoffs as steps on, and this card is Adam's plan for where it pays off. And a step on that the
+  // verdict says pays it off is the payoff, wherever it is planned.
+  if (
+    (step === 'open' || step === 'developing') &&
+    !made &&
+    note &&
+    (run.payoffs.get(thread.id)?.is === 'paid' || cardPaysOffHere(run, thread.id))
+  ) {
     if (now === 'resolved') return
     if (now === 'open') step = 'resolved'
   }
@@ -1548,18 +1569,146 @@ function applyThread(run: Run, a: Record<string, unknown>, chunk: ChunkReply, re
       return
     case 'resolved': {
       if (now === 'resolved') return
-      // Only when the payoff is on the page, and not while Adam's plan puts it later: then it has only moved on.
+      // Only when the payoff is on the page, and not while Adam's plan puts it later: then it has only moved on. But when
+      // the reading's verdict on this pay-off says the words pay it off (settlePayoffs, overhaul 2026-10-19), the words
+      // win: it is resolved here, and a later card that still plans its payoff is flagged in Worth a look instead.
       const place = threadPlace(run.ctx.shape, run.scene.sceneId)
       const entry = run.entry(thread.id) ?? thread
-      if (laterCardPaysOff(db, place, thread.id) || (place && payoffLater(fieldValue(entry, 'payoff'), place))) {
+      const later = laterCardPayingOff(db, place, thread.id)
+      const paid = run.payoffs.get(thread.id)?.is === 'paid'
+      if (!paid && (later || (place && payoffLater(fieldValue(entry, 'payoff'), place)))) {
         if (now === 'open' && note) addChange(run, thread, { kind: 'thread', payload: { status: 'open', note } }, s)
         return
       }
       const c = addChange(run, thread, { kind: 'thread', payload: { status: 'resolved', note } }, s)
-      if (c) linkCard(run, 'paysOff', thread.id, c)
+      if (c) {
+        linkCard(run, 'paysOff', thread.id, c)
+        if (later) flagLaterCard(run, entry, later, c, s)
+      }
       return
     }
   }
+}
+
+// ---------- A verdict on each pay-off due here (overhaul, 2026-10-19) ----------
+// The request asked, for each open thread this scene's card pays off or that is due now (oneReading.ts payoffAsks),
+// whether the words read pay it off, move it on or leave it untouched, with the quote. Read before the new facts are
+// applied (applyThread follows a "paid" over a later plan), settled after them:
+// - paid, with words in the scene: resolved here if nothing in the reply already did it;
+// - moved, with words: a step on, with its note, unless the reply already touched the thread here (on this card's own plan
+//   a step on is the payoff, as before);
+// - untouched, on this card's own plan, when every paragraph of the scene was read: a gentle question in Worth a look,
+//   "Did this scene pay it off?", asked once per scene and thread; a later "paid" or "moved" settles it.
+// A paid or moved verdict whose words can't be found in the scene counts for nothing.
+
+/** One thread's verdict, as read from a chunk's reply. */
+interface PayoffRead {
+  is: PayoffVerdict
+  /** The words that show it (paid, moved); null for untouched. */
+  s: Spot | null
+  note: string
+  /** The thread's short id in that chunk's request, and the chunk. */
+  ref: string
+  chunk: ChunkReply
+  ask: PayoffAsk
+}
+
+/** The key of the question "Did this scene pay it off?" for a scene and thread. */
+export const payoffAskKey = (sceneId: ID, threadId: ID): string => `payoff:ask:${sceneId}:${threadId}`
+/** The key of the note that a later scene's card still plans the payoff of a thread paid off before it. */
+export const payoffLaterKey = (laterSceneId: ID, threadId: ID): string => `payoff:later:${laterSceneId}:${threadId}`
+
+const VERDICT_RANK: Record<PayoffVerdict, number> = { untouched: 1, moved: 2, paid: 3 }
+
+/** Each asked thread's verdict, the strongest across the chunks (a paid or moved one only with words found in the scene). */
+function readPayoffs(run: Run, replies: ChunkReply[]): void {
+  for (const chunk of replies) {
+    const asked = new Map((chunk.payoffs ?? []).map((a) => [a.threadId, a]))
+    if (!asked.size) continue
+    for (const v of chunk.reply.payoffs ?? []) {
+      const ref = str(v.id ?? v.entry, 10).toUpperCase()
+      const threadId = chunk.ids.entries.get(ref)
+      const ask = threadId ? asked.get(threadId) : undefined
+      const is = payoffVerdict(v.is ?? v.verdict ?? v.status)
+      if (!threadId || !ask || !is) continue
+      const s = is === 'untouched' ? null : run.place(v.quote, chunk.paras)
+      if (is !== 'untouched' && !s) continue
+      const before = run.payoffs.get(threadId)
+      if (before && VERDICT_RANK[before.is] >= VERDICT_RANK[is]) continue
+      run.payoffs.set(threadId, { is, s, note: str(v.note, 300), ref, chunk, ask })
+    }
+  }
+}
+
+/** True when this run read every paragraph of the scene that has words (so "untouched" speaks for the whole scene). */
+function readWhole(run: Run, replies: ChunkReply[]): boolean {
+  const read = new Set(replies.flatMap((r) => r.paras.map((p) => p.hash)))
+  const all = run.plan.paras.filter((p) => p.text.trim())
+  return all.length > 0 && all.every((p) => read.has(p.hash))
+}
+
+function settlePayoffs(run: Run, replies: ChunkReply[], refsFor: Map<ChunkReply, Map<string, ID>>): void {
+  if (!run.payoffs.size || run.ctx.removed || run.ctx.sweep) return
+  const whole = readWhole(run, replies)
+  for (const [threadId, v] of run.payoffs) {
+    const thread = run.entry(threadId)
+    if (!thread || thread.kind !== 'thread') continue
+    const refs = refsFor.get(v.chunk) ?? new Map<string, ID>()
+    if (v.is === 'paid' && v.s) {
+      if (run.threadNow(threadId) !== 'resolved')
+        applyThread(run, { entry: v.ref, status: 'resolved', note: v.note, quote: v.s.quote }, v.chunk, refs, v.s)
+      settleAsk(run, threadId)
+    } else if (v.is === 'moved' && v.s) {
+      if (v.note && run.threadNow(threadId) === 'open' && !run.lines.some((l) => l.entryId === threadId))
+        applyThread(run, { entry: v.ref, status: 'developing', note: v.note, quote: v.s.quote }, v.chunk, refs, v.s)
+      settleAsk(run, threadId)
+    } else if (v.is === 'untouched' && v.ask.why === 'card' && whole) askPaidOff(run, thread)
+  }
+}
+
+/** A question "Did this scene pay it off?" that a verdict has now answered goes from Worth a look. */
+function settleAsk(run: Run, threadId: ID): void {
+  for (const l of kdb.linesWithKey(run.db, payoffAskKey(run.scene.sceneId, threadId))) if (!l.undone) kdb.markUndone(run.db, l.id)
+}
+
+/**
+ * This scene's card plans the thread's payoff here, the reading read every paragraph, and it says the words don't touch
+ * it: a gentle question for Worth a look (keeper/checkQueue.ts shows it once the scene is done or the story has moved on
+ * past it), asked once for the scene and thread.
+ */
+function askPaidOff(run: Run, thread: Entry): void {
+  if (run.threadNow(thread.id) === 'resolved' || !cardPaysOffHere(run, thread.id)) return
+  const key = payoffAskKey(run.scene.sceneId, thread.id)
+  if (kdb.linesWithKey(run.db, key).length) return
+  const last = run.ctx.memory?.threads.find((t) => t.entryId === thread.id)?.lastWhere ?? ''
+  run.log({
+    action: 'updated',
+    what: 'entry',
+    entryId: thread.id,
+    entryName: thread.name,
+    text: 'Did this scene pay it off? Its scene card plans the pay-off here, but the memory didn’t find it in the words',
+    before: '',
+    after: '',
+    undo: { op: 'note', key, ...(last ? { last } : {}) }
+  })
+}
+
+/** A thread the words paid off here while a later scene's card still plans its payoff: that card is flagged instead. */
+function flagLaterCard(run: Run, thread: Entry, laterId: ID, change: Change, s: Spot): void {
+  const key = payoffLaterKey(laterId, thread.id)
+  if (kdb.linesWithKey(run.db, key).some((l) => !l.undone)) return
+  const where = run.ctx.shape ? labeler(run.ctx.shape)({ storyId: null, sceneId: laterId }) : ''
+  run.log({
+    action: 'updated',
+    what: 'entry',
+    entryId: thread.id,
+    entryName: thread.name,
+    text: `Paid off here, though the scene card of ${where || 'a later scene'} still plans its pay-off`,
+    before: '',
+    after: '',
+    quote: s.quote,
+    undo: { op: 'note', key, later: laterId, changeId: change.id }
+  })
 }
 
 // ---------- Who knows what: how they learned it (long story memory fix 9) ----------
@@ -2354,6 +2503,8 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
   for (const f of plan.gone) removeFact(run, f, ctx.removed ? 'those words were deleted with the scene' : 'those words were deleted')
 
   if (!ctx.sweep) linkMentions(run)
+  // The verdicts on the pay-offs due here first: applyThread follows them (settlePayoffs, after the new facts).
+  readPayoffs(run, replies)
   for (const chunk of replies) {
     const refs = refsFor.get(chunk)!
     for (const a of chunk.reply.add) {
@@ -2364,6 +2515,11 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
       }
     }
     for (const c of chunk.reply.clashes) applyClash(run, c, chunk, refs)
+  }
+  try {
+    settlePayoffs(run, replies, refsFor)
+  } catch (e) {
+    console.warn('Skipped the verdicts on the plot threads due here', e)
   }
   settleUnconfirmed(run, replies)
   settleNames(run)

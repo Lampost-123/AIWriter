@@ -132,6 +132,11 @@ export interface ReadingReply {
   facts: Record<string, unknown>[]
   add: Record<string, unknown>[]
   clashes: Record<string, unknown>[]
+  /**
+   * A verdict on each pay-off the request asked about (keeper/oneReading.ts payoffAsks): {"id": "E5", "is":
+   * "paid|moved|untouched", "note", "quote"}. Only there when the reply gives it.
+   */
+  payoffs?: Record<string, unknown>[]
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -139,10 +144,10 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 /** Checks the shape of a reading reply. Items it can't use are left for the caller to skip one by one. */
 export function readingReply(value: unknown): { ok: true; reply: ReadingReply } | { ok: false; why: string } {
   if (!isObj(value)) return { ok: false, why: 'it was not a JSON object' }
-  const lists: Record<keyof ReadingReply, string[]> = { facts: ['facts', 'verdicts'], add: ['add', 'new'], clashes: ['clashes', 'clash'] }
+  const lists: Record<'facts' | 'add' | 'clashes', string[]> = { facts: ['facts', 'verdicts'], add: ['add', 'new'], clashes: ['clashes', 'clash'] }
   const reply: ReadingReply = { facts: [], add: [], clashes: [] }
   let any = false
-  for (const [key, names] of Object.entries(lists) as [keyof ReadingReply, string[]][]) {
+  for (const [key, names] of Object.entries(lists) as ['facts' | 'add' | 'clashes', string[]][]) {
     const name = names.find((n) => n in value)
     if (!name) continue
     any = true
@@ -152,6 +157,9 @@ export function readingReply(value: unknown): { ok: true; reply: ReadingReply } 
     reply[key] = v.filter(isObj)
   }
   if (!any) return { ok: false, why: 'it had none of the "facts", "add" and "clashes" lists' }
+  // The pay-off verdicts, when given: a list that isn't one is left out, never a reason to ask again.
+  const payoffs = value.payoffs ?? value.payoff
+  if (Array.isArray(payoffs)) reply.payoffs = payoffs.filter(isObj)
   return { ok: true, reply }
 }
 

@@ -5,14 +5,16 @@
 // are given short ids (E1, F1, K1), mapped back when the reply is applied; an entry's E id is fixed by
 // when it was made, so it reads the same in every request. A request may also ask where things stand at the end of the
 // words read and for the scene's summary (one reading of a scene, keeper/oneReading.ts), after everything else and only
-// when that fits as well as the reading alone. No Electron imports.
+// when that fits as well as the reading alone. Since 2026-10-19 it ends with the open plot threads due here (this scene's
+// card pays them off, or they are due now), each to be judged paid, moved or untouched (oneReading.ts payoffAsks). No
+// Electron imports.
 
 import type { ChatMessage, ContextBlock, EntryState, ID, ModelChoice, SceneCard } from '@shared/types'
 import type { SceneMemory } from '../memory/types'
 import { stateText } from '@shared/continuity'
 import { castBlock } from '../continuity/stagePrompt'
-import { READING_SYSTEM, SCENE_SUMMARY_REPLY, STAGE_REPLY, oneReadingSystem, sceneSummaryLength } from './prompts'
-import type { OneReading } from './oneReading'
+import { PAYOFF_RULE, PAYOFFS_HEADING, READING_SYSTEM, SCENE_SUMMARY_REPLY, STAGE_REPLY, oneReadingSystem, payoffWhy, sceneSummaryLength } from './prompts'
+import type { OneReading, PayoffAsk } from './oneReading'
 import { changeWords, fieldValue, guessFields, type SceneFact } from './facts'
 import { clip, estimateTokens, firstWords, lastWords, likeness, mentionAt, splitLong, words, type Para } from './text'
 import { DEFAULT_MEMORY_CONTEXT } from './model'
@@ -224,6 +226,8 @@ export interface ReadingRequest {
   one: OneReading | null
   /** Room for the reply: the reading's, plus where things stand's and the summary's when it asks for them. */
   maxTokens: number
+  /** The plot threads it asks a verdict on the pay-off of (oneReading.ts payoffAsks), by their E ids in `ids`. */
+  payoffs: PayoffAsk[]
 }
 
 const q = (s: string): string => `"${s.replace(/\s+/g, ' ').trim()}"`
@@ -336,6 +340,11 @@ export interface RequestInput {
   one?: OneReading | null
   /** The memory model's most a reply may be (ModelChoice.maxOutput), when known. */
   maxOutput?: number | null
+  /**
+   * Open plot threads due here (this scene's card pays them off, or they are due now: oneReading.ts payoffAsks): the
+   * request asks a verdict on each, at its end. Left out: none.
+   */
+  payoffs?: PayoffAsk[]
 }
 
 /**
@@ -395,6 +404,18 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     return `- ${id} ${describeFact(f, ids)} | words, no longer in the scene: ${q(f.links[0]?.quote ?? '')}`
   })
   for (const l of riskLines) room.take(l)
+
+  // The pay-offs due here (overhaul, 2026-10-19): a verdict on each, so a payoff on the page closes its thread. They go in
+  // too, at the end of the request; their E ids are fixed now, so every later list names them the same.
+  const payoffs = (r.payoffs ?? []).filter((a) => byId.get(a.threadId)?.kind === 'thread')
+  const payoffText = payoffs.length
+    ? [
+        PAYOFFS_HEADING,
+        PAYOFF_RULE,
+        ...payoffs.map((a) => `- ${ids.entry(a.threadId)} ${q(byId.get(a.threadId)!.name)}: ${payoffWhy(a)}`)
+      ].join('\n')
+    : ''
+  if (payoffText) room.take(payoffText)
 
   // The memory: entries this chunk mentions (or the scene card lists) in full, as of this scene.
   const memoryLines: string[] = []
@@ -508,7 +529,7 @@ export function buildRequest(r: RequestInput): ReadingRequest {
   const foundText = foundLines.length ? ['## Facts from this scene', ...foundLines].join('\n') : ''
   const riskText = riskLines.length ? ['## Facts whose words changed (a verdict for each)', ...riskLines].join('\n') : ''
   const sceneText = sceneLines.join('\n')
-  const user = [memoryText, foundText, riskText, sceneText].filter(Boolean).join('\n\n')
+  const user = [memoryText, foundText, riskText, sceneText, payoffText].filter(Boolean).join('\n\n')
 
   const entryIds = [...ids.entries.values()]
   const block = (id: string, priority: number, title: string, text: string, entries: ID[] = []): ContextBlock => ({
@@ -529,6 +550,7 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     ...(foundText ? [block('scene-facts', 4, 'Facts already read from this scene', foundText)] : []),
     ...(riskText ? [block('changed-facts', 2, 'Facts whose words changed', riskText)] : []),
     block('scene-text', 2, 'The new and changed paragraphs', sceneText),
+    ...(payoffText ? [block('payoffs', 2, 'Plot threads due here: did the words pay them off?', payoffText, payoffs.map((a) => a.threadId))] : []),
     ...(extra?.blocks ?? [])
   ]
   return {
@@ -540,7 +562,8 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     ids,
     entryIds,
     one: extra ? r.one! : null,
-    maxTokens: extra?.maxTokens ?? r.budget.reply
+    maxTokens: extra?.maxTokens ?? r.budget.reply,
+    payoffs
   }
 }
 

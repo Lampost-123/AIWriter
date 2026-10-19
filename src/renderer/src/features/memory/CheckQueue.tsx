@@ -331,7 +331,9 @@ function Row({
                 : row.group === 'alias'
                   ? `The AI will know ${name || 'them'} by “${offeredName(row)}” in every scene`
                   : promise
-                    ? 'Leave it open as it is. You won’t be asked about it again for now.'
+                    ? row.fact.kind === 'promise' && row.fact.why === 'paid-before'
+                      ? 'Keep it paid off here. You won’t be asked about it again.'
+                      : 'Leave it open as it is. You won’t be asked about it again for now.'
                     : 'Keep it as it is. It becomes yours and stops depending on the words.'
           }
         >

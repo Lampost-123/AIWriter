@@ -11,6 +11,11 @@
 //   doesn't count) or the thread's own "How it should pay off" says it comes later (payoffLater). A resolve goes on the
 //   scene card's "Pays off", marked as the AI's; Undo (the board or What changed) takes both back and records a
 //   suppression, so the same words don't resolve it again.
+// - A verdict on the pay-off (overhaul, 2026-10-19: threads stayed open after their payoff in the live test): for each open
+//   thread this scene's card pays off, or that is due now, the reading must say paid, moved or untouched, with a quote
+//   (keeper/oneReading.ts payoffAsks, request.ts, apply.ts settlePayoffs). "paid" closes it, even while a later card
+//   plans the payoff or its "How it should pay off" says later: the words win, and the later card is flagged in Worth a
+//   look instead. "untouched" on this card's own plan asks Adam, gently, whether the scene paid it off.
 // Pure helpers here; the reads use the open world's database. No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -133,7 +138,12 @@ export function payoffLater(payoff: string | null | undefined, at: Pick<ThreadPl
  * and that link isn't the memory's record of a resolve it read in that scene.
  */
 export function laterCardPaysOff(db: DB, place: ThreadPlace | null, threadId: ID): boolean {
-  if (!place?.later.length) return false
+  return laterCardPayingOff(db, place, threadId) !== null
+}
+
+/** The first later scene whose card plans this thread's payoff (as laterCardPaysOff counts it), or null. */
+export function laterCardPayingOff(db: DB, place: ThreadPlace | null, threadId: ID): ID | null {
+  if (!place?.later.length) return null
   const cards = repo.sceneCards(db, place.later)
   for (const id of place.later) {
     const card = cards.get(id)
@@ -141,9 +151,9 @@ export function laterCardPaysOff(db: DB, place: ThreadPlace | null, threadId: ID
     const readThere = mem
       .changesInScene(db, id)
       .some((c) => c.entryId === threadId && c.kind === 'thread' && c.payload.status === 'resolved' && c.origin === 'text')
-    if (!readThere) return true
+    if (!readThere) return id
   }
-  return false
+  return null
 }
 
 /** Where a thread stands in a scene: none (never opened on the line), open or resolved, before its own changes and after. */
