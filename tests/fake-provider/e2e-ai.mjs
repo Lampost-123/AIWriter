@@ -196,7 +196,11 @@ try {
   check(sentText.includes('The Binding'), 'hard-rule lore in the briefing')
   check(sentText.includes('The Duke'), 'mentioned entry in the briefing')
   check(sentText.includes('She left the docks at dusk'), 'previous scene in the briefing')
-  check(sent.messages[1].content.includes("The author's direction for this draft:\nMake it tense, end on the knock at the door"), 'direction in the briefing')
+  // Said last of all, word for word (2026-10-19), not on the scene card.
+  check(
+    sent.messages[1].content.includes("The author's direction for this draft (make every part of it happen on the page):\nMake it tense, end on the knock at the door"),
+    'direction in the briefing'
+  )
   check(!sent.messages[1].content.includes('1. Make it tense'), 'direction not typed into the beats')
   check(!sentText.includes('PRIVATE'), 'private notes never sent')
   check(sent.temperature === 1 && sent.stream === true, 'creativity (the writer writes Balanced at 1.0) and streaming')

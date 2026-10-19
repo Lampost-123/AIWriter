@@ -40,6 +40,7 @@ import { LiveChecksLayer } from '@/features/liveChecks/LiveChecksLayer'
 import { FirstSceneGuide } from '@/features/setup/FirstSceneGuide'
 import { TypewriterLayer } from '@/features/typing/TypewriterLayer'
 import { FindBar } from '@/features/find/FindBar'
+import { DirectionReceipt } from '@/features/receipt/DirectionReceipt'
 import './editor.css'
 
 /** The page's scrollbar (styles.css), whose room the desk's scroller always keeps. */
@@ -410,6 +411,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           style={overSheet}
         >
           <div className="flex w-full flex-col items-center gap-3" style={{ maxWidth: Math.min(640, frame.sheetW - 48) }}>
+            <DirectionReceipt sceneId={shown.id} />
             <NextBeatChip sceneId={shown.id} fallbackStatus={shown.status} />
             <Dock
               editor={editor}
