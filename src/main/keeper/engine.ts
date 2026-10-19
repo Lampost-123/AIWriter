@@ -143,6 +143,13 @@ export class Keeper {
   private urgent: ID[] = []
   /** Scenes marked done: their summary is refreshed after their run. */
   private readonly done = new Set<ID>()
+  /**
+   * Scenes Adam is still writing (saved since he last left them or marked them done). The writer reads such a scene's
+   * own words, never its summary, so its summary waits until he leaves it or marks it done (the AI overhaul,
+   * 2026-10-19: a chain of Add below and Continue rewrote one scene's summary after every step). A draft of a later
+   * scene still waits for the summaries it needs (queueDueSummaries).
+   */
+  private readonly writing = new Set<ID>()
   private summaryAsks: { sceneId: ID; logId: ID }[] = []
   /** Scenes whose summary is due (A3), written once nothing is waiting to be read. */
   private summaryDue: ID[] = []
@@ -269,6 +276,7 @@ export class Keeper {
   sceneSaved(id: ID): void {
     if (this.closed) return
     kdb.noteSceneSaved(this.db, id)
+    this.writing.add(id)
     this.clearTimer(id)
     this.timers.set(
       id,
@@ -280,11 +288,22 @@ export class Keeper {
     this.emitStatus()
   }
 
-  /** Adam left the scene: read it now if it changed. */
+  /** Adam is still writing this scene and hasn't marked it done: its summary waits (see `writing`). */
+  private stillWriting(id: ID): boolean {
+    return this.writing.has(id) && !this.done.has(id)
+  }
+
+  /** Adam left the scene: read it now if it changed (and its summary, held while he wrote it, is written then). */
   sceneLeft(id: ID): void {
     if (this.closed) return
     this.clearTimer(id)
+    const wasWriting = this.writing.delete(id)
     if (kdb.needsReading(this.db, id)) this.enqueue(id)
+    // Its summary waited while Adam was writing it: due now, after the read if there is one.
+    else if (wasWriting && this.deps.summaries !== false && !this.summaryDue.includes(id) && sceneSummaryDue(this.db, id, false, this.modelKey())) {
+      this.summaryDue.push(id)
+      this.kick()
+    }
   }
 
   /** Marked done (Ctrl+Enter): the memory and the scene's summary catch up with it now. */
@@ -292,6 +311,7 @@ export class Keeper {
     const meta = kdb.markSceneDone(this.db, id)
     if (!this.closed) {
       this.clearTimer(id)
+      this.writing.delete(id)
       this.done.add(id)
       this.enqueue(id)
     }
@@ -393,6 +413,8 @@ export class Keeper {
 
   /** Runs queued or failed runs for earlier scenes on the line; the earlier scenes, or null when nothing more is to be done. */
   private async catchUpEarlier(sceneId: ID): Promise<ID[] | null> {
+    // Writing another scene now: the earlier ones are no longer being written, so their summaries come with their reads.
+    for (const id of [...this.writing]) if (id !== sceneId) this.writing.delete(id)
     if (this.closed) return null
     // One query for the scenes left behind, not one per earlier scene (a long series has thousands).
     const behind = new Set(kdb.scenesToRead(this.db))
@@ -776,7 +798,7 @@ export class Keeper {
           // The summary is due as after the read (summaries on, and sceneSummaryDue with the scene marked done or not).
           ...(this.deps.oneReading === false
             ? {}
-            : { oneReading: { summaryDue: () => this.deps.summaries !== false && sceneSummaryDue(this.db, id, this.done.has(id), this.modelKey()) } })
+            : { oneReading: { summaryDue: () => this.deps.summaries !== false && !this.stillWriting(id) && sceneSummaryDue(this.db, id, this.done.has(id), this.modelKey()) } })
         },
         id
       )
@@ -864,6 +886,7 @@ export class Keeper {
         const done = this.done.has(id)
         this.done.delete(id)
         if (this.deps.summaries === false || !model || !scene) return
+        if (!done && this.stillWriting(id)) return
         if (!sceneSummaryDue(this.db, id, done, this.modelKey())) return
         this.markRebuilding(id)
         const logRunId = outcome.status === 'done' && outcome.lines ? outcome.runId : null

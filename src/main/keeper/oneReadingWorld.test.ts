@@ -101,4 +101,26 @@ describe('one reading of a scene before a draft', () => {
     // Its summary came with the reading.
     expect(kdb.summaryRow(db, 'scene', one)).toMatchObject({ origin: 'text', stale: false })
   })
+
+  it("holds the summary of the scene Adam is still writing until he leaves it (the AI overhaul, 2026-10-19)", async () => {
+    world.createWorld('Still writing')
+    const db = world.db()
+    const book = repo.listStories(db)[0].id
+    const one = repo.getOutline(db, book).scenes[0].id
+    repo.createEntry(db, 'character', { name: 'Tobin' })
+    const text =
+      'Tobin came up the stair with the lamp held high, and the shadows of the banister ran along the wall beside him. ' +
+      'He stopped at the landing to listen, heard nothing but the house settling, and went on to the door at the end.'
+    coreHandlers.saveSceneText(one, doc(text), text)
+    const before = jobs().length
+    // Writing on in the same scene (Add below, Continue): the memory reads its words, its summary waits.
+    await gather.catchUpBeforeDraft(db, one)
+    await keeper.currentKeeper()!.whenIdle()
+    expect(jobs().slice(before)).toEqual(['one reading'])
+    expect(kdb.summaryRow(db, 'scene', one)).toBeFalsy()
+    // Adam leaves the scene: its summary is written then, once.
+    keeper.currentKeeper()!.sceneLeft(one)
+    await expect.poll(() => kdb.summaryRow(db, 'scene', one)?.origin ?? null, { timeout: 5000 }).toBe('text')
+  })
 })
+
