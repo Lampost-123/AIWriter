@@ -194,7 +194,9 @@ export async function planBeforeWriting(
           hidden,
           find: async (query, most) =>
             (await findInStory(db, sceneId, query, most, signal))?.map((p) => ({ where: shortPlace(p.where, storyTitle), text: p.text })) ?? null,
-          fill: (id) => fillQuickly(db, storyId, id, model, { signal, closed: () => !live() })
+          fill: (id) => fillQuickly(db, storyId, id, model, { signal, closed: () => !live() }),
+          // Carrying on, state_of answers as things stand at the end of the scene so far, not as the index last had them.
+          ...(carryingOn && stand ? { stand } : {})
         }
       : undefined
     const plan = await makePlan({

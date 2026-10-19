@@ -86,6 +86,8 @@ export interface EntryNow {
   label: string
   /** Where they are: from the story's words, or the card's place when that is newer; else where they were last seen. */
   place: (FactNow & { lastSeen?: true }) | null
+  /** How they are placed ("lying on the settle"): only from where things stand at the point of writing (withStageNow). */
+  placed?: FactNow | null
   wearing: (FactNow & { piece: string })[]
   carrying: FactNow | null
   condition: FactNow | null
@@ -156,19 +158,59 @@ export function stateOf(db: DB, storyId: ID, entryIdOrName: string, atSceneId: I
     dead: life ? strip(life) : null,
     lines: []
   }
-  const n = entry.name
-  if (now.dead) now.lines.push(`${n}: dead (since ${now.dead.since})`)
-  if (place)
-    now.lines.push(
-      place.lastSeen ? `${n}: last seen at ${place.value} (${place.since})` : `${n}: ${whereWords(place.value)} (since ${place.since})`
-    )
-  if (now.wearing.length) now.lines.push(`${n}: wearing ${now.wearing.map(sinceWords).join('; ')}`)
-  if (now.carrying) now.lines.push(`${n}: carrying ${sinceWords(now.carrying)}`)
-  if (now.condition) now.lines.push(`${n}: ${sinceWords(now.condition)}`)
-  for (const s of now.status) now.lines.push(`${n}: ${sinceWords(s)}`)
-  for (const r of now.relationships) now.lines.push(`${n} and ${r.withName}: ${sinceWords(r)}`)
-  for (const k of now.knows) now.lines.push(`${n} knows: ${sinceWords(k)}`)
+  now.lines = linesOf(now)
   return now
+}
+
+/** What is true of someone, in short lines: dead, where, wearing, carrying, how they are, the rest, ties, what they know. */
+function linesOf(now: EntryNow): string[] {
+  const n = now.name
+  const lines: string[] = []
+  const place = now.place
+  if (now.dead) lines.push(`${n}: dead (since ${now.dead.since})`)
+  if (place) lines.push(place.lastSeen ? `${n}: last seen at ${place.value} (${place.since})` : `${n}: ${whereWords(place.value)} (since ${place.since})`)
+  if (now.placed) lines.push(`${n}: placed ${sinceWords(now.placed)}`)
+  // Pieces true since the same scene say so once.
+  const once = now.wearing.length > 1 && now.wearing.every((w) => w.since === now.wearing[0].since)
+  if (now.wearing.length)
+    lines.push(`${n}: wearing ${once ? `${now.wearing.map((w) => w.value).join('; ')} (since ${now.wearing[0].since})` : now.wearing.map(sinceWords).join('; ')}`)
+  if (now.carrying) lines.push(`${n}: carrying ${sinceWords(now.carrying)}`)
+  if (now.condition) lines.push(`${n}: ${sinceWords(now.condition)}`)
+  for (const s of now.status) lines.push(`${n}: ${sinceWords(s)}`)
+  for (const r of now.relationships) lines.push(`${n} and ${r.withName}: ${sinceWords(r)}`)
+  for (const k of now.knows) lines.push(`${n} knows: ${sinceWords(k)}`)
+  return lines
+}
+
+/** What where things stand says of someone at the point of writing, as `withStageNow` takes it. */
+export interface StageNow {
+  where: string
+  posture: string
+  holding: string
+  condition: string
+  /** Each piece they have on or took off, in the stage's words ("boots off, on their sides by the hearth"). */
+  wearing: { piece: string; text: string }[]
+  /** The words each value was read from, by field ('where', 'holding', 'condition', 'posture', or the piece). */
+  quotes?: Record<string, string>
+}
+
+/**
+ * Someone as things stand at the point of writing (2026-10-19): what where things stand says of them there, read from the
+ * scene's words so far, put over what the story index has as the scene's words last ended (or as it began), field by
+ * field: where they are, how they are placed, what they wear (all of it, taken off too), carry and suffer. `since` says
+ * where ("Ch 7, Sc 5, in its words so far"). What they know and their ties are the index's.
+ */
+export function withStageNow(now: EntryNow, stage: StageNow, since: string): EntryNow {
+  const clean = (s: string): string => s.replace(/\s+/g, ' ').trim()
+  const at = (value: string, field: string): FactNow => ({ value: clean(value), since, sinceSceneId: now.sceneId, quote: stage.quotes?.[field] ?? '', origin: 'tracker' })
+  const out: EntryNow = { ...now }
+  if (clean(stage.where)) out.place = at(stage.where, 'where')
+  if (clean(stage.posture)) out.placed = at(stage.posture, 'posture')
+  if (stage.wearing.some((p) => clean(p.text))) out.wearing = stage.wearing.filter((p) => clean(p.text)).map((p) => ({ ...at(p.text, p.piece), piece: p.piece }))
+  if (clean(stage.holding)) out.carrying = at(stage.holding, 'holding')
+  if (clean(stage.condition)) out.condition = at(stage.condition, 'condition')
+  out.lines = linesOf(out)
+  return out
 }
 
 // ---------- Where someone was last ----------
