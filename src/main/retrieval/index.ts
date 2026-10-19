@@ -27,7 +27,7 @@ import { userDataDir } from '../paths'
 import { emit } from '../events'
 import { maybeCurrentWorld, onWorldClosing, onWorldOpened, type OpenWorld } from '../world'
 import { stubEmbedder } from './stub'
-import type { Embedder, RecallInput } from './types'
+import type { Embedder, RecallInput, RecalledPassage } from './types'
 import { INDEX_AFTER_OPEN_MS, WorldRecall } from './world'
 import { modelDir, onnxShipped } from './model/files'
 import { SearchModel } from './model/manager'
@@ -102,6 +102,22 @@ export async function recallForBriefing(db: DB, sceneId: ID, input: ContextInput
     return await open.recall.search(sceneId, input, soFar, signal)
   } catch (e) {
     console.warn('Recall could not search for this briefing; it goes without', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+/**
+ * Earlier passages of the story so far for a search of the planner's own (the look-up find_in_story, ai/lookups/): null
+ * when step 5 is off, the world isn't open, or anything went wrong.
+ */
+export async function findInStory(db: DB, sceneId: ID, query: string, most: number, signal?: AbortSignal): Promise<RecalledPassage[] | null> {
+  if (!recallWanted()) return null
+  const open = world
+  if (!open || open.w.db !== db || maybeCurrentWorld()?.db !== db) return null
+  try {
+    return await open.recall.find(sceneId, query, most, signal)
+  } catch (e) {
+    console.warn('Searching the story for the planner failed', e instanceof Error ? e.message : e)
     return null
   }
 }
