@@ -51,7 +51,8 @@ import { PlanTalk } from './PlanTalkParts'
 import { PremiseCard } from './PremiseCard'
 import { builderKey, flushBrief, loadBrief, sizeForLength, useBuilders } from '@/features/storyBuilder/store'
 
-export function OutlineHelper({ storyId }: { storyId: string }): React.JSX.Element {
+/** `nav`: the Story builder's Back and Next, at the foot of the page. */
+export function OutlineHelper({ storyId, nav }: { storyId: string; nav?: React.ReactNode }): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id)
   const session = useOutlineHelper((st) => st.sessions[helperKey(worldId, storyId)])
   const story = useApp((s) => s.stories.find((st) => st.id === storyId) ?? null)
@@ -77,10 +78,10 @@ export function OutlineHelper({ storyId }: { storyId: string }): React.JSX.Eleme
       </div>
     )
   }
-  return <Helper story={story} s={session} />
+  return <Helper story={story} s={session} nav={nav} />
 }
 
-function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Element {
+function Helper({ story, s, nav }: { story: Story; s: HelperSession; nav?: React.ReactNode }): React.JSX.Element {
   const { outline } = useOutline()
   const shape = outline?.story.id === story.id ? outline : null
   const acts: Act[] = shape?.acts ?? []
@@ -272,6 +273,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
             keep it.
           </>
         }
+        foot={nav ? <div className="shrink-0 px-6 pb-3 [&>[data-step-nav]]:pt-3">{nav}</div> : undefined}
         steps={{
           steps: suggestSteps({
             from: { label: 'Premise', written: !!premise.trim(), sub: premise.trim() ? 'Written' : 'A line or two' },
@@ -485,6 +487,7 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
           <Suggestions storyId={story.id} run={shown} tree={tree} open={open} starter={starter} />
         ) : null}
         <EarlierSuggestions storyId={story.id} />
+        {nav ? <div className="mt-8 [&>[data-step-nav]]:pt-4">{nav}</div> : null}
       </div>
     </div>
   )

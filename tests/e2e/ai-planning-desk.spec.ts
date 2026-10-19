@@ -390,3 +390,33 @@ test('a window that isn’t full screen: the planning pages keep their two colum
     .toBe(true)
   expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
 })
+
+// Adam, 2026-10-20: on the outline step there was no way back. The desk's plan page filled the Story builder's whole
+// view, over its step bar; now it sits under the bar, with Back and Next at its foot like every other step.
+test('the Story builder’s outline step on the desk keeps its step bar in view, with Back and Next at its foot', async ({ launch }) => {
+  const { win } = await sampleWorld(launch, null)
+  await room(win, 'Plan').click()
+  await links(win, 'Plan').getByRole('button', { name: 'Outline helper' }).click()
+  const outline = page(win, 'outline')
+  await expect(outline).toBeVisible()
+
+  // The step bar is on top, not under the page: the point at its middle belongs to it.
+  const bar = win.locator('[data-story-builder="outline"] [data-step-bar]')
+  await expect(bar).toBeVisible()
+  const box = (await bar.boundingBox())!
+  const outlineBox = (await outline.boundingBox())!
+  expect(outlineBox.y).toBeGreaterThanOrEqual(box.y + box.height - 1)
+  expect(await win.evaluate(`!!document.elementFromPoint(${box.x + box.width / 2}, ${box.y + box.height / 2})?.closest('[data-step-bar]')`)).toBe(true)
+  await expect(bar.locator('[data-step="outline"]')).toHaveAttribute('aria-current', 'step')
+
+  // Back and Next at the foot, in view without scrolling.
+  const nav = win.locator('[data-story-builder="outline"] [data-step-nav]')
+  await expect(nav.getByRole('button', { name: 'Next: Done' })).toBeInViewport()
+  await nav.getByRole('button', { name: 'Cast and world' }).click()
+  await expect(win.locator('[data-story-builder="codex"] [data-step="codex"]')).toHaveAttribute('aria-current', 'step')
+  // And back to the outline from the bar.
+  await win.locator('[data-step-bar] [data-step="outline"]').first().click()
+  await expect(page(win, 'outline')).toBeVisible()
+  await win.locator('[data-story-builder="outline"] [data-step-nav]').getByRole('button', { name: 'Next: Done' }).click()
+  await expect(win.locator('[data-story-builder="done"] [data-step="done"]')).toHaveAttribute('aria-current', 'step')
+})
