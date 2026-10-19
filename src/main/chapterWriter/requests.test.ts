@@ -2,7 +2,10 @@
 // three scenes after a chapter of long ones, with models that read a million tokens (as DeepSeek Flash does) and an
 // agent that looks things up three at a time until it is told there are no more look-ups (fake/agent-greedy, as a live
 // model did). Every chat request is counted, with the characters of its messages, by what asked it; the run must stay
-// within what the quick wins brought it down to.
+// within what the quick wins brought it down to. Before them: 84 requests and 3,598,372 characters with the greedy agent
+// (and its reads of Ch 1 were wrongly answered "hasn't changed"), 37 and 347,190 with the other; after: 61 and
+// 2,669,425, 35 and 328,615. The drafts are stood in for, so the continuity brief they no longer ask for isn't counted.
+// The limits leave a little room for prompts to grow.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
 import { ALL_CHECKS } from '@shared/contracts/checks'
@@ -134,12 +137,14 @@ describe('what a chapter run asks of the AI', () => {
     expect(['done', 'stuck']).toContain(report.status)
     // The study writes its brief within its requests (with 16 requests and 40 look-ups it ran out first).
     expect(report.brief).toContain('Keep Sc 3 true to the memory.')
-    expect(total.requests).toBeGreaterThan(0)
+    expect(total.requests).toBeLessThanOrEqual(61)
+    expect(total.chars).toBeLessThanOrEqual(2_800_000)
   })
 
   it('with an agent that goes straight to work', { timeout: 60_000 }, async () => {
     const { report, total } = await measure('fake/writer')
     expect(report.status).toBe('done')
-    expect(total.requests).toBeGreaterThan(0)
+    expect(total.requests).toBeLessThanOrEqual(35)
+    expect(total.chars).toBeLessThanOrEqual(345_000)
   })
 })
