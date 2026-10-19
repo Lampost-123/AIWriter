@@ -10,6 +10,7 @@
 
 import type Database from 'better-sqlite3'
 import type { Entry, ID, MemoryStatus, SceneMeta } from '@shared/types'
+import type { MemoryRefusal } from '@shared/contracts/calm'
 import { onWorldClosing, onWorldOpened, maybeCurrentWorld } from '../world'
 import { getSettings, getWritingPrefs } from '../settings'
 import { getProvider, providerTarget } from '../ai/providers'
@@ -28,13 +29,14 @@ import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
 import { CATCH_UP, stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
 import { jobModel } from '../ai/jobModel'
-import { dismissRefusals, modelKeyOf, onRefusal, refusalNote } from './refusals'
+import { dismissRefusals, modelKeyOf, onRefusal, refusalNote, refusedKind } from './refusals'
 import { loadShapeSafe, placeWords } from './places'
 import { rulesAfterDeleting, rulesAfterRead } from '../checks/ruleChecks'
 import { settleByEntry } from '../db/checks'
 import { fieldValue } from './facts'
 import { fillProgress, indexScene, indexStories, startIndexing, stopIndexing } from './indexing'
 import { refreshSceneSafely } from '../storyIndex/upkeep'
+import { hashText } from './text'
 
 let keeper: Keeper | null = null
 
@@ -403,6 +405,21 @@ export function memorySettingsChanged(): void {
       console.error('memory settings listener failed', e)
     }
   }
+}
+
+/**
+ * The calm overhaul: whether the memory model now turned this scene down as its words are now (Issues › Memory, with Try
+ * again and another model for the memory). Null when it didn't, or there is no memory model.
+ */
+export function memoryRefusalOf(sceneId: ID): MemoryRefusal | null {
+  const k = currentKeeper()
+  if (!k || !k.db.open) return null
+  const m = memoryModel()
+  if ('error' in m) return null
+  const scene = kdb.keeperScene(k.db, sceneId)
+  if (!scene) return null
+  const kind = refusedKind(k.db, sceneId, hashText(scene.text), modelKeyOf(m))
+  return kind ? { sceneId, kind, model: m.choice.label || m.choice.modelId } : null
 }
 
 export function memoryStatus(): MemoryStatus {

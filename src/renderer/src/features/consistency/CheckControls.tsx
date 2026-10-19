@@ -7,8 +7,7 @@ import { ALL_CHECKS, DONE_CHECKS } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { runWords } from './CheckLine'
-import { checkStory, stopCheck, useChecks } from './checkStore'
+import { checkStory, stopCheck, useChecks, useRunWords } from './checkStore'
 
 /** A tab's count. Room is kept for it, so the tabs don't move when it arrives; nothing shows for none. */
 export function Count({ n, danger }: { n: number | null; danger?: boolean }): React.JSX.Element {
@@ -30,11 +29,13 @@ export function Count({ n, danger }: { n: number | null; danger?: boolean }): Re
  */
 export function CheckControls({ storyId, className }: { storyId: ID; className?: string }): React.JSX.Element {
   const run = useChecks((s) => s.run)
+  const words = useRunWords(run)
+  const shortWords = useRunWords(run, true)
   if (run) {
     return (
       <div className={cn('flex h-8 w-[320px] items-center justify-end gap-2.5', className)} role="status">
-        <span className="min-w-0 truncate text-[13px] text-muted" title={runWords(run)}>
-          {run.storyId === storyId ? runWords(run) : `${runWords(run, true)}, in another story`}
+        <span className="min-w-0 truncate text-[13px] text-muted" title={words}>
+          {run.storyId === storyId ? words : `${shortWords}, in another story`}
         </span>
         <Button icon={<Square size={12} />} loading={run.stopping} onClick={() => void stopCheck()}>
           Stop

@@ -21,6 +21,7 @@ import { castBuilding, useBuildWatch, watchBuilds } from './buildWatch'
 import { usePolish } from './polishRun'
 import { withPolish } from './polish'
 import { estimateDraftCost, shortModelName } from './format'
+import { useDraftWait } from '@/features/waits/useDraftWait'
 import { useDelayed } from './parts'
 
 /** Where a draft goes in a scene that already has text: in place of it, or after it. */
@@ -413,11 +414,11 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   // Some models (OpenAI's reasoning models, for one) set their own creativity and take no setting for it.
   const fixedCreativity = writer?.sampling === false
   const modelName = writer ? shortModelName(writer.label || writer.modelId) : null
+  // The calm overhaul: each step before the first word is named, calmly (features/waits).
+  const wait = useDraftWait(sceneId, phase === 'starting')
   const status =
     phase === 'starting'
-      ? memoryReading
-        ? 'Updating memory…'
-        : 'Getting ready…'
+      ? (wait?.words ?? (memoryReading ? 'Catching up the memory…' : 'Getting ready…'))
       : phase === 'polishing'
         ? 'Polishing…'
         : retrying
@@ -427,9 +428,7 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
             : 'Writing…'
   const statusTitle =
     phase === 'starting'
-      ? memoryReading
-        ? 'Bringing the memory up to date with earlier scenes first, so the draft knows what happened in them.'
-        : 'Getting the draft ready.'
+      ? (wait?.title ?? 'Getting the draft ready.')
       : phase === 'polishing'
         ? 'The draft is written. A second pass is polishing it; you can accept or reject the result.'
         : (retrying ?? undefined)

@@ -61,7 +61,9 @@ function useActivity(editor: Editor, sceneId: ID, g: Generate): { activity: Acti
     polish: { running: polishing, stopping: polishStopping },
     change,
     beats,
-    memoryReading
+    memoryReading,
+    // Each step before the first word, named calmly (the same words as Generate's status: useGenerate's `status`).
+    waitLine: draftPhase === 'starting' ? g.status : null
   })
   return { activity, changeId: change?.id ?? null }
 }

@@ -203,6 +203,12 @@ export interface CheckProgress {
   sceneIds?: ID[]
   /** The scene being checked now. */
   currentSceneId?: ID | null
+  /**
+   * The calm overhaul: what the run is waiting for before it can check `currentSceneId`, so the window says so rather than
+   * waiting in silence: 'memory' while the memory catches up with the scene and those before it (Check now goes ahead
+   * without: checkWithoutWaiting). Left out: not waiting.
+   */
+  waiting?: 'memory'
 }
 
 export interface CheckDone {

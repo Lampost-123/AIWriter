@@ -22,6 +22,7 @@ import { pieceText } from '@shared/stageItems'
 import { stageFor } from '../mustStay'
 import { whereIs } from '../../storyIndex/placed'
 import { clip, entryText, firstLines, passageOf, wholeSentences } from './text'
+import { draftStep } from '../steps'
 
 type DB = Database.Database
 
@@ -480,12 +481,18 @@ export async function answerLookups(
   ctx: LookupContext
 ): Promise<{ results: ChatMessage[]; steps: AgentStep[]; answers: LookupAnswer[] }> {
   const answers: LookupAnswer[] = []
-  for (const [i, c] of calls.entries()) {
-    answers.push(
-      i < LOOKUPS_MOST
-        ? await runLookup(c, ctx)
-        : { tool: c.name, label: 'Not looked up', text: `Not looked up: at most ${LOOKUPS_MOST} look-ups at once.`, ok: false, facts: [], passages: [] }
-    )
+  // The calm overhaul: the window says "Looking up 3 things…" while they are answered, then planning again (ai/steps.ts).
+  draftStep(ctx.sceneId, 'lookups', Math.min(calls.length, LOOKUPS_MOST))
+  try {
+    for (const [i, c] of calls.entries()) {
+      answers.push(
+        i < LOOKUPS_MOST
+          ? await runLookup(c, ctx)
+          : { tool: c.name, label: 'Not looked up', text: `Not looked up: at most ${LOOKUPS_MOST} look-ups at once.`, ok: false, facts: [], passages: [] }
+      )
+    }
+  } finally {
+    draftStep(ctx.sceneId, 'plan')
   }
   return {
     answers,

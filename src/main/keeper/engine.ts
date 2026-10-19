@@ -179,6 +179,11 @@ export class Keeper {
   private closed = false
   private noModel: string | null = null
   private waiters: { ids: Set<ID>; resolve: () => void }[] = []
+  /**
+   * The calm overhaul: each wait on the memory before a draft or a check, as far as it has got (status().catchingUp), so
+   * the window can say "Catching up the memory: scene 3 of 5" rather than "Getting ready…".
+   */
+  private catching: { sceneId: ID; ids: Set<ID>; done: number; total: number; stage: 'earlier' | 'scene' }[] = []
   private lastStatus = ''
   /** Scenes Adam asked to have read again in full (B8), until each has been read; and how many he asked for at once. */
   private readonly rereads = new Set<ID>()
@@ -427,10 +432,25 @@ export class Keeper {
       this.urgent = [...ids, ...this.urgent.filter((x) => !ids.includes(x))]
       this.queue = this.queue.filter((x) => !ids.includes(x))
       const wait = new Promise<void>((resolve) => this.waiters.push({ ids: new Set(ids), resolve }))
-      this.kick()
-      await wait
+      await this.catchingUp(sceneId, ids, 'earlier', () => {
+        this.kick()
+        return wait
+      })
     }
     return before
+  }
+
+  /** Waits on `wait` while the status says how far the memory has got with `ids` for the scene (the calm overhaul). */
+  private async catchingUp<T>(sceneId: ID, ids: ID[], stage: 'earlier' | 'scene', wait: () => Promise<T>): Promise<T> {
+    const entry = { sceneId, ids: new Set(ids), done: 0, total: ids.length, stage }
+    this.catching.push(entry)
+    this.emitStatus()
+    try {
+      return await wait()
+    } finally {
+      this.catching = this.catching.filter((c) => c !== entry)
+      this.emitStatus()
+    }
   }
 
   /**
@@ -452,9 +472,11 @@ export class Keeper {
     const late = new Promise<'timed-out'>((resolve) => {
       if (Number.isFinite(limitMs)) timer = setTimeout(() => resolve('timed-out'), limitMs)
     })
-    this.kick()
     try {
-      return await Promise.race([read, late])
+      return await this.catchingUp(sceneId, [sceneId], 'scene', () => {
+        this.kick()
+        return Promise.race([read, late])
+      })
     } finally {
       clearTimeout(timer)
     }
@@ -547,7 +569,8 @@ export class Keeper {
     }
     if (this.reading?.sceneId !== sceneId && !this.queue.includes(sceneId) && !this.urgent.includes(sceneId)) return
     if ('error' in this.deps.model() || this.readRefused(sceneId)) return
-    await new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))
+    const read = new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))
+    await this.catchingUp(sceneId, [sceneId], 'scene', () => read)
   }
 
   /**
@@ -642,7 +665,11 @@ export class Keeper {
       error: (behind > 0 || this.rereads.size > 0) && this.noModel ? this.noModel : (failure?.error ?? null),
       lastUpdate: kdb.lastUpdate(this.db),
       // A re-read Adam asked for (B8): how many scenes are still to be read, of how many.
-      ...(this.rereads.size ? { rereading: { left: this.rereads.size, total: Math.max(this.rereadTotal, this.rereads.size) } } : {})
+      ...(this.rereads.size ? { rereading: { left: this.rereads.size, total: Math.max(this.rereadTotal, this.rereads.size) } } : {}),
+      // The calm overhaul: a draft or a check waiting on the memory, and how far it has got.
+      ...(this.catching.length
+        ? { catchingUp: this.catching.map(({ sceneId, done, total, stage }) => ({ sceneId, done, total, stage })) }
+        : {})
     }
   }
 
@@ -723,6 +750,9 @@ export class Keeper {
   }
 
   private settle(id: ID): void {
+    for (const c of this.catching) {
+      if (c.ids.delete(id)) c.done = Math.min(c.total, c.done + 1)
+    }
     for (const w of this.waiters) w.ids.delete(id)
     const ready = this.waiters.filter((w) => !w.ids.size)
     this.waiters = this.waiters.filter((w) => w.ids.size)

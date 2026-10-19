@@ -401,6 +401,13 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   } catch (e) {
     console.error('Could not note whether the provider worked', e)
   }
+  // The calm overhaul: a scene the writer model turned down is said so, and the window offers another of Adam's models.
+  const turnedDown =
+    !job.closed &&
+    (outcome.failure?.type === 'refused' ||
+      !!refused ||
+      (outcome.failure?.type === 'http' && outcome.failure.status === 403) ||
+      (status === 'complete' && looksLikeRefusalReply(job.text)))
   emit('generation:done', {
     generationId: job.id,
     sceneId: job.sceneId,
@@ -409,7 +416,8 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     promptTokens: outcome.promptTokens,
     completionTokens: outcome.completionTokens,
     cost,
-    cutOff
+    cutOff,
+    ...(turnedDown ? { refused: true } : {})
   })
   return {
     status,

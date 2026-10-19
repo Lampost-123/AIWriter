@@ -19,11 +19,18 @@ import { RepetitionTab, ThreadsTab } from './ReportTabs'
 import { useLoad } from './useLoad'
 import { DeskConsistency } from './desk/DeskConsistency'
 import { useDesk } from '@/features/look/look'
+import { bySection, sectionOf } from '@/features/issues/sections'
+import { SectionFilter } from '@/features/issues/SectionFilter'
 
 type Tab = 'issues' | 'repetition' | 'threads'
 
 /** The tab last open, so coming back to the page shows it again (this run of the app only). */
 let lastTab: Tab = 'issues'
+
+/** The sections a story's issues fall in (features/issues/sections.ts), and the one last shown. */
+type RoomSection = 'slips' | 'questions' | 'threads'
+const ROOM_SECTIONS: readonly RoomSection[] = ['slips', 'questions', 'threads']
+let lastSection: RoomSection | 'all' = 'all'
 
 /**
  * What each story's page last showed, and where each tab was scrolled to, by world and story: coming back
@@ -108,8 +115,29 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
       return mine && !(i.updatedAt > mine.updatedAt) ? mine : i
     })
   }, [issues.data, changed])
+  // The one Issues list's sections (the calm overhaul): the story's issues fall in Slips, Questions and Plot threads.
+  const [section, setSection] = useState<RoomSection | 'all'>(lastSection)
+  const pickSection = (v: RoomSection | 'all'): void => {
+    lastSection = v
+    setSection(v)
+  }
+  const sectionCounts = useMemo(() => {
+    const open = (list ?? []).filter((i) => i.status === 'open' && !i.later)
+    const by = bySection(open)
+    return { all: open.length, slips: by.slips.length, questions: by.questions.length, threads: by.threads.length }
+  }, [list])
+  const shownList = useMemo(() => (list && section !== 'all' ? list.filter((i) => sectionOf(i) === section) : list), [list, section])
   // Grouped only once the outline is here too, so issues never show as none while it loads.
-  const groups = useMemo(() => (list && outline ? groupIssues(list, outline, showIgnored) : null), [list, outline, showIgnored])
+  const groups = useMemo(() => (shownList && outline ? groupIssues(shownList, outline, showIgnored) : null), [shownList, outline, showIgnored])
+  const filters = (
+    <SectionFilter<RoomSection>
+      value={section}
+      counts={sectionCounts}
+      onChange={pickSection}
+      sections={ROOM_SECTIONS}
+      className={desk ? 'ck-sections px-0 pb-3 pt-1' : 'mx-auto w-full max-w-3xl px-6 pt-4'}
+    />
+  )
   const storyScenes = useMemo(() => new Set(outline?.scenes.map((s) => s.id) ?? []), [outline])
 
   const pick = (t: string): void => {
@@ -148,7 +176,14 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
         failure={failure}
         scroller={(t, children) => (
           <KeptScroll k={k} tab={t}>
-            {children}
+            {t === 'issues' ? (
+              <>
+                <div className="ck-sections-wrap">{filters}</div>
+                {children}
+              </>
+            ) : (
+              children
+            )}
           </KeptScroll>
         )}
       />
@@ -205,6 +240,7 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
         ) : null}
         <TabsContent value="issues" className="flex flex-col">
           <KeptScroll k={k} tab="issues">
+            {filters}
             <IssuesTab
               storyId={storyId}
               groups={groups}

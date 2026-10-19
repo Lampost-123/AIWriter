@@ -17,7 +17,6 @@ import {
   pickOccurrence,
   reportHeadline,
   reportWhen,
-  runFor,
   sentenceAround,
   splitIssues,
   usableFix
@@ -117,21 +116,6 @@ describe('the Issues tab’s words', () => {
     })
     expect(memoryFixWords(i)).toBe('Set Mara’s eyes to “green” in the memory')
     expect(memoryFixWords(issue())).toBeNull()
-  })
-
-  it('finds the run covering a scene, Adam’s own before a background one', () => {
-    const p = (runId: string, sceneIds: string[], background = false) => ({
-      runId,
-      target: { scope: 'story' as const, id: 'b1' },
-      done: 0,
-      total: sceneIds.length,
-      current: null,
-      sceneIds,
-      background
-    })
-    expect(runFor({ a: p('a', ['s1'], true), b: p('b', ['s1', 's2']) }, 's1')?.runId).toBe('b')
-    expect(runFor({ a: p('a', ['s1'], true) }, 's1')?.runId).toBe('a')
-    expect(runFor({ a: p('a', ['s2']) }, 's1')).toBeNull()
   })
 
   it('widens words to the sentence they are in for Rewrite', () => {
