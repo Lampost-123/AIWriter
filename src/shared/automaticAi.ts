@@ -1,7 +1,9 @@
-// Automatic AI (the AI overhaul, 2026-10-19): one choice for how much the AI does by itself, in place of setting eight
+// Automatic AI (the AI overhaul, 2026-10-19): one choice for how much the AI does by itself, in place of setting seven
 // switches one by one. Each level is a set of those switches; the switches stay in Settings › Models for fine-tuning,
 // and a mix that matches no level reads as Custom. The memory keeper isn't here: it keeps the story's memory in step
-// with the words, so it always runs. Nothing changes until Adam picks a level. Pure: no Electron, no React.
+// with the words, so it always runs. Nor is the plan before writing: the writer always plans what it will write, and
+// gathers what it needs, before it writes (Adam, 2026-10-19), so no level turns planFirst off. Nothing changes until
+// Adam picks a level. Pure: no Electron, no React.
 
 import type { Settings } from './types'
 
@@ -9,7 +11,6 @@ export type AutomaticAiLevel = 'off' | 'light' | 'full'
 
 /** The switches a level sets, each one an AI call (or several) the app makes without being asked. */
 export const AUTOMATIC_AI_KEYS = [
-  'planFirst',
   'sceneContracts',
   'continuityBrief',
   'checkNewWords',
@@ -23,8 +24,8 @@ export type AutomaticAiKey = (typeof AUTOMATIC_AI_KEYS)[number]
 
 /**
  * What each level switches on.
- * - Off: nothing but the memory. Check, Critique and planning still work whenever Adam asks.
- * - Light: what keeps drafts on track for little cost: the scene plan and its contract, a quick check of new words, and
+ * - Off: nothing but the memory and the plan before each draft. Check and Critique still work whenever Adam asks.
+ * - Light: what keeps drafts on track for little cost: the scene's contract, a quick check of new words, and
  *   a check when a scene is marked done. Left off: the continuity brief (it can read the whole book before every
  *   draft), the check a little after each draft, and second opinions. The critic still reads in Write the whole
  *   chapter, which Adam asks for.
@@ -32,7 +33,6 @@ export type AutomaticAiKey = (typeof AUTOMATIC_AI_KEYS)[number]
  */
 export const AUTOMATIC_AI_LEVELS: Record<AutomaticAiLevel, Record<AutomaticAiKey, boolean>> = {
   off: {
-    planFirst: false,
     sceneContracts: false,
     continuityBrief: false,
     checkNewWords: false,
@@ -42,7 +42,6 @@ export const AUTOMATIC_AI_LEVELS: Record<AutomaticAiLevel, Record<AutomaticAiKey
     chapterCritic: false
   },
   light: {
-    planFirst: true,
     sceneContracts: true,
     continuityBrief: false,
     checkNewWords: true,
@@ -52,7 +51,6 @@ export const AUTOMATIC_AI_LEVELS: Record<AutomaticAiLevel, Record<AutomaticAiKey
     chapterCritic: true
   },
   full: {
-    planFirst: true,
     sceneContracts: true,
     continuityBrief: true,
     checkNewWords: true,
@@ -77,7 +75,7 @@ export function automaticAiLevel(settings: Partial<Settings>): AutomaticAiLevel 
   return 'custom'
 }
 
-/** The settings change that picks a level. */
-export function automaticAiSettings(level: AutomaticAiLevel): Pick<Settings, AutomaticAiKey> {
-  return { ...AUTOMATIC_AI_LEVELS[level] }
+/** The settings change that picks a level. The plan before writing is always on, whatever the level. */
+export function automaticAiSettings(level: AutomaticAiLevel): Pick<Settings, AutomaticAiKey | 'planFirst'> {
+  return { ...AUTOMATIC_AI_LEVELS[level], planFirst: true }
 }

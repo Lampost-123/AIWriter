@@ -1,6 +1,6 @@
 // Settings › Models: Automatic AI (the AI overhaul, 2026-10-19), how much the AI does by itself, in one choice. Each
-// level sets the planning and checking switches below it (src/shared/automaticAi.ts); changing any of those switches by
-// hand makes it Custom. The memory always runs.
+// level sets the checking switches below it (src/shared/automaticAi.ts); changing any of those switches by hand makes
+// it Custom. The memory and the plan before each draft always run.
 import { useId } from 'react'
 import { SettingsSection } from '@/components/ui'
 import { useApp } from '@/lib/store'
@@ -11,12 +11,12 @@ const LEVELS: { value: AutomaticAiLevel; label: string; help: string }[] = [
   {
     value: 'off',
     label: 'Off',
-    help: 'Only the story’s memory runs by itself. Planning, Check and Critique work whenever you ask.'
+    help: 'Only the story’s memory and the plan before each draft run by themselves. Check and Critique work whenever you ask.'
   },
   {
     value: 'light',
     label: 'Light',
-    help: 'Plans each scene and checks new words and finished scenes. Skips the extra checks after every draft and the read of the whole book before each one.'
+    help: 'Checks new words and finished scenes. Skips the extra checks after every draft and the read of the whole book before each one.'
   },
   {
     value: 'full',
