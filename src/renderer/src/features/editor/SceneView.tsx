@@ -88,6 +88,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const columnRef = useRef<HTMLDivElement>(null)
   const ctrlRef = useRef<SceneController | null>(null)
+  // The panels' foot of the page, kept clear of by the messages in the corner.
+  const panelsFootRef = useRef<HTMLDivElement>(null)
   const [shown, setShown] = useState<Shown | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftBelow, setDraftBelow] = useState(false)
@@ -415,6 +417,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           bar (--read-aloud-lift, set by ReadAloudBar). (On the desk the AI dock and what lies over it say so.) */}
       {shown && !error && !desk ? (
         <div
+          ref={panelsFootRef}
           data-page-foot
           className="pointer-events-none absolute left-0 right-2.5 z-20 flex flex-col items-center gap-2.5 bg-[linear-gradient(to_top,var(--page)_calc(100%-28px),transparent)] px-6 pb-5 pt-8 transition-[bottom] duration-150 ease-out empty:hidden motion-reduce:transition-none"
           style={{ bottom: 'calc(var(--read-aloud-lift, -4px) + 4px)' }}
@@ -435,6 +438,9 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           ) : null}
         </div>
       ) : null}
+      {/* Messages in the corner keep clear of the panels' foot while it shows (the receipt, the director's line): the calm
+          overhaul, as the desk's dock does. Empty, it is hidden and lifts nothing. */}
+      {shown && !error && !desk ? <ToastsAbove target={panelsFootRef} /> : null}
       {/* The panels have no dock: what the AI is doing in the scene is said for the foot's turns all the same. */}
       {shown && !error && !desk ? <FootActivity editor={editor} sceneId={shown.id} /> : null}
       {shown && !error ? (

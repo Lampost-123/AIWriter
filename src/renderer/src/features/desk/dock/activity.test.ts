@@ -19,9 +19,17 @@ describe('what the AI dock shows', () => {
   it('says why a draft is getting ready: the memory catching up first, or just getting ready', () => {
     const a = activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'starting' }, memoryReading: true })
     expect(a).toEqual({ kind: 'starting', what: 'draft', memory: true })
-    expect(activityLine(a)).toBe('Updating memory…')
+    expect(activityLine(a)).toBe('Catching up the memory…')
     expect(isBusy(a)).toBe(true)
     expect(activityLine(activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'starting' } }))).toBe('Getting ready…')
+  })
+
+  it('names the step a draft is on before its first word (the calm overhaul)', () => {
+    const a = activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'starting' }, waitLine: 'Planning the scene…' })
+    expect(a).toEqual({ kind: 'starting', what: 'draft', memory: false, line: 'Planning the scene…' })
+    expect(activityLine(a)).toBe('Planning the scene…')
+    // Only while it gets ready.
+    expect(activityOf({ ...quiet, waitLine: 'Planning the scene…' })).toEqual({ kind: 'idle' })
   })
 
   it('counts an Add below draft’s words, with its progress when the length is known', () => {

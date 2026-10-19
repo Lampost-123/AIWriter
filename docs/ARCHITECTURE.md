@@ -1281,7 +1281,8 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   `changesMade` moves, like the world views.
 - **Badges and runs** (`features/consistency/checkStore.ts`): counts reload on `issues:changed`, the story and the
   world, never on `outlineRev`. One check runs at a time in the interface; it shows in the binder (`CheckLine`) and
-  on the Consistency page, and ends in a toast.
+  on the Consistency page, and ends in a toast. Since the calm overhaul every run, whoever started it, is in this one
+  store, and every way to ask for a check is the one Check (see "The calm overhaul").
 
 **Live checks** (`src/shared/liveChecks.ts`, `features/liveChecks/`, `checks/live.ts`, `db/checksLive.ts`)
 - The checking happens in the window, paragraph by paragraph (`LiveCache`, by paragraph text), about 300 ms
@@ -2425,7 +2426,7 @@ Craft feedback on a scene or a whole chapter, only when Adam asks: never run by 
 (that is the consistency checker's, and its report in the Issues tab stays as it is). Contract `contracts/critique.ts`,
 main side `src/main/critique/`, handlers `ipc/critique.ts`, the tab `features/critique/`.
 
-- **Where.** The scene panel's Critique tab, beside Issues (a speech mark when the panel is narrow), with This scene /
+- **Where.** The scene's Issues list › Craft notes since the calm overhaul (below; the scene panel's Critique tab before), with This scene /
   This chapter (the open scene's chapter); Critique scene and Critique chapter there (Stop while it reads), and the
   palette's "Critique this scene", "Critique this chapter" and "Scene critique" (the tab).
 - **The request** (`critique/run.ts`, `prompts.ts`): one 'critique' record through the task runner, with the writer
@@ -4894,6 +4895,78 @@ director's line and the pointer to a draft written out of sight, over the words.
   "Writing…"), so its words and Stop stay whole.
 - Tests: `features/desk/dock/foot.test.ts`, `activity.test.ts` (`dockKindOf`); the app tests of the parts (desk, director,
   directionReceipt, planFirst, revise, beats, variants (the desk at 1024 by 700, 1440 by 900 and 960), direction).
+
+## The calm overhaul: one Check, one Issues list, one note per draft (Adam, 2026-10-19)
+
+Adam found the app "annoying and frustrating": nine kinds of checking each reached its own way (the claim check after a
+draft, the critic after a draft, the check on marking a scene done, Check this scene, the Critique tab, the chapter
+critic, the memory check list, live checks, AI-phrase underlining), one draft could bring three or four messages,
+"Getting ready…" said nothing for a minute, a scene the memory model turned down was left unread without a word, and a
+check could wait two minutes in silence. Nothing Adam could do is gone; how each is reached is one way now. Automatic
+checks are still governed by Automatic AI (`shared/automaticAi.ts`) and never go through the one Check.
+
+- **One Check** (`features/check/`): the top bar's Check on both layouts (`CheckButton.tsx`, beside Scene details on the
+  desk; its word goes under 1,680 px there, under 1,280 px on the panels): Check this scene, Check this chapter, Check the
+  whole story, "Craft notes too" (kept on this computer, `useCheckPrefs`: the critic reads the scene or chapter as well; for
+  the story it adds voice and style), and Show the issues. While a check runs it says how (calmly) and has Stop, and Check
+  now while it waits for the memory. Every other way in goes through the same `runCheck` (`runCheck.ts`): the Issues
+  list's "Check this scene", the binder's row menus, the palette's check-scene / chapter / story. A scene's check opens
+  its Issues list (`showIssues(sceneId, section)`); a chapter's or the story's runs while Adam carries on and ends in one
+  note with Show (the Check room). The Check room keeps its own "Check this story" with its menu (`CheckControls`).
+- **Every run in one store** (`features/consistency/checkStore.ts`, its pure part `runsLogic.ts`): every run from the
+  `checks:*` events whoever started it (`runs`, insertion order = the order they check in), the one Adam asked for (`run`,
+  with Stop before it went out), what went wrong per scene (`failed`) and for the Check room (`failure`), the badges, and
+  `onCheckEnded` for the Issues list and the draft's note. `issuesStore.ts` keeps only the scenes' issues. `runLine` says
+  what a run is doing: "Waiting for the check of Ch 1, Sc 1 to finish…" (behind another), "Waiting for the memory to catch
+  up: scene 2 of 4", "Checking Ch 3, Sc 2 · 2 of 5". A scene's own check, in its list, is "Checking this scene…".
+- **One Issues list, in sections** (`features/issues/sections.ts`, `IssuesPanel.tsx`, `SectionFilter.tsx`): Slips (words
+  that disagree with the record or the rules), Questions (`sectionOf`: asked of Adam, ending in "?", as check and repair's
+  are; the scene's contract; no words to point at; a `memoryFix`, where his note may be the one that's wrong; voice, style,
+  other stories), Craft notes (the critic, `CritiquePanel` as the Critique tab was; in "All" a line with how many notes are
+  still to do and Show), Plot threads (thread issues, and the memory check list's plot threads left waiting for this
+  scene) and Memory (the memory check list's other rows for this scene, `CheckQueue bare`; a scene its model turned down;
+  "Memory not updated"). Filters: All or one section, two even rows of three in a narrow panel (`@min-[560px]` one row);
+  the section shown is kept while the app runs (`useIssuesView`). The head says "2 slips · 1 question". The scene panel
+  has no Critique tab: `inspectorTab 'critique'` (the palette's "Scene critique", a critique's ready note) shows Issues ›
+  Craft notes. The Check room's story-wide list has the same filters for its sections (Slips, Questions, Plot threads).
+- **A scene the memory model turned down** (`keeper/refusals.ts` `refusedKind`, `keeper/index.ts` `memoryRefusalOf`,
+  `AppApi.memoryRefusal`, `contracts/calm.ts`): Issues › Memory says so in plain words, with Try again (`updateMemoryNow`)
+  and "Use <model> for the memory": another model Adam has set up (`draftNote/compose.ts` `anotherModel`: the writer's,
+  chat's, the memory's…, never the one that refused), which becomes the memory model, with Undo.
+- **One note per draft** (`features/draftNote/`): `compose.ts` (pure) makes one line of everything a Generate draft has to
+  say: "Draft written · 2 small slips fixed in amber · 1 question in Issues · 2 common AI phrases underlined"; `draftNote.ts`
+  keeps each scene's note and shows it once, changed in place as more comes (each change gives it its full time again); a
+  note that went is shown again only with news, and only the news. Its buttons, the one that matters most first: Try with
+  another model (a refusal), the fix for a problem (`draftEndActions`), Undo (the amber fixes), Show (Issues), Show (the
+  first phrase), Show (the scene). A draft written in the scene on screen with nothing found says nothing. Fed by
+  `generate/draftRun.ts` (how it ended; the briefing note as it starts), `repair/repairRun.ts` (`noteDraftRepair`, when the
+  words are its draft's record), `liveChecks/liveActions.ts` (`noteDraftPhrases`, within 30 s of its end) and the check
+  after the draft (`issuesStore.ts` → `noteDraftCheck`). Other landings (Continue, a beat, a rewrite accepted) keep their
+  own messages. The corner messages keep clear of the panels' foot of the page while it shows (the receipt, the
+  director's line: `SceneView.tsx`, `ToastsAbove` on `data-page-foot`), as they do of the desk's dock.
+- **A refused draft** (`generation:done` `refused`, set in `ai/drafts.ts` for a content filter, a refusal, a 403, or words
+  that are plainly a refusal): the note says so and offers "Try with <model>", another model Adam has set up, for that one
+  draft (`DraftOptions.model`, honoured by `ai/draftFlow.ts` `writerModel` only for one of his own models); the writer
+  model stays as he chose. A refusal that came back as words, in a scene that had none before, is replaced; another refusal
+  offers yet another model (`triedModels`). Check and repair doesn't check a refusal's words.
+- **Plain waits** (`main/ai/steps.ts`, `features/waits/`): `draftFlow.ts` says each step as it begins ('memory',
+  'gathering', 'plan'), the look-ups say how many things they look up (`ai/lookups` `answerLookups`, then 'plan' again)
+  and `ipc/ai.ts` 'writing'; `ipc/calm.ts` sends them as `draft:step`. The memory keeper says how far a wait on it has got
+  (`MemoryStatus.catchingUp`: the scene waited for, earlier scenes read so far of how many, or its own latest words; engine
+  `catchingUp`). The status line (Generate's status in `useGenerate.ts`, the desk dock's `activityLine` through `waitLine`)
+  says "Catching up the memory: scene 3 of 5", "Gathering what the scene needs…", "Planning the scene…", "Looking up 3
+  things…", "Writing…". Calm (`waitWords.ts` `calmStep`, `useCalmLine`): a step over in less than 300 ms is never shown.
+- **A Check that starts at once** (`ipc/checksIssues.ts`): each run's latest progress is noted by the scene it is at (the
+  runs' `emit` is wrapped); a wait on the memory before a scene that lasts 300 ms is said (`checks:progress` with
+  `waiting: 'memory'`), and `checkWithoutWaiting(runId)` ends that wait alone (the run checks with what the memory has).
+  The waits' limits (a minute each) are as before; the window shows them, with Check now.
+- **Tests**: `consistency/runsLogic.test.ts`, `checkStore.test.ts` (one store), `issues/sections.test.ts`,
+  `draftNote/compose.test.ts`, `draftNote.test.ts`, `waits/waitWords.test.ts`, `desk/dock/activity.test.ts`,
+  `main/keeper/catchingUp.test.ts`, `main/ai/steps.test.ts`; `tests/e2e/calm.spec.ts` (Check from the top bar → the list in
+  sections, on both layouts; one note after a draft; the wait steps; a check waiting for the memory and Check now; a
+  refused memory scene's buttons; a refused draft's Try with), and the specs that used the Critique tab and the old
+  messages (`critique.spec.ts`, `issues.spec.ts`, `repair.spec.ts`, `contract.spec.ts`, `live-checks.spec.ts`,
+  `ai.spec.ts`, `manuscript.spec.ts`).
 
 ## Milestone 1 scope
 

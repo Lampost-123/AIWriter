@@ -113,7 +113,7 @@ test('marking a scene done catches a planted contradiction; Ignore keeps it igno
 
     // Checking the scene again (every check) doesn't bring the ignored one back.
     await issuesPanel(win).getByRole('button', { name: 'Check this scene' }).click()
-    await expect(issuesPanel(win).getByRole('status')).toContainText('Checking…')
+    await expect(issuesPanel(win).getByRole('status')).toContainText('Checking this scene…')
     await expect(issuesPanel(win).getByRole('button', { name: 'Check this scene' })).toBeVisible({ timeout: 30_000 })
     await expect(issuesPanel(win).getByRole('article')).toHaveCount(0)
     await expect(issuesPanel(win).getByRole('button', { name: 'Show ignored (1)' })).toBeVisible()
@@ -287,7 +287,7 @@ test('without a model Check this scene says what to set up, and marking done say
   await expect(toasts(win).getByText(/^Found/)).toHaveCount(0)
 })
 
-test('six tabs fit the scene panel at its narrowest, with the count over the Issues tab', async ({ launch }) => {
+test('the scene panel’s tabs fit at its narrowest, with the count over the Issues tab', async ({ launch }) => {
   const fake = await startFake()
   try {
     const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
@@ -300,7 +300,9 @@ test('six tabs fit the scene panel at its narrowest, with the count over the Iss
     const list = scenePanel(win).getByRole('tablist')
     const box = await list.boundingBox()
     expect(box!.width).toBeLessThanOrEqual(262)
-    for (const name of ['Scene card', 'Context', 'Cast', /^Issues/, 'Critique', 'Drafts']) {
+    // The critic's notes are the Issues list's Craft notes since the calm overhaul: five tabs.
+    await expect(list.getByRole('tab')).toHaveCount(5)
+    for (const name of ['Scene card', 'Context', 'Cast', /^Issues/, 'Drafts']) {
       const tab = list.getByRole('tab', { name })
       const t = await tab.boundingBox()
       expect(t!.x + t!.width).toBeLessThanOrEqual(box!.x + box!.width + 0.5)

@@ -20,6 +20,7 @@ import { activeStream, sceneText } from '@/features/editor/streamDoc'
 import { activeSuggestion } from '@/features/edits/suggestions'
 import { WORDS_META } from '@/features/goals/wordsMeta'
 import { showIssues } from '@/features/issues/issuesStore'
+import { noteDraftRepair } from '@/features/draftNote/draftNote'
 import { fixesTr, landedParts, undoFixesTr, type LandedPart, type MadeFix } from './apply'
 import { addRepairMarks, onRepairHistory, removeRepairMarks, repairMarks, typedWhileStreaming, type RepairMark } from './marks'
 
@@ -142,7 +143,7 @@ async function run(l: Landing): Promise<LandedCheck> {
   const made = outcome.fixes.length ? await mend(l, parts, outcome.fixes, landing) : []
   if (outcome.fixes.length) issuesKept(await api.repairsApplied(outcome.repairId, made.map((m) => m.id)).catch(() => ({}) as Record<ID, ID>))
   const asked = outcome.fixes.length - made.length + outcome.questions
-  tell(l.sceneId, landing, made, asked)
+  tell(l, landing, made, asked)
   return { checked: true, mended: made.length, asked }
 }
 
@@ -187,9 +188,16 @@ const sentence = (s: string): string => {
   return !t || /[.!?]["”’']?$/.test(t) ? t : `${t}.`
 }
 
-/** Says what was mended (with Undo) and what is asked. */
-function tell(sceneId: ID, landing: ID, made: MadeFix[], asked: number): void {
+/**
+ * Says what was mended (with Undo) and what is asked: in a Generate draft's one note when the words are its draft's
+ * (features/draftNote, the calm overhaul), else in a message of its own.
+ */
+function tell(l: Landing, landing: ID, made: MadeFix[], asked: number): void {
+  const sceneId = l.sceneId
   const show = { label: 'Show', run: () => void showIssues(sceneId) }
+  if (!made.length && !asked) return
+  const why = made.length === 1 ? made[0].why.trim() || null : null
+  if (noteDraftRepair(sceneId, l.stageOf ?? l.recordId, { mended: made.length, why, questions: asked, undo: () => undo(sceneId, landing), show: show.run })) return
   const questions = asked === 1 ? 'A question about them is in the Issues tab.' : `${asked} questions about them are in the Issues tab.`
   if (made.length) {
     const what = made.length === 1 ? `Mended a slip in the new words, in amber: ${sentence(made[0].why)}` : `Mended ${made.length} slips in the new words, in amber.`

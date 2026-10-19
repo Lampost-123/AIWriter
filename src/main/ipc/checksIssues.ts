@@ -1,7 +1,7 @@
 // Milestone 5, AI checks part: issues and check runs. The work is done in src/main/checks/* and the SQL is in
 // db/checks.ts; this file connects them to the open world, the settings, the memory keeper and the window.
 import type { Handlers } from './index'
-import type { Issue } from '@shared/contracts/checks'
+import type { CheckDone, CheckProgress, Issue } from '@shared/contracts/checks'
 import { criticChecks } from '../repair'
 import type { EntryInput, ID } from '@shared/types'
 import * as repo from '../db/repo'
@@ -21,6 +21,7 @@ import { checkAfterDraft, closeRunsFor, setRunDeps, startCheck, stopCheck } from
 import { onDraftActivity } from '../ai/drafts'
 import { meaningForCheck } from '../retrieval'
 import { runOrWait } from '../usage'
+import type { Emit } from '../ai/tasks'
 
 /** How long a check waits for the memory to catch up before checking with what it has. */
 const CATCH_UP_MS = 60_000
@@ -41,17 +42,63 @@ const within = (p: Promise<unknown>, ms: number, signal: AbortSignal): Promise<v
     void p.finally(done)
   })
 
+// The calm overhaul (2026-10-19: Adam's Check sat on "Checking…" for up to two minutes while the memory caught up, saying
+// nothing): each run's latest progress, by the scene it is at, so a wait on the memory before that scene is said in the
+// window ('checks:progress' with `waiting: 'memory'`, once it has lasted WAIT_SAYS_MS) and can be skipped (Check now:
+// checkWithoutWaiting, which ends only the wait, never the run).
+const WAIT_SAYS_MS = 300
+const runAt = new Map<ID, CheckProgress>()
+const skips = new Map<ID, AbortController>()
+
+/** The check goes ahead now with what the memory has: the wait before its current scene ends (the run carries on). */
+export function checkWithoutWaiting(runId: ID): void {
+  skips.get(runId)?.abort()
+}
+
+/** The window's events, as sent, with each run's progress noted by the scene it is at. */
+const tracked: Emit = (event, payload) => {
+  if (event === 'checks:progress') {
+    const p = payload as CheckProgress
+    for (const [sceneId, q] of runAt) if (q.runId === p.runId) runAt.delete(sceneId)
+    if (p.currentSceneId && !p.waiting) runAt.set(p.currentSceneId, p)
+  } else if (event === 'checks:done') {
+    const runId = (payload as CheckDone).runId
+    for (const [sceneId, q] of runAt) if (q.runId === runId) runAt.delete(sceneId)
+    skips.delete(runId)
+  }
+  emit(event, payload)
+}
+
 setRunDeps({
   model: () => jobModel('check', modelSources()),
   prefs: getWritingPrefs,
-  emit,
+  emit: tracked,
   // As drafting does: queued or failed reads of earlier scenes on the line first, then the scene's own queued
   // read (so a clash the memory keeper raises from it isn't raised again by the check).
-  // Stop and the world closing end the wait at once.
+  // Stop and the world closing end the wait at once; so does Check now (checkWithoutWaiting), for the wait alone.
+  // A wait that lasts is said in the window, never silent.
   beforeScene: async (db, sceneId, signal) => {
-    await catchUpBeforeDraft(db, sceneId, CATCH_UP_MS, signal)
-    const k = currentKeeper()
-    if (k && k.db === db && !signal.aborted) await within(k.whenRead(sceneId), CATCH_UP_MS, signal)
+    const p = runAt.get(sceneId) ?? null
+    const skip = new AbortController()
+    if (p) skips.set(p.runId, skip)
+    const both = AbortSignal.any([signal, skip.signal])
+    let said = false
+    const say = p
+      ? setTimeout(() => {
+          said = true
+          emit('checks:progress', { ...p, waiting: 'memory' })
+        }, WAIT_SAYS_MS)
+      : null
+    try {
+      await catchUpBeforeDraft(db, sceneId, CATCH_UP_MS, both)
+      const k = currentKeeper()
+      if (k && k.db === db && !both.aborted) await within(k.whenRead(sceneId), CATCH_UP_MS, both)
+    } finally {
+      if (say) clearTimeout(say)
+      if (p && skips.get(p.runId) === skip) skips.delete(p.runId)
+      // The wait is over: the progress as it was, without it.
+      if (p && said && !signal.aborted) emit('checks:progress', p)
+    }
   },
   onKeyRejected: (model) => providers.markCheck(model.target.id, false),
   // Scene contracts switched off (long story memory fix 13): a check takes away what one found.

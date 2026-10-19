@@ -38,6 +38,8 @@ export interface ActivityInput {
   beats: boolean
   /** The memory is reading earlier scenes before the draft can start. */
   memoryReading: boolean
+  /** What the draft is doing before its first word, in words (the calm overhaul: features/waits), when known. */
+  waitLine?: string | null
 }
 
 /** What wrote, or is writing: Generate's draft, or an AI tool (Continue, mostly). */
@@ -45,7 +47,7 @@ export type Writer = 'draft' | EditTool
 
 export type Activity =
   | { kind: 'idle' }
-  | { kind: 'starting'; what: Writer; memory: boolean }
+  | { kind: 'starting'; what: Writer; memory: boolean; line?: string | null }
   | { kind: 'writing'; what: Writer; words: number; target: number | null; retrying: boolean; stopping: boolean }
   | { kind: 'polishing'; stopping: boolean }
   | { kind: 'review'; what: EditTool; label: string; words: number; accepting: boolean }
@@ -57,7 +59,7 @@ export function activityOf(i: ActivityInput): Activity {
   const c = i.change
   if (c) {
     const words = countWords(c.text)
-    if (c.status === 'starting') return { kind: 'starting', what: c.tool, memory: false }
+    if (c.status === 'starting') return { kind: 'starting', what: c.tool, memory: false, ...(i.waitLine ? { line: i.waitLine } : {}) }
     if (c.status === 'writing' || c.status === 'stopping') {
       return { kind: 'writing', what: c.tool, words, target: null, retrying: !!c.retrying, stopping: c.status === 'stopping' }
     }
@@ -66,7 +68,7 @@ export function activityOf(i: ActivityInput): Activity {
   // Beat by beat has the foot of the page while it is on (its bar says what it is doing).
   if (i.beats) return { kind: 'beats' }
   const d = i.draft
-  if (d.phase === 'starting') return { kind: 'starting', what: 'draft', memory: i.memoryReading }
+  if (d.phase === 'starting') return { kind: 'starting', what: 'draft', memory: i.memoryReading, ...(i.waitLine ? { line: i.waitLine } : {}) }
   if (d.phase === 'streaming' || d.phase === 'stopping') {
     return { kind: 'writing', what: 'draft', words: Math.max(0, d.written ?? 0), target: d.target, retrying: d.retrying, stopping: d.phase === 'stopping' }
   }
@@ -80,11 +82,11 @@ export const isBusy = (a: Activity): boolean => a.kind === 'starting' || a.kind 
 /** What the dock is doing, as the foot of the page takes turns by it (foot.ts): 'idle', 'busy', 'review' or 'beats'. */
 export const dockKindOf = (a: Activity): 'idle' | 'busy' | 'review' | 'beats' => (isBusy(a) ? 'busy' : (a.kind as 'idle' | 'review' | 'beats'))
 
-/** The words the busy dock says: "Writing… 120 words", "Updating memory…", "Polishing…". */
+/** The words the busy dock says: "Writing… 120 words", "Planning the scene…", "Polishing…". */
 export function activityLine(a: Activity): string {
   switch (a.kind) {
     case 'starting':
-      return a.memory ? 'Updating memory…' : 'Getting ready…'
+      return a.line || (a.memory ? 'Catching up the memory…' : 'Getting ready…')
     case 'writing': {
       if (a.stopping) return 'Stopping…'
       if (a.retrying) return 'The AI service is busy. Trying again…'

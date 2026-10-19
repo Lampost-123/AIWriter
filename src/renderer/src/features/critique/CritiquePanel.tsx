@@ -1,4 +1,5 @@
-// The Critique tab beside a scene (the scene and chapter critic, contracts/critique.ts): honest craft feedback on the
+// The critic beside a scene (the scene and chapter critic, contracts/critique.ts; the Issues list's Craft notes since the
+// calm overhaul, the Critique tab before): honest craft feedback on the
 // open scene or its whole chapter, only when Adam asks. "Critique scene" / "Critique chapter" asks the writer model
 // (with a Stop while it reads); the report it gives is kept, so coming back shows it at once, and says when the words
 // have changed since, with Critique again. A report is a short summary, what works, and a few notes, the ones that
@@ -424,24 +425,5 @@ function NoteCard({
         )}
       </div>
     </article>
-  )
-}
-
-/** The label of the scene panel's Critique tab: "Critique", or its icon when the panel is narrow (still read out). */
-export function CritiqueLabel({ crowded }: { crowded: boolean }): React.JSX.Element {
-  return crowded ? (
-    <>
-      <span className="@max-[460px]:sr-only">Critique</span>
-      <span aria-hidden title="Critique" className="@min-[460px]:hidden">
-        <MessageSquareQuote size={15} />
-      </span>
-    </>
-  ) : (
-    <>
-      <span className="@max-[360px]:sr-only">Critique</span>
-      <span aria-hidden title="Critique" className="@min-[360px]:hidden">
-        <MessageSquareQuote size={15} />
-      </span>
-    </>
   )
 }

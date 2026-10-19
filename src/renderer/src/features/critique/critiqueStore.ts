@@ -1,4 +1,4 @@
-// The Critique tab's data (the scene and chapter critic, contracts/critique.ts): the latest critique kept for each
+// The critic's data (the Issues list's Craft notes since the calm overhaul; the Critique tab before) (the scene and chapter critic, contracts/critique.ts): the latest critique kept for each
 // scene and chapter (loaded once, then checked against the saved words every few seconds while it shows, so the tab
 // can say they have changed since), the critiques being written now (with their task ids, for Stop), and the last one that went wrong. A
 // critique keeps going when Adam moves to another scene, so coming back shows it. Whether the tab shows the scene or
@@ -12,6 +12,7 @@ import { api, type ApiError } from '@/lib/api'
 import { flushAll, registerDiscarder } from '@/lib/flush'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
+import { useIssuesView } from '@/features/issues/sections'
 
 interface CritiqueState {
   /** By targetKey: the latest kept critique, null when there is none, missing until loaded. */
@@ -108,12 +109,23 @@ export async function startCritique(target: CritiqueTarget): Promise<void> {
       asked.set(key, ++loads)
       patch('saved', key, { critique: out.critique, changed: false, gone: [], wants: useCritiqueStore.getState().saved[key]?.wants ?? [] })
     } else if (out.status === 'error') patch('failed', key, out.error)
-    // Written while Adam was in another scene (or on another tab): a quiet word that it is ready.
+    // Written while Adam was in another scene (or looking at something else): a quiet word that it is ready, with Show
+    // (the Issues list's Craft notes, since the calm overhaul).
     if (out.status === 'complete' && !shownNow(target)) {
+      const sceneId = target.scope === 'scene' ? target.id : useApp.getState().sceneId
       toast(
-        target.scope === 'scene'
-          ? 'The scene’s critique is ready, in the Critique tab.'
-          : 'The chapter’s critique is ready, in the Critique tab.'
+        target.scope === 'scene' ? 'The scene’s critique is ready, in Issues › Craft notes.' : 'The chapter’s critique is ready, in Issues › Craft notes.',
+        sceneId
+          ? {
+              action: {
+                label: 'Show',
+                run: () => {
+                  setScope(target.scope)
+                  void import('@/features/issues/issuesStore').then((m) => m.showIssues(sceneId, 'craft'))
+                }
+              }
+            }
+          : {}
       )
     }
   } catch (e) {
@@ -198,7 +210,7 @@ function shownNow(target: CritiqueTarget): boolean {
   const app = useApp.getState()
   return (
     app.view.kind === 'write' &&
-    app.inspectorTab === 'critique' &&
+    (app.inspectorTab === 'critique' || (app.inspectorTab === 'issues' && useIssuesView.getState().section === 'craft')) &&
     !!app.settings?.layout.inspectorOpen &&
     shownTarget === targetKey(target)
   )

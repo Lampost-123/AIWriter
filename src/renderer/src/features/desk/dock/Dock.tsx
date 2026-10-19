@@ -31,6 +31,8 @@ import { activityLine, activityOf, dockKindOf, progressOf, type Activity } from 
 import { DockMenu } from './DockMenu'
 import { setDockKind } from './foot'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { memoryFor, memoryWords } from '@/features/consistency/runsLogic'
+import { useCalmLine } from '@/features/waits/useDraftWait'
 
 /** The change waiting (or being written) in the page for this scene, followed as the editor changes. */
 function useChange(editor: Editor, sceneId: ID): Suggestion | null {
@@ -48,7 +50,7 @@ function useChange(editor: Editor, sceneId: ID): Suggestion | null {
 }
 
 /** What the AI is doing in the scene now (activity.ts); without Generate's workings (`g`), no words counted. */
-function useActivity(editor: Editor, sceneId: ID, g: Pick<Generate, 'written' | 'targetWords'> | null): { activity: Activity; changeId: ID | null } {
+function useActivity(editor: Editor, sceneId: ID, g: Pick<Generate, 'written' | 'targetWords' | 'status'> | null): { activity: Activity; changeId: ID | null } {
   const draftPhase = useDraft((d) => (d.sceneId === sceneId ? d.phase : 'idle'))
   const retrying = useDraft((d) => (d.sceneId === sceneId ? !!d.retrying : false))
   const polishing = usePolish((p) => p.sceneId === sceneId)
@@ -56,12 +58,17 @@ function useActivity(editor: Editor, sceneId: ID, g: Pick<Generate, 'written' | 
   const beats = useBeats((s) => s.session?.sceneId === sceneId)
   const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
   const change = useChange(editor, sceneId)
+  const catching = useApp((s) => memoryFor(s.memoryStatus, sceneId))
+  const changeWait = useCalmLine(catching ? memoryWords(catching) : '') || null
   const activity = activityOf({
     draft: { phase: draftPhase, retrying, written: g?.written ?? null, target: g?.targetWords ?? null },
     polish: { running: polishing, stopping: polishStopping },
     change,
     beats,
-    memoryReading
+    memoryReading,
+    // Each step before the first word, named calmly (the same words as Generate's status: useGenerate's `status`); for
+    // Continue getting ready, the memory catching up when it is (features/waits).
+    waitLine: draftPhase === 'starting' ? (g?.status ?? null) : change?.status === 'starting' ? changeWait : null
   })
   return { activity, changeId: change?.id ?? null }
 }

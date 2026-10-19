@@ -357,6 +357,10 @@
   max-width: 940px;
   padding: 6px 44px 72px;
 }
+/* The one Issues list's sections over the story's issues (the calm overhaul): above the severity filters, aligned with them. */
+[data-arrangement='desk'] .ck-sections {
+  padding: 18px 44px 0;
+}
 [data-arrangement='desk'] .ck-toolbar {
   position: sticky;
   top: 0;

@@ -22,6 +22,7 @@ import { castBuilding, useBuildWatch, watchBuilds } from './buildWatch'
 import { usePolish } from './polishRun'
 import { withPolish } from './polish'
 import { estimateDraftCost, shortModelName } from './format'
+import { useDraftWait } from '@/features/waits/useDraftWait'
 import { useDelayed } from './parts'
 
 /** Where a draft goes in a scene that already has text: in place of it, or after it. */
@@ -99,8 +100,10 @@ export interface Generate {
   stop: () => void
   /** The New look: the words the draft has written so far, while it streams. */
   written: number | null
-  /** What the draft is doing, in a few words ("Writing…", "Updating memory…"), and why, for its tooltip. */
+  /** What the draft is doing, in a few words ("Writing…", "Planning the scene…"), and why, for its tooltip. */
   status: string
+  /** The same in fewer words while it gets ready ("Memory: 3 of 5"), for a small room; null: `status` fits. */
+  statusShort: string | null
   statusTitle: string | undefined
   /** The status is worth showing (a quick start shows none). */
   showStatus: boolean
@@ -417,11 +420,11 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   // Some models (OpenAI's reasoning models, for one) set their own creativity and take no setting for it.
   const fixedCreativity = writer?.sampling === false
   const modelName = writer ? shortModelName(writer.label || writer.modelId) : null
+  // The calm overhaul: each step before the first word is named, calmly (features/waits).
+  const wait = useDraftWait(sceneId, phase === 'starting')
   const status =
     phase === 'starting'
-      ? memoryReading
-        ? 'Updating memory…'
-        : 'Getting ready…'
+      ? (wait?.words ?? (memoryReading ? 'Catching up the memory…' : 'Getting ready…'))
       : phase === 'polishing'
         ? 'Polishing…'
         : retrying
@@ -429,11 +432,11 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
           : phase === 'stopping'
             ? 'Stopping…'
             : 'Writing…'
+  // The same step in fewer words, for the scene header's small room (the full words are its tooltip).
+  const statusShort = phase === 'starting' && wait ? wait.short : null
   const statusTitle =
     phase === 'starting'
-      ? memoryReading
-        ? 'Bringing the memory up to date with earlier scenes first, so the draft knows what happened in them.'
-        : 'Getting the draft ready.'
+      ? (wait ? `${wait.words} ${wait.title}` : 'Getting the draft ready.')
       : phase === 'polishing'
         ? 'The draft is written. A second pass is polishing it; you can accept or reject the result.'
         : (retrying ?? undefined)
@@ -472,6 +475,7 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
     stop,
     written,
     status,
+    statusShort,
     statusTitle,
     showStatus
   }

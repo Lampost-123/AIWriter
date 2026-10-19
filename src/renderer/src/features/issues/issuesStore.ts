@@ -1,37 +1,34 @@
-// The Issues tab's data (milestone 5, AI checks): each scene's issues, loaded once and again whenever the
+// The Issues list's data (milestone 5, AI checks): each scene's issues, loaded once and again whenever the
 // main process says they changed ('issues:changed': every save of a scene sweeps its issues, so that comes as the
-// words change), and the check runs going on now, from their events ('checks:progress', 'checks:done'), so a scene
-// can say "Checking…" whoever started the check. The last answer stays on screen while a newer one loads, and the
+// words change). The check runs going on now are the one store's (consistency/checkStore.ts, since the calm overhaul), so
+// a scene can say "Checking…" whoever started the check. The last answer stays on screen while a newer one loads, and the
 // last few scenes are kept, so switching back to one shows it at once, and it is read again then too (findings that
-// stay current, 2026-10-16). Marking a scene done that turns up something says so in a quiet message with Show.
+// stay current, 2026-10-16). Marking a scene done that turns up something says so in a quiet message with Show; a check
+// after a draft adds what it found to the draft's one note (features/draftNote).
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import type { CheckProgress, Issue } from '@shared/contracts/checks'
+import type { Issue } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { openScene } from '@/features/memory/openScene'
+import { onCheckEnded } from '@/features/consistency/checkStore'
+import { noteDraftCheck } from '@/features/draftNote/draftNote'
 import { foundWords } from './issuesLogic'
+import { useIssuesView, type IssueSection } from './sections'
 
 interface Loaded {
   issues: Issue[] | null
   error: string | null
 }
 
-/** A run as its events tell it; `where` is the first scene it named (kept once it moves on). */
-export type Run = CheckProgress & { background?: boolean; where?: string | null }
-
 interface IssuesState {
   scenes: Record<ID, Loaded>
-  /** Check runs going on (or waiting their turn) now, by run id. */
-  runs: Record<ID, Run>
-  /** The last check Adam asked for that went wrong, per scene, in plain words. Cleared when another starts. */
-  failed: Record<ID, string>
 }
 
-export const useIssuesStore = create<IssuesState>(() => ({ scenes: {}, runs: {}, failed: {} }))
+export const useIssuesStore = create<IssuesState>(() => ({ scenes: {} }))
 
 /** How many scenes' issues are kept. */
 const KEEP = 8
@@ -116,20 +113,24 @@ function followOpenScene(): void {
 }
 followOpenScene()
 
-/** Shows a scene's Issues tab beside the page (opening the scene, and the panel, when needed). */
-export async function showIssues(sceneId: ID): Promise<void> {
+/**
+ * Shows a scene's Issues list beside the page (opening the scene, and the panel, when needed), on one of its sections
+ * (Slips, Questions, Craft notes, Plot threads, Memory) or all of them.
+ */
+export async function showIssues(sceneId: ID, section: IssueSection | 'all' = 'all'): Promise<void> {
   const app = useApp.getState()
   if (app.sceneId !== sceneId || app.view.kind !== 'write') await openScene(sceneId)
   const a = useApp.getState()
   a.setAskOpen(false)
   a.peekEntry(null)
+  useIssuesView.getState().show(section)
   a.setInspectorTab('issues')
   if (a.settings && !a.settings.layout.inspectorOpen) void a.updateSettings({ layout: { inspectorOpen: true } })
 }
 
 let listening = false
 
-/** Follows issues and runs from the main process. Installed once, the first time anything here is used. */
+/** Follows issues and the end of checks from the main process. Installed once, the first time anything here is used. */
 function listen(): void {
   if (listening || typeof window === 'undefined' || !window.aiwrite) return
   listening = true
@@ -137,34 +138,16 @@ function listen(): void {
     const cached = useIssuesStore.getState().scenes
     for (const id of p.sceneIds) if (cached[id]) void loadIssues(id)
   })
-  onEvent('checks:progress', (p) => {
-    const s = useIssuesStore.getState()
-    const was = s.runs[p.runId]
-    const run: Run = { ...p, background: was?.background ?? p.runId.startsWith('done:'), where: was?.where ?? p.current }
-    const failed = { ...s.failed }
-    if (!s.runs[p.runId] && !run.background) for (const id of p.sceneIds ?? [p.target.id]) delete failed[id]
-    useIssuesStore.setState({ runs: { ...s.runs, [p.runId]: run }, failed })
-  })
-  onEvent('checks:done', (d) => {
-    const s = useIssuesStore.getState()
-    const run = s.runs[d.runId]
-    const runs = { ...s.runs }
-    delete runs[d.runId]
-    const scenes = run?.sceneIds ?? (d.target.scope === 'scene' ? [d.target.id] : [])
-    const failed = { ...s.failed }
-    // A check that went wrong says so in the scene's Issues, the automatic ones after a draft or marking a scene done
-    // too (a model that turns explicit scenes down, say): the panel says every draft is checked. One that worked clears it.
-    if (d.status === 'error' && d.error) for (const id of scenes) failed[id] = d.error
-    else if (d.status === 'complete') for (const id of scenes) delete failed[id]
-    useIssuesStore.setState({ runs, failed })
-    for (const id of scenes) if (s.scenes[id]) void loadIssues(id)
+  onCheckEnded(({ run, status, found, scenes, background }) => {
+    const cached = useIssuesStore.getState().scenes
+    for (const id of scenes) if (cached[id]) void loadIssues(id)
+    if (!background || status !== 'complete' || found < 1 || run?.target.scope !== 'scene') return
+    const sceneId = run.target.id
+    // The check a little after a draft: what it found goes into the draft's one note (or a note of its own, said once).
+    if (run.runId.startsWith('draft:')) return noteDraftCheck(sceneId, found)
     // Marking a scene done turned something up: a quiet word, with the way to it.
-    if (d.background && d.status === 'complete' && d.found > 0 && d.target.scope === 'scene') {
-      const sceneId = d.target.id
-      const here = useApp.getState().sceneId === sceneId && useApp.getState().view.kind === 'write'
-      const label = run?.where ?? null
-      toast(foundWords(d.found, here ? null : label), { action: { label: 'Show', run: () => void showIssues(sceneId) } })
-    }
+    const here = useApp.getState().sceneId === sceneId && useApp.getState().view.kind === 'write'
+    toast(foundWords(found, here ? null : run.where), { action: { label: 'Show', run: () => void showIssues(sceneId) } })
   })
 }
 
@@ -172,7 +155,7 @@ function listen(): void {
 registerDiscarder(() => {
   asked.clear()
   loadedAt.clear()
-  useIssuesStore.setState({ scenes: {}, runs: {}, failed: {} })
+  useIssuesStore.setState({ scenes: {} })
 })
 
 listen()

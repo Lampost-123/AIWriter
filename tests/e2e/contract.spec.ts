@@ -45,7 +45,8 @@ test('a draft keeps to its scene contract: shown in the Context tab, planned, ch
     // A draft: planned first (the plan says what must change; the dragon the card never asks for is left out), then
     // checked against the contract as it lands.
     await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
-    await expect(toasts(win).getByText('A question about the new words is in the Issues tab.')).toBeVisible({ timeout: 60_000 })
+    // The draft's one note says so (the calm overhaul).
+    await expect(toasts(win).getByText('Draft written · 1 question in Issues')).toBeVisible({ timeout: 60_000 })
     const [draft] = (await invoke(win, 'listGenerations', sceneId)).filter((g) => g.job === 'draft')
     const rec = await invoke(win, 'getGeneration', draft.id)
     const sent = rec.blocks.find((b) => b.id === 'scene-contract')!

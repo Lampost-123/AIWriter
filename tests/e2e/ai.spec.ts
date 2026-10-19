@@ -94,7 +94,8 @@ test('a draft keeps writing into its own scene while another scene is open, says
     expect(await invoke(win, 'listGenerations', other.id)).toEqual([])
 
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 30_000 }).toBe('complete')
-    const done = toasts(win).getByText('The draft of “Scene 1” is finished.')
+    // The draft's one note (the calm overhaul) names the scene it was written in.
+    const done = toasts(win).getByText('Draft of “Scene 1” written')
     await expect(done).toBeVisible()
     await expect(topBar(win).getByRole('button', { name: 'Writing…' })).toBeHidden()
     const [gen] = await invoke(win, 'listGenerations', sceneId)
@@ -103,7 +104,7 @@ test('a draft keeps writing into its own scene while another scene is open, says
     expect((await invoke(win, 'getScene', other.id)).text).toBe('')
 
     // Show goes to it; the whole draft is one step there, as if Adam had stayed.
-    await toasts(win).locator(':scope > div').filter({ hasText: 'The draft of “Scene 1” is finished.' }).getByRole('button', { name: 'Show' }).click()
+    await toasts(win).locator(':scope > div').filter({ hasText: 'Draft of “Scene 1” written' }).getByRole('button', { name: 'Show' }).click()
     await expect(sceneTitle(win, 'Scene 1')).toBeVisible()
     await expect(prose(win)).toContainText('The rain')
     await prose(win).click()

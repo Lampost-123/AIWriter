@@ -42,7 +42,8 @@ import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { openChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { requestChapterCardFocus } from '@/features/chapterCard/chapterCardEvents'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
-import { checkChapter, checkScene, useIssueCounts } from '@/features/consistency/checkStore'
+import { useIssueCounts } from '@/features/consistency/checkStore'
+import { runCheck } from '@/features/check/runCheck'
 import { rereadScene } from '@/features/memory/reread'
 import * as actions from './actions'
 import { useCollapsed } from './collapsed'
@@ -667,7 +668,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             >
               Add scene after
             </RowMenuItem>
-            <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void checkScene(menu.id, outline.story.id)}>
+            <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void runCheck('scene', { sceneId: menu.id, storyId: outline.story.id, show: false })}>
               Check this scene
             </RowMenuItem>
             <RowMenuItem icon={<RefreshCw size={14} />} onSelect={() => rereadScene(menu.id, sceneById.get(menu.id)?.title ?? '')}>
@@ -716,7 +717,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             <RowMenuItem icon={<MessageCircleQuestion size={14} />} onSelect={() => openChapterInterview(outline.story.id, menu.id)}>
               Interview me about this chapter
             </RowMenuItem>
-            <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void checkChapter(menu.id, outline.story.id)}>
+            <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void runCheck('chapter', { chapterId: menu.id, storyId: outline.story.id })}>
               Check this chapter
             </RowMenuItem>
             <RowMenuItem icon={<BookOpenText size={14} />} onSelect={() => openChapterWriter(menu.id)}>

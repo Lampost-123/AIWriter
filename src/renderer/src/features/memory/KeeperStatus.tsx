@@ -105,7 +105,9 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
     // The slot keeps its room while empty and grows to fit its words (up to a limit, the rest in the tooltip): the free
     // middle of the bar gives way, so nothing to its right moves. Quiet (the desk's top bar, where the status island says
     // the rest): no room kept while empty.
-    <div className={cn('flex max-w-[220px] shrink-0 justify-end', quiet ? 'min-w-0' : 'min-w-[176px] look-new:min-w-[128px]')} role="status" aria-live="polite">
+    // Quiet, it gives way first when the bar is short of room (its words cut short, the rest in its tooltip), so it never
+    // runs into the rooms in the middle.
+    <div className={cn('flex max-w-[220px] justify-end', quiet ? 'min-w-0 shrink' : 'shrink-0 min-w-[176px] look-new:min-w-[128px]')} role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger
@@ -152,7 +154,8 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
           onClick={openWhatChanged}
         >
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
-          <span className="truncate">Reading the scene…</span>
+          {/* The desk's bar in a smaller window: the dot alone (its words for screen readers and on hover). */}
+          <span className={cn('truncate', quiet && 'max-[1599px]:sr-only')}>Reading the scene…</span>
         </button>
       ) : status?.refused ? (
         <RefusedNote note={status.refused} onSettings={() => goTo({ kind: 'settings', tab: 'models' })} />

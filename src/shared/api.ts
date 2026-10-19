@@ -102,6 +102,7 @@ import type { StoryBuilderApi, StoryBuilderEvents } from './contracts/storyBuild
 import type { StoryIndexApi, StoryIndexEvents } from './contracts/storyIndex'
 import type { DirectionApi } from './contracts/direction'
 import type { DirectorApi, DirectorEvents } from './contracts/director'
+import type { CalmApi, CalmEvents } from './contracts/calm'
 import type { PlanReviewApi, PlanReviewEvents } from './contracts/planReview'
 
 /** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
@@ -149,6 +150,7 @@ export interface AppApi
     StoryIndexApi,
     DirectionApi,
     DirectorApi,
+    CalmApi,
     PlanReviewApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
@@ -429,6 +431,7 @@ export interface AppEvents
     StoryBuilderEvents,
     StoryIndexEvents,
     DirectorEvents,
+    CalmEvents,
     PlanReviewEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
@@ -442,6 +445,11 @@ export interface AppEvents
     cost: number | null
     /** The reply ran into the reply limit, so the draft stops before the scene's end (the text is kept). */
     cutOff?: boolean
+    /**
+     * The writer model turned the scene down (a content filter, a refusal, or words that are plainly a refusal): the note
+     * offers to try again with another model Adam has set up (the calm overhaul). Left out: not refused.
+     */
+    refused?: boolean
   }
   /** Shown while a request is being retried after a rate limit or server error. */
   'generation:retrying': { generationId: ID; attempt: number; waitMs: number; reason: string }

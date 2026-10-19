@@ -19,6 +19,7 @@ import { VARIANTS_WRITING, variantsBusy } from '../variants'
 import { noteWriterSpeakers } from '../readAloud'
 import { chapterWriterHolds, HELD } from '../chapterWriter/active'
 import { directDraft, directedWanted, directorModel } from '../director'
+import { draftStep } from '../ai/steps'
 import { reviewOf, reviewWanted, waitForReview } from '../plan/review'
 import { watchWorldForPlans } from './planReview'
 
@@ -109,6 +110,8 @@ export const aiHandlers: Handlers<AiMethods> = {
         ...(stream ? { stream } : {}),
         ...providerNotes(b.target.id)
       })
+      // The calm overhaul: the request is out; the first words are on their way (ai/steps.ts).
+      draftStep(sceneId, 'writing')
       // Check and repair: the draft's words are checked against where things stood as the writer was told it, and against
       // the scene's contract it was given (long story memory fix 13).
       noteStage(started.generationId, sceneId, stageTold(b, !!block))

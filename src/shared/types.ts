@@ -910,6 +910,12 @@ export interface DraftOptions {
    */
   directed?: boolean
   /**
+   * The calm overhaul: this one draft is written by another model Adam has set up (one of his models in Settings › Models,
+   * the writer's, the memory's, chat's…) in place of the writer model, as "Try again with …" after a refusal asks. Left
+   * out, or not one of his models: the writer model.
+   */
+  model?: { providerId: ID; modelId: string }
+  /**
    * Show me the plan first, for this draft (src/main/plan/review.ts): the draft stops once the scene is planned and the
    * plan waits for Adam (change it, write, or cancel). Left out: as Settings › Models says (Settings.showPlanFirst).
    */
@@ -1721,6 +1727,12 @@ export interface MemoryStatus {
    * main/keeper/refusals.ts). Missing when there is nothing to tell.
    */
   refused?: { title: string; message: string }
+  /**
+   * The calm overhaul: the memory catching up before a draft or a check of a scene (keeper/engine.ts catchUpBefore): the
+   * scene it is for, the earlier scenes read so far of how many (`stage` 'earlier'), then the scene's own latest words
+   * ('scene'). Missing when nothing is waiting on it.
+   */
+  catchingUp?: { sceneId: ID; done: number; total: number; stage: 'earlier' | 'scene' }[]
 }
 
 /** What to read again in full (World Memory Overhaul B8): one scene, or every scene of a story. */

@@ -13,7 +13,7 @@ import { AskPanel } from '@/features/ask/AskPanel'
 import { IssuesPanel, IssuesTabCount } from '@/features/issues/IssuesPanel'
 import { SoundsPanel } from '@/features/sounds/SoundsPanel'
 import { ChapterCardPanel } from '@/features/chapterCard/ChapterCardPanel'
-import { CritiqueLabel, CritiquePanel } from '@/features/critique/CritiquePanel'
+import { useIssuesView } from '@/features/issues/sections'
 
 const TAB_LABELS: Record<InspectorTab, string> = {
   card: 'Scene card',
@@ -24,7 +24,8 @@ const TAB_LABELS: Record<InspectorTab, string> = {
   drafts: 'Drafts',
   sounds: 'Sounds'
 }
-const TABS: InspectorTab[] = ['card', 'context', 'cast', 'issues', 'critique', 'drafts']
+// The critic's notes are a section of the Issues list since the calm overhaul (Issues › Craft notes): 'critique' shows it.
+const TABS: InspectorTab[] = ['card', 'context', 'cast', 'issues', 'drafts']
 /** With sound effects on, the Sounds tab comes last. */
 const TABS_WITH_SOUNDS: InspectorTab[] = [...TABS, 'sounds']
 
@@ -63,7 +64,13 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const stored = useApp((s) => s.inspectorTab)
   // The Sounds tab shows while sound effects are on (they play under Read aloud); off, its place falls back to the card.
   const sounds = useApp((s) => !!s.settings?.speech.readAloud && !!s.settings?.speech.soundEffects)
-  const tab: InspectorTab = stored === 'sounds' && !sounds ? 'card' : stored
+  // The critic (what was the Critique tab) is the Issues list's Craft notes: asked for, the list shows them.
+  const tab: InspectorTab = stored === 'sounds' && !sounds ? 'card' : stored === 'critique' ? 'issues' : stored
+  useEffect(() => {
+    if (stored !== 'critique') return
+    useIssuesView.getState().show('craft')
+    useApp.getState().setInspectorTab('issues')
+  }, [stored])
   const tabs = sounds ? TABS_WITH_SOUNDS : TABS
   const setTab = useApp((s) => s.setInspectorTab)
   const peekId = useApp((s) => s.peekEntryId)
@@ -102,12 +109,12 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
       >
         <TabsList
           tall
-          // Six tabs fit the panel at its narrowest (260 px): a little less room around each, no gap below 300 px, "Card"
-          // for "Scene card" (still read out in full) below 330 px, and a speech mark for "Critique" below 360 px. The
-          // Issues tab's count sits over its corner. With the Sounds tab (seven), a speaker stands for "Sounds" below 396 px
-          // and the speech mark for "Critique" below 460 px, and the tabs sit a little closer: below 300 px with no gap and
-          // little room around each, and from 380 px with less room around each until 440 px. The New look's tabs have
-          // more room around them, so it gives them less too below 440 px.
+          // Five tabs fit the panel at its narrowest (260 px): a little less room around each, no gap below 300 px, and "Card"
+          // for "Scene card" (still read out in full) below 330 px. The Issues tab's count sits over its corner. With the
+          // Sounds tab (six), a speaker stands for "Sounds" below 396 px, and the tabs sit a little closer: below 300 px with
+          // no gap and little room around each, and from 380 px with less room around each until 440 px. The New look's tabs
+          // have more room around them, so it gives them less too below 440 px. (The critic's notes are in Issues › Craft
+          // notes since the calm overhaul.)
           className={
             sounds
               ? 'px-1! *:px-1 @max-[300px]:gap-0! @max-[300px]:*:px-0.5 @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2 @min-[440px]:*:px-2.5 @max-[300px]:look-new:*:px-0.5! @min-[300px]:@max-[440px]:look-new:*:px-1.5!'
@@ -120,8 +127,6 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
                 <CardLabel />
               ) : value === 'sounds' ? (
                 <SoundsLabel />
-              ) : value === 'critique' ? (
-                <CritiqueLabel crowded={sounds} />
               ) : (
                 TAB_LABELS[value]
               ),
@@ -139,9 +144,6 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </TabsContent>
         <TabsContent value="issues" className="overflow-auto">
           <IssuesPanel key={sceneId} sceneId={sceneId} />
-        </TabsContent>
-        <TabsContent value="critique" className="overflow-auto">
-          <CritiquePanel key={sceneId} sceneId={sceneId} />
         </TabsContent>
         <TabsContent value="drafts" className="overflow-auto">
           <GenerationsPanel key={sceneId} sceneId={sceneId} />

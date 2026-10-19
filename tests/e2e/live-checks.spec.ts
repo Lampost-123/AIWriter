@@ -175,7 +175,8 @@ test('a draft that uses a phrase to avoid says so when it lands, and Show goes t
     await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
     // The model was told, at the end of its briefing too.
     await expect.poll(() => JSON.stringify(fake.lastRequest()?.body ?? '')).toContain('Never use “steady as a drum”, or any close variation of it.')
-    const note = toasts(win).getByText(/^\d+ phrases? to avoid( and \d+ common AI phrases?)? underlined in the new draft\.$/)
+    // In the draft's one note (the calm overhaul).
+    const note = toasts(win).getByText(/^Draft written · \d+ phrases? to avoid( and \d+ common AI phrases?)? underlined$/)
     await expect(note).toBeVisible({ timeout: 30_000 })
     await expect(flags(win, 'phrase').first()).toHaveText('steady as a drum')
     await toasts(win).getByRole('button', { name: 'Show' }).click()

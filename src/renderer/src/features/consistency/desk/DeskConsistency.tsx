@@ -17,8 +17,7 @@ import { useApp } from '@/lib/store'
 import { scrollBehavior } from '@/features/look/motion'
 import { StoryFilter } from '@/features/timeline/viewParts'
 import { CheckControls } from '../CheckControls'
-import { runWords } from '../CheckLine'
-import { dismissFailure, openConsistency, useChecks } from '../checkStore'
+import { dismissFailure, openConsistency, useChecks, useRunWords } from '../checkStore'
 import type { IssueGroups } from '../consistencyLogic'
 import { chapterAnchor, DeskIssues } from './DeskIssues'
 import { DeskRepetition, DeskThreads } from './DeskReports'
@@ -157,12 +156,13 @@ function ReportTab({ value, icon, label, n, danger, sub }: { value: Tab; icon: R
 /** How far a check of this story has got: a line that fills, and what is being read. */
 function RunMeter({ storyId }: { storyId: ID }): React.JSX.Element | null {
   const run = useChecks((s) => (s.run?.storyId === storyId ? s.run : null))
+  const words = useRunWords(run, true)
   if (!run) return null
   const share = run.total && run.done !== null ? Math.min(1, run.done / run.total) : 0
   return (
     <div className="ck-meter" aria-hidden>
       <span className="ck-meter-fill" style={{ transform: `scaleX(${Math.max(0.03, share)})` }} />
-      <span className="ck-meter-words">{runWords(run, true)}</span>
+      <span className="ck-meter-words">{words}</span>
     </div>
   )
 }

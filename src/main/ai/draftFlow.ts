@@ -28,6 +28,7 @@ import { keepsRoom, type BeatAt, type MadePlan, type ScenePlan } from '../plan/p
 import { CANCELLED_BEFORE_WRITING, withAnswer } from '../plan/review'
 import type { ScenePlanAnswer } from '@shared/contracts/planReview'
 import { countTokens } from './tokenService'
+import { draftStep } from './steps'
 import { isLocalUrl, providerWho } from './errors'
 import { recallForBriefing } from '../retrieval'
 import { contractWanted, type ContractAsks, type SceneContract } from './contract'
@@ -39,9 +40,10 @@ import { contractAgain, type ContractAsked } from './contractAgain'
 const countCached = cachedCounter(countTokens)
 
 /** The writer model and how to reach it, or a plain-words UserError saying what to set up in Settings › Models. */
-export function writerModel(): { choice: ModelChoice; target: ChatTarget & { id: ID }; thinking: ThinkingLevel } {
+export function writerModel(instead?: DraftOptions['model']): { choice: ModelChoice; target: ChatTarget & { id: ID }; thinking: ThinkingLevel } {
   const settings = getSettings()
-  const choice = settings.models.writer
+  // The calm overhaul: "Try again with …" after a refusal writes this one draft with another of Adam's own models.
+  const choice = (instead && ownModel(settings.models, instead)) || settings.models.writer
   if (!choice) throw new UserError('Choose a writer model first, in Settings › Models.', 'no-writer-model')
   const provider = providers.getProvider(choice.providerId)
   if (!provider)
@@ -51,6 +53,12 @@ export function writerModel(): { choice: ModelChoice; target: ChatTarget & { id:
     throw new UserError(`${providerWho(provider)} needs an API key. Add it in Settings › Models.`, 'no-key')
   }
   return { choice, target, thinking: settings.thinking?.writer ?? 'off' }
+}
+
+/** One of the models Adam has set up in Settings › Models (any job's), matched by provider and id; null when it isn't. */
+function ownModel(models: Record<string, ModelChoice | null>, want: { providerId: ID; modelId: string }): ModelChoice | null {
+  for (const m of Object.values(models)) if (m && m.providerId === want.providerId && m.modelId === want.modelId) return m
+  return null
 }
 
 /**
@@ -193,10 +201,15 @@ export async function draftBriefing(
     review?: PlanReview
   } = {}
 ): Promise<DraftBriefing> {
-  const { choice, target, thinking } = writerModel()
+  const { choice, target, thinking } = writerModel(options?.model)
   const db = world.db()
-  if (o.catchUp !== false) await catchUpBeforeDraft(db, sceneId, o.catchUpMs, o.signal)
+  // The calm overhaul: each step is said as it begins, so the window names it (ai/steps.ts).
+  if (o.catchUp !== false) {
+    draftStep(sceneId, 'memory')
+    await catchUpBeforeDraft(db, sceneId, o.catchUpMs, o.signal)
+  }
   if (o.signal?.aborted) throw stoppedBeforeStart()
+  draftStep(sceneId, 'gathering')
   const carryOn = o.soFar?.trim() ? o.soFar : ''
   const stand = carryOn ? await standAtText(db, sceneId, carryOn, undefined, o.signal) : null
   if (o.signal?.aborted) throw stoppedBeforeStart()
@@ -212,6 +225,7 @@ export async function draftBriefing(
     entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks),
     contract: made.prepared.contract ?? null
   }
+  if (o.plan !== false && planWanted()) draftStep(sceneId, 'plan')
   if (o.plan !== false)
     b = await withPlan(sceneId, b, {
       extras: o.extras,

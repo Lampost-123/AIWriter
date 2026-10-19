@@ -1,6 +1,5 @@
 // The Issues tab's words and small decisions, kept pure so they are unit-tested (milestone 5, AI checks).
-import type { CheckKind, CheckProgress, CheckReport, ContractCheck, ContractResult, Issue, IssueKind, IssueSeverity } from '@shared/contracts/checks'
-import type { ID } from '@shared/types'
+import type { CheckKind, CheckReport, ContractCheck, ContractResult, Issue, IssueKind, IssueSeverity } from '@shared/contracts/checks'
 import { FIELD_GROUPS } from '@shared/fields'
 import { sameWords } from '@/features/edits/text'
 import { relativeTime } from '@/features/generate/format'
@@ -68,11 +67,7 @@ export const LATER_WORDS_NO_QUOTE = 'Saved for later. It comes back when the sce
 /** Later's hover. */
 export const LATER_TITLE = 'Not now: hide it until this part of the scene changes, or the scene is checked again'
 
-/** The run checking this scene now (or waiting to), if any: Adam's own first. */
-export function runFor(runs: Record<ID, CheckProgress & { background?: boolean }>, sceneId: ID): (CheckProgress & { background?: boolean }) | null {
-  const covering = Object.values(runs).filter((r) => (r.sceneIds ?? (r.target.scope === 'scene' ? [r.target.id] : [])).includes(sceneId))
-  return covering.find((r) => !r.background) ?? covering[0] ?? null
-}
+/** The run checking a scene is the one store's since the calm overhaul: consistency/runsLogic.ts runFor. */
 
 /** What a field is called on an entry page ("Eyes"), for "Update the memory". */
 export function fieldWords(field: string): string {
