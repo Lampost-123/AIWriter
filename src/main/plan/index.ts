@@ -109,8 +109,6 @@ export function cardKey(card: SceneCard): string {
 export function forgetScenePlans(): void {
   scenePlans.clear()
 }
-/** @deprecated The scene plans keep the briefs now (Beat by beat's one plan a scene). */
-export const forgetSceneBriefs = forgetScenePlans
 
 const wordsIn = (text: string | undefined): number => (text ?? '').split(/\s+/).filter(Boolean).length
 
@@ -163,12 +161,14 @@ export async function planBeforeWriting(
         : plain
     const stand = toldStage(b.input)
     const storyTitle = b.input.story.title
-    const lookups: LookupContext | undefined = core
+    // The look-ups, even when the core couldn't be read (those of the story index then say it has nothing yet).
+    const storyId = core?.storyId ?? b.input.memory.storyId
+    const lookups: LookupContext | undefined = storyId
       ? {
           db,
           sceneId,
-          storyId: core.storyId,
-          asItBegins: core.asItBegins,
+          storyId,
+          asItBegins: !carryingOn,
           entries: b.input.memory.entries,
           facts: b.input.memory.facts,
           relationships: b.input.memory.relationships,

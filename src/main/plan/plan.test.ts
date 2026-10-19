@@ -408,6 +408,18 @@ describe('checking the plan against the stage', () => {
     expect(two).toContain('What changes on the page, in order, over the whole scene:')
     expect(two).not.toContain('It ends on')
     expect(planText(p, true, { beat: { index: 3, of: 3 } })).toContain('It ends on: The ladder, empty.')
+    // The planner's own sentence for what someone wants is never said twice.
+    expect(planText({ ...p, point: { wants: 'Wren wants Osric gone', against: '', turn: '' } }, false, { pov: 'Wren' })).toContain(
+      'The point: Wren wants Osric gone.\n'
+    )
+  })
+
+  it('never plans again a beat already on the page', () => {
+    const p = checkPlan(raw({ beats: ['Osric climbs up the ladder to the loft', 'They argue about the failing weir'] }), {
+      ...world(),
+      done: ['Beat 1: Osric climbs up to the loft']
+    })
+    expect(p.beats).toEqual(['They argue about the failing weir'])
   })
 
   it('where the stage says nothing, takes what people wear and hold from the story index, else from what it was given (2026-10-19)', () => {

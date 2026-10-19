@@ -621,6 +621,8 @@ export interface CheckWith {
   known?: KnownFacts
   /** Everyone in the scene by name (the card, the stage, the story index), for who may be placed and who is a stranger. */
   present?: string[]
+  /** The beats of the card already on the page ("Beat 1: …"): a plan beat that says one again is left out. */
+  done?: string[]
 }
 
 export interface ScenePlan {
@@ -876,7 +878,13 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
     return out
   }
   const point = { wants: shaped(raw.wants), against: shaped(raw.against), turn: shaped(raw.turn) }
-  const beats = listOf(raw.beats, PLAN_MOST.beats, (t) => !tellsSecret(t) && !strangerIn(t))
+  // A beat of the card already on the page is done: never planned again (the planner is told so, and may still).
+  const done = (w.done ?? []).map((d) => meaningWords(d.replace(/^Beat \d+:\s*/, ''), names)).filter((d) => d.size)
+  const onPage = (t: string): boolean => {
+    const b = meaningWords(t, names)
+    return !!b.size && done.some((d) => sharedWords(b, d) >= Math.ceil(Math.min(b.size, d.size) * 0.6))
+  }
+  const beats = listOf(raw.beats, PLAN_MOST.beats, (t) => !tellsSecret(t) && !strangerIn(t) && !onPage(t))
   const whoWhere = listOf(raw.whoWhere, PLAN_MOST.whoWhere, (t) => {
     const who = /^([^:]+):\s*\S/.exec(t)?.[1] ?? ''
     return !!who && isHere(who) && !isDead(who)
@@ -894,7 +902,7 @@ function grounded(text: string, material: string, names: ReadonlySet<string>): b
 
 /** What the point-of-view character wants, as the notes say it: the planner's sentence, or with who wants it before it. */
 const wantsText = (wants: string, pov?: string): string =>
-  !wants ? '' : /wants?/i.test(wants) ? ended(wants) : `${pov ? `${pov} wants` : 'Wants'}: ${ended(wants)}`
+  !wants ? '' : /\bwants?\b/i.test(wants) ? ended(wants) : `${pov ? `${pov} wants` : 'Wants'}: ${ended(wants)}`
 
 /** A sentence that ends with a full stop (or other end mark). */
 const ended = (s: string): string => (/[.!?…]["'”’)\]]*$/.test(s) ? s : `${s}.`)
@@ -1136,7 +1144,16 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     const own: PlanMaterial = { ...m, brief: undefined }
     const given = m.reach === 'here' ? planMessages(own)[1].content : planMessages({ ...own, stand: '' })[1].content
     const material = [given, ...answers.filter((a) => a.ok).map((a) => a.text)].join('\n\n')
-    const plan = checkPlan(raw, { ...o.check, reach: m.reach, material, card: m.card, calls: m.calls, people: m.people, secrets: m.secrets })
+    const plan = checkPlan(raw, {
+      ...o.check,
+      reach: m.reach,
+      material,
+      card: m.card,
+      calls: m.calls,
+      people: m.people,
+      secrets: m.secrets,
+      ...(m.done?.length ? { done: m.done } : {})
+    })
     // What it looked up by name comes into the briefing, as what it asked for does.
     for (const a of answers) {
       if (!a.entryId || plan.needs.length >= PLAN_MOST.needs || plan.needs.includes(a.entryId)) continue
