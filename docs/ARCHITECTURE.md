@@ -41,7 +41,8 @@ src/main/        Electron main process
   settings.ts    App settings (userData/settings.json) and writing preferences (library folder)
   secrets.ts     API keys, encrypted with safeStorage, kept out of worlds and backups
   ipc/           One handler object per area; ipc/index.ts checks every AppApi method is implemented
-  ai/            Providers, context assembly, generation records
+  ai/            Providers, context assembly, generation records; ai/lookups/ the look-up tools an AI job may ask for
+                 (the story index, codex entries as they stand, the search, earlier scenes' words), answered here
   services/      backups.ts, updater.ts
 src/preload/     Exposes window.aiwrite (invoke + events). Nothing else.
 src/renderer/src/
@@ -1005,7 +1006,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   Settings › Models, "Plan before writing" (`settings.planFirst`, on by default; beside "Check new words
   straight away"; `features/plan/PlanSettings.tsx`): off, no call, and the list still goes in. `AIWRITE_PLAN=off`
   always turns it off: app tests set it (tests/e2e/helpers.ts) and ask for planning with `AIWRITE_PLAN=on`; the fake
-  provider answers in `tests/fake-provider/plan.mjs`.
+  provider answers in `tests/fake-provider/plan.mjs`. Since 2026-10-19 the plan is made properly, on every writing path
+  ("Plan before writing, done properly", below).
 - **The critic.** Every draft (not a variant) is checked in the background 15 seconds after it lands
   (`checkAfterDraft`, `ipc/checksIssues.ts`) with every check, `continuity` included; checks get the story so far
   and where things stood. Each reply says what each check looked at (`checked`), kept as the scene's latest report
@@ -3845,6 +3847,85 @@ go with their scene when it is emptied from Recently deleted (foreign keys). All
   StageFiller ahead of the recent chapters, with `MemoryStatus.filling` ("Filling in scene 3 of 42…" in the top bar and
   on the card), Stop (`stopStoryFill`: what was filled stays), and a quiet note when done (`storyFill:done`). It gives up
   after three calls in a row fail. Drafts still wait for the memory as usual; the fill waits for them.
+
+## Plan before writing, done properly (overhaul, 2026-10-19)
+
+Adam's spec, "Plan before writing, done properly": gather the core for free, let the AI look up what else the scene
+needs, plan the scene's structure in the same exchange, write against the plan with the looked-up facts beside it, and
+check against it. A stand-in test (Claude as the writer, fake memory) had found the plan's starting facts mostly dropped
+before they reached the writer, Adam's direction said three or four times in one request, the planner given no recent
+chapters (it planned as still to come what had happened), Continue given no plan and no previous scene, and Beat by beat
+planning every beat. Plan before writing (`settings.planFirst`) stays a switch, on by default; off, nothing plans.
+
+- **The look-up tools** (`ai/lookups/`, pure but for the database reads): ten ToolSpecs with short descriptions:
+  `state_of`, `last_seen`, `who_knows`, `open_threads`, `what_happened`, `who_was_there`, `timeline` (the story index's
+  look-ups), `get_entry` (an entry as the memory has it at this scene, with what it knows and its ties), `find_in_story`
+  (earlier passages on the scene's line, by keyword and by meaning: `retrieval/recall.ts` `findPassages`, through
+  `retrieval findInStory`) and `read_passage` (an earlier scene's own words, around some words or at its start or end).
+  Answers are compact plain text, short unless `full` is asked (`ANSWER_MOST` 2,400 characters); only what comes before
+  the scene; nothing Adam kept out; a look-up that finds nothing says what to try next ("There's no Ch 9, Sc 2 before this
+  scene… name one as "Ch 2, Sc 1"."). At most `LOOKUPS_MOST` (8) in a round. Scenes are named "Ch 2, Sc 3" however
+  written, by title, or "previous".
+- **The gathered core** (`plan/core.ts`, on the open world): the story index brought up to date first (`buildStoryIndex`,
+  hash-guarded), then everyone in the scene (the card, the stage) as the index has them (`stateOf`, a few lines each, as
+  the scene begins, or as the scene so far ends carrying on), what happens in the scenes of this chapter and the one
+  before ("Already happened … never plan any of it again", `sceneGists`), and the open threads (the writer's list when it
+  has one, else the index's). Plus, from the briefing as before: the scene card, what must stay true, the codex, where
+  things stand, the end of the previous scene or the scene so far, and the beats already on the page.
+- **One round of look-ups** (`plan/plan.ts` `makePlan`, through the agent loop `ai/tasks.ts` `runTask`, job 'memory', the
+  memory model): the first request offers the tools; their answers come back and the second request, without tools, asks
+  for the plan (`maxSteps` 2). A planner that needs nothing plans in the first. The record (What the AI saw) keeps each
+  request and each look-up (`params.steps`, `params.requests`); the book so far is still kept as a note (`TaskRequest.kept`).
+  `[AIWRITE-PLAN v2]`; `PLAN_LIMIT_MS` 60 s for both requests (the brief's limits as before). The story's content note goes
+  with it as with every memory job; a refusal is noted for the top bar.
+- **The plan** (reply JSON): `wants`, `against`, `turn`, `beats` (in order), `who_where`, `relies`, `changes` (place,
+  clothes, things held, what someone learns: `what` "knows"), `must_stay`, `closing_image`, `needs`, and `must` with a
+  contract and `brief` with a continuity brief, as before. What is being written is said in a line or two
+  (`askText`): a whole scene and its length; a stretch carried on, with Adam's direction (once); or, Beat by beat, the
+  whole scene with one plan beat for each card beat not yet on the page.
+- **The check** (`checkPlan`): as before (the stage's own words where it holds; no event the card or direction doesn't
+  call for; no secret let out; nothing by the dead), and now: where the stage says nothing of someone (not known, or
+  empty), what they wear, hold and suffer is taken from the story index in its own words (`CheckWith.known`), else kept
+  when its words are in what the planner was given or looked up; where people are and how they are placed at a new
+  scene still only from the card. A beat or the closing image that brings in someone the card never has (`strangerIn`:
+  words of arriving), or lets out a secret, is left out; a beat already on the page too; who is where only for those in
+  the scene and alive; what must stay true only when most of its words were given. Entries it read with `get_entry` come
+  into the briefing as those it asked for do.
+- **For the writer**: the plan as its own notes, last of all after the closing instruction ("My notes before I write…":
+  the point, who is where, what the scene rests on, the beats, what changes, what must stay true, "It ends on: …", then
+  "Now the prose…"; `plan/echo.ts` knows every part, so notes said again never reach the page). What it looked up goes in
+  the briefing beside it (block `looked-up`, "Looked up before writing", priority 3, sent late after the continuity
+  brief; short: the facts without the passages; `lookedUpText`: at most 14 facts and 2 passages of 180 words). It goes in
+  only where there is room (`withPlan` tries with all of it, without what it looked up, without what it asked for).
+- **Said once** (`ai/contract.ts` `contractText` `said`, `SAID`): the contract points to Adam's direction where the
+  writer reads it in full: on the scene card for a whole scene ("What the author directs, as the scene card gives it."),
+  last of all carrying on, and for a beat ("This beat, as given last of all, below."); Continue's "what happens next" too.
+  The check still reads every item in full (`codes`). The planner reads the direction once, under what is being written
+  (its copy of the contract points there).
+- **Every writing path**: Generate and Add below (a plan before each draft, `draftBriefing`); Variants (`ipc/variants.ts`
+  no longer turns the plan off: the set is briefed once, so its drafts share one plan); Write the whole chapter (its drafts
+  through `draftBriefing`, with no brief, as before); Beat by beat (`beats/index.ts`, `withPlan` with `beat`): one plan for
+  the scene, made with its first beat (or the first after the card or the direction changed, or beat 1 started afresh),
+  kept in memory (`plan/index.ts` scene plans, the 20 most recent) and given to the later beats with no call, the notes
+  saying "(I write only beat 2 of 3 now…)", its brief with it, no scene-level "must" in a beat's contract; Continue
+  (`edits/index.ts` `continueExtras`): no call; the scene's last plan (`planForContinueOf`: the point, the beats, what must
+  stay true, the closing image) while the card is the same and the words before the cursor are within what the plan was
+  for and half as much again, and the end of the previous scene (about 200 words, `CONTINUE_PREVIOUS`).
+- **Measured** with the trap harness's fake run (`npm run traps -- --fake --samples 1 --measure`, chain K1: six Add
+  below steps and six Continues; the harness no longer answers the planner's or the memory's requests with its stand-in
+  writer, which had made every fake plan prose): the writer's request 13,066 to 13,177 tokens on average (+0.8%: the
+  notes and what was looked up, less the direction said again); the plan 5,399 tokens in one request to about 13,100 in
+  two (6,900 with the tools, 6,150 answering), so about 2.4 times the plan's tokens read, about $0.004 a plan
+  on DeepSeek before its cache; Continue 2,911 to 3,165 (+9%: the previous scene's end and the plan).
+- **Tests**: `ai/lookups/lookups.test.ts`, `plan/core.test.ts`, `plan/plan.test.ts` (the format, the check, the round of
+  look-ups), `plan/index.test.ts` (one plan a scene for Beat by beat, Continue's reuse) and `plan/paths.test.ts`: every
+  path end to end against the fake provider, planning while the switch is on with the plan in the writer's request, and
+  none off. The fake planner (`tests/fake-provider/plan.mjs`) looks the point of view up first (`planToolCalls`), then
+  plans in the new format.
+- **Not done here**: the second request of the round goes without the tools, so a provider's cache misses the part after
+  the system prompt (keeping the tools with `tool_choice` none would keep it, for the agent loop as a whole); "the scenes
+  before, word for word" still go to the writer when there is room, though the planner can now read what it needs of them;
+  the continuity brief's length (750 to 800 words) is as fix 14 set it.
 
 ## Milestone 1 scope
 

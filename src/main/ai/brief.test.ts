@@ -258,8 +258,9 @@ describe('in the writer’s briefing', () => {
     expect(b.priority).toBe(MUST_PRIORITY)
     expect(b.dropped).toBe(false)
     expect(b.text).toBe(briefText(BRIEF))
-    // Since the overhaul (2026-10-19) only how they sound and the end of the previous scene come between it and the card.
-    expect(SEND_ORDER.slice(SEND_ORDER.indexOf(BRIEF_BLOCK.id) + 1, SEND_ORDER.indexOf('scene-card'))).toEqual(['voices', 'previous-scene'])
+    // Since the overhaul (2026-10-19) only what the plan looked up, how they sound and the end of the previous scene come
+    // between it and the card.
+    expect(SEND_ORDER.slice(SEND_ORDER.indexOf(BRIEF_BLOCK.id) + 1, SEND_ORDER.indexOf('scene-card'))).toEqual(['looked-up', 'voices', 'previous-scene'])
     expect(SEND_ORDER.indexOf(BRIEF_BLOCK.id)).toBe(SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 1)
     const user = on.messages[1].content
     expect(user.indexOf('## Continuity brief')).toBeGreaterThan(user.indexOf('## Who knows what'))

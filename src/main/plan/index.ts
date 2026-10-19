@@ -1,28 +1,45 @@
-// Plan before writing, on the open world (plan.ts does the work): whether to plan at all, with which model, and from
-// which briefing. ai/draftFlow.ts asks for a plan before Generate, Add below and each beat (not Variants: one plan for a
-// set would make its drafts alike, and choice is what they are for). With a continuity brief (long story memory fix 14,
-// brief.ts), what the plan reads besides comes from the world here: as much of the book so far as goes in, how each
-// earlier chapter ended, and the rule checks' findings still open in the scene. Beat by beat writes one brief a scene.
+// Plan before writing, on the open world (plan.ts does the work): whether to plan at all, with which model, from which
+// briefing, with what the story index gives at no cost (core.ts) and the look-ups it may make (ai/lookups/). ai/draftFlow.ts
+// asks for a plan before Generate, Add below, each set of Variants (one plan the set shares), each scene of Write the
+// whole chapter, and Beat by beat (one plan for the scene, its beats its structure, kept for its later beats). Continue
+// makes no call: it is given the scene's last plan while its words haven't moved on too far (planForContinueOf). With a
+// continuity brief (long story memory fix 14, brief.ts), what the plan reads besides comes from the world here: as much
+// of the book so far as goes in, how each earlier chapter ended, and the rule checks' findings still open in the scene.
 
 import type Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
-import type { ContextPreview, ID } from '@shared/types'
+import type { ContextPreview, ID, SceneCard } from '@shared/types'
+import { AUTO_LENGTH } from '@shared/defaults'
 import { getSettings } from '../settings'
 import * as world from '../world'
 import { memoryModel } from '../keeper'
-import { DEFAULT_MEMORY_CONTEXT } from '../keeper/model'
+import { contentNoteFor, DEFAULT_MEMORY_CONTEXT } from '../keeper/model'
 import { estimateTokens } from '../keeper/text'
 import { pausedNote } from '../usage/gate'
 import { toldStage, type ContextInput, type PreparedContext } from '../ai/context'
 import { memoryScale } from '../ai/memoryRoom'
 import { shortPlace } from '../ai/mustStay'
 import { briefSize, briefWanted, hasEarlierBooks, type ContinuityBrief } from '../ai/brief'
+import type { LookupContext } from '../ai/lookups'
 import { SO_FAR_BLOCK } from '../beats/instructions'
 import { openRuleFindings, sceneTexts } from '../db/checks'
 import { storedSnapshots } from '../db/snapshots'
 import { loadShape } from '../memory/scene'
 import { buildLine, labeler, storyOfScene } from '../memory/line'
-import { makePlan, planMaterial, planMessages, PLAN_REPLY_TOKENS, type MadePlan, type PlanMaterial } from './plan'
+import { findInStory } from '../retrieval'
+import { planCore, type PlanCore } from './core'
+import {
+  makePlan,
+  planForContinue,
+  planMaterial,
+  planMessages,
+  planText,
+  PLAN_REPLY_TOKENS,
+  type BeatAt,
+  type MadePlan,
+  type PlanMaterial,
+  type ScenePlan
+} from './plan'
 import {
   BOOK_MOST,
   BOOK_READER,
@@ -36,7 +53,6 @@ import {
   briefRoom,
   planThreads,
   type BookScene,
-  type BriefMaterial,
   type BriefSources,
   type ChapterRecord
 } from './brief'
@@ -53,34 +69,58 @@ export function planWanted(): boolean {
 }
 
 /**
- * Beat by beat's briefs (fix 14's review): one a scene, written with its first beat's plan and given to its later beats
- * while the scene card and the record it was made from read the same (`key`, briefKey), so the book so far isn't read
- * again for every beat. In memory only, for the scenes planned most recently.
+ * Each scene's last plan (2026-10-19), in memory for the scenes planned most recently: Beat by beat's later beats are
+ * written from it (one plan a scene, with its brief), and Continue is given it while its words haven't moved on too far.
  */
-const sceneBriefs = new Map<ID, { key: string; brief: ContinuityBrief }>()
-const MOST_SCENE_BRIEFS = 20
+interface KeptPlan {
+  /** What it was made from: the scene card and the author's direction (planKey). */
+  key: string
+  /** The scene card alone (cardKey), for Continue, which has its own "what happens next". */
+  card: string
+  plan: ScenePlan
+  needs: ID[]
+  brief: ContinuityBrief | null
+  lookedUp: string
+  pov: string
+  /** Made for Beat by beat: the whole scene, beat by beat. */
+  beats: boolean
+  /** Words in the scene when it was made, and how far into the scene it reaches (words), for Continue. */
+  words: number
+  reach: number
+}
+const scenePlans = new Map<ID, KeptPlan>()
+const MOST_KEPT = 20
+/** Continue is given the scene's plan while its words reach no further than what the plan was for and half as much again. */
+const CONTINUE_REACH = 1.5
 
-/** What a scene's brief was made from: its card, and the record and book the planner read (not the passages, by step). */
-export function briefKey(input: Pick<ContextInput, 'scene'>, m: BriefMaterial): string {
-  const book = m.book ? [m.book.length, m.book[m.book.length - 1].label, m.bookFrom ?? null] : null
-  return createHash('sha1')
-    .update(JSON.stringify([input.scene.card, m.record, book]))
+/** What a scene's plan was made from: its card and the author's direction. */
+export const planKey = (card: SceneCard, direction: string): string =>
+  createHash('sha1')
+    .update(JSON.stringify([cardKey(card), direction.replace(/\s+/g, ' ').trim()]))
     .digest('hex')
+
+/** The parts of a scene card a plan rests on (not its length, its status or how it was filled in). */
+export function cardKey(card: SceneCard): string {
+  const c = card as SceneCard & Record<string, unknown>
+  return JSON.stringify([c.povId, c.presentIds, c.locationId, c.when, c.goal, c.conflict, c.outcome, c.mood, c.notes, c.beats, c.setsUpIds, c.paysOffIds])
 }
 
-/** Forgets every kept brief (tests). */
-export function forgetSceneBriefs(): void {
-  sceneBriefs.clear()
+/** Forgets every kept plan (tests). */
+export function forgetScenePlans(): void {
+  scenePlans.clear()
 }
+
+const wordsIn = (text: string | undefined): number => (text ?? '').split(/\s+/).filter(Boolean).length
 
 /**
  * The plan for a draft about to be written from this briefing, made with the memory model (and its Thinking, Off unless
  * Adam changed it); null when planning is off, the memory model isn't set up or is paused (the month's spending limit),
- * or the plan failed, was stopped or took too long. Never throws. `focus`: for Beat by beat, the one beat to plan. With
- * "Write a continuity brief before each scene" on (fix 14), the same call also writes the brief; a later beat of a scene
- * gets the brief its first beat's plan wrote, while its card and record read the same, and its plan reads no more than
- * it always did. `brief: false`: never a brief, whatever the setting (Write the whole chapter: its study wrote one for
- * every scene, and the brief's planner reads up to 150,000 tokens of the book for each; token audit, 2026-10-19).
+ * or the plan failed, was stopped or took too long. Never throws. With "Write a continuity brief before each scene" on
+ * (fix 14), the same call also writes the brief. `beat`: Beat by beat, the beat being written: the scene is planned once,
+ * as a whole, with its first beat written (or the first after a scene card or direction that changed), and its later
+ * beats are given that plan with no call. `brief: false`: never a brief, whatever the setting (Write the whole chapter:
+ * its study wrote one for every scene, and the brief's planner reads up to 150,000 tokens of the book for each; token
+ * audit, 2026-10-19).
  */
 export async function planBeforeWriting(
   db: Database.Database,
@@ -91,51 +131,122 @@ export async function planBeforeWriting(
     prepared: Pick<PreparedContext, 'finals' | 'contract'> & Partial<Pick<PreparedContext, 'blocks'>>
   },
   signal?: AbortSignal,
-  focus = '',
-  o: { brief?: boolean } = {}
+  o: { brief?: boolean; beat?: BeatAt } = {}
 ): Promise<MadePlan | null> {
   try {
     if (!planWanted() || pausedNote()) return null
+    const carryingOn = b.preview.blocks.some((x) => x.id === SO_FAR_BLOCK && !x.dropped)
+    const card = b.input.scene.card
+    const key = planKey(card, b.input.options.direction ?? '')
+    // Beat by beat: the scene's plan, while its card and direction read the same (a fresh start at beat 1 plans again).
+    if (o.beat) {
+      const kept = scenePlans.get(sceneId)
+      if (kept && kept.beats && kept.key === key && (o.beat.index > 1 || carryingOn)) return keptFor(kept, carryingOn, o.beat)
+    }
     const model = memoryModel()
     if ('error' in model) return null
     const live = (): boolean => db.open && world.maybeCurrentWorld()?.db === db
     const entries = b.preview.entries ?? []
-    const plain = planMaterial(b.input, b.preview, b.prepared, focus)
+    const hidden = new Set(entries.filter((e) => e.hidden).map((e) => e.entryId))
+    // What the story index gives at no cost: everyone here as things stand, the scenes before, the open threads.
+    const core: PlanCore | null = safely(() => planCore(db, b.input, sceneId, { carryingOn, hidden }), null)
+    const plain: PlanMaterial = {
+      ...planMaterial(b.input, b.preview, b.prepared, { core, beats: !!o.beat }),
+      contentNote: contentNoteFor(b.input.style.intensity)
+    }
     // With a continuity brief (fix 14) when Adam wants one; a brief that can't be put together leaves the plan as it was.
-    const briefed =
+    const material =
       o.brief !== false && briefWanted(getSettings())
         ? safely(() => withBrief(db, sceneId, b, plain, model.choice.contextLength ?? DEFAULT_MEMORY_CONTEXT), plain)
         : plain
-    const key = focus && briefed.brief ? briefKey(b.input, briefed.brief) : null
-    const kept = key ? sceneBriefs.get(sceneId) : undefined
-    const reuse = kept && kept.key === key ? kept.brief : null
+    const stand = toldStage(b.input)
+    const storyTitle = b.input.story.title
+    // The look-ups, even when the core couldn't be read (those of the story index then say it has nothing yet).
+    const storyId = core?.storyId ?? b.input.memory.storyId
+    const lookups: LookupContext | undefined = storyId
+      ? {
+          db,
+          sceneId,
+          storyId,
+          asItBegins: !carryingOn,
+          entries: b.input.memory.entries,
+          facts: b.input.memory.facts,
+          relationships: b.input.memory.relationships,
+          people: material.people,
+          hidden,
+          find: async (query, most) =>
+            (await findInStory(db, sceneId, query, most, signal))?.map((p) => ({ where: shortPlace(p.where, storyTitle), text: p.text })) ?? null
+        }
+      : undefined
     const plan = await makePlan({
       db,
       model,
       sceneId,
-      material: reuse ? plain : briefed,
+      material,
       check: {
         // The stage as the writer is told it: only the people in the scene, and a time that still holds.
-        stand: toldStage(b.input),
+        stand,
         entries: b.input.memory.entries,
         inBriefing: new Set(entries.filter((e) => !e.hidden && e.blockId).map((e) => e.entryId)),
-        hidden: new Set(entries.filter((e) => e.hidden).map((e) => e.entryId))
+        hidden,
+        ...(core ? { known: core.known } : {}),
+        present: [...material.people, ...(stand?.characters ?? []).map((c) => c.name)]
       },
-      carryingOn: b.preview.blocks.some((x) => x.id === SO_FAR_BLOCK && !x.dropped),
+      carryingOn,
+      ...(lookups ? { lookups } : {}),
+      ...(o.beat ? { beat: o.beat } : {}),
       signal,
       closed: () => !live()
     })
-    if (reuse) return { ...(plan ?? { needs: [], text: '', must: [], checked: { corrected: 0, dropped: 0 } }), brief: reuse }
-    if (key && plan?.brief) {
-      sceneBriefs.delete(sceneId)
-      sceneBriefs.set(sceneId, { key, brief: plan.brief })
-      for (const old of [...sceneBriefs.keys()].slice(0, Math.max(0, sceneBriefs.size - MOST_SCENE_BRIEFS))) sceneBriefs.delete(old)
+    if (plan?.plan && live()) {
+      const words = wordsIn(b.input.soFar)
+      const asked = b.input.options.targetWords ?? AUTO_LENGTH.typical
+      scenePlans.delete(sceneId)
+      scenePlans.set(sceneId, {
+        key,
+        card: cardKey(card),
+        plan: plan.plan,
+        needs: plan.needs,
+        brief: plan.brief ?? null,
+        lookedUp: plan.lookedUp ?? '',
+        pov: material.pov ?? '',
+        beats: !!o.beat,
+        words,
+        reach: words + Math.round(asked * (o.beat ? o.beat.of : 1) * CONTINUE_REACH)
+      })
+      for (const old of [...scenePlans.keys()].slice(0, Math.max(0, scenePlans.size - MOST_KEPT))) scenePlans.delete(old)
     }
     return plan
   } catch (e) {
     console.warn('Could not plan the scene; writing without a plan', e)
     return null
   }
+}
+
+/** A later beat's plan: the scene's, with its notes written for this beat. */
+function keptFor(k: KeptPlan, carryingOn: boolean, beat: BeatAt): MadePlan {
+  return {
+    needs: k.needs,
+    text: planText(k.plan, carryingOn, { ...(k.pov ? { pov: k.pov } : {}), beat }),
+    // A beat's contract is the card's beat itself: the scene's plan says nothing it must change.
+    must: [],
+    checked: k.plan.checked,
+    ...(k.brief ? { brief: k.brief } : {}),
+    plan: k.plan,
+    ...(k.lookedUp ? { lookedUp: k.lookedUp } : {})
+  }
+}
+
+/**
+ * The scene's last plan as Continue is given it (no call; plan.ts planForContinue), or '' when there is none to give:
+ * planning is off, the scene has no plan kept, its card has changed since, or the words before the cursor are before
+ * where the plan began or have moved on past what it was for (half as much again as the words it planned).
+ */
+export function planForContinueOf(sceneId: ID, card: SceneCard, wordsBefore: number): string {
+  if (!planWanted()) return ''
+  const k = scenePlans.get(sceneId)
+  if (!k || k.card !== cardKey(card) || wordsBefore < k.words || wordsBefore > k.reach) return ''
+  return planForContinue(k.plan, k.pov)
 }
 
 /**
@@ -195,7 +306,7 @@ const safely = <T>(fn: () => T, fallback: T): T => {
   try {
     return fn()
   } catch (e) {
-    console.warn('Could not read part of the story for the continuity brief', e)
+    console.warn('Could not read part of the story for the plan', e)
     return fallback
   }
 }

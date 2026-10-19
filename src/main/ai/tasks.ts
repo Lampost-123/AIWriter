@@ -46,6 +46,11 @@ export interface TaskRequest {
   sceneId?: ID | null
   model: JobModel
   messages: ChatMessage[]
+  /**
+   * What the record keeps of the messages, when that is less than was sent (the plan before writing with the book so far
+   * read whole: the book is kept as a note, as it is the scenes' own words). Left out: the messages as sent.
+   */
+  kept?: ChatMessage[]
   /** Room for the reply itself, in tokens. Thinking gets room on top, as the job's Thinking says. */
   reply: number
   temperature: number
@@ -218,7 +223,7 @@ function begin(req: TaskRequest): Running {
     params,
     direction: (req.direction ?? '').slice(0, 4000),
     blocks: req.blocks ?? [],
-    messages: req.messages,
+    messages: req.kept ?? req.messages,
     budget: { contextLength, reserved: limit, available: Math.max(0, contextLength - limit), used: promptTokens },
     entries: req.entries ?? [],
     createdAt: now()

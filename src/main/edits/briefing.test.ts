@@ -488,7 +488,10 @@ describe('Continue’s scene contract (long story memory fix 13)', () => {
     // Everything what must stay true had to say is in the contract here, so it goes.
     expect(b.blocks.map((x) => x.id).slice(-3)).toEqual(['stand', 'scene-contract', 'ask'])
     const text = b.blocks.find((x) => x.id === 'scene-contract')!.text
-    expect(text).toContain('Must happen next:\n1. Tobin admits he lied about the ledger')
+    // Adam's words are said once, last of all (2026-10-19): the contract points to them, and the check reads them.
+    expect(text).toContain('Must happen next:\n1. What the author asks for next, as given last of all, below.')
+    expect(b.messages[1].content.split('Tobin admits he lied about the ledger')).toHaveLength(2)
+    expect(b.contract!.items[0].text).toBe('Tobin admits he lied about the ledger')
     // What happens next is about a lie, not the forgery: the secret stays kept.
     expect(text).toContain('Must not change:\n- Kept from Tobin: The ledger is forged')
     expect(text).toContain('- Mara: soaked through (since Ch 2, Sc 1)')
@@ -504,5 +507,31 @@ describe('Continue’s scene contract (long story memory fix 13)', () => {
     expect(b.contract!.items.every((i) => i.part === 'keep')).toBe(true)
     const rewrite = ok(editBriefing(input('rewrite', { direction: 'Sadder' }), { ...world(), must, contract: true }))
     expect(rewrite.blocks.some((x) => x.id === 'scene-contract')).toBe(false)
+  })
+})
+
+describe('Continue’s plan and the scene before (2026-10-19)', () => {
+  const go = (w: Partial<EditWorld> = {}, contextLength = 32_000) =>
+    editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '' }), { ...world(), contextLength, ...w })
+  const previous = { lead: 'This is how the scene before this one ended.', text: 'The rain came on as they left the ferry.' }
+  const plan = 'The plan made for this scene before it was drafted.\nThe beats, in order:\n1. Tobin tells Mara the truth'
+
+  it('the end of the scene before, beside the story so far; the plan near the end, before where things stand', () => {
+    const b = ok(go({ previous, plan, core: { timeline: 'Ch 1: they meet.' } }))
+    const ids = b.blocks.map((x) => x.id)
+    expect(ids.indexOf('previous-scene')).toBe(ids.indexOf('timeline') + 1)
+    expect(b.blocks.find((x) => x.id === 'previous-scene')!.text).toBe(`${previous.lead}\n"""\n${previous.text}\n"""`)
+    expect(ids.slice(-2)).toEqual(['plan', 'ask'])
+    expect(b.blocks.find((x) => x.id === 'plan')!.text).toBe(plan)
+    // None given: neither part.
+    const none = ok(go())
+    expect(none.blocks.some((x) => x.id === 'plan' || x.id === 'previous-scene')).toBe(false)
+  })
+
+  it('a small model loses the scene before first, then the plan, before Continue is refused', () => {
+    let smallest = 0
+    for (let n = 400; n < 20_000 && !smallest; n += 20) if (go({}, n).ok) smallest = n
+    const tight = ok(go({ previous, plan }, smallest))
+    expect(tight.blocks.some((x) => x.id === 'previous-scene')).toBe(false)
   })
 })

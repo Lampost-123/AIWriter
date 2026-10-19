@@ -7,8 +7,10 @@
 // timeline's short form (ai/timeline.ts), a few entries recalled near the cursor, what was said word for word, the
 // point-of-view character's facts to keep, an optional "what happens next" from Adam, and the phrases the scene has
 // used already (ai/repetition.ts). What stays the same from one Continue to the next comes first (the cache). Since long
-// story memory fix 13, Continue also gets the scene's contract (ai/contract.ts) built by the app alone (Continue has no
-// plan): what must not change, what must happen next when Adam says, and how much time has passed.
+// story memory fix 13, Continue also gets the scene's contract (ai/contract.ts) built by the app alone: what must not
+// change, what must happen next when Adam says (pointed to, as his words are said last), and how much time has passed.
+// Since 2026-10-19 Continue also gets the end of the previous scene, and the plan made before the scene was drafted
+// while its words haven't moved on past it (plan/index.ts planForContinueOf); it makes no plan call of its own.
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
@@ -20,7 +22,7 @@ import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
 import { MUST_TITLE, mustLines, mustStayTrue, mustText, stageFor } from '../ai/mustStay'
-import { CONTRACT_BLOCK, contractSays, contractText, sceneContract, type SceneContract } from '../ai/contract'
+import { CONTRACT_BLOCK, contractSays, contractText, SAID, sceneContract, type SceneContract } from '../ai/contract'
 import { holdingsOf } from '../memory/items'
 import { freshLooks, pastProfile } from '../ai/briefingFixes'
 import { withLockLines } from '../ai/lockRule'
@@ -77,6 +79,16 @@ export interface EditWorld {
    * from what must stay true's lines and Adam's "what happens next". Left out or false: none, as before.
    */
   contract?: boolean
+  /**
+   * Continue (2026-10-19): the end of the previous scene, a couple of hundred words, with where it comes from in a line
+   * ("This is how the scene before ended."). Left out: none (the first scene, or the other tools).
+   */
+  previous?: { lead: string; text: string }
+  /**
+   * Continue (2026-10-19): the plan made before the scene was drafted (plan/index.ts planForContinueOf), while the words
+   * haven't moved on past what it was for. No call is made for it. '' or left out: none.
+   */
+  plan?: string
 }
 
 /** The most of each part of Continue's memory core. */
@@ -359,6 +371,11 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     // The plot threads still open, short (the same from one Continue to the next, so next to the timeline).
     const threads = openThreadsText((core?.threads ?? []).slice(0, CORE_MOST.threads), true)
     if (threads) parts.push({ id: 'threads', priority: 3, title: OPEN_THREADS_TITLE, text: `${OPEN_THREADS_TITLE}\n${threads}`, entryIds: [] })
+    // The end of the previous scene (2026-10-19), the same from one Continue to the next, so beside the timeline.
+    const previous = isContinue && withPeople && scale >= 0.5 && world.previous?.text.trim() ? world.previous : null
+    if (previous) {
+      parts.push({ id: 'previous-scene', priority: 3, title: 'End of the previous scene', text: `${previous.lead}\n${fence(previous.text.trim())}`, entryIds: [] })
+    }
     const scene = sceneText(world, byId, isContinue)
     if (scene.text) parts.push({ id: 'scene', priority: 2, title: 'The scene', text: scene.text, entryIds: scene.entryIds })
     const shown = withPeople ? people.slice(0, Math.max(tool === 'voice' ? people.length : 1, Math.round(people.length * scale))) : []
@@ -444,12 +461,18 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       const lead = isContinue ? "The text that comes after (lead into it; don't repeat it):" : 'The text just after the selected words:'
       parts.push({ id: 'after', priority: 4, title, text: `${lead}\n${fence(after)}`, entryIds: [] })
     }
+    // The scene's plan, made before its draft (2026-10-19): where it is heading, near the end (left out on the last try).
+    const plan = isContinue && scale > 0 ? (world.plan ?? '').trim() : ''
+    if (plan) parts.push({ id: 'plan', priority: 2, title: 'The scene’s plan', text: plan, entryIds: [] })
     // A door locked from inside with someone outside is said in one line after the stage (ai/lockRule.ts).
     const stand = isContinue && world.stand ? withLockLines(stateText(world.stand), world.stand) : ''
     if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
     // The scene's contract, right above what must stay true (left out with it on the last try).
-    if (contract && scale > 0)
-      parts.push({ id: CONTRACT_BLOCK.id, priority: 2, title: CONTRACT_BLOCK.title, text: contractText(contract, { short: !withPeople }), entryIds: [] })
+    // Adam's "what happens next" is said once, last of all (2026-10-19): the contract points to it.
+    if (contract && scale > 0) {
+      const said = [{ text: direction, as: SAID.next }]
+      parts.push({ id: CONTRACT_BLOCK.id, priority: 2, title: CONTRACT_BLOCK.title, text: contractText(contract, { short: !withPeople, said }), entryIds: [] })
+    }
     const listed = scale === 0 ? [] : withPeople ? must.full : must.short
     if (listed.length) parts.push({ id: 'must', priority: 2, title: MUST_TITLE, text: mustText(listed, withPeople ? 'here' : null), entryIds: [] })
     parts.push({ id: 'ask', priority: 1, title: 'What the AI was asked', text: finalAsk(tool, o), entryIds: [] })

@@ -13,7 +13,7 @@ import { countRaw } from '../ai/tokens'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { memorySearchIndex, type SearchIndex } from './store'
 import { syncNow, readPassages } from './indexing'
-import { factDocs, queryParts, recallFor, withoutNames } from './recall'
+import { factDocs, findPassages, queryParts, recallFor, withoutNames } from './recall'
 import { Vectors } from './vectors'
 import { stubEmbedder } from './stub'
 import { isRecallBlock, RECALL_WHY } from './briefing'
@@ -79,6 +79,24 @@ function world() {
 
 const inputFor = (db: Database.Database, scene: ID, contextLength = 128_000) =>
   gatherContextInput(db, scene, undefined, { prefs: defaultWritingPrefs(), contextLength, creativity: 'balanced' })
+
+describe('the planner’s own search (find_in_story)', () => {
+  it('finds earlier passages on the line by its words, and by meaning with the search model; never a later scene', async () => {
+    const w = world()
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const plain = await findPassages({ db: w.db, index, embedder: null }, w.scene, 'the old well', 2)
+    expect(plain[0]).toMatchObject({ where: 'Book 1, Ch 1, Sc 1', kind: 'scene' })
+    expect(plain[0].text).toContain('At the old well Mara took his hands.')
+    expect(plain.map((p) => p.text).join(' ')).not.toContain('Much later')
+    expect(plain.length).toBeLessThanOrEqual(2)
+    const embedder = stubEmbedder()
+    await readPassages(index, embedder, (t) => embedder.embed(t, 'passage'), { signal: new AbortController().signal })
+    const meant = await findPassages({ db: w.db, index, embedder, vectors: new Vectors() }, w.scene, 'a vow she swore to come back', 3)
+    expect(meant.map((p) => p.text).join(' ')).toContain('I swear I will come back for you before the snow')
+    expect(await findPassages({ db: w.db, index: null, embedder: null }, w.scene, 'the old well', 2)).toEqual([])
+  })
+})
 
 describe('recall for a briefing', () => {
   it('searches only what comes before the scene on its line, by keyword and by meaning', async () => {

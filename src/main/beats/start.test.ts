@@ -19,7 +19,7 @@ const h = vi.hoisted(() => ({
   url: '',
   calls: [] as { sceneId: string; options: Partial<import('@shared/types').DraftOptions>; catchUp: boolean; plan: unknown; focus?: string }[],
   /** Plans asked for (withPlan), with the beat each was for. */
-  plans: [] as { sceneId: string; focus: string | undefined }[],
+  plans: [] as { sceneId: string; beat: unknown }[],
   /** Run once while the next briefing gets ready (the memory catching up), then forgotten. */
   whileBriefing: null as (() => void) | null
 }))
@@ -61,8 +61,8 @@ vi.mock('../ai/draftFlow', async () => {
         entryVersions: sentEntryVersions(input.memory, preview.blocks)
       }
     },
-    withPlan: async (sceneId: string, b: unknown, o: { focus?: string }) => {
-      h.plans.push({ sceneId, focus: o.focus })
+    withPlan: async (sceneId: string, b: unknown, o: { beat?: unknown }) => {
+      h.plans.push({ sceneId, beat: o.beat })
       return b
     }
   }
@@ -174,7 +174,8 @@ describe('starting a beat', () => {
     expect(h.calls.map((c) => c.plan)).toEqual([false])
     // The beat's scene contract asks for the beat with Adam's note for it (long story memory fix 13's review).
     expect(h.calls.map((c) => c.focus)).toEqual(['Tobin asks for the ledger (the author’s note for it: Make Tobin stall before he asks)'])
-    expect(h.plans).toEqual([{ sceneId, focus: "Beat 2 of 3: Tobin asks for the ledger.\nThe author's note for it: Make Tobin stall before he asks." }])
+    // One plan for the scene: the beat being written is said, never a plan of its own (2026-10-19).
+    expect(h.plans).toEqual([{ sceneId, beat: { index: 2, of: 3 } }])
     // The beat is listed with the scene's drafts (the Drafts tab), so its record can be opened from there.
     expect(gens.listGenerations(db, sceneId)).toEqual([expect.objectContaining({ id: generationId, job: 'beat', status: 'complete' })])
   })
@@ -186,7 +187,7 @@ describe('starting a beat', () => {
     const { generationId } = await startBeat(input(sceneId, { steer: '' }), { emit: r.emit })
     await r.done(generationId)
     expect(h.calls).toHaveLength(2)
-    expect(h.plans).toEqual([{ sceneId, focus: 'Beat 2 of 3: Tobin burns the ledger.' }])
+    expect(h.plans).toEqual([{ sceneId, beat: { index: 2, of: 3 } }])
     expect(fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content).toContain('- Beat 2 (write this one now): Tobin burns the ledger.')
   })
 

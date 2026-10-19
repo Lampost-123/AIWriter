@@ -101,7 +101,7 @@ import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost,
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
-import { CONTRACT_BLOCK, contractSays, contractText, sceneContract, type ContractInput, type SceneContract } from './contract'
+import { CONTRACT_BLOCK, contractSays, contractText, SAID, sceneContract, type ContractInput, type SceneContract } from './contract'
 import { BRIEF_BLOCK, briefShortens, briefText, hasEarlierBooks, type ContinuityBrief } from './brief'
 import { LEDGER_BLOCK, ledgerPeople, ledgerText } from './whoKnows'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
@@ -166,7 +166,12 @@ export interface ContextInput {
    * The plan made before writing (src/main/plan/): the codex entries it asked for, brought into the briefing, and the
    * writer's own notes it carries on from, sent after the closing instruction. Null or left out: no plan.
    */
-  plan?: { needs: ID[]; text: string } | null
+  plan?: {
+    needs: ID[]
+    text: string
+    /** What the planner looked up (plan.ts lookedUpText), a block of its own beside the plan; '' or left out: nothing. */
+    lookedUp?: string
+  } | null
   /**
    * Story memory step 5 (src/main/retrieval/): entries from the last two scenes, entries and earlier passages found by
    * searching, and what was said word for word. Null or left out: none of it (switched off, or a test).
@@ -217,6 +222,16 @@ export interface ContextInput {
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
 export const PLAN_BLOCK = { id: 'plan', title: 'The plan, made before writing' } as const
+/**
+ * What the plan before writing looked up (overhaul, 2026-10-19), sent late (SEND_ORDER: after the continuity brief),
+ * written for each draft. Priority 3; short: the facts without the passages.
+ */
+export const LOOKED_UP_BLOCK = { id: 'looked-up', priority: 3, title: 'Looked up before writing' } as const
+/** The looked-up block's short form: its lead and the facts, without the passages ("### …" parts). */
+const lookedUpShort = (text: string): string | null => {
+  const at = text.indexOf('\n\n### ')
+  return at > 0 ? text.slice(0, at) : null
+}
 /** The "must stay true" list's block (mustStay.ts), sent last before the closing instruction. */
 export const MUST_BLOCK = 'must-stay-true'
 /** Its priority: as the scene card's, never left out (2026-10-15), though it has a short form for when room is short. */
@@ -1793,12 +1808,22 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
         noStart: input.contract.noStart
       })
     : null
-  if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract), contractText(contract, { short: true }), [])
+  // Adam's direction (and a beat) is said once (2026-10-19): the contract points to where the writer reads it in full, the
+  // scene card for a whole scene, or last of all carrying on (Add below) and for a beat. The check still reads every item.
+  const said = [
+    { text: clean(input.options.direction), as: input.options.addBelow ? SAID.below : SAID.card },
+    ...(input.contract?.asks === 'beat' && input.contract.focus ? [{ text: input.contract.focus, as: SAID.beat }] : [])
+  ]
+  if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract, { said }), contractText(contract, { short: true, said }), [])
   // The continuity brief (long story memory fix 14, brief.ts): what the plan's reader of the whole record found matters
   // here. Never left out (it goes in only where there is room for it: draftFlow.ts withPlan); short: what matters and
   // what must not be contradicted.
   const brief = briefText(input.brief)
   if (brief) add(BRIEF_BLOCK.id, MUST_PRIORITY, BRIEF_BLOCK.title, brief, briefText(input.brief, true), [])
+  // What the plan before writing looked up (overhaul, 2026-10-19): the facts as they stand and a few passages, beside the
+  // plan. Short: the facts alone.
+  const looked = clean(input.plan?.lookedUp) ? input.plan!.lookedUp!.trim() : ''
+  if (looked) add(LOOKED_UP_BLOCK.id, LOOKED_UP_BLOCK.priority, LOOKED_UP_BLOCK.title, looked, lookedUpShort(looked), [])
   const mustFor = contract ? { ...mustFrom, leaveOut: contractSays(contract) } : mustFrom
   const must = mustStayTrue(mustFor)
   if (must.length) {
@@ -2107,6 +2132,8 @@ export const SEND_ORDER = [
   LEDGER_BLOCK.id,
   // The continuity brief (fix 14): written for each draft, so late.
   BRIEF_BLOCK.id,
+  // What the plan looked up (2026-10-19): written for each draft too.
+  LOOKED_UP_BLOCK.id,
   // How the people in the scene sound, one line each, then the end of the previous scene right above the scene card.
   VOICES_BLOCK.id,
   'previous-scene',

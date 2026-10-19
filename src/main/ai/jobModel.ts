@@ -31,9 +31,9 @@ import { UserError } from '../util'
 
 export type ModelJob = 'writer' | 'chat' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter'
 
-/** A job's model and how to reach it. */
+/** A job's model and how to reach it ('memory': the memory model, for the plan before writing and its look-ups). */
 export interface JobModel {
-  job: ModelJob
+  job: ModelJob | 'memory'
   target: ChatTarget & { id: ID }
   choice: ModelChoice
   /** How much the model is asked to think (the job's own Thinking in Settings › Models). */

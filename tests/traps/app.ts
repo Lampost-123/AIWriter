@@ -326,7 +326,12 @@ function withStandIns(next: typeof fetch): typeof fetch {
     const body = typeof init?.body === 'string' ? init.body : ''
     if (body.includes('[AIWRITE-REPAIR v')) return standInRepair(body)
     if (body.includes(JUDGE_MARKER)) return standInJudge(body)
-    if (body.includes('Make sure this happens') || standInDirections.some((d) => body.includes(JSON.stringify(d).slice(1, -1)))) return standInWriter(body)
+    // Only the writer's own requests (a draft, Continue's): never the planner's or the memory's, which quote a chain's
+    // direction too (the plan before writing was answered with prose, so no step was ever planned in a fake run).
+    const writer = !/\[AIWRITE-(?!EDIT)[A-Z-]+ v\d+\]/.test(body)
+    if (writer && (body.includes('Make sure this happens') || standInDirections.some((d) => body.includes(JSON.stringify(d).slice(1, -1))))) {
+      return standInWriter(body)
+    }
     return next(input, init)
   }) as typeof fetch
 }

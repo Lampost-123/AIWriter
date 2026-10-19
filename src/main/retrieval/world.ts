@@ -7,9 +7,9 @@ import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
 import type { ContextInput } from '../ai/context'
 import { readPassages, syncNow, syncSlowly } from './indexing'
-import { meaningScores, recallFor } from './recall'
+import { findPassages, meaningScores, recallFor } from './recall'
 import { openSearchIndex, type SearchIndex } from './store'
-import type { Embedder, RecallInput } from './types'
+import type { Embedder, RecallInput, RecalledPassage } from './types'
 import { Vectors } from './vectors'
 
 type DB = Database.Database
@@ -152,6 +152,29 @@ export class WorldRecall {
     // Passages new since the last search (a scene just written) are read for meaning shortly after.
     if (embedder) this.indexSoon(INDEX_AFTER_SEARCH_MS)
     return this.live() ? result : null
+  }
+
+  /**
+   * Earlier passages for a search of the planner's own (recall.ts findPassages); null when the world closed. The index
+   * catches up with the scenes first, as for a briefing; when it can't, nothing is found.
+   */
+  async find(sceneId: ID, query: string, most: number, signal?: AbortSignal): Promise<RecalledPassage[] | null> {
+    if (!this.live()) return null
+    const index = this.indexOf()
+    if (!index) return []
+    try {
+      syncNow(this.deps.db, index)
+    } catch (e) {
+      console.warn('The search index could not catch up before this search; nothing is found', e instanceof Error ? e.message : e)
+      return []
+    }
+    const found = await findPassages(
+      { db: this.deps.db, index, embedder: this.deps.embedder(), vectors: this.vectors, signal, meaningWaitMs: this.deps.meaningWaitMs },
+      sceneId,
+      query,
+      most
+    )
+    return this.live() ? found : null
   }
 
   /**

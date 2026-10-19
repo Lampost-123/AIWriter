@@ -386,14 +386,37 @@ export function partTitle(part: ContractPart, asks: ContractAsks): string {
         : 'Must happen in what you write now'
 }
 
-/** The lists as the writer reads them (short: without the lead), or with ids for a check (`codes`). */
-export function contractText(c: SceneContract, o: { short?: boolean; codes?: boolean } = {}): string {
+/**
+ * What the writer is told in place of an item it reads in full elsewhere in the same request (2026-10-19: Adam's
+ * direction was said three or four times in one request): the item's words, and what to say instead.
+ */
+export interface SaidElsewhere {
+  text: string
+  as: string
+}
+
+/** The pointers for the direction and a beat, by where the writer reads them in full. */
+export const SAID = {
+  card: 'What the author directs, as the scene card gives it.',
+  below: 'What the author directs, as given last of all, below.',
+  beat: 'This beat, as given last of all, below.',
+  next: 'What the author asks for next, as given last of all, below.'
+} as const
+
+/**
+ * The lists as the writer reads them (short: without the lead), or with ids for a check (`codes`). `said`: items the
+ * writer reads in full elsewhere in the request (the direction on the scene card, or last of all) are pointed to rather
+ * than said again; never in a check's list.
+ */
+export function contractText(c: SceneContract, o: { short?: boolean; codes?: boolean; said?: readonly SaidElsewhere[] } = {}): string {
   const parts: string[] = []
   if (!o.short && !o.codes) parts.push(CONTRACT_LEAD)
+  const elsewhere = new Map((o.codes ? [] : (o.said ?? [])).filter((s) => clean(s.text)).map((s) => [clip(clean(s.text)).toLowerCase(), s.as]))
+  const told = (i: ContractItem): string => (i.part === 'change' ? (elsewhere.get(i.text.toLowerCase()) ?? i.text) : i.text)
   for (const part of ['start', 'change', 'keep'] as const) {
     const list = c.items.filter((i) => i.part === part)
     if (!list.length) continue
-    const lines = list.map((i, n) => (o.codes ? `- [${i.code}] ${i.text}` : part === 'change' ? `${n + 1}. ${i.text}` : `- ${i.text}`))
+    const lines = list.map((i, n) => (o.codes ? `- [${i.code}] ${i.text}` : part === 'change' ? `${n + 1}. ${told(i)}` : `- ${i.text}`))
     parts.push(`${partTitle(part, c.asks)}:\n${lines.join('\n')}`)
   }
   return parts.join('\n')

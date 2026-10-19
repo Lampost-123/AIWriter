@@ -81,7 +81,7 @@ export async function startBeat(
       final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds, hasAfter: !!next }),
       extraBlocks: [block, next].filter((x): x is NonNullable<typeof x> => !!x)
     })
-    // Planned below, once the beats are settled (so never twice), and only this beat.
+    // Planned below, once the beats are settled (so never twice): one plan for the scene, kept for its later beats.
     const briefing = (catchUp: boolean): Promise<DraftBriefing> => {
       const options: Partial<DraftOptions> = {
         ...input.options,
@@ -105,9 +105,9 @@ export async function startBeat(
       beats = now
       b = await briefing(false)
     }
-    // Plan before writing (step 4): this beat alone, never the beats after it.
-    const focus = `Beat ${index} of ${beats.length}: ${beats[index - 1]}${steer ? `\nThe author's note for it: ${steer}` : ''}`
-    b = await withPlan(sceneId, b, { extras: extras(), signal: stop.signal, focus })
+    // Plan before writing: one plan for the whole scene, its beats its structure (Adam's spec, 2026-10-19), made with the
+    // first beat written and given to the later ones with no call (plan/index.ts); the notes say which beat is now.
+    b = await withPlan(sceneId, b, { extras: extras(), signal: stop.signal, beat: { index, of: beats.length } })
     const { generationId } = startDraftJob({
       db,
       sceneId,

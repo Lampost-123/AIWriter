@@ -22,7 +22,8 @@ import { sceneMemory } from '../memory/scene'
 import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
 import { calendarFor, CATCH_UP_LIMIT_MS, catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
-import { sceneTail, stageScope, timelineFrom } from '../ai/context'
+import { sceneTail, SHORT_TAIL, stageScope, timelineFrom } from '../ai/context'
+import { planForContinueOf } from '../plan'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
 import type { SceneMemory } from '../memory/types'
@@ -84,6 +85,29 @@ async function continueCore(
   return { timeline, recalled, said, threads }
 }
 
+/** How much of the previous scene's end Continue is given: about 200 words. */
+export const CONTINUE_PREVIOUS = SHORT_TAIL
+
+/**
+ * What Continue gets besides (2026-10-19): the end of the previous scene, with where it comes from, and the scene's plan
+ * (plan/index.ts planForContinueOf) while the words before the cursor are within what it was made for.
+ */
+export function continueExtras(
+  input: Pick<EditInput, 'sceneId' | 'before'>,
+  memory: Pick<SceneMemory, 'previous' | 'storyId'>,
+  card: SceneCard,
+  storyTitle: string
+): Pick<EditWorld, 'previous' | 'plan'> {
+  const prev = memory.previous
+  const text = prev?.text?.trim() ? sceneTail(prev.text, CONTINUE_PREVIOUS) : ''
+  const other = !!prev?.otherStory && prev.storyId !== memory.storyId
+  const lead = other
+    ? `This is how ${prev!.storyTitle.trim() || 'the story before'} ${prev!.otherStory!.ended ? 'ended' : 'had got to'}; this story (${storyTitle}) comes after it.`
+    : 'This is how the scene before this one ended.'
+  const plan = planForContinueOf(input.sceneId, card, input.before.split(/\s+/).filter(Boolean).length)
+  return { ...(text ? { previous: { lead, text } } : {}), ...(plan ? { plan } : {}) }
+}
+
 /**
  * How long Continue waits for the memory to catch up (earlier scenes, then the scene's own fresh read): until it has, as a
  * draft does (Adam, 2026-10-17: "always wait for the extractor to finish before advancing"). Stop ends the wait at once.
@@ -140,7 +164,10 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     must: { facts: memory.facts, beliefs: memory.beliefs, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships },
     ...(core ? { core } : {}),
     // The scene's contract (long story memory fix 13), when Settings › Models says to.
-    ...(tool === 'continue' && contractWanted(settings) ? { contract: true } : {})
+    ...(tool === 'continue' && contractWanted(settings) ? { contract: true } : {}),
+    // Continue (2026-10-19): the end of the previous scene, and the plan made before the scene was drafted while the words
+    // haven't moved on past it (no call; none with Plan before writing off).
+    ...(tool === 'continue' ? continueExtras(input, memory, scene.card, story.title) : {})
   })
   if (!briefing.ok) return briefing
 

@@ -24,7 +24,7 @@ import { carryOnFrom, catchUpBeforeDraft, gatherContextInput, stageNote, stageWh
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { memoryReady } from '../keeper'
 import { planBeforeWriting, planWanted } from '../plan'
-import { keepsRoom } from '../plan/plan'
+import { keepsRoom, type BeatAt } from '../plan/plan'
 import { countTokens } from './tokenService'
 import { isLocalUrl, providerWho } from './errors'
 import { recallForBriefing } from '../retrieval'
@@ -157,8 +157,9 @@ export interface DraftBriefing {
  * usual (ai/gather.ts CATCH_UP_LIMIT_MS: until it has caught up), as Variants do.
  * `soFar`: the draft carries on from these words already in the scene (Add below, a later beat), so where things
  * stand at their end is worked out first (never for long) and told in place of where the previous scene ended.
- * `plan` (on unless false; Variants turn it off, and Beat by beat plans the beat itself with withPlan): one short call
- * to the memory model plans the scene first, when Settings › Models says to (plan/), never for long (withPlan).
+ * `plan` (on unless false; Beat by beat plans the scene itself with withPlan, once a scene): the memory model plans
+ * the scene first, with one round of look-ups, when Settings › Models says to (plan/), never for long (withPlan). A set of
+ * Variants is briefed once, so its drafts share the one plan.
  * `brief: false`: the plan writes no continuity brief (Write the whole chapter, whose study wrote one; plan/index.ts).
  */
 export async function draftBriefing(
@@ -263,33 +264,45 @@ async function withStageNow(sceneId: ID, b: DraftBriefing, extras?: ContextExtra
 }
 
 /**
- * Plan before writing (step 4, plan/): when Settings › Models says to, one short call to the memory model plans the
- * scene (or, with `focus`, the one beat), never for long; the entries it asks for come into the briefing, and the plan
- * goes in after the closing instruction as the writer's own notes. Only when there is room: with what it asked for,
- * else without it, else no plan, never at the cost of anything the briefing had room for without it (keepsRoom).
- * Otherwise the briefing comes back as it was.
+ * Plan before writing (step 4, plan/; done properly in the overhaul, 2026-10-19): when Settings › Models says to, the
+ * memory model plans the scene, with one round of look-ups answered on this computer, never for long; the entries it asks
+ * for (or reads) come into the briefing, what it looked up goes in beside the plan, and the plan goes in after the closing
+ * instruction as the writer's own notes. `beat`: Beat by beat, the beat being written: one plan for the scene, made with
+ * its first beat and given to the later ones (plan/index.ts). Only when there is room: with what it asked for and what
+ * it looked up, else without one then the other, else no plan, never at the cost of anything the briefing had room for
+ * without it (keepsRoom). Otherwise the briefing comes back as it was.
  */
 export async function withPlan(
   sceneId: ID,
   b: DraftBriefing,
-  o: { extras?: ContextExtras; signal?: AbortSignal; focus?: string; brief?: boolean } = {}
+  o: { extras?: ContextExtras; signal?: AbortSignal; beat?: BeatAt; brief?: boolean } = {}
 ): Promise<DraftBriefing> {
   if (!b.prepared) return b
   const db = world.db()
-  const plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, o.focus, {
-    brief: o.brief
+  const plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, {
+    brief: o.brief,
+    ...(o.beat ? { beat: o.beat } : {})
   })
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
   if (!plan) return b
-  // With what it asked for, else without; with the continuity brief (fix 14), else without it. Each only if it says
-  // anything.
+  // With what it asked for and what it looked up, else without what it looked up, then without what it asked for; with
+  // the continuity brief (fix 14), else without it. Each only if it says anything.
+  const looked = plan.lookedUp ?? ''
   const briefs = plan.brief ? [plan.brief, null] : [null]
   const tries = briefs
-    .flatMap((brief) => (plan.text && plan.needs.length ? [{ ...plan, brief }, { ...plan, needs: [], brief }] : [{ ...plan, brief }]))
+    .flatMap((brief) => [
+      { ...plan, brief, lookedUp: looked },
+      ...(looked ? [{ ...plan, brief, lookedUp: '' }] : []),
+      ...(plan.needs.length && plan.text ? [{ ...plan, needs: [], brief, lookedUp: looked }, ...(looked ? [{ ...plan, needs: [], brief, lookedUp: '' }] : [])] : [])
+    ])
     .filter((p) => p.text || p.needs.length || p.must.length || p.brief)
   for (const p of tries) {
-    const input: ContextInput = { ...b.input, plan: { needs: p.needs, text: p.text }, ...(p.brief ? { brief: p.brief } : {}) }
+    const input: ContextInput = {
+      ...b.input,
+      plan: { needs: p.needs, text: p.text, ...(p.lookedUp ? { lookedUp: p.lookedUp } : {}) },
+      ...(p.brief ? { brief: p.brief } : {})
+    }
     // What the plan says must change takes the place of the card's own words in the scene's contract (fix 13).
     if (b.input.contract && p.must.length) input.contract = { ...b.input.contract, planned: p.must }
     const again = await fitted(input, o.extras)

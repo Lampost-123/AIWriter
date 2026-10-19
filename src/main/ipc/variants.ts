@@ -21,9 +21,9 @@ export const variantsHandlers: Handlers<keyof VariantsApi> = {
     return startVariantSet(input, {
       db: world.db(),
       emit,
-      // No plan before writing (step 4): one plan for the whole set would make its drafts alike, and choice is what they
-      // are for. They still get what must stay true.
-      briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal, plan: false, catchUpMs: VARIANTS_CATCH_UP_MS }),
+      // Plan before writing: one plan the set shares (Adam's spec, 2026-10-19), as the set is briefed once; each variant
+      // writes its own way from it.
+      briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal, catchUpMs: VARIANTS_CATCH_UP_MS }),
       // Generate's draft or a beat of Beat by beat getting ready.
       startingElsewhere: (sceneId) => isStartingDraft(sceneId) || isStartingBeat(sceneId),
       providerNotes,

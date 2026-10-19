@@ -479,3 +479,57 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
     said: saidLines(memory.facts, times, { nameOf, inScene: people, found: saidFound.slice(0, 4) })
   }
 }
+
+/**
+ * Earlier passages of the story so far for a search of the planner's own (the look-up find_in_story, ai/lookups/): only
+ * what comes before the scene on its story's line, by keyword and (with the search model, while it is quick enough) by
+ * meaning, the two joined, best first, at most `most`, each with where it is in plain words ("Book 1, Ch 2, Sc 3").
+ */
+export async function findPassages(
+  deps: Pick<RecallDeps, 'db' | 'index' | 'embedder' | 'vectors' | 'signal' | 'meaningWaitMs'>,
+  sceneId: ID,
+  query: string,
+  most: number
+): Promise<RecalledPassage[]> {
+  const shape = loadShape(deps.db)
+  const story = storyOfScene(shape, sceneId)
+  const index = deps.index?.open ? deps.index : null
+  const q = clean(query)
+  if (!story || !index || !q || !terms(q).length) return []
+  const line = buildLine(shape, { storyId: story.id, before: sceneId })
+  const onLine = scenesOnLine(line)
+  const allowed = [...onLine.keys()]
+  const lists: Ranked<StoredPassage>[][] = [keepBest(index.keyword(searchWords(q), allowed, LIST_SIZE).map((r) => ({ item: r.passage, score: r.score })))]
+  const embedder = deps.embedder
+  if (embedder && !deps.signal?.aborted) {
+    const vectors = deps.vectors ?? new Vectors()
+    const passages = index.passagesIn(allowed)
+    const meaning = await withLimit(
+      async (signal) => {
+        const hash = `q:${textHash(q)}`
+        const qv = (await vectors.read({ embedder, texts: [{ hash, text: q }], now: true, signal })).get(hash)
+        if (!qv || signal.aborted) return null
+        const pv = vectors.kept(
+          embedder.model,
+          passages.map((p) => p.hash),
+          index
+        )
+        const withVec = passages.flatMap((item) => {
+          const vec = pv.get(item.hash)
+          return vec ? [{ item, vec }] : []
+        })
+        return nearest(qv, withVec, LIST_SIZE, embedder.floor)
+      },
+      deps.meaningWaitMs ?? MEANING_WAIT_MS,
+      deps.signal
+    )
+    if (meaning) lists.push(meaning)
+  }
+  const label = labeler(shape)
+  return fuse(lists, (p) => `p:${p.id}`)
+    .slice(0, Math.max(1, most))
+    .map((r) => {
+      const at = onLine.get(r.item.sceneId)!
+      return { kind: 'scene' as const, where: label({ storyId: at.storyId, sceneId: r.item.sceneId }), text: r.item.text, order: at.at * 10_000 + r.item.n }
+    })
+}
