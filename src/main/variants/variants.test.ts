@@ -20,7 +20,9 @@ import {
   SET_BUSY,
   startVariantSet,
   stopVariantSet,
+  variantNotes,
   variantsBusy,
+  withVariantNote,
   type VariantsDeps
 } from '.'
 
@@ -219,6 +221,50 @@ describe('a set of variants', () => {
     await expect(startVariantSet({ setId: '', sceneId: w.second.id, count: 2, options: OPTIONS }, deps(w.db, events))).rejects.toThrow(
       /Try again/
     )
+  })
+
+  it('gives each variant its own direction beside the set’s, from the one briefing, and reads it back', async () => {
+    const w = setup()
+    const events: Ev[] = []
+    const calls = { n: 0 }
+    const { generationIds } = await startVariantSet(
+      { setId: 'own', sceneId: w.second.id, count: 3, options: OPTIONS, notes: ['  Tense ', '', 'Make it   funny'] },
+      deps(w.db, events, { calls })
+    )
+    await allDone(events, generationIds)
+    expect(calls.n).toBe(1)
+    const records = generationIds.map((id) => gens.getGeneration(w.db, id))
+    expect(records.map((r) => r.params.variant)).toEqual([
+      { setId: 'own', index: 1, of: 3, note: 'Tense' },
+      { setId: 'own', index: 2, of: 3 },
+      { setId: 'own', index: 3, of: 3, note: 'Make it funny' }
+    ])
+    // The set's direction is every variant's; each own direction is said last, to its variant alone.
+    for (const r of records) expect(r.direction).toBe('End on the knock.')
+    const last = (i: number): string => records[i].messages.filter((m) => m.role === 'user').at(-1)!.content
+    expect(last(0).endsWith('For this version of the scene, as the author asks: Tense')).toBe(true)
+    expect(last(1)).not.toContain('For this version of the scene')
+    expect(last(2).endsWith('For this version of the scene, as the author asks: Make it funny')).toBe(true)
+    // The rest of the briefing is the same for all three (so the later ones read it from the provider's cache).
+    expect(last(0).startsWith(last(1))).toBe(true)
+    expect(records[0].messages[0]).toEqual(records[1].messages[0])
+    // Read back with the set.
+    expect(latestVariantSet(w.db, w.second.id)!.variants.map((v) => v.note ?? '')).toEqual(['Tense', '', 'Make it funny'])
+  })
+
+  it('says its own direction before the plan the set shares, so the plan stays the last thing before the prose', () => {
+    const plan = '(My notes before writing)\n1. She hears the knock.'
+    const blocks = [{ id: 'plan', title: 'The plan', text: plan, priority: 3, tokens: 9, entryIds: [], dropped: false }] as never
+    const messages = [
+      { role: 'system' as const, content: 'You are the writer.' },
+      { role: 'user' as const, content: `The briefing.\n\nWrite the scene.\n\n${plan}` }
+    ]
+    const out = withVariantNote(messages, blocks, 'Tender')
+    expect(out[0]).toBe(messages[0])
+    expect(out[1].content).toBe(`The briefing.\n\nWrite the scene.\n\nFor this version of the scene, as the author asks: Tender\n\n${plan}`)
+    expect(withVariantNote(messages, blocks, '')).toBe(messages)
+    expect(variantNotes([' a ', 7, 'b'], 2)).toEqual(['a', ''])
+    expect(variantNotes(undefined, 3)).toEqual(['', '', ''])
   })
 
   it('stops one variant on its own, keeping what arrived, while the others write on', async () => {

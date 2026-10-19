@@ -5,10 +5,13 @@ import { ArrowDownToLine, RefreshCw, Sparkles } from '@/components/ui/icons'
 import { useId, type ReactNode } from 'react'
 import type { Creativity } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
-import { Button, Field, Textarea } from '@/components/ui'
+import { Button } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { costLabel } from '@/features/variants/cost'
+import { setSteer, useDeskStore } from '@/features/desk/deskStore'
+import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { useDesk } from '@/features/look/look'
 import { LengthField } from './LengthField'
 import { setPolishOn } from './polishRun'
 import { CREATIVITY_HINTS } from './format'
@@ -77,6 +80,12 @@ function ModeChoice({
 /** The open panel, if any: each is its own popover (keyed), so switching from one to another opens it afresh. */
 export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'bottom' }): React.JSX.Element | null {
   const { popover, setPopover, popoverRef, beforeChoice, choiceByKey, choiceFromOptions, generate, opts, updateOpts } = g
+  // The direction for the next draft. On the desk it is the dock's steer box (one box, in sight, used once); on the
+  // panels the draft options keep it, shown beside Generate until a draft has used it (features/direction).
+  const desk = useDesk()
+  const steer = useDeskStore((s) => s.steer[g.sceneId] ?? '')
+  const direction = desk ? steer : opts.direction
+  const setDirection = (text: string): void => (desk ? setSteer(g.sceneId, text) : updateOpts({ direction: text }))
   if (popover === 'choose') {
     return (
       <PopoverPanel
@@ -207,25 +216,24 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
             <h3 className="text-[13.5px] font-semibold text-fg">Draft options</h3>
             <p className="text-[12px] leading-relaxed text-muted">{g.hasText ? AFTER_TEXT : "For this scene's next draft."}</p>
           </div>
-          <Field label="Direction for this draft (optional)">
-            {(id) => (
-              <Textarea
-                id={id}
-                minRows={2}
-                maxRows={6}
-                value={opts.direction}
-                placeholder="Make it tense, end on the knock at the door"
-                onChange={(e) => updateOpts({ direction: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault()
-                    void generate(undefined, true)
-                  }
-                }}
-              />
-            )}
-          </Field>
-          {cardPlanned === false && !opts.direction.trim() ? (
+          <DirectionComposer
+            label="Direction for this draft (optional)"
+            value={direction}
+            onChange={setDirection}
+            minRows={2}
+            maxRows={6}
+            placeholder="Make it tense, end on the knock at the door"
+            side={side}
+            // Enter (or Ctrl+Enter) drafts with it; Shift+Enter starts a new line.
+            onSubmit={() => void generate(undefined, true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                void generate(undefined, true)
+              }
+            }}
+          />
+          {cardPlanned === false && !direction.trim() ? (
             <p className="-mt-2 text-[12px] leading-relaxed text-faint">
               Tip: add a beat or two on the scene card, so the AI knows what happens in this scene.
             </p>

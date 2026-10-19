@@ -10,7 +10,7 @@
 // passes the database, the briefing and the events.
 
 import type Database from 'better-sqlite3'
-import type { DraftOptions, ID } from '@shared/types'
+import type { ChatMessage, ContextBlock, DraftOptions, ID } from '@shared/types'
 import type { StartVariantsInput, VariantSet, VariantsStarted } from '@shared/contracts/variants'
 import { UserError } from '../util'
 import { activeDraftIds, isDrafting, startDraftJob, stopDraft, type Emit } from '../ai/drafts'
@@ -26,6 +26,35 @@ export const SET_BUSY = 'Variants of this scene are already being written. Stop 
 export const DRAFT_BUSY = 'A draft is being written for this scene. Stop it first, or wait for it to finish, then write the variants.'
 /** Said to Generate (or Beat by beat) while the scene's variants are getting ready or being written. */
 export const VARIANTS_WRITING = 'Variants of this scene are being written. Stop them on the Variants page, or wait for them to finish.'
+
+/** The longest note a variant takes of its own (the direction box's limit). */
+const NOTE_MAX = 2000
+
+/** Each variant's own direction, tidied: one for each of `count`, '' for none. */
+export function variantNotes(notes: unknown, count: number): string[] {
+  const list = Array.isArray(notes) ? notes : []
+  return Array.from({ length: count }, (_, i) => {
+    const note = list[i]
+    return typeof note === 'string' ? note.replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX) : ''
+  })
+}
+
+/**
+ * The set's briefing with one variant's own direction ("Draft three: tense / tender / funny"), said last before the plan
+ * the set shares (the writer's own notes, which the prose carries on from), or last of all when there is no plan. The
+ * start of the briefing is the same for every variant, so the later ones still read it from the provider's cache.
+ */
+export function withVariantNote(messages: ChatMessage[], blocks: ContextBlock[], note: string): ChatMessage[] {
+  if (!note) return messages
+  const at = messages.map((m) => m.role).lastIndexOf('user')
+  if (at < 0) return messages
+  const line = `For this version of the scene, as the author asks: ${note}`
+  const content = messages[at].content
+  const plan = blocks.find((b) => b.id === 'plan' && !b.dropped)?.text ?? ''
+  const next =
+    plan && content.endsWith(plan) ? `${content.slice(0, content.length - plan.length)}${line}\n\n${plan}` : `${content}\n\n${line}`
+  return messages.map((m, i) => (i === at ? { ...m, content: next } : m))
+}
 
 /** The set was called off before anything was sent. */
 const calledOff = (): UserError => new UserError('The variants were stopped before they began.', 'cancelled')
@@ -101,16 +130,19 @@ export async function startVariantSet(input: StartVariantsInput, deps: VariantsD
     // scene is its for now. (Generate waits for the set, so this is only in case something else didn't.)
     if (isDrafting(sceneId) || deps.startingElsewhere?.(sceneId)) throw new UserError(DRAFT_BUSY, 'busy')
     const notes = deps.providerNotes?.(b.target.id)
+    const own = variantNotes(input.notes, count)
     for (let index = 1; index <= count; index++) {
+      const note = own[index - 1]
       const { generationId } = startDraftJob({
         db: deps.db,
         sceneId,
         job: 'draft',
-        partOf: { variant: { setId, index, of: count } },
+        partOf: { variant: { setId, index, of: count, ...(note ? { note } : {}) } },
         // The set's drafts are written side by side.
         exclusive: false,
         options: b.input.options,
-        preview: b.preview,
+        // Each variant's own direction, if it has one, is said after the set's.
+        preview: note ? { ...b.preview, messages: withVariantNote(b.preview.messages, b.preview.blocks, note) } : b.preview,
         provider: b.target,
         model: b.choice,
         thinking: b.thinking,
@@ -170,7 +202,8 @@ export function latestVariantSet(db: DB, sceneId: ID): VariantSet | null {
       cost: r.cost,
       costEstimated: r.cost != null && r.promptTokens == null,
       cutOff: r.cutOff,
-      modelId: r.modelId
+      modelId: r.modelId,
+      ...(r.note ? { note: r.note } : {})
     }))
   }
 }

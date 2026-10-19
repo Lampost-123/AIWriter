@@ -1,12 +1,12 @@
 // Before a set of variants starts: how many (two or three, remembered), the scene's draft options (the
 // same ones Generate and the Context tab use, so a direction typed here is there too), the writer model
 // and what the set should cost. Problems starting show here in plain words, with the way to fix them.
-import { Columns3, Sparkles } from '@/components/ui/icons'
+import { Columns3, Sparkles, X } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Creativity, ID } from '@shared/types'
 import type { VariantCount } from '@shared/contracts/variants'
 import { AUTO_LENGTH, cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
-import { Button, Card, Field, Notice, Textarea } from '@/components/ui'
+import { Button, Card, IconButton, Notice } from '@/components/ui'
 import { api } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
@@ -14,6 +14,11 @@ import { BLANK_DRAFT_OPTIONS, draftLength, resolveDraftOptions, type SceneDraftO
 import { LengthField } from '@/features/generate/LengthField'
 import { CREATIVITY_HINTS, estimateDraftCost, shortModelName } from '@/features/generate/format'
 import { Segmented } from '@/features/generate/parts'
+import { setSteer, steerTaken, useDeskStore } from '@/features/desk/deskStore'
+import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { noteUsed } from '@/features/direction/store'
+import { clearVariantNotes, notesOf, setVariantNote, setVariantNotesOn, useVariantNotes } from '@/features/direction/variantNotes'
+import { useDesk } from '@/features/look/look'
 import { costLabel } from './cost'
 import { clearProblem, startVariants, useVariants } from './store'
 
@@ -22,6 +27,9 @@ const COUNT_OPTIONS: { value: '2' | '3'; label: string }[] = [
   { value: '2', label: 'Two' },
   { value: '3', label: 'Three' }
 ]
+
+/** What each variant's own direction box suggests ("Draft three: tense / tender / funny"). */
+const NOTE_HINTS = ['Tense', 'Tender', 'Funny']
 
 /** How many variants Adam wrote last time (three until he picks). */
 const COUNT_KEY = 'aiwrite.variants.count'
@@ -78,7 +86,21 @@ export function StartPanel({
   /** Shown here before anything is sent: there is no writer model to write with. */
   const [needModel, setNeedModel] = useState(false)
   const lengthRef = useRef<HTMLInputElement>(null)
-  const directionRef = useRef<HTMLTextAreaElement>(null)
+  const directionRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
+  const firstNoteRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
+  // The set's direction. On the desk it is the dock's steer box (one direction, in sight, used once); on the panels the
+  // draft options keep it, shared with Generate and the Context tab.
+  const desk = useDesk()
+  const steer = useDeskStore((s) => s.steer[sceneId] ?? '')
+  const direction = desk ? steer : opts.direction
+  const setDirection = (text: string): void => {
+    if (desk) setSteer(sceneId, text)
+    else updateOpts({ direction: text })
+    clearProblem(sceneId)
+  }
+  // Each variant's own direction ("Draft three: tense / tender / funny"), when Adam gives them one each.
+  const notesOn = useVariantNotes((s) => !!s.on[sceneId])
+  const notes = useVariantNotes((s) => notesOf(s, sceneId))
 
   const creativity = opts.creativity ?? defaultCreativity
   /** The length each variant will aim for; null is Auto. */
@@ -147,7 +169,7 @@ export function StartPanel({
     let live = true
     const t = setTimeout(() => {
       api
-        .previewContext(sceneId, { direction: opts.direction, targetWords, creativity })
+        .previewContext(sceneId, { direction, targetWords, creativity })
         // Auto is estimated at a typical scene's length.
         .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords ?? AUTO_LENGTH.typical, { promptPrice, completionPrice })))
         .catch(() => live && setEstimate(null))
@@ -156,7 +178,7 @@ export function StartPanel({
       live = false
       clearTimeout(t)
     }
-  }, [sceneId, writerKey, promptPrice, completionPrice, cardWords, targetWords, opts.direction, creativity])
+  }, [sceneId, writerKey, promptPrice, completionPrice, cardWords, targetWords, direction, creativity])
 
   const start = async (): Promise<void> => {
     if (starting || generating) return
@@ -170,15 +192,26 @@ export function StartPanel({
       // The page and the card are saved first, so the variants are written from the latest of both.
       await flushAll()
       const card = (await api.getScene(sceneId)).card
-      const options = resolveDraftOptions(
-        useApp.getState().draftOptions[sceneId],
-        cardLength(card),
-        useApp.getState().settings?.creativity ?? 'balanced'
-      )
+      const kept = useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS
+      const given = desk ? steer : kept.direction
+      const creativityNow = useApp.getState().settings?.creativity ?? 'balanced'
+      const options = resolveDraftOptions({ ...kept, direction: given }, cardLength(card), creativityNow)
+      const own = notesOn ? Array.from({ length: count }, (_, i) => (notes[i] ?? '').trim()) : undefined
       rememberCount(count)
       // The columns show once the set is on its way (this panel goes); this says how it went.
       onAsking?.()
-      onStarted(await startVariants(sceneId, count, options))
+      const result = await startVariants(sceneId, count, options, own)
+      if (result === 'started') {
+        // Used once: the directions are offered back from now on, and their boxes empty, so nothing is used again unseen.
+        noteUsed(given, 'variants')
+        for (const n of own ?? []) noteUsed(n, 'variants')
+        if (desk) steerTaken(sceneId, 'variants')
+        else if (useApp.getState().draftOptions[sceneId]?.direction === kept.direction) {
+          useApp.getState().setDraftOptions(sceneId, { direction: '' })
+        }
+        clearVariantNotes(sceneId)
+      }
+      onStarted(result)
     } catch {
       // The scene couldn't be read: startVariants was never called, so say so here.
       useVariants.setState((s) => ({
@@ -222,26 +255,75 @@ export function StartPanel({
             />
           </div>
 
-          <Field label="Direction for these drafts (optional)">
-            {(id) => (
-              <Textarea
-                id={id}
-                ref={directionRef}
-                minRows={2}
-                maxRows={6}
-                value={opts.direction}
-                placeholder="Make it tense, end on the knock at the door"
-                onChange={(e) => updateOpts({ direction: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault()
-                    void start()
-                  }
-                }}
-              />
-            )}
-          </Field>
-          {cardPlanned === false && !opts.direction.trim() ? (
+          <DirectionComposer
+            label="Direction for these drafts (optional)"
+            boxRef={directionRef}
+            minRows={2}
+            maxRows={6}
+            value={direction}
+            onChange={setDirection}
+            placeholder="Make it tense, end on the knock at the door"
+            // Enter (or Ctrl+Enter) writes them; Shift+Enter starts a new line.
+            onSubmit={() => void start()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                void start()
+              }
+            }}
+          />
+          {notesOn ? (
+            <div className="-mt-1 flex flex-col gap-2" role="group" aria-label="A direction for each variant">
+              <div className="flex h-7 items-center justify-between gap-2">
+                <span className="text-[12px] font-medium text-muted">How each one differs (optional)</span>
+                <IconButton
+                  size="sm"
+                  label="Give them all the same direction"
+                  onClick={() => {
+                    setVariantNotesOn(sceneId, false)
+                    directionRef.current?.focus({ preventScroll: true })
+                  }}
+                >
+                  <X size={13} />
+                </IconButton>
+              </div>
+              {Array.from({ length: count }, (_, i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  <span className="w-[62px] shrink-0 text-[12.5px] text-muted" aria-hidden>
+                    Variant {i + 1}
+                  </span>
+                  <DirectionComposer
+                    lines="one"
+                    tools="none"
+                    className="min-w-0 flex-1"
+                    boxRef={i === 0 ? firstNoteRef : undefined}
+                    ariaLabel={`Direction for variant ${i + 1}`}
+                    placeholder={NOTE_HINTS[i]}
+                    maxLength={300}
+                    value={notes[i] ?? ''}
+                    onChange={(text) => {
+                      setVariantNote(sceneId, i, text)
+                      clearProblem(sceneId)
+                    }}
+                    onSubmit={() => void start()}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setVariantNotesOn(sceneId, true)
+                requestAnimationFrame(() => firstNoteRef.current?.focus({ preventScroll: true }))
+              }}
+              className="-mt-1 inline-flex h-7 items-center gap-1.5 self-start rounded-md px-1.5 text-[12.5px] font-medium text-accent outline-none transition-colors duration-150 hover:bg-accent-soft focus-visible:shadow-[inset_0_0_0_1.5px_var(--focus)]"
+            >
+              <Columns3 size={14} aria-hidden />
+              Give each variant its own direction
+            </button>
+          )}
+          {cardPlanned === false && !direction.trim() ? (
             <p className="-mt-2 text-[12px] leading-relaxed text-faint">
               Tip: add a beat or two on the scene card, so the AI knows what happens in this scene.
             </p>

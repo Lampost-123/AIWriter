@@ -43,6 +43,8 @@ export type ShortcutId =
   | 'findInStory'
   // The desk (UI overhaul, phase 3)
   | 'continue'
+  // The direction composer (features/direction)
+  | 'lastDirection'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -83,6 +85,13 @@ export const SHORTCUTS: Shortcut[] = [
     group: 'Writing',
     keys: ['Mod', 'Shift', 'Enter'],
     desk: true
+  },
+  {
+    id: 'lastDirection',
+    name: 'Bring back your last direction for the AI (again for the one before)',
+    where: 'in an empty direction box',
+    group: 'Writing',
+    keys: ['↑']
   },
   { id: 'save', name: 'Save now (AI Write also saves as you type)', group: 'Writing', keys: ['Mod', 'S'] },
   { id: 'bold', name: 'Bold', group: 'Writing', keys: ['Mod', 'B'] },

@@ -36,6 +36,8 @@ export interface LiveVariant {
   retrying: string | null
   /** Stop was pressed: its last words are on their way. */
   stopping: boolean
+  /** Its own direction, beside the set's ("Draft three: tense / tender / funny"), when it had one. */
+  note?: string
 }
 
 export interface LiveSet {
@@ -342,7 +344,14 @@ function problemOf(err: ApiError): StartProblem {
  * Resolves with what happened; a failed start puts back what the scene had and keeps the problem
  * (see `problems`) for the page to show.
  */
-export async function startVariants(sceneId: ID, count: VariantCount, options: DraftOptions): Promise<'started' | 'cancelled' | 'failed'> {
+export async function startVariants(
+  sceneId: ID,
+  count: VariantCount,
+  options: DraftOptions,
+  /** Each variant's own direction, in order ('' for none), beside the set's. */
+  notes?: string[]
+): Promise<'started' | 'cancelled' | 'failed'> {
+  const own = Array.from({ length: count }, (_, i) => (notes?.[i] ?? '').trim())
   ensureListening()
   const before = get().scenes[sceneId]
   if (before?.kind === 'set' && isWriting(before.set)) return 'failed'
@@ -357,7 +366,7 @@ export async function startVariants(sceneId: ID, count: VariantCount, options: D
     direction: options.direction,
     targetWords: options.targetWords,
     creativity: options.creativity,
-    variants: Array.from({ length: count }, (_, i) => blankVariant(i + 1)),
+    variants: Array.from({ length: count }, (_, i) => ({ ...blankVariant(i + 1), ...(own[i] ? { note: own[i] } : {}) })),
     picks: []
   }
   startingFor.set(sceneId, setId)
@@ -366,7 +375,7 @@ export async function startVariants(sceneId: ID, count: VariantCount, options: D
   setProblem(sceneId, null)
   const mine = epoch
   try {
-    const { generationIds } = await api.startVariants({ setId, sceneId, count, options })
+    const { generationIds } = await api.startVariants({ setId, sceneId, count, options, ...(own.some(Boolean) ? { notes: own } : {}) })
     if (mine !== epoch) return 'cancelled'
     for (const id of generationIds) owners.set(id, { sceneId, setId })
     updateSet(sceneId, setId, (s) => ({

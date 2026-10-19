@@ -4,8 +4,10 @@
 // state is the scene panel's (inspectorOpen), so everything that opens the scene panel on a tab opens the drawer there.
 import { create } from 'zustand'
 import type { ID } from '@shared/types'
+import type { DirectionSource } from '@shared/contracts/direction'
 import { useApp } from '@/lib/store'
 import { keyboardDriven } from '@/features/look/motion'
+import { noteUsed } from '@/features/direction/store'
 
 interface DeskState {
   /** The flyout is open over the page, beside the slim spine. */
@@ -16,14 +18,13 @@ interface DeskState {
   spineInstant: boolean
   /**
    * The dock's steer box, by scene: what should happen next, for the next Continue or Add below only. It empties once
-   * the AI starts writing with it, and comes back if that writing is stopped before any words arrive.
+   * the AI starts writing with it and stays empty (so nothing used is shown or used again); ↑ in the box and its
+   * recent directions bring it back (features/direction).
    */
   steer: Record<ID, string>
-  /** The words a run took from the steer box, by scene, until it ends (to give them back if no words came). */
-  steerSent: Record<ID, string>
 }
 
-export const useDeskStore = create<DeskState>(() => ({ flyoutOpen: false, instant: false, spineInstant: false, steer: {}, steerSent: {} }))
+export const useDeskStore = create<DeskState>(() => ({ flyoutOpen: false, instant: false, spineInstant: false, steer: {} }))
 
 /** Opens or closes the story's flyout over the page. */
 export function setFlyout(open: boolean): void {
@@ -51,26 +52,14 @@ export function setSteer(sceneId: ID, text: string): void {
   useDeskStore.setState((s) => ({ steer: { ...s.steer, [sceneId]: text } }))
 }
 
-/** The AI has started writing with the steer box's words: the box empties, and keeps them in case nothing arrives. */
-export function steerTaken(sceneId: ID): void {
-  useDeskStore.setState((s) => {
-    const text = s.steer[sceneId] ?? ''
-    if (!text.trim()) return s
-    return { steer: { ...s.steer, [sceneId]: '' }, steerSent: { ...s.steerSent, [sceneId]: text } }
-  })
-}
-
 /**
- * The writing that took the steer box's words has ended. With no words written (stopped or failed before any came), they
- * come back to the box, unless something new has been typed there since; either way they are let go.
+ * The AI has started writing with the steer box's words: they are used, so the box empties and stays empty, however the
+ * writing ends (a fast writer's draft could end before the dock saw a word of it, and gave them back: stale). They are
+ * offered back at once in the box's recent directions and by ↑ in it. `source`: Continue, a draft (Add below), Variants.
  */
-export function steerSettled(sceneId: ID, wrote: boolean): void {
-  useDeskStore.setState((s) => {
-    const sent = s.steerSent[sceneId]
-    if (sent === undefined) return s
-    const steerSent = { ...s.steerSent }
-    delete steerSent[sceneId]
-    const back = !wrote && !(s.steer[sceneId] ?? '').trim()
-    return back ? { steerSent, steer: { ...s.steer, [sceneId]: sent } } : { steerSent }
-  })
+export function steerTaken(sceneId: ID, source: DirectionSource = 'continue'): void {
+  const text = useDeskStore.getState().steer[sceneId] ?? ''
+  if (!text.trim()) return
+  noteUsed(text, source)
+  useDeskStore.setState((s) => ({ steer: { ...s.steer, [sceneId]: '' } }))
 }

@@ -4320,6 +4320,48 @@ a new kind (`index_facts.kind` is text).
 - **Known limits**: time claims read plain English frames only; a weekday only on a real date with a year; seasons are
   the northern hemisphere's; place kinds are a fixed list; "since the fire" needs an event entry with a When.
 
+## The direction composer (overhaul, 2026-10-19)
+
+Telling the AI what to write is Adam's main act, and he did it in five boxes that each forgot it differently. They are
+now one box, `features/direction/DirectionComposer.tsx`, in Generate's draft options (`GeneratePanels`), the desk's steer
+box (`desk/dock/Dock.tsx`), a beat's note (`beats/BeatBar.tsx`), Variants (`variants/StartPanel.tsx`) and the AI edits'
+Rewrite and Continue boxes (`edits/AiTools.tsx`). No migration; the box's words still go where they always went.
+- **Keys**: Enter writes (Shift+Enter a new line; Ctrl+Enter where it did before); ↑ in the empty box brings back the last
+  direction given, ↑ again the one before, ↓ back (`logic.ts` `historyStep`; from a box's first or last line only, and
+  only when it has something to step to, so the AI edits' menu keeps its arrow keys otherwise). Listed in the shortcuts
+  list (`lastDirection`). Dictation types into it as into any box.
+- **Quick asks** (`QuickAsks.tsx`, `logic.ts` `CHIPS`): Shorter, Longer, More dialogue, Less description, Slower, Faster,
+  Inner thoughts, Tenser, End on a hook. Each puts a short ask in the box as a sentence of its own, and takes it out when
+  pressed again; Shorter/Longer and Slower/Faster take each other's place. As many as the row has room for show (at most
+  four, measured before it is drawn), the rest behind More. With the pointer an ask goes in as typing does
+  (`typeInto.ts`), so Ctrl+Z in the box takes it back. The desk's dock has no room for the row: its clock button holds
+  every quick ask and Recent.
+- **Recent** (`RecentList.tsx`): the directions given before in the open story, searchable, newest first, the same words
+  once (`shared/directions.ts` `directionKey`: case, spacing, quotes' shapes and a closing full stop don't count), with
+  where and when ("Draft · 2 days ago · 3 times"). Read by `recentDirections(storyId?, limit?, kind?)`
+  (`contracts/direction.ts`, `ipc/direction.ts`, SQL in `db/directions.ts`), read-only over the generation records: Generate's
+  drafts and Variants (and each variant's own note), Beat by beat's records ("<direction>. For this beat: <note>" read as
+  both), Continue's, and (kind `rewrite`, the Rewrite box's own list) Rewrite's. Never Write the whole chapter's, Change
+  tone's tone name, or the app's own jobs. Directions given this session are offered at once (`store.ts` `noteUsed`), before
+  their record exists (a draft waits for the memory before it is recorded).
+- **Starred** directions are Adam's for every world: `favouriteDirections` in his writing preferences file
+  (`settings.ts` `setDirectionFavourite`, at most 60, cut at 600 characters); `setWritingPrefs` keeps the file's list
+  whatever the page sends, so a preferences page opened earlier never takes a star back.
+- **Used once, never unseen.** On the panels, a direction in the draft options shows beside Generate as "Direction: …" (in
+  the model's place, as wide as the toolbar has room for; × clears it with Undo; a dot on the options button in a narrow
+  toolbar) and clears once a draft has started with it (`store.ts` `watchDraftDirections`: the draft's record says what it
+  was given). On the desk the draft options' direction and Variants' are the steer box itself (one box, in sight). Once the AI
+  starts with it the box empties and stays empty however the writing ends (`deskStore.ts` `steerTaken`: it used to give
+  the words back when the dock saw no words arrive, which a fast writer's draft could finish before, leaving a used
+  direction in the box); ↑ and Recent bring it back. Variants clear theirs once the set has started. Beat by beat
+  still reads the draft options' direction for every beat of a session (the label shows it meanwhile).
+- **A direction for each variant** ("Draft three: tense / tender / funny"): Variants' "Give each variant its own direction"
+  (`variantNotes.ts`). `StartVariantsInput.notes`; the set is still briefed and planned once, and each note is said to its
+  variant alone, last before the plan the set shares (`variants/index.ts` `withVariantNote`, so the briefing's start stays
+  the same and the later variants still read it from the cache); kept as `params.variant.note`, shown in its column's head.
+- **Tests**: `features/direction/logic.test.ts`, `db/directions.test.ts`, `tests/unit/directionComposer.test.ts` (the calls
+  and the preferences file), `variants/variants.test.ts` (own notes), `tests/e2e/direction.spec.ts` (panels and desk).
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

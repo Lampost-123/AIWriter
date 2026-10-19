@@ -70,6 +70,11 @@ export interface WritingPrefs {
   sceneLength?: number | null
   /** The target for a whole chapter when its chapter card has none (shared/lengths.ts); null or left out: none. */
   chapterLength?: number | null
+  /**
+   * The directions Adam starred in the direction composer (contracts/direction.ts), most recently starred first. Kept
+   * by setDirectionFavourite alone: saving the other preferences leaves them as they are.
+   */
+  favouriteDirections?: string[]
 }
 
 // ---------- Story structure ----------
@@ -962,7 +967,13 @@ export interface GenerationRecord extends GenerationSummary {
     thinking?: Exclude<ThinkingLevel, 'auto'>
     // ----- Milestone 4: what the call was part of (no migration: params_json holds them) -----
     /** One of 2 or 3 drafts written side by side (Variants): which set, which one (from 1), of how many. */
-    variant?: { setId: ID; index: number; of: number }
+    variant?: {
+      setId: ID
+      index: number
+      of: number
+      /** This variant's own direction, beside the set's ("Draft three: tense / tender / funny"), when it had one. */
+      note?: string
+    }
     /** One beat of a Beat by beat draft: which session, which beat (from 1), of how many. */
     beat?: { sessionId: ID; index: number; of: number }
     /** A scene drafted by Write the whole chapter (contracts/chapterWriter.ts): which run. */
