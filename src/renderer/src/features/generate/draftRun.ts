@@ -15,6 +15,9 @@ import { useOutlineStore } from '@/features/binder/outlineStore'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { openScene } from '@/features/memory/openScene'
 import { activeStream } from '@/features/editor/streamDoc'
+import { continueAtEnd } from '@/features/edits/continue'
+import { sceneInPage } from '@/features/ask/sceneInPage'
+import { draftEndActions, type DraftEndAction } from './draftEnd'
 import { resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { blockIndexAt, draftPlace, polishable } from './polish'
 import { polishingScene, startPolish, stopPolish, usePolish } from './polishRun'
@@ -69,6 +72,19 @@ export function openPanel(sceneId: ID, which: 'options' | 'need-model'): void {
 const showScene = (sceneId: ID): (() => void) => () => {
   if (useApp.getState().sceneId === sceneId) useApp.getState().navigate({ kind: 'write' })
   else void openScene(sceneId)
+}
+
+/**
+ * Continue from here, on a draft that stopped short: Continue (features/edits) writes on from the end of the scene, as
+ * a change to accept or reject. The scene opens again first if Adam has gone elsewhere since.
+ */
+async function continueFromEnd(sceneId: ID): Promise<void> {
+  if (useApp.getState().sceneId !== sceneId) await openScene(sceneId)
+  // It isn't in any story now (deleted, say): openScene has said so.
+  if (useApp.getState().sceneId !== sceneId) return
+  if (!(await sceneInPage(sceneId))) return void toast("The scene didn't open in time, so nothing was sent. Try again in a moment.")
+  // Continue says itself why it can't start (another change waiting, a draft being written).
+  if (!continueAtEnd()) toast('The scene has no words to carry on from.')
 }
 
 /**
@@ -144,24 +160,35 @@ function finish(p: AppEvents['generation:done']): void {
   useDraft.setState(idle())
   const app = useApp.getState()
   if (app.activeGeneration?.id === p.generationId) app.setActiveGeneration(null)
-  const showRecord = { label: 'What the AI saw', run: () => useApp.getState().navigate({ kind: 'generation', generationId: p.generationId }) }
   // The draft took the place of the scene's text: how to have the old text back.
   const oldText = replaced ? (away ? ` ${modKey()}+Z in that scene puts its old text back.` : ` ${modKey()}+Z puts the scene's old text back.`) : ''
   // Written while Adam was in another scene: which scene the message is about.
   const name = away ? (titled(r.sceneId) ?? 'the scene') : null
-  if (p.status === 'error' && p.error) {
-    // The button goes where the message says the fix is: the draft options (a length the
-    // model can't manage), Settings (key, credit, model), or else the draft's record.
-    const action = /\bdraft options\b/.test(p.error)
+  // The message's buttons (draftEnd.ts): where the fix is, or, for a draft that stopped short with its words in the
+  // page, Continue from here beside the draft's record.
+  const button = (kind: DraftEndAction): { label: string; run: () => void } =>
+    kind === 'options'
       ? { label: 'Draft options', run: () => openPanel(r.sceneId, 'options') }
-      : /\bSettings\b/.test(p.error)
+      : kind === 'settings'
         ? { label: 'Open Settings', run: () => useApp.getState().navigate({ kind: 'settings', tab: 'models' }) }
-        : showRecord
-    toast((name ? `The draft of ${name} ran into a problem. ` : '') + p.error + oldText, { tone: 'danger', action })
+        : kind === 'continue'
+          ? { label: 'Continue from here', run: () => void continueFromEnd(r.sceneId) }
+          : { label: 'What the AI saw', run: () => useApp.getState().navigate({ kind: 'generation', generationId: p.generationId }) }
+  const buttons = (): { action: { label: string; run: () => void }; secondary?: { label: string; run: () => void } } => {
+    const [first, second] = draftEndActions({
+      error: p.status === 'error' ? p.error : null,
+      cutOff: !!p.cutOff,
+      wrote: !!stream?.wrote,
+      here: !!stream && !away
+    })
+    return { action: button(first), ...(second ? { secondary: button(second) } : {}) }
+  }
+  if (p.status === 'error' && p.error) {
+    toast((name ? `The draft of ${name} ran into a problem. ` : '') + p.error + oldText, { tone: 'danger', ...buttons() })
   } else if (p.cutOff) {
     toast(
       `The model ran out of room before the end of ${name ?? 'the scene'}, so the draft stops mid-way. The text so far is kept. Try a shorter target length, or a writer model that can write more in one go.${oldText}`,
-      { action: showRecord }
+      buttons()
     )
   } else if (name) {
     const done = p.status === 'stopped' ? `Drafting ${name} stopped. The text so far is kept.` : `The draft of ${name} is finished.`

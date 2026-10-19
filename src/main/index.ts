@@ -272,9 +272,11 @@ function main(): void {
       initSpeech()
       initSpelling()
       initRetrieval()
-      // Reopen the last world straight away, so the page is ready as soon as the window shows.
-      reopenLastWorld()
+      // The window first, so the interface loads (in its own process) while the last world opens. Both happen in this
+      // one step, so the interface's first question (which world is open) is only answered once the world is open: it
+      // never sees a moment without it, and the window shows only once its first frame is painted, as before.
       createWindow()
+      reopenLastWorld()
       initUpdater()
       // Deleted worlds past 30 days go for good; a moment after launch, so the first paint isn't kept waiting.
       setTimeout(() => void purgeOldDeletedWorlds(), 10_000).unref()

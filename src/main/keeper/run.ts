@@ -199,6 +199,8 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
         signal: o.signal,
         closed: o.closed,
         onRecord: o.onRecord,
+        // Read in the background: a provider that has stopped answering is given up on sooner (ai/patience.ts).
+        background: true,
         fetchImpl: o.fetchImpl,
         retryDelays: o.retryDelays
       })
