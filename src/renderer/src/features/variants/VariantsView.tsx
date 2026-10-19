@@ -5,7 +5,8 @@
 //
 // The page shows the scene's latest set: the one being written (it keeps writing while Adam is on other
 // pages), else the last one from the records, until a new one starts. With none yet, it offers to start.
-// In a small window the columns keep a readable width and the row scrolls sideways.
+// The columns share the window's width, every one in sight side by side down to the smallest window (they narrow to
+// 240px each, and only a narrower row than that scrolls sideways).
 import { ArrowLeft, Columns3, RotateCcw, Sparkles, Square } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import type { ID } from '@shared/types'
@@ -171,6 +172,9 @@ export function VariantsView({ sceneId }: { sceneId: ID }): React.JSX.Element {
   )
 }
 
+/** The narrowest a variant's column goes before the row scrolls sideways (its words still about 30 letters a line). */
+const COLUMN_MIN = 240
+
 /** A set's columns, what it was written with, and the picked paragraphs. */
 function SetView({
   set,
@@ -217,10 +221,12 @@ function SetView({
           </span>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+      {/* Each column 240px to 560px wide: a small window (1024px, the desk with its spine) still shows all three whole,
+          side by side; only a row narrower than that scrolls sideways. */}
+      <div data-variant-row className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
         <div
           className="grid h-full gap-3 px-3 pb-3"
-          style={{ gridTemplateColumns: `repeat(${variants.length}, minmax(300px, 560px))`, justifyContent: 'safe center' }}
+          style={{ gridTemplateColumns: `repeat(${variants.length}, minmax(${COLUMN_MIN}px, 560px))`, justifyContent: 'safe center' }}
         >
           {variants.map((v) => (
             <VariantColumn

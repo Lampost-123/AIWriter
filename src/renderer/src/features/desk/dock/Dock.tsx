@@ -27,7 +27,7 @@ import { usePolish } from '@/features/generate/polishRun'
 import { useGenerate, type Generate } from '@/features/generate/useGenerate'
 import { keyboardDriven } from '@/features/look/motion'
 import { setSteer, steerOf, steerTaken, useDeskStore } from '../deskStore'
-import { activityLine, activityOf, progressOf, type Activity } from './activity'
+import { activityLine, activityOf, dockKindOf, progressOf, type Activity } from './activity'
 import { DockMenu } from './DockMenu'
 import { setDockKind } from './foot'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
@@ -47,8 +47,8 @@ function useChange(editor: Editor, sceneId: ID): Suggestion | null {
   return active && active.sceneId === sceneId ? active : null
 }
 
-/** What the AI is doing in the scene now (activity.ts). */
-function useActivity(editor: Editor, sceneId: ID, g: Generate): { activity: Activity; changeId: ID | null } {
+/** What the AI is doing in the scene now (activity.ts); without Generate's workings (`g`), no words counted. */
+function useActivity(editor: Editor, sceneId: ID, g: Pick<Generate, 'written' | 'targetWords'> | null): { activity: Activity; changeId: ID | null } {
   const draftPhase = useDraft((d) => (d.sceneId === sceneId ? d.phase : 'idle'))
   const retrying = useDraft((d) => (d.sceneId === sceneId ? !!d.retrying : false))
   const polishing = usePolish((p) => p.sceneId === sceneId)
@@ -57,13 +57,24 @@ function useActivity(editor: Editor, sceneId: ID, g: Generate): { activity: Acti
   const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
   const change = useChange(editor, sceneId)
   const activity = activityOf({
-    draft: { phase: draftPhase, retrying, written: g.written, target: g.targetWords },
+    draft: { phase: draftPhase, retrying, written: g?.written ?? null, target: g?.targetWords ?? null },
     polish: { running: polishing, stopping: polishStopping },
     change,
     beats,
     memoryReading
   })
   return { activity, changeId: change?.id ?? null }
+}
+
+/**
+ * The panels have no dock, but what lies at the foot of their page takes the same turns (foot.ts): this says what the AI
+ * is doing in the scene as the dock would, so the direction receipt waits while the AI writes, and while a change waits
+ * for Accept or Reject shows only with nothing to press.
+ */
+export function FootActivity({ editor, sceneId }: { editor: Editor; sceneId: ID }): null {
+  const kind = dockKindOf(useActivity(editor, sceneId, null).activity)
+  useLayoutEffect(() => setDockKind(sceneId, kind), [sceneId, kind])
+  return null
 }
 
 /** "Ctrl ⇧ ⏎": Continue's keys as small keycaps. */
@@ -105,7 +116,7 @@ export function Dock({
   const question = useBeats((s) => (s.question?.sceneId === sceneId && s.question.from === 'button' ? s.question : null))
 
   // A state change asked from the keyboard (Ctrl+Shift+Enter, Tab, Esc) shows at once; from a click, it crossfades.
-  const kind = activity.kind === 'starting' || activity.kind === 'writing' || activity.kind === 'polishing' ? 'busy' : activity.kind
+  const kind = dockKindOf(activity)
   const [instant, setInstant] = useState(false)
   const lastKind = useRef(kind)
   useLayoutEffect(() => {

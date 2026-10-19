@@ -6,6 +6,8 @@
 // (ReceiptInSaw). No AI call of its own: the check as the words land answers each ask.
 // With "Write in what a draft missed" on (autoWriteIn.ts), the app writes in what didn't land once by itself, as Write it
 // in would, and the chip then says what was written in (the Continue waits below for Adam to keep or not).
+// On the desk it lies over the AI dock; in the panels it has the foot of the page, in the band the director's line and
+// the pointer to a draft below share (SceneView), taking the same turns (desk/dock/foot.ts).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { toast } from '@/components/ui'
@@ -76,8 +78,31 @@ function quietFor(sceneId: ID): boolean {
   )
 }
 
-/** The chip over the AI dock (the desk). */
-export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+/** Where the receipt shows: over the desk's AI dock, or at the foot of the panels' page. */
+type Place = 'desk' | 'panels'
+
+/** The chip's own look: the desk's (desk.css .desk-chip), or a pill of the panels' own at the foot of the page. */
+function chipClass(place: Place, o: { button: boolean; leaving: boolean }): string {
+  if (place === 'desk') return cn('desk-chip pointer-events-auto min-w-0 overflow-hidden', o.button && 'is-prompt', o.leaving && 'is-out')
+  return cn(
+    'pointer-events-auto inline-flex h-8 min-w-0 max-w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-full border border-line bg-surface pl-3 text-[12.5px] leading-none text-muted shadow-pop',
+    o.button ? 'pr-1' : 'pr-3.5',
+    o.leaving ? 'animate-[fade-out_140ms_ease-out_forwards]' : 'animate-fade-in'
+  )
+}
+
+/** Write it in: the desk's warm ink; in the panels the AI's amber, as the change box's own button. */
+const WRITE_IN: Record<Place, string> = {
+  desk: 'desk-chip-btn shrink-0',
+  panels:
+    'h-6 shrink-0 rounded-full bg-[linear-gradient(180deg,color-mix(in_srgb,var(--ai)_88%,white),var(--ai))] px-2.5 text-[11.5px] font-semibold text-ai-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--elev-1)] outline-none transition-[filter,scale] duration-(--dur-quick) hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)] active:scale-[0.96] active:duration-(--dur-press)'
+}
+
+const DISMISS =
+  'grid h-5 w-5 shrink-0 place-items-center rounded-full text-muted outline-none transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-[var(--focus)]'
+
+/** The chip over the AI dock (the desk), or at the foot of the page (the panels). */
+export function DirectionReceipt({ sceneId, place = 'desk' }: { sceneId: ID; place?: Place }): React.JSX.Element | null {
   const [receipt, setReceipt] = useReceipt(sceneId)
   const [leaving, setLeaving] = useState(false)
   const drafting = useDraft((d) => d.sceneId === sceneId && d.phase !== 'idle')
@@ -142,7 +167,7 @@ export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   }, [drafting, receipt])
 
   if (!visible || !receipt) return null
-  if (written?.length) return <WrittenIn receipt={receipt} written={written} leaving={leaving} onDismiss={() => leave(receipt)} />
+  if (written?.length) return <WrittenIn receipt={receipt} written={written} place={place} leaving={leaving} onDismiss={() => leave(receipt)} />
   const done = allLanded(receipt)
   const missing = toWriteIn(receipt)
   const writeIn = (): void => {
@@ -157,7 +182,7 @@ export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       aria-label={receiptLabel(receipt)}
       data-direction-receipt={done ? 'landed' : 'missing'}
       data-focus-chrome
-      className={cn('desk-chip pointer-events-auto min-w-0 overflow-hidden', !done && 'is-prompt', leaving && 'is-out')}
+      className={chipClass(place, { button: !done, leaving })}
     >
       {done ? (
         <>
@@ -195,20 +220,14 @@ export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           {missing.length ? (
             <button
               type="button"
-              className="desk-chip-btn shrink-0"
+              className={WRITE_IN[place]}
               title={`Continue from the end of the scene with: ${writeInDirection(receipt)}`}
               onClick={writeIn}
             >
               {missing.length === 1 ? 'Write it in' : 'Write them in'}
             </button>
           ) : null}
-          <button
-            type="button"
-            aria-label="Dismiss"
-            title="Dismiss"
-            className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-muted outline-none transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-[var(--focus)]"
-            onClick={() => leave(receipt)}
-          >
+          <button type="button" aria-label="Dismiss" title="Dismiss" className={DISMISS} onClick={() => leave(receipt)}>
             <X size={12} aria-hidden />
           </button>
         </>
@@ -221,13 +240,32 @@ export function DirectionReceipt({ sceneId }: { sceneId: ID }): React.JSX.Elemen
  * The receipt once what didn't land was written in by itself: each ask, "+" for one written in below (amber: the AI's
  * words, waiting to be kept or not, as any Continue), and a way to dismiss it.
  */
-function WrittenIn({ receipt, written, leaving, onDismiss }: { receipt: Receipt; written: string[]; leaving: boolean; onDismiss: () => void }): React.JSX.Element {
+function WrittenIn({
+  receipt,
+  written,
+  place,
+  leaving,
+  onDismiss
+}: {
+  receipt: Receipt
+  written: string[]
+  place: Place
+  leaving: boolean
+  onDismiss: () => void
+}): React.JSX.Element {
   const isWritten = (text: string): boolean => written.includes(text)
   const label = `Your direction: ${receipt.asks
     .map((a) => `${a.text.replace(/[.!?]+$/, '')}, ${a.landed ? 'done' : isWritten(a.text) ? 'written in below for you to keep or not' : 'not yet'}`)
     .join('; ')}.`
   return (
-    <div role="status" aria-label={label} data-direction-receipt="written" data-focus-chrome className={cn('desk-chip pointer-events-auto min-w-0 overflow-hidden', leaving && 'is-out')}>
+    <div
+      role="status"
+      aria-label={label}
+      data-direction-receipt="written"
+      data-focus-chrome
+      // (The panels' pill keeps the room after Dismiss its other prompts keep; the desk's chip keeps its own.)
+      className={chipClass(place, { button: place === 'panels', leaving })}
+    >
       <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
         {receipt.asks.map((a, i) => (
           <span
@@ -250,13 +288,7 @@ function WrittenIn({ receipt, written, leaving, onDismiss }: { receipt: Receipt;
         ))}
       </span>
       <span className="shrink-0 text-[12px] text-faint">Written in below</span>
-      <button
-        type="button"
-        aria-label="Dismiss"
-        title="Dismiss"
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-muted outline-none transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-[var(--focus)]"
-        onClick={onDismiss}
-      >
+      <button type="button" aria-label="Dismiss" title="Dismiss" className={DISMISS} onClick={onDismiss}>
         <X size={12} aria-hidden />
       </button>
     </div>

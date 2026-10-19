@@ -25,12 +25,12 @@ import { PageTitle } from './PageTitle'
 import { useDesk, useNewLook } from '@/features/look/look'
 import { sheetSides, useDeskFrame, useSheetGlide } from '@/layout/desk/deskFit'
 import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
-import { Dock } from '@/features/desk/dock/Dock'
+import { Dock, FootActivity } from '@/features/desk/dock/Dock'
 import { DeskSceneKeys } from '@/features/desk/keys/DeskSceneKeys'
 import { NextBeatChip } from '@/features/desk/dock/NextBeatChip'
 import { ToastsAbove } from '@/features/desk/dock/ToastsAbove'
 import { DirectorBar } from '@/features/director/DirectorBar'
-import { listenForDirector, useDirector } from '@/features/director/store'
+import { listenForDirector } from '@/features/director/store'
 import { useSceneCardWatch } from '@/features/desk/sceneCard'
 import { MarginLayer } from '@/features/desk/margin/MarginLayer'
 import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
@@ -306,9 +306,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // words never run into it.
   const sheetRef = useRef<HTMLDivElement>(null)
   const footRef = useRef<HTMLDivElement>(null)
-  // The panels: the director's line has the foot of the page while a directed draft writes (and a moment after).
+  // The director's line has the foot of the page while a directed draft writes (and a moment after).
   useEffect(listenForDirector, [])
-  const directing = useDirector((d) => !!shown && !!d.byScene[shown.id])
   const footShown = desk && !!shown && !error
   useLayoutEffect(() => {
     const sheet = sheetRef.current
@@ -409,11 +408,18 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           </div>
         ) : null}
       </div>
-      {/* The panels' foot: one place over the foot of the page for what the AI is doing there, the director's line (and
-          Adam's notes) above the pointer to a draft being written out of sight, on a band of the page's own colour so the
-          words never show through around them. (On the desk the AI dock and what lies over it say so.) */}
-      {shown && !error && !desk && (directing || draftBelow) ? (
-        <div className="pointer-events-none absolute bottom-0 left-0 right-2.5 z-20 flex flex-col items-center gap-2.5 bg-[linear-gradient(to_top,var(--page)_calc(100%-28px),transparent)] px-6 pb-5 pt-8">
+      {/* The panels' foot: one place over the foot of the page for what the AI is doing there and what it did, taking
+          turns as on the desk (desk/dock/foot.ts): the direction receipt after a draft, the director's line (and Adam's
+          notes) above the pointer to a draft being written out of sight. On a band of the page's own colour so the words
+          never show through around them, only while one of them shows (empty, it is hidden), and clear of read aloud's
+          bar (--read-aloud-lift, set by ReadAloudBar). (On the desk the AI dock and what lies over it say so.) */}
+      {shown && !error && !desk ? (
+        <div
+          data-page-foot
+          className="pointer-events-none absolute left-0 right-2.5 z-20 flex flex-col items-center gap-2.5 bg-[linear-gradient(to_top,var(--page)_calc(100%-28px),transparent)] px-6 pb-5 pt-8 transition-[bottom] duration-150 ease-out empty:hidden motion-reduce:transition-none"
+          style={{ bottom: 'calc(var(--read-aloud-lift, -4px) + 4px)' }}
+        >
+          <DirectionReceipt sceneId={shown.id} place="panels" />
           <DirectorBar sceneId={shown.id} />
           {draftBelow ? (
             // Over the page, so nothing moves: where the new draft is being written.
@@ -429,6 +435,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           ) : null}
         </div>
       ) : null}
+      {/* The panels have no dock: what the AI is doing in the scene is said for the foot's turns all the same. */}
+      {shown && !error && !desk ? <FootActivity editor={editor} sceneId={shown.id} /> : null}
       {shown && !error ? (
         desk ? (
           // The desk: Beat by beat's bar takes the AI dock's place, over the foot of the sheet (and over its fade).
