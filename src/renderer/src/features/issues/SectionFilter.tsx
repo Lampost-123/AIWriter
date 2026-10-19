@@ -39,7 +39,8 @@ export function SectionFilter<S extends IssueSection>({
     <div
       role="group"
       aria-label="Show"
-      className={cn('grid gap-1 px-3 pb-1.5', sections.length > 3 ? 'grid-cols-3 @min-[560px]:grid-cols-6' : 'w-fit grid-flow-col', className)}
+      // `className` in place of the list's own room around it (px-3 pb-1.5).
+      className={cn('grid gap-1', sections.length > 3 ? 'grid-cols-3 @min-[560px]:grid-cols-6' : 'w-fit grid-flow-col', className ?? 'px-3 pb-1.5')}
     >
       {chip('all', 'All')}
       {sections.map((k) => chip(k, SECTION_WORDS[k]))}

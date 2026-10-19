@@ -130,13 +130,9 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
   // Grouped only once the outline is here too, so issues never show as none while it loads.
   const groups = useMemo(() => (shownList && outline ? groupIssues(shownList, outline, showIgnored) : null), [shownList, outline, showIgnored])
   const filters = (
-    <SectionFilter<RoomSection>
-      value={section}
-      counts={sectionCounts}
-      onChange={pickSection}
-      sections={ROOM_SECTIONS}
-      className={desk ? 'ck-sections px-0 pb-3 pt-1' : 'mx-auto w-full max-w-3xl px-6 pt-4'}
-    />
+    <div className={desk ? 'ck-sections' : 'mx-auto w-full max-w-3xl px-6 pt-4'}>
+      <SectionFilter<RoomSection> value={section} counts={sectionCounts} onChange={pickSection} sections={ROOM_SECTIONS} className="" />
+    </div>
   )
   const storyScenes = useMemo(() => new Set(outline?.scenes.map((s) => s.id) ?? []), [outline])
 
@@ -178,7 +174,7 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
           <KeptScroll k={k} tab={t}>
             {t === 'issues' ? (
               <>
-                <div className="ck-sections-wrap">{filters}</div>
+                {filters}
                 {children}
               </>
             ) : (

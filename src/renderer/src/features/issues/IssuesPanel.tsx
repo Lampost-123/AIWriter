@@ -292,7 +292,8 @@ function useSceneMemory(sceneId: ID): {
   const [checks, setChecks] = useState<MemoryCheckItem[]>([])
   const [entries, setEntries] = useState<Map<ID, Entry>>(new Map())
   const [ask, setAsk] = useState(0)
-  const statusKey = `${status?.failed ?? 0}:${status?.behind ?? 0}:${status?.reading?.sceneId ?? ''}:${status?.refused?.message ?? ''}`
+  // Read again when a read fails or is turned down (not on every step of the memory's reading: the list is no small read).
+  const statusKey = `${status?.failed ?? 0}:${status?.refused?.message ?? ''}:${status?.lastUpdate?.runId ?? ''}`
   useEffect(() => {
     if (!worldId) return
     let live = true
