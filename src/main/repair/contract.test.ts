@@ -348,3 +348,61 @@ describe('after the review (fix 13)', () => {
     expect(asked(db, sceneId)).toEqual(['Mara decides to go back to the mill'])
   })
 })
+
+// ---------- The direction receipt (2026-10-19): Adam's direction, ask by ask, in the same call ----------
+
+describe('the direction’s asks in the check', () => {
+  /** A whole scene drafted with the direction "Tobin tells Mara the letter is forged. More dialogue. Keep it under 30 words." */
+  const ASKED: SceneContract = {
+    asks: 'scene',
+    items: [
+      { code: 'C1', part: 'change', text: 'Tobin tells Mara the letter is forged', check: 'facts', entryIds: [], ask: 'event' },
+      { code: 'C2', part: 'change', text: 'More dialogue', check: 'facts', entryIds: [], ask: 'reads' },
+      { code: 'C3', part: 'change', text: 'Keep it under 30 words', check: 'facts', entryIds: [], ask: 'length' },
+      { code: 'C4', part: 'change', text: 'Mara decides to go back to the mill', check: 'facts', entryIds: [] }
+    ]
+  }
+  const a = (item: string, result: ContractAnswer['result'], quote = ''): ContractAnswer => ({ item, result, quote, why: '', fix: null, rewrite: '', question: '' })
+
+  it('sends each ask but the one of length, which the app counts itself', () => {
+    const { section, lines } = contractSection(ASKED)
+    expect(section.text).toContain('- [C1] Tobin tells Mara the letter is forged\n- [C2] More dialogue\n- [C4] Mara decides')
+    expect(section.text).not.toContain('30 words')
+    expect(lines.map((l) => l.code)).toEqual(['C1', 'C2', 'C4'])
+  })
+
+  it('how it reads is never asked about; each ask keeps its kind, kept or not yet, in the report', () => {
+    const j = judgeContract([a('C1', 'kept', 'Tobin spoke at last.'), a('C2', 'not yet'), a('C4', 'not yet')], ASKED, AI)
+    // Only what must happen and isn't shown is asked; the length is counted (AI is 18 words: under 30).
+    expect(j.notYet.map((i) => i.code)).toEqual(['C4'])
+    expect(j.counted!.get('C3')).toBe('kept')
+    const items = contractResults(ASKED, j, { broken: new Set(), notYet: new Set(['C4']) })
+    expect(items.map((i) => [i.text, i.result, i.ask ?? null])).toEqual([
+      ['Tobin tells Mara the letter is forged', 'kept', 'event'],
+      ['More dialogue', 'not yet', 'reads'],
+      ['Keep it under 30 words', 'kept', 'length'],
+      ['Mara decides to go back to the mill', 'not yet', null]
+    ])
+    // Too long: the length ask isn't kept.
+    expect(judgeContract([], ASKED, `${AI} ${'word '.repeat(20)}`).counted!.get('C3')).toBe('not yet')
+  })
+
+  it('as the draft lands: the report keeps the asks with the record they were checked for', async () => {
+    const { db, sceneId, recordId } = world()
+    noteContract(recordId, sceneId, ASKED)
+    const fetchImpl = answering({ claims: [], contract: [{ item: 'C1', result: 'kept', quote: 'Tobin spoke at last.' }, { item: 'C2', result: 'not yet', quote: '' }, { item: 'C4', result: 'kept', quote: 'Mara looked out at the weir.' }] })
+    const out = await checkNewWords(opts(db, fetchImpl), landed(sceneId, recordId))
+    // No question for "more dialogue", nor a call more for it.
+    expect(out.questions).toBe(0)
+    expect(fetchImpl.asked).toHaveLength(1)
+    expect(fetchImpl.asked[0].user).not.toContain('30 words')
+    const report = checkReport(db, sceneId)!.contract!
+    expect(report.recordId).toBe(recordId)
+    expect(report.items.map((i) => [i.result, i.ask ?? null])).toEqual([
+      ['kept', 'event'],
+      ['not yet', 'reads'],
+      ['kept', 'length'],
+      ['kept', null]
+    ])
+  })
+})

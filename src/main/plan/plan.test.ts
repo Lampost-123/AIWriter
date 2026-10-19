@@ -426,6 +426,10 @@ describe('checking the plan against the stage', () => {
     expect(planText({ ...p, point: { wants: 'Wren wants Osric gone', against: '', turn: '' } }, false, { pov: 'Wren' })).toContain(
       'The point: Wren wants Osric gone.\n'
     )
+    // How Adam's direction asks it to read is the notes' last line, right before the prose (2026-10-19); never notes alone.
+    const reads = planText(p, false, { pov: 'Wren', reads: ['More dialogue', 'Keep it under 800 words.'] })
+    expect(reads.endsWith(`It ends on: The ladder, empty.\nHow it reads, as the author asks: More dialogue. Keep it under 800 words.\n${PLAN_GO.start}`)).toBe(true)
+    expect(planText({ keep: [], changes: [] }, false, { reads: ['More dialogue'] })).toBe('')
   })
 
   it('never plans again a beat already on the page', () => {
@@ -676,13 +680,16 @@ describe('what the planner reads', () => {
     expect(m.stand).not.toContain('boots off')
     expect(m.before).toEqual({ title: 'The end of the previous scene', text: 'The sleet came on, and the wheel stopped.' })
     // What is being written, in a line: not the writer's closing instruction, nor the reading-aloud tags.
-    expect(m.ask).toBe('A whole scene, about 800 words.')
+    // Adam's direction with it (2026-10-19: the writer's scene card no longer says it), and how it should read for the notes.
+    expect(m.ask).toBe('A whole scene, about 800 words, as the author directs:\nKeep it quiet.')
+    expect(m.card).not.toContain('Keep it quiet')
+    expect(m.reads).toEqual(['Keep it quiet'])
     expect(m.inBriefing).toEqual(['Wren (character): A miller’s daughter.', 'Osric Hale (character)'])
     expect(m.others).toEqual(['The weir (place)'])
     expect(m.people).toEqual(['Wren', 'Osric Hale'])
     expect(m.pov).toBe('Wren')
     expect(m.secrets).toEqual([{ fact: 'The flour tax was forged', knownBy: ['Wren'], keptFrom: ['Osric Hale'] }])
-    expect(m.calls).toBe(m.card)
+    expect(m.calls).toBe(`${m.card}\n\nThe author's direction for this draft:\nKeep it quiet.`)
     const [system, user] = planMessages(m)
     expect(system.content.startsWith(PLAN_MARKER)).toBe(true)
     expect(system.content).toContain('Add no events of your own.')
@@ -692,10 +699,10 @@ describe('what the planner reads', () => {
     // Told it is how the scene before ended, and what of it may have changed.
     expect(user.content).toContain('## Where things stand as the previous scene ended\nThis was as the scene before ended, earlier the same day.')
     expect(user.content).toContain('## Also in the world (not in the briefing)\nThe weir (place)')
-    expect(user.content).toContain('## What is being written\nA whole scene, about 800 words.')
+    expect(user.content).toContain('## What is being written\nA whole scene, about 800 words, as the author directs:\nKeep it quiet.')
     expect(user.content.trimEnd().endsWith('Plan the scene now, as one JSON object.')).toBe(true)
-    // Adam's direction for a whole scene is on the card, once.
-    expect(user.content.split('Keep it quiet.')).toHaveLength(2)
+    // Adam's direction for a whole scene is under what is being written, once.
+    expect(user.content.split('Keep it quiet')).toHaveLength(2)
   })
 
   it('reads the open plot threads as the writer gets them, and plans no payoff the card does not ask for (2026-10-08)', () => {

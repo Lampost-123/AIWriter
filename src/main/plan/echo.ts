@@ -14,7 +14,9 @@ export const PLAN_PARTS = {
   changes: 'What changes on the page, in order',
   stay: 'What must stay true:',
   /** One line: the closing image. */
-  end: 'It ends on:'
+  end: 'It ends on:',
+  /** One line: how Adam's direction asks the words to read, or how long ("More dialogue; keep it under 800 words."). */
+  reads: 'How it reads, as the author asks:'
 } as const
 export const PLAN_GO = {
   start: 'Now the prose itself:',
