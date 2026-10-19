@@ -26,7 +26,7 @@ import { fillFound } from '../builder/fill'
 import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
-import { stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
+import { CATCH_UP, stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
 import { jobModel } from '../ai/jobModel'
 import { dismissRefusals, modelKeyOf, onRefusal, refusalNote } from './refusals'
 import { loadShapeSafe, placeWords } from './places'
@@ -133,7 +133,7 @@ export function initKeeper(): void {
         if (p.sceneId) indexScene(w.db, p.sceneId)
       },
       onNewEntries: (entryIds, model) => fillLater(w.db, entryIds, model),
-      onSceneRead: (sceneId, model) => standLater(w.db, sceneId, model),
+      onSceneRead: (sceneId, model, read) => standLater(w.db, sceneId, model, !!read?.staged),
       quietMs: quietMs()
     })
     keeper.start()
@@ -168,7 +168,9 @@ export function initKeeper(): void {
   })
   // Before a draft (and Continue), the memory catches up with earlier scenes on the line and reads the scene's own
   // unread words (waiting a few seconds at most), and where things stand as the previous scene ends is brought up to
-  // date (continuity/tracker.ts) at the same time (gather.ts withStageRead).
+  // date (continuity/tracker.ts) at the same time (gather.ts withStageRead), once the last few scenes before have been
+  // read: their reading can say where things stand too (one reading of a scene, oneReading.ts), so the tracker doesn't
+  // read them a second time meanwhile.
   const mine = (db: Database.Database): Keeper | null => (keeper && keeper.db === db ? keeper : null)
   setBeforeDraft(
     countingDrafts(
@@ -176,7 +178,12 @@ export function initKeeper(): void {
         // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review). A
         // draft that waits until the memory is done (no limit) waits for the scene's own fresh read just as long.
         async (db, sceneId, limitMs) => mine(db)?.beforeDraft(sceneId, limitMs === Infinity ? Infinity : undefined, limitMs),
-        async (db, sceneId) => (mine(db) ? continuityBefore(db, sceneId) : undefined)
+        async (db, sceneId) => {
+          const k = mine(db)
+          if (!k) return undefined
+          await k.whenReadBefore(sceneId, CATCH_UP)
+          return continuityBefore(db, sceneId)
+        }
       )
     )
   )
@@ -216,18 +223,19 @@ let standing: Promise<void> = Promise.resolve()
 
 /**
  * After the memory read a scene (a pause in typing, a draft, a beat, leaving the scene): where things stand as it
- * ends, read on from its last checkpoint, so only the new words are read (continuity/tracker.ts). Recall reloads when
- * it changed. Then the free rule checks run over the scene (long story memory fix 8, checks/ruleChecks.ts: no AI call),
+ * ends, read on from its last checkpoint, so only the new words are read (continuity/tracker.ts); nothing to ask when the
+ * read itself said it (`staged`: one reading of a scene, keeper/oneReading.ts). Recall reloads when it changed. Then the
+ * free rule checks run over the scene (long story memory fix 8, checks/ruleChecks.ts: no AI call),
  * with the memory and the stage as they now are, and over the later scenes whose open findings may rest on it. Never
  * holds up the memory; never throws.
  */
-function standLater(db: Database.Database, sceneId: ID, model: MemoryModel): void {
+function standLater(db: Database.Database, sceneId: ID, model: MemoryModel, staged = false): void {
   const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
   standingNow++
   standing = standing
     .then(async () => {
       if (!live()) return
-      if (!pausedNote()) await standUp(db, sceneId, model, live)
+      if (!pausedNote()) await standUp(db, sceneId, model, live, staged)
       if (!live()) return
       rulesAfterRead(db, sceneId, getWritingPrefs())
       // The story index takes in what the read and where things stand now say of the scene (overhaul phase 1; free).
@@ -237,16 +245,20 @@ function standLater(db: Database.Database, sceneId: ID, model: MemoryModel): voi
 }
 
 /** Where things stand as a scene ends, brought up to date (standLater). Never throws. */
-async function standUp(db: Database.Database, sceneId: ID, model: MemoryModel, live: () => boolean): Promise<void> {
+async function standUp(db: Database.Database, sceneId: ID, model: MemoryModel, live: () => boolean, staged = false): Promise<void> {
   try {
     const o = { db, model, signal: new AbortController().signal, closed: () => !live() }
     const was = storedState(db, sceneId)
-    if (was?.current) return
+    if (was?.current) {
+      // Kept by the read itself (one reading of a scene): Recall reloads.
+      if (staged) emit('recall:changed', { sceneId })
+      return
+    }
     await stateBefore(o, sceneId)
     await stateAfter(o, sceneId)
     // Reloaded when it changed, even when a scene far back still waits to be read again (so it isn't current).
     const now = live() ? storedState(db, sceneId) : null
-    if (now && (now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
+    if (now && (staged || now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
   } catch (e) {
     console.warn('Could not bring where things stand up to date', e)
   }

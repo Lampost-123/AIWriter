@@ -351,15 +351,23 @@ describe('undo', () => {
 })
 
 describe('failures', () => {
-  it('a broken reply is retried once, saying what was wrong', async () => {
+  it('a broken reply is retried once with the same request, saying what was wrong at its end, never sending the broken reply back', async () => {
     const w = world()
     fake.reset()
     save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
     const out = await read(w.db, w.sceneId, modelFor('fake/memory-bad-json'))
     expect(out.status).toBe('done')
     expect(memoryCalls(w.db)).toBe(2)
-    const retry = fake.lastRequest()!.body.messages
-    expect(retry[retry.length - 1].content).toContain("Your reply couldn't be used")
+    const [first, retry] = (
+      w.db.prepare("SELECT messages_json AS m FROM generations WHERE job = 'memory' ORDER BY created_at, rowid").all() as { m: string }[]
+    ).map((r) => JSON.parse(r.m) as { role: string; content: string }[])
+    // The same messages as the first try (a provider's cache serves them), with no reply of the model's among them...
+    expect(retry.map((m) => m.role)).toEqual(['system', 'user'])
+    expect(retry[0].content).toBe(first[0].content)
+    expect(retry[1].content.startsWith(first[1].content)).toBe(true)
+    // ...and what was wrong said once, after everything else.
+    expect(retry[1].content.slice(first[1].content.length)).toMatch(/^\n\nYour last reply to this couldn't be used: [^\n]+\. Reply with only the JSON object/)
+    expect(fake.lastRequest()!.body.messages.some((m: { role: string }) => m.role === 'assistant')).toBe(false)
     expect(entryNamed(w.db, 'Mara')).not.toBeNull()
   })
 

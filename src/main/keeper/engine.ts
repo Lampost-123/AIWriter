@@ -24,6 +24,10 @@
 // - A draft waits for the summaries it can't do without no longer than it waits for the memory at all (beforeDraft's
 //   `limitMs`); they go on being written in the background.
 // - After each read, where things stand as the scene ends is brought up to date as a follow-on (onSceneRead).
+// - One reading of a scene (overhaul phase 1, 2026-10-19): a scene read in one request also says where things stand at
+//   the end of the words read and, when the whole scene is read and its summary is due, writes the summary, so neither
+//   makes a call of its own (oneReading.ts); the follow-on then finds where things stand already kept, and the summary is
+//   kept as one written on its own would be (keepSceneSummary), else written as before.
 // - What the memory model turned down (some models won't read explicit scenes) isn't asked for again, before every draft
 //   or at every start, until the scene's words change, another memory model is picked, or Adam presses Try again
 //   (refusals.ts): a scene it wouldn't read keeps its "Memory not updated" note, which says so; a summary it wouldn't
@@ -39,6 +43,7 @@ import type { MemoryModel } from './model'
 import { runScene, failScene, type RunOutcome } from './run'
 import {
   askSummaryRefresh,
+  keepSceneSummary,
   markOutOfDate,
   nextRollUp,
   rollUpKey,
@@ -84,7 +89,7 @@ export interface KeeperDeps {
    * A scene was read (new words or not): told after the run, so where things stand as it ends can be brought up to
    * date as a follow-on (continuity/tracker.ts) that never holds up the memory.
    */
-  onSceneRead?: (sceneId: ID, model: MemoryModel) => void
+  onSceneRead?: (sceneId: ID, model: MemoryModel, read?: { staged: boolean }) => void
   fetchImpl?: typeof fetch
   retryDelays?: number[]
   /** Between two summaries from the backlog (BACKLOG_GAP_MS), and before a failed one is tried again (RETRY_FIRST_MS): for tests. */
@@ -95,6 +100,11 @@ export interface KeeperDeps {
    * (ROLLUP_QUIET_MS; 0 in tests that want them at once).
    */
   rollUpQuietMs?: number
+  /**
+   * One reading of a scene (oneReading.ts): a read also says where things stand and writes the scene's summary when it
+   * can, so they make no call of their own. On unless switched off (tests of the separate calls).
+   */
+  oneReading?: boolean
 }
 
 export const QUIET_MS = 30_000
@@ -519,6 +529,19 @@ export class Keeper {
   }
 
   /**
+   * Resolves once the reads queued or running (or waiting out their quiet time) for the last `few` scenes with words
+   * before this one have been tried: before a draft, where things stand as they end is worked out after them, since
+   * their reading can say it too (one reading of a scene), rather than read a second time alongside it.
+   */
+  async whenReadBefore(sceneId: ID, few: number): Promise<void> {
+    if (this.closed) return
+    const line = scenesBefore(this.db, sceneId)
+    const last: ID[] = []
+    for (let i = line.length - 1; i >= 0 && last.length < few; i--) if (kdb.keeperScene(this.db, line[i])?.text.trim()) last.push(line[i])
+    await Promise.all(last.map((id) => this.whenRead(id)))
+  }
+
+  /**
    * Milestone 6, the import catch-up's Stop: these scenes' queued reads are dropped and one being read now is
    * stopped (its run ends as stopped, nothing applied). Anyone waiting for them is let go.
    */
@@ -749,7 +772,11 @@ export class Keeper {
           },
           onRecord: (g) => records.add(g),
           fetchImpl: this.deps.fetchImpl,
-          retryDelays: this.deps.retryDelays
+          retryDelays: this.deps.retryDelays,
+          // The summary is due as after the read (summaries on, and sceneSummaryDue with the scene marked done or not).
+          ...(this.deps.oneReading === false
+            ? {}
+            : { oneReading: { summaryDue: () => this.deps.summaries !== false && sceneSummaryDue(this.db, id, this.done.has(id), this.modelKey()) } })
         },
         id
       )
@@ -830,7 +857,7 @@ export class Keeper {
         if (scene) this.storyChanged(scene.storyId)
         if (model && scene)
           try {
-            this.deps.onSceneRead?.(id, model)
+            this.deps.onSceneRead?.(id, model, { staged: outcome.status === 'done' && !!outcome.staged })
           } catch (e) {
             console.warn('Could not start bringing where things stand up to date', e)
           }
@@ -840,7 +867,10 @@ export class Keeper {
         if (!sceneSummaryDue(this.db, id, done, this.modelKey())) return
         this.markRebuilding(id)
         const logRunId = outcome.status === 'done' && outcome.lines ? outcome.runId : null
-        if (await writeSceneSummary(this.summaryOptions(model, controller, records), id, logRunId, this.where(id))) {
+        const summaries = this.summaryOptions(model, controller, records)
+        // Written by the read itself (one reading of a scene), when it is of the scene's words as they are now; else asked for.
+        const fromRead = outcome.status === 'done' ? outcome.summary : undefined
+        if ((fromRead && keepSceneSummary(summaries, id, fromRead, logRunId)) || (await writeSceneSummary(summaries, id, logRunId, this.where(id)))) {
           this.retries.delete(`scene:${id}`)
           this.deps.emitChanged({ sceneId: id, entryIds: [] })
         } else this.summaryFailed(id)

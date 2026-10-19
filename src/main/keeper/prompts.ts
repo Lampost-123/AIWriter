@@ -18,10 +18,14 @@
 // (what changed in the chapter, how things stand at its end) and to follow them; a scene's summary is never patched.
 // Since 2026-10-16 (code review) a change ends a field's value only "for good … not clothes off for a while": a passing
 // undress set Typical clothing to "nothing" (memory/looks.ts passingLook). 5,971 characters.
+// Since 2026-10-19 (overhaul phase 1, one reading of a scene) a reading can also say where things stand at the end of what it
+// reads and write the scene's summary (oneReadingSystem; the tracker's rules from continuity/stagePrompt.ts, the summary's
+// from SUMMARY_RULES), and a reply that couldn't be read is asked for again without sending it back (retryMessage).
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
+import { STAGE_FIELD, STAGE_REPLY, STAGE_RULES, STAGE_SHAPE } from '../continuity/stagePrompt'
 
 /** In every reading request's system prompt (the fake provider answers these with memory JSON). */
 export const READING_MARKER = '[AIWRITE-MEMORY-KEEPER v1]'
@@ -87,9 +91,52 @@ Field keys. ${keysLine('character', 'Characters')} ${keysLine('item', 'Items')} 
 
 Nothing to report: {"facts": [], "add": [], "clashes": []}.`
 
-/** Said when a reply couldn't be read, before asking once more. */
+/**
+ * Said when a reply couldn't be read, at the end of the same request asked once more (overhaul phase 1, 2026-10-19): the
+ * failed reply isn't sent back, so the request is the first one with this line after it, and a provider that keeps the
+ * start of a prompt it has seen (DeepSeek, OpenAI) reads all of it but this line from its cache.
+ */
 export const retryMessage = (why: string): string =>
-  `Your reply couldn't be used: ${why}. Reply again with only the JSON object, in exactly the format given, with every quote copied exactly from a P paragraph.`
+  `Your last reply to this couldn't be used: ${why}. Reply with only the JSON object, in exactly the format given, with every quote copied exactly from a P paragraph.`
+
+// ---------- One reading of a scene (overhaul phase 1, 2026-10-19) ----------
+// The memory keeper's reading of a scene can say, in the same call, where things stand at the end of the words it reads
+// (continuity/tracker.ts) and, when the whole scene is read and its summary is due, the scene's summary, so neither needs
+// a call of its own (keeper/oneReading.ts decides when). The rules are the tracker's and the summary's own (one copy each).
+
+/** In the system prompt of a reading that also asks where things stand or for the summary (the fake provider answers it). */
+export const ONE_READING_MARKER = '[AIWRITE-ONE-READING v1]'
+export { STAGE_REPLY }
+/** The reply room a scene's summary needs (keeper/summaries.ts). */
+export const SCENE_SUMMARY_REPLY = 700
+
+const STAGE_PART = `Where things stand ("stage"): where things stand at the END of the P paragraphs, so the next scenes are written consistently, laid over "Where things stand before the P paragraphs" (given after them): only what the P paragraphs show or change. In these rules "the scene" means the P paragraphs, and every quote is copied from a P paragraph, never from a Context line. Someone not in the cast list goes by the name you give their new entry. Each value is ${STAGE_FIELD}: the value as it is at the end, and the quote: the exact words that show it, copied word for word (a few words to a sentence; join two places with …):
+"stage": ${STAGE_SHAPE}
+
+${STAGE_RULES}`
+
+/** How a summary is written, for the summary's own request and for a reading that writes it too. */
+const SUMMARY_RULES =
+  'Write plain prose in the past tense and the third person, naming who does what. Begin with one or two sentences on how things stand at the end, starting "By the end,": where people end up, injuries, who now knows what, who holds what, decisions, promises made and questions left open. Then say what happens and what changes, in order. No headings, no lists, no comments on the writing, no quotes longer than a few words.'
+
+const SUMMARY_PART = `The summary ("summary"): a summary of the whole scene (every P paragraph), as long as the request says, for the author's own notes and for the AI that drafts the next scenes, written from the P paragraphs alone. ${SUMMARY_RULES} Give it as one string.`
+
+/**
+ * The system prompt of a reading that also asks where things stand at the end of what it reads (`stage`) and the scene's
+ * summary (`summary`): the reading instructions as they are, then each part asked for, so every reading shares the start
+ * of its prompt with the others (a provider's cache serves it).
+ */
+export function oneReadingSystem(o: { stage: boolean; summary: boolean }): string {
+  if (!o.stage && !o.summary) return READING_SYSTEM
+  const keys = ['"facts"', '"add"', '"clashes"', ...(o.stage ? ['"stage"'] : []), ...(o.summary ? ['"summary"'] : [])]
+  return [
+    READING_SYSTEM,
+    `${ONE_READING_MARKER}\nThis reading asks for more in the same JSON object.`,
+    ...(o.stage ? [STAGE_PART] : []),
+    ...(o.summary ? [SUMMARY_PART] : []),
+    `So the reply is one JSON object with ${keys.slice(0, -1).join(', ')} and ${keys.at(-1)}, each there even when there is nothing to report.`
+  ].join('\n\n')
+}
 
 // ---------- Summaries ----------
 
@@ -100,7 +147,7 @@ export const retryMessage = (why: string): string =>
  * lost its ending first: the part the next scene depends on.
  */
 export const SUMMARY_SYSTEM = `${SUMMARY_MARKER}
-You write short summaries of a novel's scenes, chapters and books, for the author's own notes and for the AI that drafts the next scenes. Write plain prose in the past tense and the third person, naming who does what. Begin with one or two sentences on how things stand at the end, starting "By the end,": where people end up, injuries, who now knows what, who holds what, decisions, promises made and questions left open. Then say what happens and what changes, in order. No headings, no lists, no comments on the writing, no quotes longer than a few words. Reply with the summary only.`
+You write short summaries of a novel's scenes, chapters and books, for the author's own notes and for the AI that drafts the next scenes. ${SUMMARY_RULES} Reply with the summary only.`
 
 /**
  * What a summary is asked for. Since long story memory fix 15 a roll-up also gets the story record (keeper/summaries.ts,
