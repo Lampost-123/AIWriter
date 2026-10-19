@@ -18,28 +18,35 @@ export const accentIdOf = (value: unknown): AccentId | null =>
   typeof value === 'string' && (ACCENT_IDS as readonly string[]).includes(value) ? (value as AccentId) : null
 
 /**
- * The two looks (Settings › Appearance › Style): the New look ("Lamplight") and Classic, the app as it was before
- * it. Kept in Settings as `look`, painted as <html data-look>; the window opens in it (--aiwrite-look=…, as the
- * theme), so nothing flashes. See docs/ARCHITECTURE.md, "The two looks".
+ * The looks. Classic (the app as it was before the New look, "Lamplight") was retired on 19 October 2026 (Adam: "retire
+ * classic gui and no longer update it from now on"): the New look is the only look. It is still kept in Settings as
+ * `look` and painted as <html data-look> (always 'new'); 'classic' stays in the type only for the Classic code that
+ * awaits removal. See docs/ARCHITECTURE.md, "The New look (Classic retired)".
  */
 export const LOOKS = ['new', 'classic'] as const
 export type Look = (typeof LOOKS)[number]
 
-/** The look as kept in Settings: Classic only when it says so, the New look for anything else. */
-export const lookOf = (value: unknown): Look => (value === 'classic' ? 'classic' : 'new')
+/** The look to paint: the New look, whatever is kept (a kept 'classic' is moved to it, src/main/settings.ts). */
+export const lookOf = (_value: unknown): Look => 'new'
 
 /**
- * Whether the one-time note offering Classic is due when settings are read: only for someone who used AI Write
+ * Whether the one-time note about the New look is due when settings are read: only for someone who used AI Write
  * before the New look (their settings.json exists but has never had a look in it). A fresh install starts in the
  * New look with nothing to compare it with, so no note.
  */
 export const lookNoteDue = (stored: Record<string, unknown> | null): boolean => stored !== null && !('look' in stored)
 
 /**
+ * Whether the one-time note saying Classic has been retired is due when settings are read: only for someone whose
+ * settings still keep Classic. They are moved to the New look with every other setting kept (src/main/settings.ts).
+ */
+export const classicNoteDue = (stored: Record<string, unknown> | null): boolean => stored !== null && stored.look === 'classic'
+
+/**
  * The New look's two layouts (Settings › Appearance › Layout): the desk (the page centred on a lit desk, the story's
  * spine on the left, rooms in the top bar) and the panels (the area rail, the side list and the scene panel). Kept in
- * Settings as `arrangement` (the name `layout` holds the panes' sizes), painted as <html data-arrangement>. Classic
- * ignores it. See docs/ARCHITECTURE.md, "The two looks".
+ * Settings as `arrangement` (the name `layout` holds the panes' sizes), painted as <html data-arrangement>. See
+ * docs/ARCHITECTURE.md, "The New look (Classic retired)".
  */
 export const ARRANGEMENTS = ['desk', 'panels'] as const
 export type Arrangement = (typeof ARRANGEMENTS)[number]
@@ -50,10 +57,11 @@ export const arrangementOf = (value: unknown): Arrangement => (value === 'panels
 /**
  * Whether the one-time note about the desk is due when settings are read: only for someone who already used the New
  * look (their settings.json has a look, and it is the New look) and has never had a layout. Someone from before the New
- * look gets the New look's own note instead; a fresh install has nothing to compare it with.
+ * look gets the New look's own note instead, someone moved from Classic the note about Classic; a fresh install has
+ * nothing to compare it with.
  */
 export const arrangementNoteDue = (stored: Record<string, unknown> | null): boolean =>
-  stored !== null && !('arrangement' in stored) && 'look' in stored && lookOf(stored.look) === 'new'
+  stored !== null && !('arrangement' in stored) && 'look' in stored && stored.look !== 'classic'
 
 /** Calls the interface can make. */
 export interface LookApi {

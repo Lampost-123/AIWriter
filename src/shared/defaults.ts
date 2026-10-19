@@ -80,8 +80,8 @@ export const AUTO_UPDATES = true
  * The New look's desk layout is ready for everyone (UI overhaul, step D3.7; Adam, 2026-10-08: "desk is new default").
  * Settings › Appearance shows the Layout choice (Desk / Panels) in the New look, and everyone on the New look who never
  * chose a layout moves to the desk (src/main/settings.ts), with a one-time note offering the panels to anyone who used
- * them. Classic is unchanged. (Before, the desk was reachable only in try-out builds, AIWRITE_DESK_READY=1, and app
- * tests, AIWRITE_ARRANGEMENT=desk.)
+ * them. (Before, the desk was reachable only in try-out builds, AIWRITE_DESK_READY=1, and app tests,
+ * AIWRITE_ARRANGEMENT=desk.)
  */
 export const DESK_READY = true
 
@@ -114,6 +114,7 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   worldsSeenAt: {},
   look: 'new',
   lookNote: false,
+  classicNote: false,
   // The desk (DESK_READY); src/main/settings.ts moves New-look users who never chose a layout to it, with a note.
   arrangement: 'desk',
   arrangementNote: false,
