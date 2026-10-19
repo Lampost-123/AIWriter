@@ -12,7 +12,7 @@ import { runCritique } from '../critique/run'
 import { dropRepeats, pageFrom, proseBlocks } from './page'
 import { ProgressGuard, Tries, findingKey, sameFinding, wordsOverlap } from './progress'
 import { ChapterRun, LATER_START, cardReady, type RunDeps } from './run'
-import { LOOKUPS_ALLOWED, studySystem } from './prompts'
+import { LOOKUPS_ALLOWED, STEPS, studySystem } from './prompts'
 import { ChapterSession, type Finding, type SessionDeps } from './tools'
 import { loadBefore, loadReport } from './store'
 import { critiqueAsk } from '../critique/prompts'
@@ -167,6 +167,15 @@ describe('a sentence printed twice in a row', () => {
     expect(dropRepeats('No. No. Not now.').dropped).toEqual([])
     expect(dropRepeats(`${once} Then she waited. ${once}`).dropped).toEqual([])
     expect(dropRepeats(`*${once} ${once}* After.`).dropped).toEqual([])
+  })
+})
+
+describe('how far each session goes', () => {
+  it('keeps sessions short (token audit, 2026-10-19), with requests left to act after every look-up it may make', () => {
+    expect(STEPS).toEqual({ study: 10, review: 12, chapter: 14, proofread: 6 })
+    expect(LOOKUPS_ALLOWED).toEqual({ study: 15, review: 8, chapter: 10, proofread: 0 })
+    // A model asks for about three look-ups a request; then it still has two requests to write the brief or fix.
+    for (const job of ['study', 'review', 'chapter', 'proofread'] as const) expect(Math.ceil(LOOKUPS_ALLOWED[job] / 3) + 2).toBeLessThanOrEqual(STEPS[job])
   })
 })
 

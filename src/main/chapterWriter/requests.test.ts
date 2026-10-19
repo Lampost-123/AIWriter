@@ -130,6 +130,8 @@ describe('what a chapter run asks of the AI', () => {
   it('with an agent that looks things up until it is stopped', { timeout: 60_000 }, async () => {
     const { report, total } = await measure('fake/agent-greedy')
     expect(['done', 'stuck']).toContain(report.status)
+    // The study writes its brief within its requests (with 16 requests and 40 look-ups it ran out first).
+    expect(report.brief).toContain('Keep Sc 3 true to the memory.')
     expect(total.requests).toBeGreaterThan(0)
   })
 

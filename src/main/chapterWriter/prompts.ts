@@ -14,15 +14,20 @@ export const AGENT_TEMPERATURE = 0.3
 /** Room for each of the agent's replies (its tool calls carry new passages, up to about 600 words). */
 export const AGENT_REPLY = 2400
 
-/** How many requests each session may take (each tool call is one more). Per session, never per run. */
-export const STEPS: Record<ChapterJob, number> = { study: 16, review: 28, chapter: 28, proofread: 14 }
+/**
+ * How many requests each session may take (each tool call is one more). Per session, never per run. Every request sends
+ * the session so far again, so each one more costs more than the one before (token audit, 2026-10-19: from 16, 28, 28
+ * and 14; a model asks for several look-ups in one request).
+ */
+export const STEPS: Record<ChapterJob, number> = { study: 10, review: 12, chapter: 14, proofread: 6 }
 
 /**
  * How many look-ups each session may make (read_scene, get_entry, timeline...), beside its own tools. Live test,
  * 2026-10-16: review sessions read every scene of the story, ran out of requests and fixed nothing, at about a million
- * tokens each. A scene of the chapter it has been shown, unchanged, is never sent again (and isn't counted).
+ * tokens each. A scene of the chapter it has been shown, unchanged, is never sent again (and isn't counted). Token audit,
+ * 2026-10-19: from 40, 10 and 14 (the study's brief is what the scenes are written to, so it keeps the most).
  */
-export const LOOKUPS_ALLOWED: Record<ChapterJob, number> = { study: 40, review: 10, chapter: 14, proofread: 0 }
+export const LOOKUPS_ALLOWED: Record<ChapterJob, number> = { study: 15, review: 8, chapter: 10, proofread: 0 }
 
 /** The most words one revise may carry (a longer reply risks being cut off). */
 export const MAX_REVISE_WORDS = 600
