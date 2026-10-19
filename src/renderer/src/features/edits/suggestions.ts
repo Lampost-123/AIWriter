@@ -32,8 +32,9 @@ import type { EditTool, ID } from '@shared/types'
 import { streamKey } from '@/features/editor/streamDoc'
 import { parseEmphasis } from '@/features/editor/streamText'
 import { reducedMotion } from '@/features/look/motion'
-import { BREAK, joinSpaces, newParagraphs } from './text'
+import { BREAK, joinSpaces, newParagraphs, textOf } from './text'
 import { ArrivalSpans, runsOf, type ArrivalSpan } from './arrivalSpans'
+import { revisionParas, type DiffPara } from './reviseDiff'
 
 export type SuggestionStatus =
   /** Being set up (the briefing is being put together): nothing is struck through yet. */
@@ -79,6 +80,13 @@ export interface Suggestion {
   working?: string | null
   /** The AI service was busy, so the request is being tried again. */
   retrying: boolean
+  /**
+   * Change it… (2026-10-19): shown as a tracked change of only what moved (reviseDiff.ts): the old words hidden and the
+   * passage shown once, its cut words struck through and its added words marked, the rest as it is.
+   */
+  diff?: boolean
+  /** Change it…: the sentences Adam marked Keep (they come back word for word; Change again starts from them). */
+  keeps?: string[]
   /** The undo history's depth when it showed: Ctrl+Z with nothing done since then rejects it. */
   undoDepth: number
   /** Goes up whenever what it shows changes. */
@@ -511,6 +519,91 @@ function roomPos(doc: PMNode, s: Suggestion): number {
   return $pos.depth >= 1 ? $pos.after(1) : doc.content.size
 }
 
+// ---------- Change it…: only what moved ----------
+
+const HIDDEN_CLASS = 'aw-sugg-hidden'
+
+/**
+ * Where Change it…'s old words are hidden to show the passage once, with only what moved marked: within one paragraph,
+ * or from the start of a paragraph to anywhere in a later one (the paragraphs before the last hidden whole, the last
+ * one's words up to the end of the change). Null for any other shape (it starts part-way through a paragraph and runs
+ * into the next): the change then shows as the old words struck through and the new ones after them.
+ */
+export function diffShape(doc: PMNode, s: Pick<Suggestion, 'from' | 'to' | 'mode'>): { blocks: { from: number; to: number }[]; from: number; to: number } | null {
+  if (s.mode !== 'replace' || s.to <= s.from) return null
+  const $from = doc.resolve(s.from)
+  const $to = doc.resolve(s.to)
+  if (!$from.parent.isTextblock || !$to.parent.isTextblock) return null
+  if ($from.depth < 1 || $to.depth < 1) return null
+  if ($from.before(1) === $to.before(1)) return { blocks: [], from: s.from, to: s.to }
+  if ($from.parentOffset !== 0) return null
+  const blocks: { from: number; to: number }[] = []
+  const last = $to.before(1)
+  doc.forEach((node, pos) => {
+    if (pos >= $from.before(1) && pos < last) blocks.push({ from: pos, to: pos + node.nodeSize })
+  })
+  return { blocks, from: $to.start(), to: s.to }
+}
+
+/**
+ * Change it…'s passage, shown once in place of the old words: each paragraph's words as they are, the cut ones struck
+ * through and the added ones marked; while it is written, the old words it hasn't reached yet faint, after the caret.
+ */
+function renderDiff(doc: PMNode, s: Suggestion): HTMLElement {
+  const writing = s.status === 'writing' || s.status === 'stopping'
+  const paras: DiffPara[] = revisionParas(textOf(doc, s.from, s.to), s.text, !writing)
+  const root = document.createElement('span')
+  root.className = 'aw-sugg-new aw-sugg-diff'
+  root.spellcheck = false
+  root.setAttribute('data-suggestion', s.id)
+  let caret: HTMLElement | null = null
+  if (writing) {
+    caret = document.createElement('span')
+    caret.className = 'aw-sugg-caret'
+  }
+  let lastWords: HTMLElement | null = null
+  paras.forEach((p, i) => {
+    if (p === 'break') {
+      const el = document.createElement('span')
+      el.className = 'aw-sugg-break'
+      el.textContent = '*  *  *'
+      root.appendChild(el)
+      return
+    }
+    if (i > 0 && paras[i - 1] !== 'break') {
+      const gap = document.createElement('span')
+      gap.className = 'aw-sugg-gap'
+      root.appendChild(gap)
+    }
+    const words = document.createElement('span')
+    words.className = 'aw-diff-para'
+    for (const piece of p) {
+      // The caret stands where the new words have got to: before the first old words still to come.
+      if (caret && piece.kind === 'pending' && !caret.parentNode) words.appendChild(caret)
+      const el = document.createElement(piece.kind === 'del' ? 'del' : piece.kind === 'ins' ? 'ins' : 'span')
+      el.className = `aw-diff-${piece.kind}`
+      if (piece.kind === 'del') el.setAttribute('aria-label', 'cut')
+      let node: Node = withBreaks(piece.text)
+      if (piece.italic) {
+        const em = document.createElement('em')
+        em.appendChild(node)
+        node = em
+      }
+      if (piece.bold) {
+        const strong = document.createElement('strong')
+        strong.appendChild(node)
+        node = strong
+      }
+      el.appendChild(node)
+      words.appendChild(el)
+    }
+    root.appendChild(words)
+    lastWords = words
+  })
+  if (caret && !caret.parentNode) (lastWords ?? root).appendChild(caret)
+  return root
+}
+
 function decorations(state: EditorState): DecorationSet | null {
   const ps = suggestionsKey.getState(state)
   if (!ps) return null
@@ -520,9 +613,16 @@ function decorations(state: EditorState): DecorationSet | null {
     if (ps.target && ps.target.to > ps.target.from) out.push(Decoration.inline(ps.target.from, ps.target.to, { class: 'aw-sugg-target' }))
     return out.length ? DecorationSet.create(state.doc, out) : null
   }
-  if (s.to > s.from) out.push(Decoration.inline(s.from, s.to, { class: s.status === 'starting' ? 'aw-sugg-target' : 'aw-sugg-old' }))
+  const shape = s.diff && s.status !== 'starting' ? diffShape(state.doc, s) : null
+  if (shape) {
+    // Change it…: the old words make way for the passage shown once, with only what moved marked (renderDiff).
+    for (const b of shape.blocks) out.push(Decoration.node(b.from, b.to, { class: HIDDEN_CLASS }))
+    if (shape.to > shape.from) out.push(Decoration.inline(shape.from, shape.to, { class: HIDDEN_CLASS }))
+    const key = `aw-diff:${s.id}:${s.rev}:${s.status}`
+    out.push(Decoration.widget(s.to, () => renderDiff(state.doc, s), { side: -1, marks: [], ignoreSelection: true, key }))
+  } else if (s.to > s.from) out.push(Decoration.inline(s.from, s.to, { class: s.status === 'starting' ? 'aw-sugg-target' : 'aw-sugg-old' }))
   // Three versions show beside the page until one is picked; then it shows here like any other change.
-  if (!picking(s)) {
+  if (!shape && !picking(s)) {
     const { paras, firstInline } = shownParagraphs(state.doc, s)
     const key = `aw-new:${s.id}:${s.rev}:${firstInline ? 'i' : 'b'}:${paras[0]?.[0] === ' ' ? 's' : ''}:${paras.length}`
     out.push(

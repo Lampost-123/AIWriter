@@ -12,7 +12,12 @@ import {
   beatInstruction,
   beatWords,
   cardBeats,
+  KEEP_BLOCK,
+  keepBlock,
   MAX_STEER_CHARS,
+  OLD_BLOCK,
+  oldBlock,
+  OLD_WORDS,
   SO_FAR_BLOCK,
   soFarBlock,
   soFarLimit,
@@ -32,7 +37,7 @@ const final = (over: Partial<FinalOptions> = {}): FinalOptions => ({
 
 const ask = (
   index: number,
-  over: Partial<{ steer: string; hasSoFar: boolean; beats: string[]; soFarEnds: SoFarEnd; hasAfter: boolean }> = {}
+  over: Partial<{ steer: string; hasSoFar: boolean; beats: string[]; soFarEnds: SoFarEnd; hasAfter: boolean; hasOld: boolean; keeps: number }> = {}
 ) => ({
   index,
   beats: BEATS,
@@ -208,6 +213,34 @@ describe('an earlier beat written again in the middle of the scene', () => {
 describe('the beats and their length', () => {
   it('counts the beats as the briefing numbers them, blank ones left out', () => {
     expect(cardBeats([' One ', '', '  ', 'Two'])).toEqual(['One', 'Two'])
+  })
+
+  it('writing a beat again sees the version on the page: changes it as the note says, or writes a fresh take', () => {
+    const steered = beatInstruction(final(), ask(2, { steer: 'Closer, but shorter.', hasOld: true }))
+    expect(steered).toMatch(/^Write beat 2 of the 4 on the scene card again now, in place of the version on the page\. The beats after it/)
+    expect(steered).toContain("The author's note for this beat: Closer, but shorter.")
+    expect(steered).toContain(`The beat as it is on the page now is under "This beat as it is now". Change it as the author's note for this beat asks`)
+    expect(steered).not.toContain('Sentences to keep')
+    const fresh = beatInstruction(final(), ask(4, { hasOld: true }))
+    expect(fresh).toMatch(/^Write beat 4 of the 4 on the scene card again now, in place of the version on the page\. It is the last beat of the scene\./)
+    expect(fresh).toContain('Write a fresh version of it: the same beat, told differently, not the same sentences again.')
+    const kept = beatInstruction(final(), ask(2, { steer: 'Less description.', hasOld: true, keeps: 3 }))
+    expect(kept).toContain('The author marked 3 of its sentences Keep (under "Sentences to keep"): each must be in the new version exactly as written')
+    // Without the old version, as before.
+    expect(beatInstruction(final(), ask(2, { steer: 'Slower.' }))).not.toContain('This beat as it is now')
+  })
+
+  it('quotes the version on the page and the kept sentences as blocks of their own', () => {
+    expect(oldBlock('  ')).toBeNull()
+    expect(oldBlock('Tobin waited.\n\nMara did not.')).toEqual({ id: OLD_BLOCK, title: 'This beat as it is now', text: 'Tobin waited.\n\nMara did not.' })
+    const long = Array.from({ length: 40 }, () => `${'word '.repeat(59)}end.`).join('\n\n')
+    expect(oldBlock(long)!.text.split(/\s+/).length).toBeLessThanOrEqual(OLD_WORDS)
+    expect(keepBlock([])).toBeNull()
+    expect(keepBlock([' “The ledger,” he said. ', 'The fire spat.'])).toEqual({
+      id: KEEP_BLOCK,
+      title: 'Sentences to keep',
+      text: '- “The ledger,” he said.\n- The fire spat.'
+    })
   })
 
   it("shares the scene's length out between the beats, to the nearest ten words", () => {

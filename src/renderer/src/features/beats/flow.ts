@@ -45,6 +45,7 @@ import { snapshotBefore } from '@/features/history/snapshot'
 import { revealCardPart } from '@/features/palette/cardReveal'
 import { focusBar, patchSession, useBeats, type BeatQuestion, type BeatSession } from './session'
 import {
+  beatRange,
   beatsOnPage,
   cardBeats,
   endsPage,
@@ -69,6 +70,7 @@ import { quietRepairs } from '@/features/repair/marks'
 import { beatOf, beatSig, beatsInWords, newMarks, resumePoint, withPids, withVersion, type SceneBeatMarks } from './marks'
 import { changeMarks, installMarks, loadMarks } from './marksStore'
 import { redoing } from './redo'
+import { textOf } from '@/features/edits/text'
 
 const BUSY = 'A draft is being written into this scene. Stop it first, or wait for it to finish.'
 const NOT_OPEN = 'Open this scene in the editor to write into it.'
@@ -495,6 +497,10 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
   const steer = s.steer.trim()
   const soFar = index > 1 ? soFarText(doc, s.mode, s.paragraphs, again ? index : undefined) : ''
   const soFarEnds = soFar ? howSoFarEnds(s, doc, index, again) : undefined
+  // Written again: the version on the page now goes with it (2026-10-19), so the AI changes it as the note says, or with
+  // no note writes a fresh take on the beat rather than the same words again.
+  const oldRange = again ? beatRange(doc, old) : null
+  const oldText = oldRange ? textOf(doc, oldRange.from, oldRange.to) : ''
   // Anything Adam types from here is an undo step of its own, so undo can tell his changes from the beat's (see undoMidBeat).
   ed.view.dispatch(closeHistory(ed.state.tr))
   // From now until the first words arrive, text about to be replaced is held as it is (as for Generate).
@@ -547,7 +553,16 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     const app = useApp.getState()
     const options = resolveDraftOptions(app.draftOptions[s.sceneId], cardLength(card), app.settings?.creativity ?? 'balanced')
     if (r.cancelled) return giveUp()
-    const { generationId, of } = await api.startBeat({ sceneId: s.sceneId, sessionId: s.id, index, options, steer, soFar, soFarEnds })
+    const { generationId, of } = await api.startBeat({
+      sceneId: s.sceneId,
+      sessionId: s.id,
+      index,
+      options,
+      steer,
+      soFar,
+      soFarEnds,
+      ...(oldText ? { old: oldText } : {})
+    })
     if (r.cancelled || run !== r) {
       void api.stopGeneration(generationId).catch(() => undefined)
       giveUp()

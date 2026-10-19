@@ -2289,7 +2289,7 @@ Owned by the Beat by beat part (`contracts/beats.ts`, `ipc/beats.ts`, `src/main/
   paragraphs, a band drawn by CSS (`beatMarks.css`, every size and colour a custom property, so the New look's
   layouts can restyle it). `BeatMarksLayer.tsx` (SceneView, in the scrolling area) puts a "Beat N" button in the
   left margin by each beat's first line (above it when the margin is narrow), shown on hover or keyboard focus (Tab
-  reaches it), with the beat's menu: Redo this beat, Change and redo (a one-line note), What the AI saw (that beat's
+  reaches it), with the beat's menu: Redo this beat, Change it… (the change box: a note and sentences to keep; "Keep this, change that"), What the AI saw (that beat's
   showing record), Keep it as it is, Redo the beats after this (the next, or all in order), Remove this beat, and
   Show beats after you finish. Shown during a session on the scene, and after Finish only with "Show beats"
   (`settings.editor.showBeats`: Settings › Editor, the palette's Show beats / Hide beats).
@@ -4701,6 +4701,57 @@ settings carry test), one draft option, and steps on records.
   (the desk: a beat changed, Write; Cancel; written in once by itself).
 - **Not done here**: the panels layout has no receipt, so nothing is written in by itself there; the card check reads
   plain English and doesn't look at the card's mood or notes for things used.
+
+## Keep this, change that (Change it…, 2026-10-19)
+
+No writing tool lets a writer say "closer, but shorter": Write it again on a beat wrote from scratch without seeing the
+version it replaced, and an AI edit could only be accepted or rejected. Change it… revises a passage as Adam says,
+keeping the sentences he marks word for word.
+
+- **Where he sees it.** Under the draft just written (`edits/JustWritten.tsx`: "Draft written · 640 words", Change it…,
+  What the AI saw, Undo while nothing else has changed the page; it goes once he types, opens another scene or closes it,
+  and steps aside while the AI is busy or a change waits). In the AI tools over selected words (Change it…, "Keep this,
+  change that"). Beside Accept and Reject on any AI change waiting in the page (`SuggestionLayer.tsx`; Change again… on
+  one made this way). On a beat's menu (`beats/BeatMarksLayer.tsx`: "Change it…" in place of "Change and redo…").
+- **The change box** (`edits/ChangeBox.tsx`, what it is about in `edits/changeStore.ts`): over the foot of the page (over
+  the AI dock on the desk), the passage's sentences to click to keep (`shared/revise.ts` `sentencesOf`; marked as a quick
+  ask that is on; arrow keys move between them, Space keeps), the direction composer for the note (kind `rewrite`: ↑, the
+  quick asks and Recent as everywhere; Enter changes it), Change it. Esc or × closes it. The words it is about are marked
+  softly in the page while it is open; a change inside them closes it with a word about why. A beat may be written again
+  with no note (the button says Write it again).
+- **The tool** (`EditTool` `'revise'`, `EditInput.keep`; `main/edits`): an `edit` record like the other AI tools, the
+  writer model, `steady` creativity. Its system prompt says the passage is to be revised, not rewritten (`REVISION_RULE`),
+  and with kept sentences `KEEP_RULE`; the briefing has the passage as it is now (`PASSAGE_LEAD`), the kept sentences listed
+  right after it (`KEEP_LEAD`; `edits/input.ts` keeps only those the passage has, in its order, at most `KEEP_MOST`), the
+  scene card in full, the scene's plan with no call (`planForContinueOf`), where things stand before the passage when it
+  is kept (`STAND_LEAD_PASSAGE`), Adam's own writing as the sample when that is on (`ownWritingFor`), and the ask last
+  ("Revise the passage as the author asked (“…”), keeping everything else as it is. Keep the 2 marked sentences word for
+  word."). On a waiting change, the passage is the AI's words and the change takes its place (`session.ts`
+  `changeWaiting`, `takeOver`: what its Accept was to do, a beat's say, and History's label carry over).
+- **Kept means kept** (`shared/revise.ts` `restoreKeeps`): once the words are in, each kept sentence is found word for word
+  (spacing and quotation marks' shapes aside); one the AI reworded goes back in place of the sentence most like it
+  (`LIKENESS_TO_SWAP`), one it left out goes back after the kept sentence before it (or before the one after); one with
+  nowhere to go is said to be missing ("Change again, or reject the change"). The change's note says which (`keptNote`).
+- **Only what moved** (`Suggestion.diff`; `edits/reviseDiff.ts` over Ask's `wordDiff`; `suggestions.ts` `diffShape`,
+  `renderDiff`): the old words make way (hidden, still the scene's text until Accept) and the passage shows once, cut words
+  struck through and added ones marked in amber, paragraph by paragraph with italics and bold; words cut from a
+  paragraph's end stay at its end. While it is written, the old words it hasn't reached are faint after the caret, so the
+  passage reads whole as it changes. A change that starts part-way through one paragraph and runs into the next shows
+  the old way. Accept is one undo step, kept in History first ("Before Change it"); the change is named by the note
+  ("Change it: “Closer, but shorter”").
+- **Beats written again see the old version** (`BeatStart.old`, `keep`; `beats/instructions.ts` `oldBlock`, `keepBlock`,
+  `oldNote`): Write it again in the bar, Redo this beat and Change it… send the beat's words on the page as "This beat as
+  it is now"; with a note the AI changes that version and keeps the rest close, with none it writes a fresh take, not the
+  same sentences again. Change it… on a beat is a tracked change of only what moved, its kept sentences checked as above
+  (`beats/redo.ts`).
+- **Cost**: about 220 tokens more than a Rewrite of the same words (the two rules, the card in full, the kept sentences):
+  a 400-word beat about 1,850 tokens in and 600 out, a 1,500-word draft about 3,500 in and 2,300 out (about $0.002 at
+  DeepSeek's prices), plus about 550 when Adam's own writing is the sample.
+- **Tests**: `shared/revise.test.ts`, `main/edits/revise.test.ts`, `main/beats/instructions.test.ts` and `start.test.ts`
+  (the old version and kept sentences sent), `edits/reviseDiff.test.ts`, `edits/suggestions.test.ts` (`diffShape`); app
+  test `tests/e2e/revise.spec.ts` (selected words: keep, note, only what moved, Change again with a sentence put back,
+  Accept, Ctrl+Z; the draft just written: the row, the box, Esc, Reject) and `beats.spec.ts` (Change it… on a beat);
+  the fake answers `revise` (`tests/fake-provider/m4/edits.mjs`).
 
 ## Milestone 1 scope
 

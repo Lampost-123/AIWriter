@@ -191,7 +191,7 @@ test('Beat by beat writes one beat at a time and pauses: a note steers the next,
     await expect(status(win)).toHaveText('Beat 3 of 3')
 
     // Write it again: beat 2 is undone and written afresh in its place, following the note in the box and
-    // carrying on from beat 1 alone (the beat as it was isn't sent).
+    // carrying on from beat 1 alone; the beat as it was is sent, for the note to change (Keep this, change that).
     await box(win).fill(AGAIN)
     await barButton(win, 'Write it again').click()
     await expect.poll(async () => (await ended(win)).length).toBe(3)
@@ -205,7 +205,9 @@ test('Beat by beat writes one beat at a time and pauses: a note steers the next,
     expect(sentAgain).toContain(`The author's note for this beat: ${AGAIN}`)
     expect(sentAgain).toContain('- Beat 1 (already written: the scene so far ends with it)')
     expect(sentAgain).toContain('## The scene so far')
-    expect(sentAgain.split('The rain had not let up').length - 1).toBe(1)
+    expect(section(sentAgain, 'The scene so far').split('The rain had not let up').length - 1).toBe(1)
+    expect(sentAgain).toContain('## This beat as it is now')
+    expect(sentAgain).toContain("Change it as the author's note for this beat asks")
     expect(await paragraphs(win)).toBe(afterTwo)
     await expect(box(win)).toHaveValue('')
 
@@ -698,7 +700,7 @@ test('Beat markers show while writing beat by beat; an earlier beat is written a
 
     // The label is reached from the keyboard and opens the beat's menu.
     await openBeatMenu(win, 2)
-    for (const item of ['Redo this beat', 'Change and redo…', 'What the AI saw', 'Remove this beat'])
+    for (const item of ['Redo this beat', 'Change it…', 'What the AI saw', 'Remove this beat'])
       await expect(beatMenu(win, 2).getByRole('menuitem', { name: item })).toBeVisible()
     await shot(win, '2-beat-menu')
 
@@ -742,16 +744,22 @@ test('Beat markers show while writing beat by beat; an earlier beat is written a
     await expect(prose(win)).not.toContainText(REDONE)
     expect(await paragraphs(win)).toBe(before)
 
-    // Change and redo: a one-line note for it, then Accept puts the new version in (kept in History first).
+    // Change it…: the change box on the beat (a note, and sentences to keep), then the new version, sent with the version
+    // on the page, waits as only what moved; Accept puts it in (kept in History first).
     await openBeatMenu(win, 2)
-    await beatMenu(win, 2).getByRole('menuitem', { name: 'Change and redo…' }).click()
-    const noteBox = win.getByRole('textbox', { name: 'What to change in beat 2' })
+    await beatMenu(win, 2).getByRole('menuitem', { name: 'Change it…' }).click()
+    const changeBox = win.getByRole('dialog', { name: 'Change it' })
+    await expect(changeBox).toContainText('Beat 2')
+    const noteBox = changeBox.getByRole('textbox', { name: 'What to change in beat 2' })
     await expect(noteBox).toBeFocused()
     await noteBox.fill(NOTE)
-    await shot(win, '4-change-and-redo')
+    await shot(win, '4-change-it')
     await win.keyboard.press('Enter')
     await expect(changeButton(win, /^Accept/)).toBeVisible()
-    expect(await lastSent(win, sceneId)).toContain(`The author's note for this beat: ${NOTE}`)
+    const changed = await lastSent(win, sceneId)
+    expect(changed).toContain(`The author's note for this beat: ${NOTE}`)
+    expect(section(changed, 'This beat as it is now')).toContain(OPENS[1])
+    await expect(prose(win).locator('.aw-sugg-diff')).toContainText(REDONE)
     await changeButton(win, /^Accept/).click()
     await expect(change(win)).toHaveCount(0)
     await expect(beatParas(win, 2).first()).toContainText(REDONE)
