@@ -242,7 +242,7 @@ test('Beat by beat writes one beat at a time and pauses: a note steers the next,
   }
 })
 
-test('With no beats on the scene card, Beat by beat says so plainly and opens the card at its beats; nothing is sent', async ({
+test('With no beats on the scene card, Beat by beat says so plainly, offers to suggest them or opens the card at its beats; nothing is sent until asked', async ({
   launch
 }) => {
   const fake = await fakeProvider({ words: 40 })
@@ -252,10 +252,15 @@ test('With no beats on the scene card, Beat by beat says so plainly and opens th
     await useWriter(win, fake)
     const { sceneId } = await firstScene(win)
 
+    // Since "no dead ends" (2026-10-19) it offers Suggest beats too (outlineStages.spec.ts follows that through); only
+    // pressing it asks the AI.
     await beatsButton(win).click()
     await expect(noBeatsHeading(win)).toBeVisible()
-    await expect(win.getByText('Add the beats first: the things that must happen, in order.', { exact: false })).toBeVisible()
+    await expect(win.getByText('Let the AI suggest the beats, or add your own: the things that must happen, in order.', { exact: false })).toBeVisible()
+    await expect(win.getByRole('button', { name: 'Suggest beats', exact: true })).toBeVisible()
     await expect(bar(win)).toHaveCount(0)
+    await win.waitForTimeout(300)
+    expect(chatRequests(fake)).toBe(0)
     await win.getByRole('button', { name: 'Open the scene card' }).click()
     await expect(noBeatsHeading(win)).toBeHidden()
     // The scene card shows, with the keyboard in its first beat.
