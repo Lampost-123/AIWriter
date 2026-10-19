@@ -121,7 +121,7 @@ export interface PlanMaterial {
    * What the story index gives at no cost (core.ts): everyone here as things stand, the scenes before, the threads, and
    * what was left in this place on an earlier visit (place memory; left out: none).
    */
-  core?: (Pick<PlanCore, 'people' | 'recent' | 'threads'> & Partial<Pick<PlanCore, 'left'>>) | null
+  core?: (Pick<PlanCore, 'people' | 'recent' | 'threads'> & Partial<Pick<PlanCore, 'left' | 'travel'>>) | null
   /** The beats of the scene card already on the page (carrying on), as "Beat 1: …" lines. */
   done?: string[]
   /** The point-of-view character's name, for the writer's notes ("The point: Wren wants …"). */
@@ -242,7 +242,7 @@ export function planMaterial(
     secrets: secretsAmong(people, input.memory.facts),
     calls: [cardText, carrying && direction ? `The author's direction for this stretch:\n${direction}` : ''].filter(Boolean).join('\n\n'),
     threads: text(OPEN_THREADS_BLOCK),
-    ...(o.core ? { core: { people: o.core.people, recent: o.core.recent, threads: o.core.threads, left: o.core.left ?? [] } } : {}),
+    ...(o.core ? { core: { people: o.core.people, recent: o.core.recent, threads: o.core.threads, left: o.core.left ?? [], travel: o.core.travel ?? [] } } : {}),
     ...(onPage ? { done: beats.slice(0, onPage).map((b, i) => `Beat ${i + 1}: ${b}`) } : {}),
     ...(pov ? { pov } : {}),
     // A scene planned once for its beats leaves each beat's own contract as the card says it.
@@ -367,6 +367,7 @@ export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
     part('Open plot threads', threads),
     part('Everyone in the scene, as things stand (from the story so far)', lines(m.core?.people)),
     part('Left in this place on an earlier visit (from the story so far)', lines(m.core?.left)),
+    part('Getting here (from the story so far)', lines(m.core?.travel)),
     part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
     m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
     part('Already on the page in this scene (done: never plan it again)', lines(m.done)),

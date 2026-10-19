@@ -732,6 +732,7 @@ describe('what the planner reads', () => {
       recent: ['Ch 1, Sc 1: The wheel stops in the sleet.', 'Ch 1, Sc 2: Osric counts the sacks.'],
       threads: ['The forged tax (open since Ch 1, Sc 1)'],
       left: ['Left here before: the ledger under the loose floorboard (since Ch 1, Sc 1)'],
+      travel: ['Getting here: Linmouth to the mill is about half a day by cart'],
       present: []
     }
     const m = materialOf(draftInput(), { core })
@@ -745,6 +746,8 @@ describe('what the planner reads', () => {
     expect(user).toContain(
       '## Left in this place on an earlier visit (from the story so far)\n- Left here before: the ledger under the loose floorboard (since Ch 1, Sc 1)'
     )
+    // Routes (2026-10-19): how long it takes to get here.
+    expect(user).toContain('## Getting here (from the story so far)\n- Getting here: Linmouth to the mill is about half a day by cart')
   })
 
   it('sends what stays the same through a scene first, and what is being written (the direction, said once) last (for the cache)', () => {

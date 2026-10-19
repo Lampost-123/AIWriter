@@ -13,6 +13,7 @@ import * as sidx from '../db/storyIndex'
 import { buildStoryIndex, leftHere, leftHereLines, openThreads, stateOf, type EntryNow } from '../storyIndex'
 import { clip, wholeSentences } from '../ai/lookups/text'
 import { onStageIn } from '../storyIndex/there'
+import { gettingHere } from '../storyIndex/routes'
 
 type DB = Database.Database
 
@@ -36,6 +37,11 @@ export interface PlanCore {
    * what where things stand, as told here, already has in the place.
    */
   left: string[]
+  /**
+   * How long it takes to get here from where the people here last were, when the story knows the route (storyIndex/routes.ts
+   * gettingHere: "Getting here: Linmouth to Carrow is about 3 days by cart"). Empty: no route known.
+   */
+  travel: string[]
   /** Everyone in the scene (the card, and whoever the stage and the words put there), for what the plan's beats need. */
   present: ID[]
 }
@@ -110,7 +116,13 @@ export function planCore(db: DB, input: ContextInput, sceneId: ID, o: { carrying
     .filter(free)
     .slice(0, CORE_MOST.left)
     .map((l) => clip(l, 240))
-  return { storyId, asItBegins, people: lines.slice(0, CORE_MOST.people), known, recent, threads, left, present: people }
+  let travel: string[] = []
+  try {
+    travel = gettingHere(db, storyId, sceneId).filter(free).slice(0, 3).map((l) => clip(l, 240))
+  } catch (e) {
+    console.warn('Could not work out how long it takes to get here', e)
+  }
+  return { storyId, asItBegins, people: lines.slice(0, CORE_MOST.people), known, recent, threads, left, travel, present: people }
 }
 
 /** What the index says of one person, by the stage's field: where (never only "last seen"), what they wear, carry and suffer. */

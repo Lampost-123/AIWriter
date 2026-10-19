@@ -261,7 +261,9 @@ describe('in the writer’s briefing', () => {
     // Since the overhaul (2026-10-19) only what the plan looked up, how they sound and the end of the previous scene come
     // between it and the card.
     expect(SEND_ORDER.slice(SEND_ORDER.indexOf(BRIEF_BLOCK.id) + 1, SEND_ORDER.indexOf('scene-card'))).toEqual(['looked-up', 'voices', 'previous-scene'])
-    expect(SEND_ORDER.indexOf(BRIEF_BLOCK.id)).toBe(SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 1)
+    // Who knows what, then what the reader knows that someone here doesn't (the reader ledger, 2026-10-19), then the brief.
+    expect(SEND_ORDER[SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 1]).toBe('reader')
+    expect(SEND_ORDER.indexOf(BRIEF_BLOCK.id)).toBe(SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 2)
     const user = on.messages[1].content
     expect(user.indexOf('## Continuity brief')).toBeGreaterThan(user.indexOf('## Who knows what'))
     expect(user.indexOf('## Continuity brief')).toBeLessThan(user.indexOf('## Scene card'))

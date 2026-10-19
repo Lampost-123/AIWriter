@@ -16,6 +16,7 @@ import { loadShapeSafe, sceneWords } from '../keeper/places'
 import { lessonsBefore } from '../checks/lessons'
 import { sceneCalendar, type SceneCalendar } from '../memory/storyCalendar'
 import { leftHere, leftHereLines } from '../storyIndex/placed'
+import { readerKnows } from './readerKnows'
 import type { ContextInput } from './context'
 
 type DB = Database.Database
@@ -109,11 +110,25 @@ export function gatherContextInput(
     // What was left in the scene's place on an earlier visit (place memory: the story index as it stands; a plan reads it
     // again with the index brought up to date).
     leftHere: leftHereFor(db, sceneId, memory.storyId, scene.card.locationId, { asItBegins: !extra.soFar?.trim(), stand }),
+    // What the reader has been shown that someone on the card doesn't know (the reader ledger, ai/readerKnows.ts).
+    readerKnows: readerKnowsFor(db, memory.storyId, sceneId, [scene.card.povId, ...(scene.card.presentIds ?? [])]),
     // Slips the checks found in earlier scenes and that were put right: what must stay true warns of those about the people here.
     slips: lessonsBefore(db, sceneId).slips,
     // The story calendar (long story memory fix 11): the scene's date, the sums since the scene before and earlier days,
     // and the ages of those on its card.
     calendar: calendarFor(db, sceneId, memory, scene.card)
+  }
+}
+
+/** The reader ledger's lines for those on the scene's card; empty rather than stopping a draft. */
+export function readerKnowsFor(db: DB, storyId: ID | null | undefined, sceneId: ID, ids: (ID | null | undefined)[]): string[] {
+  const present = [...new Set(ids.filter((x): x is ID => !!x))]
+  if (!storyId || !present.length) return []
+  try {
+    return readerKnows(db, storyId, sceneId, present)
+  } catch (e) {
+    console.warn('Could not work out what the reader knows', e)
+    return []
   }
 }
 

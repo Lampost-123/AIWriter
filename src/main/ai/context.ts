@@ -172,6 +172,12 @@ export interface ContextInput {
    */
   leftHere?: string[]
   /**
+   * What the reader has been shown that someone in the scene doesn't know (the reader ledger, ai/readerKnows.ts), a line
+   * each: "The reader knows X (Ch 3, Sc 2); Mara doesn't: …". Keeps the writer from explaining it again or letting a
+   * character guess it without cause. Left out or empty: none.
+   */
+  readerKnows?: string[]
+  /**
    * The plan made before writing (src/main/plan/): the codex entries it asked for, brought into the briefing, and the
    * writer's own notes it carries on from, sent after the closing instruction. Null or left out: no plan.
    */
@@ -246,6 +252,9 @@ const lookedUpShort = (text: string): string | null => {
  * 3, as where things stand; no short form (a few lines).
  */
 export const LEFT_HERE_BLOCK = { id: 'left-here', priority: 3, title: 'Left here before' } as const
+/** What the reader knows that someone here doesn't (ContextInput.readerKnows), beside who knows what. */
+export const READER_BLOCK = { id: 'reader', priority: 6, title: 'What the reader knows' } as const
+const READER_LEAD = 'The reader has already been shown these, and someone in this scene has not:'
 /** What the writer is told before the things left here. */
 export const LEFT_HERE_LEAD = 'From the story so far: what was left in this place on an earlier visit, and has not been taken or moved since. It is still there unless this scene moves it.'
 /** The "must stay true" list's block (mustStay.ts), sent last before the closing instruction. */
@@ -1923,6 +1932,9 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
   }
   const ledger = ledgerText(ledgerFrom)
   if (ledger) add(LEDGER_BLOCK.id, LEDGER_BLOCK.priority, LEDGER_BLOCK.title, ledger, ledgerText(ledgerFrom, true), knowers.map((e) => e.id))
+  // What the reader knows that someone here doesn't (the AI overhaul, 2026-10-19): no explaining it again, no lucky guesses.
+  const readerLines = (input.readerKnows ?? []).map(clean).filter(Boolean)
+  if (readerLines.length) add(READER_BLOCK.id, READER_BLOCK.priority, READER_BLOCK.title, [READER_LEAD, ...readerLines.map((l) => `- ${l}`)].join('\n'), null, [])
 
   // 7 Where the scene happens, the places around it and the groups of those present.
   const where = sel.location
@@ -2154,6 +2166,7 @@ export const SEND_ORDER = [
   'recalled',
   // Who knows what (fix 9): who is in the scene can change at every step (the stage, the scene so far).
   LEDGER_BLOCK.id,
+  READER_BLOCK.id,
   // The continuity brief (fix 14): written for each draft, so late.
   BRIEF_BLOCK.id,
   // What the plan looked up (2026-10-19): written for each draft too.
