@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PAGE_MIN,
   PAGE_PADDING,
+  SHEET_MARGINS,
   WIDE_PAGE,
   WIDE_PAGE_PADDING,
   binderFloats,
@@ -61,7 +62,7 @@ describe('dragMax', () => {
 })
 
 describe('pageMinFor', () => {
-  it('keeps room for about 55 characters a line at the text size, plus the padding', () => {
+  it('keeps room for about 55 characters a line at the text size, plus the padding and the sheet’s margins', () => {
     expect(pageMinFor(19)).toBeGreaterThanOrEqual(600)
     expect(pageMinFor(19)).toBeLessThanOrEqual(630)
     // Larger text needs a wider page, smaller text less.
@@ -78,14 +79,16 @@ describe('pageMinFor', () => {
     for (let size = 15; size <= 24; size++) {
       const min = pageMinFor(size)
       const wideFrom = widePageFrom(size)
-      // At its narrowest the page has the narrow padding (24 px either side), and the words their room.
-      expect(min - PAGE_PADDING).toBe(proseMinFor(size))
-      expect(wideFrom).toBeGreaterThan(min)
+      // At its narrowest the page's sheet (the New look's margins off) has the narrow padding (24 px either side), and
+      // the words their room.
+      const sheetMin = min - SHEET_MARGINS
+      expect(sheetMin - PAGE_PADDING).toBe(proseMinFor(size))
+      expect(wideFrom).toBeGreaterThan(sheetMin)
       // The wide padding (40 px) only from 700 px, and only once the words keep their room beside it.
       expect(wideFrom).toBeGreaterThanOrEqual(WIDE_PAGE)
-      for (let page = min; page <= min + 200; page++) {
-        const padding = page >= wideFrom ? WIDE_PAGE_PADDING : PAGE_PADDING
-        expect(page - padding).toBeGreaterThanOrEqual(proseMinFor(size))
+      for (let sheet = sheetMin; sheet <= sheetMin + 200; sheet++) {
+        const padding = sheet >= wideFrom ? WIDE_PAGE_PADDING : PAGE_PADDING
+        expect(sheet - padding).toBeGreaterThanOrEqual(proseMinFor(size))
       }
     }
     expect(widePageFrom(19)).toBe(WIDE_PAGE)
@@ -98,9 +101,10 @@ describe('pageMinFor', () => {
     expect(binderFloats(960, 200, scenePanel(), pageMin)).toBe(true)
     const page = 960 - fitPanels(960, binder(272, false), scenePanel(), pageMin).right
     expect(page).toBe(700)
-    expect(page).toBeLessThan(widePageFrom(22))
-    // So the words get 642 px, about as much as they need (644), not 610.
-    expect(page - PAGE_PADDING).toBeGreaterThanOrEqual(proseMinFor(22) - 2)
+    // The sheet inside it (its margins off) is narrower than the wide padding needs.
+    expect(page - SHEET_MARGINS).toBeLessThan(widePageFrom(22))
+    // So the words get 626 px, not 594 with the wide padding.
+    expect(page - SHEET_MARGINS - PAGE_PADDING).toBe(626)
   })
 })
 

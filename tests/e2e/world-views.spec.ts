@@ -402,16 +402,25 @@ test('the relationship map stays readable with a big cast, at any window size', 
   if (big.words) expect(big.smallestWords).toBeGreaterThanOrEqual(17)
 
   // Pointing at a character whose name had no room shows it, and its ties' words with how each feels, at full size.
-  const hidden = await map.evaluate((el) =>
-    [...el.querySelectorAll('[data-map-node]')]
-      .filter((b) => {
-        // (One that can be pointed at: nothing on top of its middle.)
-        const r = b.getBoundingClientRect()
-        const top = el.ownerDocument.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-        return b.querySelector('.dm-label')!.classList.contains('is-hidden') && !!top && b.contains(top)
-      })
-      .map((b) => b.getAttribute('aria-label') as string)
-  )
+  // (A name with no room under its medallion goes over or beside it where there is room (2026-10-19), so at this size
+  // every name may have found room: then one step out, some have none.)
+  const unnamed = (): Promise<string[]> =>
+    map.evaluate((el) =>
+      [...el.querySelectorAll('[data-map-node]')]
+        .filter((b) => {
+          // (One that can be pointed at: nothing on top of its middle.)
+          const r = b.getBoundingClientRect()
+          const top = el.ownerDocument.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+          return b.querySelector('.dm-label')!.classList.contains('is-hidden') && !!top && b.contains(top)
+        })
+        .map((b) => b.getAttribute('aria-label') as string)
+    )
+  let hidden = await unnamed()
+  if (!hidden.length) {
+    await main(win).getByRole('button', { name: 'Zoom out' }).click()
+    await settledMap(win)
+    hidden = await unnamed()
+  }
   expect(hidden.length).toBeGreaterThan(0)
   const who = map.getByRole('button', { name: hidden[0], exact: true })
   await who.hover()
@@ -432,13 +441,14 @@ test('the relationship map stays readable with a big cast, at any window size', 
   expect(small.names).toBeGreaterThanOrEqual(6)
   expect(small.smallestName).toBeGreaterThanOrEqual(17)
 
-  // One step in, more names and words show, all at full size.
+  // One step in, more names and words show, all at full size. (As at full size above, the New look's map gives the
+  // names the room first and shows a tie's words as one of the two is pointed at, so in this smallest window one step
+  // in need not leave a tie's words room of their own.)
   await main(win).getByRole('button', { name: 'Zoom in' }).click()
   const closer = await settledMap(win)
   expect(closer.names + closer.words).toBeGreaterThan(small.names + small.words)
-  expect(closer.words).toBeGreaterThanOrEqual(1)
   expect(closer.smallestName).toBeGreaterThanOrEqual(17)
-  expect(closer.smallestWords).toBeGreaterThanOrEqual(17)
+  if (closer.words) expect(closer.smallestWords).toBeGreaterThanOrEqual(17)
 })
 
 test('in the smallest window a small cast opens with everyone on the map, and "As seen in" beside the title', async ({ launch }) => {

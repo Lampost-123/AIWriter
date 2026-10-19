@@ -21,9 +21,16 @@ test('the briefing finds an earlier promise by meaning, sends what was said word
   const [story] = await invoke(win, 'listStories')
   const outline = await invoke(win, 'getOutline', story.id)
   const first = outline.scenes[0].id
-  const second = (await invoke(win, 'createScene', outline.chapters[0].id, { title: 'The docks', afterId: first })).id
+  // Two scenes between the promise and the scene before Night: the scenes just before are sent whole, word for word,
+  // and a passage they already carry isn't sent again (ai/repeats.ts, 2026-10-19), so the promise is far enough back
+  // that only the search brings it in.
+  const market = (await invoke(win, 'createScene', outline.chapters[0].id, { title: 'Market day', afterId: first })).id
+  const mill = (await invoke(win, 'createScene', outline.chapters[0].id, { title: 'The mill', afterId: market })).id
+  const second = (await invoke(win, 'createScene', outline.chapters[0].id, { title: 'The docks', afterId: mill })).id
   const third = (await invoke(win, 'createScene', outline.chapters[0].id, { title: 'Night', afterId: second })).id
   await invoke(win, 'saveSceneText', first, null, `Rain on the roofs.\n\nAt the old well Mara took his hands. ${PROMISE} Tobin said nothing.`)
+  await invoke(win, 'saveSceneText', market, null, 'Stalls of apples and rope filled the square, and the bell rang noon.')
+  await invoke(win, 'saveSceneText', mill, null, 'The wheel turned all afternoon. Flour hung in the light like smoke.')
   await invoke(win, 'saveSceneText', second, null, 'The ferry was late. Kell counted the coins twice and said nothing.')
   // Mara's promise, as the memory keeps something said: on her and on Tobin, who heard it.
   for (const who of [mara, tobin]) {
@@ -59,6 +66,8 @@ test('the briefing finds an earlier promise by meaning, sends what was said word
     expect(sent).toContain('## What was said, word for word')
     expect(sent).toContain(PROMISE)
     expect(sent).toContain('## Earlier passages that may matter')
+    // Once: the passage the search found, not again in the scenes just before.
+    expect(sent.split('At the old well Mara took his hands.').length - 1).toBe(1)
   } finally {
     await fake.close()
   }

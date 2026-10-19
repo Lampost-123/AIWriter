@@ -234,6 +234,46 @@ export function spreadView(points: Pt[], width: number, height: number, pad: Pad
   return { k, tx: cx - ((minX + maxX) / 2) * k, ty: cy - ((minY + maxY) / 2) * k }
 }
 
+/** What lies over the map at its edges, in pixels from each: the strip (and the note's room under it) above, the legend and the zoom below, and the margins at the sides. */
+export interface Chrome {
+  top: number
+  bottom: number
+  side: number
+}
+
+/** Room past half a medallion, between what lies over the map and the medallions nearest it: a little above; below, its name (10 px under the medallion, 24 tall). */
+export const MEDAL_ROOM = { above: 9, below: 36 }
+
+/** The room for the medallions' centres: clear of what lies over the map by half the biggest medallion (`r` at life size) at scale `s`, and below by its name too. */
+export function roomAt(chrome: Chrome, r: number, s: number): Pad {
+  return {
+    left: chrome.side,
+    right: chrome.side,
+    top: Math.round(chrome.top + r * s + MEDAL_ROOM.above),
+    bottom: Math.round(chrome.bottom + r * s + MEDAL_ROOM.below)
+  }
+}
+
+/**
+ * The view that fits these places clear of what lies over the map. The medallions show smaller the further out the map
+ * is (medalScale), and need less room round them then: so it is fitted with them at life size, again at the size they
+ * show at that zoom (a few times, as each fit changes the zoom), and last with the larger of the sizes, so that no
+ * medallion ends up under the strip or the legend. A small window keeps the cast's room instead of losing it to the
+ * room a life-size medallion would need.
+ */
+export function fitWithin(points: Pt[], width: number, height: number, chrome: Chrome, r: number, max = SPREAD_MAX): View {
+  let s = 1
+  let v = spreadView(points, width, height, roomAt(chrome, r, s), max)
+  for (let i = 0; i < 4; i++) {
+    const next = medalScale(v.k)
+    if (Math.abs(next - s) < 0.005) break
+    s = next
+    v = spreadView(points, width, height, roomAt(chrome, r, s), max)
+  }
+  const shown = medalScale(v.k)
+  return shown > s ? spreadView(points, width, height, roomAt(chrome, r, shown), max) : v
+}
+
 /** The most a small cast's places are stretched along one side of the canvas, compared with the other. */
 export const STRETCH_MAX = 1.7
 /** Casts up to this size are stretched to the canvas's shape; bigger ones are left as laid out. */
@@ -281,11 +321,24 @@ export interface Placeable {
   h: number
 }
 
+/** Another place for a box (a name set off to one side of, over or beside its medallion rather than under it), by its centre. */
+export interface AltPlace {
+  x: number
+  y: number
+  place: string
+}
+
 /**
  * Which names and pills have room, greedily in the order given (most important first): a box is shown when it covers
- * no medallion (`discs`, centre and radius; its own owner's excepted) and no box already shown. Screen pixels.
+ * no medallion (`discs`, centre and radius; its own owner's excepted) and no box already shown. Screen pixels. Then a
+ * box whose own place was taken and that has others (`alts`, in order: a name over or beside its medallion) goes to the
+ * first of them still free, noted in `placed`: only into room no box wanted in its own place.
  */
-export function roomFor(discs: { key: string; x: number; y: number; r: number }[], boxes: (Placeable & { owner?: string })[]): Set<string> {
+export function roomFor(
+  discs: { key: string; x: number; y: number; r: number }[],
+  boxes: (Placeable & { owner?: string; alts?: AltPlace[] })[],
+  placed?: Map<string, AltPlace>
+): Set<string> {
   const CELL = 80
   const cells = new Map<string, { x0: number; y0: number; x1: number; y1: number; owner: string }[]>()
   const each = (b: { x0: number; y0: number; x1: number; y1: number }, visit: (k: string) => boolean | void): boolean => {
@@ -303,16 +356,33 @@ export function roomFor(discs: { key: string; x: number; y: number; r: number }[
   for (const d of discs) put({ x0: d.x - d.r, y0: d.y - d.r, x1: d.x + d.r, y1: d.y + d.r, owner: d.key })
   const shown = new Set<string>()
   const GAP = 3
-  for (const b of boxes) {
-    const box = { x0: b.x - b.w / 2, y0: b.y - b.h / 2, x1: b.x + b.w / 2, y1: b.y + b.h / 2, owner: b.owner ?? b.key }
-    const free = each(box, (k) =>
+  const free = (box: { x0: number; y0: number; x1: number; y1: number; owner: string }): boolean =>
+    each(box, (k) =>
       !(cells.get(k) ?? []).some(
         (o) => o.owner !== box.owner && box.x0 < o.x1 + GAP && o.x0 < box.x1 + GAP && box.y0 < o.y1 + GAP && o.y0 < box.y1 + GAP
       )
     )
-    if (!free) continue
-    put(box)
+  const at = (b: Placeable & { owner?: string }, x: number, y: number) => ({
+    x0: x - b.w / 2,
+    y0: y - b.h / 2,
+    x1: x + b.w / 2,
+    y1: y + b.h / 2,
+    owner: b.owner ?? b.key
+  })
+  const later: typeof boxes = []
+  for (const b of boxes) {
+    const box = at(b, b.x, b.y)
+    if (free(box)) {
+      put(box)
+      shown.add(b.key)
+    } else if (b.alts?.length) later.push(b)
+  }
+  for (const b of later) {
+    const alt = b.alts!.find((a) => free(at(b, a.x, a.y)))
+    if (!alt) continue
+    put(at(b, alt.x, alt.y))
     shown.add(b.key)
+    placed?.set(b.key, alt)
   }
   return shown
 }

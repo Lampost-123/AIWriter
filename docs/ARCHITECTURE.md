@@ -452,7 +452,8 @@ is built on migrations 1 and 2.
 - The scene panel's tabs are Scene card, Context, Cast and Drafts; an entry shown beside the page
   (`peekEntryId`) covers them until Back.
 - Narrow page: the workspace keeps `pageMinFor(fontSize, pageWidth)` for the page (about 55 characters
-  a line plus the narrow padding); the page gets 40 px padding only from `widePageFrom()` (measured
+  a line plus the narrow padding and the sheet's 8 px margins, `SHEET_MARGINS`; App takes the area rail off
+  the window's width first); the page gets 40 px padding only from `widePageFrom()` (measured
   with a ResizeObserver in `SceneView`). When even both panels at their narrowest can't leave that,
   the binder floats over the page (`binderFloats`, `useFloatingBinder`; the top bar's button and the
   palette's "Show or hide the binder" show it), leaving the saved layout alone. The Literata

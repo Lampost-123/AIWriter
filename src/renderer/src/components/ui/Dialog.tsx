@@ -11,6 +11,11 @@ export interface DialogProps {
   children: ReactNode
   footer?: ReactNode
   width?: number
+  /**
+   * The body scrolls by itself between the title and the buttons, which stay in view: the dialog is a column the body
+   * shrinks in (give the body overflow-y-auto), so the dialog itself never scrolls, whatever the look's padding.
+   */
+  bodyScrolls?: boolean
   /** Where the keyboard goes once it closes (call preventDefault to choose); by default, back to what opened it. */
   onCloseAutoFocus?: (e: Event) => void
 }
@@ -24,6 +29,7 @@ export function Dialog({
   children,
   footer,
   width = 480,
+  bodyScrolls = false,
   onCloseAutoFocus
 }: DialogProps): React.JSX.Element {
   return (
@@ -42,9 +48,14 @@ export function Dialog({
           }}
           onCloseAutoFocus={onCloseAutoFocus}
           style={{ width }}
-          className="fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-auto rounded-xl border border-line bg-surface p-5 shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise look-new:p-6 look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:[animation:pop-in_var(--dur-base)_var(--motion-spring)]"
+          // In a short window (the smallest is 600 px) the dialog may reach to 40 px above the window's foot, rather than
+          // stopping at 76% of its height, so a form with a few choices still fits without scrolling.
+          className={cn(
+            'fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] [@media(max-height:700px)]:max-h-[calc(86vh-40px)] -translate-x-1/2 overflow-auto rounded-xl border border-line bg-surface p-5 shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise look-new:p-6 look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:[animation:pop-in_var(--dur-base)_var(--motion-spring)]',
+            bodyScrolls && 'flex flex-col'
+          )}
         >
-          <div className="mb-3 flex items-start justify-between gap-4">
+          <div className="mb-3 flex shrink-0 items-start justify-between gap-4">
             <div>
               <D.Title className="text-[15px] font-semibold text-fg look-new:font-heading look-new:text-[18px] look-new:tracking-[-0.01em]">{title}</D.Title>
               {description ? <D.Description className="mt-1 text-[13px] text-muted">{description}</D.Description> : null}
@@ -54,7 +65,7 @@ export function Dialog({
             </D.Close>
           </div>
           {children}
-          {footer ? <div className={cn('mt-5 flex justify-end gap-2')}>{footer}</div> : null}
+          {footer ? <div className="mt-5 flex shrink-0 justify-end gap-2">{footer}</div> : null}
         </D.Content>
       </D.Portal>
     </D.Root>
