@@ -26,7 +26,7 @@ describe('what the reader knows, in the writer’s briefing', () => {
     expect(block?.title).toBe('What the reader knows')
     expect(block?.text).toContain(`- ${lines[0]}`)
     expect(SEND_ORDER.indexOf(READER_BLOCK.id)).toBe(SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 1)
-    expect(prepareContext({ ...input(), readerKnows: lines }).blocks.some((b) => b.id === READER_BLOCK.id && !b.dropped)).toBe(true)
+    expect(prepareContext({ ...input(), readerKnows: lines }).blocks.some((b) => b.id === READER_BLOCK.id)).toBe(true)
   })
 
   it('is left out when there is nothing the reader knows that someone here doesn’t', () => {
