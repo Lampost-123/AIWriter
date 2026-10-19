@@ -40,6 +40,22 @@ afterEach(() => {
 /** The fixture's values with this test's library folder in place of the one it was saved with. */
 const here = <T>(v: T): T => JSON.parse(JSON.stringify(v).split('<LIBRARY>').join(JSON.stringify(lib).slice(1, -1))) as T
 
+/**
+ * Settings that are new since 0.8.1, with the value a 0.8.1 file reads as: they are added, never in place of an old
+ * value. classicNote: the one-time note that Classic is retired (shown only to someone who was on Classic).
+ */
+const NEW_SINCE_081 = (look: string): Record<string, unknown> => ({ classicNote: look === 'classic' })
+
+/** Settings as read now, without the ones new since 0.8.1 (checked on their own). */
+function withoutNew<T extends Record<string, unknown>>(v: T, look: string): T {
+  const out = { ...v }
+  for (const [k, want] of Object.entries(NEW_SINCE_081(look))) {
+    expect(out[k]).toEqual(want)
+    delete out[k]
+  }
+  return out
+}
+
 function store(saved: Saved): void {
   mkdirSync(join(dir, 'app'), { recursive: true })
   writeFileSync(join(dir, 'app', 'settings.json'), JSON.stringify(here(saved.raw), null, 2))
@@ -51,18 +67,18 @@ describe('settings saved by AI Write 0.8.1', () => {
   it('on the New look: every value reads as 0.8.1 read it', async () => {
     store(fixture.newLook)
     const { getSettings, getWritingPrefs } = await import('../../src/main/settings')
-    expect(getSettings()).toEqual(here(fixture.newLook.read))
+    expect(withoutNew(getSettings() as unknown as Record<string, unknown>, 'new')).toEqual(here(fixture.newLook.read))
     expect(getWritingPrefs()).toEqual(fixture.prefs.read)
   })
 
   it('on the Classic look: every other value is kept, whatever the look becomes', async () => {
     store(fixture.classic)
     const { getSettings } = await import('../../src/main/settings')
-    const { look, ...rest } = getSettings()
+    const { look, ...rest } = withoutNew(getSettings() as unknown as Record<string, unknown>, 'classic')
     const { look: was, ...restWas } = here(fixture.classic.read)
     expect(was).toBe('classic')
-    // Classic is retired: another change moves it to the New look on update. Until then it stays as saved.
-    expect(['classic', 'new']).toContain(look)
+    // Classic is retired (2026-10-19): it becomes the New look on update, with a one-time note; every other value stays.
+    expect(look).toBe('new')
     expect(rest).toEqual(restWas)
   })
 
@@ -72,7 +88,7 @@ describe('settings saved by AI Write 0.8.1', () => {
     updateSettings({ editor: { fontSize: 22 } })
     const onDisk = JSON.parse(readFileSync(join(dir, 'app', 'settings.json'), 'utf8')) as Record<string, unknown>
     const want = here(fixture.newLook.read) as Record<string, unknown>
-    expect(onDisk).toEqual({ ...want, editor: { ...(want.editor as object), fontSize: 22 } })
+    expect(withoutNew(onDisk, 'new')).toEqual({ ...want, editor: { ...(want.editor as object), fontSize: 22 } })
     expect(getSettings().editor.fontSize).toBe(22)
   })
 
