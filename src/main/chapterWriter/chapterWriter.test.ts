@@ -598,6 +598,24 @@ describe('setting a finding aside', () => {
     expect(await read()).toContain('in the blue dress')
   })
 
+  it('checks again once in a session (token audit, 2026-10-19), and stops offering it once used', async () => {
+    const { db, storyId, chapterId, s1 } = world()
+    const f: Finding = { id: 'F1', sceneId: s1, from: 'critic', issueId: null, kind: 'critic · pacing · high', what: 'Slow', quote: '', advice: '', status: 'open' }
+    let checked = 0
+    const s = session(db, storyId, chapterId, s1, [f], {
+      checkAgain: async () => {
+        checked++
+        return [{ sceneId: s1, from: 'critic', issueId: null, kind: 'critic · pacing · high', what: 'Slow', quote: '', advice: '', status: 'open' }]
+      }
+    })
+    const one = async (name: string) => (await s.runAll([{ id: 'c', name, arguments: '{"summary":"All done."}' }])).results[0].content
+    expect(await one('done')).toMatch(/call check_again to have it read again/)
+    expect(await one('check_again')).toMatch(/^Still open in Sc 1 “The ferry”:\nF1 /)
+    expect(await one('check_again')).toMatch(/^check_again works once in a session/)
+    expect(checked).toBe(1)
+    expect(await one('done')).not.toMatch(/check_again/)
+  })
+
   it('turns done down while findings are open, twice, then lets it end', async () => {
     const { db, storyId, chapterId, s1 } = world()
     const f: Finding = { id: 'F1', sceneId: s1, from: 'critic', issueId: null, kind: 'critic · pacing · high', what: 'Slow', quote: '', advice: '', status: 'open' }

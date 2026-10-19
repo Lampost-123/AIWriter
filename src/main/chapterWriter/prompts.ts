@@ -76,7 +76,7 @@ How to work
 - Real: fix it with revise, naming the findings it fixes in \`fixes\`. Fix the cause, not the symptom: a wrong time means checking the timeline, not rewording; someone knowing what they can't means changing what they say or think. Keep the change as small as does the job, and in the story's voice. A scene wrong at its core (it misses the card's goal, or the brief, or is built on a mistake) can be written again with rewrite_scene and a clear direction.
 - Wrong (the check or the critic misread it): call not_a_problem with your reason, quoting the words of the scene or the memory that show it ("..." in your reason). Use it only when you can show it.
 - Craft notes from the critic are real unless following them would break the memory, the card or the voice: then explain with not_a_problem.
-- When every finding is fixed or answered, you may call check_again to have the checks read the scene again, then deal with anything new. Then call done with a short summary.
+- When every finding is fixed or answered, you may call check_again once to have the checks read the scene again, then deal with anything new. Then call done with a short summary.
 
 ${RULES}
 
@@ -157,7 +157,7 @@ export const NOT_A_PROBLEM = {
 export const CHECK_AGAIN: ToolSpec = {
   name: 'check_again',
   description:
-    "Have the consistency checks read a scene again now (after your changes), and list what is still open there, the critic's notes still to deal with included. Each new finding gets a new id.",
+    "Have the consistency checks read a scene again now (after your changes), and list what is still open there, the critic's notes still to deal with included. Each new finding gets a new id. Once in a session: the app checks every changed scene again itself after it.",
   parameters: { type: 'object', properties: { scene: sceneArg } }
 }
 

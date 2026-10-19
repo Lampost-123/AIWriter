@@ -135,6 +135,11 @@ export class ChapterSession {
   summary = ''
   private closing: string | null = null
   private doneRefused = 0
+  /**
+   * check_again has been used: once a session (token audit, 2026-10-19). Each waits for the memory to read the scene and
+   * runs every check, and the app checks every changed scene itself after the session.
+   */
+  private checkedAgain = false
   /** Scenes this session changed. */
   readonly changed = new Set<ID>()
   private hay: string | null = null
@@ -317,8 +322,14 @@ export class ChapterSession {
       case 'not_a_problem':
         return this.notAProblem(text('finding'), text('why'))
       case 'check_again': {
+        if (this.checkedAgain) {
+          throw new Mistake(
+            'check_again works once in a session, and it has been used. Deal with what is still open with revise or not_a_problem, then call done: the app checks every changed scene again itself.'
+          )
+        }
         const id = text('scene').trim() ? this.sceneOf(text('scene')) : this.d.sceneId
         if (!id) throw new Mistake('Say which scene to check again.')
+        this.checkedAgain = true
         const found = await this.d.checkAgain(id)
         // What was open for this scene is now whatever the checks still find; anything new is added.
         const fresh: Finding[] = []
@@ -516,7 +527,7 @@ export class ChapterSession {
       this.doneRefused++
       return [
         'Not done yet',
-        `Not done: still open: ${mine.map((f) => f.id).join(', ')}. Fix each with revise (naming it in \`fixes\`), or set it aside with not_a_problem and your reason. If you fixed one without naming it, call check_again to have it read again.\n${mine.map((f) => findingLine(f, this.d.scenes)).join('\n')}`
+        `Not done: still open: ${mine.map((f) => f.id).join(', ')}. Fix each with revise (naming it in \`fixes\`), or set it aside with not_a_problem and your reason.${this.checkedAgain ? '' : ' If you fixed one without naming it, call check_again to have it read again.'}\n${mine.map((f) => findingLine(f, this.d.scenes)).join('\n')}`
       ]
     }
     this.summary = summary.trim()
