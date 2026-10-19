@@ -83,8 +83,17 @@ const MOST_FULL = 24
 export const MOST_OWNED = 12
 /** The most lines saying what someone here believes that isn't true (long story memory fix 9). */
 export const MOST_BELIEFS = 12
-/** The most findings from earlier scenes the author said are meant. */
+/** The most findings from earlier scenes the author said are meant (for each of CHECK_GROUPS' requests). */
 export const MOST_MEANT = 8
+/**
+ * The checks asked together in one request: what is so, then who knows what and how it reads. A live run found one
+ * request for all six spread the model thin and missed plain contradictions, so they stay two requests, which share
+ * their opening (2026-10-19: the same instructions, material and scene, each request's own checks last).
+ */
+export const CHECK_GROUPS: CheckKind[][] = [
+  ['facts', 'timeline', 'continuity'],
+  ['knowledge', 'voice', 'style']
+]
 /** Which check each kind of finding the author said is meant belongs to (voice and style since 2026-10-16). */
 const MEANT_CHECK: Partial<Record<Lesson['kind'], CheckKind>> = { fact: 'facts', knowledge: 'knowledge', timeline: 'timeline', voice: 'voice', style: 'style' }
 
@@ -595,7 +604,7 @@ function firstMention(text: string, names: string[]): number {
 // ---------- The request ----------
 
 /** One section of a request, as "What the AI saw" lists it. */
-interface Section {
+export interface Section {
   id: string
   title: string
   text: string
@@ -659,8 +668,10 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
       ...(s.content ?? [])
     ].filter(Boolean)
     if (lines.length) out.push({ id: 'style', title: 'The style guide', text: lines.join('\n'), entryIds: [] })
-  } else if (ctx.style.strong) {
-    // The other checks are told the story means its strong content too, so they read such a scene as they would any other.
+  }
+  if (ctx.style.strong && checks.some((c) => c !== 'style')) {
+    // The other checks are told the story means its strong content too, so they read such a scene as they would any other
+    // (in the material every request about the scene shares, whichever of them it makes: 2026-10-19).
     out.push({ id: 'content', title: 'About this story', text: ctx.style.strong, entryIds: [] })
   }
 
@@ -713,6 +724,13 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
       headsAt(ctx.memory),
       rank
     )
+    // With the facts check in the same material (every request about the scene shares it: 2026-10-19), the facts the
+    // scene's words touch most are told too, as the facts check alone is told them, when the list above left them out.
+    if (has('facts')) {
+      const listed = new Set(facts.map((f) => f.factId))
+      const touched = factsTheWordsTouch(ctx.memory.facts, people.map((c) => c.entry), cardOrWords, rank, FACTS_FOR_FACTS, headsAt(ctx.memory))
+      facts.push(...touched.filter((f) => !listed.has(f.factId)))
+    }
     // Each knower with since when and how, as the who-knows-what ledger has it (fix 9).
     const nameOf = namesAt(ctx.memory)
     const lines = facts.map((f) => `- ${knowsLine(f, people.map((c) => c.entry), nameOf)}`)
@@ -779,18 +797,19 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
 
   // What the author said is meant when a check raised it in an earlier scene (fix 7 of the long story memory research):
   // the same thing here is no issue either. Only for the checks being run.
+  // At most MOST_MEANT for each of CHECK_GROUPS' requests, as each was told when it had its own material.
+  const told = CHECK_GROUPS.map(() => 0)
   const meant = (ctx.meant ?? []).filter((l) => {
     const check = MEANT_CHECK[l.kind]
-    return !!check && has(check)
+    if (!check || !has(check)) return false
+    const g = Math.max(0, CHECK_GROUPS.findIndex((x) => x.includes(check)))
+    return told[g]++ < MOST_MEANT
   })
   if (meant.length) {
     out.push({
       id: 'meant',
       title: 'What the author has said is meant',
-      text: meant
-        .slice(0, MOST_MEANT)
-        .map((l) => `- ${lessonLine(l)}`)
-        .join('\n'),
+      text: meant.map((l) => `- ${lessonLine(l)}`).join('\n'),
       entryIds: []
     })
   }
@@ -840,13 +859,23 @@ export interface CheckRequest {
   user: string
   blocks: ContextBlock[]
   entryIds: ID[]
+  /**
+   * How much of `user` is its opening (the material and the scene's words), which every request about this part of the
+   * scene starts with: what a provider's cache serves, and what a model that caches only where asked is told to keep.
+   */
+  opening: number
 }
 
-/** The request for a part of the scene ("part" is 1-based; parts is how many there are). */
-export function checkRequest(sections: Section[], part: string, n: { part: number; parts: number }): CheckRequest {
+/** A section as a request says it: "## Title" and its text. */
+export const sectionText = (s: Pick<Section, 'title' | 'text'>): string => `## ${s.title}\n${s.text}`
+
+/**
+ * The opening of every request about a part of the scene ("part" is 1-based; parts is how many there are): the material
+ * (`sections`), then the scene's words, the same bytes in the same order whatever the request then asks (2026-10-19).
+ */
+export function checkOpening(sections: Section[], part: string, n: { part: number; parts: number }): Omit<CheckRequest, 'opening'> {
   const title = n.parts > 1 ? `The scene (part ${n.part} of ${n.parts})` : 'The scene'
   const all = [...sections, { id: 'scene-text', title, text: part, entryIds: [] }]
-  const user = all.map((s) => `## ${s.title}\n${s.text}`).join('\n\n')
   const blocks: ContextBlock[] = all.map((s, i) => ({
     id: s.id,
     priority: Math.min(10, i + 1),
@@ -856,7 +885,15 @@ export function checkRequest(sections: Section[], part: string, n: { part: numbe
     entryIds: s.entryIds,
     dropped: false
   }))
-  return { user, blocks, entryIds: [...new Set(sections.flatMap((s) => s.entryIds))] }
+  return { user: all.map(sectionText).join('\n\n'), blocks, entryIds: [...new Set(sections.flatMap((s) => s.entryIds))] }
+}
+
+/** The request for a part of the scene: its opening, then its own task (checks/prompts.ts checkTask) last. */
+export function checkRequest(sections: Section[], part: string, n: { part: number; parts: number }, task = ''): CheckRequest {
+  const open = checkOpening(sections, part, n)
+  if (!task) return { ...open, opening: open.user.length }
+  const block: ContextBlock = { id: 'task', priority: 10, title: 'The task', text: task, tokens: estimateTokens(task), entryIds: [], dropped: false }
+  return { ...open, user: `${open.user}\n\n${task}`, blocks: [...open.blocks, block], opening: open.user.length }
 }
 
 /**

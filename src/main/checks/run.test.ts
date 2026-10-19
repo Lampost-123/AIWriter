@@ -11,14 +11,13 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
 import { UserError } from '../util'
-import { CHECK_SECOND_MARKER, CHECK_SECOND_SYSTEM, checkBudget, checkScene, rankByMeaning, type CheckOptions } from './run'
-import { checkSections, gatherSceneCheck } from './context'
-import { sceneSystem } from './prompts'
-import { estimateTokens } from '../keeper/text'
+import { CHECK_GROUPS, CHECK_SECOND_MARKER, CHECK_SECOND_TASK, checkLayout, checkScene, rankByMeaning, type CheckOptions } from './run'
+import { gatherSceneCheck } from './context'
+import { CHECK_SYSTEM, CHECK_TASK_MARKER, TASK_HEADING } from './prompts'
 import { SECOND_MARKER } from '../repair/second'
 import { issueFindings } from '../chapterWriter/run'
 import type { SceneContract } from '../ai/contract'
-import { CHECK_CONTRACT_RULES, contractSection } from '../repair/contract'
+import { CHECK_CONTRACT_RULES } from '../repair/contract'
 import { checkReport, checkReportNow, reportItems } from './report'
 import { checkAfterDraft, checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
 import { Keeper } from '../keeper/engine'
@@ -89,10 +88,18 @@ describe('checking a scene', () => {
 
     // Each request is a 'check' record of the scene, so "What the AI saw" shows it.
     const rec = gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0])
-    // Two focused requests: what is so (facts, timeline, continuity), then who knows what.
-    expect(rec.messages[0].content.startsWith('[AIWRITE-CHECK v1] facts, timeline, continuity')).toBe(true)
-    expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[1]).messages[0].content.startsWith('[AIWRITE-CHECK v1] knowledge')).toBe(true)
+    const next = gens.getGeneration(w.db, checkRecords(w.db, w.s2)[1])
+    // Two focused requests: what is so (facts, timeline, continuity), then who knows what, each its own task, last.
+    expect(rec.messages[1].content).toContain(`${TASK_HEADING}\n${CHECK_TASK_MARKER} facts, timeline, continuity\n`)
+    expect(next.messages[1].content).toContain(`${TASK_HEADING}\n${CHECK_TASK_MARKER} knowledge\n`)
+    // They open alike (2026-10-19): the same instructions, then the same material and scene, byte for byte.
+    expect(rec.messages[0].content).toBe(CHECK_SYSTEM)
+    expect(next.messages[0].content).toBe(CHECK_SYSTEM)
+    const opening = (t: string): string => t.slice(0, t.indexOf(`\n\n${TASK_HEADING}\n`))
+    expect(opening(next.messages[1].content)).toBe(opening(rec.messages[1].content))
+    expect(opening(rec.messages[1].content).endsWith(`## The scene\n${SCENE_2}`)).toBe(true)
     expect(rec.blocks.map((b) => b.id)).toContain('memory')
+    expect(rec.blocks.at(-1)!.id).toBe('task')
 
     // Checked again: nothing new.
     expect(await checkScene(options(w.db), w.s2, DONE_CHECKS)).toEqual({ status: 'done', found: 0 })
@@ -189,9 +196,7 @@ describe('check runs', () => {
     const done = events.filter((e) => e.name === 'checks:done').map((e) => e.payload as CheckDone)
     expect(done.map((d) => d.runId)).toEqual([first, second])
     expect(done[1]).toMatchObject({ status: 'complete', found: 2, background: true })
-    expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0]).messages[0].content.split('\n')[0]).toBe(
-      '[AIWRITE-CHECK v1] facts, timeline, continuity'
-    )
+    expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0]).messages[1].content).toContain(`${CHECK_TASK_MARKER} facts, timeline, continuity\n`)
   })
 
   it('makes no background check when the latest read the words as they are now, with nothing before them changed (token audit)', async () => {
@@ -325,12 +330,15 @@ describe('the scene’s contract in the chapter writer’s checks (long story me
     const w = world()
     const out = await checkScene({ ...options(w.db), contract: contract(w.tobinId) }, w.s2, DONE_CHECKS)
     expect(out).toEqual({ status: 'done', found: 3 })
-    // Two requests, as without it; only the first has the contract.
+    // Two requests, as without it; only the first has the contract, in its task after the scene (both open alike).
     const recs = checkRecords(w.db, w.s2).map((id) => gens.getGeneration(w.db, id))
     expect(recs).toHaveLength(2)
-    expect(recs[0].messages[0].content).toContain(CHECK_CONTRACT_RULES)
-    expect(recs[0].messages[1].content).toContain('## The scene’s contract (C ids)\nMust change by the end of the scene:\n- [C1] Mara pushes the door open')
-    expect(recs[1].messages[0].content).not.toContain('contract')
+    const [task, other] = recs.map((r) => r.messages[1].content.slice(r.messages[1].content.indexOf(`\n\n${TASK_HEADING}\n`)))
+    expect(task).toContain(CHECK_CONTRACT_RULES)
+    expect(task).toContain('## The scene’s contract (C ids)\nMust change by the end of the scene:\n- [C1] Mara pushes the door open')
+    expect(other).not.toContain('contract')
+    expect(recs[0].messages[0].content).toBe(CHECK_SYSTEM)
+    expect(recs[0].messages[1].content.slice(0, -task.length)).toBe(recs[1].messages[1].content.slice(0, -other.length))
 
     const rows = cdb.sceneIssueRows(w.db, w.s2).map((r) => ({ ...r, p: cdb.payloadOf(r) }))
     const dead = rows.find((r) => r.p.contract?.part === 'keep')!
@@ -455,15 +463,12 @@ function stubbed(answer: (system: string, user: string) => unknown): typeof fetc
   return f
 }
 
-/** The room a check request leaves for the scene, worked out as checkScene does. */
+/** The room a check request leaves for the scene, worked out as checkScene does (with the contract, when it fits). */
 function roomFor(db: CheckOptions['db'], sceneId: ID, checks: CheckKind[], contextLength: number, contract: SceneContract | null): number {
   const ctx = gatherSceneCheck(db, sceneId, PREFS)
-  const { available } = checkBudget({ choice: { ...model().choice, contextLength } }, sceneSystem(checks, !!contract))
-  const terms = contract ? [contractSection(contract).section] : []
-  const size = (s: ReturnType<typeof checkSections>): number => s.reduce((n, x) => n + estimateTokens(x.text) + 8, 0)
-  let sections = [...checkSections(ctx, checks), ...terms]
-  if (size(sections) > available * 0.6) sections = [...checkSections(ctx, checks, true), ...terms]
-  return available - size(sections)
+  const groups = CHECK_GROUPS.map((g) => checks.filter((c) => g.includes(c))).filter((g) => g.length)
+  const layout = checkLayout({ choice: { ...model().choice, contextLength } }, ctx, checks, groups, contract)
+  return contract && !layout.contractGroup ? 0 : layout.room
 }
 
 /** The smallest context length that leaves `room` for the scene. */
@@ -492,7 +497,7 @@ describe('the scene’s contract after the review (fix 13)', () => {
     const had = checkReport(w.db, w.s2)!.contract
     expect(had!.items.map((i) => i.result)).toEqual(['untouched', 'not yet', 'broken'])
     for (const reply of [{ issues: [], checked: [] }, { issues: [], checked: [], contract: [] }, { issues: [], checked: [], contract: [{ item: 'C9', result: 'kept' }] }]) {
-      const fetchImpl = stubbed((system) => (system.includes(CHECK_CONTRACT_RULES) ? reply : null))
+      const fetchImpl = stubbed((_system, user) => (user.includes(CHECK_CONTRACT_RULES) ? reply : null))
       expect((await checkScene({ ...options(w.db), contract: contract(w.tobinId), fetchImpl }, w.s2, DONE_CHECKS)).status).toBe('done')
       expect(fromContract(w.db, w.s2)).toHaveLength(2)
       expect(checkReport(w.db, w.s2)!.contract).toEqual(had)
@@ -506,15 +511,15 @@ describe('the scene’s contract after the review (fix 13)', () => {
     const filler = Array.from({ length: 40 }, (_, i) => `The rain kept on over the roofs of the town and the gutters ran with it, hour after hour, for the ${i + 1}th time.`)
     repo.saveSceneText(w.db, w.s2, null, [opening, ...filler, later].join('\n\n'))
     const c = contract(w.tobinId)
-    const fetchImpl = stubbed((system, user) => {
-      if (!system.includes(CHECK_CONTRACT_RULES)) return null
+    const fetchImpl = stubbed((_system, user) => {
+      if (!user.includes(CHECK_CONTRACT_RULES)) return null
       return user.includes('(part 1 of')
         ? { issues: [], checked: [], contract: [{ item: 'C1', result: 'kept', quote: opening }, { item: 'C2', result: 'not yet' }, { item: 'C3', result: 'untouched' }] }
         : { issues: [], checked: [], contract: [{ item: 'C1', result: 'broken', quote: later, why: 'She has put the lamp down.' }, { item: 'C2', result: 'kept', quote: later }] }
     })
     const out = await checkScene({ ...options(w.db, sized(contextFor(w.db, w.s2, ['facts'], 400, c))), contract: c, fetchImpl }, w.s2, ['facts'])
     expect(out.status).toBe('done')
-    const parts = fetchImpl.asked.filter((a) => a.system.includes(CHECK_CONTRACT_RULES))
+    const parts = fetchImpl.asked.filter((a) => a.user.includes(CHECK_CONTRACT_RULES))
     expect(parts.length).toBeGreaterThan(1)
     expect(parts[0].user).toContain('- [C1] Mara holds the lamp')
     for (const p of parts.slice(1)) {
@@ -535,7 +540,7 @@ describe('the scene’s contract after the review (fix 13)', () => {
     const fetchImpl = stubbed(() => null)
     const out = await checkScene({ ...options(w.db, sized(contextLength)), contract: c, fetchImpl }, w.s2, ['facts'])
     expect(out).toMatchObject({ status: 'done' })
-    expect(fetchImpl.asked[0].system).not.toContain(CHECK_CONTRACT_RULES)
+    expect(fetchImpl.asked[0].user).not.toContain(CHECK_CONTRACT_RULES)
     expect(fetchImpl.asked[0].user).not.toContain('contract')
     expect(fromContract(w.db, w.s2)).toHaveLength(0)
   })
@@ -557,9 +562,9 @@ describe('the scene’s contract after the review (fix 13)', () => {
   it('the chapter writer puts right only what a second opinion agreed goes against it; what isn’t shown yet is never patched in (a plan miss: the scene is written again)', async () => {
     const ruled = async (second: unknown) => {
       const w = world()
-      const fetchImpl = stubbed((system) => (system.startsWith(SECOND_MARKER) ? second : null))
+      const fetchImpl = stubbed((_system, user) => (user.includes(SECOND_MARKER) ? second : null))
       await checkScene({ ...options(w.db), contract: contract(w.tobinId), fetchImpl }, w.s2, DONE_CHECKS)
-      const asked = fetchImpl.asked.filter((a) => a.system.startsWith(SECOND_MARKER))
+      const asked = fetchImpl.asked.filter((a) => a.user.includes(SECOND_MARKER))
       const rows = fromContract(w.db, w.s2).map((r) => ({ quote: r.quote, ...cdb.payloadOf(r).contract! }))
       const review = issueFindings(w.db, w.s2).filter((f) => f.kind.includes('scene contract'))
       return { asked, rows, review }
@@ -588,11 +593,11 @@ describe('the scene’s contract after the review (fix 13)', () => {
 describe('a second opinion on what a whole check found (2026-10-16)', () => {
   /** The note number the second opinion's request gives the finding quoting `words`. */
   const noteOf = (user: string, words: string): number => Number(user.split('\n').find((l) => /^\d+\. Quote: /.test(l) && l.includes(words))!.match(/^(\d+)/)![1])
-  const ruled = async (answer: (user: string) => unknown, checks: CheckKind[] = DONE_CHECKS, check?: (system: string) => unknown) => {
+  const ruled = async (answer: (user: string) => unknown, checks: CheckKind[] = DONE_CHECKS, check?: (user: string) => unknown) => {
     const w = world()
-    const fetchImpl = stubbed((system, user) => (system.startsWith(CHECK_SECOND_MARKER) ? answer(user) : (check?.(system) ?? null)))
+    const fetchImpl = stubbed((_system, user) => (user.includes(CHECK_SECOND_MARKER) ? answer(user) : (check?.(user) ?? null)))
     const out = await checkScene({ ...options(w.db), fetchImpl }, w.s2, checks)
-    const asked = fetchImpl.asked.filter((a) => a.system.startsWith(CHECK_SECOND_MARKER))
+    const asked = fetchImpl.asked.filter((a) => a.user.includes(CHECK_SECOND_MARKER))
     const quotes = cdb
       .sceneIssueRows(w.db, w.s2)
       .filter((r) => r.status === 'open')
@@ -604,11 +609,13 @@ describe('a second opinion on what a whole check found (2026-10-16)', () => {
   it('asks once, each finding citing its entry with what the memory and the scene say, and drops what it rules not real', async () => {
     const r = await ruled((user) => ({ verdicts: [{ n: noteOf(user, 'eyes were green'), reason: 'Firelight can make blue eyes look green.', real: false }] }))
     expect(r.asked).toHaveLength(1)
-    expect(r.asked[0].system).toBe(CHECK_SECOND_SYSTEM)
+    // It opens as the checks did (2026-10-19): their instructions, their material and the scene, then its own task.
+    expect(r.asked[0].system).toBe(CHECK_SYSTEM)
+    expect(r.asked[0].user).toContain(`\n\n${CHECK_SECOND_TASK}\n\n## The notes to check\n1. Quote: `)
     expect(r.asked[0].user).toMatch(/Quote: "Mara's eyes were green in the firelight\." · Line: \[E\d+\] Mara \(character; named in the scene\) \(its entry is above\) · The note: .*\(The memory says: blue\. The scene says: green\.\)/)
     // What the checks were given, and the scene.
-    expect(r.asked[0].user).toContain('## What the check was given\n## The scene card')
-    expect(r.asked[0].user).toContain('"""\nMara pushed the door open.')
+    expect(r.asked[0].user.startsWith('## The scene card\n')).toBe(true)
+    expect(r.asked[0].user).toContain(`## The scene\n${SCENE_2}\n\n${TASK_HEADING}\n`)
     expect(r.out).toEqual({ status: 'done', found: 1 })
     expect(r.quotes).toEqual(['"You took your time," said Tobin.'])
   })
@@ -619,7 +626,7 @@ describe('a second opinion on what a whole check found (2026-10-16)', () => {
     const w = world()
     const failing = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? '{}')) as { messages: { role: string; content: string }[] }
-      if (body.messages[0]?.content.startsWith(CHECK_SECOND_MARKER)) return new Response('down', { status: 500 })
+      if (body.messages[1]?.content.includes(CHECK_SECOND_MARKER)) return new Response('down', { status: 500 })
       return fetch(input, init)
     }) as typeof fetch
     expect(await checkScene({ ...options(w.db), fetchImpl: failing }, w.s2, DONE_CHECKS)).toEqual({ status: 'done', found: 2 })
@@ -627,9 +634,9 @@ describe('a second opinion on what a whole check found (2026-10-16)', () => {
 
   it('never asks when Adam has switched the second opinion off, and keeps everything found (2026-10-17)', async () => {
     const w = world()
-    const fetchImpl = stubbed((system) => (system.startsWith(CHECK_SECOND_MARKER) ? { verdicts: [{ n: 1, real: false }, { n: 2, real: false }] } : null))
+    const fetchImpl = stubbed((_system, user) => (user.includes(CHECK_SECOND_MARKER) ? { verdicts: [{ n: 1, real: false }, { n: 2, real: false }] } : null))
     const out = await checkScene({ ...options(w.db), fetchImpl, secondOpinionOff: true }, w.s2, DONE_CHECKS)
-    expect(fetchImpl.asked.some((a) => a.system.startsWith(CHECK_SECOND_MARKER))).toBe(false)
+    expect(fetchImpl.asked.some((a) => a.user.includes(CHECK_SECOND_MARKER))).toBe(false)
     expect(out).toEqual({ status: 'done', found: 2 })
   })
 
@@ -639,7 +646,7 @@ describe('a second opinion on what a whole check found (2026-10-16)', () => {
     const voice = await ruled(
       () => ({ verdicts: [{ n: 1, real: false }] }),
       ['voice'],
-      (system) => (system.startsWith('[AIWRITE-CHECK v1] voice') ? { issues: [{ check: 'voice', quote: 'You took your time', message: 'Tobin never says that.' }], checked: [] } : null)
+      (user) => (user.includes(`${CHECK_TASK_MARKER} voice\n`) ? { issues: [{ check: 'voice', quote: 'You took your time', message: 'Tobin never says that.' }], checked: [] } : null)
     )
     expect(voice.asked).toHaveLength(0)
     // (The free rules still find the dead man speaking.)
@@ -647,7 +654,7 @@ describe('a second opinion on what a whole check found (2026-10-16)', () => {
     const w = world()
     const fetchImpl = stubbed(() => null)
     await checkScene({ ...options(w.db), fetchImpl }, w.s1, DONE_CHECKS)
-    expect(fetchImpl.asked.some((a) => a.system.startsWith(CHECK_SECOND_MARKER))).toBe(false)
+    expect(fetchImpl.asked.some((a) => a.user.includes(CHECK_SECOND_MARKER))).toBe(false)
   })
 })
 
@@ -682,5 +689,59 @@ describe('the facts a scene touches, by meaning (2026-10-16)', () => {
       await rankByMeaning({ byMeaning, stopped: () => false }, again)
       expect(again.factRank?.has('f-oath')).toBe(false)
     }
+  })
+})
+
+describe('every request about a scene opens alike (2026-10-19, the checks’ cost)', () => {
+  const contract = (tobinId: ID): SceneContract => ({
+    asks: 'scene',
+    items: [
+      { code: 'C1', part: 'change', text: 'Mara pushes the door open', check: 'facts', entryIds: [] },
+      { code: 'C2', part: 'change', text: 'Mara finds the ledger under the floor', check: 'facts', entryIds: [] },
+      { code: 'C3', part: 'keep', text: 'Tobin is dead: died in the fire (since Ch 1, Sc 1)', check: 'facts', entryIds: [tobinId] }
+    ]
+  })
+  /** A request's opening: everything before its task. */
+  const opening = (user: string): string => user.slice(0, user.indexOf(`\n\n${TASK_HEADING}\n`))
+
+  it('both checks, the contract’s ruling and the second opinion: the same instructions, then the same material and scene, byte for byte, each task last', async () => {
+    const w = world()
+    const fetchImpl = stubbed(() => null)
+    const out = await checkScene({ ...options(w.db), contract: contract(w.tobinId), fetchImpl }, w.s2, ALL_CHECKS)
+    // What it finds is as it was: the eyes, and what the contract says (the dead man speaking, the ledger not shown yet).
+    expect(out).toEqual({ status: 'done', found: 3 })
+    const tasks = fetchImpl.asked.map((a) => a.user.slice(opening(a.user).length + 2).split('\n').slice(0, 2).join(' '))
+    expect(tasks).toEqual([
+      `${TASK_HEADING} ${CHECK_TASK_MARKER} facts, timeline, continuity`,
+      `${TASK_HEADING} ${CHECK_TASK_MARKER} knowledge, voice, style`,
+      `${TASK_HEADING} ${SECOND_MARKER} verdicts`,
+      `${TASK_HEADING} ${CHECK_SECOND_MARKER} verdicts`
+    ])
+    expect(fetchImpl.asked.every((a) => a.system === CHECK_SYSTEM)).toBe(true)
+    const first = opening(fetchImpl.asked[0].user)
+    expect(first.startsWith('## The scene card\n')).toBe(true)
+    expect(first.endsWith(`\n\n## The scene\n${SCENE_2}`)).toBe(true)
+    for (const a of fetchImpl.asked) expect(opening(a.user)).toBe(first)
+    // The contract is in the first check's task and the ruling's, never in the opening.
+    expect(first).not.toContain('contract')
+    expect(fetchImpl.asked[2].user).toContain('- [C2] Mara finds the ledger under the floor')
+  })
+
+  it('a reply that can’t be read is asked for again with the same request and a line saying why, never the reply', async () => {
+    const w = world()
+    let bad = 0
+    const fetchImpl = stubbed((_system, user) => (user.includes(`${CHECK_TASK_MARKER} facts`) && bad++ === 0 ? 'I found a couple of things worth a look in this scene.' : null))
+    const bodies: { role: string; content: string }[][] = []
+    const recording = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      bodies.push((JSON.parse(String(init?.body ?? '{}')) as { messages: { role: string; content: string }[] }).messages)
+      return fetchImpl(input, init)
+    }) as typeof fetch
+    expect(await checkScene({ ...options(w.db), fetchImpl: recording }, w.s2, DONE_CHECKS)).toEqual({ status: 'done', found: 2 })
+    const [asked, again] = bodies
+    expect(again.map((m) => m.role)).toEqual(['system', 'user'])
+    expect(again[0].content).toBe(asked[0].content)
+    expect(again[1].content.startsWith(`${asked[1].content}\n\nYour last reply to this couldn't be used: `)).toBe(true)
+    expect(again[1].content).not.toContain('I found a couple of things')
+    expect(bodies.flat().some((m) => m.role === 'assistant')).toBe(false)
   })
 })
