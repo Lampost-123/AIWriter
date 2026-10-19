@@ -13,6 +13,9 @@
 // - Told to the writer as "Where things stand" (context.ts, block 3b) and to the consistency checks (checks/context).
 // - Piece by piece (step 2b, Adam 2026-10-07): each piece of clothing, each thing in the place (a door barred, a case
 //   on the windowsill), who touches whom and who can see or hear whom, each with its own words (@shared/stageItems).
+// - One reading of a scene (overhaul phase 1, 2026-10-19): when the memory keeper reads exactly the words this tracker
+//   would read next, its reading says where things stand at their end in the same call, kept here by the same rules
+//   (stageToRead, keepStageRead), and this tracker's own call is skipped; otherwise it reads them itself, as before.
 // - A scene the memory model turns down (some models won't read explicit scenes; 2026-10-16): the state before it is
 //   carried on through it, marked unchecked, so the scenes after it don't lose what was worn, held or hurt before it;
 //   Recall says so, and Adam can put right what the scene changed. The words it turned down are remembered with the
@@ -39,6 +42,7 @@ import {
 } from '@shared/continuity'
 import { sameMoment } from '../memory/calendar'
 import { calendarOfScene } from '../memory/storyCalendar'
+import { castBlock, STAGE_FIELD, STAGE_REPLY, STAGE_RULES, STAGE_SHAPE } from './stagePrompt'
 
 export { mergeState, readChanges, stateText, withEdits, type SceneState, type StateEdits } from '@shared/continuity'
 import * as repo from '../db/repo'
@@ -58,7 +62,7 @@ const MARKER = '[AIWRITE-CONTINUITY v3]'
 /** The most of a scene sent at once (characters); a longer one is read from its end, where it finishes. */
 const SCENE_CHARS = 60_000
 /** How many scenes before a draft's are brought up to date at most (oldest first, so each builds on the last). */
-const CATCH_UP = 3
+export const CATCH_UP = 3
 
 interface Kept {
   /** The scene's words it was read from. */
@@ -356,33 +360,18 @@ type Reading = SceneState | null | typeof REFUSED
 
 /** What the memory model is asked for one scene, or for the rest of a scene from a checkpoint. */
 export function stateMessages(before: SceneState | null, sceneText: string, cast: string[], ask: StateAsk = {}): ChatMessage[] {
-  const field = '{"value": "", "quote": ""}'
-  const piece = '{"item": "", "state": "", "quote": ""}'
-  const thing = '{"thing": "", "state": "", "quote": ""}'
+  // The shape and the rules are shared with the memory keeper's reading of a scene, which can say where things stand at
+  // its end in the same call (one reading of a scene, overhaul phase 1: stagePrompt.ts).
   const system = `${MARKER} state
 You keep track of continuity for a novel, so the next scenes are written consistently. Given where things stood before a scene and the scene's text, say what the scene changes, so it is known where things stand at the END of it.
 
-Reply with only a JSON object. Each value is ${field}: the value as it is at the end, and the quote: the exact words in the scene that show it, copied word for word (a few words to a sentence; join two places with …):
-{"time": ${field}, "weather": ${field}, "light": ${field}, "things": [${thing}], "characters": [{"name": "", "where": ${field}, "clothes": [${piece}], "posture": ${field}, "touching": ${field}, "sees": ${field}, "holding": ${field}, "condition": ${field}, "mood": ${field}, "lastAction": ${field}}]}
+Reply with only a JSON object. Each value is ${STAGE_FIELD}: the value as it is at the end, and the quote: the exact words in the scene that show it, copied word for word (a few words to a sentence; join two places with …):
+${STAGE_SHAPE}
 
-- Only values the scene's words show or change, each with its quote. Leave out anything you can't quote: it carries on from before, or stays unknown. Never guess or fill a gap with what is likely. A value without its words is thrown away.
-- time: time of day (and date, if the story gives one); weather; light (lamplight, dusk, harsh sun).
-- things: the things in the place that matter, only where the words put them there or change them: a door or a window shut, open, locked or barred; something put down somewhere (the case on the windowsill, the cup on the table); a lamp lit or out; a fire banked. "thing": a short name, the same as before for the same thing ("the back door"). When the words say only "the door" (or "the window") and more than one is named, it is not the nearest one named: it is the one the words show the person came through or stands at, and the quote takes in those words too ("at the passage door … turned the key"); when the words don't show which, call it "the door". "state": where it is and how it is now ("on the windowsill"; "shut and barred from inside"). When someone picks it up or carries it off, its state is "gone" (it is then what they hold). Not people, not the room itself, and never clothing, on or off: a piece of clothing goes under its person's clothes, even lying on the floor.
-- One entry for each character who is in the scene or whose situation it changes, by their name as the cast list has it.
-- where: where they are at the end, as exactly as the text allows (the inn's back room, by the hearth; on the bed, by the window).
-- clothes: one entry for each piece of clothing the scene shows them wearing, putting on, taking off or changing, each with its own quote. Jewellery, a pack and a sword belt count; hair, beard and body don't. "item": a short name, the same as before for the same piece ("grey cloak", "left boot"); "state": "on" or "off" first, then where it is when off, then how it sits: done up or open, pushed up, tucked in, torn, soaked ("off, over the chair"; "on, unbuttoned to the waist, sleeves rolled up"); "gone" when it is no longer theirs (given away, burnt). Only the pieces the scene shows or changes: boots taken off is one entry, and the coat carries on from before. Everything taken off (naked): one entry, "item": "everything", "state": "off" (and where, if the words say), with its quote.
-- posture: how their body is placed: standing, sitting, kneeling or lying, and on what; which way they face; what their hands, arms and legs are doing (sitting on the edge of the bed facing the window, hands in her lap).
-- touching: who they are touching and how, only when the words say so (her knee against Tobin's; holding Ash's hand); "nobody" when the words show it ending.
-- sees: who they can or can't see or hear, only when the words say so (watching Tobin from the stairs; can't see Mara behind the screen; out of earshot of the yard). Never work it out from where people are.
-- holding: what they hold or carry now, and in which hand when the text says. Something put down, hung up or given away is no longer held: say "nothing" (or what they still hold), and quote the words where they put it down.
-- condition: injuries, exhaustion, hunger, drunkenness: how their body is now, not how it always is (a scar or a missing finger belongs to who they are, not here, unless the scene changes it).
-- mood: how they feel at the end.
-- lastAction: the last thing they did, in a few words.
-- When something has changed, give only the new state, never the old one. When something stops (a thing put down, a coat or boots taken off), the quote is the words where it happens.
-- Keep each value short, but leave out no detail the text gives: posture may take a full line.`
+${STAGE_RULES}`
   const from = ask.after?.trim()
   const user = [
-    cast.length ? `Characters in this story (the name to use first, then other names the story calls them):\n${cast.map((c) => `- ${c}`).join('\n')}` : '',
+    castBlock(cast),
     from
       ? `Where things stand before the words below (the scene up to here is counted in it):\n${before ? stateText(before) || '(nothing known yet)' : '(nothing known yet)'}`
       : `Before this scene:\n${before ? stateText(before) || '(nothing known yet)' : '(nothing known yet: this may be the opening)'}`,
@@ -487,7 +476,7 @@ async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null,
     task: 'stage',
     messages,
     blocks: [{ id: 'continuity', title: 'Where things stand', text: messages[1].content, tokens: estimateTokens(messages[1].content), priority: 1, dropped: false, short: false, entryIds: [] }],
-    maxTokens: 3000,
+    maxTokens: STAGE_REPLY,
     signal: o.signal,
     closed: o.closed,
     // Read in the background: a provider that has stopped answering is given up on sooner (ai/patience.ts).
@@ -706,4 +695,104 @@ export async function stateBefore(o: TrackOptions, sceneId: ID): Promise<SceneSt
 export function keptStateBefore(db: DB, sceneId: ID): SceneState | null {
   const all = load(db)
   return startsFresh(db, all, sceneId) ? startOf(db, all, sceneId) : null
+}
+
+// ---------- One reading of a scene (overhaul phase 1, 2026-10-19) ----------
+// The memory keeper reads a scene's new and changed paragraphs (keeper/run.ts). When those are exactly the words this
+// tracker would read next (the whole scene from its start, or everything after its latest checkpoint that still matches),
+// the same call says where things stand at their end, laid over the same state this tracker would lay it over, and it is
+// kept here as this tracker's own reading would be (stageToRead, keepStageRead): the tracker's own call is skipped. In
+// every other case (an edit in the middle, a scene read in parts, the scenes before not yet brought up to date) the
+// tracker works it out as before. Nothing is kept that its words or the state it built on no longer support.
+
+/** What a reading of a scene is asked about where things stand, and what it builds on (stageToRead). */
+export interface StageAsk {
+  sceneId: ID
+  /** The scene's words when it was asked (the end state is kept against their hash). */
+  text: string
+  /** The hash of the state the scene starts from: what its reading builds on (as stateAfter keeps it). */
+  base: string
+  /** Where things stand before `words`: the latest checkpoint that matches, else the scene's start; null when nothing is known. */
+  before: SceneState | null
+  /** How far into `text` that checkpoint is (0: the scene's start). */
+  at: number
+  /** The words to read: `text` from `at`. */
+  words: string
+  /** The cast list, as the tracker's own request gives it. */
+  cast: string[]
+}
+
+/**
+ * True when the last few scenes before this one (those a draft brings up to date first: stateBefore) each have where
+ * things stand kept from their words as they are now, built on the one before, and not waiting to be read again: a
+ * reading of this scene now builds on what the tracker itself would build on. A scene with words and nothing kept, or one
+ * carried on unchecked that this model didn't turn down, would be worked out first and change what this scene starts from.
+ */
+function startsKept(db: DB, all: Stored, sceneId: ID, model: string): boolean {
+  const line = wordedBefore(db, sceneId)
+  return line.slice(-CATCH_UP).every((id) => {
+    const k = all[id]
+    const text = kdb.keeperScene(db, id)?.text ?? ''
+    if (!k) return !text.trim()
+    if (k.unchecked && k.refusedBy !== model) return false
+    const i = line.indexOf(id)
+    return k.hash === hashOf(text) && k.base === stateHash(i > 0 ? startFrom(db, id, line[i - 1], finalOf(all, line[i - 1])) : null)
+  })
+}
+
+/**
+ * What a reading of the scene's words now would be asked about where things stand at their end: the words the tracker
+ * would read next (the whole scene, or what follows its latest checkpoint that still matches), on the state it would lay
+ * them over. Null when nothing need be asked (kept already for these words, or for all of them at a checkpoint), when this
+ * model turned these words down before (the tracker carries the state on through them), or when the scenes before aren't
+ * kept from their words as they are now (the tracker brings them up to date first, then reads this one itself). No model
+ * is asked.
+ */
+export function stageToRead(db: DB, sceneId: ID, m: MemoryModel): StageAsk | null {
+  const scene = kdb.keeperScene(db, sceneId)
+  if (!scene || !scene.text.trim()) return null
+  const model = modelKeyOf(m)
+  const all = load(db)
+  const kept = all[sceneId]
+  // (Its own words first: a read is mostly of words changed since, and then nothing need be walked.)
+  if (kept && kept.hash === hashOf(scene.text) && !(kept.unchecked && kept.refusedBy !== model) && stands(db, all, sceneId)) return null
+  if (refusedAt(db, sceneId, scene.text, model)) return null
+  if (!startsKept(db, all, sceneId, model)) return null
+  const start = startOf(db, all, sceneId)
+  const base = stateHash(start)
+  const from = pointFor(db, sceneId, base, scene.text)
+  const at = from?.at ?? 0
+  const words = scene.text.slice(at)
+  if (!words.trim()) return null
+  return { sceneId, text: scene.text, base, before: from ? from.state : start, at, words, cast: castFor(db, sceneId, scene.text) }
+}
+
+/**
+ * Keeps where things stand at the end of a scene from the reading that was asked `ask` (stageToRead), its reply's "stage"
+ * being what the tracker's own reply would be: each value only with words from what was read (readChanges), laid over the
+ * state before (mergeState), kept as a checkpoint and as the scene's end, Adam's Recall edits staying while the words are
+ * the ones he edited against, and the story index told (onStageKept). Nothing is kept when the state the reading built on
+ * has changed since (it would be a ghost), and the end is kept only while the scene's words are still the ones read (else
+ * only the checkpoint, which the tracker reads on from); one worked out meanwhile for these same words stays. True when
+ * where things stand at the scene's end is now kept for its words, so the tracker needn't ask.
+ */
+export function keepStageRead(db: DB, ask: StageAsk, reply: unknown): boolean {
+  if (!db.open || !reply || typeof reply !== 'object' || Array.isArray(reply)) return false
+  const read = readChanges(JSON.stringify(reply), ask.words, ask.sceneId)
+  if (!read) return false
+  const scene = kdb.keeperScene(db, ask.sceneId)
+  if (!scene) return false
+  const all = load(db)
+  if (stateHash(startOf(db, all, ask.sceneId)) !== ask.base) return false
+  const state = mergeState(ask.before, read)
+  keepPoint(db, ask.sceneId, ask.base, ask.text, state)
+  const hash = hashOf(ask.text)
+  if (hashOf(scene.text) !== hash) return false
+  const kept = all[ask.sceneId]
+  if (kept && !kept.unchecked && kept.hash === hash && kept.base === ask.base) return true
+  const edits = kept?.hash === hash ? kept.edits : undefined
+  all[ask.sceneId] = { hash, base: ask.base, state, ...(edits ? { edits } : {}) }
+  save(db, all)
+  stageKept(db, ask.sceneId)
+  return true
 }

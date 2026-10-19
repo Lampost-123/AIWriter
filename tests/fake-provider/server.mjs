@@ -64,6 +64,8 @@
 //                                                    app adds who was on stage)
 //   - "<Name>, known as <words>, <anything>."        the words call <Name> <words> (a "name" item, long story
 //                                                    memory fix 12)
+//   A reading that also asks where things stand or for the scene's summary ("[AIWRITE-ONE-READING v1]") gets them in the
+//   same reply: "stage" as the tracker's request would, from its P paragraphs, and "summary" (oneReadingReply).
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
@@ -132,12 +134,21 @@ const SENTENCES = [
  */
 function continuityReply(system, user) {
   if (!system.includes('[AIWRITE-CONTINUITY v3]')) return null
+  const scene = /The scene[^\n]*:\n"""\n([\s\S]*?)\n"""/.exec(user)?.[1] ?? ''
+  return JSON.stringify(fakeStage(castOf(user), scene))
+}
+
+/** The cast list a request gives ("Characters in this story ...: - Mara Venn (also Mara)"), by the names to use. */
+function castOf(user) {
   const list = /^Characters in this story[^\n]*:\n((?:- .+\n?)+)/m.exec(user)?.[1] ?? ''
-  const cast = list
+  return list
     .split('\n')
     .map((l) => l.replace(/^- /, '').replace(/ \(also .*\)$/, '').trim())
     .filter(Boolean)
-  const scene = /The scene[^\n]*:\n"""\n([\s\S]*?)\n"""/.exec(user)?.[1] ?? ''
+}
+
+/** Where things stand at the end of `scene` (the words read), by the rules above, as the tracker's reply object. */
+function fakeStage(cast, scene) {
   const sentences = scene.split(/(?<=[.!?])\s+/)
   const cloak = /in (?:her|his) ([a-z ]+cloak)/.exec(scene)
   const door = /[Tt]he (door|window|gate) was (barred|locked|open|shut)/.exec(scene)
@@ -163,7 +174,34 @@ function continuityReply(system, user) {
     })
   const opening = scene.split(/\s+/).slice(0, 3).join(' ')
   const things = door ? [{ thing: `the ${door[1]}`, state: door[2], quote: door[0] }] : []
-  return JSON.stringify({ time: { value: 'evening', quote: opening }, things, characters })
+  return { time: { value: 'evening', quote: opening }, things, characters }
+}
+
+/**
+ * One reading of a scene (src/main/keeper/oneReading.ts, "[AIWRITE-ONE-READING v1]"): a memory reading that also asks
+ * where things stand at the end of its P paragraphs ("## Where things stand before the P paragraphs", with the cast list)
+ * gets "stage" as the tracker's own request would (fakeStage, from the P paragraphs alone), and one that asks for the
+ * summary ("## The summary") gets "summary", as the summary's own request would (the opening words of the P paragraphs).
+ */
+function oneReadingReply(system, user, memory) {
+  if (!system.includes('[AIWRITE-ONE-READING v1]')) return memory
+  let reply
+  try {
+    reply = JSON.parse(memory)
+  } catch {
+    return memory
+  }
+  const text = String(user)
+    .split('\n')
+    .filter((l) => /^P\d+: /.test(l))
+    .map((l) => l.replace(/^P\d+: /, ''))
+    .join('\n\n')
+  if (user.includes('## Where things stand before the P paragraphs')) reply.stage = fakeStage(castOf(user), text)
+  if (user.includes('## The summary')) {
+    const words = text.split(/\s+/).filter(Boolean).slice(0, 40).join(' ')
+    reply.summary = `This part of the story begins: ${words.replace(/[.,;:!?"']+$/, '')}.`
+  }
+  return JSON.stringify(reply, null, 1)
 }
 
 /**
@@ -492,7 +530,7 @@ export async function startFakeProvider(options = {}) {
     if (system.includes(READING_MARKER)) {
       memoryCounts[model] = (memoryCounts[model] ?? 0) + 1
       const broken = model === 'fake/memory-junk' || (model === 'fake/memory-bad-json' && memoryCounts[model] === 1)
-      memory = broken ? 'Here you go: {"facts": [ {"id": ' : fakeMemoryReply(firstUser)
+      memory = broken ? 'Here you go: {"facts": [ {"id": ' : oneReadingReply(system, firstUser, fakeMemoryReply(firstUser))
     } else if (system.includes(SUMMARY_MARKER)) memory = fakeSummary(firstUser)
     else if (system.includes('[AIWRITE-STORY-FLOW')) memory = fakeStoryFlowReply(system, firstUser)
     memory ??= fakeBuilderReply(system, messages, model)

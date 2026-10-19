@@ -67,3 +67,24 @@ describe('roll-ups are made from the level below and the story record (long stor
     expect(series).toContain('follow the record')
   })
 })
+
+describe('one reading of a scene asks with the tracker’s and the summary’s own rules (overhaul phase 1)', () => {
+  it('adds where things stand and the summary after the reading instructions, one copy of each rule', async () => {
+    const { ONE_READING_MARKER, READING_SYSTEM, oneReadingSystem } = await import('./prompts')
+    const { STAGE_RULES, STAGE_SHAPE } = await import('../continuity/stagePrompt')
+    const { stateMessages } = await import('../continuity/tracker')
+    expect(oneReadingSystem({ stage: false, summary: false })).toBe(READING_SYSTEM)
+    const both = oneReadingSystem({ stage: true, summary: true })
+    // The reading's instructions first, unchanged, then the rest: every reading shares the start of its prompt.
+    expect(both.startsWith(`${READING_SYSTEM}\n\n${ONE_READING_MARKER}`)).toBe(true)
+    expect(both).toContain(`"stage": ${STAGE_SHAPE}`)
+    expect(both).toContain(STAGE_RULES)
+    expect(stateMessages(null, 'Words.', ['Mara'])[0].content).toContain(STAGE_RULES)
+    expect(both).toContain('starting "By the end,"')
+    expect(both).toMatch(/one JSON object with "facts", "add", "clashes", "stage" and "summary", each there even when there is nothing to report\.$/)
+    // Stage alone shares all of its start with stage and summary.
+    const stage = oneReadingSystem({ stage: true, summary: false })
+    expect(both.startsWith(stage.slice(0, stage.lastIndexOf('\n\n')))).toBe(true)
+    expect(stage).not.toContain('The summary ("summary")')
+  })
+})
