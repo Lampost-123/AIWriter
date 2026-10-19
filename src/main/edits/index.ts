@@ -35,7 +35,20 @@ import { onStageIn, withoutMentioned } from '../storyIndex/there'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { noteContract, noteStage } from '../repair'
 import { contractWanted } from '../ai/contract'
+import { ownWritingFor } from '../style/ownWriting'
+import { ownSampleOn } from '@shared/ownSample'
+import type { OwnSample } from '../style/ownWords'
+import type { StyleGuide } from '@shared/types'
 import { UserError } from '../util'
+
+/**
+ * Change it…'s voice sample: passages of Adam's own writing when "Use my own writing as the sample" is on for the sample
+ * passage in effect (as a draft gets them, style/ownWriting.ts), else null (the style guide's sample passage).
+ */
+function reviseSample(db: ReturnType<typeof world.db>, sceneId: string, style: StyleGuide): OwnSample | null {
+  if (!ownSampleOn(getWritingPrefs().ownSample, style.samplePassage)) return null
+  return ownWritingFor(db, sceneId, { sample: true, people: [] }).sample
+}
 
 /**
  * Where things stand at the end of the words before Continue's cursor (as the previous scene ended, at the start of
@@ -211,8 +224,9 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
   const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)
+  const style = effectiveStyle(getWritingPrefs(), repo.getWorldStyle(db), story.style)
   const briefing = editBriefing(input, {
-    style: effectiveStyle(getWritingPrefs(), repo.getWorldStyle(db), story.style),
+    style,
     scene: { title: scene.title, card: scene.card },
     entries: memory.entries,
     contextLength: model.choice.contextLength ?? null,
@@ -232,6 +246,15 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
           // After continuePeople, which brings the story index up to date: what was left in this place on an earlier visit.
           leftHere: leftHereFor(db, input.sceneId, memory.storyId, scene.card.locationId, { asItBegins: !!input.after.trim(), stand })
         }
+      : {}),
+    // Change it… ("Keep this, change that", 2026-10-19): the scene's plan (no call; its beats before the passage marked
+    // done) and Adam's own writing as the voice sample, as a draft has them.
+    ...(tool === 'revise'
+      ? (() => {
+          const plan = planForContinueOf(input.sceneId, scene.card, input.before)
+          const ownSample = reviseSample(db, input.sceneId, style)
+          return { ...(plan ? { plan } : {}), ...(ownSample ? { ownSample } : {}) }
+        })()
       : {})
   })
   if (!briefing.ok) return briefing

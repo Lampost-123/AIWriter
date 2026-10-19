@@ -15,6 +15,7 @@
 // as they arrive (features/outline/parse.ts); what Adam keeps comes back here as KeepItems.
 import type { Act, CarryField, Chapter, ChapterCard, ID, SceneCard } from '../types'
 import type { ChapterCardNames } from './chapterCards'
+import type { EventMove } from './worldViews'
 
 /**
  * Where a chapter goes: into an act, or among the chapters with no act (`actId` null). Just after
@@ -165,6 +166,11 @@ export interface KeptItem {
   openingDated?: ID
   /** The names of the characters and places in `entryIds`, in the same order, for the keep's toast. */
   entryNames?: string[]
+  /**
+   * Events the story's builds had left at its start that this kept scene is where they happen (2026-10-19: its card
+   * names them, or it is on their day): they now first exist here. Its Undo puts them back while they are still here.
+   */
+  events?: EventMove[]
 }
 
 // ----- Interview me, on a scene or a chapter -----

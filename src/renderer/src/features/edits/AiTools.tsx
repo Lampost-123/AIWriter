@@ -1,7 +1,8 @@
 // The AI tools in the bar over selected words (features/editor/selection/SelectionLayer.tsx): one
 // "Rewrite" button that opens a small menu with a box to say how, the quick tools (Expand, Condense, More
-// vivid, Change tone, Fix voice when the words have dialogue, Alternatives) and Continue after the
-// words. Each starts a tracked change in the page (session.ts). Owned by the AI edits part.
+// vivid, Change tone, Fix voice when the words have dialogue, Alternatives), Change it… (the change box: keep this,
+// change that; changeStore.ts) and Continue after the words. Each starts a tracked change in the page (session.ts). Owned
+// by the AI edits part.
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
 import {
@@ -14,6 +15,7 @@ import {
   MessageSquareQuote,
   Palette,
   PenLine,
+  SquarePen,
   UnfoldVertical,
   WandSparkles
 } from '@/components/ui/icons'
@@ -26,6 +28,8 @@ import { editorBridge } from '@/lib/editorBridge'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
 import { noteUsed } from '@/features/direction/store'
 import { markWords, startTool, waitingSuggestion } from './session'
+import { focusChangeBox, openChangeBox } from './changeStore'
+import { selectedWords, textOf } from './text'
 
 export function AiTools({
   editor,
@@ -96,6 +100,14 @@ export function AiTools({
     void startTool(tool, { direction })
   }
 
+  /** Change it…: the menu closes and the change box opens on the selected words. */
+  const changeIt = (): void => {
+    change(false)
+    const r = selectedWords(editor.state)
+    if ('problem' in r) return
+    openChangeBox({ kind: 'words', sceneId: editorBridge()?.sceneId ?? '', from: r.from, to: r.to, text: textOf(editor.state.doc, r.from, r.to), what: 'The selected words' })
+  }
+
   /** Up and down move through the menu, as in any menu. */
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
@@ -137,6 +149,8 @@ export function AiTools({
           }}
           onCloseAutoFocus={(e) => {
             e.preventDefault()
+            // Change it…: the keyboard goes to the change box's note rather than back to the page.
+            if (focusChangeBox()) return
             if (!editor.isDestroyed) editor.view.focus()
           }}
           // Esc goes back from the tones, then closes the menu (the words stay selected).
@@ -234,6 +248,7 @@ export function AiTools({
                 disabled={off}
                 onClick={() => run('alternatives')}
               />
+              <Tool icon={<SquarePen size={15} />} label="Change it…" hint="Keep this, change that" disabled={off} onClick={changeIt} />
               <div className="mx-1 my-1.5 h-px bg-line" />
               <form
                 className="px-1 pb-1"

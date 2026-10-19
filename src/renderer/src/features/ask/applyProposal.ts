@@ -179,10 +179,15 @@ async function applyNewEntry(p: Extract<Proposal, { kind: 'newEntry' }>, place: 
   // The chat's story, even when another story is open by now.
   const storyId = place.storyId !== undefined ? place.storyId : useApp.getState().storyId
   const values = { name: p.name, summary: p.summary, description: p.description }
-  // As the builder makes one: the AI's words marked as drafted by AI, and a character gets its read-aloud voice.
+  // As the builder makes one: the AI's words marked as drafted by AI, and a character gets its read-aloud voice. An
+  // event first exists at the scene it happens in (2026-10-19), so the timeline shows it there.
   const made = BUILDER_KINDS.includes(p.entryKind)
     ? await api.createBuilderEntry({ kind: p.entryKind as BuilderKind, values, aiKeys: Object.keys(values), storyId })
-    : await api.createEntry(p.entryKind, { ...values, originStoryId: storyId })
+    : await api.createEntry(
+        p.entryKind,
+        { ...values, ...(p.when ? { fields: { when: p.when } } : {}), originStoryId: storyId },
+        p.sceneId ? { sceneId: p.sceneId } : null
+      )
   useApp.getState().bumpEntries()
   return {
     ok: true,

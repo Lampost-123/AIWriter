@@ -22,6 +22,11 @@
 //                 "and then, without a word, she sat down across from him."; otherwise two paragraphs:
 //                 "Tobin set his cup down at last. “Then we go tonight,” he said, “before the bells finish.”"
 //                 and "Mara looked at the door, then back at him, and for the first time that evening she sat."
+//   revise        Change it… ("Keep this, change that"): the passage (the block after "The passage as it is now"), each
+//                 sentence the briefing lists under "Sentences the author marked Keep" word for word, every other one
+//                 starting "Now " (its first letter lower-cased); with "shorter" in the note, the last of those goes from
+//                 each paragraph that has two or more. With "ignore the keeps" in the note, the kept sentences change too
+//                 (so a test can see the app put them back).
 //
 // With the model fake/slow, every tool's reply is long (about 700 words, the words above repeated), so a
 // test can stop it part-way.
@@ -44,6 +49,39 @@ const paragraphs = (text) =>
 function selectedWords(user) {
   const m = user.match(/The selected words \(your reply takes their place\):\n"""\n([\s\S]*?)\n"""/)
   return m ? m[1] : ''
+}
+
+/** Change it…'s passage, as the briefing sends it. */
+function passageOf(user) {
+  const m = user.match(/The passage as it is now \(your reply takes its place\):\n"""\n([\s\S]*?)\n"""/)
+  return m ? m[1] : ''
+}
+
+/** The sentences Change it… keeps word for word, as the briefing lists them. */
+function keepsOf(user) {
+  const m = user.match(/Sentences the author marked Keep\.[^\n]*\n((?:- .*(?:\n|$))+)/)
+  return m
+    ? m[1]
+        .split('\n')
+        .filter((l) => l.startsWith('- '))
+        .map((l) => l.slice(2).trim())
+    : []
+}
+
+/** Change it…'s fake revision (see the top of this file). */
+function revise(user, system) {
+  const keeps = new Set(system.toLowerCase().includes('ignore the keeps') ? [] : keepsOf(user))
+  const shorter = /\bshorter\b/i.test(system)
+  return paragraphs(passageOf(user))
+    .map((p) => {
+      const changed = sentences(p).map((x) => ({ text: keeps.has(x) ? x : `Now ${lowerFirst(x)}`, kept: keeps.has(x) }))
+      if (shorter && changed.length > 1) {
+        const last = [...changed].reverse().find((x) => !x.kept)
+        if (last) changed.splice(changed.indexOf(last), 1)
+      }
+      return changed.map((x) => x.text).join(' ')
+    })
+    .join('\n\n')
 }
 
 /** Each speaker's first sample line, from the briefing's character profiles. */
@@ -113,6 +151,8 @@ function reply(tool, user, system = '', model = '') {
         '=== Version 3 ===',
         `Even then, ${lowerFirst(words)}`
       ].join('\n')
+    case 'revise':
+      return revise(user, system)
     case 'continue':
       return user.includes('It stops part-way through a paragraph.')
         ? 'and then, without a word, she sat down across from him.'

@@ -354,12 +354,19 @@ test('a long codex is where Adam left it when he comes back, with the card he op
     main(win)
       .locator(`[data-codex-card="${id}"]`)
       .evaluate((c) => c.getBoundingClientRect().top - c.closest('.overflow-y-auto')!.getBoundingClientRect().top)
-  /** Scrolls the codex, and waits for the cards come into view to be drawn. */
+  /**
+   * Scrolls the codex, and waits for the cards come into view to be drawn. Not while the page is still fading in after
+   * Back to the codex (features/look/viewTransition.ts, 280ms), as no one could: a card clicked then waits for the fade,
+   * and Playwright scrolls the list about while it waits, so the card is put back where it was clicked, not where it
+   * was found.
+   */
   const scrollTo = (y: number): Promise<unknown> =>
     toolbar.evaluate(async (bar, y) => {
-      bar.closest('.overflow-y-auto')!.scrollTop = y
       const w = globalThis as unknown as { requestAnimationFrame(next: () => void): number }
-      for (let i = 0; i < 3; i++) await new Promise<void>((r) => w.requestAnimationFrame(() => r()))
+      const frame = (): Promise<void> => new Promise<void>((r) => w.requestAnimationFrame(() => r()))
+      while (bar.ownerDocument.documentElement.dataset.vt) await frame()
+      bar.closest('.overflow-y-auto')!.scrollTop = y
+      for (let i = 0; i < 3; i++) await frame()
     }, y)
 
   for (const [y, below] of [

@@ -18,6 +18,7 @@ import {
   onCurve,
   changeWords,
   degrees,
+  fitWithin,
   hullPath,
   MEDAL,
   medalScale,
@@ -25,16 +26,19 @@ import {
   pairKeyOf,
   rankOf,
   roleWords,
+  roomAt,
   roomFor,
   sidesOf,
-  spreadView,
   stretchFor,
   temperature,
   tieKind,
   TIE_KINDS,
   tieWords,
   zoomAbout,
+  type AltPlace,
+  type Chrome,
   type Direction,
+  type Placeable,
   type Pt,
   type Rank,
   type Side,
@@ -73,11 +77,102 @@ const EXIT = 140
 const LINE_HIT = 9
 const LINE_CELL = 24
 const VIEW = 280
-/** Room kept clear round the map: the strip and the note above, the legend below, a little at the sides. */
-const PAD = { left: 130, right: 130, top: 196, bottom: 140 }
+/**
+ * Room kept clear at the sides of the map, for the names beside the outermost medallions: 130 px, or a seventh of a
+ * narrower page (down to 72), where the cast needs the room more than the margins do.
+ */
+const SIDE_PAD = { most: 130, least: 72, share: 1 / 7 }
+const sidePad = (width: number): number => Math.round(Math.min(SIDE_PAD.most, Math.max(SIDE_PAD.least, width * SIDE_PAD.share)))
+/** Room kept under the strip for the note on what changed (shown at some stops only: kept either way, so the map doesn't shift as the strip moves). */
+const NOTE_ROOM = 48
+/** What lies over the map until it is measured (as in a 1280 by 800 window). */
+const CHROME_GUESS: Chrome = { top: 142, bottom: 88, side: SIDE_PAD.most }
+/** Narrower than this, the legend shows its lines and dots only, and their words when pointed at (it would take four rows). */
+const LEGEND_FULL_FROM = 840
+
+/**
+ * What lies over the map as it is now (fitWithin keeps the medallions clear of it): the strip, and the note's room under
+ * it, above; the legend and the zoom below. The legend's height changes with the page's width, so a fixed allowance
+ * either hid the cast under it or squeezed the cast into a sliver in a small window. A compact legend opened by pointing
+ * at it is over the map only for now: the room is kept for it closed (the zoom's, beside it).
+ */
+function chromeOf(canvas: HTMLElement | null, last: Chrome): Chrome {
+  const stage = canvas?.parentElement
+  if (!canvas || !stage) return last
+  const box = canvas.getBoundingClientRect()
+  if (box.height <= 0) return last
+  const strip = stage.querySelector('[data-map-timeline]')?.getBoundingClientRect()
+  const legend = stage.querySelector<HTMLElement>('[data-map-legend]')
+  const opened = !!legend?.hasAttribute('data-compact') && legend.matches(':hover, :focus-within')
+  const below = [opened ? null : legend, stage.querySelector<HTMLElement>('.dm-zoom')].flatMap((el) => (el ? [el.getBoundingClientRect().top] : []))
+  return {
+    top: strip ? Math.round(strip.bottom - box.top + NOTE_ROOM) : 0,
+    bottom: below.length ? Math.round(box.bottom - Math.min(...below)) : 0,
+    side: sidePad(box.width)
+  }
+}
+const sameChrome = (a: Chrome, b: Chrome): boolean => a.top === b.top && a.bottom === b.bottom && a.side === b.side
 const RANK_ORDER: Record<Rank, number> = { lead: 0, major: 1, support: 2, minor: 3 }
 
 type Sel = { kind: 'node'; id: ID } | { kind: 'tie'; key: string } | null
+/** Where a name shows when the room under its medallion is taken. */
+type NamePlace = 'below-right' | 'below-left' | 'above' | 'above-right' | 'above-left' | 'right' | 'left'
+/** The names and pills that have room, and where the names that have it elsewhere than under their medallions show. */
+type Room = { shown: Set<string>; placed: Map<string, AltPlace> }
+/** Between a medallion and a name beside it. */
+const SIDE_GAP = 8
+/** How far a name set off to one side still reaches back past the middle of its medallion (deskMap.css: 12px). */
+const NAME_HOLD = 12
+/** How far past the cast's sides a name beside a medallion may reach: into the room kept at the sides, short of the edge. */
+const nameReach = (chrome: Chrome): number => Math.max(0, chrome.side - 40)
+
+/** The edges of the cast's medallions, on the layer. */
+function castBox(nodes: DNode[], k: number, ms: number): { x0: number; y0: number; x1: number; y1: number } {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
+  for (const n of nodes) {
+    const r = (MEDAL[n.rank] * ms) / 2
+    x0 = Math.min(x0, n.x * k - r)
+    x1 = Math.max(x1, n.x * k + r)
+    y0 = Math.min(y0, n.y * k - r)
+    y1 = Math.max(y1, n.y * k + r)
+  }
+  return { x0, y0, x1, y1 }
+}
+
+/**
+ * A name's box under its medallion; and, where the room under it is taken (a crowd), the first free of: under it but set
+ * off to one side, over it (centred or set off), beside it; where that stays within the cast's own height (so a name
+ * never goes up under the strip or the note) and no further out at the sides than a name under a medallion reaches
+ * (`reach`, into the room kept at the sides for them).
+ */
+function nameBox(n: DNode, k: number, ms: number, cast: ReturnType<typeof castBox>, reach: number): Placeable & { owner: string; alts: AltPlace[] } {
+  const r = (MEDAL[n.rank] * ms) / 2
+  const h = n.role ? 42 : 24
+  const w = Math.min(186, n.name.length * 7.8 + 22)
+  const gap = n.rank === 'lead' ? 16 : 10
+  const [x, y] = [n.x * k, n.y * k]
+  const below = y + r + gap + h / 2
+  const above = y - r - gap - h / 2
+  const [toRight, toLeft] = [x - NAME_HOLD + w / 2, x + NAME_HOLD - w / 2]
+  const alts: (AltPlace & { place: NamePlace })[] = [
+    { place: 'below-right', x: toRight, y: below },
+    { place: 'below-left', x: toLeft, y: below },
+    { place: 'above', x, y: above },
+    { place: 'above-right', x: toRight, y: above },
+    { place: 'above-left', x: toLeft, y: above },
+    { place: 'right', x: x + r + SIDE_GAP + w / 2, y },
+    { place: 'left', x: x - r - SIDE_GAP - w / 2, y }
+  ]
+  return {
+    key: `n:${n.id}`,
+    owner: n.id,
+    x,
+    y: below,
+    w,
+    h,
+    alts: alts.filter((a) => a.y - h / 2 >= cast.y0 && a.x - w / 2 >= cast.x0 - reach && a.x + w / 2 <= cast.x1 + reach)
+  }
+}
 
 export function MapStage({
   map,
@@ -146,11 +241,29 @@ export function MapStage({
     tieCache.current = cache
     return { base, ties }
   }, [map])
-  // A small cast's places stretched to the canvas's shape (deskMapLogic.stretchFor); everything on the stage is drawn
-  // from the stretched places, and a dragged character's place is kept unstretched.
+  // What lies over the map (chromeOf), measured as the map is fitted at a new size, and half the biggest medallion.
+  const [chrome, setChrome] = useState<Chrome>(CHROME_GUESS)
+  const chromeRef = useRef(chrome)
+  const half = useMemo(() => Math.max(MEDAL.minor, ...base.map((n) => MEDAL[n.rank])) / 2, [base])
+  const halfRef = useRef(half)
+  halfRef.current = half
+  /** The biggest medallion's half and how big the medallions showed at the last fit, and the room their centres had then. */
+  const fitHalf = useRef(half)
+  const fitScale = useRef(1)
+  const fitRoom = useRef(roomAt(chrome, half, 1))
+  // A small cast's places stretched to the shape of the room left for it at the last fit (deskMapLogic.stretchFor), so
+  // nobody moves as the strip does; everything on the stage is drawn from the stretched places, and a dragged
+  // character's place is kept unstretched.
   const stretch = useMemo(
-    () => stretchFor(map.everyone.length ? map.everyone : base, width, height, PAD, Math.max(map.everyone.length, base.length)),
-    [map.everyone, base, width, height]
+    () =>
+      stretchFor(
+        map.everyone.length ? map.everyone : base,
+        width,
+        height,
+        roomAt(chrome, fitHalf.current, fitScale.current),
+        Math.max(map.everyone.length, base.length)
+      ),
+    [map.everyone, base, width, height, chrome]
   )
   const stretchRef = useRef(stretch)
   stretchRef.current = stretch
@@ -239,16 +352,28 @@ export function MapStage({
   const fitKey = `${groupId ?? ''}|${fitTo.length > 0}`
   const fitted = useRef<string | null>(null)
   const lastSize = useRef({ width: 0, height: 0 })
+  const lastChrome = useRef(chrome)
   const fitNow = useCallback((animate: boolean) => {
     const { width: w, height: h } = sizeRef.current
+    const c = chromeOf(box.current, chromeRef.current)
     // A group is fitted no closer than everyone is, so the rest of the map stays round it.
-    const all = spreadView(everyoneRef.current, w, h, PAD)
-    const v = grouped.current ? spreadView(fitRef.current, w, h, PAD, Math.max(all.k, 0.0001)) : all
+    const all = fitWithin(everyoneRef.current, w, h, c, halfRef.current)
+    const v = grouped.current ? fitWithin(fitRef.current, w, h, c, halfRef.current, Math.max(all.k, 0.0001)) : all
     fitK.current = v.k
+    fitHalf.current = halfRef.current
+    fitScale.current = medalScale(v.k)
+    fitRoom.current = roomAt(c, fitHalf.current, fitScale.current)
     move(() => v, animate)
   }, [move])
   useLayoutEffect(() => {
     if (!width || !height) return
+    // What lies over the map at this size: when it changed, the cast is stretched to the new shape of its room and fitted
+    // again (before anything is drawn).
+    const c = chromeOf(box.current, chromeRef.current)
+    if (!sameChrome(c, chromeRef.current)) {
+      chromeRef.current = c
+      setChrome(c)
+    }
     if (fitted.current !== fitKey) {
       const opening = fitted.current === null
       fitted.current = fitKey
@@ -256,9 +381,12 @@ export function MapStage({
     } else if (lastSize.current.width && (lastSize.current.width !== width || lastSize.current.height !== height)) {
       // The window changed size: fit again, so the map keeps filling it.
       fitNow(false)
+    } else if (lastChrome.current !== chrome) {
+      fitNow(false)
     }
     lastSize.current = { width, height }
-  }, [fitKey, width, height, fitNow])
+    lastChrome.current = chrome
+  }, [fitKey, width, height, chrome, fitNow])
 
   const zoomBy = useCallback((f: number) => move((v) => zoomAbout(v, f, sizeRef.current.width / 2, sizeRef.current.height / 2), true), [move])
 
@@ -440,29 +568,27 @@ export function MapStage({
     return best
   }
 
-  // Which names and pills have room: the leads' names first, then the best-connected ties' words.
+  // Which names and pills have room: the leads' names first, then the best-connected ties' words, then (nameBox) the
+  // names with no room under their medallions, where there is room elsewhere round them.
   const dragging = useRef(false)
-  const lastRoom = useRef<Set<string>>(new Set())
-  const room = useMemo(() => {
+  const lastRoom = useRef<Room>({ shown: new Set(), placed: new Map() })
+  const room = useMemo((): Room => {
     if (dragging.current) return lastRoom.current
     const discs = nodes.map((n) => ({ key: n.id, x: n.x * k, y: n.y * k, r: (MEDAL[n.rank] * ms) / 2 + 3 }))
     const byRank = [...nodes].sort((p, q) => RANK_ORDER[p.rank] - RANK_ORDER[q.rank] || (deg.get(q.id) ?? 0) - (deg.get(p.id) ?? 0) || p.name.localeCompare(q.name))
-    const names = byRank.map((n) => {
-      const r = (MEDAL[n.rank] * ms) / 2
-      const hasRole = !!n.role
-      const h = hasRole ? 42 : 24
-      return { key: `n:${n.id}`, owner: n.id, x: n.x * k, y: n.y * k + r + (n.rank === 'lead' ? 16 : 10) + h / 2, w: Math.min(186, n.name.length * 7.8 + 22), h }
-    })
+    const cast = castBox(nodes, k, ms)
+    const names = byRank.map((n) => nameBox(n, k, ms, cast, nameReach(chrome)))
     const pills = [...ties]
       .sort((p, q) => (deg.get(q.a) ?? 0) + (deg.get(q.b) ?? 0) - (deg.get(p.a) ?? 0) - (deg.get(p.b) ?? 0) || (p.key < q.key ? -1 : 1))
       .map((t) => {
         const m = arcs.get(t.key)!.mid
         return { key: `t:${t.key}`, x: m.x, y: m.y, w: Math.min(190, t.words.length * 6.7 + 44), h: 26 }
       })
-    const shown = roomFor(discs, [...names, ...pills])
-    lastRoom.current = shown
-    return shown
-  }, [nodes, ties, arcs, k, ms, deg])
+    const placed = new Map<string, AltPlace>()
+    const shown = roomFor(discs, [...names, ...pills], placed)
+    lastRoom.current = { shown, placed }
+    return lastRoom.current
+  }, [nodes, ties, arcs, k, ms, deg, chrome])
 
   // ----- What is lit -----
   const litNodes = useMemo(() => {
@@ -483,28 +609,26 @@ export function MapStage({
   const openPills = !!litNodes && litNodes.hover && litNodes.ties.size <= 8
   // While some are lit, their names and words get room among themselves first (the one pointed at before the rest),
   // so a character with many ties shows them without the words piling up; open pills always show.
-  const litRoom = useMemo(() => {
+  const litRoom = useMemo((): Room | null => {
     if (!litNodes) return null
     const lit = nodes.filter((n) => litNodes.nodes.has(n.id))
     const discs = lit.map((n) => ({ key: n.id, x: n.x * k, y: n.y * k, r: (MEDAL[n.rank] * ms) / 2 + 3 }))
     const first = hotNode ?? (sel?.kind === 'node' ? sel.id : null)
     const order = [...lit].sort((p, q) => (p.id === first ? -1 : q.id === first ? 1 : RANK_ORDER[p.rank] - RANK_ORDER[q.rank] || (deg.get(q.id) ?? 0) - (deg.get(p.id) ?? 0)))
-    const names = order.map((n) => {
-      const r = (MEDAL[n.rank] * ms) / 2
-      const h = n.role ? 42 : 24
-      return { key: `n:${n.id}`, owner: n.id, x: n.x * k, y: n.y * k + r + (n.rank === 'lead' ? 16 : 10) + h / 2, w: Math.min(186, n.name.length * 7.8 + 22), h }
-    })
+    const cast = castBox(nodes, k, ms)
+    const names = order.map((n) => nameBox(n, k, ms, cast, nameReach(chrome)))
     const pills = ties
       .filter((t) => litNodes.ties.has(t.key))
       .map((t) => {
         const m = arcs.get(t.key)!.mid
         return { key: `t:${t.key}`, x: m.x, y: m.y, w: Math.min(190, t.words.length * 6.7 + 44), h: 26 }
       })
-    const shown = roomFor(discs, openPills ? [...names.slice(0, 1), ...names.slice(1), ...pills] : [...names.slice(0, 1), ...pills, ...names.slice(1)])
+    const placed = new Map<string, AltPlace>()
+    const shown = roomFor(discs, openPills ? [...names.slice(0, 1), ...names.slice(1), ...pills] : [...names.slice(0, 1), ...pills, ...names.slice(1)], placed)
     if (first) shown.add(`n:${first}`)
     if (openPills) for (const t of litNodes.ties) shown.add(`t:${t}`)
-    return shown
-  }, [litNodes, nodes, ties, arcs, k, ms, deg, hotNode, sel, openPills])
+    return { shown, placed }
+  }, [litNodes, nodes, ties, arcs, k, ms, deg, hotNode, sel, openPills, chrome])
   const crowd = nodes.length > 20
   const kindNodes = useMemo(() => {
     if (!hotKind) return null
@@ -650,7 +774,8 @@ export function MapStage({
         const sx = n.x * v.k + v.tx
         const sy = n.y * v.k + v.ty
         const dx = sx < 90 ? 90 - sx : sx > w - right ? w - right - sx : 0
-        const dy = sy < PAD.top ? PAD.top - sy : sy > h - PAD.bottom ? h - PAD.bottom - sy : 0
+        const { top, bottom } = fitRoom.current
+        const dy = sy < top ? top - sy : sy > h - bottom ? h - bottom - sy : 0
         return dx || dy ? { ...v, tx: v.tx + dx, ty: v.ty + dy } : v
       }, true)
     },
@@ -817,7 +942,7 @@ export function MapStage({
                   y={m.y}
                   aName={byId.get(t.a)!.name}
                   bName={byId.get(t.b)!.name}
-                  show={litRoom && lit ? litRoom.has(`t:${t.key}`) : room.has(`t:${t.key}`)}
+                  show={litRoom && lit ? litRoom.shown.has(`t:${t.key}`) : room.shown.has(`t:${t.key}`)}
                   lit={lit}
                   open={openPills && lit}
                   out={!!members && (!members.has(t.a) || !members.has(t.b))}
@@ -837,7 +962,8 @@ export function MapStage({
                 size={sizeOf(n)}
                 motif={motifs.get(n.id) ?? null}
                 pov={detail?.povId === n.id}
-                showName={litRoom && litNodes?.nodes.has(n.id) ? litRoom.has(`n:${n.id}`) : room.has(`n:${n.id}`)}
+                showName={litRoom && litNodes?.nodes.has(n.id) ? litRoom.shown.has(`n:${n.id}`) : room.shown.has(`n:${n.id}`)}
+                namePlace={(litRoom && litNodes?.nodes.has(n.id) ? litRoom : room).placed.get(`n:${n.id}`)?.place as NamePlace | undefined}
                 lit={!!litNodes?.nodes.has(n.id)}
                 hot={hotNode === n.id}
                 sel={sel?.kind === 'node' && sel.id === n.id}
@@ -902,7 +1028,9 @@ export function MapStage({
       ) : null}
 
       {hasMap ? (
-        <div className="dm-float dm-legend" data-map-legend>
+        // In a narrow page the legend keeps one row (its lines and dots), and its words show while it is pointed at or
+        // has the keyboard (deskMap.css), so it doesn't cover a third of the map. The words stay for screen readers.
+        <div className="dm-float dm-legend" data-map-legend data-compact={width > 0 && width < LEGEND_FULL_FROM ? '' : undefined}>
           <span className="dm-caps">Ties</span>
           {kindsShown.map((x) => (
             <button
@@ -917,28 +1045,30 @@ export function MapStage({
               aria-label={`${x.label}: ${x.n}`}
             >
               <Swatch kind={x.kind} />
-              {x.label} <b>{x.n}</b>
+              <span className="dm-lg-t">
+                {x.label} <b>{x.n}</b>
+              </span>
             </button>
           ))}
           <span className="dm-lg-sep" />
           <span className="dm-lg">
             <i className="dm-mood" data-mood="warm" />
-            Warm
+            <span className="dm-lg-t">Warm</span>
           </span>
           <span className="dm-lg">
             <i className="dm-mood" data-mood="mixed" />
-            Mixed
+            <span className="dm-lg-t">Mixed</span>
           </span>
           <span className="dm-lg">
             <i className="dm-mood" data-mood="cold" />
-            Tense
+            <span className="dm-lg-t">Tense</span>
           </span>
           {detail?.povId && byId.has(detail.povId) ? (
             <>
               <span className="dm-lg-sep" />
               <span className="dm-lg">
                 <Eye size={14} className="text-accent" />
-                Point of view
+                <span className="dm-lg-t">Point of view</span>
               </span>
             </>
           ) : null}
@@ -1140,6 +1270,7 @@ const Node = memo(function Node({
   motif,
   pov,
   showName,
+  namePlace,
   lit,
   hot,
   sel,
@@ -1160,6 +1291,8 @@ const Node = memo(function Node({
   motif: string | null
   pov: boolean
   showName: boolean
+  /** Where the name shows when the room under the medallion was taken. */
+  namePlace?: NamePlace
   lit: boolean
   hot: boolean
   sel: boolean
@@ -1203,7 +1336,7 @@ const Node = memo(function Node({
           </span>
         ) : null}
       </Medal>
-      <span className={['dm-label', !showName && 'is-hidden'].filter(Boolean).join(' ')}>
+      <span className={['dm-label', !showName && 'is-hidden'].filter(Boolean).join(' ')} data-place={namePlace}>
         <span className="dm-label-box">
           <span className="dm-name" data-long={n.name.length > 20 || undefined}>
             {n.name}
