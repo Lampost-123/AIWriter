@@ -67,7 +67,8 @@ test('Story feel: pick genres and content levels, write a sample, and drafts are
     const sent = preview.messages.map((m) => m.content).join('\n')
     expect(sent).toContain('This story is mostly horror, with the feel of mystery.')
     expect(sent).toContain('- Violence: make it vivid and physical')
-    expect(sent).toContain('Write like a person, not like an AI')
+    // The rules against AI phrasing are merged into the writer's own rules (the overhaul, 2026-10-19).
+    expect(sent).toContain(`avoid "it wasn't X, it was Y" and lists of three adjectives`)
     expect(sent).toContain('Keep the slow-building dread of horror, with the sharp, fair-play curiosity of mystery.')
   } finally {
     await fake.close()

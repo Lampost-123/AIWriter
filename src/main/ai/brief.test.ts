@@ -250,7 +250,7 @@ describe('in the writer’s briefing', () => {
     expect(assembleContext({ ...inp, brief: { parts: { keep: [] } } }, countRaw)).toEqual(before)
   })
 
-  it('a late block right before the scene card, never left out; the story so far, the passages and who knows what go short', () => {
+  it('a late block just before the scene card, never left out; the story so far, the passages and who knows what go short', () => {
     const off = assembleContext(briefingInput(), countRaw)
     const on = assembleContext(briefingInput({ brief: BRIEF }), countRaw)
     const b = block(on, BRIEF_BLOCK.id)!
@@ -258,7 +258,8 @@ describe('in the writer’s briefing', () => {
     expect(b.priority).toBe(MUST_PRIORITY)
     expect(b.dropped).toBe(false)
     expect(b.text).toBe(briefText(BRIEF))
-    expect(SEND_ORDER.indexOf(BRIEF_BLOCK.id)).toBe(SEND_ORDER.indexOf('scene-card') - 1)
+    // Since the overhaul (2026-10-19) only how they sound and the end of the previous scene come between it and the card.
+    expect(SEND_ORDER.slice(SEND_ORDER.indexOf(BRIEF_BLOCK.id) + 1, SEND_ORDER.indexOf('scene-card'))).toEqual(['voices', 'previous-scene'])
     expect(SEND_ORDER.indexOf(BRIEF_BLOCK.id)).toBe(SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 1)
     const user = on.messages[1].content
     expect(user.indexOf('## Continuity brief')).toBeGreaterThan(user.indexOf('## Who knows what'))
