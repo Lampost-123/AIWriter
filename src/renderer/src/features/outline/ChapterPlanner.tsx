@@ -3,7 +3,7 @@
 // outline around it don't say yet; then it gives the chapter a goal (if it has none) and suggests scene
 // cards that Adam keeps, edits or discards one by one, as on the outline helper's page (the same
 // suggestions, in a session of their own: helperStore.suggestChapter). Nothing is added without a click.
-import { Check, ListTree, MessageCircleQuestion, NotebookText, Sparkles, Square, Target } from '@/components/ui/icons'
+import { Check, ListTree, MessageCircleQuestion, NotebookText, PenLine, Sparkles, Square, Target } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import type { Chapter } from '@shared/types'
 import { Button, EmptyState, Notice } from '@/components/ui'
@@ -23,6 +23,8 @@ import { EarlierSuggestions } from './EarlierSuggestions'
 import { PlanInterview, usePlanSession } from './PlanInterview'
 import { answeredOf, lastChapterAnswers, noteChapterStory, planChapter, startPlanInterview } from './planInterviewStore'
 import { Suggestions } from './Suggestions'
+import { openChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
+import { StoryBuildLine } from '@/features/worldBuilder/StoryBuildLine'
 import { countNodes, totalOf, withoutGone } from './tree'
 
 export function ChapterPlanner({ storyId, chapterId }: { storyId: string; chapterId: string }): React.JSX.Element {
@@ -65,6 +67,7 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
   const open = shown ? totalOf(countNodes(scenes, shown.decisions, 'open')) : 0
   const ended = !!run && !running
   const nothingRead = ended && arrived === 0
+  const keptScenes = shown ? totalOf(countNodes(scenes, shown.decisions, 'kept')) : 0
   const desk = useDesk()
 
   // What was kept is looked for again each time the page opens.
@@ -139,6 +142,18 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
             </Notice>
           </div>
         ) : null}
+        {/* Its scenes kept: the chapter can be written whole from here (2026-10-19, no dead end after planning). */}
+        {keptScenes > 0 && !running ? (
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1" data-write-chapter-row>
+            <Button size="sm" icon={<PenLine size={13} />} onClick={() => openChapterWriter(chapter.id)} title="Write the whole chapter with AI, from its scene cards">
+              Write this chapter
+            </Button>
+            <span className="text-[12.5px] text-muted">
+              {keptScenes === 1 ? 'Its kept scene is in the binder.' : `Its ${keptScenes} kept scenes are in the binder.`}
+            </span>
+          </div>
+        ) : null}
+        <StoryBuildLine storyId={storyId} className="mt-2" />
       </div>
   )
 

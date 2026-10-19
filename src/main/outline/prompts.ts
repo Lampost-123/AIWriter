@@ -113,6 +113,115 @@ export function outlineAsk(size: OutlineSize, o: { lastAct: string | null; chapt
   return lines.join(' ')
 }
 
+// ---------- The outline in stages (2026-10-19) ----------
+
+/** The most acts and chapters one stage asks for, and the most scenes a chapter's stage may give. */
+export const STAGE_LIMITS = { acts: 6, chapters: 60, actChapters: 15, scenes: 8 }
+
+/** An act's lines in the acts stage: its purpose and about how many chapters it needs (read by features/outline/parse.ts). */
+const ACT_STAGE_FORM = `# Act: <the act's title>
+Purpose: <one or two sentences: what happens in this act and what it does for the story>
+Chapters: <about how many chapters it needs, as a number>`
+
+const STAGE_SHARED = `- Titles are a few words, with no numbers.
+- Continue from what the story already has. Never repeat or retell it.
+- Use the characters, places and plot threads given, by their names. Bring in someone or something new only when the story needs it.
+- Keep to the premise, the tone and everything the story has established.`
+
+const SCENE_RULES = `- Each scene has 3 to 6 beats, in order, each a short line.
+- Each scene has a When: "Day" and the day's number, counting the day the story opens as Day 1, then a comma and the time of day ("Day 1, morning", "Day 3, dusk"). Days carry on from the scenes before it and never go back. If the story's scenes already give their time another way (a date or a year), use that way instead.`
+
+/** What a stage of the outline is about, in its system prompt's first line. */
+export type StageLevel = 'acts' | 'chapters' | 'scenes' | 'scene'
+
+/**
+ * One stage's instructions (marker "stage <level>"): only that level's headings, so each reply is small. `extra`: rules
+ * a caller adds (the Story builder's "what wins"); `withPremise`: a "Premise:" line first (a story with none).
+ */
+export function stageSystem(level: StageLevel, o: { withActs?: boolean; extra?: string[]; withPremise?: boolean } = {}): string {
+  const premise = o.withPremise ? 'Premise: <two or three sentences: what the story is about>\n\n' : ''
+  const extra = (o.extra ?? []).map((r) => `- ${r}`).join('\n')
+  const rules = (lines: string): string => `Rules:\n${extra ? `${extra}\n` : ''}${lines}`
+  const head = (what: string, form: string): string => `${MARKER} stage ${level}
+You help a novelist plan a story a step at a time. ${what} You plan; you never write the story itself.
+
+Answer in exactly this form and nothing else: no introduction, no notes at the end, no bold or other formatting.
+
+${premise}${form}`
+  if (level === 'acts') {
+    return `${head('Now you suggest only its acts: what each does for the story, and about how many chapters it needs. Its chapters and scenes are planned later, an act at a time.', ACT_STAGE_FORM)}
+
+${rules(`- Only acts: no chapters and no scenes.
+- The acts tell the whole story from beginning to end (or, when the story has parts already, how it goes on from them), each building on the one before.
+- Give each act's rough number of chapters on its "Chapters:" line, so they add up to about the number asked for.
+${STAGE_SHARED}`)}`
+  }
+  if (level === 'chapters') {
+    return `${head(
+      o.withActs === false
+        ? 'Now you suggest only chapters, each with its goal and its card. Their scenes are planned later, a chapter at a time.'
+        : 'Now you suggest the chapters of one act, each with its goal and its card. Their scenes are planned later, a chapter at a time.',
+      CHAPTER_FORM
+    )}
+
+${rules(`- Only chapters: no act headings and no scenes.
+- They come in order and carry the story on: ${o.withActs === false ? 'after what the story already has.' : 'they do what the act is for, after its chapters so far (if it has any), and lead into the act after it.'}
+${CHAPTER_CARD_RULES}
+${STAGE_SHARED}`)}`
+  }
+  if (level === 'scenes') {
+    return `${head('Now you suggest the scenes of one chapter: as many as it needs, each a scene card.', SCENE_FORM)}
+
+${rules(`- Only scenes: no act or chapter headings.
+- As many scenes as the chapter needs to do what it is for: usually 2 to 6, never more than ${STAGE_LIMITS.scenes}. A short chapter may need one or two; a big one more.
+- They come after the chapter's scenes so far (if it has any), carry on from them and never repeat them, and lead into the chapter after it.
+${SCENE_RULES}
+${CHAPTER_CARD_RULES}
+${THREAD_RULES}
+${STAGE_SHARED}`)}`
+  }
+  return `${head('Now you plan one scene that has nothing on its card yet: one scene card, fitting the scenes around it.', SCENE_FORM)}
+
+${rules(`- Exactly one scene card: no act or chapter headings.
+- Keep its title when it has one of its own; else give it a title.
+- Keep to what its card already says (who is in it, where, when), and fit it between the scene before and the scene after.
+${SCENE_RULES}
+- Add "Point of view:", "Characters:", "Location:" or "Mood:" lines after its When for what its card doesn't say yet.
+${THREAD_RULES}
+${STAGE_SHARED}`)}`
+}
+
+/** Where the story stands, for the first stage: carrying on from it, or starting from the premise. */
+export function stageStart(o: { chapters: number; lastAct: string | null; newActs: boolean }): string {
+  if (o.chapters <= 0) return 'The story has nothing written or planned yet: start it from the premise.'
+  if (!o.newActs && o.lastAct) return `They carry on the story's last act, “${o.lastAct}”, after everything the story already has.`
+  return 'They come after everything the story already has, and carry it on.'
+}
+
+/** What a stage asks for, in plain words: the last part of its briefing. */
+export function stageAsk(
+  level: StageLevel,
+  o: { acts?: number; chapters?: number; title?: string; kept?: boolean; start?: string; latestWhen?: string; sceneLabel?: string }
+): string {
+  const title = (o.title ?? '').replace(/\s+/g, ' ').trim()
+  const latest = (o.latestWhen ?? '').replace(/\s+/g, ' ').trim()
+  const days = latest ? ` The story's last scene with a When is set at “${latest}”: carry the days on from the outline around them.` : ''
+  if (level === 'acts') {
+    const acts = Math.max(1, o.acts ?? 3)
+    const chapters = Math.max(acts, o.chapters ?? acts * 4)
+    return `Suggest ${plural(acts, 'act')}, with about ${plural(chapters, 'chapter')} in all across them. Only the acts, each with its purpose and its rough number of chapters. ${o.start ?? ''}`.trim()
+  }
+  if (level === 'chapters') {
+    const n = Math.max(1, o.chapters ?? 3)
+    if (!title) return `Suggest ${plural(n, 'chapter')}, each with its goal and card. No acts and no scenes. ${o.start ?? ''}`.trim() + days
+    return `Suggest the chapters of the act “${title}”${o.kept ? ' (it is in the story already)' : ''}: about ${plural(n, 'chapter')}, each with its goal and card. No scenes yet.${days}`
+  }
+  if (level === 'scenes') {
+    return `Suggest the scenes of the chapter “${title || 'Untitled chapter'}”${o.kept ? ' (it is in the story already)' : ''}: as many as it needs, each a scene card.${days}`
+  }
+  return `Plan ${o.sceneLabel || 'this scene'}: one scene card, fitting what its card already says and the scenes around it.`
+}
+
 /** Where the new scenes' days start: on from the story's last dated scene, else on Day 1. Recipes ask it too. */
 export function whenAsk(carriesOn: boolean, latest: string): string {
   if (!latest) return carriesOn ? 'None of its scenes has a When yet: the new scenes start on Day 1.' : 'It opens on Day 1.'

@@ -14,7 +14,12 @@ const main = vi.hoisted(() => ({
   present: new Set<string>(),
   toasts: [] as { id: number; message: string; undo?: () => void }[],
   failStart: false,
-  ids: 0
+  ids: 0,
+  /** The stages asked for (the outline in stages). */
+  stages: [] as Record<string, unknown>[],
+  /** Keeps make pages for new names (and so start the story's build). */
+  newPages: false,
+  builds: 0
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -24,7 +29,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     keepOutline: async (_storyId: string, items: KeepItem[]) => {
       main.kept.push(items)
-      const made = items.map((i) => ({ key: i.key, kind: i.kind, id: `id-${i.key}-${++main.ids}` }))
+      const made = items.map((i) => ({ key: i.key, kind: i.kind, id: `id-${i.key}-${++main.ids}`, ...(main.newPages ? { entryIds: ['e1'], entryNames: ['Mara'] } : {}) }))
       for (const m of made) main.present.add(m.id)
       return made
     },
@@ -35,7 +40,11 @@ vi.mock('@/lib/api', () => ({
     },
     getOutline: async () => ({ acts: [], chapters: [...main.present].map((id) => ({ id })), scenes: [] }),
     outlineBlank: async () => true,
-    stopTask: async () => undefined
+    stopTask: async () => undefined,
+    startOutlineStage: async (input: Record<string, unknown>) => {
+      main.stages.push(input)
+      return { generationId: `gs-${main.stages.length}` }
+    }
   },
   onEvent: (name: string, fn: (payload: unknown) => void) => {
     main.listeners.set(name, fn)
@@ -67,7 +76,7 @@ vi.mock('@/lib/editorBridge', () => ({ editorBridge: () => null }))
 vi.mock('@/features/binder/outlineModel', () => ({ neighbourAfterRemoval: () => null, readingOrder: () => [] }))
 vi.mock('@/features/binder/outlineStore', () => ({ useOutlineStore: { getState: () => ({ outline: null }) } }))
 vi.mock('@/features/chapterCard/chapterCardEvents', () => ({ notifyChapterCard: () => undefined }))
-vi.mock('@/features/worldBuilder/storyBuild', () => ({ buildStoryWorldSoon: () => undefined }))
+vi.mock('@/features/worldBuilder/storyBuild', () => ({ buildStoryWorldSoon: () => void main.builds++ }))
 
 import {
   applyRevision,
@@ -76,8 +85,10 @@ import {
   keepSuggestions,
   discardSuggestion,
   putAwayEarlier,
+  planStage,
   saveEdit,
   settledRun,
+  BUILD_NOTE,
   suggestOutlineWith,
   treeOf,
   useOutlineHelper
@@ -130,6 +141,9 @@ beforeEach(() => {
   main.present.clear()
   main.toasts = []
   main.failStart = false
+  main.stages = []
+  main.newPages = false
+  main.builds = 0
 })
 
 describe('Suggest again', () => {
@@ -231,5 +245,91 @@ Summary: They cross in the fog.
     await keepSuggestions('s', 'all')
     expect(main.kept.at(-1)!.map((i) => i.title)).toEqual(['A bargain at the docks', 'A watcher on the quay', "The Ferryman's Price", 'The crossing'])
     expect(main.kept.at(-1)![0]).toMatchObject({ parent: { id: expect.stringMatching(/^id-c0-/) } })
+  })
+})
+
+describe('the outline in stages', () => {
+  const ACTS = `# Act: The Arrival
+Purpose: Mara reaches the city.
+Chapters: 2
+
+# Act: The Turning
+Purpose: Her loyalties split.
+Chapters: 3`
+  const CHAPTERS = `## Chapter: Rain on the Narrows
+Goal: Mara lands.
+
+## Chapter: The Ferryman's Price
+Goal: The debt comes due.`
+  const stageEvent = (name: 'task:progress' | 'task:done', taskId: string, text: string): void =>
+    main.listeners.get(name)!({ job: 'outline', taskId, text, generationId: 'gs-1', status: 'complete', cutOff: false })
+
+  it('asks for one act’s chapters, shows them under it as they come, then keeps every other suggestion’s key', async () => {
+    await suggest(ACTS)
+    await keepSuggestions('s', ['a1'])
+    await planStage('s', 'a0')
+    expect(main.stages).toHaveLength(1)
+    const asked = main.stages[0] as { level: string; chapters: number; target: string; plan: string; taskId: string; actId: unknown }
+    expect(asked).toMatchObject({ storyId: 's', level: 'chapters', chapters: 2, actId: null })
+    expect(asked.target).toContain('# Act: The Arrival')
+    expect(asked.plan).toContain('# Act: The Arrival (plan this one)')
+    expect(asked.plan).toContain('# Act: The Turning (in the story)')
+
+    // While it arrives: under its act, the last one arriving; the act and Keep all wait for it, the other act doesn't.
+    stageEvent('task:progress', asked.taskId, `${CHAPTERS.split('\n').slice(0, 3).join('\n')}\n## Chapter: The Ferry`)
+    let tree = treeOf(session().run!)
+    expect(tree[0].children.map((c) => [c.key, c.complete])).toEqual([
+      ['a0c0', true],
+      ['a0c1', false]
+    ])
+    expect(settledRun('s')).toBeNull()
+    await keepSuggestions('s', ['a0'])
+    await keepSuggestions('s', 'all')
+    expect(main.kept).toHaveLength(1)
+
+    // Done: in the suggestions' own text, so the kept act keeps its key and its decision.
+    main.listeners.get('task:done')!({ job: 'outline', taskId: asked.taskId, text: CHAPTERS, generationId: 'gs-1', status: 'complete', cutOff: false })
+    const run = session().run!
+    expect(run.stage).toMatchObject({ status: 'complete', merged: true, count: 2 })
+    tree = treeOf(run)
+    expect(tree.map((n) => n.key)).toEqual(['a0', 'a1'])
+    expect(tree[0].children.map((c) => c.title)).toEqual(['Rain on the Narrows', "The Ferryman's Price"])
+    expect(run.decisions.a1).toMatchObject({ status: 'kept' })
+
+    // A chapter kept, then planned: the stage is told it is in the story.
+    await keepSuggestions('s', ['a0c0'])
+    await planStage('s', 'a0c0')
+    expect(main.stages[1]).toMatchObject({ level: 'scenes', chapterId: expect.stringMatching(/^id-a0c0-/) })
+  })
+
+  it('keeps a chapter where Adam chose, and says so; a keep that builds the cast says that too', async () => {
+    await suggest(ACTS)
+    await planStage('s', 'a0')
+    const asked = main.stages[0] as { taskId: string }
+    stageEvent('task:done', asked.taskId, CHAPTERS)
+    main.newPages = true
+    await keepSuggestions('s', ['a0c1'], null, { place: { at: 'after', id: 'ch-9', actId: 'act-2' }, placeWords: 'after “The Bell”' })
+    expect(main.kept.at(-1)).toEqual([
+      expect.objectContaining({ key: 'a0c1', kind: 'chapter', parent: { id: 'act-2' }, after: { id: 'ch-9' } })
+    ])
+    const said = main.toasts.at(-1)!.message
+    expect(said).toBe(`Added “The Ferryman's Price” to the story, after “The Bell”. Made a page for Mara.${BUILD_NOTE}`)
+    expect(main.builds).toBe(1)
+  })
+
+  it('says why when a stage brings nothing to keep, and suggesting again waits for a stage', async () => {
+    await suggest(ACTS)
+    await planStage('s', 'a1')
+    const asked = main.stages[0] as { taskId: string }
+    // Suggest again waits while the stage arrives.
+    let again = false
+    await suggestOutlineWith('s', SIZE, async () => {
+      again = true
+      return { generationId: 'x' }
+    })
+    expect(again).toBe(false)
+    main.listeners.get('task:done')!({ job: 'outline', taskId: asked.taskId, text: 'Sorry, I can’t help with that.', generationId: 'gs-1', status: 'complete', cutOff: false })
+    expect(session().run!.stage).toMatchObject({ status: 'complete', merged: false })
+    expect(treeOf(session().run!)[1].children).toEqual([])
   })
 })

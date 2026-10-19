@@ -24,6 +24,18 @@
 //          characters and places, and each chapter's third scene its own "Location:" (the second place).
 //          "[[fake: new cast]]" does the same with names the world doesn't have: Mara Venn and Tobin Hale, at Gull
 //          Quay, and each third scene in "the kitchen, Venn House" (a room inside a house).
+// stage    The outline in stages ("[AIWRITE-OUTLINE v1] stage <level>", src/main/outline/stages.ts):
+//          acts      "Suggest 3 acts, with about 9 chapters in all" gives that many "# Act:" headings (titles as above),
+//                    each with a "Purpose:" and a "Chapters:" line sharing the chapters out (the first acts get any left
+//                    over); a "Premise:" line first when the system prompt asks for one.
+//          chapters  "about 3 chapters" (or "Suggest 3 chapters") gives that many "## Chapter:" headings with goals and
+//                    no scenes, titles from the list above that the briefing doesn't name yet (with "[[fake: chapter
+//                    card]]" or "[[fake: new cast]]", each with a card as above).
+//          scenes    The chapter "Suggest the scenes of the chapter “…”" names gets as many scenes as its place in the
+//                    chapter list says: "Rain on the Narrows" 2, "The Ferryman's Price" 3, "Lanterns at Low Tide" 4, and
+//                    so on round (no fixed count); titles from its place ("Arrival at the docks"...), Whens on its day.
+//          scene     One card: "### Scene: The visitor at the gate", a When, a summary, the first character listed as
+//                    point of view and the first place as location, and four beats.
 // ideas   Three directions, "## 1. The door left open", "## 2. A debt called in", "## 3. The
 //          wrong messenger", each with one sentence on what happens and four beats.
 // interview  "Interview me" on a scene or chapter: the next question as JSON, from a fixed list for each
@@ -367,6 +379,65 @@ function chapterPlanReply(user) {
   ].join('\n')
 }
 
+/** Each act's share of the chapters, the first acts taking any left over. */
+const shares = (acts, chapters) => Array.from({ length: acts }, (_, i) => Math.floor(chapters / acts) + (i < chapters % acts ? 1 : 0))
+
+/** A stage of the outline in stages (see "stage" above). */
+function stageReply(level, system, user) {
+  const premise = system.includes('Premise: <') ? 'Premise: Mara, a ferryman in debt to the Duke, smuggles the heir out of Varn before the river freezes.\n\n' : ''
+  if (level === 'acts') {
+    const m = user.match(/Suggest (\d+) acts?, with about (\d+) chapters? in all/)
+    const acts = m ? Number(m[1]) : 3
+    const per = shares(acts, m ? Number(m[2]) : acts * 3)
+    const left = unused(ACTS, (a) => a[0], user)
+    return (
+      premise +
+      per
+        .map((n, i) => {
+          const [title, purpose] = ACTS[left[i % left.length]]
+          return `# Act: ${title}\nPurpose: ${purpose}\nChapters: ${n}\n`
+        })
+        .join('\n')
+    )
+  }
+  if (level === 'chapters') {
+    const m = user.match(/about (\d+) chapters?/) ?? user.match(/Suggest (\d+) chapters?/)
+    const n = m ? Number(m[1]) : 3
+    const left = unused(CHAPTERS, (t) => t, user)
+    const items = Array.from({ length: n }, (_, i) => {
+      const k = left[i % left.length]
+      return { kind: 'chapter', title: CHAPTERS[k], goal: `Mara follows the trail to ${PLACES[k % PLACES.length]}.` }
+    })
+    const carded = withCards(items.flatMap((c) => [c, { kind: 'scene', when: 'Day 1, morning' }]), user).filter((it) => it.kind === 'chapter')
+    return premise + tidy(carded)
+  }
+  if (level === 'scenes') {
+    const title = user.match(/Suggest the scenes of the chapter “([^”]+)”/)?.[1] ?? ''
+    const k = Math.max(0, CHAPTERS.findIndex((t) => title.startsWith(t)))
+    const place = PLACES[k % PLACES.length]
+    const count = 2 + (k % 3)
+    const items = Array.from({ length: count }, (_, s) => {
+      const [opener, summary, beats] = SCENES[s % SCENES.length]
+      return { kind: 'scene', title: `${opener} ${place}`, when: `Day ${k + 1}, ${TIMES[s % TIMES.length]}`, summary: summary.replace('{place}', place), beats }
+    })
+    return tidy(items)
+  }
+  const who = firstOfKind(user, 'character')
+  const where = firstOfKind(user, 'place')
+  return [
+    '### Scene: The visitor at the gate',
+    'When: Day 2, evening',
+    'Summary: A stranger at the gate asks Mara for the one thing she swore to keep.',
+    ...(who ? [`Point of view: ${who}`] : []),
+    ...(where ? [`Location: ${where}`] : []),
+    'Mood: Hushed and wary',
+    '- A knock after curfew',
+    '- The stranger names her father',
+    '- Mara lets him in against her word',
+    '- He leaves a sealed letter'
+  ].join('\n')
+}
+
 export function outlineReply(system, messages, _model) {
   if (!system.startsWith(MARKER)) return null
   const job = system.slice(MARKER.length).trim().split(/\s/)[0]
@@ -378,6 +449,7 @@ export function outlineReply(system, messages, _model) {
   if (job === 'interview') return interviewReply(system.slice(MARKER.length).trim().split(/\s/)[1], user)
   if (job === 'fill') return fillReply(user)
   if (job === 'plan') return chapterPlanReply(user)
+  if (job === 'stage') return stageReply(system.slice(MARKER.length).trim().split(/\s/)[1], system, user)
   if (job === 'outline') {
     const items = withCards(plan(sizeOf(user), firstThread(user), user), user)
     return user.includes('[[fake: messy]]') ? messy(items) : tidy(items)

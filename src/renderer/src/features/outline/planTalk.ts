@@ -235,7 +235,9 @@ export async function startRedo(storyId: ID, nodeKey: string): Promise<void> {
   const k = redoKey(storyId, nodeKey)
   const r = get(k)
   const run = settledRun(storyId)
-  if (!r || r.status === 'running' || !run) return
+  if (!r || r.status === 'running') return
+  // The outline, or a part of it planned in stages, is still arriving.
+  if (!run) return put(k, { ...r, status: 'error', error: 'Wait for the plan to finish arriving first.' })
   const target = nodeText(run.text, nodeKey, run.edits)
   if (!target) return put(k, { ...r, status: 'error', error: 'That suggestion isn’t there any more.' })
   const current = openText(run.text, run.decisions, run.edits)

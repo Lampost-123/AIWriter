@@ -11,6 +11,20 @@ export const SIZE_CHOICES = { acts: range(0, 6), chapters: range(1, 30), scenes:
 export const MOST_SCENES = 100
 
 /**
+ * Chapters in all when planning in stages (2026-10-19): only the acts come in the first answer, so a long book fits; each
+ * act's chapters and each chapter's scenes are asked for later, one at a time.
+ */
+export const STAGE_CHAPTER_CHOICES = range(1, 40)
+
+/** The size after one choice changes while planning in stages: up to 6 acts and 40 chapters, at least one chapter an act. */
+export function fitStageSize(size: OutlineSize, patch: Partial<OutlineSize>): OutlineSize {
+  const acts = clamp(patch.acts ?? size.acts, SIZE_CHOICES.acts)
+  let chapters = clamp(patch.chapters ?? size.chapters, STAGE_CHAPTER_CHOICES)
+  if (acts > chapters) chapters = acts
+  return { acts, chapters, scenes: size.scenes }
+}
+
+/**
  * Where the helper starts: a whole story in three acts for a story with no chapters yet; otherwise a
  * few chapters more, in a new act when the story has acts, else chapters only.
  */

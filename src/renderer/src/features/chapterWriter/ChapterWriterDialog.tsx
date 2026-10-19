@@ -1,14 +1,18 @@
 // "Write this chapter with AI" (the binder's chapter menu, the command palette): says what it does, lists the scenes it
-// will write (those without a card to write from are left out, and said so), and that words already there are kept for
-// Undo, then starts it. While this month's spending limit holds AI calls, the window asks first (lib/api.ts). Mounted
+// will write (those with nothing on their card to write from are named, with "Plan these scenes" to plan their cards
+// first, 2026-10-19), and that words already there are kept for Undo, then starts it. While this month's spending limit holds AI calls, the window asks first (lib/api.ts). Mounted
 // once in the workspace; it also starts listening for runs (chapterWriterStore.ts).
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChapterWriterPlan } from '@shared/contracts/chapterWriter'
-import { Button, Dialog, Notice } from '@/components/ui'
+import type { ID } from '@shared/types'
+import { Button, Dialog, Notice, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
+import { flushAll } from '@/lib/flush'
+import { WritingStatus } from '@/features/builder/parts'
+import { planScene, stopScenePlan } from '@/features/outline/scenePlanStore'
 import { planWords } from './chapterWriterLogic'
 import { closeChapterWriter, listenChapterWriter, startChapterWriter, useChapterWriter } from './chapterWriterStore'
 
@@ -17,11 +21,16 @@ export function ChapterWriterDialog(): React.JSX.Element {
   const [plan, setPlan] = useState<ChapterWriterPlan | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  // Plan these scenes (2026-10-19): which one it is planning, and whether Stop was pressed.
+  const [planning, setPlanning] = useState<{ at: number; of: number; sceneId: ID } | null>(null)
+  const stopped = useRef(false)
+  const [rev, setRev] = useState(0)
 
   useEffect(() => listenChapterWriter(), [])
 
   useEffect(() => {
-    setPlan(null)
+    // Looked at again after scenes are planned: the list stays while it is (no flash of "Looking at the chapter…").
+    if (!rev) setPlan(null)
     setError(null)
     if (!ask) return
     let live = true
@@ -32,7 +41,50 @@ export function ChapterWriterDialog(): React.JSX.Element {
     return () => {
       live = false
     }
-  }, [ask])
+  }, [ask, rev])
+
+  /**
+   * Plan these scenes: the scenes with nothing on their cards to write from are planned one after another (the outline
+   * helper's scene plan, scenePlanStore.ts), so they are written too rather than left out. One Undo takes them all back.
+   */
+  const planMissing = async (): Promise<void> => {
+    if (!plan || planning) return
+    const ids = plan.scenes.filter((s) => !s.ready).map((s) => s.sceneId)
+    stopped.current = false
+    const undos: (() => Promise<void>)[] = []
+    let failed: string | null = null
+    for (let i = 0; i < ids.length && !stopped.current; i++) {
+      setPlanning({ at: i + 1, of: ids.length, sceneId: ids[i] })
+      const out = await planScene(ids[i], { quiet: true })
+      if (out.undo) undos.push(out.undo)
+      if (out.status === 'error') {
+        failed = out.error ?? 'That didn’t work. Please try again.'
+        break
+      }
+    }
+    setPlanning(null)
+    // What went on the cards on screen is saved before the chapter is looked at again.
+    await flushAll()
+    setRev((n) => n + 1)
+    if (undos.length) {
+      toast(`Planned ${undos.length === 1 ? 'a scene' : `${undos.length} scenes`} of the chapter.`, {
+        action: {
+          label: 'Undo',
+          run: () =>
+            void (async () => {
+              for (const undo of undos) await undo()
+              setRev((n) => n + 1)
+            })()
+        }
+      })
+    }
+    if (failed) setError(failed)
+  }
+
+  const stopPlanning = (): void => {
+    stopped.current = true
+    if (planning) stopScenePlan(planning.sceneId)
+  }
 
   const start = async (): Promise<void> => {
     if (!ask) return
@@ -63,7 +115,7 @@ export function ChapterWriterDialog(): React.JSX.Element {
           <Button
             variant="primary"
             loading={starting}
-            disabled={!plan || !words?.ready || plan.busy}
+            disabled={!plan || !words?.ready || plan.busy || !!planning}
             onClick={() => void start()}
             data-autofocus
             data-testid="chapter-writer-start"
@@ -82,14 +134,40 @@ export function ChapterWriterDialog(): React.JSX.Element {
                 <li key={s.sceneId} className="flex items-baseline gap-2">
                   <span className={s.ready ? 'text-fg' : 'text-faint'}>{s.label}</span>
                   <span className="text-[12px] text-faint">
-                    {!s.ready ? 'no scene card to write from: left out' : s.hasWords ? 'has words: they will be replaced' : 'empty: will be written'}
+                    {!s.ready
+                      ? planning?.sceneId === s.sceneId
+                        ? 'planning its card…'
+                        : 'nothing on its card to write from yet'
+                      : s.hasWords
+                        ? 'has words: they will be replaced'
+                        : 'empty: will be written'}
                   </span>
                 </li>
               ))}
             </ul>
-            {words && !words.ready ? (
-              <div className="mt-3">
-                <Notice>Give a scene a goal, beats or an outcome on its card, and the AI can write it from that.</Notice>
+            {words && words.left.length ? (
+              <div className="mt-3" data-testid="chapter-writer-unplanned">
+                <Notice
+                  action={
+                    planning ? (
+                      <Button size="sm" variant="ghost" onClick={stopPlanning}>
+                        Stop
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="primary" onClick={() => void planMissing()} data-plan-missing>
+                        {words.left.length === 1 ? 'Plan this scene' : 'Plan these scenes'}
+                      </Button>
+                    )
+                  }
+                >
+                  {planning ? (
+                    <WritingStatus text={`Planning scene ${planning.at} of ${planning.of}…`} />
+                  ) : words.left.length === 1 ? (
+                    'One scene has nothing on its card to write from. Plan it, and the AI writes it too.'
+                  ) : (
+                    `${words.left.length} scenes have nothing on their cards to write from. Plan them, and the AI writes them too.`
+                  )}
+                </Notice>
               </div>
             ) : null}
             {words?.warning ? <p className="mt-3 text-[13px] leading-relaxed text-muted">{words.warning}</p> : null}

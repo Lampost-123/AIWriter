@@ -15,8 +15,14 @@
 // come in at the top, and the ones Adam hadn't decided on stay, as they were, under "Earlier suggestions" (`earlier`),
 // to keep, change or discard just the same, until he keeps them or puts them away. Nothing he hasn't decided on goes
 // without his say. Each batch is its own run, found by its task id, so every Keep, Discard and Undo works on either.
+//
+// The outline in stages (2026-10-19, stages.ts): the first request asks only for the acts (or, with no new acts, the
+// chapters); "Plan its chapters" on an act and "Plan its scenes" on a chapter ask for just that part (`stage`), which
+// arrives under it and then goes into the suggestions' text there, so every other suggestion keeps its key. Keep can go
+// where Adam chooses in the binder (KeepOptions.place), and its toast says when it starts building the story's cast.
 import { create } from 'zustand'
 import type { KeptItem, OutlineSize, PlanAnswer } from '@shared/contracts/outline'
+import type { TaskDone } from '@shared/contracts/tasks'
 import type { ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'
 import { api, ApiError, onEvent } from '@/lib/api'
@@ -27,17 +33,21 @@ import { useOutlineStore } from '@/features/binder/outlineStore'
 import { notifyChapterCard } from '@/features/chapterCard/chapterCardEvents'
 import { buildStoryWorldSoon } from '@/features/worldBuilder/storyBuild'
 import { parseOutline } from './parse'
+import { nodeText } from './outlineText'
 import { carryRevision, type RevisionTrail } from './revision'
+import { chaptersFor, isUnder, markArriving, planSoFar, spliceStage, stageParts, type PlanMode, type StageLevel } from './stages'
 import {
   countKinds,
   describeCounts,
   discardedMessage,
   discardKeys,
+  findNode,
   goneIds,
   keepPlan,
   keptMessage,
   madePagesNote,
   outlineTree,
+  placeKeep,
   withDiscarded,
   withKept,
   withoutDiscarded,
@@ -45,6 +55,7 @@ import {
   withoutKept,
   type Decisions,
   type Edits,
+  type KeepPlace,
   type NodeEdit,
   type TreeNode
 } from './tree'
@@ -52,6 +63,29 @@ import {
 export interface Problem {
   message: string
   code?: string
+}
+
+/**
+ * One stage asked for under a suggestion (the outline in stages): an act's chapters or a chapter's scenes. While it
+ * arrives it shows under that act or chapter; once it ends with anything to read it goes into the run's text there.
+ */
+export interface HelperStage {
+  taskId: ID
+  generationId: ID | null
+  /** The act or chapter it plans inside, by its key in the run. */
+  key: string
+  level: StageLevel
+  /** The reply so far. */
+  text: string
+  status: 'running' | 'complete' | 'stopped' | 'error'
+  cutOff: boolean
+  retrying: string | null
+  error: string | null
+  /** How many parts the act or chapter held when it was asked for. */
+  before: number
+  /** Its parts are in the run's text now (how many: `count`). */
+  merged: boolean
+  count: number
 }
 
 /** One request for an outline and what came of it. */
@@ -73,7 +107,12 @@ export interface HelperRun {
   lead?: string
   /** When it was asked for (ms), for naming it among the earlier suggestions. */
   at?: number
+  /** The last stage asked for under one of its acts or chapters (the outline in stages), while it arrives and after. */
+  stage?: HelperStage | null
 }
+
+/** A request is arriving: the run itself, or a stage under one of its suggestions. */
+export const runBusy = (run: HelperRun | null | undefined): boolean => !!run && (run.status === 'running' || run.stage?.status === 'running')
 
 export interface HelperSession {
   /** How much to suggest; null until Adam picks (the page then suggests a size that suits the story). */
@@ -93,9 +132,11 @@ export interface HelperSession {
    * The main process decides, by the rule it uses for what the AI is told (api.outlineBlank). Null until known.
    */
   blank: boolean | null
+  /** How to plan: in stages or all at once; null until Adam picks (the page then picks by the story's length, stages.ts defaultMode). */
+  mode?: PlanMode | null
 }
 
-const fresh = (): HelperSession => ({ size: null, run: null, earlier: [], problem: null, gone: [], blank: null })
+const fresh = (): HelperSession => ({ size: null, run: null, earlier: [], problem: null, gone: [], blank: null, mode: null })
 
 /** The decisions as the page shows them and its buttons go by: the run's, less what has left the story since. */
 export const decisionsOf = (s: HelperSession, run: HelperRun | null = s.run): Decisions => (run ? withoutGone(run.decisions, s.gone) : {})
@@ -154,6 +195,32 @@ function findTask(taskId: ID): string | null {
   return null
 }
 
+/** The session and run whose stage this task is (only the newest suggestions plan in stages). */
+function findStage(taskId: ID): { key: string; runId: ID } | null {
+  for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions)) if (s.run?.stage?.taskId === taskId) return { key, runId: s.run.taskId }
+  return null
+}
+
+/** A stage's reply ended: what it brought goes into the run's text under its act or chapter (see HelperStage). */
+function settleStage(key: string, runId: ID, d: Pick<TaskDone, 'taskId' | 'text' | 'generationId' | 'status' | 'cutOff' | 'error'>): void {
+  patchRun(key, runId, (r) => {
+    const st = r.stage
+    if (!st || st.taskId !== d.taskId || st.status !== 'running') return {}
+    const ended: HelperStage = {
+      ...st,
+      text: d.text,
+      generationId: d.generationId ?? st.generationId,
+      status: d.status,
+      cutOff: d.cutOff,
+      retrying: null,
+      error: d.status === 'error' ? (d.error ?? 'Something went wrong while that part was planned. Please try again.') : null
+    }
+    const count = stageParts(d.text, st.level, true).length
+    const joined = count ? spliceStage(r.text, st.key, st.level, d.text, true) : null
+    return joined ? { text: joined, stage: { ...ended, merged: true, count } } : { stage: ended }
+  })
+}
+
 let listening = false
 /** Follows outline requests for as long as the window is open, whichever page is showing. */
 function listen(): void {
@@ -162,14 +229,23 @@ function listen(): void {
   onEvent('task:progress', (p) => {
     if (p.job !== 'outline') return
     const key = findTask(p.taskId)
-    if (key) patchRun(key, p.taskId, { text: p.text, generationId: p.generationId, retrying: null })
+    if (key) return void patchRun(key, p.taskId, { text: p.text, generationId: p.generationId, retrying: null })
+    const stage = findStage(p.taskId)
+    if (stage)
+      patchRun(stage.key, stage.runId, (r) =>
+        r.stage?.taskId === p.taskId && r.stage.status === 'running' ? { stage: { ...r.stage, text: p.text, generationId: p.generationId, retrying: null } } : {}
+      )
   })
   onEvent('task:retrying', (p) => {
     const key = findTask(p.taskId)
-    if (key) patchRun(key, p.taskId, { retrying: p.reason })
+    if (key) return void patchRun(key, p.taskId, { retrying: p.reason })
+    const stage = findStage(p.taskId)
+    if (stage) patchRun(stage.key, stage.runId, (r) => (r.stage?.taskId === p.taskId ? { stage: { ...r.stage, retrying: p.reason } } : {}))
   })
   onEvent('task:done', (d) => {
     if (d.job !== 'outline') return
+    const stage = findStage(d.taskId)
+    if (stage) return settleStage(stage.key, stage.runId, d)
     const key = findTask(d.taskId)
     if (!key) return
     patchRun(key, d.taskId, { text: d.text, generationId: d.generationId, status: d.status, cutOff: d.cutOff, retrying: null })
@@ -279,10 +355,21 @@ export function setHelperSize(storyId: ID, size: OutlineSize): void {
   put(keyOf(storyId), { size })
 }
 
+/** In stages or all at once, as Adam picked. */
+export function setHelperMode(storyId: ID, mode: PlanMode): void {
+  put(keyOf(storyId), { mode })
+}
+
 /** The suggestions so far as a tree. A reply that has ended (complete, stopped or failed) counts as whole. */
 export function treeOf(run: HelperRun): TreeNode[] {
   // A chapter's plan: a chapter heading the model added anyway is the chapter's own, already in `lead`.
   const text = run.lead ? run.lead + run.text.replace(/^\s*[#*\s]*chapter\b[^\n]*\n/i, '') : run.text
+  // A stage still arriving shows under its act or chapter, its last part not complete yet.
+  const st = run.stage
+  if (st && !st.merged && st.status === 'running' && !run.lead && st.text.trim()) {
+    const joined = spliceStage(text, st.key, st.level, st.text, false)
+    if (joined) return markArriving(outlineTree(parseOutline(joined, true)), st.key, st.before)
+  }
   return outlineTree(parseOutline(text, run.status !== 'running'))
 }
 
@@ -332,15 +419,83 @@ function noteEarlier(): void {
  * "Earlier suggestions" (see `earlier`). A story with nothing planned yet is
  * planned from its premise alone, so that needs a word or two first (a hint, not a failure: 'no-premise').
  */
-export async function suggestOutline(storyId: ID, premise: string, size: OutlineSize, o: { premiseOptional?: boolean } = {}): Promise<void> {
+export async function suggestOutline(
+  storyId: ID,
+  premise: string,
+  size: OutlineSize,
+  o: { premiseOptional?: boolean; mode?: PlanMode } = {}
+): Promise<void> {
   const s = get(keyOf(storyId))
-  if (s.run?.status === 'running') return
+  if (runBusy(s.run)) return
   // With a plot in the Story builder, the AI writes the premise from it.
   if (!premise.trim() && s.blank !== false && !o.premiseOptional) {
     put(keyOf(storyId), { problem: { message: 'Write the premise first: a line or two on what the story is about is enough.', code: 'no-premise' } })
     return
   }
+  // In stages: only the acts (or, with no new acts, the chapters) come now; each is planned further when Adam asks.
+  if (o.mode === 'stages') {
+    const level = size.acts > 0 ? 'acts' : 'chapters'
+    await suggestOutlineWith(storyId, size, (taskId) =>
+      api.startOutlineStage({ taskId, storyId, level, premise, acts: size.acts, chapters: size.chapters })
+    )
+    return
+  }
   await suggestOutlineWith(storyId, size, (taskId) => api.startOutline({ taskId, storyId, premise, size }))
+}
+
+/**
+ * "Plan its chapters" on an act, "Plan its scenes" on a chapter (the outline in stages): asks for just that part, told
+ * the outline as it stands (Adam's changes in) and, for one kept already, where it is in the story. It arrives under it.
+ */
+export async function planStage(storyId: ID, nodeKey: string): Promise<void> {
+  listen()
+  const key = keyOf(storyId)
+  const s = get(key)
+  const run = s.run
+  if (!run || runBusy(run) || run.lead) return
+  const tree = treeOf(run)
+  const node = findNode(tree, nodeKey)
+  if (!node || node.kind === 'scene') return
+  const decisions = decisionsOf(s, run)
+  const level: StageLevel = node.kind === 'act' ? 'chapters' : 'scenes'
+  const kept = decisions[nodeKey]?.status === 'kept' ? (decisions[nodeKey] as { id: ID }).id : null
+  const taskId = crypto.randomUUID()
+  const stage: HelperStage = {
+    taskId,
+    generationId: null,
+    key: nodeKey,
+    level,
+    text: '',
+    status: 'running',
+    cutOff: false,
+    retrying: null,
+    error: null,
+    before: node.children.length,
+    merged: false,
+    count: 0
+  }
+  dropReplaced()
+  patchRun(key, run.taskId, { stage })
+  put(key, { problem: null })
+  try {
+    const { generationId } = await api.startOutlineStage({
+      taskId,
+      storyId,
+      level,
+      premise: (useApp.getState().stories ?? []).find((x) => x.id === storyId)?.premise,
+      chapters: level === 'chapters' ? chaptersFor(node, run.edits[nodeKey]) : undefined,
+      plan: planSoFar(run.text, decisions, run.edits, nodeKey),
+      target: nodeText(run.text, nodeKey, run.edits),
+      actId: level === 'chapters' ? kept : null,
+      chapterId: level === 'scenes' ? kept : null
+    })
+    patchRun(key, run.taskId, (r) => (r.stage?.taskId === taskId ? { stage: { ...r.stage, generationId: r.stage.generationId ?? generationId } } : {}))
+  } catch (e) {
+    // Nothing started: it says why, beside the act or chapter.
+    patchRun(key, run.taskId, (r) =>
+      r.stage?.taskId === taskId ? { stage: { ...r.stage, status: 'error', error: (e as Error).message || 'That didn’t work. Please try again.' } } : {}
+    )
+  }
 }
 
 /**
@@ -351,9 +506,9 @@ export async function suggestOutlineWith(storyId: ID, size: OutlineSize, start: 
   listen()
   const key = keyOf(storyId)
   const s = get(key)
-  if (s.run?.status === 'running') return
+  if (runBusy(s.run)) return
   const taskId = crypto.randomUUID()
-  const previous = s.run
+  const previous = s.run ? { ...s.run, stage: null } : null
   const wasOpen = !!previous && hasOpen(previous, s.gone)
   dropReplaced()
   put(key, {
@@ -427,7 +582,7 @@ export async function suggestChapter(storyId: ID, chapterId: ID, title: string, 
   listen()
   const key = keyOf(storyId, chapterId)
   const s = get(key)
-  if (s.run?.status === 'running') return
+  if (runBusy(s.run)) return
   const taskId = crypto.randomUUID()
   const lead = `## Chapter: ${title.replace(/\s+/g, ' ').trim() || 'This chapter'}\n`
   // The chapter itself is kept from the start: its scene cards go into it.
@@ -463,7 +618,7 @@ export async function suggestChapter(storyId: ID, chapterId: ID, title: string, 
  */
 export function settledRun(storyId: ID): HelperRun | null {
   const s = get(keyOf(storyId))
-  return s.run && s.run.status !== 'running' ? shownRun(s, s.run) : null
+  return s.run && !runBusy(s.run) ? shownRun(s, s.run) : null
 }
 
 /** A talk's revised plan, and what it knows of where its parts came from (planTalk.ts PlanRevision). */
@@ -483,7 +638,7 @@ export function applyRevision(storyId: ID, revision: RevisionInput): boolean {
   const key = keyOf(storyId)
   const s = get(key)
   const previous = s.run
-  if (!previous || previous.status === 'running') return false
+  if (!previous || runBusy(previous)) return false
   // A redo or another revision since moves the parts about: then they are matched by their titles alone.
   const trail: RevisionTrail = revision.base === undefined || revision.base === previous.text ? revision : {}
   const next = carryRevision(previous.text, decisionsOf(s), previous.edits, revision.text, trail)
@@ -497,7 +652,8 @@ export function applyRevision(storyId: ID, revision: RevisionInput): boolean {
     cutOff: false,
     retrying: null,
     decisions: next.decisions,
-    edits: next.edits
+    edits: next.edits,
+    stage: null
   }
   dropReplaced()
   put(key, { run, problem: null })
@@ -512,7 +668,7 @@ export function applyRevision(storyId: ID, revision: RevisionInput): boolean {
 export function applyRedo(storyId: ID, nodeKey: string, nextText: string, under: string[]): boolean {
   const key = keyOf(storyId)
   const run = get(key).run
-  if (!run || run.status === 'running') return false
+  if (!run || runBusy(run)) return false
   const before = run
   const decisions = { ...run.decisions }
   const edits = { ...run.edits }
@@ -520,7 +676,7 @@ export function applyRedo(storyId: ID, nodeKey: string, nextText: string, under:
     if (decisions[k]?.status !== 'kept') delete decisions[k]
     delete edits[k]
   }
-  put(key, { run: { ...run, text: nextText, decisions, edits } })
+  put(key, { run: { ...run, text: nextText, decisions, edits, stage: null } })
   toast('Swapped in the new version.', {
     action: {
       label: 'Undo',
@@ -539,6 +695,15 @@ const pick = (d: Decisions, keys: string[]): Decisions => Object.fromEntries(Obj
 export function stopOutline(storyId: ID, chapterId?: ID | null): void {
   const run = get(keyOf(storyId, chapterId)).run
   if (run?.status === 'running') void api.stopTask(run.taskId).catch(() => undefined)
+  // A stage arriving under one act or chapter: what has come stays, as it does for the outline.
+  if (run?.stage?.status === 'running') void api.stopTask(run.stage.taskId).catch(() => undefined)
+}
+
+/** Puts away what a stage said went wrong (or that nothing came), under its act or chapter. */
+export function dismissStage(storyId: ID): void {
+  const key = keyOf(storyId)
+  const run = get(key).run
+  if (run?.stage && run.stage.status !== 'running') patchRun(key, run.taskId, { stage: null })
 }
 
 export function dismissProblem(storyId: ID, chapterId?: ID | null): void {
@@ -565,7 +730,16 @@ export interface KeepOptions {
   build?: 'always' | 'new-pages'
   /** The suggestions to keep from: an earlier batch's task id (left out: the newest suggestions). */
   runId?: ID | null
+  /**
+   * Where Adam chose to put the one act or chapter kept (2026-10-19), and how the toast says it ("after “The Docks”");
+   * left out: where the outline puts it (after the one it follows that is kept, else at the end).
+   */
+  place?: KeepPlace
+  placeWords?: string
 }
+
+/** What a Keep's toast adds when it starts building the story's cast, so the build is never a surprise later. */
+export const BUILD_NOTE = ' AI Write builds the story’s characters and places next.'
 
 /** Stories whose keeps build as the Story builder says (see KeepOptions), whichever page the Keep is clicked on. */
 const keepBuild = new Map<ID, 'always' | 'new-pages'>()
@@ -580,6 +754,8 @@ interface KeepBatch {
   taskId: ID
   /** Everything kept while the toast showed, in the order it was made. */
   kept: KeptItem[]
+  /** One of its keeps starts building the story's cast (the toast says so). */
+  building?: boolean
 }
 
 let keepBatch: KeepBatch | null = null
@@ -604,9 +780,10 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?:
     await checkKept(storyId, chapterId)
     const s = get(key)
     const run = runIn(s, o.runId)
-    if (!run || run.status === 'running') return
+    if (!run || run.status === 'running' || stageHolds(run, keys)) return
     const tree = treeOf(run)
-    const items = keepPlan(tree, decisionsOf(s, run), run.edits, keys)
+    const planned = keepPlan(tree, decisionsOf(s, run), run.edits, keys)
+    const items = o.place && keys !== 'all' && keys.length === 1 ? placeKeep(planned, keys[0], o.place) : planned
     if (!items.length) return
     let kept: KeptItem[]
     try {
@@ -627,28 +804,37 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?:
     // The Story builder, once its codex is built, builds again only for pages this keep made.
     const build = (keepBuild.get(storyId) ?? o.build ?? 'always') === 'new-pages' ? kept.some((k) => k.entryIds?.length) : kept.some((k) => k.entryIds?.length || k.threadIds?.length || k.reused)
     if (build) buildStoryWorldSoon(storyId)
-    const message =
+    const said =
       keys === 'all'
         ? `Added ${describeCounts(countKinds(kept.map((k) => k.kind)))} to the ${chapterId ? 'chapter' : 'story'}.`
         : chapterId
           ? keptMessage(tree, keys[0], items).replace(' to the story', ' to the chapter')
           : keptMessage(tree, keys[0], items)
-    announceKept({ key, storyId, taskId: run.taskId, kept }, message)
+    const message = o.place && o.placeWords ? said.replace(/\.$/, `, ${o.placeWords}.`) : said
+    announceKept({ key, storyId, taskId: run.taskId, kept, building: build }, message)
   })
+}
+
+/** A stage arriving under one of these suggestions (or around them): they wait for it, and so does Keep all. */
+function stageHolds(run: HelperRun, keys: string[] | 'all'): boolean {
+  const st = run.stage
+  if (st?.status !== 'running') return false
+  return keys === 'all' || keys.some((k) => isUnder(k, st.key) || isUnder(st.key, k))
 }
 
 function announceKept(b: Omit<KeepBatch, 'toastId'>, message: string): void {
   if (keepBatch && liveToast(keepBatch.toastId) && keepBatch.key === b.key && keepBatch.taskId === b.taskId) {
     keepBatch.kept.push(...b.kept)
+    keepBatch.building ||= b.building
     useToasts.getState().update(keepBatch.toastId, {
       // A chapter's plan (its session's key names the chapter) adds to the chapter.
-      message: `Added ${describeCounts(countKinds(keepBatch.kept.map((k) => k.kind)))} to the ${keepBatch.key.includes('#') ? 'chapter' : 'story'}.${madePagesNote(keepBatch.kept)}`
+      message: `Added ${describeCounts(countKinds(keepBatch.kept.map((k) => k.kind)))} to the ${keepBatch.key.includes('#') ? 'chapter' : 'story'}.${madePagesNote(keepBatch.kept)}${keepBatch.building ? BUILD_NOTE : ''}`
     })
     return
   }
   const batch: KeepBatch = { ...b, toastId: 0, kept: [...b.kept] }
-  // It names the characters and places it made pages for (2026-10-17).
-  batch.toastId = toast(`${message}${madePagesNote(b.kept)}`, {
+  // It names the characters and places it made pages for (2026-10-17), and says when it starts building them (2026-10-19).
+  batch.toastId = toast(`${message}${madePagesNote(b.kept)}${b.building ? BUILD_NOTE : ''}`, {
     action: {
       label: 'Undo',
       run: () => {
@@ -721,7 +907,7 @@ export function discardSuggestion(storyId: ID, nodeKey: string, chapterId?: ID |
   const key = keyOf(storyId, chapterId)
   const s = get(key)
   const run = runIn(s, runId)
-  if (!run || run.status === 'running') return
+  if (!run || run.status === 'running' || stageHolds(run, [nodeKey])) return
   const tree = treeOf(run)
   const keys = discardKeys(tree, decisionsOf(s, run), nodeKey)
   if (!keys.length) return

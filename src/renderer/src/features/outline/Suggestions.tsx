@@ -12,15 +12,18 @@ import { Button, Field, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { deleteChapter } from '@/features/binder/actions'
+import { openChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { MarkLine, SuggestionButton } from '@/features/builder/parts'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { useDesk } from '@/features/look/look'
 import { DeskEarlierList, DeskSuggestions } from './DeskSuggestions'
-import { discardSuggestion, keepSuggestions, saveEdit, type HelperRun } from './helperStore'
+import { discardSuggestion, keepSuggestions, runBusy, saveEdit, type HelperRun } from './helperStore'
 import { emptySuggestedCard, type SuggestedCard } from './parse'
 import { RedoButton, RedoPanel } from './PlanTalkParts'
 import { CardFields, CardLines, whenOf } from './SuggestionParts'
+import { KeepPlaceMenu, StageRow, WriteChapterButton } from './StageParts'
+import { arrivingKey, canPlanInside, isUnder } from './stages'
 import { countNodes, lastNodeKey, totalOf, wordsOf, type NodeEdit, type NodeKind, type TreeNode } from './tree'
 
 export const KIND_LABELS: Record<NodeKind, string> = { act: 'Act', chapter: 'Chapter', scene: 'Scene' }
@@ -45,6 +48,35 @@ export interface TreeProps {
 
 /** The task id of the batch the suggestions are in, when it isn't the newest (for the store's calls). */
 export const runIdOf = (p: Pick<TreeProps, 'run' | 'earlier'>): string | null => (p.earlier ? p.run.taskId : null)
+
+/** The suggestion being written now: the outline's last, or the last of a stage arriving under its act or chapter. */
+export function currentOf(run: HelperRun, tree: TreeNode[]): string | null {
+  if (run.status === 'running') return lastNodeKey(tree)
+  return run.stage?.status === 'running' ? arrivingKey(tree, run.stage.key) : null
+}
+
+/** Its buttons wait (keeping their room): the outline is arriving, or a stage under it, inside it or around it. */
+export function waitsFor(run: HelperRun, key: string): boolean {
+  if (run.status === 'running') return true
+  const st = run.stage
+  return st?.status === 'running' && (isUnder(key, st.key) || isUnder(st.key, key))
+}
+
+/** The acts and chapters, kept or still open, that have nothing planned inside yet (the outline in stages). */
+export function stillToPlan(tree: TreeNode[], decisions: HelperRun['decisions']): number {
+  let n = 0
+  const walk = (nodes: TreeNode[]): void =>
+    nodes.forEach((x) => {
+      if (decisions[x.key]?.status === 'discarded') return
+      if (canPlanInside(x, decisions)) n++
+      walk(x.children)
+    })
+  walk(tree)
+  return n
+}
+
+/** What to do next once every suggestion is decided but some acts or chapters have nothing planned inside them yet. */
+export const NEXT_STAGE = 'Next, plan what is inside each act and chapter: “Plan its chapters” on an act, then “Plan its scenes” on each chapter.'
 
 export function Suggestions({
   storyId,
@@ -88,28 +120,30 @@ function TreeSuggestions({
   starter: Chapter | null
 }): React.JSX.Element {
   const running = run.status === 'running'
+  const busy = runBusy(run)
   // A chapter's plan lists the chapter's scene cards, not the chapter.
   const top = chapterId ? (tree[0]?.children ?? []) : tree
   const waiting = useDelayed(running && top.length === 0, 250)
   const [editing, setEditing] = useState<string | null>(null)
   const kept = totalOf(countNodes(top, run.decisions, 'kept'))
   const shown = top.filter((n) => run.decisions[n.key]?.status !== 'discarded')
-  const decided = !running && open === 0 && top.length > 0
-  const current = running ? lastNodeKey(tree) : null
+  const toPlan = chapterId ? 0 : stillToPlan(top, run.decisions)
+  const decided = !busy && open === 0 && top.length > 0 && toPlan === 0
+  const current = currentOf(run, tree)
   const starterTitle = starter?.title.trim() || 'Chapter 1'
 
   // Short, so it fits beside both buttons in a small window.
-  const summary = running ? '' : open ? `${open} to decide${kept ? `, ${kept} kept` : ''}` : kept ? `${kept} kept` : ''
+  const summary = busy ? '' : open ? `${open} to decide${kept ? `, ${kept} kept` : ''}` : kept ? `${kept} kept` : ''
 
   return (
-    <section aria-label="Suggestions" aria-busy={running} className="mt-5">
+    <section aria-label="Suggestions" aria-busy={busy} className="mt-5">
       {/* Stays at the top while the list scrolls, so "Keep all that's left" is always at hand, and so is
           removing the empty chapter the story was made with once something is kept after it. That one sits
           by the count, never where "Keep all that's left" was: a double click on that doesn't remove it. */}
       <div className="sticky top-0 z-10 -mx-3 flex h-11 items-center gap-3 bg-bg/95 px-3 backdrop-blur-sm">
         <h2 className="shrink-0 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Suggestions</h2>
         <span className="truncate text-[12px] tabular-nums text-faint">{summary}</span>
-        {starter && !running ? (
+        {starter && !busy ? (
           <Button
             size="sm"
             variant="ghost"
@@ -120,7 +154,7 @@ function TreeSuggestions({
             Remove the empty “{starterTitle}”
           </Button>
         ) : null}
-        {!running && open > 0 ? (
+        {!busy && open > 0 ? (
           <Button
             size="sm"
             icon={<Check size={13} />}
@@ -156,7 +190,12 @@ function TreeSuggestions({
         </div>
       )}
 
-      {decided ? <AllDecided run={run} tree={tree} storyId={storyId} kept={kept} chapter={!!chapterId} /> : null}
+      {decided ? <AllDecided run={run} tree={tree} storyId={storyId} kept={kept} chapter={!!chapterId} chapterId={chapterId} /> : null}
+      {!busy && open === 0 && toPlan > 0 ? (
+        <p className="mt-4 text-[13px] leading-relaxed text-muted animate-fade-in" data-next-stage>
+          {NEXT_STAGE}
+        </p>
+      ) : null}
     </section>
   )
 }
@@ -193,6 +232,7 @@ function NodeView({ node, ...props }: TreeProps & { node: TreeNode }): React.JSX
     >
       {props.editing === node.key ? <EditForm node={node} {...props} /> : <NodeBox node={node} {...props} />}
       {!props.chapterId && !props.earlier ? <RedoPanel storyId={props.storyId} node={node} /> : null}
+      {!props.chapterId && !props.earlier ? <StageRow storyId={props.storyId} node={node} run={run} /> : null}
       {children.length ? (
         <div className="ml-3 mt-2 flex flex-col gap-2 border-l border-line pl-4">
           {children.map((c) => (
@@ -212,7 +252,8 @@ function NodeBox({ node, storyId, chapterId, run, current, setEditing, earlier }
   const words = wordsOf(node, edit)
   const when = whenOf(node.kind, words)
   const runId = runIdOf({ run, earlier })
-  const running = run.status === 'running'
+  // While the outline arrives, or a stage under (or around) this one, its buttons wait.
+  const running = waitsFor(run, node.key)
   // Only the suggestion arriving now has the caret, not the act and chapter it is in.
   const writing = running && node.key === current
   const title = words.title.trim()
@@ -294,6 +335,7 @@ function NodeBox({ node, storyId, chapterId, run, current, setEditing, earlier }
               Open
             </SuggestionButton>
           ) : null}
+          {!chapterId ? <WriteChapterButton node={node} run={run} /> : null}
         </div>
       ) : (
         // While the answer arrives the buttons keep their room, so nothing moves when they appear.
@@ -307,6 +349,7 @@ function NodeBox({ node, storyId, chapterId, run, current, setEditing, earlier }
           >
             Keep
           </SuggestionButton>
+          {node.kind !== 'scene' && !chapterId ? <KeepPlaceMenu storyId={storyId} node={node} run={run} runId={runId} title={title} /> : null}
           <SuggestionButton
             data-edit
             onClick={() => setEditing(node.key)}
@@ -479,13 +522,16 @@ export function AllDecided({
   tree,
   storyId,
   kept,
-  chapter
+  chapter,
+  chapterId = null
 }: {
   run: HelperRun
   tree: TreeNode[]
   storyId: ID
   kept: number
   chapter: boolean
+  /** A chapter's plan: its scenes kept, it can be written whole from here. */
+  chapterId?: ID | null
 }): React.JSX.Element {
   const firstScene = (nodes: TreeNode[]): ID | null => {
     for (const n of nodes) {
@@ -513,6 +559,11 @@ export function AllDecided({
         <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-fg">
           Everything is decided. What you kept is in the binder{sceneId ? ', with each scene’s card filled in' : ''}.
         </p>
+        {chapterId && sceneId ? (
+          <Button size="sm" variant="ghost" onClick={() => openChapterWriter(chapterId)} title="Write the whole chapter with AI, from its scene cards">
+            Write this chapter
+          </Button>
+        ) : null}
         {sceneId ? (
           <Button size="sm" onClick={() => useApp.getState().selectScene(sceneId, storyId)}>
             Start writing

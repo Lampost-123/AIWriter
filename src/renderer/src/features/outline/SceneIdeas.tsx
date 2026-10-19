@@ -81,7 +81,7 @@ export function SceneIdeas({
     setOffer({ phase, show })
   }
 
-  if (phase !== 'showing' && !show) return beside ? <div className="flex items-center gap-4">{beside}</div> : null
+  if (phase !== 'showing' && !show) return beside ? <div className="flex flex-wrap items-center gap-x-4 gap-y-1">{beside}</div> : null
   const ask = (): void => {
     setComposing(false)
     void askIdeas(sceneId)
@@ -91,12 +91,12 @@ export function SceneIdeas({
     <div ref={root} className="scroll-mt-4">
       {session && phase === 'showing' ? (
         <>
-          {beside ? <div className="mb-2 flex items-center gap-4">{beside}</div> : null}
+          {beside ? <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">{beside}</div> : null}
           <Ideas sceneId={sceneId} s={session} card={card} onAsk={ask} />
         </>
       ) : composing ? (
         <>
-          {beside ? <div className="mb-2 flex items-center gap-4">{beside}</div> : null}
+          {beside ? <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">{beside}</div> : null}
           <section aria-label="Ideas for this scene" className="flex flex-col gap-2">
             <h3 className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
               <Lightbulb size={12} className="shrink-0 text-ai" aria-hidden />
@@ -114,12 +114,12 @@ export function SceneIdeas({
           </section>
         </>
       ) : (
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <button
             type="button"
             onClick={() => setComposing(true)}
             title="Three possible directions for this scene, from the outline, open plot threads and the story so far"
-            className="-mx-1.5 inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="-mx-1.5 inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             <Lightbulb size={14} className="shrink-0 text-ai" aria-hidden />
             Ideas for this scene

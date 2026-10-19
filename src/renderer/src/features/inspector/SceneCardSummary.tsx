@@ -1,8 +1,9 @@
 // The scene card as a small ruled index card (UI overhaul, phase 3): where it happens, whose eyes it is told through and
 // its beats as a checklist (written ✓, the next one marked Next), with Edit opening the full card form in the scene panel.
-// An empty card offers to plan the scene instead: Ideas for this scene, or Interview me. The desk pins it in the margin
-// beside the page's title; the panels' summary cards can show it too. It shows what it is given and loads nothing.
-import { Lightbulb, MapPin, MessageCircleQuestion } from '@/components/ui/icons'
+// An empty card offers to plan the scene instead: Plan this scene (the AI fills the card), Ideas for this scene, or
+// Interview me. The desk pins it in the margin beside the page's title; the panels' summary cards can show it too. It
+// shows what it is given and loads nothing.
+import { Lightbulb, MapPin, MessageCircleQuestion, Sparkles, Square } from '@/components/ui/icons'
 import type { ID } from '@shared/types'
 import { cn } from '@/lib/cn'
 
@@ -18,6 +19,11 @@ export interface SceneCardSummaryProps {
   onEdit: () => void
   onIdeas: () => void
   onInterview: () => void
+  /** Plan this scene (2026-10-19): the AI fills the card from the outline around it. Left out: not offered. */
+  onPlan?: () => void
+  /** It is planning the scene now: says so, with Stop. */
+  planning?: boolean
+  onStopPlan?: () => void
 }
 
 /** A beat's ring: hollow to come, amber for the next one, green with a tick once written. */
@@ -44,17 +50,34 @@ export function SceneCardSummary(p: SceneCardSummaryProps): React.JSX.Element {
       </div>
       {p.empty ? (
         <div className="ic-plan">
-          <p className="ic-plan-title">Plan this scene</p>
-          <p className="ic-plan-text">Nothing on its card yet. Ask for three directions, or answer a few questions.</p>
+          <p className="ic-plan-title">Nothing on its card yet</p>
+          <p className="ic-plan-text">
+            {p.planning ? 'Planning this scene from the outline around it…' : 'Let the AI plan it, ask for three directions, or answer a few questions.'}
+          </p>
           <div className="ic-plan-acts">
-            <button type="button" className="ic-act is-ai" onClick={p.onIdeas}>
-              <Lightbulb size={14} aria-hidden />
-              Ideas for this scene
-            </button>
-            <button type="button" className="ic-act" onClick={p.onInterview}>
-              <MessageCircleQuestion size={14} aria-hidden />
-              Interview me
-            </button>
+            {p.planning ? (
+              <button type="button" className="ic-act" onClick={p.onStopPlan} data-plan-scene="running">
+                <Square size={10} fill="currentColor" aria-hidden />
+                Stop
+              </button>
+            ) : (
+              <>
+                {p.onPlan ? (
+                  <button type="button" className="ic-act is-ai" onClick={p.onPlan} data-plan-scene>
+                    <Sparkles size={14} aria-hidden />
+                    Plan this scene
+                  </button>
+                ) : null}
+                <button type="button" className={p.onPlan ? 'ic-act' : 'ic-act is-ai'} onClick={p.onIdeas}>
+                  <Lightbulb size={14} aria-hidden />
+                  Ideas for this scene
+                </button>
+                <button type="button" className="ic-act" onClick={p.onInterview}>
+                  <MessageCircleQuestion size={14} aria-hidden />
+                  Interview me
+                </button>
+              </>
+            )}
           </div>
         </div>
       ) : (

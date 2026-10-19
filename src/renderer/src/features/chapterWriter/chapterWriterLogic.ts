@@ -25,7 +25,7 @@ export function planWords(plan: ChapterWriterPlan): { intro: string; warning: st
   const left = plan.scenes.filter((s) => !s.ready).map((s) => s.label)
   const written = ready.filter((s) => s.hasWords).length
   const intro =
-    `The AI studies this chapter against the memory, writes ${ready.length === 1 ? 'its scene' : `its ${n(ready.length, 'scene', 'scenes')}`} from the scene cards, ` +
+    `The AI studies this chapter against the memory, writes ${ready.length === 1 ? 'its scene' : ready.length === 0 ? 'its scenes' : `its ${n(ready.length, 'scene', 'scenes')}`} from the scene cards, ` +
     'then checks them against the codex, Recall and the timeline, reads them as a critic would, fixes what it finds and proofreads. ' +
     `It keeps going until the checks come back clean. ${LIMIT_WORDS} It works in the background; you can stop it at any time from the top bar.`
   const warning = written

@@ -22,6 +22,7 @@ import { usePrefs } from '@/features/style/prefsStore'
 import { editStoryStyle } from '@/features/stories/storyActions'
 import { PART_LABELS, PartRedo, RecipeTalkPanel, talkParts } from '@/features/recipes/RecipeTalk'
 import { settlePreview } from '@/features/planning/talkStore'
+import { defaultMode } from '@/features/outline/stages'
 import {
   answerQuestion,
   applyRecipeTalk,
@@ -118,7 +119,11 @@ export function IdeaStep({ storyId }: { storyId: ID }): React.JSX.Element {
 function lengthHint(length: StoryLength): string {
   const size = sizeForLength(length, 0)
   const acts = size.acts ? `${size.acts} acts and ` : ''
-  return `${length ? 'A new outline starts' : 'Until you choose, a new outline starts'} with ${acts}${size.chapters} chapters of ${size.scenes} scenes each. You can change that on the Outline step.`
+  const start = length ? 'A new outline starts' : 'Until you choose, a new outline starts'
+  // A long story is planned in stages (2026-10-19): the acts first, then each act's chapters and each chapter's scenes.
+  if (defaultMode(size.chapters) === 'stages')
+    return `${start} in stages: ${size.acts} acts first, about ${size.chapters} chapters in all, then each act’s chapters and each chapter’s scenes as you go. You can change that on the Outline step.`
+  return `${start} with ${acts}${size.chapters} chapters of ${size.scenes} scenes each. You can change that on the Outline step.`
 }
 
 // ---------- His own characters and places ----------

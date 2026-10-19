@@ -26,9 +26,11 @@ interface Options {
   skip?: (key: string) => boolean
   /** Each heading ends with its key ("[#a0c1s2]"), so a talk's answer can say which one it changed. */
   tag?: boolean
+  /** Words after a heading, by its key (the outline in stages: "(in the story)", "(plan this one)"); '' for none. */
+  note?: (key: string) => string
 }
 
-const tagged = (key: string, o: Options): string => (o.tag ? ` [#${key}]` : '')
+const tagged = (key: string, o: Options): string => `${o.tag ? ` [#${key}]` : ''}${o.note?.(key) ?? ''}`
 
 export function sceneText(s: SuggestedScene, o: Options = {}): string {
   const e = o.edits?.[s.key]
@@ -63,8 +65,10 @@ export function actText(a: SuggestedAct, o: Options = {}): string {
   const e = o.edits?.[a.key]
   const title = flat(e?.title ?? a.title) || 'Untitled act'
   const purpose = flat(e?.text ?? a.purpose)
+  const about = e?.about ?? a.chapterCount
   const head = [`# Act: ${title}${tagged(a.key, o)}`]
   if (purpose) head.push(`Purpose: ${purpose}`)
+  if (about) head.push(`Chapters: ${about}`)
   const chapters = a.chapters.filter((c) => !o.skip?.(c.key)).map((c) => chapterText(c, o))
   return [head.join('\n'), ...chapters].join('\n\n')
 }
@@ -177,7 +181,10 @@ export function spliceText(text: string, key: string, fresh: SuggestedAct | Sugg
   const p = parseOutline(text, true)
   const f = find(p, key)
   if (!f) return null
-  if (f.kind === 'act') Object.assign(f.node, { title: (fresh as SuggestedAct).title || f.node.title, purpose: (fresh as SuggestedAct).purpose, chapters: (fresh as SuggestedAct).chapters })
+  if (f.kind === 'act') {
+    const a = fresh as SuggestedAct
+    Object.assign(f.node, { title: a.title || f.node.title, purpose: a.purpose, chapterCount: a.chapterCount ?? f.node.chapterCount, chapters: a.chapters })
+  }
   else if (f.kind === 'chapter') {
     const c = fresh as SuggestedChapter
     Object.assign(f.node, { title: c.title || f.node.title, goal: c.goal, card: c.card, scenes: c.scenes })
@@ -301,7 +308,7 @@ function own(kind: NodeKind, n: AnyNode): string {
     return [c.title, c.goal, card(c.card)].join('\u0001')
   }
   const a = n as SuggestedAct
-  return [a.title, a.purpose].join('\u0001')
+  return [a.title, a.purpose, a.chapterCount ?? ''].join('\u0001')
 }
 
 /**
@@ -390,7 +397,7 @@ export function applyPlanChanges(current: string, changes: string): (PlanChanges
       Object.assign(w, { title, goal: keep(n.goal, w.goal), card: mergeCard(w.card, n.card) })
     } else {
       const w = was as SuggestedAct
-      Object.assign(w, { title, purpose: keep((next as SuggestedAct).purpose, w.purpose) })
+      Object.assign(w, { title, purpose: keep((next as SuggestedAct).purpose, w.purpose), chapterCount: (next as SuggestedAct).chapterCount ?? w.chapterCount })
     }
     children(kind, was, next)
   }
