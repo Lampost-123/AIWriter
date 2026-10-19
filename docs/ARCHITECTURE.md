@@ -4942,7 +4942,8 @@ checks are still governed by Automatic AI (`shared/automaticAi.ts`) and never go
   `generate/draftRun.ts` (how it ended; the briefing note as it starts), `repair/repairRun.ts` (`noteDraftRepair`, when the
   words are its draft's record), `liveChecks/liveActions.ts` (`noteDraftPhrases`, within 30 s of its end) and the check
   after the draft (`issuesStore.ts` → `noteDraftCheck`). Other landings (Continue, a beat, a rewrite accepted) keep their
-  own messages.
+  own messages. The corner messages keep clear of the panels' foot of the page while it shows (the receipt, the
+  director's line: `SceneView.tsx`, `ToastsAbove` on `data-page-foot`), as they do of the desk's dock.
 - **A refused draft** (`generation:done` `refused`, set in `ai/drafts.ts` for a content filter, a refusal, a 403, or words
   that are plainly a refusal): the note says so and offers "Try with <model>", another model Adam has set up, for that one
   draft (`DraftOptions.model`, honoured by `ai/draftFlow.ts` `writerModel` only for one of his own models); the writer
