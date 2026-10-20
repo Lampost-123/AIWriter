@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import type { PaintedTheme } from '@shared/api'
 import { accentIdOf, lookOf, type Look } from '@shared/contracts/look'
@@ -103,11 +103,10 @@ function stopRunningDrafts(): void {
 function createWindow(): void {
   const theme = startTheme()
   const look = startLook()
-  // Opening maximized, the first frame is drawn at the screen's size already, so nothing moves as it shows.
-  const size = MAXIMIZED ? screen.getPrimaryDisplay().workAreaSize : { width: 1440, height: 900 }
+  // Made at 1440×900 even when it opens maximized: that is the size Restore down gives it back.
   const win = new BrowserWindow({
-    width: size.width,
-    height: size.height,
+    width: 1440,
+    height: 900,
     minWidth: 960,
     minHeight: 600,
     show: false,

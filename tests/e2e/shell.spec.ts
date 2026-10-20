@@ -39,6 +39,9 @@ test('the window opens filling the screen (maximized)', async ({ launch }) => {
     w.show()
   })
   await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(false)
+  // Restore down gives the 1440×900 window back, not one the size of the screen (on a screen wider than that).
+  const [w, full] = await app.evaluate(({ BrowserWindow, screen }) => [BrowserWindow.getAllWindows()[0].getBounds().width, screen.getPrimaryDisplay().workAreaSize.width])
+  if (full > 1440) expect(w).toBeLessThan(full)
 })
 
 test('a world can be renamed from the world menu, and a world needs a name', async ({ launch }) => {
