@@ -31,6 +31,15 @@ describe('how the topics stand', () => {
     expect(connectionsOpen({ characters: 0, places: 0, lore: 0, connections: 4 })).toBe(false)
     expect(connectionsOpen({ characters: 0, places: 1, lore: 0, connections: 0 })).toBe(true)
   })
+
+  it('offers How it all connects as soon as the world has a character, a place or lore, however it got there', () => {
+    expect(connectionsOpen(null, { character: 2 })).toBe(true)
+    expect(connectionsOpen(null, { place: 1 })).toBe(true)
+    expect(connectionsOpen({ characters: 0, places: 0, lore: 0, connections: 0 }, { lore: 1 })).toBe(true)
+    expect(connectionsOpen(null, { group: 3, item: 1 })).toBe(false)
+    expect(connectionsOpen(null, {})).toBe(false)
+    expect(connectionsOpen(null, null)).toBe(false)
+  })
 })
 
 describe('a round of answers', () => {
