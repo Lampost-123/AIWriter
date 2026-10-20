@@ -117,8 +117,8 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     fake.reset()
     await binder(win).locator('[data-row="chapter"]', { hasText: 'Chapter 1' }).click({ button: 'right' })
     await win.getByRole('menuitem', { name: 'Interview me about this chapter' }).click()
-    // Plan this chapter, in its row of Build with AI's story line (2026-10-20; its own page before).
-    const page = main(win).locator(`[data-chapter-plan="${chapter.id}"]`)
+    // The chapter's own page in Build with AI, at its plan (2026-10-20).
+    const page = main(win).locator(`[data-chapter-page="${chapter.id}"]`)
     await expect(page.getByRole('heading', { name: 'Ch 1' })).toBeVisible()
     const box = page.getByRole('region', { name: 'Interview' })
     await answer(box, 'What happens in this chapter?', 'A letter comes for Mara')

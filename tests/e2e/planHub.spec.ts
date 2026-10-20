@@ -224,14 +224,18 @@ test('mid-story on the desk: where you are, what happens next in Adam’s words,
     const ch4 = line(win).locator(`[data-chapter="${ahead.ch4}"]`)
     await expect(ch4).toContainText('Ch 4 · The Board Meets')
     await expect(ch4).toContainText('no scenes yet')
-    await ch4.locator('[data-plan-scenes]').click()
-    const visitor = ch4.getByRole('group', { name: /^Scene: / }).first()
+    // Its one next step, Plan it, opens its own page at its plan: Suggest scenes, kept there.
+    await ch4.locator(`[data-step-for="${ahead.ch4}"]`).click()
+    const page4 = hub(win).locator(`[data-chapter-page="${ahead.ch4}"]`)
+    await page4.locator('[data-suggest-scenes]').click()
+    const visitor = page4.getByRole('group', { name: /^Scene: / }).first()
     await expect(visitor).toBeVisible({ timeout: 30_000 })
-    await expect(ch4.locator('.hub-line-batch')).toContainText('Ch 4 · Sc 1')
-    await hub(win).locator('[data-batch-head]').getByRole('button', { name: 'Keep all' }).click()
+    await expect(page4.locator('[data-chapter-batch]')).toContainText('Ch 4 · Sc 1')
+    await page4.locator('[data-chapter-batch]').getByRole('button', { name: 'Keep all' }).click()
     await expect
       .poll(async () => (await invoke(win, 'getOutline', storyId)).scenes.filter((s) => s.chapterId === ahead.ch4).length)
       .toBeGreaterThan(0)
+    await hub(win).getByRole('navigation', { name: 'Trail' }).getByRole('button', { name: 'Whole story' }).click()
 
     // ----- An act with no chapters: plan its chapters, under it -----
     await line(win).locator('[data-row="acts-only"]').getByRole('button', { name: 'Plan its chapters' }).click()
@@ -330,8 +334,9 @@ test('the panels: the hub mid-story, then a new story from its idea to its plan 
     // Carrying the plan on with nothing written yet: more scenes for Ch 1, after its last scene, with Adam's words.
     await hub(win).locator('[data-next-card]').getByLabel('Tell it in your own words, or leave it to the AI').fill('The ferry is late, and the Duke’s men are early.')
     const grey = (await invoke(win, 'getOutline', made.id)).chapters[0]
-    await line(win).locator(`[data-chapter="${grey.id}"]`).getByRole('button', { name: 'Add scenes to Ch 1' }).click()
-    const added = line(win).locator(`[data-chapter="${grey.id}"] .hub-line-batch`)
+    await line(win).locator(`[data-chapter-zoom="${grey.id}"]`).click()
+    await hub(win).locator(`[data-chapter-page="${grey.id}"] [data-add-scenes="${grey.id}"]`).click()
+    const added = hub(win).locator(`[data-chapter-page="${grey.id}"] [data-batch="chapter"]`)
     await expect(added.getByRole('group', { name: /^Scene: / }).first()).toBeVisible({ timeout: 30_000 })
     expect(lastAsked(fake).user).toContain('## What the author wants (make it happen)\nThe ferry is late, and the Duke’s men are early.')
     expect(lastAsked(fake).user).toContain('that come after “Salvage Rights” (Ch 1, Sc 2), the chapter’s last scene so far')
@@ -393,9 +398,11 @@ test('carrying on a story that has chapters: more scenes for a written chapter, 
     const written = line(win).locator('[data-row="written-chapters"]')
     await written.getByRole('button', { name: 'Open' }).click()
     const [ch1] = (await invoke(win, 'getOutline', storyId)).chapters
-    const row1 = line(win).locator(`[data-chapter="${ch1.id}"]`)
-    await row1.getByRole('button', { name: 'Add scenes to Ch 1' }).click()
-    const batch1 = row1.locator('.hub-line-batch')
+    // Its name opens its own page, where Add scenes is.
+    await line(win).locator(`[data-chapter-zoom="${ch1.id}"]`).click()
+    const row1 = hub(win).locator(`[data-chapter-page="${ch1.id}"]`)
+    await row1.locator(`[data-add-scenes="${ch1.id}"]`).click()
+    const batch1 = row1.locator('[data-batch="chapter"]')
     await expect(batch1.getByRole('group', { name: /^Scene: / }).first()).toBeVisible({ timeout: 30_000 })
     const asked = lastAsked(fake).user
     expect(asked).toContain('Suggest the scenes of the chapter “The Night Ferry” (it is in the story already) that come after “A Letter for the Keeper” (Ch 1, Sc 2), the chapter’s last scene so far')
@@ -410,8 +417,12 @@ test('carrying on a story that has chapters: more scenes for a written chapter, 
       .toEqual(['Lighting the Lamp', 'A Letter for the Keeper', 'Arrival at the docks'])
 
     // ----- 3. The empty cards of a chapter, filled in from the story so far -----
+    await hub(win).getByRole('navigation', { name: 'Trail' }).getByRole('button', { name: 'Whole story' }).click()
     await line(win).locator('[data-row="planned"]').getByRole('button', { name: 'Pick up from here' }).click()
-    const row3 = line(win).locator(`[data-chapter="${ahead.ch3}"]`)
+    // Ch 3's one next step, with a card that says nothing: Plan it, on its own page.
+    await expect(line(win).locator(`[data-step-for="${ahead.ch3}"]`)).toHaveText('Plan it')
+    await line(win).locator(`[data-step-for="${ahead.ch3}"]`).click()
+    const row3 = hub(win).locator(`[data-chapter-page="${ahead.ch3}"]`)
     await row3.getByRole('button', { name: 'Fill in 1 empty card' }).click()
     const vigilCard = row3.getByRole('group', { name: 'Scene: The keeper’s vigil', exact: true })
     await expect(vigilCard).toBeVisible({ timeout: 30_000 })

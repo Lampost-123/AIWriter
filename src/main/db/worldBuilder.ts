@@ -5,7 +5,7 @@
 
 import type Database from 'better-sqlite3'
 import type { EntryKind, ID } from '@shared/types'
-import { logForRun, type LogRow } from './keeper'
+import { getLog, logForRun, type LogRow } from './keeper'
 import { issuesTouched } from './checks'
 
 type DB = Database.Database
@@ -19,13 +19,14 @@ export function markNotUndone(db: DB, id: ID): void {
   db.prepare('UPDATE memory_log SET undone_at = NULL WHERE id = ?').run(id)
 }
 
-/** Every build's run, oldest first. */
+/** Every build's run, oldest first (a Keep from an interview by topic, whose lines say "via":"interview", isn't one). */
 export function buildRunIds(db: DB): ID[] {
   return (
     db
       .prepare(
         `SELECT run_id AS id, MIN(rowid) AS first FROM memory_log
-         WHERE scene_id IS NULL AND undo_json LIKE '{"op":"world-build"%' GROUP BY run_id ORDER BY first`
+         WHERE scene_id IS NULL AND undo_json LIKE '{"op":"world-build"%' AND undo_json NOT LIKE '%"via":"interview"%'
+         GROUP BY run_id ORDER BY first`
       )
       .all() as Row[]
   ).map((r) => r.id as string)
@@ -38,6 +39,19 @@ export function lastBuildRun(db: DB): { id: ID; status: string; cost: number | n
   const r = db.prepare('SELECT status, cost, finished_at, created_at FROM memory_runs WHERE id = ?').get(id) as Row | undefined
   if (!r) return null
   return { id, status: r.status as string, cost: (r.cost as number | null) ?? null, finishedAt: (r.finished_at ?? r.created_at) as string }
+}
+
+/** Every line a Keep from an interview by topic wrote and that is not undone, oldest first (2026-10-20). */
+export function interviewLines(db: DB): LogRow[] {
+  const ids = (
+    db
+      .prepare(
+        `SELECT id FROM memory_log WHERE scene_id IS NULL AND undone_at IS NULL
+         AND undo_json LIKE '{"op":"world-build"%' AND undo_json LIKE '%"via":"interview"%' ORDER BY rowid`
+      )
+      .all() as Row[]
+  ).map((r) => r.id as string)
+  return ids.flatMap((id) => getLog(db, id) ?? [])
 }
 
 /** Every line the builds wrote, oldest first (undone ones too). */

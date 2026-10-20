@@ -7,9 +7,12 @@
 //   2. Cast and world: the cast and world planned from the idea and built into the codex, or built from a summary (the
 //      World builder), and who and what the world has, with Add someone with AI;
 //   3. The story line: what happens next (or how a new story is laid out), where the plan has drifted, and the story
-//      line with the AI's suggestions in their place; each chapter with Plan this chapter and Write this chapter in its
-//      row, each planned scene with Ideas, Interview me, Fill the card and Write it;
+//      line with the AI's suggestions in their place; each chapter with its name and one next step (Plan it, Write it,
+//      Open), each scene its name;
 //   4. Threads: the open plot threads, overdue first, each with Plan its payoff.
+// Zoomed in (Option A, 2026-10-20): a chapter or a scene opens as its own page here in place of the sections, with a
+// trail back to the whole story (ZoomPages.tsx; the view's `chapterId` or `sceneId`, zoomLogic.ts zoomOf): a chapter's
+// plan, its scenes and Write this chapter; a scene's card, Ideas, Interview me, Fill the card and Write it.
 // Beside them, Talk it over, about the section in view, and the Plan before writing switch. A new story opens at Your
 // idea, one under way at the story line; every older way in opens its own section (buildLogic.ts buildRoute). The
 // suggestions and a request still arriving are the outline helper's session, so leaving the page loses neither; what
@@ -81,19 +84,21 @@ import {
   setWords,
   showScenes,
   showSummary,
-  toggleChapter,
   toggleRow,
   toggleThread,
   usePlanHubs,
   waitingThreads
 } from './hubStore'
 import { DriftCard, NextCard, SizeChoice, StartCard } from './HubCards'
+import { ChapterPage, ScenePage } from './ZoomPages'
+import { zoomOf } from './zoomLogic'
 import { StoryLine } from './StoryLine'
 import { EarlierBatches, shownNodes } from './LineSuggestions'
 import { CastSection } from './CastSection'
 import { ThreadsSection } from './ThreadsSection'
 import './planHub.css'
 import './build.css'
+import './zoom.css'
 
 export function PlanHub({ view }: { view: BuildView }): React.JSX.Element {
   const storyId = view.storyId
@@ -274,15 +279,21 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
   // The strip of sections along the top: its height, so the talk beside and a section brought into view keep clear of it.
   const nav = useRef<HTMLElement>(null)
   const [navH, setNavH] = useState(64)
+  // Zoomed in there is no list of sections; it is measured again on coming back out.
+  const sectionsShown = !(view.chapterId || view.sceneId)
   useEffect(() => {
     const el = nav.current
     if (!el) return
     const ro = new ResizeObserver(() => setNavH(Math.round(el.getBoundingClientRect().height)))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [sectionsShown])
 
   const mode = hubMode(shape, session.blank)
+  // A chapter's or a scene's own page (zoomed in), or the whole story.
+  const zoom = useMemo(() => zoomOf(view, shape), [view, shape])
+  const zoomChapter = useMemo(() => (zoom ? (lineChapters(shape).find((c) => c.id === zoom.chapterId) ?? null) : null), [zoom, shape])
+  const zoomScene = zoom?.kind === 'scene' ? (zoomChapter?.scenes.find((sc) => sc.id === zoom.sceneId) ?? null) : null
   const where = useMemo(() => whereYouAre(shape), [shape])
   const written = useMemo(() => writtenLine(shape, where), [shape, where])
   const rows = useMemo(() => storyLine(shape), [shape])
@@ -373,28 +384,46 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
     return { onPointerDownCapture: here, onFocusCapture: here }
   }
 
-  // What the way in asked for: a section, a chapter's panel, a scene's tool, a summary build, a recipe to follow. Once
-  // each time it is opened (the first time, a story with nothing asked for opens at its default section).
+  // What the way in asked for: a section, a chapter's or a scene's own page (with Write this chapter or a scene's tool
+  // open), a summary build, a recipe to follow. Once each time it is opened (the first time, a story with nothing asked
+  // for opens at its default section). Zoomed in, the page starts at its top, or at what was asked for.
   const applied = useRef<BuildView | null>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (applied.current === view) return
     const first = applied.current === null
     applied.current = view
     if (view.summary) showSummary(storyId, true)
     if (view.recipeId) void followFromRecipe(storyId, view.recipeId)
-    let target: string | null = null
-    if (view.chapterId || view.sceneId) {
-      const open = rowsToOpen(storyLine(shape), { chapterId: view.chapterId, sceneId: view.sceneId })
-      for (const k of open.rowKeys) toggleRow(storyId, k, true)
-      for (const c of open.chapterIds) toggleChapter(storyId, c, true)
-      if (view.chapterId && view.open) openPanel(storyId, view.chapterId, view.open)
-      if (view.sceneId && view.tool) openTool(storyId, view.sceneId, view.tool)
-      target = view.sceneId ? `[data-scene-row="${CSS.escape(view.sceneId)}"]` : open.chapterId ? `[data-chapter="${CSS.escape(open.chapterId)}"]` : null
+    const z = zoomOf(view, shape)
+    if (z) {
+      if (z.kind === 'chapter' && view.open === 'write') openPanel(storyId, z.chapterId, 'write')
+      if (z.kind === 'scene' && view.tool) openTool(storyId, z.sceneId, view.tool)
+      holdUntil.current = Date.now() + 900
+      if (scroller.current) scroller.current.scrollTop = 0
+      const target =
+        z.kind === 'chapter'
+          ? view.open === 'write'
+            ? `[data-write-panel="${CSS.escape(z.chapterId)}"]`
+            : view.open === 'plan'
+              ? `[data-chapter-plan="${CSS.escape(z.chapterId)}"]`
+              : null
+          : view.tool
+            ? `[data-scene-page="${CSS.escape(z.sceneId)}"] .zoom-tools`
+            : null
+      if (target) scrollToSoon(scroller.current, target, false)
+      return
     }
-    const section = view.section ?? (view.chapterId || view.sceneId ? 'line' : first ? defaultSection(mode) : null)
+    let target: string | null = null
+    if (view.near) {
+      // Back out from a chapter's page: its row open, and in view.
+      const open = rowsToOpen(storyLine(shape), { chapterId: view.near })
+      for (const k of open.rowKeys) toggleRow(storyId, k, true)
+      if (open.chapterId) target = `[data-chapter="${CSS.escape(open.chapterId)}"]`
+    }
+    const section = view.section ?? (first ? defaultSection(mode) : null)
     if (section) setInView(section)
     holdUntil.current = Date.now() + 900
-    if (target) scrollToSoon(scroller.current, target, !first)
+    if (target) scrollToSoon(scroller.current, target, false)
     else if (section && !(first && section === 'idea')) scrollToSoon(scroller.current, `[data-build-section="${section}"]`, !first)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
@@ -441,6 +470,7 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
 
   const title = story.title.trim() || 'Untitled story'
   const hubView: View = { kind: 'planHub', storyId, section: 'line', ...(back ? { back } : {}) }
+  const talkSection: BuildSection = zoom ? 'line' : inView
   const backToHub = { view: hubView, label: 'Back to Build with AI' }
 
   // How each section stands, for the list of sections and their heads.
@@ -458,6 +488,25 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
     patchPlan(storyId, { premise: { status: 'kept', text: premise, before: null, taskId: null } })
     buildStoryWorldSoon(storyId, recipePlan.recipeId)
   }
+
+  // Beside the page, zoomed in or not: Talk it over and the Plan before writing switch.
+  const side = (
+    <aside className="hub-side" aria-label="Beside the plan">
+      <TalkBeside storyId={storyId} section={talkSection} mode={mode} running={running} hasOpen={!!run && shownNodes(run, tree).some((n) => !run.decisions[n.key])} hasList={!!brief?.codex} />
+      <div className="hub-side-card" data-plan-first>
+        <Switch id="hub-plan-first" checked={planFirst} onChange={(v) => void updateSettings({ planFirst: v })} aria-describedby="hub-plan-first-help" className="mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <label htmlFor="hub-plan-first" className="text-[13px] font-medium text-fg">
+            Plan before writing
+          </label>
+          <p id="hub-plan-first-help" className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
+            Before the AI writes a scene, it looks up where everyone is and plans the scene’s beats, so the draft keeps to the story. Uses the memory model
+            once each time.
+          </p>
+        </div>
+      </div>
+    </aside>
+  )
 
   const sectionHead = (s: BuildSection): React.JSX.Element => {
     const no = SECTIONS.findIndex((x) => x.id === s) + 1
@@ -483,7 +532,8 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
       className="plan-hub build"
       data-plan-hub={mode}
       data-desk={desk || undefined}
-      data-in-view={inView}
+      data-in-view={talkSection}
+      data-zoomed={zoom?.kind}
       style={{ '--nav-h': `${navH}px` } as React.CSSProperties}
     >
       <div className="hub-scroll" data-hub-scroll ref={scroller}>
@@ -505,6 +555,31 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
           </div>
         </header>
 
+        {zoom && zoomChapter ? (
+          <div className="build-body is-zoom">
+            <div className="hub-main build-main">
+              {zoom.kind === 'scene' && zoomScene ? (
+                <ScenePage storyId={storyId} chapter={zoomChapter} scene={zoomScene} hub={hub} back={back} />
+              ) : (
+                <ChapterPage
+                  storyId={storyId}
+                  chapter={zoomChapter}
+                  outline={shape}
+                  hub={hub}
+                  session={session}
+                  run={run}
+                  tree={tree}
+                  labels={labels}
+                  starter={starter}
+                  empty={facts?.emptyCards[zoomChapter.id] ?? []}
+                  drift={drift}
+                  back={back}
+                />
+              )}
+            </div>
+            {side}
+          </div>
+        ) : (
         <div className="build-body">
           <nav ref={nav} className="build-nav" aria-label="Build with AI" data-build-nav>
             <ol className="build-nav-list">
@@ -606,6 +681,7 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
                 emptyCards={facts?.emptyCards ?? {}}
                 starter={starter}
                 back={backToHub}
+                outerBack={back}
               />
               <EarlierBatches storyId={storyId} session={session} labelsOf={labelsOf} />
             </section>
@@ -625,22 +701,9 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
             </section>
           </div>
 
-          <aside className="hub-side" aria-label="Beside the plan">
-            <TalkBeside storyId={storyId} section={inView} mode={mode} running={running} hasOpen={!!run && shownNodes(run, tree).some((n) => !run.decisions[n.key])} hasList={!!brief?.codex} />
-            <div className="hub-side-card" data-plan-first>
-              <Switch id="hub-plan-first" checked={planFirst} onChange={(v) => void updateSettings({ planFirst: v })} aria-describedby="hub-plan-first-help" className="mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <label htmlFor="hub-plan-first" className="text-[13px] font-medium text-fg">
-                  Plan before writing
-                </label>
-                <p id="hub-plan-first-help" className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
-                  Before the AI writes a scene, it looks up where everyone is and plans the scene’s beats, so the draft keeps to the story. Uses the memory model
-                  once each time.
-                </p>
-              </div>
-            </div>
-          </aside>
+          {side}
         </div>
+        )}
       </div>
     </div>
   )

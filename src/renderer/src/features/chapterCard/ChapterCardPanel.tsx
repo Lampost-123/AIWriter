@@ -7,7 +7,7 @@ import type { ChapterCard, Entry, ID } from '@shared/types'
 import { emptyChapterCard } from '@shared/chapterCard'
 import { cardLength } from '@shared/defaults'
 import { Button, Field, IconButton, Input, Notice, Spinner, toast } from '@/components/ui'
-import { ArrowLeft, BookOpenText, Feather, Users, X } from '@/components/ui/icons'
+import { ArrowLeft, BookOpenText, Feather, Sparkles, Users, X } from '@/components/ui/icons'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { placeOptions } from '@/features/world/entryLogic'
@@ -22,6 +22,7 @@ import { WordTargetInput } from '@/features/inspector/WordTargetInput'
 import { usePrefs } from '@/features/style/prefsStore'
 import { CHAPTER_TARGET_LIMITS } from '@shared/lengths'
 import { ChapterWriterReport } from '@/features/chapterWriter/ChapterWriterReport'
+import { openChapterPage } from '@/features/outline/open'
 import { announceChapterCard, endChapterCardBatch, registerChapterCardForm, scenesWord, takeChapterCardFocus } from './chapterCardEvents'
 
 /** Under the chapter target: how far the chapter has got, and where the target comes from. */
@@ -204,6 +205,17 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
             What this chapter’s scenes share. {sceneCount === 1 ? 'Its 1 scene follows' : sceneCount ? `Its ${scenesWord(sceneCount)} follow` : 'Its scenes follow'} each part
             until you give a scene its own on its card. New scenes start with it.
           </p>
+          {outline ? (
+            <button
+              type="button"
+              className="mt-2 inline-flex items-center gap-1.5 rounded text-[12.5px] font-medium text-accent hover:underline"
+              onClick={() => openChapterPage(outline.story.id, chapterId)}
+              title="This chapter’s own page in Build with AI: its plan, its scenes and Write this chapter"
+              data-build-chapter-link
+            >
+              <Sparkles size={13} aria-hidden /> Build this chapter with AI
+            </button>
+          ) : null}
         </div>
         <Group title="Who and where" icon={Users} action={<SaveNote status={autosave.status} error={autosave.error} />}>
           <Field label="Point of view" hint={characters.length ? 'Whose eyes most of the chapter is seen through.' : 'No characters yet. Type a name under Characters present to add one.'}>

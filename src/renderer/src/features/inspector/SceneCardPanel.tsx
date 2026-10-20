@@ -5,7 +5,7 @@ import { aiLinked, mergeThreadLinks, withListEdited, type ThreadList } from '@sh
 import { carryOf, emptyChapterCard, follows, isFieldEmpty, resolveCardWrite, followChapterPart, withCarry } from '@shared/chapterCard'
 import { CarryRow } from '@/features/chapterCard/CarryRow'
 import { Button, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
-import { Feather, ListOrdered, Spool, TextQuote, Users, type IconType } from '@/components/ui/icons'
+import { Feather, ListOrdered, Sparkles, Spool, TextQuote, Users, type IconType } from '@/components/ui/icons'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
@@ -25,6 +25,7 @@ import { SceneIdeas } from '@/features/outline/SceneIdeas'
 import { InterviewButton, PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
 import { PlanSceneButton } from '@/features/outline/PlanSceneButton'
 import { registerInterviewCard } from '@/features/outline/planInterviewStore'
+import { openScenePage } from '@/features/outline/open'
 import { registerPayOffPanel, takePayOff, undoPayOff } from '@/features/threads/payOff'
 
 const LENGTH_PRESETS = [800, 1500, 2500, 4000]
@@ -344,6 +345,18 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         lead={interview ? null : <PlanSceneButton sceneId={sceneId} card={card} />}
         beside={interview ? null : <InterviewButton target={interviewTarget} />}
       />
+      <button
+        type="button"
+        className="-mt-2 inline-flex items-center gap-1.5 self-start rounded text-[12.5px] font-medium text-accent hover:underline"
+        onClick={() => {
+          const storyId = useApp.getState().storyId
+          if (storyId) openScenePage(storyId, sceneId)
+        }}
+        title="This scene’s own page in Build with AI: its card in short, ideas, interview and draft"
+        data-build-scene-link
+      >
+        <Sparkles size={13} aria-hidden /> Build this scene with AI
+      </button>
       <Group title="Who and where" icon={Users} action={<SaveNote status={autosave.status} error={autosave.error} />}>
         <CarryRow
           label="Point of view"

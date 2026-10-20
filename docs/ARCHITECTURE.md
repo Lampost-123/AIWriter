@@ -54,7 +54,7 @@ src/renderer/src/
   components/ui  The design system. Use these, not raw elements, for buttons, fields, tabs, dialogs, selects
   layout/        Top bar, resizable side panes, inspector, update banner
   features/      binder, editor, inspector, world, style, settings, generate, welcome; planHub (Build with AI: every AI
-                 building tool for a story in one area) over outline (the suggestions' store and parts), storyBuilder
+                 building tool for a story in one area, zoomed in on a chapter or a scene) over outline (the suggestions' store and parts), storyBuilder
                  (the idea, cast and world), chapterWriter (Write the chapter) and worldBuilder (from a summary)
 ```
 
@@ -4999,8 +4999,9 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
      redo, build into the codex, Undo) or "from a summary" (`worldBuilder/WorldBuilderView.tsx` `SummaryBuilder`, the
      World builder's form and results without its page), then **In your world**: each kind with its count and names (a
      click opens one), **Add someone with AI** (the character builder) and Open the codex.
-  3. **The story line**: the Plan hub (below), plus, in each chapter's row (the chapter being written, and each planned
-     chapter), **Plan this chapter** (`ChapterPlanPanel.tsx`: the chapter's goal, Interview me or Just suggest scenes,
+  3. **The story line**: the Plan hub (below). Since "Zoom in" (below) each chapter's row has its name and one next step,
+     each scene its name, and what follows is on a chapter's or a scene's own page. Before that, in each chapter's row
+     (the chapter being written, and each planned chapter), **Plan this chapter** (`ChapterPlanPanel.tsx`: the chapter's goal, Interview me or Just suggest scenes,
      its scene cards as suggestions in its own session, `LineSuggestions` with `chapterId`, Keep all, then Write this
      chapter) and **Write this chapter** (`WritePanel.tsx`, below). Each planned scene (`SceneRow.tsx`) has **Ideas**
      (next scene ideas inline: what Adam has in mind, three ideas, Use this, Dismiss), **Interview me** (the scene
@@ -5062,6 +5063,69 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
   each scene's draft, the memory's read, its plan before writing, its check and about one fix, and the critic once, at
   the writer's, memory's and check models' prices (`RunDeps.estimate`, sent with the review stage as
   `ChapterWriterProgress.estimate`). The fake provider answers the new parts (`tests/fake-provider/chapter.mjs`).
+- **From a plan to a written chapter** (Adam, 2026-10-20: "Start writing" did nothing he could see, there was no way to say
+  how many scenes or how long a chapter's plan is, and he could only write one scene at a time):
+  - *A batch all decided* (`LineSuggestions.tsx` `BatchHead`) offers **Write this chapter** (primary; "Write Ch N" when
+    the scenes kept span chapters) for the chapter of the first scene kept, opening its row's Write this chapter
+    (`openWriteChapter`, the view's `chapterId` with `open: 'write'`), and **Write the first scene** (`writeScene`: the
+    scene on the writing page, its draft started). "Start writing" only opened an empty page. A chapter with words already
+    gets no Write this chapter here (`hubLogic.chapterToWrite`): writing it whole would write its written scenes again.
+  - *The planned stretch's row* has **Write Ch N** for its first chapter with scenes (not while a chapter is being
+    written), and a planned chapter's own Write this chapter stands out (`.hub-row-btn.is-strong`).
+  - *Plan this chapter* has **How many scenes** (Auto, or 1 to 12: `CHAPTER_PLAN_SCENES`; the chapter session's
+    `size.scenes`, `helperStore.setChapterSceneCount`) and **Length of the chapter** (Auto, or words: the chapter card's
+    `totalWords`, saved as typed, so its scenes on Auto share it out and Write this chapter's drafts go by it;
+    `shared/lengths.ts`). The count reaches the request (`ChapterPlanRequest.scenes`; `interview.ts` `chapterPlanSystem`
+    "Suggest exactly N scenes", `chapterSizeAsk` with the length and about how long each scene is, from the card's target
+    or Settings › Writing's default; `chapterReply` gives room for more than six); a reply with more is cut to that many
+    (`HelperRun.most`, `treeOf`), so the extra are never shown or kept. Write this chapter's estimate counts each scene at
+    the length its draft will aim for (`gather.ts` `sceneLengthFor`).
+  - The chapter writer does not move on to the next chapter by itself: each chapter is written from its own row.
+  - Tests: `main/outline/interview.test.ts`, `outline/helperStore.test.ts`, `planHub/hubLogic.test.ts`
+    (`chapterToWrite`), `tests/e2e/chapterFlow.spec.ts` (pictures to `CHAPTERFLOW_SHOTS`).
+- **Zoom in** (Adam's choice, "Option A: Zoom in", 2026-10-20: an open planned chapter with 4 scenes showed about 25
+  buttons, and there was no easy way to build just one chapter or one scene with the AI):
+  - *Which page* (`zoomLogic.ts` `zoomOf`): the view's `sceneId` is that scene's own page, else `chapterId` that chapter's
+    own page, else the whole story (the sections). One the story no longer has falls back to its chapter, then to the
+    whole story. `PlanHub.tsx` shows the page (`ZoomPages.tsx`) in place of the sections, with Talk it over and Plan
+    before writing beside it as before (`talkSection` 'line'); the header and Back link stay. `near` (a chapter) brings
+    that chapter's row into view on the whole story. Every view with a `chapterId` (the outline with a chapter,
+    `openChapterPlan`, `openChapterInterview`, `openChapterWriter`, Write this chapter from a batch) lands on the
+    chapter's page: `open: 'write'` opens Write this chapter there, `open: 'plan'` brings it to its plan; a `sceneId`
+    with `tool` (`openSceneTool`) the scene's page with its ideas or interview open. The page starts at its top (or at
+    what was asked for; `useLayoutEffect`).
+  - *The trail* (`trailOf`): "Whole story › Ch 14 · The ford" on a chapter's page, "Whole story › Ch 14 › Sc 2" on a
+    scene's; Whole story goes back with `near`; the view's `back` (where Build with AI was opened from) is kept as Adam
+    zooms in and out.
+  - *The whole story, quieter* (`StoryLine.tsx`): each chapter (written, being written, planned) shows its name (a click
+    opens its page, `data-chapter-zoom`) and ONE next step (`ChapterStepButton`, `chapterStep`): **Plan it** (no scenes,
+    or a scene whose card is empty: `PlanHubFacts.emptyCards`), **Write it** (every card says something, no words yet)
+    or **Open** (it has words); while the AI writes it, "Writing · 2 of 3". Each opens the chapter's page (Plan it at
+    its plan, Write it with Write this chapter open). Scenes show their names only (`SceneLink`; a click opens the
+    scene's page). No panels, no scene tools, no Add scenes or Fill in buttons on the overview. Batches (Keep, Change,
+    Discard), What happens next? with YOU ARE HERE, Show me, Write Ch N on the planned stretch are as before.
+  - *A chapter's page* (`ChapterPage`): the trail, how it stands (`chapterMeta`: "Planned · 4 scenes", "Being written ·
+    2 of 4 scenes written · 3,100 words"), **Write this chapter** (the one primary button, `data-write-chapter-btn`;
+    `WritePanel` opens under it, `hubStore` `panel`), Chapter card, What the chapter achieves (`ChapterGoal`) and How
+    many scenes / Length of the chapter (`ChapterSize`), **Scenes** (`SceneRow`: its name opens its page, one action by
+    `sceneStep`: Open once written, Fill the card while its card is empty, else Write it; the rest in a ⋯ menu: Ideas,
+    Interview me, Fill the card, Write it, Open; Ideas and the interview open under the row), the story line's batch
+    for this chapter (Add scenes, Fill in: `RunPlace` at this chapter; What the AI saw comes back to the page), and
+    **Plan with AI** (`ChapterPlanPanel`: Interview me, Suggest scenes, plus the page's Add scenes, which takes How many
+    scenes as its count, and Fill in N empty cards; its own suggestions, Keep all, then Write this chapter).
+  - *A scene's page* (`ScenePage`): the trail, where it is and whether it is written, **Write it** (`writeScene`: the
+    scene on the writing page, its draft started; for a written scene Generate asks Replace or Add below as ever), Open
+    the scene, its card in short (When, Where, Who, What happens, What stands in the way, How it ends, Beats; read again
+    as the outline, the briefing or the codex change), then **Ideas**, **Interview me**, **Fill the card**
+    (`useSceneTools`, shared with `SceneRow`), for written or unwritten scenes.
+  - *Ways in*: the binder's right-click "Build this chapter with AI" and "Build this scene with AI", the chapter card's
+    and the scene card's "Build this … with AI" links, the palette's "Build this chapter with AI" and "Build this scene
+    with AI" (`openChapterPage`, `openScenePage` in `outline/open.ts`), and every older chapter route above.
+  - Tests: `planHub/zoomLogic.test.ts`; `tests/e2e/zoom.spec.ts` (the desk: the quiet story line, a chapter's page, its
+    scenes' one action and ⋯, Fill the card, Add scenes and What the AI saw and back, a scene's page, the trail back;
+    the panels: the binder's right-clicks, the card links, the palette, Write this chapter with AI… and Interview me
+    about this chapter; pictures to `ZOOM_SHOTS`). `buildWithAi`, `chapterFlow`, `planHub`, `buildLook`, `storyBuilder`,
+    `ai-planning-desk`, `newlook` and `interview` follow the pages.
 - **Tests**: `features/planHub/buildLogic.test.ts` (the statuses, the default section, the routes, the rows to open, the
   threads' order and Plan its payoff's words, the step, the estimate's words, Kept true, the review's heads),
   `main/chapterWriter/chapterWriter.test.ts` (the three parts and endings read, an old plan as before, Kept true, the
@@ -5260,6 +5324,47 @@ and X13 (a made-up month). Four causes, each fixed; no migration, no new kind of
   `corroborated`; which requests ask what; what counts as found by both; the touched list and the backstory),
   `checks/freeRules.test.ts` (the month in an entry made from the scene itself), and the request shapes in
   `checks/run.test.ts` and `checks/checks.test.ts`.
+
+## Interviews by topic (Adam, 2026-10-20)
+
+Adam: separate interviews for building a story or a world, instead of one broad one. **Interview me, topic by topic**
+(`features/worldInterviews/TopicInterviews.tsx`, contract `contracts/worldInterviews.ts`, main `src/main/worldInterviews/`
+and `ipc/worldInterviews.ts`) is in Build with AI's Cast and world (`CastSection.tsx`, under the two ways to build, for the
+story) and on the World builder page (`WorldBuilderView.tsx`, both layouts, `storyId` null: the world on its own). Four
+topics, any order: **Characters**, **Places**, **Lore and history**, and **How it all connects**, offered once a page
+topic has kept something (`topicLogic.connectionsOpen`). Each says how it stands: "Not started", "Under way", "Done · 3 kept".
+
+- **Questions** (`askTopicQuestions`, marker `[AIWRITE-WORLD v1] topic-questions <topic>`): a few at a time (`ROUND_MOST`,
+  3), told the idea (a story's brief and style with the world's summary, or the world's summary, themes and tone:
+  `context.ts ideaText`), what the world has (the topic's own kind in full, the rest by name; for the connections every
+  character, place, lore, event and group with its empty parts, and the relationships it has) and the interview so far,
+  so it never asks what is known. Adam answers in a box under each question (an empty box skips it), **Skip these** or
+  **Stop asking** (what is typed counts). A round that only repeats is sent back once (`parse.newQuestions`); `{"done": true}`,
+  nothing new or `MOST_QUESTIONS` (12) asked means it has enough, and the suggestions come by themselves.
+- **Suggestions** (`suggestFromTopic`, marker `topic-suggest <topic>`): pages of the topic's kind (`TOPIC_FIELDS`: the
+  parts each may fill; a place's `in`, lore's `rule`), settled against the world (`settle.ts`): a page the world has is
+  offered only for its empty parts ("Adds to your page"), or not at all; parts word for word in his answers are his
+  (`hisWordsIn`). The connections suggest links (`TopicLink`): a relationship ("lives at", "older sister of", feelings
+  only between two characters), a place inside another (only one inside none, never a loop) or words for an empty part of
+  one page; links to pages that aren't there, or that the world has already, are left out. Each is a `'world'` record (the
+  World builder model and its Thinking) with its parts, so **What the AI saw** shows them; a reply that can't be read, or is
+  plainly a refusal (`looksLikeRefusalReply`), says so in plain words.
+- **Keep, Change, Discard, Undo** (the story line's way, `wi-*` in `topicInterviews.css`): Change edits the page or link
+  (what he changes becomes his, `topicLogic.changedEntry`); Keep (`keepTopicSuggestion`, `keep.ts`) saves through the World
+  builder's writer (`worldBuilder/save.ts`: `saveEntry`, `saveInto` for a page the world has, `saveRelationship`,
+  `saveInside`, `fillField`), true from the world's beginning or the story's start, his words his and the rest drafted by
+  AI; never a page twice. Each Keep is one memory run with one line, marked `via: 'interview'` with its topic and where
+  (`WorldUndo`), shown in What changed as "Kept from an interview"; such runs are never the World builder's "last build"
+  (`db/worldBuilder.ts buildRunIds`). Undo (the row's, the toast's) is `undoWorldBuild(runId)`; Keep all has one Undo.
+  Discard has Undo in its toast. Nothing goes into the world without a click.
+- **What is kept**: the questions, answers and suggestions live in the window while the app runs (`topicStore.ts`, one
+  set per story and one for the world); what each topic kept is read back from those lines (`getInterviewProgress`,
+  `keep.ts interviewProgress`: not undone, page not deleted), so the topics stay marked done after a restart. No migration.
+- **Tests**: `src/main/worldInterviews/worldInterviews.test.ts` (prompts, reading replies, settling, Keep and its Undo, the
+  progress, the calls against the fake), `features/worldInterviews/topicLogic.test.ts`, `tests/e2e/worldInterviews.spec.ts`
+  (Cast and world: characters with Change, Keep and Undo; places stopped early with Keep all and a place put inside
+  another; How it all connects; the World builder page with no story). The fake provider answers them in
+  `tests/fake-provider/m4/worldTopics.mjs`.
 
 ## Write this chapter names the chapter (Adam, 2026-10-20)
 

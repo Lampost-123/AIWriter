@@ -84,7 +84,7 @@ writing preferences for every world. Each world and story can change them later 
 AI Write opens on **the desk**:
 
 - **The rooms**, in the middle of the top bar: **Write** (the page, the style guide and the story's settings),
-  **Plan** (the story board, the outline helper, plot threads and recipes), **World** (everything in your world,
+  **Plan** (Build with AI, the story board, plot threads and recipes), **World** (everything in your world,
   the relationship map and the timeline) and **Check** (consistency, what the memory changed, and this scene's
   issues). Each room has a row of links at its top right.
 - **The story's spine** on the left lists your chapters and scenes (the binder). Click a scene to open it. The arrow

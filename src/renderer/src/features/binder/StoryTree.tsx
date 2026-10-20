@@ -30,6 +30,7 @@ import {
   Plus,
   RefreshCw,
   SearchCheck,
+  Sparkles,
   Target as TargetIcon,
   Trash2
 } from '@/components/ui/icons'
@@ -41,7 +42,7 @@ import { undoLastDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { openChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { requestChapterCardFocus } from '@/features/chapterCard/chapterCardEvents'
-import { openChapterInterview, openPlanHub } from '@/features/outline/open'
+import { openChapterInterview, openChapterPage, openPlanHub, openScenePage } from '@/features/outline/open'
 import { useIssueCounts } from '@/features/consistency/checkStore'
 import { runCheck } from '@/features/check/runCheck'
 import { rereadScene } from '@/features/memory/reread'
@@ -666,6 +667,9 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             >
               Add scene after
             </RowMenuItem>
+            <RowMenuItem icon={<Sparkles size={14} />} onSelect={() => openScenePage(outline.story.id, menu.id)}>
+              Build this scene with AI
+            </RowMenuItem>
             <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void runCheck('scene', { sceneId: menu.id, storyId: outline.story.id, show: false })}>
               Check this scene
             </RowMenuItem>
@@ -712,6 +716,9 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
                 ))}
               </RowMenuSub>
             ) : null}
+            <RowMenuItem icon={<Sparkles size={14} />} onSelect={() => openChapterPage(outline.story.id, menu.id)}>
+              Build this chapter with AI
+            </RowMenuItem>
             <RowMenuItem icon={<MessageCircleQuestion size={14} />} onSelect={() => openChapterInterview(outline.story.id, menu.id)}>
               Interview me about this chapter
             </RowMenuItem>

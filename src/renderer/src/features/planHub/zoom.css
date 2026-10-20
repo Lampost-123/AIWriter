@@ -1,0 +1,200 @@
+/*
+  Build with AI, zoomed in (Option A, 2026-10-20; ZoomPages.tsx): a chapter's or a scene's own page in the area, in
+  place of the sections, with the talk beside it as before. On top of planHub.css and build.css. Colours from the
+  theme's tokens only; the page arrives as a change of view (opacity only; --dur-view is 0 with less motion).
+*/
+
+/* No list of sections when zoomed in: the page and the talk beside it. */
+.build-body.is-zoom {
+  padding-top: 20px;
+}
+.plan-hub.build .build-body.is-zoom .hub-side {
+  top: 16px;
+  max-height: calc(100cqh - 32px);
+}
+@container hub (min-width: 1180px) {
+  [data-arrangement='desk'] .build-body.is-zoom {
+    max-width: 1240px;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  }
+}
+
+.build-zoom {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: zoom-in var(--dur-view) var(--motion-glide);
+}
+@keyframes zoom-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The trail: Whole story › Ch 14 · The ford. */
+.zoom-trail ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  font-size: 13px;
+}
+.zoom-trail li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.zoom-trail-sep {
+  color: var(--faint);
+}
+.zoom-trail-link {
+  padding: 2px 6px;
+  margin: 0 -2px;
+  border-radius: 6px;
+  font-weight: 500;
+  color: var(--accent);
+  transition: background-color var(--dur-quick) ease-out;
+}
+.zoom-trail-link:hover {
+  background: var(--accent-soft);
+}
+.zoom-trail-here {
+  padding: 2px 4px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* The page's head: how it stands, its name, its one primary button. */
+.zoom-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.zoom-k {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.zoom-t {
+  margin-top: 3px;
+  font: 600 22px/1.25 var(--heading-font);
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+}
+.zoom-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+/* What the chapter achieves, and how many scenes and how long, side by side when there is room. */
+.zoom-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.zoom-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.zoom-sec-t {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.zoom-scenes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--hub-card);
+}
+.zoom-scenes .build-scene {
+  margin: 0 -6px;
+}
+.zoom-scenes .build-scene + .build-scene {
+  border-top: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
+  border-radius: 0;
+}
+.zoom-scenes .build-scene.is-open {
+  border-radius: 8px;
+}
+.zoom-none {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.build-more {
+  padding: 4px 6px;
+}
+
+/* A scene's card, in short. */
+.zoom-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--hub-card);
+  min-height: 52px;
+}
+.zoom-card-lines {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.zoom-card-lines > div {
+  display: contents;
+}
+.zoom-card-lines dt {
+  color: var(--muted);
+}
+.zoom-card-lines dd {
+  margin: 0;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.zoom-card-k {
+  margin-bottom: 4px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.zoom-card-beats {
+  margin: 0;
+  list-style: decimal;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.zoom-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* On the whole story, a chapter's name opens its page. */
+.hub-zoom-link {
+  cursor: pointer;
+}

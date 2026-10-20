@@ -9,7 +9,7 @@ import * as repo from '../db/repo'
 import * as acts from '../db/acts'
 import * as providers from '../ai/providers'
 import { jobModel } from '../ai/jobModel'
-import { getSettings } from '../settings'
+import { getSettings, getWritingPrefs } from '../settings'
 import { emit } from '../events'
 import { refreshDefaultExistsPoints, loadShape } from '../db/memory'
 import { scenesDeleted, scenesRestored } from '../keeper'
@@ -125,5 +125,5 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
 
   askPlanQuestion: (input) => askPlanQuestion(jobDeps(), input),
   fillSceneCard: (input) => fillSceneCard(jobDeps(), input),
-  startChapterPlan: (input) => startChapterPlan(jobDeps(), input)
+  startChapterPlan: (input) => startChapterPlan(jobDeps(), input, getWritingPrefs())
 }

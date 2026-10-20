@@ -1,9 +1,8 @@
-<!-- version: 0.8.3 -->
-What's new in 0.8.3:
+<!-- version: 0.8.4 -->
+What's new in 0.8.4:
 
-- Build with AI: one place to build your story with the AI, from your idea and cast to each chapter's plan, mid-story too.
-- Plan and write a chapter right in its row, with a clear plan, a time and a cost first.
-- The AI plans each scene before it writes, looking up where everyone is, so stories stay consistent with far fewer AI calls.
-- Your directions are followed more closely, and "Change it…" keeps this and changes that.
-- New: Directed writing. Calmer pages: one Check, one Issues list.
-- Your stories carry over. The Classic layout is retired.
+- Build with AI is calmer: one step per chapter, and each chapter and scene has its own page.
+- Open those pages from the story line, a right-click in the binder, or the chapter and scene cards.
+- Plan a chapter with how many scenes and how long it should be.
+- Write this chapter is one click away once its scenes are kept, and names the chapter to fit the story.
+- New: interviews by topic for characters, places, and lore, then "How it all connects".

@@ -1,6 +1,6 @@
 // Build with AI's look, in pictures (2026-10-20): the area on the desk in Dark and in the panels in Light, at 1366×768 and
-// full screen: a new story at Your idea, Cast and world, the story line mid-story with a chapter's Plan this chapter
-// open, and Write this chapter's plan to read. Written to BUILD_SHOTS (a folder) when it is set; nothing is checked
+// full screen: a new story at Your idea, Cast and world, the story line mid-story, a chapter's own page and a scene's,
+// and Write this chapter's plan to read. Written to BUILD_SHOTS (a folder) when it is set; nothing is checked
 // beyond what each picture needs to be there. Run on its own to look at the area: BUILD_SHOTS=<folder> npx playwright
 // test buildLook. Invented text only (the sample world, the fake provider).
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -82,10 +82,15 @@ for (const [name, env] of [
         await expect(area(win)).toHaveAttribute('data-plan-hub', 'writing')
         await shot(win, `${name}-${tag}-line`)
         const row = area(win).locator(`[data-chapter="${ch3}"]`).first()
-        if (!(await row.isVisible())) await area(win).locator('[data-row="planned"]').getByRole('button').click()
-        if (!(await area(win).locator(`[data-chapter-plan="${ch3}"]`).isVisible())) await row.locator(`[data-plan-chapter="${ch3}"]`).click()
+        if (!(await row.isVisible())) await area(win).locator('[data-row="planned"]').getByRole('button', { name: /^(Pick up from here|Open the plan)$/ }).click()
+        // Zoomed in: Ch 3's own page, then one of its scenes'.
+        await row.locator(`[data-chapter-zoom="${ch3}"]`).click()
         await expect(area(win).locator(`[data-chapter-plan="${ch3}"]`)).toBeVisible()
         await shot(win, `${name}-${tag}-plan-chapter`)
+        await area(win).locator('[data-scene-zoom]').first().click()
+        await expect(area(win).locator('[data-scene-page]')).toBeVisible()
+        await shot(win, `${name}-${tag}-scene-page`)
+        await area(win).getByRole('navigation', { name: 'Trail' }).getByRole('button', { name: 'Whole story' }).click()
         await area(win).locator('[data-nav="cast"]').click()
         await shot(win, `${name}-${tag}-cast`)
         await area(win).locator('[data-nav="idea"]').click()
@@ -95,6 +100,7 @@ for (const [name, env] of [
       }
       // Write this chapter: its plan to read.
       await area(win).locator('[data-nav="line"]').click()
+      await area(win).locator(`[data-chapter-zoom="${ch3}"]`).click()
       await area(win).locator(`[data-write-chapter-btn="${ch3}"]`).click()
       await area(win).getByTestId('chapter-writer-start').click()
       await expect(area(win).getByTestId('chapter-plan')).toBeVisible({ timeout: 60_000 })

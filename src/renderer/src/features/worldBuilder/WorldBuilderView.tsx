@@ -46,6 +46,10 @@ import {
   useWorldBuilder
 } from './worldBuilderStore'
 import { InterviewButton, WorldInterview } from './WorldInterview'
+import { TopicInterviews } from '@/features/worldInterviews/TopicInterviews'
+
+/** Where What the AI saw comes back to from an interview by topic on this page. */
+const BACK_HERE = { view: { kind: 'worldBuilder' as const }, label: 'Back to the World builder' }
 
 /**
  * Building a story rather than a world: Build with AI plans the cast and world from the idea, builds them, then the story
@@ -267,6 +271,8 @@ function Page(): React.JSX.Element {
                 <ProblemNotice message={s.problem.message} code={s.problem.code} />
               </div>
             ) : null}
+
+            <TopicInterviews storyId={null} back={BACK_HERE} />
           </>
         }
         right={
@@ -321,6 +327,7 @@ function Page(): React.JSX.Element {
         </div>
 
         <SummaryBuilder />
+        <TopicInterviews storyId={null} back={BACK_HERE} className="mt-8" />
       </div>
     </div>
   )

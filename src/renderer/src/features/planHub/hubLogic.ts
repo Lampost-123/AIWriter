@@ -465,3 +465,20 @@ export const chapterName = (c: Pick<LineChapter, 'no' | 'title'>): string => `Ch
 
 /** A scene's words in a line of scenes: "Sc 1 The ford". */
 export const sceneName = (s: Pick<LineScene, 'no' | 'title'>): string => `Sc ${s.no}${shownTitle(s.title) ? ` ${shownTitle(s.title)}` : ''}`
+
+/**
+ * The chapter holding the first scene kept, as the story has it now (its number, and whether every scene kept is in it),
+ * for the AI to write whole; null when the story doesn't have that scene (any more), or when the chapter has words
+ * already (writing it whole would write its written scenes again).
+ */
+export function chapterToWrite(
+  outline: Pick<Outline, 'chapters' | 'scenes'>,
+  sceneIds: ID[]
+): { id: ID; no: number; all: boolean } | null {
+  const chapterOf = new Map(outline.scenes.map((s) => [s.id, s.chapterId]))
+  const id = sceneIds.length ? chapterOf.get(sceneIds[0]) : undefined
+  const at = id ? outline.chapters.findIndex((c) => c.id === id) : -1
+  if (!id || at < 0) return null
+  if (outline.scenes.some((s) => s.chapterId === id && s.wordCount > 0)) return null
+  return { id, no: at + 1, all: sceneIds.every((s) => chapterOf.get(s) === id) }
+}

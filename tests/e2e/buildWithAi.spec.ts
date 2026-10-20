@@ -2,13 +2,14 @@
 // using AI"), on the sample world against the fake provider (tests/fake-provider/m4/outline.mjs: a chapter's interview
 // and plan, a scene's ideas and its card planned; story.mjs: the talk). Invented text only.
 //
-//  1. Mid-story, on the desk (Dark): each section says how it stands; a chapter's Plan this chapter opens in its row with
-//     its interview, and its scene cards keep into it; a planned scene's Ideas (Use this fills its card) and Fill the card
-//     work in its row; Threads' Plan its payoff puts the thread in the story line's box and ticks it; Write it opens the
-//     scene and starts its draft.
+//  1. Mid-story, on the desk (Dark): each section says how it stands; a chapter's Plan it opens its own page (zoomed in)
+//     at its plan, with its interview, and its scene cards keep into it; a planned scene's Ideas (Use this fills its card)
+//     and Fill the card work in its row there; Threads' Plan its payoff puts the thread in the story line's box and ticks
+//     it; Write it opens the scene and starts its draft.
 //  2. Every older way in, in the panels (Light): the story menu, the palette's "Your idea, cast and world", the Plan
-//     area's Next scene ideas and Interview me, the binder's "Interview me about this chapter" and "Write this chapter
-//     with AI…", the World area's Build from a summary, the trail's chapter, and the top bar's "The chapter plan is ready".
+//     area's Next scene ideas and Interview me (the scene's page), the binder's "Interview me about this chapter" and
+//     "Write this chapter with AI…" (the chapter's page), the World area's Build from a summary, the trail's chapter, and
+//     the top bar's "The chapter plan is ready".
 import type { ElectronApplication, Page } from '@playwright/test'
 import { areaButton, areaRow, binder, expect, invoke, test, type LaunchOptions } from './helpers'
 import type { FakeProvider } from '../fake-provider/server.mjs'
@@ -60,7 +61,7 @@ const lastAsked = (fake: FakeProvider): { system: string; user: string } => {
   return { system: m[0].content, user: m.filter((x) => x.role === 'user').map((x) => x.content).join('\n') }
 }
 
-test('mid-story on the desk: how each part stands, a chapter planned in its row, a scene’s ideas and card, a thread’s payoff, Write it', async ({ launch }) => {
+test('mid-story on the desk: how each part stands, a chapter planned on its page, a scene’s ideas and card, a thread’s payoff, Write it', async ({ launch }) => {
   test.setTimeout(180_000)
   const fake = await fakeServer()
   try {
@@ -81,13 +82,13 @@ test('mid-story on the desk: how each part stands, a chapter planned in its row,
     await expect(area(win).locator('[data-nav="threads"]')).toContainText('1 open')
     await expect(area(win).locator('[data-section-status="line"]')).toHaveText('Ch 1–2 written, Ch 3 planned')
 
-    // ----- Plan this chapter, in its row: the interview, then scene cards kept into the chapter -----
+    // ----- Plan it, on the chapter's own page: the interview, then scene cards kept into the chapter -----
     const line = area(win).locator('[data-story-line]')
     await line.locator('[data-row="planned"]').getByRole('button', { name: 'Pick up from here' }).click()
-    const row = line.locator(`[data-chapter="${ch3}"]`)
-    await row.locator(`[data-plan-chapter="${ch3}"]`).click()
+    await line.locator(`[data-step-for="${ch3}"]`).click()
+    const row = area(win).locator(`[data-chapter-page="${ch3}"]`)
     const panel = row.locator(`[data-chapter-plan="${ch3}"]`)
-    await expect(panel.getByRole('heading', { name: 'Ch 3 · The Bell Tower' })).toBeVisible()
+    await expect(row.getByRole('heading', { name: 'Ch 3 · The Bell Tower' })).toBeVisible()
     await panel.locator('[data-interview-chapter]').click()
     const interview = panel.getByRole('region', { name: 'Interview' })
     await expect(interview.getByText('What happens in this chapter?')).toBeVisible()
@@ -99,17 +100,17 @@ test('mid-story on the desk: how each part stands, a chapter planned in its row,
     await expect(panel.getByRole('group', { name: /^Scene: / }).first()).toBeVisible({ timeout: 30_000 })
     expect(lastAsked(fake).system.startsWith('[AIWRITE-OUTLINE v1] plan chapter')).toBe(true)
     // The goal it gave the chapter shows in its box; the cards are named where they go.
-    await expect(panel.getByLabel('What the chapter achieves')).toHaveValue(/The bell rings with no one at the rope/)
+    await expect(row.getByLabel('What the chapter achieves')).toHaveValue(/The bell rings with no one at the rope/)
     await expect(panel.getByRole('group', { name: /^Scene: / }).first()).toContainText('Ch 3 · Sc 3')
     const first = panel.getByRole('group', { name: /^Scene: / }).first()
     const title = (await first.getAttribute('aria-label'))!.replace(/^Scene: /, '')
     await first.getByRole('button', { name: `Keep “${title}”` }).click()
     await expect.poll(async () => (await invoke(win, 'getOutline', storyId)).scenes.filter((s) => s.chapterId === ch3).map((s) => s.title)).toContain(title)
 
-    // ----- A planned scene's Ideas, in its row: Use this fills its card -----
-    await row.getByRole('button', { name: /Show the scenes of Ch 3/ }).click().catch(() => undefined)
-    const empty = line.locator(`[data-scene-row="${unlit}"]`)
-    await empty.locator('[data-scene-tool="ideas"]').click()
+    // ----- A planned scene's Ideas, in its row on the chapter's page (its ⋯): Use this fills its card -----
+    const empty = row.locator(`[data-scene-row="${unlit}"]`)
+    await empty.locator('[data-scene-more]').click()
+    await win.getByRole('menuitem', { name: 'Ideas' }).click()
     const ideas = empty.locator(`[data-scene-ideas="${unlit}"]`)
     await ideas.getByLabel('What you have in mind, roughly (optional)').fill('the keeper hides from the Board')
     await ideas.locator('[data-ask-ideas]').click()
@@ -120,12 +121,14 @@ test('mid-story on the desk: how each part stands, a chapter planned in its row,
     await expect(ideas).toContainText('One went on the scene’s card')
 
     // ----- Fill the card, in its row: only its empty parts -----
-    await line.locator(`[data-scene-row="${hung}"]`).locator('[data-scene-tool="fill"]').click()
+    await row.locator(`[data-scene-row="${hung}"]`).locator('[data-scene-more]').click()
+    await win.getByRole('menuitem', { name: 'Fill the card' }).click()
     await expect(toastWith(win, /^Planned|already had everything/)).toBeVisible({ timeout: 30_000 })
     expect(lastAsked(fake).system).toContain('[AIWRITE-OUTLINE v1] stage scene')
     expect((await invoke(win, 'getScene', hung)).card.goal).toBe('The Board’s men hang the bell buoy off Bell Rock.')
 
     // ----- Threads: Plan its payoff puts the thread in the story line's box, ticked -----
+    await area(win).getByRole('navigation', { name: 'Trail' }).getByRole('button', { name: 'Whole story' }).click()
     await area(win).locator('[data-nav="threads"]').click()
     const thread = area(win).locator('[data-thread-row="Will the light go dark at midwinter?"]')
     await expect(thread).toBeVisible()
@@ -138,7 +141,8 @@ test('mid-story on the desk: how each part stands, a chapter planned in its row,
     await expect(area(win).locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
 
     // ----- Write it: the scene on the writing page, its draft started the usual way -----
-    await line.locator(`[data-scene-row="${hung}"]`).locator('[data-scene-tool="write"]').click()
+    await line.locator(`[data-chapter-zoom="${ch3}"]`).click()
+    await row.locator(`[data-scene-row="${hung}"]`).locator('[data-scene-step="write"]').click()
     await expect(win.locator('.scene-prose')).toBeVisible()
     await expect.poll(async () => (await invoke(win, 'getScene', hung)).text.length, { timeout: 30_000 }).toBeGreaterThan(0)
   } finally {
@@ -179,26 +183,26 @@ test('every older way in lands in its section of Build with AI (the panels)', as
     await inView('line')
     await expect(area(win).locator('[data-next-card] [data-scope="next-scene"]')).toHaveAttribute('aria-pressed', 'true')
 
-    // Interview me with a planned scene open: that scene in the story line, its interview open.
+    // Interview me with a planned scene open: that scene's page, its interview open.
     await win.evaluate(() => undefined)
     await invoke(win, 'updateSettings', { lastSceneId: unlit })
     await win.reload()
     await expect(win.locator('.scene-prose')).toBeVisible()
     await areaButton(win, 'Plan').click()
     await areaRow(win, 'Interview me').click()
-    const scene = area(win).locator(`[data-scene-row="${unlit}"]`)
+    const scene = area(win).locator(`[data-scene-page="${unlit}"]`)
     await expect(scene.getByRole('region', { name: 'Interview' })).toBeVisible()
     await expect(scene.getByRole('region', { name: 'Interview' }).getByText('Who walks in first?')).toBeVisible()
 
-    // The binder's "Interview me about this chapter": its row, Plan this chapter open, the first question there.
+    // The binder's "Interview me about this chapter": its page, at its plan, the first question there.
     await areaButton(win, 'Write').click()
     await binder(win).locator('[data-row="chapter"]', { hasText: 'The Bell Tower' }).click({ button: 'right' })
     await win.getByRole('menuitem', { name: 'Interview me about this chapter' }).click()
     const plan = area(win).locator(`[data-chapter-plan="${ch3}"]`)
     await expect(plan.getByRole('region', { name: 'Interview' }).getByText('What happens in this chapter?')).toBeVisible()
-    await inView('line')
+    await expect(area(win)).toHaveAttribute('data-zoomed', 'chapter')
 
-    // The binder's "Write this chapter with AI…": its row, Write this chapter open at its start.
+    // The binder's "Write this chapter with AI…": its page, Write this chapter open at its start.
     await areaButton(win, 'Write').click()
     await binder(win).locator('[data-row="chapter"]', { hasText: 'The Bell Tower' }).click({ button: 'right' })
     await win.getByRole('menuitem', { name: /^Write this chapter with AI/ }).click()
@@ -213,7 +217,7 @@ test('every older way in lands in its section of Build with AI (the panels)', as
     await area(win).getByTestId('chapter-plan-cancel').click()
     await expect(win.getByText('Cancelled before writing: nothing in the chapter changed.')).toBeVisible({ timeout: 30_000 })
 
-    // The trail's chapter (where a chapter's plan was): its row, Plan this chapter open.
+    // The trail's chapter (where a chapter's plan was): its page, at its plan.
     await areaButton(win, 'Write').click()
     await binder(win).locator('[data-row="scene"]', { hasText: 'The bell is hung' }).click()
     await win.getByRole('navigation', { name: 'Where you are' }).getByRole('button', { name: 'The Bell Tower' }).click()

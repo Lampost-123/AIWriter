@@ -8,6 +8,7 @@ import { parseOutline } from '@/features/outline/parse'
 import {
   askFor,
   chaptersHolding,
+  chapterToWrite,
   gistLine,
   directionText,
   hubMode,
@@ -239,5 +240,29 @@ describe('what each suggestion is called in the line', () => {
     expect([...labels.values()]).toEqual(['Ch 4 · Sc 3', 'Ch 4 · Sc 4'])
     const acts = outlineTree(parseOutline('# Act: The Sea\n## Chapter: Out\n### Scene: Sail\nSummary: s\n## Chapter: Back\n', true))
     expect([...suggestionLabels(acts, {}, { acts: 2, chapters: 6 }).values()]).toEqual(['Act 3', 'Ch 7', 'Ch 7 · Sc 1', 'Ch 8'])
+  })
+})
+
+describe('the chapter to write once a batch is all decided (2026-10-20)', () => {
+  const o = {
+    chapters: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }] as Chapter[],
+    scenes: [
+      { id: 's1', chapterId: 'c1', wordCount: 900 },
+      { id: 's0', chapterId: 'c1', wordCount: 0 },
+      { id: 's2', chapterId: 'c2', wordCount: 0 },
+      { id: 's3', chapterId: 'c2', wordCount: 0 },
+      { id: 's4', chapterId: 'c3', wordCount: 0 }
+    ] as SceneMeta[]
+  }
+  it('is the chapter of the first scene kept, by its number, saying whether every scene kept is in it', () => {
+    expect(chapterToWrite(o, ['s2', 's3'])).toEqual({ id: 'c2', no: 2, all: true })
+    expect(chapterToWrite(o, ['s3', 's4'])).toEqual({ id: 'c2', no: 2, all: false })
+  })
+  it('is none when nothing was kept or the scene has left the story', () => {
+    expect(chapterToWrite(o, [])).toBeNull()
+    expect(chapterToWrite(o, ['gone'])).toBeNull()
+  })
+  it('is none for a chapter with words already: writing it whole would write those scenes again', () => {
+    expect(chapterToWrite(o, ['s0'])).toBeNull()
   })
 })

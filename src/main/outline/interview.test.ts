@@ -11,6 +11,11 @@ import { storyPlan } from './context'
 import {
   answersText,
   askPlanQuestion,
+  CHAPTER_REPLY,
+  chapterPlanSystem,
+  chapterReply,
+  chapterSizeAsk,
+  planSceneCount,
   cleanAnswers,
   emptyParts,
   fillSceneCard,
@@ -237,6 +242,56 @@ describe('the interview’s calls', () => {
     expect(record.messages[0].content.startsWith(`${MARKER} plan chapter`)).toBe(true)
     expect(record.messages[1].content).toContain('Answer: A letter comes for Mara')
     expect(record.response).toMatch(/^Goal: A letter comes for Mara\.\n\n### Scene: A letter at dawn/)
+  })
+
+  it('plans a chapter with the number of scenes Adam asked for and its length from the chapter card (2026-10-20)', async () => {
+    const w = dbWorld()
+    const chapterId = repo.getSceneMeta(w.db, w.id('b1.c2.s1')).chapterId
+    repo.saveChapterCard(w.db, chapterId, { ...repo.getChapterCard(w.db, chapterId), totalWords: 6000 })
+    const existing = repo.sceneIds(w.db, chapterId).length
+    const { generationId } = startChapterPlan(deps(w.db), { taskId: 'c4', chapterId, answers: [], scenes: 2 })
+    const t0 = Date.now()
+    while (gens.getGeneration(w.db, generationId).status === 'streaming') {
+      if (Date.now() - t0 > 10_000) throw new Error('The plan never finished')
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    const record = gens.getGeneration(w.db, generationId)
+    expect(record.messages[0].content).toContain('- Suggest exactly 2 scenes: the author asked for that many, no more and no fewer.')
+    expect(record.messages[0].content).not.toContain('Suggest 2 to 6 scenes')
+    const each = (Math.round(6000 / (existing + 2) / 50) * 50).toLocaleString('en-GB')
+    expect(record.messages[1].content).toContain(
+      `Suggest exactly 2 scenes. The whole chapter is to be about 6,000 words long, so each scene is about ${each} words: plan what fills that.`
+    )
+    // No count and no length: as before.
+    const plain = startChapterPlan(deps(w.db), { taskId: 'c5', chapterId: repo.getSceneMeta(w.db, w.id('b1.c1.s1')).chapterId, answers: [] })
+    while (gens.getGeneration(w.db, plain.generationId).status === 'streaming') await new Promise((r) => setTimeout(r, 10))
+    const before = gens.getGeneration(w.db, plain.generationId)
+    expect(before.messages[0].content).toContain('- Suggest 2 to 6 scenes, as many as the chapter needs.')
+    expect(before.messages[1].content).not.toContain('words long')
+    // A chapter on Auto goes by the default chapter length in Settings › Writing.
+    const auto = startChapterPlan(deps(w.db), { taskId: 'c6', chapterId: repo.getSceneMeta(w.db, w.id('b1.c1.s1')).chapterId, answers: [] }, { chapterLength: 9000 })
+    while (gens.getGeneration(w.db, auto.generationId).status === 'streaming') await new Promise((r) => setTimeout(r, 10))
+    expect(gens.getGeneration(w.db, auto.generationId).messages[1].content).toContain('The whole chapter is to be about 9,000 words long: suggest as many scenes as that needs')
+  })
+
+  it('reads the scene count, sizes the answer for it, and says the size in plain words', () => {
+    expect([planSceneCount(3), planSceneCount('12'), planSceneCount(0), planSceneCount(13), planSceneCount(null), planSceneCount('x')]).toEqual([
+      3,
+      12,
+      null,
+      null,
+      null,
+      null
+    ])
+    expect(chapterReply(null)).toBe(CHAPTER_REPLY)
+    expect(chapterReply(6)).toBe(CHAPTER_REPLY)
+    expect(chapterReply(12)).toBeGreaterThan(CHAPTER_REPLY)
+    expect(chapterPlanSystem(1)).toContain('- Suggest exactly 1 scene: the author asked for one, no more and no fewer.')
+    expect(chapterSizeAsk({ scenes: null, words: null, existing: 0 })).toBe('')
+    expect(chapterSizeAsk({ scenes: 4, words: null, existing: 0 })).toBe('Suggest exactly 4 scenes.')
+    expect(chapterSizeAsk({ scenes: 4, words: 8000, existing: 0 })).toBe(
+      'Suggest exactly 4 scenes. The whole chapter is to be about 8,000 words long, so each scene is about 2,000 words: plan what fills that.'
+    )
   })
 
   it('says plainly, before asking, when a chapter’s plan is more than the model can write or read (O7)', () => {

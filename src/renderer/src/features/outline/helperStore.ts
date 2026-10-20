@@ -108,6 +108,11 @@ export interface HelperRun {
   edits: Edits
   /** A chapter's plan: the chapter's heading, read before the reply (which has none). */
   lead?: string
+  /**
+   * A chapter's plan asked for exactly this many scenes (Plan this chapter's "How many scenes", 2026-10-20): any more the
+   * reply gives are left out (treeOf), so they are never shown or kept.
+   */
+  most?: number
   /** When it was asked for (ms), for naming it among the earlier suggestions. */
   at?: number
   /** The last stage asked for under one of its acts or chapters (the outline in stages), while it arrives and after. */
@@ -396,7 +401,15 @@ export function treeOf(run: HelperRun): TreeNode[] {
     const joined = spliceStage(text, st.key, st.level, st.text, false)
     if (joined) return markArriving(outlineTree(parseOutline(joined, true)), st.key, st.before)
   }
-  return outlineTree(parseOutline(text, run.status !== 'running'))
+  const tree = outlineTree(parseOutline(text, run.status !== 'running'))
+  return run.lead && run.most ? atMost(tree, run.most) : tree
+}
+
+/** A chapter's plan with no more than `most` scenes under its chapter (the first ones, in the reply's order). */
+function atMost(tree: TreeNode[], most: number): TreeNode[] {
+  const [chapter, ...rest] = tree
+  if (!chapter || chapter.children.length <= most) return tree
+  return [{ ...chapter, children: chapter.children.slice(0, most) }, ...rest]
 }
 
 // ---------- Suggest ----------
@@ -640,16 +653,31 @@ export async function suggestChapter(storyId: ID, chapterId: ID, title: string, 
   const previous = s.run
   const wasOpen = !!previous && hasOpen(previous, s.gone)
   dropReplaced()
-  const size: OutlineSize = { acts: 0, chapters: 1, scenes: 0 }
+  // How many scenes Adam asked for (0: as many as the chapter needs).
+  const most = chapterSceneCount(s)
+  const size: OutlineSize = { acts: 0, chapters: 1, scenes: most ?? 0 }
   put(key, {
     size,
     problem: null,
     blank: false,
     earlier: withEarlier(s, previous),
-    run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions, edits: {}, lead, at: Date.now() }
+    run: {
+      taskId,
+      generationId: null,
+      text: '',
+      status: 'running',
+      cutOff: false,
+      retrying: null,
+      size,
+      decisions,
+      edits: {},
+      lead,
+      at: Date.now(),
+      ...(most ? { most } : {})
+    }
   })
   try {
-    const { generationId } = await api.startChapterPlan({ taskId, chapterId, answers })
+    const { generationId } = await api.startChapterPlan({ taskId, chapterId, answers, ...(most ? { scenes: most } : {}) })
     patchRun(key, taskId, (r) => ({ generationId: r.generationId ?? generationId }))
   } catch (e) {
     if (get(key).run?.taskId !== taskId) return
@@ -657,6 +685,14 @@ export async function suggestChapter(storyId: ID, chapterId: ID, title: string, 
     return
   }
   if (wasOpen) noteEarlier()
+}
+
+/** How many scenes a chapter's plan asks for: what Adam picked in Plan this chapter, else null (as many as it needs). */
+export const chapterSceneCount = (s: Pick<HelperSession, 'size'> | null | undefined): number | null => (s?.size?.scenes ? s.size.scenes : null)
+
+/** Plan this chapter's "How many scenes": a number, or null for Auto (as many as the chapter needs). */
+export function setChapterSceneCount(storyId: ID, chapterId: ID, scenes: number | null): void {
+  put(keyOf(storyId, chapterId), { size: { acts: 0, chapters: 1, scenes: scenes ?? 0 } })
 }
 
 // ---------- Talking it over, and doing one again (the Story builder, 2026-10-17) ----------

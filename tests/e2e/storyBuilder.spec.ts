@@ -3,8 +3,8 @@
 // "[AIWRITE-STORY v1]" requests, m4/outline.mjs a chapter's plan, chapter.mjs Write the chapter). From the story menu,
 // in one page: Your idea (the idea and his own character, a style preset), Cast and world (planned, his own first,
 // talked over beside it, one item redone, built into the codex), the story line (planned from the idea and the codex
-// with a premise written for it, talked over, a scene redone, kept), a chapter planned in its row (Plan this chapter),
-// then Write this chapter: its plan to read in the row, with what the chapter does, each scene's ending, what it keeps
+// with a premise written for it, talked over, a scene redone, kept), a chapter planned on its own page,
+// then Write this chapter: its plan to read on the page, with what the chapter does, each scene's ending, what it keeps
 // true and about how long and what it costs; written with the fake. Nothing changes without a click.
 import type { Page } from '@playwright/test'
 import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
@@ -152,12 +152,11 @@ test('a new story built in one place: idea, cast and world, story line, a chapte
     await expect(area(win)).toHaveAttribute('data-plan-hub', 'planned')
     await expect(area(win).locator('[data-nav="line"]')).toContainText('Ch 1–2 planned')
 
-    // ----- A chapter planned in its row: Plan this chapter, its scene cards kept into it -----
+    // ----- A chapter planned on its own page: its scene cards kept into it -----
     const night = outline.chapters[1]
-    const row = area(win).locator(`[data-chapter="${night.id}"]`)
-    await row.locator(`[data-plan-chapter="${night.id}"]`).click()
+    await area(win).locator(`[data-chapter-zoom="${night.id}"]`).click()
     const panel = area(win).locator(`[data-chapter-plan="${night.id}"]`)
-    await expect(panel.getByRole('heading', { name: 'Ch 2 · The Long Night' })).toBeVisible()
+    await expect(area(win).locator(`[data-chapter-page="${night.id}"]`).getByRole('heading', { name: 'Ch 2 · The Long Night' })).toBeVisible()
     await panel.locator('[data-suggest-scenes]').click()
     await expect(panel.getByRole('group', { name: /^Scene: / }).first()).toBeVisible({ timeout: 30_000 })
     expect(fake.lastRequest()!.body.messages[0].content.startsWith('[AIWRITE-OUTLINE v1] plan chapter')).toBe(true)
@@ -166,7 +165,7 @@ test('a new story built in one place: idea, cast and world, story line, a chapte
     await panel.getByRole('button', { name: 'Keep all' }).click()
     await expect.poll(async () => (await invoke(win, 'getOutline', story.id)).scenes.filter((s) => s.chapterId === night.id).length).toBe(5)
 
-    // ----- Write this chapter, in the same row: its plan to read first -----
+    // ----- Write this chapter, on the same page: its plan to read first -----
     await panel.locator('[data-write-chapter-row]').getByRole('button', { name: 'Write this chapter' }).click()
     const write = area(win).locator(`[data-write-panel="${night.id}"]`)
     await expect(write.getByTestId('chapter-writer-plan')).toContainText('empty: will be written')
@@ -194,6 +193,8 @@ test('a new story built in one place: idea, cast and world, story line, a chapte
     await expect(write.locator('[data-write-report]').getByRole('button', { name: 'See the report' })).toBeVisible()
     outline = await invoke(win, 'getOutline', story.id)
     expect(outline.scenes.filter((s) => s.chapterId === night.id).every((s) => s.wordCount > 0)).toBe(true)
+    await expect(area(win).locator(`[data-chapter-page="${night.id}"] [data-chapter-meta]`)).toContainText('Written · 5 scenes')
+    await area(win).getByRole('navigation', { name: 'Trail' }).getByRole('button', { name: 'Whole story' }).click()
     await expect(area(win).locator('[data-nav="line"]')).toContainText('Ch 2 written')
   } finally {
     await fake.close()

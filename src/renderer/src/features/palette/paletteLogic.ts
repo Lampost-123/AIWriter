@@ -84,6 +84,8 @@ export type FixedActionId =
   | 'scene-ideas'
   | 'scene-interview'
   | 'chapter-interview'
+  | 'build-chapter'
+  | 'build-scene'
   // Chapter cards
   | 'chapter-card'
   | 'listen'
@@ -371,6 +373,15 @@ export const ACTIONS: ActionDef[] = [
   { id: 'scene-ideas', label: 'Ideas for this scene', keywords: 'ai next scene directions suggest card', away: toWriting, when: hasScene },
   { id: 'scene-interview', label: 'Interview me about this scene', keywords: 'ai questions plan card fill', away: toWriting, when: hasScene },
   { id: 'chapter-interview', label: 'Interview me about this chapter', keywords: 'ai questions plan goal scenes suggest', away: true, when: hasScene },
+  // Build with AI zoomed in (2026-10-20): the chapter's or the scene's own page there.
+  {
+    id: 'build-chapter',
+    label: 'Build this chapter with AI',
+    keywords: 'plan chapter scenes add fill cards write whole page zoom',
+    away: true,
+    when: (c) => hasStory(c) && (hasScene(c) || !!c.chapterId)
+  },
+  { id: 'build-scene', label: 'Build this scene with AI', keywords: 'plan scene card ideas interview fill write page zoom', away: true, when: (c) => hasStory(c) && hasScene(c) },
   // The current chapter's card, in the right panel (only with a chapter in hand).
   {
     id: 'chapter-card',
