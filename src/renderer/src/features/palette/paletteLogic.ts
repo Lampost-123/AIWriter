@@ -363,7 +363,7 @@ export const ACTIONS: ActionDef[] = [
   {
     id: 'story-builder',
     label: 'The idea, cast and world',
-    keywords: 'story builder ai plot idea cast characters places world codex plan',
+    keywords: 'story builder ai plot idea cast characters places plan',
     away: true,
     when: hasStory
   },

@@ -73,6 +73,8 @@ function SugNode({ node, ...props }: RowProps & { node: TreeNode }): React.JSX.E
   const children = node.children.filter((c) => run.decisions[c.key]?.status !== 'discarded')
   const kept = run.decisions[node.key]?.status === 'kept'
   const title = (run.edits[node.key] ?? node).title || 'Untitled'
+  // Its beats and card, opened or not: kept here so they stay as they were after Change.
+  const [open, setOpen] = useState(false)
   return (
     <div
       role="group"
@@ -82,7 +84,7 @@ function SugNode({ node, ...props }: RowProps & { node: TreeNode }): React.JSX.E
       data-state={kept ? 'kept' : 'open'}
       className="hub-sug-group"
     >
-      {props.editing === node.key ? <EditForm node={node} {...props} className="hub-edit" /> : <SugRow node={node} {...props} />}
+      {props.editing === node.key ? <EditForm node={node} {...props} className="hub-edit" /> : <SugRow node={node} open={open} setOpen={setOpen} {...props} />}
       {!props.earlier ? <RedoPanel storyId={props.storyId} node={node} /> : null}
       {!props.earlier && !run.lead ? <StageRow storyId={props.storyId} node={node} run={run} /> : null}
       {children.length ? (
@@ -96,7 +98,17 @@ function SugNode({ node, ...props }: RowProps & { node: TreeNode }): React.JSX.E
   )
 }
 
-function SugRow({ node, storyId, run, current, setEditing, earlier, labels }: RowProps & { node: TreeNode }): React.JSX.Element {
+function SugRow({
+  node,
+  storyId,
+  run,
+  current,
+  setEditing,
+  earlier,
+  labels,
+  open,
+  setOpen
+}: RowProps & { node: TreeNode; open: boolean; setOpen: (fn: (open: boolean) => boolean) => void }): React.JSX.Element {
   const box = useRef<HTMLDivElement>(null)
   const decision = run.decisions[node.key]
   const kept = decision?.status === 'kept'
@@ -108,7 +120,6 @@ function SugRow({ node, storyId, run, current, setEditing, earlier, labels }: Ro
   const writing = running && node.key === current
   const title = words.title.trim()
   const label = labels.get(node.key) ?? KIND_LABELS[node.kind]
-  const [open, setOpen] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [back, setBack] = useState(false)
   const flying = useRef<DOMRect | null>(null)
@@ -283,12 +294,19 @@ export function BatchHead({
     ? () => useApp.getState().navigate({ kind: 'generation', generationId, back: { view: backLabel.view, label: backLabel.label, what: 'this plan' } })
     : null
   const starterTitle = starter?.title.trim() || 'Chapter 1'
+  const firstKept = ended ? firstKeptScene(run, nodes) : null
   return (
     <div className="hub-batch-head" data-batch-head>
       {busy ? (
         <div className="hub-batch-line">
           <HubStatus text={arrivingWords(run, tree)} size={22} />
-          <Button size="sm" icon={<Square size={10} fill="currentColor" />} onClick={() => stopOutline(storyId)} title="Stop. What has arrived stays, to keep or discard.">
+          <Button
+            size="sm"
+            icon={<Square size={10} fill="currentColor" />}
+            onClick={() => stopOutline(storyId)}
+            aria-label="Stop planning"
+            title="Stop. What has arrived stays, to keep or discard."
+          >
             Stop
           </Button>
         </div>
@@ -300,7 +318,7 @@ export function BatchHead({
                 ? 'The AI’s answer didn’t come as a plan, so there is nothing to keep.'
                 : 'Nothing arrived before it stopped.'
               : open
-                ? `${plural(open, 'suggestion')} to keep, change or discard${kept ? ` · ${kept} kept` : ''}`
+                ? `${run.status === 'stopped' ? 'Stopped. ' : run.status === 'error' ? 'It stopped part way. ' : ''}${plural(open, 'suggestion')} to keep, change or discard${kept ? ` · ${kept} kept` : ''}`
                 : kept
                   ? `All decided · ${kept} kept`
                   : 'All decided'}
@@ -313,6 +331,12 @@ export function BatchHead({
               title={`The story still starts with “${starterTitle}”, the empty chapter it was made with, ahead of what you kept. Undo brings it back.`}
             >
               Remove the empty “{starterTitle}”
+            </Button>
+          ) : null}
+          {/* All decided with a scene kept: no dead end, the first one is a click away. */}
+          {!open && firstKept ? (
+            <Button size="sm" variant="primary" onClick={() => useApp.getState().selectScene(firstKept, storyId)} title="Open the first scene kept, to write it">
+              Start writing
             </Button>
           ) : null}
           {open > 0 ? (
@@ -342,6 +366,17 @@ export function BatchHead({
       ) : null}
     </div>
   )
+}
+
+/** The first scene the batch kept, in its order (null for none). */
+function firstKeptScene(run: HelperRun, nodes: TreeNode[]): ID | null {
+  for (const n of nodes) {
+    const d = run.decisions[n.key]
+    if (n.kind === 'scene' && d?.status === 'kept') return d.id
+    const inner = firstKeptScene(run, n.children)
+    if (inner) return inner
+  }
+  return null
 }
 
 /** "Earlier suggestions": the batches Adam hadn't decided on when he asked again, folded away until he opens them. */

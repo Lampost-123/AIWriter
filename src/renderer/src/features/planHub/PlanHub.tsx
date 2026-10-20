@@ -58,7 +58,7 @@ import {
 import { hubKey, hubOf, loadFacts, openHub, planIt, setScope, setWords, showScenes, toggleRow, toggleThread, usePlanHubs } from './hubStore'
 import { DriftCard, NextCard, SizeChoice, StartCard } from './HubCards'
 import { StoryLine } from './StoryLine'
-import { arrivingWords, EarlierBatches, shownNodes } from './LineSuggestions'
+import { EarlierBatches, shownNodes } from './LineSuggestions'
 import './planHub.css'
 
 export function PlanHub({ storyId, at, back }: { storyId: ID; at?: HubScopeId; back?: { view: View; label: string } }): React.JSX.Element {
@@ -247,7 +247,8 @@ function Hub({
     setProblem(null)
     void planIt(storyId, { outline: shape, scope, premise: story.premise, fromPlot: !!idea.trim(), size, mode: planMode })
   }
-  const status = run ? arrivingWords(run, tree) : 'Planning…'
+  // In the card, what is happening in a word; the batch in the story line says how far it has got.
+  const status = 'Planning… the suggestions arrive in the story line below.'
 
   const showMe = (): void => {
     const ids = drift.map((d) => d.sceneId)
@@ -312,7 +313,7 @@ function Hub({
               <NextCard
                 where={mode === 'writing' ? where : null}
                 extra={
-                  mode === 'planned' && scope === 'whole-story' ? (
+                  scope === 'whole-story' ? (
                     <SizeChoice
                       size={size}
                       sizeAuto={!session.size}

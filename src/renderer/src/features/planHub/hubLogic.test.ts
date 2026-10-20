@@ -110,16 +110,16 @@ describe('where the writing has got to', () => {
 describe('what makes sense to plan', () => {
   it('mid-story: the next scene, the rest of the chapter, the next chapter and the rest of the act, when each makes sense', () => {
     // Ch 4 has nothing planned after Sc 2; Ch 5 is planned, scenes and all; Act 2 has chapters after Ch 4.
-    expect(scopesFor(midStory(), 'writing').map((s) => s.label)).toEqual(['the next scene', 'the rest of Ch 4'])
+    expect(scopesFor(midStory(), 'writing').map((s) => s.label)).toEqual(['the next scene', 'the rest of Ch 4', 'more of the story'])
     // Ch 5 with no scenes yet: the next chapter plans its scenes.
     const noScenes = { ...midStory(), scenes: midStory().scenes.filter((s) => s.chapterId !== 'c5') }
-    expect(scopesFor(noScenes, 'writing').map((s) => s.id)).toEqual(['next-scene', 'rest-of-chapter', 'next-chapter'])
+    expect(scopesFor(noScenes, 'writing').map((s) => s.id)).toEqual(['next-scene', 'rest-of-chapter', 'next-chapter', 'whole-story'])
     // Ch 4 the last chapter of its act: the next chapter (a new one) and the rest of Act 2.
     const last = { ...midStory(), chapters: midStory().chapters.slice(0, 4), scenes: midStory().scenes.slice(0, 5) }
-    expect(scopesFor(last, 'writing').map((s) => s.label)).toEqual(['the next scene', 'the rest of Ch 4', 'the next chapter', 'the rest of Act 2'])
+    expect(scopesFor(last, 'writing').map((s) => s.label)).toEqual(['the next scene', 'the rest of Ch 4', 'the next chapter', 'the rest of Act 2', 'more of the story'])
     // Something planned after the last scene written in its chapter: the rest of the chapter carries on after it.
     const planned = { ...last, scenes: [...last.scenes, scene('s8', 'c4', 2, 0, 'Across the Linn')] }
-    expect(scopesFor(planned, 'writing').map((s) => s.id)).toEqual(['next-scene', 'rest-of-chapter', 'next-chapter', 'rest-of-act'])
+    expect(scopesFor(planned, 'writing').map((s) => s.id)).toEqual(['next-scene', 'rest-of-chapter', 'next-chapter', 'rest-of-act', 'whole-story'])
     expect(askFor(planned, 'rest-of-chapter', { acts: 3, chapters: 9, scenes: 3 })).toMatchObject({ afterSceneId: 's8', place: { at: 'here', afterSceneId: 's8' } })
     expect(askFor(planned, 'next-scene', { acts: 3, chapters: 9, scenes: 3 })).toMatchObject({ afterSceneId: 's5', count: 1 })
     expect(rowForPlace(storyLine(planned), { at: 'here', chapterId: 'c4', afterSceneId: 's8', actId: 'a2', afterChapterId: 'c4' })).toEqual({ rowKey: 'rest:c4' })

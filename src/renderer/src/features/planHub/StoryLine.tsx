@@ -137,7 +137,13 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
   const batch = run ? (
     <li className="hub-line-batch" data-batch={run.place?.at ?? 'end'} data-settled={settled || undefined} key="batch">
       <BatchHead storyId={storyId} session={p.session} run={run} tree={tree} starter={p.starter} backLabel={p.back} />
-      {settled ? null : nodes.length ? <LineSuggestions storyId={storyId} run={run} tree={tree} labels={p.labels} /> : busy ? <WaitingRows /> : null}
+      {settled ? null : nodes.length ? (
+        <div role="region" aria-label="Suggestions">
+          <LineSuggestions storyId={storyId} run={run} tree={tree} labels={p.labels} />
+        </div>
+      ) : busy ? (
+        <WaitingRows />
+      ) : null}
     </li>
   ) : null
 
@@ -307,7 +313,10 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
     items.push(
       <li key={row.key} className="hub-row is-planned is-dashed is-faint" data-row="acts-only">
         <span className="hub-row-mark is-planned" aria-hidden />
-        <span className="hub-row-words">{row.label} · acts only</span>
+        <span className="hub-row-words">
+          {row.label}
+          {row.acts.length === 1 && shownTitle(first.title) ? ` · ${shownTitle(first.title)}` : ''} · acts only
+        </span>
         <button
           type="button"
           className="hub-row-btn"

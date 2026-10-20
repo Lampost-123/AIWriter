@@ -707,7 +707,7 @@ button.hub-kid-name:hover {
   transition:
     background-color var(--dur-base) ease-out,
     border-color var(--dur-base) ease-out,
-    opacity 140ms ease-in;
+    opacity var(--dur-exit) ease-in;
 }
 .hub-sug.is-kept {
   border-color: var(--line);

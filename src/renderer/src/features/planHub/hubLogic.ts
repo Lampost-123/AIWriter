@@ -151,7 +151,8 @@ export interface HubScope {
  * - the rest of Ch N: always, mid-story (after the chapter's last scene, written or planned: the plan carries on to its end);
  * - the next chapter: a new chapter after this one when it is the last, or the next chapter's scenes while it has none
  *   (one planned already, scenes and all, is picked up from the story line instead);
- * - the rest of Act N: while the act has no chapters after this one.
+ * - the rest of Act N: while the act has no chapters after this one;
+ * - more of the story: new acts or chapters after everything it has, in stages or all at once (always).
  * A new story (nothing written): the whole story, the first act (when it is planned in acts) and the first chapter. A
  * story planned but not written: the whole story, and the first chapter's scenes while it has none.
  */
@@ -181,6 +182,8 @@ export function scopesFor(outline: Outline, mode: HubMode, size: Pick<OutlineSiz
     })
   if (chapter?.actId && !chapters.some((c) => c.actId === chapter.actId && c.no > chapter.no))
     out.push({ id: 'rest-of-act', label: `the rest of Act ${chapter.actNo}`, title: `The chapters that finish Act ${chapter.actNo}, after Ch ${chapter.no}` })
+  // More acts or chapters after everything the story has (the outline helper's own way: in stages or all at once).
+  out.push({ id: 'whole-story', label: 'more of the story', title: 'More acts or chapters after everything the story has, planned in stages or all at once' })
   return out
 }
 
