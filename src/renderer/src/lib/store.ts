@@ -71,9 +71,10 @@ export type View =
   /**
    * Build with AI (2026-10-20; the Plan hub before): the one area for building every part of a story with the AI, its
    * sections down one page (features/planHub/): Your idea, Cast and world, The story line, Threads. `section`: the one to
-   * show first (left out: a new story's idea, else the story line); `chapterId` with `open`: a chapter of the story line
-   * with Plan this chapter or Write this chapter open in its row; `sceneId` with `tool`: a planned scene with its ideas
-   * or its interview open; `summary`: Cast and world's "From a summary"; `recipeId`: a story planned from that recipe
+   * show first (left out: a new story's idea, else the story line); `chapterId`: that chapter's own page in the area
+   * (zoomed in, "Whole story › Ch 14"), `open` bringing it to its plan or opening Write this chapter; `sceneId`: that
+   * scene's own page, `tool` opening its ideas or its interview (features/planHub/zoomLogic.ts); `near`: on the whole
+   * story, the chapter to bring into view (where Adam zoomed out from); `summary`: Cast and world's "From a summary"; `recipeId`: a story planned from that recipe
    * (it follows it); `at`: the part to plan ("the next scene"); `back`: the page it was opened from, for its Back link.
    * The Story builder, the outline helper, a chapter's plan and a recipe story's plan are views that land here
    * (features/planHub/buildLogic.ts buildRoute).
@@ -89,6 +90,7 @@ export type View =
       summary?: boolean
       recipeId?: ID
       at?: HubScopeId
+      near?: ID
       back?: { view: View; label: string }
     }
   // The desk (UI overhaul, phase 5)

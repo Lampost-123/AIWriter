@@ -64,12 +64,12 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
   await expect(list(win).getByRole('button', { name: /^Characters/ })).toHaveAttribute('aria-current', 'page')
   await expect(list(win).getByRole('button', { name: /^Characters/ })).toContainText('4')
 
-  // Plan: Build with AI first, and a chapter's plan from the list (Plan this chapter, in its row there).
+  // Plan: Build with AI first, and a chapter's plan from the list (its own page there).
   await area(win, 'Plan').click()
   await expect(list(win)).toHaveAttribute('data-area-list', 'plan')
   await expect(list(win).getByRole('button', { name: 'Build with AI' })).toHaveAttribute('aria-current', 'page')
   await list(win).getByRole('navigation', { name: 'Chapters' }).getByRole('button', { name: 'The Drowned Steps' }).click()
-  await expect(main(win).locator('[data-chapter-plan]').getByRole('heading', { name: 'Ch 2 · The Drowned Steps' })).toBeVisible()
+  await expect(main(win).locator('[data-chapter-page]').getByRole('heading', { name: 'Ch 2 · The Drowned Steps' })).toBeVisible()
 
   // Check: consistency.
   await area(win, 'Check').click()
@@ -90,7 +90,7 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
 
   // The trail leads back: the chapter to its plan (Plan), the scene to its page (Write).
   await trail.getByRole('button', { name: 'The Night Ferry' }).click()
-  await expect(main(win).locator('[data-chapter-plan]').getByRole('heading', { name: 'Ch 1 · The Night Ferry' })).toBeVisible()
+  await expect(main(win).locator('[data-chapter-page]').getByRole('heading', { name: 'Ch 1 · The Night Ferry' })).toBeVisible()
   await expect(area(win, 'Plan')).toHaveAttribute('aria-current', 'page')
   await trail.getByRole('button', { name: 'Lighting the Lamp' }).click()
   await expect(area(win, 'Write')).toHaveAttribute('aria-current', 'page')

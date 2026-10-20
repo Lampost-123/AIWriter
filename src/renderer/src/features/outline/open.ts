@@ -15,10 +15,10 @@ export interface BuildAt {
   section?: BuildSection
   /** The part to plan ("the next scene"). */
   at?: HubScopeId
-  /** A chapter with Plan this chapter or Write this chapter open in its row. */
+  /** A chapter's own page, brought to its plan or with Write this chapter open. */
   chapterId?: ID
   open?: ChapterPanel
-  /** A planned scene with its ideas or its interview open. */
+  /** A scene's own page, with its ideas or its interview open. */
   sceneId?: ID
   tool?: SceneTool
   /** The page it was opened from, for its Back link. */
@@ -48,14 +48,14 @@ export function openStoryBuilderFor(storyId: ID): void {
   openPlanHub(storyId, { section: 'idea' })
 }
 
-/** "Interview me about this chapter": the chapter in Build with AI's story line, Plan this chapter open, the first question on its way. */
+/** "Interview me about this chapter": the chapter's own page in Build with AI, at its plan, the first question on its way. */
 export function openChapterInterview(storyId: ID, chapterId: ID): void {
   noteChapterStory(chapterId, storyId)
   startPlanInterview({ kind: 'chapter', chapterId })
   openPlanHub(storyId, { section: 'line', chapterId, open: 'plan' })
 }
 
-/** "Plan a chapter": the chapter in Build with AI's story line, Plan this chapter open. */
+/** "Plan a chapter": the chapter's own page in Build with AI, at its plan. */
 export function openChapterPlan(storyId: ID, chapterId: ID): void {
   noteChapterStory(chapterId, storyId)
   openPlanHub(storyId, { section: 'line', chapterId, open: 'plan' })
@@ -63,7 +63,7 @@ export function openChapterPlan(storyId: ID, chapterId: ID): void {
 
 /**
  * Next scene ideas or Interview me from the Plan area or the palette: the open scene, while it is planned and not
- * written, in Build with AI's story line with its ideas or interview open; else the story line at "the next scene".
+ * written, on its own page in Build with AI with its ideas or interview open; else the story line at "the next scene".
  */
 export function openSceneTool(storyId: ID, sceneId: ID | null, tool: SceneTool, written: boolean): void {
   if (sceneId && !written) {
@@ -73,4 +73,15 @@ export function openSceneTool(storyId: ID, sceneId: ID | null, tool: SceneTool, 
     if (tool === 'ideas' && (!ideas || ideas.hidden || ideas.status === 'error')) void askIdeas(sceneId)
     openPlanHub(storyId, { section: 'line', sceneId, tool })
   } else openPlanHub(storyId, { section: 'line', at: 'next-scene' })
+}
+
+/** "Build this chapter with AI" (the binder, the chapter card, the palette): the chapter's own page in Build with AI. */
+export function openChapterPage(storyId: ID, chapterId: ID): void {
+  noteChapterStory(chapterId, storyId)
+  openPlanHub(storyId, { section: 'line', chapterId })
+}
+
+/** "Build this scene with AI" (the binder, the scene card, the palette): the scene's own page in Build with AI. */
+export function openScenePage(storyId: ID, sceneId: ID): void {
+  openPlanHub(storyId, { section: 'line', sceneId })
 }

@@ -328,10 +328,16 @@ export function hubDirection(storyId: ID): string {
  * "Plan its scenes" on a chapter with none, or "Add scenes to Ch N" on one that has some (written or only planned): the
  * new scenes come after its last scene, told how it goes, and Keep puts them at the chapter's end.
  */
-export async function addScenesTo(storyId: ID, chapter: Pick<LineChapter, 'id' | 'title' | 'scenes'>): Promise<void> {
+export async function addScenesTo(storyId: ID, chapter: Pick<LineChapter, 'id' | 'title' | 'scenes'>, o: { count?: number | null } = {}): Promise<void> {
   const last = chapter.scenes[chapter.scenes.length - 1]?.id ?? null
   const direction = hubDirection(storyId)
-  await planScenesIn(storyId, chapter, { afterSceneId: last, ...(direction ? { direction } : {}), place: { at: 'chapter', chapterId: chapter.id } })
+  await planScenesIn(storyId, chapter, {
+    afterSceneId: last,
+    // How many, when the chapter's page says (its How many scenes); else as many as it needs.
+    ...(o.count ? { count: o.count } : {}),
+    ...(direction ? { direction } : {}),
+    place: { at: 'chapter', chapterId: chapter.id }
+  })
 }
 
 /**

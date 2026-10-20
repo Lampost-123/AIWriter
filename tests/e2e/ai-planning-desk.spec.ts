@@ -101,16 +101,16 @@ test('the Plan hub on the desk: the lamp while it streams, words fade in, Keep f
   }
 })
 
-test('planning a chapter on the desk: in its row of Build with AI, the interview as a slip, its scene cards', async ({ launch }) => {
+test('planning a chapter on the desk: on its own page in Build with AI, the interview as a slip, its scene cards', async ({ launch }) => {
   const fake = await fakeServer()
   try {
     const { win } = await sampleWorld(launch, fake)
     await room(win, 'Plan').click()
     await links(win, 'Plan').getByRole('button', { name: /Plan a chapter/ }).click()
     await win.getByRole('menuitem', { name: 'The Drowned Steps' }).click()
-    // Plan a chapter is Plan this chapter, open in the chapter's row of Build with AI's story line (2026-10-20).
+    // Plan a chapter is the chapter's own page in Build with AI, at its plan (2026-10-20).
     const chapter = win.locator('[data-plan-hub] [data-chapter-plan]')
-    await expect(chapter.getByRole('heading', { name: 'Ch 2 · The Drowned Steps' })).toBeVisible()
+    await expect(win.locator('[data-plan-hub] [data-chapter-page]').getByRole('heading', { name: 'Ch 2 · The Drowned Steps' })).toBeVisible()
     await chapter.getByRole('button', { name: 'Interview me' }).click()
     const interview = chapter.getByRole('region', { name: 'Interview' })
     await expect(interview).toHaveClass(/plan-interview/)

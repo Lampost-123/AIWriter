@@ -1,8 +1,8 @@
 # Planning
 
 Some writers plan every scene before they start. Others find the story as they go. AI Write works either way.
-This page covers outlining a story, planning chapters and scenes, starting new stories in the same world, setting
-the style, and story recipes.
+This page covers the story board, building a story with the AI (its idea, cast, chapters and scenes), starting new
+stories in the same world, setting the style, and story recipes.
 
 ## The story board
 
@@ -19,65 +19,87 @@ cover, **Continue writing**, the last lines you wrote, the chapters, open thread
 
 <p align="center"><img src="../images/story-home.png" alt="The story home for The Keeper's Light" width="800"></p>
 
-## Build a story with the AI (the Story builder)
+## Build with AI
 
-The **Story builder** is one place to build a whole story from your idea. Open it from the story menu (the arrow
-beside the story's name), from **Story builder** in the **Plan** room, with Ctrl+K, or by ticking **Build it with the
-AI next** when you make a new story. To start a brand-new story in it, choose **Build a story with AI…** on the start
-screen and pick a world. Its steps run across the top, and you can go back to any of them:
+**Build with AI** is one page for building every part of a story with the AI. Open it from the **Plan** room (its
+first link), the story menu (the arrow beside the story's name), or search for it with Ctrl+K. To start a brand-new
+story there, tick **Build it with the AI next** when you make it, or choose **Build a story with AI…** on the start
+screen.
+
+The page has four parts, listed along its top (or down its left side on a wide screen). Click one to jump to it:
 
 1. **Your idea.** Write your plot, as long as you like. Add where it's set, what must happen, what must never happen
    and how long it is. Under **Your own characters, places and more**, add anyone you already have in mind: the AI
-   keeps them exactly as you wrote them. **Ask me questions** has the AI ask about what you left open. On the right,
-   choose **This story's style**: a preset (open **For adult readers** for steamier, darker or more violent ones), how
-   far it goes, and the tone. **Follow a recipe** uses the shape of a story you admire.
-2. **Cast and world.** Click **Plan the cast and world**. The AI lists every character, place, group, object, piece
-   of lore, event, plot thread and word your story needs, with yours first. Untick, **Edit**, **Redo** (with a note
-   about what to change) or remove any of them, or tell it what to change in **Talk the cast and world over**. Then
-   **Build** writes a full page for each one in your codex. **Undo build** takes the whole build back.
-3. **Outline.** The Outline helper, planning from your idea and the cast it just built. With no premise, it writes
-   one first for you to keep.
-4. **Done.** What was made, and **Start writing**.
+   keeps them exactly as you wrote them. Choose **This story's style** (a preset, how far it goes, the tone), or
+   **Start from a recipe** to use the shape of a story you admire.
+2. **Cast and world.** The AI lists every character, place, group, object, piece of lore, plot thread and word your
+   story needs, with yours first. Untick, **Edit** or **Redo** any of them, then **Build** writes a full page for each
+   one in your codex. **Undo build** takes the whole build back. You can also build it **from a summary** you write.
+3. **The story line.** Your story from start to end, a row for each part. What you've written is folded away; then
+   **YOU ARE HERE**; then what is planned but not written yet. Above it, **What happens next?**: tell the AI in your
+   own words what should happen (or leave it to the AI), pick how much to plan (the next scene, the rest of the
+   chapter, the next chapter, more of the story), tick any plot threads to bring back, and click **Plan it**. In a new
+   story, the same card plans the whole story from your idea.
+4. **Threads.** The open plot threads, the overdue ones first. **Plan its payoff** asks the story line to work one in.
+
+What the AI suggests arrives in its place in the story line. Click **Keep**, **Change**, **Redo** or **Discard** on
+each one, or **Keep all**. Nothing goes into your story until you keep it, and Undo takes it back out.
+
+### The story line, quietly
+
+Each chapter in the story line shows its name, how it stands and **one next step**:
+
+- **Plan it**: the chapter has no scenes yet, or a scene with nothing on its card.
+- **Write it**: every scene has a card, and the AI can write the whole chapter.
+- **Open**: the chapter already has words.
+
+Each scene shows just its name. Everything else you can do for a chapter or a scene is one click away, on its own page.
+
+### A chapter's own page
+
+Click a chapter's name (or its next step) to zoom in on it. The trail at the top, **Whole story › Ch 14 · The Ford**,
+takes you back out. The chapter's page has:
+
+- **Write this chapter**: the AI plans the whole chapter and shows you the plan first. Change it if you like, then the
+  AI writes each scene, checks them and fixes what it finds. Undo puts the chapter back.
+- **What the chapter achieves**, **How many scenes** (Auto, or 1 to 12) and **Length of the chapter** (Auto, or a number
+  of words that its scenes share out).
+- **Scenes**: each scene with one obvious button (**Write it**, **Fill the card** while its card is empty, or **Open**
+  once it's written). The **⋯** beside it has the rest: **Ideas**, **Interview me**, **Fill the card**, **Write it** and
+  **Open**.
+- **Plan with AI**: **Interview me** asks you a few questions about the chapter, then suggests its scenes. **Suggest
+  scenes** goes straight to scene cards. **Add scenes** suggests more after its last scene. **Fill in the empty cards**
+  plans the scenes whose cards say nothing yet, without touching anything a card already says. The suggestions arrive
+  right there on the page.
+
+### A scene's own page
+
+Click a scene's name to zoom in on it (**Whole story › Ch 14 › Sc 2**). You see its card in short (when, where, who,
+what happens, its beats) and:
+
+- **Ideas**: three possible directions, from the plan, the open plot threads and the story so far. **Use this** puts
+  one on the scene's card.
+- **Interview me**: a few questions, then the card's empty parts filled from your answers.
+- **Fill the card**: the AI plans the card from the story so far. Only its empty parts change, and Undo takes them off.
+- **Write it**: opens the scene and starts a draft from its card.
+
+### Other ways to zoom in
+
+- In the binder, right-click a chapter and choose **Build this chapter with AI**, or a scene and choose **Build this
+  scene with AI**.
+- On the chapter card and the scene card, click **Build this chapter with AI** or **Build this scene with AI**.
+- Search (Ctrl+K) for **Build this chapter with AI** or **Build this scene with AI**.
+- **Interview me about this chapter** and **Write this chapter with AI…** in a chapter's menu open its page too.
 
 ### Talk it over, or redo one part
 
-Beside the suggested outline, **Talk it over** lets you tell the AI what to change ("make chapter 3 a betrayal",
-"rework the rest to fit my changes"). It shows you the new plan first: **Apply** puts it in, **Decline** leaves things
-as they were, and Undo takes an applied change back. Things you've kept are never changed. The AI rewrites only the
-parts your request affects, so small changes come back quickly. If you reply while a change is still waiting ("it
-still says his bedroom"), the AI fixes that change instead of starting over. The preview shows only what changed, the
-old words struck through (**Show the whole plan** for the rest), and each answer lists the parts it changed. Tick
-**Apply changes straight away** to skip the preview; Undo still takes a change back.
+Beside the page, **Talk it over** lets you tell the AI what to change ("make chapter 3 a betrayal", "rework the rest
+to fit my changes"). It shows you the new plan first: **Make this change** puts it in, and Undo takes it back out.
+Things you've kept are never changed. Each suggestion still waiting has **Redo**: say what should be different (or
+leave it empty for a fresh take), then **Use this** or **Keep mine**.
 
-Each suggestion still waiting has **Redo**: say what should be different (or leave it empty for a fresh take), then
-**Use this** or **Keep mine**. Only that act, chapter or scene changes.
-
-## Outline a story
-
-The **Outline helper** suggests acts, chapters and scenes from your premise. It is the Story builder's outline step.
-
-1. Open the **Plan** room and choose **Outline helper** in its links (or choose it from the story menu, the arrow beside the
-   story's name in the top bar, or search for it with Ctrl+K). In an empty story, **Plan it with the outline helper**
-   at the foot of the binder does the same.
-2. In the **Premise** box, describe what the story is about. A few sentences are enough.
-3. Under **How much to suggest**, choose how many acts, chapters and scenes in each chapter you'd like.
-4. Click **Suggest an outline**. The suggestions arrive one by one.
-5. Click **Keep**, **Edit** or **Discard** on each one, or **Keep all that's left**. Nothing is added to the story
-   until you keep it.
-
-The page is called **Plan the story from its premise** in a new story. In a story that already has chapters, it's
-**Plan what comes next**, and the suggestions carry on from what's there.
-
-What you keep becomes real chapters and scenes in the binder, each with a scene card ready to draft from.
-
-<p align="center"><img src="../images/outline.png" alt="The outline helper suggesting the next chapters and scenes for The Keeper's Light" width="800"></p>
-
-## Plan a chapter
-
-1. In the Plan room, choose the chapter under **Plan a chapter**, or open a chapter's menu in the binder and choose
-   **Interview me about this chapter**.
-2. Choose **Plan a chapter** to answer a few questions about it, or **Just suggest scenes** to go straight to scene
-   cards suggested from the chapter and the outline around it.
+Under it, **Plan before writing** has the AI look up where everyone is and plan a scene's beats before it writes, so
+the draft keeps to the story.
 
 ## Get ideas for a scene
 
@@ -87,7 +109,7 @@ Stuck on what happens next?
   threads and the story so far. Click **Suggest ideas**, then **Use this** on the one you like.
 - **Interview me about this scene** asks you questions, then fills in the scene card from your answers.
 
-Both are also in search (Ctrl+K).
+Both are also in search (Ctrl+K), and on the scene's own page in Build with AI.
 
 ## Start a new story in the same world
 
@@ -126,7 +148,7 @@ Each level can change what the one above says.
 - **Start from a preset**: one click sets the genre, how far it goes, point of view, tense and prose style, such as
   **Cosy mystery**, **Pacy thriller** or **Lyrical literary**. **For adult readers** opens presets such as **Steamy
   romance**, **Dark romance**, **Grimdark**, **Hardboiled noir** and **Erotica**. Change anything after; Undo puts the
-  style back. Set it on the **This story** tab (or in the Story builder) to give one story its own style.
+  style back. Set it on the **This story** tab (or in Build with AI) to give one story its own style.
 - **Genre**: pick up to two tiles, such as Fantasy, Mystery or Cosy.
 - **How far it goes**: set **Romance**, **Violence** and **Language**, from **None** or **Off-page** up. For example,
   romance goes from **None** to **Fade to black**, **On the page** and **Explicit**.
@@ -159,14 +181,14 @@ The story's text is sent only to the recipe maker model, and only while the reci
 
 - On a recipe's page, click **Start a new story from it**.
 - Or, on the start screen, choose **New story from a recipe…** (it appears once you have a recipe).
-- Or, in the Story builder's first step, choose it under **Follow a recipe**. Its cast roles become characters in the
-  cast and world step, and the outline follows its shape and beats.
+- Or, in Build with AI's **Your idea**, choose **Start from a recipe**. Its cast roles become characters in **Cast and
+  world**, and the story line follows its shape and beats.
 
 ### Change a recipe
 
 Edit any part of a recipe on its page, click **Redo** beside a part to have the AI write it again (with a note if you
-like), or tell the AI what to change in **Talk the recipe over**. You see each change before it's made. In the Story
-builder, changes are for that story only, until you click **Save changes to the recipe**.
+like), or tell the AI what to change in **Talk the recipe over**. You see each change before it's made. In Build with
+AI, changes are for that story only, until you click **Save changes to the recipe**.
 
 ---
 

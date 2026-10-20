@@ -29,7 +29,7 @@ import { openAsk } from '@/features/ask/open'
 import { setSpineFull, toggleFlyout } from '@/features/desk/deskStore'
 import { FULL_FROM } from '@/layout/desk/deskFit'
 import { deskOn } from '@/features/look/look'
-import { openChapterInterview, openPlanHub } from '@/features/outline/open'
+import { openChapterInterview, openChapterPage, openPlanHub, openScenePage } from '@/features/outline/open'
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
 import { openCastSettings, stopReading, toggleListen } from '@/features/readAloud/control'
 import { openEntryVoice } from '@/features/readAloud/voiceReveal'
@@ -323,6 +323,16 @@ export async function runAction(id: ActionId): Promise<void> {
         if (o && chapterId) openChapterInterview(o.story.id, chapterId)
         return
       }
+      case 'build-chapter': {
+        // The chapter card open, else the open scene's chapter.
+        const o = useOutlineStore.getState().outline
+        const chapterId = a.chapterCardId ?? o?.scenes.find((sc) => sc.id === a.sceneId)?.chapterId ?? currentChapterId()
+        if (o && chapterId) openChapterPage(o.story.id, chapterId)
+        return
+      }
+      case 'build-scene':
+        if (a.storyId && a.sceneId) openScenePage(a.storyId, a.sceneId)
+        return
       case 'chapter-card': {
         // The card already open, else the open scene's chapter's.
         const chapterId = a.chapterCardId ?? currentChapterId()

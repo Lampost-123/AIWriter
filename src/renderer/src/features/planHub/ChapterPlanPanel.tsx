@@ -1,16 +1,18 @@
-// Plan this chapter, inline in its row of Build with AI's story line (2026-10-20; the chapter planner's page before,
-// features/outline/ChapterPlanner.tsx): the chapter's goal (saved to the chapter as Adam types), Interview me (a few short
-// questions about what the chapter and the plan around it don't say yet) or Just suggest scenes, then the chapter's
-// scene cards as suggestions in its own session (helperStore.suggestChapter), each kept into the chapter, changed or
-// discarded, with Undo. A goal the AI gives goes to the chapter only while it has none. How many scenes (Auto or a
-// number) and the chapter's length (Auto or a number of words, its chapter card's target, so Write this chapter and every
-// draft go by it) are set here too (2026-10-20). Once scenes are kept, Write this chapter is a click away.
+// Plan with AI, on a chapter's own page in Build with AI (Option A, "Zoom in", 2026-10-20; inline in the chapter's row of
+// the story line before, and the chapter planner's page before that, features/outline/ChapterPlanner.tsx): Interview me
+// (a few short questions about what the chapter and the plan around it don't say yet) or Suggest scenes, then the
+// chapter's scene cards as suggestions in its own session (helperStore.suggestChapter), each kept into the chapter,
+// changed or discarded, with Undo. A goal the AI gives goes to the chapter only while it has none. Beside them, what the
+// page passes in (`more`: Add scenes, Fill in the empty cards). Once scenes are kept, Write this chapter is a click away.
+// The page shows the chapter's goal (ChapterGoal, saved to the chapter as Adam types) and how many scenes and how long
+// (ChapterSize: Auto or a number; the length is its chapter card's target, so Write this chapter and every draft go by
+// it) above it.
 
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { ChapterCard, ID } from '@shared/types'
 import { CHAPTER_PLAN_SCENES } from '@shared/contracts/outline'
 import { CHAPTER_TARGET_LIMITS, chapterShare } from '@shared/lengths'
-import { Check, MessageCircleQuestion, PenLine, Sparkles, Square, X } from '@/components/ui/icons'
+import { Check, MessageCircleQuestion, PenLine, Sparkles, Square } from '@/components/ui/icons'
 import { Button, Notice, Select } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
@@ -37,14 +39,14 @@ import { EarlierSuggestions } from '@/features/outline/EarlierSuggestions'
 import { PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
 import { lastChapterAnswers, noteChapterStory, planChapter, startPlanInterview } from '@/features/outline/planInterviewStore'
 import { countNodes, totalOf, withoutGone } from '@/features/outline/tree'
-import { chapterName, suggestionLabels, type LineChapter } from './hubLogic'
+import { suggestionLabels, type LineChapter } from './hubLogic'
 import { HubStatus } from './HubStatus'
 import { LineSuggestions, WaitingRows } from './LineSuggestions'
 import { openPanel } from './hubStore'
 
 const plural = (n: number, one: string): string => `${n} ${n === 1 ? one : `${one}s`}`
 
-export function ChapterPlanPanel({ storyId, chapter }: { storyId: ID; chapter: LineChapter }): React.JSX.Element {
+export function ChapterPlanPanel({ storyId, chapter, more }: { storyId: ID; chapter: LineChapter; more?: React.ReactNode }): React.JSX.Element {
   const id = useId()
   const worldId = useApp((s) => s.world?.id)
   const session = useOutlineHelper((st) => st.sessions[chapterHelperKey(worldId, storyId, chapter.id)])
@@ -66,22 +68,6 @@ export function ChapterPlanPanel({ storyId, chapter }: { storyId: ID; chapter: L
     void checkKept(storyId, chapter.id)
   }, [storyId, chapter.id])
 
-  // The goal is the chapter's own: changes here are saved to it. One the AI gives it shows here too.
-  const [goal, setGoal] = useState(chapter.goal)
-  const [saved, setSaved] = useState(chapter.goal)
-  if (chapter.goal !== saved) {
-    setSaved(chapter.goal)
-    if (goal === saved) setGoal(chapter.goal)
-  }
-  const autosave = useAutosave<string>(
-    async (g) => {
-      await api.updateChapter(chapter.id, { goal: g })
-      setSaved(g)
-      useApp.getState().bumpOutline()
-    },
-    { what: 'the chapter’s goal' }
-  )
-
   // Named where they go: after the chapter's scenes that this batch didn't put there.
   const labels = useMemo(() => {
     if (!shown) return new Map<string, string>()
@@ -96,43 +82,16 @@ export function ChapterPlanPanel({ storyId, chapter }: { storyId: ID; chapter: L
     <section aria-labelledby={`${id}-t`} className="build-panel" data-chapter-plan={chapter.id}>
       <header className="build-panel-head">
         <div className="min-w-0 flex-1">
-          <p className="build-panel-k">Plan this chapter</p>
           <h3 id={`${id}-t`} className="build-panel-t">
-            {chapterName(chapter)}
+            Plan with AI
           </h3>
+          <p className="build-panel-s mt-1">
+            {chapter.scenes.length
+              ? 'Answer a few short questions about this chapter, ask for its scene cards, add scenes after its last one, or fill in the cards that say nothing yet. Everything the AI suggests arrives here, to keep, change or discard.'
+              : 'Answer a few short questions about this chapter, or just ask for its scenes. The AI gives it a goal if it has none, and suggests scene cards to keep, change or discard.'}
+          </p>
         </div>
-        <button type="button" className="build-panel-x" onClick={() => openPanel(storyId, chapter.id, null)} aria-label="Close Plan this chapter" title="Close. Anything suggested stays here for when you come back.">
-          <X size={14} />
-        </button>
       </header>
-      <p className="build-panel-s">
-        Answer a few short questions about this chapter, or just ask for scenes. The AI gives it a goal if it has none, and suggests scene cards to keep, change or
-        discard.
-      </p>
-
-      <div className="build-field">
-        <div className="flex items-end justify-between gap-2">
-          <label htmlFor={`${id}-goal`} className="hub-label">
-            What the chapter achieves
-          </label>
-          <SaveNote status={autosave.status} error={autosave.error} />
-        </div>
-        <AutoTextarea
-          id={`${id}-goal`}
-          value={goal}
-          minRows={2}
-          maxRows={8}
-          placeholder="The chapter’s goal: what changes by its end"
-          className="hub-box"
-          onChange={(e) => {
-            setGoal(e.target.value)
-            autosave.schedule(e.target.value)
-          }}
-          onBlur={() => void autosave.flush()}
-        />
-      </div>
-
-      <ChapterSize storyId={storyId} chapter={chapter} />
 
       <PlanInterview target={target} />
 
@@ -148,9 +107,10 @@ export function ChapterPlanPanel({ storyId, chapter }: { storyId: ID; chapter: L
           <Button variant="ai" icon={<MessageCircleQuestion size={14} />} onClick={() => startPlanInterview(target)} data-interview-chapter>
             {run ? 'Interview me again' : 'Interview me'}
           </Button>
-          <Button icon={<Sparkles size={14} className="text-ai" />} onClick={suggest} title="Suggest scene cards from the chapter and the plan around it" data-suggest-scenes>
-            {run ? 'Suggest again' : 'Just suggest scenes'}
+          <Button icon={<Sparkles size={14} className="text-ai" />} onClick={suggest} title="Suggest scene cards for this chapter from its goal and the plan around it" data-suggest-scenes>
+            {run ? 'Suggest again' : 'Suggest scenes'}
           </Button>
+          {more}
         </div>
       )}
 
@@ -207,6 +167,48 @@ export function ChapterPlanPanel({ storyId, chapter }: { storyId: ID; chapter: L
   )
 }
 
+/** The chapter's goal, saved to the chapter as Adam types; one the AI gives it shows here too. */
+export function ChapterGoal({ chapter }: { chapter: LineChapter }): React.JSX.Element {
+  const id = useId()
+  const [goal, setGoal] = useState(chapter.goal)
+  const [saved, setSaved] = useState(chapter.goal)
+  if (chapter.goal !== saved) {
+    setSaved(chapter.goal)
+    if (goal === saved) setGoal(chapter.goal)
+  }
+  const autosave = useAutosave<string>(
+    async (g) => {
+      await api.updateChapter(chapter.id, { goal: g })
+      setSaved(g)
+      useApp.getState().bumpOutline()
+    },
+    { what: 'the chapter’s goal' }
+  )
+  return (
+    <div className="build-field" data-chapter-goal>
+      <div className="flex items-end justify-between gap-2">
+        <label htmlFor={`${id}-goal`} className="hub-label">
+          What the chapter achieves
+        </label>
+        <SaveNote status={autosave.status} error={autosave.error} />
+      </div>
+      <AutoTextarea
+        id={`${id}-goal`}
+        value={goal}
+        minRows={2}
+        maxRows={8}
+        placeholder="The chapter’s goal: what changes by its end"
+        className="hub-box"
+        onChange={(e) => {
+          setGoal(e.target.value)
+          autosave.schedule(e.target.value)
+        }}
+        onBlur={() => void autosave.flush()}
+      />
+    </div>
+  )
+}
+
 /** "Auto", or 1 to 12 scenes. */
 const COUNT_OPTIONS = [
   { value: 'auto', label: 'Auto' },
@@ -221,7 +223,7 @@ const COUNT_OPTIONS = [
  * Settings › Writing, else the AI picks). The length is the chapter card's target, saved as Adam types, so Write this
  * chapter and every draft in it go by it: its scenes on Auto share it out.
  */
-function ChapterSize({ storyId, chapter }: { storyId: ID; chapter: LineChapter }): React.JSX.Element {
+export function ChapterSize({ storyId, chapter }: { storyId: ID; chapter: LineChapter }): React.JSX.Element {
   const id = useId()
   const worldId = useApp((s) => s.world?.id)
   const count = useOutlineHelper((st) => chapterSceneCount(st.sessions[chapterHelperKey(worldId, storyId, chapter.id)]))
