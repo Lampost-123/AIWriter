@@ -1,8 +1,8 @@
 // The story line (Build with AI's third section, 2026-10-20; the Plan hub's before): the story from start to end in a few
 // rows, the AI's suggestions in their place. What is written is folded away ("✓ Act 1 · Ch 1 to Ch 3 · written", Open),
 // the chapter being written lists its scenes so far, then YOU ARE HERE and the newest suggestions for what comes next;
-// then what is planned but not written ("Ch 5 to Ch 9 · planned, not written", Pick up from here opens it chapter by
-// chapter) and acts that have no chapters yet (Plan its chapters). Quiet since "Option A: Zoom in" (Adam, 2026-10-20):
+// then the chapters planned but not written, one row each (2026-10-20: no row around them to open), and acts that have
+// no chapters yet (Plan its chapters). Quiet since "Option A: Zoom in" (Adam, 2026-10-20):
 // each chapter shows its name, how it stands and ONE next step (Plan it, Write it or Open), and a click on its name or
 // that step opens the chapter's own page (ZoomPages.tsx), where its plan, its scenes' tools and Write this chapter are.
 // A scene shows its name only; a click opens the scene's own page. A planned scene the story has moved on from says so
@@ -21,8 +21,7 @@ import { countNodes, totalOf, type TreeNode } from '@/features/outline/tree'
 import { chapterName, rowForPlace, sceneName, shownTitle, type HubMode, type LineChapter, type LineRow, type LineScene } from './hubLogic'
 import { writeStep } from './buildLogic'
 import { planChaptersIn, toggleChapter, toggleRow, type HubState } from './hubStore'
-import { BatchHead, LineSuggestions, openWriteChapter, shownNodes, WaitingRows } from './LineSuggestions'
-import { Button } from '@/components/ui'
+import { BatchHead, LineSuggestions, shownNodes, WaitingRows } from './LineSuggestions'
 import { CHAPTER_STEP_WORDS, chapterStep, chapterView, sceneView } from './zoomLogic'
 
 /** How long scenes stay lit after Show me. */
@@ -147,9 +146,8 @@ function SceneLink({
 }
 
 export function StoryLine(p: StoryLineProps): React.JSX.Element {
-  const { storyId, rows, run, tree, hub, mode, emptyCards } = p
+  const { storyId, rows, run, tree, hub, emptyCards } = p
   const busy = runBusy(run)
-  const writing = useChapterWriter((s) => !!s.progress)
   // A batch with everything decided folds to its head: what it kept is in the rows, where it now is in the story.
   const nodes = run ? shownNodes(run, tree) : []
   const settled = !!run && !busy && nodes.length > 0 && totalOf(countNodes(nodes, run.decisions, 'open')) === 0
@@ -310,58 +308,27 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
       continue
     }
     if (row.kind === 'planned') {
+      // The planned chapters straight in the line, one row each with its one next step (no row around them to open).
       const chapters = row.chapters.filter((c) => !kept.has(c.id))
       if (!chapters.length) continue
-      const range =
-        chapters.length === row.chapters.length ? row.range : chapters.length === 1 ? `Ch ${chapters[0].no}` : `Ch ${chapters[0].no} to Ch ${chapters[chapters.length - 1].no}`
-      // The next chapter planned with scenes: the AI can write it whole from here (its plan first, then every scene).
-      const nextUp = writing ? null : chapters.find((c) => c.scenes.length > 0)
       items.push(
-        <li key={row.key} className="hub-row is-planned is-dashed" data-row="planned">
-          <span className="hub-row-mark is-planned" aria-hidden />
-          <span className="hub-row-words">{range} · planned, not written</span>
-          {nextUp ? (
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<PenLine size={13} />}
-              onClick={() => openWriteChapter(storyId, nextUp.id)}
-              data-write-next-chapter={nextUp.id}
-              title={`Write ${chapterName(nextUp)} with AI: its plan first, for you to read, then every scene`}
-            >
-              Write Ch {nextUp.no}
-            </Button>
-          ) : null}
-          <button
-            type="button"
-            className="hub-row-btn"
-            aria-expanded={isOpen}
-            onClick={() => toggleRow(storyId, row.key)}
-            title={isOpen ? undefined : 'Open the plan chapter by chapter, to carry on planning it'}
-          >
-            {isOpen ? 'Fold away' : mode === 'writing' ? 'Pick up from here' : 'Open the plan'}
-          </button>
+        <li key={`${row.key}:in`} className="hub-row-kids is-flat" data-planned-chapters>
+          {chapters.map((c, i) => (
+            <PlannedChapter
+              key={c.id}
+              {...p}
+              chapter={c}
+              actHead={c.actId && c.actId !== chapters[i - 1]?.actId ? c : null}
+              open={hub.openChapters.includes(c.id) || p.drift.some((d) => d.chapterId === c.id && lit?.has(d.sceneId))}
+              batch={placed?.chapterId === c.id ? batch : null}
+              driftBy={driftBy}
+              lit={lit}
+              kept={kept}
+              empty={emptyIn(c.id)}
+            />
+          ))}
         </li>
       )
-      if (isOpen)
-        items.push(
-          <li key={`${row.key}:in`} className="hub-row-kids" data-planned-chapters>
-            {chapters.map((c, i) => (
-              <PlannedChapter
-                key={c.id}
-                {...p}
-                chapter={c}
-                actHead={c.actId && c.actId !== chapters[i - 1]?.actId ? c : null}
-                open={hub.openChapters.includes(c.id) || p.drift.some((d) => d.chapterId === c.id && lit?.has(d.sceneId))}
-                batch={placed?.chapterId === c.id ? batch : null}
-                driftBy={driftBy}
-                lit={lit}
-                kept={kept}
-                empty={emptyIn(c.id)}
-              />
-            ))}
-          </li>
-        )
       continue
     }
     // Acts with no chapters yet.

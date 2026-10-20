@@ -336,12 +336,6 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
   const drift = mode === 'writing' && fresh ? facts.drift : []
   const threads = waitingThreads(hub)
 
-  // A story planned but not written: its plan shows open, chapter by chapter, the first time it shows.
-  useEffect(() => {
-    if (mode === 'planned' && !hub.open.includes('planned')) toggleRow(storyId, 'planned', true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, storyId])
-
   // ---------- The tabs: one section at a time ----------
 
   // Story line on a chapter's or a scene's page; else what the view asks for, the tab last chosen, where the story stands.
