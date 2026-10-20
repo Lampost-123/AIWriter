@@ -120,6 +120,7 @@ function useSceneView(sceneId: ID, now: number): ProgressView | null {
   const step = useDraftSteps((s) => s.steps[sceneId] ?? null)
   const memory = useApp((s) => s.memoryStatus)
   const planFirst = useApp((s) => s.settings?.planFirst !== false)
+  const checkNewWords = useApp((s) => s.settings?.checkNewWords !== false)
   const review = usePlanReview((s) => s.waiting.some((r) => r.sceneId === sceneId))
   const director = useDirector((s) => s.byScene[sceneId] ?? null)
   const live = d.live?.sceneId === sceneId ? d.live : null
@@ -142,6 +143,7 @@ function useSceneView(sceneId: ID, now: number): ProgressView | null {
     review,
     memory,
     planFirst,
+    checkNewWords,
     model: live?.model ?? '',
     memoryModel: live?.memoryModel ?? '',
     stretch: director && !director.ended ? { at: director.stretch, of: director.of } : null

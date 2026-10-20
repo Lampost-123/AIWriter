@@ -192,6 +192,7 @@ describe('a scene being drafted', () => {
     step: null,
     review: false,
     planFirst: true,
+    checkNewWords: true,
     model: 'DeepSeek V4 Flash',
     memoryModel: 'Claude Haiku 4.5',
     ...o
@@ -213,6 +214,14 @@ describe('a scene being drafted', () => {
     // 640 words in 40 s: 860 more at 16 a second, about 54 s.
     expect(v.left).toBe('about a minute left')
     expect(v.cost).toBe('')
+  })
+
+  it('leaves out Checking when the new words are not checked, and never says it is checking them', () => {
+    expect(sceneView(input({ checkNewWords: false })).steps.map((s) => s.label)).toEqual(['The memory', 'The plan', 'Writing'])
+    // The draft has ended and the check said at once it won't run: still the last step, never "Checking".
+    const ended = sceneView(input({ checkNewWords: false, phase: 'idle', checking: true }))
+    expect(ended.lead).toBe('Writing “Morning Confrontation”')
+    expect(ended.steps.at(-1)).toMatchObject({ label: 'Writing', state: 'now' })
   })
 
   it('leaves out the plan when Plan before writing is off, and names each step before the first words', () => {

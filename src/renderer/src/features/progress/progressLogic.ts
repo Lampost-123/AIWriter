@@ -366,6 +366,8 @@ export interface SceneInput {
   memory?: Pick<MemoryStatus, 'catchingUp'> | null
   /** Plan before writing is on (Settings › Models). */
   planFirst: boolean
+  /** Check new words straight away is on (Settings › Models): off, there is no Checking step. */
+  checkNewWords: boolean
   /** The writer model's name (or the one this draft was tried with), and the memory model's. */
   model: string
   memoryModel: string
@@ -379,16 +381,18 @@ export function sceneView(i: SceneInput): ProgressView {
     { label: 'The memory', model: i.memoryModel },
     ...(i.planFirst ? [{ label: 'The plan', model: i.memoryModel }] : []),
     { label: 'Writing', model: i.model },
-    { label: 'Checking', model: i.memoryModel }
+    ...(i.checkNewWords ? [{ label: 'Checking', model: i.memoryModel }] : [])
   ]
   const at = (label: string): number => labels.findIndex((l) => l.label === label)
+  // Past the last step when the new words aren't checked, so nothing reads as checking.
+  const checkingAt = i.checkNewWords ? at('Checking') : labels.length
   const writingNow = i.words > 0 || i.step?.step === 'writing' || i.phase === 'streaming'
   let stepNo: number
   let words: string
   let model = i.model
   let short = ''
-  if (i.checking && i.phase === 'idle') {
-    stepNo = at('Checking')
+  if (i.checking && i.phase === 'idle' && i.checkNewWords) {
+    stepNo = checkingAt
     words = 'Checking the new words against the story so far'
     model = i.memoryModel
   } else if (i.phase === 'stopping') {
@@ -414,7 +418,7 @@ export function sceneView(i: SceneInput): ProgressView {
   const retrying = !!i.retrying
   if (retrying) words = `Trying again: ${i.retrying!.replace(/\.$/, '')}`
   const aim = i.target ?? AUTO_LENGTH.typical
-  const fraction = stepNo >= at('Checking') ? 0.97 : stepNo < at('Writing') ? 0.03 + 0.04 * stepNo : 0.1 + 0.85 * Math.min(1, i.words / aim)
+  const fraction = stepNo >= checkingAt ? 0.97 : stepNo < at('Writing') ? 0.03 + 0.04 * stepNo : 0.1 + 0.85 * Math.min(1, i.words / aim)
   const writingMs = i.firstWordAt ? i.now - i.firstWordAt : 0
   const rate = writingMs > 0 ? i.words / (writingMs / 1000) : 0
   const left =
@@ -424,7 +428,7 @@ export function sceneView(i: SceneInput): ProgressView {
         : leftWords((i.target - i.words) / rate)
       : ''
   const ran = i.now - i.startedAt
-  const lead = `${stepNo >= at('Checking') ? 'Checking' : 'Writing'} ${name}`
+  const lead = `${stepNo >= checkingAt ? 'Checking' : 'Writing'} ${name}`
   const tail = retrying ? 'trying again' : short || (i.words > 0 || stepNo >= at('Writing') ? shortWordsOf(i.words, i.target) : '')
   return {
     kind: 'scene',
