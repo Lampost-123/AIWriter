@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerNote, asOfText, chatWhen, examples, refusedReason, savedMessage, speaksOfChanges, staleBadge, turnOutcome } from './askWords'
+import { answerNote, asOfText, chatWhen, examples, refusedReason, savedMessage, staleBadge, turnOutcome } from './askWords'
 
 describe('Ask the world’s words', () => {
   it('give examples that name the world’s own characters, never someone from elsewhere', () => {
@@ -56,26 +56,6 @@ describe('Ask the world’s words', () => {
     expect(savedMessage({ ...note, name: 'Mara Venn: What would she do', created: true, onlyIn: 'Mara Keeps Her Hand' })).toBe(
       'Saved to your lore as “Mara Venn: What would she do”, in Mara Keeps Her Hand only.'
     )
-  })
-})
-
-describe('an answer that speaks of changes', () => {
-  it('is noticed when it asks to apply, or names its proposed changes', () => {
-    expect(speaksOfChanges('I’ve fixed three typos. Apply the changes when ready.')).toBe(true)
-    expect(speaksOfChanges('Here are my proposed edits for the opening.')).toBe(true)
-    expect(speaksOfChanges('See the changes below.')).toBe(true)
-    expect(speaksOfChanges('Mara would never forgive Tobin for that lie.')).toBe(false)
-    expect(speaksOfChanges('Did you want me to change the ending?')).toBe(false)
-  })
-})
-
-describe('an answer that claims changes it never proposed', () => {
-  it('is a clear claim, not a word in a brainstorm', () => {
-    expect(speaksOfChanges('I’ve fixed the spelling in the first paragraph.')).toBe(true)
-    expect(speaksOfChanges('Here is the revised paragraph: The tide came in.')).toBe(true)
-    expect(speaksOfChanges('Apply these edits when you’re ready.')).toBe(true)
-    expect(speaksOfChanges('She could apply pressure to the wound, or run.')).toBe(false)
-    expect(speaksOfChanges('Would you accept a darker ending?')).toBe(false)
   })
 })
 

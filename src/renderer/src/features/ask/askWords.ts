@@ -90,9 +90,6 @@ export function savedMessage(note: Pick<SavedNote, 'name' | 'created' | 'onlyIn'
   return `Saved to memory for ${note.name}, as your own note.`
 }
 
-/** True when an answer clearly says it made or proposed changes (shared/askChanges.ts): "apply pressure" doesn't count. */
-export { claimsChanges as speaksOfChanges } from '@shared/askChanges'
-
 /**
  * Why the changes an answer tried were all turned down by their checks, in plain words (from the last one turned
  * down), or null when none was tried or one went through. Shown in the answer's outcome line.

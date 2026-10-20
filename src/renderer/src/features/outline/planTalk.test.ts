@@ -121,11 +121,17 @@ describe('the Plan hub while writing (R6)', () => {
     expect(last().text).toBe('Chapter 3 could end on the storm instead.')
   })
 
-  it('a claim of a change to the story with nothing sent is handed on too, and put right', async () => {
+  it('a claim of a change with nothing sent, when Adam only asked a question, is put right but not handed on', async () => {
     main.replies = ['I’ve tightened the opening scene.', 'Sorry.', 'Sorry.']
     await talkPlan('st', 'The opening drags', undefined, { handOff: true })
-    expect(last().handOff).toBe('The opening drags')
+    expect(last().handOff).toBeUndefined()
     expect(last().text).toMatch(/^No change was made/)
+  })
+
+  it('a request for the story’s own scene is handed on even when the answer claims it was done', async () => {
+    main.replies = ['I’ve tightened the opening scene.', 'Sorry.', 'Sorry.']
+    await talkPlan('st', 'Tighten the opening scene', undefined, { handOff: true })
+    expect(last().handOff).toBe('Tighten the opening scene')
   })
 
   it('a question, or new suggestions, are not handed on', async () => {

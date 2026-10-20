@@ -197,7 +197,7 @@ describe('the truth check in the chat’s tool loop', () => {
       { place: { wordsInQuestion: true } }
     )
     expect(agent.proposals.map((p) => p.kind)).toEqual(['text'])
-    expect(done.text).toBe('Only change 1 is ready to apply; nothing else was changed.\n\nChange 1 is ready to apply: tighten the opening. I’d also update Mara’s entry.')
+    expect(done.text).toBe('Only change 1 is ready to apply; nothing else was changed.\n\nI’d tighten the opening. I’d also update Mara’s entry.')
   })
 
   it('leaves a true answer alone; an answer that ends with a question is not sent back, but its words are still put right', async () => {

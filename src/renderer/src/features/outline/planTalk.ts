@@ -166,7 +166,7 @@ export function talkPlan(storyId: ID, message: string, looking?: string, o: { ha
       }
       if (!result) {
         // The Plan hub while writing (no suggestions waiting): a change to the story's own chapters is Ask's to make.
-        const handOff = o.handOff && !changes && (asksStoryChange(message) || claimsChange(answer)) ? message : null
+        const handOff = o.handOff && !changes && asksStoryChange(message) ? message : null
         const reason = handOff ? null : changes ? NO_CHANGE.lost : claimsChange(answer) ? NO_CHANGE.notSent : null
         return { answer, revision: null, reason, handOff }
       }

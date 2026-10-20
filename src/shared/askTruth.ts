@@ -150,6 +150,9 @@ const COORD = new RegExp(
   'gu'
 )
 
+/** A further change in a summary line ("…and trimmed the ending"), said plainly with it. */
+const AND_VERB = new RegExp(String.raw`(\b(?:and|then)\s+(?:also\s+)?|,\s*(?:and\s+)?)(${VERB_ALT})\b`, 'g')
+
 /** A list mark at a line's start, and a lead-in before what was done ("Okay — updated the plan"). */
 const MARK = /^(?:[-*•]\s+|\d+[.)]\s+|#{1,6}\s+)/
 const LEAD_IN = /^(?:ok(?:ay)?|alright|all right|right|sure|great|good|got it|yes|yep|perfect)\s*(?:[,!.]\s*)?(?:[—–]|--?)\s*|^(?:ok(?:ay)?|alright|sure|got it|perfect)\s*,\s+/i
@@ -164,12 +167,12 @@ const BARE_START = new RegExp(
 
 /** A heading or a line that says changes were made ("## Changes made", "Plan updated.", "Updated: …", "Here's what I did:"). */
 const HEAD_MADE = new RegExp(
-  String.raw`^(?:\*\*|__)?\s*(?:(?:changes?|edits?|updates?|revisions?|fixes)\s+(?:made|applied|done|complete)|summary of (?:the |my )?(?:edits|changes|updates|revisions)|here(?:['’]s| is) what I (?:did|changed|updated|edited|fixed)|what I (?:did|changed)|(?:the |your )?(?:\p{L}+\s+)?(?:${THINGS})(?:\s+\d+)?\s+(?:updated|changed|edited|revised|rewritten|fixed|saved|applied|done)|updated\s+(?:the\s+|your\s+)?(?:\p{L}+\s+)?(?:${THINGS})|(?:updated|changed|edited|done)(?=\s*(?:\*\*|__)?\s*:))\s*(?:\*\*|__)?\s*(?:[:.!]+\s*|$)`,
+  String.raw`^(?:\*\*|__)?\s*(?:(?:changes?|edits?|updates?|revisions?|fixes)\s+(?:made|applied|done|complete)|summary of (?:the |my )?(?:edits|changes|updates|revisions)|here(?:['’]s| is) what I (?:did|changed|updated|edited|fixed)|what I (?:did|changed)|(?:the |your )?(?:\p{L}+\s+)?(?:${THINGS})(?:\s+\d+)?\s+(?:updated|changed|edited|revised|rewritten|fixed|saved|applied|done)|updated\s+(?:the\s+|your\s+)?(?:\p{L}+\s+)?(?:${THINGS})|(?:updated|changed|edited|done)(?=\s*(?:\*\*|__)?\s*:))\s*(?:\*\*|__)?\s*(?:[:.!]+\s*(?:\*\*|__)?\s*|$)`,
   'iu'
 )
 /** A heading that hands over new parts ("Revised chapter plan:", "New scene card:"): true when a proposal backs it. */
 const HEAD_HAND = new RegExp(
-  String.raw`^(?:\*\*|__)?\s*(?:revised|new|edited|rewritten|reworked|improved|tightened|corrected|updated)\s+(?:\p{L}+\s+)?(?:${THINGS}|beat list|list)\s*(?:\*\*|__)?\s*(?::\s*|$)`,
+  String.raw`^(?:\*\*|__)?\s*(?:revised|new|edited|rewritten|reworked|improved|tightened|corrected|updated)\s+(?:\p{L}+\s+)?(?:${THINGS}|beat list|list)\s*(?:\*\*|__)?\s*(?::\s*(?:\*\*|__)?\s*|$)`,
   'iu'
 )
 
@@ -253,6 +256,14 @@ const EARLIER =
   /\b(?:in my (?:last|previous|earlier|first) (?:answer|reply|message|response)|earlier in (?:our|this) (?:talk|chat|conversation)|(?:as|what) (?:I|we) (?:\S+\s+){0,3}?(?:earlier|before|previously|last time)\b|last time\b)|^\s*(?:earlier|previously)\s*,?\s+(?:I|we)\b/i
 /** A sentence about what the writer did is no claim of the chat's ("you applied it", "you've updated her entry"). */
 const WRITER_DID = /\byou(?:['’]ve| have)?\s+(?:just\s+|already\s+)?(?:applied|accepted|changed|edited|updated)\b/i
+/** Someone's words told before "I": "Mara says I changed the locks", "she tells him that I moved the boat". */
+const SPEECH_BEFORE =
+  /\b(?:says|said|tells|told|writes|wrote|thinks|thought|asks|asked|whispers|whispered|shouts|shouted|admits|admitted)(?:\s+(?:me|him|her|them|us|you))?(?:\s+that)?[\s,:]*$/i
+/** A speech tag after the words: "We changed course at dawn, Mara writes in her journal." */
+const SPEECH_AFTER =
+  /,\s*(?:[A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+)?|he|she|they)\s+(?:says|said|writes|wrote|thinks|thought|tells|told|whispers|whispered|shouts|shouted|admits|admitted|asks|asked)\b/u
+/** Someone else's words, or narration, not the chat's: told by a speech verb before, or a speech tag after. */
+const spoken = (before: string, after: string): boolean => SPEECH_BEFORE.test(before) || SPEECH_AFTER.test(after)
 /** What follows a verb that says nothing was changed ("I've changed nothing", "I've changed my mind"). */
 const NOTHING = /^\s*(?:nothing|no\b|none\b|anything\b|my mind\b)/i
 
@@ -266,6 +277,8 @@ const MADE_INTO = new RegExp(
   String.raw`^\s*(?:(?:the|a|an|your|this|that|these|those|its|her|his|their)\s+(?:\p{L}+\s+){0,2}?(?:${THINGS})(?:['’]s\s+\p{L}+)?|(?:scene|chapter|beat|line|paragraph)\s+\d+)\s+(?!(?:of|for|with|in|on|at|to|from|about|by|that|which|who|when|where|while|and|but|so|as|because|I|you|we|he|she|they|it|is|was|were|are|${THINGS})\b)\p{L}`,
   'iu'
 )
+
+const PUT_THING = new RegExp(String.raw`^[^.;!?\n]{0,40}?\b(?:${THINGS})\b[^.;!?\n]{0,20}?\b(?:in|into)\b`, 'iu')
 
 /** True when a guarded verb is followed by the words that make it a change ("made the change", "set her age to"). */
 function follows(verb: string, after: string): boolean {
@@ -281,7 +294,8 @@ function follows(verb: string, after: string): boolean {
         MADE_INTO.test(after)
       )
     case 'put':
-      return /^[^.;!?\n]{0,50}\b(?:in|into)\b/.test(after)
+      // One of the app's things put in or into somewhere ("put the reveal into chapter 3"), never "put a lot of thought into".
+      return /^\s*in\b/.test(after) || PUT_THING.test(after)
     case 'filled':
       return /^\s*in\b/.test(after)
     case 'toned':
@@ -296,13 +310,52 @@ function follows(verb: string, after: string): boolean {
 
 // ---------- Reading an answer ----------
 
-/** The answer with quoted words blanked out (the same length, so places stay): “…”, "…", «…», `…`, and > quote lines. */
+/** A line that hands story words over ("Here's a tighter version you could use:"): what follows it is the story's, not the chat's. */
+const HANDS_PROSE = /\b(?:version|paragraph|paragraphs|passage|rewrite|draft|opening|ending|line|lines|scene text)\b[^\n]*:\s*(?:\*\*|__)?\s*$/i
+/** A paragraph that is plainly the chat speaking again after words it handed over (or a heading, or another hand-over). */
+const CHAT_AGAIN =
+  /^\s*(?:#{1,6}\s|\*\*|__|---|(?:I|We)(?:['’]ve| have)\s|I['’]d\s|I (?:would|can|could|kept)\s|(?:Want|Would|Should|Shall|Does|Do you|Let me|Tell me|If you|Feel free|Happy to|Hope|Note|Why)\b|This (?:version|rewrite|draft|keeps|tightens|cuts|gives|makes|way)\b|These (?:changes|edits|lines)\b|The (?:change|main|key|idea|difference)\b)|:\s*(?:\*\*|__)?\s*$/i
+
+/**
+ * The answer with what isn't the chat's own words blanked out (the same length, so places stay): quoted words (“…”,
+ * "…", «…», `…`), > quote lines, fenced and indented blocks, and the paragraphs of story words after a line that hands
+ * them over, up to the chat speaking again. Story prose told as "I moved to the door" is never a claim.
+ */
 export function withoutQuotes(text: string): string {
   const blank = (m: string): string => m.replace(/[^\n]/g, ' ')
-  return text
-    .replace(/^>.*$/gm, blank)
+  const lines = text.split('\n')
+  let fenced = false
+  let handed = false
+  let gap = true
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]
+    if (/^\s*(?:```|~~~)/.test(l)) {
+      fenced = !fenced
+      lines[i] = blank(l)
+      continue
+    }
+    if (fenced || /^>/.test(l) || (gap && /^(?: {4}|\t)(?!\s*(?:[-*•]|\d+[.)])\s)\S/.test(l))) {
+      lines[i] = blank(l)
+      continue
+    }
+    if (!l.trim()) {
+      gap = true
+      continue
+    }
+    const starts = gap
+    gap = false
+    // Story prose never comes as a list: a list after the line is the chat's own ("Changes to the opening:\n- Tightened…").
+    if (handed && ((starts && CHAT_AGAIN.test(l)) || /^\s*(?:[-*•]|\d+[.)])\s/.test(l))) handed = false
+    if (handed) {
+      lines[i] = blank(l)
+      continue
+    }
+    if (HANDS_PROSE.test(l) && !/\b(?:changes?|edits?|fixes|updates?|revisions?)\b/i.test(l)) handed = true
+  }
+  return lines
+    .join('\n')
     .replace(/“[^”\n]*”|«[^»\n]*»|`[^`\n]*`/g, blank)
-    .replace(/(^|[\s(:—–-])"[^"\n]*"/g, (m, lead: string) => lead + blank(m.slice(lead.length)))
+    .replace(/(^|[\s(:—–*_,-])"[^"\n]*"/g, (m, lead: string) => lead + blank(m.slice(lead.length)))
 }
 
 /** The answer's sentences, with where each is: split at . ! ? before a space or the end, and at line ends. */
@@ -401,7 +454,7 @@ export function changeClaims(answer: string): Claim[] {
       const at = m.index ?? 0
       const verb = m[2]
       const after = s.slice(at + m[0].length)
-      if (CONDITION.test(s.slice(0, at)) || NOTHING.test(after) || !follows(verb, after)) continue
+      if (CONDITION.test(s.slice(0, at)) || spoken(s.slice(0, at), after) || NOTHING.test(after) || !follows(verb, after)) continue
       const adverbs = (m[1] ?? '').replace(/\b(?:gone|went) ahead and\s+/g, '')
       const offer = `I’d ${adverbs}${VERBS[verb]}`
       // "Done — I've updated…": the "Done" before it goes with the claim, or it would still say the change was made.
@@ -425,7 +478,7 @@ export function changeClaims(answer: string): Claim[] {
         const at = m.index ?? 0
         const verbAt = at + m[0].length - m[1].length
         const after = s.slice(verbAt + m[1].length)
-        if (CONDITION.test(s.slice(0, at)) || NOTHING.test(after) || GUARDED.has(m[1])) continue
+        if (CONDITION.test(s.slice(0, at)) || spoken(s.slice(0, at), after) || NOTHING.test(after) || GUARDED.has(m[1])) continue
         const fix = { at: from + verbAt, length: m[1].length, to: `would ${VERBS[m[1]]}` }
         mine.push(make(targetOf(m[1], after), namesIn(clauseOf(written.slice(verbAt + m[1].length))), !PROPOSING.has(m[1]), { kind: 'reword', ...fix }, fix))
       }
@@ -438,7 +491,9 @@ export function changeClaims(answer: string): Claim[] {
     // A heading that says changes were made, or hands over new parts; what follows it on the line is read on.
     let body = trimmed.slice(markLen)
     let bodyAt = lead + markLen
-    const head = HEAD_MADE.exec(body) ?? HEAD_HAND.exec(body)
+    // "Updated the plan." is a summary line, read below with what it suggests; "Updated plan:" or "**Plan updated**" a heading.
+    const summary = /^\p{L}/u.test(body) && !/:\s*$/.test(body) && BARE_START.test(body)
+    const head = summary ? null : (HEAD_MADE.exec(body) ?? HEAD_HAND.exec(body))
     if (head) {
       const made = HEAD_MADE.test(body)
       const rest = body.slice(head[0].length)
@@ -459,9 +514,16 @@ export function changeClaims(answer: string): Claim[] {
       const verbAt = plain.toLowerCase().indexOf(verb)
       const after = plain.slice(verbAt + verb.length)
       if (follows(verb, after)) {
-        const at = from + bodyAt + leadIn + verbAt
+        // Said plainly from the lead-in to the clause's end ("Okay — tightened the opening and trimmed the ending." →
+        // "Tighten the opening and trim the ending."): the suggestion kept when nothing backs it, the change when one does.
+        const at = from + bodyAt
+        const verbEnd = at + leadIn + verbAt + verb.length
         const p = VERBS[verb] ?? verb
-        found = make(targetOf(verb, after), names, !PROPOSING.has(verb), { kind: 'drop' }, { at, length: verb.length, to: p.charAt(0).toUpperCase() + p.slice(1) })
+        const raw = answer.slice(verbEnd, verbEnd + after.search(/[.;!?\n]|$/))
+        // "**Tightened** the opening.": the bold marks go with the verb.
+        const tail = raw.replace(plain.startsWith('**') ? /^\*\*/ : /^$/, '').replace(AND_VERB, (m, join: string, v: string) => (GUARDED.has(v) ? m : join + VERBS[v]))
+        const said = { at, length: verbEnd - at + raw.length, to: p.charAt(0).toUpperCase() + p.slice(1) + tail }
+        found = make(targetOf(verb, after), names, !PROPOSING.has(verb), { kind: 'reword', ...said }, said)
       }
     }
     // "The plan now reads: …": said as what would be.
@@ -700,6 +762,9 @@ const andList = (xs: string[]): string => (xs.length < 2 ? (xs[0] ?? '') : `${xs
 const readyWords = (ids: string[]): string =>
   ids.length === 1 ? `Change ${ids[0]} is ready to apply` : ids.length ? `Changes ${andList(ids)} are ready to apply` : 'The change is ready to apply'
 
+/** "update" → "updating", "cut" → "cutting", "rewrite" → "rewriting". */
+const gerund = (v: string): string => (/^(?:cut|set|put|trim|plan|swap)$/.test(v) ? `${v}${v.slice(-1)}ing` : /[^e]e$/.test(v) ? `${v.slice(0, -1)}ing` : `${v}ing`)
+
 /** How every answer put right by honestReply starts, when nothing was proposed (the window and the tests know it by this). */
 export const NO_CHANGE_LEAD = 'No change was made'
 
@@ -733,13 +798,31 @@ export function honestReply(
   for (const c of claims) {
     if (c.fix.kind === 'drop') edits.push({ drop: c })
     else if (c.earlier) {
+      // "In my last answer I updated the plan." → "…I suggested updating the plan."
       const said = answer.slice(c.fix.at, c.fix.at + c.fix.length)
-      edits.push({ at: c.fix.at, length: c.fix.length, to: /^I\b|^we\b/i.test(said) ? said.replace(/\S+$/, 'suggested') : c.fix.to })
+      const who = /^(?:I|we)\b/i.exec(said)?.[0]
+      // With nothing after the verb but when ("As I changed earlier, …"), just "As I suggested earlier".
+      const bare = /^\s*(?:earlier|before|previously|last time|[,.;:!?]|$)/i.test(answer.slice(c.fix.at + c.fix.length))
+      const to = bare ? `${who} suggested` : `${who} suggested ${gerund(c.fix.to.split(/\s+/).at(-1) ?? '')}`
+      edits.push({ at: c.fix.at, length: c.fix.length, to: who ? to : c.fix.to })
     } else edits.push({ at: c.fix.at, length: c.fix.length, to: c.fix.to })
   }
+  // A backed claim at its sentence's start says which change is ready, once: when one change has several, a line says
+  // so and each is said plainly ("Cut the last line."). With claims nothing backs (a line already says what is ready),
+  // or naming nothing the change is of ("I moved to the door", likely the story's own words), it is said as an offer.
+  const readyKey = (ids: string[]): string => (ids.length ? ids : o.proposed).join(',')
+  const perChange = new Map<string, number>()
+  for (const { claim: c, ids } of backed) if (c.wait?.to.includes('{ready}')) perChange.set(readyKey(ids), (perChange.get(readyKey(ids)) ?? 0) + 1)
+  const plainly = [...perChange.values()].some((n) => n > 1)
+  const offers = claims.some((c) => !c.earlier)
   for (const { claim: c, ids } of backed) {
     if (!c.wait) edits.push({ drop: c })
-    else edits.push({ ...c.wait, to: c.wait.to.replace('{ready}', readyWords(ids.length ? ids : o.proposed)) })
+    else if (!c.wait.to.includes('{ready}')) edits.push(c.wait)
+    else if ((offers || c.target === null) && c.fix.kind === 'reword') edits.push({ ...c.wait, to: c.fix.to })
+    else if (plainly) {
+      const to = c.wait.to.replace(/^\{ready\}:\s*/, '')
+      edits.push({ ...c.wait, to: to.charAt(0).toUpperCase() + to.slice(1) })
+    } else edits.push({ ...c.wait, to: c.wait.to.replace('{ready}', readyWords(ids.length ? ids : o.proposed)) })
   }
   const place = (e: Edit): number => ('drop' in e ? e.drop.from : e.at)
   let text = answer

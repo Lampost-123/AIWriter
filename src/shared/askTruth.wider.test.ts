@@ -238,3 +238,95 @@ describe('what is left after a heading goes', () => {
     expect(out).not.toMatch(/\bthe opening line would read/)
   })
 })
+
+// Review fixes (2026-10-20): what the reviewer found with real outputs.
+describe('review fixes: put right without stray marks or lost meaning', () => {
+  const NONE = 'No change was made, so there’s nothing to apply. Here’s what I’d suggest:\n\n'
+  const text = (extra: object = {}): never[] => [{ kind: 'text', id: '1', ...extra }] as never[]
+
+  it('a bold heading with its colon inside the marks leaves no marks behind', () => {
+    expect(settleAnswer('**Updated plan:**\n1. Mara arrives.', [])).toBe(`${NONE}1. Mara arrives.`)
+    expect(settleAnswer('**Changes made:**\n- tighter opening', [])).toBe(`${NONE}- tighter opening`)
+    expect(settleAnswer('__New scene card:__ goal: escape', [])).toBe(`${NONE}Goal: escape`)
+  })
+
+  it('prose the chat hands over is never read as claims, with or without a proposal', () => {
+    const offered = 'Here’s a tighter version you could use:\n\nI moved to the door. I cut the rope and ran. We fixed the cart by dawn.'
+    expect(settleAnswer(offered, [])).toBe(offered)
+    expect(settleAnswer(offered, text())).toBe(offered)
+    const two = 'One way the opening could go:\n\nI moved to the door.\n\nWe fixed the cart by dawn.'
+    expect(settleAnswer(two, [])).toBe(two)
+  })
+
+  it('a summary heading naming a part is no hand-over: the list under it is read', () => {
+    expect(settleAnswer('Changes to the opening:\n- Tightened the first line.\n- Cut the adverbs.', [])).toContain('- Tighten the first line.')
+    expect(settleAnswer('For the ending:\n\n- Tightened the last line.', [])).toContain('- Tighten the last line.')
+    expect(settleAnswer('Here’s a tighter opening:\n\nI moved to the door.', [])).toBe('Here’s a tighter opening:\n\nI moved to the door.')
+  })
+
+  it('the chat speaking again after the prose is read again', () => {
+    expect(settleAnswer('Here’s a tighter version you could use:\n\nI moved to the door.\n\nI’ve cut the adverbs.', [])).toBe(
+      `${NONE}Here’s a tighter version you could use:\n\nI moved to the door.\n\nI’d cut the adverbs.`
+    )
+  })
+
+  it('story prose in a quote block, a fenced block or an indented block is never read', () => {
+    for (const s of ['> I moved to the door. I cut the rope.', '```\nI moved to the door. I cut the rope.\n```', 'Try this:\n\n    I moved to the door. I cut the rope.'])
+      expect(settleAnswer(s, [])).toBe(s)
+  })
+
+  it('a backed claim that names nothing it changes is not said as a ready change', () => {
+    expect(settleAnswer('I moved to the door.', text())).toBe('Change 1 is ready to apply. Nothing changes until you press Apply.\n\nI’d move to the door.')
+  })
+
+  it('an unbacked summary line keeps its suggestion, said plainly', () => {
+    expect(settleAnswer('Changes made: tightened the opening and cut the ending.', [])).toBe(`${NONE}Tighten the opening and cut the ending.`)
+    expect(settleAnswer('Tightened the opening and trimmed the ending.', [])).toBe(`${NONE}Tighten the opening and trim the ending.`)
+    expect(settleAnswer('Made the opening shorter.', [])).toBe(`${NONE}Make the opening shorter.`)
+    expect(settleAnswer('Done.\nUpdated the plan.', [])).toBe(`${NONE}Update the plan.`)
+  })
+
+  it('straight quotes after *, _ or a comma are quotes', () => {
+    for (const s of ['*"I\'ve updated the will,"* she says.', 'She turns to say,"I\'ve updated the will."', '_"I changed the locks,"_ he admits.']) expect(claims(s)).toBe(false)
+  })
+
+  it('reported speech and narration are not the chat’s claims', () => {
+    for (const s of [
+      'In the scene, Mara says I changed the locks last night, which works.',
+      'Mara tells him that I moved the boat.',
+      'We changed course at dawn, Mara writes in her journal.',
+      'I put a lot of thought into the ending, and here is my view.'
+    ])
+      expect(claims(s)).toBe(false)
+    expect(claims('I’ve put the reveal into chapter 3.')).toBe(true)
+    expect(claims('I’ve changed the locks scene, as you asked.')).toBe(true)
+  })
+
+  it('an earlier claim keeps its meaning when said as a suggestion', () => {
+    expect(settleAnswer('In my last answer I updated the plan.', [], { earlier: [{ kind: 'chapterCard', id: '0', status: 'pending' }] as never[] })).toBe(
+      'That earlier change isn’t in the story: it hasn’t been applied.\n\nIn my last answer I suggested updating the plan.'
+    )
+    expect(settleAnswer('In my last answer I cut the last line.', [], { earlier: [{ kind: 'text', id: '0', status: 'pending' }] as never[] })).toBe(
+      'That earlier change isn’t in the story: it hasn’t been applied.\n\nIn my last answer I suggested cutting the last line.'
+    )
+  })
+
+  it('a half-backed claim says what is ready once', () => {
+    expect(settleAnswer('I’ve tightened the opening of scene 2 and I’ve updated Mara’s entry.', text({ sceneLabel: 'Ch 1, Sc 2' }))).toBe(
+      'Only change 1 is ready to apply; nothing else was changed.\n\nI’d tighten the opening of scene 2 and I’d update Mara’s entry.'
+    )
+  })
+
+  it('a list of backed changes says they are ready once, then each in plain words', () => {
+    expect(settleAnswer('- I cut the last line.\n- I tightened the opening.\n- I reworded the second paragraph.', text())).toBe(
+      'Change 1 is ready to apply. Nothing changes until you press Apply.\n\n- Cut the last line.\n- Tighten the opening.\n- Reword the second paragraph.'
+    )
+    // Each its own change: each says which one is ready.
+    expect(
+      settleAnswer('- I cut the last line.\n- I tightened the opening of scene 2.', [
+        { kind: 'cut', id: '1', sceneLabel: 'Ch 1, Sc 1' },
+        { kind: 'text', id: '2', sceneLabel: 'Ch 1, Sc 2' }
+      ] as never[])
+    ).toContain('- Change 2 is ready to apply: tighten the opening of scene 2.')
+  })
+})
