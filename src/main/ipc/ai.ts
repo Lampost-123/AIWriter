@@ -103,6 +103,7 @@ export const aiHandlers: Handlers<AiMethods> = {
         provider: b.target,
         model: b.choice,
         thinking: b.thinking,
+        writingTemperature: b.writingTemperature,
         intensity: b.input.style.intensity,
         entryVersions: b.entryVersions,
         emit,

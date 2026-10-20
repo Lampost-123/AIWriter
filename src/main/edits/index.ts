@@ -40,6 +40,7 @@ import { ownSampleOn } from '@shared/ownSample'
 import type { OwnSample } from '../style/ownWords'
 import type { StyleGuide } from '@shared/types'
 import { UserError } from '../util'
+import { writingTemperatureFor } from '@shared/temperature'
 
 /**
  * Change it…'s voice sample: passages of Adam's own writing when "Use my own writing as the sample" is on for the sample
@@ -258,6 +259,9 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
       : {})
   })
   if (!briefing.ok) return briefing
+  // Writing temperature (Settings › Models): Continue, Change it and the other AI edits write the story's words, so
+  // Adam's own temperature takes the place of the tool's, within what the model takes; top_p stays the tool's.
+  const temp = writingTemperatureFor(briefing.temperature, settings.writingTemperature, model.target, model.choice.modelId)
 
   const { generationId } = startTask({
     db,
@@ -267,12 +271,12 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     model,
     messages: briefing.messages,
     reply: briefing.reply,
-    temperature: briefing.temperature,
+    temperature: temp.temperature,
     topP: briefing.topP,
     direction: input.direction,
     blocks: briefing.blocks,
     entries: briefing.entries,
-    extra: { tool },
+    extra: { tool, ...(temp.own ? { ownTemperature: true } : {}) },
     emit,
     onKeyRejected: providerNotes(model.target.id).onKeyRejected,
     // Kept until Adam accepts the change (History's snapshot before it names this record).

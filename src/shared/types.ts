@@ -458,6 +458,14 @@ export interface Settings {
   thinking: Record<ThinkingJob, ThinkingLevel>
   creativity: Creativity
   /**
+   * Writing temperature (Settings › Models, under Default creativity; Adam, 2026-10-20): the temperature every request
+   * that writes the story's words is sent at (drafts, Add below, Variants, Beat by beat, directed stretches, Write the
+   * chapter's drafts and fixes, Continue, Change it and the other AI edits), 0 to 2 (shared/temperature.ts). The
+   * creativity still sets top_p and min_p. Null or left out: Auto, the creativity's own temperature. Never used by the
+   * memory, checks, planning, interviews or outline, which keep their fixed temperatures.
+   */
+  writingTemperature?: number | null
+  /**
    * Plan before writing (Settings › Models; on by default; step 4 of the consistency plan): before Generate, Add below
    * and each beat, one short call to the memory model plans the scene (src/main/plan/). Off: no plan call; the "must
    * stay true" list still goes in.
@@ -1064,6 +1072,8 @@ export interface GenerationRecord extends GenerationSummary {
     // ----- The style guide's helpers -----
     /** min_p as sent (OpenRouter only, with the Balanced and Adventurous creativity); left out when it wasn't sent. */
     min_p?: number
+    /** The temperature was Adam's own Writing temperature (Settings › Models), not the creativity's. */
+    ownTemperature?: boolean
     /** The polish pass: the record of the draft it revised. */
     polishOf?: ID
     /** Read aloud's AI marking the sounds of a passage (sound effects): a 'speech' record. */

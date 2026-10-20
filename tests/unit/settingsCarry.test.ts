@@ -44,13 +44,15 @@ const here = <T>(v: T): T => JSON.parse(JSON.stringify(v).split('<LIBRARY>').joi
  * Settings that are new since 0.8.1, with the value a 0.8.1 file reads as: they are added, never in place of an old
  * value. classicNote: the one-time note that Classic is retired (shown only to someone who was on Classic).
  * directedWriting, models.director and thinking.director: Directed writing (src/main/director), off, its director model
- * left as the memory model's, Thinking off. A dotted name is a value inside another ("models.director").
+ * left as the memory model's, Thinking off. writingTemperature: Writing temperature (shared/temperature.ts), Auto (null).
+ * A dotted name is a value inside another ("models.director").
  */
 const NEW_SINCE_081 = (look: string): Record<string, unknown> => ({
   classicNote: look === 'classic',
   directedWriting: false,
   showPlanFirst: false,
   autoWriteIn: false,
+  writingTemperature: null,
   'models.director': null,
   'thinking.director': 'off'
 })

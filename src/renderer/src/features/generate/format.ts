@@ -77,8 +77,10 @@ export function fullDate(iso: string): string {
 }
 
 /** The creativity preset a draft used (older records only have the temperature). */
-export function creativityOf(params: { temperature: number; creativity?: Creativity }): string {
+export function creativityOf(params: { temperature: number; creativity?: Creativity; ownTemperature?: boolean }): string {
   if (params.creativity && params.creativity in CREATIVITY_PRESETS) return CREATIVITY_PRESETS[params.creativity].label
+  // Adam's own Writing temperature (Settings › Models) is said as it was sent, never mistaken for a preset's.
+  if (params.ownTemperature) return `Temperature ${params.temperature}`
   // Since 0.6.35 the writer writes Balanced at 1.0 (Continue's records keep only the temperature).
   if (params.temperature === WRITER_BALANCED_TEMPERATURE) return CREATIVITY_PRESETS.balanced.label
   const match = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).find((k) => CREATIVITY_PRESETS[k].temperature === params.temperature)

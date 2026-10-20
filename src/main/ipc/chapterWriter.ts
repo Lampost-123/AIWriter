@@ -6,6 +6,7 @@ import type { ChapterPlanAnswer, ChapterWriterApi } from '@shared/contracts/chap
 import type { DraftOptions, ID } from '@shared/types'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import { AUTO_LENGTH, CREATIVITY_PRESETS, cardLength, writerTemperature } from '@shared/defaults'
+import { writingTemperatureFor } from '@shared/temperature'
 import * as world from '../world'
 import * as repo from '../db/repo'
 import * as providers from '../ai/providers'
@@ -120,13 +121,16 @@ function deps(runId: ID): RunDeps {
       return contracts.get(sceneId) ?? null
     }
   }
-  // The targeted fixes write as the writer does: its model and Thinking, at its temperature (Generate's).
+  // The targeted fixes write as the writer does: its model and Thinking, at its temperature (Generate's, or Adam's own
+  // Writing temperature from Settings › Models, within what the model takes).
   const creativity = getSettings().creativity
   const preset = CREATIVITY_PRESETS[creativity] ?? CREATIVITY_PRESETS.balanced
+  const fixer = jobModel('writer', sources())
+  const fixTemp = writingTemperatureFor(writerTemperature(creativity), getSettings().writingTemperature, fixer.target, fixer.choice.modelId)
   return {
     db,
     agentModel: jobModel('chapter', sources()),
-    writer: { model: jobModel('writer', sources()), temperature: writerTemperature(creativity), topP: preset.top_p, minP: preset.min_p },
+    writer: { model: fixer, temperature: fixTemp.temperature, topP: preset.top_p, minP: preset.min_p },
     prefs: getWritingPrefs(),
     // The run's calls go quietly: it says how it goes itself (chapterWriter:progress).
     taskEmit: () => undefined,
@@ -218,6 +222,7 @@ function deps(runId: ID): RunDeps {
         provider: b.target,
         model: b.choice,
         thinking: b.thinking,
+        writingTemperature: b.writingTemperature,
         intensity: b.input.style.intensity,
         entryVersions: b.entryVersions,
         // The run puts the words in the scene itself; the window hears it from chapterWriter:sceneChanged.
