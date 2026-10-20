@@ -398,14 +398,22 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
   const scope = pickScope(scopes, hub.scope ?? view.at)
   const [problem, setProblem] = useState<string | null>(null)
   // The idea: the Story builder's plot, the one place it is written (the story's premise stands for it while there is none).
-  const idea = brief?.plot.trim() ? brief.plot : story.premise
+  // Once Adam types in Plan your story's box, it shows what he wrote, even emptied (as Your idea's box does).
+  const [ideaTyped, setIdeaTyped] = useState(false)
+  const idea = ideaTyped || brief?.plot.trim() ? (brief?.plot ?? '') : story.premise
+  const writeIdea = (plot: string): void => {
+    setIdeaTyped(true)
+    if (plot.trim()) setProblem(null)
+    patchBrief(storyId, { plot })
+  }
   const focusIdea = (): void => goTo('idea', (el) => el.querySelector<HTMLTextAreaElement>('[data-plot]')?.focus())
 
   const plan = (): void => {
     if (!scope || running) return
     if (mode === 'start' && scope !== 'first-chapter' && !idea.trim()) {
+      // Said under the box, with the cursor in it: the idea is written right here.
       setProblem('Write your idea first: a line or two on what the story is about is enough.')
-      focusIdea()
+      scroller.current?.querySelector<HTMLTextAreaElement>('[data-start-idea]')?.focus()
       return
     }
     setProblem(null)
@@ -549,7 +557,7 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
           <StartCard
             mode={mode}
             idea={idea}
-            onIdea={focusIdea}
+            onIdeaChange={writeIdea}
             brief={brief}
             onCastAndWorld={() => goTo('cast')}
             scopes={scopes}

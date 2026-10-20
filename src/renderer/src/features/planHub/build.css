@@ -241,9 +241,11 @@
 .hub-kid-scenes.is-flush {
   padding: 0 0 2px 20px;
 }
-.hub-idea-q {
-  font-family: var(--serif-font);
-  color: var(--fg);
+/* Plan your story's idea box: the same idea as Your idea, written where Plan it is. */
+.hub-start-idea {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 /* ---------- Write this chapter: the plan to read (the mock-up), its steps, the scenes it writes ---------- */
