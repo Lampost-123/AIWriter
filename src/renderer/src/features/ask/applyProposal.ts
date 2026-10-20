@@ -7,7 +7,8 @@
 import type { Proposal, ProposalStatus } from '@shared/contracts/ask'
 import type { BuilderKind } from '@shared/contracts/builder'
 import type { Issue } from '@shared/contracts/checks'
-import type { ID, SceneCard } from '@shared/types'
+import type { CarryField, ChapterCard, ID, SceneCard } from '@shared/types'
+import type { ChapterCardUpdate } from '@shared/contracts/chapterCards'
 import { getSchema } from '@tiptap/core'
 import type { Schema } from '@tiptap/pm/model'
 import { closeHistory } from '@tiptap/pm/history'
@@ -26,7 +27,7 @@ import { chatOfTurn, setProposalStatus, storyOfChat } from './askStore'
 import { changeInPage, pageLanded, startProposedDraft, type Landed } from './applyDraft'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { isHeld } from '@/features/chapterWriter/hold'
-import { CARRY_LABELS } from '@shared/chapterCard'
+import { CARRY_LABELS, chapterPartsOf, copyField, sameField, withMark } from '@shared/chapterCard'
 import { applyReplaceAll } from './applyReplaceAll'
 import { heldWhy, notOpened, sceneInPage } from './sceneInPage'
 import { threadLinkKey, withListEdited } from '@shared/threadLinks'
@@ -152,8 +153,8 @@ export async function revertWords(sceneId: ID, change: BlockChange): Promise<Und
   return { ok: false, why: 'The scene was opened while the change was being undone. Try Undo again.', sceneId }
 }
 
-/** A card, an entry, a title or something new: its Undo always can put it back. */
-type Kept = { ok: true; undo: () => Promise<void> }
+/** A card, an entry, a title or something new: its Undo puts it back (or says what it left, changed since). */
+type Kept = { ok: true; undo: () => Promise<Undone | void> }
 /** Turned down before anything changed, in plain words. */
 type Refused = { ok: false; why: string }
 
@@ -175,6 +176,7 @@ const PART_LABELS: Record<string, string> = {
   when: CARRY_LABELS.when,
   mood: CARRY_LABELS.mood,
   targetWords: CARRY_LABELS.length,
+  lengthSet: CARRY_LABELS.length,
   notes: CARRY_LABELS.notes,
   totalWords: 'Length of the chapter'
 }
@@ -234,17 +236,72 @@ async function changedSince(
   return { ok: false, why: `This ${what} has changed since. Here’s what it says now: ${said}${sep} Apply again to use the chat’s change.` }
 }
 
+// ---------- Undo on a card: only what the chat changed ----------
+
+/** The scene card part each card key is (the parts a chapter card shares). */
+const CARRY_OF: Record<string, CarryField> = {
+  povId: 'pov',
+  presentIds: 'present',
+  locationId: 'location',
+  when: 'when',
+  mood: 'mood',
+  targetWords: 'length',
+  lengthSet: 'length',
+  notes: 'notes'
+}
+
+/** The keys a card change wrote (a length goes with its Auto mark). */
+function patchedKeys(patch: object): string[] {
+  const keys = Object.keys(patch)
+  return keys.includes('targetWords') && !keys.includes('lengthSet') ? [...keys, 'lengthSet'] : keys
+}
+
+/**
+ * Undo's split of a card change: the parts still as the chat left them go back; the ones changed again since (by Adam,
+ * the Plan hub, another change) stay as they are.
+ */
+function splitBack(keys: string[], now: Record<string, unknown>, applied: Record<string, unknown>): { back: string[]; moved: string[] } {
+  const back: string[] = []
+  const moved: string[] = []
+  for (const k of keys) (sameValue(now[k], applied[k]) ? back : moved).push(k)
+  return { back, moved }
+}
+
+const pick = (from: Record<string, unknown>, keys: string[]): Record<string, unknown> => Object.fromEntries(keys.map((k) => [k, from[k]]))
+const rec = (c: object): Record<string, unknown> => c as Record<string, unknown>
+
+/** What Undo says of the parts it left because they were changed since; null when it left none. */
+function leftAsIs(moved: string[], labels: Record<string, string>, putBack: boolean): Undone | null {
+  const names = [...new Set(moved.map((k) => labels[k] ?? k))]
+  if (!names.length) return null
+  const one = names.length === 1
+  const list = one ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  return {
+    ok: false,
+    why: `${list} ${one ? 'was' : 'were'} changed since, so Undo left ${one ? 'it as it is' : 'them as they are'}${putBack ? ' and put the rest back' : ''}.`
+  }
+}
+
 async function applyCard(p: Extract<Proposal, { kind: 'card' }>): Promise<Kept | Refused> {
   const before: SceneCard = (await api.getScene(p.sceneId)).card
-  const changed = await changedSince(p, 'card', before as unknown as Record<string, unknown>, p.before)
+  const changed = await changedSince(p, 'card', rec(before), p.before)
   if (changed) return changed
-  await api.updateSceneCard(p.sceneId, { ...before, ...p.patch })
+  // What was written, as the main process tidied it: what Undo tells "as the chat left it" by.
+  const saved = await api.updateSceneCard(p.sceneId, { ...before, ...p.patch })
   useApp.getState().bumpBriefing()
   return {
     ok: true,
     undo: async () => {
-      await api.updateSceneCard(p.sceneId, before)
-      useApp.getState().bumpBriefing()
+      const now: SceneCard = (await api.getScene(p.sceneId)).card
+      const { back, moved } = splitBack(patchedKeys(p.patch), rec(now), rec(saved))
+      if (back.length) {
+        let next = { ...now, ...pick(rec(before), back) } as SceneCard
+        // A part that followed its chapter before Apply follows it again (the change made it the scene's own).
+        for (const f of new Set(back.flatMap((k) => (CARRY_OF[k] ? [CARRY_OF[k]] : [])))) next = withMark(next, f, before.inherits?.[f])
+        await api.updateSceneCard(p.sceneId, next)
+        useApp.getState().bumpBriefing()
+      }
+      return leftAsIs(moved, PART_LABELS, back.length > 0) ?? undefined
     }
   }
 }
@@ -467,7 +524,7 @@ async function applyChapterCard(p: Extract<Proposal, { kind: 'chapterCard' }>, p
   const setsGoal = p.goal !== undefined
   const goalNow = setsGoal || p.before?.goal !== undefined ? await chapterGoalNow(p.chapterId, place) : ''
   if (typeof goalNow !== 'string') return goalNow
-  const now = { ...(before as unknown as Record<string, unknown>), goal: goalNow }
+  const now = { ...rec(before), goal: goalNow }
   const plan = setsGoal || 'totalWords' in p.patch
   const changed = await changedSince(p, plan ? 'chapter' : 'card', now, p.before, CHAPTER_LABELS)
   if (changed) return changed
@@ -477,23 +534,82 @@ async function applyChapterCard(p: Extract<Proposal, { kind: 'chapterCard' }>, p
     notifyChapterCard()
   }
   if (setsGoal) {
-    await api.updateChapter(p.chapterId, { goal: p.goal })
-    useApp.getState().bumpOutline()
-  }
-  return {
-    ok: true,
-    undo: async () => {
+    try {
+      await api.updateChapter(p.chapterId, { goal: p.goal })
+    } catch (e) {
+      // The goal didn't go in: the card goes back too, so nothing is left half done (and Apply again can go ahead).
       if (card) {
         await api.restoreChapterCard(p.chapterId, before, card.updated)
         chapterCardShown(p.chapterId, before)
         notifyChapterCard()
       }
-      if (setsGoal) {
-        await api.updateChapter(p.chapterId, { goal: goalNow })
-        useApp.getState().bumpOutline()
+      throw e
+    }
+    useApp.getState().bumpOutline()
+  }
+  return {
+    ok: true,
+    undo: async () => {
+      const moved: string[] = []
+      let putBack = false
+      if (card) {
+        const cardNow = await api.getChapterCard(p.chapterId)
+        const split = splitBack(patchedKeys(p.patch), rec(cardNow), rec(card.card))
+        moved.push(...split.moved)
+        if (split.back.length) {
+          const merged = { ...cardNow, ...pick(rec(before), split.back) } as ChapterCard
+          await api.restoreChapterCard(p.chapterId, merged, await scenesBack(card.updated, split.back, card.card))
+          chapterCardShown(p.chapterId, merged)
+          notifyChapterCard()
+          putBack = true
+        }
       }
+      if (setsGoal) {
+        // The goal goes back only while it still says what the chat wrote.
+        const goal = await chapterGoalNow(p.chapterId, place)
+        if (typeof goal === 'string' && sameValue(goal, p.goal)) {
+          await api.updateChapter(p.chapterId, { goal: goalNow })
+          useApp.getState().bumpOutline()
+          putBack = true
+        } else if (typeof goal === 'string') moved.push('goal')
+      }
+      return leftAsIs(moved, CHAPTER_LABELS, putBack) ?? undefined
     }
   }
+}
+
+/**
+ * What a chapter card's Undo puts back in its scenes: only the parts it puts back on the card, and only in a scene that
+ * still has the chat's value there (a scene's own value since, or a later chapter change, stays). A scene that can't be
+ * read is passed on as it was (the main process leaves a deleted or moved scene alone).
+ */
+async function scenesBack(updated: ChapterCardUpdate[], keys: string[], applied: ChapterCard): Promise<ChapterCardUpdate[]> {
+  const fields = [...new Set(keys.flatMap((k) => (CARRY_OF[k] ? [CARRY_OF[k]] : [])))]
+  if (!fields.length) return []
+  const out: ChapterCardUpdate[] = []
+  for (const u of updated) {
+    const now = await api.getScene(u.sceneId).then(
+      (s) => s.card as SceneCard | undefined,
+      () => undefined
+    )
+    if (!now) {
+      out.push(u)
+      continue
+    }
+    let parts = chapterPartsOf(now)
+    const marks: Record<string, boolean> = { ...(now.inherits ?? {}) }
+    let any = false
+    for (const f of fields) {
+      if (!sameField(now, applied, f)) continue
+      parts = copyField(parts, u.before.parts, f)
+      const mark = u.before.inherits?.[f]
+      if (mark === undefined) delete marks[f]
+      else marks[f] = mark
+      any = true
+    }
+    if (any) out.push({ sceneId: u.sceneId, before: { parts, inherits: Object.keys(marks).length ? marks : null } })
+  }
+  return out
 }
 
 /**
@@ -542,10 +658,7 @@ const kept = async (r: Promise<Kept | Refused>): Promise<Applied> => {
   if (!k.ok) return k
   return {
     ok: true,
-    undo: async () => {
-      await k.undo()
-      return { ok: true }
-    }
+    undo: async () => (await k.undo()) ?? { ok: true }
   }
 }
 

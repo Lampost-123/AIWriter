@@ -247,15 +247,23 @@ export function ChapterSize({ storyId, chapter }: { storyId: ID; chapter: LineCh
   }, [chapter.id, cardsRev])
   const autosave = useAutosave<number | null>(
     async (n) => {
-      // The card as it is now, with only its target changed.
-      const before = await api.getChapterCard(chapter.id)
-      const next: ChapterCard = { ...before }
-      if (n == null) delete next.totalWords
-      else next.totalWords = n
-      const saved = await api.updateChapterCard(chapter.id, next)
-      if (typed.current === n) typed.current = undefined
-      chapterCardShown(chapter.id, saved.card)
-      announceChapterCard(chapter.id, before, saved)
+      try {
+        // The card as it is now, with only its target changed.
+        const before = await api.getChapterCard(chapter.id)
+        const next: ChapterCard = { ...before }
+        if (n == null) delete next.totalWords
+        else next.totalWords = n
+        const saved = await api.updateChapterCard(chapter.id, next)
+        if (typed.current === n) typed.current = undefined
+        // Written on a later try, after the screen showed a length from elsewhere: it shows what is on disk.
+        if (typed.current === undefined) setWords(saved.card.totalWords ?? null)
+        chapterCardShown(chapter.id, saved.card)
+        announceChapterCard(chapter.id, before, saved)
+      } catch (e) {
+        // Not written: a length set elsewhere meanwhile (the chat's) shows again, rather than waiting behind this one.
+        if (typed.current === n) typed.current = undefined
+        throw e
+      }
     },
     { what: 'the chapter’s length' }
   )

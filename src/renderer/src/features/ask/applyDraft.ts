@@ -16,7 +16,7 @@ import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { BLANK_DRAFT_OPTIONS } from '@/features/generate/draftOptions'
 import { busyElsewhere, startDraft, useDraft } from '@/features/generate/draftRun'
-import { startTool, waitingSuggestion } from '@/features/edits/session'
+import { changeAlive, startTool, waitingSuggestion } from '@/features/edits/session'
 import { activeSuggestion, suggestionsOf, type GoneReason } from '@/features/edits/suggestions'
 import { beatBeingWritten } from '@/features/beats/flow'
 import { redoBeat, redoing } from '@/features/beats/redo'
@@ -76,18 +76,25 @@ export function changeInPage(sceneId: ID): ID | null {
   return editor && !editor.isDestroyed ? (activeSuggestion(editor.state)?.id ?? null) : null
 }
 
+/** Said when the change went from the page without Adam accepting or rejecting it (another scene, the page closed). */
+export const DROPPED_WHY = 'It went from the page before you accepted it (another scene or story was opened), so the change is waiting again.'
+
 /**
  * The change `id` in the page: landed once Adam accepts it, or why not once it goes another way. While another scene
- * shows, it waits (a change being written goes on out of the page and comes back with its scene).
+ * shows, it waits (a change being written goes on out of the page and comes back with its scene) for as long as the AI
+ * edits part still has it; once it has let it go (a ready change left behind, its scene's words changed meanwhile, the
+ * page closed), it ends there.
  */
 export const pageLanded = (sceneId: ID, id: ID): Promise<Landed> =>
   until(() => {
     const b = editorBridge()
     const editor = b?.sceneId === sceneId ? b.editor : null
-    if (!editor || editor.isDestroyed) return null
-    const s = suggestionsOf(editor.state)
-    if (s.active?.id === id || s.gone?.id !== id) return null
-    return s.gone.reason === 'accepted' ? { ok: true } : { ok: false, why: GONE_WHY[s.gone.reason] }
+    if (b?.editor?.isDestroyed) return { ok: false, why: DROPPED_WHY }
+    if (editor) {
+      const s = suggestionsOf(editor.state)
+      if (s.active?.id !== id && s.gone?.id === id) return s.gone.reason === 'accepted' ? { ok: true } : { ok: false, why: GONE_WHY[s.gone.reason] }
+    }
+    return changeAlive(id) ? null : { ok: false, why: DROPPED_WHY }
   })
 
 /** What a writer's job just started in the page will do: a change to accept, else words written straight in. */

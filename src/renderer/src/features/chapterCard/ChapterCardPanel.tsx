@@ -63,14 +63,26 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
   const [sync] = useState(() => new CardSync<ChapterCard>())
   /** The read under way after a change elsewhere: a save waits for it. */
   const rereading = useRef<Promise<void>>(Promise.resolve())
+  /** Counts the cards from elsewhere shown here: a save tells by it whether one showed while it was being written. */
+  const shownCount = useRef(0)
 
   const autosave = useAutosave<ChapterCard>(
     async (c) => {
       await rereading.current
-      const before = savedRef.current ?? emptyChapterCard()
-      const saved = await api.updateChapterCard(chapterId, sync.toWrite(c))
+      let before = savedRef.current ?? emptyChapterCard()
+      const shownAt = shownCount.current
+      let wrote = c
+      let saved = await api.updateChapterCard(chapterId, sync.toWrite(c))
+      // A change from elsewhere (the chat's Undo) showed while this was being written, so this write may have put the
+      // older parts back over it: the form, which has it, is written once more so the card on disk is what shows.
+      const form = cardRef.current
+      if (shownCount.current !== shownAt && form) {
+        before = savedRef.current ?? before
+        wrote = form
+        saved = await api.updateChapterCard(chapterId, sync.toWrite(form))
+      }
       savedRef.current = saved.card
-      sync.written(saved.card, cardRef.current === c)
+      sync.written(saved.card, cardRef.current === wrote)
       announceChapterCard(chapterId, before, saved)
     },
     { what: 'the chapter card' }
@@ -101,6 +113,7 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
     (fresh: ChapterCard) => {
       const mine = cardRef.current
       if (!mine || !sync.started) return
+      shownCount.current++
       savedRef.current = fresh
       const { card: next, lost } = sync.read(fresh, mine)
       const note = keptTypingNote(lost)

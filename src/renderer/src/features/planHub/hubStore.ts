@@ -366,7 +366,11 @@ export async function fillCardsIn(storyId: ID, chapter: Pick<LineChapter, 'id' |
   await suggestOutlineWith(
     storyId,
     { acts: 0, chapters: 1, scenes: sceneIds.length },
-    (taskId) => api.startPlanUpdate({ taskId, storyId, sceneIds, mode: 'fill', ...(direction ? { direction } : {}) }),
+    async (taskId) => {
+      const started = await api.startPlanUpdate({ taskId, storyId, sceneIds, mode: 'fill', ...(direction ? { direction } : {}) })
+      fillWith(storyId, taskId, started.sceneIds)
+      return started
+    },
     {
       lead,
       decisions: chapterKey ? { [chapterKey]: { status: 'kept', id: chapter.id } } : {},
@@ -374,6 +378,19 @@ export async function fillCardsIn(storyId: ID, chapter: Pick<LineChapter, 'id' |
       fill: [...sceneIds]
     }
   )
+}
+
+/**
+ * The scenes a fill plans, as main says (only the cards still empty, in the chapter's order, at most FILL_MOST): Keep
+ * puts each suggestion on the scene at its place in this list.
+ */
+function fillWith(storyId: ID, taskId: ID, sceneIds: ID[]): void {
+  const key = helperKey(useApp.getState().world?.id, storyId)
+  useOutlineHelper.setState((st) => {
+    const s = st.sessions[key]
+    if (!s?.run || s.run.taskId !== taskId) return st
+    return { sessions: { ...st.sessions, [key]: { ...s, run: { ...s.run, fill: [...sceneIds] } } } }
+  })
 }
 
 /** The batch these keys are in: an earlier one by its task id, else the newest. */

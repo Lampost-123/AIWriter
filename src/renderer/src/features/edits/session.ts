@@ -166,6 +166,12 @@ const current = (): Suggestion | null => {
 /** The suggestion waiting in the page, if any. */
 export const waitingSuggestion = current
 
+/**
+ * The change `id` is still here: in the page, being written, or kept for its scene while Adam is in another. False once
+ * it is accepted, rejected or dropped (another scene opened on a ready change, the page closed...).
+ */
+export const changeAlive = (id: ID): boolean => live?.taskId === id || outside.has(id) || current()?.id === id
+
 /** The interface's part: moving the keyboard to Alternatives' versions, and showing the suggestion. */
 export function setLayerHooks(h: typeof hooks): void {
   hooks = h

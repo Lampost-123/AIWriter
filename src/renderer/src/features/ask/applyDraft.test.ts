@@ -11,13 +11,18 @@ const s = vi.hoisted(() => ({
   /** How the latest draft ended (draftRun's `last`). */
   last: null as null | { sceneId: string; status: 'complete' | 'stopped' | 'error'; error: string | null; at: number },
   /** The page's suggestions: the one waiting, and the last that went (features/edits/suggestions). */
-  page: { active: null as null | { id: string }, gone: null as null | { id: string; reason: string } }
+  page: { active: null as null | { id: string }, gone: null as null | { id: string; reason: string } },
+  /** The scene the page shows, and whether its editor has gone (another world). */
+  shows: 'sc1',
+  destroyed: false,
+  /** The AI edits part still has the change (waiting, being written away, or in the page): features/edits/session. */
+  alive: true
 }))
 
 vi.mock('@/lib/api', () => ({ api: { getScene: async () => ({ card: { beats: [] } }) } }))
 vi.mock('@/lib/store', () => ({ useApp: { getState: () => ({ settings: { models: { writer: { modelId: 'w' } } }, draftOptions: {}, activeGeneration: null }) } }))
 vi.mock('@/lib/editorBridge', () => ({
-  editorBridge: () => ({ sceneId: 'sc1', busy: () => false, hasText: () => s.hasText, editor: { isDestroyed: false, state: s.page } })
+  editorBridge: () => ({ sceneId: s.shows, busy: () => false, hasText: () => s.hasText, editor: { isDestroyed: s.destroyed, state: s.page } })
 }))
 vi.mock('./askEdits', () => ({ continueAt: () => 1, beatNumber: () => 1 }))
 vi.mock('@/features/edits/suggestions', () => ({
@@ -38,12 +43,12 @@ vi.mock('@/features/generate/draftRun', () => ({
     return true
   }
 }))
-vi.mock('@/features/edits/session', () => ({ startTool: async () => true, waitingSuggestion: () => false }))
+vi.mock('@/features/edits/session', () => ({ startTool: async () => true, waitingSuggestion: () => false, changeAlive: () => s.alive }))
 vi.mock('@/features/beats/flow', () => ({ beatBeingWritten: () => null }))
 vi.mock('@/features/beats/redo', () => ({ redoBeat: async () => true, redoing: () => null }))
 vi.mock('@/features/variants/store', () => ({ isWriting: () => false, setOf: () => null, useVariants: { getState: () => ({}) } }))
 
-const { startProposedDraft, LANDED_POLL_MS } = await import('./applyDraft')
+const { startProposedDraft, LANDED_POLL_MS, DROPPED_WHY } = await import('./applyDraft')
 
 const draft = (mode: string): Parameters<typeof startProposedDraft>[0] =>
   ({ id: 'd', kind: 'draft', sceneId: 'sc1', sceneLabel: 'Ch 1, Sc 1', mode, direction: 'She climbs to the lamp room.', why: '', status: 'pending' }) as unknown as Extract<Proposal, { kind: 'draft' }>
@@ -53,6 +58,9 @@ beforeEach(() => {
   s.held = false
   s.last = null
   s.page = { active: null, gone: null }
+  s.shows = 'sc1'
+  s.destroyed = false
+  s.alive = true
 })
 
 describe('a proposed draft on a scene that has words', () => {
@@ -124,6 +132,44 @@ describe('a started draft says when it lands, or why not (Started is not Applied
     s.hasText = true
     s.page.active = { id: 'chg' }
     const out = await landing(await startProposedDraft({ ...draft('continue') }), () => (s.page = { active: null, gone: { id: 'chg', reason: 'rejected' } }))
+    expect(out).toEqual({ ok: false, why: 'You rejected it in the page, so the change is waiting again.' })
+  })
+
+  it('continue dropped when Adam opens another scene: the change waits again, with why', async () => {
+    s.hasText = true
+    s.page.active = { id: 'chg' }
+    const out = await landing(await startProposedDraft({ ...draft('continue') }), () => {
+      s.shows = 'sc2'
+      s.page = { active: null, gone: null }
+      s.alive = false
+    })
+    expect(out).toEqual({ ok: false, why: DROPPED_WHY })
+  })
+
+  it('continue still being written while Adam is in another scene goes on waiting', async () => {
+    s.hasText = true
+    s.page.active = { id: 'chg' }
+    const out = await landing(await startProposedDraft({ ...draft('continue') }), () => {
+      s.shows = 'sc2'
+      s.page = { active: null, gone: null }
+    })
+    expect(out).toBe('still going')
+  })
+
+  it('the page closing (another world) settles it, with why', async () => {
+    s.hasText = true
+    s.page.active = { id: 'chg' }
+    const out = await landing(await startProposedDraft({ ...draft('continue') }), () => {
+      s.destroyed = true
+    })
+    expect(out).toEqual({ ok: false, why: DROPPED_WHY })
+  })
+
+  it('a beat written again and rejected in the page: the change waits again, with why', async () => {
+    s.hasText = true
+    s.page.active = { id: 'beat' }
+    const p = { ...draft('redo_beat'), beat: { index: 1, text: 'She climbs.' } } as unknown as Parameters<typeof startProposedDraft>[0]
+    const out = await landing(await startProposedDraft(p), () => (s.page = { active: null, gone: { id: 'beat', reason: 'rejected' } }))
     expect(out).toEqual({ ok: false, why: 'You rejected it in the page, so the change is waiting again.' })
   })
 })

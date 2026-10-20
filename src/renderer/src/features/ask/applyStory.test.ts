@@ -9,7 +9,7 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import { EditorState, type Transaction } from '@tiptap/pm/state'
 import type { Proposal } from '@shared/contracts/ask'
 import type { ChapterCard, SceneCard } from '@shared/types'
-import { emptyChapterCard } from '@shared/chapterCard'
+import { chapterPartsOf, emptyChapterCard } from '@shared/chapterCard'
 import { sceneExtensions } from '@/features/editor/extensions'
 
 const main = vi.hoisted(() => ({
@@ -22,6 +22,10 @@ const main = vi.hoisted(() => ({
   outlineBumps: 0,
   cards: new Map<string, SceneCard>(),
   shown: [] as unknown[],
+  /** The scene parts the last restoreChapterCard was given. */
+  restored: [] as unknown[],
+  /** The chapter's goal write fails this many times. */
+  goalFails: 0,
   app: {
     view: { kind: 'write' },
     sceneId: 'sc1' as string | null,
@@ -66,6 +70,10 @@ vi.mock('@/lib/api', () => ({
     getChapterCard: async () => ({ ...main.chapterCard }),
     getOutline: async () => ({ chapters: [{ id: 'ch1', title: 'Low Water', goal: main.goal }], scenes: [] }),
     updateChapter: async (id: string, patch: { goal?: string }) => {
+      if (main.goalFails > 0) {
+        main.goalFails--
+        throw new Error('The chapter couldn’t be saved.')
+      }
       main.calls.push(`goal ${id} ${patch.goal}`)
       if (patch.goal !== undefined) main.goal = patch.goal
       return { id, title: 'Low Water', goal: main.goal }
@@ -77,6 +85,7 @@ vi.mock('@/lib/api', () => ({
     },
     restoreChapterCard: async (id: string, card: ChapterCard, scenes: unknown[]) => {
       main.calls.push(`restore ${id} ${card.mood} ${scenes.length}`)
+      main.restored = scenes
       main.chapterCard = card
       return scenes.length
     },
@@ -151,6 +160,8 @@ beforeEach(() => {
   main.chapterCard = { ...emptyChapterCard(), mood: 'Grey' }
   main.goal = 'Get to the ford.'
   main.outlineBumps = 0
+  main.restored = []
+  main.goalFails = 0
   main.cards.clear()
   setEditorBridge(null)
 })
@@ -238,7 +249,8 @@ describe('a chapter card change', () => {
     expect(main.goal).toBe('Get to the ford.')
     expect(main.chapterCard.totalWords).toBeUndefined()
     expect(main.outlineBumps).toBe(2)
-    expect(main.calls).toEqual(['chapter ch1 Grey', 'goal ch1 Reach the ford before the tide.', 'restore ch1 Grey 1', 'goal ch1 Get to the ford.'])
+    // The chapter's length isn't a scene card part: no scene has anything of the chat's to put back.
+    expect(main.calls).toEqual(['chapter ch1 Grey', 'goal ch1 Reach the ford before the tide.', 'restore ch1 Grey 0', 'goal ch1 Get to the ford.'])
   })
 
   it('a goal alone leaves the card alone', async () => {
@@ -259,6 +271,87 @@ describe('a chapter card change', () => {
     expect((await applyAndKeep('g1', [plan()], { storyId: 's1' })).done).toBe(1)
     expect(main.goal).toBe('Reach the ford before the tide.')
     expect(main.chapterCard.totalWords).toBe(4000)
+  })
+})
+
+describe('Undo on a card puts back only what the chat changed (Adam’s changes since stay)', () => {
+  const scenePatch = proposal({ kind: 'card', sceneId: 'sc1', sceneLabel: 'Ch 1, Sc 1', patch: { mood: 'Tense' } })
+
+  it('a scene card: notes Adam typed after Apply stay', async () => {
+    main.cards.set('sc1', card({ mood: 'Calm' }))
+    const { undos } = await applyAndKeep('g1', [scenePatch], {})
+    expect(main.cards.get('sc1')?.mood).toBe('Tense')
+    main.cards.set('sc1', { ...(main.cards.get('sc1') as SceneCard), notes: 'Keep her quiet.' })
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(main.cards.get('sc1')).toMatchObject({ mood: 'Calm', notes: 'Keep her quiet.' })
+  })
+
+  it('a scene card: a part Adam changed again since is left as it is, and Undo says so', async () => {
+    main.cards.set('sc1', card({ mood: 'Calm' }))
+    const { undos } = await applyAndKeep('g1', [scenePatch], {})
+    main.cards.set('sc1', { ...(main.cards.get('sc1') as SceneCard), mood: 'Wild' })
+    expect(await undoChanges(undos)).toEqual([{ ok: false, why: 'Mood or tone was changed since, so Undo left it as it is.' }])
+    expect(main.cards.get('sc1')?.mood).toBe('Wild')
+  })
+
+  it('a scene card: the part goes back to following its chapter, as it did before Apply', async () => {
+    main.cards.set('sc1', card({ mood: 'Calm', inherits: { mood: true } }))
+    const { undos } = await applyAndKeep('g1', [scenePatch], {})
+    // The main process makes a changed part the scene's own.
+    main.cards.set('sc1', { ...(main.cards.get('sc1') as SceneCard), inherits: { mood: false } })
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(main.cards.get('sc1')).toMatchObject({ mood: 'Calm', inherits: { mood: true } })
+  })
+
+  const chapterPatch = proposal({ kind: 'chapterCard', chapterId: 'ch1', chapterLabel: 'Ch 1', patch: { mood: 'Tense' }, lines: [], scenes: 1 })
+
+  it('a chapter card: a length set in the Plan hub after Apply stays, and its scenes keep what Adam changed', async () => {
+    const { undos } = await applyAndKeep('g1', [chapterPatch], {})
+    main.chapterCard = { ...main.chapterCard, totalWords: 5000 }
+    // The scene took the chat's mood (it follows the chapter); its notes are Adam's own since.
+    main.cards.set('sc1', card({ mood: 'Tense', notes: 'Keep her quiet.', inherits: { mood: true, notes: false } }))
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(main.chapterCard).toMatchObject({ mood: 'Grey', totalWords: 5000 })
+    expect(main.restored).toEqual([{ sceneId: 'sc1', before: { parts: chapterPartsOf(card({ notes: 'Keep her quiet.' })), inherits: { notes: false } } }])
+  })
+
+  it('a chapter card: a part Adam changed again since is left as it is, and Undo says so', async () => {
+    const { undos } = await applyAndKeep('g1', [chapterPatch], {})
+    main.chapterCard = { ...main.chapterCard, mood: 'Wild' }
+    expect(await undoChanges(undos)).toEqual([{ ok: false, why: 'Mood or tone was changed since, so Undo left it as it is.' }])
+    expect(main.chapterCard.mood).toBe('Wild')
+    expect(main.calls).toEqual(['chapter ch1 Tense'])
+  })
+
+  const plan = proposal({
+    kind: 'chapterCard',
+    chapterId: 'ch1',
+    chapterLabel: 'Ch 1',
+    patch: { totalWords: 4000 },
+    goal: 'Reach the ford before the tide.',
+    before: { totalWords: null, goal: 'Get to the ford.' },
+    lines: [],
+    scenes: 0
+  })
+
+  it('a chapter’s goal Adam typed after Apply is left as it is; the length still goes back', async () => {
+    const { undos } = await applyAndKeep('g1', [plan], { storyId: 's1' })
+    main.goal = 'Find the ferryman.'
+    expect(await undoChanges(undos)).toEqual([{ ok: false, why: 'What the chapter achieves was changed since, so Undo left it as it is and put the rest back.' }])
+    expect(main.goal).toBe('Find the ferryman.')
+    expect(main.chapterCard.totalWords).toBeUndefined()
+  })
+
+  it('a goal that can’t be written puts the length back too: nothing is left half done', async () => {
+    main.goalFails = 1
+    const r = await applyAndKeep('g1', [plan], { storyId: 's1' })
+    expect(r.done).toBe(0)
+    expect(r.failedOf['1']).toBe('The chapter couldn’t be saved.')
+    expect(main.chapterCard.totalWords).toBeUndefined()
+    expect(main.goal).toBe('Get to the ford.')
+    expect(main.calls).toEqual(['chapter ch1 Grey', 'restore ch1 Grey 1'])
+    // Nothing changed, so Apply again goes ahead (it isn't turned down as changed since).
+    expect((await applyAndKeep('g1', [plan], { storyId: 's1' })).done).toBe(1)
   })
 })
 

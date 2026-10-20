@@ -40,10 +40,24 @@ vi.mock('@/features/outline/planInterviewStore', () => ({
   patchCard: async (id: string, p: Partial<SceneCard>) => void (main.cards[id] = { ...main.cards[id], ...p })
 }))
 vi.mock('@/features/binder/actions', () => ({ renameScene: async (id: string, title: string) => void main.renamed.push([id, title]) }))
-vi.mock('@/features/outline/helperStore', () => ({}))
+// Fill in the empty cards: the outline helper's run stood in for (one session, keyed as helperKey keys it).
+vi.mock('@/features/outline/helperStore', async () => {
+  const { create } = await import('zustand')
+  const useOutlineHelper = create<{ sessions: Record<string, { run: { taskId: string; fill?: string[] } | null }> }>(() => ({ sessions: {} }))
+  return {
+    useOutlineHelper,
+    helperKey: (worldId: string | null | undefined, storyId: string) => `${worldId ?? ''}:${storyId}`,
+    openHelper: () => undefined,
+    suggestOutlineWith: async (storyId: string, _size: unknown, start: (taskId: string) => Promise<unknown>, extra: { fill?: string[] }) => {
+      useOutlineHelper.setState({ sessions: { [`w:${storyId}`]: { run: { taskId: 't1', fill: extra.fill } } } })
+      await start('t1')
+    }
+  }
+})
 vi.mock('@/features/storyBuilder/store', () => ({ flushBrief: async () => undefined }))
 
-import { keepUpdate, startUpdate } from './hubStore'
+import { useOutlineHelper } from '@/features/outline/helperStore'
+import { fillCardsIn, keepUpdate, startUpdate } from './hubStore'
 
 const card = (goal: string): SceneCard => ({ ...emptySceneCard(), goal, beats: ['Old beat'] })
 const drift = (ids: string[]): { sceneId: string; label: string; title: string; text: string }[] => ids.map((id) => ({ sceneId: id, label: `Sc ${id}`, title: '', text: '' }))
@@ -92,5 +106,14 @@ describe('Keep these changes (Update the plan)', () => {
     main.toasts[0].undo?.()
     await new Promise((r) => setTimeout(r, 0))
     expect(main.cards.s2.goal).toBe('Two')
+  })
+})
+
+describe('Fill in the empty cards', () => {
+  it('pairs each suggestion with the scenes main plans (empty ones only, in its order), not the ones the window asked about', async () => {
+    // The window asked about s1, s2, s3; s2's card isn't empty any more, so main plans s3 and s1.
+    main.sent = ['s3', 's1']
+    await fillCardsIn('st', { id: 'c1', title: 'Low Water' }, ['s1', 's2', 's3'])
+    expect(useOutlineHelper.getState().sessions['w:st']?.run?.fill).toEqual(['s3', 's1'])
   })
 })
