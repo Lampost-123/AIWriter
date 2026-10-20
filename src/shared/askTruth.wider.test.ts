@@ -230,3 +230,11 @@ describe('“Done —” before a claim goes with it', () => {
     expect(out).toBe('No change was made, so there’s nothing to apply. Here’s what I’d suggest:\n\nI’d update the chapter card.')
   })
 })
+
+describe('what is left after a heading goes', () => {
+  it('starts with a capital letter', () => {
+    const out = settleAnswer('Here’s what I did: the opening line would read tighter.', [])
+    expect(out).toContain('The opening line would read tighter.')
+    expect(out).not.toMatch(/\bthe opening line would read/)
+  })
+})

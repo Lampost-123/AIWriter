@@ -746,6 +746,11 @@ export function honestReply(
   for (const e of [...edits].sort((a, b) => place(b) - place(a))) {
     if (!('drop' in e)) {
       text = text.slice(0, e.at) + e.to + text.slice(e.at + e.length)
+      // A heading taken off the front of a line: what is left on it starts with a capital.
+      if (!e.to && /^\s*(?:[-*•]|\d+[.)]|#{1,6})?[\s*_]*$/.test(text.slice(text.lastIndexOf('\n', e.at - 1) + 1, e.at))) {
+        const i = e.at + (/^[ \t]*/.exec(text.slice(e.at))?.[0].length ?? 0)
+        text = text.slice(0, i) + text.charAt(i).toUpperCase() + text.slice(i + 1)
+      }
       continue
     }
     // The sentence goes, with the space after it; a list item or line that held only it goes too.
