@@ -27,7 +27,6 @@ import { emptySceneCard } from '@shared/defaults'
 import { ArrowLeft, ListTree } from '@/components/ui/icons'
 import { Button, EmptyState } from '@/components/ui'
 import { api } from '@/lib/api'
-import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
 import { useOutline } from '@/features/binder/outlineStore'
 import { useDesk } from '@/features/look/look'
@@ -72,7 +71,7 @@ import {
   writtenLine,
   type Where
 } from './hubLogic'
-import { castStatus, ideaStatus, lineStatus, SECTIONS, sectionLabel, tabFor, threadsStatus, type BuildSection, type BuildView } from './buildLogic'
+import { castStatus, ideaStatus, lineStatus, sectionLabel, tabFor, threadsStatus, type BuildSection, type BuildView } from './buildLogic'
 import {
   hubKey,
   hubOf,
@@ -93,6 +92,7 @@ import {
   waitingThreads
 } from './hubStore'
 import { DriftCard, NextCard, SizeChoice, StartCard } from './HubCards'
+import { BuildTabs, PANEL_ID, tabId } from './BuildTabs'
 import { ChapterPage, ScenePage } from './ZoomPages'
 import { zoomOf } from './zoomLogic'
 import { StoryLine } from './StoryLine'
@@ -478,17 +478,6 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
     </aside>
   )
 
-  // The tab list's keys: arrows, Home and End move between the tabs; Enter or Space (the button's own) picks one.
-  const tabKeys = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-    const at = tabs.indexOf(document.activeElement as HTMLButtonElement)
-    const next =
-      e.key === 'ArrowRight' ? (at + 1) % tabs.length : e.key === 'ArrowLeft' ? (at - 1 + tabs.length) % tabs.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1
-    if (next < 0 || at < 0) return
-    e.preventDefault()
-    tabs[next]?.focus()
-  }
-
   // The section the tab shows, or (zoomed in, under Story line) the chapter's or the scene's own page.
   let panel: React.JSX.Element | null = null
   if (zoom && zoomChapter) {
@@ -630,43 +619,13 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
         </header>
 
         <div className="build-body">
-          <div ref={nav} className="build-nav" role="tablist" aria-label="Build with AI" data-build-nav onKeyDown={tabKeys}>
-            {SECTIONS.map((s, i) => {
-              const on = tab === s.id
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  role="tab"
-                  id={`build-tab-${s.id}`}
-                  aria-selected={on}
-                  aria-controls="build-tabpanel"
-                  tabIndex={on ? 0 : -1}
-                  className={cn('build-nav-btn', on && 'is-on')}
-                  onClick={() => goTo(s.id)}
-                  data-nav={s.id}
-                >
-                  <span className="build-nav-no" aria-hidden>
-                    {i + 1}
-                  </span>
-                  <span className="build-nav-words">
-                    <span className="build-nav-t">{s.label}</span>
-                    {statuses[s.id] ? (
-                      <span className="build-nav-s" data-section-status={s.id}>
-                        {statuses[s.id]}
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
+          <BuildTabs tab={tab} statuses={statuses} onPick={(s) => goTo(s)} navRef={nav} />
 
           <div
             className="hub-main build-main build-sec"
             role="tabpanel"
-            id="build-tabpanel"
-            aria-labelledby={`build-tab-${tab}`}
+            id={PANEL_ID}
+            aria-labelledby={tabId(tab)}
             data-build-section={tab}
           >
             {panel}
