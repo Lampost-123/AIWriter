@@ -48,6 +48,7 @@ import { critiqueHandlers } from './critique'
 import { chapterWriterHandlers } from './chapterWriter'
 import { phoneHandlers } from './phone'
 import { storyBuilderHandlers } from './storyBuilder'
+import { worldInterviewsHandlers } from './worldInterviews'
 import { storyIndexHandlers } from './storyIndex'
 import { directionHandlers } from './direction'
 import { directorHandlers } from './director'
@@ -132,7 +133,9 @@ const all: Handlers<ApiMethod> = {
   // Show me the plan first: Adam's answer to a scene plan waiting for him
   ...planReviewHandlers,
   // The Plan hub: where the story stands, its threads and where the plan has drifted; Update the plan
-  ...planHubHandlers
+  ...planHubHandlers,
+  // Interviews by topic: characters, places, lore and history, and how it all connects
+  ...worldInterviewsHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {
