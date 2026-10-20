@@ -4,6 +4,7 @@
 //     Adam ticks, edits, redoes or talks it over, then builds it into the codex, with one Undo;
 //   - From a summary (the World builder, SummaryBuilder): a summary of the world or story, from a paragraph to pages,
 //     laid out and saved as it goes.
+// Then Interview me, topic by topic (TopicInterviews: characters, places, lore and history, then how it all connects).
 // Under them, who and what the world has now, by kind, with Add someone with AI (the character builder) and the codex.
 
 import { useEffect, useMemo, useState } from 'react'
@@ -17,6 +18,7 @@ import { useApp } from '@/lib/store'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { CodexStep } from '@/features/storyBuilder/CodexStep'
 import { SummaryBuilder } from '@/features/worldBuilder/WorldBuilderView'
+import { TopicInterviews } from '@/features/worldInterviews/TopicInterviews'
 import type { BuildSection } from './buildLogic'
 import { showSummary } from './hubStore'
 
@@ -48,6 +50,7 @@ export function CastSection({ storyId, summary, premise, onGo }: { storyId: ID; 
       ) : (
         <CodexStep storyId={storyId} premise={premise} onGo={(s) => onGo(s)} onSummary={() => showSummary(storyId, true)} />
       )}
+      <TopicInterviews storyId={storyId} back={{ view: { kind: 'planHub', storyId, section: 'cast' }, label: 'Back to Build with AI' }} />
       <InYourWorld />
     </div>
   )

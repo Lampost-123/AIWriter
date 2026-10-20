@@ -27,7 +27,18 @@ type DB = Database.Database
  * `words` are what a suppression keeps once the line is undone: what was added, and the summary's words
  * it came from (a hash of them).
  */
-export type WorldUndo = { op: 'world-build'; fingerprint: string; words: string } & (
+export type WorldUndo = {
+  op: 'world-build'
+  fingerprint: string
+  words: string
+  /**
+   * A Keep from an interview by topic (worldInterviews/keep.ts, 2026-10-20), not a build: its topic and where it was
+   * ('' for the world on its own, else the story). Such runs are never "the last build" (db/worldBuilder.ts buildRunIds).
+   */
+  via?: 'interview'
+  topic?: string
+  where?: string
+} & (
   | {
       /** A new entry, and the changes made with it: an event's people, a plot thread opened at the start. */
       did: 'entry'

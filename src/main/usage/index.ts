@@ -93,7 +93,10 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'recipeChat',
   'redoRecipePart',
   // The Plan hub
-  'startPlanUpdate'
+  'startPlanUpdate',
+  // Interviews by topic
+  'askTopicQuestions',
+  'suggestFromTopic'
 ])
 
 let library: UsageLibrary | null = null

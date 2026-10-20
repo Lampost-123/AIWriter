@@ -5325,6 +5325,47 @@ and X13 (a made-up month). Four causes, each fixed; no migration, no new kind of
   `checks/freeRules.test.ts` (the month in an entry made from the scene itself), and the request shapes in
   `checks/run.test.ts` and `checks/checks.test.ts`.
 
+## Interviews by topic (Adam, 2026-10-20)
+
+Adam: separate interviews for building a story or a world, instead of one broad one. **Interview me, topic by topic**
+(`features/worldInterviews/TopicInterviews.tsx`, contract `contracts/worldInterviews.ts`, main `src/main/worldInterviews/`
+and `ipc/worldInterviews.ts`) is in Build with AI's Cast and world (`CastSection.tsx`, under the two ways to build, for the
+story) and on the World builder page (`WorldBuilderView.tsx`, both layouts, `storyId` null: the world on its own). Four
+topics, any order: **Characters**, **Places**, **Lore and history**, and **How it all connects**, offered once a page
+topic has kept something (`topicLogic.connectionsOpen`). Each says how it stands: "Not started", "Under way", "Done · 3 kept".
+
+- **Questions** (`askTopicQuestions`, marker `[AIWRITE-WORLD v1] topic-questions <topic>`): a few at a time (`ROUND_MOST`,
+  3), told the idea (a story's brief and style with the world's summary, or the world's summary, themes and tone:
+  `context.ts ideaText`), what the world has (the topic's own kind in full, the rest by name; for the connections every
+  character, place, lore, event and group with its empty parts, and the relationships it has) and the interview so far,
+  so it never asks what is known. Adam answers in a box under each question (an empty box skips it), **Skip these** or
+  **Stop asking** (what is typed counts). A round that only repeats is sent back once (`parse.newQuestions`); `{"done": true}`,
+  nothing new or `MOST_QUESTIONS` (12) asked means it has enough, and the suggestions come by themselves.
+- **Suggestions** (`suggestFromTopic`, marker `topic-suggest <topic>`): pages of the topic's kind (`TOPIC_FIELDS`: the
+  parts each may fill; a place's `in`, lore's `rule`), settled against the world (`settle.ts`): a page the world has is
+  offered only for its empty parts ("Adds to your page"), or not at all; parts word for word in his answers are his
+  (`hisWordsIn`). The connections suggest links (`TopicLink`): a relationship ("lives at", "older sister of", feelings
+  only between two characters), a place inside another (only one inside none, never a loop) or words for an empty part of
+  one page; links to pages that aren't there, or that the world has already, are left out. Each is a `'world'` record (the
+  World builder model and its Thinking) with its parts, so **What the AI saw** shows them; a reply that can't be read, or is
+  plainly a refusal (`looksLikeRefusalReply`), says so in plain words.
+- **Keep, Change, Discard, Undo** (the story line's way, `wi-*` in `topicInterviews.css`): Change edits the page or link
+  (what he changes becomes his, `topicLogic.changedEntry`); Keep (`keepTopicSuggestion`, `keep.ts`) saves through the World
+  builder's writer (`worldBuilder/save.ts`: `saveEntry`, `saveInto` for a page the world has, `saveRelationship`,
+  `saveInside`, `fillField`), true from the world's beginning or the story's start, his words his and the rest drafted by
+  AI; never a page twice. Each Keep is one memory run with one line, marked `via: 'interview'` with its topic and where
+  (`WorldUndo`), shown in What changed as "Kept from an interview"; such runs are never the World builder's "last build"
+  (`db/worldBuilder.ts buildRunIds`). Undo (the row's, the toast's) is `undoWorldBuild(runId)`; Keep all has one Undo.
+  Discard has Undo in its toast. Nothing goes into the world without a click.
+- **What is kept**: the questions, answers and suggestions live in the window while the app runs (`topicStore.ts`, one
+  set per story and one for the world); what each topic kept is read back from those lines (`getInterviewProgress`,
+  `keep.ts interviewProgress`: not undone, page not deleted), so the topics stay marked done after a restart. No migration.
+- **Tests**: `src/main/worldInterviews/worldInterviews.test.ts` (prompts, reading replies, settling, Keep and its Undo, the
+  progress, the calls against the fake), `features/worldInterviews/topicLogic.test.ts`, `tests/e2e/worldInterviews.spec.ts`
+  (Cast and world: characters with Change, Keep and Undo; places stopped early with Keep all and a place put inside
+  another; How it all connects; the World builder page with no story). The fake provider answers them in
+  `tests/fake-provider/m4/worldTopics.mjs`.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

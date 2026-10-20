@@ -1,0 +1,425 @@
+/* Interview me, topic by topic (TopicInterviews.tsx): the four topics as cards, the open one's questions under them, and
+   its suggestions in the amber of AI suggestions with Keep, Change and Discard, as Build with AI's story line has them. */
+
+.wi {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.wi-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wi-t {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.wi-s {
+  max-width: 64ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ---------- The topics ---------- */
+.wi-topics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@container (min-width: 900px) {
+  .wi-topics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@container (max-width: 400px) {
+  .wi-topics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.wi-topic {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  text-align: left;
+  transition:
+    border-color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) ease-out;
+}
+.wi-topic:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+.wi-topic:active:not(:disabled) {
+  scale: 0.99;
+}
+.wi-topic.is-open {
+  border-color: color-mix(in oklab, var(--ai) 60%, var(--line));
+  background: color-mix(in oklab, var(--ai-soft) 45%, var(--bg));
+}
+.wi-topic:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.wi-topic-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wi-topic-i {
+  color: var(--ai);
+}
+.wi-topic-t {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.wi-topic-l {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.wi-topic-s {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--faint);
+}
+.wi-topic-s.is-done {
+  color: var(--success);
+}
+
+/* ---------- The open topic ---------- */
+.wi-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+.wi-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+}
+.wi-panel-t {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.wi-panel-n {
+  font-size: 12px;
+  color: var(--faint);
+}
+.wi-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--faint);
+  transition:
+    color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out;
+}
+.wi-close:hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--fg) 6%, transparent);
+}
+.wi-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-height: 32px;
+}
+.wi-working {
+  min-height: 40px;
+}
+.wi-note {
+  margin-right: auto;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.wi-link {
+  font-size: 12.5px;
+  color: var(--accent);
+}
+.wi-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------- Questions ---------- */
+.wi-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wi-q-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wi-q-text {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--fg);
+}
+
+/* ---------- Suggestions ---------- */
+.wi-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wi-batch-t {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wi-sugs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wi-sug {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 10px;
+  padding: 11px 12px 11px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--ai) 42%, var(--line));
+  background: color-mix(in oklab, var(--ai-soft) 40%, var(--surface));
+  transition:
+    background-color var(--dur-base) ease-out,
+    border-color var(--dur-base) ease-out;
+}
+.wi-sug.is-kept {
+  border-color: var(--line);
+  background: var(--surface);
+}
+.wi-mark {
+  flex: none;
+  width: 14px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+}
+.wi-mark::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  rotate: 45deg;
+  border-radius: 1.5px;
+  background: var(--ai);
+}
+.wi-mark.is-kept::before {
+  background: var(--success);
+}
+.wi-sug-body {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.wi-sug-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  line-height: 1.4;
+}
+.wi-sug-label {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.wi-sug-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.wi-tag {
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--line) 60%, transparent);
+}
+.wi-sug-text {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.wi-sug-parts {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.wi-sug-why {
+  margin-top: 3px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--faint);
+}
+.wi-actions {
+  flex: none;
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wi-keep {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ai-fg);
+  background: var(--ai);
+  transition:
+    filter var(--dur-quick) ease-out,
+    scale var(--dur-press) ease-out;
+}
+.wi-keep:hover {
+  filter: brightness(1.06);
+}
+.wi-keep:disabled {
+  opacity: 0.7;
+}
+.wi-keep:active,
+.wi-change:active {
+  scale: 0.97;
+}
+.wi-change {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) ease-out;
+}
+.wi-change:hover {
+  background: color-mix(in oklab, var(--fg) 6%, transparent);
+}
+.wi-txt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--muted);
+  transition:
+    color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out;
+}
+.wi-txt:hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--fg) 6%, transparent);
+}
+.wi-kept {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--success);
+}
+.wi-more {
+  min-height: 30px;
+}
+
+/* ---------- Change ---------- */
+.wi-edit {
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--surface);
+}
+.wi-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(110px, max-content) 1fr;
+  align-items: start;
+  gap: 8px 12px;
+  font-size: 12.5px;
+}
+.wi-edit-grid > label {
+  padding-top: 7px;
+  color: var(--muted);
+}
+.wi-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 0 !important;
+  color: var(--fg) !important;
+}
+.wi-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+}
+.wi-edit-foot {
+  justify-content: flex-end;
+}
+@container (max-width: 520px) {
+  .wi-edit-grid {
+    grid-template-columns: 1fr;
+  }
+  .wi-edit-grid > label {
+    padding-top: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wi-topic,
+  .wi-sug,
+  .wi-keep,
+  .wi-change,
+  .wi-txt,
+  .wi-close {
+    transition: none;
+  }
+}

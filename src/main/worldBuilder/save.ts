@@ -37,6 +37,8 @@ export interface Writer {
   scenes: ID[]
   runId: ID | null
   made: WorldBuildItem[]
+  /** Saving a Keep from an interview by topic (2026-10-20): each line says so, with its topic and where it was. */
+  via?: { topic: string; where: string }
 }
 
 export const newWriter = (db: DB, storyId: ID | null, scenes: ID[] = []): Writer => ({ db, storyId, scenes, runId: null, made: [] })
@@ -65,7 +67,8 @@ export const newEntryWords = (kind: EntryKind, rule: boolean): string =>
 function line(w: Writer, l: Omit<kdb.NewLog, 'runId' | 'sceneId' | 'action' | 'question' | 'undo'> & { undo: WorldUndo }): kdb.LogRow {
   // `op` first, so the build's lines can be found by it.
   const { op, ...rest } = l.undo
-  return kdb.insertLog(w.db, { ...l, runId: runOf(w), sceneId: null, action: 'added', question: null, undo: { op, ...rest } })
+  const via = w.via ? { via: 'interview' as const, topic: w.via.topic, where: w.via.where } : {}
+  return kdb.insertLog(w.db, { ...l, runId: runOf(w), sceneId: null, action: 'added', question: null, undo: { op, ...rest, ...via } })
 }
 
 export interface NewEntry {
@@ -294,6 +297,33 @@ export function saveInto(w: Writer, n: IntoEntry): { entry: Entry; item: WorldBu
 export function setParent(w: Writer, entryId: ID, parentId: ID): void {
   if (entryId === parentId) return
   repo.updateEntry(w.db, entryId, { parentId }, { origin: 'ai', runId: runOf(w) })
+}
+
+/**
+ * Puts a place inside another, with its own line (a Keep from the connections interview, 2026-10-20): only while it is
+ * inside none, and never inside itself. Its Undo takes it out again while it is still there. False when it wasn't put.
+ */
+export function saveInside(w: Writer, place: Pick<Entry, 'id' | 'name'>, parent: Pick<Entry, 'id' | 'name'>, source: Source): boolean {
+  if (place.id === parent.id) return false
+  return w.db.transaction(() => {
+    const before = repo.getEntries(w.db, [place.id])[0]
+    if (!before || before.parentId) return false
+    const runId = runOf(w)
+    const e = repo.updateEntry(w.db, place.id, { parentId: parent.id }, { origin: 'ai', runId })
+    const l = line(w, {
+      what: 'entry',
+      entryId: e.id,
+      factId: null,
+      entryName: e.name,
+      text: `Inside ${parent.name}`,
+      before: '',
+      after: parent.name,
+      quote: source.quote,
+      undo: { op: 'world-build', did: 'profile', entryId: e.id, kind: e.kind, planned: e.name, values: {}, parentId: parent.id, fingerprint: source.fingerprint, words: source.words }
+    })
+    w.made.push({ lineId: l.id, what: 'entry', entryId: e.id, kind: e.kind, name: e.name, detail: `Inside ${parent.name}`, hardRule: false, otherId: parent.id, undone: false })
+    return true
+  })()
 }
 
 export interface NewRelationship {
