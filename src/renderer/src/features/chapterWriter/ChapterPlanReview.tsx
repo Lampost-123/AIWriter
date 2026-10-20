@@ -1,6 +1,8 @@
 // Write this chapter's plan, before anything is written (spec "Write the chapter, reworked", 2026-10-19; built to the
 // Build with AI mock-up, 2026-10-20), shown inline at its chapter in the story line (features/planHub/WritePanel.tsx):
 // "Write this chapter · step 1 of 3: the plan", the chapter's name, then
+//   Chapter name: for a chapter whose title is only its number, the name the plan picked to fit the story's other
+//     chapters, to change or clear (cleared, the chapter keeps its title);
 //   What the chapter does: whose chapter, what they want, what is against them, how it turns (the overview, for a plan
 //     made before those parts);
 //   Scene by scene: each scene's line and "Ends with: …";
@@ -13,11 +15,11 @@
 import { useEffect, useId, useState } from 'react'
 import type { ChapterWriterEstimate, ChapterWritingPlan } from '@shared/contracts/chapterWriter'
 import type { ID } from '@shared/types'
-import { Button } from '@/components/ui'
+import { Button, Input } from '@/components/ui'
 import { PenLine, SquarePen } from '@/components/ui/icons'
 import { plainReason } from '@/lib/reason'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
-import { estimateWords, keptLines, sceneDoes, sceneHead, threeHeads } from '@/features/planHub/buildLogic'
+import { NAME_HINT, estimateWords, keptLines, nameAnswer, sceneDoes, sceneHead, threeHeads } from '@/features/planHub/buildLogic'
 import { stopChapterWriter, writeToChapterPlan } from './chapterWriterStore'
 
 export interface ChapterPlanReviewProps {
@@ -35,6 +37,7 @@ export function ChapterPlanReview({ runId, title, plan, estimate }: ChapterPlanR
   const [editing, setEditing] = useState(false)
   const [texts, setTexts] = useState<Record<ID, string>>({})
   const [overview, setOverview] = useState(plan.overview)
+  const [name, setName] = useState(plan.title ?? '')
   const [three, setThree] = useState<Three>({ wants: plan.wants ?? '', against: plan.against ?? '', turn: plan.turn ?? '' })
   const [busy, setBusy] = useState<'write' | 'cancel' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -46,6 +49,7 @@ export function ChapterPlanReview({ runId, title, plan, estimate }: ChapterPlanR
     setBusy(null)
     setTexts(Object.fromEntries(plan.scenes.map((s) => [s.sceneId, s.text])))
     setOverview(plan.overview)
+    setName(plan.title ?? '')
     setThree({ wants: plan.wants ?? '', against: plan.against ?? '', turn: plan.turn ?? '' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId])
@@ -65,6 +69,7 @@ export function ChapterPlanReview({ runId, title, plan, estimate }: ChapterPlanR
       await writeToChapterPlan({
         scenes,
         ...(overview.trim() !== plan.overview.trim() ? { overview } : {}),
+        ...nameAnswer(plan.title, name),
         ...Object.fromEntries(parts.map((k) => [k, three[k]]))
       })
     } catch (e) {
@@ -92,6 +97,28 @@ export function ChapterPlanReview({ runId, title, plan, estimate }: ChapterPlanR
         </h3>
         <p className="cw-lead">Here is how the chapter will go. Change anything before it writes. It uses what the story’s memory says is true at this point.</p>
       </header>
+
+      {plan.title !== undefined ? (
+        <div className="cw-block cw-name" data-plan-part="name">
+          <label htmlFor={`${id}-name`} className="cw-h">
+            Chapter name
+          </label>
+          <Input
+            id={`${id}-name`}
+            value={name}
+            maxLength={80}
+            spellCheck
+            className="cw-name-box"
+            aria-describedby={`${id}-name-s`}
+            disabled={!!busy}
+            onChange={(e) => setName(e.target.value)}
+            data-testid="chapter-plan-name"
+          />
+          <p id={`${id}-name-s`} className="cw-note">
+            {NAME_HINT}
+          </p>
+        </div>
+      ) : null}
 
       <section aria-labelledby={`${id}-does`} className="cw-block" data-plan-part="does">
         <h4 id={`${id}-does`} className="cw-h">

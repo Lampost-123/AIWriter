@@ -55,6 +55,18 @@ export function endWords(r: ChapterWriterReport, title: string): string {
   }
 }
 
+/** What Undo says it put back: the scenes' words, and the chapter's name when the run had given it one. */
+export function undoWords(restored: number, renamed: boolean): string {
+  const scenes = restored === 1 ? 'one scene' : `${restored} scenes`
+  if (restored && renamed) return `Put back ${scenes} and the chapter’s name as they were before the AI wrote the chapter.`
+  if (restored) return `Put back ${scenes} as ${restored === 1 ? 'it was' : 'they were'} before the AI wrote the chapter.`
+  if (renamed) return 'Put back the chapter’s name as it was before the AI wrote the chapter.'
+  return 'The chapter was already as it was before.'
+}
+
+/** What the report says of the name the run gave the chapter ('' for none, or once undone). */
+export const namedWords = (r: Pick<ChapterWriterReport, 'named' | 'undone'>): string => (r.named?.to.trim() && !r.undone ? `Named the chapter “${r.named.to.trim()}”.` : '')
+
 /** The report's heading line. */
 export function reportHeading(r: ChapterWriterReport): string {
   if (r.undone) return 'Put back as it was before the AI wrote it.'

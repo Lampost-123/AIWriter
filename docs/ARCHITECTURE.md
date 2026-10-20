@@ -5261,6 +5261,36 @@ and X13 (a made-up month). Four causes, each fixed; no migration, no new kind of
   `checks/freeRules.test.ts` (the month in an entry made from the scene itself), and the request shapes in
   `checks/run.test.ts` and `checks/checks.test.ts`.
 
+## Write this chapter names the chapter (Adam, 2026-10-20)
+
+Adam: the chapter writer wrote the text "but not picking a name that fits the story's other chapters also". No migration
+(the name and the title before go in `meta`).
+
+- **The brief** (`chapterWriter/plan.ts` `chapterNames`, `planOpening`): "## The story's chapters, in order" lists the
+  story's chapters by their own titles (`ownTitle`: "Chapter 3" or none counts as no name), "Ch 2" for one with none,
+  this chapter marked, the `CHAPTER_NAMES_MOST` (12) nearest it. When this chapter has no name of its own, "What to do"
+  asks for one in `title`: in the other chapters' style when any has a name (`styled`), else a few words that fit the
+  story and the chapter. `planSystem` and `WRITE_CHAPTER_PLAN` gain `title` (the house rule: a few words, no numbers).
+- **Kept** (`readChapterPlan`, `planName`, `checkChapterPlan({ nameWanted })`): one line, no quotes, no "Chapter 3:" before
+  it or full stop after, at most `NAME_MOST` (80) characters; dropped when not asked for or only a number.
+  `ChapterWritingPlan.title`.
+- **The review** (`ChapterPlanReview.tsx`): "Chapter name", a one-line box under the heading, with "Picked to fit your story
+  and its other chapters. Change it, or clear it to keep the chapter as it is." (`buildLogic.ts` `NAME_HINT`,
+  `nameAnswer`: sent as `ChapterPlanAnswer.title` only when changed; '' keeps the title). `withAnswer` applies it.
+- **Saved** when Adam says write, before any scene is written (`ChapterRun.nameChapter`, through `RunDeps.rename`, the
+  binder's `updateChapter`), never over a name the chapter has by then; the run's label takes it. The name and the title
+  before are kept (`store.ts` `chapter_writer_named:<chapter id>`, cleared as each run starts; gone with the chapter in
+  `trash.ts`) and in `ChapterWriterReport.named`; the report says "Named the chapter “…”." (`namedWords`). The window
+  reads the outline again once the run moves past the plan, and when it ends.
+- **Undo** (`ipc/chapterWriter.ts`, `titleToPutBack`) puts the title back only while the chapter still has the run's name
+  (`renamed` in its answer; "Put back 2 scenes and the chapter’s name as they were before the AI wrote the chapter.",
+  `undoWords`).
+- **Tests**: `chapterWriter/chapterWriter.test.ts` (the brief's list and ask, the cap, what is kept, Adam's change and
+  clear, saved before the first draft, the report, Undo and Adam's own rename, a chapter with its own name, one named
+  while the plan waited, a story's only chapter named too), `planHub/buildLogic.test.ts` (`nameAnswer`),
+  `chapterWriter/chapterWriterLogic.test.ts` (the report's and Undo's words), `tests/e2e/chapterWriter.spec.ts` (the box,
+  changed, saved, put back). The fake planner (`tests/fake-provider/chapter.mjs`) answers "The Far Bank" when asked.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

@@ -1,4 +1,5 @@
-// What the chapter writer's steps share: the chapter's scenes as the AI names them ("Sc 2"), and a finding (something the
+// What the chapter writer's steps share: the chapter's scenes as the AI names them ("Sc 2"), a chapter's own title (none
+// when it only says "Chapter 3"), and a finding (something the
 // state check, the critic or the plain checks flagged, for a targeted fix or a scene written again). Pure.
 
 import type { ID } from '@shared/types'
@@ -39,6 +40,9 @@ export interface Finding {
 
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s)
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim()
+
+/** A chapter's own title: '' for none, or one that only says "Chapter 3" (so it isn't said twice). */
+export const ownTitle = (title: string): string => (/^\s*chapter\s+[\w-]+\s*$/i.test(title) ? '' : title.trim())
 
 /** A finding in one line, as the report lists it. */
 export function findingLine(f: Finding, scenes: SceneRef[]): string {

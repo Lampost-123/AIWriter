@@ -16,6 +16,8 @@
 //      rounds, each problem tried at most MAX_TRIES times (progress.ts Tries); the changed scenes, and the scene after
 //      each, are checked again.
 //   5. Hand over: the report lists what was fixed, in plain words, and anything left for Adam.
+// A chapter whose title is only its number is given the plan's name (in the style of the story's other chapters, as
+// Adam kept it) once he says write, before anything is written; Undo puts its title back while the name is the run's.
 // It stops when clean, on Stop, at the spending limit, when a round makes no progress (ProgressGuard), or at
 // CHAPTER_WRITER_LIMITS. The words before the run are kept (store.ts) so Undo can put the chapter back.
 // No Electron imports: everything outside the world's database comes through RunDeps.
@@ -53,8 +55,8 @@ import { findingKey, foldWords, ProgressGuard, Tries, wordsHash, wordsOverlap } 
 import { missedDirection } from './prompts'
 import { chapterLine, chapterPlanText, makeChapterPlan, withAnswer } from './plan'
 import { fixPassage, type FixDeps } from './fix'
-import { loadReport, saveBefore, saveReport, scenesNow } from './store'
-import { findingLine, type Finding, type SceneRef } from './tools'
+import { loadReport, saveBefore, saveNamed, saveReport, scenesNow } from './store'
+import { findingLine, ownTitle, type Finding, type SceneRef } from './tools'
 
 type DB = Database.Database
 
@@ -78,7 +80,12 @@ export interface RunDeps {
    * Shows Adam the chapter plan and waits for his word: the answer to write to (with any part he changed), or null to
    * cancel. Ends with null when `signal` is aborted. Left out: the run goes straight on to writing.
    */
-  review?: (plan: ChapterWritingPlan, signal: AbortSignal) => Promise<Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'> | null>
+  review?: (plan: ChapterWritingPlan, signal: AbortSignal) => Promise<Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn' | 'title'> | null>
+  /**
+   * Gives the chapter the plan's name, the way the binder's renames go. Left out: written straight to the world's
+   * database.
+   */
+  rename?: (chapterId: ID, title: string) => void
   /**
    * Roughly how long writing these scenes takes and what it costs, shown with the plan (estimate.ts); null when it can't
    * say. Left out: none is shown.
@@ -216,8 +223,7 @@ export function placeLabel(db: DB, sceneId: ID): string {
   return `Ch ${ch + 1}, Sc ${sc + 1}${title ? ` “${title}”` : ''}`
 }
 
-/** A chapter's own title: '' for none, or one that only says "Chapter 3" (so it isn't said twice). */
-export const ownTitle = (title: string): string => (/^\s*chapter\s+[\w-]+\s*$/i.test(title) ? '' : title.trim())
+export { ownTitle }
 
 export class ChapterRun {
   private readonly controller = new AbortController()
@@ -334,6 +340,8 @@ export class ChapterRun {
     }
     this.report.scenes = this.refs.map((r) => ({ sceneId: r.id, label: r.label, fixed: [], setAside: [], rewritten: [] }))
     saveBefore(db, this.chapterId, scenesNow(db, this.sceneIds))
+    // An earlier run's name for the chapter is that run's: this run's Undo puts back only what this run did.
+    saveNamed(db, this.chapterId, null)
     saveReport(db, this.report)
   }
 
@@ -342,6 +350,7 @@ export class ChapterRun {
     try {
       await this.planChapter()
       await this.reviewPlan()
+      this.nameChapter()
       await this.draftAll()
       await this.rounds()
     } catch (e) {
@@ -482,6 +491,32 @@ export class ChapterRun {
     this.waited += this.clock() - at
     if (!answer || this.stopped) throw new Stopped()
     this.keepPlan(withAnswer(this.plan, answer))
+  }
+
+  /**
+   * The plan's name for a chapter that had only its number (as Adam kept it), saved before anything is written, so the
+   * binder, Build with AI and the page head show it; kept with its title before, for Undo (store.ts) and the report. Never
+   * over a name the chapter has of its own by now (Adam may have given it one while the plan waited). A rename that
+   * fails leaves the title as it was and the run goes on.
+   */
+  private nameChapter(): void {
+    const to = this.plan?.title?.trim() ?? ''
+    if (!to) return
+    this.check()
+    const { db } = this.d
+    try {
+      const from = repo.getChapter(db, this.chapterId).title
+      if (ownTitle(from) || from.trim() === to) return
+      if (this.d.rename) this.d.rename(this.chapterId, to)
+      else repo.updateChapter(db, this.chapterId, { title: to })
+      saveNamed(db, this.chapterId, { from, to })
+      this.report.named = { from, to }
+      this.label = chapterLabel(db, this.chapterId)
+    } catch (e) {
+      console.warn('Could not give the chapter its name', e)
+      return
+    }
+    this.save()
   }
 
   /** A scene's part of the plan, as its draft is given it. */

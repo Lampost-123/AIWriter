@@ -16,11 +16,11 @@ import { sceneWords } from '../ask/agent'
 import { dropRepeats, pageFrom, proseBlocks } from './page'
 import { ProgressGuard, Tries, findingKey, sameFinding, wordsOverlap } from './progress'
 import { ChapterRun, FOLLOW_ON_CHECKS, LATER_START, STATE_CHECKS, cardReady, contractMisses, issueFindings, planMisses, type RunDeps } from './run'
-import { chapterLine, chapterPlanText, checkChapterPlan, keptFacts, readChapterPlan, withAnswer } from './plan'
+import { CHAPTER_NAMES_MOST, NAME_MOST, chapterLine, chapterNames, chapterPlanText, checkChapterPlan, keptFacts, planName, readChapterPlan, withAnswer } from './plan'
 import { passageFor, replyPassage } from './fix'
 import { CHAPTER_MARKER, PLAN_STEPS } from './prompts'
 import { sceneNamed } from './tools'
-import { loadBefore, loadReport } from './store'
+import { loadBefore, loadReport, titleToPutBack } from './store'
 import { critiqueAsk } from '../critique/prompts'
 import { CHAPTER_WRITER_LIMITS } from '@shared/contracts/chapterWriter'
 
@@ -850,5 +850,173 @@ describe('writing a whole chapter', () => {
     const { db, chapterId, s1, s2 } = world()
     for (const id of [s1, s2]) repo.updateSceneCard(db, id, { ...repo.getScene(db, id).card, goal: '', beats: [] })
     expect(() => new ChapterRun(deps(db), 'run-4', chapterId).prepare()).toThrow(/scene card to write from/)
+  })
+})
+
+describe('a chapter with only its number gets a name that fits the story’s other chapters (Adam, 2026-10-20)', () => {
+  /** The two-scene chapter ("Chapter 1"), with a second chapter that has a name of its own. */
+  function named() {
+    const w = world()
+    const next = repo.createChapter(w.db, w.storyId, { title: 'The Road North' })
+    return { ...w, next: next.id }
+  }
+
+  it('lists the story’s chapters by name in the brief, the nearest a dozen, and asks for a name only when one is needed', () => {
+    const { db, storyId, chapterId, next } = named()
+    repo.createChapter(db, storyId)
+    expect(chapterNames(db, storyId, chapterId)).toEqual({ lines: ['Ch 1 (this chapter)', 'Ch 2 “The Road North”', 'Ch 3'], trimmed: false, ask: true, styled: true })
+    // A chapter with a name of its own is never named again.
+    expect(chapterNames(db, storyId, next).ask).toBe(false)
+    // When no other chapter has a name, it is still named, to fit the story (every chapter written with AI gets one).
+    repo.updateChapter(db, next, { title: 'Chapter 2' })
+    expect(chapterNames(db, storyId, chapterId)).toMatchObject({ ask: true, styled: false })
+    // A long story: the twelve nearest this chapter, in order.
+    const long = world()
+    for (let i = 2; i <= 20; i++) repo.createChapter(long.db, long.storyId, { title: `Name ${i}` })
+    const at = repo.getOutline(long.db, long.storyId).chapters[14].id
+    const l = chapterNames(long.db, long.storyId, at)
+    expect(l.lines).toHaveLength(CHAPTER_NAMES_MOST)
+    expect(l.trimmed).toBe(true)
+    expect([l.lines[0], l.lines.at(-1)]).toEqual(['Ch 9 “Name 9”', 'Ch 20 “Name 20”'])
+    expect(l.lines).toContain('Ch 15 “Name 15” (this chapter)')
+  })
+
+  it('keeps a name the planner gives only when one was asked for, one line, without quotes, number or full stop', () => {
+    expect(planName('  “Chapter 3: The Far   Bank.” ')).toBe('The Far Bank')
+    expect(planName('Ch. 4 – Salt')).toBe('Salt')
+    expect(planName('"Chapter Three"')).toBe('')
+    expect(planName('Chapter and Verse')).toBe('Chapter and Verse')
+    expect(planName(null)).toBe('')
+    const long = planName(`The ${'very '.repeat(30)}end`)
+    expect(long.length).toBeLessThanOrEqual(NAME_MOST)
+    expect(long.endsWith('very')).toBe(true)
+    const { db, s1, s2 } = world()
+    const refs = [
+      { id: s1, n: 1, title: 'The ferry', label: 'Sc 1 “The ferry”' },
+      { id: s2, n: 2, title: 'The inn', label: 'Sc 2 “The inn”' }
+    ]
+    const raw = readChapterPlan('{"title": "“The Far Bank”", "overview": "Mara crosses.", "scenes": [{"scene": "Sc 1", "does": "Mara meets Tobin."}]}')!
+    expect(raw.title).toBe('“The Far Bank”')
+    expect(checkChapterPlan(raw, { db, scenes: refs, people: [], nameWanted: true })!.title).toBe('The Far Bank')
+    expect(checkChapterPlan(raw, { db, scenes: refs, people: [] })!.title).toBeUndefined()
+    expect(checkChapterPlan({ ...raw, title: 'Chapter 1' }, { db, scenes: refs, people: [], nameWanted: true })!.title).toBeUndefined()
+  })
+
+  it('takes the name as Adam kept it: changed, cleared (the title stays), or left as the plan had it', () => {
+    const plan: ChapterWritingPlan = { title: 'The Far Bank', overview: 'Mara crosses.', questions: [], scenes: [] }
+    expect(withAnswer(plan, {}).title).toBe('The Far Bank')
+    expect(withAnswer(plan, { title: '  Across the   Water ' }).title).toBe('Across the Water')
+    expect('title' in withAnswer(plan, { title: '' })).toBe(false)
+    expect('title' in withAnswer(plan, { title: 'Chapter 1' })).toBe(false)
+    // A plan that named nothing is never given a name.
+    expect('title' in withAnswer({ ...plan, title: undefined }, { title: 'Sneaked in' })).toBe(false)
+  })
+
+  it('names the chapter as Adam says write, before any scene is written, says so in the report, and Undo puts the title back', { timeout: 30_000 }, async () => {
+    const { db, chapterId, s1 } = named()
+    const d = deps(db)
+    const progress: ChapterWriterProgress[] = []
+    d.progress = (p) => progress.push(p)
+    const shown: ChapterWritingPlan[] = []
+    d.review = async (plan) => {
+      shown.push(plan)
+      // Nothing is renamed while the plan waits.
+      expect(repo.getChapter(db, chapterId).title).toBe('Chapter 1')
+      return {}
+    }
+    const renamed: string[] = []
+    d.rename = (id, title) => {
+      renamed.push(title)
+      repo.updateChapter(db, id, { title })
+    }
+    const titles: string[] = []
+    const draft = d.draft
+    d.draft = async (sceneId, o) => {
+      titles.push(repo.getChapter(db, chapterId).title)
+      return draft(sceneId, o)
+    }
+    const run = new ChapterRun(d, 'run-named', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    // The brief lists the other chapters' names and asks for one in their style; the plan brings it to the review.
+    const plan = chapterRecords(db)[0]
+    expect(plan.user).toContain("## The story's chapters, in order\n- Ch 1 (this chapter)\n- Ch 2 “The Road North”")
+    expect(plan.user).toContain("This chapter has no name of its own yet: give it one in `title`, in the same style as the other chapters' names above")
+    expect(plan.system).toContain('- title: a name for this chapter, only when the brief asks for one.')
+    expect(shown[0].title).toBe('The Far Bank')
+    // Saved once, through the rename, before the first draft; the run then calls the chapter by it.
+    expect(renamed).toEqual(['The Far Bank'])
+    expect(titles[0]).toBe('The Far Bank')
+    expect(repo.getChapter(db, chapterId).title).toBe('The Far Bank')
+    expect(progress.some((p) => p.note === 'The critic is reading Ch 1 “The Far Bank”')).toBe(true)
+    expect(report.named).toEqual({ from: 'Chapter 1', to: 'The Far Bank' })
+    expect(loadReport(db, chapterId)?.named).toEqual({ from: 'Chapter 1', to: 'The Far Bank' })
+    expect(report.plan?.title).toBe('The Far Bank')
+    // Undo puts the title back while the chapter still has the run's name; never over a name Adam gave it since.
+    expect(titleToPutBack(db, chapterId)).toBe('Chapter 1')
+    repo.updateChapter(db, chapterId, { title: 'Adam’s Own' })
+    expect(titleToPutBack(db, chapterId)).toBeNull()
+    repo.updateChapter(db, chapterId, { title: 'The Far Bank' })
+    // A new run forgets what the last one named.
+    new ChapterRun(deps(db), 'run-again', chapterId).prepare()
+    expect(titleToPutBack(db, chapterId)).toBeNull()
+    expect(repo.getScene(db, s1).text).toContain('The rain went on.')
+  })
+
+  it('saves the name Adam changed, keeps the title when he cleared it, and changes nothing when he cancels', { timeout: 30_000 }, async () => {
+    for (const [answer, title] of [
+      [{ title: 'Across the Water' }, 'Across the Water'],
+      [{ title: '' }, 'Chapter 1'],
+      [null, 'Chapter 1']
+    ] as const) {
+      const { db, chapterId } = named()
+      const d = deps(db)
+      d.critic = () => false
+      d.review = async () => answer
+      const run = new ChapterRun(d, 'run-kept', chapterId)
+      run.prepare()
+      const report = await run.run()
+      expect(report.status).toBe(answer ? 'done' : 'cancelled')
+      expect(repo.getChapter(db, chapterId).title).toBe(title)
+      expect(report.named?.to).toBe(title === 'Chapter 1' ? undefined : title)
+      expect(titleToPutBack(db, chapterId)).toBe(title === 'Chapter 1' ? null : 'Chapter 1')
+    }
+  })
+
+  it('never renames a chapter with a name of its own, nor one Adam named while the plan waited; names a story’s only chapter', { timeout: 30_000 }, async () => {
+    // Its own name: the brief lists the chapters but asks for none, and the plan names nothing.
+    const own = named()
+    repo.updateChapter(own.db, own.chapterId, { title: 'The Crossing' })
+    const report = await (async () => {
+      const run = new ChapterRun({ ...deps(own.db), critic: () => false }, 'run-own-name', own.chapterId)
+      run.prepare()
+      return run.run()
+    })()
+    expect(chapterRecords(own.db)[0].user).toContain('- Ch 1 “The Crossing” (this chapter)')
+    expect(chapterRecords(own.db)[0].user).not.toContain('give it one in `title`')
+    expect(report.plan?.title).toBeUndefined()
+    expect(report.named).toBeUndefined()
+    expect(repo.getChapter(own.db, own.chapterId).title).toBe('The Crossing')
+    // Named by Adam (in the binder, say) while the plan waited: his name stays.
+    const mid = named()
+    const d = deps(mid.db)
+    d.critic = () => false
+    d.review = async () => {
+      repo.updateChapter(mid.db, mid.chapterId, { title: 'Adam’s Own' })
+      return {}
+    }
+    const run = new ChapterRun(d, 'run-mid', mid.chapterId)
+    run.prepare()
+    expect((await run.run()).named).toBeUndefined()
+    expect(repo.getChapter(mid.db, mid.chapterId).title).toBe('Adam’s Own')
+    // The story's only chapter: no others to list, and still named, to fit the story.
+    const alone = world()
+    const lone = new ChapterRun({ ...deps(alone.db), critic: () => false }, 'run-alone', alone.chapterId)
+    lone.prepare()
+    expect((await lone.run()).named).toEqual({ from: 'Chapter 1', to: 'The Far Bank' })
+    expect(chapterRecords(alone.db)[0].user).not.toContain("## The story's chapters")
+    expect(chapterRecords(alone.db)[0].user).toContain('a few words that fit the story and what this chapter does')
+    expect(repo.getChapter(alone.db, alone.chapterId).title).toBe('The Far Bank')
   })
 })
