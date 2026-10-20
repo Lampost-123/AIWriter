@@ -155,7 +155,7 @@ const AND_VERB = new RegExp(String.raw`(\b(?:and|then)\s+(?:also\s+)?|,\s*(?:and
 
 /** A list mark at a line's start, and a lead-in before what was done ("Okay — updated the plan"). */
 const MARK = /^(?:[-*•]\s+|\d+[.)]\s+|#{1,6}\s+)/
-const LEAD_IN = /^(?:ok(?:ay)?|alright|all right|right|sure|great|good|got it|yes|yep|perfect)\s*(?:[,!.]\s*)?(?:[—–]|--?)\s*|^(?:ok(?:ay)?|alright|sure|got it|perfect)\s*,\s+/i
+const LEAD_IN = /^(?:ok(?:ay)?|alright|all right|right|sure|great|good|got it|yes|yep|perfect)\s*(?:[,!.]\s*)?(?:[—–]|--?)\s*|^(?:ok(?:ay)?|alright|sure|got it|perfect)\s*,\s+|^(?:also|plus|and)\s*,?\s+/i
 
 const BARE_VERBS =
   'Updated|Changed|Edited|Added|Removed|Deleted|Renamed|Moved|Rewrote|Rewritten|Revised|Fixed|Corrected|Tightened|Trimmed|Replaced|Inserted|Swapped|Applied|Proposed|Reworded|Rephrased|Shortened|Expanded|Polished|Marked|Linked|Revamped|Reworked|Overhauled|Streamlined|Condensed|Refined|Incorporated|Drafted|Rearranged|Shifted|Wrote|Made'
@@ -235,6 +235,8 @@ const DONE_BEFORE = /^(?:\*\*)?(?:done|all done|there you go|there we go|all set
 
 /** "Done.", "All done!", "There you go —" at the start of the answer or of a line. */
 const DONE = /^(?:\*\*)?(?:done|all done|there you go|there we go|all set|sorted|finished)\b(?:\*\*)?\s*(?:[.!:,—–-]|$)/iu
+/** "Done." as a sentence of its own, anywhere ("Tightened the opening. Done!"). */
+const DONE_ALONE = /^(?:\*\*)?(?:done|all done|all set|sorted|finished)(?:\*\*)?\s*[.!]*\s*$/iu
 
 /**
  * The older hand-over claims (shared/askChanges.ts CLAIMS: "apply the changes below", "here's the revised paragraph",
@@ -310,8 +312,28 @@ function follows(verb: string, after: string): boolean {
 
 // ---------- Reading an answer ----------
 
-/** A line that hands story words over ("Here's a tighter version you could use:"): what follows it is the story's, not the chat's. */
-const HANDS_PROSE = /\b(?:version|paragraph|paragraphs|passage|rewrite|draft|opening|ending|line|lines|scene text)\b[^\n]*:\s*(?:\*\*|__)?\s*$/i
+/**
+ * A line that hands story words over ("Here's a tighter version you could use:", "One way the opening could go:"): the
+ * story words after it are the story's, not the chat's. Words about a part ("My thoughts on the ending line:", "About
+ * the opening:") hand nothing over.
+ */
+const HANDS_PROSE = new RegExp(
+  String.raw`^(?![^\n]*\b(?:thoughts?|notes?|comments?|feedback|take|views?|concerns?|problems?|issues?)\s+(?:on|about|with)\b)(?!\s*(?:\*\*|__)?\s*(?:about|on|regarding|re|for)\b)(?=[^\n]*\b(?:here(?:['’]s| is)|try|use|version|rewrite|rewritten|draft|revised|tighter|cleaner|new|alternative|one way|could (?:go|read)|might (?:go|read)|would (?:go|read))\b)[^\n]*\b(?:version|paragraphs?|passage|rewrite|draft|opening|ending|lines?|scene text|text|prose)\b[^\n]*:\s*(?:\*\*|__)?\s*$`,
+  'i'
+)
+/** The app's own things, which handed-over story words never name: a line naming one is the chat again. */
+const APP_THING = /\b(?:cards?|plans?|entry|entries|beats?|chapters?|outlines?|goals?|codex|scenes?|pov|threads?|paragraphs?|wording|typos?)\b/i
+/** A first-person claim said as done ("I've updated", "And we have cut"), never the story's own past tense. */
+const PERFECT = new RegExp(String.raw`^(?:(?:and|also|plus)\s*,?\s+)*(?:I|We)(?:['’]ve| have)\s+(?:\p{L}+\s+)?(?:${VERB_ALT})\b`, 'iu')
+/** A line among handed-over words that is the chat again: it names one of the app's things, or a sentence of it is a claim. */
+function chatAgain(line: string): boolean {
+  if (APP_THING.test(line)) return true
+  return line.split(/(?<=[.!?])\s+/).some((raw) => {
+    const t = raw.trim().replace(MARK, '')
+    const plain = t.slice(LEAD_IN.exec(t)?.[0].length ?? 0)
+    return BARE_START.test(plain.charAt(0).toUpperCase() + plain.slice(1)) || HEAD_MADE.test(t) || DONE.test(t) || PERFECT.test(t)
+  })
+}
 /** A paragraph that is plainly the chat speaking again after words it handed over (or a heading, or another hand-over). */
 const CHAT_AGAIN =
   /^\s*(?:#{1,6}\s|\*\*|__|---|(?:I|We)(?:['’]ve| have)\s|I['’]d\s|I (?:would|can|could|kept)\s|(?:Want|Would|Should|Shall|Does|Do you|Let me|Tell me|If you|Feel free|Happy to|Hope|Note|Why)\b|This (?:version|rewrite|draft|keeps|tightens|cuts|gives|makes|way)\b|These (?:changes|edits|lines)\b|The (?:change|main|key|idea|difference)\b)|:\s*(?:\*\*|__)?\s*$/i
@@ -345,7 +367,7 @@ export function withoutQuotes(text: string): string {
     const starts = gap
     gap = false
     // Story prose never comes as a list: a list after the line is the chat's own ("Changes to the opening:\n- Tightened…").
-    if (handed && ((starts && CHAT_AGAIN.test(l)) || /^\s*(?:[-*•]|\d+[.)])\s/.test(l))) handed = false
+    if (handed && ((starts && CHAT_AGAIN.test(l)) || /^\s*(?:[-*•]|\d+[.)])\s/.test(l) || chatAgain(l))) handed = false
     if (handed) {
       lines[i] = blank(l)
       continue
@@ -464,11 +486,17 @@ export function changeClaims(answer: string): Claim[] {
       // At the sentence's start (a list mark aside), a backed claim is said as waiting: "Change 1 is ready to apply: cut…".
       const starts = at0 <= head
       const names = namesIn(clauseOf(written.slice(at + m[0].length)))
+      // "I've updated the card and rewrote the beats" → "I'd update the card and rewrite the beats": a further verb in
+      // the clause (up to the next "I've") is said plainly with the first.
+      const clause = written.slice(at + m[0].length).split(/[.;!?\n]|(?=\b(?:I|We|we)(?:['’]?ve| have)?\s)/)[0]
+      const joined = !earlier && [...clause.matchAll(AND_VERB)].some((x) => !GUARDED.has(x[2]))
+      const tail = joined ? clause.replace(AND_VERB, (x, join: string, v: string) => (GUARDED.has(v) ? x : join + VERBS[v])) : ''
+      const span = len + (joined ? clause.length : 0)
       mine.push(
-        make(targetOf(verb, after), names, !PROPOSING.has(verb), { kind: 'reword', at: from + at0, length: len, to: offer }, {
+        make(targetOf(verb, after), names, !PROPOSING.has(verb), { kind: 'reword', at: from + at0, length: span, to: offer + tail }, {
           at: from + at0,
-          length: len,
-          to: starts ? `{ready}: ${VERBS[verb]}` : offer
+          length: span,
+          to: (starts ? `{ready}: ${VERBS[verb]}` : offer) + tail
         })
       )
     }
@@ -548,9 +576,9 @@ export function changeClaims(answer: string): Claim[] {
     }
     // "The edit is in", "the changes are in place".
     if (!found && IN_PLACE.test(s) && !CONDITION.test(s)) found = make(null, names, true, { kind: 'drop' })
-    // "Done." at the start of a line.
+    // "Done." at the start of a line, or as a sentence of its own after one ("Tightened the opening. Done!").
     const lineStart = from === 0 || masked[from - 1] === '\n'
-    if (!found && lineStart && DONE.test(trimmed.slice(markLen))) found = make(null, [], true, { kind: 'drop' })
+    if (!found && (lineStart ? DONE.test(trimmed.slice(markLen)) : DONE_ALONE.test(trimmed))) found = make(null, [], true, { kind: 'drop' })
     // "The change is ready" and the hand-overs.
     if (!found && (READY.test(trimmed) || HANDOVER.some((re) => re.test(s)))) found = make(null, names, false, { kind: 'drop' })
     if (found) out.push(found)

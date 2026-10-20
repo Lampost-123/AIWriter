@@ -330,3 +330,50 @@ describe('review fixes: put right without stray marks or lost meaning', () => {
     ).toContain('- Change 2 is ready to apply: tighten the opening of scene 2.')
   })
 })
+
+// Second review (2026-10-20): a hand-over covers the story words it hands over, never the chat's claims after them.
+describe('review fixes 2: a hand-over never swallows a claim', () => {
+  const NONE = 'No change was made, so there’s nothing to apply. Here’s what I’d suggest:\n\n'
+  const text = [{ kind: 'text', id: '1' }] as never[]
+  const OPEN = 'Here’s the opening:\n\nThe rain fell.'
+
+  it('a claim after the handed-over words is caught, with no proposal and with only a text one', () => {
+    const answers = [
+      ...[
+        'I updated the scene card too.',
+        'Also updated the scene card.',
+        'Scene card updated.',
+        'And I’ve changed Mara’s entry.',
+        'Plus, I tightened the chapter plan.',
+        'The scene card has been updated.',
+        'Done.'
+      ].map((s) => `${OPEN}\n\n${s}`),
+      `${OPEN}\nI’ve updated the scene card too.`,
+      'My thoughts on the ending line:\n\nThe pacing drags.\n\nI tightened the beats and updated the plan.\n\nAlso cut the last line.'
+    ]
+    for (const a of answers) {
+      expect(changeClaims(a).length, a).toBeGreaterThan(0)
+      expect(claimsUnmade(a, []), a).toBe(true)
+      expect(settleAnswer(a, text), a).not.toBe(a)
+    }
+  })
+
+  it('the handed-over words themselves stay as written', () => {
+    expect(settleAnswer(`${OPEN}\n\nI updated the scene card too.`, [])).toBe(`${NONE}${OPEN}\n\nI’d update the scene card too.`)
+    expect(settleAnswer(`${OPEN}\n\nAlso updated the scene card.`, [])).toBe(`${NONE}${OPEN}\n\nUpdate the scene card.`)
+  })
+
+  it('commentary is no hand-over', () => {
+    for (const s of ['Notes on the ending line:\n\nI cut the last line.', 'About the ending line:\n\nI cut the last line.'])
+      expect(claims(s), s).toBe(true)
+  })
+
+  it('“Done.” after a summary line goes', () => {
+    expect(settleAnswer('Tightened the opening. Done.', [])).toBe(`${NONE}Tighten the opening.`)
+    expect(settleAnswer('Tightened the opening. Done!', text)).not.toContain('Done')
+  })
+
+  it('a first-person claim with a second verb is said as one offer', () => {
+    expect(settleAnswer('I’ve updated the scene card and rewrote the beats.', [])).toBe(`${NONE}I’d update the scene card and rewrite the beats.`)
+  })
+})
