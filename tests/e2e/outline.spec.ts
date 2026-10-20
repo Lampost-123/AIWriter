@@ -447,6 +447,10 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     // Kept from there, it goes into its own chapter; with nothing left to decide in it, the batch leaves the page.
     await bargain.getByRole('button', { name: 'Keep “A bargain at the docks”' }).click()
     await expect(toastWith(win, 'Added “A bargain at the docks” to the story.')).toBeVisible()
+    // (On a slower machine more scenes arrived before Stop: they are put aside too, so nothing is left to decide. CI, 2026-10-20.)
+    for (let left = await earlier.locator('[data-state="open"]').count(); left > 0; left--) {
+      await earlier.locator('[data-state="open"]').first().getByRole('button', { name: /^Discard/ }).click()
+    }
     await expect(earlier).toHaveCount(0)
     await openWrite(win)
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks', 'A bargain at the docks'])
