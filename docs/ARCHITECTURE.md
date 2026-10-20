@@ -5505,15 +5505,24 @@ chat" and "The chat never claims a change it didn't make" above.
   an earlier answer; a claim about an earlier change stands only if that change was applied (earlier answers go to the
   model with each change's real status, `withProposals` in `ipc/ask.ts`). The check runs on every ending: finished, a
   question to Adam, Stop, and the half-second saves while streaming. The talks use the same check (`settleTalk`), with
-  the Plan hub's button named ("…until you press Make this change.").
+  the Plan hub's button named ("…until you press Make this change."). What is never read as a claim: prose the chat
+  hands over ("Here's a tighter version:" and the paragraphs after it, up to the chat speaking again), block quotes,
+  fenced and indented blocks, quotes (also after `*`, `_` or a comma), and reported speech ("Mara says I changed the
+  locks"). An unbacked summary line ("Changes made: tightened the opening.") is kept as a suggestion ("Tighten the
+  opening."), never deleted; "Done." goes. In a list where one change backs every line, only the first line says
+  "Change 1 is ready to apply"; with some claims unbacked, the lead line says what is ready and the rest read "I'd …".
 - **Changes stay applied** (`features/inspector/cardMerge.ts`). The scene card, chapter card and chapter plan panels
   re-read on `briefingRev` / `chapterCardsRev` / the outline, and merge field by field with unsaved typing: Adam's
   typed fields win (a toast says when the chat's change to that same field wasn't kept), every other field takes the
   re-read, so an old copy is never saved back. Update the plan pairs each card with the scene id main sent
   (`planHub/update.ts` returns `sceneIds`) and says "4 of 6 scenes got new cards."
 - **Apply tells the truth** (`features/ask/applyProposal.ts`, `applyDraft.ts`). `ProposalStatus` has `'started'`: a
-  draft or in-page fix shows Started until it lands, then Applied, or goes back to waiting with the reason; a started
-  change saved when the app closed reads back as waiting. An apply with no reason says "That change couldn't be made."
+  draft or in-page fix shows Started until it lands, then Applied, or goes back to waiting with the reason; one that
+  leaves the page before it is accepted (another scene or story opened; `changeAlive` in `edits/session.ts`) goes back
+  to waiting ("It went from the page before you accepted it…"); a started change saved when the app closed reads back
+  as waiting. Undo puts back only the parts the chat changed, and only those still saying the chat's words ("Mood or
+  tone was changed since, so Undo left it as it is"); a goal and length written together are put back together if the
+  second write fails. An apply with no reason says "That change couldn't be made."
   Card, title and chapter card changes record what they change (`before`); if it changed since, the first Apply shows
   what it says now and a second Apply goes through. A chapter card change for a chapter Write the chapter holds is
   turned down ("Write the chapter is working on this chapter. Apply it when it's done.") in the window only: a main
