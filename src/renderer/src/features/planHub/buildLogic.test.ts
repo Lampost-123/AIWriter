@@ -12,6 +12,7 @@ import {
   keptLines,
   lineStatus,
   minutesWords,
+  nameAnswer,
   openThreadsInOrder,
   payoffWords,
   sceneDoes,
@@ -171,5 +172,13 @@ describe('Write this chapter’s plan review', () => {
     expect(threeHeads(undefined)).toEqual({ wants: 'What they want', against: 'What stands in the way', turn: 'How it turns' })
     expect(sceneHead('Sc 1 “The ford”')).toBe('1 · The ford')
     expect(sceneHead('Sc 3')).toBe('Scene 3')
+  })
+
+  it('sends the chapter name only when Adam changed the one the plan picked; cleared, it says so', () => {
+    expect(nameAnswer(undefined, '')).toEqual({})
+    expect(nameAnswer(undefined, 'Typed anyway')).toEqual({})
+    expect(nameAnswer('The Far Bank', 'The Far Bank ')).toEqual({})
+    expect(nameAnswer('The Far Bank', '  Across the   Water ')).toEqual({ title: 'Across the Water' })
+    expect(nameAnswer('The Far Bank', '   ')).toEqual({ title: '' })
   })
 })

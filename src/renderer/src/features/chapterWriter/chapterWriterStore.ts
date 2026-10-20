@@ -14,7 +14,7 @@ import { flushAll } from '@/lib/flush'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
-import { endWords } from './chapterWriterLogic'
+import { endWords, undoWords } from './chapterWriterLogic'
 import { setHeld, showRunChange } from './hold'
 
 interface ChapterWriterState {
@@ -46,8 +46,12 @@ export function openChapterWriter(chapterId: ID): void {
 const bumpReport = (): void => useChapterWriter.setState((s) => ({ reportRev: s.reportRev + 1 }))
 
 function setProgress(p: ChapterWriterProgress | null): void {
+  const was = useChapterWriter.getState().progress
   useChapterWriter.setState({ progress: p })
   setHeld(p?.sceneIds ?? [])
+  // Past the plan: the chapter may have its new name now (saved before anything is written), so the binder, Build with
+  // AI and the page head read the outline again.
+  if (was?.stage === 'review' && p?.runId === was.runId && p.stage !== 'review') useApp.getState().bumpOutline()
 }
 
 /** The chapter plan waiting for Adam (the top bar's "The chapter plan is ready for you"): its chapter in Build with AI. */
@@ -57,7 +61,7 @@ export function openChapterPlan(): void {
 }
 
 /** Writes the chapter to the plan, with any part Adam changed. Throws (plain words) when the run isn't waiting any more. */
-export async function writeToChapterPlan(changes: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'>): Promise<void> {
+export async function writeToChapterPlan(changes: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn' | 'title'>): Promise<void> {
   const p = useChapterWriter.getState().progress
   if (!p || p.stage !== 'review') return
   await api.answerChapterPlan({ runId: p.runId, ...changes })
@@ -101,9 +105,10 @@ export function showReport(chapterId: ID): void {
 /** Puts the chapter back as it was before the latest run, saying so. */
 export async function undoChapterWriter(chapterId: ID): Promise<void> {
   try {
-    const { restored } = await api.undoChapterWriter(chapterId)
+    const { restored, renamed } = await api.undoChapterWriter(chapterId)
     bumpReport()
-    toast(restored ? `Put back ${restored === 1 ? 'one scene' : `${restored} scenes`} as ${restored === 1 ? 'it was' : 'they were'} before the AI wrote the chapter.` : 'The chapter was already as it was before.')
+    if (renamed) useApp.getState().bumpOutline()
+    toast(undoWords(restored, !!renamed))
   } catch (e) {
     toast(plainReason(e), { tone: 'danger' })
   }
@@ -130,6 +135,7 @@ export function listenChapterWriter(): void {
   onEvent('chapterWriter:done', (e) => {
     setProgress(null)
     bumpReport()
+    if (e.report.named) useApp.getState().bumpOutline()
     void announce(e.chapterId, e.report)
   })
   void api

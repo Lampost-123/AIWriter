@@ -57,6 +57,7 @@ The plan
   - changes: what changes for each person in it by the scene's end: where they end up, what they learn, what they gain or lose, as {"who": "Mara", "change": "ends up at the inn; learns Tobin lied"}. Only what the cards call for, and the moves they need. At most ${PLAN_PART_MOST.changes}.
   - keep: facts the scene must keep to that its card doesn't say, from what you were given or looked up, each with where it comes from ("Mara's left arm is in a sling (since Ch 2, Sc 3)"). At most ${PLAN_PART_MOST.keep}.
 - questions: anything in the cards that doesn't fit the story so far, for the author. The cards are never changed: plan the scene to stay true to the story instead, and say so.
+- title: a name for this chapter, only when the brief asks for one. Titles are a few words, with no numbers, in the same style as the story's other chapter names (their length, form and tone) when they have names.
 
 Rules
 - The story so far and the author's cards are the truth. Never invent events, people or facts they don't give.
@@ -70,10 +71,15 @@ ${packList(PLAN_PACKS)}`
 export const WRITE_CHAPTER_PLAN: ToolSpec = {
   name: 'write_chapter_plan',
   description:
-    'Write the chapter plan, once, when you have what you need. `overview`: what the chapter does; `lead`, `wants`, `against` and `turn`: whose chapter it is, what they want, what is against them and how it turns. `scenes`: one item per scene, in order, each with `scene` ("Sc 1"), `does`, `ends`, `threads`, `changes` ({who, change}) and `keep`. `questions`: what in the cards does not fit the story so far, for the author.',
+    'Write the chapter plan, once, when you have what you need. `overview`: what the chapter does; `lead`, `wants`, `against` and `turn`: whose chapter it is, what they want, what is against them and how it turns. `scenes`: one item per scene, in order, each with `scene` ("Sc 1"), `does`, `ends`, `threads`, `changes` ({who, change}) and `keep`. `questions`: what in the cards does not fit the story so far, for the author. `title`: a name for the chapter, only when the brief asks for one.',
   parameters: {
     type: 'object',
     properties: {
+      title: {
+        type: 'string',
+        description:
+          "A name for this chapter, only when the brief asks for one: a few words, no number, in the same style as the story's other chapter titles (length, form, tone) when they have names."
+      },
       overview: str,
       lead: str,
       wants: str,
@@ -102,7 +108,7 @@ export const WRITE_CHAPTER_PLAN: ToolSpec = {
 
 /** The plan's JSON, as the last request (without tools) is asked for it. */
 const PLAN_SHAPE =
-  '{"overview": "", "lead": "", "wants": "", "against": "", "turn": "", "scenes": [{"scene": "Sc 1", "does": "", "ends": "", "threads": [""], "changes": [{"who": "", "change": ""}], "keep": [""]}], "questions": [""]}'
+  '{"overview": "", "lead": "", "wants": "", "against": "", "turn": "", "scenes": [{"scene": "Sc 1", "does": "", "ends": "", "threads": [""], "changes": [{"who": "", "change": ""}], "keep": [""]}], "questions": [""], "title": ""}'
 
 /** Said before the planner's last request, which has no tools. */
 export const PLAN_LAST_WORDS = `[AI Write] No more look-ups. Write the chapter plan now, every scene in order, as one JSON object and nothing else:\n${PLAN_SHAPE}`
