@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { cn } from '@/lib/cn'
 import { takeEscape } from '@/lib/escape'
 import { useApp } from '@/lib/store'
-import { reducedMotion } from '@/features/look/motion'
+import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 
 /** How long a pane slides open or shut in the New look (styles.css: --dur-base). */
 const SLIDE_MS = 220
@@ -104,6 +104,21 @@ export function ResizablePane({
   const floatOpen = !!floating && open
   const floatingRef = useRef(floating)
   floatingRef.current = floating
+  // Closed from the pointer, it leaves the way it came (140 ms, styles.css .pane-out-*) before it hides; from the
+  // keyboard or with less motion, at once.
+  const [leaving, setLeaving] = useState(false)
+  const [wasFloatOpen, setWasFloatOpen] = useState(floatOpen)
+  if (floatOpen !== wasFloatOpen) {
+    setWasFloatOpen(floatOpen)
+    setLeaving(!floatOpen && !!floating && !keyboardDriven() && !reducedMotion())
+  }
+  useEffect(() => {
+    if (!leaving) return
+    const inner = innerRef.current
+    const ms = inner ? parseFloat(getComputedStyle(inner).getPropertyValue('--dur-exit')) || 0 : 0
+    const t = window.setTimeout(() => setLeaving(false), ms)
+    return () => window.clearTimeout(t)
+  }, [leaving])
   useEffect(() => {
     if (!floatOpen) return
     const inner = innerRef.current
@@ -179,8 +194,9 @@ export function ResizablePane({
           side === 'right' && !floating && 'self-end',
           floating && 'absolute inset-y-0 bg-surface shadow-pop focus:outline-none',
           floating && (side === 'left' ? 'left-0 border-r border-line' : 'right-0 border-l border-line'),
-          floating && (open ? 'animate-fade-in' : 'hidden')
+          floating && (open ? 'animate-fade-in' : leaving ? (side === 'left' ? 'pane-out-left' : 'pane-out-right') : 'hidden')
         )}
+        inert={floating && !open ? true : undefined}
         style={{ width: floating ? width : width - BORDER, top: floating?.top }}
       >
         {children}

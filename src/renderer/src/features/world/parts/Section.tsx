@@ -1,5 +1,6 @@
 import { ChevronRight, type IconType } from '@/components/ui/icons'
-import { useId, useState, type ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
+import { Fold } from '@/components/ui/Fold'
 import { cn } from '@/lib/cn'
 
 /**
@@ -35,18 +36,13 @@ export function Section({
   children: ReactNode
 }): React.JSX.Element {
   const contentId = useId()
-  // Fade in only when Adam opens it, not every time a form with it already open appears.
-  const [toggled, setToggled] = useState(false)
   return (
     <section className="border-t border-line">
       <button
         type="button"
         aria-expanded={open}
         aria-controls={contentId}
-        onClick={() => {
-          setToggled(true)
-          onToggle()
-        }}
+        onClick={onToggle}
         className="group flex h-11 w-full items-center gap-2 rounded-md text-left focus-visible:outline-offset-0"
       >
         <ChevronRight size={15} className={cn('shrink-0 text-faint transition-transform duration-150 group-hover:text-muted', open && 'rotate-90')} />
@@ -63,11 +59,9 @@ export function Section({
         </span>
         {meta ? <span className="text-[12px] tabular-nums text-faint">{meta}</span> : null}
       </button>
-      {open ? (
-        <div id={contentId} className={cn('pb-5 pl-[23px]', toggled && 'animate-fade-in')}>
-          {children}
-        </div>
-      ) : null}
+      <Fold open={open} id={contentId} className="pb-5 pl-[23px]">
+        {children}
+      </Fold>
     </section>
   )
 }

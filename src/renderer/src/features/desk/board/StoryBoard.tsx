@@ -241,6 +241,8 @@ function Cards({
   const dragRef = useRef<Drag | null>(null)
   dragRef.current = drag
   const justDragged = useRef(false)
+  // A card let go somewhere new: where every card and pin stood on screen as it was let go, for them to glide on from.
+  const landing = useRef<{ id: ID; from: Map<string, { x: number; y: number }> } | null>(null)
   const shelf = useMemo(() => chapterShelf(outline, sceneId), [outline, sceneId])
   const scenes = useMemo(() => new Map(outline.scenes.map((s) => [s.id, s])), [outline])
   const motifs = useEntryMotifs()
@@ -358,6 +360,11 @@ function Cards({
       const box = layout.cards.get(d.id)
       const t = box ? dropTarget(layout, { x: box.x + CARD_W / 2 + d.dx, y: box.y + CARD_H / 2 + d.dy }, d.id) : null
       if (!t || !box || (t.chapterId === box.chapterId && t.index === box.index)) return
+      if (!reducedMotion()) {
+        landing.current = { id: d.id, from: cardCentres(scroller.current) }
+        // A move that changes nothing on screen leaves nothing to glide later.
+        requestAnimationFrame(() => (landing.current = null))
+      }
       void moveCard(d.id, t.chapterId, t.index)
     }
     const cancel = (e: KeyboardEvent): void => {
@@ -387,6 +394,31 @@ function Cards({
     // Only when a drag starts or ends.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag?.id, drag?.pointerId, layout])
+
+  // The cards and pins glide from where they were let go into their new places (FLIP), not jump there and drift back.
+  useLayoutEffect(() => {
+    const land = landing.current
+    landing.current = null
+    if (!land || !scroller.current) return
+    const els = scroller.current.querySelectorAll<HTMLElement>(MOVERS)
+    // Their transitions from the drag would start from the old places: the glide below takes over from them.
+    els.forEach((el) => (el.style.transition = 'none'))
+    const to = cardCentres(scroller.current)
+    const ease = getComputedStyle(scroller.current).getPropertyValue('--motion-glide').trim() || 'ease-out'
+    const duration = parseFloat(getComputedStyle(scroller.current).getPropertyValue('--dur-base')) || 0
+    els.forEach((el) => {
+      el.style.transition = ''
+      const id = moverKey(el)
+      const a = land.from.get(id)
+      const b = to.get(id)
+      if (!a || !b || !duration) return
+      const dx = a.x - b.x
+      const dy = a.y - b.y
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return
+      const lifted = id === `card:${land.id}`
+      el.animate([{ translate: `${dx}px ${dy}px`, scale: lifted ? '1.03' : '1' }, { translate: '0 0', scale: '1' }], { duration, easing: ease })
+    })
+  }, [layout])
 
   /** From the keyboard: Alt+↑/↓ within its chapter, Alt+←/→ to the chapter before or after. */
   const keyMove = (e: React.KeyboardEvent, id: ID): void => {
@@ -569,6 +601,7 @@ function Cards({
             return (
               <Pin
                 key={`p-${box.id}`}
+                sceneId={box.id}
                 kind={pinOf(scene, ai.has(box.id))}
                 title={PIN_WORDS[pinOf(scene, ai.has(box.id))]}
                 style={{ left: box.x + CARD_W / 2 - 5 + shift.x, top: box.y + 8 + shift.y, '--d': `${400 + i * 40}ms`, zIndex: drag?.id === box.id ? 21 : undefined } as CSSProperties}
@@ -586,6 +619,20 @@ function Cards({
 }
 
 /** Moves a card: on screen at once, then for real (with Undo, as in the binder). */
+/** The cards and their pins, which glide together when a card is let go somewhere new. */
+const MOVERS = '[data-board-card], [data-board-pin]'
+const moverKey = (el: HTMLElement): string => (el.dataset.boardCard ? `card:${el.dataset.boardCard}` : `pin:${el.dataset.boardPin ?? ''}`)
+
+/** Where each card's (and pin's) centre is on screen, as drawn now (a dragged card's lift and the others' room included). */
+function cardCentres(root: HTMLElement | null): Map<string, { x: number; y: number }> {
+  const at = new Map<string, { x: number; y: number }>()
+  root?.querySelectorAll<HTMLElement>(MOVERS).forEach((el) => {
+    const r = el.getBoundingClientRect()
+    at.set(moverKey(el), { x: r.left + r.width / 2, y: r.top + r.height / 2 })
+  })
+  return at
+}
+
 async function moveCard(id: ID, chapterId: ID, index: number): Promise<void> {
   useOutlineStore.getState().patch((o) => moveOnScreen(o, id, chapterId, index))
   await actions.moveScene(id, chapterId, index)

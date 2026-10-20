@@ -22,7 +22,7 @@ import { chapterName, rowForPlace, sceneName, shownTitle, type HubMode, type Lin
 import { writeStep } from './buildLogic'
 import { planChaptersIn, toggleChapter, toggleRow, type HubState } from './hubStore'
 import { BatchHead, LineSuggestions, openWriteChapter, shownNodes, WaitingRows } from './LineSuggestions'
-import { Button } from '@/components/ui'
+import { Button, Fold } from '@/components/ui'
 import { CHAPTER_STEP_WORDS, chapterStep, chapterView, sceneView } from './zoomLogic'
 
 /** How long scenes stay lit after Show me. */
@@ -228,17 +228,16 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
           </button>
         </li>
       )
-      if (isOpen)
-        items.push(
-          <li key={`${row.key}:in`} className="hub-row-kids" data-written-chapters>
-            {row.chapters.map((c) => (
-              <div key={c.id} className="hub-chap" data-chapter={c.id}>
-                <WrittenChapter storyId={storyId} chapter={c} back={back} actions={<ChapterStepButton storyId={storyId} chapter={c} empty={emptyIn(c.id).length} back={back} />} />
-                {placed?.chapterId === c.id && batch ? <div className="hub-chap-batch">{batch}</div> : null}
-              </div>
-            ))}
-          </li>
-        )
+      items.push(
+        <Fold as="li" key={`${row.key}:in`} open={isOpen} className="hub-row-kids" data="data-written-chapters">
+          {row.chapters.map((c) => (
+            <div key={c.id} className="hub-chap" data-chapter={c.id}>
+              <WrittenChapter storyId={storyId} chapter={c} back={back} actions={<ChapterStepButton storyId={storyId} chapter={c} empty={emptyIn(c.id).length} back={back} />} />
+              {placed?.chapterId === c.id && batch ? <div className="hub-chap-batch">{batch}</div> : null}
+            </div>
+          ))}
+        </Fold>
+      )
       continue
     }
     if (row.kind === 'current') {
@@ -343,25 +342,24 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
           </button>
         </li>
       )
-      if (isOpen)
-        items.push(
-          <li key={`${row.key}:in`} className="hub-row-kids" data-planned-chapters>
-            {chapters.map((c, i) => (
-              <PlannedChapter
-                key={c.id}
-                {...p}
-                chapter={c}
-                actHead={c.actId && c.actId !== chapters[i - 1]?.actId ? c : null}
-                open={hub.openChapters.includes(c.id) || p.drift.some((d) => d.chapterId === c.id && lit?.has(d.sceneId))}
-                batch={placed?.chapterId === c.id ? batch : null}
-                driftBy={driftBy}
-                lit={lit}
-                kept={kept}
-                empty={emptyIn(c.id)}
-              />
-            ))}
-          </li>
-        )
+      items.push(
+        <Fold as="li" key={`${row.key}:in`} open={isOpen} className="hub-row-kids" data="data-planned-chapters">
+          {chapters.map((c, i) => (
+            <PlannedChapter
+              key={c.id}
+              {...p}
+              chapter={c}
+              actHead={c.actId && c.actId !== chapters[i - 1]?.actId ? c : null}
+              open={hub.openChapters.includes(c.id) || p.drift.some((d) => d.chapterId === c.id && lit?.has(d.sceneId))}
+              batch={placed?.chapterId === c.id ? batch : null}
+              driftBy={driftBy}
+              lit={lit}
+              kept={kept}
+              empty={emptyIn(c.id)}
+            />
+          ))}
+        </Fold>
+      )
       continue
     }
     // Acts with no chapters yet.
@@ -490,8 +488,8 @@ function PlannedChapter({
         </span>
       </div>
       {chapter.goal.trim() ? <p className="hub-kid-goal">{chapter.goal.trim()}</p> : null}
-      {open && scenes.length ? (
-        <div className="hub-kid-scenes">
+      {scenes.length ? (
+        <Fold open={open} className="hub-kid-scenes">
           {scenes.map((s) => (
             <SceneLink
               key={s.id}
@@ -503,7 +501,7 @@ function PlannedChapter({
               note={driftBy.has(s.id) ? <DriftNote drift={driftBy.get(s.id)!} lit={!!lit?.has(s.id)} inline /> : null}
             />
           ))}
-        </div>
+        </Fold>
       ) : null}
       {batch ? <div className="hub-chap-batch">{batch}</div> : null}
     </div>
