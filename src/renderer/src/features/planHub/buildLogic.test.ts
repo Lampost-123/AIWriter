@@ -7,6 +7,8 @@ import {
   castStatus,
   costWords,
   defaultSection,
+  shownIdea,
+  tabFor,
   estimateWords,
   ideaStatus,
   keptLines,
@@ -78,6 +80,22 @@ describe('how each section of Build with AI stands', () => {
     expect(defaultSection('start')).toBe('idea')
     expect(defaultSection('planned')).toBe('line')
     expect(defaultSection('writing')).toBe('line')
+  })
+
+  it('shows Story line zoomed in, else the asked-for tab, else the one last chosen, else where the story stands', () => {
+    expect(tabFor({ chapterId: 'c1', section: 'idea' }, 'cast', 'writing')).toBe('line')
+    expect(tabFor({ sceneId: 's1' }, 'threads', 'start')).toBe('line')
+    expect(tabFor({ section: 'threads' }, 'cast', 'writing')).toBe('threads')
+    expect(tabFor({}, 'cast', 'writing')).toBe('cast')
+    expect(tabFor({}, null, 'start')).toBe('idea')
+    expect(tabFor({}, null, 'planned')).toBe('line')
+  })
+
+  it('shows the same idea in both boxes: the plot, the premise until anything is typed, an emptied box empty', () => {
+    expect(shownIdea('A ferryman', false, 'The premise')).toBe('A ferryman')
+    expect(shownIdea('', false, 'The premise')).toBe('The premise')
+    expect(shownIdea('  ', false, 'The premise')).toBe('The premise')
+    expect(shownIdea('', true, 'The premise')).toBe('')
   })
 })
 

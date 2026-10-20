@@ -26,7 +26,7 @@ test('a new story built in one place: idea, cast and world, story line, a chapte
     await win.getByRole('menuitem', { name: 'Build with AI' }).click()
     await expect(area(win)).toHaveAttribute('data-plan-hub', 'start')
     await expect(area(win).getByRole('heading', { level: 1 })).toHaveText('Build “Book 1” with AI')
-    await expect(area(win).locator('[data-nav="idea"]')).toHaveAttribute('aria-current', 'true')
+    await expect(area(win).locator('[data-nav="idea"]')).toHaveAttribute('aria-selected', 'true')
     // Each section says how it stands, in the list of sections and at its head.
     await expect(area(win).locator('[data-nav="idea"]')).toContainText('not written yet')
     await expect(area(win).locator('[data-nav="line"]')).toContainText('nothing planned yet')
@@ -49,7 +49,7 @@ test('a new story built in one place: idea, cast and world, story line, a chapte
 
     // ----- Cast and world: planned, his own first, nothing made yet -----
     await area(win).locator('[data-nav="cast"]').click()
-    await expect(area(win).locator('[data-nav="cast"]')).toHaveAttribute('aria-current', 'true')
+    await expect(area(win).locator('[data-nav="cast"]')).toHaveAttribute('aria-selected', 'true')
     await area(win).locator('[data-plan-codex]').click()
     const list = area(win).locator('[data-codex-list]')
     await expect(list.locator('[data-item]').first()).toContainText('Ida Marr')
@@ -92,11 +92,12 @@ test('a new story built in one place: idea, cast and world, story line, a chapte
 
     // ----- The story line: planned from the idea and the codex, with a premise written for it -----
     await area(win).locator('[data-build-status]').getByRole('button', { name: 'Next: the story line' }).click()
-    await expect(area(win).locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
+    await expect(area(win).locator('[data-nav="line"]')).toHaveAttribute('aria-selected', 'true')
     const start = area(win).locator('[data-start-card]')
-    // The idea is the one from Your idea, quoted, never asked for again.
-    await expect(start.locator('[data-idea-status]')).toContainText('A lighthouse keeper’s daughter has one winter')
-    await expect(start.getByRole('textbox')).toHaveCount(0)
+    // The idea is the one from Your idea, in Plan your story's box (the same idea, not a second one).
+    await expect(start.locator('[data-start-idea]')).toHaveValue(/^A lighthouse keeper’s daughter has one winter/)
+    // Its one box is the idea itself (the same idea as Your idea's), written where Plan it is.
+    await expect(start.getByRole('textbox')).toHaveCount(1)
     await start.locator('[data-plan-it]').click()
     await expect(area(win).locator('[data-batch-head]')).toContainText('to keep, change or discard')
     const sent = fake.lastRequest()!.body.messages

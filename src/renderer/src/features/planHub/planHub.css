@@ -510,6 +510,10 @@
   gap: 2px;
   padding: 0 0 6px 22px;
 }
+/* The planned chapters, straight in the line (no row above them to sit under). */
+.hub-row-kids.is-flat {
+  padding-left: 0;
+}
 .hub-kid {
   display: flex;
   flex-wrap: wrap;

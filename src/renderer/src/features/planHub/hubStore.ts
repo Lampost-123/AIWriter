@@ -37,7 +37,7 @@ import { renameScene } from '@/features/binder/actions'
 import type { PlanMode } from '@/features/outline/stages'
 import { flushBrief } from '@/features/storyBuilder/store'
 import { askFor, chapterLead, directionText, type HubScopeId, type LineChapter } from './hubLogic'
-import { payoffWords, type ChapterPanel, type SceneTool } from './buildLogic'
+import { payoffWords, type BuildSection, type ChapterPanel, type SceneTool } from './buildLogic'
 
 /** "Update the plan": the drifting scene cards written again, arriving, then waiting for Keep or Discard. */
 export interface PlanUpdate {
@@ -75,6 +75,8 @@ export interface HubState {
   tool: { sceneId: ID; kind: SceneTool } | null
   /** Cast and world shows "From a summary" (the World builder's build) in place of the plan from the idea. */
   summary: boolean
+  /** The tab Adam last chose on Build with AI for this story (null: where the story stands). */
+  section: BuildSection | null
   /** The plot threads as the board has them, for the Threads section; null until read. */
   board: ThreadsBoard | null
   boardRev: string | null
@@ -94,6 +96,7 @@ const fresh = (): HubState => ({
   panel: null,
   tool: null,
   summary: false,
+  section: null,
   board: null,
   boardRev: null
 })
@@ -190,6 +193,9 @@ export function openTool(storyId: ID, sceneId: ID, kind: SceneTool | null): void
 
 /** Cast and world: "From a summary" (true) or the plan from the idea. */
 export const showSummary = (storyId: ID, on: boolean): void => put(storyId, { summary: on })
+
+/** The tab chosen on Build with AI, remembered for the next time it opens with none asked for. */
+export const setSection = (storyId: ID, section: BuildSection): void => put(storyId, { section })
 
 const reading = new Map<string, number>()
 

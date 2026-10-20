@@ -2,9 +2,8 @@
 // - NextCard, mid-story: YOU ARE HERE · CH 4, SC 2, "What happens next?", the last scene written in a line (the story
 //   index's gist, else its summary: nothing is sent to the AI to show it), a box for Adam's own words, what to plan (only
 //   the parts that make sense here), the plot threads waiting (each one ticked goes with the request), and Plan it.
-// - StartCard, a new story: "Plan your story", from the idea (written in Your idea, above it in Build with AI: never a
-//   second place to say it, so here it is quoted with the way back to it), how the cast and world stand with the way to
-//   them, what to plan and how much (In stages or All at once, acts, chapters and scenes; "Let the AI choose" goes by the
+// - StartCard, a new story: "Plan your story", the idea's own box (the same idea as Your idea's, so it can be written
+//   where Plan it is: 2026-10-20), how the cast and world stand with the way to them, what to plan and how much (In stages or All at once, acts, chapters and scenes; "Let the AI choose" goes by the
 //   idea's length).
 // - DriftCard: the story has moved on from the plan, in plain words, with Update the plan (the cards written again, shown
 //   first, kept or discarded) and Show me.
@@ -14,7 +13,7 @@ import type { HubDrift, HubThread } from '@shared/contracts/planHub'
 import type { OutlineSize } from '@shared/contracts/outline'
 import type { StoryBrief } from '@shared/contracts/storyBuilder'
 import type { ID } from '@shared/types'
-import { ArrowRight, Check, Feather, RotateCcw, Sparkles, Square, Users } from '@/components/ui/icons'
+import { ArrowRight, Check, RotateCcw, Sparkles, Square, Users } from '@/components/ui/icons'
 import { Button, Notice } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -161,10 +160,10 @@ export function NextCard(p: NextCardProps): React.JSX.Element {
 
 export interface StartCardProps {
   mode: HubMode
-  /** The idea, as written in Your idea. */
+  /** The idea, the same one as in Your idea. */
   idea: string
-  /** Goes to Your idea (to write or change it). */
-  onIdea: () => void
+  /** Writes the idea (into the brief's plot, so Your idea has it too). */
+  onIdeaChange: (idea: string) => void
   brief: StoryBrief | null
   onCastAndWorld: () => void
   scopes: HubScope[]
@@ -185,14 +184,6 @@ export interface StartCardProps {
   problem: string | null
 }
 
-/** The idea quoted on the card: its first sentences, up to about 220 characters. */
-export const ideaQuote = (idea: string): string => {
-  const t = idea.replace(/\s+/g, ' ').trim()
-  if (t.length <= 220) return t
-  const cut = t.slice(0, 220)
-  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 180)).replace(/[\s,;:]+$/, '')}…`
-}
-
 /** How the cast and world stand, from the Story builder's brief: "Built", "12 planned, not built yet", "Not planned yet". */
 function castWords(brief: StoryBrief | null): { words: string; done: boolean } {
   if (brief?.built) return { words: 'Built, in your codex.', done: true }
@@ -205,7 +196,6 @@ export function StartCard(p: StartCardProps): React.JSX.Element {
   const box = useId()
   const cast = castWords(p.brief)
   const whole = p.scope === 'whole-story'
-  const idea = p.idea.trim()
   return (
     <section aria-labelledby={`${box}-h`} className="hub-card hub-next is-start" data-start-card>
       <div className="hub-next-head">
@@ -214,16 +204,22 @@ export function StartCard(p: StartCardProps): React.JSX.Element {
           Plan your story
         </h2>
       </div>
-      <div className="hub-cast" data-idea-status>
-        <Feather size={14} aria-hidden className={idea ? 'text-success' : 'text-muted'} />
-        <span className="min-w-0 flex-1">
-          <span className="font-medium text-fg">From your idea: </span>
-          {idea ? <span className="hub-idea-q">“{ideaQuote(idea)}”</span> : 'not written yet. A line or two on what the story is about is enough.'}
-        </span>
-        <button type="button" className="hub-link" onClick={p.onIdea}>
-          {idea ? 'Change it' : 'Write your idea'}
-          <ArrowRight size={12} aria-hidden />
-        </button>
+      <div className="hub-start-idea" data-idea-status>
+        <label htmlFor={`${box}-idea`} className="text-[13px] font-semibold text-fg">
+          Your idea, in a line or two
+        </label>
+        <AutoTextarea
+          id={`${box}-idea`}
+          value={p.idea}
+          minRows={3}
+          maxRows={14}
+          placeholder="A lighthouse keeper’s daughter has one winter to prove the town still needs its light…"
+          className="hub-box is-idea"
+          onChange={(e) => p.onIdeaChange(e.target.value)}
+          disabled={p.running}
+          data-start-idea
+        />
+        {p.problem ? <Notice>{p.problem}</Notice> : null}
       </div>
       <div className="hub-cast" data-cast-status>
         <Users size={14} aria-hidden className={cast.done ? 'text-success' : 'text-muted'} />
@@ -249,7 +245,6 @@ export function StartCard(p: StartCardProps): React.JSX.Element {
           brief={p.brief}
         />
       ) : null}
-      {p.problem ? <Notice>{p.problem}</Notice> : null}
       <PlanButton running={p.running} status={p.status} onPlan={p.onPlan} onStop={p.onStop} />
     </section>
   )

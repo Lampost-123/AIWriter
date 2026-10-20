@@ -30,9 +30,9 @@ test('the characters and places interviews suggest pages to keep, change or disc
     await area.locator('[data-nav="cast"]').click()
     await expect(interviews(win)).toBeVisible()
     await expect(topic(win, 'characters')).toContainText('Not started')
-    // How it all connects waits until something is kept.
+    // How it all connects waits until the world has a character, place or lore to link.
     await expect(topic(win, 'connections')).toBeDisabled()
-    await expect(topic(win, 'connections')).toContainText('After you keep something')
+    await expect(topic(win, 'connections')).toContainText('Add a character, place or lore first')
 
     // ----- Characters: two questions, then one, then the pages by themselves -----
     await topic(win, 'characters').click()
