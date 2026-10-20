@@ -377,3 +377,59 @@ describe('review fixes 2: a hand-over never swallows a claim', () => {
     expect(settleAnswer('I’ve updated the scene card and rewrote the beats.', [])).toBe(`${NONE}I’d update the scene card and rewrite the beats.`)
   })
 })
+
+// Third review (2026-10-20): a pronoun claim after handed-over words, and summary lines that start "Cut", "Merged"…
+describe('review fixes 3: pronoun claims and the missing summary verbs', () => {
+  const NONE = 'No change was made, so there’s nothing to apply. Here’s what I’d suggest:\n\n'
+  const OPEN = 'Here’s the opening:\n\nThe rain fell.'
+
+  it('a first-person edit of “it” or “that” after the handed-over words ends the hand-over and is a claim', () => {
+    for (const s of ['I updated it too.', 'I’ve changed that as well.', 'I also tweaked it.', 'I edited this as well.', 'I revised them too.', 'I rewrote it.', 'I adjusted those too.', 'I fixed it too.', 'I updated it to match.', 'I revised it slightly for pace.']) {
+      const a = `${OPEN}\n\n${s}`
+      expect(changeClaims(a).length, a).toBeGreaterThan(0)
+      expect(claimsUnmade(a, []), a).toBe(true)
+    }
+    expect(settleAnswer(`${OPEN}\n\nI updated it too.`, [])).toBe(`${NONE}${OPEN}\n\nI’d update it too.`)
+  })
+
+  it('story narration with story objects stays as written', () => {
+    for (const s of [
+      'Here’s a tighter version you could use:\n\nI moved to the door. I cut the rope and ran. We fixed the cart by dawn.',
+      'One way the opening could go:\n\nI moved to the door.\n\nWe fixed the cart by dawn.',
+      `${OPEN}\n\nWe fixed the cart too.`,
+      `${OPEN}\n\nThe engine died. I fixed it.`,
+      `${OPEN}\n\nI changed it back before she woke.`
+    ])
+      expect(settleAnswer(s, []), s).toBe(s)
+  })
+
+  it('a summary line that starts with “Cut” or another edit verb is a claim', () => {
+    for (const s of [
+      'Also cut the last line.',
+      'The pacing drags. Also cut the last line.',
+      'Tightened the opening. Cut the last line.',
+      'Merged scenes 2 and 3.',
+      'Reordered the beats.',
+      'Tweaked the opening.',
+      'Adjusted the second paragraph.'
+    ])
+      expect(claims(s), s).toBe(true)
+    expect(settleAnswer('Also cut the last line.', [])).toBe(`${NONE}Cut the last line.`)
+    expect(settleAnswer('Merged scenes 2 and 3.', [])).toBe(`${NONE}Merge scenes 2 and 3.`)
+  })
+
+  it('suggestions, story words and dialogue that start with “Cut” stay as written', () => {
+    for (const s of [
+      '1. Tighten the opening.\n2. Cut the last line.',
+      '1. Cut the last line.',
+      'Cut the last line.',
+      'Tighten the opening. Also cut the last line.',
+      'Cut to the chase.',
+      'Cut the rope, she said.',
+      '"Cut the rope," she said.',
+      'Also cut the rope, she said.',
+      'Split the chapter if it drags.'
+    ])
+      expect(settleAnswer(s, []), s).toBe(s)
+  })
+})

@@ -158,7 +158,17 @@ const MARK = /^(?:[-*•]\s+|\d+[.)]\s+|#{1,6}\s+)/
 const LEAD_IN = /^(?:ok(?:ay)?|alright|all right|right|sure|great|good|got it|yes|yep|perfect)\s*(?:[,!.]\s*)?(?:[—–]|--?)\s*|^(?:ok(?:ay)?|alright|sure|got it|perfect)\s*,\s+|^(?:also|plus|and)\s*,?\s+/i
 
 const BARE_VERBS =
-  'Updated|Changed|Edited|Added|Removed|Deleted|Renamed|Moved|Rewrote|Rewritten|Revised|Fixed|Corrected|Tightened|Trimmed|Replaced|Inserted|Swapped|Applied|Proposed|Reworded|Rephrased|Shortened|Expanded|Polished|Marked|Linked|Revamped|Reworked|Overhauled|Streamlined|Condensed|Refined|Incorporated|Drafted|Rearranged|Shifted|Wrote|Made'
+  'Updated|Changed|Edited|Added|Removed|Deleted|Renamed|Moved|Rewrote|Rewritten|Revised|Fixed|Corrected|Tightened|Trimmed|Replaced|Inserted|Swapped|Applied|Proposed|Reworded|Rephrased|Shortened|Expanded|Polished|Marked|Linked|Revamped|Reworked|Overhauled|Streamlined|Condensed|Refined|Incorporated|Drafted|Rearranged|Shifted|Wrote|Made|Cut|Split|Merged|Reordered|Tweaked|Adjusted|Restructured|Retitled|Sharpened|Softened'
+/**
+ * Summary verbs whose past form is also the plain one ("Cut the last line." is a summary or a suggestion): a claim only
+ * beside another claim, or after "Also", "Plus" or "And" when nothing else in the answer is a suggestion.
+ */
+const BOTH_FORMS = new Set(['cut', 'split'])
+/** A sentence that starts with a suggestion ("Tighten the opening.", "2. Trim the ending."). */
+const SUGGESTS = new RegExp(
+  String.raw`^(?:\*\*)?(?:${[...new Set(Object.values(VERBS))].filter((v) => !(v in VERBS)).join('|')}|consider|try|keep|drop|give|show)\b`,
+  'i'
+)
 /** A sentence that starts with what was done, as a summary of changes does ("Tightened the opening.", "- Reworded line 3"). */
 const BARE_START = new RegExp(
   String.raw`^(?:\*\*)?(${BARE_VERBS})(?:\*\*)?\s+(?!by\b|up\b|over\b|with\b|from\b|for\b|in\b|to\b|into\b|at\b|as\b|and\b)(?:the|her|his|their|its|your|a|an|this|that|these|those|both|all|some|one|two|three|paragraph|line|${THINGS}|[A-Z][\p{L}'’-]*)\b(?![^.!?\n]{0,30}?\b(?:would|could|might|may|can|will|should)\b)`,
@@ -325,13 +335,25 @@ const HANDS_PROSE = new RegExp(
 const APP_THING = /\b(?:cards?|plans?|entry|entries|beats?|chapters?|outlines?|goals?|codex|scenes?|pov|threads?|paragraphs?|wording|typos?)\b/i
 /** A first-person claim said as done ("I've updated", "And we have cut"), never the story's own past tense. */
 const PERFECT = new RegExp(String.raw`^(?:(?:and|also|plus)\s*,?\s+)*(?:I|We)(?:['’]ve| have)\s+(?:\p{L}+\s+)?(?:${VERB_ALT})\b`, 'iu')
+/**
+ * The chat's own edit of what it just handed over ("I updated it too.", "I've changed that as well.", "I also tweaked
+ * it."): an edit verb with only a pronoun after it. Verbs a story also uses ("I fixed it", "I changed it back", "I
+ * tightened it") count only with "also" before them or "too" or "as well" after.
+ */
+const PRONOUN = String.raw`(?:it|that|this|them|those|these)`
+const PRONOUN_EDIT = new RegExp(
+  String.raw`^(?:(?:and|also|plus)\s*,?\s+)*(?:I|We)(?:['’]ve| have)?\s+(?:(?:just|then|now)\s+)*(?:(?:also\s+)?(?:updated|tweaked|edited|revised|rewrote|rewritten|reworded|rephrased|reworked)\s+${PRONOUN}\b|also\s+(?:${VERB_ALT})\s+${PRONOUN}\b|(?:changed|fixed|cut|moved|adjusted|tightened|trimmed|polished|shortened|cleaned up)\s+${PRONOUN}\s+(?:too|as well|also)\b)`,
+  'iu'
+)
 /** A line among handed-over words that is the chat again: it names one of the app's things, or a sentence of it is a claim. */
 function chatAgain(line: string): boolean {
   if (APP_THING.test(line)) return true
   return line.split(/(?<=[.!?])\s+/).some((raw) => {
     const t = raw.trim().replace(MARK, '')
     const plain = t.slice(LEAD_IN.exec(t)?.[0].length ?? 0)
-    return BARE_START.test(plain.charAt(0).toUpperCase() + plain.slice(1)) || HEAD_MADE.test(t) || DONE.test(t) || PERFECT.test(t)
+    const bare = BARE_START.exec(plain.charAt(0).toUpperCase() + plain.slice(1))
+    const summary = !!bare && (!BOTH_FORMS.has(bare[1].toLowerCase()) || plain.length < t.length)
+    return summary || HEAD_MADE.test(t) || DONE.test(t) || PERFECT.test(t) || PRONOUN_EDIT.test(t)
   })
 }
 /** A paragraph that is plainly the chat speaking again after words it handed over (or a heading, or another hand-over). */
@@ -451,6 +473,7 @@ const clauseOf = (after: string): string =>
 export function changeClaims(answer: string): Claim[] {
   const masked = withoutQuotes(answer)
   const out: Claim[] = []
+  const maybe: { claim: Claim; lead: boolean }[] = []
   for (const { from, to } of sentencesOf(masked)) {
     const s = masked.slice(from, to)
     const trimmed = s.trim()
@@ -535,13 +558,16 @@ export function changeClaims(answer: string): Claim[] {
     const leadIn = LEAD_IN.exec(body)?.[0].length ?? 0
     const plain = body.slice(leadIn)
     let found: Claim | null = null
+    let both: { lead: boolean } | null = null
     // A summary line: "Tightened the opening.", "- Reworded paragraph 3", "Okay — updated the plan".
     const bare = BARE_START.exec(plain.charAt(0).toUpperCase() + plain.slice(1))
     if (bare) {
       const verb = bare[1].toLowerCase()
       const verbAt = plain.toLowerCase().indexOf(verb)
       const after = plain.slice(verbAt + verb.length)
-      if (follows(verb, after)) {
+      // "Cut the last line." may be a suggestion: weighed once the whole answer is read. Never one told by a speech tag.
+      both = BOTH_FORMS.has(verb) ? { lead: leadIn > 0 && /^(?:also|plus|and)\b/i.test(body) } : null
+      if (follows(verb, after) && !(both && spoken('', after))) {
         // Said plainly from the lead-in to the clause's end ("Okay — tightened the opening and trimmed the ending." →
         // "Tighten the opening and trim the ending."): the suggestion kept when nothing backs it, the change when one does.
         const at = from + bodyAt
@@ -554,6 +580,7 @@ export function changeClaims(answer: string): Claim[] {
         found = make(targetOf(verb, after), names, !PROPOSING.has(verb), { kind: 'reword', ...said }, said)
       }
     }
+    const fromBare = found
     // "The plan now reads: …": said as what would be.
     if (!found) {
       const m = NOW.exec(s)
@@ -581,9 +608,18 @@ export function changeClaims(answer: string): Claim[] {
     if (!found && (lineStart ? DONE.test(trimmed.slice(markLen)) : DONE_ALONE.test(trimmed))) found = make(null, [], true, { kind: 'drop' })
     // "The change is ready" and the hand-overs.
     if (!found && (READY.test(trimmed) || HANDOVER.some((re) => re.test(s)))) found = make(null, names, false, { kind: 'drop' })
-    if (found) out.push(found)
+    if (found && both && found === fromBare) maybe.push({ claim: found, lead: both.lead })
+    else if (found) out.push(found)
   }
-  return out
+  // "Cut the last line." beside another claim is one too; beside a suggestion ("1. Tighten the opening.") it is one; on
+  // its own it is one only after "Also", "Plus" or "And".
+  if (!maybe.length) return out
+  const suggests = sentencesOf(masked).some(({ from, to }) => {
+    const t = masked.slice(from, to).trim().replace(MARK, '')
+    return SUGGESTS.test(t.slice(LEAD_IN.exec(t)?.[0].length ?? 0))
+  })
+  const kept = maybe.filter((m) => out.length > 0 || (!suggests && m.lead)).map((m) => m.claim)
+  return kept.length ? [...out, ...kept].sort((a, b) => a.from - b.from) : out
 }
 
 // ---------- Against what was proposed ----------
