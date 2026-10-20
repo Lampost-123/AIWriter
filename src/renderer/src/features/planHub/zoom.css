@@ -1,23 +1,8 @@
 /*
-  Build with AI, zoomed in (Option A, 2026-10-20; ZoomPages.tsx): a chapter's or a scene's own page in the area, in
-  place of the sections, with the talk beside it as before. On top of planHub.css and build.css. Colours from the
+  Build with AI, zoomed in (Option A, 2026-10-20; ZoomPages.tsx): a chapter's or a scene's own page in the area, under
+  the Story line tab, with the talk beside it as before. On top of planHub.css and build.css. Colours from the
   theme's tokens only; the page arrives as a change of view (opacity only; --dur-view is 0 with less motion).
 */
-
-/* No list of sections when zoomed in: the page and the talk beside it. */
-.build-body.is-zoom {
-  padding-top: 20px;
-}
-.plan-hub.build .build-body.is-zoom .hub-side {
-  top: 16px;
-  max-height: calc(100cqh - 32px);
-}
-@container hub (min-width: 1180px) {
-  [data-arrangement='desk'] .build-body.is-zoom {
-    max-width: 1240px;
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-  }
-}
 
 .build-zoom {
   display: flex;

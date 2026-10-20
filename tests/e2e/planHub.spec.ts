@@ -8,7 +8,7 @@
 //     arrives after the marker in the story line, and Keep puts it right after the last scene written, not at the end;
 //     the story has moved on from the plan (a planned card dated before what was written), Show me lights it up, Update
 //     the plan shows the card put right before Keep; the rest of the chapter talked over (the change shown first, made
-//     only with "Make this change"); Pick up from here opens the plan chapter by chapter and plans a chapter's scenes;
+//     only with "Make this change"); the planned chapters, straight in the line, each plan a chapter's scenes;
 //     an act with no chapters plans its chapters; the Plan before writing switch.
 //  2. The panels (Light): the same hub mid-story, and a new story's start: the one idea field (Your idea, the Story
 //     builder's plot), the cast and world, what to plan and how much, then the whole story planned and kept.
@@ -118,13 +118,16 @@ test('mid-story on the desk: where you are, what happens next in Adam’s words,
     // Only what makes sense here: Ch 3 is planned already, so no "next chapter"; the sample has no acts to finish.
     await expect(next.getByRole('group', { name: 'What to plan' }).getByRole('button')).toHaveText(['the next scene', 'the rest of Ch 2', 'more of the story'])
 
-    // The story line: the chapter before folded away, this one's scenes, the marker, the plan ahead, the empty act.
+    // The story line: the chapter before folded away, this one's scenes, the marker, the plan ahead (its chapters straight
+    // in the line, no row around them), the empty act.
     const rows = line(win).locator('[data-row]')
-    await expect(rows).toHaveCount(5)
+    await expect(rows).toHaveCount(4)
     await expect(line(win).locator('[data-row="written-chapters"]')).toContainText('Ch 1 · written')
     await expect(line(win).locator('[data-row="current"]')).toContainText('Ch 2 · Sc 1 What the Letter Said · Sc 2 Low Tide')
     await expect(line(win).locator('[data-row="here"]')).toHaveText('YOU ARE HERE')
-    await expect(line(win).locator('[data-row="planned"]')).toContainText('Ch 3 to Ch 4 · planned, not written')
+    await expect(line(win).locator('[data-row="planned"]')).toHaveCount(0)
+    await expect(line(win).locator('[data-planned-chapters]')).toContainText('Ch 3')
+    await expect(line(win).locator('[data-planned-chapters]')).toContainText('Ch 4')
     await expect(line(win).locator('[data-row="acts-only"]')).toContainText('Act 1 · Midwinter · acts only')
 
     // The story has moved on from the plan: no AI call to find it.
@@ -215,12 +218,7 @@ test('mid-story on the desk: where you are, what happens next in Adam’s words,
     await expect(bargain).toContainText('Have A bargain at the docks end on grey coats across the water.')
     await expect(talk(win)).toContainText('Applied')
 
-    // ----- Pick up from here: the plan chapter by chapter; Ch 4 has no scenes yet -----
-    // (Show me opened it: folded away, then picked up again.)
-    const plannedRow = line(win).locator('[data-row="planned"]')
-    await plannedRow.getByRole('button', { name: 'Fold away' }).click()
-    await expect(line(win).locator('[data-planned-chapters]')).toHaveCount(0)
-    await plannedRow.getByRole('button', { name: 'Pick up from here' }).click()
+    // ----- The plan ahead, chapter by chapter in the line; Ch 4 has no scenes yet -----
     const ch4 = line(win).locator(`[data-chapter="${ahead.ch4}"]`)
     await expect(ch4).toContainText('Ch 4 · The Board Meets')
     await expect(ch4).toContainText('no scenes yet')
@@ -292,6 +290,9 @@ test('the panels: the hub mid-story, then a new story from its idea to its plan 
     await win.keyboard.type('Build with AI')
     await win.getByRole('dialog', { name: 'Search' }).getByRole('option', { name: 'Build with AI' }).click()
     await expect(hub(win)).toHaveAttribute('data-plan-hub', 'start')
+    // A new story opens at Your idea; the Story line tab has Plan your story.
+    await expect(hub(win).locator('[data-nav="idea"]')).toHaveAttribute('aria-selected', 'true')
+    await hub(win).locator('[data-nav="line"]').click()
     const start = hub(win).locator('[data-start-card]')
     await expect(start.getByRole('heading', { name: 'Plan your story' })).toBeVisible()
     await expect(hub(win).locator('[data-written]')).toHaveText('Nothing written yet')
@@ -301,19 +302,24 @@ test('the panels: the hub mid-story, then a new story from its idea to its plan 
     await expect(start.locator('[data-size]')).toContainText('About 27 scenes.')
     await expect(start.locator('[data-size]')).toContainText('Sized for a story with no length chosen yet.')
     await expect(line(win).locator('[data-line-empty]')).toContainText('Your story line will lie here')
-    // With no idea yet, Plan it says what to write first, quietly: nothing has gone wrong.
-    // The idea is written in Your idea, above the story line (the one idea field).
-    const idea = hub(win).getByLabel(/^Your idea, in your own words/)
+    // With no idea yet, Plan it says what to write first, quietly: nothing has gone wrong. The idea is written right
+    // here, in the card's own box (the same idea as Your idea's), without leaving the Story line tab.
+    const idea = start.getByLabel('Your idea, in a line or two')
     await start.locator('[data-plan-it]').click()
     await expect(start.getByText('Write your idea first: a line or two on what the story is about is enough.')).toBeVisible()
     await expect(hub(win).getByRole('alert')).toHaveCount(0)
     await expect(idea).toBeFocused()
+    await expect(hub(win).locator('[data-nav="line"]')).toHaveAttribute('aria-selected', 'true')
     // The one idea box is the Story builder's plot.
     await idea.fill('A ferryman who owes the Duke money is paid to smuggle the heir out of Varn before the river freezes.')
     await expect.poll(async () => (await invoke(win, 'getStoryBrief', made.id)).plot).toBe(
       'A ferryman who owes the Duke money is paid to smuggle the heir out of Varn before the river freezes.'
     )
     await shot(win, 'panels-light-start')
+    // Your idea has the same words.
+    await hub(win).locator('[data-nav="idea"]').click()
+    await expect(hub(win).getByLabel(/^Your idea, in your own words/)).toHaveValue(/^A ferryman who owes the Duke money/)
+    await hub(win).locator('[data-nav="line"]').click()
 
     // The whole story, planned from the idea (the Story builder's request), with a premise written for it.
     await start.locator('[data-plan-it]').click()
@@ -360,20 +366,22 @@ test('a new story on the desk: Build with AI opens at Your idea, and the story l
   await win.locator('[data-desk-room]').getByRole('navigation', { name: 'Plan' }).getByRole('button', { name: 'Build with AI' }).click()
   await expect(hub(win)).toHaveAttribute('data-plan-hub', 'start')
   // A new story opens at Your idea, its one idea field.
-  await expect(hub(win).locator('[data-nav="idea"]')).toHaveAttribute('aria-current', 'true')
+  await expect(hub(win).locator('[data-nav="idea"]')).toHaveAttribute('aria-selected', 'true')
   await hub(win).getByLabel(/^Your idea, in your own words/).fill('A lighthouse keeper’s daughter has one winter to find out who is wrecking ships on purpose.')
   await expect.poll(async () => (await invoke(win, 'getStoryBrief', (await invoke(win, 'listStories'))[0].id)).plot).toBe(
     'A lighthouse keeper’s daughter has one winter to find out who is wrecking ships on purpose.'
   )
   await shot(win, 'desk-dark-start')
-  // The story line quotes it, with the way back to change it.
+  // The Story line tab has the same idea in Plan your story's own box; Plan before writing only shows there.
+  await expect(hub(win).locator('[data-plan-first]')).toHaveCount(0)
   await hub(win).locator('[data-nav="line"]').click()
+  await expect(hub(win).locator('[data-plan-first]')).toBeVisible()
   const start = hub(win).locator('[data-start-card]')
   await expect(start.getByRole('heading', { name: 'Plan your story' })).toBeVisible()
-  await expect(start.locator('[data-idea-status]')).toContainText('A lighthouse keeper’s daughter has one winter')
-  await start.locator('[data-idea-status]').getByRole('button', { name: 'Change it' }).click()
-  await expect(hub(win).locator('[data-nav="idea"]')).toHaveAttribute('aria-current', 'true')
-  await expect(hub(win).getByLabel(/^Your idea, in your own words/)).toBeFocused()
+  await expect(start.locator('[data-start-idea]')).toHaveValue(/^A lighthouse keeper’s daughter has one winter/)
+  // Plan the cast and world switches tab.
+  await start.locator('[data-cast-status]').getByRole('button', { name: 'Plan the cast and world' }).click()
+  await expect(hub(win).locator('[data-nav="cast"]')).toHaveAttribute('aria-selected', 'true')
 })
 
 test('carrying on a story that has chapters: more scenes for a written chapter, the empty cards filled in, never over what a card says', async ({
@@ -418,7 +426,6 @@ test('carrying on a story that has chapters: more scenes for a written chapter, 
 
     // ----- 3. The empty cards of a chapter, filled in from the story so far -----
     await hub(win).getByRole('navigation', { name: 'Trail' }).getByRole('button', { name: 'Whole story' }).click()
-    await line(win).locator('[data-row="planned"]').getByRole('button', { name: 'Pick up from here' }).click()
     // Ch 3's one next step, with a card that says nothing: Plan it, on its own page.
     await expect(line(win).locator(`[data-step-for="${ahead.ch3}"]`)).toHaveText('Plan it')
     await line(win).locator(`[data-step-for="${ahead.ch3}"]`).click()

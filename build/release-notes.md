@@ -1,7 +1,8 @@
-<!-- version: 0.8.5 -->
-What's new in 0.8.5:
+<!-- version: 0.8.6 -->
+What's new in 0.8.6:
 
-- See how the AI is getting on: the top bar says which scene it is on and how many words so far.
-- Click it for the steps, each scene's state, what it is doing now, time left, and Stop.
-- See which model does each step, and hover any AI task in the top bar to see its model.
-- New: Writing temperature in Settings › Models. Set your own for drafts and edits; DeepSeek suggests about 1.5.
+- Build with AI is tidier: Your idea, Cast and world, Story line and Threads are now tabs, one at a time.
+- The tabs stay on a chapter's or a scene's page, so getting back is one click.
+- Planned chapters show straight in the story line, each with its one next step.
+- How it all connects opens as soon as your world has a character, place or lore.
+- Plan your story has its own idea box, so a new story can be planned right there.

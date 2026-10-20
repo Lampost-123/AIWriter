@@ -102,6 +102,21 @@ export function threadsStatus(threads: readonly Pick<BoardThread, 'column' | 'du
 /** Where a story opens with no section asked for: a story with nothing yet at Your idea, else at the story line. */
 export const defaultSection = (mode: HubMode): BuildSection => (mode === 'start' ? 'idea' : 'line')
 
+/**
+ * The idea as both its boxes show it (Your idea's, Plan your story's): the plot; the story's premise while there is
+ * none, until anything is typed in either (then an emptied box stays empty).
+ */
+export const shownIdea = (plot: string, typed: boolean, premise: string): string => (typed || plot.trim() ? plot : premise)
+
+/**
+ * The tab Build with AI shows: Story line on a chapter's or a scene's own page; else the section the view asks for; else
+ * the one Adam last chose for this story; else where the story stands.
+ */
+export function tabFor(view: { section?: BuildSection; chapterId?: ID; sceneId?: ID }, remembered: BuildSection | null, mode: HubMode): BuildSection {
+  if (view.chapterId || view.sceneId) return 'line'
+  return view.section ?? remembered ?? defaultSection(mode)
+}
+
 // ---------- The threads, in the Threads section's order ----------
 
 /** How urgent a thread is: overdue, due now, quiet for a long stretch, or neither. */

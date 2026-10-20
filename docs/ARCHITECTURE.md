@@ -4989,7 +4989,8 @@ Write the chapter were separate pages or pop-ups. **Build with AI** (View `planH
 page per story that holds them all: "Build “<story title>” with AI", the Plan area's first item and the Plan room's first
 link, the same on the desk and in the panels. The Plan hub's own parts (below) are its story line.
 
-- **Sections down one page** (`buildLogic.ts` `SECTIONS`, `PlanHub.tsx`), each with its head and how it stands
+- **Four sections, one at a time under tabs** (`buildLogic.ts` `SECTIONS`, `PlanHub.tsx`, `BuildTabs.tsx`; until the
+  cleanup below they ran down one page), each tab with how its section stands
   (`ideaStatus`, `castStatus`, `lineStatus`, `threadsStatus`: "Your idea · written", "Cast and world · 6 people, 4 places",
   "Story line · Ch 1–2 written, Ch 3–4 planned", "Threads · 3 open, 1 overdue"):
   1. **Your idea** (`storyBuilder/IdeaStep.tsx`): the one idea field (the brief's plot, showing the premise while there is
@@ -5012,12 +5013,9 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
      ones (`openThreadsInOrder`, the board's `dueWords`/`quietWords`), each with **Plan its payoff** (`seedPayoff`: the
      story line's box says "Move toward paying off the plot thread …", the thread is ticked among the threads waiting,
      put there when the facts didn't list it, `HubState.seeded`) and the way to the Plot threads board.
-- **The list of sections**: along the top of the area as a strip that stays as the page scrolls (the panels, and the desk
-  when the sheet is narrower than 1180px), or beside the sections on the left (the desk with room: `build.css`, a
-  container query on `.hub-scroll`). Its height is `--nav-h` (measured), so a section brought into view and the talk keep
-  clear of it. Which section is in view follows the scroll (the one whose head has passed the upper part of the page) and
-  where Adam clicks or types.
-- **Talk it over beside everything, about the section in view** (`TalkBeside`): Cast and world with a list, the list's own
+- **The tabs** (cleanup, 2026-10-20, below): a strip along the top that stays as the page scrolls, on the desk and in the
+  panels, zoomed in or not. Its height is `--nav-h` (measured), so a row brought into view and the talk keep clear of it.
+- **Talk it over beside everything, about the chosen tab** (`TalkBeside`): Cast and world with a list, the list's own
   talk (`CodexTalk`, its changes shown first); otherwise the plan's talk, its title saying the section ("Talk it over ·
   Threads"), its intro and quick asks the section's, and told what Adam is looking at (`PlanChatRequest.looking`, a block
   "What the author is looking at now" in `storyBuilder/jobs.ts startPlanChat`) for Your idea, Cast and world and Threads.
@@ -5070,8 +5068,8 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
     (`openWriteChapter`, the view's `chapterId` with `open: 'write'`), and **Write the first scene** (`writeScene`: the
     scene on the writing page, its draft started). "Start writing" only opened an empty page. A chapter with words already
     gets no Write this chapter here (`hubLogic.chapterToWrite`): writing it whole would write its written scenes again.
-  - *The planned stretch's row* has **Write Ch N** for its first chapter with scenes (not while a chapter is being
-    written), and a planned chapter's own Write this chapter stands out (`.hub-row-btn.is-strong`).
+  - *The planned stretch's row* had **Write Ch N** for its first chapter with scenes; since the cleanup (below) the
+    planned chapters are listed straight in the line and each one's own Write it does that.
   - *Plan this chapter* has **How many scenes** (Auto, or 1 to 12: `CHAPTER_PLAN_SCENES`; the chapter session's
     `size.scenes`, `helperStore.setChapterSceneCount`) and **Length of the chapter** (Auto, or words: the chapter card's
     `totalWords`, saved as typed, so its scenes on Auto share it out and Write this chapter's drafts go by it;
@@ -5087,8 +5085,8 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
   buttons, and there was no easy way to build just one chapter or one scene with the AI):
   - *Which page* (`zoomLogic.ts` `zoomOf`): the view's `sceneId` is that scene's own page, else `chapterId` that chapter's
     own page, else the whole story (the sections). One the story no longer has falls back to its chapter, then to the
-    whole story. `PlanHub.tsx` shows the page (`ZoomPages.tsx`) in place of the sections, with Talk it over and Plan
-    before writing beside it as before (`talkSection` 'line'); the header and Back link stay. `near` (a chapter) brings
+    whole story. `PlanHub.tsx` shows the page (`ZoomPages.tsx`) under the Story line tab, with Talk it over and Plan
+    before writing beside it as before; the header and Back link stay. `near` (a chapter) brings
     that chapter's row into view on the whole story. Every view with a `chapterId` (the outline with a chapter,
     `openChapterPlan`, `openChapterInterview`, `openChapterWriter`, Write this chapter from a batch) lands on the
     chapter's page: `open: 'write'` opens Write this chapter there, `open: 'plan'` brings it to its plan; a `sceneId`
@@ -5103,7 +5101,7 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
     or **Open** (it has words); while the AI writes it, "Writing · 2 of 3". Each opens the chapter's page (Plan it at
     its plan, Write it with Write this chapter open). Scenes show their names only (`SceneLink`; a click opens the
     scene's page). No panels, no scene tools, no Add scenes or Fill in buttons on the overview. Batches (Keep, Change,
-    Discard), What happens next? with YOU ARE HERE, Show me, Write Ch N on the planned stretch are as before.
+    Discard), What happens next? with YOU ARE HERE, Show me are as before.
   - *A chapter's page* (`ChapterPage`): the trail, how it stands (`chapterMeta`: "Planned · 4 scenes", "Being written ·
     2 of 4 scenes written · 3,100 words"), **Write this chapter** (the one primary button, `data-write-chapter-btn`;
     `WritePanel` opens under it, `hubStore` `panel`), Chapter card, What the chapter achieves (`ChapterGoal`) and How
@@ -5126,6 +5124,28 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
     the panels: the binder's right-clicks, the card links, the palette, Write this chapter with AI… and Interview me
     about this chapter; pictures to `ZOOM_SHOTS`). `buildWithAi`, `chapterFlow`, `planHub`, `buildLook`, `storyBuilder`,
     `ai-planning-desk`, `newlook` and `interview` follow the pages.
+- **Cleanup: tabs, nothing locked behind another section** (Adam, 2026-10-20: "kind of confusing with stuff locked behind
+  other sections and it's hard to navigate"; spec `docs/superpowers/specs/2026-10-20-build-with-ai-cleanup-design.md`):
+  - *Tabs* (`BuildTabs.tsx`): Your idea, Cast and world, Story line, Threads, each with its number and status; a real tab
+    list (`role="tablist"`, roving tabindex; arrows, Home and End move, Enter or Space picks). Only the chosen section
+    shows: all four stay in the page, the others `hidden` (`role="tabpanel"`, `data-build-section`), so a draft half
+    typed in one (an Ask me questions answer, an open Change form) survives a look at another; the scroll-spy and each
+    section's own head are gone. Both idea boxes show `buildLogic.shownIdea` with one typed flag (the builder store's
+    `ideaTyped`, `writeIdea`). What a way in brings to the top keeps clear of the tabs (`scroll-margin-top`). The tab
+    is the view's `section` (`buildLogic.tabFor`): on a chapter's or a scene's page always Story line; else the view's
+    section, else the tab last chosen for that story while the app runs (`hubStore` `section`, `setSection`), else
+    `defaultSection`. A tab click (`goTo`) navigates to that section (from a chapter's page Story line goes back with
+    `near`, its row in view); a tab starts at the top of the page. Buttons that pointed at another section (Write your
+    idea, Plan the cast and world, Plan its payoff) switch tab, then focus what they meant to (`whenShown`).
+  - *Zoomed in*: the chapter's and the scene's pages show under the tabs, Story line chosen.
+  - *Planned chapters in plain sight* (`StoryLine.tsx`): the planned chapters are listed straight in the story line, one
+    row each (`data-planned-chapters`, `.hub-row-kids.is-flat`), with no "Ch 5 to Ch 9 · planned, not written" row, no
+    Open the plan / Pick up from here / Fold away and no second Write Ch N (each chapter's own step does that).
+  - *How it all connects* (`worldInterviews/topicLogic.connectionsOpen`) opens once a topic has kept something or the
+    world has a character, place or lore (`useEntryCounts`); shut, it says "Add a character, place or lore first".
+  - *Plan your story* (`HubCards.tsx` `StartCard`) has the idea box itself (`data-start-idea`, the brief's plot, the same
+    idea as Your idea's); Plan it with no idea says so under the box and puts the cursor in it, staying on Story line.
+  - *Plan before writing* shows only beside Story line (and the zoomed pages), where drafts start.
 - **Tests**: `features/planHub/buildLogic.test.ts` (the statuses, the default section, the routes, the rows to open, the
   threads' order and Plan its payoff's words, the step, the estimate's words, Kept true, the review's heads),
   `main/chapterWriter/chapterWriter.test.ts` (the three parts and endings read, an old plan as before, Kept true, the
