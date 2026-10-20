@@ -538,13 +538,17 @@ describe('what a check of a scene is told', () => {
     for (const key of ['b1.c2.s2', 'b1.c3.s1', 'b1.c3.s2']) {
       const ctx = gatherSceneCheck(w.db, w.id(key), PREFS)
       const all = checkSections(ctx, ALL_CHECKS)
+      // Every line once in the shared material: a fact the words touch is in the facts check's own list, not again in who
+      // knows what (checkfix, 2026-10-20).
+      const lines = all.flatMap((x) => x.text.split('\n'))
       for (const group of CHECK_GROUPS) {
         for (const s of checkSections(ctx, group)) {
-          const shared = all.find((x) => x.id === s.id)
-          expect(shared, `${key}: ${s.id}`).toBeDefined()
-          for (const line of s.text.split('\n')) expect(shared!.text.split('\n'), `${key}: ${s.id}`).toContain(line)
+          expect(all.find((x) => x.id === s.id), `${key}: ${s.id}`).toBeDefined()
+          for (const line of s.text.split('\n')) expect(lines, `${key}: ${s.id}`).toContain(line)
         }
       }
+      const facts = all.filter((x) => x.id === 'touched' || x.id === 'knowledge').flatMap((x) => x.text.split('\n').filter((l) => l.startsWith('- ')))
+      expect(new Set(facts).size, key).toBe(facts.length)
     }
   })
 
@@ -557,8 +561,9 @@ describe('what a check of a scene is told', () => {
     // Since 2026-10-16 the entries tied to Mara come too (with how they are tied), and the plot threads still open.
     expect(req.blocks.map((b) => b.id)).toEqual(['scene-card', 'memory', 'relationships', 'threads', 'scene-text'])
     // With its task (2026-10-19), the scene's text closes the opening every request about it shares, and the task is last.
+    // Its checks named in the order given: a request's own first (checkfix, 2026-10-20).
     const task = checkTask(['style', 'facts'])
-    expect(task.split('\n').slice(0, 2)).toEqual(['## Your task', '[AIWRITE-CHECK-TASK v1] facts, style'])
+    expect(task.split('\n').slice(0, 2)).toEqual(['## Your task', '[AIWRITE-CHECK-TASK v1] style, facts'])
     const asked = checkRequest(checkSections(c, ['facts', 'style']), 'Mara spoke.', { part: 1, parts: 1 }, task)
     expect(asked.user).toBe(`${req.user}\n\n${task}`)
     expect(asked.opening).toBe(req.user.length)

@@ -86,10 +86,11 @@ const andList = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.s
 /**
  * The task of a request that makes these checks, after the scene. With `contract` (the scene's contract as its section
  * says it: "## The scene’s contract (C ids)" and its C lines), through the contract too (long story memory fix 13: the
- * chapter writer's checks, and Check this scene and Mark done through the scene's latest contract).
+ * chapter writer's checks, and Check this scene and Mark done through the scene's latest contract). The checks are named
+ * in the order given: a request's own first, then those asked in both requests (checks/context.ts checkRequests).
  */
 export function checkTask(checks: CheckKind[], contract: string | null = null): string {
-  const list = ALL_CHECKS.filter((c) => checks.includes(c))
+  const list = [...new Set(checks)].filter((c) => ALL_CHECKS.includes(c))
   const one = list.length === 1
   const own = `Check the scene for ${andList(list)} only, as "What each check looks for" says: ${one ? 'its' : 'their'} issues, and "checked" for ${one ? 'it' : 'each of them'}.`
   return `${TASK_HEADING}\n${CHECK_TASK_MARKER} ${list.join(', ')}\n${own}${contract ? `\n\n${CHECK_CONTRACT_RULES}\n\n${contract}` : ''}`

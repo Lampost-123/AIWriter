@@ -207,7 +207,10 @@ test('the timeline: lanes, a clash in plain words, and a double-click opens the 
   // A thread's lane shows its whole name (the serif's italic may reach a pixel past its lines; nothing is cut).
   const laneName = main(win).locator('.tl-lh-name', { hasText: 'Who burned the mill?' })
   await expect(laneName).toBeVisible()
-  expect(await laneName.evaluate((e) => e.scrollHeight <= e.clientHeight + 1 && e.scrollWidth <= e.clientWidth + 1)).toBe(true)
+  // (On CI's Windows runner the italic's overhang measured a few pixels: allow 3, and say how much if it's more.)
+  const over = await laneName.evaluate((e) => ({ down: e.scrollHeight - e.clientHeight, across: e.scrollWidth - e.clientWidth }))
+  expect(over.down, `the name runs ${over.down}px below its box`).toBeLessThanOrEqual(3)
+  expect(over.across, `the name runs ${over.across}px past its box`).toBeLessThanOrEqual(3)
 
   // A long When shows in full on hover.
   await expect(timeline.getByTitle('Day 12, at dusk', { exact: true })).toBeVisible()
