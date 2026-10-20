@@ -89,7 +89,7 @@ export interface TrapsConfig {
 /** Where the search model's files are looked for when no --search-model is given: beside the reports, not committed. */
 const DEFAULT_SEARCH_MODEL = join('traps-results', 'search-model')
 
-/** How much a fake run of the book's memory model reads: DeepSeek's own (long story memory fix 14 reads the book whole). */
+/** How much a fake run of the book's memory model reads: DeepSeek's own, so the plan before writing reads what it would there. */
 export const FAKE_BOOK_READER = 1_000_000
 
 const num = (v: string | undefined, fallback: number): number => {
@@ -788,14 +788,14 @@ export async function openApp(
     const writer = choose(cfg.writer ?? flash())
     const chosen = choose(cfg.memory ?? writer.modelId)
     // A fake run of the book: the memory model reads as much as DeepSeek's (1,000,000 tokens), so the plan before writing
-    // reads the book so far whole for its continuity brief (long story memory fix 14), as it would on DeepSeek.
+    // reads for its continuity brief (long story memory fix 14) what it would on DeepSeek.
     const memory = cfg.fake && cfg.story === 'book' ? { ...chosen, contextLength: FAKE_BOOK_READER } : chosen
     const judge = choose(cfg.judge ?? memory.modelId)
     settings.updateSettings({ models: { writer, memory } })
     if (repairMod) switchOnRepair(settings, cfg.log)
     if (retrieval) settings.updateSettings({ findByMeaning: true } as never)
     cfg.log(`writer ${writer.modelId}, memory ${memory.modelId}, judge ${judge.modelId}; budget ${cfg.maxIn.toLocaleString('en-GB')} tokens in, ${cfg.maxOut.toLocaleString('en-GB')} out`)
-    if (memory !== chosen) cfg.log(`fake run of the book: the memory model reads up to ${FAKE_BOOK_READER.toLocaleString('en-GB')} tokens, so the plan reads the book so far whole`)
+    if (memory !== chosen) cfg.log(`fake run of the book: the memory model reads up to ${FAKE_BOOK_READER.toLocaleString('en-GB')} tokens, as DeepSeek's does`)
 
     // The app as it starts: drafting, and the memory keeper (which registers the catch-up before a draft).
     initAi()

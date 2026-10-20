@@ -55,20 +55,14 @@ vi.mock('./plan', () => ({
   }
 }))
 vi.mock('./brief', () => ({
-  BOOK_MOST: 150_000,
-  BOOK_READER: 200_000,
-  BOOK_SHARE: 0.5,
   BRIEF_REPLY_SHARE: 1.3,
   WHOLE_SHARE: 0.9,
-  bookPart: () => '',
-  bookWithin: () => null,
   planThreads: () => 'the open threads the memory model has room for',
   briefFrees: () => ({ always: 0, knows: 0 }),
-  briefRoom: () => ({ book: false, record: 4_000 }),
+  briefRoom: () => 4_000,
   briefMaterial: () => {
     if (h.briefFails) throw new Error('The record could not be read.')
     return {
-      book: null,
       record: [{ title: 'Who knows what, among everyone here', body: '- Wren knows the tax was forged.' }],
       late: [],
       words: 750,
@@ -162,7 +156,7 @@ describe('plan before writing', () => {
 describe('the continuity brief, in the same call (fix 14)', () => {
   beforeEach(() => {
     h.model = { target: {}, choice: { contextLength: 64_000 }, thinking: 'off' }
-    // The world's parts the brief reads (the book so far, the chapters, the rule checks' findings) can't be read from this
+    // The world's parts the brief reads (the rule checks' findings) can't be read from this
     // stand-in database: each is left out, with a warning.
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   })

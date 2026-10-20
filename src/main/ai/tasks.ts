@@ -47,8 +47,9 @@ export interface TaskRequest {
   model: JobModel
   messages: ChatMessage[]
   /**
-   * What the record keeps of the messages, when that is less than was sent (the plan before writing with the book so far
-   * read whole: the book is kept as a note, as it is the scenes' own words). Left out: the messages as sent.
+   * What the record keeps of the messages, when that is less than was sent (the plan before writing with the scene before
+   * and the scene so far word for word: they are kept as notes, as they are the scenes' own words). Left out: the messages
+   * as sent.
    */
   kept?: ChatMessage[]
   /** Room for the reply itself, in tokens. Thinking gets room on top, as the job's Thinking says. */

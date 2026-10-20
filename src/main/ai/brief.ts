@@ -3,10 +3,11 @@
 // a focused slice (NWM 2026: targeted records scored 0.89 against the full text; Chroma's "context rot"). Anthropic's
 // advice for long work is a helper that reads widely and hands back a short brief, and InkOS's planner writes one per
 // chapter. So the plan before writing (src/main/plan/), the memory model's call already made before each draft, also
-// reads far more than the writer could (the whole story record for everyone in the scene, and the book so far word for
-// word when the memory model reads enough: plan/brief.ts) and writes a brief of about 1,000 to 2,000 tokens: what matters
-// for this scene, what must not be contradicted (with where it was set), who knows what among those here, the promises
-// in play and the time since key events.
+// reads more than the writer could (the earlier chapters in short, the scene before and the scene so far word for word,
+// what the story record says of everyone and everything here, and anything else it looks up: plan/brief.ts; the whole
+// book so far until 2026-10-20) and writes a brief of about 1,000 to 2,000 tokens: what matters for this scene, what must
+// not be contradicted (with where it was set), who knows what among those here, the promises in play and the time since
+// key events.
 //
 // This file is the writer's side: the brief's parts, its block (a late one, right before the scene card, never left
 // out: ai/context.ts), and which blocks give way to it so the briefing doesn't grow by saying things twice (the story so
@@ -33,18 +34,14 @@ export const BRIEF_TITLES: Record<BriefPart, string> = {
   time: 'Time'
 }
 
-/** The brief as the writer gets it: each part's lines. `book`: the memory model read the book so far word for word. */
+/** The brief as the writer gets it: each part's lines. */
 export interface ContinuityBrief {
   parts: Partial<Record<BriefPart, string[]>>
-  book?: boolean
 }
 
 /** What the block says first. */
-export const BRIEF_LEAD = {
-  record:
-    'Written just before this draft by a reader of the whole story record: what bears on this scene. Keep to it; it is for reference, not to retell.',
-  book: 'Written just before this draft by a reader of the whole story record and the book so far, word for word: what bears on this scene. Keep to it; it is for reference, not to retell.'
-} as const
+export const BRIEF_LEAD =
+  'Written just before this draft by a reader of the story record: what bears on this scene. Keep to it; it is for reference, not to retell.'
 
 /** The short form keeps these parts: what matters, and what must not be contradicted. */
 const SHORT_PARTS: readonly BriefPart[] = ['matters', 'keep']
@@ -64,14 +61,15 @@ export function briefText(b: ContinuityBrief | null | undefined, short = false):
     .filter((x) => x.lines.length)
   if (!parts.length) return ''
   return [
-    b.book ? BRIEF_LEAD.book : BRIEF_LEAD.record,
+    BRIEF_LEAD,
     ...parts.map((x) => `${BRIEF_TITLES[x.p]}:\n${x.lines.map((l) => `- ${l}`).join('\n')}`)
   ].join('\n\n')
 }
 
 /**
- * A brief read back from its block's text (a draft's record), as briefText wrote it; null when it holds none. The
- * Context tab shows the last one written for the scene (ai/draftFlow.ts previewBriefing).
+ * A brief read back from its block's text (a draft's record), as briefText wrote it (whatever its lead: one written before
+ * 2026-10-20 says its reader read the book so far too); null when it holds none. The Context tab shows the last one
+ * written for the scene (ai/draftFlow.ts previewBriefing).
  */
 export function readBriefText(text: string | null | undefined): ContinuityBrief | null {
   const t = (text ?? '').trim()
@@ -88,7 +86,7 @@ export function readBriefText(text: string | null | undefined): ContinuityBrief 
     }
     if (at && line.startsWith('- ')) (parts[at] ??= []).push(line.slice(2).trim())
   }
-  const brief: ContinuityBrief = { parts, ...(t.startsWith(BRIEF_LEAD.book) ? { book: true } : {}) }
+  const brief: ContinuityBrief = { parts }
   return briefSays(brief) ? brief : null
 }
 
@@ -101,8 +99,8 @@ export const BRIEF_MAY_SHORTEN: readonly string[] = ['story-so-far', 'recalled',
  * bears on this scene), the earlier passages found by searching (the planner read every one found), and who knows what
  * when the brief has its own part for it (the short form still says what someone here doesn't know or believes wrongly).
  * What must stay true, the scene's contract and the scene card are never shortened for it. `earlierBooks`: the story has
- * earlier books (or side stories) on its line, which the brief's reader never read word for word (the book so far is
- * this story's), so the story so far, which tells them, stays whole (fix 14's review).
+ * earlier books (or side stories) on its line, which the brief's reader never read (it reads this story's chapters), so
+ * the story so far, which tells them, stays whole (fix 14's review).
  */
 export function briefShortens(b: ContinuityBrief | null | undefined, o: { earlierBooks?: boolean } = {}): string[] {
   if (!briefSays(b)) return []

@@ -54,18 +54,7 @@ import { coveredShare, REPEAT_SHARE, wordRuns } from '../ai/repeats'
 import { CONTINUE_MARKS, PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
 import type { KnownFacts, PlanCore } from './core'
 import type { CanHappen } from './preconditions'
-import {
-  BRIEF_LIMIT_MS,
-  BRIEF_REPLY_SHARE,
-  BRIEF_RULE,
-  BRIEF_SHAPE,
-  BOOK_END,
-  bookPart,
-  checkBrief,
-  readBrief,
-  type BriefMaterial,
-  type RawBrief
-} from './brief'
+import { BRIEF_LIMIT_MS, BRIEF_REPLY_SHARE, BRIEF_RULE, BRIEF_SHAPE, checkBrief, partText, readBrief, type BriefMaterial, type RawBrief } from './brief'
 
 export { CONTINUE_MARKS, PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
 
@@ -80,8 +69,11 @@ export const PLAN_REPLY_TOKENS = 1_600
 export const PLAN_MOST = { relies: 10, changes: 8, needs: 4, must: 5, beats: 8, whoWhere: 6, mustStay: 5 }
 /** Only a scene's newest few planning calls keep their whole prompt (each holds much of the briefing). */
 export const KEEP_PLAN_PROMPTS = 10
-/** The most entries named for the planner: those in the briefing, and those it may ask for. */
-const MOST_NAMED = { inBriefing: 40, others: 150 }
+/**
+ * The most entries named for the planner: those in the briefing, and those it may ask for (2026-10-20: 150 before; those
+ * that bear on the scene first, the rest found by name with get_entry).
+ */
+export const MOST_NAMED = { inBriefing: 40, others: 40 }
 /** About how much of the words just before the planner reads. */
 const BEFORE_WORDS = { min: 200, target: 300, max: 400 }
 /** The longest line of the plan the writer gets. */
@@ -140,9 +132,9 @@ export interface PlanMaterial {
    */
   contract?: boolean
   /**
-   * A continuity brief is wanted (long story memory fix 14, brief.ts): what the planner reads besides (the book so far
-   * when it goes in whole, the story record) and how long the brief may be; it writes the brief with the plan. Left out:
-   * no brief.
+   * A continuity brief is wanted (long story memory fix 14, brief.ts): what the planner reads besides (the chapters so far
+   * in short, the scene before and the scene so far word for word, what the story record says of the scene) and how long
+   * the brief may be; it writes the brief with the plan. Left out: no brief.
    */
   brief?: BriefMaterial
   /** Said to the memory model when the style guide sets content above its second step (keeper/model.ts contentNoteFor). */
@@ -170,6 +162,9 @@ export const CARD_NOTES_TITLE =
 /** The heading of the scene's part of the chapter plan, in what the planner reads. */
 export const CHAPTER_PART_TITLE =
   "This scene's part of the chapter plan (made before any scene was written: build the scene plan on it, so its beats carry it out and what it says changes is among your changes)"
+
+/** The words just before, as the planner reads them: the end of the scene so far, or of the previous scene. */
+const BEFORE_TITLE = { soFar: 'The end of the scene so far', previous: 'The end of the previous scene' } as const
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 
@@ -200,9 +195,9 @@ export function planMaterial(
   const soFar = text(SO_FAR_BLOCK)
   const previous = text('previous-scene')
   const before = soFar
-    ? { title: 'The end of the scene so far', text: sceneTail(soFar, BEFORE_WORDS) }
+    ? { title: BEFORE_TITLE.soFar, text: sceneTail(soFar, BEFORE_WORDS) }
     : previous
-      ? { title: 'The end of the previous scene', text: sceneTail(previous, BEFORE_WORDS) }
+      ? { title: BEFORE_TITLE.previous, text: sceneTail(previous, BEFORE_WORDS) }
       : null
   const byId = new Map<ID, EntryState>([...input.memory.elsewhere.map((x) => [x.entry.id, x.entry] as const), ...input.memory.entries.map((e) => [e.id, e] as const)])
   const shown = new Set((preview.entries ?? []).filter((e) => !e.hidden && e.blockId).map((e) => e.entryId))
@@ -212,18 +207,11 @@ export function planMaterial(
     .filter((e): e is EntryState => !!e)
     .slice(0, MOST_NAMED.inBriefing)
     .map((e) => `${e.name} (${e.kind})${clean(e.summary) ? `: ${clean(e.summary)}` : ''}`)
-  const others = input.memory.entries
-    .filter((e) => !shown.has(e.id) && !hidden.has(e.id))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, MOST_NAMED.others)
-    .map((e) => {
-      const aka = (e.aliases ?? []).map(clean).filter(Boolean)
-      return `${e.name} (${e.kind}${aka.length ? `; also ${aka.join(', ')}` : ''})`
-    })
   const card = input.scene.card
   const people = [...new Set([card.povId, ...card.presentIds])]
     .map((id) => (id ? byId.get(id) : undefined))
     .filter((e): e is EntryState => !!e && e.kind === 'character')
+  const others = othersFor(input, { shown, hidden, people, recent: o.core?.recent ?? [] })
   const reach = stageReach(input)
   const stand = reach === 'none' ? null : block('continuity')
   // Adam's direction is said once, in what is being written (2026-10-19: the writer's scene card leaves it out for a whole
@@ -277,6 +265,35 @@ export function planMaterial(
     ...(input.contract && !o.beats ? { contract: true } : {}),
     ...(o.chapter?.trim() ? { chapter: o.chapter.trim() } : {})
   }
+}
+
+/**
+ * The codex's other entries, not in the briefing, which the plan may ask for ("needs"), in name order: at most
+ * MOST_NAMED.others, those that bear on the scene first (tied to someone on the card, or named in what has just happened),
+ * then anything but an event, then events; and how many more there are, found by name with get_entry (2026-10-20).
+ */
+function othersFor(
+  input: ContextInput,
+  o: { shown: ReadonlySet<ID>; hidden: ReadonlySet<ID>; people: EntryState[]; recent: readonly string[] }
+): string[] {
+  const here = new Set(o.people.map((p) => p.id))
+  const tied = new Set(input.memory.relationships.flatMap((r) => (here.has(r.aId) ? [r.bId] : here.has(r.bId) ? [r.aId] : [])))
+  const recent = o.recent.join('\n')
+  const named = (e: EntryState): boolean => [e.name, ...(e.aliases ?? [])].some((n) => clean(n).length >= 2 && namedInProse(recent, clean(n)))
+  const rank = (e: EntryState): number => (tied.has(e.id) || (recent && named(e)) ? 0 : e.kind === 'event' ? 2 : 1)
+  const all = input.memory.entries.filter((e) => !o.shown.has(e.id) && !o.hidden.has(e.id))
+  const kept = all
+    .map((e) => ({ e, r: rank(e) }))
+    .sort((a, b) => a.r - b.r || a.e.name.localeCompare(b.e.name))
+    .slice(0, MOST_NAMED.others)
+    .map((x) => x.e)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((e) => {
+      const aka = (e.aliases ?? []).map(clean).filter(Boolean)
+      return `${e.name} (${e.kind}${aka.length ? `; also ${aka.join(', ')}` : ''})`
+    })
+  const more = all.length - kept.length
+  return more > 0 ? [...kept, `(and ${more.toLocaleString('en-GB')} more: get_entry finds any by name)`] : kept
 }
 
 /**
@@ -338,7 +355,7 @@ Reply with only a JSON object:
 
 /** What the planner is told of the look-ups, when it may make them (the tools themselves go with the request). */
 export const LOOKUP_RULE =
-  'Before you plan, if the scene needs something you weren’t given (a codex entry as it stands here, where someone was last, who knows something, what an earlier scene said word for word), look it up with the tools. Ask for everything you need at once: you get one round of look-ups. Look up nothing you were already given.'
+  'Before you plan, if the scene needs something you weren’t given (a codex entry as it stands here, where someone was last, who knows something), look it up with the tools. You have what happened earlier only in short, not the earlier scenes’ own words: to read what an earlier scene said, word for word, use read_passage (find_in_story finds where something was said). Ask for everything you need at once: you get one round of look-ups. Look up nothing you were already given.'
 
 /**
  * The instructions with the scene's contract (long story memory fix 13): the plan also says what must change by the end,
@@ -352,8 +369,8 @@ const SYSTEM_WITH_CONTRACT = SYSTEM.replace(
 
 /**
  * The planner's instructions: with "must" when the draft has a contract, with "brief" when a continuity brief is wanted
- * (fix 14; how long it may be is said at the end of the request, so these stay the same from scene to scene and the book
- * so far after them stays in a provider's cache), and with the look-ups when it may make them.
+ * (fix 14; how long it may be is said at the end of the request, so these stay the same from scene to scene and what
+ * comes after them stays in a provider's cache), and with the look-ups when it may make them.
  */
 export const planSystem = (contract = false, brief = false, lookups = false): string => {
   let s = contract ? SYSTEM_WITH_CONTRACT : SYSTEM
@@ -375,21 +392,25 @@ export function planAsk(m: Pick<PlanMaterial, 'brief' | 'lookups'>, again = fals
  * card, what must stay true, the codex, the threads, everyone here), then where things stand and the words just before,
  * and last what is being written, which changes at every step.
  *
- * With a continuity brief (fix 14): the book so far first (when it is read whole: the same at every step, and at the
- * next scene the same with one scene more, so a provider's cache keeps it; Claude is asked to, `cacheUpTo`), then the
- * story record that stays the same through a scene, then the plan's own parts, then what changes from step to step (the
- * earlier passages found, the scene's contract), and last what is being written. `bookWhole` false: the book is a note
+ * With a continuity brief (fix 14, trimmed 2026-10-20): the story record first, its steadiest parts leading (the chapters
+ * so far in short, the same at every scene of a chapter, and the scene before, the same at every step of a scene: Claude
+ * is asked to cache up to its end, `cacheUpTo`), then the plan's own parts, then what changes from step to step (the scene
+ * so far word for word, the earlier passages found, the scene's contract), and last what is being written. The words just
+ * before aren't said again when the record has their scene word for word. `whole` false: the scenes' own words are a note
  * (for the record kept in the world).
  */
-export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
+export function planMessages(m: PlanMaterial, whole = true): ChatMessage[] {
   const part = (title: string, body: string): string => (body.trim() ? `## ${title}\n${body.trim()}` : '')
   const lines = (list: readonly string[] | undefined): string => (list ?? []).map((l) => `- ${l}`).join('\n')
   const b = m.brief
-  const book = b ? bookPart(b.book, bookWhole, b.bookFrom ?? null) : ''
   const threads = clean(m.threads) ? m.threads! : lines(m.core?.threads)
+  // The words just before, unless the record has their scene word for word.
+  const beforeOf = m.before?.title === BEFORE_TITLE.soFar ? 'soFar' : 'previous'
+  const before = m.before && ![...(b?.record ?? []), ...(b?.late ?? [])].some((p) => p.scene?.of === beforeOf) ? m.before : null
+  const record = (b?.record ?? []).map((p) => partText(p, whole))
+  const steady = (b?.record ?? []).findIndex((p) => !p.steady)
   const user = [
-    book,
-    ...(b?.record ?? []).map((p) => part(p.title, p.body)),
+    ...record,
     part('Already happened (a line a scene; never plan any of it again)', lines(m.core?.recent)),
     part('The scene card', m.card),
     part(CHAPTER_PART_TITLE, m.chapter ?? ''),
@@ -402,18 +423,18 @@ export function planMessages(m: PlanMaterial, bookWhole = true): ChatMessage[] {
     part('Getting here (from the story so far)', lines(m.core?.travel)),
     part(CARD_NOTES_TITLE, lines(m.core?.notes)),
     part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
-    m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
+    before ? part(before.title, `"""\n${before.text}\n"""`) : '',
     part('Already on the page in this scene (done: never plan it again)', lines(m.done)),
-    ...(b?.late ?? []).map((p) => part(p.title, p.body)),
+    ...(b?.late ?? []).map((p) => partText(p, whole)),
     part('What is being written', m.ask),
     planAsk(m)
   ]
     .filter(Boolean)
     .join('\n\n')
-  // The book so far, the same from scene to scene but for what is added at its end: marked for a model that caches only
-  // where asked (client.ts sentMessages), up to its last scene, never its last line (where it ends, new every scene).
-  const end = book.lastIndexOf(`\n\n${BOOK_END}`)
-  const cacheUpTo = book && bookWhole ? (end > 0 ? end : book.length) : 0
+  // The record's steady parts, the same at every step of a scene: marked for a model that caches only where asked
+  // (client.ts sentMessages).
+  const lead = record.slice(0, steady < 0 ? record.length : steady).filter(Boolean)
+  const cacheUpTo = whole && lead.length ? lead.join('\n\n').length : 0
   const system = planSystem(!!m.contract, !!b, !!m.lookups)
   return [
     { role: 'system', content: m.contentNote ? `${system}\n\n${m.contentNote}` : system },
@@ -1466,8 +1487,8 @@ const quiet = (): void => undefined
 export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
   if (o.signal?.aborted || o.closed()) return null
   const m: PlanMaterial = { ...o.material, ...(o.lookups ? { lookups: true } : {}) }
-  // A plan with a continuity brief (fix 14) writes more, and may read the whole book so far first: it may take longer.
-  const limit = o.limitMs ?? (m.brief ? (m.brief.book ? BRIEF_LIMIT_MS.book : BRIEF_LIMIT_MS.record) : PLAN_LIMIT_MS)
+  // A plan with a continuity brief (fix 14) reads and writes more: it may take longer.
+  const limit = o.limitMs ?? (m.brief ? BRIEF_LIMIT_MS : PLAN_LIMIT_MS)
   const taskId = `plan-${newId()}`
   let timer: ReturnType<typeof setTimeout> | undefined
   let late: ReturnType<typeof setTimeout> | undefined
@@ -1481,9 +1502,9 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
   try {
     const messages = planMessages(m)
     const user = messages[1].content
-    // The record in the world keeps the book so far as a note: it is the scenes' own words, and the scene's newest
-    // planning calls each keep their prompt.
-    const kept = m.brief?.book ? planMessages(m, false) : null
+    // The record in the world keeps the scene before and the scene so far as notes: they are the scenes' own words, and
+    // the scene's newest planning calls each keep their prompt.
+    const kept = [...(m.brief?.record ?? []), ...(m.brief?.late ?? [])].some((p) => p.scene) ? planMessages(m, false) : null
     const lookups = o.lookups
     const call = runTask({
       db: o.db,
@@ -1549,8 +1570,8 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     const raw = readPlan(got.text)
     if (!raw) return null
     // A fact is taken from what the planner was given or looked up, but never from where things stood in a scene before
-    // that no longer holds here. Only the plan's own parts count: never the book so far or the record read for the brief
-    // (a scene long ago may say what no longer holds).
+    // that no longer holds here. Only the plan's own parts count: never the record read for the brief (a scene long ago
+    // may say what no longer holds).
     const own: PlanMaterial = { ...m, brief: undefined }
     const given = m.reach === 'here' ? planMessages(own)[1].content : planMessages({ ...own, stand: '' })[1].content
     const material = [given, ...answers.filter((a) => a.ok).map((a) => a.text)].join('\n\n')
@@ -1581,15 +1602,14 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
       })
     const text = notesOf(plan)
     const must = m.contract ? plan.must : []
-    // The brief cites only chapters and scenes the planner was given (all of it, the book so far too), and never names what
-    // Adam kept out of the scene's briefing.
+    // The brief cites only chapters and scenes the planner was given (all of it, the chapters in short too) or looked up,
+    // and never names what Adam kept out of the scene's briefing.
     const brief =
       m.brief && raw.brief
         ? checkBrief(raw.brief, {
-            material: user,
+            material: [user, ...answers.filter((a) => a.ok).map((a) => a.text)].join('\n\n'),
             tokens: m.brief.tokens,
             ...(m.brief.tokensNoKnows != null ? { tokensNoKnows: m.brief.tokensNoKnows } : {}),
-            book: !!m.brief.book,
             hidden: m.brief.hidden ?? []
           }).brief
         : null
