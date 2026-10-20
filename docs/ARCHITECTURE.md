@@ -4822,6 +4822,9 @@ the record alone (no AI call) and moves it there; Undo puts it back.
 
 ## The chat never claims a change it didn't make (Adam, 2026-10-19)
 
+Since 2026-10-20 the check matches claims by target, covers every chat and every ending, and the app writes the
+outcome under each answer: see "Every chat tells the truth about changes".
+
 Adam: "I was still getting responses from the chat claiming it had edited or proposed a change while it did nothing",
 and "an error with the chat saying it could not access something to edit".
 
@@ -5471,6 +5474,73 @@ Auto (the creativity's own temperature, as before) or Custom, a slider and a num
   API address or a model id with "deepseek" in it.
 - **What the AI saw.** The record keeps the temperature as sent and `ownTemperature: true`; the Creativity cell then
   says "Temperature 1.5 (your setting)" (or, for an edit, "Temperature 1.5 / Your writing temperature").
+
+## Every chat tells the truth about changes (Adam, 2026-10-20)
+
+Adam: the chats "are still saying they did things when they did not", e.g. an edit to a scene or a chapter plan that
+never happened. Spec and plan: `.planning/specs/chat-truth.md`, `.planning/plans/chat-truth.md`. Builds on "The editor
+chat" and "The chat never claims a change it didn't make" above.
+
+- **Why it still happened.** Only Ask had a truth check, and it asked only whether *some* change of the claim's kind
+  existed: one card change backed "I've updated the cards for scenes 4 and 5", and a change merely waiting for Apply
+  backed "Done — I've updated the chapter card." Many wordings slipped past ("Plan updated.", "## Changes made", "The
+  goal now reads…", reworked/overhauled/drafted…). Stop and an answer ending with a question skipped the check. The Plan
+  talk, recipe talk and cast talk had none: when their change couldn't be made, the AI's words were shown as written.
+  No chat could change a chapter's goal or length, and the Plan hub's talk invited changes to chapters it can only make
+  to suggestions. And some changes really were lost: the scene card panel never re-read its card after Apply, so it
+  showed the old card and its next autosave wrote it back over the change (the chapter card panel did the same to
+  Interview me's fills).
+- **The app says what changed** (`shared/askOutcome.ts` `outcomeOf`, `features/ask/OutcomeLine.tsx`). Under every
+  chat answer one line built only from what was recorded, never from the AI's words: "Nothing was changed." (with the
+  plain reason when a change was tried and turned down), "1 change is waiting for you: press Apply." (amber), "1 change
+  has started.", "Applied." / "2 of 3 applied." (green), "Not applied: you turned it down."; red only when an Apply
+  failed. `data-outcome="<state>"`. Its space is kept while the answer streams. Waiting cards say "Waiting: press
+  Apply" and the bar says "Nothing changes until you apply." The talks reuse it (`planning/talkTruth.ts`
+  `talkOutcome`): "The plan below has 2 changes waiting: press Apply."
+- **One truth check, by target** (`shared/askTruth.ts` `checkClaims` / `settleAnswer`). A claim carries the scenes,
+  chapters, titles and entries it names (the agent gives each scene its number in the story) and is backed only by a
+  change to those; scene card, beats, chapter card and thread are separate kinds. The chat never applies anything
+  itself, so a backed claim of a change *made* is reworded as waiting ("Change 1 is ready to apply: tighten the
+  opening."), and the chat's instructions say to word changes that way. "Earlier" exempts only words pointing back to
+  an earlier answer; a claim about an earlier change stands only if that change was applied (earlier answers go to the
+  model with each change's real status, `withProposals` in `ipc/ask.ts`). The check runs on every ending: finished, a
+  question to Adam, Stop, and the half-second saves while streaming. The talks use the same check (`settleTalk`), with
+  the Plan hub's button named ("…until you press Make this change.").
+- **Changes stay applied** (`features/inspector/cardMerge.ts`). The scene card, chapter card and chapter plan panels
+  re-read on `briefingRev` / `chapterCardsRev` / the outline, and merge field by field with unsaved typing: Adam's
+  typed fields win (a toast says when the chat's change to that same field wasn't kept), every other field takes the
+  re-read, so an old copy is never saved back. Update the plan pairs each card with the scene id main sent
+  (`planHub/update.ts` returns `sceneIds`) and says "4 of 6 scenes got new cards."
+- **Apply tells the truth** (`features/ask/applyProposal.ts`, `applyDraft.ts`). `ProposalStatus` has `'started'`: a
+  draft or in-page fix shows Started until it lands, then Applied, or goes back to waiting with the reason; a started
+  change saved when the app closed reads back as waiting. An apply with no reason says "That change couldn't be made."
+  Card, title and chapter card changes record what they change (`before`); if it changed since, the first Apply shows
+  what it says now and a second Apply goes through. A chapter card change for a chapter Write the chapter holds is
+  turned down ("Write the chapter is working on this chapter. Apply it when it's done.") in the window only: a main
+  guard would also refuse Adam's own saves.
+- **Chapter plans from the chat.** `chapter_card` takes `goal` (written with `updateChapter`) and `length` (the
+  chapter card's `totalWords`, 500–200,000 words); its card reads "Chapter plan · Ch 3". A "chapter plan" in Adam's
+  words is the chapter's goal, length and card. Moving, reordering or deleting scenes and Write the chapter's own plan
+  get "I can't do that from here" with where to do it.
+- **The talks.** Plan talk's nudges use the shared claim check; nothing changed says why ("the parts it named aren't
+  in the plan", "its reply didn't read as a plan", "it didn't send the change"). On the Plan hub with no suggestions
+  waiting, the intro asks for new scenes or chapters, and a request about chapters or scenes already in the story gets
+  "This talk changes suggestions only." with **Make this change in the story**, which opens Ask with the request sent
+  (`features/ask/open.ts` `askInStory`). Recipe and cast talks: an unreadable or unchanged reply says "Nothing was
+  changed: …" instead of showing the raw reply. The talks' instructions (`storyBuilder/prompts.ts` `talkLimits`) say
+  what each can change and never to say a change was made.
+- **Measured** (`npm run chat-eval`, fakes only, judged by this checkout's check with a waiting change said as made
+  counted as false; before = `--root` on main 0.8.6). Answers claiming a change never made, core set of 44: new
+  fake/claims-wordy 31 → 0, fake/bad-field 17 → 0, fake/claims 1 → 0, fake/sloppy 1 → 0, the rest 0 → 0. New plan set
+  (`--scenarios plan`: scene card, chapter goal, chapter length, chapter card, move, reorder): fake/chat as expected
+  4/6 → 6/6, claims-wordy 4/6 → 6/6 with false claims 6 → 0. Edit turns ending with a real proposal unchanged; requests
+  only where a claim was caught (claims-wordy 88 → 98). The score's "real proposal" ignores the kind of change, so read
+  the plan set's "as expected" row.
+- **Tests**: `shared/askOutcome.test.ts`, `askTruth.wider.test.ts`, `inspector/cardMerge.test.ts`,
+  `planHub/hubStore.test.ts`, `ipc/ask.history.test.ts`, `ipc/ask.status.test.ts`, `planning/talkTruth.test.ts`,
+  `outline/planTalk.test.ts`, `ask/open.test.ts`, the apply tests, `tests/unit/chatEvalScore.test.ts`; e2e
+  `editorChat.spec.ts` (the outcome line through Apply and Undo; an applied card change stays in the open scene card)
+  and `planTalk.spec.ts` (fake/plan-wrong-tags, fake/talk-unreadable).
 
 ## Milestone 1 scope
 
