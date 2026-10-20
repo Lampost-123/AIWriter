@@ -63,7 +63,7 @@ import {
   type ShownTurn
 } from './askStore'
 import { citedTargets, nameIndex, type LinkTarget } from './citations'
-import { EXAMPLES, examples, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, notProposedNote, speaksOfChanges } from './askWords'
+import { EXAMPLES, examples, NO_ANSWER, answerNote, asOfHint, asOfText, chatWhen, turnOutcome } from './askWords'
 import { withoutChoice } from './askChoice'
 import { ActionBar } from './ActionBar'
 import { AnswerBlocks } from './AnswerBlocks'
@@ -75,7 +75,8 @@ import { setDensity, setToolsView, useAskPrefs, type Density } from './askPrefs'
 import { Choice } from './Choice'
 import { SceneEntries, SourcesRow } from './CiteChip'
 import { instantMotion } from './inputMode'
-import { Proposals } from './Proposals'
+import { OutcomeLine } from './OutcomeLine'
+import { Proposals, useFailedOf } from './Proposals'
 import { ToolCalls } from './ToolCalls'
 import { runningPhrase } from './toolView'
 
@@ -623,6 +624,9 @@ function TurnView({
   const blocks = useMemo(() => parseAnswer(answer, { streaming, ideas: asksForIdeas(turn.question) }), [answer, streaming, turn.question])
   const sources = useMemo(() => citedTargets(answer, index), [answer, index])
   const followUps = streaming ? [] : followUpsOf(blocks)
+  // What came of the answer, from its recorded changes as they stand now (live as Adam applies, undoes, sets aside).
+  const failedKey = useFailedOf(turn.generationId)
+  const outcome = useMemo(() => turnOutcome(turn, new Set(failedKey.split(' ').filter(Boolean))), [turn, failedKey])
   const recorded = !turn.problem && !turn.generationId.startsWith('pending:')
   // What went wrong shows while this is the last question asked (with Try again); after that, quietly.
   const notice = !!turn.problem || (turn.status === 'error' && canRetry)
@@ -689,17 +693,8 @@ function TurnView({
       ) : null}
       {/* The changes it proposes, inside the turn, under their bar. */}
       {turn.proposals?.length ? <Proposals generationId={turn.generationId} proposals={turn.proposals} streaming={streaming} /> : null}
-      {!streaming && turn.status === 'complete' && !turn.proposals?.length && !turn.choice && speaksOfChanges(answer) ? (
-        <div className="mt-2 px-1 text-[12.5px] leading-relaxed text-muted" data-no-changes>
-          {NO_CHANGES_CAME}
-        </div>
-      ) : null}
-      {/* Changes it tried that their checks turned down: why, in plain words (else only in a folded tool row). */}
-      {!streaming && turn.status === 'complete' && !turn.choice && notProposedNote(answer, turn.tools, turn.proposals?.length ?? 0) ? (
-        <div className="mt-2 px-1 text-[12.5px] leading-relaxed text-muted" data-not-proposed>
-          {notProposedNote(answer, turn.tools, turn.proposals?.length ?? 0)}
-        </div>
-      ) : null}
+      {/* What came of it, in the app's words (chat-truth R1): its space kept while the answer streams. */}
+      <OutcomeLine outcome={outcome} streaming={streaming} />
 
       {notice ? (
         <div className="mt-2">

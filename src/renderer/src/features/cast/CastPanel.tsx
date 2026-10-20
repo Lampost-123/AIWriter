@@ -103,7 +103,8 @@ function CastCard({ entry, quiet }: { entry: NamedEntry; quiet: boolean }): Reac
   return (
     <div
       className={cn(
-        'relative -mx-2 flex gap-3 rounded-lg px-2 py-2 transition-colors duration-150 hover:bg-surface-2',
+        'relative -mx-2 flex gap-3 rounded-lg px-2 py-2 transition-[background-color,scale] duration-(--dur-quick) ease-glide hover:bg-surface-2',
+        'has-[[data-press]:active]:scale-[0.98] has-[[data-press]:active]:duration-(--dur-press)',
         'has-[:focus-visible]:bg-surface-2 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/40'
       )}
     >
@@ -112,6 +113,7 @@ function CastCard({ entry, quiet }: { entry: NamedEntry; quiet: boolean }): Reac
         <div className="flex items-baseline gap-2">
           <button
             type="button"
+            data-press
             onClick={() => peekEntry(entry.id)}
             className={cn(
               'min-w-0 truncate text-left font-semibold outline-none after:absolute after:inset-0 after:rounded-lg',

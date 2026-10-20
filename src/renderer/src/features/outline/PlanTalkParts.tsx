@@ -10,6 +10,7 @@ import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { LampStatus } from '@/features/planning/LampThinking'
 import { TalkPanel } from '@/features/planning/TalkPanel'
 import { useTalks } from '@/features/planning/talkStore'
+import { askInStory } from '@/features/ask/open'
 import { treeOf, useOutlineHelper, helperKey } from './helperStore'
 import { useApp } from '@/lib/store'
 import {
@@ -252,7 +253,8 @@ export function PlanTalk({
   quick,
   applyLabel,
   about,
-  looking
+  looking,
+  handOff = false
 }: {
   storyId: ID
   running: boolean
@@ -264,6 +266,11 @@ export function PlanTalk({
   about?: string
   /** What Adam is looking at, for the AI (Build with AI's section in view, when it isn't the story line). */
   looking?: string
+  /**
+   * No suggestions are waiting and the story is being written (the Plan hub): a request to change the story's own
+   * chapters or scenes is offered to Ask ("Make this change in the story"), as this talk changes suggestions only.
+   */
+  handOff?: boolean
 }): React.JSX.Element {
   const scope = planScope(storyId)
   const preview = useTalks((s) => s.talks[scope]?.preview)
@@ -279,12 +286,14 @@ export function PlanTalk({
       quick={quick ?? ['Rework the rest to fit my changes', 'Add a twist in the middle', 'Raise the stakes', 'Tighten the pacing', 'Closer to the recipe']}
       disabled={running ? 'Wait for the plan to finish arriving.' : null}
       about={about}
-      onSay={(m) => void talkPlan(storyId, m, looking)}
+      onSay={(m) => void talkPlan(storyId, m, looking, { handOff, applyLabel })}
       preview={isPlanRevision(preview) ? <PlanPreview storyId={storyId} revision={preview} /> : null}
       onApply={() => applyPlanTalk(storyId)}
       onDecline={() => declinePlanTalk(storyId)}
       canApplyStraightAway
       applyLabel={applyLabel}
+      where="The plan below"
+      onHandOff={(request) => void askInStory(request)}
     />
   )
 }

@@ -18,6 +18,7 @@ import type { Issue, IssueKind } from '@shared/contracts/checks'
 import type { CarryField, ChapterCard, Entry, EntryKind, ID, Outline, SceneCard, ThreadState, ToolSpec } from '@shared/types'
 import { adoptChapter, CARRY_FIELDS, CARRY_LABELS, CHAPTER_CARD_LIMITS, changedFields, chapterCardEmpty, cleanChapterCard, follows, isFieldEmpty } from '@shared/chapterCard'
 import { cardLength } from '@shared/defaults'
+import { CHAPTER_TARGET_LIMITS, cleanTarget } from '@shared/lengths'
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import { counted, type ToolKind, type ToolStatus } from '@shared/toolActivity'
 import * as repo from '../db/repo'
@@ -85,7 +86,7 @@ export function storyReadTools(toolChoice: boolean): ToolSpec[] {
     },
     {
       name: 'chapter_card',
-      description: `Read a chapter's card: what its scenes share (point of view, characters present, location, when, mood, length, notes for the AI), and which of its scenes follow each part or have their own. To change it, propose ${changeName(toolChoice, 'chapter_card', 'propose_chapter_card')}.`,
+      description: `Read a chapter's plan: its goal, its length, and its card: what its scenes share (point of view, characters present, location, when, mood, length of each scene, notes for the AI), and which of its scenes follow each part or have their own. To change it, propose ${changeName(toolChoice, 'chapter_card', 'propose_chapter_card')}.`,
       parameters: { type: 'object', properties: { chapter: chapterParam } }
     },
     {
@@ -95,6 +96,8 @@ export function storyReadTools(toolChoice: boolean): ToolSpec[] {
     }
   ]
 }
+
+const CHAPTER_LENGTH = { type: 'number', description: 'For a chapter: its length in words, for the whole chapter (500 to 200,000).' } as const
 
 const WHO_WHERE = {
   pov: { type: 'string', description: 'The point of view character, by name.' },
@@ -112,7 +115,7 @@ export const STORY_CHANGE_KINDS = {
 /** propose_changes' words for the story kinds, one line each. */
 export const STORY_KIND_LINES = [
   "- issue_fix: `issue_id` (from list_issues) and `how`: text puts the check's suggested rewrite in for the quoted words (with none, the app rewrites the sentence when the writer applies it), memory sets the entry to what the text says (only where list_issues shows a memory fix). For an issue list_issues shows, use this rather than an edit: it marks the issue fixed.",
-  '- chapter_card: `chapter` ("Ch 2" or its title) with any of `pov` (a character’s name), `characters` (everyone present, by name: the whole list), `location` (a place’s name), `when`, `mood`, `notes`: the scenes that follow the chapter card take them too. chapter_card reads it first.',
+  '- chapter_card: `chapter` ("Ch 2" or its title) with any of `goal` (what the chapter achieves: what changes by its end), `length` (words for the whole chapter, 500 to 200,000), `pov` (a character’s name), `characters` (everyone present, by name: the whole list), `location` (a place’s name), `when`, `mood`, `notes`: the scenes that follow the chapter card take its parts too. The writer’s "chapter plan" is this: the goal, the length and the card. chapter_card reads it first.',
   '- thread: `thread` (a plot thread’s name, as list_threads shows it; a name no thread has starts a new one, with `note` saying what it promises the reader) and `action`: open (the scene sets it up), resolve (the scene pays it off), or link with `list` (setsUp or paysOff); `scene` is left out for the open one. It goes on the scene’s card.',
   '- card may also set `pov`, `characters` (the whole list) and `location`, by name.'
 ]
@@ -120,6 +123,7 @@ export const STORY_KIND_LINES = [
 /** propose_changes' item properties for the story kinds. */
 export const STORY_ITEM_PROPERTIES = {
   issue_id: str,
+  length: CHAPTER_LENGTH,
   how: HOW,
   ...WHO_WHERE,
   thread: str,
@@ -140,10 +144,10 @@ export function storyProposeTools(): ToolSpec[] {
     {
       name: 'propose_chapter_card',
       description:
-        "Propose new values for parts of a chapter's card (only the parts given change): the point of view, characters present and location by name, when, mood, notes for the AI. The scenes that follow the chapter card take them too. Read it with chapter_card first. The writer decides.",
+        "Propose new values for parts of a chapter's plan (only the parts given change): its goal (what the chapter achieves), its length (words for the whole chapter), and its card: the point of view, characters present and location by name, when, mood, notes for the AI. The scenes that follow the chapter card take its parts too. The writer's \"chapter plan\" is this: the goal, the length and the card. Read it with chapter_card first. The writer decides.",
       parameters: {
         type: 'object',
-        properties: { chapter: chapterParam, ...WHO_WHERE, when: str, mood: str, notes: str, why: str },
+        properties: { chapter: chapterParam, goal: str, length: CHAPTER_LENGTH, ...WHO_WHERE, when: str, mood: str, notes: str, why: str },
         required: ['chapter', 'why']
       }
     },
@@ -512,7 +516,9 @@ function readChapterCard(ctx: StoryCtx, a: Record<string, unknown>): [string, st
   })
   const empty = chapterCardEmpty(card)
   ctx.mark({ summary: label, outcome: empty ? 'an empty card' : counted(CARRY_FIELDS.filter((f) => !isFieldEmpty(card, f)).length, 'part') })
-  const body = [`Chapter card of ${label}${later}${empty ? ' (empty)' : ''}:`, ...parts, '', scenes.length ? 'Its scenes:' : 'It has no scenes yet.', ...sceneLines]
+  const goal = (repo.getChapter(ctx.db, id).goal ?? '').trim()
+  const plan = [`${GOAL_LABEL}: ${goal || '(empty)'}`, `${LENGTH_LABEL}: ${lengthWords(card.totalWords) || '(not set: the default in Settings)'}`]
+  const body = [`Chapter card of ${label}${later}${empty ? ' (empty)' : ''}:`, ...plan, ...parts, '', scenes.length ? 'Its scenes:' : 'It has no scenes yet.', ...sceneLines]
   return [`Reading the card of ${label}`, clip(body.join('\n'), STORY_CHARS)]
 }
 
@@ -525,18 +531,58 @@ function writtenParts(a: Record<string, unknown>): Partial<ChapterCard> {
   return out
 }
 
+/** The Plan hub's names for the chapter's goal and its length (ChapterPlanPanel). */
+const GOAL_LABEL = 'What the chapter achieves'
+const LENGTH_LABEL = 'Length of the chapter'
+const lengthWords = (n: number | null | undefined): string => (n == null ? '' : `${n.toLocaleString('en-GB')} words`)
+const LIMIT_WORDS = `${CHAPTER_TARGET_LIMITS.min.toLocaleString('en-GB')} and ${CHAPTER_TARGET_LIMITS.max.toLocaleString('en-GB')} words`
+
+/** The chapter's goal a call gives, trimmed (undefined: none given). An empty one is sent back. */
+function goalGiven(ctx: StoryCtx, a: Record<string, unknown>): string | undefined {
+  if (a.goal === undefined || a.goal === null) return undefined
+  const g = typeof a.goal === 'string' ? a.goal.trim() : ''
+  if (!g) ctx.fail('Give the chapter a goal in words: what changes by its end. An empty goal can’t be set from here.')
+  return g
+}
+
+/** The chapter's length a call gives (a number, or words such as "4,000 words"), within the limits; undefined: none given. */
+function lengthGiven(ctx: StoryCtx, a: Record<string, unknown>): number | undefined {
+  if (a.length === undefined || a.length === null) return undefined
+  const raw = typeof a.length === 'string' ? a.length.replace(/[,\s]|words?$/gi, '') : a.length
+  const n = typeof raw === 'number' || (typeof raw === 'string' && /^\d+$/.test(raw)) ? cleanTarget(raw, CHAPTER_TARGET_LIMITS) : null
+  if (n == null) ctx.fail(`A chapter's length is a number of words between ${LIMIT_WORDS}, for the whole chapter (for example 4000).`)
+  return n!
+}
+
 function proposeChapterCard(ctx: StoryCtx, a: Record<string, unknown>): [string, string] {
   if (!ctx.storyId) ctx.fail('No story is open.')
   const id = chapterOf(ctx, a)
   const label = chapterLabelOf(ctx, id)
   const before = repo.getChapterCard(ctx.db, id)
+  const goalNow = repo.getChapter(ctx.db, id).goal ?? ''
   const given: Partial<ChapterCard> = { ...whoWhere(ctx, a), ...writtenParts(a) }
-  if (!Object.keys(given).length) ctx.fail('Give at least one part of the chapter card to change: pov, characters, location, when, mood or notes.')
+  const goal = goalGiven(ctx, a)
+  const length = lengthGiven(ctx, a)
+  if (!Object.keys(given).length && goal === undefined && length === undefined)
+    ctx.fail('Give at least one part of the chapter to change: goal, length, pov, characters, location, when, mood or notes.')
   const after = cleanChapterCard({ ...before, ...given })
   const changed = changedFields(before, after)
-  if (!changed.length) ctx.fail(`The card of ${label} already says that.`)
-  const lines: PartChange[] = changed.map((f) => ({ label: CARRY_LABELS[f], from: partWords(ctx, before, f), to: partWords(ctx, after, f) }))
+  const goalChanged = goal !== undefined && goal !== goalNow.trim()
+  const lengthChanged = length !== undefined && length !== before.totalWords
+  if (!changed.length && !goalChanged && !lengthChanged) ctx.fail(`${label} already says that, so there’s nothing to change.`)
+  const lines: PartChange[] = [
+    ...(goalChanged ? [{ label: GOAL_LABEL, from: goalNow.trim(), to: goal! }] : []),
+    ...(lengthChanged ? [{ label: LENGTH_LABEL, from: lengthWords(before.totalWords), to: lengthWords(length) }] : []),
+    ...changed.map((f) => ({ label: CARRY_LABELS[f], from: partWords(ctx, before, f), to: partWords(ctx, after, f) }))
+  ]
   const patch = Object.fromEntries(Object.entries(given).filter(([k]) => changed.some((f) => KEYS[f] === k))) as Partial<ChapterCard>
+  if (lengthChanged) patch.totalWords = length
+  // As each changed part (and the goal) was, for Apply's changed-since check.
+  // A length not set is null, not left out, so it still counts once sent to the window.
+  const was: NonNullable<Extract<Proposal, { kind: 'chapterCard' }>['before']> = Object.fromEntries(
+    Object.keys(patch).map((k) => [k, before[k as keyof ChapterCard] ?? null])
+  )
+  if (goalChanged) was.goal = goalNow
   // The scene cards that would take the new values (each part a scene follows, or an empty one with no mark).
   const scenes = ctx.outline().scenes.filter((s) => s.chapterId === id)
   const cards = repo.sceneCards(
@@ -545,9 +591,15 @@ function proposeChapterCard(ctx: StoryCtx, a: Record<string, unknown>): [string,
   )
   let n = 0
   for (const c of cards.values()) if (JSON.stringify(adoptChapter(c, after, 'follow')) !== JSON.stringify(c)) n++
-  const said = ctx.propose({ kind: 'chapterCard', chapterId: id, chapterLabel: label, patch, lines, scenes: n, why: squash(a.why) })
-  ctx.note(n ? `Applied, it updates ${counted(n, 'scene')} that ${n === 1 ? 'follows' : 'follow'} the chapter card.` : 'No scene card follows these parts yet, so only the chapter card changes.')
-  return [`Proposing a change to the card of ${label}`, said]
+  const said = ctx.propose({ kind: 'chapterCard', chapterId: id, chapterLabel: label, patch, lines, scenes: n, ...(goalChanged ? { goal } : {}), before: was, why: squash(a.why) })
+  ctx.note(
+    n
+      ? `Applied, it updates ${counted(n, 'scene')} that ${n === 1 ? 'follows' : 'follow'} the chapter card.`
+      : changed.length
+        ? 'No scene card follows these parts yet, so only the chapter card changes.'
+        : 'Applied, only the chapter changes: its scene cards stay as they are.'
+  )
+  return [`Proposing a change to ${goalChanged || lengthChanged ? 'the plan' : 'the card'} of ${label}`, said]
 }
 
 /** Each part's key on a chapter card. */
@@ -581,7 +633,12 @@ function proposeSceneCard(ctx: StoryCtx, a: Record<string, unknown>): [string, s
   }
   if (!Object.keys(patch).length) ctx.fail(names.length || Object.keys(who).length ? 'The card already says that.' : 'Give at least one part of the card to change.')
   const label = ctx.sceneLabel(id)
-  return [`Proposing a change to the card of ${label}`, ctx.propose({ kind: 'card', sceneId: id, sceneLabel: label, patch, ...(names.length ? { names } : {}), why: squash(a.why) })]
+  // As each part was, for Apply's changed-since check.
+  const before = Object.fromEntries(Object.keys(patch).map((k) => [k, card[k as keyof SceneCard]])) as CardProposal
+  return [
+    `Proposing a change to the card of ${label}`,
+    ctx.propose({ kind: 'card', sceneId: id, sceneLabel: label, patch, ...(names.length ? { names } : {}), before, why: squash(a.why) })
+  ]
 }
 
 // ---------- Plot threads ----------

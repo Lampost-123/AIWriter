@@ -12,12 +12,15 @@ import {
   gistLine,
   directionText,
   hubMode,
+  pairUpdate,
   pickScope,
   rowForPlace,
   scopesFor,
   storyLine,
   suggestionLabels,
   threadChip,
+  updateChanges,
+  updateToast,
   whereYouAre,
   writtenLine
 } from './hubLogic'
@@ -264,5 +267,53 @@ describe('the chapter to write once a batch is all decided (2026-10-20)', () => 
   })
   it('is none for a chapter with words already: writing it whole would write those scenes again', () => {
     expect(chapterToWrite(o, ['s0'])).toBeNull()
+  })
+})
+
+describe('Update the plan: each card on its own scene (chat truth R10)', () => {
+  const c = (title: string, summary = ''): { title: string; summary: string; when: string; beats: string[] } => ({ title, summary, when: '', beats: [] })
+
+  it('pairs each card with the scene main asked about at its place, not the window’s own list', () => {
+    // The window asked for s1, s2, s3; s2 was written meanwhile, so main sent s1 and s3 only.
+    expect(pairUpdate(['s1', 's3'], [c('A'), c('C')])).toEqual([
+      { sceneId: 's1', card: c('A') },
+      { sceneId: 's3', card: c('C') }
+    ])
+  })
+
+  it('leaves the scenes with no card out when fewer cards came, and drops cards beyond the scenes', () => {
+    expect(pairUpdate(['s1', 's2', 's3'], [c('A')]).map((p) => p.sceneId)).toEqual(['s1'])
+    expect(pairUpdate(['s1'], [c('A'), c('B')]).map((p) => p.sceneId)).toEqual(['s1'])
+    expect(pairUpdate(null, [c('A')])).toEqual([])
+  })
+
+  it('a card that says what the old one did changes nothing', () => {
+    const card = { goal: 'Wren climbs.', beats: ['Steps'], when: 'Day 1' }
+    expect(updateChanges({ title: 'Up', summary: 'Wren climbs.', when: 'Day 1', beats: ['Steps'] }, card, 'Up')).toBe(false)
+    // Empty parts of the new card keep the old ones.
+    expect(updateChanges({ title: '', summary: '', when: '', beats: [] }, card, 'Up')).toBe(false)
+    expect(updateChanges({ title: 'Up', summary: 'Wren falls.', when: '', beats: [] }, card, 'Up')).toBe(true)
+    expect(updateChanges({ title: 'Down', summary: '', when: '', beats: [] }, card, 'Up')).toBe(true)
+  })
+
+  it('counts only the cards that really changed', () => {
+    expect(updateToast({ changed: 2, sent: 2, arrived: 2, written: [] })).toBe('Updated the plan: 2 scene cards now follow what you’ve written.')
+    expect(updateToast({ changed: 1, sent: 1, arrived: 1, written: [] })).toBe('Updated the plan: 1 scene card now follows what you’ve written.')
+    expect(updateToast({ changed: 0, sent: 2, arrived: 2, written: [] })).toBe('Nothing in the plan changed: the new cards say what the old ones did.')
+  })
+
+  it('says plainly when some scenes got no new card', () => {
+    expect(updateToast({ changed: 4, sent: 6, arrived: 4, written: [] })).toBe(
+      'Updated the plan: 4 scene cards now follow what you’ve written. 4 of 6 scenes got new cards.'
+    )
+  })
+
+  it('says when a scene was written meanwhile and its card left alone (edge case 9)', () => {
+    expect(updateToast({ changed: 1, sent: 2, arrived: 2, written: ['Ch 2, Sc 1'] })).toBe(
+      'Updated the plan: 1 scene card now follows what you’ve written. Ch 2, Sc 1 was written meanwhile, so its card was left as it was.'
+    )
+    expect(updateToast({ changed: 0, sent: 2, arrived: 2, written: ['Ch 2, Sc 1', 'Ch 2, Sc 2'] })).toBe(
+      'Ch 2, Sc 1 and Ch 2, Sc 2 were written meanwhile, so their cards were left as they were.'
+    )
   })
 })

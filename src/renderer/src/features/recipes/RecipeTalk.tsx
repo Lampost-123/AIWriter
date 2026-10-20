@@ -37,7 +37,7 @@ export function talkParts(scope: string, parts: () => RecipeParts | null, messag
     const r = await api.recipeChat({ taskId, parts: p, history, message })
     if (r.status === 'stopped') return null
     if (r.status === 'error') throw new Error(r.error ?? 'That didn’t work. Please try again.')
-    return { answer: r.answer, revision: r.parts }
+    return { answer: r.answer, revision: r.parts, reason: r.reason ?? null }
   })
 }
 
@@ -85,6 +85,7 @@ export function RecipeTalkPanel({
       preview={preview ? <PartsPreview before={parts} after={preview} /> : null}
       onApply={onApply}
       onDecline={onDecline}
+      where="The recipe below"
     />
   )
 }

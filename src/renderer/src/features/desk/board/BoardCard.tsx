@@ -24,10 +24,10 @@ export function pinOf(scene: Pick<SceneMeta, 'status' | 'wordCount'>, ai: boolea
   return 'drafted'
 }
 
-export function Pin({ kind, style, inline, title }: { kind: PinKind; style?: CSSProperties; inline?: boolean; title?: string }): React.JSX.Element {
+export function Pin({ kind, style, inline, title, sceneId }: { kind: PinKind; style?: CSSProperties; inline?: boolean; title?: string; sceneId?: string }): React.JSX.Element {
   // A push-pin (a round head and its point), not a string's knot or end: on the board it says on hover where the scene stands.
   return (
-    <span className={cn('board-pin', `is-${kind}`, inline && 'is-inline', title && 'has-title')} style={style} aria-hidden title={title}>
+    <span className={cn('board-pin', `is-${kind}`, inline && 'is-inline', title && 'has-title')} style={style} aria-hidden title={title} data-board-pin={sceneId}>
       <span className="board-pin-head" />
     </span>
   )

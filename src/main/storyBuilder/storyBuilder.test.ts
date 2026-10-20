@@ -232,3 +232,38 @@ describe('the AI calls', () => {
     expect(r).toMatchObject({ status: 'complete', text: 'A new take on this part.' })
   })
 })
+
+// Chat truth R2, R6: each talk is told it can't change anything itself and what it can change; a reply whose list or
+// parts don't read (or change nothing) brings no preview and says why.
+describe('the talks tell the truth', () => {
+  it('tells each talk it suggests, never claims, and what it can change', async () => {
+    const { codexChatSystem, planChatSystem, recipeChatSystem } = await import('./prompts')
+    for (const system of [planChatSystem(), recipeChatSystem(), codexChatSystem()]) {
+      expect(system).toContain('You can\'t change anything yourself')
+      expect(system).toContain('a preview the author applies')
+      expect(system).toMatch(/Never say you changed, updated/)
+    }
+    expect(planChatSystem()).toContain('you can change only the suggestions')
+    expect(planChatSystem()).toContain('Chapters and scenes already in the story can’t be changed from this talk')
+    expect(recipeChatSystem()).toContain('you can change only the recipe’s parts')
+    expect(codexChatSystem()).toContain('you can change only the planned cast list')
+  })
+
+  it('a list or parts that don’t read bring no preview, with the reason, not the raw reply', async () => {
+    const t = world()
+    t.deps.model = { ...t.deps.model, choice: { ...t.deps.model.choice, modelId: 'fake/talk-unreadable' } }
+    const items = settleList([item({ name: 'Ada Lorne' })], [], [])
+    const c = await storyCodexChat(t.deps, { taskId: 'u1', storyId: t.story.id, items, history: [], message: 'Add a rival' }, t.brief)
+    expect(c).toMatchObject({ status: 'complete', items: null, reason: 'its reply didn’t read as a list', answer: 'I’ve added a rival salvager.' })
+    const r = await recipeChat(t.deps, { taskId: 'u2', parts: { ...emptyParts(), tone: 'Quiet' }, history: [], message: 'Darker please' })
+    expect(r).toMatchObject({ status: 'complete', parts: null, reason: 'its reply didn’t read as recipe parts', answer: 'I’ve made the tone darker.' })
+  })
+
+  it('parts the same as before are no change', async () => {
+    const t = world()
+    const r = await recipeChat(t.deps, { taskId: 'u3', parts: { ...emptyParts(), tone: 'Dark and tense' }, history: [], message: 'Darker please' })
+    expect(r).toMatchObject({ parts: null, reason: 'the parts it sent are the same as before' })
+    const q = await recipeChat(t.deps, { taskId: 'u4', parts: emptyParts(), history: [], message: 'What is the tone?' })
+    expect(q.reason).toBeNull()
+  })
+})

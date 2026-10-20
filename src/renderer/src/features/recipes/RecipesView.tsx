@@ -81,9 +81,10 @@ function LibraryPage(): React.JSX.Element {
           <ul className="mt-6 flex flex-col gap-2" aria-label="Recipes">
             {list.map((r) => (
               <li key={r.id}>
-                <Card className="flex items-center gap-3 px-4 py-3">
+                <Card className="flex items-center gap-3 px-4 py-3 transition-[scale] duration-(--dur-quick) ease-glide has-[[data-press]:active]:scale-[0.99] has-[[data-press]:active]:duration-(--dur-press)">
                   <button
                     type="button"
+                    data-press
                     onClick={() => openRecipe(r.id)}
                     className="min-w-0 flex-1 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                   >

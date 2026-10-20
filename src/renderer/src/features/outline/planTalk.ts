@@ -11,6 +11,7 @@ import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { arriving, followTask, relay, say, settlePreview, talkOf } from '@/features/planning/talkStore'
+import { claimsChange, NO_CHANGE } from '@/features/planning/talkTruth'
 import { applyRedo, applyRevision, fullText, settledRun, talkBusy, treeOf, type HelperRun } from './helperStore'
 import {
   applyPlanChanges,
@@ -33,8 +34,17 @@ import { outlineTree, type NodeKind, type TreeNode } from './tree'
 
 export const planScope = (storyId: ID): string => `plan:${useApp.getState().world?.id ?? ''}:${storyId}`
 
-/** An answer saying a change was made ("I've moved those scenes to the kitchen"). */
-const CLAIMS = /\b(?:I(?:'|’)?ve|I have|I(?:'|’)ll|I will|I(?:'|’)m|I)\s+(?:now\s+|also\s+|just\s+)?(?:changed|moved|updated|revised|reworked|rewritten|rewrote|replaced|added|cut|removed|renamed|made|set|swapped|kept|make sure|change|move|update|revise|rework|replace|add|remove|rename|making|changing|moving|updating)\b/i
+/**
+ * A request for a change to chapters or scenes already in the story ("make chapter 3 shorter", "rewrite this scene"):
+ * a chapter or scene named by number or as this, that, the first or the last, with a word asking for a change. Kept
+ * narrow: the hand-off is only offered, never forced, and only when no suggestions came.
+ */
+const STORY_PART =
+  /\b(?:chapters?|scenes?)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|\b(?:this|that|the (?:first|last|next|previous|opening|final|current)) (?:chapter|scene)\b/i
+const CHANGE_ASK =
+  /\b(?:change|rewrite|rework|revise|edit|fix|make|move|cut|remove|delete|drop|add|give|turn|tighten|expand|shorten|lengthen|trim|rename|replace|swap|update|set|reorder|split|merge)\b/i
+
+export const asksStoryChange = (message: string): boolean => STORY_PART.test(message) && CHANGE_ASK.test(message)
 
 /** What the AI is asked when it said it changed something but sent no changes. */
 const FORGOT =
@@ -102,7 +112,7 @@ const labelOf = (c: PlanChange): string => `${c.mark === 'new' ? 'New ' : c.mark
  * that (twice at most), so one request makes the whole change. A revision still waiting is built on, so "it still
  * says his bedroom" fixes the preview rather than starting over.
  */
-export function talkPlan(storyId: ID, message: string, looking?: string): Promise<void> {
+export function talkPlan(storyId: ID, message: string, looking?: string, o: { handOff?: boolean; applyLabel?: string } = {}): Promise<void> {
   const scope = planScope(storyId)
   const pending = talkOf(scope).preview
   return say(
@@ -131,12 +141,8 @@ export function talkPlan(storyId: ID, message: string, looking?: string): Promis
       const answer = first.answer
       if (first.plan) {
         const whole = wholePlanChanges(current, first.plan)
-        return {
-          answer,
-          revision: outlineTree(parseOutline(whole.text, true)).length
-            ? ({ text: whole.text, changes: null, lost: 0, ...trailOf(run, waiting, whole) } satisfies PlanRevision)
-            : null
-        }
+        if (!outlineTree(parseOutline(whole.text, true)).length) return { answer, revision: null, reason: NO_CHANGE.notPlan }
+        return { answer, revision: { text: whole.text, changes: null, lost: 0, ...trailOf(run, waiting, whole) } satisfies PlanRevision }
       }
 
       let changes = first.changes ?? ''
@@ -145,7 +151,7 @@ export function talkPlan(storyId: ID, message: string, looking?: string): Promis
       let result = changes ? applyPlanChanges(current, changes) : null
       for (let n = 0; n < MOST_ASKS; n++) {
         const missing = [...touches].filter((k) => !result?.done.has(k) && titleOfTag(current, k))
-        const nudge = !result && !changes && CLAIMS.test(answer) ? FORGOT : missing.length ? MISSING(missing.map((k) => `${titleOfTag(current, k)} [#${k}]`)) : null
+        const nudge = !result && !changes && claimsChange(answer) ? FORGOT : missing.length ? MISSING(missing.map((k) => `${titleOfTag(current, k)} [#${k}]`)) : null
         if (!nudge) break
         const again = crypto.randomUUID()
         relay(scope, taskId, again, result ? 'Changing the rest of what it touches…' : 'Making the change…')
@@ -158,14 +164,20 @@ export function talkPlan(storyId: ID, message: string, looking?: string): Promis
         changes = `${changes}\n\n${next.changes}`
         result = applyPlanChanges(current, changes) ?? result
       }
-      if (!result) return { answer, revision: null }
+      if (!result) {
+        // The Plan hub while writing (no suggestions waiting): a change to the story's own chapters is Ask's to make.
+        const handOff = o.handOff && !changes && asksStoryChange(message) ? message : null
+        const reason = handOff ? null : changes ? NO_CHANGE.lost : claimsChange(answer) ? NO_CHANGE.notSent : null
+        return { answer, revision: null, reason, handOff }
+      }
       return {
         answer,
         revision: { text: result.text, changes: result.changes, lost: result.lost, ...trailOf(run, waiting, result) } satisfies PlanRevision,
         changes: result.changes.map(labelOf)
       }
     },
-    true
+    true,
+    o.applyLabel
   )
 }
 

@@ -14,7 +14,7 @@ import type { Chapter, ID, Outline } from '@shared/types'
 import { Check, ChevronRight, NotebookText, PenLine, Sparkles } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
-import { reducedMotion } from '@/features/look/motion'
+import { reducedMotion, tokenMs } from '@/features/look/motion'
 import { useChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { runBusy, treeOf, type HelperRun, type HelperSession } from '@/features/outline/helperStore'
 import { countNodes, totalOf, type TreeNode } from '@/features/outline/tree'
@@ -22,6 +22,7 @@ import { chapterName, rowForPlace, sceneName, shownTitle, type HubMode, type Lin
 import { writeStep } from './buildLogic'
 import { planChaptersIn, toggleChapter, toggleRow, type HubState } from './hubStore'
 import { BatchHead, LineSuggestions, shownNodes, WaitingRows } from './LineSuggestions'
+import { Fold } from '@/components/ui'
 import { CHAPTER_STEP_WORDS, chapterStep, chapterView, sceneView } from './zoomLogic'
 
 /** How long scenes stay lit after Show me. */
@@ -158,15 +159,19 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
   const emptyIn = (chapterId: ID): ID[] => emptyCards[chapterId] ?? []
   const back = p.outerBack
 
-  // Show me: the first lit scene comes into view once its row has opened.
+  // Show me: the first lit scene comes into view once its row has opened (after the fold has grown, 220 ms, so the
+  // page scrolls to where the row ends up, not where it starts).
   const litAt = hub.lit?.at ?? 0
   useEffect(() => {
     if (!litAt || Date.now() - litAt > 1000) return
     const id = hub.lit?.ids[0]
     if (!id) return
-    requestAnimationFrame(() =>
-      document.querySelector(`[data-scene-row="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' })
+    const grow = tokenMs(document.documentElement, '--dur-base')
+    const t = window.setTimeout(
+      () => document.querySelector(`[data-scene-row="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' }),
+      grow
     )
+    return () => window.clearTimeout(t)
   }, [litAt, hub.lit?.ids])
 
   const batch = run ? (
@@ -226,17 +231,16 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
           </button>
         </li>
       )
-      if (isOpen)
-        items.push(
-          <li key={`${row.key}:in`} className="hub-row-kids" data-written-chapters>
-            {row.chapters.map((c) => (
-              <div key={c.id} className="hub-chap" data-chapter={c.id}>
-                <WrittenChapter storyId={storyId} chapter={c} back={back} actions={<ChapterStepButton storyId={storyId} chapter={c} empty={emptyIn(c.id).length} back={back} />} />
-                {placed?.chapterId === c.id && batch ? <div className="hub-chap-batch">{batch}</div> : null}
-              </div>
-            ))}
-          </li>
-        )
+      items.push(
+        <Fold as="li" key={`${row.key}:in`} open={isOpen} className="hub-row-kids" data="data-written-chapters">
+          {row.chapters.map((c) => (
+            <div key={c.id} className="hub-chap" data-chapter={c.id}>
+              <WrittenChapter storyId={storyId} chapter={c} back={back} actions={<ChapterStepButton storyId={storyId} chapter={c} empty={emptyIn(c.id).length} back={back} />} />
+              {placed?.chapterId === c.id && batch ? <div className="hub-chap-batch">{batch}</div> : null}
+            </div>
+          ))}
+        </Fold>
+      )
       continue
     }
     if (row.kind === 'current') {
@@ -457,8 +461,8 @@ function PlannedChapter({
         </span>
       </div>
       {chapter.goal.trim() ? <p className="hub-kid-goal">{chapter.goal.trim()}</p> : null}
-      {open && scenes.length ? (
-        <div className="hub-kid-scenes">
+      {scenes.length ? (
+        <Fold open={open} className="hub-kid-scenes">
           {scenes.map((s) => (
             <SceneLink
               key={s.id}
@@ -470,7 +474,7 @@ function PlannedChapter({
               note={driftBy.has(s.id) ? <DriftNote drift={driftBy.get(s.id)!} lit={!!lit?.has(s.id)} inline /> : null}
             />
           ))}
-        </div>
+        </Fold>
       ) : null}
       {batch ? <div className="hub-chap-batch">{batch}</div> : null}
     </div>

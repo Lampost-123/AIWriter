@@ -57,13 +57,21 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(card.locator('del')).toHaveText('The tide came in over the flats.')
     await expect(card.locator('ins')).toHaveText('THE TIDE CAME IN OVER THE FLATS.')
 
+    // The app's own line under the answer (chat-truth R1): waiting until Apply, then applied; Undo makes it wait again.
+    const outcome = panel(win).locator('[data-turn-status]').first().locator('[data-outcome]')
+    await expect(outcome).toHaveAttribute('data-outcome', 'waiting')
+    await expect(outcome).toHaveText('1 change is waiting for you: press Apply.')
+
     // Apply: into the page, the card marked applied; its own Undo takes it back.
     await card.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(prose(win)).toHaveText('THE TIDE CAME IN OVER THE FLATS. The gulls went quiet.')
     await expect(card).toHaveAttribute('data-status', 'applied')
+    await expect(outcome).toHaveAttribute('data-outcome', 'applied')
+    await expect(outcome).toHaveText('Applied.')
     await card.getByRole('button', { name: /^Undo this change/ }).click()
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
     await expect(card).toHaveAttribute('data-status', 'pending')
+    await expect(outcome).toHaveAttribute('data-outcome', 'waiting')
 
     // A new place is only proposed; Apply makes it.
     await ask(win, 'Suggest a new place by the harbour')
@@ -84,7 +92,8 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await ask(win, 'Pretend to tidy the opening')
     const tidied = changes(win).last().locator('[data-proposal]').first()
     await expect(tidied).toContainText('Tidied, as claimed.')
-    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
+    // The app's own line says what came of it (chat-truth R1).
+    await expect(panel(win).locator('[data-turn-status]').last().locator('[data-outcome]')).toHaveAttribute('data-outcome', 'waiting')
     await expect(panel(win)).not.toContainText('I’ve tidied up the opening.')
     // One that still doesn't propose them never shows the claim (the truth check, 2026-10-19): it says no change was
     // made, with what it would suggest.
@@ -95,7 +104,8 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(stubborn.locator('[data-answer]')).toContainText('I’d tidy up the opening.')
     await expect(stubborn.locator('[data-answer]')).not.toContainText('I’ve tidied')
     await expect(stubborn.locator('[data-answer]')).not.toContainText('Apply the changes below')
-    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
+    await expect(stubborn.locator('[data-outcome]')).toHaveAttribute('data-outcome', 'none')
+    await expect(stubborn.locator('[data-outcome]')).toHaveText('Nothing was changed.')
   } finally {
     await fake.close()
   }
@@ -139,6 +149,8 @@ test('a model that claims changes it never made: the chat shows the honest resul
     )
     await expect(bad.locator('[data-answer]')).not.toContainText('I’ve fixed')
     await expect(bad.locator('[data-proposal]')).toHaveCount(0)
+    await expect(bad.locator('[data-outcome]')).toHaveAttribute('data-outcome', 'refused')
+    await expect(bad.locator('[data-outcome]')).toContainText('Nothing was changed: ')
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
   } finally {
     await fake.close()
@@ -445,11 +457,13 @@ test('a proposed draft starts the writer’s own drafting on Apply, and says it 
     await expect(prose(win)).toHaveText('')
 
     await card.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expect(card).toHaveAttribute('data-status', 'applied')
+    // Started is not applied: the card says Started until the draft lands, then Applied.
+    await expect(card).toHaveAttribute('data-status', 'started')
     await expect(card).toContainText('Started')
     await expect(card.getByRole('button', { name: 'Show Ch 1, Sc 1' })).toBeVisible()
     // The draft is written into the page by Generate's own run.
     await expect(prose(win)).not.toHaveText('', { timeout: 15_000 })
+    await expect(card).toHaveAttribute('data-status', 'applied', { timeout: 15_000 })
 
     // Carrying on from the end is Continue's tracked change, to accept or reject as usual.
     await expect(win.getByRole('button', { name: 'Stop' })).toHaveCount(0, { timeout: 15_000 })
@@ -457,7 +471,8 @@ test('a proposed draft starts the writer’s own drafting on Apply, and says it 
     const next = changes(win).last().locator('[data-proposal]').first()
     await expect(next.locator('[data-draft-mode]')).toContainText('Continue from the end')
     await next.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expect(next).toHaveAttribute('data-status', 'applied')
+    // Waiting for Accept in the page: started, not applied.
+    await expect(next).toHaveAttribute('data-status', 'started')
     await expect(prose(win).locator('.aw-sugg-new').first()).toBeVisible({ timeout: 15_000 })
   } finally {
     await fake.close()
@@ -683,11 +698,47 @@ test('the chat looks a thing up in the story index and loads an instruction pack
     expect(names.filter((n) => n === 'get_entry')).toHaveLength(1)
     expect(sent.messages[0].content).toContain('Instruction packs')
 
+    // The answer has finished: a question asked while it still arrives waits in the box.
+    await expect(panel(win).locator('[data-turn-status]').last()).toHaveAttribute('data-turn-status', 'complete')
     await ask(win, 'How does the memory work?')
     const pack = panel(win).getByRole('list', { name: 'Tool calls' }).last().locator('[data-tool="load_instructions"]')
     await expect(pack).toHaveAttribute('data-status', 'done')
     await expect(pack).toContainText('Read the instructions for explaining the memory')
     expect(JSON.stringify(fake.lastRequest()!.body)).toContain('How AI Write')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a card change applied from Ask shows in the open scene card, and typing in another field keeps it (chat-truth R7)', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 2 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    const sceneId = await firstScene(win)
+    // The scene card open in the inspector: it stays mounted (hidden) while Ask is open beside the page.
+    await win.getByRole('tab', { name: 'Scene card' }).click()
+    const card = win.getByRole('tabpanel', { name: 'Scene card' })
+    await expect(card.getByRole('textbox', { name: 'Goal', exact: true })).toHaveValue('')
+
+    await areaButton(win, 'Ask').click()
+    await ask(win, 'Change this scene’s card: the goal should be that the gulls fall silent.')
+    const proposal = changes(win).locator('[data-proposal]').first()
+    await expect(proposal).toContainText('the gulls fall silent')
+    await proposal.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(proposal).toHaveAttribute('data-status', 'applied')
+    await expect(panel(win).locator('[data-turn-status]').last().locator('[data-outcome]')).toHaveAttribute('data-outcome', 'applied')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).card.goal).toBe('the gulls fall silent')
+
+    // Back on the card: the change is there, and typing in another field saves with it, never the old card over it.
+    await panel(win).getByRole('button', { name: 'Close Ask the world' }).click()
+    await expect(card.getByRole('textbox', { name: 'Goal', exact: true })).toHaveValue('the gulls fall silent')
+    await card.getByRole('textbox', { name: 'Conflict', exact: true }).fill('The keeper wants the noise back.')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).card.conflict).toBe('The keeper wants the noise back.')
+    expect((await invoke(win, 'getScene', sceneId)).card.goal).toBe('the gulls fall silent')
+    await expect(card.getByRole('textbox', { name: 'Goal', exact: true })).toHaveValue('the gulls fall silent')
   } finally {
     await fake.close()
   }

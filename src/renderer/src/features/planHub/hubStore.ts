@@ -36,14 +36,20 @@ import { cardNow, patchCard } from '@/features/outline/planInterviewStore'
 import { renameScene } from '@/features/binder/actions'
 import type { PlanMode } from '@/features/outline/stages'
 import { flushBrief } from '@/features/storyBuilder/store'
-import { askFor, chapterLead, directionText, type HubScopeId, type LineChapter } from './hubLogic'
+import { askFor, chapterLead, directionText, pairUpdate, updateChanges, updatePatch, updateToast, type HubScopeId, type LineChapter, type UpdatedCard } from './hubLogic'
 import { payoffWords, type BuildSection, type ChapterPanel, type SceneTool } from './buildLogic'
 
 /** "Update the plan": the drifting scene cards written again, arriving, then waiting for Keep or Discard. */
 export interface PlanUpdate {
   taskId: ID
   generationId: ID | null
+  /** The scenes the window asked about (the drift card's). */
   sceneIds: ID[]
+  /**
+   * The scenes main really asked the AI about, in the order of its cards (only those still planned): each card goes on
+   * the scene at its place here, never by position in `sceneIds` (chat truth R10). Null until the request has started.
+   */
+  sent: ID[] | null
   /** The cards as they were when it was asked for (what Keep changes, and Undo puts back). */
   before: PlanUpdateScene[]
   text: string
@@ -360,7 +366,11 @@ export async function fillCardsIn(storyId: ID, chapter: Pick<LineChapter, 'id' |
   await suggestOutlineWith(
     storyId,
     { acts: 0, chapters: 1, scenes: sceneIds.length },
-    (taskId) => api.startPlanUpdate({ taskId, storyId, sceneIds, mode: 'fill', ...(direction ? { direction } : {}) }),
+    async (taskId) => {
+      const started = await api.startPlanUpdate({ taskId, storyId, sceneIds, mode: 'fill', ...(direction ? { direction } : {}) })
+      fillWith(storyId, taskId, started.sceneIds)
+      return started
+    },
     {
       lead,
       decisions: chapterKey ? { [chapterKey]: { status: 'kept', id: chapter.id } } : {},
@@ -368,6 +378,19 @@ export async function fillCardsIn(storyId: ID, chapter: Pick<LineChapter, 'id' |
       fill: [...sceneIds]
     }
   )
+}
+
+/**
+ * The scenes a fill plans, as main says (only the cards still empty, in the chapter's order, at most FILL_MOST): Keep
+ * puts each suggestion on the scene at its place in this list.
+ */
+function fillWith(storyId: ID, taskId: ID, sceneIds: ID[]): void {
+  const key = helperKey(useApp.getState().world?.id, storyId)
+  useOutlineHelper.setState((st) => {
+    const s = st.sessions[key]
+    if (!s?.run || s.run.taskId !== taskId) return st
+    return { sessions: { ...st.sessions, [key]: { ...s, run: { ...s.run, fill: [...sceneIds] } } } }
+  })
 }
 
 /** The batch these keys are in: an earlier one by its task id, else the newest. */
@@ -459,7 +482,7 @@ export function openHub(storyId: ID): void {
 // ---------- Update the plan ----------
 
 /** The scene cards "Update the plan" brought, in the order asked for (as many as arrived whole). */
-export function updatedCards(u: Pick<PlanUpdate, 'text' | 'status'>): { title: string; summary: string; when: string; beats: string[] }[] {
+export function updatedCards(u: Pick<PlanUpdate, 'text' | 'status'>): UpdatedCard[] {
   return outlineScenes(parseOutline(u.text, u.status !== 'running'))
     .filter((s) => s.complete)
     .map((s) => ({ title: s.title.trim(), summary: s.summary.trim(), when: s.when.trim(), beats: s.beats.map((b) => b.trim()).filter(Boolean) }))
@@ -477,14 +500,14 @@ export async function startUpdate(storyId: ID, drift: readonly HubDrift[]): Prom
   } catch {
     before = []
   }
-  put(storyId, { update: { taskId, generationId: null, sceneIds, before, text: '', status: 'running', error: null } })
+  put(storyId, { update: { taskId, generationId: null, sceneIds, sent: null, before, text: '', status: 'running', error: null } })
   const still = (): boolean => hubOf(storyId).update?.taskId === taskId
   try {
     const done = await followTask(
       taskId,
       async () => {
-        const { generationId } = await api.startPlanUpdate({ taskId, storyId, sceneIds })
-        if (still()) put(storyId, (x) => (x.update ? { update: { ...x.update, generationId } } : {}))
+        const { generationId, sceneIds: sent } = await api.startPlanUpdate({ taskId, storyId, sceneIds })
+        if (still()) put(storyId, (x) => (x.update ? { update: { ...x.update, generationId, sent } } : {}))
       },
       (text) => {
         if (still()) put(storyId, (x) => (x.update ? { update: { ...x.update, text } } : {}))
@@ -520,26 +543,29 @@ export function discardUpdate(storyId: ID): void {
 }
 
 /**
- * Keep these changes: each card the update brought goes on its scene (its title, When, what happens and beats), with one
- * Undo that puts every card back as it was.
+ * Keep these changes: each card the update brought goes on its own scene (its title, When, what happens and beats), with
+ * one Undo that puts every card back as it was. A scene written since it was asked about is left alone, and the toast
+ * counts only the cards that really changed, and says when some scenes got no card (chat truth R10).
  */
 export async function keepUpdate(storyId: ID): Promise<void> {
   const u = hubOf(storyId).update
   if (!u || u.status === 'running') return
-  const cards = updatedCards(u)
+  const pairs = pairUpdate(u.sent, updatedCards(u))
   const was: { sceneId: ID; title: string; card: SceneCard }[] = []
+  const written: string[] = []
   try {
-    for (const [i, sceneId] of u.sceneIds.entries()) {
-      const next = cards[i]
-      if (!next) break
+    for (const { sceneId, card: next } of pairs) {
+      const asked = u.before.find((b) => b.sceneId === sceneId)
+      const scene = await api.getScene(sceneId)
+      if (scene.wordCount > 0) {
+        written.push(asked?.label || scene.title.trim() || 'A scene')
+        continue
+      }
       const card = await cardNow(sceneId)
-      const title = u.before.find((b) => b.sceneId === sceneId)?.title ?? ''
+      const title = scene.title
+      if (!updateChanges(next, card, title)) continue
       was.push({ sceneId, title, card })
-      await patchCard(sceneId, {
-        goal: next.summary || card.goal,
-        beats: next.beats.length ? next.beats : card.beats,
-        ...(next.when ? { when: next.when } : {})
-      })
+      await patchCard(sceneId, updatePatch(next, card))
       if (next.title && next.title !== title) await renameScene(sceneId, next.title)
     }
   } catch (e) {
@@ -547,8 +573,13 @@ export async function keepUpdate(storyId: ID): Promise<void> {
   }
   put(storyId, { update: null })
   useApp.getState().bumpOutline()
-  if (!was.length) return
-  toast(`Updated the plan: ${was.length === 1 ? '1 scene card' : `${was.length} scene cards`} now follow what you’ve written.`, {
+  const message = updateToast({ changed: was.length, sent: u.sent?.length ?? 0, arrived: pairs.length, written })
+  if (!message) return
+  if (!was.length) {
+    toast(message)
+    return
+  }
+  toast(message, {
     action: {
       label: 'Undo',
       run: () =>

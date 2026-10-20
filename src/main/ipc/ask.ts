@@ -14,13 +14,53 @@ import { chatLoop } from '../ask/loop'
  * proposing (a chat whose past answers read as words alone teaches the model to write changes out, not propose them).
  * With AIWRITE_EXP_CHAT_HISTORY on, each proposal says what it changed and the answer is trimmed (ask/history.ts).
  * With AIWRITE_EXP_CHAT_FORMAT on, an answer in blocks is made compact first (option titles kept, ::more left out).
+ * Each proposal says what it changed and what the writer made of it (chat-truth R3), so the model never speaks of a
+ * change still waiting, or turned down, as made.
  */
-function withProposals(full: string, proposals: Proposal[]): string {
+export function withProposals(full: string, proposals: Proposal[]): string {
   const answer = chatExp('FORMAT') ? compactBlocks(full) : full
-  if (chatExp('HISTORY')) return pastAnswer(answer, proposals, chatExp('ACTFIRST'))
-  if (!proposals.length) return answer
-  const what = proposals.map((p) => `change ${p.id} (${p.kind === 'text' ? 'an edit' : p.kind === 'passage' ? 'a rewrite' : p.kind}, ${p.status})`).join(', ')
-  return `${answer}\n\n[Proposed with the tools: ${what}]`
+  if (!proposals.length) return chatExp('HISTORY') ? pastAnswer(answer, proposals, chatExp('ACTFIRST')) : answer
+  const note = 'Only changes the writer applied are in the story.'
+  if (chatExp('HISTORY')) return `${pastAnswer(answer, proposals, chatExp('ACTFIRST'))}\n[${note}]`
+  const what = proposals.map((p) => `change ${p.id} (${kindWords(p)}${whereOf(p)}: ${STATUS_WORDS[p.status] ?? p.status})`).join(', ')
+  return `${answer}\n\n[Proposed with the tools: ${what}. ${note}]`
+}
+
+/** What the writer made of a proposal, as the model is told it. */
+const STATUS_WORDS: Record<Proposal['status'], string> = {
+  pending: 'waiting, not applied',
+  started: 'started, not in the story yet',
+  applied: 'applied by the writer',
+  declined: 'turned down by the writer'
+}
+
+/** A proposal's kind in a few words. */
+function kindWords(p: Proposal): string {
+  switch (p.kind) {
+    case 'text':
+      return 'an edit'
+    case 'passage':
+      return 'a rewrite'
+    case 'card':
+      return 'a scene card change'
+    case 'chapterCard':
+      return 'a chapter card change'
+    case 'beats':
+      return 'a beats change'
+    case 'entry':
+      return 'an entry change'
+    case 'newEntry':
+      return 'a new entry'
+    default:
+      return p.kind
+  }
+}
+
+/** What a proposal changes, named: " to Ch 1, Sc 2", " to Mara". */
+function whereOf(p: Proposal): string {
+  const r = p as unknown as Record<string, unknown>
+  const label = [r.sceneLabel, r.chapterLabel, r.name].find((x): x is string => typeof x === 'string' && !!x.trim())
+  return label ? ` to ${label.trim()}` : ''
 }
 import type { AskApi, AskTurn } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
@@ -162,7 +202,9 @@ export const askHandlers: Handlers<keyof AskApi> = {
         ...(wordsOnPage ? { wordsOnPage: true } : {}),
         ...(unclear ? { unclear: true } : {}),
         // compare_version (EXTRATOOLS) reads the world's History.
-        history: currentHistory()
+        history: currentHistory(),
+        // The earlier answers' proposals, with what the writer made of each: a claim about one is checked against it.
+        earlier: earlier.flatMap((t) => t.proposals ?? [])
       },
       // Each step's label: no longer sent to the window (the tool rows, 'ask:tool' below, show each call; Phase 4).
       () => undefined,
@@ -226,7 +268,7 @@ export const askHandlers: Handlers<keyof AskApi> = {
     ),
   setProposalStatus: (generationId, proposalId, status) => {
     const db = world.db()
-    if (status !== 'pending' && status !== 'applied' && status !== 'declined') throw new UserError('Something went wrong. Try again.')
+    if (status !== 'pending' && status !== 'started' && status !== 'applied' && status !== 'declined') throw new UserError('Something went wrong. Try again.')
     const all = proposalsOf(db, generationId)
     if (!all.some((p) => p.id === proposalId)) return
     saveProposals(

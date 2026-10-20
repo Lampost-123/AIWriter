@@ -365,6 +365,7 @@ export function CodexTalk({ storyId, locked, className, title = 'Talk the cast a
       preview={preview ? <CodexPreview items={preview} before={before} /> : null}
       onApply={() => applyCodexTalk(storyId)}
       onDecline={() => settlePreview(scope, 'declined')}
+      where="The list below"
     />
   )
 }

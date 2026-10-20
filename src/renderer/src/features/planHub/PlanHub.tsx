@@ -670,8 +670,12 @@ function TalkBeside({
     },
     line: {
       intro:
+        // While writing with no suggestions waiting, this talk can make new suggestions but can't change the story's
+        // own chapters (chat-truth R6): that is Ask's, and a request for it is offered there.
         mode === 'writing'
-          ? 'Ask about the plan, or ask for a change. It knows what you’ve written so far.'
+          ? hasOpen
+            ? 'Ask about the plan, or ask for a change to the suggestions. It knows what you’ve written so far.'
+            : 'Ask about the plan, or ask for new scenes or chapters. It knows what you’ve written so far.'
           : 'Ask about your plan, or ask for a change to the suggestions. It knows your idea and your cast and world.',
       quick: hasOpen ? ['Raise the stakes', 'Tighten the pacing', 'Add a twist'] : ['What should happen next?', 'Which threads have gone quiet?', 'Is anything moving too fast?']
     },
@@ -682,5 +686,17 @@ function TalkBeside({
     }
   }
   const t = talk[section]
-  return <PlanTalk storyId={storyId} running={running} intro={t.intro} quick={t.quick} applyLabel="Make this change" className="hub-talk" about={about} looking={t.looking} />
+  return (
+    <PlanTalk
+      storyId={storyId}
+      running={running}
+      intro={t.intro}
+      quick={t.quick}
+      applyLabel="Make this change"
+      className="hub-talk"
+      about={about}
+      looking={t.looking}
+      handOff={mode === 'writing' && !hasOpen}
+    />
+  )
 }

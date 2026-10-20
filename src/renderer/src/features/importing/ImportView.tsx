@@ -11,6 +11,7 @@ import { ArrowLeft, Brain, CircleCheck, FileText, FileUp, Merge, RotateCcw, Scis
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { CatchUpEstimate, Manuscript } from '@shared/contracts/importing'
 import type { ID } from '@shared/types'
+import { DrawnTick } from '@/components/ui/DrawnTick'
 import { Button, Card, IconButton, Input, Notice, Select, useToastsAbove, type SelectOption } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -527,7 +528,7 @@ function MemoryPage(): React.JSX.Element {
             <Imported title={title} result={result} />
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <p className="flex min-w-0 flex-1 items-start gap-2 text-[13px] text-muted">
-                <CircleCheck size={16} className="mt-0.5 shrink-0 text-success" />
+                <DrawnTick size={16} draw className="mt-0.5 text-success" />
                 <span>
                   “{title}” is in your world: {countsText(result.acts, result.chapters, result.scenes)}, {wordsText(result.words)}.
                 </span>

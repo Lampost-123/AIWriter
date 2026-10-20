@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cardLength, emptySceneCard } from '@shared/defaults'
 import type { CarryField, ChapterCard, Entry, ID, SceneCard } from '@shared/types'
-import { aiLinked, mergeThreadLinks, withListEdited, type ThreadList } from '@shared/threadLinks'
-import { carryOf, emptyChapterCard, follows, isFieldEmpty, resolveCardWrite, followChapterPart, withCarry } from '@shared/chapterCard'
+import { aiLinked, withListEdited, type ThreadList } from '@shared/threadLinks'
+import { emptyChapterCard, follows, isFieldEmpty, resolveCardWrite, followChapterPart } from '@shared/chapterCard'
 import { CarryRow } from '@/features/chapterCard/CarryRow'
 import { Button, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
 import { Feather, ListOrdered, Sparkles, Spool, TextQuote, Users, type IconType } from '@/components/ui/icons'
@@ -18,6 +18,7 @@ import { useAutosave } from '@/features/world/parts/useAutosave'
 import { useSlow } from '@/features/world/parts/useSlow'
 import { beatsToStore } from './beats'
 import { BeatsEditor } from './BeatsEditor'
+import { CardSync, keptTypingNote, sameCardField } from './cardMerge'
 import { CastPicker } from './CastPicker'
 import { BringAbout, SceneSummary } from './SceneMemory'
 import { useSceneDate } from './sceneDate'
@@ -59,27 +60,34 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const [chapter, setChapter] = useState<{ id: ID; card: ChapterCard } | null>(null)
   const chapterRef = useRef(chapter)
   chapterRef.current = chapter
-  /** A change to this card not yet written: a chapter card change then doesn't reload it (the write settles it). */
-  const dirty = useRef(false)
+  // The newest card read from disk and the parts Adam changed that aren't written yet (chat truth R7): a change made
+  // elsewhere (the chat's Apply, its Undo, a chapter card) shows here, and a save never writes an older copy over it.
+  const [sync] = useState(() => new CardSync<SceneCard>(sameCardField))
+  /** The read under way after a change elsewhere: a save waits for it, so it writes on top of what it found. */
+  const rereading = useRef<Promise<void>>(Promise.resolve())
+  const alive = useRef(true)
+  /** Bumped when the beats change from outside the list (an idea, a re-read): the list starts again from them. */
+  const [beatsRev, setBeatsRev] = useState(0)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
 
   const autosave = useAutosave<SceneCard>(
     async (c) => {
-      await api.updateSceneCard(sceneId, { ...c, beats: beatsToStore(c.beats) })
-      if (cardRef.current === c) dirty.current = false
+      await rereading.current
+      const write = sync.toWrite(c)
+      const saved = await api.updateSceneCard(sceneId, { ...write, beats: beatsToStore(write.beats) })
+      sync.written({ ...emptySceneCard(), ...saved }, cardRef.current === c)
       cardDrafts.confirm(sceneId, c)
       // The briefing is built from the card: the Context tab shows the new one.
       useApp.getState().bumpBriefing()
     },
     { what: 'the scene card' }
   )
-  const { schedule: scheduleSave } = autosave
-  const schedule = useCallback(
-    (c: SceneCard) => {
-      dirty.current = true
-      scheduleSave(c)
-    },
-    [scheduleSave]
-  )
+  const { schedule } = autosave
 
   // Opened from a copy that isn't confirmed saved yet: queue it again, so it is
   // written even if the earlier panel's write never landed.
@@ -94,8 +102,9 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
       .getScene(sceneId)
       .then(async (s) => {
         if (!live) return
-        if (!cardRef.current) {
-          const c = { ...emptySceneCard(), ...s.card }
+        // Opened from a copy not confirmed written (cardDrafts): where it differs from disk, it is Adam's.
+        if (!sync.started) {
+          const c = sync.start({ ...emptySceneCard(), ...s.card }, cardRef.current)
           cardRef.current = c
           setCard(c)
           setError(null)
@@ -109,8 +118,8 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
     }
   }, [sceneId, attempt])
 
-  // A chapter card changed what this card follows (its change, its Undo, a move to another chapter): the parts it
-  // follows, and the chapter's card, are read again. A change of Adam's still being written settles it instead.
+  // A chapter card changed (its change, its Undo, a move to another chapter): the chapter's card is read again. What
+  // it changed in this card comes with the re-read below (a chapter card change bumps the briefing too).
   const seenRev = useRef(chapterCardsRev)
   useEffect(() => {
     if (seenRev.current === chapterCardsRev) return
@@ -120,14 +129,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
       try {
         const s = await api.getScene(sceneId)
         const chapterCard = await api.getChapterCard(s.chapterId)
-        if (!live) return
-        setChapter({ id: s.chapterId, card: chapterCard })
-        const now = cardRef.current
-        if (!now || dirty.current) return
-        const next = withCarry(now, carryOf({ ...emptySceneCard(), ...s.card }))
-        if (JSON.stringify(next) === JSON.stringify(now)) return
-        cardRef.current = next
-        setCard(next)
+        if (live) setChapter({ id: s.chapterId, card: chapterCard })
       } catch {
         // The scene went; its panel goes with it.
       }
@@ -148,14 +150,45 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
     }
   }, [entriesRev])
 
+  // The card changed somewhere else (briefingRev: the chat's Apply or Undo, a chapter card, Interview me; memoryRev:
+  // the memory linking plot threads as it reads the scene): read it again, keeping what Adam has typed and not had
+  // written. Started straight from the store, not after a render, so a save due now waits for it.
+  const reread = useCallback(() => {
+    rereading.current = rereading.current.then(async () => {
+      const s = await api.getScene(sceneId).catch(() => null)
+      const mine = cardRef.current
+      if (!s || !alive.current || !mine || !sync.started) return
+      const { card: next, lost } = sync.read({ ...emptySceneCard(), ...s.card }, mine)
+      const note = keptTypingNote(lost)
+      if (note) toast(note)
+      if (next === mine) return
+      if (!sameCardField('beats', next.beats, mine.beats)) setBeatsRev((n) => n + 1)
+      cardRef.current = next
+      setCard(next)
+      // Still typing: the queued save is swapped for this copy (its own write would take the change back otherwise).
+      if (sync.typing) {
+        cardDrafts.set(sceneId, next)
+        schedule(next)
+      }
+    }).catch(() => undefined)
+  }, [sceneId, sync, schedule])
+  useEffect(
+    () =>
+      useApp.subscribe((s, prev) => {
+        if (s.briefingRev !== prev.briefingRev || s.memoryRev !== prev.memoryRev) reread()
+      }),
+    [reread]
+  )
+
   const put = useCallback(
     (next: SceneCard) => {
+      if (cardRef.current) sync.edited(cardRef.current, next)
       cardRef.current = next
       setCard(next)
       cardDrafts.set(sceneId, next)
       schedule(next)
     },
-    [schedule, sceneId]
+    [schedule, sceneId, sync]
   )
   const update = useCallback(
     (patch: Partial<SceneCard>) => {
@@ -180,7 +213,6 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // pickers (which hold every character and place in the world).
   const onBeats = useCallback((beats: string[]) => update({ beats }), [update])
   // Next scene ideas (milestone 4) fill the card in one click, beats too: the beats list starts again from them.
-  const [beatsRev, setBeatsRev] = useState(0)
   const fillFromIdea = useCallback(
     (patch: Partial<SceneCard>) => {
       update(patch)
@@ -208,27 +240,6 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const setPaysOff = useCallback((paysOffIds: ID[]) => editThreads('paysOff', paysOffIds), [editThreads])
   // Its date on the story calendar (long story memory fix 11), said under When when it adds to the words.
   const date = useSceneDate(sceneId)
-  // The memory links plot threads to this scene as it reads it: its links show as they come and go.
-  const memoryRev = useApp((s) => s.memoryRev)
-  useEffect(() => {
-    if (!cardRef.current) return
-    let live = true
-    api
-      .getScene(sceneId)
-      .then((s) => {
-        const mine = cardRef.current
-        if (!live || !mine) return
-        const merged = mergeThreadLinks(s.card, mine)
-        if (merged === mine) return
-        cardRef.current = merged
-        setCard(merged)
-        if (cardDrafts.get(sceneId)) cardDrafts.set(sceneId, merged)
-      })
-      .catch(() => undefined)
-    return () => {
-      live = false
-    }
-  }, [sceneId, memoryRev])
   const links = card?.threadLinks
   const setsUpList = card?.setsUpIds
   const paysOffList = card?.paysOffIds

@@ -19,6 +19,7 @@ import { useOutlineStore } from '@/features/binder/outlineStore'
 import { CastPicker } from '@/features/inspector/CastPicker'
 import { Group, OptionSelect, TargetLength } from '@/features/inspector/SceneCardPanel'
 import { WordTargetInput } from '@/features/inspector/WordTargetInput'
+import { CardSync, keptTypingNote } from '@/features/inspector/cardMerge'
 import { usePrefs } from '@/features/style/prefsStore'
 import { CHAPTER_TARGET_LIMITS } from '@shared/lengths'
 import { ChapterWriterReport } from '@/features/chapterWriter/ChapterWriterReport'
@@ -56,12 +57,36 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
   /** The card as last saved: what a change's Undo puts back. */
   const savedRef = useRef<ChapterCard | null>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
+  // The newest card read and the parts Adam changed not yet written (chat truth R7): a change made elsewhere (the chat's
+  // Apply or Undo, Interview me filling the card, Build with AI's chapter length) shows here, merged with his typing, and
+  // a save never writes an older copy of the parts he didn't touch over it.
+  const [sync] = useState(() => new CardSync<ChapterCard>())
+  /** The read under way after a change elsewhere: a save waits for it. */
+  const rereading = useRef<Promise<void>>(Promise.resolve())
+  /** Counts the cards from elsewhere shown here: a save tells by it whether one showed while it was being written. */
+  const shownCount = useRef(0)
 
   const autosave = useAutosave<ChapterCard>(
     async (c) => {
-      const before = savedRef.current ?? emptyChapterCard()
-      const saved = await api.updateChapterCard(chapterId, c)
+      await rereading.current
+      let before = savedRef.current ?? emptyChapterCard()
+      const shownAt = shownCount.current
+      let wrote = c
+      let saved = await api.updateChapterCard(chapterId, sync.toWrite(c))
+      // A change from elsewhere (the chat's Undo) showed while this was being written, so this write may have put the
+      // older parts back over it: the form, which has it, is written once more so the card on disk is what shows.
+      const form = cardRef.current
+      if (shownCount.current !== shownAt && form) {
+        before = savedRef.current ?? before
+        wrote = form
+        const first = saved
+        const again = await api.updateChapterCard(chapterId, sync.toWrite(form))
+        // Both writes changed scene cards: each scene's Undo puts back what it held before the first write touched it.
+        const touched = new Set(first.updated.map((u) => u.sceneId))
+        saved = { ...again, updated: [...first.updated, ...again.updated.filter((u) => !touched.has(u.sceneId))] }
+      }
       savedRef.current = saved.card
+      sync.written(saved.card, cardRef.current === wrote)
       announceChapterCard(chapterId, before, saved)
     },
     { what: 'the chapter card' }
@@ -76,7 +101,7 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
       .getChapterCard(chapterId)
       .then((c) => {
         if (!live) return
-        cardRef.current = c
+        cardRef.current = sync.start(c, null)
         savedRef.current = c
         setCard(c)
         setError(null)
@@ -87,16 +112,43 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
     }
   }, [chapterId, attempt])
 
-  // An Undo of a change shows here at once. (Its last change, written as the card closes, joins the same toast.)
+  /** The card as it is now on disk: shown, with the parts Adam is typing in kept as he has them. */
+  const showFresh = useCallback(
+    (fresh: ChapterCard) => {
+      const mine = cardRef.current
+      if (!mine || !sync.started) return
+      shownCount.current++
+      savedRef.current = fresh
+      const { card: next, lost } = sync.read(fresh, mine)
+      const note = keptTypingNote(lost)
+      if (note) toast(note)
+      if (next === mine) return
+      cardRef.current = next
+      setCard(next)
+      // Still typing: the queued save is swapped for this copy. Nothing of his left to write: nothing is queued.
+      if (sync.typing) schedule(next)
+      else cancel()
+    },
+    [sync, schedule, cancel]
+  )
+  // A change from elsewhere, or an Undo, shows here at once. (Its last change, written as the card closes, joins the
+  // same toast.) Changes that only say "chapter cards changed" are read again.
   useEffect(
     () =>
       registerChapterCardForm(chapterId, (back) => {
-        cancel()
-        cardRef.current = back
-        savedRef.current = back
-        setCard(back)
+        rereading.current = rereading.current.then(() => showFresh(back))
       }),
-    [chapterId, cancel]
+    [chapterId, showFresh]
+  )
+  useEffect(
+    () =>
+      useApp.subscribe((s, prev) => {
+        if (s.chapterCardsRev === prev.chapterCardsRev) return
+        rereading.current = rereading.current
+          .then(async () => showFresh(await api.getChapterCard(chapterId)))
+          .catch(() => undefined)
+      }),
+    [chapterId, showFresh]
   )
 
   useEffect(() => {
@@ -120,11 +172,12 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
     (patch: Partial<ChapterCard>) => {
       if (!cardRef.current) return
       const next = { ...cardRef.current, ...patch }
+      sync.edited(cardRef.current, next)
       cardRef.current = next
       setCard(next)
       schedule(next)
     },
-    [schedule]
+    [schedule, sync]
   )
   const setPov = useCallback((povId: ID | null) => update({ povId }), [update])
   const setLocation = useCallback((locationId: ID | null) => update({ locationId }), [update])

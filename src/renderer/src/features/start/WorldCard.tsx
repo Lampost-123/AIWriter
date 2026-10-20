@@ -5,7 +5,7 @@
 import { BookOpen, ChevronRight, Copy, FileDown, FolderOpen, Globe2, Info, PenLine, Trash2 } from '@/components/ui/icons'
 import { useRef, useState } from 'react'
 import type { LibraryStory, LibraryWorld } from '@shared/contracts/library'
-import { Badge, Button } from '@/components/ui'
+import { Badge, Button, Fold } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { copyWorld, exportWorld } from '@/features/transfer/worldFiles'
@@ -55,11 +55,14 @@ export function WorldCard({
   const listId = `start-world-${world.id}`
 
   return (
-    <li className="start-rise rounded-xl border border-line bg-surface shadow-soft" style={style}>
+    <li
+      className="start-rise rounded-xl border border-line bg-surface shadow-soft transition-[scale] duration-(--dur-quick) ease-glide has-[>div>[data-press]:active]:scale-[0.99] has-[>div>[data-press]:active]:duration-(--dur-press)"
+      style={style}
+    >
       <div className="flex items-center gap-1 pr-2.5">
         {renaming ? (
           <div className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-3 pr-2">
-            <ChevronRight size={15} className={cn('shrink-0 text-faint', expanded && 'rotate-90')} />
+            <ChevronRight size={15} className={cn('shrink-0 text-faint transition-transform duration-150', expanded && 'rotate-90')} />
             <WorldIcon />
             <div className="min-w-0 flex-1">
               <div className="flex h-[22px] items-center">
@@ -81,6 +84,7 @@ export function WorldCard({
           <button
             ref={header}
             type="button"
+            data-press
             aria-expanded={expanded}
             aria-controls={expanded ? listId : undefined}
             onClick={() => setExpanded(world.id, !expanded)}
@@ -112,7 +116,7 @@ export function WorldCard({
           ]}
         />
       </div>
-      {expanded ? (
+      <Fold open={expanded}>
         <ul id={listId} aria-label={`Stories in ${world.name}`} className="border-t border-line px-1.5 py-1.5">
           {stories.length ? (
             stories.map((s) => <StoryRow key={s.id} worldId={world.id} story={s} kind={kinds[s.id] ?? ''} />)
@@ -120,7 +124,7 @@ export function WorldCard({
             <li className="flex h-9 items-center pl-[52px] text-[13px] text-faint">No stories in this world yet.</li>
           )}
         </ul>
-      ) : null}
+      </Fold>
     </li>
   )
 }
@@ -148,7 +152,7 @@ function StoryRow({ worldId, story, kind }: { worldId: string; story: LibrarySto
     </>
   )
   return (
-    <li className="flex items-center gap-1 rounded-lg pr-1 hover:bg-surface-2 has-[button:focus-visible]:bg-surface-2">
+    <li className="flex items-center gap-1 rounded-lg pr-1 transition-[background-color,scale] duration-(--dur-quick) ease-glide hover:bg-surface-2 has-[button:focus-visible]:bg-surface-2 has-[[data-press]:active]:scale-[0.99] has-[[data-press]:active]:duration-(--dur-press)">
       {renaming ? (
         <div className="flex h-9 min-w-0 flex-1 items-center gap-3 pl-[44px] pr-2">
           <BookOpen size={14} className="shrink-0 text-muted" />
@@ -170,6 +174,7 @@ function StoryRow({ worldId, story, kind }: { worldId: string; story: LibrarySto
         <button
           ref={row}
           type="button"
+          data-press
           aria-label={title}
           aria-disabled={busy || undefined}
           aria-description={[kind, wordsText(story.words), editedText(story.editedAt)].filter(Boolean).join(', ')}

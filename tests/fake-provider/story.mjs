@@ -13,6 +13,9 @@
 //   plan redo    the act, chapter or scene asked for, titled "A Different Night" (a chapter or act with one scene).
 //   recipe chat  a question is answered with no parts; anything else changes the Tone to "Dark and tense".
 //   recipe redo  "A new take on this part."
+// Models with their own replies (chat-truth R6):
+//   fake/plan-wrong-tags  the plan chat claims it moved scenes and sends changes whose tags aren't in the plan.
+//   fake/talk-unreadable  the codex and recipe chats claim a change and send a list or parts that don't read.
 
 const MARKER = '[AIWRITE-STORY v1]'
 
@@ -89,12 +92,13 @@ function givenPlan(user) {
   return (next < 0 ? rest : rest.slice(0, next)).trim()
 }
 
-export function storyReply(system, messages) {
+export function storyReply(system, messages, model = '') {
   if (!system.includes(MARKER)) return null
   const first = firstUserOf(messages)
   const last = lastUserOf(messages)
   const asking = /\?\s*$/.test(last.trim())
   if (system.includes(`${MARKER} codex chat`)) {
+    if (model === 'fake/talk-unreadable' && !asking) return 'I’ve added a rival salvager.\n=== Revised list ===\nCorin Vale, a rival salvager.'
     if (asking) return 'Ada Lorne is the lead; Bram Holt is the one who profits from the wrecks.'
     const list = givenList(first) ?? codexList(first)
     list.characters = [...(list.characters ?? []), { name: 'Corin Vale', aliases: [], about: 'A rival salvager with a grudge.', role: '' }]
@@ -109,6 +113,17 @@ export function storyReply(system, messages) {
   if (system.includes(`${MARKER} codex`)) return JSON.stringify(codexList(first))
   if (system.includes(`${MARKER} outline`)) return outline(first, /new acts?\b/.test(first), system.includes('Premise: <'))
   if (system.includes(`${MARKER} plan chat`)) {
+    if (model === 'fake/plan-wrong-tags' && !asking) {
+      return [
+        'I’ve moved those scenes to the kitchen.',
+        '=== Changes ===',
+        'Touches: c9s9',
+        '### Scene: The Kitchen [#c9s9]',
+        'When: Day 4, dusk',
+        'Summary: They talk in the kitchen.',
+        '- A beat in the kitchen'
+      ].join('\n')
+    }
     if (asking) return 'The second chapter is where Ada catches the wrecker.'
     // A message naming one of the scenes changes that scene: what happens in it becomes the message (the Plan hub).
     const scene = [...givenPlan(first).matchAll(/### Scene: ([^\n]*?) (\[#[acs0-9]+\])/g)].find((m) => last.toLowerCase().includes(m[1].trim().toLowerCase()))
@@ -138,6 +153,7 @@ export function storyReply(system, messages) {
     return `# Act: A Different Night\nPurpose: Ada keeps watch.\n\n## Chapter: The Watch\nGoal: Ada keeps watch.\n\n${s}`
   }
   if (system.includes(`${MARKER} recipe chat`)) {
+    if (model === 'fake/talk-unreadable' && !asking) return 'I’ve made the tone darker.\n=== Changed parts ===\nDarker, all through.'
     if (asking) return 'The tone is quiet and wry.'
     return 'I made the tone darker.\n=== Changed parts ===\n## Tone\nDark and tense'
   }

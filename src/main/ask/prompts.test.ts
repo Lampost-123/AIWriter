@@ -91,7 +91,7 @@ describe('the answer format switch (FORMAT)', () => {
       [
         'Reminder:',
         '- An edit is proposed at once as your best single version (the writer can decline it); ideas stay in words until the writer picks; facts lead with the verdict.',
-        '- The first line answers. No preambles, no changes written out in words, and never say a change has been made.',
+        '- The first line answers. No preambles, no changes written out in words, and never say a change has been made: say it is ready to apply.',
         '- This request asks for ideas: give 3 to 5 options in words and propose nothing until the writer picks one.'
       ].join('\n')
     )
@@ -187,5 +187,28 @@ describe('the content guidance in the chat', () => {
     expect(askInstructions({ ...style, intensity: { romance: 4 } })).toContain('Sex scenes')
     expect(askInstructions({ ...style, genres: ['erotica'] }, true)).toContain('Sex scenes')
     expect(askInstructions(style)).not.toContain('Sex scenes')
+  })
+})
+
+describe('what the chat can change of a chapter (chat-truth R5)', () => {
+  afterEach(() => {
+    delete process.env.AIWRITE_EXP_CHAT_STORYTOOLS
+  })
+  it('says a chapter plan is its goal, length and card, which it can change; what it can’t, and where that is done', () => {
+    for (const contract of ['on', 'off']) {
+      process.env.AIWRITE_EXP_CHAT_CONTRACT = contract
+      const text = askInstructions(style)
+      expect(text, contract).toMatch(/"chapter plan" is the chapter's goal, its length and its chapter card: you can change those/)
+      expect(text, contract).toMatch(/can't move, reorder or delete scenes/)
+      expect(text, contract).toMatch(/I can't do that from here/)
+      expect(text, contract).toMatch(/dragging them in the binder or on the Plan hub/)
+      expect(text, contract).toMatch(/Write the chapter's own plan .* on its plan page before it writes/)
+    }
+  })
+  it('with the story tools off, it still says what it can’t do, but offers no chapter plan changes', () => {
+    process.env.AIWRITE_EXP_CHAT_STORYTOOLS = 'off'
+    const text = askInstructions(style)
+    expect(text).not.toMatch(/you can change those/)
+    expect(text).toMatch(/I can't do that from here/)
   })
 })
