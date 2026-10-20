@@ -64,8 +64,8 @@ test('the gallery: a tab for each kind, counting what it holds; each tab shows j
       // Only that kind's section, its heading counting its cards.
       await expect(gallery(win).locator('.g-sec[data-kind]')).toHaveCount(1)
       await expect(gallery(win).locator(`.g-sec[data-kind="${kind}"] .g-n`)).toHaveText(String(n))
-      // The room's "By kind" link lights up, saying which.
-      await expect(win.locator('[data-desk-room] [data-desk-sublinks] [aria-current="page"]')).toContainText(label)
+      // The room's Everything link stays lit: a kind's page is the same gallery on one of its tabs.
+      await expect(win.locator('[data-desk-room] [data-desk-sublinks] [aria-current="page"]')).toContainText('Everything')
     }
     // The underline follows, in the kind's ink.
     await expect(underline).toHaveAttribute('data-kind', kind)
@@ -91,7 +91,7 @@ test('the gallery: a tab for each kind, counting what it holds; each tab shows j
   await expect(cards(win)).toHaveCount(counts.character)
   await expect(gallery(win).locator('.g-gal')).not.toHaveAttribute('data-leaving', 'true')
 
-  // The room's "By kind" link and the palette land on the same tab.
+  // The palette lands on the same tab.
   await win.keyboard.press('Control+K')
   await win.keyboard.type('places')
   await win.keyboard.press('Enter')
@@ -192,8 +192,7 @@ test('the World room’s other pages open in its frame beside the spine: by kind
     expect(p.x, what).toBeGreaterThanOrEqual(s.x + s.width + 16)
     expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth'), what).toBeLessThanOrEqual(0)
   }
-  await links.getByRole('button', { name: /^By kind/ }).click()
-  await win.getByRole('menuitem', { name: /^Characters/ }).click()
+  await tab(win, 'Characters').click()
   await expect(tab(win, 'Characters')).toHaveAttribute('aria-selected', 'true')
   await clear('by kind')
   await links.getByRole('button', { name: 'Relationship map' }).click()
@@ -432,7 +431,7 @@ test('Classic and the panels have no flip: the codex opens an entry’s page as 
   await expect(a.win.locator('.scene-prose')).toBeVisible()
   const win = a.win
   await win.getByRole('navigation', { name: 'Areas' }).getByRole('button', { name: 'World', exact: true }).click()
-  await expect(win.locator('main').getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect(win.locator('main').getByRole('heading', { level: 1, name: 'World' })).toBeVisible()
   await expect(win.locator('[data-world-gallery]')).toHaveCount(0)
   await win.waitForTimeout(500)
   await watchTransitions(win)
@@ -705,8 +704,7 @@ test('a kind’s own page: a banner from its entries, its few cards grown to fil
   await size(app, win, 1920, 1080)
   await room(win, 'World').click()
   const links = win.locator('[data-desk-room] [data-desk-sublinks]')
-  await links.getByRole('button', { name: /^By kind/ }).click()
-  await win.getByRole('menuitem', { name: /^Characters/ }).click()
+  await tab(win, 'Characters').click()
   await expect(tab(win, 'Characters')).toHaveAttribute('aria-selected', 'true')
   // The banner: the world's name, and facts from the characters themselves.
   const banner = gallery(win).getByRole('region', { name: 'About the characters' })
@@ -736,8 +734,7 @@ test('a kind’s own page: a banner from its entries, its few cards grown to fil
 
   // Plot threads: no builder, so only the blank New card; the banner counts open and resolved.
   await room(win, 'World').click()
-  await links.getByRole('button', { name: /^(By kind|Characters)/ }).click()
-  await win.getByRole('menuitem', { name: /^Plot threads/ }).click()
+  await tab(win, 'Plot threads').click()
   const threads = gallery(win).getByRole('region', { name: 'About the plot threads' })
   await expect(threads.getByRole('heading', { level: 2 })).toHaveText('The questions the story has asked')
   await expect(threads).toContainText('1 open · 1 resolved')

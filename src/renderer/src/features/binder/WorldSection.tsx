@@ -101,7 +101,7 @@ export function WorldSection(): React.JSX.Element {
       className="fade-more-below max-h-[max(50%,calc(100%-260px))] shrink-0 overflow-y-auto border-t border-line px-1.5 pb-2 pt-2"
     >
       <h3 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-faint">World</h3>
-      <Link icon={<LayoutGrid size={15} />} label="Codex" active={view.kind === 'codex'} onClick={() => navigate({ kind: 'codex' })} />
+      <Link icon={<LayoutGrid size={15} />} label="Everything" active={view.kind === 'codex'} onClick={() => navigate({ kind: 'codex' })} />
       {/* Each kind's list, under the codex: a quiet indented column joined to it by a thin line. */}
       <div className="mb-1 ml-[15px] border-l border-line pl-1">
         {ENTRY_LINKS.map((l) => (

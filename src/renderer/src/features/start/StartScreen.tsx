@@ -535,7 +535,8 @@ function CreateWorldCard(): React.JSX.Element {
         <h2 id="start-other" className={cn(sectionTitle, 'mb-2')}>
           Or start another way
         </h2>
-        <div className="grid grid-cols-3 gap-2">
+        {/* Four ways (the sample world, the two imports, Story recipes): two by two, so none sits alone on a row. */}
+        <div className="grid grid-cols-2 gap-2">
           <OtherWays busy={busy} setBusy={setBusy} />
         </div>
       </section>

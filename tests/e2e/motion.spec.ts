@@ -102,7 +102,7 @@ test('the New look: a page change from the pointer crossfades; from the keyboard
 
   // The rail: the page and the side list fade through (the old page is nearly gone before the new one shows).
   await area(win, 'World').click()
-  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'World' })).toBeVisible()
   await expect.poll(async () => (await pageChanges(win)).length).toBe(1)
   await expect.poll(async () => (await pageChanges(win))[0].parts.length).toBeGreaterThan(0)
   const first = (await pageChanges(win))[0].parts
@@ -134,7 +134,7 @@ test('the New look: a page change from the pointer crossfades; from the keyboard
   await win.keyboard.press('Control+K')
   await win.keyboard.type('codex')
   await win.keyboard.press('Enter')
-  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'World' })).toBeVisible()
   expect((await pageChanges(win)).length).toBe(2)
 
   // With less motion (Windows' Animation effects off), the pointer changes pages at once too.

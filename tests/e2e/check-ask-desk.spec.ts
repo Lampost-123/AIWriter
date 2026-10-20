@@ -93,11 +93,12 @@ const overflow = (win: Page) =>
 
 test('the Check room: the lighthouse, the reports, issue cards with their severity, filters, Ignore folding away, Undo, and the all-clear', async ({ launch }) => {
   const { win, folder, storyId, scenes, entries } = await sampleWorld(launch)
-  // With nothing found yet: the all-clear, the lighthouse over a calm sea.
+  // With nothing found yet: the all-clear.
   await room(win, 'Check').click()
   const clear = sheet(win).locator('.ck-clear')
-  await expect(clear.getByRole('heading', { name: 'No issues found' })).toBeVisible()
-  await expect(clear.locator('[data-room-art="lighthouse"]')).toBeVisible()
+  await expect(clear.getByRole('heading', { name: 'No consistency issues' })).toBeVisible()
+  // One lighthouse: the room's own, beside the all-clear.
+  await expect(sheet(win).locator('[data-room-art="lighthouse"]')).toHaveCount(1)
   await expect(sheet(win).getByRole('heading', { level: 1, name: 'Consistency' })).toBeVisible()
 
   seedIssues(folder, storyId, scenes, entries.get('Wren Halloway')!)

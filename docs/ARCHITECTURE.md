@@ -5653,3 +5653,23 @@ Installer and auto-update; library, worlds and stories; binder; editor with auto
 and backups; providers and model choice; simple forms for characters, places and lore;
 style guide; scene cards; context assembly with fixed priorities; Generate draft with
 streaming and Stop; "What the AI saw". Anything from a later milestone waits.
+
+## UI review fixes (2026-10-21)
+
+A look-and-feel pass after a review of every room in Dark, Light and Sepia.
+
+- **One name for the AI builders.** Every button that opens Build with AI says "Build with AI" (the binder, the story
+  board's next-chapter card), as the area is named; scene, character and story builders keep "Build … with AI". The
+  palette's draft action is "Draft the scene", as on the dock, and the world's page is "World" (no "Codex" on screen).
+- **The story board.** The strings' how-to note shows until Got it, then nothing in its place (the legend's chips name
+  the threads); the pins' key keeps to the right. Pins differ in shape as well as colour: planned an empty ring, drafted
+  half full, done full with a tick, planned with AI glowing. The board's right edge fades (over the canvas's own PAD_X
+  of room) rather than cutting a column off.
+- **Check.** The all-clear says "No consistency issues" and what was checked; the room's lighthouse beside it is the
+  only picture.
+- **World.** The kinds' card art is quieter on Light and Sepia (saturate 0.45). The room's links lose "By kind": the
+  tabs under the world's name choose the kind, and Everything stays lit on a kind's page.
+- **Start screen.** Its four other ways sit two by two.
+- Looked at and kept: the rooms show their words only above 1200px (measured: at 1024px the words run into the world's
+  name); Scene details stays both in the top bar and by the scene's head (the head's carries the issue count and works
+  with the top bar hidden).

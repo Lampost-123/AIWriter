@@ -213,8 +213,8 @@ export const ACTIONS: ActionDef[] = [
   { id: 'go-write', label: 'Back to writing', keywords: 'write page scene editor manuscript', away: true, when: (c) => c.view !== 'write' },
   {
     id: 'generate',
-    label: 'Generate a draft',
-    keywords: 'write ai scene draft',
+    label: 'Draft the scene',
+    keywords: 'write ai scene draft generate',
     shortcut: 'generate',
     away: toWriting,
     when: (c) => hasScene(c) && !c.drafting
@@ -241,7 +241,7 @@ export const ACTIONS: ActionDef[] = [
   { id: 'new-story', label: 'New story', keywords: 'add book sequel prequel side novella series' },
   // Only with the scene on screen: never a scene Adam isn't looking at.
   { id: 'delete-scene', label: 'Delete this scene', keywords: 'remove trash bin', when: seesScene },
-  { id: 'go-codex', label: 'Codex', keywords: 'entries cards world bible memory everything', away: true },
+  { id: 'go-codex', label: 'World', keywords: 'codex entries cards world bible memory everything', away: true },
   ...ENTRY_KINDS.map((kind): ActionDef => ({ id: `go-${kind}`, label: KIND_LABELS[kind].many, keywords: 'list', away: true })),
   { id: 'go-timeline', label: 'Timeline', keywords: 'when dates order events calendar', away: true },
   { id: 'go-map', label: 'Relationship map', keywords: 'relationships characters web family', away: true },

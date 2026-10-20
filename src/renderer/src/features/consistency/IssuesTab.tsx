@@ -60,7 +60,7 @@ export function IssuesTab({
         <EmptyState
           art="clear"
           icon={groups.ignored ? <CircleCheck size={20} /> : <SearchCheck size={20} />}
-          title={groups.ignored ? 'Nothing left to look at' : 'No issues found'}
+          title={groups.ignored ? 'Nothing left to look at' : 'No consistency issues'}
           className="mt-[4vh]"
         >
           Scenes are checked against the memory when you mark them done. Check the whole story to look for facts, knowledge and

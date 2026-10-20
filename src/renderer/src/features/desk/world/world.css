@@ -553,6 +553,11 @@
 [data-arrangement='desk'][data-theme='dark'] .g-art:not(.g-art-photo) {
   filter: saturate(0.82) brightness(0.8);
 }
+/* On a light page the kinds' full colours shout (a row of bright purple cards): quieter, still each kind's colour. */
+[data-arrangement='desk'][data-theme='light'] .g-art:not(.g-art-photo),
+[data-arrangement='desk'][data-theme='sepia'] .g-art:not(.g-art-photo) {
+  filter: saturate(0.45);
+}
 [data-arrangement='desk'] .g-art > svg,
 [data-arrangement='desk'] .g-art-photo > img {
   position: absolute;

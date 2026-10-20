@@ -31,6 +31,10 @@
   gap: 4px 16px;
   padding: 0 0 8px;
 }
+/* The pins' key keeps to the right, with the hint beside it or alone. */
+[data-arrangement='desk'] .board-note > .board-pinkey {
+  margin-left: auto;
+}
 [data-arrangement='desk'] .board-note > .board-lg-explain {
   flex: 1 1 420px;
   width: auto;
@@ -46,9 +50,6 @@
   font-size: 12.5px;
   line-height: 18px;
   color: var(--muted);
-}
-[data-arrangement='desk'] .board-lg-explain .board-lg-label {
-  flex: none;
 }
 [data-arrangement='desk'] .board-pinkey-k {
   color: var(--faint);

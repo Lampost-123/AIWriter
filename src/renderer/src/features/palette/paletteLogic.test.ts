@@ -58,9 +58,9 @@ describe('the actions', () => {
       'New chapter',
       'New story',
       'Mark scene done',
-      'Generate a draft',
+      'Draft the scene',
       'Quick start a character',
-      'Codex',
+      'World',
       'Timeline',
       'Relationship map',
       'Plot threads board',
@@ -166,7 +166,7 @@ describe('the actions', () => {
 
 describe('finding actions by typing', () => {
   it('matches the start of each word, in any order, ignoring case and accents', () => {
-    expect(labels('codex')).toEqual(['Codex'])
+    expect(labels('codex')).toEqual(['World'])
     expect(labels('new sc')[0]).toBe('New scene')
     expect(labels('SCENE NEW')).toContain('New scene')
     // The themes by name, then Settings › Appearance through its other words.
@@ -178,12 +178,12 @@ describe('finding actions by typing', () => {
   it('puts names that start with what was typed first, then names with every word, then other words', () => {
     const chara = labels('chara')
     expect(chara.slice(0, 3)).toEqual(['Characters', 'New character', 'Quick start a character'])
-    // "draft" is a word of "Generate a draft"; "write" only one of its other words.
-    expect(labels('draft')[0]).toBe('Generate a draft')
-    expect(labels('write').slice(0, 2)).toEqual(['Generate a draft', 'New scene'])
+    // "draft" is a word of "Draft the scene"; "write" only one of its other words.
+    expect(labels('draft')[0]).toBe('Draft the scene')
+    expect(labels('write').slice(0, 2)).toEqual(['Draft the scene', 'New scene'])
     // From another page, the way back comes before Generate (which would start a draft there and then).
     const settings = { ...writing, view: 'settings' }
-    expect(labels('write', settings).slice(0, 2)).toEqual(['Back to writing', 'Generate a draft'])
+    expect(labels('write', settings).slice(0, 2)).toEqual(['Back to writing', 'Draft the scene'])
     expect(labels('writing', settings)[0]).toBe('Back to writing')
     expect(labels('trash')).toEqual(['Delete this scene', 'Settings › Recently deleted'])
   })
@@ -194,6 +194,8 @@ describe('finding actions by typing', () => {
     // Each kind's list isn't found by "memory" or "world".
     expect(labels('memory')).not.toContain('Characters')
     expect(labels('world')).toEqual([
+      // The world's own page, named World, matches the word whole.
+      'World',
       'New world',
       'Switch to another world',
       'Rename this world',
@@ -206,7 +208,6 @@ describe('finding actions by typing', () => {
       'Make a copy of this world',
       'Import a world file',
       'Explore the sample world',
-      'Codex',
       // The start screen lists every world.
       'Go to the start screen'
     ])
@@ -266,7 +267,7 @@ describe('the list', () => {
       suggested: suggestedActions(writing).slice(0, 2),
       expanded: new Set()
     })
-    expect(show(rows)).toEqual(['# Recent', 'Mara', '# Suggested', 'Generate a draft', 'Mark scene done'])
+    expect(show(rows)).toEqual(['# Recent', 'Mara', '# Suggested', 'Draft the scene', 'Mark scene done'])
     expect(show(paletteRows({ query: '', actions: [], results: null, recent: [], suggested: [], expanded: new Set() }))).toEqual([])
   })
 

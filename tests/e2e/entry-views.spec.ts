@@ -248,7 +248,7 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   await reload(win)
 
   await openPage(win, 'Codex')
-  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'World' })).toBeVisible()
   await expect(main(win).getByText('Everything the AI remembers about your world.')).toBeVisible()
   // Every entry but the plot thread (it has its own board), grouped by kind, by name to begin with.
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(5)
