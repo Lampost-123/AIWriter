@@ -27,7 +27,7 @@ import { chatOfTurn, setProposalStatus, storyOfChat } from './askStore'
 import { changeInPage, pageLanded, startProposedDraft, type Landed } from './applyDraft'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { isHeld } from '@/features/chapterWriter/hold'
-import { CARRY_LABELS, chapterPartsOf, copyField, sameField, withMark } from '@shared/chapterCard'
+import { CARRY_LABELS, chapterPartsOf, copyField, follows, sameField, withMark } from '@shared/chapterCard'
 import { applyReplaceAll } from './applyReplaceAll'
 import { heldWhy, notOpened, sceneInPage } from './sceneInPage'
 import { threadLinkKey, withListEdited } from '@shared/threadLinks'
@@ -292,12 +292,19 @@ async function applyCard(p: Extract<Proposal, { kind: 'card' }>): Promise<Kept |
   return {
     ok: true,
     undo: async () => {
-      const now: SceneCard = (await api.getScene(p.sceneId)).card
+      const scene = await api.getScene(p.sceneId)
+      const now: SceneCard = scene.card
       const { back, moved } = splitBack(patchedKeys(p.patch), rec(now), rec(saved))
       if (back.length) {
         let next = { ...now, ...pick(rec(before), back) } as SceneCard
-        // A part that followed its chapter before Apply follows it again (the change made it the scene's own).
-        for (const f of new Set(back.flatMap((k) => (CARRY_OF[k] ? [CARRY_OF[k]] : [])))) next = withMark(next, f, before.inherits?.[f])
+        // A part that followed its chapter before Apply follows it again (the change made it the scene's own), with what
+        // the chapter it is in now says: Adam may have changed the chapter, or moved the scene, since.
+        const carried = [...new Set(back.flatMap((k) => (CARRY_OF[k] ? [CARRY_OF[k]] : [])))]
+        const chapter = carried.some((f) => before.inherits?.[f] === true) ? await api.getChapterCard(scene.chapterId) : null
+        for (const f of carried) {
+          next = withMark(next, f, before.inherits?.[f])
+          if (chapter && before.inherits?.[f] === true) next = copyField(next, chapter, f)
+        }
         await api.updateSceneCard(p.sceneId, next)
         useApp.getState().bumpBriefing()
       }
@@ -558,7 +565,8 @@ async function applyChapterCard(p: Extract<Proposal, { kind: 'chapterCard' }>, p
         moved.push(...split.moved)
         if (split.back.length) {
           const merged = { ...cardNow, ...pick(rec(before), split.back) } as ChapterCard
-          await api.restoreChapterCard(p.chapterId, merged, await scenesBack(card.updated, split.back, card.card))
+          const scenes = await chapterScenes(p.chapterId, place)
+          await api.restoreChapterCard(p.chapterId, merged, await scenesBack(card.updated, split.back, card.card, before, scenes))
           chapterCardShown(p.chapterId, merged)
           notifyChapterCard()
           putBack = true
@@ -578,12 +586,28 @@ async function applyChapterCard(p: Extract<Proposal, { kind: 'chapterCard' }>, p
   }
 }
 
+/** The chapter's scenes now, by id (none when its story's outline can't be read). */
+async function chapterScenes(chapterId: ID, place: ApplyPlace): Promise<ID[]> {
+  const storyId = place.storyId !== undefined ? place.storyId : useApp.getState().storyId
+  if (!storyId) return []
+  const outline = await api.getOutline(storyId).catch(() => null)
+  return outline ? outline.scenes.filter((s) => s.chapterId === chapterId).map((s) => s.id) : []
+}
+
 /**
  * What a chapter card's Undo puts back in its scenes: only the parts it puts back on the card, and only in a scene that
  * still has the chat's value there (a scene's own value since, or a later chapter change, stays). A scene that can't be
- * read is passed on as it was (the main process leaves a deleted or moved scene alone).
+ * read is passed on as it was (the main process leaves a deleted or moved scene alone). A scene made in the chapter
+ * since Apply (one of `scenes` the change didn't write) that follows the part and took the chat's value goes back to
+ * the chapter's value from before, still following it.
  */
-async function scenesBack(updated: ChapterCardUpdate[], keys: string[], applied: ChapterCard): Promise<ChapterCardUpdate[]> {
+async function scenesBack(
+  updated: ChapterCardUpdate[],
+  keys: string[],
+  applied: ChapterCard,
+  chapterBefore: ChapterCard,
+  scenes: ID[]
+): Promise<ChapterCardUpdate[]> {
   const fields = [...new Set(keys.flatMap((k) => (CARRY_OF[k] ? [CARRY_OF[k]] : [])))]
   if (!fields.length) return []
   const out: ChapterCardUpdate[] = []
@@ -608,6 +632,23 @@ async function scenesBack(updated: ChapterCardUpdate[], keys: string[], applied:
       any = true
     }
     if (any) out.push({ sceneId: u.sceneId, before: { parts, inherits: Object.keys(marks).length ? marks : null } })
+  }
+  const written = new Set(updated.map((u) => u.sceneId))
+  for (const sceneId of scenes) {
+    if (written.has(sceneId)) continue
+    const now = await api.getScene(sceneId).then(
+      (s) => s.card as SceneCard | undefined,
+      () => undefined
+    )
+    if (!now) continue
+    let parts = chapterPartsOf(now)
+    let any = false
+    for (const f of fields) {
+      if (!follows(now, f) || !sameField(now, applied, f)) continue
+      parts = copyField(parts, chapterBefore, f)
+      any = true
+    }
+    if (any) out.push({ sceneId, before: { parts, inherits: now.inherits ? { ...now.inherits } : null } })
   }
   return out
 }
@@ -836,12 +877,22 @@ export async function applyAndKeep(
   return { done: undos.length, undos, failed, started, undoOf, failedOf, landedOf }
 }
 
+/** What Undo says when the scene or chapter a change was made in has been deleted since (the main process's words). */
+const DELETED_SINCE: Record<string, string> = {
+  'That scene no longer exists.': 'That scene was deleted, so there’s nothing to undo. Settings › Recently deleted can bring it back.',
+  'That chapter no longer exists.': 'That chapter was deleted, so there’s nothing to undo. Settings › Recently deleted can bring it back.'
+}
+
+/** Why an Undo couldn't go ahead, in plain words. */
+function undoFailed(e: unknown): Undone {
+  const message = (e as Error)?.message ?? ''
+  return { ok: false, why: DELETED_SINCE[message] ?? (message || 'That change couldn’t be undone.') }
+}
+
 /** Undoes changes, the latest first, and says plainly what couldn't be (with the scene's History to hand). */
 export async function undoChanges(undos: (() => Promise<Undone>)[]): Promise<Undone[]> {
   const results: Undone[] = []
-  for (const u of [...undos].reverse()) {
-    results.push(await u().catch((e: unknown): Undone => ({ ok: false, why: (e as Error)?.message || 'That change couldn’t be undone.' })))
-  }
+  for (const u of [...undos].reverse()) results.push(await u().catch(undoFailed))
   const left = results.filter((r): r is Extract<Undone, { ok: false }> => !r.ok)
   if (left.length) {
     const first = left[0]

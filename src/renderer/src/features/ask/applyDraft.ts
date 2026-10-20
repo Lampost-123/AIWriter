@@ -16,7 +16,7 @@ import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { BLANK_DRAFT_OPTIONS } from '@/features/generate/draftOptions'
 import { busyElsewhere, startDraft, useDraft } from '@/features/generate/draftRun'
-import { changeAlive, startTool, waitingSuggestion } from '@/features/edits/session'
+import { changeAlive, changeEnded, startTool, waitingSuggestion } from '@/features/edits/session'
 import { activeSuggestion, suggestionsOf, type GoneReason } from '@/features/edits/suggestions'
 import { beatBeingWritten } from '@/features/beats/flow'
 import { redoBeat, redoing } from '@/features/beats/redo'
@@ -89,13 +89,22 @@ export const pageLanded = (sceneId: ID, id: ID): Promise<Landed> =>
   until(() => {
     const b = editorBridge()
     const editor = b?.sceneId === sceneId ? b.editor : null
-    if (b?.editor?.isDestroyed) return { ok: false, why: DROPPED_WHY }
+    if (b?.editor?.isDestroyed) return endedLanded(id)
     if (editor) {
       const s = suggestionsOf(editor.state)
-      if (s.active?.id !== id && s.gone?.id === id) return s.gone.reason === 'accepted' ? { ok: true } : { ok: false, why: GONE_WHY[s.gone.reason] }
+      if (s.active?.id !== id && s.gone?.id === id) return goneLanded(s.gone.reason)
     }
-    return changeAlive(id) ? null : { ok: false, why: DROPPED_WHY }
+    return changeAlive(id) ? null : endedLanded(id)
   })
+
+const goneLanded = (reason: GoneReason | 'scene'): Landed =>
+  reason === 'accepted' ? { ok: true } : { ok: false, why: reason === 'scene' ? DROPPED_WHY : GONE_WHY[reason] }
+
+/**
+ * How a change no longer in the page ended: as the AI edits part saw it end (accepted or rejected just before another
+ * scene opened), else dropped.
+ */
+const endedLanded = (id: ID): Landed => goneLanded(changeEnded(id) ?? 'scene')
 
 /** What a writer's job just started in the page will do: a change to accept, else words written straight in. */
 function inPageLanded(sceneId: ID): Promise<Landed> {

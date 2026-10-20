@@ -79,7 +79,11 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
       if (shownCount.current !== shownAt && form) {
         before = savedRef.current ?? before
         wrote = form
-        saved = await api.updateChapterCard(chapterId, sync.toWrite(form))
+        const first = saved
+        const again = await api.updateChapterCard(chapterId, sync.toWrite(form))
+        // Both writes changed scene cards: each scene's Undo puts back what it held before the first write touched it.
+        const touched = new Set(first.updated.map((u) => u.sceneId))
+        saved = { ...again, updated: [...first.updated, ...again.updated.filter((u) => !touched.has(u.sceneId))] }
       }
       savedRef.current = saved.card
       sync.written(saved.card, cardRef.current === wrote)

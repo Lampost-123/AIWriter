@@ -16,7 +16,9 @@ const s = vi.hoisted(() => ({
   shows: 'sc1',
   destroyed: false,
   /** The AI edits part still has the change (waiting, being written away, or in the page): features/edits/session. */
-  alive: true
+  alive: true,
+  /** How the AI edits part last saw the change end (accepted, rejected...), or null: features/edits/session. */
+  ended: null as null | string
 }))
 
 vi.mock('@/lib/api', () => ({ api: { getScene: async () => ({ card: { beats: [] } }) } }))
@@ -43,7 +45,7 @@ vi.mock('@/features/generate/draftRun', () => ({
     return true
   }
 }))
-vi.mock('@/features/edits/session', () => ({ startTool: async () => true, waitingSuggestion: () => false, changeAlive: () => s.alive }))
+vi.mock('@/features/edits/session', () => ({ startTool: async () => true, waitingSuggestion: () => false, changeAlive: () => s.alive, changeEnded: () => s.ended }))
 vi.mock('@/features/beats/flow', () => ({ beatBeingWritten: () => null }))
 vi.mock('@/features/beats/redo', () => ({ redoBeat: async () => true, redoing: () => null }))
 vi.mock('@/features/variants/store', () => ({ isWriting: () => false, setOf: () => null, useVariants: { getState: () => ({}) } }))
@@ -61,6 +63,7 @@ beforeEach(() => {
   s.shows = 'sc1'
   s.destroyed = false
   s.alive = true
+  s.ended = null
 })
 
 describe('a proposed draft on a scene that has words', () => {
@@ -144,6 +147,41 @@ describe('a started draft says when it lands, or why not (Started is not Applied
       s.alive = false
     })
     expect(out).toEqual({ ok: false, why: DROPPED_WHY })
+  })
+
+  it('continue accepted, then another scene opened at once: applied, not dropped', async () => {
+    s.hasText = true
+    s.page.active = { id: 'chg' }
+    const out = await landing(await startProposedDraft({ ...draft('continue') }), () => {
+      s.shows = 'sc2'
+      s.page = { active: null, gone: null }
+      s.alive = false
+      s.ended = 'accepted'
+    })
+    expect(out).toEqual({ ok: true })
+  })
+
+  it('continue rejected, then another scene opened at once: turned down, not dropped', async () => {
+    s.hasText = true
+    s.page.active = { id: 'chg' }
+    const out = await landing(await startProposedDraft({ ...draft('continue') }), () => {
+      s.shows = 'sc2'
+      s.page = { active: null, gone: null }
+      s.alive = false
+      s.ended = 'rejected'
+    })
+    expect(out).toEqual({ ok: false, why: 'You rejected it in the page, so the change is waiting again.' })
+  })
+
+  it('continue accepted, then the page closed at once: applied, not dropped', async () => {
+    s.hasText = true
+    s.page.active = { id: 'chg' }
+    const out = await landing(await startProposedDraft({ ...draft('continue') }), () => {
+      s.destroyed = true
+      s.alive = false
+      s.ended = 'accepted'
+    })
+    expect(out).toEqual({ ok: true })
   })
 
   it('continue still being written while Adam is in another scene goes on waiting', async () => {

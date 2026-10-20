@@ -19,6 +19,8 @@ const main = vi.hoisted(() => ({
   entry: { id: 'e1', name: 'Ilse', summary: 'Keeps the tally.', description: '', fields: {} as Record<string, string> },
   chapterCard: null as unknown as ChapterCard,
   goal: 'Get to the ford.',
+  /** The story's scenes as its outline lists them. */
+  scenes: [] as { id: string; chapterId: string }[],
   outlineBumps: 0,
   cards: new Map<string, SceneCard>(),
   shown: [] as unknown[],
@@ -44,7 +46,10 @@ vi.mock('@/lib/api', () => ({
   ApiError: class ApiError extends Error {},
   onEvent: () => () => undefined,
   api: {
-    getScene: async (id: string) => ({ id, card: main.cards.get(id), doc: null, text: '' }),
+    getScene: async (id: string) => {
+      if (!main.cards.has(id)) throw new Error('That scene no longer exists.')
+      return { id, chapterId: 'ch1', card: main.cards.get(id), doc: null, text: '' }
+    },
     takeSnapshot: async () => null,
     setProposalStatus: async (_g: string, id: string, status: string) => {
       main.statuses.push(`${id}:${status}`)
@@ -68,7 +73,7 @@ vi.mock('@/lib/api', () => ({
       if (patch.summary !== undefined) main.entry.summary = patch.summary
     },
     getChapterCard: async () => ({ ...main.chapterCard }),
-    getOutline: async () => ({ chapters: [{ id: 'ch1', title: 'Low Water', goal: main.goal }], scenes: [] }),
+    getOutline: async () => ({ chapters: [{ id: 'ch1', title: 'Low Water', goal: main.goal }], scenes: main.scenes }),
     updateChapter: async (id: string, patch: { goal?: string }) => {
       if (main.goalFails > 0) {
         main.goalFails--
@@ -159,6 +164,7 @@ beforeEach(() => {
   main.entry.summary = 'Keeps the tally.'
   main.chapterCard = { ...emptyChapterCard(), mood: 'Grey' }
   main.goal = 'Get to the ford.'
+  main.scenes = []
   main.outlineBumps = 0
   main.restored = []
   main.goalFails = 0
@@ -295,12 +301,31 @@ describe('Undo on a card puts back only what the chat changed (Adam’s changes 
   })
 
   it('a scene card: the part goes back to following its chapter, as it did before Apply', async () => {
-    main.cards.set('sc1', card({ mood: 'Calm', inherits: { mood: true } }))
+    main.cards.set('sc1', card({ mood: 'Grey', inherits: { mood: true } }))
     const { undos } = await applyAndKeep('g1', [scenePatch], {})
     // The main process makes a changed part the scene's own.
     main.cards.set('sc1', { ...(main.cards.get('sc1') as SceneCard), inherits: { mood: false } })
     expect(await undoChanges(undos)).toEqual([{ ok: true }])
-    expect(main.cards.get('sc1')).toMatchObject({ mood: 'Calm', inherits: { mood: true } })
+    expect(main.cards.get('sc1')).toMatchObject({ mood: 'Grey', inherits: { mood: true } })
+  })
+
+  it('a scene card: a part that follows its chapter again takes what the chapter says now', async () => {
+    main.cards.set('sc1', card({ mood: 'Grey', inherits: { mood: true } }))
+    const { undos } = await applyAndKeep('g1', [scenePatch], {})
+    main.cards.set('sc1', { ...(main.cards.get('sc1') as SceneCard), inherits: { mood: false } })
+    // Adam changed the chapter's mood after Apply.
+    main.chapterCard = { ...main.chapterCard, mood: 'Stormy' }
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(main.cards.get('sc1')).toMatchObject({ mood: 'Stormy', inherits: { mood: true } })
+  })
+
+  it('a scene card deleted since: Undo says so plainly', async () => {
+    main.cards.set('sc1', card({ mood: 'Calm' }))
+    const { undos } = await applyAndKeep('g1', [scenePatch], {})
+    main.cards.delete('sc1')
+    expect(await undoChanges(undos)).toEqual([
+      { ok: false, why: 'That scene was deleted, so there’s nothing to undo. Settings › Recently deleted can bring it back.' }
+    ])
   })
 
   const chapterPatch = proposal({ kind: 'chapterCard', chapterId: 'ch1', chapterLabel: 'Ch 1', patch: { mood: 'Tense' }, lines: [], scenes: 1 })
@@ -313,6 +338,26 @@ describe('Undo on a card puts back only what the chat changed (Adam’s changes 
     expect(await undoChanges(undos)).toEqual([{ ok: true }])
     expect(main.chapterCard).toMatchObject({ mood: 'Grey', totalWords: 5000 })
     expect(main.restored).toEqual([{ sceneId: 'sc1', before: { parts: chapterPartsOf(card({ notes: 'Keep her quiet.' })), inherits: { notes: false } } }])
+  })
+
+  it('a chapter card: a scene made after Apply that follows the chapter goes back with the rest', async () => {
+    const { undos } = await applyAndKeep('g1', [chapterPatch], { storyId: 's1' })
+    // A new scene in the chapter took the chat's mood; another follows it but has its own mood; a third is in another chapter.
+    main.scenes = [
+      { id: 'sc1', chapterId: 'ch1' },
+      { id: 'sc2', chapterId: 'ch1' },
+      { id: 'sc3', chapterId: 'ch1' },
+      { id: 'sc4', chapterId: 'ch2' }
+    ]
+    main.cards.set('sc1', card({ mood: 'Tense', inherits: { mood: true } }))
+    main.cards.set('sc2', card({ mood: 'Tense', notes: 'New.', inherits: { mood: true } }))
+    main.cards.set('sc3', card({ mood: 'Tense', inherits: { mood: false } }))
+    main.cards.set('sc4', card({ mood: 'Tense', inherits: { mood: true } }))
+    expect(await undoChanges(undos)).toEqual([{ ok: true }])
+    expect(main.restored).toEqual([
+      { sceneId: 'sc1', before: { parts: chapterPartsOf(card()), inherits: null } },
+      { sceneId: 'sc2', before: { parts: chapterPartsOf(card({ mood: 'Grey', notes: 'New.' })), inherits: { mood: true } } }
+    ])
   })
 
   it('a chapter card: a part Adam changed again since is left as it is, and Undo says so', async () => {
